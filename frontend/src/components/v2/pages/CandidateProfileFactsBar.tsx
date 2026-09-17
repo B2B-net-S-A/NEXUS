@@ -41,6 +41,7 @@ import {
 import { cn, formatDate } from "@/lib/utils";
 import { useCapability } from "@/hooks/useCapability";
 import { formatCandidateLocation } from "./candidate-list-helpers";
+import { invalidateCandidateMutation } from "./candidate-cache";
 import { candidateQueryKeys } from "./candidate-query-keys";
 
 const CEFR_LEVELS: CandidateLanguageCefrLevel[] = [
@@ -719,6 +720,9 @@ function RateEditor({
         candidateQueryKeys.profileRate(candidateId),
         result,
       );
+      // Kolumna „Stawka” listy kandydatów czyta stawkę profilu — bez
+      // unieważnienia lista pokazywała starą kwotę przez 30 s (staleTime).
+      invalidateCandidateMutation(queryClient, candidateId, "rate");
       onOpenChange(false);
       showSuccess("Stawka profilu zapisana");
     },

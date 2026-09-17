@@ -94,6 +94,34 @@ export interface ClientCvRule {
   filename_preview: string | null;
 }
 
+/**
+ * Odpowiedź `GET /api/cv-generator/clients/{id}/rule-for-generation` — wąska
+ * projekcja reguły dla osoby generującej CV (bramka generacji, nie graf
+ * klienta). Pełny `ClientCvRule` jest jej nadzbiorem, więc cache może trzymać
+ * oba kształty pod tym samym kluczem.
+ */
+export type ClientCvRuleForGeneration = Pick<
+  ClientCvRule,
+  | "client_id"
+  | "client_name"
+  | "is_active"
+  | "client_policy"
+  | "cv_language"
+  | "requires_en_copy"
+  | "auto_second_language"
+  | "requires_rodo_consent_block"
+  | "content_mode"
+  | "content_mode_locked"
+  | "require_screening_notes_min_chars"
+  | "require_project_ref"
+  | "require_position"
+  | "require_champion"
+  | "filename_pattern"
+  | "filename_preview"
+  | "notes"
+  | "generator_instructions"
+> & { version: number | null };
+
 export interface ClientCvRuleListItem extends ClientCvRule {
   template_label: string | null;
   template_url: string | null;

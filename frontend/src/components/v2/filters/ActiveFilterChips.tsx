@@ -5,6 +5,7 @@ import { useQuery } from"@tanstack/react-query";
 import { X } from"lucide-react";
 import api, { competenceCategoriesApi, type CompetenceCategoryOut } from"@/lib/api";
 import type { CandidateFilters } from"@/lib/url-filters";
+import { PIPELINE_STAGE_OPTIONS } from "@/lib/filter-options";
 import {
  parseSkillExpression,
  serializeSkillBuckets,
@@ -58,21 +59,11 @@ const OPEN_TO_LABELS: Record<string, string> = {
  expert_consult: "Konsultacje eksperckie",
 };
 
-const STAGE_LABELS: Record<string, string> = {
- new: "Nowy",
- prep_call: "Prep call",
- screening: "Screening",
- verified: "Zweryfikowany",
- interview: "Interview",
- cv_sent: "CV wysłane",
- client_interview: "Rozmowa u klienta",
- acceptance: "Akceptacja",
- negotiation: "Negocjacje",
- onboarding: "Onboarding",
- hired: "Zatrudniony",
- rejected: "Odrzucony",
- withdrawn: "Wycofany",
-};
+// Etykiety etapów z tego samego źródła co panel filtrów — osobny słownik nie
+// znał „posting” i chip pokazywał surowy slug.
+const STAGE_LABELS: Record<string, string> = Object.fromEntries(
+ PIPELINE_STAGE_OPTIONS.map((o) => [o.value, o.label]),
+);
 
 interface Chip {
  key: string;

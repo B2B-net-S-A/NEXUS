@@ -69,6 +69,9 @@ _SCOPED_PATHS = {
 # handler, because the repetition is what gets forgotten.
 _SCOPE_MARKERS = (
     "ensure_job_membership",
+    # Stawka do klienta: członkostwo ALBO własność rekrutacji w jednej decyzji
+    # (ta sama funkcja zasila `can_write_client_rate` w `GET /api/jobs/{id}`).
+    "resolve_client_rate_write",
     "ensure_optional_job_membership",
     "job_scope_clause",
     "ensure_job_read_access",

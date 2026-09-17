@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Phone, Mail, CheckCircle2 } from "lucide-react";
 
@@ -24,6 +24,8 @@ type InterviewFeedbackModalProps = {
   calendarEventId: number;
   /** Wymuszony tab — jeśli brak, wybieramy per default candidate_side i user może przełączyć. */
   initialSource?: FeedbackSource;
+  /** Wołane po udanym zapisie (utworzenie albo edycja). */
+  onSaved?: () => void;
 };
 
 type CalendarEvent = {
@@ -39,15 +41,17 @@ type CalendarEvent = {
 
 type CandidateLite = {
   id: number;
-  first_name?: string;
-  last_name?: string;
+  // API kandydata zwraca `name`/`lastname` — do 09.2026 modal czytał
+  // `first_name`/`last_name` i podpisywał osobę jako „#196867".
+  name?: string | null;
+  lastname?: string | null;
   phone?: string | null;
   email?: string | null;
 };
 
 type FeedbackRow = {
   id: number;
-  calendar_event_id: number;
+  calendar_event_id: number | null;
   feedback_source: FeedbackSource;
   overall_impression?: number | null;
   interest_level?: string | null;
@@ -98,8 +102,39 @@ const EMPTY_CLIENT: ClientSideFields = {
 
 function candidateDisplayName(c?: CandidateLite | null): string {
   if (!c) return "";
-  const parts = [c.first_name, c.last_name].filter(Boolean);
+  const parts = [c.name, c.lastname].map((p) => (p ?? "").trim()).filter(Boolean);
   return parts.length ? parts.join(" ") : `#${c.id}`;
+}
+
+const BINDING_KEYS = new Set([
+  "calendar_event_id",
+  "candidate_id",
+  "job_id",
+  "feedback_source",
+]);
+
+export function candidateFieldsFrom(row?: FeedbackRow | null): CandidateSideFields {
+  if (!row) return EMPTY_CANDIDATE;
+  return {
+    overall_impression: row.overall_impression ?? null,
+    interest_level: (row.interest_level as CandidateSideFields["interest_level"]) ?? null,
+    candidate_questions: row.candidate_questions ?? "",
+    concerns: row.concerns ?? "",
+    next_step_preference:
+      (row.next_step_preference as CandidateSideFields["next_step_preference"]) ?? null,
+  };
+}
+
+export function clientFieldsFrom(row?: FeedbackRow | null): ClientSideFields {
+  if (!row) return EMPTY_CLIENT;
+  return {
+    technical_fit: row.technical_fit ?? null,
+    soft_fit: row.soft_fit ?? null,
+    overall_fit: row.overall_fit ?? null,
+    decision: (row.decision as ClientSideFields["decision"]) ?? null,
+    client_questions: row.client_questions ?? "",
+    feedback_summary: row.feedback_summary ?? "",
+  };
 }
 
 function validateCandidateSide(
@@ -126,6 +161,7 @@ export function InterviewFeedbackModal({
   onOpenChange,
   calendarEventId,
   initialSource,
+  onSaved,
 }: InterviewFeedbackModalProps) {
   const queryClient = useQueryClient();
   const [source, setSource] = useState<FeedbackSource>(
@@ -176,16 +212,61 @@ export function InterviewFeedbackModal({
   const existingForSource = existingQuery.data?.find(
     (row) => row.feedback_source === source,
   );
+  const candidateRow = existingQuery.data?.find(
+    (row) => row.feedback_source === "candidate_side",
+  );
+  const clientRow = existingQuery.data?.find(
+    (row) => row.feedback_source === "client_side",
+  );
 
-  const createMutation = useMutation({
-    mutationFn: (payload: Record<string, unknown>) =>
-      interviewFeedbackApi.create(payload),
+  // Prefill zapisanego wpisu per strona — raz na wiersz, żeby odświeżenie
+  // listy w tle nie kasowało tego, co użytkownik właśnie wpisuje.
+  const prefilled = useRef<{ candidate: number | null; client: number | null }>({
+    candidate: null,
+    client: null,
+  });
+  useEffect(() => {
+    if (!open) {
+      prefilled.current = { candidate: null, client: null };
+      return;
+    }
+    if (candidateRow && prefilled.current.candidate !== candidateRow.id) {
+      prefilled.current.candidate = candidateRow.id;
+      setCandidateFields(candidateFieldsFrom(candidateRow));
+    }
+    if (clientRow && prefilled.current.client !== clientRow.id) {
+      prefilled.current.client = clientRow.id;
+      setClientFields(clientFieldsFrom(clientRow));
+    }
+  }, [open, candidateRow, clientRow]);
+
+  const saveMutation = useMutation({
+    mutationFn: ({
+      payload,
+      existingId,
+    }: {
+      payload: Record<string, unknown>;
+      existingId: number | null;
+    }) => {
+      if (existingId == null) return interviewFeedbackApi.create(payload);
+      // Edycja: PATCH przyjmuje wyłącznie pola treści — powiązania
+      // (wydarzenie, kandydat, rekrutacja, strona) ustalił zapis.
+      const fields = Object.fromEntries(
+        Object.entries(payload).filter(([key]) => !BINDING_KEYS.has(key)),
+      );
+      return interviewFeedbackApi.update(existingId, fields);
+    },
     onSuccess: () => {
+      const jobId = eventQuery.data?.job_id ?? null;
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
-      queryClient.invalidateQueries({
-        queryKey: ["interview-feedback", "by-event", calendarEventId],
-      });
+      queryClient.invalidateQueries({ queryKey: ["interview-feedback"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-event", calendarEventId] });
+      if (jobId != null) {
+        queryClient.invalidateQueries({ queryKey: ["hiring-manager-feedback", jobId] });
+      }
       setSubmitted(true);
+      onSaved?.();
       setTimeout(() => onOpenChange(false), 900);
     },
     onError: (err: unknown) => {
@@ -234,7 +315,7 @@ export function InterviewFeedbackModal({
         feedback_summary: clientFields.feedback_summary,
       });
     }
-    createMutation.mutate(payload);
+    saveMutation.mutate({ payload, existingId: existingForSource?.id ?? null });
   };
 
   const candidate = candidateQuery.data;
@@ -298,12 +379,9 @@ export function InterviewFeedbackModal({
             ))}
           </div>
 
-          {/* Existing feedback notice */}
           {existingForSource && !submitted && (
-            <div className="p-3 rounded-md bg-amber-50 text-amber-800 text-sm">
-              Feedback tej strony już istnieje (zapisany{" "}
-              {existingForSource.id ? `#${existingForSource.id}` : ""}). Po submit
-              dostaniesz błąd 409 — użyj PATCH żeby edytować istniejący wpis.
+            <div className="p-3 rounded-md bg-muted text-muted-foreground text-sm">
+              Feedback tej strony jest już zapisany — zmiany nadpiszą zapisany wpis.
             </div>
           )}
 
@@ -457,10 +535,14 @@ export function InterviewFeedbackModal({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={createMutation.isPending || submitted}
+            disabled={saveMutation.isPending || submitted}
             className="px-4 py-2 rounded-md bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
           >
-            {createMutation.isPending ? "Zapisuję…" : "Zapisz feedback"}
+            {saveMutation.isPending
+              ? "Zapisuję…"
+              : existingForSource
+                ? "Zapisz zmiany"
+                : "Zapisz feedback"}
           </button>
         </DialogFooter>
       </DialogContent>
@@ -516,12 +598,14 @@ function SelectField({
   onChange: (v: string | null) => void;
   options: { value: string; label: string }[];
 }) {
+  const id = useId();
   return (
     <div>
-      <label className="block text-sm font-medium text-foreground mb-1">
+      <label htmlFor={id} className="block text-sm font-medium text-foreground mb-1">
         {label}
       </label>
       <select
+        id={id}
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
         className="w-full px-3 py-2 border border-border rounded-md text-sm focus:outline-hidden focus:ring-2 focus-visible:ring-ring"
@@ -550,13 +634,15 @@ function TextAreaField({
   placeholder?: string;
   required?: boolean;
 }) {
+  const id = useId();
   return (
     <div>
-      <label className="block text-sm font-medium text-foreground mb-1">
+      <label htmlFor={id} className="block text-sm font-medium text-foreground mb-1">
         {label}
         {required && <span className="text-destructive"> *</span>}
       </label>
       <textarea
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}

@@ -21,16 +21,26 @@ const mocks = vi.hoisted(() => ({
   conflictsSummary: vi.fn(),
   getEvent: vi.fn(),
   listCandidates: vi.fn(),
+  cancelEvent: vi.fn(),
+  deleteEvent: vi.fn(),
+  updateEvent: vi.fn(),
+  createEvent: vi.fn(),
+  apiGet: vi.fn(),
+  toast: { showError: vi.fn(), showSuccess: vi.fn(), showToast: vi.fn(), showActionToast: vi.fn() },
   search: "",
   replace: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
-  default: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
+  default: { get: (...a: unknown[]) => mocks.apiGet(...a), post: vi.fn(), delete: vi.fn() },
   calendarApi: {
     listEvents: (...a: unknown[]) => mocks.listEvents(...a),
     conflictsSummary: (...a: unknown[]) => mocks.conflictsSummary(...a),
     getEvent: (...a: unknown[]) => mocks.getEvent(...a),
+    cancelEvent: (...a: unknown[]) => mocks.cancelEvent(...a),
+    deleteEvent: (...a: unknown[]) => mocks.deleteEvent(...a),
+    updateEvent: (...a: unknown[]) => mocks.updateEvent(...a),
+    createEvent: (...a: unknown[]) => mocks.createEvent(...a),
   },
   candidatesApi: { list: (...a: unknown[]) => mocks.listCandidates(...a) },
 }));
@@ -52,9 +62,22 @@ vi.mock("@/components/feedback/InterviewFeedbackModal", () => ({
 
 vi.mock("@/lib/celebrate", () => ({ celebrate: vi.fn() }));
 
+vi.mock("@/components/Toast", () => ({ useToast: () => mocks.toast }));
+
+// Potwierdzenie „w miejscu" pomijamy: klik w przycisk od razu potwierdza.
 vi.mock("@/components/ConfirmDialog", () => ({
-  ConfirmButton: ({ children }: { children?: React.ReactNode }) => (
-    <button type="button">{children}</button>
+  ConfirmButton: ({
+    children,
+    onConfirm,
+    message,
+  }: {
+    children?: React.ReactNode;
+    onConfirm?: () => void;
+    message?: string;
+  }) => (
+    <button type="button" data-confirm-message={message} onClick={() => onConfirm?.()}>
+      {children}
+    </button>
   ),
 }));
 
@@ -82,6 +105,13 @@ beforeEach(() => {
   mocks.conflictsSummary.mockReset();
   mocks.getEvent.mockReset();
   mocks.listCandidates.mockReset();
+  mocks.cancelEvent.mockReset();
+  mocks.deleteEvent.mockReset();
+  mocks.updateEvent.mockReset();
+  mocks.createEvent.mockReset();
+  mocks.apiGet.mockReset();
+  mocks.apiGet.mockResolvedValue({ data: [] });
+  Object.values(mocks.toast).forEach((fn) => fn.mockReset());
   mocks.replace.mockReset();
   mocks.search = "";
   mocks.conflictsSummary.mockResolvedValue({ data: { pairs: {} } });
@@ -428,3 +458,219 @@ describe("CalendarPage — kandydat w nowym wydarzeniu (audyt B07)", () => {
   });
 });
 
+
+function weekEvent(overrides: Record<string, unknown> = {}) {
+  const start = new Date();
+  start.setHours(10, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(11);
+  return {
+    id: 1,
+    title: "Rozmowa",
+    description: null,
+    event_type: "interview",
+    status: "scheduled",
+    start_time: start.toISOString(),
+    end_time: end.toISOString(),
+    all_day: false,
+    attendees: [],
+    reminder_minutes: 15,
+    feedback_sources: [],
+    ...overrides,
+  };
+}
+
+function utcDateOfToday(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T00:00:00Z`;
+}
+
+describe("CalendarPage — wpisy całodniowe i odwołane (audyt 17.09.2026)", () => {
+  it("urlop idzie do paska „cały dzień”, nie do kolumny dnia", async () => {
+    mocks.listEvents.mockResolvedValue({
+      data: [
+        weekEvent({ id: 5, title: "Urlop", all_day: true, event_type: "meeting", start_time: utcDateOfToday(), end_time: null }),
+        weekEvent({ id: 6, title: "Rozmowa A" }),
+      ],
+    });
+    renderPage();
+
+    const strip = await screen.findByTestId("calendar-all-day-strip");
+    expect(strip).toHaveTextContent("Urlop");
+    expect(screen.queryByTestId("calendar-event-5")).not.toBeInTheDocument();
+    // Rozmowa nie jest zwężona przez urlop.
+    expect(screen.getByTestId("calendar-event-6").style.width).toContain("100%");
+  });
+
+  it("odwołane wydarzenie nie zabiera pasa i zostaje klikalne", async () => {
+    mocks.listEvents.mockResolvedValue({
+      data: [
+        weekEvent({ id: 7, title: "Odwołana", status: "cancelled" }),
+        weekEvent({ id: 8, title: "Aktualna" }),
+      ],
+    });
+    renderPage();
+
+    const active = await screen.findByTestId("calendar-event-8");
+    const cancelled = screen.getByTestId("calendar-event-7");
+    expect(active.style.width).toContain("100%");
+    expect(cancelled.style.width).toContain("100%");
+    expect(cancelled).toHaveAttribute("data-cancelled", "true");
+    fireEvent.click(cancelled);
+    expect(await screen.findByRole("dialog", { name: "Odwołana" })).toBeInTheDocument();
+  });
+
+  it("„Najbliższe” pochodzi z osobnego zapytania o nadchodzące wydarzenia", async () => {
+    const future = new Date(Date.now() + 10 * 24 * 3600 * 1000).toISOString();
+    mocks.listEvents.mockImplementation((params: { upcoming?: boolean }) =>
+      Promise.resolve({
+        data: params?.upcoming ? [weekEvent({ id: 9, title: "Za dziesięć dni", start_time: future })] : [],
+      }),
+    );
+    renderPage();
+
+    expect(await screen.findByText("Za dziesięć dni")).toBeInTheDocument();
+    expect(mocks.listEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ upcoming: true, mine_only: true }),
+    );
+  });
+});
+
+describe("CalendarPage — okno wydarzenia (audyt 17.09.2026)", () => {
+  async function openEvent(overrides: Record<string, unknown>) {
+    mocks.search = "event=50";
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    mocks.getEvent.mockResolvedValue({ data: weekEvent({ id: 50, title: "Rozmowa X", ...overrides }) });
+    renderPage();
+    return screen.findByRole("dialog", { name: "Rozmowa X" });
+  }
+
+  it("pokazuje eskalację, potwierdzenie kandydata i link Teams z Outlooka", async () => {
+    const dialog = await openEvent({
+      candidate_id: 3,
+      candidate_name: "Jan Kowalski",
+      needs_attention: true,
+      candidate_confirmed_at: "2031-03-09T12:00:00Z",
+      candidate_confirmation_source: "phone",
+      online_meeting_url: "https://teams.example.com/graph",
+      teams_link: null,
+    });
+    expect(screen.getByTestId("calendar-event-needs-attention")).toHaveTextContent(
+      "Brak feedbacku po rozmowie",
+    );
+    expect(dialog).toHaveTextContent(/Kandydat potwierdził .* \(telefonicznie\)/);
+    expect(screen.getByRole("link", { name: "Dołącz do spotkania" })).toHaveAttribute(
+      "href",
+      "https://teams.example.com/graph",
+    );
+  });
+
+  it("„Uzupełnij feedback” otwiera formularz feedbacku tego wydarzenia", async () => {
+    await openEvent({ candidate_id: 3, candidate_name: "Jan Kowalski" });
+    fireEvent.click(screen.getByRole("button", { name: "Uzupełnij feedback" }));
+    expect(await screen.findByTestId("feedback-modal")).toHaveTextContent("feedback:50");
+  });
+
+  it("zapisany feedback zmienia przycisk na „Edytuj feedback”", async () => {
+    await openEvent({ candidate_id: 3, feedback_sources: ["client_side"] });
+    expect(screen.getByRole("button", { name: "Edytuj feedback" })).toBeInTheDocument();
+  });
+
+  it("wydarzenie z Outlooka ma „Odwołaj”, nie „Usuń”, i mówi, co stało się w Outlooku", async () => {
+    await openEvent({ external_source: "microsoft365", candidate_id: 3 });
+    expect(screen.queryByRole("button", { name: "Usuń" })).not.toBeInTheDocument();
+    mocks.cancelEvent.mockResolvedValue({
+      data: { outlook: "skipped", event: weekEvent({ id: 50, title: "Rozmowa X", status: "cancelled", external_source: "microsoft365" }) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Odwołaj" }));
+    await waitFor(() => expect(mocks.cancelEvent).toHaveBeenCalledWith(50));
+    await waitFor(() =>
+      expect(mocks.toast.showError).toHaveBeenCalledWith(expect.stringMatching(/tylko w NEXUSIE/)),
+    );
+  });
+
+  it("nieudane usunięcie nie jest nieme", async () => {
+    await openEvent({});
+    mocks.deleteEvent.mockRejectedValue(
+      Object.assign(new Error("403"), { response: { status: 403, data: { detail: "Brak uprawnień do usunięcia tego wydarzenia" } } }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Usuń" }));
+    await waitFor(() =>
+      expect(mocks.toast.showError).toHaveBeenCalledWith("Brak uprawnień do usunięcia tego wydarzenia"),
+    );
+  });
+
+  it("usunięcie ręcznego wydarzenia z feedbackiem ostrzega o utracie feedbacku", async () => {
+    await openEvent({ feedback_sources: ["candidate_side"] });
+    expect(screen.getByRole("button", { name: "Usuń" }).getAttribute("data-confirm-message")).toMatch(
+      /feedback z tej rozmowy zostanie usunięty/,
+    );
+  });
+
+  it("edycja wysyła tylko zmienione pola", async () => {
+    await openEvent({ candidate_id: null });
+    mocks.updateEvent.mockResolvedValue({
+      data: weekEvent({ id: 50, title: "Rozmowa X", event_type: "screening" }),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Edytuj" }));
+    fireEvent.change(screen.getByLabelText("Typ"), { target: { value: "screening" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() => expect(mocks.updateEvent).toHaveBeenCalledWith(50, { event_type: "screening" }));
+  });
+
+  it("wydarzenie z Outlooka edytuje tylko metadane", async () => {
+    await openEvent({ external_source: "microsoft365" });
+    fireEvent.click(screen.getByRole("button", { name: "Edytuj" }));
+    expect(screen.getByTestId("calendar-event-edit-form")).toHaveTextContent(/pochodzi z Outlooka/);
+    expect(screen.queryByLabelText("Tytuł")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Od")).not.toBeInTheDocument();
+  });
+});
+
+describe("CalendarPage — nowe wydarzenie (audyt 17.09.2026)", () => {
+  async function openCreate() {
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    renderPage();
+    fireEvent.click((await screen.findAllByRole("button", { name: /Nowe wydarzenie/ }))[0]);
+  }
+
+  it("koniec przed początkiem blokuje zapis z komunikatem", async () => {
+    await openCreate();
+    fireEvent.change(screen.getByLabelText("Tytuł *"), { target: { value: "Spotkanie" } });
+    fireEvent.change(screen.getByLabelText("Od *"), { target: { value: "2031-03-10T10:00" } });
+    fireEvent.change(screen.getByLabelText("Do"), { target: { value: "2031-03-10T09:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Utwórz wydarzenie" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Koniec wydarzenia musi być późniejszy/);
+    expect(mocks.createEvent).not.toHaveBeenCalled();
+  });
+
+  it("uczestnicy dzieleni po spacjach i średnikach, rekrutacja kandydata wybrana sama", async () => {
+    mocks.listCandidates.mockResolvedValue({
+      data: { items: [{ id: 7, name: "Anna", lastname: "Testowa" }] },
+    });
+    mocks.apiGet.mockResolvedValue({
+      data: [{ stage_id: 1, job_id: 44, job_title: "Java Dev", stage: "cv_sent", ready: true }],
+    });
+    mocks.createEvent.mockResolvedValue({ data: {} });
+    await openCreate();
+    fireEvent.change(screen.getByLabelText("Tytuł *"), { target: { value: "Rozmowa" } });
+    fireEvent.change(screen.getByLabelText("Od *"), { target: { value: "2031-03-10T10:00" } });
+    fireEvent.change(screen.getByLabelText(/Uczestnicy/), {
+      target: { value: "a@x.pl b@x.pl;c@x.pl" },
+    });
+    fireEvent.click(screen.getByRole("combobox", { name: "Kandydat (opcjonalnie)" }));
+    fireEvent.click(await screen.findByText("Anna Testowa"));
+    await waitFor(() => expect(screen.getByLabelText("Rekrutacja")).toHaveValue("44"));
+    fireEvent.click(screen.getByRole("button", { name: "Utwórz wydarzenie" }));
+    await waitFor(() =>
+      expect(mocks.createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          candidate_id: 7,
+          job_id: 44,
+          attendees: ["a@x.pl", "b@x.pl", "c@x.pl"],
+        }),
+      ),
+    );
+  });
+});

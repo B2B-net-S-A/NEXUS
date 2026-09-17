@@ -431,11 +431,16 @@ TacPlus = Annotated[
     Depends(require_roles(UserRole.admin, UserRole.delivery_lead, UserRole.tac)),
 ]
 
+# Od 2026-09-17 (decyzja Artura, audyt narzędzi rekrutera): Head of
+# Recruitment ma pełny parytet z rekruterem — do tej pory FE liczył prawa
+# z sekcji (HoR: pipeline=write), a ta lista go nie zawierała, więc każdy ruch
+# w pipeline i zapis na profilu kandydata kończył się 403 po wypełnieniu formularza.
 RecruiterPlus = Annotated[
     User,
     Depends(
         require_roles(
             UserRole.admin,
+            UserRole.head_of_recruitment,
             UserRole.delivery_lead,
             UserRole.talent_community_manager,
             UserRole.tac,

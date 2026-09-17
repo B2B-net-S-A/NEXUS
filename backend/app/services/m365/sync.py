@@ -52,6 +52,7 @@ from app.models.m365 import (
 )
 from app.services.m365 import attachment_handler, matcher
 from app.services.m365.access import connection_owner_is_eligible
+from app.services.calendar_all_day import normalize_all_day
 from app.services.m365.calendar import M365_SOURCE
 from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.html_sanitize import html_to_text, sanitize_html
@@ -67,7 +68,7 @@ MESSAGE_SELECT = (
 )
 EVENT_SELECT = (
     "id,changeKey,subject,bodyPreview,body,start,end,"
-    "organizer,attendees,location,seriesMasterId,type,isCancelled"
+    "organizer,attendees,location,seriesMasterId,type,isCancelled,isAllDay"
 )
 
 
@@ -946,14 +947,9 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
     if existing and existing.m365_change_key == change_key:
         return False  # nothing changed — skip
 
-    start = _parse_graph_datetime((ev.get("start") or {}).get("dateTime"))
-    end = _parse_graph_datetime((ev.get("end") or {}).get("dateTime"))
-    if start is None:
+    fields = _graph_event_fields(ev)
+    if fields is None:
         return False
-
-    subject = (ev.get("subject") or "Spotkanie")[:255]
-    location_name = (ev.get("location") or {}).get("displayName") or None
-    description = (ev.get("body") or {}).get("content")
 
     attendees_raw = ev.get("attendees") or []
     attendee_rows = []
@@ -975,13 +971,8 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
 
     if existing is None:
         row = CalendarEvent(
-            title=subject,
-            description=description,
+            **fields,
             event_type=EventType.meeting,
-            start_time=start,
-            end_time=end,
-            all_day=False,
-            location=location_name,
             attendees=attendee_rows,
             candidate_id=candidate_id,
             status=EventStatus.scheduled,
@@ -993,11 +984,8 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
         )
         db.add(row)
     else:
-        existing.title = subject
-        existing.description = description
-        existing.start_time = start
-        existing.end_time = end
-        existing.location = location_name
+        for field, value in fields.items():
+            setattr(existing, field, value)
         existing.attendees = attendee_rows
         existing.m365_change_key = change_key
         existing.m365_series_master_id = ev.get("seriesMasterId")
@@ -1005,6 +993,31 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
             existing.candidate_id = candidate_id
 
     return True
+
+
+def _graph_event_fields(ev: dict) -> Optional[dict]:
+    """Pola wydarzenia, które należą do Outlooka — wspólne dla insert i update.
+
+    Dwie osobne listy przypisań rozjeżdżały się: `all_day` było stałym
+    `False` przy wstawianiu i nie istniało przy aktualizacji, więc urlop
+    z Outlooka zostawał 24-godzinnym blokiem na zawsze. `None` = wydarzenie
+    bez czytelnego startu (pomijamy).
+    """
+    start = _parse_graph_datetime((ev.get("start") or {}).get("dateTime"))
+    end = _parse_graph_datetime((ev.get("end") or {}).get("dateTime"))
+    if start is None:
+        return None
+    all_day = bool(ev.get("isAllDay"))
+    if all_day:
+        start, end = normalize_all_day(start, end)
+    return {
+        "title": (ev.get("subject") or "Spotkanie")[:255],
+        "description": (ev.get("body") or {}).get("content"),
+        "start_time": start,
+        "end_time": end,
+        "all_day": all_day,
+        "location": (ev.get("location") or {}).get("displayName") or None,
+    }
 
 
 def _parse_graph_datetime(value: Optional[str]) -> Optional[datetime]:

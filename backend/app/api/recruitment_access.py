@@ -100,9 +100,11 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
 
 RECRUITMENT_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 
-# Parity with deps.RecruiterPlus — the pre-existing move contract.
+# Parity with deps.RecruiterPlus — the pre-existing move contract
+# (od 2026-09-17 z head_of_recruitment — parytet HoR z rekruterem).
 RECRUITMENT_TRANSITION_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.tac,
@@ -112,11 +114,11 @@ RECRUITMENT_TRANSITION_ROLES: tuple[UserRole, ...] = (
 )
 
 # Terminal lifecycle decisions (hired / rejected / withdrawn) — no sourcer.
-# head_of_recruitment celowo NIEuwzględniony: route-level guard /move to
-# RecruiterPlus (bez HoR), a containment nie poszerza dostępu — HoR w tym
-# zbiorze byłby martwym wpisem sugerującym uprawnienie, którego nie ma.
+# head_of_recruitment od 2026-09-17 (parytet z rekruterem; /move jest już
+# RecruiterPlus z HoR).
 RECRUITMENT_TERMINAL_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.tac,
@@ -127,6 +129,7 @@ RECRUITMENT_TERMINAL_ROLES: tuple[UserRole, ...] = (
 # Candidate expected-rate edits (PATCH + rate-bearing `verified` move).
 RECRUITMENT_RATE_EDIT_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,
@@ -136,6 +139,7 @@ RECRUITMENT_RATE_EDIT_ROLES: tuple[UserRole, ...] = (
 # Scorecards, screening notes, interview feedback.
 RECRUITMENT_ASSESSMENT_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.tac,
@@ -146,6 +150,7 @@ RECRUITMENT_ASSESSMENT_WRITE_ROLES: tuple[UserRole, ...] = (
 
 CALENDAR_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.tac,

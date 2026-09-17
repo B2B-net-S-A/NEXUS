@@ -4,11 +4,15 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
-import { ArrowLeft, User2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, RefreshCw, User2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { AVATAR_COLORS } from "@/lib/colors";
-import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
+import { apiErrorMessage } from "@/lib/api-error";
+import {
+  formatCandidateLocation,
+  getTagName,
+} from "@/components/v2/pages/candidate-list-helpers";
 import { formatExperienceDate } from "@/components/v2/pages/candidate-profile-helpers";
 import { decodeCompareBackHref } from "@/lib/url-filters";
 import { profileCompleteness, skillLevelLabel } from "./compare-helpers";
@@ -70,7 +74,11 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
   const skills: any[] = Array.isArray(candidate.skills) ? candidate.skills : [];
   const experience: any[] = Array.isArray(candidate.experience) ? candidate.experience : [];
   const languages: any[] = Array.isArray(candidate.languages) ? candidate.languages : [];
-  const tags: string[] = Array.isArray(candidate.tags) ? candidate.tags : [];
+  // Kolumna `tags` miesza napisy z obiektami importu (`{type:"traffit_source",…}`);
+  // obiekt wstawiony wprost do JSX wywracał całe porównanie (React #31).
+  const tags: string[] = (Array.isArray(candidate.tags) ? candidate.tags : [])
+    .map(getTagName)
+    .filter((t: string | null): t is string => Boolean(t));
 
   return (
     <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden flex flex-col">
@@ -106,8 +114,8 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
               {candidate.status === "active" ? "Aktywny" : candidate.status === "passive" ? "Pasywny" : "Zablokowany"}
             </span>
           )}
-          {tags.slice(0, 5).map((t: string) => (
-            <span key={t} className="text-[10px] px-2 py-0.5 bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground rounded-full">{t}</span>
+          {tags.slice(0, 5).map((t: string, i: number) => (
+            <span key={`${i}-${t}`} className="text-[10px] px-2 py-0.5 bg-muted dark:bg-muted text-muted-foreground dark:text-muted-foreground rounded-full">{t}</span>
           ))}
         </div>
       </div>
@@ -205,6 +213,57 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
   );
 }
 
+/** Karta w miejscu profilu, którego nie udało się pobrać — z powodem i „Ponów”.
+ *  Wcześniej nieudany profil znikał po cichu (`filter(Boolean)`), a nagłówek
+ *  liczył tylko te, które dojechały. */
+function CandidateErrorCard({
+  candidateId,
+  error,
+  onRetry,
+  retrying,
+}: {
+  candidateId: number;
+  error: unknown;
+  onRetry: () => void;
+  retrying: boolean;
+}) {
+  return (
+    <div
+      role="alert"
+      className="bg-card rounded-xl border border-destructive/30 p-5 flex flex-col items-center gap-3 text-center"
+    >
+      <AlertTriangle className="w-8 h-8 text-destructive" aria-hidden="true" />
+      <p className="text-sm font-medium text-foreground">
+        Nie udało się pobrać kandydata #{candidateId}
+      </p>
+      <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">
+        {apiErrorMessage(error, "Nie udało się pobrać profilu kandydata.")}
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={retrying}
+        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+      >
+        <RefreshCw className={cn("w-3.5 h-3.5", retrying && "animate-spin")} aria-hidden="true" />
+        Ponów
+      </button>
+    </div>
+  );
+}
+
+function CandidateLoadingCard() {
+  return (
+    <div
+      role="status"
+      aria-label="Ładowanie profilu kandydata"
+      className="bg-card rounded-xl border border-border p-5 flex justify-center py-16"
+    >
+      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 function CompareCandidatesInner() {
@@ -224,8 +283,9 @@ function CompareCandidatesInner() {
     })
   );
 
-  const loading = queries.some((q) => q.isLoading);
-  const candidates = queries.map((q) => q.data).filter(Boolean);
+  // Każdy profil renderuje się osobno: 403 na jednym z nich nie chowa reszty
+  // i nie zmienia licznika w nagłówku (ten liczy osoby wybrane do porównania).
+  const slots = ids.map((id, i) => ({ id, query: queries[i] }));
 
   if (ids.length < 2) {
     return (
@@ -249,25 +309,31 @@ function CompareCandidatesInner() {
         <h1 className="text-2xl font-bold text-foreground dark:text-foreground">
           Porównanie kandydatów
         </h1>
-        <span className="text-sm text-muted-foreground">({candidates.length} kandydatów)</span>
+        <span className="text-sm text-muted-foreground">({ids.length} kandydatów)</span>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-16">
-          <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : (
-        <div
-          className={cn("grid gap-6", {
-            "grid-cols-1 md:grid-cols-2": candidates.length === 2,
-            "grid-cols-1 md:grid-cols-3": candidates.length === 3,
-          })}
-        >
-          {candidates.map((c: any) => (
-            <CandidateCompareCard key={c.id} candidate={c} />
-          ))}
-        </div>
-      )}
+      <div
+        className={cn("grid gap-6", {
+          "grid-cols-1 md:grid-cols-2": ids.length === 2,
+          "grid-cols-1 md:grid-cols-3": ids.length >= 3,
+        })}
+      >
+        {slots.map(({ id, query }) =>
+          query.data ? (
+            <CandidateCompareCard key={id} candidate={query.data} />
+          ) : query.isError ? (
+            <CandidateErrorCard
+              key={id}
+              candidateId={id}
+              error={query.error}
+              onRetry={() => void query.refetch()}
+              retrying={query.isFetching}
+            />
+          ) : (
+            <CandidateLoadingCard key={id} />
+          ),
+        )}
+      </div>
     </div>
   );
 }

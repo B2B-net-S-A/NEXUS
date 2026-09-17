@@ -16,9 +16,9 @@ import type {
   LanguageRequirement,
   LanguageLevel,
   CandidateStatusValue,
-  AvailabilityStatusValue,
 } from "@/lib/candidate-search-api";
 import { experienceRangeError } from "@/lib/candidate-search-request";
+import { SEARCH_AVAILABILITY_OPTIONS } from "@/lib/search-availability";
 import { cn } from "@/lib/utils";
 
 interface FiltersPanelProps {
@@ -35,12 +35,38 @@ const STATUS_OPTIONS: { value: CandidateStatusValue; label: string }[] = [
   { value: "blacklisted", label: "Blacklist" },
 ];
 
-const AVAILABILITY_OPTIONS: { value: AvailabilityStatusValue; label: string }[] = [
-  { value: "actively_looking", label: "Aktywnie szuka" },
-  { value: "open_to_offers", label: "Otwarty na oferty" },
-  { value: "not_looking", label: "Nie szuka" },
-  { value: "unknown", label: "Nieznane" },
-];
+/**
+ * Limity lustrzane do `CandidateSearchRequest` w backendzie
+ * (`schemas/candidate_search.py`). Bez nich zbyt długa fraza albo 21. chip
+ * kończyły się 422 „Request failed with status code 422" nad starymi wynikami.
+ */
+export const SEARCH_QUERY_MAX_LENGTH = 500;
+export const SEARCH_LIST_LIMITS = {
+  skills_must: 20,
+  skills_any: 20,
+  skills_none: 20,
+  tags: 20,
+  location_cities: 10,
+} as const;
+export const EXPERIENCE_YEARS_MAX = 60;
+
+type ChipListKey = keyof typeof SEARCH_LIST_LIMITS;
+
+const LIST_LABELS: Record<ChipListKey, string> = {
+  skills_must: "umiejętności preferowanych",
+  skills_any: "umiejętności dodatkowych",
+  skills_none: "umiejętności wykluczonych",
+  tags: "tagów",
+  location_cities: "miast",
+};
+
+/** Lata: puste pole = brak filtra, liczba przycięta do 0–60 (limit backendu). */
+export function clampExperienceYears(raw: string): number | null {
+  if (!raw.trim()) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (Number.isNaN(parsed)) return null;
+  return Math.min(EXPERIENCE_YEARS_MAX, Math.max(0, parsed));
+}
 
 const LANG_LEVELS: LanguageLevel[] = ["A1", "A2", "B1", "B2", "C1", "C2", "native"];
 
@@ -67,6 +93,12 @@ export function FiltersPanel({
   const [tagDraft, setTagDraft] = useState("");
   const [cityDraft, setCityDraft] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
+  // Komunikat przy polu, które odmówiło dodania chipa (limit, duplikat).
+  // Wcześniej odmowa była cicha — wpisany tekst po prostu znikał.
+  const [listNotice, setListNotice] = useState<{
+    key: ChipListKey;
+    message: string;
+  } | null>(null);
 
   const patch = (next: Partial<CandidateSearchRequest>) => {
     onChange({ ...value, ...next });
@@ -95,21 +127,42 @@ export function FiltersPanel({
     patch({ q_all: next.all, q_any: [], q_any_groups: next.any, q_none: next.none });
   };
 
-  const addToList = (
-    key: "skills_must" | "skills_any" | "skills_none" | "tags" | "location_cities",
-    raw: string,
-  ) => {
+  /**
+   * Dodaj chip. Zwraca `true`, gdy wpis został przyjęty albo był pusty —
+   * wtedy wołający czyści pole. Przy odmowie (limit) tekst zostaje w polu,
+   * a przy polu pojawia się komunikat. Minimum to JEDEN znak: „C" i „R" są
+   * prawdziwymi umiejętnościami, a dawny próg 2 znaków odrzucał je po cichu.
+   */
+  const addToList = (key: ChipListKey, raw: string): boolean => {
     const trimmed = raw.trim();
-    if (trimmed.length < 2) return;
+    if (trimmed.length < 1) return true;
     const current = (value[key] as string[] | undefined) ?? [];
-    if (current.some((x) => x.toLowerCase() === trimmed.toLowerCase())) return;
+    if (current.some((x) => x.toLowerCase() === trimmed.toLowerCase())) {
+      setListNotice({ key, message: `„${trimmed}" jest już na liście.` });
+      return true;
+    }
+    const limit = SEARCH_LIST_LIMITS[key];
+    if (current.length >= limit) {
+      setListNotice({
+        key,
+        message: `Limit ${limit} ${LIST_LABELS[key]} osiągnięty — usuń któryś, żeby dodać „${trimmed}".`,
+      });
+      return false;
+    }
+    setListNotice(null);
     patch({ [key]: [...current, trimmed] } as Partial<CandidateSearchRequest>);
+    return true;
   };
 
-  const removeFromList = (
-    key: "skills_must" | "skills_any" | "skills_none" | "tags" | "location_cities",
-    idx: number,
-  ) => {
+  const renderListNotice = (key: ChipListKey) =>
+    listNotice?.key === key ? (
+      <p role="status" className="text-[11px] leading-snug text-warning-muted-foreground">
+        {listNotice.message}
+      </p>
+    ) : null;
+
+  const removeFromList = (key: ChipListKey, idx: number) => {
+    if (listNotice?.key === key) setListNotice(null);
     const current = (value[key] as string[] | undefined) ?? [];
     patch({
       [key]: current.filter((_, i) => i !== idx),
@@ -128,22 +181,32 @@ export function FiltersPanel({
     patch({ [key]: next } as Partial<CandidateSearchRequest>);
   };
 
+  const skillKey = (bucket: "must" | "any" | "none"): ChipListKey =>
+    bucket === "must" ? "skills_must" : bucket === "any" ? "skills_any" : "skills_none";
+
+  // Commit na Enter/przecinek ORAZ na blur (jak w `AdvancedSearchPopover`):
+  // tekst wpisany bez Enter nie może zginąć przy kliknięciu gdzie indziej.
+  const commitSkill = (bucket: "must" | "any" | "none") => {
+    if (addToList(skillKey(bucket), skillDraft[bucket])) {
+      setSkillDraft((d) => ({ ...d, [bucket]: "" }));
+    }
+  };
+
   const onSkillKey =
     (bucket: "must" | "any" | "none") =>
     (e: KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Enter" || e.key === ",") {
         e.preventDefault();
-        const raw = skillDraft[bucket];
-        const key =
-          bucket === "must"
-            ? "skills_must"
-            : bucket === "any"
-              ? "skills_any"
-              : "skills_none";
-        addToList(key, raw);
-        setSkillDraft((d) => ({ ...d, [bucket]: "" }));
+        commitSkill(bucket);
       }
     };
+
+  const commitCity = () => {
+    if (addToList("location_cities", cityDraft)) setCityDraft("");
+  };
+  const commitTag = () => {
+    if (addToList("tags", tagDraft)) setTagDraft("");
+  };
 
   const addLanguage = () => {
     const langs = value.languages ?? [];
@@ -163,11 +226,19 @@ export function FiltersPanel({
   };
 
   const clearAll = () => {
+    // Tryb wyszukiwania NIE jest filtrem: „Wyczyść" gubiło `search_mode`, więc
+    // kolejne zapytanie szło FTS, a po F5 wracała hybryda. Drafty chipów też
+    // czyścimy — inaczej blur zamieniłby je w chipy po czyszczeniu.
+    setSkillDraft({ must: "", any: "", none: "" });
+    setTagDraft("");
+    setCityDraft("");
+    setListNotice(null);
     onChange({
       sort: value.sort ?? "relevance",
       page: 1,
       page_size: value.page_size ?? 50,
       exclude_in_job_id: value.exclude_in_job_id ?? null,
+      ...(value.search_mode ? { search_mode: value.search_mode } : {}),
     });
   };
 
@@ -185,16 +256,31 @@ export function FiltersPanel({
           bloku fraz — pływały w pustej lewej połowie obok niego. */}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Input
-            value={value.q ?? ""}
-            onChange={(e) => patch({ q: e.target.value || null })}
-            placeholder={
-              value.search_mode === "hybrid"
-                ? "Szukaj semantycznie (BM25 + dense + rerank)…"
-                : "Szukaj w CV (full-text)…"
-            }
-            className="min-w-[16rem] flex-1"
-          />
+          <div className="relative min-w-[16rem] flex-1">
+            <Input
+              value={value.q ?? ""}
+              onChange={(e) => patch({ q: e.target.value || null })}
+              maxLength={SEARCH_QUERY_MAX_LENGTH}
+              aria-describedby="candidate-search-q-counter"
+              placeholder={
+                value.search_mode === "hybrid"
+                  ? "Szukaj semantycznie (BM25 + dense + rerank)…"
+                  : "Szukaj w CV (full-text)…"
+              }
+              className="w-full pr-16"
+            />
+            <span
+              id="candidate-search-q-counter"
+              className={cn(
+                "pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] tabular-nums",
+                (value.q?.length ?? 0) >= SEARCH_QUERY_MAX_LENGTH
+                  ? "text-warning-muted-foreground"
+                  : "text-muted-foreground",
+              )}
+            >
+              {value.q?.length ?? 0}/{SEARCH_QUERY_MAX_LENGTH}
+            </span>
+          </div>
           <Button
             type="button"
             variant={value.search_mode === "hybrid" ? "primary" : "outline"}
@@ -280,10 +366,13 @@ export function FiltersPanel({
                     setSkillDraft((d) => ({ ...d, [bucket]: e.target.value }))
                   }
                   onKeyDown={onSkillKey(bucket)}
+                  onBlur={() => commitSkill(bucket)}
+                  aria-label={label}
                   placeholder="np. Python, React"
                   className="h-8 w-28 text-xs"
                 />
               </div>
+              {renderListNotice(key)}
             </div>
           );
         })}
@@ -307,11 +396,7 @@ export function FiltersPanel({
               max={60}
               value={value.experience_years_min ?? ""}
               onChange={(e) =>
-                patch({
-                  experience_years_min: e.target.value
-                    ? Number.parseInt(e.target.value, 10)
-                    : null,
-                })
+                patch({ experience_years_min: clampExperienceYears(e.target.value) })
               }
               placeholder="min"
               aria-invalid={experienceError ? true : undefined}
@@ -324,11 +409,7 @@ export function FiltersPanel({
               max={60}
               value={value.experience_years_max ?? ""}
               onChange={(e) =>
-                patch({
-                  experience_years_max: e.target.value
-                    ? Number.parseInt(e.target.value, 10)
-                    : null,
-                })
+                patch({ experience_years_max: clampExperienceYears(e.target.value) })
               }
               placeholder="max"
               aria-invalid={experienceError ? true : undefined}
@@ -368,14 +449,16 @@ export function FiltersPanel({
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === ",") {
                   e.preventDefault();
-                  addToList("location_cities", cityDraft);
-                  setCityDraft("");
+                  commitCity();
                 }
               }}
+              onBlur={commitCity}
+              aria-label="Miasto"
               placeholder="np. Warszawa"
               className="h-8 w-28 text-xs"
             />
           </div>
+          {renderListNotice("location_cities")}
         </div>
       </div>
 
@@ -414,7 +497,7 @@ export function FiltersPanel({
             Dostępność
           </Label>
           <div className="flex flex-wrap gap-1.5">
-            {AVAILABILITY_OPTIONS.map((opt) => {
+            {SEARCH_AVAILABILITY_OPTIONS.map((opt) => {
               const active = (value.availability_status ?? []).includes(opt.value);
               return (
                 <button
@@ -566,14 +649,16 @@ export function FiltersPanel({
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === ",") {
                       e.preventDefault();
-                      addToList("tags", tagDraft);
-                      setTagDraft("");
+                      commitTag();
                     }
                   }}
+                  onBlur={commitTag}
+                  aria-label="Tagi"
                   placeholder="tag,..."
                   className="h-8 w-28 text-xs"
                 />
               </div>
+              {renderListNotice("tags")}
             </div>
           </div>
         )}

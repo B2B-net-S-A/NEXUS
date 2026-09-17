@@ -61,7 +61,11 @@ import { useUiStore } from "@/store/ui";
 import {
   encodeJobsListUrl,
   initialDeadlineFromUrl,
+  initialFlagFromUrl,
+  initialIdsFromUrl,
   initialMineFromUrl,
+  initialPriorityWorkFromUrl,
+  initialSearchFromUrl,
   initialSortFromUrl,
   initialStatusFromUrl,
   initialTypeFromUrl,
@@ -480,13 +484,26 @@ function JobsTable({
               onClick={() => onSelect(job.id)}
             >
               <TableCell className="max-w-[300px]">
-                <Link
-                  href={`/jobs/${job.id}`}
-                  onClick={(e) => e.stopPropagation()}
-                  className="block truncate font-medium text-foreground hover:text-primary hover:underline"
-                >
-                  {job.title}
-                </Link>
+                {/* `can_open === false` — ta sama reguła co kafelki: rekrutacja
+                    jest w rejestrze, ale detal odpowie 403, więc tytuł nie
+                    udaje linku (tabela do 09.2026 prowadziła prosto w ścianę). */}
+                {job.can_open === false ? (
+                  <span
+                    aria-disabled="true"
+                    title="Nie masz dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu."
+                    className="block truncate font-medium text-muted-foreground"
+                  >
+                    {job.title}
+                  </span>
+                ) : (
+                  <Link
+                    href={`/jobs/${job.id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="block truncate font-medium text-foreground hover:text-primary hover:underline"
+                  >
+                    {job.title}
+                  </Link>
+                )}
                 <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                   {job.reference_number && (
                     <span
@@ -658,7 +675,6 @@ function JobsTable({
 }
 
 export function JobsListV2() {
-  const [search, setSearch] = useState("");
   // Stan początkowy z URL-a. Bez tego deep-linki były atrapą: pulpit prowadzi
   // na `/jobs?mine=0&status=published`, a lista i tak startowała z pustymi
   // filtrami, więc użytkownik dostawał WSZYSTKIE oferty (z Draftami włącznie)
@@ -668,6 +684,7 @@ export function JobsListV2() {
   // potem ZAPISYWANE z powrotem do URL-a (efekt niżej, M03-B01) — inaczej F5
   // i „Wstecz" z profilu rekrutacji gubiły zawężenie bez słowa.
   const searchParams = useSearchParams();
+  const [search, setSearch] = useState(() => initialSearchFromUrl(searchParams));
   const [statusFilter, setStatusFilter] = useState<JobStatusValue[]>(
     () => initialStatusFromUrl(searchParams)
   );
@@ -675,26 +692,40 @@ export function JobsListV2() {
     initialTypeFromUrl(searchParams),
   );
   const [mine, setMine] = useState(() => initialMineFromUrl(searchParams));
-  const [responsibleIds, setResponsibleIds] = useState<number[]>([]);
-  const [clientIds, setClientIds] = useState<number[]>([]);
-  const [ccIds, setCcIds] = useState<number[]>([]);
-  const [needsSourcing, setNeedsSourcing] = useState(false);
-  const [activeInSearch, setActiveInSearch] = useState(false);
+  const [responsibleIds, setResponsibleIds] = useState<number[]>(() =>
+    initialIdsFromUrl(searchParams, "responsible"),
+  );
+  const [clientIds, setClientIds] = useState<number[]>(() =>
+    initialIdsFromUrl(searchParams, "client"),
+  );
+  const [ccIds, setCcIds] = useState<number[]>(() =>
+    initialIdsFromUrl(searchParams, "cc"),
+  );
+  const [needsSourcing, setNeedsSourcing] = useState(() =>
+    initialFlagFromUrl(searchParams, "sourcing"),
+  );
+  const [activeInSearch, setActiveInSearch] = useState(() =>
+    initialFlagFromUrl(searchParams, "active_search"),
+  );
   const [deadlinePreset, setDeadlinePreset] = useState<DeadlinePreset>(() =>
     initialDeadlineFromUrl(searchParams),
   );
-  const [openOnly, setOpenOnly] = useState(false);
+  const [openOnly, setOpenOnly] = useState(() =>
+    initialFlagFromUrl(searchParams, "open"),
+  );
   // "Brak ownera requestu" jako FILTR (nie tylko badge, makieta „01 Lista").
   // Od 09.2026 filtruje SERWER (`owner_missing` w `GET /api/jobs`, predykat
   // `tac_id IS NULL`). Wcześniej zawężał wyłącznie już wczytaną stronę, więc
   // „63" obok nazwy filtra opisywało dwadzieścia widocznych wierszy, a nie
   // bazę — i paginacja pokazywała strony, na których nie było czego zawężać.
-  const [noOwnerOnly, setNoOwnerOnly] = useState(false);
+  const [noOwnerOnly, setNoOwnerOnly] = useState(() =>
+    initialFlagFromUrl(searchParams, "no_owner"),
+  );
   const [sort, setSort] = useState<JobSortValue>(() =>
     initialSortFromUrl(searchParams),
   );
   const [priorityWorkFilter, setPriorityWorkFilter] =
-    useState<PriorityWorkFilter>("any");
+    useState<PriorityWorkFilter>(() => initialPriorityWorkFromUrl(searchParams));
   const [page, setPage] = useState(1);
   const [showAdd, setShowAdd] = useState(false);
   const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
@@ -722,6 +753,15 @@ export function JobsListV2() {
         type: typeFilter,
         deadline: deadlinePreset,
         sort,
+        q: debouncedSearch,
+        responsibleIds,
+        clientIds,
+        ccIds,
+        needsSourcing,
+        activeInSearch,
+        openOnly,
+        noOwnerOnly,
+        priorityWork: priorityWorkFilter,
       },
       new URLSearchParams(window.location.search),
     );
@@ -729,7 +769,22 @@ export function JobsListV2() {
     if (target !== `${window.location.pathname}${window.location.search}`) {
       window.history.replaceState(window.history.state, "", target);
     }
-  }, [statusFilter, mine, typeFilter, deadlinePreset, sort]);
+  }, [
+    statusFilter,
+    mine,
+    typeFilter,
+    deadlinePreset,
+    sort,
+    debouncedSearch,
+    responsibleIds,
+    clientIds,
+    ccIds,
+    needsSourcing,
+    activeInSearch,
+    openOnly,
+    noOwnerOnly,
+    priorityWorkFilter,
+  ]);
 
   const dl = deadlineParams(deadlinePreset);
 

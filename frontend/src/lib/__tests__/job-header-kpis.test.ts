@@ -41,7 +41,7 @@ function board(): KanbanColumn[] {
     column({ stage: "screening", items: [item({ id: 3 })] }),
     column({
       stage: "verified",
-      items: [item({ id: 4, verification_status: "pending" })],
+      items: [item({ id: 4, budget_exceeded: true })],
     }),
     column({
       stage: "cv_sent",
@@ -153,7 +153,7 @@ describe("buildJobHeaderKpis — kroki", () => {
     expect(kpis[1]).toMatchObject({ value: 0, tone: "neutral" });
   });
 
-  it("Screening: w screeningu · czeka na akceptację (warn) · zweryfikowani", () => {
+  it("Screening: w screeningu · ponad budżet (informacja) · zweryfikowani", () => {
     const kpis = buildJobHeaderKpis({
       tab: "screening",
       columns: board(),
@@ -161,9 +161,9 @@ describe("buildJobHeaderKpis — kroki", () => {
     });
     expect(kpis[0]).toMatchObject({ label: "w screeningu", value: 1 });
     expect(kpis[1]).toMatchObject({
-      label: "czeka na akceptację",
+      label: "ponad budżet",
       value: 1,
-      tone: "warn",
+      tone: "neutral",
     });
     expect(kpis[2]).toMatchObject({ label: "do wysłania CV", value: 1 });
   });

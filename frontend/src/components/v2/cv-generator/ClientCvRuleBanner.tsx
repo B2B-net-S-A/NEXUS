@@ -22,27 +22,48 @@ import { AlertTriangle, FileCheck2, Info } from "lucide-react";
 
 import api from "@/lib/api";
 import { CV_CONTENT_MODES } from "@/lib/cv-generator";
-import type { ClientCvRule } from "@/lib/cv-rules";
+import type { ClientCvRule, ClientCvRuleForGeneration } from "@/lib/cv-rules";
 
 const MODE_LABEL: Record<string, string> = Object.fromEntries(
   CV_CONTENT_MODES.map((m) => [m.value, m.label]),
 );
 
-export type { ClientCvRule } from "@/lib/cv-rules";
+export type { ClientCvRule, ClientCvRuleForGeneration } from "@/lib/cv-rules";
 
+/**
+ * Reguła CV klienta w kształcie potrzebnym generatorowi i banerowi.
+ *
+ * Najpierw wąski odczyt za bramką GENERACJI — rekruter bez rekrutacji u tego
+ * klienta dostawał 403 na pełnej regule, a serwer i tak ją stosował (formularz
+ * nie wiedział o języku, zrzucie zgody ani numerze projektu). Przy 403 (rola
+ * bez prawa generowania, np. czytająca kartę klienta) — pełny odczyt reguły
+ * za grafem klienta, jak dotąd.
+ */
 export function useClientCvRule(clientId: number | null | undefined) {
-  return useQuery({
+  return useQuery<ClientCvRuleForGeneration>({
     queryKey: ["client-cv-rule", clientId ?? null],
     enabled: !!clientId,
-    queryFn: async () =>
-      (await api.get<ClientCvRule>(`/api/clients/${clientId}/cv-rule`)).data,
+    queryFn: async () => {
+      try {
+        return (
+          await api.get<ClientCvRuleForGeneration>(
+            `/api/cv-generator/clients/${clientId}/rule-for-generation`,
+          )
+        ).data;
+      } catch (error) {
+        const status = (error as { response?: { status?: unknown } } | null)?.response
+          ?.status;
+        if (status !== 403) throw error;
+        return (await api.get<ClientCvRule>(`/api/clients/${clientId}/cv-rule`)).data;
+      }
+    },
     staleTime: 60 * 1000,
   });
 }
 
 interface Props {
   clientId: number | null | undefined;
-  rule: ClientCvRule | undefined;
+  rule: ClientCvRuleForGeneration | undefined;
   isLoading: boolean;
   isError: boolean;
 }
@@ -135,7 +156,7 @@ export function ClientCvRuleBanner({
         {rule?.requires_rodo_consent_block ? (
           <span className="block text-muted-foreground">
             Wymagany zrzut ekranu maila ze zgodą kandydata na dole CV —
-            uzupełnij dokument po pobraniu.
+            wgraj go w polu poniżej — trafi automatycznie na koniec CV.
           </span>
         ) : null}
         {rule?.notes?.trim() ? (

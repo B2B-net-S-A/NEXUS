@@ -369,10 +369,18 @@ async def update_latest_expected_rate(
                 rate_currency,
             )
             if normalized is None or normalized > Decimal(job.salary_max):
-                became_pending = stage.verification_status != VerificationStatus.pending
-                stage.verification_status = VerificationStatus.pending
-                stage.approved_by = None
-                stage.approved_at = None
+                # Decyzja 17.09.2026: bramka „Pending" wyłączona — korekta
+                # stawki ponad budżet zostaje `active`, przekroczenie jedzie
+                # na kartę jako informacja (`budget_exceeded` w odpowiedzi).
+                from app.core.config import settings
+
+                if settings.PENDING_VERIFICATION_ENABLED:
+                    became_pending = (
+                        stage.verification_status != VerificationStatus.pending
+                    )
+                    stage.verification_status = VerificationStatus.pending
+                    stage.approved_by = None
+                    stage.approved_at = None
             else:
                 was_pending = stage.verification_status == VerificationStatus.pending
                 stage.verification_status = VerificationStatus.active

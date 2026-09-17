@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -24,6 +24,7 @@ from app.models.candidate_contact import (
 )
 from app.models.job import Job
 from app.models.client import Client
+from app.models.interview_feedback import InterviewFeedback
 from app.models.notification import Notification, NotificationType
 from app.services.notification_access import notification_recipient_has_access
 from app.services.operational_tasks import nominal_task_owner, ownership_payload
@@ -36,6 +37,7 @@ from app.api.recruitment_access import (
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.calendar_access import (
+    CALENDAR_EVENT_CANCELLED,
     CALENDAR_EVENT_DELETED,
     CALENDAR_EVENT_UPDATED,
     event_visibility_filter,
@@ -43,6 +45,7 @@ from app.api.calendar_access import (
     project_event_fields,
     record_calendar_audit,
     user_can_mutate_event,
+    user_can_remove_event,
     user_can_view_event,
     user_is_override,
 )
@@ -51,6 +54,7 @@ from app.services.candidate_contact_hooks import (
     maybe_sync_calendar_handoff,
 )
 from app.services import loop_heartbeat
+from app.services.calendar_all_day import normalize_all_day
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +133,23 @@ async def _ensure_calendar_job_scope(
 # ── Schemas ────────────────────────────────────────────────────────────────────
 
 
+# Przypomnienie najwyżej dobę przed startem. Pętla przypomnień i tak nie
+# patrzy dalej niż 1440 min w przód, więc większa wartość zapisałaby obietnicę,
+# której nikt nie spełni. 0 = bez przypomnienia (nie ma tej opcji w UI, ale
+# API ją przyjmuje dla integracji).
+REMINDER_MAX_MINUTES = 1440
+_END_BEFORE_START = "Koniec wydarzenia musi być późniejszy niż jego początek."
+_REMINDER_RANGE = (
+    f"Przypomnienie musi mieścić się w zakresie 0–{REMINDER_MAX_MINUTES} minut."
+)
+
+
+def _check_reminder(value: Optional[int]) -> Optional[int]:
+    if value is not None and not 0 <= value <= REMINDER_MAX_MINUTES:
+        raise ValueError(_REMINDER_RANGE)
+    return value
+
+
 class CalendarEventCreate(BaseModel):
     title: str
     description: Optional[str] = None
@@ -143,6 +164,23 @@ class CalendarEventCreate(BaseModel):
     location: Optional[str] = None
     teams_link: Optional[str] = None
     reminder_minutes: int = 15
+
+    @field_validator("reminder_minutes")
+    @classmethod
+    def _reminder_range(cls, value: Optional[int]) -> Optional[int]:
+        return _check_reminder(value)
+
+    @model_validator(mode="after")
+    def _end_after_start(self) -> "CalendarEventCreate":
+        # Wpis całodniowy dostaje koniec z `normalize_all_day` — tam „ten sam
+        # dzień" jest poprawnym wejściem, nie błędem.
+        if (
+            not self.all_day
+            and self.end_time is not None
+            and self.end_time <= self.start_time
+        ):
+            raise ValueError(_END_BEFORE_START)
+        return self
 
 
 class CalendarEventUpdate(BaseModel):
@@ -160,6 +198,11 @@ class CalendarEventUpdate(BaseModel):
     teams_link: Optional[str] = None
     reminder_minutes: Optional[int] = None
     status: Optional[EventStatus] = None
+
+    @field_validator("reminder_minutes")
+    @classmethod
+    def _reminder_range(cls, value: Optional[int]) -> Optional[int]:
+        return _check_reminder(value)
 
 
 class CalendarEventResponse(BaseModel):
@@ -189,9 +232,58 @@ class CalendarEventResponse(BaseModel):
     reminder_minutes: int
     status: str
     created_at: Optional[datetime]
+    # Pola, które kolumny niosły od dawna, a odpowiedź nie — więc eskalacja
+    # T+2h i potwierdzenie kandydata były zapisywane i nigdzie niewidoczne.
+    needs_attention: bool = False
+    candidate_confirmed_at: Optional[datetime] = None
+    candidate_confirmation_source: Optional[str] = None
+    # `microsoft365` / `ical` / `manual` — front decyduje, czy wydarzenie
+    # się „odwołuje" (Outlook), czy „usuwa" (wpis tylko w NEXUSIE).
+    external_source: Optional[str] = None
+    # Strony feedbacku zapisane pod tym wydarzeniem (`candidate_side`,
+    # `client_side`) — okno wydarzenia pokazuje „Uzupełnij/Edytuj" bez
+    # osobnego zapytania na każde wydarzenie w tygodniu.
+    feedback_sources: list[str] = []
+    # Czy wołający może odwołać / usunąć wydarzenie (`user_can_remove_event`).
+    can_remove: bool = False
 
     class Config:
         from_attributes = True
+
+
+def _event_extras(ev: CalendarEvent, current_user: User) -> dict:
+    """Pola odpowiedzi wspólne dla WSZYSTKICH konstruktorów odpowiedzi.
+
+    Pięć tras buduje `CalendarEventResponse` ręcznie; nowe pole dopisane do
+    jednej z nich i pominięte w pozostałych dawało okno, które po edycji
+    „gubiło" odznakę albo link. Jedno miejsce = jeden kontrakt.
+    """
+    return {
+        "needs_attention": bool(ev.needs_attention),
+        "candidate_confirmed_at": ev.candidate_confirmed_at,
+        "candidate_confirmation_source": ev.candidate_confirmation_source,
+        "external_source": ev.external_source,
+        # Front pokazuje „Odwołaj"/„Usuń" tylko temu, kogo serwer wpuści
+        # (właściciel albo admin — HoR poprawia cudze, ale ich nie odwołuje).
+        "can_remove": user_can_remove_event(ev, current_user),
+    }
+
+
+async def _feedback_sources_by_event(
+    db: AsyncSession, event_ids: list[int]
+) -> dict[int, list[str]]:
+    """Strony feedbacku per wydarzenie — jednym zapytaniem na całą stronę."""
+    if not event_ids:
+        return {}
+    rows = await db.execute(
+        select(InterviewFeedback.calendar_event_id, InterviewFeedback.feedback_source)
+        .where(InterviewFeedback.calendar_event_id.in_(event_ids))
+        .order_by(InterviewFeedback.feedback_source)
+    )
+    out: dict[int, list[str]] = {}
+    for event_id, source in rows.all():
+        out.setdefault(event_id, []).append(source.value)
+    return out
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────
@@ -278,6 +370,7 @@ async def list_events(
 
     result = await db.execute(query)
     events = result.scalars().all()
+    feedback_sources = await _feedback_sources_by_event(db, [ev.id for ev in events])
 
     # Enrich with names
     output = []
@@ -312,6 +405,8 @@ async def list_events(
                 reminder_minutes=ev.reminder_minutes,
                 status=ev.status.value,
                 created_at=ev.created_at,
+                **_event_extras(ev, current_user),
+                feedback_sources=feedback_sources.get(ev.id, []),
             )
         )
 
@@ -328,12 +423,15 @@ async def create_event(
     await _ensure_calendar_job_scope(
         db, current_user, candidate_id=body.candidate_id, job_id=body.job_id
     )
+    start_time, end_time = body.start_time, body.end_time
+    if body.all_day:
+        start_time, end_time = normalize_all_day(start_time, end_time)
     event = CalendarEvent(
         title=body.title,
         description=body.description,
         event_type=body.event_type,
-        start_time=body.start_time,
-        end_time=body.end_time,
+        start_time=start_time,
+        end_time=end_time,
         all_day=body.all_day,
         candidate_id=body.candidate_id,
         job_id=body.job_id,
@@ -366,105 +464,52 @@ async def create_event(
     await db.commit()
     await db.refresh(event)
 
-    # Build enriched response
+    return await _event_response(db, event, current_user)
+
+
+async def _event_response(
+    db: AsyncSession,
+    event: CalendarEvent,
+    current_user: User,
+    *,
+    project: bool = False,
+) -> CalendarEventResponse:
+    """Odpowiedź dla JEDNEGO wydarzenia (tworzenie, odczyt, edycja, odwołanie).
+
+    Wcześniej każda z tych tras składała odpowiedź po swojemu: edycja zwracała
+    `job_title=None` i `client_name=None`, więc okno po zapisie „gubiło"
+    rekrutację, a nowe pola trafiały tylko do części tras.
+    """
     candidate_name = None
     job_title = None
     client_name = None
 
     if event.candidate_id:
-        cand_r = await db.execute(
+        cand = await db.scalar(
             select(Candidate).where(Candidate.id == event.candidate_id)
         )
-        cand = cand_r.scalar_one_or_none()
         if cand:
-            candidate_name = f"{cand.name} {cand.lastname}"
-
+            candidate_name = f"{cand.name} {cand.lastname}".strip()
     if event.job_id:
-        job_r = await db.execute(select(Job).where(Job.id == event.job_id))
-        job = job_r.scalar_one_or_none()
-        if job:
-            job_title = job.title
-
+        job_title = await db.scalar(select(Job.title).where(Job.id == event.job_id))
     if event.client_id:
-        cli_r = await db.execute(select(Client).where(Client.id == event.client_id))
-        cli = cli_r.scalar_one_or_none()
-        if cli:
-            client_name = cli.name
+        client_name = await db.scalar(
+            select(Client.name).where(Client.id == event.client_id)
+        )
 
-    return CalendarEventResponse(
-        id=event.id,
-        title=event.title,
-        description=event.description,
-        event_type=event.event_type.value,
-        start_time=event.start_time,
-        end_time=event.end_time,
-        all_day=event.all_day,
-        candidate_id=event.candidate_id,
-        candidate_name=candidate_name,
-        job_id=event.job_id,
-        job_title=job_title,
-        client_id=event.client_id,
-        client_name=client_name,
-        attendees=event.attendees or [],
-        location=event.location,
-        teams_link=event.teams_link,
-        online_meeting_url=event.online_meeting_url,
-        recording_url=event.recording_url,
-        created_by=event.created_by,
-        **await ownership_payload(
-            db,
-            event.operational_owner_id or event.created_by,
-            open_task=event.status == EventStatus.scheduled,
-        ),
-        reminder_minutes=event.reminder_minutes,
-        status=event.status.value,
-        created_at=event.created_at,
+    # Projekcja dla uczestnika dotyczy ODCZYTU. Zapis (tworzenie, edycja,
+    # odwołanie) wykonał twórca albo rola nadzoru — jak dotąd pełny rekord.
+    projected = (
+        project_event_fields(event, current_user)
+        if project
+        else {"attendees": event.attendees or [], "description": event.description}
     )
-
-
-@router.get("/calendar/events/{event_id}", response_model=CalendarEventResponse)
-async def get_event(
-    event_id: int,
-    current_user: RecruitmentReadAccess,
-    db: AsyncSession = Depends(get_db),
-):
-    result = await db.execute(select(CalendarEvent).where(CalendarEvent.id == event_id))
-    event = result.scalar_one_or_none()
-    # Anti-enumeration (P1-CALENDAR-01): a caller with no relationship to the
-    # event gets the same 404 as a non-existent id — existence is not revealed.
-    if not event or not user_can_view_event(event, current_user):
-        raise HTTPException(status_code=404, detail="Wydarzenie nie znalezione")
-
-    candidate_name = None
-    job_title = None
-    client_name = None
-
-    if event.candidate_id:
-        cand_r = await db.execute(
-            select(Candidate).where(Candidate.id == event.candidate_id)
-        )
-        cand = cand_r.scalar_one_or_none()
-        if cand:
-            candidate_name = f"{cand.name} {cand.lastname}"
-
-    if event.job_id:
-        job_r = await db.execute(select(Job).where(Job.id == event.job_id))
-        job = job_r.scalar_one_or_none()
-        if job:
-            job_title = job.title
-
-    if event.client_id:
-        cli_r = await db.execute(select(Client).where(Client.id == event.client_id))
-        cli = cli_r.scalar_one_or_none()
-        if cli:
-            client_name = cli.name
-
-    projected = project_event_fields(event, current_user)
+    feedback_sources = await _feedback_sources_by_event(db, [event.id])
     return CalendarEventResponse(
         id=event.id,
         title=event.title,
         description=projected["description"],
-        event_type=event.event_type.value,
+        event_type=event.event_type.value if event.event_type else "meeting",
         start_time=event.start_time,
         end_time=event.end_time,
         all_day=event.all_day,
@@ -486,9 +531,81 @@ async def get_event(
             open_task=event.status == EventStatus.scheduled,
         ),
         reminder_minutes=event.reminder_minutes,
-        status=event.status.value,
+        status=event.status.value if event.status else "scheduled",
         created_at=event.created_at,
+        **_event_extras(event, current_user),
+        feedback_sources=feedback_sources.get(event.id, []),
     )
+
+
+@router.get("/calendar/events/{event_id}", response_model=CalendarEventResponse)
+async def get_event(
+    event_id: int,
+    current_user: RecruitmentReadAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(CalendarEvent).where(CalendarEvent.id == event_id))
+    event = result.scalar_one_or_none()
+    # Anti-enumeration (P1-CALENDAR-01): a caller with no relationship to the
+    # event gets the same 404 as a non-existent id — existence is not revealed.
+    if not event or not user_can_view_event(event, current_user):
+        raise HTTPException(status_code=404, detail="Wydarzenie nie znalezione")
+    return await _event_response(db, event, current_user, project=True)
+
+
+def _is_outlook_event(event: CalendarEvent) -> bool:
+    """Wydarzenie żyje w Outlooku — NEXUS trzyma jego kopię z synchronizacji."""
+    from app.services.m365.calendar import M365_SOURCE
+
+    return event.external_source == M365_SOURCE and bool(event.external_id)
+
+
+# Pola, które przy wydarzeniu z Outlooka należą do Outlooka: sync nadpisuje je
+# przy każdej zmianie `changeKey`, więc lokalna edycja byłaby cicho cofnięta,
+# a uczestnicy i tak dostaliby stary termin. W NEXUSIE edytujemy wtedy
+# wyłącznie metadane rekrutacyjne (typ, kandydat, rekrutacja, przypomnienie).
+_OUTLOOK_OWNED_FIELDS = frozenset(
+    {
+        "title",
+        "description",
+        "start_time",
+        "end_time",
+        "all_day",
+        "location",
+        "attendees",
+        "teams_link",
+    }
+)
+
+
+def _reject_outlook_owned_changes(event: CalendarEvent, changes: dict) -> None:
+    if not _is_outlook_event(event):
+        return
+    changed = sorted(
+        field
+        for field in _OUTLOOK_OWNED_FIELDS & changes.keys()
+        if getattr(event, field) != changes[field]
+    )
+    if changed:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "To wydarzenie pochodzi z Outlooka — termin, tytuł, miejsce, opis "
+                "i uczestników zmień w Outlooku. W NEXUSIE możesz zmienić typ, "
+                "kandydata, rekrutację i przypomnienie."
+            ),
+        )
+    if (
+        changes.get("status") == EventStatus.cancelled
+        and event.status != EventStatus.cancelled
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Wydarzenie z Outlooka odwołaj przyciskiem „Odwołaj” — zmiana "
+                "samego statusu nie powiadomi uczestników."
+            ),
+        )
 
 
 @router.patch("/calendar/events/{event_id}", response_model=CalendarEventResponse)
@@ -508,6 +625,17 @@ async def update_event(
         raise HTTPException(
             status_code=403, detail="Brak uprawnień do edycji tego wydarzenia"
         )
+    # Status `cancelled` przez PATCH to odwołanie — ta sama bramka co
+    # `/cancel` i DELETE (HoR poprawia cudze wydarzenia, ale ich nie odwołuje).
+    if (
+        body.status == EventStatus.cancelled
+        and event.status != EventStatus.cancelled
+        and not user_can_remove_event(event, current_user)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Odwołać wydarzenie może tylko jego właściciel albo administrator.",
+        )
 
     previous_handoff = (
         event.candidate_id,
@@ -516,8 +644,17 @@ async def update_event(
         _is_contact_handoff_event(event),
     )
     changes = body.model_dump(exclude_unset=True)
+    _reject_outlook_owned_changes(event, changes)
     for field, value in changes.items():
         setattr(event, field, value)
+    # Walidacja na WYNIKU, nie na samym żądaniu: PATCH bywa częściowy, więc
+    # nowy koniec trzeba porównać z zapisanym początkiem (i odwrotnie).
+    if event.all_day and changes.keys() & {"all_day", "start_time", "end_time"}:
+        event.start_time, event.end_time = normalize_all_day(
+            event.start_time, event.end_time
+        )
+    elif event.end_time is not None and event.end_time <= event.start_time:
+        raise HTTPException(status_code=422, detail=_END_BEFORE_START)
     # Bramkujemy PRZEJŚCIE `job_id`, nie wartość po mutacji — poprzedni wariant
     # był jednocześnie za surowy i trywialnie omijalny:
     # (a) przy nietkniętym `job_id` odbierał twórcy edycję WŁASNEGO wydarzenia,
@@ -582,44 +719,131 @@ async def update_event(
     )
     await db.commit()
     await db.refresh(event)
+    return await _event_response(db, event, current_user)
 
-    candidate_name = None
-    if event.candidate_id:
-        cand_r = await db.execute(
-            select(Candidate).where(Candidate.id == event.candidate_id)
+
+async def _load_mutable_event(
+    db: AsyncSession, event_id: int, current_user: User, *, forbidden_detail: str
+) -> CalendarEvent:
+    """Kontrakt 404/403 jak edycja (P1-CALENDAR-01), ale z bramką usuwania.
+
+    Obaj wołający (odwołanie i usunięcie) kończą życie wydarzenia, więc
+    obowiązuje `user_can_remove_event` (właściciel albo admin), nie szersze
+    `user_can_mutate_event` — patrz decyzja przy `user_can_remove_event`.
+    """
+    event = await db.scalar(select(CalendarEvent).where(CalendarEvent.id == event_id))
+    if not event or not user_can_view_event(event, current_user):
+        raise HTTPException(status_code=404, detail="Wydarzenie nie znalezione")
+    if not user_can_remove_event(event, current_user):
+        raise HTTPException(status_code=403, detail=forbidden_detail)
+    return event
+
+
+class CalendarEventCancelResponse(BaseModel):
+    event: CalendarEventResponse
+    # Co stało się po stronie Outlooka:
+    # `cancelled` — organizator odwołał, uczestnicy dostali odwołanie;
+    # `deleted` — nie jesteśmy organizatorem, wpis zniknął z kalendarza twórcy;
+    # `gone` — Outlook już go nie ma; `skipped` — brak aktywnego połączenia
+    # M365 twórcy, odwołane tylko w NEXUSIE; `not_applicable` — wydarzenie
+    # istnieje tylko w NEXUSIE; `already_cancelled` — nic nie zmieniono.
+    outlook: str
+
+
+@router.post(
+    "/calendar/events/{event_id}/cancel",
+    response_model=CalendarEventCancelResponse,
+)
+async def cancel_event(
+    event_id: int,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Odwołaj wydarzenie: w Outlooku (gdy stamtąd pochodzi) i w NEXUSIE.
+
+    Do 09.2026 jedyną akcją było „Usuń", które kasowało sam wiersz: spotkanie
+    w Outlooku zostawało, uczestnicy nie dostawali odwołania, a najbliższa
+    synchronizacja odtwarzała wpis. Odwołanie zostawia wiersz ze statusem
+    `cancelled` — z feedbackiem i historią — i jest idempotentne.
+    """
+    from app.models.m365 import M365Connection
+    from app.services.m365.calendar import cancel_graph_event
+    from app.services.m365.graph_client import GraphRequestError
+    from app.services.m365.oauth import M365ReauthRequired
+
+    event = await _load_mutable_event(
+        db,
+        event_id,
+        current_user,
+        forbidden_detail="Brak uprawnień do odwołania tego wydarzenia",
+    )
+    if event.status == EventStatus.cancelled:
+        return CalendarEventCancelResponse(
+            event=await _event_response(db, event, current_user),
+            outlook="already_cancelled",
         )
-        cand = cand_r.scalar_one_or_none()
-        if cand:
-            candidate_name = f"{cand.name} {cand.lastname}"
 
-    return CalendarEventResponse(
-        id=event.id,
-        title=event.title,
-        description=event.description,
-        event_type=event.event_type.value,
-        start_time=event.start_time,
-        end_time=event.end_time,
-        all_day=event.all_day,
-        candidate_id=event.candidate_id,
-        candidate_name=candidate_name,
-        job_id=event.job_id,
-        job_title=None,
-        client_id=event.client_id,
-        client_name=None,
-        attendees=event.attendees or [],
-        location=event.location,
-        teams_link=event.teams_link,
-        online_meeting_url=event.online_meeting_url,
-        recording_url=event.recording_url,
-        created_by=event.created_by,
-        **await ownership_payload(
+    outlook = "not_applicable"
+    if _is_outlook_event(event):
+        conn = (
+            await db.scalar(
+                select(M365Connection).where(M365Connection.user_id == event.created_by)
+            )
+            if event.created_by is not None
+            else None
+        )
+        if conn is None or not conn.is_active:
+            outlook = "skipped"
+        else:
+            try:
+                outlook = await cancel_graph_event(db, conn, event.external_id)
+            except M365ReauthRequired:
+                # Połączenie właśnie przestało być aktywne — ta sama sytuacja
+                # co jego brak: odwołujemy lokalnie i mówimy o tym wprost.
+                outlook = "skipped"
+            except GraphRequestError as exc:
+                logger.warning(
+                    "calendar cancel: Graph %s for event %s", exc.status, event.id
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Outlook nie przyjął odwołania — spróbuj ponownie za chwilę. "
+                        "W NEXUSIE nic nie zostało zmienione."
+                    ),
+                ) from exc
+            except Exception as exc:  # noqa: BLE001 — sieć, właściciel bez dostępu
+                logger.exception("calendar cancel: Graph call failed for %s", event.id)
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Nie udało się połączyć z Outlookiem. W NEXUSIE nic nie "
+                        "zostało zmienione."
+                    ),
+                ) from exc
+
+    if _is_contact_handoff_event(event):
+        await maybe_remove_calendar_handoff(
             db,
-            event.operational_owner_id or event.created_by,
-            open_task=event.status == EventStatus.scheduled,
-        ),
-        reminder_minutes=event.reminder_minutes,
-        status=event.status.value,
-        created_at=event.created_at,
+            candidate_id=event.candidate_id,
+            job_id=event.job_id,
+            event_id=event.id,
+            actor_user_id=current_user.id,
+            occurred_at=datetime.now(timezone.utc),
+        )
+    event.status = EventStatus.cancelled
+    record_calendar_audit(
+        db,
+        action=CALENDAR_EVENT_CANCELLED,
+        user_id=current_user.id,
+        event_id=event.id,
+        override=user_is_override(current_user),
+        details={"outlook": outlook},
+    )
+    await db.commit()
+    await db.refresh(event)
+    return CalendarEventCancelResponse(
+        event=await _event_response(db, event, current_user), outlook=outlook
     )
 
 
@@ -629,14 +853,21 @@ async def delete_event(
     current_user: CalendarWriteAccess,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(CalendarEvent).where(CalendarEvent.id == event_id))
-    event = result.scalar_one_or_none()
-    # Same 404/403 contract as update — P1-CALENDAR-01.
-    if not event or not user_can_view_event(event, current_user):
-        raise HTTPException(status_code=404, detail="Wydarzenie nie znalezione")
-    if not user_can_mutate_event(event, current_user):
+    event = await _load_mutable_event(
+        db,
+        event_id,
+        current_user,
+        forbidden_detail="Brak uprawnień do usunięcia tego wydarzenia",
+    )
+    if _is_outlook_event(event):
+        # Skasowany wiersz wracał przy następnej synchronizacji, a spotkanie
+        # w Outlooku zostawało bez odwołania.
         raise HTTPException(
-            status_code=403, detail="Brak uprawnień do usunięcia tego wydarzenia"
+            status_code=409,
+            detail=(
+                "Wydarzenia z Outlooka nie usuwa się w NEXUSIE — użyj „Odwołaj”, "
+                "żeby odwołać je także w Outlooku."
+            ),
         )
     if _is_contact_handoff_event(event):
         await maybe_remove_calendar_handoff(
@@ -751,6 +982,9 @@ async def list_conflicts(
             await effective_owner_ids(db, scope_user_id)
         ),
         CalendarEvent.status != EventStatus.cancelled,
+        # Urlop/OOO z Outlooka to nie rezerwacja slotu — wpis całodniowy
+        # kolidowałby z każdą rozmową tego dnia i uczył ignorować ostrzeżenia.
+        CalendarEvent.all_day.is_(False),
         CalendarEvent.start_time < end,
         effective_end > start,
     ]
@@ -834,6 +1068,8 @@ async def conflicts_summary(
                     CalendarEvent.operational_owner_id, CalendarEvent.created_by
                 ).in_(await effective_owner_ids(db, scope_user_id)),
                 CalendarEvent.status != EventStatus.cancelled,
+                # Jak w `/calendar/conflicts`: całodniowy wpis nie jest kolizją.
+                CalendarEvent.all_day.is_(False),
                 CalendarEvent.start_time < end,
                 func.coalesce(
                     CalendarEvent.end_time,
@@ -925,6 +1161,12 @@ class M365InviteRequest(BaseModel):
     # Phase 7.1 — opt-in/out of Graph-generated Teams meeting. None lets the
     # service helper apply the event-type default (on for interview/screening).
     add_teams_meeting: Optional[bool] = None
+    reminder_minutes: int = 15
+
+    @field_validator("reminder_minutes")
+    @classmethod
+    def _reminder_range(cls, value: int) -> int:
+        return _check_reminder(value)
 
 
 @router.post(
@@ -946,7 +1188,7 @@ async def create_m365_invite(
     from app.services.m365.calendar import create_event as m365_create_event
 
     if body.end <= body.start:
-        raise HTTPException(status_code=422, detail="end must be after start")
+        raise HTTPException(status_code=422, detail=_END_BEFORE_START)
     await _ensure_calendar_job_scope(
         db, current_user, candidate_id=body.candidate_id, job_id=body.job_id
     )
@@ -983,6 +1225,7 @@ async def create_m365_invite(
         with_teams_meeting=body.add_teams_meeting,
     )
     row.job_id = body.job_id
+    row.reminder_minutes = body.reminder_minutes
     row.operational_owner_id = await nominal_task_owner(
         db, actor_id=current_user.id, job_id=body.job_id, candidate_id=body.candidate_id
     )
@@ -999,39 +1242,64 @@ async def create_m365_invite(
         )
     await db.commit()
     await db.refresh(row)
-
-    return CalendarEventResponse(
-        id=row.id,
-        title=row.title,
-        description=row.description,
-        event_type=row.event_type.value if row.event_type else "meeting",
-        start_time=row.start_time,
-        end_time=row.end_time,
-        all_day=row.all_day,
-        candidate_id=row.candidate_id,
-        candidate_name=f"{candidate.name} {candidate.lastname}".strip(),
-        job_id=row.job_id,
-        job_title=None,
-        client_id=row.client_id,
-        client_name=None,
-        attendees=row.attendees,
-        location=row.location,
-        teams_link=row.teams_link,
-        online_meeting_url=row.online_meeting_url,
-        recording_url=row.recording_url,
-        created_by=row.created_by,
-        **await ownership_payload(
-            db,
-            row.operational_owner_id or row.created_by,
-            open_task=row.status == EventStatus.scheduled,
-        ),
-        reminder_minutes=row.reminder_minutes,
-        status=row.status.value if row.status else "scheduled",
-        created_at=row.created_at,
-    )
+    return await _event_response(db, row, current_user)
 
 
 # ── Background reminder task ──────────────────────────────────────────────────
+
+
+def _minutes_pl(n: int) -> str:
+    if n == 1:
+        return "1 minutę"
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return f"{n} minuty"
+    return f"{n} minut"
+
+
+def reminder_due(start: datetime, minutes: int, tick: datetime) -> bool:
+    """Czysty bliźniak predykatu `_due_reminder_ids` — ta sama arytmetyka.
+
+    Przypomnienie jest należne, gdy wydarzenie jeszcze się nie zaczęło, a do
+    startu zostało nie więcej niż WYBRANE `reminder_minutes` (sufit doba).
+    Dolnej granicy okna brak: pierwszy tick po restarcie dogania wszystko, co
+    przespał (patrz docstring `calendar_reminder_loop`).
+    """
+    if minutes <= 0:
+        return False
+    window = timedelta(minutes=min(minutes, REMINDER_MAX_MINUTES))
+    return tick < start <= tick + window
+
+
+async def _due_reminder_ids(db: AsyncSession, now: datetime) -> list[int]:
+    """Wydarzenia, dla których właśnie wypada przypomnienie.
+
+    Do 09.2026 okno było sztywne (16 min), a wybór „5/10/30/60 min" w
+    formularzu był martwy. Teraz okno liczy się per wydarzenie z
+    `reminder_minutes`: `start_time <= now + make_interval(mins := reminder_minutes)`,
+    zapisane jako `start_time - make_interval(...) <= now`, żeby parametr `now`
+    stał po stronie porównania z kolumną `timestamptz` (asyncpg nie zgadnie
+    typu `$1 + interval`). Wpisy całodniowe (urlop, OOO) i `reminder_minutes = 0`
+    nie dostają przypomnienia.
+    """
+    minutes_interval = func.make_interval(0, 0, 0, 0, 0, CalendarEvent.reminder_minutes)
+    return list(
+        (
+            await db.scalars(
+                select(CalendarEvent.id).where(
+                    # `> now` zostaje, żeby pętla nie budziła przypomnień dla
+                    # wydarzeń, które już się odbyły.
+                    CalendarEvent.start_time > now,
+                    CalendarEvent.start_time - minutes_interval <= now,
+                    CalendarEvent.start_time
+                    <= now + timedelta(minutes=REMINDER_MAX_MINUTES),
+                    CalendarEvent.reminder_minutes > 0,
+                    CalendarEvent.all_day.is_(False),
+                    CalendarEvent.status == EventStatus.scheduled,
+                    CalendarEvent.reminder_sent_at.is_(None),
+                )
+            )
+        ).all()
+    )
 
 
 async def _dispatch_reminder(event_id: int) -> None:
@@ -1066,6 +1334,13 @@ async def _dispatch_reminder(event_id: int) -> None:
             return
 
         now = datetime.now(timezone.utc)
+        if event.all_day or event.reminder_minutes <= 0:
+            # Wydarzenie zmieniło się między skanem a blokadą — nie przypominamy,
+            # ale stemplujemy, żeby skaner nie wracał do niego co minutę.
+            event.reminder_sent_at = now
+            await db.commit()
+            return
+        link = f"/calendar?event={event.id}"
         recipient_id = await effective_owner_id(
             db, event.operational_owner_id or event.created_by
         )
@@ -1080,7 +1355,7 @@ async def _dispatch_reminder(event_id: int) -> None:
             recipient_id,
             NotificationType.interview_scheduled,
             related_entity_type="calendar_event",
-            link="/calendar",
+            link=link,
         ):
             # Revoked users must not receive either a persisted row or the
             # realtime reminder; stamp the event so the scanner does not spin.
@@ -1088,11 +1363,15 @@ async def _dispatch_reminder(event_id: int) -> None:
             await db.commit()
             return
 
+        # Realna liczba minut do startu, nie deklarowana: tick po restarcie
+        # bywa spóźniony, a „Za 15 minut" 3 minuty przed rozmową wprowadza w błąd.
+        minutes_left = max(1, round((event.start_time - now).total_seconds() / 60))
         notif = Notification(
             user_id=recipient_id,
             title="Przypomnienie o wydarzeniu",
-            message=f"Za 15 minut: {event.title}",
-            link="/calendar",
+            message=f"Za {_minutes_pl(minutes_left)}: {event.title}",
+            # Link otwiera TO wydarzenie (`?event=`), nie sam kalendarz.
+            link=link,
             notification_type=NotificationType.interview_scheduled,
         )
         db.add(notif)
@@ -1117,7 +1396,8 @@ async def _dispatch_reminder(event_id: int) -> None:
 
 async def calendar_reminder_loop():
     """
-    Background loop that checks every minute for events starting in ~15 minutes
+    Background loop that checks every minute for events whose own
+    `reminder_minutes` window has opened (see `_due_reminder_ids`)
     and sends reminder notifications to the event creator.
 
     Dedup is durable (`calendar_events.reminder_sent_at`) and the per-event send
@@ -1144,23 +1424,9 @@ async def calendar_reminder_loop():
         beat.tick()
         try:
             now = datetime.now(timezone.utc)
-            window_end = now + timedelta(minutes=16)
-
             async with AsyncSessionLocal() as db:
-                due_ids = (
-                    await db.scalars(
-                        select(CalendarEvent.id).where(
-                            # Bez dolnej granicy `now+14min` — patrz docstring.
-                            # `> now` zostaje, żeby pętla nie budziła
-                            # przypomnień dla wydarzeń, które już się odbyły
-                            # (te trzeba by dopiero stemplować, a nie zgłaszać).
-                            CalendarEvent.start_time > now,
-                            CalendarEvent.start_time <= window_end,
-                            CalendarEvent.status == EventStatus.scheduled,
-                            CalendarEvent.reminder_sent_at.is_(None),
-                        )
-                    )
-                ).all()
+                # Bez dolnej granicy `now+14min` — patrz docstring.
+                due_ids = await _due_reminder_ids(db, now)
 
             for event_id in due_ids:
                 try:

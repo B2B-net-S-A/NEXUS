@@ -11,6 +11,7 @@ seedowanej bazie (patrz docs/phase13-notifications).
 from __future__ import annotations
 
 import inspect
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -91,3 +92,187 @@ async def test_all_triggers_return_zero_when_no_data(empty_db):
     # Time-gated triggers muszą zwrócić 0 o 21:00.
     assert results["powercalling_kpi"] == 0
     assert results["client_feedback_eobd"] == 0
+
+
+# ── stage_stuck_7d (audyt 17.09.2026) ─────────────────────────────────────────
+#
+# Do 09.2026 trigger nie miał dolnej granicy wieku ani filtra otwartych
+# rekrutacji, a dedup był dobowy — każdy zaległy kandydat dawał nowy wiersz
+# każdego dnia. Testy przekazują własną mapę `latest`, żeby nie skanować (i nie
+# powiadamiać) całej współdzielonej bazy testowej.
+
+# Środa; tydzień ISO zaczyna się w poniedziałek 2035-06-04 (Europe/Warsaw).
+_STUCK_NOW = datetime(2035, 6, 6, 10, 0, tzinfo=timezone.utc)
+
+
+async def _seed_stuck_world(*, job_status, days_ago: float) -> dict:
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.models.client import Client
+    from app.models.job import Job
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.models.user import User, UserRole
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        recruiter = User(
+            email=f"stuck-{tag}@example.com",
+            password_hash=hash_password(f"T3st_{tag}!PassX"),
+            name=f"Stuck Recruiter {tag}",
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        candidate = Candidate(
+            name="Anna",
+            lastname=f"Utknięta-{tag}",
+            email=f"stuck-cand-{tag}@example.com",
+            status=CandidateStatus.active,
+        )
+        client = Client(name=f"StuckClient-{tag}")
+        db.add_all([recruiter, candidate, client])
+        await db.flush()
+        job = Job(
+            title=f"Rekrutacja-{tag}",
+            client_id=client.id,
+            status=job_status,
+            recruiter_id=recruiter.id,
+        )
+        db.add(job)
+        await db.flush()
+        stage = CandidateStage(
+            candidate_id=candidate.id,
+            job_id=job.id,
+            stage=PipelineStage.cv_sent,
+            moved_at=_STUCK_NOW - timedelta(days=days_ago),
+        )
+        db.add(stage)
+        await db.commit()
+        return {
+            "recruiter_id": recruiter.id,
+            "candidate_id": candidate.id,
+            "job_id": job.id,
+            "stage_id": stage.id,
+            "stage": nt.LatestStage(
+                id=stage.id,
+                candidate_id=candidate.id,
+                job_id=job.id,
+                stage=PipelineStage.cv_sent,
+                moved_at=stage.moved_at,
+            ),
+            "tag": tag,
+        }
+
+
+async def _run_stuck(world: dict, now: datetime = _STUCK_NOW) -> int:
+    from app.core.database import AsyncSessionLocal
+
+    latest = {(world["candidate_id"], world["job_id"]): world["stage"]}
+    async with AsyncSessionLocal() as db:
+        emitted = await nt.check_stage_stuck_7d(db, now, latest)
+        await db.commit()
+    return emitted
+
+
+async def _stuck_rows(world: dict) -> list:
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.notification import Notification, NotificationType
+
+    async with AsyncSessionLocal() as db:
+        rows = await db.execute(
+            select(Notification).where(
+                Notification.notification_type == NotificationType.stage_stuck_7d,
+                Notification.related_entity_id == world["stage_id"],
+            )
+        )
+        return list(rows.scalars().all())
+
+
+async def _db_or_skip():
+    pytest.importorskip("asyncpg")
+    from sqlalchemy import text
+
+    from app.core.database import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"DB unavailable for integration test: {exc}")
+
+
+async def test_stage_stuck_skips_closed_recruitment():
+    from app.models.job import JobStatus
+
+    await _db_or_skip()
+    world = await _seed_stuck_world(job_status=JobStatus.closed, days_ago=10)
+    assert await _run_stuck(world) == 0
+    assert await _stuck_rows(world) == []
+
+
+async def test_stage_stuck_skips_stage_older_than_max_days():
+    from app.models.job import JobStatus
+
+    await _db_or_skip()
+    world = await _seed_stuck_world(job_status=JobStatus.published, days_ago=400)
+    assert await _run_stuck(world) == 0
+    assert await _stuck_rows(world) == []
+
+
+async def test_stage_stuck_open_recruitment_emits_readable_reminder_once_per_week():
+    from sqlalchemy import update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import JobStatus
+    from app.models.notification import Notification
+
+    await _db_or_skip()
+    world = await _seed_stuck_world(job_status=JobStatus.published, days_ago=10)
+    assert await _run_stuck(world) == 1
+    rows = await _stuck_rows(world)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.user_id == world["recruiter_id"]
+    assert f"Anna Utknięta-{world['tag']}" in row.message
+    assert "od 10 dni" in row.message
+    assert "„CV Wysłane”" in row.message
+    assert f"w rekrutacji „Rekrutacja-{world['tag']}”" in row.message
+    assert "#" not in row.message and "cv_sent" not in row.message
+    assert "ofercie" not in row.message
+    assert row.link == f"/jobs/{world['job_id']}?candidate={world['candidate_id']}"
+
+    # Wiersz z poniedziałku TEGO tygodnia (inny dzień niż dzisiejszy wiersz
+    # z bazy, więc indeks dobowy tu nie pomaga) — kolejny bieg nic nie dodaje.
+    monday = datetime(2035, 6, 4, 8, 0, tzinfo=timezone.utc)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Notification)
+            .where(Notification.id == row.id)
+            .values(created_at=monday)
+        )
+        await db.commit()
+    assert await _run_stuck(world) == 0
+    assert len(await _stuck_rows(world)) == 1
+
+    # Wiersz z poprzedniego tygodnia nie blokuje przypomnienia w nowym.
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Notification)
+            .where(Notification.id == row.id)
+            .values(created_at=monday - timedelta(days=1))
+        )
+        await db.commit()
+    assert await _run_stuck(world) == 1
+    assert len(await _stuck_rows(world)) == 2
+
+
+def test_warsaw_week_start_is_monday_midnight_local():
+    # Niedziela 23:30 UTC = poniedziałek 01:30 w Warszawie → już nowy tydzień.
+    now = datetime(2035, 6, 10, 23, 30, tzinfo=timezone.utc)
+    assert nt._warsaw_week_start_utc(now) == datetime(
+        2035, 6, 10, 22, 0, tzinfo=timezone.utc
+    )

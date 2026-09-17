@@ -47,6 +47,7 @@ import {
 } from"lucide-react";
 import api, { savedSearchesApi } from"@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { useToast } from "@/components/Toast";
 import {
  BulkCvDownloadError,
  downloadBulkCvs,
@@ -135,6 +136,7 @@ import {
  decodeSelectedIds,
  decodeSkillsExpr,
  encodeCompareHref,
+ decodeFilters,
  encodeFilterCriteria,
  encodeFilters,
  filtersToApiParams,
@@ -174,7 +176,6 @@ import { RequireRole } from"@/components/RequireRole";
 import { SavedSearchesMenu } from"@/components/v2/filters/SavedSearchesMenu";
 import { AdvancedSearchPopover } from"@/components/v2/filters/AdvancedSearchPopover";
 import { ROLE_LABELS, type UserRole } from"@/store/auth";
-import { getAuthenticatedRequestHeaders } from "@/lib/session";
 
 const STATUS_LABELS: Record<string, string> = {
  active: "Aktywny",
@@ -647,6 +648,7 @@ function CandidateCvCell({ candidate }: { candidate: Candidate }) {
   const [loading, setLoading] = useState(false);
   const [previewDocumentId, setPreviewDocumentId] = useState<number | null>(null);
   const [documents, setDocuments] = useState<CandidateDocument[]>([]);
+  const { showError } = useToast();
   if (!candidate.cv_filename) {
     return (
       <span className="text-xs text-muted-foreground" aria-label="Brak CV">
@@ -659,20 +661,21 @@ function CandidateCvCell({ candidate }: { candidate: Candidate }) {
     if (loading) return;
     setLoading(true);
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
-      const authHeaders: HeadersInit = getAuthenticatedRequestHeaders();
-      const docsRes = await fetch(
-        `${apiBase}/api/candidates/${candidate.id}/documents?kind=cv`,
-        { headers: authHeaders },
+      // Przez wspólnego klienta API: ponowienia interceptora przy restarcie API
+      // i czytelny powód błędu. Surowy `fetch` z cichym `catch` sprawiał, że
+      // przycisk po prostu nic nie robił.
+      const { data: docs } = await api.get<CandidateDocument[]>(
+        `/api/candidates/${candidate.id}/documents?kind=cv`,
       );
-      if (!docsRes.ok) throw new Error(`documents HTTP ${docsRes.status}`);
-      const docs: CandidateDocument[] = await docsRes.json();
       const primary = docs.find((d) => d.is_primary) ?? docs[0];
-      if (!primary) throw new Error("no document");
+      if (!primary) {
+        showError("Kandydat nie ma zapisanego pliku CV.");
+        return;
+      }
       setDocuments(docs);
       setPreviewDocumentId(primary.id);
-    } catch {
-      // Cicho — kandydat nie ma CV / pliku, fallback na detail przez klik wiersza.
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się otworzyć CV kandydata."));
     } finally {
       setLoading(false);
     }
@@ -1431,25 +1434,10 @@ export function CandidatesListV2() {
  ["actively_looking","open_to_offers","not_looking","unknown"] as const,
  ),
  );
+ // Ten sam dekoder co chipy, zapisane wyszukiwania i API — osobna lista etapów
+ // pomijała „posting”, więc filtr „Ogłoszenia” znikał po odświeżeniu strony.
  const [pipelineStageFilter, setPipelineStageFilter] = useState<PipelineStageFilter[]>(
- parseEnumCsv(
- searchParams.get("stage"),
- [
- "new",
- "prep_call",
- "screening",
- "verified",
- "interview",
- "cv_sent",
- "client_interview",
- "acceptance",
- "negotiation",
- "onboarding",
- "hired",
- "rejected",
- "withdrawn",
- ] as const,
- ),
+ () => decodeFilters(new URLSearchParams(searchParams.toString())).pipelineStage,
  );
  const [locationFilter, setLocationFilter] = useState<string>(
  searchParams.get("loc") ??""
@@ -1793,6 +1781,14 @@ export function CandidatesListV2() {
  const total = data?.total ?? 0;
  const pageSize = data?.page_size ?? 20;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+ // Strona spoza zakresu (stary link, usunięci kandydaci) — cofamy do ostatniej
+ // strony zamiast pokazywać „0 wyników” bez paginacji. Liczymy wyłącznie z
+ // odpowiedzi dla tej strony (nie z danych zastępczych w trakcie pobierania).
+ useEffect(() => {
+ if (!data || isFetching || data.items.length > 0 || data.total <= 0) return;
+ const lastPage = Math.max(1, Math.ceil(data.total / data.page_size));
+ if (data.page > lastPage) setPage(lastPage);
+ }, [data, isFetching]);
 
  // Płaska, odduplikowana lista fraz wyszukiwania (q + q_all + q_any) — używana
  // do podświetlenia <mark> w snippetach CV. `q_none` celowo pomijamy: fraz
@@ -2266,8 +2262,8 @@ export function CandidatesListV2() {
  <Button size="sm" variant="outline">Więcej</Button>
  </PopoverTrigger>
  <PopoverContent align="end" className="w-56 p-1">
- {/* Eksport: capability TAC+ (audyt M2 PR1) — backend zwraca 403 poniżej. */}
- <RequireRole roles={["admin", "delivery_lead", "tac", "finance"]}>
+ {/* Eksport: CANDIDATE_EXPORT_ROLES (candidate_access.py) — admin, HoR, DL, TCM, TAC, finance. */}
+ <RequireRole roles={["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "finance"]}>
  <button
  onClick={() => doExport("csv", "filtered")}
  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
@@ -3150,11 +3146,9 @@ export function CandidatesListV2() {
  onOpenCandidate={(id) => {
  setDetailId(id);
  const idx = items.findIndex((c) => c.id === id);
- if (idx >= 0) {
- setDetailPosition((page - 1) * pageSize + idx + 1);
- } else {
- setDetailPosition(0);
- }
+ // Przypięty spoza bieżącej strony nie ma pozycji na liście — podgląd
+ // bez „poprzedni/następny” (wcześniej „0 z N” i skok na pozycję 1).
+ setDetailPosition(idx >= 0 ? (page - 1) * pageSize + idx + 1 : 0);
  }}
  />
 
@@ -3484,7 +3478,7 @@ export function CandidatesListV2() {
  >
  <GitCompare className="h-3.5 w-3.5" /> Porównaj (max 3)
  </Button>
- <RequireRole roles={["admin", "delivery_lead", "tac", "finance"]}>
+ <RequireRole roles={["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "finance"]}>
  <Button
  size="sm"
  variant="ghost"
@@ -3591,7 +3585,7 @@ export function CandidatesListV2() {
  <CandidateQuickView
  candidateId={detailId}
  onClose={() => setDetailId(null)}
- navigation={{
+ navigation={detailPosition <= 0 ? undefined : {
  filters: filtersSnapshot,
  position: detailPosition,
  pageItems: items.map((c) => ({

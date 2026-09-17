@@ -28,6 +28,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+from app.services.calendar_all_day import normalize_all_day
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,11 @@ class ICalImportResult:
         }
 
 
+def is_all_day_value(v) -> bool:
+    """`date`, ale nie `datetime` (który dziedziczy po `date`) = wpis całodniowy."""
+    return isinstance(v, date) and not isinstance(v, datetime)
+
+
 def _to_datetime(v) -> Optional[datetime]:
     """iCal values may be datetime, date, or None; normalize to UTC datetime."""
     if v is None:
@@ -232,8 +238,14 @@ async def import_ical_url(
             description = str(component.get("DESCRIPTION") or "") or None
             location = str(component.get("LOCATION") or "") or None
 
-            dtstart = _to_datetime(getattr(component.get("DTSTART"), "dt", None))
+            raw_start = getattr(component.get("DTSTART"), "dt", None)
+            dtstart = _to_datetime(raw_start)
             dtend = _to_datetime(getattr(component.get("DTEND"), "dt", None))
+            # `DTSTART;VALUE=DATE` (sama data, bez godziny) to wpis całodniowy
+            # — urlop, OOO. Bez flagi siatka rysowała go jako blok 00:00–24:00.
+            all_day = is_all_day_value(raw_start)
+            if all_day and dtstart is not None:
+                dtstart, dtend = normalize_all_day(dtstart, dtend)
 
             if dtstart is None:
                 result.errors += 1
@@ -262,6 +274,7 @@ async def import_ical_url(
                 existing.location = location
                 existing.start_time = dtstart
                 existing.end_time = dtend
+                existing.all_day = all_day
                 result.updated += 1
             else:
                 # The DB carries a partial unique index on
@@ -291,7 +304,7 @@ async def import_ical_url(
                     event_type=EventType.meeting,
                     start_time=dtstart,
                     end_time=dtend,
-                    all_day=False,
+                    all_day=all_day,
                     location=location,
                     status=EventStatus.scheduled,
                     external_source=source_tag,

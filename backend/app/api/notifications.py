@@ -8,6 +8,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select, true, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -36,6 +37,10 @@ class NotificationResponse(BaseModel):
     notification_type: str
     is_read: bool
     created_at: Optional[str]
+    # Przypomnienie operacyjne kolegi, którego zastępujesz: imię i nazwisko
+    # właściciela, żeby dzwonek mówił „w zastępstwie za …" zamiast udawać,
+    # że to Twoja sprawa. ``None`` = powiadomienie własne.
+    on_behalf_of_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -44,6 +49,10 @@ class NotificationResponse(BaseModel):
 class NotificationListResponse(BaseModel):
     items: List[NotificationResponse]
     unread_count: int
+    # Nieprzeczytane WŁASNE (bez przypomnień w zastępstwie). „Oznacz wszystko"
+    # oznacza tylko własne, więc front pokazuje przycisk przy `own_unread_count`
+    # > 0 — inaczej przy samych cudzych przypomnieniach klik nic nie zmieniał.
+    own_unread_count: int = 0
 
 
 class UnreadCountResponse(BaseModel):
@@ -167,6 +176,16 @@ async def list_notifications(
     )
     notifications = result.scalars().all()
 
+    foreign_owner_ids = {
+        n.user_id for n in notifications if n.user_id != current_user.id
+    }
+    owner_names: dict[int, str] = {}
+    if foreign_owner_ids:
+        owner_rows = await db.execute(
+            select(User.id, User.name).where(User.id.in_(foreign_owner_ids))
+        )
+        owner_names = {row.id: row.name for row in owner_rows}
+
     unread_result = await db.execute(
         select(func.count())
         .select_from(Notification)
@@ -178,6 +197,19 @@ async def list_notifications(
         )
     )
     unread_count = unread_result.scalar() or 0
+    own_unread_count = (
+        await db.scalar(
+            select(func.count())
+            .select_from(Notification)
+            .where(
+                Notification.user_id == current_user.id,
+                Notification.is_read.is_(False),
+                _notification_visibility(current_user),
+                type_filter,
+            )
+        )
+        or 0
+    )
 
     items = [
         NotificationResponse(
@@ -189,11 +221,18 @@ async def list_notifications(
             notification_type=n.notification_type.value,
             is_read=n.is_read,
             created_at=n.created_at.isoformat() if n.created_at else None,
+            on_behalf_of_name=(
+                (owner_names.get(n.user_id) or "nieobecną osobę")
+                if n.user_id != current_user.id
+                else None
+            ),
         )
         for n in notifications
     ]
 
-    return NotificationListResponse(items=items, unread_count=unread_count)
+    return NotificationListResponse(
+        items=items, unread_count=unread_count, own_unread_count=own_unread_count
+    )
 
 
 @router.get("/notifications/count", response_model=UnreadCountResponse)
@@ -260,11 +299,17 @@ async def mark_all_read(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Mark all notifications as read for current user (supports both PUT and PATCH)."""
+    """Mark all notifications as read for current user (supports both PUT and PATCH).
+
+    Tylko WŁASNE wiersze: przypomnienia nieobecnego kolegi widoczne
+    w zastępstwie zostają nieprzeczytane — „Oznacz wszystko" zastępcy nie może
+    zamknąć spraw, które właściciel zobaczy po powrocie. Pojedyncze
+    przypomnienie zastępca nadal gasi świadomie kliknięciem.
+    """
     result = await db.execute(
         update(Notification)
         .where(
-            _notification_owner(current_user),
+            Notification.user_id == current_user.id,
             Notification.is_read.is_(False),
             _notification_visibility(current_user),
         )
@@ -309,30 +354,11 @@ async def create_notification(
     Note: caller is responsible for ``db.commit()``.
     """
     if dedupe_resurface and related_entity_id is not None:
-        from sqlalchemy import and_
-
-        existing = await db.scalar(
-            select(Notification)
-            .where(
-                and_(
-                    Notification.user_id == user_id,
-                    Notification.notification_type == notification_type,
-                    Notification.related_entity_id == related_entity_id,
-                    Notification.related_entity_type == related_entity_type,
-                    func.date_trunc("day", Notification.created_at)
-                    == func.date_trunc("day", func.now()),
-                )
-            )
-            .order_by(Notification.created_at.desc())
-            .limit(1)
+        existing = await _todays_notification(
+            db, user_id, notification_type, related_entity_id
         )
         if existing is not None:
-            existing.title = title
-            existing.message = message
-            existing.link = link
-            existing.is_read = False
-            existing.created_at = func.now()
-            return existing
+            return _resurface(existing, title, message, link, related_entity_type)
 
     notif = Notification(
         user_id=user_id,
@@ -344,5 +370,68 @@ async def create_notification(
         related_entity_type=related_entity_type,
         related_entity_id=related_entity_id,
     )
-    db.add(notif)
+    if not (dedupe_resurface and related_entity_id is not None):
+        db.add(notif)
+        return notif
+
+    # Dwa równoległe zapisy (np. dwa zapisy profilu Championa w tej samej
+    # sekundzie) oba nie widzą dzisiejszego wiersza i oba wstawiają — drugi
+    # trafia w `ix_notif_dedup_daily`. Savepoint zamienia to w ponowne
+    # wyświetlenie istniejącego wiersza zamiast 500 na całym żądaniu.
+    try:
+        async with db.begin_nested():
+            db.add(notif)
+            await db.flush()
+    except IntegrityError:
+        existing = await _todays_notification(
+            db, user_id, notification_type, related_entity_id
+        )
+        if existing is None:
+            raise
+        return _resurface(existing, title, message, link, related_entity_type)
     return notif
+
+
+def _warsaw_day(column):
+    """Doba lokalna Europe/Warsaw — TO SAMO wyrażenie co w indeksie
+    ``ix_notif_dedup_daily`` (``entrypoint.sh``). Do 09.2026 porównanie szło
+    po dobie w strefie sesji (UTC): wiersz z 00:30 czasu polskiego należał do
+    „wczoraj", zapytanie go nie znajdowało, a INSERT wywracał się na indeksie."""
+    return func.date_trunc("day", func.timezone("Europe/Warsaw", column))
+
+
+async def _todays_notification(
+    db: AsyncSession,
+    user_id: int,
+    notification_type: NotificationType,
+    related_entity_id: int,
+) -> Optional[Notification]:
+    # Klucz indeksu nie zawiera `related_entity_type`, więc wyszukiwanie też
+    # go pomija — inaczej wiersz kolidujący z indeksem byłby „niewidoczny".
+    return await db.scalar(
+        select(Notification)
+        .where(
+            Notification.user_id == user_id,
+            Notification.notification_type == notification_type,
+            Notification.related_entity_id == related_entity_id,
+            _warsaw_day(Notification.created_at) == _warsaw_day(func.now()),
+        )
+        .order_by(Notification.created_at.desc())
+        .limit(1)
+    )
+
+
+def _resurface(
+    existing: Notification,
+    title: str,
+    message: str,
+    link: Optional[str],
+    related_entity_type: Optional[str],
+) -> Notification:
+    existing.title = title
+    existing.message = message
+    existing.link = link
+    existing.related_entity_type = related_entity_type
+    existing.is_read = False
+    existing.created_at = func.now()
+    return existing

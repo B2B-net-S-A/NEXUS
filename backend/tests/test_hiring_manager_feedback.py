@@ -372,7 +372,9 @@ async def test_without_auth_it_is_closed(app_client) -> None:
     assert resp.status_code in (401, 403), resp.text
 
 
-async def _add_rejection(job_id: int, candidate_id: int, reason_id: int, moved_at) -> None:
+async def _add_rejection(
+    job_id: int, candidate_id: int, reason_id: int, moved_at
+) -> None:
     from app.core.database import AsyncSessionLocal
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 
@@ -419,7 +421,9 @@ async def test_veto_requires_the_meeting_to_precede_the_rejection(
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["veto_recorded"] is False
-    assert any("PRZED" in blocker for blocker in body["veto_blockers"]), body["veto_blockers"]
+    assert any("PRZED" in blocker for blocker in body["veto_blockers"]), body[
+        "veto_blockers"
+    ]
 
     # Odrzucenie PO spotkaniu (dzień później) → weto stoi.
     await _add_rejection(
@@ -592,11 +596,13 @@ async def test_author_and_delivery_lead_may_update_the_verdict(app_client) -> No
     assert by_dl.json()["author_id"] == dl_id
 
 
-async def test_head_of_recruitment_reads_but_cannot_record(app_client) -> None:
-    """HoR czyta werdykty (nadzór), ale zapis stoi za `RecruiterPlus`.
+async def test_head_of_recruitment_reads_and_records(app_client) -> None:
+    """Parytet HoR z rekruterem 2026-09-17: HoR jest w `RecruiterPlus`
+    i omija członkostwo w zespole (rola nadzoru), więc zapis przechodzi.
 
-    `can_edit` nie może obiecywać HoR przycisku kończącego się 403, nawet
-    gdy `_can_edit` z modułu feedbacku przepuszcza tę rolę.
+    `can_edit` na CUDZYM werdykcie: `_can_edit` z modułu feedbacku przepuszcza
+    HoR (nadzór może poprawić werdykt zespołu), a zapis już nie odmawia —
+    więc przycisk nie obiecuje 403. Świadomie `True`.
     """
     from app.models.user import UserRole
 
@@ -613,15 +619,138 @@ async def test_head_of_recruitment_reads_but_cannot_record(app_client) -> None:
 
     listed = await app_client.get(_url(world), headers=hor_headers)
     assert listed.status_code == 200, listed.text
-    assert listed.json()["items"][0]["can_edit"] is False
-    assert listed.json()["can_record"] is False
+    # parytet HoR z rekruterem 2026-09-17
+    assert listed.json()["items"][0]["can_edit"] is True
+    assert listed.json()["can_record"] is True
 
     write = await app_client.post(
         _url(world),
         headers=hor_headers,
         json={"candidate_id": world["candidate_id"], "decision": "reject"},
     )
-    assert write.status_code == 403, write.text
+    assert write.status_code == 201, write.text
+
+
+# ── Werdykt zapisany z okna wydarzenia w kalendarzu (audyt 17.09.2026) ───────
+
+
+async def _seed_event_feedback(world: dict, *, author_id: int | None = None) -> dict:
+    """Rozmowa w kalendarzu + feedback klienta zapisany pod nią (`needs_attention`)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+    from app.models.interview_feedback import (
+        FeedbackSource,
+        InterviewDecision,
+        InterviewFeedback,
+    )
+
+    async with AsyncSessionLocal() as db:
+        event = CalendarEvent(
+            title="Rozmowa u klienta",
+            event_type=EventType.interview,
+            start_time=NOW - timedelta(days=2),
+            end_time=NOW - timedelta(days=2) + timedelta(hours=1),
+            candidate_id=world["candidate_id"],
+            job_id=world["job_id"],
+            status=EventStatus.completed,
+            needs_attention=True,
+            created_by=author_id,
+        )
+        db.add(event)
+        await db.flush()
+        feedback = InterviewFeedback(
+            calendar_event_id=event.id,
+            candidate_id=world["candidate_id"],
+            job_id=world["job_id"],
+            author_id=author_id,
+            feedback_source=FeedbackSource.client_side,
+            decision=InterviewDecision.on_hold,
+            feedback_summary="Klient chce się zastanowić.",
+        )
+        db.add(feedback)
+        await db.commit()
+        return {"event_id": event.id, "feedback_id": feedback.id}
+
+
+async def test_listing_includes_the_verdict_saved_from_a_calendar_event(
+    app_client, app_auth_headers
+) -> None:
+    """Karta rekrutacji mówiła „do uzupełnienia" nad werdyktem zapisanym
+    w kalendarzu, bo lista czytała tylko wiersze bez spotkania."""
+    world = await _seed()
+    seeded = await _seed_event_feedback(world)
+
+    resp = await app_client.get(_url(world), headers=app_auth_headers)
+    assert resp.status_code == 200, resp.text
+    rows = resp.json()["items"]
+    assert len(rows) == 1
+    assert rows[0]["id"] == seeded["feedback_id"]
+    assert rows[0]["calendar_event_id"] == seeded["event_id"]
+    assert rows[0]["event_title"] == "Rozmowa u klienta"
+    assert rows[0]["event_start_time"] is not None
+    assert rows[0]["decision"] == "on_hold"
+
+
+async def test_recording_from_the_card_keeps_the_calendar_verdict_and_clears_attention(
+    app_client, app_auth_headers
+) -> None:
+    """Werdykt z karty to OSOBNY wiersz bez wydarzenia (przegląd 17.09.2026).
+
+    Wiersz przypięty do rozmowy opisuje tę rozmowę — nadpisanie gubiło notatkę
+    rundy 1, a FK z ON DELETE CASCADE kasowało werdykt z karty razem ze
+    spotkaniem. Lista pokazuje ostatnio zmieniony wiersz, więc po zapisie karta
+    widzi swój werdykt; flaga „brak feedbacku" na rozmowie gaśnie.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.calendar_event import CalendarEvent
+    from app.models.interview_feedback import FeedbackSource, InterviewFeedback
+
+    world = await _seed()
+    seeded = await _seed_event_feedback(world)
+
+    resp = await app_client.post(
+        _url(world),
+        headers=app_auth_headers,
+        json={"candidate_id": world["candidate_id"], "decision": "advance"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["id"] != seeded["feedback_id"]
+    assert resp.json()["calendar_event_id"] is None
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            (
+                await db.execute(
+                    select(InterviewFeedback).where(
+                        InterviewFeedback.job_id == world["job_id"],
+                        InterviewFeedback.feedback_source == FeedbackSource.client_side,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        event = await db.get(CalendarEvent, seeded["event_id"])
+    by_id = {row.id: row for row in rows}
+    assert len(rows) == 2
+    assert by_id[seeded["feedback_id"]].decision.value == "on_hold"
+    assert (
+        by_id[seeded["feedback_id"]].feedback_summary == "Klient chce się zastanowić."
+    )
+    assert event is not None and event.needs_attention is False
+
+    listed = await app_client.get(_url(world), headers=app_auth_headers)
+    assert listed.status_code == 200, listed.text
+    assert [item["id"] for item in listed.json()["items"]] == [resp.json()["id"]]
+
+    # Drugi zapis z karty edytuje TEN SAM wiersz bez wydarzenia.
+    again = await app_client.post(
+        _url(world),
+        headers=app_auth_headers,
+        json={"candidate_id": world["candidate_id"], "decision": "reject"},
+    )
+    assert again.status_code == 201, again.text
+    assert again.json()["id"] == resp.json()["id"]
 
 
 # ── `can_record`: formularz tylko dla tych, których POST przepuści (09.2026) ──
@@ -650,7 +779,8 @@ async def test_can_record_matches_the_post_for_every_persona(
         ("finance-outsider", UserRole.finance, False),
         # Obejście członkostwa dla Delivery Leada — to samo co w POST.
         ("delivery-lead-outsider", UserRole.delivery_lead, True),
-        ("head-of-recruitment", UserRole.head_of_recruitment, False),
+        # Parytet HoR z rekruterem 2026-09-17 (rola nadzoru omija członkostwo).
+        ("head-of-recruitment", UserRole.head_of_recruitment, True),
     ]
     for label, role, expected in cases:
         world = await _seed()
@@ -681,7 +811,9 @@ async def test_impersonated_view_cannot_record(app_client, app_auth_headers) -> 
     from app.models.user import UserRole
 
     world = await _seed()
-    _, member_id = await _role_headers(UserRole.recruiter, member_of_job=world["job_id"])
+    _, member_id = await _role_headers(
+        UserRole.recruiter, member_of_job=world["job_id"]
+    )
 
     listed = await app_client.get(
         _url(world),

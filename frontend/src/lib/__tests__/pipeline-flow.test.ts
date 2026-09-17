@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   HM_VETO_ENFORCED_STAGES,
-  PENDING_VERIFICATION_MOVE_BLOCK,
   PIPELINE_GROUP_LABEL,
   countAtClient,
   countContractSent,
@@ -25,7 +24,7 @@ import {
   itemFullName,
   moveBlockedReason,
   primaryForwardMove,
-  selectPendingVerifications,
+  selectOverBudget,
   selectScreeningQueue,
   selectVerifiedQueue,
   stageAgeTone,
@@ -76,7 +75,7 @@ const board: KanbanColumn[] = [
         id: 22,
         candidate_id: 122,
         stage: "verified",
-        verification_status: "pending",
+        budget_exceeded: true,
       }),
     ],
   }),
@@ -104,7 +103,7 @@ const board: KanbanColumn[] = [
         id: 51,
         candidate_id: 151,
         stage: "rejected",
-        verification_status: "pending",
+        budget_exceeded: true,
       }),
     ],
   }),
@@ -136,14 +135,14 @@ describe("selectScreeningQueue", () => {
   });
 });
 
-describe("selectPendingVerifications", () => {
+describe("selectOverBudget", () => {
   it("skanuje wszystkie kolumny nie-terminalne, nie tylko „Zweryfikowany”", () => {
-    const pending = selectPendingVerifications(board);
-    expect(pending.map((e) => e.item.id)).toEqual([22]);
+    const over = selectOverBudget(board);
+    expect(over.map((e) => e.item.id)).toEqual([22]);
   });
 
-  it("pomija kolumny terminalne — odrzucony nie czeka już na akceptację", () => {
-    const ids = selectPendingVerifications(board).map((e) => e.item.id);
+  it("pomija kolumny terminalne", () => {
+    const ids = selectOverBudget(board).map((e) => e.item.id);
     expect(ids).not.toContain(51);
   });
 });
@@ -275,8 +274,8 @@ describe("selektory KPI", () => {
 /**
  * Bramka ruchu = lustro `POST /api/pipeline/move`. Każdy przypadek niżej to
  * rozjazd, który istniał: UI wyszarzało „Zweryfikowany"/„Zatrudniony" przy
- * wecie (serwer je przepuszcza), a kartę „Pending" przepuszczało prosto w 409
- * — w kroku 06 PO utworzeniu żywego linku do CV.
+ * wecie (serwer je przepuszcza). Bramka „Pending" jest wyłączona od
+ * 17.09.2026 — stawka ponad budżet nie blokuje żadnego ruchu.
  */
 describe("moveBlockedReason", () => {
   const veto = {
@@ -335,34 +334,20 @@ describe("moveBlockedReason", () => {
     ).toBeNull();
   });
 
-  it("karta „Pending” blokuje KAŻDY ruch — także terminalny, bo serwer odpowiada 409", () => {
-    const pending = item({ verification_status: "pending" });
-    for (const targetStage of ["cv_sent", "verified", "hired"]) {
-      expect(
-        moveBlockedReason({ item: pending, readOnly: false, targetStage }),
-      ).toBe(PENDING_VERIFICATION_MOVE_BLOCK);
+  it("stawka ponad budżet i zapisany `pending` NIE blokują ruchu — bramka wyłączona", () => {
+    for (const card of [
+      item({ budget_exceeded: true }),
+      item({ verification_status: "pending" }),
+    ]) {
+      for (const targetStage of ["cv_sent", "verified", "hired"]) {
+        expect(
+          moveBlockedReason({ item: card, readOnly: false, targetStage }),
+        ).toBeNull();
+      }
     }
-    expect(
-      moveBlockedReason({
-        item: pending,
-        readOnly: false,
-        terminal: true,
-        targetStage: "rejected",
-      }),
-    ).toBe(PENDING_VERIFICATION_MOVE_BLOCK);
   });
 
-  it("powód „Pending” nie każe czytającemu akceptować — robi to wyłącznie administrator", () => {
-    // `accept-verification` / `reject-verification` stoją za `AdminUser`;
-    // rekruter czytający „najpierw zaakceptuj" dostawał polecenie nie do
-    // wykonania. Funkcja nie zna roli, więc zdanie ma być prawdziwe dla KAŻDEGO.
-    expect(PENDING_VERIFICATION_MOVE_BLOCK).toContain("czeka na akceptację");
-    expect(PENDING_VERIFICATION_MOVE_BLOCK).toMatch(/administrator/);
-    expect(PENDING_VERIFICATION_MOVE_BLOCK).not.toMatch(/najpierw zaakceptuj/i);
-    expect(PENDING_VERIFICATION_MOVE_BLOCK).not.toMatch(/odrzuć weryfikację/i);
-  });
-
-  it("karta bez weta i bez „Pending” przechodzi", () => {
+  it("karta bez weta przechodzi", () => {
     expect(
       moveBlockedReason({ item: item(), readOnly: false, targetStage: "cv_sent" }),
     ).toBeNull();
@@ -462,11 +447,7 @@ describe("primaryForwardMove", () => {
     expect(move.target?.name).toBe("Onboarding");
   });
 
-  it("karta „Pending” i brak prawa zapisu: żadnej akcji naprzód (jak dotąd)", () => {
-    const pending = at("Wysłać do Cpro", { verification_status: "pending" });
-    expect(
-      primaryForwardMove({ ...pending, readOnly: false }),
-    ).toEqual({ target: null, blocked: null });
+  it("brak prawa zapisu: żadnej akcji naprzód", () => {
     const readOnly = at("Wysłać do Cpro");
     expect(primaryForwardMove({ ...readOnly, readOnly: true })).toEqual({
       target: null,

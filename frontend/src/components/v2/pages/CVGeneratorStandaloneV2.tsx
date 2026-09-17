@@ -12,6 +12,7 @@ import {
   Download,
   Eye,
   Pencil,
+  RotateCcw,
   FileCode2,
   FileText,
   Link2,
@@ -75,12 +76,17 @@ import {
   type RecruitmentOption,
   CHAMPION_ACCEPT,
   CV_ACCEPT,
+  CV_CONTENT_MODES,
   DEFAULT_CV_CONTENT_MODE,
   MAX_UPLOAD_MB,
   downloadBlob,
+  CANDIDATE_SEARCH_MAX_LENGTH,
+  candidateSearchMessage,
+  clientRuleRequirementProblems,
   extractErrorDetail,
   fileValidationError,
   isCertainWarning,
+  ruleNeedsProjectRef,
 } from "@/lib/cv-generator";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { useLocalStorageFlag } from "@/lib/use-local-storage-flag";
@@ -110,6 +116,7 @@ type GeneratedCvItem = {
   language: string;
   blind: boolean;
   mode: string;
+  content_mode?: string | null;
   filename: string;
   status: "processing" | "ready" | "failed";
   job_status?: "queued" | "running" | "complete" | "failed" | "interrupted" | null;
@@ -282,9 +289,16 @@ export function CVGeneratorStandaloneV2({
       });
       return res.data;
     },
-    enabled: candidateOpen && mode === "new",
+    enabled:
+      candidateOpen &&
+      mode === "new" &&
+      debouncedCandidateQuery.trim().length <= CANDIDATE_SEARCH_MAX_LENGTH,
     staleTime: 30_000,
   });
+  const candidateSearchError = candidateSearchMessage(
+    candidateQuery,
+    candidatesQuery.error,
+  );
 
   const sourceSelection = useCvSourceSelection(candidate?.id, mode === "new");
   const selectedSource = sourceSelection.selected;
@@ -355,6 +369,16 @@ export function CVGeneratorStandaloneV2({
     if (match) setStageId(String(match.stage_id));
   }, [prefillJobId, stageId, recruitmentsQuery.data]);
 
+  // „Wygeneruj ponownie" z historii: rekrutacja wiersza wybierana, gdy lista
+  // procesów kandydata dojdzie — ta sama zasada co przy prefillu (bez zgadywania).
+  const [retryJobTarget, setRetryJobTarget] = useState<number | null>(null);
+  useEffect(() => {
+    if (retryJobTarget == null || !recruitmentsQuery.data) return;
+    const match = recruitmentsQuery.data.find((r) => r.job_id === retryJobTarget);
+    setStageId(match ? String(match.stage_id) : "");
+    setRetryJobTarget(null);
+  }, [retryJobTarget, recruitmentsQuery.data]);
+
   // ── Upload: klient podpowiadany z aktywnego procesu kandydata ───────────
   const debouncedUploadCandidateQuery = useDebouncedValue(uploadCandidateQuery, 300);
   const uploadCandidatesQuery = useQuery({
@@ -365,9 +389,16 @@ export function CVGeneratorStandaloneV2({
       });
       return res.data;
     },
-    enabled: uploadCandidateOpen && mode === "old",
+    enabled:
+      uploadCandidateOpen &&
+      mode === "old" &&
+      debouncedUploadCandidateQuery.trim().length <= CANDIDATE_SEARCH_MAX_LENGTH,
     staleTime: 30_000,
   });
+  const uploadCandidateSearchError = candidateSearchMessage(
+    uploadCandidateQuery,
+    uploadCandidatesQuery.error,
+  );
   const uploadRecruitmentsQuery = useQuery({
     queryKey: ["cv-gen-recruitments", uploadBindingCandidateId],
     queryFn: async () => {
@@ -458,33 +489,22 @@ export function CVGeneratorStandaloneV2({
       : !!championFile || !!mustRequirements.trim() || !!niceRequirements.trim();
   const notesChars =
     mode === "new" ? (selectedRecruitment?.notes_chars ?? 0) : screeningNotes.trim().length;
-  const requirementProblems = useMemo(() => {
-    if (!activeRule) return [] as string[];
-    const problems: string[] = [];
-    const min = activeRule.require_screening_notes_min_chars ?? 0;
-    if (min > 0 && notesChars < min) {
-      problems.push(
-        `Ten klient wymaga notatek ze screeningu o długości co najmniej ${min} znaków — jest ${notesChars}.`,
-      );
-    }
-    if (activeRule.require_project_ref && !projectRef.trim()) {
-      problems.push("Ten klient wymaga numeru projektu — uzupełnij pole „Numer / nazwa projektu”.");
-    }
-    if (activeRule.require_position && mode === "old" && !position.trim()) {
-      problems.push("Ten klient wymaga stanowiska — uzupełnij pole „Stanowisko”.");
-    }
-    if (activeRule.require_champion && !hasChampionInput) {
-      problems.push(
-        mode === "new"
-          ? "Ten klient wymaga Profilu Championa — uzupełnij go na karcie rekrutacji przed generacją."
-          : "Ten klient wymaga wymagań z Profilu Championa — wgraj plik championa albo wpisz wymagania must-have / nice-to-have.",
-      );
-    }
-    return problems;
-  }, [activeRule, notesChars, projectRef, position, mode, hasChampionInput]);
+  const requirementProblems = useMemo(
+    () =>
+      clientRuleRequirementProblems(activeRule, {
+        mode,
+        notesChars,
+        projectRef,
+        position,
+        hasChampionInput,
+      }),
+    [activeRule, notesChars, projectRef, position, mode, hasChampionInput],
+  );
+  // Upload bierze klienta z przypisanej rekrutacji ALBO z pickera — Alert
+  // wisi na kliencie obowiązującym tę generację, inaczej „Generuj" był
+  // wyłączony bez słowa wyjaśnienia (każdy upload z kroku 06).
   const showRequirementProblems =
-    requirementProblems.length > 0 &&
-    (mode === "new" ? !!selectedRecruitment : !!uploadClient);
+    requirementProblems.length > 0 && !!effectiveClientId;
 
   const canSubmitNew =
     !!candidate && !!selectedRecruitment && selectedRecruitment.ready && !!selectedSource;
@@ -624,6 +644,81 @@ export function CVGeneratorStandaloneV2({
     // the list data changes is intentional.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleGenerated]);
+
+  function focusGeneratorForm() {
+    requestAnimationFrame(() => {
+      generatorFormRef.current?.focus({preventScroll: true});
+      generatorFormRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
+    });
+  }
+
+  /** Kontekst uploadu z wiersza historii — plik CV i zgodę wgrywa się od nowa. */
+  function loadUploadContext(item: GeneratedCvItem) {
+    setMode("old");
+    setCvFile(null);
+    setChampionFile(null);
+    setChampionError(null);
+    setConsentKey(null);
+    setScreeningNotes("");
+    setMustRequirements("");
+    setNiceRequirements("");
+    setProjectRef("");
+    setPosition(item.position ?? "");
+    setLanguage(item.language === "en" ? "en" : "pl");
+    setBlindCv(item.blind);
+    setUploadStageId("");
+    setUploadCandidate(item.candidate_id == null ? null : {
+      id: item.candidate_id, full_name: item.candidate_name,
+      name: item.candidate_name, lastname: "",
+    });
+    setUploadClient(item.client_id == null ? null : {
+      id: item.client_id, name: item.client_name ?? `#${item.client_id}`,
+    });
+    setOutsideAssignment(false);
+    setRecoveryContext(item.candidate_id != null && item.job_id != null
+      ? {candidateId: item.candidate_id, jobId: item.job_id} : null);
+  }
+
+  /**
+   * „Wygeneruj ponownie" przy wierszu „Przerwano"/„Błąd": wczytuje do
+   * formularza te same ustawienia (kandydat, rekrutacja, język, blind, tryb).
+   * Świadomie NIE kolejkuje generacji sama: źródłowe CV wybiera się jawnie,
+   * zrzut zgody i plik uploadu nie przeżywają nieudanej generacji, a każda
+   * generacja zużywa limit AI — decyzję podejmuje rekruter jednym kliknięciem.
+   */
+  function retryFromHistory(item: GeneratedCvItem) {
+    if (item.mode === "upload" || item.candidate_id == null) {
+      if (embedded) {
+        setMode("old");
+        setPosition(item.position ?? "");
+        setLanguage(item.language === "en" ? "en" : "pl");
+        setBlindCv(item.blind);
+      } else {
+        loadUploadContext(item);
+      }
+    } else {
+      setMode("new");
+      setLanguage(item.language === "en" ? "en" : "pl");
+      setBlindCv(item.blind);
+      setConsentKey(null);
+      if (!embedded) {
+        setCandidate({
+          id: item.candidate_id,
+          name: item.candidate_name,
+          lastname: "",
+          full_name: item.candidate_name,
+        });
+        setStageId("");
+        setRetryJobTarget(item.job_id ?? null);
+      }
+    }
+    const modeOption = CV_CONTENT_MODES.find((option) => option.value === item.content_mode);
+    if (modeOption) setContentMode(modeOption.value);
+    toast.showSuccess(
+      "Wczytano ustawienia nieudanej generacji — sprawdź źródłowe CV i kliknij „Generuj CV”.",
+    );
+    focusGeneratorForm();
+  }
 
   function handleSubmit() {
     if (!canWriteSourcing) return;
@@ -794,6 +889,7 @@ export function CVGeneratorStandaloneV2({
           candidateOpen={candidateOpen}
           candidateQuery={candidateQuery}
           candidatesQuery={candidatesQuery}
+          searchError={candidateSearchError}
           recruitmentsQuery={recruitmentsQuery}
           selectedRecruitment={selectedRecruitment}
           stageId={stageId}
@@ -868,6 +964,7 @@ export function CVGeneratorStandaloneV2({
                   open={uploadCandidateOpen}
                   query={uploadCandidateQuery}
                   candidatesQuery={uploadCandidatesQuery}
+                  searchError={uploadCandidateSearchError}
                   setCandidate={(value) => { setUploadCandidate(value); setUploadStageId(""); setUploadClient(null); setOutsideAssignment(false); }}
                   setOpen={setUploadCandidateOpen}
                   setQuery={setUploadCandidateQuery}
@@ -967,8 +1064,7 @@ export function CVGeneratorStandaloneV2({
             </div>
           )}
 
-          {(activeRule?.filename_pattern?.includes("{PROJEKT}") ||
-            activeRule?.require_project_ref) && (
+          {ruleNeedsProjectRef(activeRule) && (
             <div>
               <Label className="mb-2 block" htmlFor="cvgen-project">
                 Numer / nazwa projektu
@@ -990,8 +1086,12 @@ export function CVGeneratorStandaloneV2({
 
           <div>
             <Label className="mb-2 block">Obróbka treści</Label>
-            <div className={lockedMode ? "pointer-events-none opacity-60" : undefined}>
-              <ContentModeTiles value={contentMode} onChange={setContentMode} />
+            <div className={lockedMode ? "opacity-60" : undefined}>
+              <ContentModeTiles
+                value={contentMode}
+                onChange={setContentMode}
+                disabled={!!lockedMode}
+              />
             </div>
             {lockedMode ? (
               <p className="mt-1 text-xs text-muted-foreground">
@@ -1003,11 +1103,12 @@ export function CVGeneratorStandaloneV2({
 
           <div>
             <Label className="mb-2 block">Język CV</Label>
-            <div className={forcedLanguage ? "pointer-events-none opacity-60" : undefined}>
+            <div className={forcedLanguage ? "opacity-60" : undefined}>
               <LanguageTiles
                 value={language}
                 onChange={setLanguage}
                 className="sm:max-w-md"
+                disabled={!!forcedLanguage}
               />
             </div>
             {forcedLanguage ? (
@@ -1164,6 +1265,7 @@ export function CVGeneratorStandaloneV2({
                   onEdit={setEditItem}
                   onShare={setShareItem}
                   onDelete={handleDeleteGenerated}
+                  onRetry={retryFromHistory}
                   canWrite={canWriteSourcing}
                 />
               ))}
@@ -1186,35 +1288,8 @@ export function CVGeneratorStandaloneV2({
             window.location.assign(`/cv-generator?${context}`);
             return;
           }
-          if (!embedded) {
-            setMode("old");
-            setCvFile(null);
-            setChampionFile(null);
-            setChampionError(null);
-            setConsentKey(null);
-            setScreeningNotes("");
-            setMustRequirements("");
-            setNiceRequirements("");
-            setProjectRef("");
-            setPosition(editItem.position ?? "");
-            setLanguage(editItem.language === "en" ? "en" : "pl");
-            setBlindCv(editItem.blind);
-            setUploadStageId("");
-            setUploadCandidate(editItem.candidate_id == null ? null : {
-              id: editItem.candidate_id, full_name: editItem.candidate_name,
-              name: editItem.candidate_name, lastname: "",
-            });
-            setUploadClient(editItem.client_id == null ? null : {
-              id: editItem.client_id, name: editItem.client_name ?? `#${editItem.client_id}`,
-            });
-            setOutsideAssignment(false);
-            setRecoveryContext(editItem.candidate_id != null && editItem.job_id != null
-              ? {candidateId: editItem.candidate_id, jobId: editItem.job_id} : null);
-          }
-          requestAnimationFrame(() => {
-            generatorFormRef.current?.focus({preventScroll: true});
-            generatorFormRef.current?.scrollIntoView({behavior: "smooth", block: "start"});
-          });
+          if (!embedded) loadUploadContext(editItem);
+          focusGeneratorForm();
         }}
         candidateName={editItem.candidate_name} onOpenChange={open => { if (!open) setEditItem(null); }} />}
       <GeneratedCvPreviewModal
@@ -1244,6 +1319,7 @@ type NewModeFormProps = {
     data?: CandidateOption[];
     isLoading: boolean;
   };
+  searchError: string | null;
   recruitmentsQuery: {
     data?: RecruitmentOption[];
     isLoading: boolean;
@@ -1261,6 +1337,7 @@ function NewModeForm({
   candidateOpen,
   candidateQuery,
   candidatesQuery,
+  searchError,
   recruitmentsQuery,
   selectedRecruitment,
   stageId,
@@ -1319,12 +1396,20 @@ function NewModeForm({
                   className="h-10"
                 />
                 <CommandList>
-                  {candidatesQuery.isLoading && (
-                    <div className="p-4 text-center text-xs text-muted-foreground">
-                      Ładowanie…
-                    </div>
+                  {searchError ? (
+                    <p role="alert" className="p-4 text-center text-xs text-destructive">
+                      {searchError}
+                    </p>
+                  ) : (
+                    <>
+                      {candidatesQuery.isLoading && (
+                        <div className="p-4 text-center text-xs text-muted-foreground">
+                          Ładowanie…
+                        </div>
+                      )}
+                      <CommandEmpty>Brak wyników.</CommandEmpty>
+                    </>
                   )}
-                  <CommandEmpty>Brak wyników.</CommandEmpty>
                   <CommandGroup>
                     {(candidatesQuery.data ?? []).map((c) => (
                       <CommandItem
@@ -1434,6 +1519,7 @@ type UploadCandidatePickerProps = {
   open: boolean;
   query: string;
   candidatesQuery: { data?: CandidateOption[]; isLoading: boolean };
+  searchError: string | null;
   setCandidate: (c: CandidateOption | null) => void;
   setOpen: (v: boolean) => void;
   setQuery: (v: string) => void;
@@ -1444,6 +1530,7 @@ function UploadCandidatePicker({
   open,
   query,
   candidatesQuery,
+  searchError,
   setCandidate,
   setOpen,
   setQuery,
@@ -1481,12 +1568,20 @@ function UploadCandidatePicker({
               className="h-10"
             />
             <CommandList>
-              {candidatesQuery.isLoading && (
-                <div className="p-4 text-center text-xs text-muted-foreground">
-                  Ładowanie…
-                </div>
+              {searchError ? (
+                <p role="alert" className="p-4 text-center text-xs text-destructive">
+                  {searchError}
+                </p>
+              ) : (
+                <>
+                  {candidatesQuery.isLoading && (
+                    <div className="p-4 text-center text-xs text-muted-foreground">
+                      Ładowanie…
+                    </div>
+                  )}
+                  <CommandEmpty>Brak wyników.</CommandEmpty>
+                </>
               )}
-              <CommandEmpty>Brak wyników.</CommandEmpty>
               <CommandGroup>
                 {(candidatesQuery.data ?? []).map((c) => (
                   <CommandItem
@@ -1821,6 +1916,7 @@ type GeneratedCvRowProps = {
   onEdit: (item: GeneratedCvItem) => void;
   onShare: (item: GeneratedCvItem) => void;
   onDelete: (item: GeneratedCvItem) => void;
+  onRetry?: (item: GeneratedCvItem) => void;
   canWrite: boolean;
 };
 
@@ -1834,6 +1930,7 @@ function GeneratedCvRow({
   onShare,
   onEdit,
   onDelete,
+  onRetry,
   canWrite,
 }: GeneratedCvRowProps) {
   const warnings = item.warnings ?? [];
@@ -1956,6 +2053,17 @@ function GeneratedCvRow({
                     </Button>
                   ) : null}
                 </>
+              )}
+              {canWrite && onRetry && item.status === "failed" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onRetry(item)}
+                  title="Wczytaj te same ustawienia do formularza"
+                >
+                  <RotateCcw className="mr-1 h-4 w-4" />
+                  Wygeneruj ponownie
+                </Button>
               )}
               {canWrite && item.can_delete && (
                 <Button

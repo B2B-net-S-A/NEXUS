@@ -7832,6 +7832,36 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Weryfikacje „Pending" (17.09.2026) — jednorazowo: bramka akceptacji stawki
+# ponad budżet jest wyłączona, a UI akceptacji usunięte, więc karty zapisane
+# wcześniej jako `pending` zostają zaliczone tak, jak zrobiłaby to ręczna
+# akceptacja (status `active` + zaliczenie pierwszego weryfikatora). Logika ORM
+# w `app/services/pending_verification_promotion.py`; marker w `app_settings`
+# + advisory lock → drugi start kończy się natychmiast. Przy włączonej bramce
+# (`PENDING_VERIFICATION_ENABLED=true`) blok nic nie robi. Log: same liczby.
+startup_phase "repair-pending-verification-promotion"
+echo "Pending verifications: one-shot promotion to active (gate disabled)..."
+python - <<'PY' || echo "pending verification promotion skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.pending_verification_promotion import (
+    run_pending_verification_promotion,
+)
+
+async def promote():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_pending_verification_promotion(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"pending verification promotion: {summary or 'nothing to do'}")
+
+asyncio.run(promote())
+PY
+
 # PFRON 507–509 (0306, 09.2026) — jednorazowe rozdzielenie zamówień, które
 # czyszczenie kolejki maila z 9/10.09 przepisało W MIEJSCU nowym okresem:
 # nowy okres → nowy wiersz, oryginał wraca do stanu z Activity

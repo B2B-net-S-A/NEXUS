@@ -198,8 +198,10 @@ ROLE_SETS = {
     "admin_only": {UserRole.admin},
     "delivery_lead_plus": {UserRole.admin, UserRole.delivery_lead},
     "tac_plus": {UserRole.admin, UserRole.delivery_lead, UserRole.tac},
+    # Od 2026-09-17 head_of_recruitment ma parytet z rekruterem (decyzja Artura).
     "recruiter_plus": {
         UserRole.admin,
+        UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
         UserRole.tac,

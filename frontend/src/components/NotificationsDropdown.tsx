@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useRouter } from "next/navigation";
 import {
@@ -29,6 +29,25 @@ import {
   ChevronRight,
   Store,
   Sparkles,
+  AtSign,
+  MessageSquare,
+  BellRing,
+  Target,
+  Wallet,
+  Users,
+  FileSignature,
+  FileCheck2,
+  FileX2,
+  Mail,
+  MailX,
+  MailCheck,
+  KeyRound,
+  Search,
+  ShieldAlert,
+  Package,
+  ListChecks,
+  Workflow,
+  ClipboardList,
 } from "lucide-react";
 import { notificationsApi } from "@/lib/api";
 import {
@@ -36,11 +55,16 @@ import {
   WS_BACKED_SAFETY_POLL_MS,
 } from "@/lib/polling";
 import { cn } from "@/lib/utils";
-import { formatNotificationText, notificationTimeAgo } from "@/lib/notification-format";
+import {
+  formatNotificationText,
+  notificationOnBehalfLabel,
+  notificationTimeAgo,
+} from "@/lib/notification-format";
 import {
   NOTIFICATIONS_INITIAL_LIMIT,
   canShowMoreNotifications,
   nextNotificationsLimit,
+  shownNotificationsLimit,
 } from "@/lib/notifications-paging";
 import { useNotifications, WsNotification } from "@/hooks/useNotifications";
 import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackModal";
@@ -55,6 +79,7 @@ type Notification = {
   notification_type: string;
   is_read: boolean;
   created_at?: string | null;
+  on_behalf_of_name?: string | null;
 };
 
 const TYPE_CONFIG: Record<
@@ -169,6 +194,176 @@ const TYPE_CONFIG: Record<
     color: "text-amber-600",
     bgColor: "bg-amber-100",
   },
+  // Typy, które do 09.2026 dziedziczyły ikonę „nowy kandydat" (32 z 53).
+  // Kolory na tokenach DS: primary = informacja, warning = do zrobienia,
+  // destructive = porażka/eskalacja, success = domknięte.
+  note_mention: {
+    icon: <AtSign className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  job_chat_mention: {
+    icon: <AtSign className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  job_chat_message: {
+    icon: <MessageSquare className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  saved_search_match: {
+    icon: <Search className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  match_digest: {
+    icon: <ListChecks className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  champion_profile_updated: {
+    icon: <ClipboardList className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  stage_rule: {
+    icon: <Workflow className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  kpi_coach: {
+    icon: <Target className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+  recruitment_allocation_alert: {
+    icon: <Users className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+  pending_verification: {
+    icon: <ClockAlert className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+  ai_spend_alert: {
+    icon: <Wallet className="w-3.5 h-3.5" />,
+    color: "text-destructive",
+    bgColor: "bg-destructive/15",
+  },
+  rejection_email_scheduled: {
+    icon: <Mail className="w-3.5 h-3.5" />,
+    color: "text-muted-foreground",
+    bgColor: "bg-muted",
+  },
+  rejection_email_sent: {
+    icon: <MailCheck className="w-3.5 h-3.5" />,
+    color: "text-success",
+    bgColor: "bg-success/15",
+  },
+  rejection_email_cancelled: {
+    icon: <MailX className="w-3.5 h-3.5" />,
+    color: "text-muted-foreground",
+    bgColor: "bg-muted",
+  },
+  rejection_email_skipped: {
+    icon: <MailX className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+  rejection_email_failed: {
+    icon: <MailX className="w-3.5 h-3.5" />,
+    color: "text-destructive",
+    bgColor: "bg-destructive/15",
+  },
+  signature_sent: {
+    icon: <FileSignature className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  signature_signed: {
+    icon: <FileCheck2 className="w-3.5 h-3.5" />,
+    color: "text-success",
+    bgColor: "bg-success/15",
+  },
+  signature_rejected: {
+    icon: <FileX2 className="w-3.5 h-3.5" />,
+    color: "text-destructive",
+    bgColor: "bg-destructive/15",
+  },
+  signature_failed: {
+    icon: <FileX2 className="w-3.5 h-3.5" />,
+    color: "text-destructive",
+    bgColor: "bg-destructive/15",
+  },
+  contract_activated: {
+    icon: <FileCheck2 className="w-3.5 h-3.5" />,
+    color: "text-success",
+    bgColor: "bg-success/15",
+  },
+  contract_ending_90d: {
+    icon: <FileText className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+  framework_contract_signed: {
+    icon: <FileCheck2 className="w-3.5 h-3.5" />,
+    color: "text-success",
+    bgColor: "bg-success/15",
+  },
+  framework_contract_expiring_30d: {
+    icon: <FileText className="w-3.5 h-3.5" />,
+    color: "text-muted-foreground",
+    bgColor: "bg-muted",
+  },
+  framework_contract_expiring_14d: {
+    icon: <FileText className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+  framework_contract_expiring_7d: {
+    icon: <AlertTriangle className="w-3.5 h-3.5" />,
+    color: "text-destructive",
+    bgColor: "bg-destructive/15",
+  },
+  client_order_ending_30d: {
+    icon: <Package className="w-3.5 h-3.5" />,
+    color: "text-muted-foreground",
+    bgColor: "bg-muted",
+  },
+  client_order_ending_14d: {
+    icon: <Package className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+  client_order_ending_7d: {
+    icon: <AlertTriangle className="w-3.5 h-3.5" />,
+    color: "text-destructive",
+    bgColor: "bg-destructive/15",
+  },
+  equipment_return_due_14d: {
+    icon: <Package className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+  password_reset_requested: {
+    icon: <KeyRound className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+  password_changed_by_admin: {
+    icon: <ShieldAlert className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+};
+
+/** Nieznany (nowy) typ dostaje neutralny dzwonek, nie ikonę „nowy kandydat". */
+const FALLBACK_TYPE_CONFIG = {
+  icon: <BellRing className="w-3.5 h-3.5" />,
+  color: "text-muted-foreground",
+  bgColor: "bg-muted",
 };
 
 const POST_INTERVIEW_TYPES = new Set([
@@ -221,10 +416,23 @@ export function NotificationsDropdown() {
 
   useClickOutside(ref, () => setOpen(false));
 
+  // Jeden slot toasta, ale timer należy do OSTATNIEGO zdarzenia — do 09.2026
+  // drugi toast znikał po czasie liczonym od pierwszego.
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleWsNotification = useCallback((notif: WsNotification) => {
     setToastNotif(notif);
-    setTimeout(() => setToastNotif(null), 5000);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      toastTimerRef.current = null;
+      setToastNotif(null);
+    }, 5000);
   }, []);
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    },
+    [],
+  );
 
   const {
     unreadCount: wsUnreadDelta,
@@ -234,7 +442,7 @@ export function NotificationsDropdown() {
     onNotification: handleWsNotification,
   });
 
-  const { data, isFetching } = useQuery({
+  const { data, isFetching, isPlaceholderData, dataUpdatedAt } = useQuery({
     queryKey: ["notifications", scopeCacheKey, limit],
     queryFn: () => notificationsApi.list(limit).then((r) => r.data),
     // Przy podniesieniu limitu lista nie znika na czas doładowania.
@@ -252,6 +460,15 @@ export function NotificationsDropdown() {
   const serverUnread: number = data?.unread_count || 0;
   // Show max of server count and live WS delta (resolves after query refresh)
   const unreadCount = Math.max(serverUnread, wsUnreadDelta);
+  // Delta z gniazda jest potrzebna tylko do najbliższego odświeżenia listy —
+  // potem licznik serwera już ją zawiera. Bez zerowania zostawał widmowy
+  // licznik po przeczytaniu powiadomień w innej karcie.
+  const clearUnreadRef = useRef(clearUnread);
+  clearUnreadRef.current = clearUnread;
+  useEffect(() => {
+    if (dataUpdatedAt) clearUnreadRef.current();
+  }, [dataUpdatedAt]);
+  const shownLimit = shownNotificationsLimit(limit, isPlaceholderData);
 
   const markReadMutation = useMutation({
     mutationFn: (id: number) => notificationsApi.markRead(id),
@@ -328,7 +545,9 @@ export function NotificationsDropdown() {
                   </span>
                 )}
               </div>
-              {unreadCount > 0 && (
+              {/* „Oznacz wszystko” oznacza tylko WŁASNE — przy samych
+                  przypomnieniach w zastępstwie klik nic by nie zmienił. */}
+              {unreadCount > 0 && (data?.own_unread_count ?? unreadCount) > 0 && (
                 <button
                   onClick={() => markAllMutation.mutate()}
                   disabled={markAllMutation.isPending}
@@ -350,16 +569,25 @@ export function NotificationsDropdown() {
               ) : (
                 <ul>
                   {notifications.map((notif) => {
-                    const cfg = TYPE_CONFIG[notif.notification_type] || TYPE_CONFIG.candidate_added;
+                    const cfg = TYPE_CONFIG[notif.notification_type] || FALLBACK_TYPE_CONFIG;
+                    const onBehalf = notificationOnBehalfLabel(notif);
                     return (
-                      <li
-                        key={notif.id}
-                        onClick={() => handleNotificationClick(notif)}
-                        className={cn(
-                          "flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-muted dark:hover:bg-muted border-b border-gray-50 dark:border-border last:border-b-0",
-                          !notif.is_read && "bg-primary/10 dark:bg-primary/10"
-                        )}
-                      >
+                      <li key={notif.id} className="border-b border-border last:border-b-0">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => handleNotificationClick(notif)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              handleNotificationClick(notif);
+                            }
+                          }}
+                          className={cn(
+                            "flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-muted dark:hover:bg-muted focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                            !notif.is_read && "bg-primary/10 dark:bg-primary/10"
+                          )}
+                        >
                         {/* Icon */}
                         <div
                           className={cn(
@@ -389,7 +617,11 @@ export function NotificationsDropdown() {
                           <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
                             {formatNotificationText(notif.message)}
                           </p>
+                          {onBehalf && (
+                            <p className="text-xs font-medium text-warning mt-0.5">{onBehalf}</p>
+                          )}
                           <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-1">{notificationTimeAgo(notif.created_at)}</p>
+                        </div>
                         </div>
                       </li>
                     );
@@ -401,7 +633,7 @@ export function NotificationsDropdown() {
             {/* Footer */}
             {notifications.length > 0 && (
               <div className="border-t border-border dark:border-border px-4 py-2 flex items-center justify-center gap-4">
-                {canShowMoreNotifications(notifications.length, limit) ? (
+                {canShowMoreNotifications(notifications.length, shownLimit) ? (
                   <button
                     type="button"
                     onClick={() => {
@@ -414,9 +646,9 @@ export function NotificationsDropdown() {
                     {isFetching ? "Ładowanie…" : "Pokaż więcej"}
                   </button>
                 ) : (
-                  notifications.length >= limit && (
+                  notifications.length >= shownLimit && (
                     <span className="text-xs text-muted-foreground">
-                      Pokazano {limit} najnowszych
+                      Pokazano {shownLimit} najnowszych
                     </span>
                   )
                 )}

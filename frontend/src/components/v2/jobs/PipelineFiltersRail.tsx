@@ -28,7 +28,11 @@ import { useState } from "react";
 
 import { cn } from "@/lib/utils";
 import { colId, columnLabel, type KanbanColumn } from "@/components/v2/pages/kanban-shared";
-import type { PipelineColumnGroup, PipelineGroupKey } from "@/lib/pipeline-flow";
+import {
+  countInProcess,
+  type PipelineColumnGroup,
+  type PipelineGroupKey,
+} from "@/lib/pipeline-flow";
 
 const STAGE_DOT_COLOR: Record<string, string> = {
   internal: "bg-primary",
@@ -180,9 +184,10 @@ export function PipelineFiltersRail({
   // płaska lista jak przed falą 3, zamiast jednego wiersza-nagłówka nad całą
   // tablicą.
   const grouped = groups.length > 1;
-  const activeTotal = groups
-    .filter((g) => g.key !== "closed")
-    .reduce((sum, g) => sum + g.count, 0);
+  // `countInProcess` — ta sama funkcja co „W procesie" w nawigatorze i KPI
+  // jobbaru. Suma grup poza „closed" liczyła zatrudnionych (terminal w grupie
+  // „Umowa → zatrudnieni"), więc „Wszystkie aktywne" było o nich większe.
+  const activeTotal = countInProcess(groups.flatMap((g) => g.columns));
 
   const focusGroup = (group: PipelineColumnGroup) => {
     setExpandedGroup((prev) => (prev === group.key ? null : group.key));

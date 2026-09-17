@@ -60,6 +60,7 @@ OPERATIONAL_ROLES = {
 }
 TERMINAL_ROLES = {
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.tac,
@@ -68,6 +69,7 @@ TERMINAL_ROLES = {
 }
 RATE_EDIT_ROLES = {
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.tac,
     UserRole.recruiter,

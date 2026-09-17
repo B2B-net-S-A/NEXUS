@@ -140,10 +140,7 @@ export function CandidateRecentRecruitmentsCard({
             />
             Ostatnie rekrutacje
           </CardTitle>
-          {!query.isPending &&
-          !query.isFetching &&
-          !query.isError &&
-          items.length ? (
+          {!query.isPending && !query.isError && items.length ? (
             <Badge variant="neutral" size="sm">
               {items.length}
             </Badge>
@@ -151,7 +148,12 @@ export function CandidateRecentRecruitmentsCard({
         </div>
       </CardHeader>
       <CardContent aria-live="polite">
-        {query.isPending || query.isFetching ? (
+        {query.isFetching && !query.isPending && !query.isError ? (
+          // Odświeżanie w tle: lista zostaje, tylko dyskretna podpowiedź —
+          // pełny loader przy każdym powrocie do karty wyglądał jak utrata danych.
+          <p className="mb-2 text-xs text-muted-foreground">Odświeżam…</p>
+        ) : null}
+        {query.isPending ? (
           <div
             role="status"
             className="flex items-center gap-2 py-4 text-sm text-muted-foreground"

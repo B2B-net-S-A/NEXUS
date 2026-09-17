@@ -8,8 +8,8 @@
  * którego serwer odmówi; link celuje w etap SPRZED ruchu, gdzie leży CV
  * brandowane; stawka po ruchu, bo zapisuje się na najnowszym etapie), porażka
  * ruchu przerywa resztę, porażka linku lub stawki PO ruchu jest ostrzeżeniem.
- * Stawkę do klienta zapisuje wyłącznie admin (`CandidateFinanceAccess`) —
- * inne role nie widzą pola.
+ * Pole stawki do klienta renderuje się wyłącznie przy `canWriteClientRate`
+ * (z `GET /api/jobs/{id}` → `can_write_client_rate`) — reszta go nie widzi.
  * Generator CV, reguły klienta i modale snapshotów są zamockowane: mają własne
  * zapytania do innych endpointów, niepowiązane z tym, co testujemy.
  */
@@ -184,6 +184,7 @@ function renderWorkbench(
         onRetry={onRetry}
         onMoved={onMoved}
         readOnly={false}
+        canWriteClientRate
         {...overrides}
       />
     </QueryClientProvider>,
@@ -300,13 +301,13 @@ describe("CvHandoffWorkbench", () => {
     );
   });
 
-  it("rola bez uprawnienia finansowego nie widzi pola stawki, a wysyłka i tak idzie", async () => {
-    authState.user = { role: "recruiter", roles: ["recruiter"] };
-    renderWorkbench();
+  it("bez `can_write_client_rate` pole stawki znika, a wysyłka i tak idzie", async () => {
+    // Nawet admin z roli — decyduje pole z serwera, nie zgadywanie po roli.
+    renderWorkbench({ canWriteClientRate: false });
     await readySendButton();
 
     expect(screen.queryByLabelText("Kwota")).toBeNull();
-    expect(screen.getByText(/Stawkę do klienta zapisuje admin/)).toBeTruthy();
+    expect(screen.getByText(/Stawkę do klienta zapisuje właściciel rekrutacji/)).toBeTruthy();
 
     await userEvent.click(await sendButton());
     await waitFor(() => expect(shareCreate).toHaveBeenCalledOnce());
@@ -440,18 +441,15 @@ describe("CvHandoffWorkbench", () => {
     expect(msg).toContain("uzupełnij ją z profilu kandydata");
   });
 
-  it("karta czekająca na akceptację stawki JEST zablokowana z powodem — serwer odmawia każdego ruchu (409)", async () => {
+  it("karta ponad budżetem (także zapisana jako `pending`) NIE blokuje wysyłki — bramka wyłączona", async () => {
     renderWorkbench({
-      columns: columns([item({ verification_status: "pending" })]),
+      columns: columns([
+        item({ verification_status: "pending", budget_exceeded: true }),
+      ]),
     });
-    const button = await sendButton();
-    await waitFor(() =>
-      expect(button.getAttribute("title")).toContain("czeka na akceptację"),
-    );
-    expect(button).toBeDisabled();
-    expect(screen.getByText(/Stawka czeka na/)).toBeTruthy();
-    expect(shareCreate).not.toHaveBeenCalled();
-    expect(move).not.toHaveBeenCalled();
+    await readySendButton();
+    expect(screen.getByText(/Ponad budżet/)).toBeTruthy();
+    expect(screen.queryByText(/czeka na akceptację/)).toBeNull();
   });
 
   it("weto hiring managera blokuje wysyłkę", async () => {
@@ -623,7 +621,7 @@ it("successful move must preserve the one-time share link after queue refresh", 
     return <CvHandoffWorkbench jobId={7} jobTitle="Synthetic job" clientId={4}
       columns={columns(remaining ? [item()] : [])}
       isLoading={false} isError={false} error={null} isSuccess
-      onRetry={()=>{}} onMoved={()=>setRemaining(false)} readOnly={false}/>;
+      onRetry={()=>{}} onMoved={()=>setRemaining(false)} readOnly={false} canWriteClientRate/>;
   }
   render(<QueryClientProvider client={qc}><AuditHost/></QueryClientProvider>);
   await userEvent.click(await readySendButton());
@@ -642,7 +640,7 @@ it("retains each result with its original candidate when moving to the next one"
     return <CvHandoffWorkbench jobId={7} jobTitle="Synthetic job" clientId={4}
       columns={columns(step === 0 ? [item()] : step === 1 ? [item({id:22,candidate_id:122,name:"Anna",lastname:"Testowa"})] : [])}
       isLoading={false} isError={false} error={null} isSuccess
-      onRetry={()=>{}} onMoved={()=>setStep((n)=>n+1)} readOnly={false}/>;
+      onRetry={()=>{}} onMoved={()=>setStep((n)=>n+1)} readOnly={false} canWriteClientRate/>;
   }
   render(<QueryClientProvider client={qc}><Host/></QueryClientProvider>);
   await userEvent.click(await readySendButton());

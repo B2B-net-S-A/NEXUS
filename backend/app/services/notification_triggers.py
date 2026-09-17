@@ -13,8 +13,9 @@ Triggery:
                                    agregat do każdego head_of_recruitment.
   4. check_candidate_feedback_1h — 60–75 min po Call completed bez ScreeningNote →
                                    alert do rekrutera (Call.user_id).
-  5. check_stage_stuck_7d        — kandydat na nieterminalnym etapie > 7 dni →
-                                   alert do Job.recruiter_id.
+  5. check_stage_stuck_7d        — kandydat na nieterminalnym etapie 7–30 dni
+                                   w otwartej rekrutacji → alert do
+                                   Job.recruiter_id, raz na tydzień per etap.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -36,15 +38,19 @@ from app.core.scheduling import (
 )
 from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.call import Call, CallStatus
+from app.models.candidate import Candidate
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
 from app.models.job import Job
 from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.screening_note import ScreeningNote
 from app.models.user import User, UserRole
+from app.schemas.pipeline import STAGE_LABELS
 from app.services.calendar_auto_complete import mark_ended_interviews_completed
 
 logger = logging.getLogger(__name__)
+
+_WARSAW = ZoneInfo("Europe/Warsaw")
 
 # Non-terminal stages — kandydat jest "w grze" i może utknąć. `posting`
 # (kandydat z ogłoszenia, nieprzejrzany) świadomie POZA: to poczekalnia, nie
@@ -418,8 +424,21 @@ async def check_powercalling_kpi(db: AsyncSession, now: datetime) -> int:
         if count < target:
             below_target.append((user_id, name, count))
 
-    # Indywidualne alerty dla rekruterów < target.
+    # Indywidualne alerty dla rekruterów < target — tylko dla osób, które mają
+    # źródło rozmów (choć jeden wiersz `Call`). Bez telefonii (CloudTalk
+    # wyłączony 28.07) „0/15 rozmów" dostawał każdy rekruter każdego dnia,
+    # czyli wyrzut za coś, czego system w ogóle nie rejestruje.
+    with_call_source: set[int] = set()
+    if below_target:
+        source_rows = await db.execute(
+            select(Call.user_id)
+            .where(Call.user_id.in_([u for u, _, _ in below_target]))
+            .distinct()
+        )
+        with_call_source = {row[0] for row in source_rows}
     for user_id, name, count in below_target:
+        if user_id not in with_call_source:
+            continue
         result = await emit(
             db,
             user_id=user_id,
@@ -459,7 +478,7 @@ async def check_powercalling_kpi(db: AsyncSession, now: datetime) -> int:
                 user_id=hr_id,
                 title="Raport PowerCalling 11:45",
                 message=message,
-                link="/reports",
+                link="/insights?tab=rekrutacja",
                 ntype=NotificationType.powercalling_kpi,
                 related_entity_type="daily_kpi_report",
                 related_entity_id=day_id,
@@ -527,37 +546,65 @@ async def check_candidate_feedback_1h(db: AsyncSession, now: datetime) -> int:
 async def check_stage_stuck_7d(
     db: AsyncSession, now: datetime, latest: Optional[LatestStageMap] = None
 ) -> int:
-    """Kandydat na nieterminalnym etapie od ≥7 dni → alert do rekrutera."""
+    """Kandydat na nieterminalnym etapie od 7–30 dni w OTWARTEJ rekrutacji → alert.
+
+    Do 09.2026 trigger nie miał ani dolnej granicy wieku, ani filtra otwartych
+    rekrutacji, a dedup był dobowy: każdy kandydat zaległy od miesięcy
+    (historyczny import, zamknięte rekrutacje) dostawał nowy wiersz każdego
+    dnia — stąd „ponad tysiąc nieprzeczytanych" u rekruterów. Teraz:
+    okno ``[now - STAGE_STUCK_MAX_DAYS, now - STAGE_STUCK_DAYS]`` (lustro
+    ``check_dl_stage_stale_6h``), tylko rekrutacje niezamknięte i najwyżej
+    jedno przypomnienie na etap w tygodniu ISO (Europe/Warsaw).
+    """
     latest = await _latest_stage_per_pair(db, latest)
-    cutoff = now.astimezone(timezone.utc) - timedelta(days=settings.STAGE_STUCK_DAYS)
+    now_utc = now.astimezone(timezone.utc)
+    cutoff = now_utc - timedelta(days=settings.STAGE_STUCK_DAYS)
+    floor = now_utc - timedelta(days=settings.STAGE_STUCK_MAX_DAYS)
     stale = [
         s
         for s in latest.values()
-        if s.stage in _NON_TERMINAL_STAGES and _moved_at_utc(s) <= cutoff
+        if s.stage in _NON_TERMINAL_STAGES and floor <= _moved_at_utc(s) <= cutoff
     ]
     if not stale:
         return 0
 
-    jobs = await _jobs_by_id(db, (s.job_id for s in stale))
+    jobs = await _open_jobs_by_id(db, (s.job_id for s in stale))
+    stale = [
+        s for s in stale if (job := jobs.get(s.job_id)) is not None and job.recruiter_id
+    ]
+    if not stale:
+        return 0
+
+    # Dedup tygodniowy: indeks `ix_notif_dedup_daily` blokuje tylko ten sam
+    # dzień, więc bez tego sprawdzenia etap wisiałby w dzwonku codziennie.
+    week_start = _warsaw_week_start_utc(now)
+    already = await db.execute(
+        select(Notification.user_id, Notification.related_entity_id).where(
+            Notification.notification_type == NotificationType.stage_stuck_7d,
+            Notification.related_entity_id.in_([s.id for s in stale]),
+            Notification.created_at >= week_start,
+        )
+    )
+    reminded_this_week = {(row[0], row[1]) for row in already}
+
+    names = await _candidate_names(db, (s.candidate_id for s in stale))
     emitted = 0
     for stage in stale:
-        job = jobs.get(stage.job_id)
-        if not job or not job.recruiter_id:
+        job = jobs[stage.job_id]
+        if (job.recruiter_id, stage.id) in reminded_this_week:
             continue
-        days = int(
-            (now.astimezone(timezone.utc) - _moved_at_utc(stage)).total_seconds()
-            // 86400
-        )
+        days = int((now_utc - _moved_at_utc(stage)).total_seconds() // 86400)
+        who = names.get(stage.candidate_id) or "Kandydat"
+        label = STAGE_LABELS.get(stage.stage, stage.stage.value)
         result = await emit(
             db,
             user_id=job.recruiter_id,
-            title="Kandydat utknął w etapie",
+            title="Kandydat utknął na etapie",
             message=(
-                f"Kandydat #{stage.candidate_id} siedzi w etapie "
-                f"'{stage.stage.value}' od {days} dni w ofercie "
-                f"'{job.title}' (#{job.id}). Zadzwoń i sprawdź czy dalej jest zainteresowany."
+                f"{who} od {days} dni na etapie „{label}” w rekrutacji "
+                f"„{job.title}” — zadzwoń i sprawdź, czy dalej jest zainteresowany."
             ),
-            link=f"/candidates/{stage.candidate_id}",
+            link=f"/jobs/{job.id}?candidate={stage.candidate_id}",
             ntype=NotificationType.stage_stuck_7d,
             related_entity_type="candidate_stage",
             related_entity_id=stage.id,
@@ -565,6 +612,48 @@ async def check_stage_stuck_7d(
         if result is not None:
             emitted += 1
     return emitted
+
+
+async def _open_jobs_by_id(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, Job]:
+    """Rekrutacje OPUBLIKOWANE — tylko w nich zaległy kandydat to sprawa do
+    telefonu. Filtr listy „niezamknięte" liczy też Drafty, a kandydat wiszący
+    w wersji roboczej nie jest powodem do codziennego przypomnienia
+    (przegląd 17.09.2026)."""
+    from app.models.job import JobStatus
+
+    ids = list({jid for jid in job_ids if jid is not None})
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(Job).where(Job.id.in_(ids), Job.status == JobStatus.published)
+    )
+    return {j.id: j for j in rows.scalars().all()}
+
+
+async def _candidate_names(
+    db: AsyncSession, candidate_ids: Iterable[int]
+) -> dict[int, str]:
+    ids = list(set(candidate_ids))
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(Candidate.id, Candidate.name, Candidate.lastname).where(
+            Candidate.id.in_(ids)
+        )
+    )
+    return {
+        row.id: " ".join(part for part in (row.name, row.lastname) if part).strip()
+        for row in rows
+    }
+
+
+def _warsaw_week_start_utc(now: datetime) -> datetime:
+    """Początek bieżącego tygodnia ISO (poniedziałek 00:00 Europe/Warsaw) w UTC."""
+    local = now.astimezone(_WARSAW)
+    monday = (local - timedelta(days=local.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return monday.astimezone(timezone.utc)
 
 
 # ── Trigger 6-8: POST_INTERVIEW reminders (T+15, T+45, T+2h) ─────────────────

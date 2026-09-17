@@ -6,6 +6,7 @@ import {
   downloadAuthenticatedFile,
   fetchAuthenticatedObjectUrl,
   openAuthenticatedFile,
+  postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
 
 // A minimal Response stand-in — only the bits the helper reads.
@@ -95,7 +96,7 @@ describe("authenticated-files", () => {
     it("throws on a non-ok response (e.g. 401)", async () => {
       fetchMock.mockResolvedValue(fakeResponse(new Blob(["x"]), 401));
 
-      await expect(fetchAuthenticatedBlob("/api/x")).rejects.toThrow("HTTP 401");
+      await expect(fetchAuthenticatedBlob("/api/x")).rejects.toThrow("Sesja wygasła");
     });
 
     it("returns the response blob on success", async () => {
@@ -174,7 +175,35 @@ describe("authenticated-files", () => {
 
       await expect(
         downloadAuthenticatedFile("/api/x", "f.pdf"),
-      ).rejects.toThrow("HTTP 403");
+      ).rejects.toThrow("Nie masz uprawnień do tego pliku.");
+    });
+  });
+
+  describe("readable errors", () => {
+    function jsonResponse(status: number, body: unknown) {
+      return { ok: false, status, text: () => Promise.resolve(JSON.stringify(body)) };
+    }
+
+    it("uses the backend detail instead of raw JSON or a bare status", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(409, { detail: "CV zostało zmienione — odśwież edytor." }));
+      await expect(fetchAuthenticatedBlob("/api/x")).rejects.toThrow("CV zostało zmienione — odśwież edytor.");
+    });
+
+    it("reads a structured detail and keeps the response for callers", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(409, { detail: { code: "stale", message: "Wersja jest nieaktualna." } }));
+      const error = await postAuthenticatedDownload("/api/x", {}).catch((e: unknown) => e);
+      expect((error as Error).message).toBe("Wersja jest nieaktualna.");
+      expect((error as { response: { status: number } }).response.status).toBe(409);
+    });
+
+    it("never shows a validation array as JSON", async () => {
+      fetchMock.mockResolvedValue(jsonResponse(422, { detail: [{ loc: ["body", "content_html"], msg: "Field required" }] }));
+      await expect(postAuthenticatedDownload("/api/x", {})).rejects.toThrow("content_html: Field required");
+    });
+
+    it("falls back to a sentence when the body is not JSON", async () => {
+      fetchMock.mockResolvedValue({ ok: false, status: 502, text: () => Promise.resolve("<html>Bad gateway</html>") });
+      await expect(fetchAuthenticatedBlob("/api/x")).rejects.toThrow("Nie udało się pobrać pliku (błąd 502).");
     });
   });
 
@@ -213,7 +242,7 @@ describe("authenticated-files", () => {
       vi.spyOn(window, "open").mockReturnValue(fakeWin as unknown as Window);
       fetchMock.mockResolvedValue(fakeResponse(new Blob(["x"]), 403));
 
-      await expect(openAuthenticatedFile("/api/x")).rejects.toThrow("HTTP 403");
+      await expect(openAuthenticatedFile("/api/x")).rejects.toThrow("Nie masz uprawnień do tego pliku.");
       expect(fakeWin.close).toHaveBeenCalledTimes(1);
     });
   });

@@ -40,10 +40,20 @@ const EXPECTED: Record<
   Capability,
   Record<Exclude<UserRole, "finance" | "talent_community_manager">, boolean>
 > = {
-  // POST /api/candidates → RecruiterPlus (bez HoR!)
+  // POST /api/candidates → RecruiterPlus (od 2026-09-17 z HoR — parytet z rekruterem)
   "candidate.create": {
     admin: true,
-    head_of_recruitment: false,
+    head_of_recruitment: true,
+    delivery_lead: true,
+    tac: true,
+    recruiter: true,
+    sourcer: true,
+    user: false,
+  },
+  // PATCH /api/candidates/{id}, notatki, assign-to-job → CandidateWriteAccess
+  "candidate.write": {
+    admin: true,
+    head_of_recruitment: true,
     delivery_lead: true,
     tac: true,
     recruiter: true,
@@ -51,7 +61,7 @@ const EXPECTED: Record<
     user: false,
   },
   "candidate.requirement.verify": {
-    admin: true, head_of_recruitment: false, delivery_lead: true,
+    admin: true, head_of_recruitment: true, delivery_lead: true,
     tac: true, recruiter: true, sourcer: true, user: false,
   },
   // POST /api/jobs → TacPlus
@@ -142,7 +152,7 @@ const EXPECTED: Record<
   // CalendarWriteAccess → CALENDAR_WRITE_ROLES (bez HoR)
   "calendar_event.create": {
     admin: true,
-    head_of_recruitment: false,
+    head_of_recruitment: true,
     delivery_lead: true,
     tac: true,
     recruiter: true,
@@ -152,7 +162,7 @@ const EXPECTED: Record<
   // POST /api/invite-links → RecruiterPlus
   "invite_link.create": {
     admin: true,
-    head_of_recruitment: false,
+    head_of_recruitment: true,
     delivery_lead: true,
     tac: true,
     recruiter: true,
@@ -163,7 +173,7 @@ const EXPECTED: Record<
   // HoR czyta werdykty, ale „Zapisz feedback" dostałby 403.
   "hm_feedback.record": {
     admin: true,
-    head_of_recruitment: false,
+    head_of_recruitment: true,
     delivery_lead: true,
     tac: true,
     recruiter: true,
@@ -174,7 +184,7 @@ const EXPECTED: Record<
   // HoR czyta teczkę, ale nie wgrywa — upload dostałby 403.
   "candidate.document.manage": {
     admin: true,
-    head_of_recruitment: false,
+    head_of_recruitment: true,
     delivery_lead: true,
     tac: true,
     recruiter: true,
@@ -355,6 +365,7 @@ function financeExpected(capability: Capability): boolean {
 function talentCommunityManagerExpected(capability: Capability): boolean {
   return [
     "candidate.create",
+    "candidate.write",
     "calendar_event.create",
     "invite_link.create",
     "hm_feedback.record",
@@ -423,15 +434,15 @@ describe("hasCapability — przypadki brzegowe", () => {
   });
 
   it("multi-role: druga rola nadaje uprawnienie, którego primary nie ma", () => {
-    // Hybryda HoR + TCM — HoR sam nie zakłada kandydatów, TCM tak.
+    // Hybryda HoR + DL — HoR sam nie zakłada rekrutacji (TacPlus), DL tak.
     const hybrid = {
       role: "head_of_recruitment" as UserRole,
-      roles: ["head_of_recruitment", "talent_community_manager"] as UserRole[],
+      roles: ["head_of_recruitment", "delivery_lead"] as UserRole[],
     };
-    expect(hasCapability(mkUser("head_of_recruitment"), "candidate.create")).toBe(
+    expect(hasCapability(mkUser("head_of_recruitment"), "job.create")).toBe(
       false,
     );
-    expect(hasCapability(hybrid, "candidate.create")).toBe(true);
+    expect(hasCapability(hybrid, "job.create")).toBe(true);
   });
 
   it("brak `roles` (stary cache localStorage) fallbackuje na primary `role`", () => {
@@ -533,15 +544,17 @@ describe("hasCapability — przypadki brzegowe", () => {
   });
 });
 
-describe("regresja C6: teczka plików \u2260 fakty profilowe (granica po HoR)", () => {
-  it("HoR edytuje fakty globalne, ale nie wgrywa plik\u00f3w", () => {
-    const hor = mkUser("head_of_recruitment");
-    // CandidateProfileFacts*Access = _INTERNAL_OPERATIONAL_ROLES (z HoR).
-    expect(hasCapability(hor, "candidate.profile_fact.manage")).toBe(true);
-    // CandidateWriteAccess = CANDIDATE_WRITE_ROLES (bez HoR) \u2192 upload = 403.
-    // Ta asercja p\u0119ka, gdy kto\u015b „upro\u015bci" oba wpisy do jednego \u2014 r\u00f3\u017cnica
-    // mi\u0119dzy nimi to dok\u0142adnie HoR i jest niewidoczna w code review od strony UI.
-    expect(hasCapability(hor, "candidate.document.manage")).toBe(false);
+describe("regresja C6: teczka plików \u2260 fakty profilowe (granica po sourcerze)", () => {
+  it("sourcer edytuje fakty globalne i wgrywa pliki; viewer nic", () => {
+    // Od 2026-09-17 HoR ma parytet z rekruterem, więc granica między
+    // CandidateProfileFacts*Access (_INTERNAL_OPERATIONAL_ROLES) a
+    // CandidateWriteAccess (CANDIDATE_WRITE_ROLES) przebiega dziś tylko po
+    // viewerze `user`. Test pilnuje, że oba wpisy nie zostały zlane w jeden.
+    expect(hasCapability(mkUser("sourcer"), "candidate.profile_fact.manage")).toBe(true);
+    expect(hasCapability(mkUser("sourcer"), "candidate.document.manage")).toBe(true);
+    expect(hasCapability(mkUser("head_of_recruitment"), "candidate.document.manage")).toBe(true);
+    expect(hasCapability(mkUser("user"), "candidate.profile_fact.manage")).toBe(false);
+    expect(hasCapability(mkUser("user"), "candidate.document.manage")).toBe(false);
   });
 
   it("radar jest szerszy ni\u017c dost\u0119p do kandydat\u00f3w", () => {
@@ -601,10 +614,16 @@ describe("regresja F-19: Quick Actions nie pokazuje akcji bez capability", () =>
   });
 
   it("head_of_recruitment nie dostaje akcji tworzenia z sekcji Delivery", () => {
+    // Parytet z rekruterem (2026-09-17): kandydat, spotkanie, link — ale
+    // nadal bez rekrutacji/klienta/kontraktu/kontaktu (TacPlus / Delivery).
     const visible = QUICK_ACTIONS.filter((c) =>
       hasCapability(mkUser("head_of_recruitment"), c),
     );
-    expect(visible).toEqual([]);
+    expect(visible).toEqual([
+      "candidate.create",
+      "calendar_event.create",
+      "invite_link.create",
+    ]);
   });
 });
 
@@ -771,6 +790,8 @@ const CAPABILITY_BACKEND_MIRROR: Record<
 > = {
   "candidate.requirement.verify": { guards: [["candidateAccess", "CandidateWriteAccess"]] },
   "candidate.create": { guards: [["deps", "RecruiterPlus"]] },
+  // PATCH /api/candidates/{id}, POST /api/notes, assign-to-job (CandidateWriteAccess).
+  "candidate.write": { guards: [["candidateAccess", "CandidateWriteAccess"]] },
   "job.create": { guards: [["deps", "TacPlus"]] },
   "job.update": { guards: [["deps", "TacPlus"]] },
   "client.create": {

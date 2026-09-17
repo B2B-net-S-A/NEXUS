@@ -23,3 +23,24 @@ export function nextNotificationsLimit(limit: number): number | null {
 export function canShowMoreNotifications(loaded: number, limit: number): boolean {
   return loaded >= limit && nextNotificationsLimit(limit) !== null;
 }
+
+/** Poprzedni próg (limit danych, które jeszcze widać) albo `null` dla pierwszego. */
+export function previousNotificationsLimit(limit: number): number | null {
+  const lower = NOTIFICATIONS_PAGE_SIZES.filter((size) => size < limit);
+  return lower.length ? lower[lower.length - 1] : null;
+}
+
+/**
+ * Limit, któremu odpowiada WIDOCZNA lista. Po kliknięciu „Pokaż więcej" limit
+ * rośnie od razu, a do końca doładowania `keepPreviousData` pokazuje starą,
+ * krótszą listę — liczona z nowym limitem wyglądała na „niepełną" i przycisk
+ * znikał w trakcie ładowania. Dopóki na ekranie są dane zastępcze, liczymy
+ * z progu, dla którego zostały pobrane.
+ */
+export function shownNotificationsLimit(
+  limit: number,
+  isPlaceholderData: boolean,
+): number {
+  if (!isPlaceholderData) return limit;
+  return previousNotificationsLimit(limit) ?? limit;
+}

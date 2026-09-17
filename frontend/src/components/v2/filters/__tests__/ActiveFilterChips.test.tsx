@@ -57,3 +57,12 @@ describe("ActiveFilterChips (UAT B-B06)", () => {
     expect(screen.getByText("Otwartość: Side-projekty")).toBeInTheDocument();
   });
 });
+
+describe("ActiveFilterChips — etykiety etapów", () => {
+  it("chip etapu „posting” pokazuje etykietę z panelu, nie slug", () => {
+    renderChips({ pipelineStage: ["posting", "cv_sent"] });
+    expect(screen.getByText("Etap: Ogłoszenia")).toBeInTheDocument();
+    expect(screen.getByText("Etap: CV wysłane")).toBeInTheDocument();
+    expect(screen.queryByText(/Etap: posting/)).not.toBeInTheDocument();
+  });
+});

@@ -55,3 +55,55 @@ def test_ical_import_result_caps_error_samples_at_20():
     for i in range(30):
         r.error_samples.append(f"err {i}")
     assert len(r.as_dict()["error_samples"]) == 20
+
+
+async def test_import_marks_date_only_events_as_all_day(monkeypatch):
+    """`DTSTART;VALUE=DATE` = urlop/OOO. Bez flagi siatka rysowała blok 00:00–24:00,
+    a pętla przypomnień budziła powiadomienie o północy (audyt 17.09.2026)."""
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.calendar_event import CalendarEvent
+
+    uid_all_day = f"all-day-{uuid.uuid4().hex}"
+    uid_timed = f"timed-{uuid.uuid4().hex}"
+    ics = (
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\n"
+        "BEGIN:VEVENT\r\n"
+        f"UID:{uid_all_day}\r\nSUMMARY:Urlop\r\n"
+        "DTSTART;VALUE=DATE:20410310\r\nDTEND;VALUE=DATE:20410312\r\n"
+        "END:VEVENT\r\n"
+        "BEGIN:VEVENT\r\n"
+        f"UID:{uid_timed}\r\nSUMMARY:Rozmowa\r\n"
+        "DTSTART:20410310T090000Z\r\nDTEND:20410310T100000Z\r\n"
+        "END:VEVENT\r\n"
+        "END:VCALENDAR\r\n"
+    ).encode()
+
+    async def fake_fetch(url):
+        return ics
+
+    monkeypatch.setattr(ii, "_fetch_ical_safely", fake_fetch)
+    async with AsyncSessionLocal() as db:
+        result = await ii.import_ical_url(
+            db, "https://example.com/cal.ics", since_days=0
+        )
+    assert result.inserted == 2, result.as_dict()
+
+    async with AsyncSessionLocal() as db:
+        rows = {
+            row.external_id: row
+            for row in (
+                await db.scalars(
+                    select(CalendarEvent).where(
+                        CalendarEvent.external_id.in_([uid_all_day, uid_timed])
+                    )
+                )
+            ).all()
+        }
+    assert rows[uid_all_day].all_day is True
+    assert rows[uid_all_day].start_time == datetime(2041, 3, 10, tzinfo=timezone.utc)
+    assert rows[uid_all_day].end_time == datetime(2041, 3, 12, tzinfo=timezone.utc)
+    assert rows[uid_timed].all_day is False

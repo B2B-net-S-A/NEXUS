@@ -32,6 +32,7 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.services.rate_normalization import normalize_rate_to_monthly
 
@@ -183,6 +184,16 @@ async def _seed_template(
 # ── P0.5: gate budżetowy w jednej jednostce ──────────────────────────────────
 
 
+@pytest.fixture
+def pending_gate_on(monkeypatch: pytest.MonkeyPatch):
+    """Bramka „Pending" jest na prodzie wyłączona od 17.09.2026
+    (`PENDING_VERIFICATION_ENABLED=False`) — testy jej KODU włączają ją na
+    czas testu, bo kod ma dalej działać po ewentualnym włączeniu."""
+    monkeypatch.setattr(settings, "PENDING_VERIFICATION_ENABLED", True)
+    yield
+
+
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_hourly_rate_over_monthly_budget_goes_pending(
     app_client: AsyncClient, app_auth_headers
 ):
@@ -224,6 +235,7 @@ async def test_hourly_rate_within_budget_stays_active(
     assert r.json()["verification_status"] == "active"
 
 
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_foreign_currency_goes_manual_review(
     app_client: AsyncClient, app_auth_headers
 ):
@@ -245,6 +257,7 @@ async def test_foreign_currency_goes_manual_review(
     assert r.json()["verification_status"] == "pending"
 
 
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_pending_list_exposes_normalized_value(
     app_client: AsyncClient, app_auth_headers
 ):
@@ -275,6 +288,7 @@ async def test_pending_list_exposes_normalized_value(
 # ── P0.4: pending blokuje ruch; decyzja tylko na current ─────────────────────
 
 
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_move_blocked_while_pending(app_client: AsyncClient, app_auth_headers):
     cand, (job, _) = await _seed_candidate(), await _seed_job()
     await _seed_stage(cand, job, "verified", verification_status="pending")
@@ -286,6 +300,7 @@ async def test_move_blocked_while_pending(app_client: AsyncClient, app_auth_head
     assert r.status_code == 409, r.text
 
 
+@pytest.mark.usefixtures("pending_gate_on")
 async def test_accept_verification_requires_current_row(
     app_client: AsyncClient, app_auth_headers
 ):

@@ -438,6 +438,52 @@ async def test_summary_excludes_cancelled(
     assert str(b) not in pairs
 
 
+async def test_all_day_entries_are_not_conflicts(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Urlop/OOO z Outlooka kolidował z każdą rozmową tego dnia (audyt 17.09.2026)."""
+    day = _BASE + timedelta(days=3)
+    meeting = await _create_event(
+        app_client,
+        app_auth_headers,
+        title="Rozmowa w dniu urlopu",
+        start=day,
+        end=day + timedelta(hours=1),
+    )
+    r = await app_client.post(
+        "/api/calendar/events",
+        json={
+            "title": "Urlop",
+            "all_day": True,
+            "start_time": _iso(day.replace(hour=0)),
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    all_day_id = r.json()["id"]
+
+    summary = await app_client.get(
+        "/api/calendar/conflicts-summary",
+        params={
+            "start": _iso(day.replace(hour=0)),
+            "end": _iso(day + timedelta(hours=12)),
+        },
+        headers=app_auth_headers,
+    )
+    assert summary.status_code == 200, summary.text
+    pairs = summary.json()["pairs"]
+    assert str(all_day_id) not in pairs
+    assert pairs[str(meeting)] == []
+
+    direct = await app_client.get(
+        "/api/calendar/conflicts",
+        params={"start": _iso(day), "end": _iso(day + timedelta(minutes=30))},
+        headers=app_auth_headers,
+    )
+    assert direct.status_code == 200, direct.text
+    assert all_day_id not in {c["id"] for c in direct.json()["conflicts"]}
+
+
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 

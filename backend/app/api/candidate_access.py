@@ -70,10 +70,12 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
 CANDIDATE_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 CANDIDATE_DOCUMENT_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 
-# Parity with deps.RecruiterPlus (head_of_recruitment does not perform
-# operational candidate writes today — do not widen in a containment PR).
+# Parity with deps.RecruiterPlus. Od 2026-09-17 obejmuje head_of_recruitment
+# (decyzja Artura: HoR = pełny parytet z rekruterem; wcześniej FE bramkował
+# sekcją, a BE rolą — HoR widział „Edytuj"/„Przypisz" i dostawał 403).
 CANDIDATE_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.tac,
@@ -93,6 +95,74 @@ CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
 
 CANDIDATE_FINANCE_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 CANDIDATE_FINANCE_ROLES: tuple[UserRole, ...] = (UserRole.admin,)
+
+# „Stawka do klienta" (cena, za jaką kandydat idzie do klienta) — decyzja
+# Artura 2026-09-17: zapisują role zarządcze i Finanse (nie zwykły rekruter ani
+# sourcer) ORAZ właściciel/twórca danej rekrutacji niezależnie od roli
+# (`user_can_write_client_rate`). Do tej pory bramka była admin-only, a tablica
+# pytała o stawkę każdego — zapis kończył się 403 z niewykonalną radą.
+CLIENT_RATE_WRITE_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+    UserRole.tac,
+    UserRole.finance,
+)
+
+
+def user_can_write_client_rate(user: User, job) -> bool:
+    """Czy `user` może ustawić stawkę do klienta w rekrutacji `job`.
+
+    Rola z `CLIENT_RATE_WRITE_ROLES` LUB własność rekrutacji
+    (`job.recruiter_id` / `job.created_by`). Viewer `user` nigdy. Jedna funkcja
+    dla bramki PATCH `…/client-rate` i pola `can_write_client_rate` w
+    `GET /api/jobs/{id}`, żeby tablica i warsztat nie zgadywały.
+    """
+    if user.has_role(UserRole.admin):
+        return True
+    if user.has_role(UserRole.user):
+        return False
+    if user.has_any_role(*CLIENT_RATE_WRITE_ROLES):
+        return True
+    return job is not None and user.id in {
+        getattr(job, "recruiter_id", None),
+        getattr(job, "created_by", None),
+    }
+
+
+async def resolve_client_rate_write(db, user: User, job) -> bool:
+    """Pełna decyzja zapisu stawki do klienta — lustro `PATCH …/client-rate`.
+
+    `user_can_write_client_rate` (rola albo własność) + zapis w sekcji
+    kandydatów (jak `CandidateWriteAccess`) + członkostwo w rekrutacji. Twórca
+    i właściciel rekrutacji przechodzą bez osobnego członkostwa (decyzja
+    17.09.2026: „głównie osoba, która stworzyła tę rekrutację"). Jedna funkcja
+    dla bramki i dla `can_write_client_rate` w `GET /api/jobs/{id}` — pole nie
+    może obiecywać zapisu, który skończy się 403 (przegląd 17.09.2026).
+    """
+    from app.api.recruitment_access import ensure_job_membership
+
+    if job is None or not user_can_write_client_rate(user, job):
+        return False
+    if not user.has_role(UserRole.admin):
+        section = max(
+            section_access_for_user(user, ProductSection.sourcing),
+            section_access_for_user(user, ProductSection.pipeline),
+        )
+        if section < SectionAccess.write:
+            return False
+    if user.id in {
+        getattr(job, "recruiter_id", None),
+        getattr(job, "created_by", None),
+    }:
+        return True
+    try:
+        await ensure_job_membership(db, user, job.id)
+    except HTTPException:
+        return False
+    return True
+
 
 # Global Talent 360 facts are a deliberately broader write capability than
 # ordinary profile mutations. Product policy allows every internal operational
