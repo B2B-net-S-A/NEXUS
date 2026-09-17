@@ -26,7 +26,7 @@ vi.mock("@/components/Toast", () => ({
 
 vi.mock("@/lib/authenticated-files", () => ({
   downloadAuthenticatedFile: vi.fn(),
-  fetchAuthenticatedObjectUrl: vi.fn(),
+  fetchAuthenticatedBlob: vi.fn(),
 }));
 
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
@@ -102,6 +102,8 @@ describe("CVOriginalPreviewModal — powody pustego okna (audyt B19)", () => {
     const link = screen.getByRole("link", { name: /aktualne CV na profilu kandydata/ });
     expect(link).toHaveAttribute("href", "/candidates/4242");
     // Aktualne CV nie jest renderowane w tym oknie jako snapshot.
-    expect(screen.queryByTitle("CV oryginalne")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("document", { name: "CV oryginalne" }),
+    ).not.toBeInTheDocument();
   });
 });

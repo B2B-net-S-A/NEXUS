@@ -3,8 +3,10 @@
 /**
  * CVOriginalPreviewModal — pokazuje snapshot oryginalnego CV per rekrutacja.
  *
- * PR2 — Faza 5. PDF renderujemy inline w <iframe>; DOCX/legacy nie ma natywnego
- * viewera, więc pokazujemy tylko przycisk „Pobierz".
+ * PR2 — Faza 5. PDF renderujemy inline przez pdf.js z lupą „Szukaj w CV”
+ * (`SearchablePdfPreview`, 09.2026 — wcześniej `<iframe>`, w którym Ctrl+F
+ * przeszukiwał stronę pod oknem); DOCX/legacy nie ma podglądu, więc
+ * pokazujemy tylko przycisk „Pobierz".
  *
  * Auth: endpoint pobrania jest chroniony Bearer JWT (localStorage, NIE cookie),
  * więc surowy URL w `<iframe src>` / `<a href>` 401-uje ("Not authenticated").
@@ -22,8 +24,10 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
 import {
   downloadAuthenticatedFile,
-  fetchAuthenticatedObjectUrl,
+  fetchAuthenticatedBlob,
 } from "@/lib/authenticated-files";
+import { keepDialogOpenOnDocumentSearchEscape } from "@/components/v2/files/DocumentSearchBar";
+import { SearchablePdfPreview } from "@/components/v2/files/SearchablePdfPreview";
 import { candidateStageCvApi, type CVOriginalSnapshot } from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -79,34 +83,25 @@ export function CVOriginalPreviewModal({
   const downloadPath = `/api/candidates/stages/${stageId}/cv/original/download`;
 
   const [downloading, setDownloading] = useState(false);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [pdfError, setPdfError] = useState(false);
 
-  // Inline PDF: pobierz bajty z autoryzacją → same-origin blob URL dla <iframe>.
-  // Surowy URL backendu w iframe nie wysyła nagłówka Authorization → 401.
+  // Inline PDF: pobierz bajty z autoryzacją (surowy URL backendu nie wysyła
+  // nagłówka Authorization → 401) i oddaj je pdf.js.
   useEffect(() => {
     if (!open || !showInlinePdf) {
-      setPdfUrl(null);
+      setPdfBlob(null);
       setPdfError(false);
       return;
     }
     let cancelled = false;
-    let createdUrl: string | null = null;
-    setPdfUrl(null);
+    setPdfBlob(null);
     setPdfError(false);
 
     (async () => {
       try {
-        const url = await fetchAuthenticatedObjectUrl(
-          downloadPath,
-          "application/pdf",
-        );
-        if (cancelled) {
-          URL.revokeObjectURL(url);
-          return;
-        }
-        createdUrl = url;
-        setPdfUrl(url);
+        const blob = await fetchAuthenticatedBlob(downloadPath);
+        if (!cancelled) setPdfBlob(blob);
       } catch {
         if (!cancelled) setPdfError(true);
       }
@@ -114,7 +109,6 @@ export function CVOriginalPreviewModal({
 
     return () => {
       cancelled = true;
-      if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
   }, [open, showInlinePdf, downloadPath]);
 
@@ -134,7 +128,11 @@ export function CVOriginalPreviewModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="2xl" className="p-0 max-h-[92vh] flex flex-col">
+      <DialogContent
+        size="2xl"
+        className="p-0 max-h-[92vh] flex flex-col"
+        onEscapeKeyDown={keepDialogOpenOnDocumentSearchEscape}
+      >
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div className="min-w-0">
             <div className="text-xs uppercase tracking-wider text-muted-foreground">
@@ -214,12 +212,18 @@ export function CVOriginalPreviewModal({
                   Nie udało się wyświetlić podglądu CV.
                 </div>
               </div>
-            ) : pdfUrl ? (
-              <iframe
-                title="CV oryginalne"
-                src={pdfUrl}
-                className="w-full h-[75vh] border-0"
-              />
+            ) : pdfBlob ? (
+              <div
+                className="relative h-[75vh] w-full"
+                aria-label="CV oryginalne"
+                role="document"
+              >
+                <SearchablePdfPreview
+                  file={pdfBlob}
+                  onError={() => setPdfError(true)}
+                  findShortcutScope="dialog"
+                />
+              </div>
             ) : (
               <div className="p-10 text-center text-sm text-muted-foreground">
                 Ładowanie podglądu…
