@@ -4,7 +4,6 @@ Phase 5 endpoints — completion pass:
 - GET /api/embed-diagnostics    — verify Voyage + Qdrant health and state
 - POST /api/embed-init           — force-create Qdrant collections (Manager+)
 - CRUD /api/candidates/{id}/rate-history
-- CRUD /api/candidates/{id}/conflicts
 """
 
 from __future__ import annotations
@@ -29,7 +28,6 @@ from app.api.deps import AdminUser, CurrentUser, ManagerOrAdmin
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.candidate import Candidate
-from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.job import Job
 from app.models.rate_history import ContractType, RateHistory
 from app.services.embedding_service import (
@@ -243,113 +241,6 @@ async def delete_rate_history(
         raise HTTPException(status_code=404, detail="RateHistory not found")
     await db.delete(r)
     await db.commit()
-
-
-# ── Candidate conflicts CRUD ────────────────────────────────────────────────
-
-
-class ConflictCreate(BaseModel):
-    client_id: int
-    type: ConflictType
-    reason: Optional[str] = None
-    expires_at: Optional[str] = None
-
-
-def _conflict_to_dict(c: CandidateConflict) -> dict:
-    return {
-        "id": c.id,
-        "candidate_id": c.candidate_id,
-        "client_id": c.client_id,
-        "type": c.type.value,
-        "reason": c.reason,
-        "active": c.active,
-        "expires_at": c.expires_at.isoformat() if c.expires_at else None,
-        "created_by": c.created_by,
-        "created_at": c.created_at.isoformat() if c.created_at else None,
-    }
-
-
-@router.get("/candidates/{candidate_id}/conflicts")
-async def list_conflicts(
-    candidate_id: int,
-    current_user: CandidateFinanceReadAccess,
-    active_only: bool = True,
-    db: AsyncSession = Depends(get_db),
-):
-    q = select(CandidateConflict).where(CandidateConflict.candidate_id == candidate_id)
-    if active_only:
-        q = q.where(CandidateConflict.active.is_(True))
-    q = q.order_by(CandidateConflict.created_at.desc())
-    rows = await db.execute(q)
-    return [_conflict_to_dict(c) for c in rows.scalars().all()]
-
-
-@router.post(
-    "/candidates/{candidate_id}/conflicts",
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_candidate_write)],
-)
-async def create_conflict(
-    candidate_id: int,
-    data: ConflictCreate,
-    current_user: ManagerOrAdmin,
-    db: AsyncSession = Depends(get_db),
-):
-    cand = await db.scalar(select(Candidate.id).where(Candidate.id == candidate_id))
-    if not cand:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-
-    from datetime import datetime as dt
-
-    expires = None
-    if data.expires_at:
-        try:
-            expires = dt.fromisoformat(data.expires_at.replace("Z", "+00:00"))
-        except ValueError:
-            raise HTTPException(
-                status_code=422, detail="expires_at must be ISO-8601"
-            ) from None
-
-    cc = CandidateConflict(
-        candidate_id=candidate_id,
-        client_id=data.client_id,
-        type=data.type,
-        reason=data.reason,
-        expires_at=expires,
-        created_by=current_user.id,
-    )
-    db.add(cc)
-    try:
-        await db.commit()
-    except (
-        Exception
-    ) as e:  # likely unique-index violation on (candidate, client) while active
-        await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail=f"Active conflict already exists for this (candidate, client): {e}",
-        ) from e
-    await db.refresh(cc)
-    return _conflict_to_dict(cc)
-
-
-@router.patch(
-    "/conflicts/{conflict_id}/deactivate",
-    dependencies=[Depends(require_candidate_write)],
-)
-async def deactivate_conflict(
-    conflict_id: int,
-    current_user: ManagerOrAdmin,
-    db: AsyncSession = Depends(get_db),
-):
-    c = await db.scalar(
-        select(CandidateConflict).where(CandidateConflict.id == conflict_id)
-    )
-    if not c:
-        raise HTTPException(status_code=404, detail="Conflict not found")
-    c.active = False
-    await db.commit()
-    return {"ok": True, "id": c.id, "active": False}
 
 
 # ── Jobs context for UI dropdowns ───────────────────────────────────────────

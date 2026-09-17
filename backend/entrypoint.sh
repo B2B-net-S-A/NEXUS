@@ -1641,6 +1641,15 @@ _COLUMN_STATEMENTS = [
     # nullable i bez UNIQUE. Dane przepisuje jednorazowa korekta niżej.
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS candidate_email VARCHAR(255)",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS candidate_phone VARCHAR(30)",
+    # 0321: audyt dezaktywacji konfliktu kandydat↔klient (kto/kiedy/dlaczego)
+    # i unikalność per TYP. Stary indeks (kandydat, klient) jest zdejmowany TU,
+    # a nie w `_INDEX_STATEMENTS` (tam wyłącznie CREATE); nowy buduje faza
+    # indeksów CONCURRENTLY. Pilnuje `test_entrypoint_candidate_conflicts_mirror.py`.
+    "ALTER TABLE candidate_conflicts ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ",
+    "ALTER TABLE candidate_conflicts ADD COLUMN IF NOT EXISTS deactivated_by "
+    "INTEGER REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE candidate_conflicts ADD COLUMN IF NOT EXISTS deactivation_reason TEXT",
+    "DROP INDEX IF EXISTS uq_candidate_conflict_active",
     # 0248: osobne waluty przychodu i kosztu. Nullable zostają dla legacy
     # read fallbacku; trigger niżej synchronizuje zapisy starej wersji appki.
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
@@ -4036,7 +4045,7 @@ _COLUMN_STATEMENTS = [
             'order_missing_successor',
             'periodic_order_ending', 'framework_contract_expiring',
             'contract_ending', 'cost_budget_low', 'new_contractor_draft',
-            'md_base_usage_high')),
+            'md_base_usage_high', 'candidate_conflict_expired')),
         CONSTRAINT ck_dl_alerts_status
             CHECK (status IN ('new', 'handled', 'resolved')),
         CONSTRAINT ck_dl_alerts_handled_coherence
@@ -4804,6 +4813,16 @@ END $$
 
 
 _DATA_STATEMENTS = [
+    # 17.09.2026: konflikt z klientem i `client_excluded` przestały zerować wynik
+    # (idą do `breakdown.warnings`). Wiersze cache policzone starą regułą mają
+    # `total=0` i w `penalties` te kody — unieważniamy je, żeby przeliczyły się
+    # nowo. Samoograniczające: przeliczony wiersz nie niesie już tych kodów,
+    # a `stale = false` pomija wiersze już unieważnione.
+    """UPDATE candidate_job_match_scores
+        SET stale = true, invalidated_at = now()
+        WHERE stale = false
+          AND jsonb_exists_any(
+                breakdown->'penalties', ARRAY['active_conflict', 'client_excluded'])""",
     # Snapshot only the currently active version, once; never activate proposals.
     """DO $$ BEGIN
         PERFORM pg_advisory_xact_lock(283202609);
@@ -6393,7 +6412,7 @@ _CONSTRAINT_STATEMENTS = [
                 'order_missing_successor',
                 'periodic_order_ending', 'framework_contract_expiring',
                 'contract_ending', 'cost_budget_low', 'new_contractor_draft',
-                'md_base_usage_high'
+                'md_base_usage_high', 'candidate_conflict_expired'
             ));
     END $$""",
     # 0310: status `resolved` (przyczyna ustąpiła bez odhaczenia DL) i
@@ -7109,6 +7128,13 @@ _INDEX_STATEMENTS = [
     "ON candidate_search_runs (completed_at)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_search_results_candidate_id "
     "ON candidate_search_results (candidate_id)",
+    # 0321: jeden AKTYWNY konflikt per (kandydat, klient, typ) + indeks wygaśnięć
+    # (alert DL „konflikt wygasł", filtr rejestru „wygasa w N dni").
+    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_candidate_conflict_active_type "
+    "ON candidate_conflicts (candidate_id, client_id, type) WHERE active = true",
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_conflicts_active_expires "
+    "ON candidate_conflicts (expires_at) "
+    "WHERE active = true AND expires_at IS NOT NULL",
 ]
 
 

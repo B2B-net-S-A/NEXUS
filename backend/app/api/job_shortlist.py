@@ -35,7 +35,6 @@ from app.api.recruitment_access import ensure_job_membership, ensure_job_read_ac
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.candidate import Candidate
-from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job
 from app.models.job_shortlist import JobShortlistEntry
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -53,15 +52,10 @@ from app.services.candidate_contact_hooks import (
     maybe_close_contact_opportunity,
     maybe_ensure_contact_opportunity,
 )
-from app.services.candidate_job_eligibility import (
-    ConflictInput,
-    EligibilityInput,
-    EligibilityReason,
-    evaluate_eligibility,
-    extract_excluded_client_ids,
+from app.services.pipeline_eligibility import (
+    assert_candidate_move_eligible,
+    evaluate_candidates_for_job,
 )
-from app.services.hiring_manager_verdicts import load_manager_rejections
-from app.services.pipeline_eligibility import evaluate_candidates_for_job
 from app.services.recruitment_process_commands import open_process
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -116,12 +110,11 @@ async def add_to_shortlist(
         .all()
     )
 
-    # Eligibility gate — a globally-blacklisted / NDA / competitor-conflict /
-    # hiring-manager-vetoed candidate must not be parked on a shortlist (nor
-    # trigger outreach on promote), mirroring the bulk-add and promote ingresses.
-    # The recommendations widget already pre-filters these; the manual-search
-    # surface (which does not conflict-filter) is the only ingress that feeds
-    # unfiltered ids here. Same policy source as the deployed matching path.
+    # Eligibility gate — a globally-blacklisted or hiring-manager-vetoed
+    # candidate must not be parked on a shortlist (nor trigger outreach on
+    # promote), mirroring the bulk-add and promote ingresses. Client conflicts
+    # (blacklist / NDA / competitor) are warnings since 17.09.2026 and do not
+    # stop a shortlist add. Same policy source as the deployed matching path.
     now = datetime.now(timezone.utc)
     eligibility = await evaluate_candidates_for_job(
         db, job=job, candidate_ids=list(valid), now=now
@@ -362,7 +355,8 @@ async def promote_shortlist_entry(
     ``CandidateStage`` at the first non-terminal stage). Idempotent: if the
     candidate is already in the job's pipeline it just records the promotion.
     Applies the same eligibility gate as bulk-add / single-assign — a global
-    blacklist or an active client conflict → 409.
+    blacklist or a standing hiring-manager veto → 409 (client conflicts are
+    warnings since 17.09.2026).
     """
     entry = await db.scalar(
         select(JobShortlistEntry).where(JobShortlistEntry.id == entry_id)
@@ -415,51 +409,12 @@ async def promote_shortlist_entry(
             already_in_pipeline=True,
         )
 
-    # Eligibility gate before creating a new pipeline row.
-    conflict_rows = (
-        (
-            await db.execute(
-                select(CandidateConflict).where(
-                    CandidateConflict.candidate_id == candidate.id,
-                    CandidateConflict.client_id == job.client_id,
-                    CandidateConflict.active.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .all()
+    # Eligibility gate before creating a new pipeline row — the shared gate
+    # (``pipeline_eligibility``), so promote also sees current employment
+    # derived from live contracts and names the manager on a veto.
+    await assert_candidate_move_eligible(
+        db, candidate_id=candidate.id, job=job, now=now
     )
-    manager_verdicts = await load_manager_rejections(
-        db, job=job, candidate_ids=[candidate.id]
-    )
-    decision = evaluate_eligibility(
-        EligibilityInput(
-            candidate_status=candidate.status.value,
-            job_client_id=job.client_id,
-            conflicts=tuple(
-                ConflictInput(
-                    type=r.type.value,
-                    client_id=r.client_id,
-                    active=r.active,
-                    expires_at=r.expires_at,
-                )
-                for r in conflict_rows
-            ),
-            excluded_client_ids=extract_excluded_client_ids(candidate.preferences),
-            already_in_job=False,
-            rejected_by_hiring_manager=candidate.id in manager_verdicts,
-        ),
-        now,
-    )
-    if not decision.assignment_allowed:
-        detail = decision.reason
-        verdict = manager_verdicts.get(candidate.id)
-        if (
-            decision.reason_code is EligibilityReason.rejected_by_hiring_manager
-            and verdict is not None
-        ):
-            detail = verdict.as_polish_detail()
-        raise HTTPException(status_code=409, detail=detail)
 
     stage_def = await _resolve_initial_stage(db, job, None)
     legacy_enum = PipelineStage.new

@@ -23,8 +23,6 @@ from app.api.matching import _build_match_info, _required_skills_with_source
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate, CandidateStatus
-from app.models.candidate_conflict import CandidateConflict, ConflictType
-from app.models.client import Client
 from app.models.job import Job
 from app.services.dealbreaker_filters import (
     DealbreakerInputs,
@@ -246,48 +244,47 @@ class TestBuildMatchInfoRubricLabels:
 
 # ── HTTP: etykiety na wierszu, obie gałęzie ─────────────────────────────────
 #
-# `warn` (NDA) jest ZWOLNIONY z dealbreakerów, więc jest to jedyny sposób,
+# Wiersz twardo zablokowany, ale widoczny (weto HM: severity=hard,
+# visibility=warn) jest ZWOLNIONY z dealbreakerów, więc jest to jedyny sposób,
 # żeby zobaczyć etykiety rubryk na wierszu kandydata, który wszystkie trzy
 # rubryki NARUSZA — kandydat spełniający je zostałby po prostu ukryty i nic
-# by nie było widać. Wzorzec fixture'a jak `gated_over_budget_fixture`
-# w test_ai_matches_fallback_eligibility.py.
+# by nie było widać. Do 17.09.2026 tę rolę grał kandydat z NDA; od tej decyzji
+# konflikt z klientem to ostrzeżenie i budżet ścina go jak każdego innego.
 
 
 @pytest_asyncio.fixture(params=["review", "exclude"])
 async def rubric_labels_fixture(request):
     # Etykiety i bramka must-have są takie same dla obu polityk: znana luka
     # technologii ukrywa także przy domyślnym „review” (decyzja 10.09).
-    unique = uuid.uuid4().hex[:8]
-    async with AsyncSessionLocal() as db:
-        client = Client(name=f"AIMatch RowLabels Client {unique}")
-        db.add(client)
-        await db.flush()
+    from sqlalchemy import select
 
-        job = Job(
-            requirements_reviewed=True,
-            matching_requirements={
-                "version": 1,
-                "reviewed": True,
-                "missing_evidence_policy": request.param,
-                "all_of": [
-                    {
-                        "any_of": ["python"],
-                        "level": "must",
-                        "source": "manual",
-                        "evidence": "",
-                    }
-                ],
-            },
-            title=f"AIMatch RowLabels Job {unique}",
-            client_id=client.id,
-            description="Python backend engineer",
-            requirements="python",
-            hiring_manager_contact_id=None,
-            must_skills=[{"name": "python"}],
-            rate_budget_hourly=Decimal("100.00"),
-            onsite_days_per_week=3,
-            location="Warszawa",
-        )
+    from tests.test_manager_rejection_gate import _seed_vetoed_candidate
+
+    unique = uuid.uuid4().hex[:8]
+    world = await _seed_vetoed_candidate()
+    job_id, warn_id = world["target_job_id"], world["candidate_id"]
+    async with AsyncSessionLocal() as db:
+        job = await db.scalar(select(Job).where(Job.id == job_id))
+        job.requirements_reviewed = True
+        job.matching_requirements = {
+            "version": 1,
+            "reviewed": True,
+            "missing_evidence_policy": request.param,
+            "all_of": [
+                {
+                    "any_of": ["python"],
+                    "level": "must",
+                    "source": "manual",
+                    "evidence": "",
+                }
+            ],
+        }
+        job.description = "Python backend engineer"
+        job.requirements = "python"
+        job.must_skills = [{"name": "python"}]
+        job.rate_budget_hourly = Decimal("100.00")
+        job.onsite_days_per_week = 3
+        job.location = "Warszawa"
         ok_candidate = Candidate(
             name="Pasuje",
             lastname=f"Wszystko{unique}",
@@ -299,49 +296,30 @@ async def rubric_labels_fixture(request):
             max_onsite_days_per_week=3,
             location="Warszawa, mazowieckie",
         )
-        warn_candidate = Candidate(
-            # `warn` (NDA) — jedyny sposób, by zobaczyć na wierszu kandydata
-            # naruszającego rubryki (byłby inaczej ukryty). Lokalizacja
-            # ŚWIADOMIE "Warszawa" — job.location podwaja rolę rubryki biura
-            # I domyślnego filtra lokalizacji `/ai-matches` (gdy `location`
-            # nie jest podane w query, handler pada na `job.location`); inne
-            # miasto wycięłoby ten wiersz PRZED dealbreakerami, przez filtr
-            # lokalizacji, nie przez rubrykę biura — city_mismatch jest już
-            # pokryty jednostkowo w `TestOfficeFitStatus` wyżej.
-            name="Narusza",
-            lastname=f"Wszystko{unique}",
-            email=f"row-labels-warn-{unique}@example.com",
-            status=CandidateStatus.active,
-            skills=[{"name": "java"}],
-            expected_rate_hourly=Decimal("200.00"),
-            expected_rate_currency="PLN",
-            max_onsite_days_per_week=1,
-            location="Warszawa",
+        # Kandydat z wetem HM — jedyny sposób, by zobaczyć na wierszu kandydata
+        # naruszającego rubryki (byłby inaczej ukryty). Lokalizacja ŚWIADOMIE
+        # "Warszawa" — job.location podwaja rolę rubryki biura I domyślnego
+        # filtra lokalizacji `/ai-matches` (gdy `location` nie jest podane
+        # w query, handler pada na `job.location`); inne miasto wycięłoby ten
+        # wiersz PRZED dealbreakerami, przez filtr lokalizacji, nie przez
+        # rubrykę biura — city_mismatch jest już pokryty jednostkowo
+        # w `TestOfficeFitStatus` wyżej.
+        warn_candidate = await db.scalar(
+            select(Candidate).where(Candidate.id == warn_id)
         )
-        db.add_all([job, ok_candidate, warn_candidate])
-        await db.flush()
-        db.add(
-            CandidateConflict(
-                candidate_id=warn_candidate.id,
-                client_id=client.id,
-                type=ConflictType.nda,
-                reason="pytest — etykiety rubryk na wierszu warn",
-                active=True,
-            )
-        )
+        warn_candidate.skills = [{"name": "java"}]
+        warn_candidate.expected_rate_hourly = Decimal("200.00")
+        warn_candidate.expected_rate_currency = "PLN"
+        warn_candidate.max_onsite_days_per_week = 1
+        warn_candidate.location = "Warszawa"
+        db.add(ok_candidate)
         await db.commit()
-        ids = (job.id, ok_candidate.id, warn_candidate.id, client.id)
+        ok_id = ok_candidate.id
 
-    yield ids
+    yield job_id, ok_id, warn_id, None
 
-    job_id, ok_id, warn_id, client_id = ids
     async with AsyncSessionLocal() as db:
-        await db.execute(
-            delete(CandidateConflict).where(CandidateConflict.client_id == client_id)
-        )
-        await db.execute(delete(Candidate).where(Candidate.id.in_([ok_id, warn_id])))
-        await db.execute(delete(Job).where(Job.id == job_id))
-        await db.execute(delete(Client).where(Client.id == client_id))
+        await db.execute(delete(Candidate).where(Candidate.id == ok_id))
         await db.commit()
 
 
@@ -397,8 +375,10 @@ async def test_ai_matches_rows_carry_rubric_labels_on_both_branches(
     assert ok_row["missing_must"] == []
     warn_row = _match(body_fallback, warn_id)
     assert warn_row is not None, (
-        "warn musi zostać wierszem, żeby dało się zobaczyć etykiety"
+        "wiersz z wetem HM musi zostać, żeby dało się zobaczyć etykiety"
     )
+    assert warn_row["eligibility"]["reason_code"] == "rejected_by_hiring_manager"
+    assert warn_row["eligibility"]["assignment_allowed"] is False
     assert warn_row["rate_fit"] == "over_budget"
     assert warn_row["office_fit"] == "days_exceeded"
     assert warn_row["missing_must"] == ["python"]

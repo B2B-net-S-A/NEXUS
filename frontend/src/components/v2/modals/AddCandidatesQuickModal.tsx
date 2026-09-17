@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { AVATAR_COLORS } from "@/lib/colors";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import { assignErrorMessage } from "@/lib/assign-error";
+import { eligibilityBadgeClass } from "@/lib/conflicts";
 
 interface Props {
   open: boolean;
@@ -50,7 +51,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
     }
   }, [open]);
 
-  const { data, isFetching, isError } = useQuery({
+  const { data, isFetching, isError, isSuccess } = useQuery({
     queryKey: ["add-candidates-quick", jobId, debouncedQuery],
     queryFn: () =>
       candidateSearchApi.search({
@@ -68,13 +69,23 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
     staleTime: 30_000,
   });
 
-  const items: CandidateSearchItem[] = data?.items ?? [];
+  const items: CandidateSearchItem[] = useMemo(() => data?.items ?? [], [data]);
   const total = data?.total ?? 0;
 
   const selectedCount = selected.size;
+  // Weto hiring managera (`assignment_allowed: false`) blokuje dodanie — taki
+  // wiersz jest widoczny z powodem, ale nie da się go zaznaczyć. Konflikt
+  // z klientem (czarna lista klienta / NDA / konkurent) od 17.09.2026 jest
+  // tylko ostrzeżeniem i zaznaczyć go można.
+  const selectableItems = useMemo(
+    () => items.filter((c) => c.eligibility?.assignment_allowed !== false),
+    [items],
+  );
   const allOnPageSelected = useMemo(
-    () => items.length > 0 && items.every((c) => selected.has(c.id)),
-    [items, selected],
+    () =>
+      selectableItems.length > 0 &&
+      selectableItems.every((c) => selected.has(c.id)),
+    [selectableItems, selected],
   );
 
   const toggle = (id: number) => {
@@ -90,9 +101,9 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
     setSelected((prev) => {
       const next = new Set(prev);
       if (allOnPageSelected) {
-        for (const c of items) next.delete(c.id);
+        for (const c of selectableItems) next.delete(c.id);
       } else {
-        for (const c of items) next.add(c.id);
+        for (const c of selectableItems) next.add(c.id);
       }
       return next;
     });
@@ -185,7 +196,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
                 ? `Znaleziono ${total} ${total === 1 ? "wynik" : total >= 2 && total <= 4 ? "wyniki" : "wyników"} (już dodani do tej rekrutacji są ukryci)`
                 : `Najnowsi kandydaci — wpisz frazę, by przefiltrować (${total} łącznie)`}
             </span>
-            {items.length > 0 && (
+            {selectableItems.length > 0 && (
               <button
                 onClick={toggleAllOnPage}
                 className="text-primary hover:underline font-medium"
@@ -218,7 +229,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             </div>
           )}
 
-          {!isError && items.length === 0 && !isFetching && (
+          {isSuccess && items.length === 0 && !isFetching && (
             <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-2">
               <Search className="w-10 h-10 opacity-30" />
               <p className="text-sm">
@@ -235,12 +246,17 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             const initials = initialsOf(c.name, c.lastname);
             const color = avatarColorFor(fullName || String(c.id));
             const candidateLocation = formatCandidateLocation(c.location);
+            const elig = c.eligibility;
+            const assignBlocked = elig?.assignment_allowed === false;
             return (
               <button
                 key={c.id}
+                type="button"
                 onClick={() => toggle(c.id)}
+                disabled={assignBlocked}
+                title={assignBlocked ? elig?.reason : undefined}
                 className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors mb-1",
+                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors mb-1 disabled:cursor-not-allowed disabled:opacity-60",
                   isSelected
                     ? "bg-primary/10 ring-1 ring-primary/30"
                     : "hover:bg-muted",
@@ -271,8 +287,20 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
                       {fullName || "—"}
                     </span>
                     {c.is_champion && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-warning-muted text-warning-muted-foreground font-medium">
                         Champion
+                      </span>
+                    )}
+                    {elig && (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                          eligibilityBadgeClass(elig),
+                        )}
+                        data-testid={`add-candidate-eligibility-${c.id}`}
+                      >
+                        <AlertCircle className="h-3 w-3 shrink-0" />
+                        {elig.reason}
                       </span>
                     )}
                   </div>

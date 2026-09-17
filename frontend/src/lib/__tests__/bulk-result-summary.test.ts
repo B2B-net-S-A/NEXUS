@@ -7,18 +7,20 @@ import {
 } from "@/lib/bulk-result-summary";
 
 const resp: BulkProposalsResponse = {
-  added: [1, 2, 3],
+  added: [1, 2, 3, 5, 6],
   skipped: [
     { candidate_id: 4, reason: "already_in_job" },
-    { candidate_id: 5, reason: "client_nda" },
-    { candidate_id: 6, reason: "client_nda" },
+    { candidate_id: 7, reason: "rejected_by_hiring_manager" },
   ],
   warnings: [
     { candidate_id: 1, reason: "current_employment" },
     { candidate_id: 2, reason: "excluded_by_candidate" },
+    // Konflikt z klientem od 17.09.2026 jest ostrzeżeniem — kandydat DODANY.
+    { candidate_id: 5, reason: "client_nda" },
+    { candidate_id: 6, reason: "client_nda" },
   ],
-  total_added: 3,
-  total_skipped: 3,
+  total_added: 5,
+  total_skipped: 2,
 };
 
 describe("summarizeBulkResult", () => {
@@ -37,10 +39,10 @@ describe("summarizeBulkResult", () => {
 
   it("tallies skipped rows by reason with PL labels", () => {
     const s = summarizeBulkResult(resp);
-    expect(s.added).toBe(3);
+    expect(s.added).toBe(5);
     expect(s.skipped).toEqual([
       { label: "już w rekrutacji", count: 1 },
-      { label: "konflikt: NDA z klientem", count: 2 },
+      { label: "hiring manager odrzucił po rozmowie", count: 1 },
     ]);
   });
 
@@ -49,6 +51,27 @@ describe("summarizeBulkResult", () => {
     expect(s.warnings).toEqual([
       { label: "obecne zatrudnienie u klienta", count: 1 },
       { label: "kandydat wykluczył klienta", count: 1 },
+      { label: "konflikt: NDA z klientem", count: 2 },
+    ]);
+  });
+
+  it("labels every client conflict as a warning, never as a skip", () => {
+    const s = summarizeBulkResult({
+      added: [1, 2, 3],
+      skipped: [],
+      warnings: [
+        { candidate_id: 1, reason: "client_blacklist" },
+        { candidate_id: 2, reason: "client_nda" },
+        { candidate_id: 3, reason: "client_competitor" },
+      ],
+      total_added: 3,
+      total_skipped: 0,
+    });
+    expect(s.skipped).toEqual([]);
+    expect(s.warnings.map((w) => w.label)).toEqual([
+      "konflikt: czarna lista klienta",
+      "konflikt: NDA z klientem",
+      "konflikt: klient konkurencyjny",
     ]);
   });
 

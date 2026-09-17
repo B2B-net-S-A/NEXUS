@@ -15,13 +15,13 @@ const SKIP_LABELS: Record<BulkSkipReason, string> = {
   already_in_job: "już w rekrutacji",
   blacklisted: "czarna lista",
   candidate_not_found: "nie znaleziono",
-  client_blacklist: "konflikt: czarna lista klienta",
-  client_nda: "konflikt: NDA z klientem",
-  client_competitor: "konflikt: klient konkurencyjny",
   rejected_by_hiring_manager: "hiring manager odrzucił po rozmowie",
 };
 
 const WARNING_LABELS: Record<BulkWarningReason, string> = {
+  client_blacklist: "konflikt: czarna lista klienta",
+  client_nda: "konflikt: NDA z klientem",
+  client_competitor: "konflikt: klient konkurencyjny",
   current_employment: "obecne zatrudnienie u klienta",
   excluded_by_candidate: "kandydat wykluczył klienta",
 };

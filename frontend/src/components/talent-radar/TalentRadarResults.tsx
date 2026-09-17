@@ -11,7 +11,7 @@
  */
 
 import Link from "next/link";
-import { SearchX, TriangleAlert, Users } from "lucide-react";
+import { AlertCircle, SearchX, TriangleAlert, Users } from "lucide-react";
 
 import {
   EmptyState,
@@ -227,6 +227,25 @@ export function TalentRadarResults({
                 .join(" · ")}
               score={result.total}
               reasons={matchReasons(result)}
+              notice={
+                // Konflikt z klientem (czarna lista klienta / NDA / konkurent)
+                // od 17.09.2026 nie wyklucza z radaru — kandydat jest na
+                // liście z powodem. Czerwień tylko dla weta HM.
+                result.eligibility ? (
+                  <p
+                    className={cn(
+                      "flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-xs",
+                      result.eligibility.assignment_allowed === false
+                        ? "border-destructive/30 bg-destructive/10 text-destructive"
+                        : "border-warning/25 bg-warning-muted text-warning-muted-foreground",
+                    )}
+                    data-testid={`tr-eligibility-${result.candidate_id}`}
+                  >
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    <span>{result.eligibility.reason}</span>
+                  </p>
+                ) : undefined
+              }
               actions={
                 canOpenProfile ? (
                   // Celowo `Link` ze stylami `buttonVariants`, nie `<Button
@@ -258,7 +277,7 @@ export function TalentRadarResults({
           title="Nikt nie przekroczył progu dopasowania"
           description={
             meta.eligible_size === 0
-              ? "Żaden kandydat z puli nie może zostać zaproponowany temu klientowi — blokują to blacklisty, NDA lub weto."
+              ? "Żaden kandydat z puli nie może zostać zaproponowany temu klientowi — blokuje to globalna czarna lista albo weto hiring managera."
               : "Spróbuj opisać rolę szerzej albo mniej sztywno — im więcej konkretów technologicznych, tym lepszy sygnał."
           }
         />

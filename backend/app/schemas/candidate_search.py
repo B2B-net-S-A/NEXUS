@@ -178,6 +178,12 @@ class CandidateSearchItem(BaseModel):
     is_champion: bool = False
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    # Plakietka dopuszczalności w kontekście rekrutacji (``exclude_in_job_id``)
+    # — ten sam kształt co w rankingu AI (``services/eligibility_annotation``).
+    # Konflikt z klientem to ostrzeżenie (``assignment_allowed=True``); weto
+    # hiring managera blokuje (``False``). ``None`` bez kontekstu rekrutacji
+    # albo bez przeciwwskazań.
+    eligibility: Optional[dict[str, Any]] = None
 
 
 class CompetenceCategoryFacet(BaseModel):

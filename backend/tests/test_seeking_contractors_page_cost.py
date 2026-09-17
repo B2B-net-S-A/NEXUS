@@ -336,7 +336,8 @@ async def test_batched_scoring_matches_the_per_pair_path():
             db.add(_stage(c0, j_closed, now, {"overall_fit": "fit"}))
             db.add_all(
                 [
-                    # c1: aktywny konflikt z klientem ofert → kara + twarde odcięcie.
+                    # c1: aktywny konflikt z klientem ofert → ostrzeżenie (od
+                    # 17.09.2026 bez zerowania wyniku i bez odcięcia).
                     CandidateConflict(
                         candidate_id=c1,
                         client_id=seed["client_id"],
@@ -432,6 +433,7 @@ async def test_batched_scoring_matches_the_per_pair_path():
                         b.job_id,
                         round(b.total, 6),
                         b.penalties,
+                        b.warnings,
                         b.champion_fit.reason,
                         round(b.champion_fit.points, 6),
                     )
@@ -446,8 +448,14 @@ async def test_batched_scoring_matches_the_per_pair_path():
             assert bulk_by_pair[(c1, j1)].champion_fit.reason == "fit · 50%"
             assert bulk_by_pair[(c1, j1)].champion_fit.points > 0
             assert bulk_by_pair[(c2, j1)].champion_fit.reason == "deal-breaker"
-            assert "active_conflict" in bulk_by_pair[(c1, j0)].penalties
-            assert "active_conflict" not in bulk_by_pair[(c1, j2)].penalties
+            # 17.09.2026: konflikt z klientem to OSTRZEŻENIE — nie kara.
+            assert "active_conflict" in bulk_by_pair[(c1, j0)].warnings
+            assert "active_conflict" not in bulk_by_pair[(c1, j0)].penalties
+            assert bulk_by_pair[(c1, j0)].total > 0
+            assert "active_conflict" not in bulk_by_pair[(c1, j2)].warnings
+            # Konflikt po terminie (c2 × klient ofert) nie jest ostrzeżeniem —
+            # ani w kontekście hurtowym, ani na ścieżce per para (równość wyżej).
+            assert "active_conflict" not in bulk_by_pair[(c2, j0)].warnings
             assert bulk_by_pair[(c0, j2)].champion_fit.reason == "brak screeningu"
     finally:
         await _cleanup(

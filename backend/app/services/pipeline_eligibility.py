@@ -121,19 +121,25 @@ async def evaluate_candidates_for_job_with_verdicts(
 
     conflicts_by_candidate: dict[int, list[ConflictInput]] = {}
     if job.client_id is not None:
+        # Wyłącznie kolumny potrzebne polityce — nie cała encja. Gorąca ścieżka
+        # (każdy ruch, bulk-add, ranking) nie może zależeć od kolumn audytu
+        # dołożonych w 0321: na prodzie wprowadza je safety-net entrypointu
+        # z lock_timeout, a pominięty ALTER dawałby 500 na każdym ruchu.
         conflict_rows = (
-            (
-                await db.execute(
-                    select(CandidateConflict).where(
-                        CandidateConflict.candidate_id.in_(ids),
-                        CandidateConflict.client_id == job.client_id,
-                        CandidateConflict.active.is_(True),
-                    )
+            await db.execute(
+                select(
+                    CandidateConflict.candidate_id,
+                    CandidateConflict.client_id,
+                    CandidateConflict.type,
+                    CandidateConflict.active,
+                    CandidateConflict.expires_at,
+                ).where(
+                    CandidateConflict.candidate_id.in_(ids),
+                    CandidateConflict.client_id == job.client_id,
+                    CandidateConflict.active.is_(True),
                 )
             )
-            .scalars()
-            .all()
-        )
+        ).all()
         for row in conflict_rows:
             conflicts_by_candidate.setdefault(row.candidate_id, []).append(
                 ConflictInput(

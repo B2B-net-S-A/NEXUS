@@ -5,17 +5,19 @@ inverse) ranks matches:
 
 - Hard filters on user-overridable criteria (location, salary ±tolerance,
   availability, competence_category)
-- Industry blocklist via `CandidateConflict`:
-    - `blacklist` + `competitor`           → hard drop (ALWAYS — fail-closed)
-    - `nda` (with active `expires_at`)     → hard drop (ALWAYS — fail-closed)
-    - `current_employment`                  → soft warn (annotated, not removed)
+- Industry blocklist via `CandidateConflict` (active and not expired):
+    - `blacklist` / `nda` / `competitor` → warning, NOT a drop (decision of
+      17.09.2026 — a client conflict is a warning, not a block). The warning
+      is ALWAYS attached; no caller flag can hide it.
+    - `current_employment`                → warning, suppressible by
+      `filters.industry_blocklist=False`.
 
-M2 audit PR 1 (M2-SEC-03): hard NDA/blacklist/competitor exclusions are
-enforced server-side regardless of caller input. `filters.industry_blocklist`
-used to skip loading conflicts entirely — any logged-in user could surface
-hard-blocked jobs by passing `industry_blocklist=false`. The flag now only
-toggles SOFT warnings (`current_employment` annotation); the hard set is
-always applied and there is no parameter that bypasses it.
+M2 audit PR 1 (M2-SEC-03): the compliance signal is enforced server-side
+regardless of caller input. `filters.industry_blocklist` used to skip loading
+conflicts entirely — any logged-in user could hide conflicts by passing
+`industry_blocklist=false`. The spirit survives the 17.09.2026 change: the
+checkbox can only silence the `current_employment` note and can NEVER hide a
+client blacklist / NDA / competitor warning.
 
 Separation of concerns: `scoring_service` stays untouched. This layer wraps
 the result list and works in either direction (candidate→jobs or job→candidates)
@@ -30,13 +32,18 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable, Optional, Sequence, Union
+from typing import Iterable, NamedTuple, Optional, Sequence, Union
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import AvailabilityStatus, Candidate
-from app.models.candidate_conflict import CandidateConflict, ConflictType
+from app.models.candidate_conflict import (
+    CandidateConflict,
+    ConflictType,
+    active_unexpired_clause,
+    dominant_conflict_type,
+)
 from app.models.job import Job
 
 logger = logging.getLogger(__name__)
@@ -60,9 +67,9 @@ class RecommendationFilters:
     salary_tolerance: float = 0.20  # ±20%
     availability: Optional[Sequence[AvailabilityStatus]] = None
     competence_category: Optional[Sequence[str]] = None
-    # SOFT-warnings toggle only. Hard NDA/blacklist/competitor conflicts are
-    # enforced unconditionally in `apply_user_filters` — this flag cannot
-    # re-include a hard-blocked job (M2-SEC-03 fail-closed contract).
+    # Toggles ONLY the `current_employment` note. Client blacklist / NDA /
+    # competitor warnings are attached unconditionally in `apply_user_filters`
+    # — this flag can never hide a compliance signal (M2-SEC-03).
     industry_blocklist: bool = True
 
 
@@ -82,6 +89,8 @@ class FilterStats:
     kept: int = 0
     dropped_location: int = 0
     dropped_salary: int = 0
+    # Kept for response/diagnostic shape; always 0 since 17.09.2026 (client
+    # conflicts are warnings, nothing is dropped for them any more).
     dropped_blocklist: int = 0
     soft_warned: int = 0
 
@@ -164,7 +173,8 @@ async def load_active_conflicts_bulk(
 ) -> dict[int, dict[int, ConflictType]]:
     """Return ``{candidate_id: {client_id: ConflictType}}`` for a whole page.
 
-    Active = `active=True` AND (`expires_at` is NULL OR `expires_at > now()`).
+    Active = `active=True` AND (`expires_at` is NULL OR `expires_at > now()`)
+    — `active_unexpired_clause`, the one definition every reader shares.
 
     One SELECT for any number of candidates. „Szukają projektu" filtrowało
     stronę 50 kandydatów, wołając `_load_active_conflicts` po kolei — 100
@@ -172,10 +182,10 @@ async def load_active_conflicts_bulk(
     przekazany kandydat jest w wyniku, także bez konfliktów (pusty słownik),
     więc „nie ma wpisu" nie myli się z „nie sprawdzono".
 
-    Semantyka jest dokładnie ta sama co dawnej wersji dwuzapytaniowej: klient,
-    dla którego istnieje choć jeden AKTYWNY wiersz po terminie, wypada ze
-    słownika, a przy kilku aktywnych wierszach tego samego klienta wygrywa
-    ostatni (teraz jawnie: po `id`, zamiast w nieokreślonej kolejności).
+    Od 0321 para (kandydat, klient) może mieć kilka aktywnych wierszy RÓŻNYCH
+    typów. Wygrywa najpoważniejszy (`dominant_conflict_type`), a wiersz po
+    terminie nie wycina już żywego wiersza innego typu u tego samego klienta
+    (wygasły NDA + żywy blacklist → blacklist).
     """
     ids = sorted({int(cid) for cid in candidate_ids if cid is not None})
     out: dict[int, dict[int, ConflictType]] = {cid: {} for cid in ids}
@@ -188,23 +198,22 @@ async def load_active_conflicts_bulk(
                 CandidateConflict.candidate_id,
                 CandidateConflict.client_id,
                 CandidateConflict.type,
-                CandidateConflict.expires_at,
             )
             .where(
                 CandidateConflict.candidate_id.in_(ids),
-                CandidateConflict.active.is_(True),
+                active_unexpired_clause(now),
             )
             .order_by(CandidateConflict.id)
         )
     ).all()
 
-    expired: set[tuple[int, int]] = set()
-    for cand_id, client_id, ctype, expires_at in rows:
-        out[cand_id][client_id] = ctype
-        if expires_at is not None and expires_at <= now:
-            expired.add((cand_id, client_id))
-    for cand_id, client_id in expired:
-        out[cand_id].pop(client_id, None)
+    grouped: dict[tuple[int, int], set[ConflictType]] = {}
+    for cand_id, client_id, ctype in rows:
+        grouped.setdefault((cand_id, client_id), set()).add(ctype)
+    for (cand_id, client_id), types in grouped.items():
+        dominant = dominant_conflict_type(types)
+        if dominant is not None:
+            out[cand_id][client_id] = dominant
     return out
 
 
@@ -215,25 +224,43 @@ async def _load_active_conflicts(
     return (await load_active_conflicts_bulk(db, [candidate_id]))[candidate_id]
 
 
-def _conflict_decision(
-    job: Job, conflicts: dict[int, ConflictType]
-) -> tuple[bool, Optional[str]]:
-    """Return (keep, warning).
+class ConflictVerdict(NamedTuple):
+    """What a conflict means for one (candidate, job) row.
 
-    - blacklist + competitor + nda → keep=False (hard drop)
-    - current_employment           → keep=True, warning="obecnie u tego klienta"
-    - no conflict                  → keep=True, warning=None
+    ``keep`` is always ``True`` since 17.09.2026 (kept in the shape so the
+    caller reads the decision instead of assuming it). ``suppressible`` says
+    whether ``filters.industry_blocklist=False`` may hide the warning — only
+    ``current_employment`` may; a client blacklist / NDA / competitor warning
+    never can (M2-SEC-03).
+    """
+
+    keep: bool
+    warning: Optional[str]
+    suppressible: bool
+
+
+_CONFLICT_WARNINGS: dict[ConflictType, tuple[str, bool]] = {
+    ConflictType.blacklist: ("konflikt z klientem: czarna lista", False),
+    ConflictType.nda: ("konflikt z klientem: NDA", False),
+    ConflictType.competitor: ("konflikt z klientem: klient konkurencyjny", False),
+    ConflictType.current_employment: ("obecnie u tego klienta", True),
+}
+
+
+def _conflict_decision(job: Job, conflicts: dict[int, ConflictType]) -> ConflictVerdict:
+    """Return ``ConflictVerdict(keep, warning, suppressible)``.
+
+    - blacklist / nda / competitor → keep, Polish warning, NOT suppressible
+    - current_employment           → keep, "obecnie u tego klienta", suppressible
+    - no conflict / no client      → keep, no warning
     """
     if not job.client_id:
-        return True, None
+        return ConflictVerdict(True, None, False)
     ctype = conflicts.get(job.client_id)
     if ctype is None:
-        return True, None
-    if ctype in (ConflictType.blacklist, ConflictType.competitor, ConflictType.nda):
-        return False, None
-    if ctype == ConflictType.current_employment:
-        return True, "obecnie u tego klienta"
-    return True, None
+        return ConflictVerdict(True, None, False)
+    warning, suppressible = _CONFLICT_WARNINGS.get(ctype, (None, False))
+    return ConflictVerdict(True, warning, suppressible)
 
 
 # ── Public API ──────────────────────────────────────────────────────────────
@@ -249,21 +276,21 @@ async def apply_user_filters(
 ) -> tuple[list[FilteredJob], FilterStats]:
     """Filter `jobs` for `candidate` according to `filters`.
 
-    Returns `(kept, stats)`. The same job may carry a non-`None` `warning`
-    when soft-flagged (e.g. `current_employment`). Hard drops never appear in
-    `kept`.
+    Returns `(kept, stats)`. A job may carry a non-`None` `warning` when a
+    conflict applies — a client blacklist / NDA / competitor or current
+    employment. Conflicts never drop a job (17.09.2026).
 
-    Hard conflicts (blacklist/competitor/nda) are ALWAYS loaded and enforced —
-    `filters.industry_blocklist=False` only suppresses the soft
-    `current_employment` warning annotation, never the hard exclusion set.
+    Conflicts are ALWAYS loaded — `filters.industry_blocklist=False` only
+    suppresses the `current_employment` note, never a client blacklist / NDA /
+    competitor warning (M2-SEC-03).
 
     ``conflicts`` lets a batch caller pass the set it already loaded for the
     whole page (`load_active_conflicts_bulk`) — it must be the COMPLETE active
-    set for this candidate, never a subset, or a hard conflict would slip
-    through. ``None`` keeps the per-candidate lookup.
+    set for this candidate, never a subset, or a compliance warning would go
+    missing. ``None`` keeps the per-candidate lookup.
     """
     # Ephemeral candidates (CV-preview, no DB row) have id=None — nothing to
-    # look up. Every persisted candidate gets the full fail-closed hard set.
+    # look up. Every persisted candidate gets its full active conflict set.
     if candidate.id is None:
         conflicts = {}
     elif conflicts is None:
@@ -297,13 +324,13 @@ async def apply_user_filters(
 
         warning: Optional[str] = None
         if conflicts:
-            keep, warning = _conflict_decision(j, conflicts)
-            if not keep:
-                # Hard drop — fail-closed, independent of any caller flag.
+            verdict = _conflict_decision(j, conflicts)
+            if not verdict.keep:  # never since 17.09.2026 — kept defensive
                 dropped_blocklist += 1
                 continue
-            if warning and not filters.industry_blocklist:
-                # Soft warnings are the only thing the user toggle controls.
+            warning = verdict.warning
+            if warning and verdict.suppressible and not filters.industry_blocklist:
+                # Only the current-employment note is the user's to silence.
                 warning = None
             if warning:
                 soft_warned += 1

@@ -275,7 +275,7 @@ async def search_results(
     decisions = await evaluate_candidates_for_job(
         db, job=job, candidate_ids=list(current), now=datetime.now(timezone.utc)
     )
-    from app.api.matching import _eligibility_annotation
+    from app.services.eligibility_annotation import eligibility_annotation
     from app.services.match_telemetry_service import (
         ImpressionEntry,
         numeric_fit_breakdown,
@@ -294,7 +294,7 @@ async def search_results(
         ):
             data_changed = True
             continue
-        annotation = _eligibility_annotation(decision)
+        annotation = eligibility_annotation(decision)
         if annotation != (row.evidence or {}).get("eligibility"):
             data_changed = True
         row_changed = str(current[row.candidate_id].updated_at) != row.candidate_version

@@ -3,9 +3,10 @@
  * ale zablokowana dla tego klienta”.
  *
  * Bramka dopuszczalności na `/jobs/{id}/candidates-from-similar` (sierpień
- * 2026) wycina z tej sekcji jej najbogatszą populację — ludzi rozważanych już
- * u TEGO klienta, czyli tych z aktywną blacklistą, NDA, konfliktem
- * konkurencyjnym albo wetem hiring managera. Bez rozgałęzienia poniżej zdanie
+ * 2026) wycina z tej sekcji część jej najbogatszej populacji — ludzi z globalnej
+ * czarnej listy albo z wetem hiring managera. Konflikt z klientem (czarna lista
+ * klienta, NDA, konkurent) od 17.09.2026 NIE ukrywa: wiersz zostaje
+ * z plakietką `eligibility`. Bez rozgałęzienia poniżej zdanie
  * „Brak kandydatów w historii podobnych projektów.” stałoby się nieprawdą
  * dokładnie u klientów z najgęstszą historią.
  *
@@ -15,7 +16,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -140,5 +141,78 @@ describe("HistoricalCandidatesSection — pusty stan a bramka dopuszczalności",
     renderSection();
 
     expect(await screen.findByText(EMPTY_TEXT)).toBeInTheDocument();
+  });
+});
+
+function candidateRow(id: number, eligibility: unknown) {
+  return {
+    candidate_id: id,
+    name: "Kandydat",
+    lastname: `Nr${id}`,
+    avatar_url: null,
+    competence_category: null,
+    historical_score: 0.8,
+    tier: "A",
+    negative_signal: false,
+    recommended_count: 1,
+    sources: [],
+    current_availability: "available",
+    current_status: "active",
+    same_client: false,
+    rejected_by_same_client: false,
+    eligibility,
+  };
+}
+
+describe("HistoricalCandidatesSection — plakietka konfliktu z klientem", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("konflikt z klientem to ostrzeżenie: plakietka z powodem, dodanie aktywne", async () => {
+    const response = emptyResponse({});
+    response.data.candidates = [
+      candidateRow(21, {
+        reason_code: "client_nda",
+        reason: "Konflikt: NDA z klientem",
+        assignment_allowed: true,
+        visibility: "warn",
+        severity: "warning",
+        secondary: [],
+      }),
+    ] as never[];
+    mocks.forJob.mockResolvedValue(response);
+
+    renderSection();
+
+    const chip = await screen.findByTestId("historical-eligibility-21");
+    expect(chip).toHaveTextContent("Konflikt: NDA z klientem");
+    expect(chip.className).toContain("warning");
+    const item = chip.closest("li") as HTMLElement;
+    expect(within(item).getByRole("button", { name: /Dodaj do pipeline/ })).toBeEnabled();
+    expect(within(item).getByRole("checkbox")).toBeEnabled();
+  });
+
+  it("weto HM (assignment_allowed: false) blokuje dodanie i zaznaczenie", async () => {
+    const response = emptyResponse({});
+    response.data.candidates = [
+      candidateRow(22, {
+        reason_code: "rejected_by_hiring_manager",
+        reason: "Hiring manager tej rekrutacji już odrzucił tego kandydata po rozmowie",
+        assignment_allowed: false,
+        visibility: "warn",
+        severity: "hard",
+        secondary: [],
+      }),
+    ] as never[];
+    mocks.forJob.mockResolvedValue(response);
+
+    renderSection();
+
+    const chip = await screen.findByTestId("historical-eligibility-22");
+    expect(chip.className).toContain("destructive");
+    const item = chip.closest("li") as HTMLElement;
+    expect(within(item).getByRole("button", { name: /Dodaj do pipeline/ })).toBeDisabled();
+    expect(within(item).getByRole("checkbox")).toBeDisabled();
   });
 });

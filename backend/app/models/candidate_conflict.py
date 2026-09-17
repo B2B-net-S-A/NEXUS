@@ -10,11 +10,15 @@ Use cases (IT staffing):
 Since 17.09.2026 every type is a SOFT warning in matching/assignment (visible
 with a badge, assignable) — see ``services/candidate_job_eligibility.py``.
 A conflict with ``expires_at`` in the past is inactive for every reader; the
-row itself stays ``active`` as history (the state is derived at read time).
+row itself stays ``active`` as history (the state is derived at read time,
+``CandidateConflict.state_at``). Deactivation is audited on the row
+(``deactivated_at`` / ``deactivated_by`` / ``deactivation_reason``, 0321) and
+in ``activities``. One ACTIVE row per (candidate, client, type) — several types
+may coexist; the dominant one is chosen by ``CONFLICT_TYPE_PRECEDENCE``.
 """
 
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable, Optional, Union
 
 from sqlalchemy import (
@@ -43,10 +47,10 @@ class ConflictType(str, enum.Enum):
 
 
 CONFLICT_TYPE_LABELS: dict[str, str] = {
-    "blacklist": "Blacklist",
+    "blacklist": "Czarna lista klienta",
     "current_employment": "Obecne zatrudnienie",
     "nda": "NDA / cooling-off",
-    "competitor": "Konkurencja",
+    "competitor": "Klient konkurencyjny",
 }
 
 #: Kolejność powagi, gdy u jednego klienta kandydat ma KILKA aktywnych konfliktów
@@ -82,13 +86,22 @@ class CandidateConflict(Base, TimestampMixin):
 
     __tablename__ = "candidate_conflicts"
     __table_args__ = (
-        # Partial unique index: only one active conflict per (candidate, client)
+        # 0321: one ACTIVE conflict per (candidate, client, TYPE). Before 0321
+        # the key had no type, so an NDA blocked recording a blacklist entry
+        # at the same client. Lustro: ``entrypoint.sh`` (_INDEX_STATEMENTS).
         Index(
-            "uq_candidate_conflict_active",
+            "uq_candidate_conflict_active_type",
             "candidate_id",
             "client_id",
+            "type",
             unique=True,
             postgresql_where=text("active = true"),
+        ),
+        # Skaner alertu DL „konflikt wygasł" i filtr rejestru „wygasa w N dni".
+        Index(
+            "ix_candidate_conflicts_active_expires",
+            "expires_at",
+            postgresql_where=text("active = true AND expires_at IS NOT NULL"),
         ),
     )
 
@@ -115,8 +128,33 @@ class CandidateConflict(Base, TimestampMixin):
 
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
 
+    # 0321: audyt dezaktywacji — kto, kiedy i dlaczego zdjął konflikt.
+    deactivated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deactivated_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    deactivation_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     candidate = relationship("Candidate", back_populates="conflicts")
     client = relationship("Client")
+    creator = relationship("User", foreign_keys=[created_by])
+    deactivator = relationship("User", foreign_keys=[deactivated_by])
+
+    def state_at(self, now: Optional[datetime] = None) -> str:
+        """``active`` / ``expired`` / ``inactive`` — wygaśnięcie liczone przy
+        odczycie; skaner NIE przełącza ``active`` (wiersz zostaje historią)."""
+        if not self.active:
+            return "inactive"
+        moment = now or datetime.now(timezone.utc)
+        expires = self.expires_at
+        if expires is not None:
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            if expires <= moment:
+                return "expired"
+        return "active"
 
     def __repr__(self) -> str:
         return (

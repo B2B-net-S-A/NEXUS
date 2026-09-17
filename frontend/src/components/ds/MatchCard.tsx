@@ -19,6 +19,8 @@ export interface MatchCardProps extends React.HTMLAttributes<HTMLDivElement> {
   /** Match score, 0-100. */
   score: number
   reasons?: MatchReason[]
+  /** Linia pod wynikiem (np. ostrzeżenie o konflikcie z klientem). */
+  notice?: React.ReactNode
   actions?: React.ReactNode
 }
 
@@ -35,7 +37,7 @@ function clampScore(score: number): number {
 }
 
 export const MatchCard = React.forwardRef<HTMLDivElement, MatchCardProps>(
-  ({ name, role, score, reasons, actions, className, ...props }, ref) => {
+  ({ name, role, score, reasons, notice, actions, className, ...props }, ref) => {
     const value = clampScore(score)
 
     return (
@@ -60,6 +62,8 @@ export const MatchCard = React.forwardRef<HTMLDivElement, MatchCardProps>(
             </div>
             <Progress value={value} aria-label={`Dopasowanie ${value}%`} />
           </div>
+
+          {notice ?? null}
 
           {reasons && reasons.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">

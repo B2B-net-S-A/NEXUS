@@ -25,7 +25,10 @@ export type DlAlertType =
   | "new_contractor_draft"
   // Zużycie PODSTAWY MD ponad próg procentowy — wczesne ostrzeżenie
   // niezależne od `md_budget_low` (21 MD pozostałych).
-  | "md_base_usage_high";
+  | "md_base_usage_high"
+  // Konflikt kandydat↔klient właśnie wygasł — karta jednorazowa (bez powtórek),
+  // link prowadzi do profilu kandydata.
+  | "candidate_conflict_expired";
 
 /** Sekcja panelu „Moi klienci" — wyznacza ją SERWER z typu alertu. */
 export type DlAlertSection = "ending" | "new_contractor" | "order_mail" | "decision";
