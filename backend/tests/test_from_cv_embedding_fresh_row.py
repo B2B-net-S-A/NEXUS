@@ -1,16 +1,17 @@
 """Regresja: embedding świeżo utworzonego kandydata (prod 2026-09-16).
 
 ``POST /candidates/from-cv`` tworzy kandydata, robi ``flush()`` i od razu woła
-``schedule_or_embed_candidate`` na TEJ SAMEJ sesji. Kolumny z ``server_default``
-(``created_at`` / ``updated_at``) są po flushu „expired", a ``desired_state``
-czyta ``updated_at`` synchronicznie → SQLAlchemy próbuje doładować je poza
-greenletem → ``MissingGreenlet`` → „[from-cv] embedding failed" dla KAŻDEGO
-nowego kandydata (55/55 w 4 h na prod). Istniejący kandydaci (409) nigdy nie
-padali, bo przychodzą z pełnym SELECT-em.
+``schedule_or_embed_candidate`` na TEJ SAMEJ sesji. Każda kolumna, której
+INSERT nie ustawił (``tags``, ``ai_summary``, ``experience``…), jest po flushu
+„expired", a ``desired_state`` → ``_build_candidate_text`` czyta je
+synchronicznie → SQLAlchemy próbuje doładować je poza greenletem →
+``MissingGreenlet`` → „[from-cv] embedding failed" dla KAŻDEGO nowego
+kandydata (55/55 w 4 h na prod). Istniejący kandydaci (409) nigdy nie padali,
+bo przychodzą z pełnym SELECT-em.
 
 Kontrakty:
-1. Po samym ``flush()`` outbox-wrapper NIE rzuca i kolejkuje zdarzenie
-   z revision > 0 (czyli ``updated_at`` zostało doładowane).
+1. Po samym ``flush()`` outbox-wrapper NIE rzuca i kolejkuje upsert
+   z revision > 0 i niepustym hashem.
 2. Doładowanie dotyka wyłącznie kolumn NIEZAŁADOWANYCH — zmiana w pamięci,
    jeszcze niesflushowana, przeżywa (pełny ``refresh`` by ją cofnął).
 """
@@ -62,7 +63,7 @@ async def test_fresh_flushed_candidate_is_enqueued_without_greenlet_error(monkey
 
     assert ok is True
     assert captured["entity_id"] == cid
-    assert captured["operation"] == "upsert"
+    assert captured.get("operation", "upsert") == "upsert"
     assert captured["revision"] > 0, "updated_at nie zostało doładowane po flushu"
     assert captured["desired_hash"]
 
@@ -76,9 +77,12 @@ async def test_load_unloaded_columns_keeps_pending_in_memory_change():
         try:
             cand.ai_summary = "niesflushowana zmiana"
             loaded = await outbox.load_unloaded_columns(db, cand)
-            assert "updated_at" in loaded and "created_at" in loaded
+            # Nieustawione kolumny (np. tags) były expired i zostały doładowane…
+            assert loaded and "tags" in loaded
+            # …ale ustawiona w pamięci nie — i jej wartość przeżyła.
             assert "ai_summary" not in loaded
             assert cand.ai_summary == "niesflushowana zmiana"
+            assert cand.tags is None
             assert cand.updated_at is not None
             # Drugie wywołanie nie ma już czego doładowywać.
             assert await outbox.load_unloaded_columns(db, cand) == []

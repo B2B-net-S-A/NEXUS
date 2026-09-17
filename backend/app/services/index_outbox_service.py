@@ -119,14 +119,17 @@ async def enqueue(
 async def load_unloaded_columns(db: AsyncSession, entity) -> list[str]:
     """Doładuj kolumny, których instancja jeszcze nie ma w pamięci.
 
-    Świeżo ``flush()``-owany wiersz ma kolumny z ``server_default``
-    (``created_at`` / ``updated_at`` z ``TimestampMixin``) w stanie „expired":
-    ORM pobierze je dopiero przy pierwszym odczycie — synchronicznym SELECT-em,
-    który w ``AsyncSession`` poza greenletem kończy się ``MissingGreenlet``.
-    ``desired_state`` czyta ``updated_at`` właśnie tak, więc KAŻDY nowy
-    kandydat z ``/candidates/from-cv`` tracił embedding (prod 2026-09-16:
-    55/55 odpowiedzi 201 z „[from-cv] embedding failed"), a ``db.get`` nic nie
-    pomagał, bo oddaje tę samą instancję z identity map.
+    Świeżo ``flush()``-owany wiersz ma każdą kolumnę, której INSERT nie
+    ustawił (``tags``, ``ai_summary``, ``experience``… — w from-cv
+    dziesiątki), w stanie „expired": ORM pobierze je dopiero przy pierwszym
+    odczycie — synchronicznym SELECT-em, który w ``AsyncSession`` poza
+    greenletem kończy się ``MissingGreenlet``. ``desired_state`` →
+    ``_build_candidate_text`` czyta je właśnie tak, więc KAŻDY nowy kandydat z
+    ``/candidates/from-cv`` tracił embedding (prod 2026-09-16: 55/55 odpowiedzi
+    201 z „[from-cv] embedding failed"), a ``db.get`` nic nie pomagał, bo
+    oddaje tę samą instancję z identity map. (``created_at``/``updated_at``
+    z ``server_default`` asyncpg zwraca przez RETURNING, więc akurat one są
+    załadowane — ale to szczegół dialektu, nie kontrakt.)
 
     Odświeżamy WYŁĄCZNIE atrybuty niezaładowane (``state.unloaded``) i tylko
     kolumnowe: załadowane mogą nieść niesflushowane zmiany edycji, których
