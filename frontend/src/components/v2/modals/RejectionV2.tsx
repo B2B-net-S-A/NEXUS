@@ -74,12 +74,12 @@ export function RejectionV2({
  const [reasonId, setReasonId] = useState("");
  const [notes, setNotes] = useState("");
 
- // Only `rejected` triggers the auto-email — withdrawals are initiated by
- // the candidate, no notification needed from our side. For `rejected`,
- // we pre-check when the previous stage was external (client-visible).
+ // Mail odrzucenia dotyczy tylko `rejected` z etapu widocznego dla klienta
+ // (wycofanie inicjuje kandydat). Od 17.09.2026 to OPT-IN: checkbox
+ // domyślnie ODZNACZONY, serwer planuje wysyłkę wyłącznie przy `true`.
  const emailAvailable =
  terminalType === "rejected" && previousStageCategory === "external";
- const [sendEmail, setSendEmail] = useState<boolean>(emailAvailable);
+ const [sendEmail, setSendEmail] = useState<boolean>(false);
 
  // Phase 17 — show offer response radio only for withdrawn FROM post-accept.
  const offerResponseRequired =
@@ -100,19 +100,18 @@ export function RejectionV2({
  if (open) {
  setReasonId("");
  setNotes("");
- setSendEmail(emailAvailable);
+ setSendEmail(false);
  setOfferResponse("");
  setFreeReason("");
  }
- }, [open, emailAvailable]);
+ }, [open]);
 
  const filtered = reasons.filter((r) => r.applies_to.includes(terminalType));
  const hasReasons = filtered.length > 0;
 
  const handleConfirm = () => {
- // Pass explicit boolean only when the checkbox is user-controlled; else
- // defer to backend auto-decision with `null`.
- const emailFlag: boolean | null = emailAvailable ? sendEmail : null;
+ // Zawsze jawny boolean — serwer planuje mail WYŁĄCZNIE przy `true`.
+ const emailFlag: boolean = emailAvailable && sendEmail;
  const offerResponseValue: CandidateOfferResponse | null =
  offerResponseRequired && offerResponse ? offerResponse : null;
  if (hasReasons) {

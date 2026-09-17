@@ -99,6 +99,8 @@ def _make_importer(db, traffit, monkeypatch) -> TraffitImporter:
         imp, "_build_candidate_external_id_map", AsyncMock(return_value={})
     )
     monkeypatch.setattr(imp, "_build_job_external_id_map", AsyncMock(return_value={}))
+    # 0325: oferty „prowadzone w NEXUSIE" — lookup jak pozostałe, poza kursorem.
+    monkeypatch.setattr(imp, "_build_managed_job_ids", AsyncMock(return_value=set()))
     monkeypatch.setattr(
         imp, "_build_stage_def_lookup", AsyncMock(return_value=({}, {}))
     )

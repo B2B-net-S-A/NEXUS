@@ -5,7 +5,8 @@ signature must atomically:
 
 * create or reuse one B2B ``Contract`` for the candidate/job pair,
 * ensure one open ``ClientOrder``,
-* append ``CandidateStage.hired`` at most once,
+* never append ``CandidateStage.hired`` — since 17.09.2026 the contract is
+  signed offline and the pipeline stage is moved by a person on the board,
 * expose the linkage in candidate/contractor projections, and
 * make the legal-history row immutable.
 
@@ -483,8 +484,8 @@ async def test_confirm_fully_signed_creates_complete_atomic_handoff(
             .limit(1)
         )
         assert latest_stage is not None
-        assert latest_stage.stage == PipelineStage.hired
-        assert latest_stage.moved_by == admin_id
+        # 17.09.2026: potwierdzenie podpisu NIE przesuwa kandydata w pipeline.
+        assert latest_stage.stage != PipelineStage.hired
 
         generated_audit = await db.scalar(
             select(Activity).where(
@@ -532,8 +533,8 @@ async def test_confirm_signs_when_the_recruitment_history_is_already_closed(
     """Priority Lock must not turn a closed recruitment into a failed signature.
 
     Traffit-imported history routinely ends on ``rejected``, so the pair has no
-    open process and the hired hook runs with ``require_existing=True``.  At the
-    default ``off`` mode that must stay inert.
+    open process.  Since 17.09.2026 the confirmation does not touch the
+    pipeline at all, so a closed history stays closed.
     """
 
     admin_id = await _current_admin_id(app_client)
@@ -563,7 +564,7 @@ async def test_confirm_signs_when_the_recruitment_history_is_already_closed(
             .limit(1)
         )
         assert latest_stage is not None
-        assert latest_stage.stage == PipelineStage.hired
+        assert latest_stage.stage == PipelineStage.rejected
 
 
 async def _seed_group_line(
@@ -664,7 +665,7 @@ async def test_confirm_links_a_consultant_already_on_a_group_line_without_500(
                 CandidateStage.stage == PipelineStage.hired,
             )
         )
-        assert hired == 1
+        assert hired == 0  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
         generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
         assert generated is not None
         assert generated.contract_id == existing_id
@@ -779,7 +780,7 @@ async def test_confirm_repeat_is_idempotent(
     assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
         1,
         1,
-        1,
+        0,  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
     )
 
 
@@ -858,7 +859,7 @@ async def test_concurrent_documents_for_one_recruitment_share_one_contractor(
     assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
         1,
         1,
-        1,
+        0,  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
     )
 
 
@@ -963,7 +964,7 @@ async def test_confirm_links_existing_ready_contract_and_lists_contractor(
     assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
         1,
         1,
-        1,
+        0,  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
     )
 
     # Obustronny podpis zamyka tor „do podpisu": kontrakt jest aktywny.
@@ -1046,7 +1047,7 @@ async def test_confirm_reuses_pipeline_placeholder_and_replaces_only_its_default
     assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
         1,
         1,
-        1,
+        0,  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
     )
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, placeholder_id)
@@ -1242,7 +1243,7 @@ async def test_keep_existing_terms_links_without_touching_the_contract(
     assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
         1,
         1,
-        1,
+        0,  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
     )
 
     async with AsyncSessionLocal() as db:
@@ -1838,7 +1839,7 @@ async def test_delivery_lead_scope_allows_confirmation_but_tac_stays_outside_del
         assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
             1,
             1,
-            1,
+            0,  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
         )
 
 
@@ -1857,9 +1858,9 @@ async def test_exception_after_flush_rolls_back_entire_confirmation(
     async def fail_after_contract_and_order(*args, **kwargs):
         raise RuntimeError("forced failure after flush")
 
-    monkeypatch.setattr(
-        automation, "_ensure_hired_stage", fail_after_contract_and_order
-    )
+    # 17.09.2026: `_ensure_hired_stage` nie jest już wołane z potwierdzenia —
+    # wyjątek po flushu kontraktu wstrzykujemy w zapewnienie zamówienia.
+    monkeypatch.setattr(automation, "_ensure_open_order", fail_after_contract_and_order)
 
     try:
         response = await _confirm(

@@ -107,6 +107,11 @@ export interface JobHeaderKpiInput {
   columns: KanbanColumn[] | null;
   /** `null`, gdy rankingu nie ma w cache'u (nie odpytujemy o niego sami). */
   ranking: JobRankingSummary | null;
+  /**
+   * Aktualny budżet PLN/h rekrutacji (`effective_budget_hourly`) — z niego
+   * liczy się „ponad budżet" w Screeningu. `null` = brak budżetu.
+   */
+  budgetHourly?: number | null;
 }
 
 /**
@@ -135,15 +140,17 @@ function toneWhenPositive(
 }
 
 /**
- * Trzy KPI właściwe dla aktywnej zakładki.
+ * KPI właściwe dla aktywnej zakładki.
  *
- * Zawsze DOKŁADNIE trzy pozycje — jobbar ma stałą szerokość klastra, a znikająca
- * kolumna liczb czytałaby się jak awaria, nie jak brak danych.
+ * Stała liczba pozycji na krok (trzy; Screening cztery — „ponad budżet" i „z
+ * ostrzeżeniem" obok siebie) — znikająca kolumna liczb czytałaby się jak
+ * awaria, nie jak brak danych.
  */
 export function buildJobHeaderKpis({
   tab,
   columns,
   ranking,
+  budgetHourly = null,
 }: JobHeaderKpiInput): JobHeaderKpi[] {
   const inProcess = columns ? countInProcess(columns) : null;
 
@@ -180,7 +187,8 @@ export function buildJobHeaderKpis({
   }
 
   if (tab === "screening") {
-    const overBudget = columns ? selectOverBudget(columns).length : null;
+    const overBudget = columns ? selectOverBudget(columns, budgetHourly).length : null;
+    const warnings = columns ? countHmVeto(columns) : null;
     return [
       {
         key: "screening",
@@ -188,12 +196,22 @@ export function buildJobHeaderKpis({
         value: columns ? selectScreeningQueue(columns).length : null,
         tone: "neutral",
       },
+      // Do 17.09.2026 w tym miejscu stało „czeka na akceptację" (karty
+      // `pending`). Bramka usunięta — liczba rozbita na dwie informacje:
+      // „ponad budżet" (stawka ponad AKTUALNY budżet PLN/h rekrutacji, nic
+      // nie blokuje) i „z ostrzeżeniem" (weto HM — ruch pyta „Przenieś mimo
+      // to"). Screening jako jedyny krok ma więc cztery liczby.
       {
-        // Informacja, nie kolejka decyzji: bramka „Pending" wyłączona 17.09.2026.
         key: "over-budget",
         label: "ponad budżet",
         value: overBudget,
-        tone: "neutral",
+        tone: toneWhenPositive(overBudget, "warn"),
+      },
+      {
+        key: "warnings",
+        label: "z ostrzeżeniem",
+        value: warnings,
+        tone: toneWhenPositive(warnings, "bad"),
       },
       {
         key: "verified",

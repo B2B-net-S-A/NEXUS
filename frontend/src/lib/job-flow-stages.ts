@@ -8,10 +8,10 @@
  *
  * Skąd te dwa zbiory:
  *
- * - **Krok 08** rozpoznajemy po NAZWACH etapów podpisu — dokładnie tych,
- *   których używa hook podpisu po stronie serwera
- *   (`backend/app/services/signing/pipeline_hook.py`: `STAGE_SENT`,
- *   `STAGE_SIGNED`, `STAGE_HIRED`). To nie jest nowa heurystyka: „Umowa
+ * - **Krok 08** rozpoznajemy po NAZWACH etapów podpisu z szablonu „Default
+ *   B2B" (od 17.09.2026 etapy RĘCZNE — podpis umowy jest offline i nic nie
+ *   przesuwa na nie kandydata automatycznie; stałe `STAGE_SIGNED` /
+ *   `STAGE_HIRED` w `services/signing/sender.py` służą tylko audytowi). „Umowa
  *   wysłana" i „Umowa podpisana" NIE MAJĄ `legacy_enum_value`, więc backend
  *   raportuje dla nich `stage: "new"` i po `stage` ich nie da się poznać.
  *   Nazwa jest jedynym identyfikatorem, jaki system dla nich ma — po obu
@@ -23,13 +23,13 @@
  *   „u klienta".
  *
  * Ograniczenie jest świadome i wspólne z backendem: szablon, który nazwie
- * etapy podpisu inaczej, pokaże je w kroku 07 — tak samo, jak hook podpisu
- * nie przeniesie na nie kandydata. Jedno źródło nazw, jeden tryb awarii.
+ * etapy podpisu inaczej, pokaże je w kroku 07. Jedno źródło nazw, jeden tryb
+ * awarii.
  */
 
 import { terminalOf, type TerminalAwareColumn } from "@/lib/kanban-terminal";
 
-/** Lustro `STAGE_SENT` / `STAGE_SIGNED` z `services/signing/pipeline_hook.py`. */
+/** Nazwy ręcznych etapów podpisu z szablonu „Default B2B". */
 export const CONTRACT_STAGE_NAMES: readonly string[] = [
   "Umowa wysłana",
   "Umowa podpisana",

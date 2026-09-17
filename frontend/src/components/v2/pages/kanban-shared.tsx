@@ -35,7 +35,9 @@ export interface KanbanItem {
  // etapu pary kandydat/oferta) i kiedy — pokazywane w tooltipie karty.
  added_to_job_by_name?: string | null;
  added_to_job_at?: string | null;
- // Pending verification (migracja 0056)
+ // Stawka z ruchu na „Zweryfikowany" (0056). `verification_status` nadal
+ // przychodzi z serwera, ale od 17.09.2026 NIC nie reaguje na "pending"
+ // (bramka zdjęta, migracja 0323 odblokowała stare karty).
  verification_status?:"active" |"pending" |"rejected";
  expected_rate_value?: string | number | null;
  expected_rate_unit?: RateUnit | null;
@@ -63,6 +65,13 @@ export interface KanbanItem {
  // F05: `RecruitmentProcess.state_version` z tablicy (0 = brak procesu).
  // Pojedynczy ruch odsyła ją jako `expected_state_version`.
  process_state_version?: number | null;
+ // Odznaki (17.09.2026, „okna po ruchu → odznaki"): czy NA TYM wierszu jest
+ // zapisany arkusz screeningu / scorecard. Karta pokazuje „do uzupełnienia"
+ // zamiast otwierać formularz zaraz po ruchu.
+ screening_done?: boolean;
+ scorecard_done?: boolean;
+ // Stawka z profilu kandydata (PLN/h) — podpowiedź w oknie „Zweryfikowany".
+ candidate_expected_rate_hourly?: string | number | null;
 }
 
 export interface KanbanColumn {

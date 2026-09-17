@@ -41,7 +41,14 @@ function board(): KanbanColumn[] {
     column({ stage: "screening", items: [item({ id: 3 })] }),
     column({
       stage: "verified",
-      items: [item({ id: 4, budget_exceeded: true })],
+      items: [
+        item({
+          id: 4,
+          expected_rate_value: 150,
+          expected_rate_unit: "hourly",
+          expected_rate_currency: "PLN",
+        }),
+      ],
     }),
     column({
       stage: "cv_sent",
@@ -103,11 +110,13 @@ describe("summarizeRanking", () => {
 });
 
 describe("buildJobHeaderKpis — „nie wiem” to nie zero", () => {
-  it("bez kanbana i bez rankingu wszystkie trzy liczby są nullem", () => {
+  it("bez kanbana i bez rankingu wszystkie liczby są nullem", () => {
     for (const tab of ["pipeline", "screening", "cv", "interviews", "contract", "champion"] as const) {
       const kpis = buildJobHeaderKpis({ tab, columns: null, ranking: null });
-      expect(kpis).toHaveLength(3);
-      expect(kpis.map((k) => k.value)).toEqual([null, null, null]);
+      // Screening ma cztery liczby („ponad budżet" i „z ostrzeżeniem").
+      const expected = tab === "screening" ? 4 : 3;
+      expect(kpis).toHaveLength(expected);
+      expect(kpis.map((k) => k.value)).toEqual(Array(expected).fill(null));
     }
   });
 
@@ -153,19 +162,31 @@ describe("buildJobHeaderKpis — kroki", () => {
     expect(kpis[1]).toMatchObject({ value: 0, tone: "neutral" });
   });
 
-  it("Screening: w screeningu · ponad budżet (informacja) · zweryfikowani", () => {
+  it("Screening: w screeningu · ponad budżet · z ostrzeżeniem · zweryfikowani", () => {
     const kpis = buildJobHeaderKpis({
       tab: "screening",
       columns: board(),
       ranking: null,
+      // 150 PLN/h ponad aktualny budżet 120 PLN/h rekrutacji.
+      budgetHourly: 120,
     });
+    expect(kpis).toHaveLength(4);
     expect(kpis[0]).toMatchObject({ label: "w screeningu", value: 1 });
-    expect(kpis[1]).toMatchObject({
-      label: "ponad budżet",
-      value: 1,
-      tone: "neutral",
+    // Karta `pending` NIE jest już liczona (bramka usunięta 17.09.2026) —
+    // w jej miejscu dwie informacje: ponad budżet PLN/h i weto HM.
+    expect(kpis[1]).toMatchObject({ label: "ponad budżet", value: 1, tone: "warn" });
+    expect(kpis[2]).toMatchObject({ label: "z ostrzeżeniem", value: 1, tone: "bad" });
+    expect(kpis[3]).toMatchObject({ label: "do wysłania CV", value: 1 });
+  });
+
+  it("Screening: bez budżetu PLN/h nikt nie jest „ponad budżet”", () => {
+    const kpis = buildJobHeaderKpis({
+      tab: "screening",
+      columns: board(),
+      ranking: null,
+      budgetHourly: null,
     });
-    expect(kpis[2]).toMatchObject({ label: "do wysłania CV", value: 1 });
+    expect(kpis[1]).toMatchObject({ label: "ponad budżet", value: 0, tone: "neutral" });
   });
 
   it("Rozmowy: weto HM jest tonem złym, gdy jakiekolwiek jest", () => {

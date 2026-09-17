@@ -92,13 +92,12 @@ describe("nextActionFor — bramki wygrywają z etapem", () => {
     expect(action.kind).toBe("none");
   });
 
-  it("stawka ponad budżet nie jest bramką — bramka „Pending” wyłączona", () => {
-    const action = nextActionFor(item({ budget_exceeded: true }), verifiedCol);
-    expect(action).toEqual({
-      label: "Wyślij CV do klienta",
-      tone: "normal",
-      kind: "cv",
-    });
+  it("stara karta `pending` nie ma już osobnej akcji — bramka zdjęta 17.09.2026", () => {
+    const action = nextActionFor(
+      item({ verification_status: "pending" }),
+      verifiedCol,
+    );
+    expect(action.label).toBe("Wyślij CV do klienta");
   });
 
   it("„Ogłoszenia” dostaje tę samą podpowiedź co „Nowi”", () => {
@@ -108,7 +107,7 @@ describe("nextActionFor — bramki wygrywają z etapem", () => {
     expect(action.label).not.toBe("");
   });
 
-  it("weto hiring managera blokuje etap nie-terminalny", () => {
+  it("weto hiring managera jest ostrzeżeniem na etapie nie-terminalnym", () => {
     const action = nextActionFor(
       item({
         hm_veto: {
@@ -120,24 +119,14 @@ describe("nextActionFor — bramki wygrywają z etapem", () => {
       }),
       intakeCol,
     );
-    expect(action.label).toBe("Bramka: weto HM");
+    expect(action.label).toBe("Ostrzeżenie: weto HM");
     expect(action.tone).toBe("gate");
   });
 
-  it("weto wygrywa z informacją o budżecie", () => {
-    const action = nextActionFor(
-      item({
-        budget_exceeded: true,
-        hm_veto: {
-          hiring_manager_contact_id: 1,
-          source_job_id: 2,
-          rejected_at: "2026-08-01T00:00:00Z",
-          rejection_reason_name: "Nie pasuje",
-        },
-      }),
-      verifiedCol,
-    );
-    expect(action.label).toBe("Bramka: weto HM");
+  it("screening zapisany na wierszu → następny krok to weryfikacja, nie arkusz", () => {
+    const action = nextActionFor(item({ screening_done: true }), screeningCol);
+    expect(action.label).toBe("Zweryfikuj i przenieś dalej");
+    expect(action.kind).toBe("verification");
   });
 });
 
@@ -329,9 +318,9 @@ describe("oldestDaysInColumn", () => {
 });
 
 describe("nextActionFor — zatrudniony z zaległą bramką (follow-up fali 3)", () => {
-  it("zatrudniony ponad budżetem dostaje „Przekaż do Delivery”", () => {
+  it("zatrudniony ze stawką ponad budżetem dostaje „Przekaż do Delivery”", () => {
     const action = nextActionFor(
-      item({ budget_exceeded: true }),
+      item({ expected_rate_value: 999, expected_rate_unit: "hourly" }),
       hiredCol,
     );
     expect(action).toEqual({

@@ -753,6 +753,8 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "gone_upstream",
         "unresolved_client",
         "tombstoned",
+        # 0325: ruchy ofert „prowadzonych w NEXUSIE" pominięte przez fazę pipelines.
+        "skipped_managed",
         "drifted_entities",
         "drift",
         "total_source",

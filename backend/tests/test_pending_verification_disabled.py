@@ -749,3 +749,68 @@ async def test_gate_off_stage_stored_as_pending_is_not_stuck(pv_client: AsyncCli
         assert resp.json()["stage"] == "cv_sent"
     finally:
         await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_move_to_verified_without_rate_succeeds(pv_client: AsyncClient):
+    """Stawka jest opcjonalna — brak stawki to 200, nie 422."""
+    recr_uid, email, pw = await _seed_user(UserRole.recruiter, "missing")
+    headers = await _login(pv_client, email, pw)
+    cand_id = await _seed_candidate()
+    job_id = await _seed_job(recruiter_id=recr_uid)
+    try:
+        resp = await pv_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "verified",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["verification_status"] == "active"
+        assert body["expected_rate_value"] is None
+    finally:
+        await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])
+
+
+@pytest.mark.asyncio
+async def test_verified_move_credits_first_verifier_immediately(
+    pv_client: AsyncClient,
+):
+    """Bez bramki kredyt KPI pierwszego weryfikatora trafia od razu do mover-a."""
+    from app.models.recruitment_process import RecruitmentProcess
+
+    recr_uid, recr_email, recr_pw = await _seed_user(UserRole.recruiter, "credit")
+    recr_headers = await _login(pv_client, recr_email, recr_pw)
+    cand_id = await _seed_candidate()
+    job_id = await _seed_job(salary_max=20000, recruiter_id=recr_uid)
+    try:
+        resp = await pv_client.post(
+            "/api/pipeline/move",
+            headers=recr_headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "verified",
+                "expected_rate_value": "40000",
+                "expected_rate_unit": "monthly",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        async with AsyncSessionLocal() as db:
+            process = await db.scalar(
+                select(RecruitmentProcess)
+                .where(
+                    RecruitmentProcess.candidate_id == cand_id,
+                    RecruitmentProcess.job_id == job_id,
+                )
+                .order_by(RecruitmentProcess.id.desc())
+                .limit(1)
+            )
+            assert process is not None
+            assert process.credit_user_id == recr_uid
+    finally:
+        await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])
