@@ -10,6 +10,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Kolejka merge'ów GitHuba (merge queue, od 17.09.2026): wymagane konteksty
+  # muszą się raportować także na gałęzi gh-readonly-queue/main/*, inaczej
+  # grupa w kolejce czeka w nieskończoność. Deploy tego nie widzi — pilnuje
+  # head_branch == 'main' w deploy.yml.
+  merge_group:
+    types: [checks_requested]
 
 # A new PR revision supersedes older test runs of that same PR. Main uses
 # a unique run key so production gates never cancel one another.
