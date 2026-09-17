@@ -343,12 +343,14 @@ async def test_used_budget_stays_on_the_order_after_removal_and_replacement(
     )
     assert added.status_code == 201, added.text
 
+    # Usunięcie kasuje linię trwale (09.2026), więc osoba z zużyciem jest
+    # odrzucana (409) — jej zużycie nie może zniknąć razem z nią.
     removed = await app_client.delete(f"{base}/{leaving}", headers=app_auth_headers)
-    assert removed.status_code == 204, removed.text
+    assert removed.status_code == 409, removed.text
 
     after = await _group(app_client, app_auth_headers, ids["client_id"], group["id"])
     line = next(item for item in after["lines"] if item["id"] == leaving)
-    assert line["removed_from_order"] is True, "osoba z zużyciem zniknęła z zamówienia"
+    assert line["removed_from_order"] is False
     if order_type == "cost":
         assert line["invoiced_total"] == pytest.approx(12000.0)
         assert after["budget_used"] == pytest.approx(before["budget_used"])

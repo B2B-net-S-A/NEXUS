@@ -953,9 +953,9 @@ export function MultiConsultantOrdersTab({
           if (
             !window.confirm(
               `Czy na pewno chcesz usunąć konsultanta ${line.consultant_name} ` +
-                `z zamówienia nr ${selected.order_number}? Jeśli ta osoba ma już ` +
-                `wykorzystaną kwotę lub MD, zostanie na zamówieniu jako „usunięta” — ` +
-                `jej zużycie nie wróci do puli.`,
+                `z zamówienia nr ${selected.order_number}? Usunięte zostanie tylko ` +
+                `jego miejsce na tym zamówieniu — nie powstanie nowe zamówienie, ` +
+                `a umowa i inne zamówienia tej osoby się nie zmienią.`,
             )
           ) {
             return;

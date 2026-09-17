@@ -110,6 +110,7 @@ from app.services.order_types import (
     should_process_active_standalone_order,
 )
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
+from app.services.order_settlements import assert_order_has_no_settlements
 from app.services.order_write_errors import commit_order_write
 from app.services.order_pdf_parser import (
     drop_md_absence_reasons,
@@ -2604,10 +2605,21 @@ async def delete_order(
     user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    """Soft cancel: status=cancelled. Hard delete tylko gdy status=draft.
+    """Usuń JEDNO zamówienie — bez żadnych skutków dla innych zamówień i umowy.
+
+    Zamówienie samodzielne (okresowe) jest kasowane trwale w każdym statusie.
+    Do 09.2026 kasowany był tylko szkic, a reszta przechodziła w „anulowane".
+    Usunięcie nie zmienia statusu kontraktu ani pozostałych zamówień tej osoby:
+    ``commit_order_write`` tylko przelicza okres i stawkę kontraktu z tego,
+    co zostało. Zamówienie z rozliczeniami (MD, faktury) → 409, bo kaskada
+    zabrałaby dane zaimportowane przez Finanse.
+
+    Linia zamówienia MD/kosztowego wołana tą trasą zachowuje dawną regułę
+    (szkic znika, reszta jest anulowana) — ma własne ``DELETE …/lines/{id}``.
 
     Każda próba — wykonana i zablokowana — trafia do Historii zdarzeń.
     """
+    po_path: str | None = None
     async with audited_deletion(
         db,
         actor=user,
@@ -2632,27 +2644,54 @@ async def delete_order(
         )
         await _assert_no_pending_group_line_offboarding(db, order)
 
-        if order.status == ClientOrderStatus.draft:
-            if order.file_path:
-                storage_service.delete_client_order_po(order.file_path)
+        if order.order_group_id is None:
+            await assert_order_has_no_settlements(
+                db,
+                order.id,
+                subject="tego zamówienia",
+                alternative="użyj „Zakończ zamówienie”",
+            )
+            deleted = True
+        else:
+            deleted = order.status == ClientOrderStatus.draft
+
+        if deleted:
+            po_path = order.file_path
+            was_draft = order.status == ClientOrderStatus.draft
             await db.delete(order)
-            audit.result_note = "Szkic zamówienia usunięty trwale."
+            audit.result_note = (
+                "Szkic zamówienia usunięty trwale."
+                if was_draft
+                else "Zamówienie usunięte trwale."
+            )
+            db.add(
+                Activity(
+                    entity_type="client",
+                    entity_id=client_id,
+                    action="order_deleted",
+                    user_id=user.id,
+                    details={"order_id": order_id},
+                )
+            )
         else:
             order.status = ClientOrderStatus.cancelled
             audit.result_note = (
                 "Zamówienie anulowane — rekord zostaje w historii (status: anulowane)."
             )
-
-        db.add(
-            Activity(
-                entity_type="client",
-                entity_id=client_id,
-                action="order_cancelled",
-                user_id=user.id,
-                details={"order_id": order_id},
+            db.add(
+                Activity(
+                    entity_type="client",
+                    entity_id=client_id,
+                    action="order_cancelled",
+                    user_id=user.id,
+                    details={"order_id": order_id},
+                )
             )
-        )
         await commit_order_write(db)
+    # Plik dopiero po commicie: nieudany zapis nie może zostawić zamówienia
+    # bez dokumentu od klienta.
+    if po_path:
+        storage_service.delete_client_order_po(po_path)
 
 
 # ── PO file ─────────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   consultantUsageSentence,
   hasScopedMd,
+  lineHasSettlements,
   lineScopeRemaining,
   lineScopeUsage,
   usageAmount,
@@ -179,5 +180,17 @@ describe("lineScopeRemaining — karta konsultanta CeZ", () => {
     });
     expect(exceeded.baseRemaining).toBe(-8);
     expect(exceeded.totalRemaining).toBe(-8);
+  });
+});
+
+describe("lineHasSettlements — usunięcie z zamówienia kasuje linię, więc rozliczenia je blokują", () => {
+  it("brak MD i faktur → można usunąć", () => {
+    expect(lineHasSettlements({ md_used: null, invoiced_total: null })).toBe(false);
+    expect(lineHasSettlements({ md_used: 0, invoiced_total: 0 })).toBe(false);
+  });
+
+  it("zaraportowane MD albo faktury → blokuje", () => {
+    expect(lineHasSettlements({ md_used: 3, invoiced_total: null })).toBe(true);
+    expect(lineHasSettlements({ md_used: null, invoiced_total: 1200 })).toBe(true);
   });
 });

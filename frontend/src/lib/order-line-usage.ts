@@ -43,6 +43,23 @@ export function usageAmount(group: UsageGroup, line: UsageLine): string | null {
   return md;
 }
 
+/**
+ * Czy linia ma rozliczenia (zaraportowane MD albo zaimportowane faktury).
+ *
+ * Usunięcie konsultanta z zamówienia kasuje linię trwale, więc serwer odmawia
+ * (409), gdy są do niej przypięte rozliczenia — kaskada zabrałaby je razem
+ * z nią. Front wyłącza wtedy przycisk zawczasu. Rola bez finansów może nie
+ * dostać `invoiced_total`; wtedy rozstrzyga odpowiedź serwera.
+ */
+export function lineHasSettlements(
+  line: Pick<OrderLineRead, "md_used" | "invoiced_total">,
+): boolean {
+  return (
+    (line.md_used != null && line.md_used > 0) ||
+    (line.invoiced_total != null && line.invoiced_total > 0)
+  );
+}
+
 /** Zdanie pod osobą bez aktywnej obsady; `null` = nie ma czego pokazać. */
 export function consultantUsageSentence(
   group: UsageGroup,

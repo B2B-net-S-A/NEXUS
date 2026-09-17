@@ -295,10 +295,10 @@ def test_historical_line_needs_a_contract_and_an_end_date():
         OrderLineCreate(contract_id=1, historical=True, **base)
 
 
-# ── Usunięcie z zamówienia nie zwraca zużycia do puli ───────────────────────
+# ── Usunięcie z zamówienia nie zabiera zużycia (409) ───────────────────────
 
 
-async def test_removed_consultant_keeps_their_invoiced_amount_on_the_order(
+async def test_removing_a_consultant_with_invoices_is_refused_and_pool_unchanged(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     from app.core.database import AsyncSessionLocal
@@ -334,24 +334,19 @@ async def test_removed_consultant_keeps_their_invoiced_amount_on_the_order(
         f"/api/clients/{ids['client_id']}/order-groups/{group['id']}/lines/{leaving}",
         headers=app_auth_headers,
     )
-    assert resp.status_code == 204, resp.text
+    # Od 09.2026 usunięcie kasuje linię trwale, więc linia z fakturami jest
+    # odrzucana — kaskada zabrałaby faktury i zwróciła kwotę do puli.
+    assert resp.status_code == 409, resp.text
 
     after = await _group(app_client, app_auth_headers, ids["client_id"], group["id"])
     assert after["budget_remaining"] == pytest.approx(14280.0), (
         "zużycie wróciło do puli"
     )
     assert after["budget_used"] == pytest.approx(25720.0)
-    removed = next(line for line in after["lines"] if line["id"] == leaving)
-    assert removed["removed_from_order"] is True
-    assert removed["invoiced_total"] == pytest.approx(25720.0)
-
-    events = await app_client.get(
-        f"/api/clients/{ids['client_id']}/order-groups/{group['id']}/events",
-        headers=app_auth_headers,
-    )
-    assert any(
-        "usunięty z zamówienia" in ev["description"] for ev in events.json()["events"]
-    )
+    kept = next(line for line in after["lines"] if line["id"] == leaving)
+    assert kept["removed_from_order"] is False
+    assert kept["status"] == "active"
+    assert kept["invoiced_total"] == pytest.approx(25720.0)
 
 
 # ── „Zostaw jako historię" i zastępstwo za osobę z zamówienia ──────────────
@@ -633,50 +628,6 @@ async def test_keep_history_refuses_a_person_whose_contract_is_still_active(
         headers=app_auth_headers,
     )
     assert resp.status_code == 409, resp.text
-
-
-async def test_second_removal_of_a_consumed_line_adds_nothing(
-    app_client: AsyncClient, app_auth_headers: dict
-):
-    from app.core.database import AsyncSessionLocal
-    from app.models.client_order import ClientOrder
-    from app.models.md_consumption import ClientOrderInvoiceConsumption
-
-    ids = await _seed()
-    group = await _create_cost_group(
-        app_client, app_auth_headers, ids["client_id"], [_line(ids["active_contract"])]
-    )
-    line_id = group["lines"][0]["id"]
-    async with AsyncSessionLocal() as db:
-        db.add(
-            ClientOrderInvoiceConsumption(
-                order_id=line_id,
-                period_month="2026-05",
-                invoice_amount=Decimal("1000"),
-                source="manual",
-            )
-        )
-        await db.commit()
-    url = f"/api/clients/{ids['client_id']}/order-groups/{group['id']}/lines/{line_id}"
-    for _ in range(2):
-        resp = await app_client.delete(url, headers=app_auth_headers)
-        assert resp.status_code == 204, resp.text
-    async with AsyncSessionLocal() as db:
-        line = await db.get(ClientOrder, line_id)
-        assert line.status.value == "completed"
-        assert line.order_group_id == group["id"]
-    events = await app_client.get(
-        f"/api/clients/{ids['client_id']}/order-groups/{group['id']}/events",
-        headers=app_auth_headers,
-    )
-    removed = [
-        ev
-        for ev in events.json()["events"]
-        if "usunięty z zamówienia" in ev["description"]
-    ]
-    assert len(removed) == 1
-    body = await _group(app_client, app_auth_headers, ids["client_id"], group["id"])
-    assert body["lines"][0]["removed_from_order"] is True
 
 
 # ── Faza B: „Zastąpiony → następca" w kolumnie, sumy pozycji umowy ───────────

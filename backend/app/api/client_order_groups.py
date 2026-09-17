@@ -232,6 +232,10 @@ from app.services.order_excel_export import (
     orders_export_filename,
 )
 from app.services import storage_service
+from app.services.order_settlements import (
+    assert_order_has_no_settlements,
+    settlement_blockers,
+)
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
@@ -3288,9 +3292,11 @@ async def delete_order_group(
 
     Do 0233 zamówienie z liniami było odrzucane (409) — wtedy nie było czym
     linii usunąć, więc jedynym wyjściem było zostawienie pomyłki w rejestrze.
-    Teraz każda linia przechodzi przez tę samą regułę co
-    ``DELETE …/lines/{id}``: znika tylko szkic bez śladów, a linia z historią
-    jest ODPINANA od zamówienia, nie kasowana.
+    Teraz linie są kasowane tą samą funkcją co ``DELETE …/lines/{id}``
+    (``_delete_line_row``). Do 09.2026 linia inna niż pusty szkic była
+    ODPINANA i zostawała jako osierocone zamówienie okresowe; zamówienie
+    z rozliczeniami i tak jest odrzucane (``_assert_group_is_disposable``),
+    więc kasowanie nie zabiera niczyich rozliczeń.
 
     **Usunięcie nie zostawia wpisu w historii** (wymóg ticketu) — dziennik
     zamówienia znika razem z nim (``ON DELETE CASCADE``). Ogólnosystemowa
@@ -3320,11 +3326,10 @@ async def delete_order_group(
         lines = list(lines_result.scalars().unique().all())
         await _assert_no_pending_offboarding_case(db, group_id=group.id)
         await _assert_group_is_disposable(db, group, lines)
-        detached = 0
-        for line in lines:
-            if await _detach_or_delete_line(db, line):
-                detached += 1
-        audit.describe(lines_removed=len(lines), lines_detached=detached)
+        line_files = [
+            path for line in lines if (path := await _delete_line_row(db, line))
+        ]
+        audit.describe(lines_removed=len(lines))
 
         await db.flush()
         await db.delete(group)
@@ -3333,11 +3338,7 @@ async def delete_order_group(
                 entity_type="client",
                 entity_id=client_id,
                 action="order_group_deleted",
-                details={
-                    "group_id": group_id,
-                    "lines_removed": len(lines),
-                    "lines_detached": detached,
-                },
+                details={"group_id": group_id, "lines_removed": len(lines)},
             )
         )
         await commit_order_write(db)
@@ -3346,6 +3347,8 @@ async def delete_order_group(
         # usuniętej grupy nie ma już konsumenta, więc można go bezpiecznie zwolnić.
         if master_path:
             storage_service.delete_client_order_group_po(master_path)
+        for path in line_files:
+            storage_service.delete_client_order_po(path)
 
 
 async def _assert_group_is_disposable(
@@ -3386,22 +3389,7 @@ async def _assert_group_is_disposable(
     if shared_md_months:
         blockers.append(f"rozliczone miesiące wspólnej puli MD ({shared_md_months})")
 
-    line_ids = [line.id for line in lines]
-    if line_ids:
-        md_rows = await db.scalar(
-            select(func.count(ClientOrderMdConsumption.id)).where(
-                ClientOrderMdConsumption.order_id.in_(line_ids)
-            )
-        )
-        if md_rows:
-            blockers.append(f"rozliczone MD konsultantów ({md_rows})")
-        invoice_rows = await db.scalar(
-            select(func.count(ClientOrderInvoiceConsumption.id)).where(
-                ClientOrderInvoiceConsumption.order_id.in_(line_ids)
-            )
-        )
-        if invoice_rows:
-            blockers.append(f"zaimportowane faktury ({invoice_rows})")
+    blockers.extend(await settlement_blockers(db, [line.id for line in lines]))
 
     if not blockers:
         return
@@ -3448,101 +3436,36 @@ async def _line_consumption(
     )
 
 
-async def _keep_consumed_line_as_history(
-    db: AsyncSession, *, group: ClientOrderGroup, line: ClientOrder, user: User
-) -> bool:
-    """Osoba z wykorzystaną kwotą/MD zostaje na zamówieniu jako „usunięta".
+async def _delete_line_row(db: AsyncSession, line: ClientOrder) -> str | None:
+    """Skasuj linię zamówienia MD/kosztowego — i NIC poza nią.
 
-    Do 09.2026 usunięcie linii z historią ODPINAŁO ją od zamówienia
-    (``order_group_id = NULL``). Rozliczenie zamówienia kosztowego liczy
-    faktury po liniach grupy, więc odpięcie zwracało do puli pieniądze, które
-    ta osoba już wykorzystała — a karta zamówienia traciła informację, ile
-    kto zużył. Ticket żąda odwrotnie: wykorzystana kwota/MD nie wraca do puli
-    i pozostaje widoczna przy tej osobie, także gdy nie jest już aktywna.
+    Zwraca ścieżkę własnego pliku PO linii (do zwolnienia PO commicie) albo
+    ``None``. Wołający musi wcześniej sprawdzić, że linia nie ma rozliczeń
+    (``settlement_blockers``) — kaskada zabrałaby zaraportowane MD i faktury.
 
-    Linia zostaje w grupie ze statusem ``cancelled`` (skanery, MRR i import
-    zejść jej nie widzą; rozliczenie puli nadal liczy jej faktury), a dziennik
-    dostaje wpis — bez kwot w opisie, bo opis widzą też role bez finansów.
-    Zwraca ``False``, gdy linia nie ma zużycia (wtedy obowiązuje dotychczasowa
-    reguła: szkic znika, reszta jest odpinana).
+    Do 09.2026 linia inna niż pusty szkic była ODPINANA (``order_group_id =
+    NULL``), a linia z rozliczeniami zostawała w grupie jako „zakończona".
+    Odpięty wiersz był dalej aktywnym zamówieniem, więc osoba usunięta z
+    zamówienia MD wracała na liście jako nowe zamówienie okresowe, a wpis
+    „usunięty z zamówienia" wyglądał jak zakończony projekt. Ticket żąda
+    zwykłego usunięcia: status kontraktu, pozostałe zamówienia tej osoby
+    i sprawy offboardingu zostają nietknięte. Kaskady FK robią resztę
+    (krok stawki z tego zamówienia znika, odniesienia innych wierszy → NULL),
+    a ``commit_order_write`` przelicza okres i stawki kontraktu z tego, co
+    zostało — nigdy nie kończy kontraktu.
+
+    Wpisy historii „dodanie konsultanta" znikają razem z linią. Zdarzenia
+    zamiany kontraktora ZOSTAJĄ: mówią o dwóch osobach naraz.
     """
-
-    invoiced, md_used, has_consumption = await _line_consumption(db, line)
-    if not has_consumption:
-        return False
-    if await _has_line_decision(db, line.id, _REMOVED_REASON):
-        return True  # już usunięta — drugi klik nie dubluje wpisu
-    today = business_today()
-    if line.end_date is None or line.end_date > today:
-        line.end_date = max(today, line.start_date) if line.start_date else today
-    # `completed`, nie `cancelled`: synchronizacja kontrakt ↔ zamówienia czyta
-    # zakończone zamówienia jako historię stawek i okresu. Anulowane wypadłyby
-    # z niej, a kontrakt straciłby krok przychodu za miesiące już rozliczone.
-    # O „usunięciu" mówi wpis w dzienniku (`_REMOVED_REASON`), a
-    # `sync_md_line_status` takiej linii nie wskrzesza.
-    if line.status != ClientOrderStatus.cancelled:
-        line.status = ClientOrderStatus.completed
-    who = consultant_display_name(line)
-    record_event(
-        db,
-        group_id=group.id,
-        order_id=line.id,
-        event_type=EVENT_CONSULTANT_ENDED,
-        description=(
-            f"{who} — usunięty z zamówienia. Wykorzystana dotąd kwota i MD "
-            "zostają przypisane do zamówienia i nie wracają do puli"
-        ),
-        payload={
-            "reason": _REMOVED_REASON,
-            "invoiced": str(invoiced),
-            "md_used": str(md_used),
-            "end_date": line.end_date.isoformat() if line.end_date else None,
-        },
-        user_id=user.id,
-    )
-    return True
-
-
-async def _detach_or_delete_line(db: AsyncSession, line: ClientOrder) -> bool:
-    """Usuń linię z zamówienia. Zwraca ``True``, gdy została ODPIĘTA, nie skasowana.
-
-    Twarde kasowanie tylko dla linii, po której nic nie zostało: szkic bez
-    pliku PO, bez notatek i bez zużycia. Ta sama reguła co przy
-    ``DELETE /api/clients/{c}/orders/{o}`` — zamówienie konsultanta niesie
-    kontrakt, plik od klienta i historię rozliczeń, a te powstały poza tym
-    ekranem i nie są niczyją pomyłką do sprzątnięcia.
-
-    Wpisy historii dotyczące TEJ linii („dodanie konsultanta") znikają razem
-    z nią, bo ticket żąda, żeby błędnie dodana osoba zniknęła bez śladu.
-    Zdarzenia zamiany kontraktora ZOSTAJĄ: mówią o dwóch osobach naraz, więc
-    skasowanie ich zabrałoby informację także tej drugiej.
-    """
-    consumption_count = await db.scalar(
-        select(func.count(ClientOrderMdConsumption.id)).where(
-            ClientOrderMdConsumption.order_id == line.id
-        )
-    )
-    invoice_count = await db.scalar(
-        select(func.count(ClientOrderInvoiceConsumption.id)).where(
-            ClientOrderInvoiceConsumption.order_id == line.id
-        )
-    )
-    has_history = bool(consumption_count or invoice_count or line.file_path)
-    disposable = line.status == ClientOrderStatus.draft and not has_history
-
     await db.execute(
         delete(ClientOrderGroupEvent).where(
             ClientOrderGroupEvent.order_id == line.id,
             ClientOrderGroupEvent.event_type == EVENT_CONSULTANT_ADDED,
         )
     )
-
-    if disposable:
-        await db.delete(line)
-        return False
-
-    line.order_group_id = None
-    return True
+    file_path = line.file_path
+    await db.delete(line)
+    return file_path
 
 
 @router.delete(
@@ -3562,7 +3485,13 @@ async def delete_line(
     „dodałem nie tę osobę" i „założyłem nie to zamówienie". Ticket żąda obu
     jako oddzielnych opcji właśnie dlatego, że jedno zamówienie obejmuje
     kilku konsultantów.
+
+    Usunięcie kasuje WYŁĄCZNIE tę linię (``_delete_line_row``): nie tworzy
+    zamówienia okresowego, nie zmienia statusu kontraktu ani innych zamówień
+    osoby. Linia z rozliczeniami (MD, faktury) → 409 — zakończenie
+    współpracy to „Zostaw jako historię" albo „Zakończ".
     """
+    line_file: str | None = None
     async with audited_deletion(
         db,
         actor=user,
@@ -3597,21 +3526,17 @@ async def delete_line(
         await _assert_no_pending_offboarding_case(
             db, group_id=group.id, order_id=line.id
         )
-
-        kept_as_history = await _keep_consumed_line_as_history(
-            db, group=group, line=line, user=user
+        await assert_order_has_no_settlements(
+            db,
+            line.id,
+            subject="konsultanta z zamówienia",
+            alternative="użyj „Zostaw jako historię” albo „Zakończ”",
         )
-        detached = False if kept_as_history else await _detach_or_delete_line(db, line)
-        audit.describe(detached=detached, kept_as_history=kept_as_history)
-        if kept_as_history:
-            audit.result_note = (
-                "Konsultant miał rozliczenia — zostaje na zamówieniu jako historia "
-                "(status: zakończony)."
-            )
+
+        line_file = await _delete_line_row(db, line)
         if group.is_cost_based:
-            # Kasowanie linii zabiera też jej faktury (CASCADE), więc pula musi
-            # zostać przeliczona — inaczej zamówienie zostaje „wyczerpane" kwotami,
-            # których już w bazie nie ma.
+            # Pula liczy faktury po liniach grupy — po usunięciu linii (bez
+            # faktur, patrz guard wyżej) rozliczenie przelicza się od zera.
             await db.flush()
             await settle_group(db, group)
 
@@ -3620,15 +3545,12 @@ async def delete_line(
                 entity_type="client",
                 entity_id=client_id,
                 action="order_group_line_deleted",
-                details={
-                    "group_id": group_id,
-                    "order_id": line_id,
-                    "detached": detached,
-                    "kept_as_history": kept_as_history,
-                },
+                details={"group_id": group_id, "order_id": line_id},
             )
         )
         await commit_order_write(db)
+    if line_file:
+        storage_service.delete_client_order_po(line_file)
 
 
 @router.post(

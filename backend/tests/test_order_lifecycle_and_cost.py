@@ -257,19 +257,114 @@ async def test_delete_group_removes_its_lines(
     assert after.json()["groups"] == []
 
 
-async def test_delete_line_with_consumption_stays_on_the_order_as_removed(
-    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
-):
-    """Linia z rozliczeniem NIE jest kasowana ani odpinana — zamówienie niesie fakty.
+async def _standalone_orders(contract_id: int) -> list:
+    from sqlalchemy import select
 
-    Kasowanie zabrałoby wpisy konsumpcji, które powstały poza tym ekranem,
-    a odpięcie (stan sprzed 09.2026) wyprowadzało wykorzystane MD/kwotę poza
-    zamówienie — ticket żąda, żeby zostały przy nim i przy tej osobie.
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(ClientOrder)
+                    .where(
+                        ClientOrder.contract_id == contract_id,
+                        ClientOrder.order_group_id.is_(None),
+                    )
+                    .order_by(ClientOrder.id)
+                )
+            ).all()
+        )
+
+
+async def _contract_status(contract_id: int) -> str:
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        return contract.status.value
+
+
+@pytest.mark.parametrize("cost_based", [False, True], ids=["md", "kosztowe"])
+async def test_delete_active_line_creates_no_periodic_order_and_keeps_project(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch, cost_based: bool
+):
+    """Ticket 09.2026: usunięcie konsultanta = usunięcie JEGO linii i nic więcej.
+
+    Do tej zmiany aktywna linia bez rozliczeń była odpinana
+    (``order_group_id = NULL``) i wracała na liście jako nowe zamówienie
+    okresowe tej osoby.
     """
     from app.core.database import AsyncSessionLocal
     from app.models.client_order import ClientOrder
+
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_multi(monkeypatch, client_id)
+    if cost_based:
+        _enable_cost(monkeypatch, client_id)
+        group = await _create_group(
+            app_client,
+            app_auth_headers,
+            client_id,
+            [_cost_line(contracts[0]), _cost_line(contracts[1])],
+            is_cost_based=True,
+            budget_amount=50000,
+        )
+    else:
+        group = await _create_group(
+            app_client,
+            app_auth_headers,
+            client_id,
+            [_md_line(contracts[0]), _md_line(contracts[1])],
+        )
+    victim = next(
+        line for line in group["lines"] if line["contract_id"] == contracts[0]
+    )
+    assert victim["status"] == "active"
+    standalone_before = await _standalone_orders(contracts[0])
+
+    resp = await app_client.delete(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{victim['id']}",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 204, resp.text
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(ClientOrder, victim["id"]) is None, (
+            "linia przeżyła usunięcie (odpięta albo zakończona)"
+        )
+    assert len(await _standalone_orders(contracts[0])) == len(standalone_before), (
+        "usunięcie z zamówienia grupowego utworzyło zamówienie okresowe"
+    )
+    assert await _contract_status(contracts[0]) == "active"
+    assert await _contract_status(contracts[1]) == "active"
+
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+    )
+    body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
+    assert [line["contract_id"] for line in body["lines"]] == [contracts[1]]
+    assert body["lines"][0]["status"] == "active"
+
+
+@pytest.mark.parametrize("kind", ["md", "invoice"])
+async def test_delete_line_with_settlements_is_refused_and_changes_nothing(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch, kind: str
+):
+    """Linia z rozliczeniami → 409; nic nie jest kasowane ani zamykane.
+
+    Kasowanie zabrałoby kaskadowo zaraportowane MD i faktury z importu
+    Finansów, a dawne „zostaw jako usuniętą" zamykało projekt osoby.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from app.models.client_order_group import ClientOrderGroupEvent
+    from sqlalchemy import select
     from app.models.md_consumption import (
         CONSUMPTION_SOURCE_IMPORT,
+        ClientOrderInvoiceConsumption,
         ClientOrderMdConsumption,
     )
 
@@ -281,38 +376,176 @@ async def test_delete_line_with_consumption_stays_on_the_order_as_removed(
     line_id = group["lines"][0]["id"]
 
     async with AsyncSessionLocal() as db:
-        db.add(
-            ClientOrderMdConsumption(
-                order_id=line_id,
-                period_month="2026-07",
-                md_reported=Decimal("10"),
-                source=CONSUMPTION_SOURCE_IMPORT,
+        if kind == "md":
+            db.add(
+                ClientOrderMdConsumption(
+                    order_id=line_id,
+                    period_month="2026-07",
+                    md_reported=Decimal("10"),
+                    source=CONSUMPTION_SOURCE_IMPORT,
+                )
             )
-        )
+        else:
+            db.add(
+                ClientOrderInvoiceConsumption(
+                    order_id=line_id,
+                    period_month="2026-07",
+                    invoice_amount=Decimal("1000"),
+                    source="manual",
+                )
+            )
         await db.commit()
 
     resp = await app_client.delete(
         f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{line_id}",
         headers=app_auth_headers,
     )
-    assert resp.status_code == 204, resp.text
+    assert resp.status_code == 409, resp.text
+    assert "rozliczenia" in resp.json()["detail"]
 
     async with AsyncSessionLocal() as db:
         survived = await db.get(ClientOrder, line_id)
-        assert survived is not None, "linia z historią została skasowana"
-        assert survived.order_group_id == group["id"], "zużycie wyszło z zamówienia"
-        # `completed`, nie `cancelled` — synchronizacja kontraktu czyta zakończone
-        # zamówienia jako historię stawek (anulowane by z niej wypadły).
-        assert survived.status.value == "completed"
+        assert survived is not None
+        assert survived.order_group_id == group["id"]
+        assert survived.status.value == "active"
+        events = (
+            await db.scalars(
+                select(ClientOrderGroupEvent).where(
+                    ClientOrderGroupEvent.order_id == line_id
+                )
+            )
+        ).all()
+        assert all(
+            (event.payload or {}).get("reason") != "removed_from_order"
+            for event in events
+        )
+    assert await _contract_status(contracts[0]) == "active"
 
-    listing = await app_client.get(
-        f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+
+async def test_delete_group_leaves_no_orphaned_standalone_orders(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Kasowanie całego zamówienia nie zostawia linii jako zamówień okresowych."""
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_md_line(contracts[0]), _md_line(contracts[1])],
     )
-    body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
-    line = next(item for item in body["lines"] if item["id"] == line_id)
-    assert line["removed_from_order"] is True
-    assert line["is_active"] is False
-    assert line["md_used"] == pytest.approx(10.0)
+    assert {line["status"] for line in group["lines"]} == {"active"}
+
+    resp = await app_client.delete(
+        f"/api/clients/{client_id}/order-groups/{group['id']}",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 204, resp.text
+    for contract_id in contracts:
+        assert await _standalone_orders(contract_id) == []
+        assert await _contract_status(contract_id) == "active"
+
+
+async def _add_standalone_order(contract_id: int, client_id: int, **fields):
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    async with AsyncSessionLocal() as db:
+        order = ClientOrder(
+            client_id=client_id,
+            contract_id=contract_id,
+            title=fields.pop("title", f"OKR-{uuid.uuid4().hex[:4]}"),
+            status=fields.pop("status", ClientOrderStatus.active),
+            order_type="periodic",
+            rate_client=Decimal("150.000"),
+            **fields,
+        )
+        db.add(order)
+        await db.commit()
+        await db.refresh(order)
+        return order.id
+
+
+async def test_delete_periodic_order_removes_only_that_order(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Usunięcie zamówienia okresowego nie rusza innych zamówień ani projektu."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from app.models.client_order_offboarding import ClientOrderOffboardingCase
+    from sqlalchemy import func, select
+
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0])]
+    )
+    md_line = group["lines"][0]
+    current = await _add_standalone_order(
+        contracts[0],
+        client_id,
+        start_date=_TODAY - timedelta(days=20),
+        end_date=_TODAY + timedelta(days=40),
+    )
+    future = await _add_standalone_order(
+        contracts[0],
+        client_id,
+        start_date=_TODAY + timedelta(days=41),
+        end_date=_TODAY + timedelta(days=120),
+    )
+
+    resp = await app_client.delete(
+        f"/api/clients/{client_id}/orders/{current}", headers=app_auth_headers
+    )
+    assert resp.status_code == 204, resp.text
+
+    async with AsyncSessionLocal() as db:
+        assert await db.get(ClientOrder, current) is None
+        kept = await db.get(ClientOrder, future)
+        assert kept is not None and kept.status.value == "active"
+        line = await db.get(ClientOrder, md_line["id"])
+        assert line is not None
+        assert line.status.value == "active"
+        assert line.order_group_id == group["id"]
+        assert line.end_date is None or line.end_date > _TODAY
+        cases = await db.scalar(
+            select(func.count(ClientOrderOffboardingCase.id)).where(
+                ClientOrderOffboardingCase.order_id == md_line["id"]
+            )
+        )
+        assert cases == 0
+    assert await _contract_status(contracts[0]) == "active"
+
+
+async def test_delete_periodic_order_with_settlements_is_refused(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from app.models.md_consumption import ClientOrderInvoiceConsumption
+
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    order_id = await _add_standalone_order(
+        contracts[0], client_id, start_date=_TODAY - timedelta(days=20)
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ClientOrderInvoiceConsumption(
+                order_id=order_id,
+                period_month="2026-07",
+                invoice_amount=Decimal("1000"),
+                source="manual",
+            )
+        )
+        await db.commit()
+
+    resp = await app_client.delete(
+        f"/api/clients/{client_id}/orders/{order_id}", headers=app_auth_headers
+    )
+    assert resp.status_code == 409, resp.text
+    async with AsyncSessionLocal() as db:
+        order = await db.get(ClientOrder, order_id)
+        assert order is not None and order.status.value == "active"
 
 
 # ── Zakończenie i przywrócenie ──────────────────────────────────────────────

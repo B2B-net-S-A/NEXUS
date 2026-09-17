@@ -2,8 +2,8 @@
   "reviewed_at": "2026-09-17",
   "sources": {
     "backend/app/api/admin_order_mail.py": "98b2fe2401eca9cdd4cd2c96494dd9836a3d98f5736ec4df8308b86ef9161d74",
-    "backend/app/api/client_order_groups.py": "590379514cda2bd3ce6c0da5ca759f34fa12c62921cc9756e33859e7432104e6",
-    "backend/app/api/client_orders.py": "ee54933d4ae887cad6a306ab718aa7632dd57f7dcd25cdfb499f9600327c8b7b",
+    "backend/app/api/client_order_groups.py": "fe7e7b736888bae717d5789ecba15cf0d2c7a40b52d653f63bd9ab87520d5b74",
+    "backend/app/api/client_orders.py": "cfd8a06e77f9ff48d72d5727deda91f9087fa83fa49449e5abff0ad43d815e8d",
     "backend/app/api/md_consumption.py": "8e6adfc1c506115831aec48f7886f7c865d619c84023819cd664e1794f7d43aa",
     "backend/app/api/order_mail_queue.py": "ff21dc7a366d04c23296f353fd033adff0eee2a3b844a549567d0bac5444fa23",
     "backend/app/models/client_order.py": "df996b72ff1cca46c95c385cb5b3a33228215d4bdac9a8f8b87fdb062e7b0c34",
@@ -62,12 +62,12 @@
     "frontend/src/components/ExtendOrderDialog.tsx": "2dc18fd7b174440433acf5b4138bfd185c9545b4dc50f1bf0e0664689570aea0",
     "frontend/src/components/NewContractorOrderDialog.tsx": "b3c5aebd942abde64950eced0b9dcd416e68abf78831a9e4572163e6579e14fb",
     "frontend/src/components/OrderDocumentsSection.tsx": "750c49ec2456414632a38af8ebb94343fd3d63044b79f8f695c6f37d325ce41f",
-    "frontend/src/components/OrdersAndContractsTab.tsx": "49dc63b00ba88acc02fb0135400c39b06f9dfa3e0a6aaa307285e444c54c45cd",
+    "frontend/src/components/OrdersAndContractsTab.tsx": "c4e844c901b93b9bc85fa7c84055650793837d5ee2486703ca7af8957ad1c2f2",
     "frontend/src/components/client-profile/orders/EndOrderGroupModal.tsx": "6dbc4e77d755bea610d2fe5dd7fadbefdf6c4aaf477afcd0f1bf4866c8240f8b",
     "frontend/src/components/client-profile/orders/ExtendOrderGroupModal.tsx": "9437e3d9b05a8e7b2fb89842aa52ea83c576c5f7238332082bb96794bca0bd3e",
-    "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "665cbb8a5078dd79c4c8b1ad3afd34305c14ac1f57662a028b38187a38ce66da",
+    "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "6894f0a6b947868c74dbc18f6fe2664435837411f762110d3522408f937ed07f",
     "frontend/src/components/client-profile/orders/NordeaOrderImportPanel.tsx": "8f075df2491ebef6e0da6a42624bef3acef869f3f3013b5d08ed5403c922e6e5",
-    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "e045cc2e7c3909412ecec22f41115ac8ffee09d056db9d786c722d9d4179f951",
+    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "8dc3cdc7099710a83a7e0795dce89d603e5bce82cf2c8cc4afb5b7967fc0aa11",
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx": "89fb51b4940d2483c596054fa08f47ac87426ebb960e05a87b75dee3822ffe31",
     "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx": "b6e16e713c863bbb18c718d8136a5fd16e405e04fac68e5cfe84585f39725db9",
     "frontend/src/components/order-mail/OrderMailQueue.tsx": "72b87f131fa8c105f61f0c2aa252da198286ef452ebf673c1ef973bad4e01427",
@@ -77,7 +77,7 @@
     "frontend/src/components/v2/dashboard/MyClientsAlertsPanel.tsx": "f6dba076dc6e4b187929fdb8e9b6d5133f39ba65c8134b9b076ebb88c97022f0",
     "frontend/src/lib/api/orderMail.ts": "95ebfcb8e3e2c588d8d34dd2a60455c4a625d51a92e278af083242573e03f69e",
     "frontend/src/lib/order-extraction.ts": "c49a161f4a316e8edaa9eb792ccbba88158c7d86886e1b35d4b2968c3d149309",
-    "frontend/src/lib/order-line-usage.ts": "23d5d51b45530160fb4b414c5d97594298342b4075373eb8b4d104fc3a8a6cbf",
+    "frontend/src/lib/order-line-usage.ts": "11d3265c4fe54b0a792e98010f97bd53017eb1f84b80ce132b08e739082dbec0",
     "frontend/src/lib/order-plan.ts": "edf6612fc56fb2492a8b57e9989dbfcd50873e94875dd9ccb05f680ed18185de"
   }
 }
