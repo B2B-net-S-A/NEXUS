@@ -2532,20 +2532,24 @@ export default function JobDetailPage() {
         // rekomendowane wyszukiwania/zespół i priorytet/handoff, które do tej
         // pory siedziały nad formularzem i w panelu nagłówka.
         //
-        // Trzecia kolumna (dok) jest zwijalna WYŁĄCZNIE na `xl` — `lg` trzyma
-        // dok pod edytorem (`col-span-2`), więc tam nie ma czego zwijać.
+        // Szerokość edytora jest tu celem, nie efektem ubocznym: przy 1440 px
+        // (sidebar 240 + zwinięta szyna kart) spis sekcji 230 i dok 360
+        // zostawiały edytorowi 451 px. Dlatego spis sekcji pokazuje się
+        // dopiero od `2xl` — poniżej każda sekcja edytora i tak ma nagłówek
+        // z chipem stanu — a na `xl` siatka ma dwie kolumny: edytor i dok.
+        // Dok jest zwijalny WYŁĄCZNIE od `xl` (węziej stoi pod edytorem).
         // Literały klas muszą być PEŁNE (Tailwind skanuje kod źródłowy, nie
-        // interpoluje fragmentów w runtime) — stąd dwie gałęzie zamiast
+        // interpoluje fragmentów w runtime) — stąd gałęzie zamiast
         // wstrzykiwanej szerokości.
         <div
           className={cn(
-            "grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)]",
+            "grid grid-cols-1 gap-4",
             championDockCollapsed
-              ? "xl:grid-cols-[230px_minmax(0,1fr)_44px]"
-              : "xl:grid-cols-[230px_minmax(0,1fr)_360px]",
+              ? "xl:grid-cols-[minmax(0,1fr)_44px] 2xl:grid-cols-[230px_minmax(0,1fr)_44px]"
+              : "xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[230px_minmax(0,1fr)_360px]",
           )}
         >
-          <aside className="lg:sticky lg:top-4 lg:self-start">
+          <aside className="hidden 2xl:block 2xl:sticky 2xl:top-4 2xl:self-start">
             <ChampionSectionNav jobId={Number(id)} />
           </aside>
 
@@ -2576,7 +2580,7 @@ export default function JobDetailPage() {
             />
           </div>
 
-          <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
+          <aside className="xl:sticky xl:top-4 xl:self-start">
             <JobReadinessDock
               jobId={Number(id)}
               variant="champion"

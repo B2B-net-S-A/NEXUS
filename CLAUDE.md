@@ -1877,6 +1877,27 @@ innego niż serwer albo nadpisywał cudzą pracę.
   rekrutacji świeżo utworzonej bez zespołu. 403 przy próbie ustawienia widełek
   wynagrodzenia przez DL/TCM jest teraz po polsku: „Widełki wynagrodzenia może
   ustawić tylko admin lub TAC”.
+- **Tworzenie rekrutacji = krótki modal + reszta w doku** (17.09.2026).
+  `CreateJobModal` (`components/v2/modals/`) ma 9 pól: tytuł, klient
+  (`ClientSinglePicker`), typ, opis (z „Generuj AI”), must-have, miasto, tryb,
+  dni w biurze, budżet PLN/h; widełki PLN/mies. tylko dla `canManageRecruitmentBudget`
+  (klucz NIEOBECNY dla DL/TCM, nie `null` — backend liczy `fields_set`). Nie
+  wysyła statusu, priorytetu, deadline'u, TAC/DL/rekrutera/HM/szablonu/kategorii.
+  Po zapisie ląduje na `/jobs/{id}?tab=champion` (+`&intake=1`, gdy jest opis —
+  panel AI otwarty z opisem); `?tab=champion-profile` zostaje aliasem
+  (`lib/job-detail-tab-param.ts`). Szkic formularza w `localStorage`
+  (`nexus:jobDraft:v1:<userId>`), Escape przy brudnym formularzu pyta.
+  `EditJobModal`/`JobFormFields` ZOSTAJĄ w `AppShell.tsx` jako pełna edycja
+  (testy źródłowe czytają tam literały `FieldGroup`). TAC, DL, szablon,
+  kategoria, Program/Train, priorytet i deadline edytuje `JobSettingsPanel`
+  w zakładce „Zespół” doku gotowości. Zakładka „Zlecenie i Champion”: spis
+  sekcji tylko od `2xl`, na `xl` dwie kolumny (edytor + dok) — przy 1440 px
+  edytor miał 251 px; dok zwijany do 44 px wyłącznie od `xl`
+  (`nexus:jobChampionDockCollapsed:v1`), szyna „Otwarte karty” domyślnie
+  zwinięta (`nexus.jobTabsRail.collapsed.v2`). Sekcja 1 Championa startuje
+  z pól rekrutacji per pole (`lib/champion-job-seed.ts`), nietknięte klucze nie
+  jadą w PUT; okno „Uzgodnij profil i pola rekrutacji” dostaje widoczny `draft`
+  (pusty stack + „Uzgodnij też pole” czyściłby `must_skills`).
 
 ## Konta serwisowe / klucze API (`X-API-Key`)
 

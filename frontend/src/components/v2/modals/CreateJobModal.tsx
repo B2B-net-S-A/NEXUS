@@ -408,8 +408,10 @@ export function CreateJobModal({
             {draft.restorable && (
               <div className="rounded-lg bg-primary/10 border border-primary/20 px-3 py-2 text-xs flex items-center justify-between gap-3 flex-wrap">
                 <span>
-                  Masz niezapisany szkic z{" "}
-                  {formatRelativeTime(draft.restorable.savedAt)}
+                  {/* „zapisany przed chwilą / 5 min temu / wczoraj” — formatRelativeTime
+                      zwraca frazę przysłówkową, więc bez przyimka „z”. */}
+                  Masz niezapisany szkic (zapisany{" "}
+                  {formatRelativeTime(draft.restorable.savedAt)})
                 </span>
                 <span className="flex items-center gap-3 shrink-0">
                   <button

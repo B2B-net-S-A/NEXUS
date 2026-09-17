@@ -109,7 +109,7 @@ describe("CreateJobModal — przywracanie szkicu", () => {
     renderModal();
 
     expect(
-      await screen.findByText(/Masz niezapisany szkic z/),
+      await screen.findByText(/Masz niezapisany szkic \(zapisany/),
     ).toBeInTheDocument();
   });
 
@@ -117,14 +117,14 @@ describe("CreateJobModal — przywracanie szkicu", () => {
     renderModal();
     await screen.findByPlaceholderText("Senior Java Developer");
     expect(
-      screen.queryByText(/Masz niezapisany szkic z/),
+      screen.queryByText(/Masz niezapisany szkic \(zapisany/),
     ).not.toBeInTheDocument();
   });
 
   it("„Przywróć szkic” wypełnia formularz i chowa baner", async () => {
     writeJobDraft(dlUser.id, FILLED_DRAFT);
     renderModal();
-    await screen.findByText(/Masz niezapisany szkic z/);
+    await screen.findByText(/Masz niezapisany szkic \(zapisany/);
 
     await userEvent.click(screen.getByRole("button", { name: "Przywróć szkic" }));
 
@@ -134,7 +134,7 @@ describe("CreateJobModal — przywracanie szkicu", () => {
     expect(screen.getByPlaceholderText("Opis stanowiska...")).toHaveValue(
       "Opis ze szkicu",
     );
-    expect(screen.queryByText(/Masz niezapisany szkic z/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Masz niezapisany szkic \(zapisany/)).not.toBeInTheDocument();
   });
 
   it("nie kasuje nierozstrzygniętego szkicu pustym auto-zapisem tuż po otwarciu", async () => {
@@ -144,7 +144,7 @@ describe("CreateJobModal — przywracanie szkicu", () => {
     // baner jest nierozstrzygnięty.
     writeJobDraft(dlUser.id, FILLED_DRAFT);
     renderModal();
-    await screen.findByText(/Masz niezapisany szkic z/);
+    await screen.findByText(/Masz niezapisany szkic \(zapisany/);
 
     await new Promise((r) => setTimeout(r, 700));
 
@@ -154,11 +154,11 @@ describe("CreateJobModal — przywracanie szkicu", () => {
   it("„Odrzuć” kasuje zapisany szkic i chowa baner bez zmiany formularza", async () => {
     writeJobDraft(dlUser.id, FILLED_DRAFT);
     renderModal();
-    await screen.findByText(/Masz niezapisany szkic z/);
+    await screen.findByText(/Masz niezapisany szkic \(zapisany/);
 
     await userEvent.click(screen.getByRole("button", { name: "Odrzuć" }));
 
-    expect(screen.queryByText(/Masz niezapisany szkic z/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Masz niezapisany szkic \(zapisany/)).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("Senior Java Developer")).toHaveValue("");
     expect(readJobDraft(dlUser.id)).toBeNull();
   });
