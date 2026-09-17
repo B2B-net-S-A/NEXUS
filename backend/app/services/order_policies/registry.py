@@ -134,7 +134,7 @@ class OrderClientPolicy:
     #: Wersja reguły odczytu. Dokument zapamiętuje wersje, którymi go przeczytano
     #: (``document_meta["rule_versions"]``); po jej zmianie dokumenty klienta
     #: czekające w kolejce przeliczają się SAME, raz, przy najbliższym biegu
-    #: skrzynki (``order_mail_ingest.replan_outdated_documents``). Bez tego
+    #: skrzynki (``order_mail_recheck.run_recheck``). Bez tego
     #: poprawka reguły działała wyłącznie dla nowych maili, a wpis sprzed
     #: wdrożenia wisiał ze starymi powodami do ręcznego „Przelicz plan" (Alior,
     #: 09.2026). ZMIEŃ wersję przy każdej zmianie reguły, która może zmienić

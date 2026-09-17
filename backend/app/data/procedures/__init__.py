@@ -119,6 +119,10 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "backend/app/services/order_mail_gate.py",
     "backend/app/services/order_mail_apply.py",
     "backend/app/api/order_mail_queue.py",
+    # Godzinowa ponowna weryfikacja wstrzymanych wpisów i klasyfikacja
+    # przyczyny („czeka na podpis" vs „po trzech próbach karta do DL").
+    "backend/app/services/order_mail_recheck.py",
+    "backend/app/services/order_mail_recheck_reasons.py",
     # Limit 10 stron OCR i komunikat o nieczytelnym skanie — instrukcja
     # podaje oba wprost, a plik zmienia się rzadko.
     "backend/app/services/cv_text_extractor.py",
@@ -168,6 +172,10 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "frontend/src/components/orders/InlineOrderFields.tsx",
     "frontend/src/components/orders/OrderTypeSwitch.tsx",
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+    # Karta zamówienia zbiorczego: lista konsultantów, sekcja „Zakończone",
+    # przyszłe zamówienia i komplet akcji cyklu życia na linii. Brakowało jej
+    # tu, choć wszystkie jej rodzeństwa były już obserwowane (09.2026).
+    "frontend/src/components/client-profile/orders/OrderGroupCard.tsx",
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx",
     "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx",
     "frontend/src/lib/order-plan.ts",

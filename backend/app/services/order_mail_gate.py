@@ -17,7 +17,11 @@ from decimal import Decimal
 import re
 from typing import Mapping, Optional
 
-from app.services.order_mail_planner import AUTO_ACTIONS, DocumentProposal
+from app.services.order_mail_planner import (
+    ACTION_DECIDE_PERSON,
+    AUTO_ACTIONS,
+    DocumentProposal,
+)
 from app.services.order_mail_resolver import MATCH_EXACT, ResolvedConsultant
 from app.services.order_pdf_parser import (
     ConsultantOrderRow,
@@ -40,6 +44,69 @@ RATE_BANDS: dict[str, tuple[Decimal, Decimal]] = {
 }
 #: Maksymalna odchyłka od stawki efektywnej z harmonogramu kontraktu.
 MAX_RATE_DEVIATION = Decimal("0.40")
+
+# ── Kody powodów ─────────────────────────────────────────────────────────────
+#
+# Powód jest zdaniem po polsku dla człowieka; kod jest tym samym powodem dla
+# maszyny. Godzinowa ponowna weryfikacja musi wiedzieć, CZY zamówienie czeka na
+# podpis umowy (czeka bezterminowo, bez alarmowania Delivery Leada), czy utknęło
+# na czymś innym (po trzech próbach idzie karta). Rozpoznawanie tego regexem po
+# prozie zepsułoby się przy pierwszej korekcie stylistycznej, a cena pomyłki to
+# albo zalanie DL kartami, albo cisza przy realnym problemie.
+#
+# KAŻDE dopisanie powodu MUSI nieść kod (pilnuje `test_order_mail_gate_and_planner`).
+CODE_AUTOAPPLY_EXCLUDED_CLIENT = "autoapply_excluded_client"
+CODE_CLIENT_NOT_CONFIRMED = "client_not_confirmed"
+CODE_NO_CLIENT_POLICY = "no_client_policy"
+CODE_FALLBACK_READ = "fallback_read"
+CODE_NO_PEOPLE = "no_people"
+CODE_PERSON_MATCH_UNCERTAIN = "person_match_uncertain"
+CODE_PERSON_KNOWN_ELSEWHERE_IDLE = "person_known_elsewhere_idle"
+CODE_PERSON_KNOWN_ELSEWHERE_OPEN = "person_known_elsewhere_open"
+CODE_PERSON_NAMESAKES = "person_namesakes"
+CODE_PERSON_MULTIPLE_CONTRACTS = "person_multiple_contracts"
+CODE_TITLE_NOT_CONFIRMED = "title_not_confirmed"
+CODE_ROW_EVIDENCE_MISSING = "row_evidence_missing"
+CODE_ROW_EVIDENCE_COUNT = "row_evidence_count"
+CODE_ROW_EVIDENCE_PERSON = "row_evidence_person"
+CODE_ROW_EVIDENCE_UNCERTAIN = "row_evidence_uncertain"
+CODE_ROW_EVIDENCE_RATE = "row_evidence_rate"
+CODE_READ_UNCERTAIN = "read_uncertain"
+CODE_TEXT_TRUNCATED = "text_truncated"
+CODE_OCR_CAPPED = "ocr_capped"
+CODE_RATE_MISSING = "rate_missing"
+CODE_RATE_OUT_OF_BAND = "rate_out_of_band"
+CODE_RATE_DEVIATION = "rate_deviation"
+CODE_MD_MISSING = "md_missing"
+CODE_MD_SHARED_POOL = "md_shared_pool"
+CODE_PLAN_BLOCKING = "plan_blocking"
+#: Nowy kontraktor bez żywej umowy gdziekolwiek — zamówienie czeka na podpis.
+CODE_PERSON_DECISION_NEW = "person_decision_new"
+#: Osoba z trwającą współpracą u innego klienta albo kilku imienników.
+CODE_PERSON_DECISION_AMBIGUOUS = "person_decision_ambiguous"
+#: Współpraca u TEGO klienta się zakończyła — decyzja Delivery Leada.
+CODE_PERSON_DECISION_ENDED = "person_decision_ended"
+CODE_ACTION_NOT_AUTO = "action_not_auto"
+CODE_PERIOD_INCOMPLETE = "period_incomplete"
+CODE_PERIOD_REVERSED = "period_reversed"
+
+# Powody wstrzykiwane POZA bramką (writer, wyłącznik automatu, ponowny odczyt
+# AI). Mieszkają tutaj, żeby cały katalog kodów był w jednym pliku.
+CODE_AUTOAPPLY_DISABLED = "autoapply_disabled"
+CODE_WRITE_FAILED = "write_failed"
+CODE_AI_RETRY_EXHAUSTED = "ai_retry_exhausted"
+CODE_RECHECK_FAILED = "recheck_failed"
+#: Nordea: dokument z tej skrzynki, który nie jest zamówieniem.
+CODE_NON_ORDER = "non_order"
+#: Wpis sprzed wdrożenia kodów albo powód zapisany bez kodu.
+CODE_UNKNOWN = "unknown"
+
+#: Mapa akcji planera bez rozstrzygnięcia osoby na kod.
+_DECISION_CODES = {
+    "new": CODE_PERSON_DECISION_NEW,
+    "new_ambiguous": CODE_PERSON_DECISION_AMBIGUOUS,
+    "ended": CODE_PERSON_DECISION_ENDED,
+}
 
 
 @dataclass(frozen=True)
@@ -68,6 +135,8 @@ class GateInput:
 class GateVerdict:
     verdict: str
     reasons: list[str] = field(default_factory=list)
+    #: Kody powodów — ta sama długość i kolejność co ``reasons``.
+    codes: list[str] = field(default_factory=list)
 
     @property
     def is_auto(self) -> bool:
@@ -76,13 +145,23 @@ class GateVerdict:
 
 def _row_evidence_reasons(
     rows: list[ConsultantOrderRow], evidence: tuple[ConsultantOrderRow, ...]
-) -> list[str]:
+) -> list[tuple[str, str]]:
     """Confirm each person's own rate/unit, never a sorted bag of amounts."""
     if not evidence:
-        return ["Brak niezależnego potwierdzenia osób i stawek z pól dokumentu PDF"]
+        return [
+            (
+                CODE_ROW_EVIDENCE_MISSING,
+                "Brak niezależnego potwierdzenia osób i stawek z pól dokumentu PDF",
+            )
+        ]
     if len(rows) != len(evidence):
-        return [f"Liczba osób z modelu ({len(rows)}) ≠ z tabeli ({len(evidence)})"]
-    reasons = []
+        return [
+            (
+                CODE_ROW_EVIDENCE_COUNT,
+                f"Liczba osób z modelu ({len(rows)}) ≠ z tabeli ({len(evidence)})",
+            )
+        ]
+    reasons: list[tuple[str, str]] = []
     used: set[int] = set()
     for row in rows:
         matches = [
@@ -92,7 +171,10 @@ def _row_evidence_reasons(
         ]
         if len(matches) != 1 or matches[0] in used:
             reasons.append(
-                f"„{row.consultant_name}”: brak jednoznacznego potwierdzenia osoby w polach PDF"
+                (
+                    CODE_ROW_EVIDENCE_PERSON,
+                    f"„{row.consultant_name}”: brak jednoznacznego potwierdzenia osoby w polach PDF",
+                )
             )
             continue
         index = matches[0]
@@ -102,11 +184,17 @@ def _row_evidence_reasons(
             # Wiersz bywa niepewny przez nazwisko albo okres, nie tylko stawkę —
             # konkretny powód niesie odczyt („Odczyt niepewny: …").
             reasons.append(
-                f"„{row.consultant_name}”: niepewny odczyt wiersza osoby z pól PDF"
+                (
+                    CODE_ROW_EVIDENCE_UNCERTAIN,
+                    f"„{row.consultant_name}”: niepewny odczyt wiersza osoby z pól PDF",
+                )
             )
         if (row.rate_client, row.rate_unit) != (source.rate_client, source.rate_unit):
             reasons.append(
-                f"„{row.consultant_name}”: stawka lub jednostka z modelu nie zgadza się z polem PDF tej osoby"
+                (
+                    CODE_ROW_EVIDENCE_RATE,
+                    f"„{row.consultant_name}”: stawka lub jednostka z modelu nie zgadza się z polem PDF tej osoby",
+                )
             )
     return reasons
 
@@ -156,14 +244,33 @@ def _irrelevant_md_absence_reason(reason: str, inp: GateInput) -> bool:
     return all(row.md_total is not None for row in _md_rows(inp))
 
 
+def _known_elsewhere_code(res: ResolvedConsultant) -> str:
+    """Kod dla osoby spoza rostera, która JEST w bazie.
+
+    Trzy różne stany świata, trzy różne dalsze kroki: kilku imienników i osoba
+    z trwającą współpracą u innego klienta wymagają człowieka, a osoba bez
+    żadnej żywej umowy po prostu czeka na podpis.
+    """
+    if len(res.known_elsewhere_ids) > 1:
+        return CODE_PERSON_NAMESAKES
+    if res.known_elsewhere_open_ids:
+        return CODE_PERSON_KNOWN_ELSEWHERE_OPEN
+    return CODE_PERSON_KNOWN_ELSEWHERE_IDLE
+
+
 def evaluate(inp: GateInput) -> GateVerdict:
-    reasons: list[str] = []
+    reasons: list[tuple[str, str]] = []
     ex = inp.extraction
     prop = inp.proposal
 
     # 0) przełączniki
     if prop.client_id in inp.excluded_client_ids:
-        reasons.append("Automatyczny zapis jest wyłączony dla tego klienta")
+        reasons.append(
+            (
+                CODE_AUTOAPPLY_EXCLUDED_CLIENT,
+                "Automatyczny zapis jest wyłączony dla tego klienta",
+            )
+        )
 
     # 1) NIP albo jednoznaczny marker/domena PFRON i aktywny rekord z bazy.
     trusted_pfron = (
@@ -173,22 +280,34 @@ def evaluate(inp: GateInput) -> GateVerdict:
     )
     if inp.identification_method != "registry_id" and not trusted_pfron:
         reasons.append(
-            "Nie potwierdzono jednoznacznie klienta numerem rejestrowym ani zatwierdzoną regułą dokumentu"
+            (
+                CODE_CLIENT_NOT_CONFIRMED,
+                "Nie potwierdzono jednoznacznie klienta numerem rejestrowym ani zatwierdzoną regułą dokumentu",
+            )
         )
 
     # 2) własna polityka + odczyt modelem (fallback regexowy nigdy nie autozapisuje)
     if not inp.policies_applied:
-        reasons.append("Klient nie ma własnej polityki odczytu")
+        reasons.append(
+            (CODE_NO_CLIENT_POLICY, "Klient nie ma własnej polityki odczytu")
+        )
     if ex.source != "claude":
         failure = f" (AI: {ex.ai_failure})" if ex.ai_failure else ""
-        reasons.append(f"Odczyt awaryjny{failure} — sprawdź zgodność pól z PDF")
+        reasons.append(
+            (
+                CODE_FALLBACK_READ,
+                f"Odczyt awaryjny{failure} — sprawdź zgodność pól z PDF",
+            )
+        )
 
     # 3) + 4) exact person, or an initial draft; ambiguous people/contracts block
     if not inp.resolved:
-        reasons.append("Brak osób do dopasowania")
+        reasons.append((CODE_NO_PEOPLE, "Brak osób do dopasowania"))
     for res in inp.resolved:
         if res.match_kind not in (MATCH_EXACT, "none"):
-            reasons.append(f"„{res.row_name}”: {res.reason}")
+            reasons.append(
+                (CODE_PERSON_MATCH_UNCERTAIN, f"„{res.row_name}”: {res.reason}")
+            )
         elif res.match_kind == "none":
             # Pierwsze zlecenie osoby, której w bazie NIE MA, automat zakłada
             # jak dotąd. Osoba, która w bazie JEST (imiennik albo ten sam
@@ -196,17 +315,23 @@ def evaluate(inp: GateInput) -> GateVerdict:
             # writer i tak by odmówił, a tu odmowa jest widoczna w kolejce
             # razem z tym, kogo znaleziono.
             if res.known_elsewhere_ids:
-                reasons.append(res.reason)
+                reasons.append((_known_elsewhere_code(res), res.reason))
         elif len(res.live_contract_ids) > 1:
             reasons.append(
-                f"„{res.row_name}”: kilka aktywnych kontraktów — wybierz właściwy"
+                (
+                    CODE_PERSON_MULTIPLE_CONTRACTS,
+                    f"„{res.row_name}”: kilka aktywnych kontraktów — wybierz właściwy",
+                )
             )
 
     # 5) proweniencja: numer i okres z etykiet (confidence 1.0 = polityka), stawki
     #    wierszy potwierdzone deterministycznym ekstraktorem
     if ex.confidence.get("title") != 1.0:
         reasons.append(
-            "Numer zamówienia nie został potwierdzony w oznaczonym polu dokumentu"
+            (
+                CODE_TITLE_NOT_CONFIRMED,
+                "Numer zamówienia nie został potwierdzony w oznaczonym polu dokumentu",
+            )
         )
     reasons.extend(_row_evidence_reasons(ex.consultant_rows, inp.deterministic_rows))
     if ex.uncertain:
@@ -216,86 +341,128 @@ def evaluate(inp: GateInput) -> GateVerdict:
             if not _unused_total_mapping_reason(r, inp)
             and not _irrelevant_md_absence_reason(r, inp)
         ]
-        reasons.extend(f"Odczyt niepewny: {r}" for r in actionable)
+        reasons.extend(
+            (CODE_READ_UNCERTAIN, f"Odczyt niepewny: {r}") for r in actionable
+        )
         if not ex.uncertain_reasons:
-            reasons.append("Odczyt oznaczony jako niepewny")
+            reasons.append((CODE_READ_UNCERTAIN, "Odczyt oznaczony jako niepewny"))
 
     # 6) kompletność tekstu
     if inp.document_truncated:
-        reasons.append("Tekst dokumentu ucięty przed odczytem")
+        reasons.append((CODE_TEXT_TRUNCATED, "Tekst dokumentu ucięty przed odczytem"))
     if inp.ocr_capped:
-        reasons.append("Skan dłuższy niż limit OCR — lista osób może być niekompletna")
+        reasons.append(
+            (
+                CODE_OCR_CAPPED,
+                "Skan dłuższy niż limit OCR — lista osób może być niekompletna",
+            )
+        )
 
     # 7) stawka w paśmie + odchyłka od stawki efektywnej kontraktu
     for row_prop in prop.rows:
         if row_prop.rate_client is None or row_prop.rate_unit is None:
-            reasons.append(f"„{row_prop.row_name}”: brak stawki albo jednostki")
+            reasons.append(
+                (
+                    CODE_RATE_MISSING,
+                    f"„{row_prop.row_name}”: brak stawki albo jednostki",
+                )
+            )
             continue
         rate = Decimal(row_prop.rate_client)
         band = RATE_BANDS.get(row_prop.rate_unit)
         if band and not (band[0] <= rate <= band[1]):
             reasons.append(
-                f"„{row_prop.row_name}”: stawka {rate} {row_prop.rate_unit} poza pasmem {band[0]}–{band[1]}"
+                (
+                    CODE_RATE_OUT_OF_BAND,
+                    f"„{row_prop.row_name}”: stawka {rate} {row_prop.rate_unit} poza pasmem {band[0]}–{band[1]}",
+                )
             )
         current = inp.current_rates.get(row_prop.contract_id or -1)
         if current and current[0] and current[1] == row_prop.rate_unit:
             deviation = abs(rate - current[0]) / current[0]
             if deviation > MAX_RATE_DEVIATION:
                 reasons.append(
-                    f"„{row_prop.row_name}”: stawka {rate} odbiega o {deviation:.0%} od obowiązującej {current[0]}"
+                    (
+                        CODE_RATE_DEVIATION,
+                        f"„{row_prop.row_name}”: stawka {rate} odbiega o {deviation:.0%} od obowiązującej {current[0]}",
+                    )
                 )
 
     # 7b) zamówienie MD wymaga liczby MD — przy osobie albo na całe zamówienie
     for row_prop in _md_rows(inp):
         if row_prop.md_total is None:
             reasons.append(
-                f"„{row_prop.row_name}”: zamówienie MD bez liczby MD — dokument nie "
-                "podaje jej ani przy osobie, ani na całe zamówienie"
+                (
+                    CODE_MD_MISSING,
+                    f"„{row_prop.row_name}”: zamówienie MD bez liczby MD — dokument nie "
+                    "podaje jej ani przy osobie, ani na całe zamówienie",
+                )
             )
     if _md_rows(inp) and md_scope(ex) == MD_SCOPE_ORDER:
         # Plan przenosi liczbę dokumentu na każdy wiersz, a zapis per osoba
         # dałby każdemu całą pulę. Wspólną pulę zakłada człowiek w oknie
         # zamówienia — automat jej nie dzieli.
         reasons.append(
-            "Dokument podaje jedną liczbę MD na całe zamówienie — załóż wspólny "
-            "budżet MD ręcznie, automat nie dzieli puli między osoby"
+            (
+                CODE_MD_SHARED_POOL,
+                "Dokument podaje jedną liczbę MD na całe zamówienie — załóż wspólny "
+                "budżet MD ręcznie, automat nie dzieli puli między osoby",
+            )
         )
 
     # 8) precondition + addytywność + atomowość + okres z dokumentu
     if prop.blocking:
-        reasons.extend(prop.blocking)
+        reasons.extend((CODE_PLAN_BLOCKING, r) for r in prop.blocking)
     for row_prop in prop.rows:
         if row_prop.action not in AUTO_ACTIONS:
             reasons.append(
-                f"„{row_prop.row_name}”: "
-                + "; ".join(
-                    row_prop.reasons or ["Nie ustalono jednoznacznego miejsca zapisu"]
+                (
+                    _DECISION_CODES.get(
+                        row_prop.decision_kind or "", CODE_ACTION_NOT_AUTO
+                    )
+                    if row_prop.action == ACTION_DECIDE_PERSON
+                    else CODE_ACTION_NOT_AUTO,
+                    f"„{row_prop.row_name}”: "
+                    + "; ".join(
+                        row_prop.reasons
+                        or ["Nie ustalono jednoznacznego miejsca zapisu"]
+                    ),
                 )
             )
         if not row_prop.start_date or (
             not row_prop.end_date and not inp.open_ended_period
         ):
             reasons.append(
-                f"„{row_prop.row_name}”: okres niepełny w dokumencie (od {row_prop.start_date or '—'} do {row_prop.end_date or '—'})"
+                (
+                    CODE_PERIOD_INCOMPLETE,
+                    f"„{row_prop.row_name}”: okres niepełny w dokumencie (od {row_prop.start_date or '—'} do {row_prop.end_date or '—'})",
+                )
             )
         elif row_prop.end_date and row_prop.start_date > row_prop.end_date:
             # Daty ISO porównują się jak tekst; odwrócony okres nigdy nie jest
             # poprawny, a tabela zamówień go nie odrzuci. Bez daty końca
             # (zamówienie bezterminowe, BIK) nie ma czego odwrócić.
             reasons.append(
-                f"„{row_prop.row_name}”: okres odwrócony w dokumencie ({row_prop.start_date} – {row_prop.end_date})"
+                (
+                    CODE_PERIOD_REVERSED,
+                    f"„{row_prop.row_name}”: okres odwrócony w dokumencie ({row_prop.start_date} – {row_prop.end_date})",
+                )
             )
 
+    deduped = _dedupe(reasons)
     return GateVerdict(
-        VERDICT_AUTO if not reasons else VERDICT_REVIEW, _dedupe(reasons)
+        VERDICT_AUTO if not deduped else VERDICT_REVIEW,
+        [text for _, text in deduped],
+        [code for code, _ in deduped],
     )
 
 
-def _dedupe(items: list[str]) -> list[str]:
+def _dedupe(items: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Deduplikuje po TREŚCI — kod jedzie razem ze swoim zdaniem."""
     seen: set[str] = set()
-    out: list[str] = []
-    for it in items:
-        if it not in seen:
-            seen.add(it)
-            out.append(it)
+    out: list[tuple[str, str]] = []
+    for code, text in items:
+        if text not in seen:
+            seen.add(text)
+            out.append((code, text))
     return out

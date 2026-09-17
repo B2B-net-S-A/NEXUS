@@ -139,6 +139,11 @@ class OrderMailDocument(Base, TimestampMixin):
     document_meta: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
     gate_verdict: Mapped[Optional[str]] = mapped_column(String(16))
     gate_reasons: Mapped[Optional[list[Any]]] = mapped_column(JSONB)
+    #: Kody powodów, równoległe do ``gate_reasons`` (ta sama długość i kolejność).
+    #: Powód jest zdaniem dla człowieka, kod — tym samym powodem dla maszyny:
+    #: godzinowa ponowna weryfikacja rozstrzyga po kodzie, czy zamówienie czeka
+    #: na podpis umowy, czy utknęło na czymś, co wymaga Delivery Leada.
+    gate_reason_codes: Mapped[Optional[list[Any]]] = mapped_column(JSONB)
     #: Plan zapisu (P4): co zostałoby/zostało utworzone i gdzie.
     proposal: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
     applied_order_id: Mapped[Optional[int]] = mapped_column(
@@ -192,3 +197,48 @@ class OrderMailSyncState(Base):
     )
     stats: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class OrderMailRecheckRun(Base):
+    """Jeden bieg godzinowej ponownej weryfikacji wstrzymanych zamówień.
+
+    Osobna tabela, nie kolejne pole w ``order_mail_sync_state``: tamten wiersz
+    jest JEDEN i trzyma wyłącznie ostatni bieg, a ticket pyta o historię
+    („po każdym cyklu: ile sprawdzono, które zaakceptowano, które wstrzymano
+    i dlaczego").
+
+    ``details`` jest ZDENORMALIZOWANE świadomie — historia ma pokazywać powód
+    z chwili biegu, a nie dzisiejszy stan dokumentu. Wpis przeżywa więc
+    przeliczenie planu, zmianę klienta i usunięcie dokumentu.
+    """
+
+    __tablename__ = "order_mail_recheck_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "trigger IN ('scheduled','manual')",
+            name="ck_order_mail_recheck_runs_trigger",
+        ),
+        Index("ix_order_mail_recheck_runs_started", "started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    #: ``scheduled`` (pętla) albo ``manual`` („Pobierz zamówienia z maila").
+    trigger: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="scheduled"
+    )
+    checked: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    applied: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    held: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Lista wpisów: ``{document_id, client_id, client_name, order_number,
+    #: people, outcome, category, reasons}``.
+    details: Mapped[Optional[list[Any]]] = mapped_column(JSONB)
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return (
+            f"<OrderMailRecheckRun id={self.id} checked={self.checked} "
+            f"applied={self.applied} held={self.held}>"
+        )

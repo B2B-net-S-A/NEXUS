@@ -95,7 +95,16 @@ class BulkProposalsRequest(BaseModel):
         default=None,
         description=(
             "Optional pipeline stage to place candidates into. Defaults to the"
-            " template's first non-terminal stage (or PipelineStage.new)."
+            " template's first non-terminal stage other than `posting`"
+            " (or PipelineStage.new)."
+        ),
+    )
+    initial_stage_legacy: Optional[str] = Field(
+        default=None,
+        description=(
+            "Alternatywa dla initial_stage_def_id po legacy enumie (np."
+            " 'posting' dla kandydatów z ogłoszeń) — rozwiązywana w szablonie"
+            " rekrutacji; gdy szablon nie ma takiego etapu, działa domyślne."
         ),
     )
     note: Optional[str] = Field(default=None, max_length=2000)
@@ -140,6 +149,7 @@ class AssignableStage(BaseModel):
     id: int
     name: str
     order: int
+    legacy_enum_value: Optional[str] = None
 
 
 @router.get(
@@ -176,16 +186,61 @@ async def list_assignable_stages(
         .all()
     )
     return [
-        AssignableStage(id=s.id, name=s.name, order=s.order)
+        AssignableStage(
+            id=s.id, name=s.name, order=s.order, legacy_enum_value=s.legacy_enum_value
+        )
         for s in rows
         if s.legacy_enum_value != PipelineStage.verified.value
     ]
 
 
+def _legacy_enum_for(
+    stage_def: Optional[PipelineStageDef],
+    legacy_value: Optional[str],
+    *,
+    has_template: bool,
+) -> PipelineStage:
+    """Legacy-enum etapu zapisywany na `candidate_stages.stage`.
+
+    Z szablonem — enum kolumny, na którą trafił kandydat. Bez szablonu
+    (rekrutacje legacy, kanban z `STAGE_ORDER`) integracje mogą wskazać
+    `posting`: inaczej auto-match z ogłoszeń lądował tam na „Nowi", a na
+    rekrutacjach z szablonem w „Ogłoszeniach" — dwa zachowania jednej
+    integracji. Tylko `posting`: to jedyny etap sprzed lejka, każdy inny
+    legacy bez szablonu nadal daje „Nowi".
+    """
+    if stage_def is not None and stage_def.legacy_enum_value:
+        try:
+            return PipelineStage(stage_def.legacy_enum_value)
+        except ValueError:
+            return PipelineStage.new
+    if not has_template and legacy_value == PipelineStage.posting.value:
+        return PipelineStage.posting
+    return PipelineStage.new
+
+
 async def _resolve_initial_stage(
-    db: AsyncSession, job: Job, override_id: Optional[int]
+    db: AsyncSession,
+    job: Job,
+    override_id: Optional[int],
+    legacy_value: Optional[str] = None,
 ) -> Optional[PipelineStageDef]:
-    """First non-terminal stage from the job's template, or the override."""
+    """First non-terminal stage from the job's template, or the override.
+
+    Domyślnie POMIJA `posting` (Ogłoszenia): to poczekalnia dla auto-matchu z
+    portali, a ręczne bulk-add ma trafiać do „Nowi" jak dotąd. Integracje
+    wskazują `posting` jawnie przez ``legacy_value``.
+    """
+    if override_id is None and legacy_value and job.pipeline_template_id:
+        by_legacy = await db.scalar(
+            select(PipelineStageDef).where(
+                PipelineStageDef.template_id == job.pipeline_template_id,
+                PipelineStageDef.legacy_enum_value == legacy_value,
+                PipelineStageDef.is_terminal.is_(False),
+            )
+        )
+        if by_legacy is not None and legacy_value != PipelineStage.verified.value:
+            return by_legacy
     if override_id is not None:
         stage_def = await db.scalar(
             select(PipelineStageDef).where(PipelineStageDef.id == override_id)
@@ -224,6 +279,8 @@ async def _resolve_initial_stage(
         .where(
             PipelineStageDef.template_id == job.pipeline_template_id,
             PipelineStageDef.is_terminal.is_(False),
+            (PipelineStageDef.legacy_enum_value.is_(None))
+            | (PipelineStageDef.legacy_enum_value != PipelineStage.posting.value),
         )
         .order_by(PipelineStageDef.order.asc())
         .limit(1)
@@ -284,13 +341,14 @@ async def bulk_add_proposals(
     # pipeline'u — z tego samego ekranu, na tę samą obcą ofertę — przechodziło.
     await ensure_job_membership(db, current_user, job_id)
 
-    stage_def = await _resolve_initial_stage(db, job, body.initial_stage_def_id)
-    legacy_enum = PipelineStage.new
-    if stage_def and stage_def.legacy_enum_value:
-        try:
-            legacy_enum = PipelineStage(stage_def.legacy_enum_value)
-        except ValueError:
-            legacy_enum = PipelineStage.new
+    stage_def = await _resolve_initial_stage(
+        db, job, body.initial_stage_def_id, body.initial_stage_legacy
+    )
+    legacy_enum = _legacy_enum_for(
+        stage_def,
+        body.initial_stage_legacy,
+        has_template=job.pipeline_template_id is not None,
+    )
 
     # Pre-fetch in two batches so we don't issue 100×2 round-trips.
     # Ten sam prefetch jest fazą 1 kolejności blokad: komplet kandydatów rosnąco

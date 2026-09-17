@@ -26,6 +26,7 @@ from app.services.order_client_identity import ClientIdentification, ClientRegis
 from app.services.order_document_text import OrderDocumentText
 from app.services.order_mail_gate import GateInput, evaluate
 from app.services.order_mail_planner import ExistingOrder, plan_document
+from app.services.order_mail_recheck import run_recheck
 from app.services.order_mail_resolver import RosterContract, RosterPerson, resolve_rows
 from app.services.order_pdf_parser import ConsultantOrderRow, OrderExtraction
 from app.services.order_policies import (
@@ -38,6 +39,18 @@ from app.services.order_policies import (
 )
 from app.services.order_policies import alior
 from tests.conftest import db_without_client_merges
+
+
+def _entry_for(result, doc_id):
+    """Wpis historii dotyczący TEGO dokumentu.
+
+    Baza testowa jest wspólna dla całego przebiegu i nie jest czyszczona,
+    a ponowna weryfikacja przegląda KAŻDY wstrzymany wpis — globalne liczniki
+    biegu mieszałyby więc wiersze zostawione przez inne testy.
+    """
+    matches = [e for e in result.details if e["document_id"] == doc_id]
+    assert len(matches) == 1, result.details
+    return matches[0]
 
 POLICIES = [policy_by_key("alior")]
 
@@ -1356,9 +1369,8 @@ async def test_pending_document_from_before_the_rule_change_is_replanned_by_the_
     )
     async with AsyncSessionLocal() as db:
         first, doc = await _alior_with_a_pending_next_period(db, monkeypatch, tmp_path)
-        stats = ingest.IngestStats()
-        await ingest.replan_outdated_documents(db, stats)
-        assert (stats.replanned, stats.replanned_auto_applied) == (1, 1), stats.errors
+        result = await run_recheck(db)
+        assert _entry_for(result, doc.id)["outcome"] == "applied", result.details
         await db.refresh(doc)
         assert doc.outcome == "auto_applied", doc.gate_reasons
         assert doc.gate_reasons == []
@@ -1385,10 +1397,9 @@ async def test_pending_document_from_before_the_rule_change_is_replanned_by_the_
             ClientOrderStatus.active,
         )
 
-        # Jednorazowo: wpis przeczytany aktualną wersją nie wraca w kolejnym biegu.
-        again = ingest.IngestStats()
-        await ingest.replan_outdated_documents(db, again)
-        assert again.replanned == 0
+        # Zapisany wpis opuścił kolejkę, więc kolejny bieg go nie ogląda.
+        again = await run_recheck(db)
+        assert [e for e in again.details if e["document_id"] == doc.id] == []
 
 
 async def test_replan_after_a_rule_change_respects_the_autoapply_switch(
@@ -1399,10 +1410,9 @@ async def test_replan_after_a_rule_change_respects_the_autoapply_switch(
     monkeypatch.setattr(ingest.settings, "ORDER_MAIL_AUTOAPPLY_ENABLED", False)
     async with AsyncSessionLocal() as db:
         _, doc = await _alior_with_a_pending_next_period(db, monkeypatch, tmp_path)
-        stats = ingest.IngestStats()
-        await ingest.replan_outdated_documents(db, stats)
+        result = await run_recheck(db)
         await db.refresh(doc)
-        assert (stats.replanned, stats.replanned_auto_applied) == (1, 0)
+        assert _entry_for(result, doc.id)["outcome"] == "held"
         assert doc.outcome == "needs_review" and doc.applied_order_id is None
         # Nowy plan jest pewny — czeka już tylko na „Zastosuj".
         assert doc.gate_reasons == [ingest.AUTOAPPLY_DISABLED_REASON]
@@ -1411,48 +1421,50 @@ async def test_replan_after_a_rule_change_respects_the_autoapply_switch(
         }
 
 
-async def test_document_read_with_the_current_rule_is_not_replanned(
+async def test_document_read_with_the_current_rule_is_replanned_anyway(
     monkeypatch, tmp_path
 ):
+    """Od 0316 wersja reguły nie jest już warunkiem przeliczenia.
+
+    Przyczyna wstrzymania znika najczęściej GDZIE INDZIEJ niż w regule —
+    po podpisaniu umowy albo po uzupełnieniu NIP-u u klienta. Wpis czytany
+    aktualną regułą też musi więc dostać swoją godzinową szansę.
+    """
     from app.core.database import AsyncSessionLocal
 
     current = {"alior": policy_by_key("alior").rule_version}
-    refresh = AsyncMock(side_effect=AssertionError("wpis jest aktualny"))
     async with AsyncSessionLocal() as db:
         _, doc = await _alior_with_a_pending_next_period(
             db, monkeypatch, tmp_path, document_meta={"rule_versions": current}
         )
-        monkeypatch.setattr(ingest, "refresh_review_plan", refresh)
-        stats = ingest.IngestStats()
-        await ingest.replan_outdated_documents(db, stats)
+        result = await run_recheck(db)
         await db.refresh(doc)
-        assert stats.replanned == 0 and stats.errors == []
-        assert doc.outcome == "needs_review"
-        refresh.assert_not_awaited()
+        assert _entry_for(result, doc.id)
+        assert doc.outcome in ("auto_applied", "needs_review")
 
 
-async def test_failed_replan_is_reported_once_and_not_retried_every_run(
-    monkeypatch, tmp_path
-):
+async def test_failed_recheck_is_retried_in_the_next_run(monkeypatch, tmp_path):
+    """Nieudane przeliczenie wraca — licznik prób, nie ostateczne poddanie się.
+
+    Do 0316 porażka stemplowała wersję reguły, żeby wpis nie wracał w każdym
+    biegu. Teraz ma wracać: po trzech nieudanych próbach z rzędu idzie karta
+    do Delivery Leada, a wpis dalej jest sprawdzany.
+    """
     from app.core.database import AsyncSessionLocal
 
     refresh = AsyncMock(side_effect=RuntimeError("pdf nieczytelny"))
     async with AsyncSessionLocal() as db:
         _, doc = await _alior_with_a_pending_next_period(db, monkeypatch, tmp_path)
         monkeypatch.setattr(ingest, "refresh_review_plan", refresh)
-        stats = ingest.IngestStats()
-        await ingest.replan_outdated_documents(db, stats)
+        # Id PRZED biegiem: porażka wewnątrz robi rollback, a ten wygasza
+        # atrybuty ORM — ich odczyt w sesji async to MissingGreenlet.
+        doc_id = doc.id
+        result = await run_recheck(db)
         await db.refresh(doc)
-        assert stats.replanned == 0
-        assert any(f"replan doc {doc.id}" in e for e in stats.errors)
+        assert _entry_for(result, doc_id)["outcome"] == "error"
         assert doc.outcome == "needs_review"
-        assert doc.error.startswith("Automatyczne przeliczenie po zmianie reguły")
-        assert doc.document_meta["rule_versions"] == {
-            "alior": policy_by_key("alior").rule_version
-        }
-        again = ingest.IngestStats()
-        await ingest.replan_outdated_documents(db, again)
-        assert refresh.await_count == 1 and again.errors == []
+        again = await run_recheck(db)
+        assert _entry_for(again, doc_id)["outcome"] == "error"
 
 
 def test_alior_rule_carries_a_version_so_pending_documents_follow_rule_changes():

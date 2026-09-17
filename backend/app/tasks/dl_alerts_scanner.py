@@ -31,6 +31,14 @@ przy tempie TEGO zamówienia (``services/order_burn_rate.py``). Każda reguła
 stanowa po przebiegu zamyka (``resolved``) sprawy, których warunek ustał —
 karta nie wisi w panelu po przedłużeniu zamówienia.
 
+**Klienci z rozszerzonymi alertami** (``EXTENDED_ORDER_ALERT_CLIENT_IDS``, dziś
+BNP — patrz ``services/order_alert_policy.py``) dostają DWA niezależne sygnały
+o tym samym zamówieniu i nigdy nie są one łączone w jedną kartę: koniec okresu
+(``rule_periodic_order_ending`` obejmuje u nich także linie zamówień
+wielo-konsultantowych) oraz zużycie podstawy MD ponad próg procentowy
+(``rule_md_base_usage_high``). Bramka jest fail-closed — pusta lista zostawia
+obie reguły w stanie sprzed tej rewizji.
+
 Maile z progów wysyła ``send_pending_alert_emails`` PO commicie reguł.
 """
 
@@ -39,11 +47,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Awaitable, Callable
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -69,6 +77,7 @@ from app.models.dl_alert import (
     ALERT_COST_BUDGET_LOW,
     ALERT_DRAFT_CONSULTANT_UNASSIGNED,
     ALERT_FRAMEWORK_CONTRACT_EXPIRING,
+    ALERT_MD_BASE_USAGE_HIGH,
     ALERT_MD_BUDGET_LOW,
     ALERT_MISSING_REVENUE_RATE,
     ALERT_ORDER_MISSING_SUCCESSOR,
@@ -84,7 +93,11 @@ from app.models.md_consumption import (
 )
 from app.models.order_mail import OUTCOME_NEEDS_REVIEW, OrderMailDocument
 from app.services.client_identity import client_display_name_expression
-from app.services.client_order_lines import consultant_display_name
+from app.services.client_order_lines import (
+    consultant_display_name,
+    is_line_on_active_roster,
+    split_md_usage,
+)
 from app.services.delivery_alert_recipients import (
     DeliveryAlertRecipientScope,
     load_delivery_alert_recipient_scope,
@@ -101,6 +114,10 @@ from app.services.dl_alerts import (
     reconcile_mail_new_draft_alerts,
     resolve_stale,
     send_pending_alert_emails,
+)
+from app.services.order_alert_policy import (
+    extended_order_alert_client_ids,
+    md_base_usage_percent,
 )
 from app.services.order_burn_rate import (
     cost_burn_rate,
@@ -513,6 +530,137 @@ async def _active_lines_per_group(
     return {gid: int(count) for gid, count in rows}
 
 
+async def _consumed_md_by_order(
+    db: AsyncSession, order_ids: set[int]
+) -> dict[int, Decimal]:
+    """Zejścia MD hurtem, po linii — odpowiednik ``consumed_md`` na wiele linii."""
+    if not order_ids:
+        return {}
+    rows = await db.execute(
+        select(
+            ClientOrderMdConsumption.order_id,
+            func.coalesce(func.sum(ClientOrderMdConsumption.md_reported), 0),
+        )
+        .where(ClientOrderMdConsumption.order_id.in_(order_ids))
+        .group_by(ClientOrderMdConsumption.order_id)
+    )
+    return {order_id: Decimal(str(total or 0)) for order_id, total in rows}
+
+
+async def rule_md_base_usage_high(
+    db: AsyncSession,
+    recipient_scope: DeliveryAlertRecipientScope | None = None,
+) -> int:
+    """Zużycie PODSTAWY MD powyżej progu procentowego (BNP).
+
+    Osobna sprawa od ``md_budget_low`` i celowo się z nią nie zlewa. Tamta
+    startuje przy 21 MD POZOSTAŁYCH, liczonych od podstawy razem z zakresem
+    opcjonalnym — przy zamówieniu na 220 MD to ~90% zużycia, czyli za późno na
+    wynegocjowanie i wystawienie nowego dokumentu PO. Ta jest wczesnym
+    ostrzeżeniem liczonym od samej podstawy i **nie eskaluje**: wysoki
+    priorytet i mail przy ~7 dniach roboczych zapasu ma już ``md_budget_low``,
+    a druga rosnąca ścieżka dla tej samej liczby to dwie karty krzyczące to
+    samo. W paśmie, w którym oba warunki są spełnione, Delivery Lead widzi
+    dwie karty — wczesną i pilną — i taka jest intencja.
+
+    Bramka: ``EXTENDED_ORDER_ALERT_CLIENT_IDS``, fail-closed. Pusta lista =
+    reguła nie robi nic u nikogo.
+
+    Wyłącznie linie z WŁASNYM budżetem MD. Wspólna pula (Lotte Wedel, Cyfrowy
+    Polsat) nie zna podziału na podstawę i opcję, a ci klienci nie są na liście.
+
+    Sam ``status == active`` NIE wystarcza do odsiania osób, które już zeszły:
+    linię MD kończy budżet, nie data (``sync_md_line_status``,
+    ``_promote_statuses`` wprost pomija linie MD), więc konsultant z zapisaną
+    datą końca współpracy zostaje `active` z niewykorzystanym limitem. Kartę
+    „zaplanuj przedłużenie" dostałby ktoś, kto już nie pracuje — a od jego
+    niewykorzystanych MD jest osobna sprawa (``md_consultant_ended``).
+    Rozstrzyga ``is_line_on_active_roster`` — ta sama reguła, którą karta
+    zamówienia dzieli obsadę na „Aktywną" i „Zakończone".
+    """
+    extended_ids = extended_order_alert_client_ids()
+    if not extended_ids:
+        return 0
+    if recipient_scope is None:
+        recipient_scope = await load_delivery_alert_recipient_scope(db)
+    percent = Decimal(str(md_base_usage_percent()))
+    result = await db.execute(
+        select(ClientOrder)
+        .join(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
+        .options(
+            selectinload(ClientOrder.order_group),
+            selectinload(ClientOrder.contract).selectinload(Contract.candidate),
+        )
+        .where(
+            ClientOrder.client_id.in_(extended_ids),
+            ClientOrder.status == ClientOrderStatus.active,
+            ClientOrder.md_total.isnot(None),
+            ClientOrder.md_total > 0,
+            ClientOrderGroup.status == GROUP_STATUS_ACTIVE,
+        )
+    )
+    orders = list(result.scalars())
+    # Zużycie liczymy z SUMY ZEJŚĆ, nie z `md_remaining`: pozostałość niesie
+    # też `md_manual_adjustment` (korektę BUDŻETU), więc wyprowadzenie z niej
+    # zużycia przesunęłoby próg o wartość tej korekty.
+    consumed_by_order = await _consumed_md_by_order(db, {o.id for o in orders})
+    names = await _client_names(db, {o.client_id for o in orders})
+    live: set[str] = set()
+    created = 0
+    today = business_today()
+    for order in orders:
+        group = order.order_group
+        if not is_line_on_active_roster(
+            order, group.end_date if group else None, today=today
+        ):
+            continue
+        base_total = Decimal(str(order.md_total))
+        consumed = consumed_by_order.get(order.id, Decimal("0"))
+        # `split_md_usage` to JEDYNE miejsce w repo definiujące „podstawa
+        # najpierw, nadwyżka do opcji" — te same liczby pokazują paski
+        # `MdScopeBars` na karcie zamówienia.
+        base_used, _optional_used = split_md_usage(order, consumed)
+        if base_used * 100 < percent * base_total:
+            continue
+        user_ids = await dl_user_ids_for_client(
+            db, order.client_id, scope=recipient_scope
+        )
+        if not user_ids:
+            continue
+        live |= _live_keys(ALERT_MD_BASE_USAGE_HIGH, f"order:{order.id}", user_ids)
+        number = group.order_number if group else "—"
+        client_name = names.get(order.client_id, "Klient")
+        who = consultant_display_name(order)
+        pct = (base_used * 100 / base_total).quantize(Decimal("1"))
+        alerts = await emit(
+            db,
+            alert_type=ALERT_MD_BASE_USAGE_HIGH,
+            user_ids=user_ids,
+            client_id=order.client_id,
+            entity_key=f"order:{order.id}",
+            title=f"{client_name} — {pct}% podstawy MD na zamówieniu {number}",
+            message=(
+                f"Zamówienie {number} dla {who}: wykorzystano {_fmt_md(base_used)} "
+                f"z {_fmt_md(base_total)} MD podstawy ({pct}%). Zaplanuj "
+                "przedłużenie albo kolejne zamówienie."
+            ),
+            link=_order_link(order.client_id, order.id),
+            payload={
+                "order_number": number,
+                "md_base_used": str(base_used),
+                "md_base_total": str(base_total),
+                "usage_percent": str(pct),
+                "candidate_name": who if who != "—" else None,
+            },
+            order_group_id=order.order_group_id,
+            order_id=order.id,
+            repeat_every_days=settings.DL_ALERT_REPEAT_DAYS,
+        )
+        created += len(alerts)
+    await resolve_stale(db, alert_type=ALERT_MD_BASE_USAGE_HIGH, live_event_keys=live)
+    return created
+
+
 async def rule_cost_budget_low(
     db: AsyncSession,
     recipient_scope: DeliveryAlertRecipientScope | None = None,
@@ -670,21 +818,43 @@ async def rule_periodic_order_ending(
     db: AsyncSession,
     recipient_scope: DeliveryAlertRecipientScope | None = None,
 ) -> int:
-    """Kończące się zamówienie OKRESOWE (samodzielne, poza grupami MD/kosztowymi).
+    """Kończące się zamówienie z datą końca — okresowe u wszystkich klientów.
 
     Klucz encji niesie datę końca: przedłużenie zamówienia (nowa data) to nowy
-    cykl, a karta starej daty zamyka się przez ``resolve_stale``. Linie grup
-    MD/kosztowych mają własne reguły budżetowe.
+    cykl, a karta starej daty zamyka się przez ``resolve_stale``.
+
+    Linie zamówień wielo-konsultantowych (MD/kosztowych) są tu co do zasady
+    POMIJANE, bo u tych klientów zamówienie kończy wyczerpanie budżetu, nie
+    kalendarz — od tego są reguły budżetowe. WYJĄTEK: klienci z listy
+    ``EXTENDED_ORDER_ALERT_CLIENT_IDS`` (BNP), u których zamówienie ma twardą
+    datę końca (np. 31.12) i to ona jest sprawą do załatwienia. Dzwonek
+    (``dl_portal_expiry_scanner``) widzi te linie od zawsze — ale daje jeden
+    sygnał na próg, a maila przy pierwszym wierszu i powtórkę co 7 dni ma
+    wyłącznie ta karta.
+
+    Pusta lista klientów daje ``IN ()`` = fałsz, więc zachowanie dla
+    pozostałych klientów zostaje bit w bit dotychczasowe.
     """
     if recipient_scope is None:
         recipient_scope = await load_delivery_alert_recipient_scope(db)
     today = business_today()
     start, stop = _ending_window(today)
+    extended_ids = extended_order_alert_client_ids()
     result = await db.execute(
         select(ClientOrder)
+        .outerjoin(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
         .options(selectinload(ClientOrder.contract).selectinload(Contract.candidate))
         .where(
-            ClientOrder.order_group_id.is_(None),
+            or_(
+                ClientOrder.order_group_id.is_(None),
+                # Linia grupy tylko u klienta z listy i tylko w zamówieniu
+                # AKTYWNYM: karta „kończące się" pod zamówieniem zakończonym
+                # przeczyłaby nagłówkowi, pod którym stoi.
+                and_(
+                    ClientOrder.client_id.in_(extended_ids),
+                    ClientOrderGroup.status == GROUP_STATUS_ACTIVE,
+                ),
+            ),
             ClientOrder.status.in_(
                 (ClientOrderStatus.active, ClientOrderStatus.paused)
             ),
@@ -925,11 +1095,18 @@ async def rule_order_mail_review(
 ) -> int:
     """Zamówienie z maila utknęło w weryfikacji — powtórka co 7 dni.
 
-    Pierwszą kartę wystawia ``order_mail_ingest.notify_review`` w chwili
-    odczytu. Skaner ponawia ją dopóki dokument jest w kolejce i zamyka, gdy
-    ktoś go zastosował albo odrzucił.
+    Od 0316 karta NIE wychodzi przy pierwszym wstrzymaniu: zamówienie dostaje
+    najpierw trzy godzinowe próby automatycznego dokończenia, a to, które czeka
+    na podpis umowy nowego kontraktora, nie alarmuje nigdy. Kto się kwalifikuje,
+    rozstrzyga ``should_alert`` — TA SAMA funkcja, której używa recheck. Dwie
+    kopie tej reguły rozjechałyby się i skaner wystawiałby nazajutrz karty,
+    które recheck świadomie wyciszył.
+
+    Dokument, który przestał się kwalifikować (np. stał się „czeka na podpis"),
+    nie trafia do ``live`` — ``resolve_stale`` zamyka wtedy jego kartę.
     """
     from app.services.order_mail_ingest import notify_review
+    from app.services.order_mail_recheck_reasons import should_alert
 
     rows = (
         await db.execute(
@@ -941,7 +1118,16 @@ async def rule_order_mail_review(
     ).scalars()
     live: set[str] = set()
     created = 0
+    now = datetime.now(timezone.utc)
     for doc in rows:
+        if not should_alert(
+            (doc.document_meta or {}).get("recheck"),
+            waiting_since=doc.received_at or doc.created_at,
+            now=now,
+            after_attempts=settings.ORDER_MAIL_RECHECK_ALERT_AFTER_ATTEMPTS,
+            after_hours=settings.ORDER_MAIL_RECHECK_ALERT_AFTER_HOURS,
+        ):
+            continue
         created += await notify_review(
             db, doc, recipient_scope=recipient_scope, live_event_keys=live
         )
@@ -1036,6 +1222,7 @@ async def rule_order_missing_successor(
 ALERT_RULES: dict[str, Rule] = {
     ALERT_DRAFT_CONSULTANT_UNASSIGNED: rule_draft_consultant_unassigned,
     ALERT_MD_BUDGET_LOW: rule_md_budget_low,
+    ALERT_MD_BASE_USAGE_HIGH: rule_md_base_usage_high,
     ALERT_MISSING_REVENUE_RATE: rule_missing_revenue_rate,
     ALERT_ORDER_MISSING_SUCCESSOR: rule_order_missing_successor,
     ALERT_PERIODIC_ORDER_ENDING: rule_periodic_order_ending,

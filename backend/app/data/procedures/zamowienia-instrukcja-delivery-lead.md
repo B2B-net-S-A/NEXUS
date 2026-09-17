@@ -57,6 +57,20 @@ Nad listą masz:
 zamówienia MD, które czekają na uzupełnienie i aktywację. **Wyczerpane**
 pokazuje wyłącznie zamówienia zbiorcze.
 
+**Imię i nazwisko konsultanta jest klikalne — otwiera jego umowę w module
+Kontrakty.** Działa w każdym wierszu: na karcie pojedynczej osoby, na liście
+konsultantów zamówienia zbiorczego (również w części „Zakończone") i na
+wierszach przyszłych zamówień. Otwiera się **ta umowa, która stoi w tym
+wierszu** — jeśli ktoś pracuje u kilku klientów i ma kilka umów, dostaniesz tę
+u klienta, z którego profilu kliknąłeś, a nie listę wszystkich jego umów.
+Wracasz przyciskiem **wstecz** przeglądarki; wrócisz na zakładkę „Zamówienia",
+ale **filtr i wyszukiwarka wracają do ustawień domyślnych** — jeśli szukałeś
+kogoś w długiej liście, wpisz frazę jeszcze raz.
+
+Nieklikalne są dwie nazwy przy historii pozycji: **„zastąpił: …"** oraz nazwa
+następcy przy osobie zastąpionej. System zna tam tylko numer zamówienia, nie
+umowę — żeby do kogoś z nich przejść, kliknij jego własny wiersz na liście.
+
 ---
 
 ## Trzy typy zamówienia
@@ -385,6 +399,31 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 Przy każdym konsultancie masz osobno: **Edytuj linię**, **Zamień kontraktora**
 (tylko przy aktywnej linii) i **Usuń konsultanta z zamówienia**.
 
+### Kto stoi w „Aktywnej obsadzie", a kto w „Zakończonych"
+
+Obsada zamówienia dzieli się na dwie sekcje. **O przejściu do „Zakończonych"
+decyduje data zakończenia współpracy wpisana przy osobie** — wystarczy wpisać ją
+w **Edytuj linię** i zapisać; nie trzeba nic więcej klikać. Od dnia po tej dacie
+osoba schodzi z aktywnej obsady, znika z awatarów w nagłówku i z licznika
+aktywnych konsultantów, a jej wiersz przenosi się niżej, do **„Zakończonych"** —
+z całą historią: okresem udziału, wykorzystanymi MD i kwotami oraz informacją,
+kogo zastąpiła i kto zastąpił ją. **„Zakończeni" są ułożeni datą zejścia,
+od najnowszego.** Osoba, która kogoś zastąpiła, zostaje w aktywnej obsadzie —
+dla niej nic się nie zmienia.
+
+Dwie rzeczy, które celowo działają inaczej, niż mógłbyś się spodziewać:
+
+* **Upływ okresu CAŁEGO zamówienia nikogo nie przenosi.** Jeśli zamówienie
+  skończyło się 30.09, a Ty czekasz na przedłużenie, wszyscy zostają w aktywnej
+  obsadzie — o tym, że zamówienie się skończyło, mówi jego własny status i data.
+  Do „Zakończonych" schodzi tylko ten, kto zszedł **wcześniej** niż zamówienie.
+* **Przejście do „Zakończonych" nie zamyka rozliczeń tej osoby.** Raport zużycia
+  za miesiąc, w którym jeszcze pracowała, zaimportowany później — na przykład
+  sierpniowy wrzucony w połowie września — nadal dolicza się do jej historii
+  i do sumy wykorzystania zamówienia. Sumy „Wykorzystano X / Y MD" i
+  „Wykorzystano wartości umowy" liczą się dokładnie tak samo jak przed jej
+  zejściem: wykorzystane MD i kwoty osób zakończonych zawsze się w nich mieszczą.
+
 **Usunięcie i zastąpienie nie zwracają zużycia do puli — u każdego klienta.**
 Osoba bez żadnych rozliczeń znika z zamówienia. Osoba, która ma już
 zafakturowaną kwotę albo zaraportowane MD, **zostaje na zamówieniu jako
@@ -680,14 +719,40 @@ Delivery Leadowi przypisanemu do klienta, jeśli wpis ma plik źródłowy.
 Przeliczenie jest możliwe tylko przed zapisaniem pierwszego zamówienia
 z danego wpisu.
 
-**Po zmianie reguły odczytu klienta wpisy czekające w kolejce przeliczają się
-same** — raz, przy najbliższym sprawdzeniu skrzynki (co godzinę). Dostają
-dokładnie to, co „Przelicz plan": pewny plan zapisuje się automatycznie, plan
-z wątpliwością zostaje w weryfikacji już z aktualnymi powodami. Nie trzeba
-przesyłać zamówienia ponownie — ten sam PDF wysłany drugi raz system i tak
-rozpoznaje jako duplikat i pomija. Jeśli automatyczne przeliczenie się nie
-powiedzie, wpis zostaje z komunikatem „Automatyczne przeliczenie po zmianie
-reguły nie powiodło się…" i można użyć przycisku ręcznie.
+**Każdy wstrzymany wpis przelicza się sam co godzinę.** Przy każdym sprawdzeniu
+skrzynki system bierze wszystko, co czeka w „Do weryfikacji" i w „Nierozpoznane",
+i robi z tym dokładnie to, co „Przelicz plan": pewny plan zapisuje się
+automatycznie, plan z wątpliwością zostaje w weryfikacji już z aktualnymi
+powodami. Nie trzeba przesyłać zamówienia ponownie — ten sam PDF wysłany drugi
+raz system i tak rozpoznaje jako duplikat i pomija.
+
+Najczęstsza przyczyna wstrzymania znika **gdzie indziej niż w kolejce**:
+podpisanie umowy B2B nowego kontraktora albo uzupełnienie NIP-u na karcie
+klienta. Dlatego wpis wraca w każdym biegu, a nie tylko po zmianie reguły
+odczytu.
+
+**Co się dzieje, gdy przyczyna nadal trwa,** zależy od tego, na co wpis czeka:
+
+* **Nowy kontraktor bez umowy w systemie** (dokument wymienia osobę, której nie
+  ma jeszcze na liście konsultantów klienta i która nigdzie nie ma trwającej
+  współpracy) — wpis czeka **bez limitu czasu i bez powiadamiania**. Podpisanie
+  umowy trwa zwykle dłużej niż kilka godzin, więc wcześniejsza karta byłaby
+  przedwczesna. Zamówienie zapisze się samo w ciągu godziny od chwili, gdy
+  umowa pojawi się w systemie.
+* **Każda inna przyczyna** (niedopasowana osoba, stawka poza pasmem, niepewny
+  odczyt, błąd danych) — po **trzech nieudanych próbach z rzędu** do Delivery
+  Leada klienta idzie karta „Sprawdź zamówienie z maila" ze wskazaniem
+  zamówienia i przyczyny. Wpis jest sprawdzany dalej.
+
+Zmiana przyczyny zaczyna liczenie od nowa — trzy próby dotyczą **tego samego**
+problemu. **Automatyczne dokończenie zamówienia nie wysyła powiadomienia**:
+widać je w historii poniżej.
+
+**„Historia automatycznej weryfikacji"** na dole widoku pokazuje każdy bieg:
+datę i godzinę, ile wpisów sprawdzono, ile zaakceptowano i ile zostało
+wstrzymanych. Wiersz rozwija się do konkretnych dokumentów — zaakceptowane
+i wstrzymane z powodem, każdy z linkiem do wpisu. Delivery Lead widzi w niej
+wpisy swojego portfela klientów.
 
 **Wpis z odczytem awaryjnym (AI było chwilowo niedostępne przy odczycie maila)
 system próbuje przeczytać AI ponownie sam** — przy kolejnych sprawdzeniach
@@ -818,16 +883,17 @@ nie samą zakładkę. Karty są pogrupowane:
 
 | Sekcja | Sprawa | Kiedy powstaje | Przypomnienia |
 |---|---|---|---|
-| Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się | 30 dni przed datą końca — **pierwsza karta od razu z mailem** | co 7 dni bez maila; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
+| Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się (a u klientów z rozszerzonymi alertami — także **zamówienie MD/kosztowe**, osobno dla każdego konsultanta) | 30 dni przed datą końca — **pierwsza karta od razu z mailem** | co 7 dni bez maila; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
 | | **Umowa ramowa** klienta wygasa | 30 dni przed wygaśnięciem | jak wyżej |
 | | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem | jak wyżej |
 | | **Mało MD** — konsultantowi (budżet przy osobie) albo całemu zamówieniu (wspólna pula) | zostało **21 MD lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy zostało MD na ok. **7 dni roboczych** pracy przy dotychczasowym tempie tego zamówienia |
+| | **Wysokie zużycie podstawy MD** — tylko u klientów z rozszerzonymi alertami, osobno dla każdego konsultanta | zużyto **80% lub więcej** podstawy MD (zakres opcjonalny nie wchodzi do rachunku) | co 7 dni; bez eskalacji — pilny sygnał daje wiersz wyżej |
 | | **Kończy się budżet zamówienia kosztowego** | zostało **10 000 zł lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy budżet wystarczy na ok. **7 dni roboczych** przy dotychczasowym tempie faktur |
 | | Zamówienie **wyczerpane** (kosztowe albo wspólna pula MD) | budżet zszedł do zera | raz |
 | Nowi kontraktorzy — draft zamówienia | **Nowy kontraktor u [klient] — uzupełnij zamówienie** | umowa oznaczona w Generatorze umów jako **podpisana obustronnie** (powstaje draft kontraktu i zamówienia); karta wypunktowuje braki: stawka przychodowa, okres zamówienia, numer zamówienia | co 7 dni, dopóki czegoś brakuje |
 | | **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (z innego źródła niż podpis umowy); pierwszy draft z maila ma osobne jednorazowe powiadomienie | co 7 dni |
 | | **Brak stawki przychodowej** | aktywne zamówienie bez stawki, którą płaci klient | co 7 dni |
-| Zamówienia z maila do weryfikacji | **Zamówienie do [klient] czeka na weryfikację** — z imieniem i nazwiskiem kandydata, gdy dokument je podaje | automat nie zapisał zamówienia i odesłał je do kolejki | co 7 dni |
+| Zamówienia z maila do weryfikacji | **Sprawdź zamówienie z maila: [numer]** — „Zamówienie dla [kto] do [klient] czeka na ręczną weryfikację”, z powodem | **trzy nieudane próby automatycznego dokończenia z rzędu** (czyli po ok. 3 godzinach). Zamówienie czekające na podpis umowy nowego kontraktora **nie wysyła karty nigdy**; wpis bez rozpoznanego klienta też nie — nie ma komu | co 7 dni |
 | Decyzje po zakończeniu współpracy | **Decyzja MD po zakończeniu współpracy** | konsultant zakończył pracę na zamówieniu MD — **zawsze**, także gdy nie zostało ani jedno MD | raz; **nie da się jej odhaczyć** — zamyka ją decyzja w zamówieniu |
 | | **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia osoba nie ma u tego klienta następnego zamówienia — aktywnego, przyszłego ani szkicu | co 7 dni, do dodania zamówienia |
 
@@ -836,6 +902,24 @@ MD (albo faktur) podzielona przez dni robocze od startu zamówienia do końca
 ostatniego raportowanego miesiąca. Zamówienie MD bez żadnego raportu przyjmuje
 szacunek 1 MD dziennie na osobę. Zamówienie kosztowe bez faktur nie ma tempa —
 dostaje przypomnienie standardowe, a na końcu alert o wyczerpaniu.
+
+**Klienci z rozszerzonymi alertami (dziś BNP)** dostają o tym samym zamówieniu
+**dwa niezależne sygnały i nigdy nie są one łączone w jedną kartę**:
+
+* **koniec okresu** — 30 dni przed datą końca, potem co 7 dni, aż sprawa się
+  rozwiąże (skolejkujesz następne zamówienie albo zakończysz obecne). U
+  pozostałych klientów tę kartę dostają wyłącznie zamówienia okresowe, bo tam
+  zamówienie MD kończy zwykle wyczerpanie budżetu, nie kalendarz;
+* **zużycie podstawy MD** — gdy konsultant zejdzie **80% swojej podstawy**,
+  niezależnie od tego, ile czasu zostało do końca okresu. To wczesne
+  ostrzeżenie: przy zamówieniu na 220 MD alert „mało MD" (21 MD pozostałych)
+  wypada dopiero przy ~90% zużycia, za późno na wynegocjowanie i wystawienie
+  nowego dokumentu PO.
+
+Gdy oba warunki są spełnione naraz, w panelu stoją **dwie karty** i każdą
+odhaczasz osobno. Listę klientów objętych tymi alertami ustawia administrator
+(zmienna `EXTENDED_ORDER_ALERT_CLIENT_IDS`); dopóki jest pusta, **nic się nie
+zmienia dla nikogo**.
 
 **Checkbox „zrobione"** zdejmuje kartę od razu, **zatrzymuje dalsze przypomnienia
 tej sprawy** (także wtedy, gdy problem nadal trwa) i zapisuje w historii, kto
@@ -1078,8 +1162,12 @@ Skrót **„Powiadomienia: standardowe"** znaczy: alerty o końcu zamówienia
 * Gdy któregoś z tych pól w dokumencie nie ma, system o tym powie i zostawi
   pole do ręcznego wpisania. Zgłosi też **nietypową stawkę za 1 MD** poza
   spodziewanym zakresem — to sygnał, że kwotę odczytano z innej kolumny.
-* **Powiadomienia:** standardowe, plus alert **„mało MD"**, gdy konsultantowi
-  zostanie 21 dni lub mniej.
+* **Powiadomienia:** BNP jest klientem z **rozszerzonymi alertami** — poza
+  standardowymi dostajesz dwa niezależne sygnały o każdym zamówieniu (patrz
+  „Powiadomienia — co przyjdzie, kiedy i gdzie"): **koniec okresu** 30 dni
+  przed datą końca, z powtórką co tydzień, oraz **zużycie 80% podstawy MD**,
+  niezależnie od tego, ile czasu zostało. Do tego nadal alert **„mało MD"**,
+  gdy konsultantowi zostanie 21 MD lub mniej.
 
 ### BIK
 

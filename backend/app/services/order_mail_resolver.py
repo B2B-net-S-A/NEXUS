@@ -101,7 +101,29 @@ class ResolvedConsultant:
     #: tylko nie u tego klienta" — automat wtedy NIE zakłada nowego kontraktora.
     #: Same ID: rekord jest serializowany do JSONB dokumentu.
     known_elsewhere_ids: tuple[int, ...] = ()
+    #: Podzbiór ``known_elsewhere_ids`` z TRWAJĄCĄ współpracą u innego klienta.
+    #: Rozstrzyga, czy wstrzymanie znaczy „czekamy na podpis umowy" (pusto —
+    #: osoba nie pracuje dziś nigdzie), czy „sprawdź, czy to nie zdublowany
+    #: rekord klienta" (niepusto — to pytanie do człowieka, nie do zegara).
+    known_elsewhere_open_ids: tuple[int, ...] = ()
     reason: str = ""
+
+    @property
+    def is_new_without_live_contract(self) -> bool:
+        """Nowy kontraktor u tego klienta, bez żywej umowy gdziekolwiek w systemie.
+
+        Dokładnie ten stan znaczy „zamówienie przyszło, zanim podpisano umowę":
+        osoby nie ma na rosterze klienta, nigdzie nie ma trwającej współpracy
+        i nie ma wątpliwości, o kogo chodzi (imiennicy to decyzja człowieka).
+        JEDNO źródło dla planera i dla bramki — obie ścieżki muszą nazywać ten
+        sam stan tak samo, inaczej godzinowa ponowna weryfikacja raz czeka
+        bezterminowo, a raz eskaluje do Delivery Leada.
+        """
+        return (
+            self.match_kind == MATCH_NONE
+            and not self.known_elsewhere_open_ids
+            and len(self.known_elsewhere_ids) <= 1
+        )
 
     @property
     def is_unique_person(self) -> bool:
@@ -498,6 +520,9 @@ def annotate_known_elsewhere(
             replace(
                 res,
                 known_elsewhere_ids=tuple(sorted({h.candidate_id for h in hits})),
+                known_elsewhere_open_ids=tuple(
+                    sorted({h.candidate_id for h in hits if h.is_open})
+                ),
                 reason=known_elsewhere_reason(res.row_name, hits),
             )
         )

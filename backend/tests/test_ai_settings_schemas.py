@@ -66,6 +66,12 @@ class TestFeatureKeyEnum:
             # ma tylko pominąć płatny krok.
             "uop_check",
             "cv_name_backfill",
+            # 0318: daty zatrudnienia dopisywane dla osób pokazanych na
+            # kartotece firmy w ATLAS-ie. Osobny kubełek od `cv_backfill`,
+            # choć wołają ten sam moduł: 16.09 zgaszenie `cv_backfill` (żeby
+            # zatrzymać bieg masowy) ubiło rykoszetem fazę
+            # `candidates_cv_fields` nocnego syncu Traffita.
+            "experience_dates_on_demand",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

@@ -238,6 +238,10 @@ _ENUM_STATEMENTS = [
     # tych wywołaniach => InvalidTextRepresentationError.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'uop_check'",
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_name_backfill'",
+    # 0318: daty zatrudnienia dopisywane z kartoteki firmy w ATLAS-ie
+    # (`experience_dates_on_demand`) — osobny kubełek od `cv_backfill`, żeby
+    # dało się zgasić ścieżkę użytkownika bez nocnego syncu Traffita.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'experience_dates_on_demand'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -4026,7 +4030,8 @@ _COLUMN_STATEMENTS = [
             'md_consultant_ended', 'order_mail_review',
             'order_missing_successor',
             'periodic_order_ending', 'framework_contract_expiring',
-            'contract_ending', 'cost_budget_low', 'new_contractor_draft')),
+            'contract_ending', 'cost_budget_low', 'new_contractor_draft',
+            'md_base_usage_high')),
         CONSTRAINT ck_dl_alerts_status
             CHECK (status IN ('new', 'handled', 'resolved')),
         CONSTRAINT ck_dl_alerts_handled_coherence
@@ -4341,6 +4346,25 @@ _COLUMN_STATEMENTS = [
     "ON order_gaps (detected_on)",
     "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
     "ON order_gaps (contract_id, status)",
+    # 0316: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
+    # Kody powodow sa rownolegle do `gate_reasons` — recheck rozstrzyga po
+    # kodzie, czy zamowienie czeka na podpis umowy, czy utknelo na czyms innym.
+    "ALTER TABLE order_mail_documents "
+    "ADD COLUMN IF NOT EXISTS gate_reason_codes JSONB",
+    """CREATE TABLE IF NOT EXISTS order_mail_recheck_runs (
+        id SERIAL PRIMARY KEY,
+        started_at TIMESTAMPTZ NOT NULL,
+        finished_at TIMESTAMPTZ,
+        trigger VARCHAR(16) NOT NULL DEFAULT 'scheduled',
+        checked INTEGER NOT NULL DEFAULT 0,
+        applied INTEGER NOT NULL DEFAULT 0,
+        held INTEGER NOT NULL DEFAULT 0,
+        details JSONB,
+        CONSTRAINT ck_order_mail_recheck_runs_trigger
+            CHECK (trigger IN ('scheduled','manual'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_order_mail_recheck_runs_started "
+    "ON order_mail_recheck_runs (started_at)",
     # 0314: integracje zewnętrzne (scrapery pracuj.pl / JJIT) — runy, zdarzenia
     # per aplikacja, stan alertów o zastoju. Bez tych tabel sekcja Insights →
     # Integracje i pętla `integration_stale_alerts` padają na UndefinedTable.
@@ -4462,6 +4486,37 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS md_optional_total NUMERIC(16, 6) NULL",
     "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS status VARCHAR(16) NULL",
     "ALTER TABLE client_order_md_consumptions ADD COLUMN IF NOT EXISTS note VARCHAR(255) NULL",
+    # 0317: etap „Ogłoszenia" (`posting`) — pierwsza kolumna kanbana przed „Nowi",
+    # poczekalnia dla kandydatów z portali (auto-match). Enum + stage def w KAŻDYM
+    # szablonie (trik +1000/-999, bo UNIQUE (template_id, order) nie jest DEFERRABLE).
+    "ALTER TYPE pipelinestage ADD VALUE IF NOT EXISTS 'posting'",
+    """DO $$
+    DECLARE
+        tpl_id INTEGER;
+    BEGIN
+        FOR tpl_id IN SELECT id FROM pipeline_templates LOOP
+            IF NOT EXISTS (
+                SELECT 1 FROM pipeline_stage_defs
+                WHERE template_id = tpl_id
+                  AND legacy_enum_value = 'posting'
+            ) THEN
+                UPDATE pipeline_stage_defs
+                   SET "order" = "order" + 1000
+                 WHERE template_id = tpl_id;
+                INSERT INTO pipeline_stage_defs (
+                    template_id, name, "order", category,
+                    is_terminal, terminal_type, legacy_enum_value
+                ) VALUES (
+                    tpl_id, 'Ogłoszenia', 0, 'internal',
+                    FALSE, NULL, 'posting'
+                );
+                UPDATE pipeline_stage_defs
+                   SET "order" = "order" - 999
+                 WHERE template_id = tpl_id
+                   AND "order" >= 1000;
+            END IF;
+        END LOOP;
+    END $$;""",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -5030,6 +5085,14 @@ _DATA_STATEMENTS = [
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'cv_name_backfill', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS (SELECT 1 FROM ai_features WHERE feature = 'cv_name_backfill')",
+    # 0318: seed feature'a AI `experience_dates_on_demand` (daty zatrudnienia
+    # dopisywane dla osób pokazanych na kartotece firmy w ATLAS-ie). Sam wiersz
+    # NIE włącza wydatku — bramką jest EXPERIENCE_DATES_ON_DEMAND_ENABLED,
+    # domyślnie false.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'experience_dates_on_demand', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'experience_dates_on_demand')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.
@@ -6324,7 +6387,8 @@ _CONSTRAINT_STATEMENTS = [
                 'md_consultant_ended', 'order_mail_review',
                 'order_missing_successor',
                 'periodic_order_ending', 'framework_contract_expiring',
-                'contract_ending', 'cost_budget_low', 'new_contractor_draft'
+                'contract_ending', 'cost_budget_low', 'new_contractor_draft',
+                'md_base_usage_high'
             ));
     END $$""",
     # 0310: status `resolved` (przyczyna ustąpiła bez odhaczenia DL) i

@@ -20,6 +20,8 @@ import { terminalOf } from "@/lib/kanban-terminal";
 import { formatDate } from "@/lib/utils";
 
 /** Legacy-enumy etapów, na których stoją oba stanowiska (`PipelineStage`). */
+/** Poczekalnia kandydatów z ogłoszeń (auto-match) — PRZED „Nowi" (migracja 0317). */
+export const POSTING_STAGE = "posting";
 export const SCREENING_STAGE = "screening";
 export const VERIFIED_STAGE = "verified";
 export const CV_SENT_STAGE = "cv_sent";
@@ -384,6 +386,7 @@ export function itemFullName(item: KanbanItem): string {
 // której używa hook podpisu po stronie serwera (patrz `job-flow-stages.ts`).
 
 export type PipelineGroupKey =
+  | "posting"
   | "intake"
   | "screening"
   | "verification"
@@ -392,6 +395,7 @@ export type PipelineGroupKey =
   | "closed";
 
 export const PIPELINE_GROUP_LABEL: Record<PipelineGroupKey, string> = {
+  posting: "Ogłoszenia",
   intake: "Nowi / Analiza CV",
   screening: "Screening",
   verification: "Zweryfikowani",
@@ -402,6 +406,7 @@ export const PIPELINE_GROUP_LABEL: Record<PipelineGroupKey, string> = {
 
 /** Krótka etykieta na zwiniętą kolumnę-zastępnik na tablicy. */
 export const PIPELINE_GROUP_SHORT_LABEL: Record<PipelineGroupKey, string> = {
+  posting: "Ogłoszenia",
   intake: "Nowi",
   screening: "Screening",
   verification: "Zweryfikowani",
@@ -411,6 +416,7 @@ export const PIPELINE_GROUP_SHORT_LABEL: Record<PipelineGroupKey, string> = {
 };
 
 const GROUP_ORDER: readonly PipelineGroupKey[] = [
+  "posting",
   "intake",
   "screening",
   "verification",
@@ -443,6 +449,9 @@ export function groupKeyForColumn(col: KanbanColumn): PipelineGroupKey {
   if (isContractStage(col)) return "contract";
   const terminal = terminalOf(col);
   if (terminal != null || col.category === "terminal") return "closed";
+  // Kandydaci z ogłoszeń mają własną grupę — inaczej zlewaliby się z „Nowi"
+  // i grupa wejściowa liczyłaby ludzi, których nikt jeszcze nie przejrzał.
+  if (col.stage === POSTING_STAGE) return "posting";
   if (col.stage === SCREENING_STAGE) return "screening";
   if (col.stage === VERIFIED_STAGE) return "verification";
   if (col.stage === CV_SENT_STAGE || col.category === "external") return "client";
