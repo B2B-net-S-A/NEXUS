@@ -189,6 +189,18 @@ class Contract(Base, TimestampMixin):
     # Załączniki/dokumenty (lista URL lub metadanych)
     documents: Mapped[Optional[dict]] = mapped_column(JSONB, default=list)
 
+    # Kontakt do KONSULTANTA — nadpisanie, nie migawka (migracja 0320). Wartość
+    # trafia tu z generatora umów B2B (`render_payload->>'partner_email'` /
+    # `'partner_phone'`) albo z ręcznej edycji w widoku kontraktu. Pusto znaczy
+    # „weź z profilu kandydata": rozstrzyga to `services/contract_candidate_contact`
+    # przy ODCZYCIE, więc zmiana telefonu w profilu jest widoczna na kontrakcie
+    # od razu, dopóki nikt nie wpisał tu własnej wartości. Wyczyszczenie pola
+    # przywraca fallback. Bez UNIQUE — to kontakt lokalny dla umowy, nie druga
+    # tożsamość kandydata. Twarde usunięcie kandydata (art. 17 RODO) zeruje obie
+    # kolumny w `api/candidates.py`, bo wiersz umowy celowo zostaje.
+    candidate_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    candidate_phone: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+
     # Assignment / deployment context (Phase 9 B5) — gdzie i pod kim kontraktor pracuje.
     client_pm_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     client_pm_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
