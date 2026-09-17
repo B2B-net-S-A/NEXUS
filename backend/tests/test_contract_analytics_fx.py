@@ -5,13 +5,20 @@ Regression guard for a financial-correctness bug: `margin_by_contractor`,
 grouped only by entity, adding EUR + PLN nominally into one number. These tests
 seed two contracts for one contractor in DIFFERENT currencies and assert the
 reported total equals the PLN-converted sum, NOT the nominal add.
+
+Dopisując tu test, który czyta wiersz z `margin-by-contractor` albo
+`margin-by-client`: te endpointy zwracają WYŁĄCZNIE top-N po marży w PLN, więc
+zasiany wiersz trzeba utrzymać w oknie kotwicą z `_ranking_anchor` — inaczej
+przejdzie na świeżej bazie i będzie padał na zapełnionej. Prognoza
+(`revenue-forecast`) jest agregatem bez rankingu i kotwicy nie potrzebuje;
+tam wystarczy różnica przed/po.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 
 import pytest
 from httpx import AsyncClient
@@ -58,7 +65,9 @@ async def _free_test_currency() -> str:
     )
 
 
-async def _seed_contractor_two_currencies() -> tuple[int, int]:
+async def _seed_contractor_two_currencies(
+    *, anchor: Decimal | None = None
+) -> tuple[int, int]:
     """One contractor + client with a PLN and a GBP active contract.
 
     GBP@today = 4.1234. Returns (candidate_id, client_id). ``margin`` is derived
@@ -67,6 +76,12 @@ async def _seed_contractor_two_currencies() -> tuple[int, int]:
       margin  = 80000 + 2000 * 4.1234 = 88246.8
       revenue = 200000 + 5000 * 4.1234 = 220617.0
     Nominal (buggy) sums would be 82000 / 205000.
+
+    ``anchor`` dokłada trzeci, czysto złotówkowy kontrakt (``margin`` marży,
+    ``2 * margin`` przychodu), który utrzymuje wiersz w oknie top-N rankowanych
+    endpointów — wołający dodaje go wtedy do powyższych oczekiwań. Konsumenci
+    prognozy (agregat, bez rankingu) zostawiają go pustym, żeby nie zaburzać
+    różnicy przed/po.
     """
     await _seed_rate("GBP", "4.1234", date.today())
     unique = uuid.uuid4().hex[:8]
@@ -101,14 +116,23 @@ async def _seed_contractor_two_currencies() -> tuple[int, int]:
                 ),
             ]
         )
+        if anchor is not None:
+            db.add(
+                _anchor_contract(
+                    candidate_id=cand.id, client_id=client.id, margin=anchor
+                )
+            )
         await db.commit()
         return cand.id, client.id
 
 
 async def _seed_split_currency_contract(
-    *, currency: str, rate_to_pln: str = "4.1234"
+    *, currency: str, rate_to_pln: str = "4.1234", anchor: Decimal | None = None
 ) -> tuple[int, int]:
-    """One contract whose revenue and candidate cost use different currencies."""
+    """One contract whose revenue and candidate cost use different currencies.
+
+    ``anchor`` — patrz `_seed_contractor_two_currencies`.
+    """
     await _seed_rate(currency, rate_to_pln, date.today())
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
@@ -134,21 +158,115 @@ async def _seed_split_currency_contract(
                 currency=currency,
             )
         )
+        if anchor is not None:
+            db.add(
+                _anchor_contract(
+                    candidate_id=cand.id, client_id=client.id, margin=anchor
+                )
+            )
         await db.commit()
         return cand.id, client.id
+
+
+_RANKED_LIMIT = 100
+_RANKED_ENDPOINTS = (
+    f"/api/contract-analytics/margin-by-contractor?limit={_RANKED_LIMIT}",
+    f"/api/contract-analytics/margin-by-client?limit={_RANKED_LIMIT}",
+)
+#: Sufit `NUMERIC(16, 6)` na `contracts.rate_client` — 10 cyfr przed przecinkiem.
+_RATE_CEILING = Decimal("9999999999")
+
+
+async def _ranking_anchor(app_client: AsyncClient, headers: dict) -> Decimal:
+    """Najmniejsza marża w PLN, która utrzyma zasiany wiersz w oknie top-N.
+
+    `margin-by-contractor` i `margin-by-client` sortują po marży w PLN malejąco
+    i zwracają WYŁĄCZNIE `rows[:limit]`. Testy niżej celowo zasiewają wiersze
+    o marży 0 albo ujemnej — czyli ostatnie w rankingu — więc na bazie, którą
+    inne pliki testowe zdążyły zapełnić rentownymi kontraktorami, wypadały poza
+    okno i `_find` wywalał się na „row … not found in response". Baza testowa
+    jest współdzielona i NIE jest czyszczona, a podział na shardy jest
+    round-robinem po posortowanych ścieżkach plików — więc dopisanie dowolnego
+    nowego pliku testowego przestawia partycję i decyduje, kiedy to wybuchnie.
+    Wygląda jak losowa flaka, jest deterministyczne (ten sam tryb awarii
+    opisuje `test_shared_test_helpers_are_not_copied.py`).
+
+    Celujemy w PRÓG ODCIĘCIA (marża setnego wiersza), nie w maksimum. To nie
+    jest optymalizacja, tylko warunek wykonalności: `test_raw_analytics`
+    zasiewa 99 999 999 dziennie w EUR, co po normalizacji na miesiąc i
+    przewalutowaniu daje ~9,4 mld — przebicie MAKSIMUM nie mieści się już
+    w `NUMERIC(16, 6)` kolumny stawki. Próg odcięcia jest o rzędy wielkości
+    niższy i nie rośnie z pojedynczymi wartościami odstającymi.
+
+    Niepełne okno (mniej wierszy niż `limit`) znaczy, że nic nie wypada — wtedy
+    wystarczy dowolna dodatnia marża, a kotwica i tak jest zasiewana, żeby
+    kształt danych (a więc i `active_contracts`) nie zależał od stanu bazy.
+    """
+
+    cutoff = Decimal("0")
+    for path in _RANKED_ENDPOINTS:
+        response = await app_client.get(path, headers=headers)
+        assert response.status_code == 200, response.text
+        rows = response.json()
+        if len(rows) < _RANKED_LIMIT:
+            continue
+        cutoff = max(
+            cutoff,
+            min(Decimal(str(row["total_monthly_margin"])) for row in rows),
+        )
+    # Całkowita: ułamkowość wyniku ma dowodzić przewalutowania (patrz
+    # `assert margin != int(margin)`), a nie pochodzić z kotwicy.
+    anchor = (cutoff + Decimal("1000")).to_integral_value(rounding=ROUND_CEILING)
+    assert anchor < _RATE_CEILING, (
+        f"próg odcięcia rankingu urósł do {cutoff} — kotwica {anchor} nie "
+        f"zmieści się w NUMERIC(16, 6). Ktoś zasiał setki wierszy o marżach "
+        f"bliskich sufitowi kolumny; to trzeba naprawić u źródła, a nie "
+        f"podbijaniem kotwicy."
+    )
+    return anchor
+
+
+def _anchor_contract(*, candidate_id: int, client_id: int, margin: Decimal) -> Contract:
+    """Kontrakt w PLN, którego JEDYNYM zadaniem jest ranking.
+
+    Czysto złotówkowy, więc nie może zamaskować błędu przewalutowania. Bez nogi
+    kosztowej, żeby wnosił DOKŁADNIE `margin` przychodu i `margin` marży —
+    wołający dodaje tę jedną liczbę do obu oczekiwań, a właściwością dowodzoną
+    w teście zostaje to, ile (nic albo znana kwota) dokłada obok niego noga
+    walutowa.
+    """
+
+    return Contract(
+        candidate_id=candidate_id,
+        client_id=client_id,
+        status=ContractStatus.active,
+        start_date=date(2025, 1, 1),
+        end_date=None,
+        rate_client=margin,
+        rate_candidate=Decimal("0"),
+        currency="PLN",
+    )
 
 
 def _find(rows: list[dict], key: str, value: int) -> dict:
     for row in rows:
         if row.get(key) == value:
             return row
-    raise AssertionError(f"row with {key}={value} not found in response")
+    # Komunikat nazywa najczęstszą przyczynę, bo samo „not found" wygląda jak
+    # błąd agregacji, a jest odcięciem przez ranking (patrz `_ranking_anchor`).
+    raise AssertionError(
+        f"row with {key}={value} not found in response ({len(rows)} rows). "
+        "Rankowane endpointy zwracają tylko top-N po marży w PLN — wiersz "
+        "o marży 0 albo ujemnej wypada poza okno na bazie, którą zapełniły "
+        "inne pliki testowe. Zasiej kotwicę z `_ranking_anchor`."
+    )
 
 
 async def test_margin_by_contractor_converts_currencies_to_pln(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    cand_id, _ = await _seed_contractor_two_currencies()
+    anchor = await _ranking_anchor(app_client, app_auth_headers)
+    cand_id, _ = await _seed_contractor_two_currencies(anchor=anchor)
 
     resp = await app_client.get(
         "/api/contract-analytics/margin-by-contractor?limit=100",
@@ -164,22 +282,27 @@ async def test_margin_by_contractor_converts_currencies_to_pln(
     assert isinstance(margin, (int, float)), f"margin serialised as {type(margin)}"
     assert isinstance(revenue, (int, float))
 
-    # PLN-converted totals, NOT the nominal add.
-    assert margin == pytest.approx(88246.8, abs=0.05)
-    assert revenue == pytest.approx(220617.0, abs=0.05)
-    assert margin != pytest.approx(82000, abs=0.5), "nominal cross-currency sum"
-    assert revenue != pytest.approx(205000, abs=0.5), "nominal cross-currency sum"
+    # PLN-converted totals, NOT the nominal add. Kotwica jest całkowita i czysto
+    # złotówkowa, więc wchodzi do obu stron równania bez zmiany arytmetyki FX.
+    base = float(anchor)
+    assert margin == pytest.approx(base + 88246.8, abs=0.05)
+    assert revenue == pytest.approx(base + 220617.0, abs=0.05)
+    assert margin != pytest.approx(base + 82000, abs=0.5), "nominal cross-currency sum"
+    assert revenue != pytest.approx(base + 205000, abs=0.5), (
+        "nominal cross-currency sum"
+    )
 
     # Fractional result proves the value wasn't truncated back to int.
     assert margin != int(margin)
-    assert row["active_contracts"] == 2
+    assert row["active_contracts"] == 3  # PLN + GBP + kotwica
     assert row["fx_missing"] is False
 
 
 async def test_margin_by_client_converts_currencies_to_pln(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    _, client_id = await _seed_contractor_two_currencies()
+    anchor = await _ranking_anchor(app_client, app_auth_headers)
+    _, client_id = await _seed_contractor_two_currencies(anchor=anchor)
 
     resp = await app_client.get(
         "/api/contract-analytics/margin-by-client?limit=100",
@@ -188,18 +311,20 @@ async def test_margin_by_client_converts_currencies_to_pln(
     assert resp.status_code == 200, resp.text
     row = _find(resp.json(), "client_id", client_id)
 
-    assert row["total_monthly_margin"] == pytest.approx(88246.8, abs=0.05)
-    assert row["total_monthly_revenue"] == pytest.approx(220617.0, abs=0.05)
-    assert row["total_monthly_margin"] != pytest.approx(82000, abs=0.5)
+    base = float(anchor)
+    assert row["total_monthly_margin"] == pytest.approx(base + 88246.8, abs=0.05)
+    assert row["total_monthly_revenue"] == pytest.approx(base + 220617.0, abs=0.05)
+    assert row["total_monthly_margin"] != pytest.approx(base + 82000, abs=0.5)
     assert row["fx_missing"] is False
 
 
 async def test_margin_endpoints_convert_revenue_and_cost_independently(
     app_client: AsyncClient, app_auth_headers: dict
 ):
+    anchor = await _ranking_anchor(app_client, app_auth_headers)
     fake_currency = await _free_test_currency()
     candidate_id, client_id = await _seed_split_currency_contract(
-        currency=fake_currency
+        currency=fake_currency, anchor=anchor
     )
 
     contractor_response = await app_client.get(
@@ -215,8 +340,9 @@ async def test_margin_endpoints_convert_revenue_and_cost_independently(
     assert client_response.status_code == 200, client_response.text
     contractor_row = _find(contractor_response.json(), "candidate_id", candidate_id)
     client_row = _find(client_response.json(), "client_id", client_id)
-    expected_revenue = 5000 * 4.1234
-    expected_margin = expected_revenue - 3000
+    base = float(anchor)
+    expected_revenue = base + 5000 * 4.1234
+    expected_margin = base + 5000 * 4.1234 - 3000
     for row in (contractor_row, client_row):
         assert row["total_monthly_revenue"] == pytest.approx(expected_revenue, abs=0.05)
         assert row["total_monthly_margin"] == pytest.approx(expected_margin, abs=0.05)
@@ -254,6 +380,9 @@ async def test_margin_missing_fx_rate_is_flagged_not_fatal(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """A currency without a cached rate is flagged and never treated as PLN."""
+    # Kontrakt bez kursu wnosi 0, czyli w rankingu po marży ląduje na końcu —
+    # kotwica w PLN trzyma wiersz w oknie top-N (patrz `_ranking_anchor`).
+    anchor = await _ranking_anchor(app_client, app_auth_headers)
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"NoFx Client {unique}")
@@ -262,17 +391,22 @@ async def test_margin_missing_fx_rate_is_flagged_not_fatal(
         cand = Candidate(name="NoFx", lastname=f"Contractor-{unique}")
         db.add(cand)
         await db.flush()
-        db.add(
-            Contract(
-                candidate_id=cand.id,
-                client_id=client.id,
-                status=ContractStatus.active,
-                start_date=date(2025, 1, 1),
-                end_date=None,
-                rate_client=Decimal("150000"),
-                rate_candidate=Decimal("80000"),  # → margin 70000
-                currency="ZZZ",  # no rate ever seeded for this code
-            )
+        db.add_all(
+            [
+                _anchor_contract(
+                    candidate_id=cand.id, client_id=client.id, margin=anchor
+                ),
+                Contract(
+                    candidate_id=cand.id,
+                    client_id=client.id,
+                    status=ContractStatus.active,
+                    start_date=date(2025, 1, 1),
+                    end_date=None,
+                    rate_client=Decimal("150000"),
+                    rate_candidate=Decimal("80000"),  # → margin 70000
+                    currency="ZZZ",  # no rate ever seeded for this code
+                ),
+            ]
         )
         await db.commit()
         cand_id = cand.id
@@ -285,10 +419,19 @@ async def test_margin_missing_fx_rate_is_flagged_not_fatal(
     assert resp.status_code == 200, resp.text
     row = _find(resp.json(), "candidate_id", cand_id)
     assert row["fx_missing"] is True
+    # Umowa bez kursu jest LICZONA jako zaangażowanie — milczy tylko o pieniądzach.
+    assert row["active_contracts"] == 2
     # Missing FX excludes both legs. It must not preserve the foreign nominal
-    # amount and label it as PLN.
-    assert row["total_monthly_revenue"] == 0
-    assert row["total_monthly_margin"] == 0
+    # amount and label it as PLN — obok kotwicy widać to ostrzej niż przy samym
+    # zerze: zero nie odróżnia „wykluczone" od „kubełek i tak jest pusty".
+    assert row["total_monthly_revenue"] == pytest.approx(float(anchor), abs=0.05)
+    assert row["total_monthly_margin"] == pytest.approx(float(anchor), abs=0.05)
+    assert row["total_monthly_revenue"] != pytest.approx(
+        float(anchor + 150000), abs=0.5
+    ), "ZZZ nominal counted as PLN"
+    assert row["total_monthly_margin"] != pytest.approx(
+        float(anchor + 70000), abs=0.5
+    ), "ZZZ nominal counted as PLN"
 
 
 async def test_zero_foreign_revenue_leg_does_not_require_fx(
@@ -301,24 +444,33 @@ async def test_zero_foreign_revenue_leg_does_not_require_fx(
     assert forecast_before_response.status_code == 200, forecast_before_response.text
     forecast_before = forecast_before_response.json()["months"][0]
 
+    # Marża tej umowy to -100, czyli ostatnie miejsce w rankingu — kotwica
+    # w PLN trzyma wiersz w oknie top-N (patrz `_ranking_anchor`). Jest czysto
+    # złotówkowa, więc nie może zamaskować przewalutowania nogi XXZ.
+    anchor = await _ranking_anchor(app_client, app_auth_headers)
     unique = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"Zero FX Client {unique}")
         candidate = Candidate(name="ZeroFx", lastname=f"Contractor-{unique}")
         db.add_all([client, candidate])
         await db.flush()
-        db.add(
-            Contract(
-                candidate_id=candidate.id,
-                client_id=client.id,
-                status=ContractStatus.active,
-                start_date=date(2025, 1, 1),
-                rate_client=Decimal("0"),
-                rate_candidate=Decimal("100"),
-                currency="XXZ",
-                rate_client_currency="XXZ",
-                rate_candidate_currency="PLN",
-            )
+        db.add_all(
+            [
+                _anchor_contract(
+                    candidate_id=candidate.id, client_id=client.id, margin=anchor
+                ),
+                Contract(
+                    candidate_id=candidate.id,
+                    client_id=client.id,
+                    status=ContractStatus.active,
+                    start_date=date(2025, 1, 1),
+                    rate_client=Decimal("0"),
+                    rate_candidate=Decimal("100"),
+                    currency="XXZ",
+                    rate_client_currency="XXZ",
+                    rate_candidate_currency="PLN",
+                ),
+            ]
         )
         await db.commit()
         candidate_id = candidate.id
@@ -344,15 +496,26 @@ async def test_zero_foreign_revenue_leg_does_not_require_fx(
         _find(contractor_response.json(), "candidate_id", candidate_id),
         _find(client_response.json(), "client_id", client_id),
     ):
-        assert row["total_monthly_revenue"] == 0
-        assert row["total_monthly_margin"] == -100
+        # Zerowa noga przychodowa nie potrzebuje kursu (0 × cokolwiek = 0), więc
+        # umowa NIE jest wykluczona jako „brak FX" — gdyby była, marża wyniosłaby
+        # samą kotwicę, bez -100 z nogi kosztowej w PLN.
         assert row["fx_missing"] is False
+        assert row["total_monthly_revenue"] == pytest.approx(float(anchor), abs=0.05)
+        assert row["total_monthly_margin"] == pytest.approx(
+            float(anchor - 100), abs=0.05
+        )
 
     forecast_after_body = forecast_after_response.json()
     forecast_after = forecast_after_body["months"][0]
-    assert forecast_after["revenue"] - forecast_before["revenue"] == 0
-    assert forecast_after["margin"] - forecast_before["margin"] == -100
-    assert forecast_after["active_count"] == forecast_before["active_count"] + 1
+    # Prognoza jest agregatem (bez rankingu), więc różnica przed/po jest odporna
+    # na cudze dane niezależnie od kotwicy — ta wchodzi do niej jawnie.
+    assert forecast_after["revenue"] - forecast_before["revenue"] == pytest.approx(
+        float(anchor), abs=0.05
+    )
+    assert forecast_after["margin"] - forecast_before["margin"] == pytest.approx(
+        float(anchor - 100), abs=0.05
+    )
+    assert forecast_after["active_count"] == forecast_before["active_count"] + 2
     assert not any("XXZ" in warning for warning in forecast_after_body["fx_warnings"])
 
 
