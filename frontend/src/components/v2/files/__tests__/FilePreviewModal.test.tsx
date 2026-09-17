@@ -80,3 +80,49 @@ describe("FilePreviewModal CV gallery", () => {
     expect(screen.getByRole("button", { name: "Następne CV" })).toBeDisabled();
   });
 });
+
+describe("FilePreviewModal — lupa „Szukaj w CV”", () => {
+  it("arrow keys typed in the search box move the caret, not the CV", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      blob: async () => new Blob(["x"], { type: "image/png" }),
+    } as Response);
+    const createUrl = vi.fn(() => "blob:cv");
+    Object.assign(URL, { createObjectURL: createUrl, revokeObjectURL: vi.fn() });
+    const onClose = vi.fn();
+
+    render(
+      <FilePreviewModal
+        documents={[
+          document(1, "CV-scan.png", {
+            is_primary: true,
+            content_type: "image/png",
+          }),
+          document(2, "CV-other.png", { content_type: "image/png" }),
+        ]}
+        initialDocumentId={1}
+        candidateId={7}
+        onClose={onClose}
+        onDownload={vi.fn()}
+      />,
+    );
+
+    const input = await screen.findByRole("searchbox", { name: "Szukaj w CV" });
+    // Obraz nie ma warstwy tekstu — pasek mówi to wprost.
+    expect(
+      screen.getByText("Ten plik to skan — nie ma w nim tekstu do przeszukania"),
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(input, { key: "ArrowRight" });
+    expect(screen.getByText("CV 1 z 2")).toBeInTheDocument();
+
+    // Esc z wpisanym zapytaniem czyści pole i nie zamyka okna.
+    fireEvent.change(input, { target: { value: "java" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect((input as HTMLInputElement).value).toBe("");
+    expect(onClose).not.toHaveBeenCalled();
+
+    fetchMock.mockRestore();
+  });
+});
