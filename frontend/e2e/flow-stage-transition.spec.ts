@@ -102,20 +102,17 @@ test.describe("Pipeline rekrutacji @stack", () => {
     expect(stageOf(kanbanAfterReject, candidate.id)).toBe("rejected");
   });
 
-  test("stawka ponad budżet nie tworzy „Pending” — karta jest aktywna z odznaką", async ({
+  test("stawka ponad budżet nie tworzy „Pending” — karta jest aktywna", async ({
     admin,
   }) => {
-    // Decyzja 17.09.2026: bramka akceptacji stawki ponad budżet wyłączona.
-    // Ruch przechodzi, stawka zostaje zapisana, a przekroczenie budżetu jest
-    // wyłącznie informacją (`budget_exceeded`) — nikt nie musi niczego akceptować.
+    // Decyzja 17.09.2026: bramka akceptacji stawki ponad budżet usunięta na
+    // stałe. Ruch przechodzi, stawka zostaje zapisana, a „ponad budżet" liczy
+    // tablica z budżetu PLN/h rekrutacji — nikt nie musi niczego akceptować.
     const client = await createClient(admin.api);
     const job = await createJob(admin.api, client.id, { salary_min: 8000, salary_max: 10000 });
     const candidate = await createCandidate(admin.api);
 
-    const verified = await jsonOf<StageResponse & {
-      verification_status: string;
-      budget_exceeded: boolean;
-    }>(
+    const verified = await jsonOf<StageResponse & { verification_status: string }>(
       await admin.api.post("/api/pipeline/move", {
         data: {
           candidate_id: candidate.id,
@@ -130,10 +127,9 @@ test.describe("Pipeline rekrutacji @stack", () => {
       "ruch na Zweryfikowany ze stawką ponad budżet"
     );
     expect(verified.verification_status).toBe("active");
-    expect(verified.budget_exceeded).toBe(true);
 
     const queue = await admin.api.get("/api/pipeline/pending-verifications");
-    await expectStatus(queue, 404, "kolejka akceptacji przy wyłączonej bramce");
+    await expectStatus(queue, 404, "kolejka akceptacji usunięta");
   });
 
   test("rekruter spoza zespołu rekrutacji nie przesunie kandydata", async ({ admin, apiAs }) => {

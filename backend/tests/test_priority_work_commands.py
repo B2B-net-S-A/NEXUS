@@ -675,8 +675,10 @@ def test_command_locks_candidate_then_job_before_policy() -> None:
     assert ".with_for_update()" in source[job_lock:policy]
 
 
-def test_pending_verification_decision_uses_candidate_and_stage_locks() -> None:
-    source = inspect.getsource(commands._lock_current_pending_verification)
+def test_legacy_pending_promotion_uses_candidate_and_stage_locks() -> None:
+    from app.services import pending_verification_promotion as promotion
+
+    source = inspect.getsource(promotion.run_pending_verification_promotion)
     assert "select(Candidate.id)" in source
     assert "select(CandidateStage)" in source
     assert source.count(".with_for_update()") >= 2
@@ -693,10 +695,13 @@ def test_milestone_memo_is_dropped_by_the_writes_it_counts() -> None:
     append = inspect.getsource(commands.transition_process)
     assert "if stage_row.stage in _MILESTONE_COUNT_STAGES:" in append
     assert "invalidate_milestone_counts()" in append
-    # Accepting a pending verification turns an already-written `verified` row
-    # into a counted milestone without appending a new stage; voiding a process
-    # drops it out of `classified_process` entirely.
-    for command in (commands.accept_pending_verification, commands.void_process):
+    # Promoting a legacy pending verification turns an already-written
+    # `verified` row into a counted milestone without appending a new stage;
+    # voiding a process drops it out of `classified_process` entirely.
+    for command in (
+        commands.promote_legacy_pending_verification,
+        commands.void_process,
+    ):
         assert "invalidate_milestone_counts()" in inspect.getsource(command)
 
 

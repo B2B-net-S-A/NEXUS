@@ -99,7 +99,8 @@ def test_source_invalidation_only_resets_on_changed_title(
     source = IMPORTER.read_text()
     expression = re.search(rf"{column}\s*=\s*(CASE.*?END),", source, re.S).group(1)
     query = (
-        f"SELECT {expression} FROM (SELECT ? AS title, ? AS {column}) jobs "
+        f"SELECT {expression} FROM "
+        f"(SELECT ? AS title, ? AS {column}, 0 AS managed_in_nexus) jobs "
         f"CROSS JOIN (SELECT ? AS title, ? AS {column}) EXCLUDED"
     )
     expected = stored if incoming_title == "Python Developer" else reset
@@ -108,6 +109,76 @@ def test_source_invalidation_only_resets_on_changed_title(
             query, ("Python Developer", stored, incoming_title, "external overwrite")
         ).fetchone()[0]
     assert result == expected
+
+
+def _upsert_job_statement() -> str:
+    source = IMPORTER.read_text(encoding="utf-8")
+    start = source.index("_UPSERT_JOB = text(")
+    end = source.index("RETURNING id, (xmax = 0) AS was_insert", start)
+    return source[start:end]
+
+
+@pytest.mark.parametrize(
+    "column,stored",
+    [
+        ("matching_requirements", '{"all_of": [{"any_of": ["python"]}]}'),
+        ("matching_requirements", None),
+        ("requirements_reviewed", 1),
+        ("requirements_reviewed", 0),
+    ],
+)
+def test_managed_job_keeps_requirements_even_when_traffit_title_changes(column, stored):
+    """0324: rekrutacja prowadzona w NEXUSIE nie zmienia tytułu, więc nie ma
+    czego unieważniać — kryteria zostają mimo innego brzmienia w Traffitcie."""
+    expression = re.search(
+        rf"{column}\s*=\s*(CASE.*?END),", _upsert_job_statement(), re.S
+    ).group(1)
+    query = (
+        f"SELECT {expression} FROM "
+        f"(SELECT ? AS title, ? AS {column}, 1 AS managed_in_nexus) jobs "
+        f"CROSS JOIN (SELECT ? AS title, ? AS {column}) EXCLUDED"
+    )
+    with sqlite3.connect(":memory:") as db:
+        result = db.execute(
+            query, ("Python Developer", stored, "Java Developer", "external overwrite")
+        ).fetchone()[0]
+    assert result == stored
+
+
+@pytest.mark.parametrize(
+    "column,nexus_value,traffit_value",
+    [
+        ("title", "Python Developer (NEXUS)", "Python Developer"),
+        ("status", "active", "closed"),
+        ("closed_at", None, "2026-09-17T00:00:00+00:00"),
+    ],
+)
+def test_managed_job_keeps_title_status_and_closed_at(
+    column, nexus_value, traffit_value
+):
+    """0324: przełączona rekrutacja zatrzymuje wartości NEXUSA; nieprzełączona
+    — jak dotąd — przyjmuje wartości z Traffita. Wykonujemy prawdziwy CASE."""
+    expression = re.search(
+        rf"^\s+{column}\s*=\s*(CASE.*?END),",
+        _upsert_job_statement(),
+        re.S | re.M,
+    ).group(1)
+    query = (
+        f"SELECT {expression} FROM "
+        f"(SELECT ? AS {column}, ? AS managed_in_nexus) jobs "
+        f"CROSS JOIN (SELECT ? AS {column}) EXCLUDED"
+    )
+    with sqlite3.connect(":memory:") as db:
+        managed = db.execute(query, (nexus_value, 1, traffit_value)).fetchone()[0]
+        unmanaged = db.execute(query, (nexus_value, 0, traffit_value)).fetchone()[0]
+    assert managed == nexus_value
+    assert unmanaged == traffit_value
+
+
+def test_managed_in_nexus_belongs_to_nexus():
+    for column in ("managed_in_nexus", "managed_in_nexus_at", "managed_in_nexus_by"):
+        assert column in own.NEXUS_OWNED
+        assert column not in own.SYNC_WRITABLE
 
 
 def test_every_column_has_an_owner():

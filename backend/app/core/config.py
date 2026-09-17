@@ -423,16 +423,6 @@ class Settings(BaseSettings):
     # `scoring_service._SCORING_CACHE_INPUTS` (dealbreakery działają PO
     # scoringu, nie zmieniają punktacji, którą cache przechowuje).
     RUBRIC_DEALBREAKERS_ENABLED: bool = True
-    # Bramka „Pending" (stawka ponad budżet przy ruchu na „Zweryfikowany").
-    # Decyzja Artura 17.09.2026: WYŁĄCZONA całkowicie — ruch zawsze przechodzi,
-    # stawka jest zapisana, a przekroczenie budżetu jedzie na kartę wyłącznie
-    # jako informacja (`budget_exceeded`). Przy `False` trasy akceptacji /
-    # odrzucenia i lista `/pending-verifications` odpowiadają 404, a żaden
-    # writer nie stawia `verification_status=pending`. Kod bramki backendu
-    # zostaje, ale UI akceptacji/odrzucenia i kolejki zostało USUNIĘTE —
-    # samo `True` da tablicy 409 na kartach Pending bez sposobu ich
-    # rozwiązania. Ponowne włączenie wymaga przywrócenia frontendu.
-    PENDING_VERIFICATION_ENABLED: bool = False
     # Rozmiar puli trybu semantycznego w RĘCZNEJ wyszukiwarce kandydatów.
     # To jednocześnie SUFIT liczby wyników, którą widzi rekruter, i liczba
     # dokumentów wysyłanych do rerankera Voyage przy KAŻDYM żądaniu strony

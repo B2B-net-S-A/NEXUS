@@ -995,7 +995,10 @@ function ConfirmFullySignedDialog({
                 • okres zamówienia i stawka przychodowa trafią do kontraktu po
                 uzupełnieniu zamówienia,
               </li>
-              <li>• ustawi etap kandydata na „Zatrudniony”,</li>
+              <li>
+                • NIE zmieni etapu kandydata w pipeline — „Zatrudniony” ustawiasz
+                na tablicy rekrutacji,
+              </li>
               <li>• zapisze pełny ślad audytowy.</li>
             </ul>
           </div>
@@ -3380,7 +3383,7 @@ function GeneratorForm() {
     },
     onSuccess: () => {
       toast.showSuccess(
-        "Oznaczono jako wysłaną — kandydat przeszedł na etap „Umowa wysłana”.",
+        "Oznaczono jako wysłaną.",
       );
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
@@ -3400,8 +3403,8 @@ function GeneratorForm() {
       });
       toast.showSuccess(
         verdict.both_parties_signed
-          ? "Umowa podpisana przez obie strony — kandydat przeszedł na etap „Zatrudniony”."
-          : "Podpisaną umowę wgrano — kandydat przeszedł na etap „Umowa podpisana”.",
+          ? "Umowa podpisana przez obie strony."
+          : "Podpisaną umowę wgrano i zweryfikowano.",
       );
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
@@ -4092,7 +4095,7 @@ function GeneratorForm() {
           variant="outline"
           disabled={signingActionPending}
           onClick={onMarkSentOffline}
-          title="Wysłałeś umowę mailem? Oznacz wysłaną, by przenieść kandydata na etap „Umowa wysłana”."
+          title="Wysłałeś umowę mailem? Oznacz ją jako wysłaną."
         >
           {markSentMut.isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -4105,7 +4108,7 @@ function GeneratorForm() {
           variant="outline"
           disabled={signingActionPending}
           onClick={onUploadSignedClick}
-          title="Masz podpisaną umowę z maila? Wgraj PDF — zweryfikujemy podpis i przeniesiemy na etap „Umowa podpisana”."
+          title="Masz podpisaną umowę z maila? Wgraj PDF — zweryfikujemy podpis."
         >
           {uploadSignedMut.isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -4162,8 +4165,8 @@ function GeneratorForm() {
             <p className="flex items-center gap-2 font-medium">
               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
               {uploadVerdict.both_parties_signed
-                ? "Umowa podpisana przez obie strony — kandydat na etapie „Zatrudniony”."
-                : "Podpisaną umowę wgrano — kandydat na etapie „Umowa podpisana”."}
+                ? "Umowa podpisana przez obie strony."
+                : "Podpisaną umowę wgrano."}
             </p>
             <p className="text-xs text-muted-foreground">
               {uploadVerdict.is_qes

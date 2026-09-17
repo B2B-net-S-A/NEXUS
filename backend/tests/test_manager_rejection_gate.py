@@ -6,8 +6,10 @@ where it deliberately does not:
 
 * assign / bulk-add / shortlist-promote → blocked, because that is the moment
   the candidate enters the manager's recruitment;
-* a move onto ``cv_sent`` / ``client_interview`` → blocked, because that is the
-  moment we put them back in front of the client;
+* a move onto ``cv_sent`` / ``client_interview`` → since 17.09.2026 a WARNING,
+  not a block: 409 ``ELIGIBILITY_WARNING`` naming the manager, and the same move
+  with ``acknowledge_eligibility`` goes through and is audited (owner decision
+  „żadna bramka nie blokuje przepływu");
 * everything else (internal moves, ``hired``, closing the candidate out) → must
   keep working. Blocking those would freeze every pipeline that predates the
   feature, and blocking ``hired`` would be absurd: the manager has just said yes.
@@ -233,19 +235,47 @@ async def test_situational_rejection_does_not_block_assign(
 # ── Moving inside a pipeline ────────────────────────────────────────────────
 
 
-async def test_move_to_cv_sent_is_blocked(
+async def test_move_to_cv_sent_warns_until_acknowledged(
     app_client: AsyncClient, app_auth_headers: dict
 ):
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.activity import Activity
+
     world = await _seed_vetoed_candidate()
     await _place_in_target(world)
 
     resp = await _move(app_client, app_auth_headers, world, "cv_sent")
 
     assert resp.status_code == 409, resp.text
-    assert world["manager_name"] in resp.json()["detail"]
+    detail = resp.json()["detail"]
+    assert detail["code"] == "ELIGIBILITY_WARNING"
+    assert detail["reason_code"] == "rejected_by_hiring_manager"
+    assert world["manager_name"] in detail["reason"]
+    assert detail["can_acknowledge"] is True
+
+    ok = await _move(
+        app_client,
+        app_auth_headers,
+        world,
+        "cv_sent",
+        acknowledge_eligibility=True,
+    )
+    assert ok.status_code == 200, ok.text
+    async with AsyncSessionLocal() as db:
+        audit = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "pipeline",
+                Activity.entity_id == ok.json()["id"],
+                Activity.action == "eligibility_acknowledged",
+            )
+        )
+        assert audit is not None
+        assert audit.details["reason_code"] == "rejected_by_hiring_manager"
 
 
-async def test_move_to_client_interview_is_blocked(
+async def test_move_to_client_interview_warns(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     world = await _seed_vetoed_candidate()
@@ -254,6 +284,7 @@ async def test_move_to_client_interview_is_blocked(
     resp = await _move(app_client, app_auth_headers, world, "client_interview")
 
     assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "ELIGIBILITY_WARNING"
 
 
 async def test_internal_move_still_works(

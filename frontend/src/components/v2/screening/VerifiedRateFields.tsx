@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * Pola „stawki oczekiwanej" wraz z werdyktem bramki budżetowej — wspólne dla
+ * Pola „stawki oczekiwanej" wraz z porównaniem z budżetem — wspólne dla
  * modala `VerifiedRateModal` (ruch z tablicy) i doku „Weryfikacja" na
  * stanowisku screeningu (krok 05 programu „flow w języku C2", PR 6/7).
  *
  * Makieta kroku 05 pokazuje stawkę INLINE w doku, z komunikatem „mieści się
- * w budżecie / ponad budżet" widocznym ZANIM ktoś kliknie. To ten sam
+ * w budżecie / ponad budżet" widocznym ZANIM ktoś kliknie (od 17.09.2026
+ * wyłącznie informacyjnym — nic nie trafia na „Oczekuje"). To ten sam
  * werdykt, który modal pokazuje po wpisaniu kwoty, więc pola i zdanie pod nimi
  * są jednym komponentem, a sama reguła — jedną funkcją (`evaluateRateGate`).
  */
@@ -50,21 +51,12 @@ const VERDICT_STYLE = {
     className:
       "border-success/30 bg-success-muted text-success-muted-foreground",
   },
-  // Informacja, nie blokada (bramka „Pending" wyłączona 17.09.2026).
   over_budget: {
     icon: AlertTriangle,
     className:
       "border-warning/30 bg-warning-muted text-warning-muted-foreground",
   },
-  not_comparable: {
-    icon: Info,
-    className: "border-border bg-muted/40 text-muted-foreground",
-  },
   no_budget: {
-    icon: Info,
-    className: "border-border bg-muted/40 text-muted-foreground",
-  },
-  budget_hidden: {
     icon: Info,
     className: "border-border bg-muted/40 text-muted-foreground",
   },
@@ -139,7 +131,7 @@ export function VerifiedRateFields({
             verdict.className,
           )}
           // Zmiana werdyktu w trakcie pisania musi dojść do czytnika ekranu —
-          // to jedyny sygnał, że ruch pójdzie do akceptacji zamiast przejść.
+          // to jedyny sygnał, że stawka jest ponad budżetem rekrutacji.
           role="status"
         >
           <VerdictIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -148,8 +140,8 @@ export function VerifiedRateFields({
       )}
 
       <p className="text-[11px] text-muted-foreground">
-        Porównanie idzie po jednostce miesięcznej: godzina × 168, dzień × 21.
-        Waluta inna niż PLN albo nieznana jednostka → akceptacja ręczna.
+        Porównanie z budżetem idzie po godzinie: dzień ÷ 8, miesiąc ÷ 168.
+        Waluta inna niż PLN → bez porównania. Stawka nie blokuje ruchu.
       </p>
     </div>
   );

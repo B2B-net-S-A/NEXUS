@@ -58,6 +58,7 @@ from app.schemas.job import (
     JobCollaboratorAdd,
     JobCreate,
     JobHandoffRequest,
+    JobManageInNexusRequest,
     JobOwnerAssignment,
     JobResponse,
     JobUpdate,
@@ -80,6 +81,7 @@ from app.api.recruitment_access import (
     delivery_lead_job_pairs,
     ensure_champion_job_read_visible,
     ensure_delivery_lead_job_visible,
+    ensure_job_membership,
 )
 from app.services.requirement_contract import apply_requirement_source_update
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
@@ -1936,6 +1938,69 @@ async def close_job(
     await cache_invalidate("reports:clients")
     payload = JobResponse.model_validate(job).model_dump()
     return _redact_delivery_lead_job_finance(payload, current_user)
+
+
+@router.post("/{job_id}/manage-in-nexus", response_model=JobResponse)
+async def set_job_managed_in_nexus(
+    job_id: int,
+    data: JobManageInNexusRequest,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Przełącznik „Rekrutacja prowadzona w NEXUSIE" (0324).
+
+    Osobna trasa, nie pole w PATCH: przełączenie ma własny wpis w `activities`
+    z poprzednią wartością, a formularz edycji nie może przełączyć „przy okazji".
+    Idempotentna. Wyłączenie tylko admin / delivery_lead — powrót do Traffita
+    oznacza, że najbliższy import nadpisze ruchy zrobione w NEXUSIE.
+
+    Członkostwo sprawdzane PO odczycie oferty: `ensure_job_membership` na
+    nieistniejącej ofercie daje osobie spoza ról nadzoru 403, a nie 404.
+    """
+    job = (
+        await db.execute(select(Job).where(Job.id == job_id).with_for_update())
+    ).scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await ensure_job_membership(db, current_user, job_id)
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    if job.external_source != "traffit":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Ta rekrutacja nie pochodzi z Traffita — przełącznik nie ma "
+                "zastosowania."
+            ),
+        )
+    if not data.enabled and not current_user.has_any_role(
+        UserRole.admin, UserRole.delivery_lead
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Powrót do Traffita może wykonać tylko admin lub Delivery Lead.",
+        )
+    previous = bool(job.managed_in_nexus)
+    if previous != data.enabled:
+        job.managed_in_nexus = data.enabled
+        job.managed_in_nexus_at = datetime.now(timezone.utc)
+        job.managed_in_nexus_by = current_user.id
+        db.add(
+            Activity(
+                entity_type="job",
+                entity_id=job_id,
+                action="managed_in_nexus_changed",
+                user_id=current_user.id,
+                details={"enabled": data.enabled, "previous": previous},
+            )
+        )
+        await db.commit()
+        # `updated_at` ma serwerowy `onupdate` — po UPDATE atrybut jest wygasły.
+        await db.refresh(job)
+    else:
+        # Commit, nie rollback: zwalnia blokadę FOR UPDATE, a `rollback()`
+        # wygasiłby `current_user`, którego `get_job` jeszcze używa.
+        await db.commit()
+    return await get_job(job_id=job_id, current_user=current_user, db=db)
 
 
 @router.post("/{job_id}/publish")

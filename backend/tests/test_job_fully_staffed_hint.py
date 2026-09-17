@@ -239,18 +239,14 @@ async def test_same_day_notification_about_a_candidate_with_the_job_id_does_not_
     podpowiedź, nie zatrudnienie."""
     from app.core.database import AsyncSessionLocal
     from app.models.notification import Notification, NotificationType
-    from app.models.user import User, UserRole
+
+    from app.services.job_membership import list_job_member_ids
 
     world = await _seed(headcount=1)
     async with AsyncSessionLocal() as db:
-        staff_ids = (
-            await db.execute(
-                select(User.id).where(
-                    User.role.in_([UserRole.admin, UserRole.delivery_lead, UserRole.tac]),
-                    User.is_active.is_(True),
-                )
-            )
-        ).scalars().all()
+        # Od 17.09.2026 odbiorcy to zespół TEJ rekrutacji (+ admini), nie każdy
+        # admin/DL/TAC w firmie.
+        staff_ids = await list_job_member_ids(db, world["job_id"])
         assert staff_ids
         db.add(
             Notification(
@@ -267,3 +263,42 @@ async def test_same_day_notification_about_a_candidate_with_the_job_id_does_not_
     await _hire(app_client, app_auth_headers, world)
 
     assert await _hint_count(world["job_id"]) == len(staff_ids) - 1
+
+
+async def test_hint_goes_to_the_job_team_not_every_delivery_lead(
+    app_client, app_auth_headers
+):
+    """DL spoza zespołu rekrutacji nie dostaje podpowiedzi o cudzej rekrutacji."""
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.notification import Notification, NotificationType
+    from app.models.user import User, UserRole
+
+    async with AsyncSessionLocal() as db:
+        outsider = User(
+            email=f"hint-outsider-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash=hash_password("x"),
+            name="Outsider DL",
+            role=UserRole.delivery_lead,
+            is_active=True,
+        )
+        db.add(outsider)
+        await db.commit()
+        await db.refresh(outsider)
+        outsider_id = outsider.id
+
+    world = await _seed(headcount=1)
+    await _hire(app_client, app_auth_headers, world)
+
+    async with AsyncSessionLocal() as db:
+        got_hint = await db.scalar(
+            select(Notification.id).where(
+                Notification.user_id == outsider_id,
+                Notification.related_entity_type == "job",
+                Notification.related_entity_id == world["job_id"],
+                Notification.notification_type == NotificationType.suggest_next_step,
+            )
+        )
+        assert got_hint is None

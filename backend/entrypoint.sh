@@ -4605,6 +4605,12 @@ _COLUMN_STATEMENTS = [
     "ON candidate_auto_match_log (job_id)",
     "CREATE INDEX IF NOT EXISTS ix_candidate_auto_match_log_created "
     "ON candidate_auto_match_log (created_at)",
+    # 0326: przełącznik „Rekrutacja prowadzona w NEXUSIE". Model `Job` deklaruje te
+    # kolumny — bez nich KAŻDY odczyt ofert pada na UndefinedColumnError.
+    # Lustro 1:1 z migracją — pilnuje `test_managed_in_nexus_migration_mirror.py`.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS managed_in_nexus BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS managed_in_nexus_at TIMESTAMPTZ NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS managed_in_nexus_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -7906,15 +7912,15 @@ async def repair():
 asyncio.run(repair())
 PY
 
-# Weryfikacje „Pending" (17.09.2026) — jednorazowo: bramka akceptacji stawki
-# ponad budżet jest wyłączona, a UI akceptacji usunięte, więc karty zapisane
-# wcześniej jako `pending` zostają zaliczone tak, jak zrobiłaby to ręczna
-# akceptacja (status `active` + zaliczenie pierwszego weryfikatora). Logika ORM
-# w `app/services/pending_verification_promotion.py`; marker w `app_settings`
-# + advisory lock → drugi start kończy się natychmiast. Przy włączonej bramce
-# (`PENDING_VERIFICATION_ENABLED=true`) blok nic nie robi. Log: same liczby.
+# Karty „Oczekuje" (17.09.2026) — jednorazowo: bramka akceptacji stawki ponad
+# budżet jest usunięta na stałe (razem z kolejką i jej trasami), więc KAŻDY
+# wiersz `pending` zostaje odblokowany, a wiersz etapu „Zweryfikowany" zaliczony
+# tak, jak zrobiłaby to ręczna akceptacja (pierwszy weryfikator = osoba, która
+# przesunęła kartę). Ten sam serwis woła migracja 0325; logika ORM w
+# `app/services/pending_verification_promotion.py`; marker w `app_settings` +
+# advisory lock → drugi przebieg kończy się natychmiast. Log: same liczby.
 startup_phase "repair-pending-verification-promotion"
-echo "Pending verifications: one-shot promotion to active (gate disabled)..."
+echo "Pending verifications: one-shot unblock + credit (gate retired)..."
 python - <<'PY' || echo "pending verification promotion skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem

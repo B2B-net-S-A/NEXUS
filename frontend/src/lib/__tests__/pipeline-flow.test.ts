@@ -75,7 +75,10 @@ const board: KanbanColumn[] = [
         id: 22,
         candidate_id: 122,
         stage: "verified",
-        budget_exceeded: true,
+        verification_status: "pending",
+        expected_rate_value: 200,
+        expected_rate_unit: "hourly",
+        expected_rate_currency: "PLN",
       }),
     ],
   }),
@@ -103,7 +106,9 @@ const board: KanbanColumn[] = [
         id: 51,
         candidate_id: 151,
         stage: "rejected",
-        budget_exceeded: true,
+        expected_rate_value: 200,
+        expected_rate_unit: "hourly",
+        expected_rate_currency: "PLN",
       }),
     ],
   }),
@@ -136,21 +141,24 @@ describe("selectScreeningQueue", () => {
 });
 
 describe("selectOverBudget", () => {
-  it("skanuje wszystkie kolumny nie-terminalne, nie tylko „Zweryfikowany”", () => {
-    const over = selectOverBudget(board);
+  it("porównuje stawkę z AKTUALNYM budżetem PLN/h, na kolumnach nie-terminalnych", () => {
+    const over = selectOverBudget(board, 150);
     expect(over.map((e) => e.item.id)).toEqual([22]);
   });
 
   it("pomija kolumny terminalne", () => {
-    const ids = selectOverBudget(board).map((e) => e.item.id);
+    const ids = selectOverBudget(board, 150).map((e) => e.item.id);
     expect(ids).not.toContain(51);
+  });
+
+  it("stawka w budżecie albo brak budżetu PLN/h = nikt nie jest ponad budżet", () => {
+    expect(selectOverBudget(board, 250)).toEqual([]);
+    expect(selectOverBudget(board, null)).toEqual([]);
   });
 });
 
 describe("selectVerifiedQueue", () => {
-  it("zostawia w kolejce także karty czekające na akceptację stawki", () => {
-    // Ukrycie ich zamieniłoby czekającą sprawę w niewidzialną — bramka ruchu
-    // i tak je zatrzyma, ale rekruter ma je WIDZIEĆ.
+  it("zawiera wszystkie karty z „Zweryfikowany” (także stare z `pending`)", () => {
     expect(selectVerifiedQueue(board).map((e) => e.item.id)).toEqual([21, 22]);
   });
 });
@@ -291,20 +299,8 @@ describe("moveBlockedReason", () => {
     ).toContain("Tylko do odczytu");
   });
 
-  it.each(["cv_sent", "client_interview"])(
-    "weto hiring managera blokuje „%s” — to etapy przed klientem",
-    (targetStage) => {
-      const reason = moveBlockedReason({
-        item: item({ hm_veto: veto }),
-        readOnly: false,
-        targetStage,
-      });
-      expect(reason).toContain("Brak doświadczenia w bankowości");
-    },
-  );
-
-  it.each(["verified", "screening", "acceptance", "hired", "new"])(
-    "weto hiring managera NIE blokuje „%s” — serwer egzekwuje je wyłącznie przed klientem",
+  it.each(["cv_sent", "client_interview", "verified", "screening", "acceptance", "hired", "new"])(
+    "weto hiring managera NIE blokuje „%s” — od 17.09.2026 to ostrzeżenie serwera",
     (targetStage) => {
       expect(
         moveBlockedReason({
@@ -334,20 +330,16 @@ describe("moveBlockedReason", () => {
     ).toBeNull();
   });
 
-  it("stawka ponad budżet i zapisany `pending` NIE blokują ruchu — bramka wyłączona", () => {
-    for (const card of [
-      item({ budget_exceeded: true }),
-      item({ verification_status: "pending" }),
-    ]) {
-      for (const targetStage of ["cv_sent", "verified", "hired"]) {
-        expect(
-          moveBlockedReason({ item: card, readOnly: false, targetStage }),
-        ).toBeNull();
-      }
+  it("stara karta `pending` NIE blokuje ruchu — bramka zdjęta 17.09.2026", () => {
+    const pending = item({ verification_status: "pending" });
+    for (const targetStage of ["cv_sent", "verified", "hired"]) {
+      expect(
+        moveBlockedReason({ item: pending, readOnly: false, targetStage }),
+      ).toBeNull();
     }
   });
 
-  it("karta bez weta przechodzi", () => {
+  it("karta bez weta i bez „Pending” przechodzi", () => {
     expect(
       moveBlockedReason({ item: item(), readOnly: false, targetStage: "cv_sent" }),
     ).toBeNull();
@@ -355,10 +347,8 @@ describe("moveBlockedReason", () => {
 });
 
 /**
- * Główna akcja „naprzód" doku. Do 09.2026 pętla przeskakiwała etap
- * zablokowany wetem HM i proponowała pierwszy dalszy — w „Default B2B" karta
- * z wetem przed „CV Wysłane" dostawała „Przenieś na etap: Preparation
- * Meeting", czyli objazd weta jednym kliknięciem.
+ * Główna akcja „naprzód" doku. Od 17.09.2026 weto HM nie blokuje — dok
+ * proponuje następny etap, a serwer ostrzega przy ruchu („Przenieś mimo to").
  */
 describe("primaryForwardMove", () => {
   const veto = {
@@ -379,7 +369,7 @@ describe("primaryForwardMove", () => {
     };
   }
 
-  it("karta z wetem przed „CV Wysłane” NIE dostaje objazdu na „Preparation Meeting”", () => {
+  it("karta z wetem przed „CV Wysłane” dostaje „CV Wysłane” — weto jest ostrzeżeniem", () => {
     const { columns, currentColId, item: card } = at("Wysłać do Cpro", {
       hm_veto: veto,
     });
@@ -389,38 +379,7 @@ describe("primaryForwardMove", () => {
       currentColId,
       readOnly: false,
     });
-    expect(move.target).toBeNull();
-    expect(move.blocked?.col.name).toBe("CV Wysłane");
-    expect(move.blocked?.reason).toContain("Brak doświadczenia w bankowości");
-  });
-
-  it("karta z wetem przed „Interview Klient” nie przeskakuje do „Akceptacji”", () => {
-    const { columns, currentColId, item: card } = at("Preparation Meeting", {
-      hm_veto: veto,
-    });
-    const move = primaryForwardMove({
-      item: card,
-      columns,
-      currentColId,
-      readOnly: false,
-    });
-    expect(move.target).toBeNull();
-    expect(move.blocked?.col.name).toBe("Interview Klient");
-  });
-
-  it("weto nie blokuje kroku, przed którym nie stoi etap z wetem", () => {
-    // Już na „CV Wysłane" (np. weto przyszło z innej rekrutacji tego
-    // managera): „Preparation Meeting" jest następnym krokiem, bez objazdu.
-    const { columns, currentColId, item: card } = at("CV Wysłane", {
-      hm_veto: veto,
-    });
-    const move = primaryForwardMove({
-      item: card,
-      columns,
-      currentColId,
-      readOnly: false,
-    });
-    expect(move.target?.name).toBe("Preparation Meeting");
+    expect(move.target?.name).toBe("CV Wysłane");
     expect(move.blocked).toBeNull();
   });
 
@@ -447,7 +406,7 @@ describe("primaryForwardMove", () => {
     expect(move.target?.name).toBe("Onboarding");
   });
 
-  it("brak prawa zapisu: żadnej akcji naprzód", () => {
+  it("brak prawa zapisu: żadnej akcji naprzód (jak dotąd)", () => {
     const readOnly = at("Wysłać do Cpro");
     expect(primaryForwardMove({ ...readOnly, readOnly: true })).toEqual({
       target: null,

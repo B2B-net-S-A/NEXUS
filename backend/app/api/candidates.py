@@ -3848,16 +3848,16 @@ async def set_recruitment_expected_rate(
     `CandidateStage` tej rekrutacji; odczyt w `/history` bierze ostatnią
     niepustą wartość. `rate_value=None` czyści stawkę.
 
-    Jeśli korekta przekroczy budżet requestu, zapis ponownie ustawia
-    `verification_status=pending`; akceptacja wracającej do budżetu stawki
-    przechodzi przez kanoniczne `record_accepted_verification`, dzięki czemu
-    pierwszy verifier i eligibility pozostają spójne.
+    Od 17.09.2026 korekta stawki nie uruchamia żadnej bramki budżetowej —
+    wiersz „Zweryfikowany" zostaje aktywny, a „ponad budżet" jest odznaką na
+    karcie. Kredyt pierwszego weryfikatora idzie przez kanoniczne
+    `record_accepted_verification`.
     """
     # Resource scope — jak w `client-rate` wyżej: rola dopuszcza edycję stawek
     # w ogóle, membership decyduje o KTÓREJ rekrutacji.
     await ensure_job_membership(db, current_user, job_id)
 
-    latest, job, became_pending = await update_latest_expected_rate(
+    latest, _job = await update_latest_expected_rate(
         db,
         candidate_id=candidate_id,
         job_id=job_id,
@@ -3873,19 +3873,6 @@ async def set_recruitment_expected_rate(
             else None
         ),
     )
-    if became_pending and job is not None:
-        from app.api.pipeline import _notify_pending_verification
-
-        candidate = await db.scalar(
-            select(Candidate).where(Candidate.id == candidate_id)
-        )
-        await _notify_pending_verification(
-            db,
-            stage=latest,
-            candidate=candidate,
-            job=job,
-        )
-
     await db.commit()
     await db.refresh(latest)
 

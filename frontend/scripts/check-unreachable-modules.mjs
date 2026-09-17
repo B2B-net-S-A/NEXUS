@@ -80,7 +80,7 @@ const BASELINE = new Set([
   // do usunięcia razem z decyzją, czy NEXUS ma własnego klienta mailowego.
   // Stary dashboard Delivery Leada: `app/dashboard/delivery-lead/page.tsx` to
   // dziś samo przekierowanie na `/dashboard?preset=delivery-lead`, więc cały
-  // katalog `_components` jest martwy. Usuwać osobną partią (13 plików).
+  // katalog `_components` jest martwy. Usuwać osobną partią (12 plików).
   "app/dashboard/delivery-lead/_components/DeliveryTabs.tsx",
   "app/dashboard/delivery-lead/_components/DlClientsTable.tsx",
   "app/dashboard/delivery-lead/_components/DlHeader.tsx",
@@ -88,7 +88,6 @@ const BASELINE = new Set([
   "app/dashboard/delivery-lead/_components/DlRanking.tsx",
   "app/dashboard/delivery-lead/_components/DlTrendChart.tsx",
   "app/dashboard/delivery-lead/_components/PastelKpi.tsx",
-  "app/dashboard/delivery-lead/_components/PendingVerificationsWidget.tsx",
   "app/dashboard/delivery-lead/_components/tabs/ActiveJobsTab.tsx",
   "app/dashboard/delivery-lead/_components/tabs/MyClientsTab.tsx",
   "app/dashboard/delivery-lead/_components/tabs/MyTeamTab.tsx",
@@ -100,15 +99,9 @@ const BASELINE = new Set([
   // karta zdjęta z Ustawień, komponent zachowany jako punkt zaczepienia pod
   // następną telefonię. Patrz CLAUDE.md → sekcja CloudTalk.
   "components/settings/CloudTalkSettingsCard.tsx",
-  "components/dashboard/CallStatsWidget.tsx",
   // Legacy miesięcznych statystyk i gamifikacji jest świadomie zdjęte z
   // uproszczonego dashboardu KPI/Procesy. Komponenty czekają na osobną decyzję:
   // przenieść je do Raportów albo usunąć razem z endpointem recruitment-stats.
-  "components/v2/dashboard/RecruitmentCompetitions.tsx",
-  "components/v2/dashboard/RecruitmentLinkedInPanel.tsx",
-  "components/v2/dashboard/RecruitmentStatsSection.tsx",
-  "components/v2/dashboard/RecruitmentTeamTable.tsx",
-  "components/v2/dashboard/RecruitmentTrendChart.tsx",
   "components/v2/gamification/HeroLigaMistrzow.tsx",
   "components/v2/gamification/RaceCard.tsx",
   // Wspólne zależności powyższej, zachowanej sekcji statystyk. Nie są

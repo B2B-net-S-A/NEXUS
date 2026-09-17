@@ -99,7 +99,10 @@ import {
 } from "@/components/v2/pages/kanban-shared";
 import {
  PIPELINE_GROUP_SHORT_LABEL,
+ bulkMoveSkipReason,
+ formatExpectedRate,
  groupKanbanColumns,
+ itemFullName,
  moveBlockedReason,
  primaryForwardMove,
  type PipelineColumnGroup,
@@ -121,6 +124,12 @@ import {
   invalidateAfterPipelineVersionConflict,
   isPipelineVersionConflict,
 } from "@/lib/pipeline-version-conflict";
+import {
+  eligibilityWarningReason,
+  isEligibilityWarning,
+} from "@/lib/pipeline-eligibility-warning";
+import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
+import { jobBudgetHourly as resolveJobBudgetHourly } from "@/lib/job-budget";
 
 // Re-eksport — `KanbanColumn`/`KanbanItem`/`colId`/`columnLabel`/`ScoreRing`
 // mieszkają teraz w `kanban-shared.tsx` (dok i lewy rail importują je STAMTĄD,
@@ -133,13 +142,13 @@ export { colId, columnLabel, ScoreRing };
 // ── Types ─────────────────────────────────────────────────────────────
 
 // Lustro `RECRUITMENT_RATE_EDIT_ROLES` (backend/app/api/recruitment_access.py):
-// ruch na „Zweryfikowany" zapisuje stawkę kandydata i poza tymi rolami serwer
-// odpowiada 403. Modal stawki dla innej roli kończyłby się odmową PO wpisaniu
-// kwoty, więc tablica mówi o tym przed. (Bramka „Pending" z akceptacją
-// admin/DL/HoR wyłączona 17.09.2026 — `APPROVER_ROLES` zniknęło.)
+// ruch na „Zweryfikowany" może zapisać stawkę kandydata i poza tymi rolami
+// serwer odpowiada 403. Okno stawki dla innej roli kończyłoby się odmową PO
+// wpisaniu kwoty, więc tablica mówi o tym przed. (Head of Recruitment ma
+// parytet z rekruterem od 17.09.2026.)
 const RATE_EDIT_ROLES = new Set(["admin","head_of_recruitment","delivery_lead","tac","recruiter","finance"]);
 const RATE_EDIT_DENIED_MESSAGE =
- "Ruch na „Zweryfikowany” zapisuje stawkę kandydata — mogą go wykonać: rekruter, TAC, Delivery Lead, Head of Recruitment, Finanse lub administrator.";
+ "Ruch na „Zweryfikowany” może zapisać stawkę kandydata — mogą go wykonać: rekruter, TAC, Delivery Lead, Head of Recruitment, Finanse lub administrator.";
 
 interface KanbanBoardV2Props {
  columns: KanbanColumn[];
@@ -184,11 +193,13 @@ const CATEGORY_LABEL: Record<string, string> = {
  terminal: "Terminalny",
 };
 
-// Screening Championa odpalamy przy weryfikacji kandydata (stage „verified" —
-// patrz submitVerifiedMove), NIE przy „cv_sent". Te etapy zewnętrzne zostają
-// jako dodatkowe punkty re-screeningu przed kontaktem z klientem.
+// Etapy zewnętrzne z punktem re-screeningu Championa przed kontaktem z klientem.
+// Od 17.09.2026 arkusz NIE otwiera się sam po ruchu — karta na tych etapach
+// i na „Zweryfikowany" pokazuje pigułkę „Uzupełnij screening", dopóki
+// arkusz nie jest zapisany (`screening_done`).
 const EXTERNAL_STAGES_FOR_SCREENING = new Set(["client_interview","acceptance","negotiation","onboarding",
 ]);
+const SCREENING_BADGE_STAGES = new Set([...EXTERNAL_STAGES_FOR_SCREENING, "verified"]);
 
 /** Karty, których etap nie ma kolumny w szablonie tej rekrutacji.
  *
@@ -458,6 +469,13 @@ interface CardProps {
  onOpenScreening: (stageId: number, name: string) => void;
  density: "cozy" |"compact";
  canScreen: boolean;
+ /** Arkusz screeningu na tym etapie jeszcze niezapisany (17.09.2026). */
+ screeningDue: boolean;
+ /** Scorecard tego etapu jeszcze niezapisany (17.09.2026). */
+ scorecardDue: boolean;
+ onOpenScorecard: (item: KanbanItem) => void;
+ /** Stawka z karty ponad budżet PLN/h rekrutacji — odznaka, nie blokada. */
+ overBudget: boolean;
  matchScore?: number;
  scoresLoading?: boolean;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
@@ -486,6 +504,10 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onOpenScreening,
  density,
  canScreen,
+ screeningDue,
+ scorecardDue,
+ onOpenScorecard,
+ overBudget,
  matchScore,
  scoresLoading,
  onRemoveFromRecruitment,
@@ -496,13 +518,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  dimmed,
  nextAction,
 }: CardProps) {
- // Bramka „Pending" wyłączona (17.09.2026): stawka ponad budżet to odznaka
- // informacyjna, nie stan karty. Zapisany `pending` backend raportuje jako
- // `active`, więc karta nie ma już wariantu „oczekuje na akceptację".
- const overBudget = Boolean(item.budget_exceeded);
- const overBudgetTitle = overBudget
- ? `Stawka ${item.expected_rate_value ?? "?"} ponad budżet rekrutacji ${item.budget_max_at_move ?? "?"} PLN/mc — informacja, ruch niczego nie blokuje.`
- : null;
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
  const normalizedMatchScore =
  typeof matchScore === "number" && Number.isFinite(matchScore)
@@ -542,6 +557,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  }`;
  const accessibleDetails = [
  overBudget ? "Stawka ponad budżet rekrutacji." : null,
+ screeningDue ? "Screening do uzupełnienia." : null,
+ scorecardDue ? "Scorecard do uzupełnienia." : null,
  normalizedMatchScore != null
  ? `Dopasowanie AI: ${normalizedMatchScore} na 100.`
  : scoresLoading
@@ -556,7 +573,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ? `W etapie od ${item.days_in_stage} dni.`
  : null,
  `${addedAttribution}.`,
- item.hm_veto ? "Weto hiring managera." : null,
+ item.hm_veto ? "Ostrzeżenie: weto hiring managera." : null,
  // Na końcu, nie w środku — „następny krok" jest podsumowaniem karty, a nie
  // kolejnym faktem o kandydacie.
  nextAction.kind !== "none" ? `Następny krok: ${nextAction.label}.` : null,
@@ -581,7 +598,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ]
  .filter(Boolean)
  .join(" — ")
- : overBudgetTitle;
+ : null;
 
  return (
  <div
@@ -593,8 +610,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // przy 176 px kolumny ćwierć jej szerokości na sam padding.
  density === "compact" ?"p-2" :"p-3",
  desktopOverview &&"xl:pointer-fine:min-h-[68px] xl:pointer-fine:rounded-md xl:pointer-fine:p-1 xl:pointer-fine:pb-6 xl:pointer-fine:pt-6",
- // Świadomie bez grayscale/opacity — czytałoby się jako „nieaktywny".
- // Ten kandydat jest aktywny, tylko nie dla tego managera.
+ // Świadomie bez grayscale/opacity — czytałoby się jako „nieaktywny". Ten
+ // kandydat jest aktywny; weto to ostrzeżenie (17.09.2026), nie blokada.
  item.hm_veto &&"border-destructive/50",
  // Filtr lewej kolumny nie pasuje — przyciemnij, ale zostaw w DOM-ie
  // (patrz komentarz `dimmed` w `CardProps`).
@@ -613,7 +630,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ? `W etapie: ${item.days_in_stage} dni`
  : null,
  addedAttribution,
- overBudgetTitle,
  ]
  .filter(Boolean)
  .join("\n")
@@ -637,17 +653,15 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  />
  </div>
 
- {/* Kropka bramki — jedyny sygnał hm_veto / „ponad budżet", który przeżywa gęsty
- widok pełnego pipeline'u (`desktopOverview`): tekstowe badge'e niżej na
- karcie (Weto HM / ponad budżet) są tam schowane (`xl:pointer-fine:hidden`),
+ {/* Kropka ostrzeżenia — jedyny sygnał hm_veto, który przeżywa gęsty
+ widok pełnego pipeline'u (`desktopOverview`): tekstowy badge niżej na
+ karcie (Weto HM) jest tam schowany (`xl:pointer-fine:hidden`),
  bo w tym trybie karta jest kilkunastopikselowym kafelkiem. Ta kropka
  NIE jest owinięta tym warunkiem — patrz `dołóż flagę bramki jako
  kropkę` w brief programu C2 (04 Pipeline). */}
  {gateFlagReason && (
  <span
- className={cn("absolute left-4 top-0 z-10 h-2 w-2 rounded-full ring-2 ring-card",
- item.hm_veto ?"bg-destructive" :"bg-warning"
- )}
+ className="absolute left-4 top-0 z-10 h-2 w-2 rounded-full ring-2 ring-card bg-destructive"
  title={gateFlagReason}
  aria-hidden="true"
  />
@@ -764,7 +778,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item.hm_veto.source_job_title
  ? `Rekrutacja: ${item.hm_veto.source_job_title}`
  : null,
- "Nie proponuj go temu managerowi ponownie.",
+ "Ostrzeżenie — ruch jest możliwy po potwierdzeniu.",
  ]
  .filter(Boolean)
  .join("\n")}
@@ -776,13 +790,33 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {overBudget && (
  <span
  className={cn(
- "inline-flex items-center gap-0.5 rounded px-1 text-[9px] font-semibold bg-warning/15 text-warning",
+ "inline-flex items-center gap-0.5 rounded px-1 text-[9px] font-semibold uppercase tracking-wide bg-warning/15 text-warning",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
- title={overBudgetTitle ?? undefined}
+ title={`Stawka ${formatExpectedRate(item) ?? ""} przekracza budżet godzinowy rekrutacji. Ruch nie jest blokowany.`}
  >
+ <AlertTriangle className="h-2.5 w-2.5" />
  ponad budżet
  </span>
+ )}
+ {!readOnly && scorecardDue && (
+ <button
+ type="button"
+ onClick={(e) => {
+ e.stopPropagation();
+ e.preventDefault();
+ onOpenScorecard(item);
+ }}
+ className={cn(
+ "inline-flex items-center gap-0.5 rounded px-1 text-[9px] font-semibold bg-warning/15 text-warning hover:bg-warning hover:text-white transition-colors",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title="Scorecard tego etapu — do uzupełnienia"
+ aria-label={`Uzupełnij scorecard dla ${fullName}`}
+ >
+ <Flag className="h-2.5 w-2.5" />
+ Scorecard
+ </button>
  )}
  {daysBadge && (
  <span
@@ -812,8 +846,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <NextActionRow action={nextAction} hidden={desktopOverview} />
 
  {/* Usuń z rekrutacji — akcja korekcyjna („dodano nie tego kandydata").
- Hover-revealed, żeby nie zaśmiecać karty; przesunięta niżej na kartach
- (prawy górny róg jest wolny — badge „Pending" zniknął 17.09.2026). */}
+ Hover-revealed, żeby nie zaśmiecać karty. */}
  {!readOnly && <button
  type="button"
  onClick={(e) => {
@@ -841,12 +874,18 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  e.preventDefault();
  onOpenScreening(item.id, fullName);
  }}
- className={cn("absolute bottom-1 right-1 inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold hover:bg-primary hover:text-white transition-colors", desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6 xl:pointer-fine:justify-center xl:pointer-fine:gap-0 xl:pointer-fine:p-0")}
- title="Screening Championa"
- aria-label={`Screening Championa dla ${fullName}`}
+ className={cn("absolute bottom-1 right-1 inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-semibold hover:bg-primary hover:text-white transition-colors",
+ screeningDue
+ ? "bg-warning/15 text-warning ring-1 ring-warning/40"
+ : "bg-primary/10 text-primary",
+ desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6 xl:pointer-fine:justify-center xl:pointer-fine:gap-0 xl:pointer-fine:p-0")}
+ title={screeningDue ? "Screening Championa — do uzupełnienia" : "Screening Championa"}
+ aria-label={`${screeningDue ? "Uzupełnij screening" : "Screening Championa"} dla ${fullName}`}
  >
  <Sparkles className="h-2.5 w-2.5" />
- <span className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>Screening</span>
+ <span className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>
+ {screeningDue ? "Uzupełnij screening" : "Screening"}
+ </span>
  </button>
  )}
  </div>
@@ -864,6 +903,11 @@ interface ColProps {
  density: "cozy" |"compact";
  scoreMap?: Map<number, number>;
  scoresLoading?: boolean;
+ /** Definicje etapów ze scorecardem — odznaka „Scorecard" (17.09.2026). */
+ stagesWithScorecard: Set<number>;
+ onOpenScorecard: (item: KanbanItem, col: KanbanColumn) => void;
+ /** Budżet PLN/h rekrutacji — odznaka „ponad budżet". */
+ jobBudgetHourly: number | null;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
  contactFeatureEnabled: boolean;
  desktopOverview: boolean;
@@ -892,6 +936,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  density,
  scoreMap,
  scoresLoading,
+ stagesWithScorecard,
+ onOpenScorecard,
+ jobBudgetHourly,
  onRemoveFromRecruitment,
  contactFeatureEnabled,
  desktopOverview,
@@ -1026,7 +1073,18 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onToggleSelect={onToggleSelect}
  onOpenScreening={onOpenScreening}
  density={density}
- canScreen={EXTERNAL_STAGES_FOR_SCREENING.has(item.stage)}
+ canScreen={SCREENING_BADGE_STAGES.has(item.stage)}
+ // `=== false`, nie `!`: odpowiedź bez pola (starszy serwer) nie
+ // pokazuje odznaki, której nie umie uzasadnić.
+ screeningDue={
+ SCREENING_BADGE_STAGES.has(item.stage) && item.screening_done === false
+ }
+ scorecardDue={
+ Boolean(col.stage_def_id && stagesWithScorecard.has(col.stage_def_id)) &&
+ item.scorecard_done === false
+ }
+ onOpenScorecard={(it) => onOpenScorecard(it, col)}
+ overBudget={isOverHourlyBudget(item, jobBudgetHourly)}
  matchScore={scoreMap?.get(item.candidate_id)}
  scoresLoading={scoresLoading}
  onRemoveFromRecruitment={onRemoveFromRecruitment}
@@ -1180,8 +1238,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const queryClient = useQueryClient();
  const contactFeature = useCandidateContactFeature();
  const { showActionToast, showSuccess, showError } = useToast();
- // M4 PR-03: pełny zbiór ról (primary + secondary), nie tylko primary —
- // hybrydowy TAC+DL ma widzieć akcje approvera (parity z backendem #782).
+ // Pełny zbiór ról (primary + secondary), nie tylko primary — hybryda ról
+ // widzi to, na co pozwala jej którakolwiek z nich (parity z backendem).
  const authUser = useAuthStore((s) => s.user);
  const canEditRates = getUserRoles(authUser).some((r) => RATE_EDIT_ROLES.has(r));
  const [cols, setCols] = useState(() => composeColumns(columns, offTemplate));
@@ -1216,11 +1274,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  destCol: KanbanColumn;
  srcColId: string;
  } | null>(null);
- const [jobBudgetMax, setJobBudgetMax] = useState<number | null>(null);
+ // Budżet GODZINOWY rekrutacji — ta sama liczba co nagłówek i wyszukiwanie;
+ // odznaka „ponad budżet" i okno „Zweryfikowany" porównują się z nim.
+ const [jobBudgetHourlyValue, setJobBudgetHourlyValue] = useState<number | null>(null);
  // `GET /api/jobs/{id}` liczy to tą samą funkcją co `PATCH …/client-rate`
  // (admin, DL, TAC, TCM, HoR, Finanse albo właściciel/twórca rekrutacji).
- // Reszta przenosi kartę na „CV Wysłane" bez pytania o stawkę — modal
- // kończyłby się 403 po wpisaniu kwoty.
+ // Reszta przenosi kartę na „CV Wysłane" bez pytania o stawkę — okno
+ // kończyłoby się 403 po wpisaniu kwoty.
  const [canWriteClientRate, setCanWriteClientRate] = useState(false);
 
  // Krok 04 Pipeline (flow C2, PR 3/7): dok „Karta w procesie" — trzymany po
@@ -1364,6 +1424,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  { item: KanbanItem; srcColId: string }[]
  >([]);
  const [clientRateBulkTotal, setClientRateBulkTotal] = useState(0);
+ // 409 ELIGIBILITY_WARNING (17.09.2026) — jedno okno na tablicę. `retry`
+ // powtarza ruch, który je wywołał, z `acknowledge_eligibility: true`;
+ // `onDismiss` pozwala kolejce zbiorczej pójść dalej po „Anuluj".
+ const [eligibilityWarning, setEligibilityWarning] = useState<{
+ reason: string;
+ retry: () => Promise<void>;
+ onDismiss?: () => void;
+ } | null>(null);
  const [scorecardPrompt, setScorecardPrompt] = useState<{
  candidateStageId: number;
  stageId: number;
@@ -1398,8 +1466,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }));
  try {
  const jobRes = await api.get(`/api/jobs/${jobId}`);
- const sMax = jobRes.data?.salary_max;
- setJobBudgetMax(typeof sMax === "number" ? sMax : null);
+ setJobBudgetHourlyValue(resolveJobBudgetHourly(jobRes.data));
  setCanWriteClientRate(jobRes.data?.can_write_client_rate === true);
  const tid = jobRes.data?.pipeline_template_id;
 
@@ -1547,6 +1614,15 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  syncKanbanCache();
  }, [jobId, syncKanbanCache]);
 
+ // „Anuluj" w oknie ostrzeżenia: optymistyczna karta wraca na miejsce
+ // (prawda serwera), a kolejka zbiorcza — jeśli to ona pytała — idzie dalej.
+ const dismissEligibilityWarning = useCallback(async () => {
+ const onDismiss = eligibilityWarning?.onDismiss;
+ setEligibilityWarning(null);
+ onDismiss?.();
+ await refreshBoardAfterMove();
+ }, [eligibilityWarning, refreshBoardAfterMove]);
+
  const sendMove = useCallback(
  async (
  item: KanbanItem,
@@ -1569,6 +1645,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // (`expected_state_version`). Ruchy zbiorcze przekazują `false` — bez
  // sprawdzenia, jak dotąd.
  checkVersion?: boolean;
+ // 17.09.2026: powtórka po 409 ELIGIBILITY_WARNING („Przenieś mimo to").
+ acknowledgeEligibility?: boolean;
  }
  ): Promise<boolean> => {
  try {
@@ -1590,11 +1668,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  reason?.candidateOfferResponse ?? undefined,
  expected_state_version:
  opts?.checkVersion === false ? undefined : expectedStateVersionOf(item),
+ acknowledge_eligibility: opts?.acknowledgeEligibility ? true : undefined,
  });
 
  // M4 PR-03 (audyt P1.3): backend tworzy NOWY CandidateStage — karta w
  // cache dostaje jego id + status z serwera. Bez tego kolejne akcje
- // (screening, scorecard) celowały w historyczny rekord.
+ // (screening, scorecard, accept/reject) celowały w historyczny rekord.
  const newStageId = response?.data?.id;
  const serverVerifStatus = response?.data?.verification_status;
  // F05: nowa wersja procesu — kolejny ruch z tej karty przed odświeżeniem
@@ -1656,27 +1735,50 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  );
  }
 
- // Prompt screening if moved to external-visible stage — na NOWYM id
- // (M4 PR-03: screening zapisywał się na historycznym rekordzie).
- if (EXTERNAL_STAGES_FOR_SCREENING.has(dst.stage)) {
- setScreeningPrompt({
- stageId: currentStageId,
- candidateName: `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat",
- });
+ // Od 17.09.2026 po ruchu NIE otwieramy arkuszy screeningu ani scorecardu —
+ // nowy wiersz etapu ma je puste, więc karta pokazuje odznaki
+ // „do uzupełnienia" (screening_done/scorecard_done), a arkusz otwiera się
+ // z karty albo doku, kiedy rekruter ma na to czas.
+ if (currentStageId !== item.id) {
+ setCols((prev) =>
+ prev.map((c) =>
+ colId(c) !== colId(dst)
+ ? c
+ : {
+ ...c,
+ items: c.items.map((i) =>
+ i.id === currentStageId
+ ? { ...i, screening_done: false, scorecard_done: false }
+ : i
+ ),
  }
- // Prompt scorecard if stage has one — również na nowym id.
- if (dst.stage_def_id && stagesWithScorecard.has(dst.stage_def_id)) {
- setScorecardPrompt({
- candidateStageId: currentStageId,
- stageId: currentStageId,
- stageDefId: dst.stage_def_id,
- stageName: dst.name ?? dst.stage,
- });
+ )
+ );
  }
  if (!opts?.deferCacheSync) syncKanbanCache();
  return true;
  } catch (e) {
  console.error("Move failed", e);
+ if (
+ !opts?.silent &&
+ !opts?.acknowledgeEligibility &&
+ isEligibilityWarning(e)
+ ) {
+ // Czarna lista / NDA / konkurent / weto HM: jedno pytanie, potem TEN
+ // SAM ruch z potwierdzeniem. Optymistyczna karta czeka na decyzję;
+ // „Anuluj" cofa ją prawdą serwera.
+ setEligibilityWarning({
+ reason: eligibilityWarningReason(e) ?? "Serwer ostrzega przed tym ruchem.",
+ retry: async () => {
+ setEligibilityWarning(null);
+ await sendMoveRef.current?.(item, dst, reason, {
+ ...opts,
+ acknowledgeEligibility: true,
+ });
+ },
+ });
+ return false;
+ }
  if (!opts?.silent && isPipelineVersionConflict(e)) {
  // Ktoś przesunął tę parę po odczycie tablicy: bez ponowienia —
  // pokazujemy prawdę serwera i dajemy zdecydować jeszcze raz.
@@ -1703,7 +1805,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  [
  jobId,
  queryClient,
- stagesWithScorecard,
  refreshBoardAfterMove,
  syncKanbanCache,
  showActionToast,
@@ -1711,6 +1812,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  showError,
  ]
  );
+ // Ref, nie zależność: `retry` w oknie ostrzeżenia woła NAJNOWSZĄ wersję
+ // `sendMove`, a sam `sendMove` nie może zależeć od siebie.
+ const sendMoveRef = useRef<typeof sendMove | null>(null);
+ sendMoveRef.current = sendMove;
 
  // Krok 04 Pipeline (flow C2, PR 3/7): wyodrębnione z `onDragEnd`, żeby dok
  // „Karta w procesie" mogło wołać DOKŁADNIE tę samą decyzję co przeciągnięcie
@@ -1742,7 +1847,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // wyniesieniem warunków (czysta ekstrakcja, zero zmiany logiki).
  const dialog = moveDialogFor(dst);
 
- // „Zweryfikowany" wymaga stawki (migracja 0056) — najpierw zapytaj o rate,
+ // Pending verification (migracja 0056) — najpierw zapytaj o rate,
  // dopiero potem optimistic + sendMove. NIE applyOptimistic tu, bo
  // recruiter może anulować w modalu.
  if (dialog === "verified_rate") {
@@ -1810,39 +1915,46 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  [cols, stageCols, requestMove, readOnly]
  );
 
- // Submit z modala"Zweryfikowany — podaj rate"
+ // Submit z okna „Zweryfikowany". `payload === null` = „Pomiń stawkę" (stawka
+ // opcjonalna od 17.09.2026). `acknowledge` = powtórka po 409
+ // ELIGIBILITY_WARNING; kolejka zbiorcza przesuwa się DOPIERO po decyzji.
  const submitVerifiedMove = useCallback(
- async (payload: { rate: number; unit: RateUnit; currency: string }) => {
+ async (
+ payload: { rate: number; unit: RateUnit; currency: string } | null,
+ acknowledge = false
+ ) => {
  if (!verifiedRatePrompt) return;
  const { item, destCol, srcColId } = verifiedRatePrompt;
- // Pojedynczy ruch (drag/drop) vs bulk — screening Championa otwieramy
- // tylko dla pojedynczego, żeby nie nakładać go na modal stawki kolejnego
- // kandydata z kolejki bulk.
  const isSingleMove = verifiedBulkTotal <= 1;
- let newStageId: number | null = null;
- const movedName =
- `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
+ const advanceQueue = () => {
+ const [next, ...rest] = verifiedQueue;
+ setVerifiedQueue(rest);
+ setVerifiedRatePrompt(
+ next ? { item: next.item, destCol, srcColId: next.srcColId } : null
+ );
+ };
  try {
  const res = await pipelineApi.move({
  candidate_id: item.candidate_id,
  job_id: jobId,
  stage: "verified",
  stage_def_id: destCol.stage_def_id ?? undefined,
+ ...(payload
+ ? {
  expected_rate_value: payload.rate,
  expected_rate_unit: payload.unit,
  expected_rate_currency: payload.currency,
+ }
+ : {}),
  // F05: tylko ruch pojedynczy — kolejka zbiorcza bez sprawdzenia.
  expected_state_version: isSingleMove
  ? expectedStateVersionOf(item)
  : undefined,
+ acknowledge_eligibility: acknowledge ? true : undefined,
  });
  // Backend tworzy NOWY CandidateStage — bierzemy jego id (nie stare
  // item.id), żeby screening zapisał się na świeżym etapie „verified".
- newStageId = (res?.data as { id?: number } | undefined)?.id ?? null;
- // Bramka „Pending" wyłączona (17.09.2026): ruch zawsze jest aktywny,
- // a przekroczenie budżetu to informacja z serwera.
- const budgetExceeded = res?.data?.budget_exceeded === true;
- // Zaktualizuj kolumnę z faktycznym statusem (nie zgaduj — backend wie).
+ const newStageId = (res?.data as { id?: number } | undefined)?.id ?? null;
  setCols((prev) =>
  prev.map((c) => {
  if (colId(c) === srcColId) {
@@ -1852,17 +1964,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (colId(c) === colId(destCol)) {
  const enriched: KanbanItem = {
  ...item,
- // M4 PR-03 (audyt P1.3): karta niesie id NOWEGO CandidateStage —
- // kolejne akcje przestają celować w stary rekord.
  id: newStageId ?? item.id,
  stage: destCol.stage,
  days_in_stage: 0,
  verification_status: "active",
- budget_exceeded: budgetExceeded,
- expected_rate_value: payload.rate,
- expected_rate_unit: payload.unit,
- expected_rate_currency: payload.currency,
- budget_max_at_move: jobBudgetMax,
+ expected_rate_value: payload?.rate ?? item.expected_rate_value ?? null,
+ expected_rate_unit: payload?.unit ?? item.expected_rate_unit ?? null,
+ expected_rate_currency:
+ payload?.currency ?? item.expected_rate_currency ?? null,
+ // Nowy wiersz etapu — arkusze trzeba uzupełnić od nowa (odznaki).
+ screening_done: false,
+ scorecard_done: false,
  process_state_version:
  typeof res?.data?.process_state_version === "number"
  ? res.data.process_state_version
@@ -1874,14 +1986,21 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return c;
  })
  );
- if (budgetExceeded) {
- showSuccess(
- `${movedName}: stawka przekracza budżet rekrutacji — zapisano jako informację.`
- );
- }
  syncKanbanCache();
+ advanceQueue();
  } catch (e) {
  console.error("Move to verified failed", e);
+ if (!acknowledge && isEligibilityWarning(e)) {
+ setEligibilityWarning({
+ reason: eligibilityWarningReason(e) ?? "Serwer ostrzega przed tym ruchem.",
+ retry: async () => {
+ setEligibilityWarning(null);
+ await submitVerifiedMoveRef.current?.(payload, true);
+ },
+ onDismiss: advanceQueue,
+ });
+ return;
+ }
  if (isPipelineVersionConflict(e)) {
  showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
  invalidateAfterPipelineVersionConflict(
@@ -1891,23 +2010,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  );
  await refreshBoardAfterMove();
  } else {
- // Powód odmowy serwera (403 roli, 409 czarna lista / NDA / konkurent)
- // po polsku — stałe „Nie udało się" chowało, CO trzeba zmienić.
  showError(assignErrorMessage(e));
  }
- } finally {
- // Bulk: pokaż modal stawki dla kolejnego kandydata z kolejki.
- const [next, ...rest] = verifiedQueue;
- setVerifiedQueue(rest);
- setVerifiedRatePrompt(
- next ? { item: next.item, destCol, srcColId: next.srcColId } : null
- );
- // Po udanym pojedynczym ruchu na „Zweryfikowany" otwórz screening
- // Championa dla nowo utworzonego stage'u (skip przy bulk — nie nakładamy
- // na modal stawki kolejnego kandydata).
- if (!next && isSingleMove && newStageId != null) {
- setScreeningPrompt({ stageId: newStageId, candidateName: movedName });
- }
+ advanceQueue();
  }
  },
  [
@@ -1915,14 +2020,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  verifiedQueue,
  verifiedBulkTotal,
  jobId,
- jobBudgetMax,
  queryClient,
  refreshBoardAfterMove,
  syncKanbanCache,
- showSuccess,
  showError,
  ]
  );
+ const submitVerifiedMoveRef = useRef<typeof submitVerifiedMove | null>(null);
+ submitVerifiedMoveRef.current = submitVerifiedMove;
 
  // Potwierdzone usunięcie kandydata z tej rekrutacji. Optymistycznie zdejmuje
  // kartę z kolumny, kasuje go z zaznaczenia bulk i odświeża powiązane widoki
@@ -1988,6 +2093,19 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setScreeningPrompt({ stageId, candidateName: name });
  }, []);
 
+ const handleOpenScorecard = useCallback(
+ (item: KanbanItem, col: KanbanColumn) => {
+ if (!col.stage_def_id) return;
+ setScorecardPrompt({
+ candidateStageId: item.id,
+ stageId: item.id,
+ stageDefId: col.stage_def_id,
+ stageName: col.name ?? col.stage,
+ });
+ },
+ []
+ );
+
  const handleRemoveFromRecruitment = useCallback((item: KanbanItem) => {
  setPendingRemoval(item);
  }, []);
@@ -2029,15 +2147,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const canRejectDockItem = Boolean(rejectedTemplateCol) && dockItemTerminal == null;
 
  // Pigułki „Przenieś na etap": wszystkie kolumny szablonu poza tą, na której
- // kandydat dziś stoi. Bramka liczona z DANYCH KARTY (backend nie ma endpointu
- // podglądu — egzekwuje ją WEWNĄTRZ `POST /pipeline/move`) JEDNĄ funkcją
- // `moveBlockedReason`, wspólną z warsztatami 05–07: weto
- // hiring managera wyłącznie „CV Wysłane" i „Interview Klient", a ruchy
- // wypisujące (`rejected`/`withdrawn`) omijają weto. Do 09.2026 dok trzymał
- // własną kopię z odwrotnymi regułami — „Zweryfikowany"/„Zatrudniony" przy
- // wecie były martwe. (Bramka „Pending" wyłączona 17.09.2026.)
- // Pozostałe twarde powody (czarna lista, NDA, klient konkurencyjny) nie są na
- // karcie — te kończą się 409 z polskim powodem w toaście.
+ // kandydat dziś stoi. Bramka — JEDNA funkcja `moveBlockedReason`, wspólna
+ // z warsztatami 05–07. Od 17.09.2026 blokuje wyłącznie brak prawa zapisu:
+ // weto HM, czarna lista, NDA i konkurent są ostrzeżeniem serwera, które
+ // tablica zamienia na okno „Przenieś mimo to".
  const dockMoveTargets = useMemo<PipelineMoveTarget[]>(() => {
  if (!dockItem || !dockItemColId) return [];
  return stageCols
@@ -2053,7 +2166,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return { col: c, blockedReason };
  });
  }, [dockItem, dockItemColId, stageCols, readOnly]);
- // „Odrzuć z powodem" w doku to ten sam ruch wypisujący — ta sama bramka.
+ // „Odrzuć z powodem" w doku — ta sama bramka (tylko `readOnly`).
  const dockRejectBlockedReason = useMemo(
  () =>
  dockItem
@@ -2067,9 +2180,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  [dockItem, readOnly, rejectedTemplateCol]
  );
 
- // Główna akcja doku: PIERWSZY dozwolony etap PO bieżącym w kolejności
- // szablonu — ale nigdy objazd weta HM (etap z wetem na drodze = brak akcji
- // naprzód i powód zamiast niej). Reguła mieszka w `primaryForwardMove`
+ // Główna akcja doku: PIERWSZY etap nieterminalny PO bieżącym w kolejności
+ // szablonu (weto HM nie zatrzymuje — serwer ostrzega przy ruchu). Reguła
+ // mieszka w `primaryForwardMove`
  // (`lib/pipeline-flow.ts`), obok jedynej bramki ruchu `moveBlockedReason`.
  const dockPrimaryMove = useMemo<PrimaryForwardMove | null>(() => {
  if (!dockItem || !dockItemColId) return null;
@@ -2162,11 +2275,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  return ids;
  }, [cols, groupByColId, slaDays]);
+ // „Ostrzeżenia" = weto hiring managera. Od 17.09.2026 nic nie BLOKUJE ruchu
+ // (karta „Oczekuje" nie powstaje), więc filtr pokazuje karty z ostrzeżeniem.
  const blockedCount = useMemo(
- () =>
- allItems.filter(
- (i) => Boolean(i.hm_veto)
- ).length,
+ () => allItems.filter((i) => Boolean(i.hm_veto)).length,
  [allItems]
  );
  const recruiterNames = useMemo(() => {
@@ -2184,12 +2296,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const isDimmed = useCallback(
  (item: KanbanItem) => {
  if (stuckFilter && !stuckIds.has(item.id)) return true;
- if (
- blockedFilter &&
- !item.hm_veto
- ) {
- return true;
- }
+ if (blockedFilter && !item.hm_veto) return true;
  if (noActionFilter && !noActionIds.has(item.id)) return true;
  if (recruiterFilter && item.added_to_job_by_name !== recruiterFilter) {
  return true;
@@ -2320,33 +2427,32 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (!dst || selected.size === 0) return;
  // Zaznaczone karty wraz z kolumną źródłową; karty już w celu pomijamy.
  const entries: { item: KanbanItem; srcColId: string }[] = [];
- const blockedEntries: { name: string; reason: string }[] = [];
+ const skippedEntries: { name: string; reason: string }[] = [];
  const dstTerminal = terminalOf(dst);
  for (const cid of Array.from(selected)) {
  const src = cols.find((c) => c.items.some((i) => i.candidate_id === cid));
  if (!src || colId(src) === colId(dst)) continue;
  const item = src.items.find((i) => i.candidate_id === cid)!;
- // Ta sama bramka co przeciągnięcie jednej karty — ruch zbiorczy omijał
- // ją, a zablokowana karta wracała po cichu po odmowie serwera.
- const reason = moveBlockedReason({
+ // Ruch zbiorczy nie ma okna „Przenieś mimo to" (serwer odrzuca paczkę
+ // z ostrzeżeniem), więc karty z ostrzeżeniem widocznym na karcie (weto HM
+ // na etapie klienta) POMIJAMY z wyjaśnieniem — nie liczymy ich jako
+ // nieudanych. Taką kartę przenosi się pojedynczo, z potwierdzeniem.
+ const reason = bulkMoveSkipReason({
  item,
  readOnly,
  terminal: dstTerminal === "rejected" || dstTerminal === "withdrawn",
  targetStage: dst.stage,
  });
  if (reason) {
- blockedEntries.push({
- name: `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat",
- reason,
- });
+ skippedEntries.push({ name: itemFullName(item), reason });
  continue;
  }
  entries.push({ item, srcColId: colId(src) });
  }
- if (blockedEntries.length > 0) {
+ if (skippedEntries.length > 0) {
  showError(
- `Pominięto ${blockedEntries.length} ${blockedEntries.length === 1 ? "kandydata" : "kandydatów"}: ` +
- blockedEntries.map((b) => `${b.name} — ${b.reason}`).join("; ")
+ `Pominięto ${skippedEntries.length}: ` +
+ skippedEntries.map((b) => `${b.name} — ${b.reason}`).join("; ")
  );
  }
  if (entries.length === 0) {
@@ -2354,8 +2460,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return;
  }
 
- // "Zweryfikowany" wymaga stawki per kandydat (backend: 422 bez stawki) —
- // zamiast bezpośrednich POST-ów otwórz modal stawki dla każdego po kolei.
+ // „Zweryfikowany" pyta o stawkę per kandydat (opcjonalnie — „Pomiń stawkę")
+ // → kolejka okien, jedno po drugim.
  if (dst.stage === "verified") {
  if (!canEditRates) {
  showError(RATE_EDIT_DENIED_MESSAGE);
@@ -2695,6 +2801,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  density={density}
  scoreMap={scoreMap}
  scoresLoading={scoresLoading}
+ stagesWithScorecard={stagesWithScorecard}
+ onOpenScorecard={handleOpenScorecard}
+ jobBudgetHourly={jobBudgetHourlyValue}
  onRemoveFromRecruitment={handleRemoveFromRecruitment}
  contactFeatureEnabled={contactFeature.enabled}
  desktopOverview={desktopOverview}
@@ -2728,6 +2837,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  contactFeatureEnabled={contactFeature.enabled}
  canReject={canRejectDockItem}
  rejectBlockedReason={dockRejectBlockedReason}
+ budgetHourly={jobBudgetHourlyValue}
  position={dockIndex >= 0 ? dockIndex + 1 : null}
  total={dockOrder.length}
  onSelectPrevious={() => selectAdjacentDockCard(-1)}
@@ -2834,7 +2944,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  />
  )}
 
- {/* Pending verification modal — recruiter wpisuje rate */}
+ {/* „Zweryfikowany" — stawka opcjonalna, podpowiedź z profilu kandydata */}
  {verifiedRatePrompt && (
  <VerifiedRateModal
  key={verifiedRatePrompt.item.id}
@@ -2853,8 +2963,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ? ` (${verifiedBulkTotal - verifiedQueue.length}/${verifiedBulkTotal})`
  : "")
  }
- jobBudgetMax={jobBudgetMax}
- onConfirm={submitVerifiedMove}
+ jobBudgetHourly={jobBudgetHourlyValue}
+ initialRateHourly={verifiedRatePrompt.item.candidate_expected_rate_hourly ?? null}
+ onConfirm={(payload) => void submitVerifiedMove(payload)}
+ onSkip={() => void submitVerifiedMove(null)}
  />
  )}
 
@@ -2890,8 +3002,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  <DialogTitle>Potwierdź zatrudnienie</DialogTitle>
  <DialogDescription>
  {`${hiredConfirm.item.name ??""} ${hiredConfirm.item.lastname ??""}`.trim() ||"Kandydat"}{" "}
- trafi na etap „Zatrudniony”. System utworzy szkic kontraktu i
- zamówienia dla tej rekrutacji.
+ trafi na etap „Zatrudniony”. System spróbuje założyć szkic kontraktu
+ i zamówienia; jeśli się nie uda, zatrudnienie i tak zostanie zapisane,
+ a Delivery dostanie powiadomienie z powodem.
  </DialogDescription>
  </DialogHeader>
  <DialogFooter>
@@ -2913,7 +3026,37 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </Dialog>
  )}
 
- {/* Reject verification modal — approver wpisuje notatkę */}
+ {/* 409 ELIGIBILITY_WARNING (17.09.2026) — jedno pytanie, potem ten sam ruch
+ z potwierdzeniem. Czarna lista / NDA / konkurent / weto HM nie blokują. */}
+ {eligibilityWarning && (
+ <Dialog
+ open={true}
+ onOpenChange={(v: boolean) => {
+ if (!v) void dismissEligibilityWarning();
+ }}
+ >
+ <DialogContent>
+ <DialogHeader>
+ <DialogTitle>Ostrzeżenie przed przeniesieniem</DialogTitle>
+ <DialogDescription>{eligibilityWarning.reason}</DialogDescription>
+ </DialogHeader>
+ <DialogBody>
+ <p className="text-sm text-muted-foreground">
+ Ruch jest możliwy — zapiszemy w historii, kto go potwierdził.
+ </p>
+ </DialogBody>
+ <DialogFooter>
+ <Button variant="ghost" onClick={() => void dismissEligibilityWarning()}>
+ Anuluj
+ </Button>
+ <Button onClick={() => void eligibilityWarning.retry()}>
+ Przenieś mimo to
+ </Button>
+ </DialogFooter>
+ </DialogContent>
+ </Dialog>
+ )}
+
  {/* Usuń z rekrutacji — potwierdzenie (operacja nieodwracalna) */}
  {pendingRemoval && (
  <Dialog

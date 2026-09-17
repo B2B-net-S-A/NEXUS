@@ -28,6 +28,9 @@ from __future__ import annotations
 # Konsekwencja jest znana i nieprzyjemna — edycja tytułu zaimportowanej
 # rekrutacji w NEXUSIE nadal przejdzie i nadal zostanie po cichu cofnięta.
 # Zablokowanie tego pola w UI jest osobną zmianą.
+#
+# `title`, `status`, `closed_at` nadpisywane TYLKO gdy `jobs.managed_in_nexus = false`
+# (0324, CASE w `_UPSERT_JOB`) — rekrutacja przełączona do NEXUSA je zatrzymuje.
 TRAFFIT_OWNED: frozenset[str] = frozenset(
     {
         "title",
@@ -69,6 +72,10 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         # Sync go NIE aktualizuje; datę otwarcia u klienta niesie `opened_at`.
         "created_at",
         "is_open",
+        # 0326: przełącznik i jego ślad — sync ich nie pisze, tylko czyta.
+        "managed_in_nexus",
+        "managed_in_nexus_at",
+        "managed_in_nexus_by",
         "needs_sourcing",
         "favorite_sourcing_paused",
         "description",

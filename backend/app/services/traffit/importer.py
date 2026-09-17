@@ -292,6 +292,9 @@ class PhaseProgress:
     # tematu spada do zera — inaczej rósłby w nieskończoność i przestałby
     # odpowiadać na pytanie „czy coś nowego zniknęło".
     tombstoned: int = 0
+    # Ruchy pominięte, bo oferta ma `managed_in_nexus` (0324). Osobny licznik, nie
+    # `skipped` (tamten = rekordy spoza NEXUSA) — decyzja świadoma, ma być policzalna.
+    skipped_managed: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -337,6 +340,7 @@ class PhaseProgress:
             "gone_upstream": self.gone_upstream,
             "unresolved_client": self.unresolved_client,
             "tombstoned": self.tombstoned,
+            "skipped_managed": self.skipped_managed,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -856,6 +860,15 @@ _UPDATE_CANDIDATE_ADOPT = text(
 # gotowych wyłącznie na zdalną pracę. Nowa oferta z Traffita ma teraz
 # `remote_policy IS NULL`, dopóki ktoś (człowiek albo sync Championa) go
 # nie ustawi.
+#
+# `managed_in_nexus` (0324, decyzja Artura 17.09.2026) — ten sam wzorzec co
+# `recruiter_id`↔`is_open`: rekrutacja przełączona do NEXUSA zatrzymuje `title`,
+# `status` i `closed_at` (etapy prowadzi już NEXUS, więc „zamknięta w Traffitcie"
+# nie może jej zamknąć ani przemianować). Unieważnienie wymagań jest wtedy
+# wyłączone, bo tytuł się nie zmienia — inaczej każdy bieg kasowałby kryteria
+# tylko dlatego, że Traffit ma inne brzmienie niż zatrzymany tytuł. Pozostałe
+# kolumny bez zmian: COALESCE (`deadline`, `opened_at`, `client_id`…) nadal
+# dopełnia puste pola, a `custom_fields` scala JSONB.
 _UPSERT_JOB = text(
     """
     INSERT INTO jobs (
@@ -883,14 +896,18 @@ _UPSERT_JOB = text(
     )
     ON CONFLICT (external_source, external_id) WHERE external_id IS NOT NULL
     DO UPDATE SET
-        title                = EXCLUDED.title,
+        title                = CASE WHEN jobs.managed_in_nexus THEN jobs.title
+                                   ELSE EXCLUDED.title END,
         matching_requirements = CASE
-            WHEN jobs.title IS DISTINCT FROM EXCLUDED.title THEN NULL
+            WHEN NOT jobs.managed_in_nexus
+                 AND jobs.title IS DISTINCT FROM EXCLUDED.title THEN NULL
             ELSE jobs.matching_requirements END,
         requirements_reviewed = CASE
-            WHEN jobs.title IS DISTINCT FROM EXCLUDED.title THEN false
+            WHEN NOT jobs.managed_in_nexus
+                 AND jobs.title IS DISTINCT FROM EXCLUDED.title THEN false
             ELSE jobs.requirements_reviewed END,
-        status               = EXCLUDED.status,
+        status               = CASE WHEN jobs.managed_in_nexus THEN jobs.status
+                                   ELSE EXCLUDED.status END,
         client_id            = COALESCE(EXCLUDED.client_id, jobs.client_id),
         pipeline_template_id = COALESCE(
             EXCLUDED.pipeline_template_id, jobs.pipeline_template_id
@@ -902,7 +919,8 @@ _UPSERT_JOB = text(
         ),
         deadline             = COALESCE(EXCLUDED.deadline, jobs.deadline),
         opened_at            = COALESCE(EXCLUDED.opened_at, jobs.opened_at),
-        closed_at            = EXCLUDED.closed_at,
+        closed_at            = CASE WHEN jobs.managed_in_nexus THEN jobs.closed_at
+                                   ELSE EXCLUDED.closed_at END,
         custom_fields        = jobs.custom_fields || EXCLUDED.custom_fields,
         updated_at           = NOW()
     RETURNING id, (xmax = 0) AS was_insert
@@ -2594,6 +2612,12 @@ class TraffitImporter:
         )
         return {row.external_id: row.id for row in result}
 
+    async def _build_managed_job_ids(self) -> set[int]:
+        """Oferty „prowadzone w NEXUSIE" (0324). RAZ na fazę — ~4k ofert, flaga zmienia
+        się ręcznie i rzadko; odczyt per wiersz historii (~180k) byłby N+1."""
+        rows = await self.db.execute(text("SELECT id FROM jobs WHERE managed_in_nexus"))
+        return {int(r[0]) for r in rows.fetchall()}
+
     async def _build_stage_def_lookup(
         self,
     ) -> tuple[dict[str, int], dict[str, str]]:
@@ -3440,14 +3464,16 @@ class TraffitImporter:
 
         cand_map = await self._build_candidate_external_id_map()
         job_map = await self._build_job_external_id_map()
+        managed_job_ids = await self._build_managed_job_ids()
         sd_id_map, sd_legacy_map = await self._build_stage_def_lookup()
         user_map = await self.build_user_id_map()
         withdrawn_fallback = await self._build_withdrawn_fallback_reason_map()
         logger.info(
-            "Pipelines lookups: candidates=%d jobs=%d stage_defs=%d users=%d "
-            "withdrawn_fallbacks=by_job:%d/by_stage_def:%d/default:%s",
+            "Pipelines lookups: candidates=%d jobs=%d managed=%d stage_defs=%d "
+            "users=%d withdrawn_fallbacks=by_job:%d/by_stage_def:%d/default:%s",
             len(cand_map),
             len(job_map),
+            len(managed_job_ids),
             len(sd_id_map),
             len(user_map),
             len(withdrawn_fallback.by_job),
@@ -3527,6 +3553,13 @@ class TraffitImporter:
                     continue
                 if payload is None:
                     progress.skipped += 1
+                    continue
+                # Oferta prowadzona w NEXUSIE: ruch z Traffita NIE wchodzi — tablica
+                # czyta najnowszy wiersz per (kandydat, oferta), więc zaimportowany
+                # etap nadpisałby ruch zrobiony w NEXUSIE (0324). Przed `dry_run`,
+                # żeby próbny bieg liczył tak samo.
+                if payload["job_id"] in managed_job_ids:
+                    progress.skipped_managed += 1
                     continue
                 if self.dry_run:
                     # Dry-run nie zasiewa legacy_unknown, więc nie ma sensu liczyć

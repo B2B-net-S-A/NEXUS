@@ -18,8 +18,8 @@ whole process (unlike per-user delegated tokens in
 
 Notification types (mirrored on the FE):
     candidate_added       — POST /api/candidates created a row
-    decision_accepted     — pipeline.accept_verification
-    decision_rejected     — pipeline.reject_verification
+    decision_accepted     — dawna akceptacja „Oczekuje" (trasa usunięta 17.09.2026)
+    decision_rejected     — dawne odrzucenie „Oczekuje" (trasa usunięta 17.09.2026)
     contract_signed       — contracts.finalize_contract_draft or .activate
 
 All cards link back to the relevant Nexus page via Action.OpenUrl. The base

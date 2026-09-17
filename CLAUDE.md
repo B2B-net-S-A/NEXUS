@@ -518,7 +518,8 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   409 z listą różnic (`conflicts`) i podpowiedzią `can_keep_existing_terms`.
   Drugi, jawny krok — checkbox w dialogu →
   `keep_existing_contract_terms: true` — WIĄŻE podpisaną umowę z kontraktem,
-  zapewnia zamówienie i etap „Zatrudniony", ale nie zmienia niczego, co na
+  zapewnia zamówienie (etapu kandydata NIE zmienia — od 17.09.2026 umowę
+  podpisujemy offline, a „Zatrudniony" ustawia człowiek na tablicy), ale nie zmienia niczego, co na
   kontrakcie już jest (stawka, jednostka, harmonogram, daty, szczegóły B2B).
   Puste pola nadal uzupełnia z dokumentu (`_complete_absent_terms`), z jednym
   wyjątkiem: stawki GODZINOWEJ z dokumentu nie wpisuje obok jednostki dziennej
@@ -1538,6 +1539,30 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
   bez przytrzymania kandydaci z tego biegu nigdy nie dostaliby pól z CV.
   Fazy importu rdzenia wstrzymują watermark jak dotąd.
 - **DB:** `traffit_sync_state` (PK `phase` + markery `__daily__`/`__full__`) — migracja `0136_traffit_sync_state` (na bazie `0135`).
+- **„Rekrutacja prowadzona w NEXUSIE" — `jobs.managed_in_nexus`** (migracja `0326`
+  + lustro w `_COLUMN_STATEMENTS`, decyzja Artura 17.09.2026). Powód: tablica czyta
+  NAJNOWSZY wiersz `candidate_stages` per (kandydat, oferta), a nocny import dopisuje
+  etapy każdej rekrutacji z Traffita — ruch zrobiony w NEXUSIE przegrywał nazajutrz
+  (131 z 32 872 ruchów w 90 dniach = 0,4 % powstało w NEXUSIE). Flaga PER OFERTA,
+  przełączana ręcznie, żeby przenosić zespół falami:
+  - faza `pipelines` pomija ruchy ofert z flagą (lookup `_build_managed_job_ids` RAZ
+    na fazę, pominięcie PO mapperze i PRZED `dry_run`), licznik `skipped_managed`
+    — osobny od `skipped` i obecny w OBU whitelistach statystyk (`PhaseProgress.as_dict`
+    + `_summarize`); `GET /api/admin/traffit/sync/status` niesie
+    `managed_in_nexus_jobs`;
+  - `_UPSERT_JOB` nie nadpisuje `title`/`status`/`closed_at` przełączonej oferty
+    (CASE jak `recruiter_id`↔`is_open`) i nie unieważnia wtedy wymagań (tytuł się nie
+    zmienia). `deadline`/`opened_at`/`client_id`… nadal DOPEŁNIAJĄ puste pola
+    (COALESCE), `custom_fields` scala JSONB. Kolumny flagi są w `NEXUS_OWNED`;
+  - `POST /api/jobs/{id}/manage-in-nexus` (`TacPlus` + członkostwo sprawdzane PO
+    odczycie oferty — brak oferty = 404; wyłączenie tylko admin / Delivery Lead = 403
+    dla reszty; rekrutacja spoza Traffita = 409; idempotentne) — OSOBNA trasa, nie
+    pole w PATCH: każda realna zmiana zostawia `activities.action='managed_in_nexus_changed'`
+    z poprzednią wartością, a formularz edycji nie przełączy „przy okazji";
+  - UI: `components/v2/jobs/ManagedInNexusSwitch.tsx` — baner nad tablicą dla
+    nieprzełączonych rekrutacji z Traffita (ruch dozwolony, przycisk „Przełącz do
+    NEXUSA") i chip „Prowadzona w NEXUSIE od …" w nagłówku (powrót do Traffita z chipu);
+  - `rejection_backfill` nietknięty — aktualizuje tylko powód/notatki, nie zmienia etapu.
 
 ## Self-service registration (email/password — alternatywa dla Microsoft SSO)
 
@@ -1823,14 +1848,93 @@ Raport naprawczy: `docs/manual-audit-2026-09-13-remediation-report.md`.
   treścią. Nie przywracaj nagłówka sekcji zależnego od stanu ani różnych
   `space-y` — klik trafiał w sąsiedni link (B57).
 
+## Kanban bez bramek (decyzja Artura, 17.09.2026)
+
+Tylko 0,4 % ruchów w pipeline powstawało w NEXUSIE (131 z 32 872 w 90 dniach —
+reszta z nocnego importu Traffita), a bramki zniechęcały do przeciągania kart.
+Decyzja: **żadna bramka nie blokuje przepływu** — ostrzeżenia i odznaki zamiast
+blokad. Razem z przełącznikiem „Rekrutacja prowadzona w NEXUSIE" (sekcja
+Traffit) to warunek przenoszenia zespołu z Traffita falami. Nie przywracaj
+żadnej z bramek bez decyzji właściciela.
+
+- **Brak karty „Oczekuje" — bramka usunięta NA STAŁE** (bez flagi). Ruch na
+  „Zweryfikowany" NIGDY nie ustawia `verification_status=pending` (także
+  korekta stawki `update_latest_expected_rate`) i nie wysyła
+  `pending_verification`. Stawka jest OPCJONALNA (bez niej 200, nie 422);
+  `budget_max_at_move` zostaje jako snapshot. Kolejka akceptacji nie istnieje:
+  trasy `GET /pipeline/pending-verifications` i `POST …/accept-verification` /
+  `…/reject-verification` (oraz serwisy `accept/reject_pending_verification`)
+  usunięte → 404; UI (`/pending-verifications` → przekierowanie na `/jobs`
+  w `next.config.ts`, widget DL, przyciski na karcie) usunięte. Kredyt KPI
+  pierwszego weryfikatora trafia od razu przy ruchu.
+- **Stare karty `pending`: ODBLOKOWANE i ZALICZONE, jeden kod.**
+  `services/pending_verification_promotion.py` odblokowuje KAŻDY wiersz
+  `pending` (`active` + `approved_at`, `approved_by` puste), a wiersz etapu
+  „Zweryfikowany" dodatkowo zalicza jak dawna ręczna akceptacja
+  (`promote_legacy_pending_verification` → `record_accepted_verification`,
+  weryfikator = `moved_by`). Woła go migracja `0325_pending_verification_retired`
+  (na połączeniu migracji przez `await_only`) i blok w `entrypoint.sh`;
+  wspólny znacznik `pending_verification_promotion_2026_09_17` + advisory lock.
+  **Nie dokładaj skrótu SQL `pending → active` do `_DATA_STATEMENTS`** —
+  biegnie przed blokiem promocji i zabrałby jej wiersze bez zaliczenia.
+- **„Ponad budżet" to odznaka, nie stan — liczona z AKTUALNEGO budżetu PLN/h.**
+  Front (`lib/rate-to-hourly.ts`, `isOverHourlyBudget`) porównuje stawkę na
+  karcie z `effective_budget_hourly` rekrutacji (także ze stawki Championa;
+  dzień ÷ 8, miesiąc ÷ 168, waluta ≠ PLN = brak porównania). Serwer nie liczy
+  już żadnego „budget_exceeded" (monthly `budget_max_at_move` to migawka, nie
+  budżet). Ten sam predykat: karta, dok, rail/badge w Screeningu i Wysyłce CV,
+  pigułka w Rozmowach, `selectOverBudget` i KPI. Okno „Zweryfikowany"
+  podpowiada stawkę z profilu kandydata (`candidate_expected_rate_hourly`
+  w payloadzie tablicy) i ma „Pomiń stawkę".
+- **Screening: dwie informacje zamiast kolejki akceptacji.** Nagłówek ma
+  cztery liczby („w screeningu", „ponad budżet", „z ostrzeżeniem", „do wysłania
+  CV"), a lewa kolumna dwie klikalne sekcje: „Ponad budżet"
+  (`selectOverBudget(columns, budgetHourly)`) i „Z ostrzeżeniem" (weto HM,
+  `selectWithWarning`; globalnej czarnej listy kanban nie niesie na karcie).
+- **Globalna czarna lista / weto HM = ostrzeżenie z potwierdzeniem.**
+  (Konflikty z klientem — czarna lista klienta, NDA, konkurent — od #1589 nie
+  blokują w ogóle, tylko plakietka; sekcja „Konflikty kandydat↔klient".)
+  `check_candidate_move_eligibility` (`services/pipeline_eligibility.py`): bez
+  `acknowledge_eligibility` → 409 ze strukturalnym `detail`
+  (`code: "ELIGIBILITY_WARNING"`, `reason_code`, `reason`, `message`,
+  `can_acknowledge`); z flagą ruch przechodzi i zostaje
+  `Activity(action="eligibility_acknowledged")`. Front: okno „Przenieś mimo to"
+  (`lib/pipeline-eligibility-warning.ts`; tablica i warsztat screeningu mają je
+  wbudowane, „Wysyłka CV” i „Rozmowy” przez
+  `components/v2/jobs/useEligibilityWarning.tsx` — każdy nowy ekran wysyłający
+  `/move` musi obsłużyć to ostrzeżenie, inaczej wraca bramka w postaci toastu
+  błędu). **`/bulk-move` i wejścia dodające kandydata
+  (`assert_candidate_move_eligible`) zostają twarde** — nie ma tam UI do
+  potwierdzenia. `moveBlockedReason` blokuje już wyłącznie `readOnly`. **Ruchy
+  zbiorcze na tablicy pomijają** karty z ostrzeżeniem widocznym na karcie (weto
+  HM na etapie klienta, `bulkMoveSkipReason`) z toastem „Pominięto N: nazwisko
+  — powód" — nie liczą ich jako nieudanych. Główna akcja doku nie zatrzymuje
+  się na wecie; ruch pokazuje okno ostrzeżenia.
+- **„Zatrudniony": szkic kontraktu nie cofa ruchu.** `ensure_b2b_employment_draft`
+  biegnie w savepoincie; 409/404 serwisu = zatrudnienie zostaje,
+  `Activity(contract_draft_skipped)` + powiadomienie „Nie założono szkicu
+  kontraktu" dla Delivery klienta (`emit`, dedup dzienny).
+- **Podpis umowy offline.** `services/signing/pipeline_hook.py` usunięty —
+  wysyłka, „oznacz jako wysłane" i powrót podpisanego PDF nie przesuwają kart;
+  `confirm-fully-signed` w Generatorze B2B ma `ensure_hired=False`. Kolumny
+  „Umowa wysłana"/„Umowa podpisana" są ręczne.
+- **Mail odrzucenia OPT-IN.** Serwer planuje wyłącznie przy
+  `send_rejection_email is True`; checkbox w `RejectionV2` domyślnie odznaczony.
+- **Po ruchu nie otwierają się arkusze.** Payload tablicy niesie
+  `screening_done`/`scorecard_done` (`_sheet_filled` — `{"answers": []}` to NIE
+  wypełniony arkusz); karta pokazuje „Uzupełnij screening" / „Scorecard".
+- **Podpowiedź „komplet obsady"** idzie do `list_job_member_ids` (zespół +
+  admini), nie do każdego DL/TAC w firmie.
+
 ## Pipeline rekrutacji — bramka ruchu, przekazanie CV, spójność ekranów (11.09.2026)
 
 Poprawki z przeglądu kodu spoza Codexa. Wspólny mianownik: ekran mówił co
 innego niż serwer albo nadpisywał cudzą pracę.
 
 - **Frontendowa bramka ruchu to WYŁĄCZNIE `moveBlockedReason`**
-  (`lib/pipeline-flow.ts`), lustro `/move`: karta „Oczekuje” blokuje każdy ruch,
-  także odrzucenie; weto HM blokuje tylko „CV Wysłane” i „Interview Klient”.
+  (`lib/pipeline-flow.ts`). **Od 17.09.2026 blokuje tylko `readOnly`** — karta
+  „Oczekuje” nie powstaje, a weto HM jest ostrzeżeniem serwera (sekcja
+  „Kanban bez bramek”); akapit niżej opisuje stan z 11.09.
   Były cztery kopie tej reguły (w tym `InterviewDecisionDock`) i żadna nie
   zgadzała się z serwerem. Nie dokładaj kopii — przeciąganie, przyciski i doki
   wołają tę jedną funkcję. **Główny przycisk „dalej” w doku
@@ -4177,15 +4281,9 @@ Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek
 `docs/recruiter-tools-fixes-completion-report.md`. Decyzje Artura, które łatwo
 cofnąć „przy okazji”:
 
-- **Bramka „Pending” wyłączona** (`PENDING_VERIFICATION_ENABLED=False`). Ruch na
-  „Zweryfikowany” ze stawką ponad budżet przechodzi jako `active`, a przekroczenie
-  jedzie na kartę jako informacja (`budget_exceeded`, odznaka „ponad budżet”).
-  Trasy akceptacji/odrzucenia i `/pending-verifications` odpowiadają 404, UI
-  kolejki usunięte (`/pending-verifications` → 308 na `/jobs`). Stare wiersze
-  `pending` zalicza jednorazowo `pending_verification_promotion.py` (blok
-  w `entrypoint.sh`, znacznik `pending_verification_promotion_2026_09_17`): status
-  `active` + `record_accepted_verification`, `approved_by` puste. Samo `True`
-  w Coolify NIE przywraca bramki — frontend akceptacji trzeba odtworzyć.
+- **Bramka „Oczekuje” (Pending) usunięta na stałe** — patrz sekcja „Kanban bez
+  bramek” (promocja starych kart, 404 tras kolejki, „ponad budżet” z budżetu
+  PLN/h). Nie ma flagi, którą dałoby się ją przywrócić.
 - **Head of Recruitment = parytet z rekruterem.** HoR jest w `RecruiterPlus`,
   `CANDIDATE_WRITE_ROLES` i zbiorach `recruitment_access` (ruchy, notatki,
   przypisania, pliki, kalendarz). Front bramkuje zapis na profilu capability

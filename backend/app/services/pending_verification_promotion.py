@@ -1,25 +1,26 @@
-"""Jednorazowe zaliczenie weryfikacji, które utknęły w stanie „Pending".
+"""Jednorazowe zaliczenie i odblokowanie kart, które utknęły na „Oczekuje".
 
-Decyzja Artura 17.09.2026: bramka „Pending" (stawka ponad budżet przy ruchu na
-„Zweryfikowany") jest wyłączona (`PENDING_VERIFICATION_ENABLED=False`), a UI
-akceptacji zostało usunięte. Karty zapisane wcześniej jako `pending` tablica
-pokazuje jak aktywne, ale w bazie zostawały `pending` — więc nie liczyły się do
-KPI weryfikacji i nikt nie dostawał zaliczenia pierwszego weryfikatora.
+Decyzja Artura 17.09.2026: bramka „Oczekuje" (stawka ponad budżet przy ruchu na
+„Zweryfikowany") jest usunięta NA STAŁE — ruch nigdy nie ustawia już
+`verification_status='pending'`, a kolejka akceptacji (trasy i ekrany) zniknęła.
+Wiersze zapisane wcześniej jako `pending` nie miałyby kto rozstrzygnąć, więc ten
+blok robi to raz, dla KAŻDEGO takiego wiersza:
 
-Blok robi dla każdej takiej karty dokładnie to, co robiła ręczna akceptacja
-(`accept_pending_verification`): `verification_status=active`, znacznik czasu
-akceptacji i `record_accepted_verification` z weryfikatorem = osoba, która
-przesunęła kartę. Różnice wobec akceptacji ręcznej, obie świadome:
+* każdy wiersz → `verification_status=active` + znacznik czasu akceptacji
+  (karta przestaje być zablokowana);
+* wiersz etapu „Zweryfikowany" jest dodatkowo ZALICZONY tak, jak zrobiłaby to
+  ręczna akceptacja — `record_accepted_verification` z weryfikatorem = osoba,
+  która przesunęła kartę (liczy się do KPI i do pierwszej weryfikacji);
+* wiersz innego etapu jest wyłącznie odblokowywany (to nie była weryfikacja).
 
-* `approved_by` zostaje puste — nikt tej decyzji nie podjął, podjęła ją zmiana
-  polityki; paragon w `app_settings` mówi, kiedy i ile;
-* nie wymagamy, żeby karta była aktualnym etapem procesu — karta przesunięta
-  dalej (możliwe od wyłączenia bramki) też powinna się liczyć jako weryfikacja.
+Różnice wobec dawnej ręcznej akceptacji, obie świadome: `approved_by` zostaje
+puste (decyzję podjęła zmiana polityki; paragon w `app_settings` mówi, kiedy
+i ile) i nie wymagamy, żeby karta była aktualnym etapem procesu.
 
-Uruchamiane raz z `entrypoint.sh` (alembic na prodzie bywa osierocony, a logika
-jest ORM-owa). Advisory lock + znacznik → drugi start kończy się natychmiast.
-Przy WŁĄCZONEJ bramce blok nic nie robi i nie stawia znacznika: wtedy `pending`
-ma znaczenie i akceptuje go człowiek. Paragon niesie wyłącznie liczby i ID.
+JEDEN kod dla obu kanałów: migracja `0325_pending_verification_retired` woła
+`run_pending_verification_promotion` na połączeniu migracji, a `entrypoint.sh`
+woła ją po starcie (prod alembic bywa osierocony). Advisory lock + znacznik →
+drugi przebieg kończy się natychmiast. Paragon niesie wyłącznie liczby i ID.
 """
 
 from __future__ import annotations
@@ -31,14 +32,9 @@ from typing import Any, Optional
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
-from app.models.recruitment_pipeline import (
-    CandidateStage,
-    PipelineStage,
-    VerificationStatus,
-)
+from app.models.recruitment_pipeline import CandidateStage, VerificationStatus
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +46,7 @@ async def run_pending_verification_promotion(
     *,
     only_stage_ids: Optional[set[int]] = None,
 ) -> Optional[dict[str, Any]]:
-    """Zalicz wszystkie weryfikacje `pending`. ``None`` = nic do zrobienia.
+    """Odblokuj (i zalicz) wszystkie wiersze `pending`. ``None`` = już zrobione.
 
     Wołający commituje. ``only_stage_ids`` zawęża przebieg — wyłącznie dla
     testów, które nie mogą ruszać cudzych wierszy we wspólnej bazie (i wtedy
@@ -61,8 +57,6 @@ async def run_pending_verification_promotion(
         promote_legacy_pending_verification,
     )
 
-    if settings.PENDING_VERIFICATION_ENABLED:
-        return None
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
         {"key": PROMOTION_MARKER},
@@ -72,10 +66,7 @@ async def run_pending_verification_promotion(
 
     query = (
         select(CandidateStage.id, CandidateStage.candidate_id)
-        .where(
-            CandidateStage.stage == PipelineStage.verified,
-            CandidateStage.verification_status == VerificationStatus.pending,
-        )
+        .where(CandidateStage.verification_status == VerificationStatus.pending)
         .order_by(CandidateStage.id)
     )
     if only_stage_ids is not None:
@@ -83,14 +74,14 @@ async def run_pending_verification_promotion(
     targets = (await db.execute(query)).all()
 
     now = datetime.now(timezone.utc)
-    promoted: list[int] = []
+    unblocked: list[int] = []
     credited: list[int] = []
     failed: list[int] = []
     for stage_id, candidate_id in targets:
         try:
             async with db.begin_nested():
-                # Ta sama kolejność blokad co akceptacja ręczna i `/move`
-                # (kandydat → etap), żeby nie zakleszczyć się z żywym ruchem.
+                # Ta sama kolejność blokad co `/move` (kandydat → etap), żeby
+                # nie zakleszczyć się z żywym ruchem na tej samej karcie.
                 await db.scalar(
                     select(Candidate.id)
                     .where(Candidate.id == candidate_id)
@@ -110,7 +101,7 @@ async def run_pending_verification_promotion(
                     db, stage=stage, accepted_at=now
                 ):
                     credited.append(stage_id)
-                promoted.append(stage_id)
+                unblocked.append(stage_id)
         except Exception:  # noqa: BLE001 — jeden zepsuty wiersz nie blokuje reszty
             logger.exception("pending verification promotion failed for %s", stage_id)
             failed.append(stage_id)
@@ -119,12 +110,12 @@ async def run_pending_verification_promotion(
     summary: dict[str, Any] = {
         "executed_at": now.isoformat(),
         "found": len(targets),
-        "promoted": len(promoted),
+        "unblocked": len(unblocked),
         "credited": len(credited),
         "failed": len(failed),
     }
     # Znacznik tylko po przebiegu BEZ błędów: wiersz, który padł, dostanie
-    # kolejną próbę przy następnym starcie (zaliczone już są `active`, więc
+    # kolejną próbę przy następnym starcie (odblokowane są już `active`, więc
     # ponowny przebieg ich nie dotknie).
     if only_stage_ids is None and not failed:
         db.add(
@@ -132,7 +123,8 @@ async def run_pending_verification_promotion(
                 key=PROMOTION_MARKER,
                 value={
                     **summary,
-                    "promoted_stage_ids": promoted,
+                    "unblocked_stage_ids": unblocked,
+                    "credited_stage_ids": credited,
                     "failed_stage_ids": failed,
                 },
             )

@@ -1346,6 +1346,15 @@ export interface JobQuickCounts {
   deadline_7d: number;
 }
 
+/** Pola `JobResponse`, które czyta przełącznik „prowadzona w NEXUSIE" (0324). */
+export interface JobManagedInNexus {
+  id: number;
+  external_source?: string | null;
+  managed_in_nexus?: boolean;
+  managed_in_nexus_at?: string | null;
+  managed_in_nexus_by?: number | null;
+}
+
 export const jobsApi = {
   list: (params?: Record<string, unknown>) => api.get("/api/jobs", { params }),
   /**
@@ -1381,6 +1390,9 @@ export const jobsApi = {
       reason,
       notes: notes?.trim() || null,
     }),
+  /** 0326: osobna trasa (nie PATCH) — własny wpis audytowy; `enabled=false` tylko admin/DL (403). */
+  setManagedInNexus: (id: number, enabled: boolean) =>
+    api.post<JobManagedInNexus>(`/api/jobs/${id}/manage-in-nexus`, { enabled }),
 };
 
 // ── Werdykt hiring managera (krok 07 „Rozmowy i decyzja") ────────────────────
@@ -2613,22 +2625,6 @@ export interface StageInfo {
 export type RateUnit = "hourly" | "daily" | "monthly";
 export type VerificationStatus = "active" | "pending" | "rejected";
 
-export interface PendingVerificationItem {
-  candidate_stage_id: number;
-  candidate_id: number;
-  candidate_name: string;
-  job_id: number;
-  job_title: string;
-  expected_rate_value: string | null;
-  expected_rate_unit: RateUnit | null;
-  expected_rate_currency: string | null;
-  budget_max_at_move: number | null;
-  moved_at: string;
-  moved_by: number | null;
-  moved_by_name: string | null;
-  notes: string | null;
-}
-
 export const pipelineApi = {
   stagesForJob: (jobId?: number) =>
     api.get<StageInfo[]>("/api/pipeline/stages", {
@@ -2648,19 +2644,9 @@ export const pipelineApi = {
     expected_rate_currency?: string;
     /** F05: wersja procesu z karty; rozjazd = 409 PIPELINE_VERSION_CONFLICT. */
     expected_state_version?: number;
+    /** 17.09.2026: powtórka ruchu po 409 ELIGIBILITY_WARNING („Przenieś mimo to"). */
+    acknowledge_eligibility?: boolean;
   }) => api.post("/api/pipeline/move", data),
-  listPendingVerifications: (jobId?: number) =>
-    api.get<PendingVerificationItem[]>("/api/pipeline/pending-verifications", {
-      params: jobId !== undefined ? { job_id: jobId } : undefined,
-    }),
-  listMyPendingVerifications: () =>
-    api.get<PendingVerificationItem[]>("/api/pipeline/pending-verifications", {
-      params: { mine: true },
-    }),
-  acceptVerification: (candidateStageId: number) =>
-    api.post(`/api/pipeline/${candidateStageId}/accept-verification`),
-  rejectVerification: (candidateStageId: number, note: string) =>
-    api.post(`/api/pipeline/${candidateStageId}/reject-verification`, { note }),
 };
 
 // ── Recommendations (Phase 2) ────────────────────────────────────────────────
@@ -6186,6 +6172,8 @@ export interface TraffitSyncStatus {
   enabled: boolean;
   running: boolean;
   max_row_attempts: number;
+  /** 0326: liczba ofert „prowadzonych w NEXUSIE" (import etapów je omija). */
+  managed_in_nexus_jobs?: number;
   quarantined: TraffitQuarantinedRow[];
   states: TraffitPhaseState[];
 }
