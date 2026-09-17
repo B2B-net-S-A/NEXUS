@@ -132,6 +132,10 @@ function renderCard(props: {
   group: OrderGroupRead;
   focusRequest?: OrderGroupFocusRequest | null;
   onFocusGroup?: (groupId: number) => void;
+  clientId?: number;
+  onEditLine?: (group: OrderGroupRead, line: OrderLineRead) => void;
+  onSwapLine?: (group: OrderGroupRead, line: OrderLineRead) => void;
+  onDeleteLine?: (group: OrderGroupRead, line: OrderLineRead) => void;
 }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -139,15 +143,15 @@ function renderCard(props: {
   const tree = (next: typeof props) => (
     <QueryClientProvider client={queryClient}>
       <OrderGroupCard
-        clientId={18}
+        clientId={next.clientId ?? 18}
         group={next.group}
         canManage
         canManageLifecycle
         onAddConsultant={noop}
         onEditGroup={noop}
-        onEditLine={noop}
-        onSwapLine={noop}
-        onDeleteLine={noop}
+        onEditLine={next.onEditLine ?? noop}
+        onSwapLine={next.onSwapLine ?? noop}
+        onDeleteLine={next.onDeleteLine ?? noop}
         onResolveOffboarding={noop}
         onDeleteGroup={noop}
         onCloseGroup={noop}
@@ -450,7 +454,7 @@ describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
           id: 2,
           consultant_name: "Marcin Następca",
           md_total: 190,
-          md_remaining: 36,
+          md_remaining: 206,
           md_used: 154,
           md_optional_total: 170,
           md_base_used: 154,
@@ -495,6 +499,55 @@ describe("OrderGroupCard — zakresy MD, następca i nagłówek CeZ", () => {
     // Zastąpiony: zakres podstawowy bez opcji — kursywa zamiast pustego paska.
     const replacedRow = document.getElementById("order-line-1")!;
     expect(replacedRow).toHaveTextContent("brak opcji w umowie");
+  });
+
+  it("Centrum e-Zdrowia: karta konsultanta z jawnym „pozostało” dla podstawy, opcji i łącznie", async () => {
+    const user = userEvent.setup();
+    const onEditLine = vi.fn();
+    const onSwapLine = vi.fn();
+    const onDeleteLine = vi.fn();
+    renderCard({ group: scopedGroup(), clientId: 115, onEditLine, onSwapLine, onDeleteLine });
+
+    const successorRow = document.getElementById("order-line-2")!;
+    expect(successorRow).toHaveClass("rounded-xl", "bg-card");
+    expect(successorRow.querySelector('[aria-label="Podstawa — wykorzystano MD"]')).not.toBeNull();
+    expect(successorRow.querySelector('[aria-label="Opcja — wykorzystano MD"]')).not.toBeNull();
+    expect(successorRow.querySelector('[aria-label="Łącznie — wykorzystano MD"]')).not.toBeNull();
+    // 190 − 154 = 36 w podstawie, cała opcja 170, łącznie 206 (serwerowe md_remaining).
+    expect(successorRow).toHaveTextContent(/Pozostało 36 MD/);
+    expect(successorRow).toHaveTextContent(/Pozostało 170 MD/);
+    expect(successorRow).toHaveTextContent(/154 \/ 360 MD \(43%\)/);
+    expect(successorRow).toHaveTextContent(/pozostało 206 MD/);
+    // Stary układ w tej karcie nie występuje.
+    expect(successorRow).not.toHaveTextContent(/Wykorzystano łącznie/);
+
+    // Bez opcji w umowie: komunikat zamiast paska, „Łącznie" liczy samą podstawę.
+    const replacedRow = document.getElementById("order-line-1")!;
+    expect(replacedRow).toHaveTextContent("Brak opcji w umowie");
+    expect(replacedRow.querySelector('[aria-label="Opcja — wykorzystano MD"]')).toBeNull();
+    expect(replacedRow).toHaveTextContent(/100 \/ 100 MD \(100%\)/);
+
+    // Akcje przeniesione do nagłówka karty wołają te same handlery.
+    await user.click(screen.getByRole("button", { name: "Edytuj linię — Marcin Następca" }));
+    expect(onEditLine).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 2 }));
+    await user.click(screen.getByRole("button", { name: "Zamień kontraktora — Marcin Następca" }));
+    expect(onSwapLine).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 2 }));
+    await user.click(
+      screen.getByRole("button", { name: "Usuń konsultanta z zamówienia — Marcin Następca" }),
+    );
+    expect(onDeleteLine).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 2 }));
+    expect(
+      screen.getByRole("button", { name: "Rozliczenia miesięczne — Marcin Następca" }),
+    ).toBeInTheDocument();
+  });
+
+  it("ta sama karta z zakresami u innego klienta zostaje przy dotychczasowym wierszu", () => {
+    renderCard({ group: scopedGroup(), clientId: 18 });
+    const successorRow = document.getElementById("order-line-2")!;
+    expect(successorRow).not.toHaveClass("rounded-xl");
+    expect(successorRow).toHaveTextContent(/Wykorzystano łącznie 154 \/ 360 MD 43%/);
+    expect(successorRow.querySelector('[aria-label="Łącznie — wykorzystano MD"]')).toBeNull();
+    expect(successorRow).not.toHaveTextContent(/Pozostało/);
   });
 
   it("BIK/Polkomtel bez zakresów nie zmienia się wizualnie", () => {
