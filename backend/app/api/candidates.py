@@ -4755,6 +4755,19 @@ async def delete_candidate(
         )
     ).rowcount
 
+    # Kontakt do konsultanta skopiowany na umowę (migracja 0316) MUSI zniknąć
+    # razem z osobą. Wiersz umowy celowo zostaje (wiszą na nim podpisy i
+    # faktury), ale e-mail i telefon to dokładnie te dane, których dotyczy
+    # art. 17 — zostawione tu przeżyłyby usunięcie profilu w ciszy, bo żaden
+    # ekran nie mówi, że umowa trzyma własną kopię. Osobny UPDATE, nie
+    # rozszerzenie tego wyżej: tamten jest zawężony do umów jeszcze nie
+    # ostemplowanych, a czyścić trzeba WSZYSTKIE umowy tej osoby.
+    await db.execute(
+        update(Contract)
+        .where(Contract.candidate_id == candidate_id)
+        .values(candidate_email=None, candidate_phone=None)
+    )
+
     # Odwołanie publicznych linków do WYGENEROWANYCH CV tej osoby. `cv_generated
     # _documents.candidate_id` to `SET NULL`, więc dokument (a z nim
     # `render_payload` = pełne CV) przeżywa usunięcie — a token, który go

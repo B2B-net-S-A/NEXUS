@@ -27,11 +27,13 @@ strażnika napisanego wyłącznie pod ``_pick_parties``.
 
 import ast
 import pathlib
+from decimal import Decimal
 
 import pytest
 
 from tests._ast_calls import calls_in
 from tests._contract_parties import pick_parties
+from tests._ranking_anchor import RATE_CEILING, anchor_contract, ranking_anchor
 
 TESTS_DIR = pathlib.Path(__file__).resolve().parent
 
@@ -41,6 +43,10 @@ SHARED_HELPERS: dict[str, str] = {
     "pick_parties": "tests._contract_parties",
     "_calls_in": "tests._ast_calls",
     "calls_in": "tests._ast_calls",
+    "_ranking_anchor": "tests._ranking_anchor",
+    "ranking_anchor": "tests._ranking_anchor",
+    "_anchor_contract": "tests._ranking_anchor",
+    "anchor_contract": "tests._ranking_anchor",
 }
 
 
@@ -146,3 +152,93 @@ def test_calls_in_names_the_missing_function(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("tests._ast_calls.BACKEND", tmp_path)
     with pytest.raises(AssertionError, match="nie_ma_takiej.*probe.py"):
         calls_in("probe.py", "nie_ma_takiej")
+
+
+# Reguła kotwicy rankingu — dowód idzie przez PRAWDZIWY helper (import wyżej).
+# Endpointy podmienione na atrapę, bo dowodzona własność dotyczy TEGO, którą
+# liczbę z okna helper wybiera, a nie tego, czy baza ją zwróci.
+
+
+class _FakeRankedResponse:
+    def __init__(self, rows: list[dict]) -> None:
+        self.status_code = 200
+        self.text = ""
+        self._rows = rows
+
+    def json(self) -> list[dict]:
+        return self._rows
+
+
+class _FakeRankedClient:
+    """Oba rankowane endpointy zwracają to samo okno."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+
+    async def get(self, path: str, headers=None) -> _FakeRankedResponse:
+        del path, headers
+        return _FakeRankedResponse(self._rows)
+
+
+def _window(*margins: float) -> list[dict]:
+    return [{"total_monthly_margin": m} for m in margins]
+
+
+@pytest.mark.asyncio
+async def test_ranking_anchor_targets_the_cutoff_not_the_maximum() -> None:
+    """Pojedyncza wartość odstająca NIE MOŻE windować kotwicy.
+
+    To jest dokładnie ta własność, której brak wywrócił pierwszą wersję:
+    `test_raw_analytics` zasiewa 99 999 999 dziennie w EUR (~9,4 mld po
+    normalizacji i przewalutowaniu), więc kotwica liczona od MAKSIMUM nie
+    mieściła się w `NUMERIC(16, 6)` kolumny stawki — zapis kończył się
+    przepełnieniem, a nie czerwonym testem.
+    """
+
+    rows = _window(9_400_000_000.0, *([50.0] * 19))
+    anchor = await ranking_anchor(_FakeRankedClient(rows), {}, limit=20)
+
+    assert anchor == Decimal("1050"), "kotwica ma wyjść od progu odcięcia (50)"
+    assert anchor < RATE_CEILING
+
+
+@pytest.mark.asyncio
+async def test_ranking_anchor_stays_minimal_when_the_window_is_not_full() -> None:
+    """Niepełne okno = nic nie wypada, więc kotwica nie wypycha cudzych wierszy.
+
+    Gdyby rosła i tutaj, naprawa jednego testu psułaby sąsiednie — a te pytają
+    endpointy z domyślnym oknem 20 i konkurują marżami rzędu tysięcy.
+    """
+
+    rows = _window(*([500.0] * 5))
+    assert await ranking_anchor(_FakeRankedClient(rows), {}, limit=20) == Decimal(
+        "1000"
+    )
+
+
+def test_ranking_anchor_refuses_to_guess_the_window() -> None:
+    """`limit` jest wymagany: endpoint bez `?limit=` zwraca 20, z jawnym — sto.
+
+    Kotwica policzona na innym oknie niż to, o które test potem pyta, jest cicho
+    za mała. Domyślna wartość zamieniłaby ten błąd w kolejną wędrującą flakę
+    zamiast w błąd wywołania.
+    """
+
+    with pytest.raises(TypeError):
+        ranking_anchor(_FakeRankedClient([]), {})
+
+
+def test_anchor_contract_contributes_exactly_its_margin() -> None:
+    """Kotwica wnosi JEDNĄ znaną liczbę i nie zakłada nowego kubełka roli.
+
+    Noga kosztowa albo `job_id` sprawiłyby, że wołający musi odjąć coś jeszcze
+    — a wtedy kotwica przestaje być przezroczysta dla asercji o walutach
+    (`test_contract_analytics_fx`) i dla `role_totals` (`test_contract_analytics`).
+    """
+
+    contract = anchor_contract(candidate_id=1, client_id=2, margin=Decimal("1050"))
+
+    assert contract.rate_client == Decimal("1050")
+    assert contract.rate_candidate == Decimal("0")
+    assert contract.currency == "PLN"
+    assert contract.job_id is None

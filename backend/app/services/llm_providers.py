@@ -20,6 +20,12 @@ Zamiast przepisywać każde z nich, ta warstwa robi trzy rzeczy:
   Na tych typach stoi klasyfikacja ponowień (`is_retryable_anthropic_error`),
   łańcuch fallbacków i obsługa błędów wołających — reużycie taksonomii SDK
   jest tańsze i bezpieczniejsze niż druga, równoległa hierarchia wyjątków.
+  SDK 1.x sam jeździ na ``httpx2`` (fork httpx o tym samym API), ale jego
+  wyjątki nie sprawdzają typu ``response``/``request`` — obiekty z ``httpx``
+  mają te same atrybuty (``status_code``, ``json()``), więc ta warstwa
+  zostaje przy ``httpx``, którym woła OpenAI/DeepSeek. Nie mieszaj tu
+  ``isinstance(err.response, httpx.Response)``: błąd z prawdziwego SDK
+  niesie ``httpx2.Response``.
 
 Klucze wyłącznie z env/settings. Do logów i wyjątków trafia kod HTTP i krótki
 kod błędu dostawcy — nigdy treść żądania ani klucz. Streaming, narzędzia

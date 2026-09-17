@@ -148,14 +148,12 @@ export function entryDetails(item: OrderEntryItem): string {
   return parts.join(" · ");
 }
 
+/**
+ * W Wejściach są WYŁĄCZNIE osoby nowe — stąd stała plakietka. Kontynuacje,
+ * zmiany klienta i dodatkowe projekty mają własne wiersze w Zmianach.
+ */
 export function entryTags(item: OrderEntryItem): string[] {
-  const tags: string[] = [];
-  tags.push(
-    item.is_continuation
-      ? `Kontynuacja po zam. ${item.previous_order_number ?? "—"}`
-      : "Nowy konsultant",
-  );
-  if (item.additional_project) tags.push("Dodatkowy projekt");
+  const tags = ["Nowy konsultant"];
   if (item.status === "draft") tags.push("Szkic");
   return tags;
 }
@@ -172,8 +170,6 @@ export type Tone = "neutral" | "success" | "warning" | "danger";
 
 export function exitTone(item: OrderExitItem): Tone {
   switch (item.verdict) {
-    case "continuation":
-      return "success";
     case "ended_intent":
       return "neutral";
     case "ending_pending":
@@ -193,19 +189,45 @@ export function changeTitle(item: OrderChangeItem): string {
       return "Zmiana daty końca zamówienia";
     case "additional_project":
       return "Dodatkowy projekt";
+    case "order_continuation":
+      return "Kontynuacja zamówienia";
+    case "client_change":
+      return "Zmiana klienta";
   }
+}
+
+/**
+ * „od 01.09.2026 · koszt … · przychód …" — wspólny ogon nowych zamówień.
+ * BEZ klienta i numeru zamówienia: te stoją w wierszu meta (i w osobnych
+ * kolumnach arkusza), a powtórzone czytają się jak druga, inna wartość.
+ */
+function newOrderTail(item: OrderChangeItem): string {
+  return (
+    `od ${formatDay(item.effective_date)} · koszt ` +
+    `${formatRate(item.rate_cost, item.rate_unit, item.currency)} · przychód ` +
+    `${formatRate(item.rate_revenue, item.rate_unit, item.currency)}`
+  );
+}
+
+function previousOrderLabel(item: OrderChangeItem): string {
+  if (!item.previous_order_number) return "—";
+  return `zam. ${item.previous_order_number} (do ${formatDay(item.previous_end_date)})`;
 }
 
 /** Opis zmiany: „152,00 zł/h → 170,00 zł/h" albo „31.12.2026 → bezterminowo". */
 export function changeValue(item: OrderChangeItem): string {
+  if (item.kind === "order_continuation") {
+    return `po ${previousOrderLabel(item)} · ${newOrderTail(item)}`;
+  }
+  if (item.kind === "client_change") {
+    return (
+      `z: ${item.previous_client_name ?? "—"} · ${previousOrderLabel(item)} · ` +
+      newOrderTail(item)
+    );
+  }
   if (item.kind === "additional_project") {
     const others = item.other_client_names.join(", ") || "—";
-    return (
-      `${item.client_name} od ${formatDay(item.effective_date)} · koszt ` +
-      `${formatRate(item.rate_cost, item.rate_unit, item.currency)} · przychód ` +
-      `${formatRate(item.rate_revenue, item.rate_unit, item.currency)} · ` +
-      `równolegle u: ${others}`
-    );
+    return `${newOrderTail(item)} · równolegle u: ${others}`;
   }
   if (item.kind === "end_date") {
     const before = item.old_date ? formatDay(item.old_date) : "bezterminowo";
@@ -218,9 +240,17 @@ export function changeValue(item: OrderChangeItem): string {
   );
 }
 
+const NEW_ORDER_KINDS = new Set<OrderChangeItem["kind"]>([
+  "additional_project",
+  "order_continuation",
+  "client_change",
+]);
+
 export function changeMeta(item: OrderChangeItem): string {
-  if (item.kind === "additional_project") {
-    return `zam. ${item.order_number}`;
+  if (NEW_ORDER_KINDS.has(item.kind)) {
+    // Nowe zamówienie nie ma wpisu w dzienniku — nie ma więc ani chwili
+    // wprowadzenia, ani autora; wpisanie tu „system" byłoby zmyśleniem.
+    return [item.client_name, `zam. ${item.order_number}`].join(" · ");
   }
   const who =
     item.author_name ?? (item.source === "system" ? "system" : "nieznany autor");

@@ -98,6 +98,7 @@ from app.services.b2b_contract_automation import (
     ORDER_SKIPPED_COST_CLIENT,
     ORDER_SKIPPED_OPEN_GROUP_LINE,
     ensure_b2b_employment_draft,
+    fill_candidate_contact,
     should_auto_create_order,
 )
 from app.services.b2b_contract_generator.clause_overrides import (
@@ -1476,9 +1477,64 @@ async def render_standalone(
             ),
         )
     context["b2b"]["contract_number"] = number
+    await _stamp_candidate_contact_on_contract(db, payload)
 
     data = await _render_docx_or_500(context, lang, override_key)
     return _docx_response(data, number)
+
+
+async def _stamp_candidate_contact_on_contract(
+    db: AsyncSession, payload: "B2BRenderRequest"
+) -> None:
+    """Przepisz kontakt z „Danych Partnera" na JEDNOZNACZNĄ umowę tej pary.
+
+    Ticket wymaga, żeby e-mail i telefon wpisane przy generowaniu były „danymi
+    powiązanymi z kontraktem" — a nie dopiero po podpisie.
+    ``b2b_generated_contracts.contract_id`` ustawia się wyłącznie
+    w ``confirm-fully-signed``, więc tutaj jedynym wiązaniem jest para
+    (kandydat, rekrutacja).
+
+    Trzy świadome zawężenia:
+
+    * **dokładnie jedna** nie-``void`` umowa tej pary — zero trafień albo więcej
+      niż jedno kończy się pominięciem, bo wpisanie kontaktu w zgadniętą umowę
+      jest gorsze niż jego brak (fallback do profilu i tak działa);
+    * **fill-only** — ręczna poprawka Delivery wygrywa z dokumentem;
+    * **fail-soft** — to poboczny efekt pobrania DOCX. Awaria tutaj nie może
+      zabrać użytkownikowi wygenerowanego dokumentu, za który już zapłacił
+      czasem; zostaje log i fallback do profilu.
+    """
+
+    if payload.candidate_id is None or payload.job_id is None:
+        return
+    if not (payload.partner_email or payload.partner_phone):
+        return
+    try:
+        rows = (
+            (
+                await db.execute(
+                    select(Contract)
+                    .where(
+                        Contract.candidate_id == payload.candidate_id,
+                        Contract.job_id == payload.job_id,
+                        Contract.status != ContractStatus.void,
+                    )
+                    .limit(2)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if len(rows) != 1:
+            return
+        if fill_candidate_contact(rows[0], payload):
+            await db.commit()
+    except Exception:  # noqa: BLE001 — treść błędu może nieść dane umowy
+        await db.rollback()
+        logger.warning(
+            "b2b render: candidate contact stamp skipped (%s)",
+            "unexpected_error",
+        )
 
 
 def _like_needle(raw: str) -> str:
