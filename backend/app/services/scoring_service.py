@@ -11,11 +11,15 @@ Layered scoring — each layer returns points that add up to 100:
 
 Penalties zero the score:
   blacklist            -100  Candidate.status == blacklisted
-  active_conflict      -100  CandidateConflict.active == True for this (candidate, client)
-  client_excluded      -100  client_id in Candidate.preferences.excluded_clients
+
+Warnings do NOT change the score (decision of 17.09.2026 — a client conflict is
+a warning, not a block; zeroing it would push the candidate under
+RECOMMENDATION_MIN_SCORE and make the decision invisible):
+  active_conflict      CandidateConflict active AND not expired for (candidate, client)
+  client_excluded      client_id in Candidate.preferences.excluded_clients
 
 Explainable: every call returns a ScoreBreakdown with per-layer points, matched/gap
-lists, and active penalties so the UI can render a "why" tooltip.
+lists, active penalties and warnings so the UI can render a "why" tooltip.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import Any, Iterable, List, Optional, Sequence
 
@@ -32,9 +36,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.candidate import Candidate, CandidateStatus
-from app.models.candidate_conflict import CandidateConflict
+from app.models.candidate_conflict import CandidateConflict, active_unexpired_clause
 from app.models.job import Job
 from app.services import champion_view
+from app.services.candidate_job_eligibility import extract_excluded_client_ids
 from app.services.champion_job_sync import champion_work_mode_to_remote
 from app.services.location_utils import location_tokens, tokens_overlap
 
@@ -377,6 +382,9 @@ class ScoreBreakdown:
     matching_nice: List[str] = field(default_factory=list)
     gap_nice: List[str] = field(default_factory=list)
     penalties: List[str] = field(default_factory=list)
+    # Soft signals that do NOT touch `total` (17.09.2026): `active_conflict`
+    # (client blacklist / NDA / competitor, not expired) and `client_excluded`.
+    warnings: List[str] = field(default_factory=list)
     # Phase 10: Champion screening layer — defaults to the neutral
     # benefit-of-the-doubt budget when there is no screening yet (recruiter
     # hasn't answered DL's questions). Governed by the same UNKNOWN_NEUTRAL_
@@ -447,6 +455,7 @@ class ScoreBreakdown:
             "matching_nice": self.matching_nice,
             "gap_nice": self.gap_nice,
             "penalties": self.penalties,
+            "warnings": self.warnings,
             "historical_boost": round(self.historical_boost, 1),
             "historical_sources_count": self.historical_sources_count,
             "fit_confidence": self.fit_confidence,
@@ -1545,8 +1554,8 @@ class JobScoringContext:
     """Everything ``score_candidate_job`` would otherwise fetch per pair.
 
     Two layers issue one SELECT each per (candidate, job): champion_fit reads the
-    newest screened stage, and the penalty check reads the active client
-    conflict. Scoring a cold pool is therefore 2N round-trips — 400 for today's
+    newest screened stage, and the warning check reads the active, non-expired
+    client conflict. Scoring a cold pool is therefore 2N round-trips — 400 for today's
     pool of 200, and 2 000 for the 1 000-row pool the retrieval ceiling calls
     for. Building this once turns 2N into 2.
 
@@ -1602,7 +1611,7 @@ async def build_job_scoring_context(
                     select(CandidateConflict.candidate_id).where(
                         CandidateConflict.candidate_id.in_(ids),
                         CandidateConflict.client_id == job.client_id,
-                        CandidateConflict.active.is_(True),
+                        active_unexpired_clause(datetime.now(timezone.utc)),
                     )
                 )
             ).all()
@@ -1628,7 +1637,7 @@ async def build_jobs_scoring_contexts(
 
     Row choice mirrors the per-pair path exactly: newest ``moved_at`` (then
     ``id``) among stages with screening answers, per (candidate, job); a
-    conflict is any active row for (candidate, job.client_id).
+    conflict is any active, non-expired row for (candidate, job.client_id).
     """
     from app.models.recruitment_pipeline import CandidateStage
 
@@ -1675,7 +1684,7 @@ async def build_jobs_scoring_contexts(
                 ).where(
                     CandidateConflict.candidate_id.in_(ids),
                     CandidateConflict.client_id.in_(client_ids),
-                    CandidateConflict.active.is_(True),
+                    active_unexpired_clause(datetime.now(timezone.utc)),
                 )
             )
         ).all():
@@ -1777,42 +1786,51 @@ async def _score_champion_fit(
     )
 
 
-async def _check_penalties(
+async def _check_penalties_and_warnings(
     candidate: Candidate,
     job: Job,
     db: AsyncSession,
     context: Optional[JobScoringContext] = None,
-) -> List[str]:
+) -> tuple[List[str], List[str]]:
+    """``(penalties, warnings)`` for one pair.
+
+    Only the global blacklist is a penalty (zeroes ``total``). A candidate-
+    excluded client and an active, non-expired client conflict are warnings
+    since 17.09.2026 — the same soft signals the eligibility policy
+    (``candidate_job_eligibility``) surfaces as a badge.
+    """
     penalties: List[str] = []
+    warnings: List[str] = []
 
     if candidate.status == CandidateStatus.blacklisted:
         penalties.append("blacklist")
 
-    # Preferences.excluded_clients
-    prefs = getattr(candidate, "preferences", None) or {}
-    if isinstance(prefs, dict):
-        excluded = prefs.get("excluded_clients") or []
-        if job.client_id and job.client_id in excluded:
-            penalties.append("client_excluded")
+    # Preferences.excluded_clients — ints and digit-strings, like the policy.
+    if job.client_id and job.client_id in extract_excluded_client_ids(
+        getattr(candidate, "preferences", None)
+    ):
+        warnings.append("client_excluded")
 
-    # Active conflict for this (candidate, client)
+    # Active, non-expired conflict for this (candidate, client)
     if job.client_id:
         if context is not None:
             has_conflict = candidate.id in context.conflicted_candidate_ids
         else:
             has_conflict = bool(
                 await db.scalar(
-                    select(CandidateConflict.id).where(
+                    select(CandidateConflict.id)
+                    .where(
                         CandidateConflict.candidate_id == candidate.id,
                         CandidateConflict.client_id == job.client_id,
-                        CandidateConflict.active.is_(True),
+                        active_unexpired_clause(datetime.now(timezone.utc)),
                     )
+                    .limit(1)
                 )
             )
         if has_conflict:
-            penalties.append("active_conflict")
+            warnings.append("active_conflict")
 
-    return penalties
+    return penalties, warnings
 
 
 # ── Public API ──────────────────────────────────────────────────────────────
@@ -1897,8 +1915,10 @@ async def score_candidate_job(
         if base_fit
         else await _score_champion_fit(candidate, job, db, profile, context=context)
     )
-    penalties = (
-        [] if base_fit else await _check_penalties(candidate, job, db, context=context)
+    penalties, score_warnings = (
+        ([], [])
+        if base_fit
+        else await _check_penalties_and_warnings(candidate, job, db, context=context)
     )
 
     layers = (semantic, skills, salary, location, availability, champion_fit)
@@ -1958,6 +1978,7 @@ async def score_candidate_job(
             "location_points": round(location.points, 2),
             "availability_points": round(availability.points, 2),
             "penalties_count": len(penalties),
+            "warnings_count": len(score_warnings),
             "seniority_note": seniority_reason,
             "must_matched": len(must_match),
             "must_missing": len(must_gap),
@@ -1981,6 +2002,7 @@ async def score_candidate_job(
         matching_nice=nice_match,
         gap_nice=nice_gap,
         penalties=penalties,
+        warnings=score_warnings,
         fit_confidence=compute_fit_confidence(candidate, job),
     )
 

@@ -9,7 +9,7 @@ without a second roundtrip.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -62,6 +62,11 @@ class HistoricalCandidateOut(BaseModel):
     # Ten sam klient go odrzucił / kandydat się wycofał — UI pokazuje mocne
     # ostrzeżenie i wyklucza z "zaznacz wszystkich".
     rejected_by_same_client: bool = False
+    # Plakietka dopuszczalności (``services/eligibility_annotation.py``) —
+    # konflikt z klientem (blacklist / NDA / konkurent), obecne zatrudnienie,
+    # wykluczenie. Od 17.09.2026 to ostrzeżenia: kandydat zostaje na liście
+    # i da się go przypisać. ``None`` = brak przeciwwskazań.
+    eligibility: Optional[dict[str, Any]] = None
 
 
 class HistoricalCandidatesMeta(BaseModel):
@@ -75,10 +80,12 @@ class HistoricalCandidatesMeta(BaseModel):
     Osobne pole, świadomie NIE kształt `{over_budget, remote_only}` znany
     z `meta.hidden` w `/recommendations`: tam liczniki opisują DEALBREAKERY
     (świadomie włączone przełączniki rekrutera), a tu wycina ZAWIERANIE —
-    blacklista klienta, NDA, konflikt konkurencyjny, weto hiring managera.
+    globalna czarna lista albo weto hiring managera. Konflikty z klientem
+    (blacklist / NDA / konkurent) od 17.09.2026 nie wycinają — kandydat
+    zostaje z plakietką w ``eligibility``.
     Inna decyzja, inne prawo do informacji, inny tekst w UI.
 
-    Liczba nie mówi KTO i mówić nie może (to byłby przeciek NDA). Mówi, że dane
+    Liczba nie mówi KTO. Mówi, że dane
     ISTNIEJĄ i są zablokowane — czyli zamienia „nic tu nie ma" w „są, ale nie
     dla tego klienta". Ta sekcja z definicji celuje w ludzi rozważanych już
     u TEGO klienta, więc będzie pusta dokładnie tam, gdzie historia jest

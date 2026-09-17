@@ -53,7 +53,8 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
               {r.stale && " — dane zmienione"}
             </li>)}
           </ul>
-          {row.eligibility && <p className="text-sm text-amber-700">{row.eligibility.reason}</p>}
+          {/* Konflikt z klientem = ostrzeżenie (17.09.2026); czerwień tylko dla weta HM. */}
+          {row.eligibility && <p className={row.eligibility.assignment_allowed === false ? "text-sm text-destructive" : "text-sm text-warning-muted-foreground"}>{row.eligibility.reason}</p>}
           {jobId && canVerify && onVerified && <RequirementVerificationDialog jobId={jobId} candidateId={row.candidate.id} candidateName={[row.candidate.name, row.candidate.lastname].filter(Boolean).join(" ")} onSaved={onVerified} />}
           {canOpenProfile && <Link className={buttonVariants({ variant: "outline" })} href={`/candidates/${row.candidate.id}?from=talent-radar`}>Otwórz profil</Link>}
         </article>)}

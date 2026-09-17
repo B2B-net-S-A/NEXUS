@@ -6,7 +6,7 @@
  * empty arrays / nulls), but renaming or changing types must be coordinated.
  */
 
-import { api } from "@/lib/api";
+import { api, type MatchEligibility } from "@/lib/api";
 import type { MatchBreakdown } from "@/lib/match-breakdown";
 
 export type SortMode = "relevance" | "recent" | "name";
@@ -107,6 +107,13 @@ export interface CandidateSearchItem {
   is_champion: boolean;
   created_at: string | null;
   updated_at: string | null;
+  /**
+   * Eligibility against the recruitment in context — present ONLY when the
+   * search ran with `exclude_in_job_id`, and only for non-eligible candidates
+   * (client conflict, current employment, hiring-manager veto…). A client
+   * conflict is a warning (`assignment_allowed: true`); only a veto blocks.
+   */
+  eligibility?: MatchEligibility | null;
 }
 
 export interface CompetenceCategoryFacet {
@@ -218,12 +225,19 @@ export type BulkSkipReason =
   | "already_in_job"
   | "blacklisted"
   | "candidate_not_found"
+  | "rejected_by_hiring_manager";
+
+/**
+ * Candidates that WERE added but carry a soft warning. Client conflicts
+ * (blacklist / NDA / competitor) moved here from skip reasons on 17.09.2026 —
+ * a client conflict is a warning, not a block.
+ */
+export type BulkWarningReason =
   | "client_blacklist"
   | "client_nda"
   | "client_competitor"
-  | "rejected_by_hiring_manager";
-
-export type BulkWarningReason = "current_employment" | "excluded_by_candidate";
+  | "current_employment"
+  | "excluded_by_candidate";
 
 /** The screen an add came from — mirror of `BulkAddSource` in `proposals_bulk.py`. */
 export type BulkAddSource =

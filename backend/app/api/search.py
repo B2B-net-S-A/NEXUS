@@ -4,13 +4,15 @@
 import hashlib
 import json
 import time
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.recruitment_access import ensure_job_read_access
 from app.api.candidate_access import CandidateSearchAccess, user_has_candidate_read
 from app.api.deps import CurrentUser
 from app.core.database import get_db
@@ -35,6 +37,7 @@ from app.schemas.candidate_search import (
 )
 from app.services.advanced_candidate_search import build_advanced_filter
 from app.services.ai_health import ai_status
+from app.services.eligibility_annotation import eligibility_annotation
 from app.services.candidate_profile_rate import canonical_profile_rate_amount
 from app.services.client_access import resolve_client_visible_client_ids
 from app.services.client_identity import (
@@ -43,6 +46,7 @@ from app.services.client_identity import (
     resolve_visible_client,
     visible_client_predicates,
 )
+from app.services.pipeline_eligibility import evaluate_candidates_for_job
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -136,7 +140,9 @@ def _fts_rank_order() -> Any:
     )
 
 
-def _candidate_to_item(c: Candidate, score: float) -> CandidateSearchItem:
+def _candidate_to_item(
+    c: Candidate, score: float, eligibility: Optional[dict[str, Any]] = None
+) -> CandidateSearchItem:
     profile_rate = canonical_profile_rate_amount(
         c.expected_rate_hourly,
         c.expected_rate_currency,
@@ -171,7 +177,38 @@ def _candidate_to_item(c: Candidate, score: float) -> CandidateSearchItem:
         is_champion=bool(c.champion),
         created_at=c.created_at.isoformat() if c.created_at else None,
         updated_at=c.updated_at.isoformat() if c.updated_at else None,
+        eligibility=eligibility,
     )
+
+
+async def _page_eligibility(
+    db: AsyncSession, job_id: int, candidates: list[Candidate]
+) -> dict[int, dict[str, Any]]:
+    """Eligibility badges for one result page in a recruitment context.
+
+    Same policy and badge as the AI ranking (``pipeline_eligibility`` +
+    ``eligibility_annotation``): a client conflict / current employment is a
+    warning, a hiring-manager veto blocks. Only the page's rows are evaluated
+    — a handful of batched queries, not the whole filtered set. A job that
+    does not exist yields no badges (the search itself still answers).
+    """
+    if not candidates:
+        return {}
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if job is None:
+        return {}
+    decisions = await evaluate_candidates_for_job(
+        db,
+        job=job,
+        candidate_ids=[c.id for c in candidates],
+        now=datetime.now(timezone.utc),
+    )
+    out: dict[int, dict[str, Any]] = {}
+    for cid, decision in decisions.items():
+        ann = eligibility_annotation(decision)
+        if ann is not None:
+            out[cid] = ann
+    return out
 
 
 async def _competence_facets(
@@ -600,7 +637,22 @@ async def advanced_candidate_search(
     # Computing the score requires a second query if we want it on a populated
     # set — skip it for now since the postgres-side ORDER BY already returns
     # rows in score-descending order.
-    items = [_candidate_to_item(c, 0.0) for c in candidates]
+    eligibility_by_id: dict[int, dict[str, Any]] = {}
+    if body.exclude_in_job_id is not None:
+        # Plakietki niosą werdykt hiring managera tej rekrutacji — dane, które
+        # gdzie indziej stoją za `ensure_job_read_access`. Bez dostępu do
+        # rekrutacji wyszukiwarka odpowiada normalnie, tylko bez plakietek.
+        try:
+            await ensure_job_read_access(db, current_user, body.exclude_in_job_id)
+        except HTTPException:
+            pass
+        else:
+            eligibility_by_id = await _page_eligibility(
+                db, body.exclude_in_job_id, list(candidates)
+            )
+    items = [
+        _candidate_to_item(c, 0.0, eligibility_by_id.get(c.id)) for c in candidates
+    ]
 
     facets_clause = where_clause  # facets reflect current filter set
     facets = SearchFacets(

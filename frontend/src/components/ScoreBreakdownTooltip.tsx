@@ -4,6 +4,12 @@ import { useState } from "react";
 import { Info } from "lucide-react";
 import type { ScoreBreakdown } from "@/lib/api";
 
+/** Etykiety miękkich ostrzeżeń scoringu (`breakdown.warnings`). */
+const WARNING_LABELS: Record<string, string> = {
+  active_conflict: "aktywny konflikt z klientem",
+  client_excluded: "kandydat wykluczył tego klienta",
+};
+
 interface Props {
   breakdown: ScoreBreakdown;
   compact?: boolean;
@@ -95,6 +101,18 @@ export function ScoreBreakdownTooltip({ breakdown, compact }: Props) {
           {breakdown.penalties.length > 0 && (
             <div className="mt-2 rounded bg-destructive/10 dark:bg-destructive/15 border border-destructive/20 dark:border-red-800 p-2 text-xs text-destructive dark:text-red-300">
               ⛔ Penalties: {breakdown.penalties.join(", ")}
+            </div>
+          )}
+
+          {/* Od 17.09.2026 konflikt z klientem nie zeruje wyniku — trafia
+              tu jako ostrzeżenie. */}
+          {(breakdown.warnings?.length ?? 0) > 0 && (
+            <div
+              className="mt-2 rounded border border-warning/25 bg-warning-muted p-2 text-xs text-warning-muted-foreground"
+              data-testid="score-breakdown-warnings"
+            >
+              Ostrzeżenia:{" "}
+              {breakdown.warnings!.map((w) => WARNING_LABELS[w] ?? w).join(", ")}
             </div>
           )}
 

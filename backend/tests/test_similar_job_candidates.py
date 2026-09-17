@@ -821,15 +821,16 @@ async def test_flags_default_false_without_target_client() -> None:
 # ── Bramka dopuszczalności na endpoincie (2026-08-20) ────────────────────────
 #
 # `_rank_candidates_from_similar` odsiewa wyłącznie blacklistę GLOBALNĄ i nie ma
-# dostępu do `job`, więc aktywny konflikt z klientem TEJ oferty (blacklista
-# klienta, NDA, konkurent) oraz weto hiring managera przechodziły przez tę
-# sekcję na wylot. A to sekcja, która z definicji celuje w ludzi już
-# rozważanych u tego klienta — czyli w populację, w której takie blokady
-# siedzą najgęściej.
+# dostępu do `job`, więc weto hiring managera przechodziło przez tę sekcję na
+# wylot. Bramka stoi na endpoincie.
 #
-# Testy patchują `fetch_historical_candidates` (bo ranking wymaga Qdranta), ale
-# kandydaci i konflikty są PRAWDZIWYMI wierszami — bramka biegnie po realnym
-# `candidate_conflicts`, czyli po ścieżce, na której siedział defekt.
+# Od 17.09.2026 konflikt z klientem (blacklista klienta / NDA / konkurent) jest
+# OSTRZEŻENIEM: kandydat zostaje w sekcji z plakietką `eligibility`. Wycinani
+# są tylko twardo zablokowani — globalna czarna lista i weto HM.
+#
+# Testy patchują `fetch_historical_candidates` (bo ranking wymaga Qdranta), więc
+# globalnie zablokowany kandydat z serwisu dociera do bramki endpointu — to on
+# jest tu „zablokowanym". Kandydaci i konflikty są PRAWDZIWYMI wierszami.
 
 
 def _hist_candidate(candidate_id: int) -> sjc.HistoricalCandidate:
@@ -855,8 +856,11 @@ def _hist_candidate(candidate_id: int) -> sjc.HistoricalCandidate:
     )
 
 
-async def _seed_job_with_candidates(*, blocked_count: int, total: int = 2):
-    """Klient + oferta + `total` kandydatów, z czego `blocked_count` z NDA."""
+async def _seed_job_with_candidates(
+    *, blocked_count: int, total: int = 2, nda_count: int = 0
+):
+    """Klient + oferta + `total` kandydatów: pierwszych `blocked_count` na
+    globalnej czarnej liście, kolejnych `nda_count` z aktywnym NDA u klienta."""
     import uuid as _uuid
 
     from app.core.database import AsyncSessionLocal
@@ -879,19 +883,23 @@ async def _seed_job_with_candidates(*, blocked_count: int, total: int = 2):
         )
         db.add(job)
         cands = [
-            # Status `active`, NIE `blacklisted`: globalną blacklistę odsiewa już
-            # serwis, więc taki seed nie dowodziłby niczego o nowej bramce.
+            # Serwis rankingu jest patchowany, więc globalna blacklista dociera
+            # do bramki endpointu i to ona dowodzi, że bramka wycina.
             Candidate(
                 name=f"Hist{i}",
                 lastname=f"Kandydat{unique}",
                 email=f"hist-{i}-{unique}@example.com",
-                status=CandidateStatus.active,
+                status=(
+                    CandidateStatus.blacklisted
+                    if i < blocked_count
+                    else CandidateStatus.active
+                ),
             )
             for i in range(total)
         ]
         db.add_all(cands)
         await db.flush()
-        for c in cands[:blocked_count]:
+        for c in cands[blocked_count : blocked_count + nda_count]:
             db.add(
                 CandidateConflict(
                     candidate_id=c.id,
@@ -949,11 +957,43 @@ async def test_ineligible_candidate_from_history_is_not_returned(
         body = r.json()
         returned = [c["candidate_id"] for c in body["candidates"]]
         assert blocked_id not in returned, (
-            "kandydat z aktywnym NDA u klienta tej oferty trafił do sekcji, "
+            "kandydat z globalnej czarnej listy trafił do sekcji, "
             "z której bulk-select przepina ludzi jednym kliknięciem"
         )
         assert clean_id in returned
         assert body["meta"]["hidden_ineligible"] == 1
+    finally:
+        await _cleanup(job_id, client_id, cand_ids)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_client_nda_candidate_stays_with_a_warning_badge(
+    app_client, app_auth_headers
+) -> None:
+    """17.09.2026: NDA u klienta oferty to ostrzeżenie — kandydat zostaje."""
+    job_id, client_id, cand_ids = await _seed_job_with_candidates(
+        blocked_count=0, nda_count=1
+    )
+    nda_id, clean_id = cand_ids[0], cand_ids[1]
+    try:
+        with patch(
+            "app.api.recommendations.fetch_historical_candidates",
+            new=_patched_fetch([_hist_candidate(i) for i in cand_ids]),
+        ):
+            r = await app_client.get(
+                f"/api/jobs/{job_id}/candidates-from-similar",
+                headers=app_auth_headers,
+            )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        by_id = {c["candidate_id"]: c for c in body["candidates"]}
+        assert set(by_id) == {nda_id, clean_id}
+        assert body["meta"]["hidden_ineligible"] == 0
+        badge = by_id[nda_id]["eligibility"]
+        assert badge["reason_code"] == "client_nda"
+        assert badge["assignment_allowed"] is True
+        assert by_id[clean_id]["eligibility"] is None
     finally:
         await _cleanup(job_id, client_id, cand_ids)
 

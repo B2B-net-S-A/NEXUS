@@ -183,8 +183,9 @@ async def _fresh_top_matches(
     # Obietnica jest WĘŻSZA niż „ta sama liczba" i taka ma zostać: digest ma
     # własny próg (`MATCH_DIGEST_MIN_SCORE`) i własną definicję świeżości, więc
     # równości nie będzie. Gwarantujemy tylko tyle: żaden kandydat wliczony do
-    # digestu nie jest kimś, kogo zakładka ukrywa z powodu zawierania albo
-    # dealbreakera.
+    # digestu nie jest kimś, kogo zakładka ukrywa z powodu zawierania (globalna
+    # czarna lista, weto hiring managera) albo dealbreakera. Konflikty z
+    # klientem są od 17.09.2026 ostrzeżeniem i nie wycinają.
     candidates = await filter_eligible_candidates(
         db, job=job, candidates=candidates, now=datetime.now(timezone.utc)
     )

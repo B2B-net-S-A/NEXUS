@@ -10,13 +10,15 @@ Two contracts, wired into every pipeline stage-writing / reading ingress:
   multi-role aware via ``has_any_role`` (delegated to
   ``services.job_membership.is_member_of_job``).
 
-* **Eligibility** — a hard-blocked candidate (global blacklist, or an active
-  client blacklist / NDA / competitor conflict) is rejected **identically**
+* **Eligibility** — a hard-blocked candidate (global blacklist; a hiring-manager
+  veto is covered in ``test_manager_rejection_gate.py``) is rejected **identically**
   (HTTP 409, Polish reason) at ``/move`` AND ``/bulk-move`` — the same contract
   the assign ingresses already enforce. Eligibility is isolated from membership
   by acting as admin (who bypasses membership), so the 409 is unambiguously the
   eligibility block. Terminal *removal* moves stay allowed (a blacklisted
-  candidate can be rejected/withdrawn out of a pipeline).
+  candidate can be rejected/withdrawn out of a pipeline). Since 17.09.2026 an
+  active client blacklist / NDA / competitor conflict is a WARNING and moves
+  the candidate like anyone else.
 
 * **Carry-over scope** — when Priority Work is active, owning an OPEN
   ``RecruitmentProcess`` widens job scope. Ownership alone is self-grantable
@@ -392,32 +394,25 @@ async def test_blacklisted_candidate_blocked_on_move_and_bulk(
     assert expected in bulk.json()["detail"]
 
 
-async def test_active_client_nda_blocked_on_move_and_bulk(
+async def test_active_client_nda_does_not_block_move_or_bulk(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    from app.services.candidate_job_eligibility import (
-        _REASON_LABELS_PL,
-        EligibilityReason,
-    )
-
+    """17.09.2026: an NDA with the job's client is a warning, never a 409."""
     cand = await _seed_candidate()
     job_id, client_id = await _seed_job(owner_id=None)
     await _seed_conflict(cand, client_id, "nda")
-    expected = _REASON_LABELS_PL[EligibilityReason.client_nda]
 
     move = await app_client.post(
         MOVE, json=_move_body(cand, job_id), headers=app_auth_headers
     )
-    assert move.status_code == 409, move.text
-    assert move.json()["detail"] == expected
+    assert move.status_code == 200, move.text
 
     bulk = await app_client.post(
         BULK_MOVE,
-        json={"candidate_ids": [cand], "job_id": job_id, "stage": "screening"},
+        json={"candidate_ids": [cand], "job_id": job_id, "stage": "cv_sent"},
         headers=app_auth_headers,
     )
-    assert bulk.status_code == 409, bulk.text
-    assert expected in bulk.json()["detail"]
+    assert bulk.status_code == 200, bulk.text
 
 
 async def test_blacklisted_candidate_can_still_be_withdrawn(

@@ -175,7 +175,9 @@ async def talent_radar_search(
     return {
         "results": [
             _shape_result(
-                breakdown, result.candidates_by_id.get(breakdown.candidate_id)
+                breakdown,
+                result.candidates_by_id.get(breakdown.candidate_id),
+                result.eligibility_by_id.get(breakdown.candidate_id),
             )
             for breakdown in result.breakdowns
         ],
@@ -183,7 +185,9 @@ async def talent_radar_search(
     }
 
 
-def _shape_result(breakdown: Any, candidate: Any) -> dict[str, Any]:
+def _shape_result(
+    breakdown: Any, candidate: Any, eligibility: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     """A score plus who it belongs to, with the salary NUMBERS withheld.
 
     `/recommendations` blanks that layer unless the caller may see finance,
@@ -219,6 +223,9 @@ def _shape_result(breakdown: Any, candidate: Any) -> dict[str, Any]:
     }
     # `candidate` is None only if a row vanished between ranking and shaping.
     payload["candidate"] = shape_radar_candidate(candidate) if candidate else None
+    # Badge of a client conflict / current employment (17.09.2026: warnings,
+    # not blocks). ``None`` = no contraindication.
+    payload["eligibility"] = eligibility
     return payload
 
 

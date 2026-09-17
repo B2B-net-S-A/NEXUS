@@ -834,8 +834,18 @@ export function SuggestedCandidatesWidget({
                     )}
                     {m.breakdown && <ScoreBreakdownTooltip breakdown={m.breakdown} compact />}
                   </div>
+                  {/* Konflikt z klientem (czarna lista klienta / NDA / konkurent)
+                      od 17.09.2026 jest ostrzeżeniem: przyciski zostają aktywne.
+                      Blokuje wyłącznie weto HM (`assignment_allowed: false`). */}
                   {m.eligibility && (
-                    <span className="text-xs text-amber-700 dark:text-amber-300" data-testid={`eligibility-${cand.id}`}>
+                    <span
+                      className={
+                        m.eligibility.assignment_allowed === false
+                          ? "text-xs text-destructive"
+                          : "text-xs text-warning-muted-foreground"
+                      }
+                      data-testid={`eligibility-${cand.id}`}
+                    >
                       {m.eligibility.reason}
                     </span>
                   )}
@@ -855,7 +865,11 @@ export function SuggestedCandidatesWidget({
                         onClick={() => handleShortlist(cand.id)}
                         disabled={shortlisting === cand.id || m.eligibility?.assignment_allowed === false}
                         className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-primary/10 hover:bg-primary/15 text-primary dark:bg-primary/30 dark:text-primary disabled:opacity-50"
-                        title="Dodaj do shortlisty do oceny"
+                        title={
+                          m.eligibility?.assignment_allowed === false
+                            ? m.eligibility.reason
+                            : "Dodaj do shortlisty do oceny"
+                        }
                       >
                         {shortlisting === cand.id ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
@@ -868,7 +882,11 @@ export function SuggestedCandidatesWidget({
                         onClick={() => handleAssign(cand.id)}
                         disabled={assigning === cand.id || m.eligibility?.assignment_allowed === false}
                         className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:bg-muted disabled:opacity-50"
-                        title="Dodaj bezpośrednio do procesu rekrutacji"
+                        title={
+                          m.eligibility?.assignment_allowed === false
+                            ? m.eligibility.reason
+                            : "Dodaj bezpośrednio do procesu rekrutacji"
+                        }
                       >
                         {assigning === cand.id ? (
                           <Loader2 className="w-3 h-3 animate-spin" />

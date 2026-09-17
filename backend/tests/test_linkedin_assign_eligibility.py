@@ -1,16 +1,16 @@
 """Bramka dopuszczalności na ścieżce „Dodaj z LinkedIn".
 
 `POST /api/candidates/from-linkedin` zapisuje `CandidateStage` dla kandydata,
-którego dedup znalazł w bazie — a sprawdzała TYLKO weto hiring managera. Cztery
-twarde powody z `pipeline_eligibility` (globalna czarna lista, czarna lista
-klienta, NDA, konkurent) nie były sprawdzane w ogóle, więc ta sama osoba, którą
-kanban odrzuca z 409 „Konflikt: NDA z klientem", wchodziła do pipeline'u tego
-klienta jednym kliknięciem z wtyczki.
+którego dedup znalazł w bazie — a sprawdzała TYLKO weto hiring managera, więc
+osoba, którą kanban odrzuca z 409, wchodziła do pipeline'u jednym kliknięciem
+z wtyczki. Ścieżka woła teraz tę samą bramkę co kanban.
 
-Regresja byłaby CICHA: odpowiedź to 200, a wiersz po prostu pojawia się w bazie.
-Dlatego test asertuje OBIE strony — brak `CandidateStage` ORAZ obecność powodu
-w `assignment_skipped_reason` (wtyczka nie ma jak obsłużyć twardego 409, więc
-kontrakt degradacji jest tu tym samym co przy wecie managera).
+Od 17.09.2026 konflikt z klientem (czarna lista klienta / NDA / konkurent) jest
+OSTRZEŻENIEM — kanban go przepuszcza, więc wtyczka też. Twardy powód, który
+został, to globalna czarna lista: test asertuje OBIE strony — brak
+`CandidateStage` ORAZ obecność powodu w `assignment_skipped_reason` (wtyczka
+nie ma jak obsłużyć twardego 409, więc kontrakt degradacji jest tu tym samym co
+przy wecie managera).
 """
 
 from __future__ import annotations
@@ -74,13 +74,16 @@ async def job_with_client(app_auth_headers) -> tuple[int, int]:  # noqa: ARG001
         return job.id, cli.id
 
 
-async def _seed_existing_candidate(slug: str) -> int:
+async def _seed_existing_candidate(slug: str, status: str = "active") -> int:
+    from app.models.candidate import CandidateStatus
+
     async with AsyncSessionLocal() as db:
         cand = Candidate(
             name="Nda",
             lastname=f"Blocked-{time.time_ns()}",
             email=f"elig-{time.time_ns()}@example.com",
             linkedin=f"https://www.linkedin.com/in/{slug}",
+            status=CandidateStatus(status),
         )
         db.add(cand)
         await db.commit()
@@ -98,7 +101,7 @@ async def _stage_for(candidate_id: int, job_id: int) -> Optional[CandidateStage]
 
 
 @pytest.mark.asyncio
-async def test_nda_conflict_blocks_the_linkedin_assignment(
+async def test_nda_conflict_does_not_block_the_linkedin_assignment(
     app_client: AsyncClient,
     app_auth_headers: dict[str, str],
     job_with_client: tuple[int, int],
@@ -132,15 +135,43 @@ async def test_nda_conflict_blocks_the_linkedin_assignment(
     body = resp.json()
     assert body["action"] == "existing"
     assert body["candidate_id"] == candidate_id
+    # 17.09.2026: NDA to ostrzeżenie — przypisanie jest, powodu pominięcia brak.
+    assert body["assignment_skipped_reason"] is None
+    assert body["assigned_to_job_id"] == job_id
+    assert await _stage_for(candidate_id, job_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_global_blacklist_blocks_the_linkedin_assignment(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    job_with_client: tuple[int, int],
+) -> None:
+    job_id, _client_id = job_with_client
+    slug = f"elig-blacklisted-{time.time_ns()}"
+    candidate_id = await _seed_existing_candidate(slug, status="blacklisted")
+
+    resp = await app_client.post(
+        "/api/candidates/from-linkedin",
+        headers=app_auth_headers,
+        json={
+            "linkedin_url": f"https://www.linkedin.com/in/{slug}/",
+            "job_id": job_id,
+            "stage": "interview",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["candidate_id"] == candidate_id
     # Przypisania NIE MA…
     assert body["assigned_to_job_id"] is None
     assert await _stage_for(candidate_id, job_id) is None, (
-        "kandydat objęty NDA wszedł do pipeline'u klienta z pominięciem bramki"
+        "kandydat z globalnej czarnej listy wszedł do pipeline'u z pominięciem bramki"
     )
     # …a rekruter dostaje powód po polsku, nie ciszę.
     reason = body["assignment_skipped_reason"]
     assert reason, "brak powodu — pominięte przypisanie wygląda jak udane"
-    assert "NDA" in reason or "nda" in reason.lower()
+    assert "czarnej liście" in reason
 
 
 @pytest.mark.asyncio

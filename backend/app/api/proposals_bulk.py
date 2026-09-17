@@ -30,7 +30,6 @@ from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.candidate import Candidate
-from app.models.candidate_conflict import CandidateConflict
 from app.models.job import Job
 from app.models.note import Note, NoteType
 from app.models.pipeline_template import PipelineStageDef
@@ -41,14 +40,11 @@ from app.models.recruitment_pipeline import (
 from app.models.recruitment_priority import PriorityChannel
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
-from app.services.candidate_job_eligibility import (
-    ConflictInput,
-    EligibilityInput,
-    EligibilityReason,
-    evaluate_eligibility,
-    extract_excluded_client_ids,
+from app.services.candidate_job_eligibility import EligibilityReason
+from app.services.pipeline_eligibility import (
+    detail_for,
+    evaluate_candidates_for_job_with_verdicts,
 )
-from app.services.hiring_manager_verdicts import load_manager_rejections
 from app.services.priority_work_policy import milestone_counts_scope
 from app.services.recruitment_process_commands import (
     canonical_candidate_lock_order,
@@ -61,12 +57,17 @@ SkipReason = Literal[
     "already_in_job",
     "blacklisted",
     "candidate_not_found",
+    "rejected_by_hiring_manager",
+]
+# Client conflicts (blacklist / NDA / competitor) are soft warnings since
+# 17.09.2026: the candidate IS added and the reason rides in ``warnings``.
+WarningReason = Literal[
     "client_blacklist",
     "client_nda",
     "client_competitor",
-    "rejected_by_hiring_manager",
+    "current_employment",
+    "excluded_by_candidate",
 ]
-WarningReason = Literal["current_employment", "excluded_by_candidate"]
 # The screen an add came from — the four callers of this route. A closed
 # vocabulary on purpose: it lands in the analytics table (PII policy).
 BulkAddSource = Literal["full_search", "manual_search", "historical", "quick_add"]
@@ -74,9 +75,6 @@ BulkAddSource = Literal["full_search", "manual_search", "historical", "quick_add
 # Eligibility reason → bulk-add skip reason. Reasons that block assignment.
 _SKIP_REASON_BY_ELIGIBILITY: dict[EligibilityReason, SkipReason] = {
     EligibilityReason.blacklisted: "blacklisted",
-    EligibilityReason.client_blacklist: "client_blacklist",
-    EligibilityReason.client_nda: "client_nda",
-    EligibilityReason.client_competitor: "client_competitor",
     EligibilityReason.already_in_job: "already_in_job",
     # Missing entry here would fall through to the `"blacklisted"` default below
     # and report a manager's rejection as a global blacklist.
@@ -84,6 +82,9 @@ _SKIP_REASON_BY_ELIGIBILITY: dict[EligibilityReason, SkipReason] = {
 }
 # Eligibility reason → non-blocking warning surfaced on added candidates.
 _WARNING_REASON_BY_ELIGIBILITY: dict[EligibilityReason, WarningReason] = {
+    EligibilityReason.client_blacklist: "client_blacklist",
+    EligibilityReason.client_nda: "client_nda",
+    EligibilityReason.client_competitor: "client_competitor",
     EligibilityReason.client_current_employment: "current_employment",
     EligibilityReason.client_excluded_by_candidate: "excluded_by_candidate",
 }
@@ -127,7 +128,8 @@ class BulkSkippedRow(BaseModel):
 
 class BulkWarningRow(BaseModel):
     """A candidate that WAS added but carries a soft eligibility warning
-    (e.g. currently employed at the client, or the candidate excluded them)."""
+    (a client conflict — blacklist / NDA / competitor — current employment at
+    the client, or the candidate excluded them)."""
 
     candidate_id: int
     reason: WarningReason
@@ -384,37 +386,19 @@ async def bulk_add_proposals(
     )
     already_in_job_set: set[int] = set(already_in_job)
 
-    # Active client-scoped conflicts for THIS job's client, batched once.
-    conflict_rows = (
-        (
-            await db.execute(
-                select(CandidateConflict).where(
-                    CandidateConflict.candidate_id.in_(lock_ordered_ids),
-                    CandidateConflict.client_id == job.client_id,
-                    CandidateConflict.active.is_(True),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    conflicts_by_candidate: dict[int, list[ConflictInput]] = {}
-    for row in conflict_rows:
-        conflicts_by_candidate.setdefault(row.candidate_id, []).append(
-            ConflictInput(
-                type=row.type.value,
-                client_id=row.client_id,
-                active=row.active,
-                expires_at=row.expires_at,
-            )
-        )
-
-    # Standing rejections by THIS job's hiring manager, batched once. Costs no
-    # query at all when the job has no hiring manager set.
-    manager_verdicts = await load_manager_rejections(
-        db, job=job, candidate_ids=lock_ordered_ids
-    )
+    # One shared eligibility read (``pipeline_eligibility``): active client
+    # conflicts, current employment derived from live contracts, excluded
+    # clients and standing hiring-manager rejections — batched once, reusing
+    # the ``FOR UPDATE`` rows above instead of a second candidate SELECT.
     now = datetime.now(timezone.utc)
+    decisions, manager_verdicts = await evaluate_candidates_for_job_with_verdicts(
+        db,
+        job=job,
+        candidate_ids=lock_ordered_ids,
+        now=now,
+        already_in_job_ids=already_in_job_set,
+        candidates=candidates_by_id,
+    )
 
     added: list[int] = []
     skipped: list[BulkSkippedRow] = []
@@ -433,40 +417,23 @@ async def bulk_add_proposals(
                 )
                 continue
 
-            # Single eligibility policy — replaces the ad-hoc blacklist + in-job
-            # checks and additionally honours client conflicts (blacklist/nda/
-            # competitor) and candidate-declared excluded clients (SEARCH-P0-04).
-            decision = evaluate_eligibility(
-                EligibilityInput(
-                    candidate_status=candidate.status.value,
-                    job_client_id=job.client_id,
-                    conflicts=tuple(conflicts_by_candidate.get(candidate_id, ())),
-                    excluded_client_ids=extract_excluded_client_ids(
-                        candidate.preferences
-                    ),
-                    already_in_job=candidate_id in already_in_job_set,
-                    rejected_by_hiring_manager=candidate_id in manager_verdicts,
-                ),
-                now,
-            )
+            # Single eligibility policy (SEARCH-P0-04). Hard blocks: global
+            # blacklist, already in job, hiring-manager veto. Client conflicts
+            # are warnings since 17.09.2026.
+            decision = decisions[candidate_id]
             if not decision.assignment_allowed:
                 # Name the manager and the date when the veto is what blocked —
                 # "hiring manager already rejected" alone sends the recruiter
                 # digging through the candidate's history to find out who.
-                label = decision.reason
-                verdict = manager_verdicts.get(candidate_id)
-                if (
-                    decision.reason_code is EligibilityReason.rejected_by_hiring_manager
-                    and verdict is not None
-                ):
-                    label = verdict.as_polish_detail()
                 skipped.append(
                     BulkSkippedRow(
                         candidate_id=candidate_id,
                         reason=_SKIP_REASON_BY_ELIGIBILITY.get(
                             decision.reason_code, "blacklisted"
                         ),
-                        reason_label=label,
+                        reason_label=detail_for(
+                            decision, manager_verdicts.get(candidate_id)
+                        ),
                     )
                 )
                 continue

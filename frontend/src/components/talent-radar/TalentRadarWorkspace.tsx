@@ -402,8 +402,8 @@ function AdHocTalentRadarWorkspace() {
                 setClient(picked);
                 // Wyniki są prawdziwe WYŁĄCZNIE dla klienta, dla którego
                 // policzono filtr dopuszczalności. Zostawienie ich po zmianie
-                // klienta pokazywałoby listę odsianą przez blacklistę, NDA i
-                // weto klienta A pod zdaniem „…wolno zaproponować TEMU
+                // klienta pokazywałoby listę odsianą wetem i oznaczoną
+                // konfliktami klienta A pod zdaniem „…wolno zaproponować TEMU
                 // klientowi", wskazującym już na klienta B — czyli fałszywe
                 // zapewnienie zgodności, dokładnie to, czemu obowiązkowy klient
                 // ma zapobiegać.

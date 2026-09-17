@@ -1,11 +1,15 @@
 """Gałąź tag-fallback `/ai-matches` też musi przepuszczać przez bramkę.
 
 PRODUKTOWY OVERRIDE (2026-09): bramka (`_gate_and_dealbreakers`) nie WYCINA już
-`warn` — kandydat z aktywnym NDA/konfliktem u klienta oferty jest POKAZYWANY
-z anotacją `eligibility` i `assignment_allowed=false`, żeby rekruter widział
-blokadę zamiast dostać 409 dopiero po kliknięciu. Wycinane są wyłącznie `hidden`
-(globalna blacklista, duplikat). Te testy pilnują więc, że NDA-kandydat WRACA
-z zablokowaną akcją (a nie że znika) i że fail-closed bramki został zachowany.
+`warn` — kandydat jest POKAZYWANY z anotacją `eligibility`. Wycinane są wyłącznie
+`hidden` (globalna blacklista, duplikat).
+
+Decyzja 17.09.2026: konflikt z klientem (blacklist / NDA / konkurent) jest
+OSTRZEŻENIEM — `assignment_allowed=true`, `severity=warning`. Twardo-a-widocznie
+zostało tylko weto hiring managera i tylko ono jest zwolnione z dealbreakerów;
+kandydat z NDA ponad budżet chowa się do `over_budget` jak każdy inny. Te testy
+pilnują, że NDA-kandydat WRACA z plakietką ostrzeżenia (a nie że znika), że weto
+wraca z zablokowaną akcją i że fail-closed bramki został zachowany.
 
 Do 2026-08-20 bramka (`filter_eligible_candidates`) stała wyłącznie w gałęzi
 semantycznej, i to WEWNĄTRZ `try`. Fallback filtrował `Candidate.status !=
@@ -23,9 +27,9 @@ Droga (3) to normalna praca systemu przy chudej kolekcji Qdranta, nie awaria —
 i to ona sprawiała, że dziura była codzienna, a nie incydentalna.
 
 Testy celowo NIE używają globalnej blacklisty: fallback odsiewał ją już wcześniej,
-więc taki dowód przechodziłby na `main` i niczego by nie dowodził. Blokada, która
-przeciekała, to aktywny `CandidateConflict` z klientem oferty — dlatego seed
-stawia kandydata ze statusem `active` i konfliktem typu `nda`.
+więc taki dowód przechodziłby na `main` i niczego by nie dowodził. Seed stawia
+kandydata ze statusem `active` i konfliktem typu `nda` (anotacja przechodzi przez
+bramkę) oraz — dla twardej blokady — kandydata z wetem hiring managera.
 """
 
 from __future__ import annotations
@@ -47,7 +51,7 @@ from app.models.job import Job
 
 @pytest_asyncio.fixture
 async def gated_fixture():
-    """Klient + oferta + dwóch kandydatów: czysty i zablokowany NDA u klienta.
+    """Klient + oferta + dwóch kandydatów: czysty i z NDA u klienta (ostrzeżenie).
 
     `hiring_manager_contact_id` zostaje `None` — weto HM to osobna gałąź bramki,
     a ten test dotyczy konfliktu klienckiego. Bramka musi działać także wtedy,
@@ -163,19 +167,18 @@ async def test_fallback_reached_by_empty_hits_still_gates(
     body = resp.json()
     assert body["search_type"] == "tag_fallback"
     returned = _ids(body)
-    # PRODUKTOWY OVERRIDE: NDA-kandydat (visibility=warn) jest POKAZYWANY
-    # z anotacją i zablokowaną akcją — nie wycinany.
+    # NDA-kandydat (visibility=warn) jest POKAZYWANY z plakietką ostrzeżenia.
     assert blocked_id in returned, (
         "kandydat z aktywnym NDA (warn) zniknął z listy — kontrakt wymaga "
-        "pokazania go z powodem i zablokowaną akcją"
+        "pokazania go z powodem"
     )
     blocked_match = _match(body, blocked_id)
     assert blocked_match is not None
     elig = blocked_match["eligibility"]
-    assert elig is not None, "brak anotacji dopuszczalności na zablokowanym wierszu"
-    assert elig["assignment_allowed"] is False, (
-        "akcja przypisania musi być zablokowana dla kandydata z NDA"
-    )
+    assert elig is not None, "brak anotacji dopuszczalności na wierszu z NDA"
+    # 17.09.2026: konflikt z klientem to ostrzeżenie — akcja aktywna.
+    assert elig["assignment_allowed"] is True
+    assert elig["severity"] == "warning"
     assert elig["reason_code"] == "client_nda"
     assert elig["reason"], "powód po polsku musi być obecny"
     # Czysty kandydat: obecny, bez anotacji.
@@ -221,7 +224,8 @@ async def test_fallback_reached_by_retrieval_exception_still_gates(
     assert blocked_id in returned
     blocked_match = _match(body, blocked_id)
     assert blocked_match is not None and blocked_match["eligibility"] is not None
-    assert blocked_match["eligibility"]["assignment_allowed"] is False
+    assert blocked_match["eligibility"]["reason_code"] == "client_nda"
+    assert blocked_match["eligibility"]["assignment_allowed"] is True
     assert clean_id in returned
 
 
@@ -278,40 +282,61 @@ async def test_gate_failure_does_not_degrade_into_an_ungated_list(
     )
 
 
-# ── warn + over-budget: compliance zawsze widoczny (PR #1369 review) ─────────
+# ── over-budget: weto HM zawsze widoczne, konflikt z klientem nie (17.09) ────
 #
-# Dealbreaker budżetu NIE może wchłonąć kandydata `warn`: inaczej kandydat
-# z NDA i stawką ponad budżet znika do `meta.hidden.over_budget` bez plakietki
-# compliance, co przeczy decyzji „pokaż zablokowanych z powodem".
+# Dealbreaker budżetu NIE może wchłonąć wiersza twardo zablokowanego, ale
+# widocznego (weto HM): inaczej znika do `meta.hidden.over_budget` bez plakietki
+# i rekruter szuka tej osoby od nowa (PR #1369 review). Miękkie ostrzeżenie
+# (NDA) jest przypisywalne, więc budżet ścina je jak każdego innego kandydata.
 
 
-@pytest_asyncio.fixture
-async def gated_over_budget_fixture():
+async def _seed_over_budget_world(*, with_veto: bool) -> dict:
+    """Oferta z budżetem 999 zł/h + kandydat 1500 zł/h (ponad budżet).
+
+    ``with_veto=True`` → kandydat z wetem HM (twardo-widoczny); inaczej kandydat
+    z NDA u klienta oferty (ostrzeżenie).
+
+    Budżet CELOWO poza realnym zakresem stawek (999 zł/h). Gałąź tag-fallback
+    wybiera WSZYSTKICH niezablokowanych kandydatów z bazy, a baza testowa jest
+    współdzielona w obrębie przebiegu — przy niskim budżecie liczniki mierzyłyby
+    stawki kandydatów zasianych przez INNE pliki testowe.
+    """
     from decimal import Decimal
 
+    from sqlalchemy import select
+
     unique = uuid.uuid4().hex[:8]
+    if with_veto:
+        from tests.test_manager_rejection_gate import _seed_vetoed_candidate
+
+        world = await _seed_vetoed_candidate()
+        job_id, cand_id = world["target_job_id"], world["candidate_id"]
+        async with AsyncSessionLocal() as db:
+            job = await db.scalar(select(Job).where(Job.id == job_id))
+            job.description = "Python backend engineer, FastAPI, PostgreSQL"
+            job.requirements = "python, fastapi, postgresql"
+            job.rate_budget_hourly = Decimal("999.00")
+            cand = await db.scalar(select(Candidate).where(Candidate.id == cand_id))
+            cand.skills = [{"name": "python"}, {"name": "fastapi"}]
+            cand.raw_cv_text = "python fastapi postgresql"
+            cand.expected_rate_hourly = Decimal("1500.00")
+            cand.expected_rate_currency = "PLN"
+            await db.commit()
+        return {"job_id": job_id, "candidate_id": cand_id, "client_id": None}
+
     async with AsyncSessionLocal() as db:
         client = Client(name=f"AIMatch OverBudget Client {unique}")
         db.add(client)
         await db.flush()
-
         job = Job(
             title=f"AIMatch OverBudget Job {unique}",
             client_id=client.id,
             description="Python backend engineer, FastAPI, PostgreSQL",
             requirements="python, fastapi, postgresql",
             hiring_manager_contact_id=None,
-            # Budżet CELOWO poza realnym zakresem stawek (999 zł/h). Gałąź
-            # tag-fallback wybiera WSZYSTKICH niezablokowanych kandydatów
-            # z bazy (`select(Candidate).where(status != blacklisted)`), a baza
-            # testowa jest współdzielona w obrębie przebiegu — przy budżecie
-            # 100 zł/h asercja `hidden.over_budget == 0` mierzyła stawki
-            # kandydatów zasianych przez INNE pliki testowe i wywracała się
-            # zależnie od kolejności shardów, a nie od zachowania kodu.
             rate_budget_hourly=Decimal("999.00"),
         )
-        # `warn` (NDA u klienta) i JEDNOCZEŚNIE stawka ponad budżet.
-        blocked = Candidate(
+        cand = Candidate(
             name="Drogi",
             lastname=f"ZNDA{unique}",
             email=f"overbudget-{unique}@example.com",
@@ -321,11 +346,11 @@ async def gated_over_budget_fixture():
             expected_rate_hourly=Decimal("1500.00"),
             expected_rate_currency="PLN",
         )
-        db.add_all([job, blocked])
+        db.add_all([job, cand])
         await db.flush()
         db.add(
             CandidateConflict(
-                candidate_id=blocked.id,
+                candidate_id=cand.id,
                 client_id=client.id,
                 type=ConflictType.nda,
                 reason="pytest — NDA + ponad budżet",
@@ -333,31 +358,38 @@ async def gated_over_budget_fixture():
             )
         )
         await db.commit()
-        ids = (job.id, blocked.id, client.id)
+        return {"job_id": job.id, "candidate_id": cand.id, "client_id": client.id}
 
-    yield ids
 
-    job_id, blocked_id, client_id = ids
+async def _cleanup_over_budget_world(world: dict) -> None:
+    if world["client_id"] is None:
+        # Świat weta HM zostaje (jak w test_manager_rejection_gate), ale stawka
+        # ponad budżet MUSI zniknąć: fallback bierze całą wspólną bazę, więc
+        # osierocony kandydat za 1500 zł/h liczyłby się jako `over_budget`
+        # w kolejnych biegach.
+        from sqlalchemy import update
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(Candidate)
+                .where(Candidate.id == world["candidate_id"])
+                .values(expected_rate_hourly=None)
+            )
+            await db.commit()
+        return
     async with AsyncSessionLocal() as db:
         await db.execute(
-            delete(CandidateConflict).where(CandidateConflict.client_id == client_id)
+            delete(CandidateConflict).where(
+                CandidateConflict.client_id == world["client_id"]
+            )
         )
-        await db.execute(delete(Candidate).where(Candidate.id == blocked_id))
-        await db.execute(delete(Job).where(Job.id == job_id))
-        await db.execute(delete(Client).where(Client.id == client_id))
+        await db.execute(delete(Candidate).where(Candidate.id == world["candidate_id"]))
+        await db.execute(delete(Job).where(Job.id == world["job_id"]))
+        await db.execute(delete(Client).where(Client.id == world["client_id"]))
         await db.commit()
 
 
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_warn_over_budget_still_surfaces_with_reason(
-    app_client: AsyncClient,
-    app_auth_headers: dict,
-    gated_over_budget_fixture,
-    monkeypatch,
-):
-    """Kandydat `warn` ponad budżet: widoczny z powodem, NIE liczony jako over_budget."""
-    job_id, blocked_id, _client_id = gated_over_budget_fixture
+async def _fallback_matches(app_client, headers, job_id, monkeypatch) -> dict:
     _widen_pool(monkeypatch)
 
     async def _no_hits(*_a, **_kw):
@@ -366,25 +398,59 @@ async def test_warn_over_budget_still_surfaces_with_reason(
     monkeypatch.setattr(
         "app.services.embedding_service.search_candidates_semantic", _no_hits
     )
-
     resp = await app_client.get(
         f"/api/jobs/{job_id}/ai-matches",
         params={"min_score": 0.0, "limit": 500},
-        headers=app_auth_headers,
+        headers=headers,
     )
     assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert blocked_id in _ids(body), (
-        "warn ponad budżet zniknął — dealbreaker wchłonął blokadę compliance"
-    )
-    m = _match(body, blocked_id)
-    assert m is not None and m["eligibility"] is not None
-    assert m["eligibility"]["assignment_allowed"] is False
-    assert m["eligibility"]["reason_code"] == "client_nda"
-    # warn NIE jest liczony jako odsiany budżetem.
-    assert body["meta"]["hidden"]["over_budget"] == 0, (
-        "warn nie może trafić do licznika over_budget — ma być wierszem z powodem"
-    )
+    return resp.json()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_vetoed_over_budget_still_surfaces_with_reason(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Weto HM ponad budżet: widoczne z powodem, NIE liczone jako over_budget."""
+    world = await _seed_over_budget_world(with_veto=True)
+    try:
+        body = await _fallback_matches(
+            app_client, app_auth_headers, world["job_id"], monkeypatch
+        )
+        blocked_id = world["candidate_id"]
+        assert blocked_id in _ids(body), (
+            "weto ponad budżet zniknęło — dealbreaker wchłonął twardą blokadę"
+        )
+        m = _match(body, blocked_id)
+        assert m is not None and m["eligibility"] is not None
+        assert m["eligibility"]["assignment_allowed"] is False
+        assert m["eligibility"]["reason_code"] == "rejected_by_hiring_manager"
+        assert body["meta"]["hidden"]["over_budget"] == 0, (
+            "weto nie może trafić do licznika over_budget — ma być wierszem z powodem"
+        )
+    finally:
+        await _cleanup_over_budget_world(world)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_nda_over_budget_is_hidden_into_over_budget(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """17.09.2026: NDA to ostrzeżenie — ponad budżet chowa się jak każdy inny."""
+    world = await _seed_over_budget_world(with_veto=False)
+    try:
+        body = await _fallback_matches(
+            app_client, app_auth_headers, world["job_id"], monkeypatch
+        )
+        assert world["candidate_id"] not in _ids(body), (
+            "kandydat z NDA ponad budżet został zwolniony z dealbreakera — "
+            "zwolnienie przysługuje wyłącznie wetu HM"
+        )
+        assert body["meta"]["hidden"]["over_budget"] >= 1
+    finally:
+        await _cleanup_over_budget_world(world)
 
 
 # ── rubryka must-have (0278): ukrywanie na obu gałęziach ─────────────────────
@@ -394,7 +460,9 @@ async def test_warn_over_budget_still_surfaces_with_reason(
 async def gated_missing_must_fixture(request):
     """Oferta z `must_skills=[python]`, kandydat WYŁĄCZNIE z `java` (ma sygnał,
     ale nie ma wymaganego must) — plus kandydat `warn` (NDA) BEZ żadnego
-    sygnału umiejętności, który mimo braku must-have musi zostać widoczny.
+    sygnału umiejętności. Przy „review” brak sygnału jest no-opem i warn zostaje
+    widoczny; przy „exclude” brak dowodu ukrywa — a od 17.09.2026 NDA nie
+    zwalnia z dealbreakerów, więc warn też znika (tylko weto HM jest zwolnione).
 
     Obie polityki: ZNANA luka technologii ukrywa także przy domyślnym
     „review” (decyzja 10.09), więc wynik jest ten sam."""
@@ -435,8 +503,8 @@ async def gated_missing_must_fixture(request):
         )
         warn_no_signal = Candidate(
             # `warn` (NDA) bez żadnego sygnału umiejętności: rubryka must-have
-            # jest no-opem dla niego (nieznany przechodzi) I ZWOLNIONY z
-            # dealbreakerów jako `warn` — obie reguły osobno by go przepuściły.
+            # jest no-opem dla niego (nieznany przechodzi). Od 17.09.2026 NDA
+            # nie zwalnia z dealbreakerów — przepuszcza go sam brak sygnału.
             name="Warn",
             lastname=f"NoSignal{unique}",
             email=f"warn-no-signal-{unique}@example.com",
@@ -457,7 +525,7 @@ async def gated_missing_must_fixture(request):
         await db.commit()
         ids = (job.id, java_only.id, warn_no_signal.id, client.id)
 
-    yield ids
+    yield (*ids, request.param)
 
     job_id, java_only_id, warn_id, client_id = ids
     async with AsyncSessionLocal() as db:
@@ -480,7 +548,7 @@ async def test_missing_must_hides_on_both_branches(
     gated_missing_must_fixture,
     monkeypatch,
 ):
-    job_id, java_only_id, warn_id, _client_id = gated_missing_must_fixture
+    job_id, java_only_id, warn_id, _client_id, policy = gated_missing_must_fixture
     _widen_pool(monkeypatch)
 
     # Gałąź fallback (droga 3: pusty wynik Qdranta, cicho).
@@ -506,12 +574,19 @@ async def test_missing_must_hides_on_both_branches(
     # two-ID semantic pool. Unrelated rows may legitimately add exclusions.
     assert body_fallback["meta"]["hidden"]["missing_must"] >= 1
     warn_match = _match(body_fallback, warn_id)
-    assert warn_match is not None, (
-        "warn bez sygnału umiejętności musi zostać widoczny — must-have jest "
-        "no-opem bez sygnału, a warn jest ZWOLNIONY z dealbreakerów"
-    )
-    assert warn_match["eligibility"] is not None
-    assert warn_match["eligibility"]["assignment_allowed"] is False
+    if policy == "review":
+        assert warn_match is not None, (
+            "warn bez sygnału umiejętności musi zostać widoczny — must-have jest "
+            "no-opem bez sygnału przy „review”"
+        )
+        assert warn_match["eligibility"] is not None
+        assert warn_match["eligibility"]["reason_code"] == "client_nda"
+        assert warn_match["eligibility"]["assignment_allowed"] is True
+    else:
+        assert warn_match is None, (
+            "NDA (ostrzeżenie) nie jest zwolnione z dealbreakerów — przy "
+            "„exclude” brak dowodu must-have ukrywa go jak każdego innego"
+        )
 
     # Gałąź semantyczna (prawdziwe trafienie z Qdranta).
     async def _one_hit(*_a, **_kw):
@@ -532,6 +607,10 @@ async def test_missing_must_hides_on_both_branches(
     body_semantic = resp_semantic.json()
     assert body_semantic["search_type"] == "semantic+composite"
     assert java_only_id not in _ids(body_semantic)
-    assert body_semantic["meta"]["hidden"]["missing_must"] == 1
     warn_match2 = _match(body_semantic, warn_id)
-    assert warn_match2 is not None and warn_match2["eligibility"] is not None
+    if policy == "review":
+        assert body_semantic["meta"]["hidden"]["missing_must"] == 1
+        assert warn_match2 is not None and warn_match2["eligibility"] is not None
+    else:
+        assert body_semantic["meta"]["hidden"]["missing_must"] == 2
+        assert warn_match2 is None

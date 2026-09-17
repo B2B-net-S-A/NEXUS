@@ -338,6 +338,11 @@ def _format_score_breakdown(bd: dict) -> str:
     penalties = bd.get("penalties") or []
     if penalties:
         lines.append("Kary: " + ", ".join(map(str, penalties)))
+    # Only when present: a clean pair renders byte-for-byte as before, so its
+    # prompt hash (and the stored justification) does not move.
+    warnings = bd.get("warnings") or []
+    if warnings:
+        lines.append("Ostrzeżenia: " + ", ".join(map(str, warnings)))
     return "\n".join(lines)
 
 
