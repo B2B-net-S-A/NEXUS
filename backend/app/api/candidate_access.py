@@ -220,6 +220,9 @@ _VIEWER_REDACTED_JOB_FIELDS: tuple[str, ...] = (
     "custom_fields",
     "description",
     "requirements",
+    # Viewer i tak dostaje `False`, ale pole mówi o uprawnieniach do stawek —
+    # trzymamy je w tej samej rodzinie co kwoty (17.09.2026).
+    "can_write_client_rate",
 )
 
 

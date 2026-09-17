@@ -944,6 +944,28 @@ async def _lock_current_pending_verification(
     return stage
 
 
+async def promote_legacy_pending_verification(
+    db: AsyncSession,
+    *,
+    stage: CandidateStage,
+    accepted_at: datetime,
+) -> bool:
+    """Zalicz weryfikację `pending` po wyłączeniu bramki (17.09.2026).
+
+    To samo co `accept_pending_verification`, ale bez akceptującego
+    (`approved_by` zostaje puste — decyzję podjęła zmiana polityki) i bez
+    wymogu, żeby wiersz był aktualnym etapem procesu. Wołający blokuje wiersz.
+    Zwraca, czy zaliczono pierwszego weryfikatora.
+    """
+    stage.verification_status = VerificationStatus.active
+    stage.approved_at = accepted_at
+    invalidate_milestone_counts()
+    if stage.moved_by is None:
+        return False
+    await record_accepted_verification(db, stage=stage, verifier_user_id=stage.moved_by)
+    return True
+
+
 async def accept_pending_verification(
     db: AsyncSession,
     *,

@@ -58,7 +58,7 @@ async def run_pending_verification_promotion(
     """
     from app.services.priority_work_policy import invalidate_milestone_counts
     from app.services.recruitment_process_commands import (
-        record_accepted_verification,
+        promote_legacy_pending_verification,
     )
 
     if settings.PENDING_VERIFICATION_ENABLED:
@@ -106,12 +106,9 @@ async def run_pending_verification_promotion(
                     or stage.verification_status != VerificationStatus.pending
                 ):
                     continue
-                stage.verification_status = VerificationStatus.active
-                stage.approved_at = now
-                if stage.moved_by is not None:
-                    await record_accepted_verification(
-                        db, stage=stage, verifier_user_id=stage.moved_by
-                    )
+                if await promote_legacy_pending_verification(
+                    db, stage=stage, accepted_at=now
+                ):
                     credited.append(stage_id)
                 promoted.append(stage_id)
         except Exception:  # noqa: BLE001 — jeden zepsuty wiersz nie blokuje reszty
