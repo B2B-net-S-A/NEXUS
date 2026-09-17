@@ -51,8 +51,8 @@ from app.services.order_gaps import refresh_order_gaps_safely
 
 logger = logging.getLogger(__name__)
 
-REPAIR_MARKER = "0323_cez_standalone_md_duplicates"
-DETAILS_KEY = "repair_details_0323_cez_standalone_md_duplicates"
+REPAIR_MARKER = "0325_cez_standalone_md_duplicates"
+DETAILS_KEY = "repair_details_0325_cez_standalone_md_duplicates"
 SOURCE = REPAIR_MARKER
 
 _OPEN_ORDER_STATUSES = (
