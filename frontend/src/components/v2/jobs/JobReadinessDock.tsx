@@ -602,7 +602,7 @@ export function JobReadinessDock({
     | undefined;
   // Pusty stack (MUST i NICE) na profilu sprzed 09.2026 nie znaczy „brak
   // wymagań" — parser wpisywał je wprost do kolumn rekrutacji (M04-B02).
-  // Wtedy dok czyta kolumny, tak jak edytor obok (`champion-legacy-stack.ts`)
+  // Wtedy dok czyta kolumny, tak jak edytor obok (`champion-job-seed.ts`)
   // i scoring. Do 09.2026 sam OBIEKT stacku (także pusty) wygrywał, więc dok
   // pisał „Brak — dodaj wymagania" przy ośmiu pozycjach w `must_skills`.
   const championStackFilled =

@@ -20,7 +20,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { championApi, EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
-import { seedStackFromJobColumns } from "@/lib/champion-legacy-stack";
+import { seedChampionFromJob } from "@/lib/champion-job-seed";
 import {
   CHAMPION_SECTIONS,
   CHAMPION_SECTION_STATE_LABEL,
@@ -45,17 +45,20 @@ export function ChampionSectionNav({ jobId }: ChampionSectionNavProps) {
   });
 
   // Ten sam profil, na który patrzy edytor obok: na profilu sprzed 09.2026
-  // stack żyje w kolumnach rekrutacji (`job_values`), a edytor go stamtąd
-  // wczytuje (`seedStackFromJobColumns`). Liczenie stanu z samego
-  // `champion_profile` dawało szarą kropkę „puste" przy sekcji, która 300 px
-  // dalej pokazywała „wypełnione" i listę technologii (audyt B48).
+  // stack żyje w kolumnach rekrutacji (`job_values`), a sekcja 1 (od PR 5)
+  // wczytuje stamtąd puste pola — edytor robi to samo (`seedChampionFromJob`).
+  // Liczenie stanu z samego `champion_profile` dawało szarą kropkę „puste"
+  // przy sekcji, która 300 px dalej pokazywała „wypełnione" i listę
+  // technologii (audyt B48) — ta sama pułapka groziłaby sekcji „Podstawowe
+  // informacje", gdyby nawigacja i edytor liczyły seed dwiema kopiami.
   const profile: ChampionProfile | null = data
-    ? seedStackFromJobColumns(
+    ? seedChampionFromJob(
         {
           ...EMPTY_CHAMPION_PROFILE,
           ...(data.champion_profile as Partial<ChampionProfile>),
         },
         data.job_values,
+        data.job_title,
       ).profile
     : null;
 

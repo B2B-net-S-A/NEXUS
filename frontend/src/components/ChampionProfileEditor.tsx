@@ -45,6 +45,7 @@ import {
   championApi,
   championSuggestionsApi,
   EMPTY_CHAMPION_PROFILE,
+  type ChampionBasics,
   type ChampionProfile,
   type ChampionProfileSuggestion,
   type ChampionStack,
@@ -58,9 +59,11 @@ import {
 import { useAuthStore } from "@/store/auth";
 import {
   championSavePayload,
-  seedStackFromJobColumns,
+  seedChampionFromJob,
+  SEEDABLE_BASICS,
+  SEEDABLE_BASICS_LABEL,
   withoutSeededStackConflict,
-} from "@/lib/champion-legacy-stack";
+} from "@/lib/champion-job-seed";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { ClientPlaybookCard } from "@/components/client-playbook/ClientPlaybookCard";
 import { Badge } from "@/components/ui/badge";
@@ -106,8 +109,14 @@ export function ChampionProfileEditor({
 
   const [draft, setDraft] = useState<ChampionProfile>(EMPTY_CHAMPION_PROFILE);
   // Stack wczytany z kolumn rekrutacji dla profilu sprzed 09.2026 (M04-B02) —
-  // patrz `lib/champion-legacy-stack.ts`. `null` = profil ma własny stack.
+  // patrz `lib/champion-job-seed.ts`. `null` = profil ma własny stack.
   const [seededStack, setSeededStack] = useState<ChampionStack | null>(null);
+  // Pola sekcji 1 (Podstawowe informacje) wczytane z kolumn rekrutacji —
+  // PR 5. `null` = nic nie wczytano (wszystkie odpowiadające pola profilu
+  // były już wypełnione, albo kolumny są puste).
+  const [seededBasics, setSeededBasics] = useState<Partial<ChampionBasics> | null>(
+    null,
+  );
   const [reviewOpen, setReviewOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
   const [remoteChange, setRemoteChange] = useState<{
@@ -150,12 +159,14 @@ export function ChampionProfileEditor({
   useEffect(() => {
     if (data) {
       const loaded = data.champion_profile as Partial<ChampionProfile>;
-      const seed = seedStackFromJobColumns(
+      const seed = seedChampionFromJob(
         { ...EMPTY_CHAMPION_PROFILE, ...loaded },
         data.job_values,
+        data.job_title,
       );
       setDraft(seed.profile);
       setSeededStack(seed.seededStack);
+      setSeededBasics(seed.seededBasics);
     }
   }, [data]);
 
@@ -194,7 +205,7 @@ export function ChampionProfileEditor({
     mutationFn: (p: ChampionProfile) =>
       championApi.put(
         jobId,
-        championSavePayload(p, seededStack) as ChampionProfile,
+        championSavePayload(p, { seededStack, seededBasics }) as ChampionProfile,
       ),
     onSuccess: () => {
       // Profil, zlecenie (sync stacku do `must_skills`) i werdykt gotowości
@@ -267,6 +278,22 @@ export function ChampionProfileEditor({
   );
   const proseAllEmpty = proseEmptyCount === CHAMPION_PROSE_SECTION_IDS.length;
   const showFullProse = !proseAllEmpty || proseExpanded;
+  // „Aktualny" profil dla okien importu — BEZ wczytanych-a-nietkniętych pól
+  // stacku i sekcji 1 (`championSavePayload`, zmergowane nazad na pusty
+  // profil): to samo, co profil zwróciłby serwer, gdyby zapisać teraz bez
+  // żadnej zmiany. Wysłanie tam SEEDOWANEGO draftu kazałoby oknu porównywać
+  // dokument z wartościami, których DL nigdy nie potwierdził.
+  const importBaseline: ChampionProfile = {
+    ...EMPTY_CHAMPION_PROFILE,
+    ...(championSavePayload(draft, { seededStack, seededBasics }) as ChampionProfile),
+  };
+  // Etykiety pól sekcji 1 wczytanych z rekrutacji — kolejność jak w formularzu
+  // (`SEEDABLE_BASICS`), nie kolejność wstawienia do `seededBasics`.
+  const seededBasicsLabels = seededBasics
+    ? SEEDABLE_BASICS.filter((key) => key in seededBasics)
+        .map((key) => SEEDABLE_BASICS_LABEL[key])
+        .join(", ")
+    : null;
 
   return (
     <div className="space-y-6">
@@ -307,7 +334,7 @@ export function ChampionProfileEditor({
         )}
       </div>
 
-      <div className="flex gap-2 flex-wrap"><ChampionTemplateDownload />{canEdit && <ChampionImportButton current={draft} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onApply={() => invalidateChampionDependents(qc, jobId)} />}</div>
+      <div className="flex gap-2 flex-wrap"><ChampionTemplateDownload />{canEdit && <ChampionImportButton current={importBaseline} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onApply={() => invalidateChampionDependents(qc, jobId)} />}</div>
       <ChampionValidationPanel
         validation={withoutSeededStackConflict(data?.validation, seededStack)}
         // Ostrzeżenie o polu ze zwiniętej grupy 2·4·5 najpierw ją rozwija —
@@ -319,7 +346,7 @@ export function ChampionProfileEditor({
         }}
       />
       {canEdit && <button className="text-sm underline" onClick={() => setReviewOpen(true)}>Uzgodnij profil i pola rekrutacji</button>}
-      {reviewOpen && <ChampionImportReview initial={{ champion_profile: draft, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => invalidateChampionDependents(qc, jobId)} />}
+      {reviewOpen && <ChampionImportReview initial={{ champion_profile: importBaseline, validation: data?.validation }} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onClose={() => setReviewOpen(false)} onApply={() => invalidateChampionDependents(qc, jobId)} />}
 
       {saveStatus === "saved" && (
         <div className="text-xs px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 inline-flex items-center gap-1.5">
@@ -434,6 +461,16 @@ export function ChampionProfileEditor({
         anchor={meta("basics").anchor}
         state={championSectionState("basics", draft)}
       >
+        {seededBasicsLabels ? (
+          <p
+            className="mb-2 text-xs text-muted-foreground"
+            data-testid="champion-basics-seeded-from-job"
+          >
+            Pola {seededBasicsLabels} wczytane z rekrutacji — zapiszą się w
+            profilu dopiero, gdy je zmienisz. Wartość rekrutacji zmienisz w
+            zleceniu.
+          </p>
+        ) : null}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Labeled label="Nazwa roli" field="basics.role_name">
             <input
