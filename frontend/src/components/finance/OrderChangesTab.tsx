@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { ClientSinglePicker, type ClientRef } from "@/components/clients/ClientSinglePicker";
 import { useToast } from "@/components/Toast";
 import {
   financeApi,
@@ -20,32 +21,69 @@ import {
   parseMonthValue,
 } from "@/lib/finance-order-changes";
 import { ORDER_CHANGES_POLL_MS } from "@/lib/polling";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { resolveViewState } from "@/lib/view-state";
 
 import {
   OrderChangesList,
   OrderChangesPanel,
+  SUB_TAB_LABELS,
   subTabFromParam,
   type OrderChangesSubTab,
 } from "./OrderChangesPanel";
+
+/** Klucze filtrów w adresie — lustro listy czyszczonej w `app/finance/page.tsx`. */
+export const ORDER_CHANGES_URL_KEYS = [
+  "sub",
+  "month",
+  "q",
+  "client",
+  "clientName",
+  "from",
+  "to",
+] as const;
 
 function readParam(name: string): string | null {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.search).get(name);
 }
 
-function writeParams(sub: OrderChangesSubTab, month: string, defaultMonth: string) {
+interface UrlState {
+  sub: OrderChangesSubTab;
+  month: string;
+  q: string;
+  client: ClientRef | null;
+  from: string;
+  to: string;
+}
+
+function writeParams(state: UrlState, defaultMonth: string) {
   const params = new URLSearchParams(window.location.search);
-  if (sub === "changes") params.delete("sub");
-  else params.set("sub", sub);
-  if (month === defaultMonth) params.delete("month");
-  else params.set("month", month);
+  const set = (key: string, value: string) =>
+    value ? params.set(key, value) : params.delete(key);
+
+  set("sub", state.sub === "changes" ? "" : state.sub);
+  set("month", state.month === defaultMonth ? "" : state.month);
+  set("q", state.q);
+  set("client", state.client ? String(state.client.id) : "");
+  // Nazwa jedzie obok id, żeby po odświeżeniu strony chip filtra nie mówił
+  // „Klient: 18" — picker dociąga listę dopiero po otwarciu.
+  set("clientName", state.client?.name ?? "");
+  set("from", state.from);
+  set("to", state.to);
+
   const query = params.toString();
   window.history.replaceState(
     null,
     "",
     query ? `${window.location.pathname}?${query}` : window.location.pathname,
   );
+}
+
+function readClientParam(): ClientRef | null {
+  const id = Number(readParam("client"));
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return { id, name: readParam("clientName") || `Klient #${id}` };
 }
 
 /**
@@ -71,11 +109,33 @@ export function OrderChangesTab() {
     return fromUrl ? monthValue(fromUrl.year, fromUrl.month) : defaultMonth;
   });
   const [exporting, setExporting] = useState(false);
+  const [search, setSearch] = useState(() => readParam("q") ?? "");
+  const [client, setClient] = useState<ClientRef | null>(readClientParam);
+  const [dateFrom, setDateFrom] = useState(() => readParam("from") ?? "");
+  const [dateTo, setDateTo] = useState(() => readParam("to") ?? "");
+
+  // Filtry liczy serwer (jedno źródło prawdy dla ekranu i eksportu), więc
+  // wpisywanie musi być zdławione — jak w zakładce Wyniki.
+  const debouncedSearch = useDebouncedValue(search, 300);
 
   const period = parseMonthValue(month) ?? parseMonthValue(defaultMonth)!;
+  const filterParams = useMemo(
+    () => ({
+      q: debouncedSearch.trim() || undefined,
+      client_id: client?.id,
+      date_from: dateFrom || undefined,
+      date_to: dateTo || undefined,
+    }),
+    [client?.id, dateFrom, dateTo, debouncedSearch],
+  );
+  // Odwrócony zakres serwer odrzuca 422 — nie pytamy o niego wcale, żeby
+  // ekran nie migał komunikatem o błędzie w trakcie wpisywania drugiej daty.
+  const rangeReversed = Boolean(dateFrom && dateTo && dateFrom > dateTo);
   const query = useQuery<OrderChangesResponse>({
-    queryKey: ["finance-order-changes", period.year, period.month],
-    queryFn: async () => (await financeApi.getOrderChanges(period)).data,
+    queryKey: ["finance-order-changes", period.year, period.month, filterParams],
+    queryFn: async () =>
+      (await financeApi.getOrderChanges({ ...period, ...filterParams })).data,
+    enabled: !rangeReversed,
     refetchOnWindowFocus: true,
     refetchInterval: ORDER_CHANGES_POLL_MS,
   });
@@ -93,26 +153,50 @@ export function OrderChangesTab() {
         },
       ];
 
-  function changeSubTab(next: OrderChangesSubTab) {
-    setSubTab(next);
-    writeParams(next, month, defaultMonth);
+  const current: UrlState = {
+    sub: subTab,
+    month,
+    q: search,
+    client,
+    from: dateFrom,
+    to: dateTo,
+  };
+
+  /** Jedno wejście do stanu i adresu — inaczej każdy filtr miałby własną
+   *  kopię zapisu URL-a i pierwszy zapomniany parametr znikałby po cichu. */
+  function sync(patch: Partial<UrlState>) {
+    if (patch.sub !== undefined) setSubTab(patch.sub);
+    if (patch.month !== undefined) setMonth(patch.month);
+    if (patch.q !== undefined) setSearch(patch.q);
+    if (patch.client !== undefined) setClient(patch.client);
+    if (patch.from !== undefined) setDateFrom(patch.from);
+    if (patch.to !== undefined) setDateTo(patch.to);
+    writeParams({ ...current, ...patch }, defaultMonth);
   }
 
-  function changeMonth(next: string) {
-    setMonth(next);
-    writeParams(subTab, next, defaultMonth);
+  function changeSubTab(next: OrderChangesSubTab) {
+    sync({ sub: next });
   }
 
   async function exportXlsx() {
     if (exporting) return;
     setExporting(true);
     try {
+      // Te same filtry co zapytanie o ekran — plik nie może pokazywać czegoś
+      // innego niż lista, na którą patrzy użytkownik.
       const blob = await fetchAuthenticatedBlob(
-        orderChangesExportPath(period.year, period.month),
+        orderChangesExportPath(period.year, period.month, {
+          tab: subTab,
+          ...filterParams,
+        }),
       );
+      const tabSlug = SUB_TAB_LABELS[subTab]
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/ł/gi, "l");
       downloadBlob(
         blob,
-        `Zmiany_w_zamowieniach_${monthValue(period.year, period.month)}.xlsx`,
+        `Zmiany_w_zamowieniach_${tabSlug}_${monthValue(period.year, period.month)}.xlsx`,
       );
     } catch {
       showToast("Nie udało się pobrać eksportu.", "error");
@@ -121,8 +205,37 @@ export function OrderChangesTab() {
     }
   }
 
+  const filtersActive = Boolean(
+    filterParams.q ||
+      filterParams.client_id ||
+      filterParams.date_from ||
+      filterParams.date_to,
+  );
+
+  const filters = {
+    search,
+    onSearchChange: (value: string) => sync({ q: value }),
+    dateFrom,
+    onDateFromChange: (value: string) => sync({ from: value }),
+    dateTo,
+    onDateToChange: (value: string) => sync({ to: value }),
+    clientPicker: (
+      <ClientSinglePicker
+        value={client}
+        onChange={(next) => sync({ client: next })}
+        queryKey="clients-lookup-order-changes"
+        placeholder="Wszyscy klienci"
+        allowClear
+      />
+    ),
+    clientLabel: client?.name ?? null,
+    onClearClient: () => sync({ client: null }),
+    onClearDates: () => sync({ from: "", to: "" }),
+    onClearAll: () => sync({ q: "", client: null, from: "", to: "" }),
+  };
+
   const state = resolveViewState({
-    isLoading: query.isLoading,
+    isLoading: query.isLoading && !rangeReversed,
     isError: query.isError,
     error: query.error,
     isSuccess: query.isSuccess,
@@ -152,8 +265,16 @@ export function OrderChangesTab() {
         data={query.data}
         subTab={subTab}
         onOpenGaps={() => changeSubTab("gaps")}
+        filtersActive={filtersActive}
       />
     </div>
+  ) : rangeReversed ? (
+    <p
+      role="status"
+      className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+    >
+      Data „od" jest późniejsza niż „do" — popraw zakres, żeby zobaczyć wyniki.
+    </p>
   ) : state === "loading" ? (
     <p className="py-10 text-center text-sm text-muted-foreground">
       Wczytywanie zmian w zamówieniach…
@@ -169,6 +290,7 @@ export function OrderChangesTab() {
       data={query.data}
       subTab={subTab}
       onOpenGaps={() => changeSubTab("gaps")}
+      filtersActive={filtersActive}
     />
   ) : null;
 
@@ -180,9 +302,10 @@ export function OrderChangesTab() {
       onSubTabChange={changeSubTab}
       month={month}
       months={selectable}
-      onMonthChange={changeMonth}
+      onMonthChange={(next) => sync({ month: next })}
       onExport={exportXlsx}
       exporting={exporting}
+      filters={filters}
     />
   );
 }

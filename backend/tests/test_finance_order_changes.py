@@ -99,7 +99,20 @@ async def _seed(
     status: ClientOrderStatus = ClientOrderStatus.active,
     contract_status: ContractStatus = ContractStatus.active,
     client_name: str | None = None,
+    contract_rate_client: Decimal | None = Decimal("1340.000"),
 ) -> dict[str, int]:
+    """Klient + kandydat + kontrakt + jedno zamówienie.
+
+    ``contract_rate_client=None`` zostawia kontrakt bez stawki przychodowej —
+    stan realny (podpisana umowa B2B ma samą stawkę kosztową do czasu
+    zamówienia) i jedyny, który NIE wchodzi do globalnego rankingu
+    `/api/contract-analytics/margin-by-client`. Ranking tnie się na 20
+    klientach o najwyższej marży, a baza testowa nie jest czyszczona, więc
+    każdy dodatkowy wyceniony klient wypycha z niego cudzy wiersz i wywraca
+    `test_contract_analytics`. Widok Finansów i tak czyta stawki
+    z ZAMÓWIENIA, nie z kontraktu — testy tego modułu nic na tym nie tracą.
+    """
+
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
     from app.models.client import Client
@@ -119,7 +132,7 @@ async def _seed(
             status=contract_status,
             start_date=start,
             rate_candidate=Decimal("960.000"),
-            rate_client=Decimal("1340.000"),
+            rate_client=contract_rate_client,
             rate_unit=RateUnit.daily,
             currency="PLN",
             rate_candidate_currency="PLN",
@@ -609,28 +622,32 @@ async def test_month_view_lists_entries_exits_and_gaps_with_matching_counts(
     }
 
     ours = {a["client_id"], b["client_id"], other_client.id}
-    entries = {e["order_id"]: e for e in body["entries"] if e["client_id"] in ours}
-    assert entries[a_next]["is_continuation"] is True
-    assert entries[a_next]["rate_revenue"] == 1340.0
-    assert entries[a_next]["order_type"] == "periodic"
-    assert entries[extra_id]["is_continuation"] is False
-    assert entries[extra_id]["additional_project"] is True
+    # Żadna z tych osób nie jest nowa — wszystkie trzy zamówienia to zmiany
+    # w trwającej współpracy, a nie wejścia.
+    assert [e["order_id"] for e in body["entries"] if e["client_id"] in ours] == []
+
+    changes = {
+        c["order_id"]: c
+        for c in body["changes"]
+        if c["client_id"] in ours
+        and c["kind"] in ("order_continuation", "additional_project")
+    }
+    assert changes[a_next]["kind"] == "order_continuation"
+    assert changes[a_next]["previous_order_number"]
+    assert changes[a_next]["previous_end_date"]
+    assert changes[a_next]["rate_revenue"] == 1340.0
+    assert changes[extra_id]["kind"] == "additional_project"
+    assert changes[extra_id]["other_client_names"]
+    assert changes[extra_id]["effective_date"]
 
     exits = {e["order_id"]: e for e in body["exits"] if e["client_id"] in ours}
-    assert exits[a["order_id"]]["verdict"] == "continuation"
+    # Kontynuacja to NIE zejście — osoba pracuje dalej pod nowym numerem.
+    assert a["order_id"] not in exits
     assert exits[b["order_id"]]["verdict"] == "no_successor"
 
     gaps = [g for g in body["gaps"] if g["client_id"] in ours]
     assert [g["order_id"] for g in gaps] == [b["order_id"]]
     assert gaps[0]["status"] == "open"
-
-    additional = [
-        c
-        for c in body["changes"]
-        if c["kind"] == "additional_project" and c["client_id"] in ours
-    ]
-    assert [c["order_id"] for c in additional] == [extra_id]
-    assert additional[0]["other_client_names"] and additional[0]["effective_date"]
 
     export = await app_client.get(
         f"/api/finance/order-changes/export?year={first.year}&month={first.month}",
@@ -644,6 +661,300 @@ async def test_month_view_lists_entries_exits_and_gaps_with_matching_counts(
         "Zejścia",
         "Braki",
     ]
+
+    # Eksport jednej zakładki: jeden arkusz i nazwa pliku mówiąca która.
+    one = await app_client.get(
+        f"/api/finance/order-changes/export"
+        f"?year={first.year}&month={first.month}&tab=exits",
+        headers=app_auth_headers,
+    )
+    assert one.status_code == 200, one.text
+    assert "Zejscia" in one.headers["content-disposition"]
+    assert [
+        name.split(" (")[0]
+        for name in load_workbook(io.BytesIO(one.content)).sheetnames
+    ] == ["Zejścia"]
+
+
+# ── Kwalifikacja zakładek (korekta 09.2026) ─────────────────────────────────
+
+
+async def _month(app_client: AsyncClient, headers: dict, day: date, **params) -> dict:
+    query = "".join(f"&{key}={value}" for key, value in params.items())
+    resp = await app_client.get(
+        f"/api/finance/order-changes?year={day.year}&month={day.month}{query}",
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+async def _other_client_order(
+    ids: dict[str, int], *, start: date, end: date | None, client_name: str
+) -> tuple[int, int]:
+    """Zamówienie tej samej OSOBY u innego klienta (nowy klient + kontrakt)."""
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"{client_name} {uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.flush()
+        contract = Contract(
+            candidate_id=ids["candidate_id"],
+            client_id=client.id,
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=start,
+            rate_candidate=Decimal("960.000"),
+            rate_unit=RateUnit.daily,
+            currency="PLN",
+        )
+        db.add(contract)
+        await db.flush()
+        order = _order(client.id, contract.id, start=start, end=end)
+        db.add(order)
+        await db.commit()
+        return client.id, order.id
+
+
+async def test_first_ever_order_is_an_entry_and_carries_the_draft_status(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Wejście = osoba, która zaczyna z nami po raz pierwszy."""
+
+    first = _far_day(2095, 2098).replace(day=1)
+    fresh = await _seed(
+        contract_rate_client=None,
+        start=first + timedelta(days=3),
+        end=first + timedelta(days=200),
+        status=ClientOrderStatus.draft,
+    )
+
+    body = await _month(app_client, app_auth_headers, first)
+
+    entries = {e["order_id"]: e for e in body["entries"]}
+    assert entries[fresh["order_id"]]["status"] == "draft"
+    assert fresh["order_id"] not in {c["order_id"] for c in body["changes"]}
+
+
+async def test_continuation_leaves_entries_and_lands_in_changes(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    first = _far_day(2050, 2053).replace(day=1)
+    ids = await _seed(
+        contract_rate_client=None,
+        start=first - timedelta(days=90),
+        end=first + timedelta(days=2),
+    )
+    nxt = await _add_order(
+        ids, start=first + timedelta(days=3), end=first + timedelta(days=200)
+    )
+
+    body = await _month(app_client, app_auth_headers, first)
+
+    assert nxt not in {e["order_id"] for e in body["entries"]}
+    row = next(c for c in body["changes"] if c["order_id"] == nxt)
+    assert row["kind"] == "order_continuation"
+    assert row["previous_order_number"]
+    assert row["previous_end_date"] == (first + timedelta(days=2)).isoformat()
+
+
+async def test_moving_to_another_client_is_a_client_change_not_an_entry(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Konsultant kończy u klienta A i startuje u B — to zmiana klienta."""
+
+    first = _far_day(2054, 2057).replace(day=1)
+    ids = await _seed(
+        contract_rate_client=None,
+        start=first - timedelta(days=90),
+        end=first + timedelta(days=2),
+    )
+    _, moved = await _other_client_order(
+        ids,
+        start=first + timedelta(days=3),
+        end=first + timedelta(days=200),
+        client_name="FinOrders docelowy",
+    )
+
+    body = await _month(app_client, app_auth_headers, first)
+
+    assert moved not in {e["order_id"] for e in body["entries"]}
+    row = next(c for c in body["changes"] if c["order_id"] == moved)
+    assert row["kind"] == "client_change"
+    assert row["previous_client_name"]
+    assert row["previous_client_name"] != row["client_name"]
+
+
+async def test_two_clients_the_same_day_still_shows_a_new_person_once(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Osoba naprawdę nowa nie może zniknąć z Wejść przez własne drugie zamówienie."""
+
+    first = _far_day(2058, 2061).replace(day=1)
+    day = first + timedelta(days=5)
+    ids = await _seed(
+        contract_rate_client=None,
+        start=day,
+        end=first + timedelta(days=200),
+    )
+    _, twin = await _other_client_order(
+        ids, start=day, end=first + timedelta(days=200), client_name="FinOrders drugi"
+    )
+
+    body = await _month(app_client, app_auth_headers, first)
+
+    entered = {e["order_id"] for e in body["entries"]}
+    assert ids["order_id"] in entered
+    assert twin not in entered
+    assert next(c for c in body["changes"] if c["order_id"] == twin)["kind"] == (
+        "additional_project"
+    )
+
+
+async def test_termination_with_a_live_successor_is_not_an_exit(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Wypowiedziana umowa z żywym następcą — osoba pracuje dalej."""
+
+    from app.core.database import AsyncSessionLocal
+
+    first = _far_day(2062, 2065).replace(day=1)
+    ends = first + timedelta(days=4)
+    ids = await _seed(
+        contract_rate_client=None,
+        start=first - timedelta(days=90),
+        end=ends,
+    )
+    await _add_order(
+        ids, start=ends + timedelta(days=1), end=first + timedelta(days=200)
+    )
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, ids["contract_id"])
+        contract.end_date = ends
+        contract.terminated_at = datetime.now(timezone.utc)
+        contract.termination_reason = "consultant_resigned"
+        await db.commit()
+
+    body = await _month(app_client, app_auth_headers, first)
+
+    assert ids["order_id"] not in {e["order_id"] for e in body["exits"]}
+
+
+async def test_termination_without_a_successor_stays_an_exit(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    from app.core.database import AsyncSessionLocal
+
+    first = _far_day(2066, 2069).replace(day=1)
+    ends = first + timedelta(days=4)
+    ids = await _seed(
+        contract_rate_client=None,
+        start=first - timedelta(days=90),
+        end=ends,
+    )
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, ids["contract_id"])
+        contract.end_date = ends
+        contract.terminated_at = datetime.now(timezone.utc)
+        contract.termination_reason = "consultant_resigned"
+        await db.commit()
+
+    body = await _month(app_client, app_auth_headers, first)
+
+    row = next(e for e in body["exits"] if e["order_id"] == ids["order_id"])
+    assert row["verdict"] == "ended_intent"
+
+
+# ── Filtry ──────────────────────────────────────────────────────────────────
+
+
+async def test_filters_narrow_every_tab_and_its_counter(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    first = _far_day(2070, 2073).replace(day=1)
+    mine = await _seed(
+        contract_rate_client=None,
+        start=first + timedelta(days=2),
+        end=first + timedelta(days=200),
+        client_name=f"FinOrders Zagłębie {uuid.uuid4().hex[:6]}",
+    )
+    other = await _seed(
+        contract_rate_client=None,
+        start=first + timedelta(days=2),
+        end=first + timedelta(days=200),
+        client_name=f"FinOrders Pomorze {uuid.uuid4().hex[:6]}",
+    )
+
+    by_client = await _month(
+        app_client, app_auth_headers, first, client_id=mine["client_id"]
+    )
+    ids = {e["order_id"] for e in by_client["entries"]}
+    assert mine["order_id"] in ids and other["order_id"] not in ids
+    assert by_client["counts"]["entries"] == len(by_client["entries"])
+    assert all(
+        item["client_id"] == mine["client_id"]
+        for key in ("changes", "entries", "exits", "gaps")
+        for item in by_client[key]
+    )
+
+    # Szukanie po kliencie bez ogonków — „Zaglebie" ma znaleźć „Zagłębie".
+    by_name = await _month(app_client, app_auth_headers, first, q="zaglebie")
+    assert mine["order_id"] in {e["order_id"] for e in by_name["entries"]}
+    assert other["order_id"] not in {e["order_id"] for e in by_name["entries"]}
+
+    # Zakres dat: start obu zamówień wypada przed tą granicą.
+    later = (first + timedelta(days=20)).isoformat()
+    by_date = await _month(app_client, app_auth_headers, first, date_from=later)
+    assert mine["order_id"] not in {e["order_id"] for e in by_date["entries"]}
+    assert by_date["counts"]["entries"] == len(by_date["entries"])
+
+
+async def test_export_carries_the_same_filters_as_the_screen(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    first = _far_day(2074, 2077).replace(day=1)
+    mine = await _seed(
+        contract_rate_client=None,
+        start=first + timedelta(days=2),
+        end=first + timedelta(days=200),
+    )
+    await _seed(
+        contract_rate_client=None,
+        start=first + timedelta(days=2),
+        end=first + timedelta(days=200),
+    )
+
+    export = await app_client.get(
+        f"/api/finance/order-changes/export?year={first.year}&month={first.month}"
+        f"&tab=entries&client_id={mine['client_id']}",
+        headers=app_auth_headers,
+    )
+    assert export.status_code == 200, export.text
+    sheet = load_workbook(io.BytesIO(export.content))["Wejścia (1)"]
+    assert sheet.max_row == 2  # nagłówek + jeden wiersz
+
+
+async def test_unknown_export_tab_is_refused(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    resp = await app_client.get(
+        "/api/finance/order-changes/export?year=2026&month=9&tab=wejscia",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422
+
+
+async def test_reversed_date_range_is_refused(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    resp = await app_client.get(
+        "/api/finance/order-changes?date_from=2026-09-30&date_to=2026-09-01",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 422
 
 
 async def test_month_view_requires_the_finance_section(app_client: AsyncClient):

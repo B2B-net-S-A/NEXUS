@@ -2972,6 +2972,55 @@ trwała. Reguła ma jedno źródło: `app/services/b2b_contract_end_date.py`
   `test_ticket_lists_all_sixteen_people…` trzyma CI na czerwono, dopóki
   lista nie jest kompletna — marker jest jednorazowy.
 
+## Kontakt do konsultanta na umowie (09.2026, migracja 0320)
+
+Karta „Informacje o kontrakcie" pokazuje e-mail i telefon konsultanta w jednym
+wierszu pod „Typ kontraktu". Reguła kolejności źródeł ma JEDNO miejsce:
+`services/contract_candidate_contact.py` (front renderuje gotowy wynik, nie
+powtarza reguły).
+
+- **`contracts.candidate_email` / `candidate_phone` to NADPISANIE, nie migawka.**
+  Wartość trafia tam z „Danych Partnera" generatora B2B albo z ręcznej edycji
+  w widoku kontraktu. Pusta kolumna znaczy „weź z profilu kandydata", a fallback
+  liczy się przy ODCZYCIE — poprawiony w profilu telefon jest na umowie widoczny
+  od razu. Materializacja profilu przy backfillu dałaby umowy z kontaktem
+  starzejącym się w ciszy, dlatego korekta 0320 kopiuje **wyłącznie poziom
+  pierwszy** (dane z generatora).
+- **Wyczyszczenie pola przywraca fallback.** Pusty string i jawny `null` w PATCH
+  normalizują się do `NULL` (`_normalize_candidate_contact_updates`). Gdyby pusty
+  string zapisywał się dosłownie, „usunąłem wartość" znaczyłoby „zablokowałem
+  profil na zawsze", a pusta komórka obok wypełnionego profilu czyta się jak
+  utrata danych. Wartość dłuższa niż kolumna jest ODRZUCANA (422), nie przycinana
+  — przycięty numer telefonu wygląda na poprawny.
+- **Odpowiedź szczegółów niesie trzy pary pól** (`candidate_email`,
+  `candidate_email_effective`, `candidate_email_source` i analogicznie telefon).
+  Bez `*_source` nie da się oznaczyć „z profilu" ani wytłumaczyć, czemu
+  wyczyszczone pole nadal coś pokazuje. Lista kontraktów tego nie dostaje.
+- **Zapis na umowę jest FILL-ONLY na wszystkich ścieżkach**
+  (`fill_candidate_contact` w `b2b_contract_automation`): podpis obustronny
+  (`confirm-fully-signed`, także z `keep_existing_terms`) i `POST /render`, gdy
+  para (kandydat, rekrutacja) ma DOKŁADNIE JEDEN nie-`void` kontrakt. Zero
+  trafień albo więcej niż jedno = pominięcie: wpisanie kontaktu w zgadniętą
+  umowę jest gorsze niż jego brak. Stempel z `/render` jest fail-soft — awaria
+  nie może zabrać wygenerowanego DOCX-a.
+- **Twarde usunięcie kandydata ZERUJE obie kolumny** (`api/candidates.py`, art. 17
+  RODO). Wiersz umowy celowo zostaje (podpisy, faktury), ale kontakt do usuniętej
+  osoby przeżyłby w ciszy — żaden ekran nie mówi, że umowa trzyma własną kopię.
+- **Edycja w miejscu reużywa `InlineText`** z `components/orders/InlineOrderFields`;
+  bramka to istniejące `canEditContract` (admin + DL + zapis sekcji Delivery) —
+  to samo, co odsłania przycisk „Edytuj". Bez nowej capability.
+- **Raport braków: `GET /api/contracts/candidate-contact-report`** (Admin, bez
+  przycisku w UI — jak `order-sync-report`). 409 przed wykonaniem korekty. Do
+  arkusza „Braki" trafia kontrakt, dla którego **rozstrzygnięty** e-mail lub
+  telefon jest pusty, czyli ani umowa, ani profil nic nie dają — zapytanie
+  o samą pustą kolumnę wysyłałoby zespół do przepisywania danych, które i tak
+  widać. Paragon korekty (`0320_contract_candidate_contact`) niesie liczniki
+  i ID; wartości (PII) leżą pod `repair_details_…`, którego publiczny
+  `show_migration_receipts` nie wydrukuje.
+- **`render_payload` starych dokumentów zostaje nietknięty** — korekta go czyta,
+  nie czyści. Kontakt w podpisanym dokumencie jest zapisem tego, co strony
+  podpisały.
+
 ## Synchronizacja kontrakt ↔ zamówienia (09.2026, migracja 0304)
 
 Zgłoszenie: kontrakt Bartosza Czapelki (Alior) stał jako „Szkic" (120 zł/h,
@@ -3308,12 +3357,69 @@ poprawny i też kończy się przestemplowaniem — to nie jest obejście.
 ## Finanse → Zmiany w zamówieniach (Zmiany · Wejścia · Zejścia · Braki, 0308)
 
 Comiesięczny audyt zamówień dla działu finansowego (`/finance?view=order-changes`,
-`GET /api/finance/order-changes?year&month` + `/export`, bramka sekcji Finance).
-Decyzje Artura 14.09.2026: zmiany do miesiąca WPROWADZENIA; przedłużenie w
-Wejściach oznaczone jako kontynuacja (nie ukryte); Brakiem nie jest wypowiedziana
-umowa, szkic następnego zamówienia ani decyzja offboardingu MD / „zostaw jako
-historię"; DL dostaje alert DL + dzwonek. Pełny opis:
+`GET /api/finance/order-changes?year&month&q&client_id&date_from&date_to`
++ `/export?…&tab=`, bramka sekcji Finance).
+Decyzje Artura 14.09.2026: zmiany do miesiąca WPROWADZENIA; Brakiem nie jest
+wypowiedziana umowa, szkic następnego zamówienia ani decyzja offboardingu MD /
+„zostaw jako historię"; DL dostaje alert DL + dzwonek. Pełny opis:
 `docs/finance-order-changes-completion-report.md`.
+
+- **Zakładka nazywa się tak, jak to, co w niej jest (korekta 16.09.2026).**
+  Do 16.09 Wejścia zbierały KAŻDE zamówienie startujące w miesiącu (osoby już
+  z nami pracujące były tam tylko OZNACZANE jako „Kontynuacja po zam. …" albo
+  „Dodatkowy projekt"), a Zejścia pokazywały wiersze z werdyktem „Kontynuacja",
+  czyli osoby, które akurat NIE schodzą. Finanse czytają te listy jako „kto
+  doszedł" i „kogo zdjąć z rozliczeń", więc obie kłamały. Po korekcie:
+  **Wejścia** = osoba bez żadnego wcześniejszego, niezanulowanego zamówienia
+  u JAKIEGOKOLWIEK klienta; **Zejścia** = osoba, która od kolejnego miesiąca
+  nie świadczy już usług (niezależnie od przyczyny); **Zmiany** = wszystko, co
+  dzieje się w trwającej współpracy; **Braki** bez zmian.
+- **Klasyfikacja wejścia: `_classify_entries`, pierwsze trafienie wygrywa** —
+  `additional_project` (trwające zamówienie u INNEGO klienta w dniu startu) →
+  `order_continuation` (`previous_of`: poprzednie zamówienie u TEGO klienta
+  ≤31 dni przed startem — reguła nietknięta) → `client_change` /
+  `order_continuation` po kliencie OSTATNIEGO wcześniejszego zamówienia osoby
+  (powrót po przerwie, przejście do innego klienta) → `new` (jedyna klasa
+  w Wejściach). Trzy pierwsze to wiersze syntetyczne w Zmianach, liczone przy
+  odczycie — **bez migracji**: CHECK na `order_change_events.field` i dziennik
+  zostają nietknięte. Zamówienie zaczynające się PÓŹNIEJ nie czyni z osoby „już
+  współpracującej"; dwa zamówienia tego samego dnia u dwóch klientów rozstrzyga
+  niższe `order_id` (`_precedes`), żeby osoba naprawdę nowa pokazała się
+  w Wejściach raz, a nie zniknęła z nich całkiem.
+- **„Zmiana klienta" to konsultant przechodzący do innego klienta, nie zmiana
+  pola.** `ClientOrderUpdate` nie ma `client_id` — zamówienia nie da się
+  przepiąć z UI, więc literalna zmiana pola nie istnieje i nie ma czego
+  zapisywać w dzienniku.
+- **Zejście liczy się z FAKTÓW, nie z napisu werdyktu:** wiersz odpada, gdy
+  `fact.works_until_md_exhausted or successor is not None`. Warunek stoi PRZED
+  drabinką werdyktów, bo intencja zakończenia jest w niej sprawdzana pierwsza —
+  rzadkie „wypowiedzenie + żywy następca" zostawałoby inaczej w Zejściach mimo
+  tego, że osoba pracuje dalej. `ExitVerdict` nie ma już `continuation`, a
+  `OrderExitItem` pól o następcy (zawsze puste).
+- **Zmiany stawek NIE mają progu** — do Zmian trafia każda różnica stawki
+  kosztowej i przychodowej. Jedyny filtr jest w `order_change_audit` (pierwsze
+  wpisanie stawki to nie zmiana, szkice i anulowane się nie liczą).
+- **Filtry (szukaj / klient / zakres dat) liczy SERWER, jedną funkcją
+  `apply_filters` na czterech gotowych listach** — ten sam kod obsługuje ekran
+  i eksport, więc plik nie może pokazać czego innego niż lista. Data znaczy
+  w każdej zakładce co innego (zmiana / start / koniec / dzień wykrycia braku),
+  więc etykieta pola zmienia się z zakładką. Liczniki przy podzakładkach liczą
+  się z długości list, czyli po filtrach — badge nie obiecuje wierszy, których
+  pod nim nie ma. Wiersz BEZ daty nie mieści się w żadnym zakresie.
+  `open_gaps_total` zostaje globalne (baner o całej historii).
+- **Eksport bierze aktywną podzakładkę** (`?tab=`) z tymi samymi filtrami;
+  `tab` pominięty = cały audyt (cztery arkusze), zgodność wstecz.
+  `OrderChangesPanel` NIE odpytuje API sam — picker klienta wchodzi slotem
+  `filters.clientPicker`, bo ten sam komponent renderuje publiczny harness
+  `/preview/finance-order-changes`, który musi robić ZERO zapytań.
+- **Pustka po filtrach ma własny komunikat** („Żaden wiersz nie pasuje do
+  ustawionych filtrów") — pustka pod nagłówkiem miesiąca czyta się jak utrata
+  danych. Odwrócony zakres dat nie jedzie do serwera (byłoby 422 w trakcie
+  wpisywania drugiej daty), tylko wyświetla prośbę o poprawę.
+- **Filtry żyją w adresie** (`q`, `client`, `clientName`, `from`, `to` obok
+  `sub`/`month`); `ORDER_CHANGES_URL_KEYS` jest lustrem listy czyszczonej przy
+  wyjściu z widoku w `app/finance/page.tsx`. Nazwa klienta jedzie obok id, żeby
+  po odświeżeniu chip nie mówił „Klient: 18".
 
 - **Stara wartość istnieje TYLKO w `order_change_events`.** Jedna zmiana na
   TRANSAKCJĘ (`services/order_change_audit.py`): `before_flush` zapamiętuje

@@ -3,8 +3,10 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, Download, Loader2 } from "lucide-react";
 
+import { FilterBar, type FilterBarChip } from "@/components/ds/FilterBar";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import type { OrderChangesResponse } from "@/lib/api/finance";
 import {
   changeMeta,
@@ -40,6 +42,42 @@ const TONE_VARIANT: Record<Tone, "neutral" | "success" | "warning" | "danger"> =
   danger: "danger",
 };
 
+export const SUB_TAB_LABELS: Record<OrderChangesSubTab, string> = {
+  changes: "Zmiany",
+  entries: "Wejścia",
+  exits: "Zejścia",
+  gaps: "Braki",
+};
+
+/** „Data" znaczy w każdej zakładce co innego — etykieta musi to mówić. */
+export const DATE_FILTER_LABELS: Record<OrderChangesSubTab, string> = {
+  changes: "Data zmiany",
+  entries: "Data wejścia",
+  exits: "Data zejścia",
+  gaps: "Data wykrycia braku",
+};
+
+export interface OrderChangesFilterProps {
+  search: string;
+  onSearchChange: (value: string) => void;
+  dateFrom: string;
+  onDateFromChange: (value: string) => void;
+  dateTo: string;
+  onDateToChange: (value: string) => void;
+  /**
+   * Picker klienta podaje rodzic. Panel nie może sam odpytywać API — ten sam
+   * komponent renderuje publiczny harness `/preview/finance-order-changes`,
+   * który musi wykonywać ZERO zapytań.
+   */
+  clientPicker: ReactNode;
+  clientLabel: string | null;
+  onClearClient: () => void;
+  /** Obie daty naraz — dwa osobne wywołania w jednym ticku zapisałyby do
+   *  adresu nieaktualną wartość drugiego pola. */
+  onClearDates: () => void;
+  onClearAll: () => void;
+}
+
 interface OrderChangesPanelProps {
   data: OrderChangesResponse | null;
   /** `null` = dane jeszcze nie przyszły; wtedy liczniki się nie renderują. */
@@ -51,6 +89,42 @@ interface OrderChangesPanelProps {
   onMonthChange: (value: string) => void;
   onExport: () => void;
   exporting: boolean;
+  filters: OrderChangesFilterProps;
+}
+
+function filterChips(
+  subTab: OrderChangesSubTab,
+  filters: OrderChangesFilterProps,
+): FilterBarChip[] {
+  const chips: FilterBarChip[] = [];
+  if (filters.search.trim()) {
+    chips.push({
+      id: "q",
+      label: `Szukaj: ${filters.search.trim()}`,
+      onRemove: () => filters.onSearchChange(""),
+    });
+  }
+  if (filters.clientLabel) {
+    chips.push({
+      id: "client",
+      label: `Klient: ${filters.clientLabel}`,
+      onRemove: filters.onClearClient,
+    });
+  }
+  if (filters.dateFrom || filters.dateTo) {
+    const range = [
+      filters.dateFrom ? `od ${formatDay(filters.dateFrom)}` : null,
+      filters.dateTo ? `do ${formatDay(filters.dateTo)}` : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    chips.push({
+      id: "date",
+      label: `${DATE_FILTER_LABELS[subTab]}: ${range}`,
+      onRemove: filters.onClearDates,
+    });
+  }
+  return chips;
 }
 
 /**
@@ -69,14 +143,15 @@ export function OrderChangesPanel({
   onMonthChange,
   onExport,
   exporting,
+  filters,
 }: OrderChangesPanelProps) {
   const counts = data?.counts;
-  const tabs = [
-    { value: "changes", label: "Zmiany", count: counts?.changes },
-    { value: "entries", label: "Wejścia", count: counts?.entries },
-    { value: "exits", label: "Zejścia", count: counts?.exits },
-    { value: "gaps", label: "Braki", count: counts?.gaps },
-  ];
+  const tabs = ORDER_CHANGES_SUB_TABS.map((value) => ({
+    value,
+    label: SUB_TAB_LABELS[value],
+    count: counts?.[value],
+  }));
+  const chips = filterChips(subTab, filters);
 
   return (
     <section className="space-y-4 rounded-xl border border-border bg-card p-4 shadow-xs sm:p-5">
@@ -110,6 +185,7 @@ export function OrderChangesPanel({
             type="button"
             onClick={onExport}
             disabled={exporting || !data}
+            aria-label={`Eksport do Excela: ${SUB_TAB_LABELS[subTab]}`}
             className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
           >
             {exporting ? (
@@ -117,10 +193,52 @@ export function OrderChangesPanel({
             ) : (
               <Download className="h-4 w-4" aria-hidden />
             )}
-            Eksport do Excela
+            Eksport zakładki do Excela
           </button>
         </div>
       </div>
+      {/* Filtry zawężają WSZYSTKIE cztery zakładki i ich liczniki, a eksport
+          bierze dokładnie to, co widać — liczy je serwer, jedną funkcją. */}
+      <FilterBar
+        ariaLabel="Filtry audytu zamówień"
+        search={{
+          value: filters.search,
+          onChange: filters.onSearchChange,
+          onClear: () => filters.onSearchChange(""),
+          placeholder: "Szukaj po konsultancie, kliencie lub numerze zamówienia…",
+          ariaLabel: "Szukaj w audycie zamówień",
+        }}
+        filters={
+          <>
+            {filters.clientPicker}
+            <div
+              className="flex items-center gap-1.5"
+              role="group"
+              aria-label={`${DATE_FILTER_LABELS[subTab]} (zakres)`}
+            >
+              <Input
+                type="date"
+                aria-label={`${DATE_FILTER_LABELS[subTab]} od`}
+                value={filters.dateFrom}
+                onChange={(event) => filters.onDateFromChange(event.target.value)}
+                className="h-9 w-[150px]"
+              />
+              <span className="text-sm text-muted-foreground" aria-hidden>
+                –
+              </span>
+              <Input
+                type="date"
+                aria-label={`${DATE_FILTER_LABELS[subTab]} do`}
+                value={filters.dateTo}
+                onChange={(event) => filters.onDateToChange(event.target.value)}
+                className="h-9 w-[150px]"
+              />
+            </div>
+          </>
+        }
+        chips={chips}
+        onClearAll={chips.length > 0 ? filters.onClearAll : undefined}
+      />
       {body}
     </section>
   );
@@ -197,22 +315,35 @@ export function OrderChangesList({
   data,
   subTab,
   onOpenGaps,
+  filtersActive = false,
 }: {
   data: OrderChangesResponse;
   subTab: OrderChangesSubTab;
   onOpenGaps: () => void;
+  /** Pustka po filtrach czyta się jak „nic w tym miesiącu nie było" — musi
+   *  być odróżnialna od prawdziwego braku danych. */
+  filtersActive?: boolean;
 }) {
   const monthOpenGaps = data.gaps.filter((gap) => gap.status === "open").length;
   const banner =
     subTab !== "gaps" ? (
       <GapsBanner count={monthOpenGaps} onOpenGaps={onOpenGaps} />
     ) : null;
+  const filteredOut = filtersActive ? (
+    <EmptyList>Żaden wiersz nie pasuje do ustawionych filtrów.</EmptyList>
+  ) : null;
 
   if (subTab === "entries") {
     return (
       <div className="space-y-3">
         {data.entries.length === 0 ? (
-          <EmptyList>Brak zamówień rozpoczynających się w miesiącu {data.period.label}.</EmptyList>
+          filteredOut ?? (
+            <EmptyList>
+              Nikt nie rozpoczął z nami współpracy w miesiącu {data.period.label}.
+              Przedłużenia, zmiany klienta i dodatkowe projekty są w zakładce
+              Zmiany.
+            </EmptyList>
+          )
         ) : (
           <ul className="space-y-2">
             {data.entries.map((item) => (
@@ -226,13 +357,7 @@ export function OrderChangesList({
                       <Badge
                         key={tag}
                         size="sm"
-                        variant={
-                          tag === "Nowy konsultant"
-                            ? "info"
-                            : tag === "Dodatkowy projekt"
-                              ? "warning"
-                              : "outline"
-                        }
+                        variant={tag === "Nowy konsultant" ? "info" : "outline"}
                       >
                         {tag}
                       </Badge>
@@ -253,7 +378,11 @@ export function OrderChangesList({
     return (
       <div className="space-y-3">
         {data.exits.length === 0 ? (
-          <EmptyList>Brak zamówień kończących się w miesiącu {data.period.label}.</EmptyList>
+          filteredOut ?? (
+            <EmptyList>
+              Nikt nie kończy współpracy w miesiącu {data.period.label}.
+            </EmptyList>
+          )
         ) : (
           <ul className="space-y-2">
             {data.exits.map((item) => (
@@ -278,10 +407,12 @@ export function OrderChangesList({
 
   if (subTab === "gaps") {
     return data.gaps.length === 0 ? (
-      <EmptyList>
-        Brak zamówień zakończonych bez następnego zamówienia w miesiącu{" "}
-        {data.period.label}.
-      </EmptyList>
+      filteredOut ?? (
+        <EmptyList>
+          Brak zamówień zakończonych bez następnego zamówienia w miesiącu{" "}
+          {data.period.label}.
+        </EmptyList>
+      )
     ) : (
       <ul className="space-y-2">
         {data.gaps.map((item) => (
@@ -306,13 +437,15 @@ export function OrderChangesList({
   return (
     <div className="space-y-3">
       {data.changes.length === 0 ? (
-        <EmptyList>
-          Brak zmian stawek, dat końca i dodatkowych projektów w miesiącu{" "}
-          {data.period.label}.
-          {!trackedSince
-            ? " Dziennik zmian stawek i dat działa od wdrożenia tej zakładki — wcześniejsze zmiany nie zostały zapisane."
-            : ""}
-        </EmptyList>
+        filteredOut ?? (
+          <EmptyList>
+            Brak zmian stawek, dat końca i nowych zamówień osób już z nami
+            współpracujących w miesiącu {data.period.label}.
+            {!trackedSince
+              ? " Dziennik zmian stawek i dat działa od wdrożenia tej zakładki — wcześniejsze zmiany nie zostały zapisane."
+              : ""}
+          </EmptyList>
+        )
       ) : (
         <ul className="space-y-2">
           {data.changes.map((item, index) => (

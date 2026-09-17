@@ -10,6 +10,12 @@ from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractType
+from tests._ranking_anchor import anchor_contract, ranking_anchor
+
+#: Ile wierszy zwracają rankowane endpointy analityki BEZ `?limit=`
+#: (`limit: int = Query(20, ge=1, le=100)`). Kotwica musi być liczona na tym
+#: samym oknie, o które pyta test — patrz `tests/_ranking_anchor`.
+_DEFAULT_RANKED_LIMIT = 20
 
 
 async def test_margin_by_contractor_shape(
@@ -160,11 +166,17 @@ async def test_ending_contracts_count_as_active_in_analytics(
     role = f"Ending-{marker}"
     ids: dict[str, int] = {}
     try:
-        baseline = await app_client.get(
-            "/api/contract-analytics/utilization", headers=app_auth_headers
+        # `margin-by-client` i `margin-by-contractor` są tu wołane BEZ `?limit=`,
+        # czyli zwracają okno 20 wierszy posortowane po marży malejąco. Marża tej
+        # umowy to 20000 - 15000 = 5000 — dokładnie tyle, ile zasiewa kilkadziesiąt
+        # innych testów tą samą parą stawek, więc na zapełnionej bazie o wejście
+        # do dwudziestki decydowała kolejność przy remisie. Kotwica podnosi
+        # KLIENTA i KONSULTANTA ponad próg odcięcia tego okna; jest czysto
+        # złotówkowa i bez `job_id`, więc nie zmienia niczego, o co ten test pyta
+        # (patrz `tests/_ranking_anchor`).
+        anchor = await ranking_anchor(
+            app_client, app_auth_headers, limit=_DEFAULT_RANKED_LIMIT
         )
-        assert baseline.status_code == 200, baseline.text
-        before = baseline.json()["active_contracts"]
 
         async with AsyncSessionLocal() as db:
             candidate = Candidate(
@@ -173,9 +185,25 @@ async def test_ending_contracts_count_as_active_in_analytics(
             client = Client(name=f"Ending Client {marker}")
             db.add_all([candidate, client])
             await db.flush()
+            anchor_row = anchor_contract(
+                candidate_id=candidate.id, client_id=client.id, margin=anchor
+            )
+            db.add(anchor_row)
+            await db.commit()
+            ids = {"candidate": candidate.id, "client": client.id}
+
+        # Baseline PO kotwicy: dzięki temu asercja niżej dalej mierzy dokładnie
+        # jedną rzecz — że dołożenie umowy `ending` podbija licznik o jeden.
+        baseline = await app_client.get(
+            "/api/contract-analytics/utilization", headers=app_auth_headers
+        )
+        assert baseline.status_code == 200, baseline.text
+        before = baseline.json()["active_contracts"]
+
+        async with AsyncSessionLocal() as db:
             contract = Contract(
-                candidate_id=candidate.id,
-                client_id=client.id,
+                candidate_id=ids["candidate"],
+                client_id=ids["client"],
                 contract_type=ContractType.b2b,
                 status=ContractStatus.ending,
                 start_date=date.today() - timedelta(days=100),
@@ -186,11 +214,7 @@ async def test_ending_contracts_count_as_active_in_analytics(
             )
             db.add(contract)
             await db.commit()
-            ids = {
-                "contract": contract.id,
-                "candidate": candidate.id,
-                "client": client.id,
-            }
+            ids["contract"] = contract.id
 
         util = await app_client.get(
             "/api/contract-analytics/utilization", headers=app_auth_headers
@@ -217,9 +241,14 @@ async def test_ending_contracts_count_as_active_in_analytics(
         assert mix.json()["role_totals"].get(role) == 1
     finally:
         async with AsyncSessionLocal() as db:
-            if ids.get("contract"):
-                await db.execute(delete(Contract).where(Contract.id == ids["contract"]))
             if ids.get("candidate"):
+                # Po `candidate_id`, nie po `contract`: kotwica to DRUGA umowa tej
+                # osoby, a ten test jako jeden z niewielu po sobie sprząta —
+                # zostawienie jej dołożyłoby cudzym testom kolejny wysokomarżowy
+                # wiersz w tym samym oknie top-N.
+                await db.execute(
+                    delete(Contract).where(Contract.candidate_id == ids["candidate"])
+                )
                 await db.execute(
                     delete(Candidate).where(Candidate.id == ids["candidate"])
                 )
