@@ -175,6 +175,9 @@ describe("CreateJobModal — payload", () => {
     const [, payload] = mocks.post.mock.calls[0] as [string, Record<string, unknown>];
     expect("salary_min" in payload).toBe(false);
     expect("salary_max" in payload).toBe(false);
+    // Puste pole must-have = brak wartości (JSON pomija `undefined`), nie `[]`
+    // — pusta tablica zapisałaby kolumnę jako „ustawioną na nic”.
+    expect(payload.must_skills).toBeUndefined();
     // Pola techniczne, których modal świadomie nie wysyła — DL twórca
     // ląduje jako `delivery_lead_id` po stronie backendu (PR 1).
     expect("status" in payload).toBe(false);

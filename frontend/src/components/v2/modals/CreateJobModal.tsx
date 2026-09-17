@@ -324,12 +324,16 @@ export function CreateJobModal({
     setSaving(true);
     setError("");
     try {
+      const mustSkills = parseTagInput(form.mustHaveInput);
       const payload: Record<string, unknown> = {
         title: form.title,
         client_id: form.clientId,
         recruitment_type: form.recruitmentType,
         description: form.description.trim() || undefined,
-        must_skills: parseTagInput(form.mustHaveInput),
+        // Brak wpisu = brak klucza, nie `[]`: kolumna `NULL` znaczy „nie
+        // ustawiono”, a tylko taką zapis stacku Championa z importu dokumentu
+        // wypełnia sam (`empty_unreviewed` w `_save_champion_profile`).
+        must_skills: mustSkills.length > 0 ? mustSkills : undefined,
         location: form.location.trim() || undefined,
         // 0278: puste = "nieznane" (null), nie "hybrid".
         remote_policy: form.remotePolicy || null,
