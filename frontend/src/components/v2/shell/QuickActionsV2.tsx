@@ -16,9 +16,9 @@ import {
   AddCandidateModal,
   AddClientModal,
   AddContactModal,
-  AddJobModal,
   AddMeetingModal,
 } from "@/components/AppShell";
+import { CreateJobModal } from "@/components/v2/modals/CreateJobModal";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 
 export type QuickActionModal =
@@ -153,7 +153,15 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
       </DropdownMenu>
 
       {modal === "candidate" && <AddCandidateModal onClose={() => setModal(null)} onSuccess={showToast} />}
-      {modal === "job" && <AddJobModal onClose={() => setModal(null)} onSuccess={showToast} />}
+      {modal === "job" && (
+        <CreateJobModal
+          onClose={() => setModal(null)}
+          // `showToast` ma drugi parametr `type` — `CreateJobModal.onSuccess`
+          // niesie tam opcjonalny obiekt `job`, więc przekazanie funkcji
+          // wprost podstawiłoby go pod `type` (styl błędu zamiast sukcesu).
+          onSuccess={(msg) => showToast(msg)}
+        />
+      )}
       {modal === "client" && <AddClientModal onClose={() => setModal(null)} onSuccess={showToast} />}
       {modal === "contact" && <AddContactModal onClose={() => setModal(null)} onSuccess={showToast} />}
       {modal === "meeting" && <AddMeetingModal onClose={() => setModal(null)} onSuccess={showToast} />}

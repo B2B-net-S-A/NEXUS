@@ -38,7 +38,7 @@ import type {
   RequestHistoryResponse,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
-import { AddJobModal } from "@/components/AppShell";
+import { CreateJobModal } from "@/components/v2/modals/CreateJobModal";
 
 interface Props {
   jobId: number;
@@ -276,13 +276,14 @@ export function RequestHistorySection({
         )}
 
         {!readOnly && templateJobId !== null && (
-          <AddJobModal
+          <CreateJobModal
             fromJobId={templateJobId}
             onClose={() => setTemplateJobId(null)}
             onSuccess={(msg) => {
               setTemplateJobId(null);
               showToast(msg, "success");
               qc.invalidateQueries({ queryKey: ["jobs"] });
+              qc.invalidateQueries({ queryKey: ["jobs-v2"] });
             }}
           />
         )}
@@ -399,13 +400,14 @@ export function RequestHistorySection({
 
       {/* Skopiuj jako template — modal rendered locally */}
       {!readOnly && templateJobId !== null && (
-        <AddJobModal
+        <CreateJobModal
           fromJobId={templateJobId}
           onClose={() => setTemplateJobId(null)}
           onSuccess={(msg) => {
             setTemplateJobId(null);
             showToast(msg, "success");
             qc.invalidateQueries({ queryKey: ["jobs"] });
+            qc.invalidateQueries({ queryKey: ["jobs-v2"] });
           }}
         />
       )}

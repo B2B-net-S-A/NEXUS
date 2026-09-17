@@ -190,6 +190,96 @@ def test_an_unrelated_edit_leaves_the_set_aside_entry_where_it_is() -> None:
     assert edited["intake"]["unresolved"]["stack.must"] == SET_ASIDE
 
 
+# ── Empty stored stack inherits the recruitment columns ────────────────────
+# A Champion draft that never had its MUST/NICE filled in still describes a
+# real recruitment when the columns (`jobs.must_skills`/`nice_skills`) carry
+# requirements — from a manual edit, an import, or a Traffit sync. Reading
+# the empty list as "missing" would send the Delivery Lead to re-type what
+# is already on the recruitment.
+
+
+def test_empty_stored_stack_inherits_the_recruitment_columns(monkeypatch) -> None:
+    monkeypatch.setenv("CHAMPION_INTAKE_GATE_ENABLED", "true")
+    cp = filled()
+    cp["stack"]["must"] = []
+    cp["stack"]["nice"] = []
+    draft = job(
+        cp,
+        must_skills=[{"name": "Java 17", "level": None}],
+        nice_skills=[{"name": "Docker", "level": None}],
+    )
+
+    result = validation(cp, draft, enforce=True)
+
+    codes = {i["code"] for i in result["issues"]}
+    assert "missing_requirements" not in codes
+    assert "missing_must" not in codes
+    assert "skill_column_conflict" not in codes
+    assert result["status"] == "ready", result["issues"]
+    assert result["blocked_operations"] == []
+    for operation in ("search", "handoff", "cv"):
+        enforce_operation(draft, operation)
+    # Validation reads; the stored (empty) stack is never rewritten.
+    assert cp["stack"]["must"] == []
+    assert cp["stack"]["nice"] == []
+
+
+def test_empty_stored_stack_with_empty_columns_is_still_missing(monkeypatch) -> None:
+    monkeypatch.setenv("CHAMPION_INTAKE_GATE_ENABLED", "true")
+    cp = filled()
+    cp["stack"]["must"] = []
+    cp["stack"]["nice"] = []
+    draft = job(cp, must_skills=None, nice_skills=None)
+
+    result = validation(cp, draft, enforce=True)
+
+    codes = {i["code"] for i in result["issues"]}
+    assert "missing_requirements" in codes
+    assert "missing_must" in codes
+    assert "search" in result["blocked_operations"]
+    assert "handoff" in result["blocked_operations"]
+
+
+def test_inherited_prose_only_must_is_flagged_ineligible_not_missing(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CHAMPION_INTAKE_GATE_ENABLED", "true")
+    cp = filled()
+    cp["stack"]["must"] = []
+    cp["stack"]["nice"] = []
+    prose = "Minimum 3 lata doświadczenia w Javie"
+    draft = job(cp, must_skills=[{"name": prose, "level": None}])
+
+    result = validation(cp, draft, enforce=True)
+
+    codes = {i["code"] for i in result["issues"]}
+    assert "missing_must" not in codes
+    assert "missing_requirements" not in codes
+    assert "ineligible_must" in codes
+    assert "search" in result["blocked_operations"]
+
+
+def test_stored_must_with_an_empty_nice_inherits_nice_without_a_warning(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CHAMPION_INTAKE_GATE_ENABLED", "true")
+    cp = filled()
+    cp["stack"]["must"] = [{"name": "Java 17"}]
+    cp["stack"]["nice"] = []
+    draft = job(
+        cp,
+        must_skills=[{"name": "Java 17", "level": None}],
+        nice_skills=[{"name": "Kubernetes", "level": None}],
+    )
+
+    result = validation(cp, draft, enforce=True)
+
+    codes = {i["code"] for i in result["issues"]}
+    assert "skill_column_conflict" not in codes
+    assert result["status"] == "ready", result["issues"]
+    assert result["blocked_operations"] == []
+
+
 # ── API ──────────────────────────────────────────────────────────────────────
 
 

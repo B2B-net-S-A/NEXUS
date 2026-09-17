@@ -16,6 +16,8 @@ import {
   ChevronRight,
   Clock,
   Link2,
+  PanelRightClose,
+  PanelRightOpen,
   PencilLine,
   Target,
   UserPlus,
@@ -57,6 +59,7 @@ import {
 } from "@/components/ChampionVerificationChecklist";
 import { ChampionRecommendedSearches } from "@/components/ChampionRecommendedSearches";
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
+import { JobSettingsPanel } from "@/components/v2/jobs/JobSettingsPanel";
 import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import { JobPriorityContext } from "@/components/v2/priority-work";
 import { JobHandoffButton } from "@/components/v2/jobs/JobHandoffButton";
@@ -107,6 +110,16 @@ interface JobReadinessDockProps {
   variant?: JobReadinessDockVariant;
   /** Patrz `JobReadinessDockListNav`. Tylko `variant="list"`. */
   listNav?: JobReadinessDockListNav;
+  /**
+   * Zwinięty dok kroku 02 (pasek 44 px z przyciskiem „Rozwiń" + licznikiem
+   * `done/total`) — TYLKO `variant="champion"`. Stan i jego zapis w
+   * `localStorage` mieszkają w `page.tsx` (`lib/job-dock-preferences.ts`),
+   * bo o szerokości kolumny doku decyduje siatka strony, nie sam dok.
+   * Brak `onCollapsedChange` = dok ignoruje `collapsed` i renderuje się
+   * w pełni (np. na `variant="list"`, gdzie zwijanie nie istnieje).
+   */
+  collapsed?: boolean;
+  onCollapsedChange?: (next: boolean) => void;
 }
 
 type DockTab = "readiness" | "pipeline" | "team" | "searches" | "history";
@@ -428,6 +441,8 @@ export function JobReadinessDock({
   canOpen = true,
   variant = "list",
   listNav,
+  collapsed = false,
+  onCollapsedChange,
 }: JobReadinessDockProps) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -587,7 +602,7 @@ export function JobReadinessDock({
     | undefined;
   // Pusty stack (MUST i NICE) na profilu sprzed 09.2026 nie znaczy „brak
   // wymagań" — parser wpisywał je wprost do kolumn rekrutacji (M04-B02).
-  // Wtedy dok czyta kolumny, tak jak edytor obok (`champion-legacy-stack.ts`)
+  // Wtedy dok czyta kolumny, tak jak edytor obok (`champion-job-seed.ts`)
   // i scoring. Do 09.2026 sam OBIEKT stacku (także pusty) wygrywał, więc dok
   // pisał „Brak — dodaj wymagania" przy ośmiu pozycjach w `must_skills`.
   const championStackFilled =
@@ -746,6 +761,42 @@ export function JobReadinessDock({
   const totalCount = items.length + verificationTotal;
   const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
+  // Zwinięty dok kroku 02 — pasek 44 px zamiast pełnej karty, WYŁĄCZNIE na
+  // `xl`. Na `lg` i węższych dok stoi pod edytorem na pełnej szerokości
+  // (`lg:col-span-2`), więc zwinięcie nie dałoby edytorowi ani piksela, za to
+  // schowałoby bramkę handoffu — tam zawsze renderuje się pełny dok. Oba
+  // warianty są w DOM, a o widoczności decyduje CSS (`hidden xl:flex` /
+  // `xl:hidden`), bo o szerokości kolumny decyduje siatka strony, nie JS.
+  // `doneCount`/`totalCount` są policzone WYŻEJ, z tych samych zapytań co
+  // pełny widok, więc licznik na pasku jest aktualny.
+  const xlCollapsed = variant === "champion" && collapsed && !!onCollapsedChange;
+  const collapsedStrip = xlCollapsed ? (
+    <div
+      className="hidden w-11 flex-col items-center gap-2 rounded-xl border border-border bg-card py-3 xl:flex"
+      data-testid="job-readiness-dock-collapsed"
+    >
+      <button
+        type="button"
+        onClick={() => onCollapsedChange?.(false)}
+        aria-label="Rozwiń dok gotowości"
+        title="Rozwiń dok gotowości"
+        className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <span
+        className={cn(
+          "rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none tabular-nums",
+          doneCount === totalCount
+            ? "bg-success/15 text-success"
+            : "bg-warning/15 text-warning",
+        )}
+      >
+        {doneCount}/{totalCount}
+      </span>
+    </div>
+  ) : null;
+
   const subtitle = [
     job.client_name,
     RECRUITMENT_TYPE_LABEL[job.recruitment_type as string] ?? job.recruitment_type,
@@ -781,6 +832,21 @@ export function JobReadinessDock({
         primaryOwner={job.primary_owner ?? null}
         collaborators={job.collaborators ?? []}
       />
+      <JobSettingsPanel
+        jobId={jobId}
+        clientId={job.client_id ?? null}
+        jobTitle={job.title}
+        jobDescription={job.description ?? null}
+        jobRequirements={job.requirements ?? null}
+        tacId={job.tac_id ?? null}
+        deliveryLeadId={job.delivery_lead_id ?? null}
+        pipelineTemplateId={job.pipeline_template_id ?? null}
+        competenceCategoryId={job.competence_category_id ?? null}
+        trainName={job.train_name ?? null}
+        priority={job.priority ?? null}
+        deadline={job.deadline ?? null}
+        canEdit={canWritePipeline && canUpdateJob}
+      />
       <HiringManagerPicker
         jobId={jobId}
         clientId={job.client_id ?? null}
@@ -796,11 +862,19 @@ export function JobReadinessDock({
   );
 
   return (
-    // `xl:max-h` + `overflow-y-auto`: dok jest `sticky` na `xl`, a wariant
-    // champion bywa wyższy niż okno — element sticky wyższy od viewportu nigdy
-    // nie odsłania swojego dołu (główna akcja byłaby nieosiągalna). Ten sam
-    // wzorzec co `PipelineCandidateDock` i `InterviewDecisionDock`.
-    <div className="flex flex-col rounded-xl border border-border bg-card xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
+    <>
+    {collapsedStrip}
+    {/* `xl:max-h` + `overflow-y-auto`: dok jest `sticky` na `xl`, a wariant
+        champion bywa wyższy niż okno — element sticky wyższy od viewportu nigdy
+        nie odsłania swojego dołu (główna akcja byłaby nieosiągalna). Ten sam
+        wzorzec co `PipelineCandidateDock` i `InterviewDecisionDock`. */}
+    <div
+      className={cn(
+        "flex flex-col rounded-xl border border-border bg-card xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto",
+        xlCollapsed && "xl:hidden",
+      )}
+      data-testid="job-readiness-dock-full"
+    >
       {/* ── nagłówek doku (makieta: `.dhd`) ───────────────────────────────── */}
       <div className="space-y-2.5 border-b border-border px-4 pb-0 pt-3">
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -833,15 +907,32 @@ export function JobReadinessDock({
           ) : (
             <span className="min-w-0 truncate">Gotowość zlecenia</span>
           )}
-          <button
-            type="button"
-            onClick={copyJobLink}
-            aria-label="Kopiuj link do rekrutacji"
-            title="Kopiuj link do rekrutacji"
-            className="ml-auto rounded p-0.5 text-muted-foreground hover:text-foreground"
-          >
-            <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={copyJobLink}
+              aria-label="Kopiuj link do rekrutacji"
+              title="Kopiuj link do rekrutacji"
+              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+            {/* Tylko krok 02 — na liście dok nie zwija się (kolumna listy nie
+                zyskuje przez to miejsca, bo obok stoi tabela, nie edytor). */}
+            {variant === "champion" && onCollapsedChange ? (
+              <button
+                type="button"
+                onClick={() => onCollapsedChange(true)}
+                aria-label="Zwiń dok gotowości"
+                title="Zwiń dok gotowości"
+                // Zwijanie działa tylko na `xl` (patrz `collapsedStrip`) —
+                // wężej przycisk nie miałby widocznego skutku.
+                className="hidden rounded p-0.5 text-muted-foreground hover:text-foreground xl:inline-flex"
+              >
+                <PanelRightClose className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
         </div>
 
         {/* Identyfikacja zlecenia tylko na liście — na kroku 02 tytuł stoi
@@ -1098,5 +1189,6 @@ export function JobReadinessDock({
         />
       )}
     </div>
+    </>
   );
 }

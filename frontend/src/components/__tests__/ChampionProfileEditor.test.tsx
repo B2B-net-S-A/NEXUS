@@ -13,7 +13,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -342,5 +342,176 @@ describe("ChampionProfileEditor — stary profil bez stacku (M04-B02)", () => {
     await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
     const payload = putMock.mock.calls[0][1] as Record<string, unknown>;
     expect("stack" in payload).toBe(false);
+  });
+
+  it("okno „Uzgodnij profil i pola rekrutacji” pokazuje wymagania wczytane z kolumn, nie pustą listę", async () => {
+    // Pusta lista MUST w tym oknie + zaznaczone „Uzgodnij też pole rekrutacji”
+    // wyczyściłyby `must_skills` rekrutacji — okno ma pokazywać to, co edytor.
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 15,
+        champion_profile: { stack: { must: [], nice: [], notes: "" } },
+        job_values: { must: "Python\nPostgreSQL", nice: "Kafka" },
+      },
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={15} canEdit clientId={null} />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Uzgodnij profil i pola rekrutacji",
+      }),
+    );
+    const must = (await screen.findByLabelText(
+      "MUST — jeden wpis na wiersz; alternatywy: A lub B",
+    )) as HTMLTextAreaElement;
+    expect(must.value).toBe("Python\nPostgreSQL");
+  });
+});
+
+// PR 5 (program „proces tworzenia rekrutacji dla Delivery Leada"): sekcja 1
+// „Podstawowe informacje" startuje z pól rekrutacji, per pole — patrz
+// `lib/champion-job-seed.ts`.
+describe("ChampionProfileEditor — sekcja 1 startuje z pól rekrutacji (PR 5)", () => {
+  it("pokazuje notatkę z etykietami wczytanych pól, a zapis bez zmian nie wysyła ich", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 20,
+        job_title: "Senior Java Developer",
+        champion_profile: {},
+        // `role_name` NIEOBECNE — backend sprzed PR 1: degradacja łagodna,
+        // sekcja 1 spada na `job_title`.
+        job_values: { rate_value: 120, work_mode: "remote" },
+      },
+    });
+    putMock.mockResolvedValue({ data: { job_id: 20, champion_profile: {} } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={20} canEdit clientId={null} />
+      </QueryClientProvider>,
+    );
+
+    const notice = await screen.findByTestId("champion-basics-seeded-from-job");
+    expect(notice.textContent).toContain("Nazwa roli");
+    expect(notice.textContent).toContain("Maksymalna stawka PLN/h — twardy sufit");
+    expect(notice.textContent).toContain("Tryb pracy");
+    // Pola bez odpowiednika w kolumnach (dni w biurze, lokalizacja, deadline)
+    // NIE są wymienione.
+    expect(notice.textContent).not.toContain("Dni stacjonarne");
+
+    expect(screen.getByLabelText("Nazwa roli")).toHaveValue("Senior Java Developer");
+    expect(screen.getByLabelText(/Maksymalna stawka PLN\/h — twardy sufit/)).toHaveValue(120);
+    expect(screen.getByLabelText("Tryb pracy")).toHaveValue("zdalnie");
+
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    const payload = putMock.mock.calls[0][1] as {
+      basics: Record<string, unknown>;
+    };
+    expect("role_name" in payload.basics).toBe(false);
+    expect("rate_value" in payload.basics).toBe(false);
+    expect("work_mode" in payload.basics).toBe(false);
+  });
+
+  it("edycja JEDNEGO wczytanego pola (stawki) wysyła TYLKO tę zmianę", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 21,
+        job_title: "Senior Java Developer",
+        champion_profile: {},
+        job_values: { rate_value: 120, work_mode: "remote" },
+      },
+    });
+    putMock.mockResolvedValue({ data: { job_id: 21, champion_profile: {} } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={21} canEdit clientId={null} />
+      </QueryClientProvider>,
+    );
+
+    const rate = await screen.findByLabelText(
+      /Maksymalna stawka PLN\/h — twardy sufit/,
+    );
+    fireEvent.change(rate, { target: { value: "150" } });
+
+    await userEvent.click(screen.getByTestId("save-champion-profile"));
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1));
+    const payload = putMock.mock.calls[0][1] as {
+      basics: Record<string, unknown>;
+    };
+    expect(payload.basics.rate_value).toBe(150);
+    // Reszta pól wczytanych z kolumn i nietkniętych — nazwa roli, tryb pracy —
+    // zostaje pominięta.
+    expect("role_name" in payload.basics).toBe(false);
+    expect("work_mode" in payload.basics).toBe(false);
+  });
+
+  it("bez pól do wczytania (kolumny puste, profil pusty) notatka się nie renderuje", async () => {
+    getMock.mockResolvedValue({
+      data: { job_id: 22, champion_profile: {}, job_values: {} },
+    });
+    renderEditor(22);
+    await screen.findByText(BASICS_LABEL);
+    expect(
+      screen.queryByTestId("champion-basics-seeded-from-job"),
+    ).not.toBeInTheDocument();
+  });
+});
+
+describe("ChampionProfileEditor — intake seedowany z `CreateJobModal` (?intake=1)", () => {
+  it("intakeDefaultOpen/intakeSeedText otwierają panel „Wklej opis” od razu z treścią rekrutacji", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 42, champion_profile: {} } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor
+          jobId={42}
+          canEdit
+          clientId={null}
+          intakeDefaultOpen
+          intakeSeedText="Szukamy Senior Java Developera do zespołu płatności."
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("toggle-ai-intake")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByTestId("jd-intake-textarea")).toHaveValue(
+      "Szukamy Senior Java Developera do zespołu płatności.",
+    );
+  });
+
+  it("bez propsów panel zostaje domyślnie zwinięty i pusty (zachowanie sprzed PR 2)", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 43, champion_profile: {} } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <ChampionProfileEditor jobId={43} canEdit clientId={null} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByTestId("toggle-ai-intake")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(screen.queryByTestId("jd-intake-textarea")).not.toBeInTheDocument();
   });
 });
