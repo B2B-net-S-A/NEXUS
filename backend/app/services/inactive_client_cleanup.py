@@ -192,6 +192,7 @@ _ACTIVITY_ACTION_LABELS: dict[str, str] = {
     "order_created": "utworzenie zamówienia",
     "order_updated": "zmiana zamówienia",
     "order_cancelled": "anulowanie zamówienia",
+    "order_deleted": "usunięcie zamówienia",
     "order_file_uploaded": "wgranie pliku zamówienia",
     "order_file_deleted": "usunięcie pliku zamówienia",
     "order_group_created": "utworzenie zamówienia grupowego",

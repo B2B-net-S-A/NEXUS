@@ -571,7 +571,7 @@ describe("OrdersAndContractsTab card", () => {
     expect(
       screen.queryByRole("button", { name: /Dodaj przedłużenie/i }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Usuń / anuluj")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Usuń zamówienie")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Nowy kontraktor / zamówienie" }),
     ).not.toBeInTheDocument();
@@ -581,7 +581,7 @@ describe("OrdersAndContractsTab card", () => {
       screen.getByRole("button", { name: /Historia zamówień \(1\)/ }),
     );
     expect(await screen.findByText(/przychód 150/)).toBeInTheDocument();
-    expect(screen.queryByTitle("Usuń / anuluj")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Usuń zamówienie")).not.toBeInTheDocument();
   });
 
   it("TAC widzi dane i terminację, ale żadnej mutacji zamówienia okresowego", async () => {
@@ -607,7 +607,7 @@ describe("OrdersAndContractsTab card", () => {
     expect(
       screen.queryByRole("button", { name: /Dodaj przedłużenie/i }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Usuń / anuluj")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Usuń zamówienie")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Nowy kontraktor / zamówienie" }),
     ).not.toBeInTheDocument();
@@ -620,7 +620,7 @@ describe("OrdersAndContractsTab card", () => {
     expect(
       screen.queryByRole("button", { name: "Uzupełnij zamówienie" }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByTitle("Usuń / anuluj")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Usuń zamówienie")).not.toBeInTheDocument();
   });
 
   it("shows candidate finance rows when the server grants manage_finance", async () => {
@@ -1554,6 +1554,36 @@ describe("OrdersAndContractsTab — przyciski „Zakończ zamówienie” i „Za
       ),
     );
     expect(contractsApi.update).not.toHaveBeenCalled();
+  });
+
+  it("„Usuń zamówienie” przy bieżącym zamówieniu kasuje tylko ten wiersz", async () => {
+    // Ticket 09.2026: bieżące zamówienie nie miało kosza, a jedynym czerwonym
+    // przyciskiem z ikoną kosza było „Zakończ współpracę”, które wypowiada
+    // umowę i domyka wszystkie zamówienia osoby.
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mockContractor("active");
+    renderTab();
+    await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Usuń zamówienie$/ }));
+
+    await waitFor(() =>
+      expect(dlPortalApi.deleteOrder).toHaveBeenCalledWith(7, 61),
+    );
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Zostanie usunięte tylko to zamówienie"),
+    );
+    expect(contractsApi.update).not.toHaveBeenCalled();
+    expect(dlPortalApi.closeOrder).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("„Zakończ współpracę” nie wygląda jak usuwanie (bez ikony kosza)", async () => {
+    mockContractor("active");
+    renderTab();
+    await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+    const terminate = screen.getByRole("button", { name: /^Zakończ współpracę$/ });
+    expect(terminate.querySelector("svg[class*='trash']")).toBeNull();
   });
 });
 
