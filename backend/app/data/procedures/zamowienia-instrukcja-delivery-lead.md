@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 16.09.2026
+> **Zgodność z systemem sprawdzona:** 17.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1555,6 +1555,17 @@ Reguła odczytu zmienia liczby, więc warto znać ją w całości:
   przypisujesz **ręcznie** — ekran podświetla tylko nagłówek części z
   dotychczasowego pola, **bez domyślnego wyboru umowy**. Konsultant bez
   żadnego zamówienia dostaje przy przypisaniu szkic zamówienia do uzupełnienia.
+* **Karta konsultanta na zamówieniu MD** (tylko u tego klienta) ma trzy części:
+  u góry imię i nazwisko z ikonami akcji (rozliczenia miesięczne, edycja,
+  zamiana kontraktora, usunięcie z zamówienia); pośrodku stawka oraz bloki
+  **Podstawa** i **Opcja** — każdy z „wykorzystano / limit MD", procentem
+  i **„Pozostało N MD"**; na dole pasek **„Łącznie"**. Gdy umowa nie ma opcji,
+  zamiast bloku stoi **„Brak opcji w umowie"**, a „Łącznie" liczy wyłącznie
+  podstawę. „Pozostało" w „Łącznie" uwzględnia ręczną korektę budżetu — wtedy
+  obok stoi **„w tym korekta ±N MD"**, dlatego suma z bloków może się różnić.
+  Przekroczony zakres pokazuje na czerwono **„Przekroczono o N MD"**.
+  Akcje całego zamówienia (uzupełnienie, przedłużenie, zakończenie) zostają
+  pod listą konsultantów.
 * **Powiadomienia:** standardowe.
 
 ### Alior
