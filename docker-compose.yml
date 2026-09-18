@@ -106,8 +106,32 @@ services:
     # Domyślne /dev/shm w Dockerze to 64MB; przy równoległych zapytaniach Postgres
     # potrafi się o to rozbić ("could not resize shared memory segment").
     shm_size: 1gb
-    env_file:
-      - .env
+    # ŚWIADOMIE BEZ `env_file: .env` — to on odtwarzał bazę przy KAŻDYM deployu.
+    #
+    # Coolify wpisuje do `.env` `GIT_SHA` i `BUILT_AT` per deploy. Przy
+    # `env_file` trafiały one do środowiska KONTENERA bazy, więc hash jego
+    # konfiguracji zmieniał się co wdrożenie i `docker compose up -d` odtwarzał
+    # postgresa — mimo że ani obraz, ani `command`, ani wolumen się nie
+    # zmieniły. Start bazy szeregował się wtedy przed startem backendu, stąd
+    # przerwa API rzędu 70 s przy zerowej przerwie frontendu.
+    #
+    # Zmierzone sondą przerwy z `deploy.yml` na trzech kolejnych deployach:
+    #   14e17d11d  API 72 s  · frontend 0 s  · Postgres restartował: TAK
+    #   49fd77b    API 74 s  · frontend 7 s  · Postgres restartował: TAK
+    #   d72f0bd    API 67 s  · frontend 5 s  · Postgres restartował: TAK
+    # `qdrant` nigdy nie miał `env_file` i nie restartuje się — grupa kontrolna.
+    #
+    # Zdjęcie jest bezpieczne, bo `environment:` niżej podaje wszystkie trzy
+    # zmienne postgresowe JAWNIE, przez interpolację compose — a ta czyta `.env`
+    # HOSTA i jest niezależna od `env_file`, które wstrzykuje do kontenera.
+    # `PGDATA` pochodzi z obrazu. Zweryfikowane na produkcji: kontener bazy
+    # widział dokładnie `PGDATA`, `POSTGRES_DB`, `POSTGRES_PASSWORD`,
+    # `POSTGRES_USER` — i nic poza tym z rzeczy, których potrzebuje.
+    #
+    # Efekt uboczny, nie mniej ważny: przy `env_file` kontener bazy trzymał
+    # 33 zmienne z `KEY`/`SECRET`/`TOKEN`/`PASSWORD` w nazwie (klucze modeli
+    # AI, S3 backupu, sekrety Compass, CloudTalk, Fireflies). Baza nie ma
+    # z nimi nic wspólnego. Audyt 18.09.2026.
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-nexus}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
