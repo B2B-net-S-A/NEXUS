@@ -68,12 +68,16 @@ beforeEach(() => {
 });
 
 describe("ContractAnalyticsPage — kafle pieniężne", () => {
-  it("gdy margin-by-client pada, marża i przychód pokazują „—”, nie 0,00 zł", async () => {
+  it("gdy margin-totals pada, marża i przychód pokazują „—”, nie 0,00 zł", async () => {
     mocks.get.mockImplementation((url: string) => {
+      if (url.includes("margin-totals")) {
+        return Promise.reject(httpError(500));
+      }
       if (url.includes("margin-by-client")) {
         return Promise.reject(httpError(500));
       }
-      if (url.includes("margin-by-contractor")) return Promise.resolve({ data: [] });
+      if (url.includes("margin-by-contractor"))
+        return Promise.resolve({ data: [] });
       if (url.includes("utilization")) return Promise.reject(httpError(500));
       return Promise.resolve({ data: { horizon_months: 12, months: [] } });
     });
@@ -83,13 +87,31 @@ describe("ContractAnalyticsPage — kafle pieniężne", () => {
     expect(
       await screen.findByText("Nie udało się pobrać marży"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Nie udało się pobrać przychodu")).toBeInTheDocument();
+    expect(
+      screen.getByText("Nie udało się pobrać przychodu"),
+    ).toBeInTheDocument();
     // Regresja byłaby CICHA: sformatowane zero jest nieodróżnialne od wyniku.
     expect(screen.queryByText(/0,00/)).not.toBeInTheDocument();
   });
 
-  it("gdy margin-by-client zwraca dane, kafle liczą sumy", async () => {
+  it("kafle biorą sumy z margin-totals, nie z przyciętego rankingu", async () => {
     mocks.get.mockImplementation((url: string) => {
+      if (url.includes("margin-totals")) {
+        // Sumy firmowe są WIĘKSZE niż to, co widać w rankingu obok: ranking
+        // jest przycięty do 20 klientów po marży, więc klient o wysokim
+        // przychodzie i niskiej marży z niego wypada (audyt 18.09.2026 —
+        // z kafla przychodu znikało 217 060 zł).
+        return Promise.resolve({
+          data: {
+            clients: 30,
+            active_contracts: 40,
+            total_monthly_margin: 1000,
+            total_monthly_revenue: 5000,
+            margin_pct: 20,
+            fx_missing: false,
+          },
+        });
+      }
       if (url.includes("margin-by-client")) {
         return Promise.resolve({
           data: [
@@ -97,14 +119,15 @@ describe("ContractAnalyticsPage — kafle pieniężne", () => {
               client_id: 1,
               client_name: "BIK",
               active_contracts: 2,
-              total_monthly_margin: 1000,
-              total_monthly_revenue: 5000,
-              margin_pct: 20,
+              total_monthly_margin: 111,
+              total_monthly_revenue: 222,
+              margin_pct: 50,
             },
           ],
         });
       }
-      if (url.includes("margin-by-contractor")) return Promise.resolve({ data: [] });
+      if (url.includes("margin-by-contractor"))
+        return Promise.resolve({ data: [] });
       if (url.includes("utilization")) {
         return Promise.resolve({
           data: {
@@ -123,13 +146,31 @@ describe("ContractAnalyticsPage — kafle pieniężne", () => {
     renderPage();
 
     expect(await screen.findByText("20.0% z przychodu")).toBeInTheDocument();
-    expect(screen.queryByText("Nie udało się pobrać marży")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Nie udało się pobrać marży"),
+    ).not.toBeInTheDocument();
+    // Regresja byłaby cicha: suma policzona z listy dałaby 111 / 222 zł.
+    expect(
+      screen.getByText("Miesięczna marża").parentElement,
+    ).toHaveTextContent(/1[\s ]?000,00/);
   });
 });
 
 describe("ContractAnalyticsPage — degradacja kursów FX", () => {
   it("oznacza zdegradowane wiersze i nie sumuje ich jak kompletnych kwot", async () => {
     mocks.get.mockImplementation((url: string) => {
+      if (url.includes("margin-totals")) {
+        return Promise.resolve({
+          data: {
+            clients: 2,
+            active_contracts: 2,
+            total_monthly_margin: 1099,
+            total_monthly_revenue: 5499,
+            margin_pct: 20,
+            fx_missing: true,
+          },
+        });
+      }
       if (url.includes("margin-by-client")) {
         return Promise.resolve({
           data: [
@@ -179,9 +220,9 @@ describe("ContractAnalyticsPage — degradacja kursów FX", () => {
     expect(
       await screen.findByText(/Dane finansowe są niepełne/i),
     ).toBeInTheDocument();
-    expect(screen.getByText("Miesięczna marża").parentElement).toHaveTextContent(
-      "—Niepełne dane — brak kursu FX",
-    );
+    expect(
+      screen.getByText("Miesięczna marża").parentElement,
+    ).toHaveTextContent("—Niepełne dane — brak kursu FX");
     expect(
       screen.getByText("Miesięczny przychód").parentElement,
     ).toHaveTextContent("—Niepełne dane — brak kursu FX");
@@ -241,6 +282,18 @@ describe("ContractAnalyticsPage — degradacja kursów FX", () => {
 describe("ContractAnalyticsPage — macierz rola × klient", () => {
   it("Σ używa unikalnych osób per rola zamiast sumy komórek klientów", async () => {
     mocks.get.mockImplementation((url: string) => {
+      if (url.includes("margin-totals")) {
+        return Promise.resolve({
+          data: {
+            clients: 0,
+            active_contracts: 0,
+            total_monthly_margin: 0,
+            total_monthly_revenue: 0,
+            margin_pct: null,
+            fx_missing: false,
+          },
+        });
+      }
       if (url.includes("margin-by")) return Promise.resolve({ data: [] });
       if (url.includes("utilization")) {
         return Promise.resolve({

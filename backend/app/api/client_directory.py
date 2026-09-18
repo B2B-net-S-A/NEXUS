@@ -102,8 +102,11 @@ def _active_consultants_subquery(as_of: date):
         .outerjoin(Candidate, Contract.candidate_id == Candidate.id)
         .where(
             Contract.status.in_((ContractStatus.active, ContractStatus.ending)),
-            Contract.start_date.is_not(None),
-            Contract.start_date <= as_of,
+            # Pusta data startu = start NIEZNANY, nie „planowany na przyszłość”
+            # — lustro `contractor_identity.is_current_contract` (audyt
+            # 18.09.2026: trzy aktywne kontrakty z żywymi zamówieniami znikały
+            # z liczników i z MRR, bo nikt nie wpisał dnia rozpoczęcia).
+            or_(Contract.start_date.is_(None), Contract.start_date <= as_of),
             or_(Contract.end_date.is_(None), Contract.end_date >= as_of),
         )
         .group_by(Contract.client_id)

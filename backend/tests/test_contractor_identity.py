@@ -222,34 +222,42 @@ async def test_contractor_stats_deduplicates_active_people_but_keeps_contract_co
 
 @pytest.mark.asyncio
 async def test_utilization_deduplicates_denominator_and_bench_gap_per_identity():
+    """Ława to OSOBA, nie wiersz kandydata i nie kontrakt.
+
+    Duplikaty profili fałdują się po tożsamości — inaczej utylizacja
+    zmieniałaby się przy każdym scaleniu duplikatów. Mianownik to populacja
+    konsultantów: Jan Bezkontraktu ma kontrakt (jest w wierszach), ale ktoś,
+    kto NIGDY go nie miał, nie pojawia się tu wcale (audyt 18.09.2026 —
+    dzielenie przez całą bazę CV dawało 0,8% zamiast 91,3%).
+    """
     today = date.today()
-    active_rows = [_candidate(50, "Piotr", "Klimczak", "one@example.com")]
+
+    def _row(candidate, end_date):
+        return SimpleNamespace(**vars(candidate), end_date=end_date)
+
     population_rows = [
-        SimpleNamespace(
-            **vars(_candidate(50, "Piotr", "Klimczak", "one@example.com")),
-            last_end=today - timedelta(days=20),
+        # Piotr Klimczak — dwa profile, jeden pracuje (kontrakt bez daty końca).
+        _row(_candidate(50, "Piotr", "Klimczak", "one@example.com"), None),
+        _row(
+            _candidate(51, "PIOTR", "Klim-czak", "two@example.com"),
+            today - timedelta(days=5),
         ),
-        SimpleNamespace(
-            **vars(_candidate(51, "PIOTR", "Klim-czak", "two@example.com")),
-            last_end=today - timedelta(days=5),
+        # Anna Nowak — dwa profile, oba zakończone: jedna osoba na ławce.
+        _row(
+            _candidate(52, "Anna", "Nowak", "three@example.com"),
+            today - timedelta(days=10),
         ),
-        SimpleNamespace(
-            **vars(_candidate(52, "Anna", "Nowak", "three@example.com")),
-            last_end=today - timedelta(days=10),
+        _row(
+            _candidate(53, "ANNA", "NOWAK", "four@example.com"),
+            today - timedelta(days=4),
         ),
-        SimpleNamespace(
-            **vars(_candidate(53, "ANNA", "NOWAK", "four@example.com")),
-            last_end=today - timedelta(days=4),
-        ),
-        SimpleNamespace(
-            **vars(_candidate(54, "Jan", "Bezkontraktu", None)),
-            last_end=None,
-        ),
+        # Kontrakt zakończony bez wpisanej daty końca — osoba jest na ławce,
+        # ale nie wnosi przerwy do średniej.
+        _row(_candidate(54, "Jan", "Bezdaty", None), today - timedelta(days=20)),
     ]
     db = _SequentialDb(
-        _QueryResult(rows=active_rows),
-        _QueryResult(scalar_value=2),
         _QueryResult(rows=population_rows),
+        _QueryResult(scalar_value=2),
     )
 
     result = await contract_analytics.utilization(SimpleNamespace(), db)
@@ -259,7 +267,8 @@ async def test_utilization_deduplicates_denominator_and_bench_gap_per_identity()
     assert result.active_contracts == 2
     assert result.candidates_on_bench == 2
     assert result.utilization_pct == 33.3
-    assert result.avg_bench_days == 4.0
+    # Ostatnia znana data końca per osoba: Anna 4 dni, Jan 20 dni.
+    assert result.avg_bench_days == 12.0
 
 
 @pytest.mark.asyncio

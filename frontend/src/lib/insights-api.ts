@@ -723,17 +723,29 @@ export interface InsightsHitRatioOptions {
 // ── Rada Nadzorcza: tabele rok-do-roku ───────────────────────────────────────
 
 /** Jak czytać metrykę przez cały rok. Serwer to deklaruje, front się kieruje. */
-export type InsightsYoYAggregate = "sum" | "avg";
+/**
+ * `sum` — przepływy. `avg` — stany (średni poziom w miesiącach roku).
+ * `ratio` — wskaźnik: rocznie Σlicznik / Σmianownik, NIGDY średnia miesięcznych
+ * procentów (mianowniki miesięcy różnią się pięciokrotnie).
+ * `distinct` — liczność zbioru: nie da się jej złożyć z miesięcy żadnym
+ * działaniem, więc rok przychodzi gotowy w `yearly`.
+ */
+export type InsightsYoYAggregate = "sum" | "avg" | "ratio" | "distinct";
 export type InsightsYoYUnit = "pln" | "pct" | "count";
-export type InsightsYoYGroup = "finanse" | "hr" | "dywersyfikacja" | "operacyjne";
+export type InsightsYoYGroup =
+  "finanse" | "hr" | "dywersyfikacja" | "operacyjne";
 
 export interface InsightsYoYMetric {
   key: string;
   group: InsightsYoYGroup;
   label: string;
   unit: InsightsYoYUnit;
-  /** `sum` dla przepływów, `avg` dla stanów i wskaźników — NIGDY nie zgaduj. */
+  /** Reguła podsumowania roku — z serwera, NIGDY nie zgaduj. */
   aggregate: InsightsYoYAggregate;
+  /** Klucze w `component_series` — wymagane dla `aggregate: "ratio"`. */
+  components: { numerator: string; denominator: string } | null;
+  /** Rok → wartość roczna. Wymagane dla `aggregate: "distinct"`. */
+  yearly: Record<string, number | null> | null;
   /** Wzrost jest złą wiadomością (zejścia, koszty, koncentracja klienta). */
   lower_is_better: boolean;
   definition: string | null;
@@ -772,6 +784,8 @@ export interface InsightsYoYResponse {
   partial_month: { year: number; month: number } | null;
   month_labels: string[];
   metrics: InsightsYoYMetric[];
+  /** Licznik i mianownik wskaźników — NIE są wierszami tabeli. */
+  component_series: Record<string, Record<string, Array<number | null>>>;
   placements_by_client: Record<string, Array<InsightsYoYClientMonth | null>>;
   degraded: {
     reasons: string[];

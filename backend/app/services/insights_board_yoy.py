@@ -383,9 +383,25 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             "top_client_share_pct",
             "margin_per_hour_pln",
             "hit_ratio_pct",
+            # Składowe wskaźników. NIE są wierszami tabeli — istnieją po to,
+            # żeby podsumowanie roku liczyło się jako Σlicznik / Σmianownik.
+            # Bez nich widok mógł tylko uśrednić dwanaście miesięcznych
+            # procentów, a mianowniki miesięcy różnią się pięciokrotnie:
+            # hit ratio 2025 wychodziło wtedy 16,58% zamiast 14,5% i odwracało
+            # werdykt roku z „Gorzej" na „Lepiej" (audyt 18.09.2026).
+            "top_client_placements",
+            "closed_jobs_total",
+            "closed_jobs_filled",
+            "margin_with_known_hours_pln",
+            "margin_known_hours",
         )
     }
     by_client: dict = {str(y): [None] * 12 for y in years}
+    # Liczności zbioru NIE DA SIĘ uśrednić ani zsumować po miesiącach: klient
+    # obsłużony w marcu i w lipcu to jeden klient, a nie dwóch. Roczna wartość
+    # musi powstać z ZBIORU. DynaReporter pokazywał tu 4,33 / 6,75 / 8,63 przy
+    # realnych 18 / 23 / 25 (audyt 18.09.2026).
+    clients_by_year: dict[str, set] = {}
     # Ile kontraktów stoi za kwotami danego miesiąca. To NIE jest metryka do
     # tabeli, tylko PODSTAWA — bez niej wiersz „Przychody" nie mówi, czy
     # wzrost bierze się z biznesu, czy z tego, że rok temu tych kontraktów po
@@ -419,6 +435,8 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
         series["top_client_share_pct"][y][idx] = (
             ratio(named[0][1], total_placements) if named else None
         )
+        series["top_client_placements"][y][idx] = named[0][1] if named else None
+        clients_by_year.setdefault(y, set()).update(nm for nm, _ in named)
         head = named[:CLIENTS_PER_MONTH]
         rest = sum(cnt for _, cnt in named[CLIENTS_PER_MONTH:])
         unnamed = total_placements - sum(cnt for _, cnt in named)
@@ -438,6 +456,8 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
         # Delivery Lead, gdzie stoi obok obsady, której dotyczy.
         closed_total, closed_filled = jobs_map.get((slot.year, slot.month), (0, 0))
         series["hit_ratio_pct"][y][idx] = ratio(closed_filled, closed_total)
+        series["closed_jobs_total"][y][idx] = closed_total
+        series["closed_jobs_filled"][y][idx] = closed_filled
 
         # — stan (pieniądze i ludzie) —
         assert slot.asof is not None
@@ -458,6 +478,10 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
         series["consultants"][y][idx] = fold.consultants
         priced_by_month[y][idx] = fold.priced_contracts
         series["margin_per_hour_pln"][y][idx] = margin_per_hour(fold)
+        series["margin_with_known_hours_pln"][y][idx] = money(
+            fold.margin_with_known_hours
+        )
+        series["margin_known_hours"][y][idx] = float(fold.margin_hours)
 
     metrics = [
         _metric(
@@ -479,7 +503,18 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             lower_is_better=True,
         ),
         _metric("margin_monthly_pln", "finanse", "Marża", "pln", "avg", series),
-        _metric("margin_pct", "finanse", "Marża %", "pct", "avg", series),
+        _metric(
+            "margin_pct",
+            "finanse",
+            "Marża %",
+            "pct",
+            "ratio",
+            series,
+            components={
+                "numerator": "margin_monthly_pln",
+                "denominator": "revenue_monthly_pln",
+            },
+        ),
         _metric("consultants", "hr", "Liczba konsultantów", "count", "avg", series),
         _metric(
             "departures",
@@ -517,18 +552,30 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             "dywersyfikacja",
             "Liczba unikalnych klientów",
             "count",
-            "avg",
+            "distinct",
             series,
             definition=DISTINCT_CLIENTS_WITH_PLACEMENT,
             basis="pipeline",
+            yearly={
+                str(y): (
+                    len(clients_by_year.get(str(y), set()))
+                    if str(y) in clients_by_year
+                    else None
+                )
+                for y in years
+            },
         ),
         _metric(
             "top_client_share_pct",
             "dywersyfikacja",
             "Udział top klienta",
             "pct",
-            "avg",
+            "ratio",
             series,
+            components={
+                "numerator": "top_client_placements",
+                "denominator": "placements",
+            },
             lower_is_better=True,
             definition=TOP_CLIENT_SHARE,
             note="Im niżej, tym mniejsza koncentracja na jednym kliencie.",
@@ -539,8 +586,12 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             "operacyjne",
             "Średnia marża na konsultancie (PLN/h)",
             "pln",
-            "avg",
+            "ratio",
             series,
+            components={
+                "numerator": "margin_with_known_hours_pln",
+                "denominator": "margin_known_hours",
+            },
             definition=MARGIN_PER_BILLABLE_HOUR,
             note=(
                 "Ważona, wyłącznie z kontraktów o znanej liczbie godzin "
@@ -552,10 +603,14 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
             "operacyjne",
             "Hit ratio",
             "pct",
-            "avg",
+            "ratio",
             series,
             definition=CLOSED_JOBS_WITH_PLACEMENT,
             basis="pipeline",
+            components={
+                "numerator": "closed_jobs_filled",
+                "denominator": "closed_jobs_total",
+            },
         ),
     ]
 
@@ -602,6 +657,22 @@ async def compute_board_yoy(db: AsyncSession, years: list[int], today: date) -> 
         "partial_month": partial_month,
         "month_labels": list(MONTH_LABELS_PL),
         "metrics": metrics,
+        # Serie składowe wskaźników — poza `metrics`, bo to NIE są wiersze
+        # tabeli. Widok sięga tu wyłącznie po to, żeby policzyć podsumowanie
+        # roku jako Σlicznik / Σmianownik.
+        "component_series": {
+            key: series[key]
+            for key in (
+                "top_client_placements",
+                "closed_jobs_total",
+                "closed_jobs_filled",
+                "margin_with_known_hours_pln",
+                "margin_known_hours",
+                "margin_monthly_pln",
+                "revenue_monthly_pln",
+                "placements",
+            )
+        },
         "placements_by_client": by_client,
         "degraded": degraded,
     }
@@ -619,6 +690,8 @@ def _metric(
     definition: Optional[str] = None,
     note: Optional[str] = None,
     basis: str = "contracts",
+    components: Optional[dict] = None,
+    yearly: Optional[dict] = None,
 ) -> dict:
     """Metryka razem z instrukcją, jak ją czytać.
 
@@ -641,6 +714,15 @@ def _metric(
         # `_contract_coverage`) czy `pipeline` (historia z importu Traffita,
         # sięga wstecz). Widok ostrzega TYLKO przy pierwszym.
         "basis": basis,
+        # Licznik i mianownik wskaźnika — klucze w `component_series`.
+        # Wskaźnik bez nich nie ma jak zostać podsumowany za rok inaczej niż
+        # średnią z miesięcznych procentów, czyli ŚREDNIĄ ILORAZÓW: mianowniki
+        # miesięcy różnią się pięciokrotnie, więc miesiąc z 9 zamkniętymi
+        # rekrutacjami waży tyle samo co miesiąc z 200.
+        "components": components,
+        # Wartość ROCZNA podana wprost, gdy z miesięcy nie da się jej złożyć
+        # żadnym działaniem (liczność zbioru).
+        "yearly": yearly,
         "series": series[key],
     }
 

@@ -435,15 +435,29 @@ cofnąć „przy okazji”:
   tokenu = `::error::` + `exit 1`, częściowy digest wysyła i kończy `exit 1`;
   deploy ma krok `/api/health/alembic` (bookmark bazy == heads kodu,
   `orphaned == []`) — czerwony deploy przy dryfie jest zamierzony.
-- **„Obecny" kontrakt = start wpisany i ≤ dziś — JEDNA reguła na każdej
-  powierzchni** (`contractor_identity.is_current_contract`/`current_contracts`,
-  UAT B46, PR 2): profil klienta (kafel „Aktywne MRR", liczniki), zakładka
-  Analityka (`/my-clients/{id}/dashboard`), ranking Rady (`insights_clients`),
-  przegląd admina; kokpit Rady ma ten sam warunek w SQL. Kontrakt z przyszłym
-  startem albo bez daty jedzie na profilu OSOBNO jako „Planowani" — z tą samą
-  redakcją kwot co „Obecni". Pierwsza wersja poprawki zmieniła tylko profil
-  i ten sam klient pokazywał inną marżę w sąsiedniej zakładce; pilnuje tego
-  `test_margin_rounding_parity.py` (kontrakt o przyszłym starcie w fixture).
+- **„Obecny" kontrakt = start nie później niż dziś ALBO brak daty startu —
+  JEDNA reguła na każdej powierzchni**
+  (`contractor_identity.is_current_contract`/`current_contracts`, UAT B46, PR 2;
+  pusta data od 18.09.2026): profil klienta (kafel „Aktywne MRR", liczniki),
+  zakładka Analityka (`/my-clients/{id}/dashboard`), ranking Rady
+  (`insights_clients`), przegląd admina, licznik katalogu klientów
+  (`client_directory.py` — to on jest lustrem tej reguły w SQL i jedynym
+  miejscem, w którym może się rozjechać). **„Planowany" to twierdzenie
+  o PRZYSZŁOŚCI i wymaga daty, która jeszcze nie nadeszła**; pusta data jest
+  brakiem WIEDZY, a konsultant nie przestaje pracować dlatego, że nikt nie
+  wpisał dnia rozpoczęcia. Audyt 18.09.2026 zmierzył cenę pierwszej wersji:
+  u klienta 15 trzy AKTYWNE kontrakty z żywymi liniami zamówień siedziały
+  w „Planowanych", czyli 13 920 PLN/mc (54% marży klienta) poza „Aktywnym MRR"
+  przy kaflu deklarującym komplet (`unpriced = 0`). Profil podstawia datę
+  reprezentatywnego zamówienia (`fallback_start`), więc umowa bez własnej daty,
+  ale z zamówieniem startującym za tydzień, zostaje planowana NAPRAWDĘ.
+  Kontrakt z przyszłym startem jedzie na profilu OSOBNO jako „Planowani" —
+  z tą samą redakcją kwot co „Obecni". Pierwsza wersja poprawki zmieniła tylko
+  profil i ten sam klient pokazywał inną marżę w sąsiedniej zakładce; pilnuje
+  tego `test_margin_rounding_parity.py` (kontrakt o przyszłym starcie
+  w fixture) i `test_contract_current_without_start_date.py`.
+  **Szeregi czasowe (`insights_board`, `insights_board_yoy`) świadomie wymagają
+  daty startu** — bez niej nie da się umieścić kontraktu na osi miesięcy.
 - **Stan ekranu w adresie:** `/candidates/search` trzyma request w `?s=`
   (`lib/candidate-search-request.ts` — tylko pola o kształcie zgodnym z bazą,
   bo adres pisze użytkownik), porównanie kandydatów wraca z `?sel=`,
@@ -1357,6 +1371,27 @@ w jednej zakładce i puste w sąsiedniej.
   `my-clients/page.tsx` i `MyClientsTab.tsx` czytają tylko pola operacyjne.
   Reguła obejmuje je dla spójności kontraktu API; nie szukaj tam efektu wizualnego.
   Efekt widać w zakładce **Analityka** (karta z listy linkuje wprost tam).
+
+## Analityka kontraktów: utylizacja i kafle sum (18.09.2026)
+
+- **Mianownik utylizacji to POPULACJA KONSULTANTÓW, nie baza CV.** Jedna
+  definicja: `services/consultant_population.py` (czytają ją
+  `GET /api/contract-analytics/utilization` i `analytics/metrics.finance_summary`).
+  Populacja = osoby z kontraktem `active`/`ending`/`ended` o starcie ≤ dziś,
+  fałdowane po tożsamości (`contractor_identity`), więc scalenie duplikatów nie
+  podbija wskaźnika. Endpoint liczył wcześniej `outerjoin(Contract)` BEZ filtra
+  statusu: 0,8% zamiast 91,3% (**błąd 114×**) i 56 647 osób „na ławce" zamiast
+  45 — przy czym `avg_bench_days` obok liczyło się już po tych 45, więc ekran
+  przeczył sam sobie. `utilization_pct = None` gdy nie ma kogo liczyć: zero
+  znaczyłoby „nikt z naszych konsultantów nie pracuje".
+- **Sumy firmowe mają własny endpoint `GET /api/contract-analytics/margin-totals`.**
+  Kafle „Miesięczna marża" i „Miesięczny przychód" liczyły się na froncie
+  z `margin-by-client`, a ta trasa oddaje 20 wierszy przyciętych po MARŻY —
+  klient o wysokim przychodzie i niskiej marży wypadał z kafla PRZYCHODU
+  (12 555 483 zamiast 12 772 543 PLN, brakowało 217 060 zł). Podniesienie
+  limitu byłoby tym samym błędem, tylko dalej: **suma nie może zależeć od tego,
+  ilu klientów mieści się w rankingu obok**. Ranking i suma mają wspólne
+  źródło (`_margin_by_client_rows`), ale osobne trasy i osobne stany ładowania.
 
 ## Interaktywne CV (publiczny link do wygenerowanego CV)
 
@@ -3900,12 +3935,27 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   - **Backend zwraca WYŁĄCZNIE liczby.** Delta, „Ocena" i wiersz podsumowania
     to czysta arytmetyka w `frontend/src/lib/insights-yoy.ts` — testowana na
     wartościach, nie na zrzucie ekranu.
-  - **Każda metryka niesie `aggregate`** (`sum` dla przepływów, `avg` dla
-    stanów i wskaźników) oraz `lower_is_better`. Bez pierwszego widok
-    potrzebuje własnej listy „co się sumuje", czyli drugiego lustra tej wiedzy
-    — w DynaReporterze go nie było i wiersz „Suma" pod kolumną procentów
-    pokazywał 874%. Bez drugiego wzrost zejść i kosztów dostaje zieloną
-    strzałkę w górę, czyli komunikat odwrotny do prawdy.
+  - **Każda metryka niesie `aggregate`** (`sum` przepływy, `avg` stany,
+    `ratio` wskaźniki, `distinct` liczności zbioru) oraz `lower_is_better`.
+    Bez pierwszego widok potrzebuje własnej listy „co się sumuje", czyli
+    drugiego lustra tej wiedzy — w DynaReporterze go nie było i wiersz „Suma"
+    pod kolumną procentów pokazywał 874%. Bez drugiego wzrost zejść i kosztów
+    dostaje zieloną strzałkę w górę, czyli komunikat odwrotny do prawdy.
+  - **Wskaźnik za rok liczy się OD NOWA: Σlicznik / Σmianownik** (od 18.09.2026).
+    Średnia dwunastu miesięcznych procentów to ŚREDNIA ILORAZÓW, a mianowniki
+    miesięcy różnią się pięciokrotnie — miesiąc z 9 zamkniętymi rekrutacjami
+    ważył tyle samo co miesiąc z 200. Zmierzone na produkcji: hit ratio 2024
+    pokazywane 14,57% przy realnych 17,4% (134/770), 2025 — 16,58% przy
+    realnych 14,5% (195/1342); delta zmieniała ZNAK (+2,0 pp „Lepiej" zamiast
+    −2,9 pp „Gorzej"). Dlatego `ratio` niesie `components` (klucze licznika
+    i mianownika), a odpowiedź osobne `component_series` — to NIE są wiersze
+    tabeli. Nowy wskaźnik bez składowych = błąd kontraktu, nie brak danych
+    (`test_insights_board_yoy.py`).
+  - **Liczności zbioru (`unique_clients`) nie da się złożyć z miesięcy żadnym
+    działaniem** — klient obsłużony w marcu i w lipcu to jeden klient.
+    DynaReporter pokazywał 4,33 / 6,75 / 8,63 przy realnych 18 / 23 / 25.
+    Rok przychodzi gotowy w `yearly`; wiersze miesięcy zostają miesięczne,
+    bo to prawda o miesiącu. Porównania YTD ta metryka NIE ma — rok jest rokiem.
   - **Miesiąc PRZYSZŁY to `null`, miesiąc BIEŻĄCY jest oznaczony**
     (`partial_month`). Zera w kolumnie bieżącego roku czytają się jak awaria,
     a siedem dni danych — jak załamanie wyniku.

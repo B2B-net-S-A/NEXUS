@@ -40,12 +40,21 @@ interface MarginRow {
   fx_missing?: boolean;
 }
 
+interface MarginTotals {
+  clients: number;
+  active_contracts: number;
+  total_monthly_revenue: number;
+  total_monthly_margin: number;
+  margin_pct: number | null;
+  fx_missing: boolean;
+}
+
 interface UtilizationData {
   total_candidates: number;
   candidates_active: number;
   active_contracts: number;
   candidates_on_bench: number;
-  utilization_pct: number;
+  utilization_pct: number | null;
   avg_bench_days: number | null;
 }
 
@@ -110,7 +119,9 @@ function MetricCard({
       </div>
       <div className="mt-2 text-2xl font-bold">{value}</div>
       {sub && (
-        <div className="mt-1 text-xs text-muted-foreground dark:text-muted-foreground">{sub}</div>
+        <div className="mt-1 text-xs text-muted-foreground dark:text-muted-foreground">
+          {sub}
+        </div>
       )}
     </div>
   );
@@ -149,7 +160,9 @@ function MarginLeaderboard({
           onRetry={onRetry}
         />
       ) : !rows || rows.length === 0 ? (
-        <div className="p-6 text-sm text-muted-foreground italic">Brak danych.</div>
+        <div className="p-6 text-sm text-muted-foreground italic">
+          Brak danych.
+        </div>
       ) : (
         <table className="w-full text-sm">
           <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
@@ -170,7 +183,10 @@ function MarginLeaderboard({
               const name = (r[nameKey] ?? "—") as string;
               const fxMissing = r.fx_missing === true;
               return (
-                <tr key={linkId} className="border-t border-border dark:border-border">
+                <tr
+                  key={linkId}
+                  className="border-t border-border dark:border-border"
+                >
                   <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
                   <td className="px-3 py-2">
                     <Link
@@ -185,7 +201,10 @@ function MarginLeaderboard({
                         className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-300"
                         title="Kwoty pomijają pozycje bez dostępnego kursu FX"
                       >
-                        <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                        <AlertTriangle
+                          className="h-3.5 w-3.5"
+                          aria-hidden="true"
+                        />
                         Brak kursu FX
                       </span>
                     )}
@@ -202,7 +221,9 @@ function MarginLeaderboard({
                       : formatCurrency(r.total_monthly_margin, "PLN")}
                   </td>
                   <td className="px-3 py-2 text-right text-muted-foreground dark:text-muted-foreground">
-                    {!fxMissing && r.margin_pct !== null ? `${r.margin_pct}%` : "—"}
+                    {!fxMissing && r.margin_pct !== null
+                      ? `${r.margin_pct}%`
+                      : "—"}
                   </td>
                 </tr>
               );
@@ -240,7 +261,9 @@ function ForecastChart({
   }
   if (!forecast || forecast.months.length === 0) {
     return (
-      <div className="p-6 text-sm text-muted-foreground italic">Brak danych prognozy.</div>
+      <div className="p-6 text-sm text-muted-foreground italic">
+        Brak danych prognozy.
+      </div>
     );
   }
   const maxRev = Math.max(...forecast.months.map((m) => m.revenue), 1);
@@ -255,14 +278,17 @@ function ForecastChart({
           role="alert"
           className="mb-4 flex items-start gap-2 rounded-lg border border-amber-400/50 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
         >
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+          <AlertTriangle
+            className="w-4 h-4 shrink-0 mt-0.5"
+            aria-hidden="true"
+          />
           <div className="space-y-0.5">
             {fxWarnings.length > 0 ? (
               fxWarnings.map((w) => <p key={w}>{w}</p>)
             ) : (
               <p>
-                Prognoza jest niepełna — dla części walut brakuje kursu NBP, a te
-                kwoty zostały POMINIĘTE w sumach.
+                Prognoza jest niepełna — dla części walut brakuje kursu NBP, a
+                te kwoty zostały POMINIĘTE w sumach.
               </p>
             )}
           </div>
@@ -271,11 +297,12 @@ function ForecastChart({
       <div className="flex items-end gap-2 h-60 min-w-fit">
         {forecast.months.map((m) => {
           const revHeight = (m.revenue / maxRev) * 100;
-          const marHeight = m.revenue
-            ? (m.margin / maxRev) * 100
-            : 0;
+          const marHeight = m.revenue ? (m.margin / maxRev) * 100 : 0;
           return (
-            <div key={m.month} className="flex flex-col items-center gap-1 min-w-16">
+            <div
+              key={m.month}
+              className="flex flex-col items-center gap-1 min-w-16"
+            >
               <div className="text-[10px] text-muted-foreground mb-1 whitespace-nowrap">
                 {countPl(m.active_count, "kontrakt", "kontrakty", "kontraktów")}
               </div>
@@ -316,12 +343,22 @@ export default function ContractAnalyticsPage() {
   const contractorQ = useQuery<MarginRow[]>({
     queryKey: ["contract-analytics-margin-contractor"],
     queryFn: () =>
-      api.get("/api/contract-analytics/margin-by-contractor").then((r) => r.data),
+      api
+        .get("/api/contract-analytics/margin-by-contractor")
+        .then((r) => r.data),
   });
   const clientQ = useQuery<MarginRow[]>({
     queryKey: ["contract-analytics-margin-client"],
     queryFn: () =>
       api.get("/api/contract-analytics/margin-by-client").then((r) => r.data),
+  });
+  // Kafle sum pytają o SUMY, nie o ranking: `margin-by-client` oddaje 20
+  // wierszy przyciętych po marży, więc klient o wysokim przychodzie i niskiej
+  // marży wypadał z kafla PRZYCHODU (audyt 18.09.2026: brakowało 217 060 zł).
+  const totalsQ = useQuery<MarginTotals>({
+    queryKey: ["contract-analytics-margin-totals"],
+    queryFn: () =>
+      api.get("/api/contract-analytics/margin-totals").then((r) => r.data),
   });
   const utilQ = useQuery<UtilizationData>({
     queryKey: ["contract-analytics-utilization"],
@@ -331,9 +368,7 @@ export default function ContractAnalyticsPage() {
   const forecastQ = useQuery<Forecast>({
     queryKey: ["contract-analytics-forecast"],
     queryFn: () =>
-      api
-        .get("/api/contract-analytics/revenue-forecast")
-        .then((r) => r.data),
+      api.get("/api/contract-analytics/revenue-forecast").then((r) => r.data),
   });
 
   const byContractor = contractorQ.data;
@@ -362,20 +397,17 @@ export default function ContractAnalyticsPage() {
   // „0,00 zł" — nieodróżnialne od prawdziwego wyniku na ekranie, na którym
   // admin odpowiada sobie na pytanie „ile zarabiamy w tym miesiącu".
   // Dlatego bez sukcesu renderujemy „—", a nie sformatowane zero.
-  const clientFxMissing = (byClient ?? []).some((row) => row.fx_missing === true);
+  const totals = totalsQ.data;
+  const clientFxMissing =
+    totals?.fx_missing === true ||
+    (byClient ?? []).some((row) => row.fx_missing === true);
   const anyLeaderboardFxMissing =
     clientFxMissing ||
     (byContractor ?? []).some((row) => row.fx_missing === true);
   const marginTotalsKnown =
-    clientQ.isSuccess && byClient !== undefined && !clientFxMissing;
-  const totalMonthlyMargin = (byClient ?? []).reduce(
-    (acc, r) => acc + r.total_monthly_margin,
-    0,
-  );
-  const totalMonthlyRevenue = (byClient ?? []).reduce(
-    (acc, r) => acc + r.total_monthly_revenue,
-    0,
-  );
+    totalsQ.isSuccess && totals !== undefined && !totals.fx_missing;
+  const totalMonthlyMargin = totals?.total_monthly_margin ?? 0;
+  const totalMonthlyRevenue = totals?.total_monthly_revenue ?? 0;
 
   return (
     <RequireRole roles={["admin", "finance"]}>
@@ -389,7 +421,8 @@ export default function ContractAnalyticsPage() {
           </Link>
           <h1 className="text-2xl font-bold mt-1">Analityka kontraktów</h1>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-            Marża, utylizacja i prognoza dla aktywnych i kończących się kontraktów.
+            Marża, utylizacja i prognoza dla aktywnych i kończących się
+            kontraktów.
           </p>
         </div>
 
@@ -398,10 +431,14 @@ export default function ContractAnalyticsPage() {
             role="alert"
             className="flex items-start gap-2 rounded-lg border border-amber-400/50 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200"
           >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0"
+              aria-hidden="true"
+            />
             <span>
-              Dane finansowe są niepełne — pozycje bez kursu FX zostały pominięte.
-              Kwoty i sumy zależne od tych pozycji pokazujemy jako „—”.
+              Dane finansowe są niepełne — pozycje bez kursu FX zostały
+              pominięte. Kwoty i sumy zależne od tych pozycji pokazujemy jako
+              „—”.
             </span>
           </div>
         )}
@@ -417,7 +454,7 @@ export default function ContractAnalyticsPage() {
             }
             sub={
               !marginTotalsKnown
-                ? clientQ.isLoading
+                ? totalsQ.isLoading
                   ? "Ładowanie…"
                   : clientFxMissing
                     ? "Niepełne dane — brak kursu FX"
@@ -438,7 +475,7 @@ export default function ContractAnalyticsPage() {
             sub={
               marginTotalsKnown
                 ? undefined
-                : clientQ.isLoading
+                : totalsQ.isLoading
                   ? "Ładowanie…"
                   : clientFxMissing
                     ? "Niepełne dane — brak kursu FX"
@@ -448,10 +485,16 @@ export default function ContractAnalyticsPage() {
           <MetricCard
             icon={Users}
             label="Utylizacja"
-            value={util ? `${util.utilization_pct}%` : "—"}
+            value={
+              util && util.utilization_pct !== null
+                ? `${util.utilization_pct}%`
+                : "—"
+            }
             sub={
               util
-                ? `${util.candidates_active} kontraktorów / ${util.active_contracts} aktywnych kontraktów`
+                ? util.utilization_pct === null
+                  ? "Brak konsultantów do policzenia"
+                  : `${util.candidates_active} z ${util.total_candidates} konsultantów pracuje`
                 : utilQ.isError
                   ? "Nie udało się pobrać utylizacji"
                   : undefined
@@ -460,7 +503,12 @@ export default function ContractAnalyticsPage() {
           <MetricCard
             icon={Building2}
             label="Śr. dni na bench"
-            value={util?.avg_bench_days !== null && util?.avg_bench_days !== undefined ? `${util.avg_bench_days}` : "—"}
+            value={
+              util?.avg_bench_days !== null &&
+              util?.avg_bench_days !== undefined
+                ? `${util.avg_bench_days}`
+                : "—"
+            }
             sub={
               util
                 ? `${util.candidates_on_bench} osób bez kontraktu`
@@ -509,7 +557,6 @@ export default function ContractAnalyticsPage() {
 
 // ── Role × Client heatmap ───────────────────────────────────────────────────
 
-
 function RoleClientMixCard() {
   const { data, isLoading, isError, error, refetch } = useQuery<RoleClientMix>({
     queryKey: ["contract-analytics-role-client-mix"],
@@ -521,7 +568,8 @@ function RoleClientMixCard() {
   if (isLoading) {
     return (
       <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
-        <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie rola × klient…
+        <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie rola ×
+        klient…
       </div>
     );
   }
@@ -570,7 +618,9 @@ function RoleClientMixCard() {
         <table className="min-w-full text-xs">
           <thead className="text-left text-muted-foreground">
             <tr>
-              <th className="px-2 py-1 sticky left-0 bg-card dark:bg-muted">Rola</th>
+              <th className="px-2 py-1 sticky left-0 bg-card dark:bg-muted">
+                Rola
+              </th>
               {data.clients.map((c) => (
                 <th key={c.id} className="px-2 py-1 whitespace-nowrap">
                   {c.name}
@@ -594,9 +644,7 @@ function RoleClientMixCard() {
                   </td>
                   {data.clients.map((c) => {
                     const cnt = matrix[role]?.[c.id] ?? 0;
-                    const intensity = rowSum
-                      ? Math.min(1, cnt / rowSum)
-                      : 0;
+                    const intensity = rowSum ? Math.min(1, cnt / rowSum) : 0;
                     return (
                       <td
                         key={c.id}
@@ -612,7 +660,9 @@ function RoleClientMixCard() {
                       </td>
                     );
                   })}
-                  <td className="px-2 py-1 text-center font-medium">{rowSum}</td>
+                  <td className="px-2 py-1 text-center font-medium">
+                    {rowSum}
+                  </td>
                 </tr>
               );
             })}
@@ -624,7 +674,6 @@ function RoleClientMixCard() {
 }
 
 // ── Consultant location distribution ────────────────────────────────────────
-
 
 function LocationDistributionCard() {
   const { data, isLoading, isError, error, refetch } =
@@ -638,7 +687,8 @@ function LocationDistributionCard() {
   if (isLoading) {
     return (
       <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 text-sm text-muted-foreground">
-        <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie lokalizacji…
+        <Loader2 className="w-4 h-4 animate-spin inline" /> Ładowanie
+        lokalizacji…
       </div>
     );
   }
@@ -665,7 +715,9 @@ function LocationDistributionCard() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <h4 className="text-xs font-semibold text-muted-foreground mb-2">Huby</h4>
+          <h4 className="text-xs font-semibold text-muted-foreground mb-2">
+            Huby
+          </h4>
           <ul className="space-y-1 text-sm">
             {data.hubs.map((h) => (
               <li
@@ -673,7 +725,9 @@ function LocationDistributionCard() {
                 className="flex items-center justify-between"
               >
                 <span className="text-foreground dark:text-muted-foreground">
-                  {h.hub_city ?? <em className="text-muted-foreground">Brak hubu</em>}
+                  {h.hub_city ?? (
+                    <em className="text-muted-foreground">Brak hubu</em>
+                  )}
                 </span>
                 <span className="font-medium">{h.count}</span>
               </li>
@@ -681,7 +735,9 @@ function LocationDistributionCard() {
           </ul>
         </div>
         <div>
-          <h4 className="text-xs font-semibold text-muted-foreground mb-2">Regiony</h4>
+          <h4 className="text-xs font-semibold text-muted-foreground mb-2">
+            Regiony
+          </h4>
           <ul className="space-y-1 text-sm">
             {data.regions.map((r) => (
               <li
@@ -689,7 +745,9 @@ function LocationDistributionCard() {
                 className="flex items-center justify-between"
               >
                 <span className="text-foreground dark:text-muted-foreground">
-                  {r.region ?? <em className="text-muted-foreground">Brak regionu</em>}
+                  {r.region ?? (
+                    <em className="text-muted-foreground">Brak regionu</em>
+                  )}
                 </span>
                 <span className="font-medium">{r.count}</span>
               </li>
@@ -702,7 +760,6 @@ function LocationDistributionCard() {
 }
 
 // ── Termination analysis ────────────────────────────────────────────────────
-
 
 function TerminationAnalysisCard() {
   const { data, isLoading, isError, error, refetch } =

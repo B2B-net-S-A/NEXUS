@@ -28,10 +28,10 @@ from app.models.contract import Contract, ContractStatus, ContractTerminationRea
 from app.models.job import Job
 from app.services.client_identity import client_display_name_expression
 from app.services.fx_service import amount_to_pln_with_rate, get_rate_to_pln
+from app.services.consultant_population import consultant_population
 from app.services.contractor_identity import (
     candidate_identity_key,
     contractor_identity_sql_expression,
-    unique_contractor_keys,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,12 +116,32 @@ class MarginByClient(BaseModel):
     fx_missing: bool = False
 
 
+class MarginTotals(BaseModel):
+    """Sumy po WSZYSTKICH klientach — świadomie osobno od rankingu.
+
+    Ranking i suma odpowiadają na dwa różne pytania i mają dwa różne zbiory
+    wierszy; trzymanie sumy w polu obok listy zapraszało do policzenia jej
+    z tego, co akurat przyszło (i tak się to skończyło — patrz `/margin-totals`).
+    """
+
+    clients: int
+    active_contracts: int
+    total_monthly_revenue: MoneyPLN
+    total_monthly_margin: MoneyPLN
+    margin_pct: Optional[float]
+    fx_missing: bool
+
+
 class UtilizationStats(BaseModel):
+    # `total_candidates` to populacja KONSULTANTÓW (osoby, które kiedykolwiek
+    # miały u nas kontrakt), nie liczba wierszy w bazie kandydatów.
     total_candidates: int
     candidates_active: int
     active_contracts: int
     candidates_on_bench: int
-    utilization_pct: float
+    # `None` = nie ma kogo liczyć. Zero znaczyłoby „żaden z naszych konsultantów
+    # nie pracuje", czyli coś zupełnie innego.
+    utilization_pct: Optional[float]
     avg_bench_days: Optional[float]
 
 
@@ -245,12 +265,11 @@ async def margin_by_contractor(
     return rows[:limit]
 
 
-@router.get("/margin-by-client", response_model=List[MarginByClient])
-async def margin_by_client(
-    current_user: FinanceReadUser,
-    db: AsyncSession = Depends(get_db),
-    limit: int = Query(20, ge=1, le=100),
-):
+async def _margin_by_client_rows(db: AsyncSession) -> List[MarginByClient]:
+    """WSZYSCY klienci z żywym kontraktem, posortowani po marży w PLN.
+
+    Bez limitu — przycinanie należy do endpointu listy, nie do liczenia.
+    """
     rev_sql = _sql_monthly(Contract.rate_client).label("revenue")
     cost_sql = _sql_monthly(Contract.rate_candidate).label("cost")
     client_name = client_display_name_expression()
@@ -327,7 +346,47 @@ async def margin_by_client(
         for cid, b in acc.items()
     ]
     rows.sort(key=lambda x: x.total_monthly_margin, reverse=True)
+    return rows
+
+
+@router.get("/margin-by-client", response_model=List[MarginByClient])
+async def margin_by_client(
+    current_user: FinanceReadUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """Ranking klientów. `limit` przycina RANKING — nigdy sumy (patrz `/margin-totals`)."""
+    rows = await _margin_by_client_rows(db)
     return rows[:limit]
+
+
+@router.get("/margin-totals", response_model=MarginTotals)
+async def margin_totals(
+    current_user: FinanceReadUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Sumy firmowe — po WSZYSTKICH klientach z żywym kontraktem.
+
+    Audyt 18.09.2026: kafle „Miesięczna marża" i „Miesięczny przychód" liczyły
+    się na froncie z `margin-by-client`, a ta trasa domyślnie oddaje **20**
+    wierszy. Przycięcie idzie po MARŻY, więc klient o wysokim przychodzie
+    i niskiej marży wypadał z kafla PRZYCHODU: 12 555 483 zamiast 12 772 543 PLN
+    — brakowało 217 060 zł pod nagłówkiem, który obiecuje sumę firmy.
+
+    Podniesienie limitu do 100 byłoby tym samym błędem, tylko dalej: suma nie
+    może zależeć od tego, ilu klientów mieści się w rankingu obok.
+    """
+    rows = await _margin_by_client_rows(db)
+    revenue = sum((row.total_monthly_revenue for row in rows), Decimal("0"))
+    margin = sum((row.total_monthly_margin for row in rows), Decimal("0"))
+    return MarginTotals(
+        clients=len(rows),
+        active_contracts=sum(row.active_contracts for row in rows),
+        total_monthly_revenue=revenue,
+        total_monthly_margin=margin,
+        margin_pct=(round(float(margin / revenue) * 100, 1) if revenue else None),
+        fx_missing=any(row.fx_missing for row in rows),
+    )
 
 
 @router.get("/utilization", response_model=UtilizationStats)
@@ -335,20 +394,18 @@ async def utilization(
     current_user: FinanceReadUser,
     db: AsyncSession = Depends(get_db),
 ):
-    active_rows = (
-        await db.execute(
-            select(
-                Candidate.id,
-                Candidate.name,
-                Candidate.lastname,
-                Candidate.email,
-            )
-            .join(Contract, Contract.candidate_id == Candidate.id)
-            .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
-        )
-    ).all()
-    active_keys = unique_contractor_keys(active_rows)
-    candidates_active = len(active_keys)
+    """Utylizacja liczona po POPULACJI KONSULTANTÓW, nie po całej bazie CV.
+
+    Audyt 18.09.2026: ten kafel pokazywał ``0,8%`` i ``56 647`` osób „bez
+    kontraktu” przy realnych ``91,3%`` i ``45`` osobach na ławce (błąd 114×).
+    Mianownik brał się z `outerjoin(Contract)` BEZ filtra statusu, czyli z całej
+    bazy kandydatów — a licznik ``avg_bench_days`` obok liczył się już po
+    właściwych 45 osobach, więc ekran przeczył sam sobie.
+
+    Jedna definicja dla tego kafla i dla `finance_summary`:
+    ``services/consultant_population.py``.
+    """
+    population = await consultant_population(db)
     active_contracts = (
         await db.execute(
             select(func.count(Contract.id)).where(
@@ -357,62 +414,13 @@ async def utilization(
         )
     ).scalar() or 0
 
-    # Count the whole candidate population by the same person identity used by
-    # the numerator.  Bench gaps are likewise folded per identity: duplicate
-    # profiles contribute only their most recent contract end once.
-    today = date.today()
-    bench_days_res = await db.execute(
-        select(
-            Candidate.id,
-            Candidate.name,
-            Candidate.lastname,
-            Candidate.email,
-            func.max(Contract.end_date).label("last_end"),
-        )
-        .outerjoin(Contract, Contract.candidate_id == Candidate.id)
-        .group_by(
-            Candidate.id,
-            Candidate.name,
-            Candidate.lastname,
-            Candidate.email,
-        )
-    )
-    all_candidate_rows = bench_days_res.all()
-    all_keys = unique_contractor_keys(all_candidate_rows)
-    total_candidates = len(all_keys)
-    bench_keys = all_keys - active_keys
-    candidates_on_bench = len(bench_keys)
-    bench_last_end: dict[tuple, date] = {}
-    for row in all_candidate_rows:
-        identity_key = candidate_identity_key(row)
-        if identity_key not in bench_keys:
-            continue
-        last_end = row.last_end
-        if last_end is None:
-            continue  # candidate never had a contract — skip
-        previous = bench_last_end.get(identity_key)
-        if previous is None or last_end > previous:
-            bench_last_end[identity_key] = last_end
-
-    bench_gaps: list[int] = []
-    for last_end in bench_last_end.values():
-        gap = (today - last_end).days
-        if gap > 0:
-            bench_gaps.append(gap)
-    avg_bench = round(sum(bench_gaps) / len(bench_gaps), 1) if bench_gaps else None
-
-    utilization_pct = (
-        round((candidates_active / total_candidates) * 100, 1)
-        if total_candidates
-        else 0.0
-    )
     return UtilizationStats(
-        total_candidates=total_candidates,
-        candidates_active=candidates_active,
+        total_candidates=population.total,
+        candidates_active=population.active,
         active_contracts=active_contracts,
-        candidates_on_bench=candidates_on_bench,
-        utilization_pct=utilization_pct,
-        avg_bench_days=avg_bench,
+        candidates_on_bench=population.bench,
+        utilization_pct=population.utilization_pct,
+        avg_bench_days=population.avg_bench_days(),
     )
 
 
