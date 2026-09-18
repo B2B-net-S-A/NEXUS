@@ -1,15 +1,15 @@
 """Jednorazowe zaliczenie weryfikacji, które utknęły w stanie „Pending".
 
-Decyzja Artura 17.09.2026: bramka „Pending" (stawka ponad budżet przy ruchu na
-„Zweryfikowany") jest wyłączona (`PENDING_VERIFICATION_ENABLED=False`), a UI
-akceptacji zostało usunięte. Karty zapisane wcześniej jako `pending` tablica
-pokazuje jak aktywne, ale w bazie zostawały `pending` — więc nie liczyły się do
-KPI weryfikacji i nikt nie dostawał zaliczenia pierwszego weryfikatora.
+Decyzja Artura 17.09.2026: bramka „Oczekuje" (stawka ponad budżet przy ruchu na
+„Zweryfikowany") została usunięta — najpierw wyłączona flagą, a 18.09.2026
+skasowana razem z całym swoim kodem. Karty zapisane wcześniej jako `pending`
+tablica pokazuje jak aktywne, ale w bazie zostawały `pending` — więc nie liczyły
+się do KPI weryfikacji i nikt nie dostawał zaliczenia pierwszego weryfikatora.
 
-Blok robi dla każdej takiej karty dokładnie to, co robiła ręczna akceptacja
-(`accept_pending_verification`): `verification_status=active`, znacznik czasu
-akceptacji i `record_accepted_verification` z weryfikatorem = osoba, która
-przesunęła kartę. Różnice wobec akceptacji ręcznej, obie świadome:
+Blok robi dla każdej takiej karty dokładnie to, co robiła ręczna akceptacja:
+`verification_status=active`, znacznik czasu akceptacji i
+`record_accepted_verification` z weryfikatorem = osoba, która przesunęła kartę.
+Różnice wobec akceptacji ręcznej, obie świadome:
 
 * `approved_by` zostaje puste — nikt tej decyzji nie podjął, podjęła ją zmiana
   polityki; paragon w `app_settings` mówi, kiedy i ile;
@@ -18,8 +18,9 @@ przesunęła kartę. Różnice wobec akceptacji ręcznej, obie świadome:
 
 Uruchamiane raz z `entrypoint.sh` (alembic na prodzie bywa osierocony, a logika
 jest ORM-owa). Advisory lock + znacznik → drugi start kończy się natychmiast.
-Przy WŁĄCZONEJ bramce blok nic nie robi i nie stawia znacznika: wtedy `pending`
-ma znaczenie i akceptuje go człowiek. Paragon niesie wyłącznie liczby i ID.
+Na produkcji wykonane 17.09.2026; blok ZOSTAJE, bo jest idempotentny i musi
+zadziałać przy świeżej instalacji albo odtworzeniu bazy z kopii sprzed tej daty.
+Paragon niesie wyłącznie liczby i ID.
 """
 
 from __future__ import annotations
@@ -31,7 +32,6 @@ from typing import Any, Optional
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
 from app.models.recruitment_pipeline import (
@@ -61,8 +61,6 @@ async def run_pending_verification_promotion(
         promote_legacy_pending_verification,
     )
 
-    if settings.PENDING_VERIFICATION_ENABLED:
-        return None
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
         {"key": PROMOTION_MARKER},

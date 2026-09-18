@@ -16,7 +16,6 @@ from app.services.operational_tasks import nominal_task_owner
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import HTTPException, status
@@ -338,8 +337,15 @@ async def update_latest_expected_rate(
     rate_value: Any,
     rate_unit: Optional[str],
     rate_currency: Optional[str],
-) -> tuple[CandidateStage, Optional[Job], bool]:
-    """Update expected rate and re-evaluate the verified budget gate."""
+) -> tuple[CandidateStage, Optional[Job]]:
+    """Zapisz stawkę kandydata na najnowszym etapie pary (kandydat, rekrutacja).
+
+    Bramka „Oczekuje" została usunięta (17.09.2026), więc korekta stawki NIE
+    ocenia budżetu i nigdy nie ustawia `pending`: wiersz zostaje (albo staje
+    się) aktywny — także stary `pending`, zaliczony w chwili korekty, nie
+    wstecz — a „ponad budżet" jest odznaką na karcie. Snapshot
+    `budget_max_at_move` zostaje dla audytu i doku karty.
+    """
 
     stage = await _lock_latest_stage(
         db,
@@ -356,17 +362,7 @@ async def update_latest_expected_rate(
         stage.expected_rate_currency = rate_currency
 
     job: Optional[Job] = None
-    became_pending = False
-    from app.core.config import settings
-
-    if (
-        stage.stage == PipelineStage.verified
-        and not settings.PENDING_VERIFICATION_ENABLED
-    ):
-        # Bramka wyłączona (17.09.2026): korekta stawki nie ocenia budżetu.
-        # Wiersz zostaje (albo staje się) aktywny — także stary `pending`,
-        # zaliczony w chwili korekty, nie wstecz — a „ponad budżet" jest
-        # odznaką na karcie.
+    if stage.stage == PipelineStage.verified:
         job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
         if job is not None and job.salary_max is not None and rate_value is not None:
             stage.budget_max_at_move = int(job.salary_max)
@@ -380,44 +376,8 @@ async def update_latest_expected_rate(
                 stage=stage,
                 verifier_user_id=stage.moved_by,
             )
-    elif stage.stage == PipelineStage.verified:
-        job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
-        if job is not None and job.salary_max is not None and rate_value is not None:
-            from app.services.rate_normalization import normalize_rate_to_monthly
-
-            stage.budget_max_at_move = int(job.salary_max)
-            normalized, _note = normalize_rate_to_monthly(
-                Decimal(rate_value),
-                rate_unit,
-                rate_currency,
-            )
-            if normalized is None or normalized > Decimal(job.salary_max):
-                # Decyzja 17.09.2026: bramka „Pending" wyłączona — korekta
-                # stawki ponad budżet zostaje `active`, przekroczenie jedzie
-                # na kartę jako informacja (`budget_exceeded` w odpowiedzi).
-                if settings.PENDING_VERIFICATION_ENABLED:
-                    became_pending = (
-                        stage.verification_status != VerificationStatus.pending
-                    )
-                    stage.verification_status = VerificationStatus.pending
-                    stage.approved_by = None
-                    stage.approved_at = None
-            else:
-                was_pending = stage.verification_status == VerificationStatus.pending
-                stage.verification_status = VerificationStatus.active
-                if was_pending:
-                    # Automatic acceptance happened at this rate correction,
-                    # not retroactively at the original over-budget move.
-                    stage.approved_by = None
-                    stage.approved_at = datetime.now(timezone.utc)
-                if stage.moved_by is not None:
-                    await record_accepted_verification(
-                        db,
-                        stage=stage,
-                        verifier_user_id=stage.moved_by,
-                    )
     await db.flush()
-    return stage, job, became_pending
+    return stage, job
 
 
 async def _create_process(
@@ -905,78 +865,22 @@ async def record_accepted_verification(
     return process
 
 
-async def _lock_current_pending_verification(
-    db: AsyncSession,
-    *,
-    candidate_stage_id: int,
-) -> CandidateStage:
-    locator = (
-        await db.execute(
-            select(CandidateStage.candidate_id, CandidateStage.job_id).where(
-                CandidateStage.id == candidate_stage_id
-            )
-        )
-    ).first()
-    if locator is None:
-        raise HTTPException(status_code=404, detail="CandidateStage not found")
-    locked_candidate = await db.scalar(
-        select(Candidate.id)
-        .where(Candidate.id == locator.candidate_id)
-        .with_for_update()
-    )
-    if locked_candidate is None:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-    stage = await db.scalar(
-        select(CandidateStage)
-        .where(CandidateStage.id == candidate_stage_id)
-        .with_for_update()
-    )
-    if stage is None:
-        raise HTTPException(status_code=404, detail="CandidateStage not found")
-    if stage.stage != PipelineStage.verified:
-        raise HTTPException(
-            status_code=422,
-            detail="Decyzja dotyczy wyłącznie stage'a 'verified'",
-        )
-    if stage.verification_status != VerificationStatus.pending:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Status nie jest 'pending' (obecny: {stage.verification_status.value})"
-            ),
-        )
-    latest_id = await db.scalar(
-        select(CandidateStage.id)
-        .where(
-            CandidateStage.candidate_id == stage.candidate_id,
-            CandidateStage.job_id == stage.job_id,
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
-    )
-    if latest_id != stage.id:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Ten rekord nie jest aktualnym stanem procesu — proces został "
-                "już przesunięty dalej. Odśwież listę weryfikacji."
-            ),
-        )
-    return stage
-
-
 async def promote_legacy_pending_verification(
     db: AsyncSession,
     *,
     stage: CandidateStage,
     accepted_at: datetime,
 ) -> bool:
-    """Zalicz weryfikację `pending` po wyłączeniu bramki (17.09.2026).
+    """Zalicz weryfikację `pending` po usunięciu bramki (17.09.2026).
 
-    To samo co `accept_pending_verification`, ale bez akceptującego
-    (`approved_by` zostaje puste — decyzję podjęła zmiana polityki) i bez
-    wymogu, żeby wiersz był aktualnym etapem procesu. Wołający blokuje wiersz.
-    Zwraca, czy zaliczono pierwszego weryfikatora.
+    To samo, co robiła ręczna akceptacja, ale bez akceptującego (`approved_by`
+    zostaje puste — decyzję podjęła zmiana polityki) i bez wymogu, żeby wiersz
+    był aktualnym etapem procesu. Wołający blokuje wiersz. Zwraca, czy
+    zaliczono pierwszego weryfikatora.
+
+    Jedyny konsument to jednorazowa naprawa danych
+    (`pending_verification_promotion.py` z `entrypoint.sh`) — idempotentna,
+    więc potrzebna też przy odtwarzaniu bazy od zera.
     """
     stage.verification_status = VerificationStatus.active
     stage.approved_at = accepted_at
@@ -985,117 +889,6 @@ async def promote_legacy_pending_verification(
         return False
     await record_accepted_verification(db, stage=stage, verifier_user_id=stage.moved_by)
     return True
-
-
-async def accept_pending_verification(
-    db: AsyncSession,
-    *,
-    candidate_stage_id: int,
-    approver_user_id: int,
-) -> CandidateStage:
-    """Atomically accept the current pending verification."""
-
-    stage = await _lock_current_pending_verification(
-        db,
-        candidate_stage_id=candidate_stage_id,
-    )
-    stage.verification_status = VerificationStatus.active
-    stage.approved_by = approver_user_id
-    stage.approved_at = datetime.now(timezone.utc)
-    invalidate_milestone_counts()
-    if stage.moved_by is not None:
-        await record_accepted_verification(
-            db,
-            stage=stage,
-            verifier_user_id=stage.moved_by,
-        )
-    await db.flush()
-    return stage
-
-
-async def reject_pending_verification(
-    db: AsyncSession,
-    *,
-    candidate_stage_id: int,
-    approver_user_id: int,
-    note: str,
-) -> tuple[CandidateStage, CandidateStage]:
-    """Atomically reject pending verification and append its revert event."""
-
-    stage = await _lock_current_pending_verification(
-        db,
-        candidate_stage_id=candidate_stage_id,
-    )
-    now = datetime.now(timezone.utc)
-    stage.verification_status = VerificationStatus.rejected
-    stage.rejected_by = approver_user_id
-    stage.rejected_at = now
-    stage.rejection_note = note
-    process = await _latest_process(
-        db,
-        candidate_id=stage.candidate_id,
-        job_id=stage.job_id,
-    )
-    if (
-        process is not None
-        and process.credit_user_id is not None
-        and process.credit_user_id == stage.moved_by
-    ):
-        accepted_conditions = [
-            CandidateStage.candidate_id == stage.candidate_id,
-            CandidateStage.job_id == stage.job_id,
-            CandidateStage.id != stage.id,
-            CandidateStage.stage == PipelineStage.verified,
-            CandidateStage.verification_status == VerificationStatus.active,
-        ]
-        if process.opened_at is not None:
-            accepted_conditions.append(CandidateStage.moved_at >= process.opened_at)
-        other_accepted = await db.scalar(
-            select(CandidateStage.id).where(*accepted_conditions).limit(1)
-        )
-        if other_accepted is None:
-            # A rate edit can return an already accepted verification to
-            # pending. If that decision is then rejected, the rejected row may
-            # not permanently reserve first-verifier credit.
-            process.credit_user_id = None
-
-    previous = await db.scalar(
-        select(CandidateStage)
-        .where(
-            CandidateStage.candidate_id == stage.candidate_id,
-            CandidateStage.job_id == stage.job_id,
-            CandidateStage.id != stage.id,
-            CandidateStage.moved_at < stage.moved_at,
-        )
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-        .limit(1)
-    )
-    revert_stage = previous.stage if previous is not None else PipelineStage.new
-    revert_stage_def_id = previous.stage_def_id if previous is not None else None
-    rate_label = (
-        f"{stage.expected_rate_value} "
-        f"{(stage.expected_rate_currency or 'PLN')}/"
-        f"{(stage.expected_rate_unit or 'monthly')}"
-    )
-    budget_label = (
-        f"{stage.budget_max_at_move}" if stage.budget_max_at_move is not None else "?"
-    )
-    revert = await transition_process(
-        db,
-        candidate_id=stage.candidate_id,
-        job_id=stage.job_id,
-        stage=revert_stage,
-        stage_def_id=revert_stage_def_id,
-        moved_at=now,
-        actor_user_id=approver_user_id,
-        work_channel=PriorityChannel.database,
-        notes=(
-            f"Rejected verification: {note} (rate {rate_label} > budżet {budget_label})"
-        ),
-        verification_status=VerificationStatus.active,
-    )
-    await db.flush()
-    return stage, revert
 
 
 async def void_process(

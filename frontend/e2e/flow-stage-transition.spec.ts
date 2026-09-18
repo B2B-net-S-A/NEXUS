@@ -132,8 +132,10 @@ test.describe("Pipeline rekrutacji @stack", () => {
     expect(verified.verification_status).toBe("active");
     expect(verified.budget_exceeded).toBe(true);
 
+    // Trasy kolejki akceptacji nie istnieją — bramka „Oczekuje" została
+    // usunięta razem ze swoim kodem (17.09.2026).
     const queue = await admin.api.get("/api/pipeline/pending-verifications");
-    await expectStatus(queue, 404, "kolejka akceptacji przy wyłączonej bramce");
+    await expectStatus(queue, 404, "kolejka akceptacji nie istnieje");
   });
 
   test("rekruter spoza zespołu rekrutacji nie przesunie kandydata", async ({ admin, apiAs }) => {

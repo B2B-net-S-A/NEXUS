@@ -89,8 +89,9 @@ _CHECKS: list[tuple[str, str, str, str]] = [
         "pending_not_current",
         "P0",
         "verification_status='pending' na wierszu, który NIE jest latest "
-        "swojej pary — historyczny pending nadal actionable na liście "
-        "/pending-verifications.",
+        'swojej pary. Bramka „Oczekuje" jest usunięta (17.09.2026), a stare '
+        "wiersze zalicza jednorazowa promocja — inwentarz zostaje jako "
+        "detektor, gdyby `pending` wrócił do bazy.",
         f"""
         WITH latest AS ({_LATEST_CTE})
         SELECT cs.candidate_id, cs.job_id, cs.id AS stage_id,

@@ -56,3 +56,16 @@ ostrzeżenia i odznaki zamiast blokad; podpis umowy offline.
 - Ruchy zbiorcze z tablicy, które trafią na ostrzeżenie, liczą się jako nieudane w toaście — potwierdza się je pojedynczo.
 - `/bulk-move` (API bez klienta w UI) i dodawanie z wtyczki LinkedIn zostają twarde.
 - Karta pokazuje „ponad budżet" tylko, gdy stawka na karcie i budżet godzinowy rekrutacji są porównywalne (PLN).
+
+## Nota z 18.09.2026 — flaga i kod bramki „Oczekuje" usunięte
+
+Raport wyżej opisuje stan z 17.09.2026, kiedy bramka była wyłączona flagą
+`PENDING_VERIFICATION_ENABLED=False`. 18.09.2026 flaga i cały kod bramki
+zostały skasowane (PR „chore(pipeline): usuń martwy kod bramki «Oczekuje»") —
+zachowanie widoczne dla użytkownika się nie zmieniło. W szczególności trasy
+`GET /api/pipeline/pending-verifications`, `POST /api/pipeline/{id}/accept-verification`
+i `POST /api/pipeline/{id}/reject-verification` nie istnieją już w aplikacji
+(wcześniej odpowiadały 404 przy wyłączonej fladze). Bez zmian zostają:
+jednorazowa promocja starych wierszy (`pending_verification_promotion.py`),
+wartość `pending` w enumie `verificationstatus`, typ powiadomienia
+`pending_verification` i przekierowanie `/pending-verifications` → `/jobs`.

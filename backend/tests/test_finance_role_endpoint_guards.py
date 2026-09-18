@@ -53,7 +53,6 @@ from app.api import (
     my_relationships,
     notifications,
     phase5,
-    pipeline,
     rate_benchmarks,
     rate_cards,
     reports,
@@ -154,8 +153,6 @@ def test_financial_adjustment_approval_requires_finance_approve():
 @pytest.mark.parametrize(
     "endpoint",
     [
-        pipeline.accept_verification,
-        pipeline.reject_verification,
         phase5.create_rate_history,
         phase5.update_rate_history,
         phase5.delete_rate_history,
@@ -163,15 +160,6 @@ def test_financial_adjustment_approval_requires_finance_approve():
 )
 def test_rate_exception_and_candidate_pii_finance_endpoints_are_admin_only(endpoint):
     assert _current_user_annotation(endpoint) == AdminUser
-
-
-def test_pending_verifications_are_finance_read_but_approval_stays_admin_only():
-    assert (
-        _current_user_annotation(pipeline.list_pending_verifications)
-        == candidate_access.CandidateFinanceReadAccess
-    )
-    assert _current_user_annotation(pipeline.accept_verification) == AdminUser
-    assert _current_user_annotation(pipeline.reject_verification) == AdminUser
 
 
 @pytest.mark.parametrize(
