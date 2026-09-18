@@ -20,12 +20,30 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.services import index_drift_reconciler as reconciler
 from app.services import index_outbox_service as outbox
+from app.services import loop_heartbeat
 
 logger = logging.getLogger(__name__)
 
 
 def reconciler_enabled() -> bool:
-    return bool(getattr(settings, "AI_INDEX_RECONCILER_ENABLED", False))
+    return bool(getattr(settings, "AI_INDEX_RECONCILER_ENABLED", True))
+
+
+def embedding_provider_down() -> bool:
+    """Czy dostawca embeddingów jest w awarii — wtedy NIE zapisujemy intencji.
+
+    Powód wyłączenia reconcilera do 18.09.2026 brzmiał: przy
+    ``AI_INDEX_MAX_ATTEMPTS=5`` awaria Voyage'a plus reconciler karmiący workera
+    zamienia backlog w wiersze ``dead`` (worker zabiera też ``failed``, więc
+    pięć nieudanych prób z rzędu i wpis wypada z kolejki na stałe). To zostało
+    zamknięte tutaj, nie założeniem, że awarii nie będzie: przy niezdrowym
+    dostawcy tik nic nie zapisuje i czeka. ``unknown`` (nic jeszcze nie
+    wołaliśmy w tym procesie) NIE jest awarią — inaczej po każdym deployu
+    reconciler stałby do pierwszego niezwiązanego wywołania modelu.
+    """
+    from app.services.ai_health import provider_health_label
+
+    return provider_health_label("voyage") == "unhealthy"
 
 
 async def index_drift_reconciler_loop() -> None:
@@ -46,7 +64,24 @@ async def index_drift_reconciler_loop() -> None:
     # One cursor per entity type; a completed pass resets to 0 and starts over.
     cursors: dict[str, int] = {outbox.CANDIDATE: 0, outbox.JOB: 0}
 
+    # MON-04: pętla, która żyje, ale nic nie robi, jest awarią. Ta była
+    # zwolniona z heartbeatu z uzasadnieniem „outbox indeksu jest objęty" —
+    # a outbox pokazuje wyłącznie to, co ktoś do niego zapisał, więc cisza
+    # reconcilera (jedynego mechanizmu, który wykrywa BRAK zapisu) była
+    # niewidoczna. Audyt 18.09.2026: 41,7% opublikowanych rekrutacji bez wektora.
+    beat = loop_heartbeat.register(
+        "index_drift_reconciler", max_silence_seconds=interval * 3 + 300
+    )
+
     while True:
+        beat.tick()
+        if embedding_provider_down():
+            logger.warning(
+                "[index-drift] pauza: dostawca embeddingów w awarii — "
+                "intencje zapisze następny tik"
+            )
+            await asyncio.sleep(interval)
+            continue
         for entity_type in (outbox.CANDIDATE, outbox.JOB):
             try:
                 async with AsyncSessionLocal() as db:

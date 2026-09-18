@@ -375,10 +375,16 @@ async def _recommend_candidates_core(
     candidate_ids = list(dict.fromkeys(h["candidate_id"] for h in hits))
 
     # Retrieval completeness is separate from the exact fit measurements.
-    semantic_unknown_ids = {
-        h["candidate_id"] for h in hits if h.get("semantic_unknown")
-    }
-    semantic_degraded = not candidate_ids or bool(semantic_unknown_ids)
+    # „Ten kandydat nie ma wektora" to NIE jest „silnik semantyczny nie
+    # odpowiada" (rozróżnienie dodane 18.09.2026 w `retrieval_pool`). Do tej
+    # daty wystarczył JEDEN kandydat bez zmierzonego kosinusu — dociągnięty
+    # przez BM25 i zwykle zaraz odfiltrowany — żeby cała odpowiedź zgłosiła
+    # awarię: 20 z 21 losowych rekrutacji świeciło „trybem awaryjnym" przy
+    # `checks.qdrant` i `checks.voyage` = healthy. Jedyny sygnał, który ma
+    # ostrzegać przed nieufnym rankingiem, był zapalony non stop, więc REALNA
+    # awaria Voyage'a byłaby od normalnej pracy nieodróżnialna.
+    semantic_engine_down = any(h.get("semantic_engine_down") for h in hits)
+    semantic_degraded = not candidate_ids or semantic_engine_down
 
     # Pusty wynik od startu: _meta() bywa wołane we wczesnych returnach
     # (degradacja semantyki, pusty filtr lokalizacji) ZANIM switche zadziałają.
@@ -511,7 +517,13 @@ async def _recommend_candidates_core(
         fits = await score_candidates(db, fit_context, candidates)
     fits_by_id = {fit.breakdown.candidate_id: fit for fit in fits}
     breakdowns = [fit.breakdown for fit in fits]
-    semantic_degraded = semantic_degraded or any(fit.fit_score is None for fit in fits)
+    # NIC nie zmierzone — nie „cokolwiek nie zmierzone". Pojedynczy kandydat
+    # bez wektora ma własną etykietę na wierszu („Ocena niepełna"); baner
+    # „tryb awaryjny" mówi o CAŁEJ odpowiedzi i musi znaczyć, że nie ma czego
+    # ufać. `any(...)` zapalał go zawsze, bo w puli prawie zawsze jest ktoś bez
+    # wektora — patrz `semantic_unknown` vs `semantic_engine_down`.
+    nothing_measured = bool(fits) and all(fit.fit_score is None for fit in fits)
+    semantic_degraded = semantic_degraded or nothing_measured
 
     # Process history is fresh context, separate from fit and its threshold.
     try:
@@ -897,6 +909,12 @@ async def recommend_jobs_for_candidate(
             query_text,
             top_k=max(top_k * 4, settings.JOB_SEMANTIC_POOL_SIZE),
             raise_on_error=True,
+            # Filtr PO STRONIE QDRANTA — te same statusy, które i tak nakłada
+            # SQL niżej. Bez niego `top_k` opisywał najbliższe punkty
+            # w kolekcji, w której 95,4% to rekrutacje ZAMKNIĘTE, więc
+            # `top_k=50` dawało ~9 rekomendacji (audyt 18.09.2026). Punkty
+            # sprzed 18.09 nie mają `status` w payloadzie; domyka je reconciler.
+            statuses=[s.value for s in _RECOMMENDABLE_STATUSES],
         )
     except SemanticSearchUnavailable:
         logger.warning(

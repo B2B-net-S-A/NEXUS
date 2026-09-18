@@ -163,7 +163,14 @@ async def test_recommendations_remeasure_retrieval_scores_and_keep_unknown(monke
     assert result["matches"][0]["total_score"] == direct.fit_score
     assert result["matches"][1]["total_score"] is None
     assert result["matches"][1]["measurement"] == "stale"
-    assert result["meta"]["degraded"]
+    # Mieszana pula (jeden zmierzony, jeden nie) NIE jest awarią — od
+    # 18.09.2026. Wiersz bez pomiaru niesie własną etykietę (`measurement:
+    # "stale"`, `total_score: None`), a baner „tryb awaryjny" mówi o CAŁEJ
+    # odpowiedzi. Stary warunek „ktokolwiek bez pomiaru" zapalał go praktycznie
+    # zawsze (w puli prawie zawsze jest ktoś bez wektora): zmierzone 20 z 21
+    # losowych rekrutacji przy zdrowym Qdrancie i Voyage'u — czyli jedyny
+    # sygnał ostrzegający przed nieufnym rankingiem przestał cokolwiek znaczyć.
+    assert result["meta"]["degraded"] is False
     assert result["location_filter"] is None
     legacy.assert_not_called()
     assert result["matches"][0]["eligibility"]["assignment_allowed"] is False

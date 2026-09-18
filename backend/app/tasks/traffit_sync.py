@@ -755,6 +755,8 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "tombstoned",
         # 0325: ruchy ofert „prowadzonych w NEXUSIE" pominięte przez fazę pipelines.
         "skipped_managed",
+        # 18.09.2026: intencje przeindeksowania zapisane przez fazę `jobs`.
+        "index_intents",
         "drifted_entities",
         "drift",
         "total_source",

@@ -190,6 +190,9 @@ async def _multi_query_pool(
             if cid not in pool_by_id:
                 extra_ids.add(cid)
 
+    # Awaria SILNIKA semantycznego to co innego niż kandydat bez wektora —
+    # patrz `retrieve_candidate_pool`. Tu ustawiane tylko w gałęziach wyjątku.
+    engine_down = False
     if extra_ids:
         try:
             cosine_by_id = await _embedding.similarity_for_candidate_ids(
@@ -204,6 +207,7 @@ async def _multi_query_pool(
                 "[retrieval-pool] multi-query: kosinusy dla wariantów niedostępne"
             )
             cosine_by_id = {}
+            engine_down = True
         for cid in extra_ids:
             pool_by_id[cid] = float(cosine_by_id.get(cid) or 0.0)
         # Ci, dla których kosinusu NIE zmierzono — patrz `semantic_unknown`
@@ -218,7 +222,12 @@ async def _multi_query_pool(
     return [
         {"candidate_id": cid, "score": score}
         if cid not in unknown
-        else {"candidate_id": cid, "score": score, "semantic_unknown": True}
+        else {
+            "candidate_id": cid,
+            "score": score,
+            "semantic_unknown": True,
+            **({"semantic_engine_down": True} if engine_down else {}),
+        }
         for cid, score in ranked
     ]
 
@@ -368,6 +377,8 @@ async def retrieve_candidate_pool(
     if not ids:
         return []
 
+    # Awaria SILNIKA semantycznego, a nie brak wektora u pojedynczej osoby.
+    engine_down = False
     # Kosinusy TYLKO dla wybranych — ta sama miara, którą scoring dostawał
     # dotąd (po Fali 2: unia wektora kandydata i najlepszego pasażu).
     try:
@@ -382,6 +393,7 @@ async def retrieve_candidate_pool(
             "[retrieval-pool] kosinusy niedostępne — pula BM25-only z score=0.0"
         )
         cosine_by_id = {}
+        engine_down = True
 
     pool: list[dict] = []
     for candidate_id in ids:
@@ -404,6 +416,15 @@ async def retrieve_candidate_pool(
                     "candidate_id": int(candidate_id),
                     "score": 0.0,
                     "semantic_unknown": True,
+                    # Rozróżnienie dodane 18.09.2026: „ten kandydat nie ma
+                    # wektora" to NIE jest „silnik semantyczny nie odpowiada".
+                    # Wołający zapalał baner „tryb awaryjny" na SAMYM
+                    # `semantic_unknown`, więc wystarczył jeden kandydat bez
+                    # wektora — dociągnięty przez BM25 i zwykle i tak odfiltrowany
+                    # — żeby cała odpowiedź zgłosiła awarię. Na produkcji: 20 z 21
+                    # losowych rekrutacji w „trybie awaryjnym" przy
+                    # `checks.qdrant`/`checks.voyage` = healthy.
+                    **({"semantic_engine_down": True} if engine_down else {}),
                 }
             )
             continue

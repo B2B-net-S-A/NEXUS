@@ -1833,14 +1833,26 @@ async def list_candidates(
 
     match_stats_by_candidate: dict[int, MatchStats] = {}
     if include_match_stats and items:
+        # `ORDER BY` jest OBOWIĄZKOWE przy `LIMIT`: bez niego Postgres oddaje
+        # DOWOLNY wycinek, więc odznaka liczyła się co odświeżenie z innych
+        # 50 ofert (audyt 18.09.2026). Najnowsze — te, o które rekruter pyta.
         open_jobs_stmt = (
             select(Job)
             .where(Job.status == JobStatus.published)
+            .order_by(Job.id.desc())
             .limit(_MATCH_STATS_JOB_CAP)
         )
         open_jobs = list((await db.execute(open_jobs_stmt)).scalars().all())
-        total_open = len(open_jobs)
-        if total_open:
+        # Liczba WSZYSTKICH opublikowanych, nie wielkości wycinka: `total_open`
+        # jedzie do odznaki jako mianownik („N z M ofert"), a raportowanie tam
+        # limitu zamieniało go w stałą 50.
+        total_open = (
+            await db.scalar(
+                select(func.count(Job.id)).where(Job.status == JobStatus.published)
+            )
+        ) or 0
+        considered_open = len(open_jobs)
+        if considered_open:
             # Optymalizacja 2026-07-27: dawniej pętla
             # `for cand in items: rank_jobs_for_candidate(cand, open_jobs)` —
             # page_size × 50 ofert sekwencyjnych `score_candidate_job`, każdy
@@ -1856,9 +1868,22 @@ async def list_candidates(
             # wolno ich utrwalić jako świeżych wpisów cache, bo zaniżony wynik
             # przeżyłby w cache i wyciekł na `/api/recommendations`.
             per_candidate: dict[int, list] = {c.id: [] for c in items}
+            # Ta ścieżka NIE ma similarity_map z Qdranta, więc świeżo policzony
+            # wynik ma warstwę semantyczną wartą 60/100 punktów NIEZMIERZONĄ.
+            # Oznaczamy to jawnie (`semantic_unavailable_ids`), żeby
+            # `summarize_match_stats` odróżniło taki wiersz od wyniku
+            # policzonego wcześniej z prawdziwym kosinusem (cache czytamy dalej).
+            # Bez tego odznaka pokazywała stałe 26,2 — sumę czterech warstw
+            # „brak danych" — i „0 pasujących ofert" o KAŻDYM kandydacie.
+            unmeasured_ids = {c.id for c in items}
             for job in open_jobs:
                 for breakdown in await bulk_get_or_compute(
-                    job, items, db, profile=profile, allow_cache_write=False
+                    job,
+                    items,
+                    db,
+                    profile=profile,
+                    allow_cache_write=False,
+                    semantic_unavailable_ids=unmeasured_ids,
                 ):
                     bucket = per_candidate.get(breakdown.candidate_id)
                     if bucket is not None:
@@ -1871,7 +1896,9 @@ async def list_candidates(
                 )
                 match_stats_by_candidate[cand.id] = MatchStats(**stats)
         else:
-            zero = MatchStats(open_count=0, total_open=0, top_score=0.0)
+            zero = MatchStats(
+                open_count=0, total_open=0, measured_open=0, top_score=None
+            )
             for cand in items:
                 match_stats_by_candidate[cand.id] = zero
 

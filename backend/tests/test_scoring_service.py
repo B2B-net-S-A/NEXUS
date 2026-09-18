@@ -748,18 +748,76 @@ def test_summarize_match_stats_counts_above_threshold():
     ]
     stats = ss.summarize_match_stats(breakdowns, total_open=4, min_score=50.0)
     # 50.0 inclusive; 55 and 80 also pass
-    assert stats == {"open_count": 3, "total_open": 4, "top_score": 80.0}
+    assert stats == {
+        "open_count": 3,
+        "total_open": 4,
+        "measured_open": 4,
+        "top_score": 80.0,
+    }
 
 
 def test_summarize_match_stats_none_above_threshold():
     breakdowns = [_breakdown(40.0), _breakdown(20.0)]
     stats = ss.summarize_match_stats(breakdowns, total_open=5, min_score=50.0)
-    assert stats == {"open_count": 0, "total_open": 5, "top_score": 40.0}
+    assert stats == {
+        "open_count": 0,
+        "total_open": 5,
+        "measured_open": 2,
+        "top_score": 40.0,
+    }
 
 
 def test_summarize_match_stats_empty_breakdowns():
     stats = ss.summarize_match_stats([], total_open=0, min_score=50.0)
-    assert stats == {"open_count": 0, "total_open": 0, "top_score": 0.0}
+    # `None`, nie 0.0: „nie wiemy" to nie „zero".
+    assert stats == {
+        "open_count": 0,
+        "total_open": 0,
+        "measured_open": 0,
+        "top_score": None,
+    }
+
+
+def _unmeasured_breakdown(total: float, reason: str) -> ss.ScoreBreakdown:
+    b = _breakdown(total)
+    b.semantic = ss.LayerResult(points=0.0, max_points=60.0, reason=reason)
+    return b
+
+
+def test_summarize_match_stats_ignores_scores_without_measured_semantics():
+    """Warstwa warta 60 ze 100 punktów, której nikt nie zmierzył, nie jest wynikiem.
+
+    Audyt 18.09.2026: odznaka dopasowania na liście kandydatów pokazywała
+    STAŁE 26,2 — sumę czterech warstw „brak danych" przy semantyce 0 — i próg
+    50, którego przy takim suficie nie da się przekroczyć nigdy. Każdy kandydat
+    w bazie dostawał „0 pasujących ofert" i nie było jak odróżnić tego od prawdy.
+    """
+    for reason in (ss.SEMANTIC_UNAVAILABLE_REASON, ss.NO_EMBEDDING_REASON):
+        stats = ss.summarize_match_stats(
+            [_unmeasured_breakdown(26.2, reason)], total_open=50, min_score=50.0
+        )
+        assert stats["top_score"] is None, reason
+        assert stats["measured_open"] == 0, reason
+        # Mianownik zostaje: „0 z 50" to prawda o tym, ile ofert rozważono.
+        assert stats["total_open"] == 50
+
+
+def test_summarize_match_stats_keeps_measured_rows_next_to_unmeasured_ones():
+    """Jeden zmierzony wynik wystarczy — nie chowamy go przez sąsiadów."""
+    stats = ss.summarize_match_stats(
+        [
+            _unmeasured_breakdown(26.2, ss.NO_EMBEDDING_REASON),
+            _breakdown(71.0),
+        ],
+        total_open=2,
+        min_score=50.0,
+    )
+    assert stats == {
+        "open_count": 1,
+        "total_open": 2,
+        "measured_open": 1,
+        "top_score": 71.0,
+    }
 
 
 def test_summarize_match_stats_rounds_top_score():

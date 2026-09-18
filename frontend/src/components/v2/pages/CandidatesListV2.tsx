@@ -458,7 +458,14 @@ interface Candidate {
  created_at?: string;
  updated_at?: string;
  created_by_user?: { id: number; name: string } | null;
- match_stats?: { open_count: number; total_open: number; top_score: number };
+ match_stats?: {
+ open_count: number;
+ total_open: number;
+ /** Ile z rozważonych ofert ma ZMIERZONĄ warstwę semantyczną. */
+ measured_open?: number;
+ /** `null` = nic nie zmierzono — to NIE jest zero (audyt 18.09.2026). */
+ top_score: number | null;
+ };
  match_snippet?: string | null;
  talent_pools?: Array<{ id: number; name: string }>;
  linkedin_employment_changed_at?: string | null;
@@ -1246,7 +1253,11 @@ function CandidateCell({
  );
  }
  case "match": {
- if (stats && stats.open_count > 0) {
+ // `top_score === null` znaczy „nie zmierzono", nie „zero". Do 18.09.2026
+ // odznaka pokazywała stałe 26,2 (suma czterech warstw „brak danych" przy
+ // semantyce 0) i „0 pasujących ofert" o KAŻDYM kandydacie w bazie —
+ // liczba arytmetycznie poprawna i bez żadnego znaczenia.
+ if (stats && stats.top_score !== null && stats.open_count > 0) {
  return (
  <div className="flex min-w-0 items-center gap-2">
  <MatchScoreBadge score={stats.top_score} size="sm" />
@@ -1254,6 +1265,16 @@ function CandidateCell({
  {stats.open_count}/{stats.total_open} rekrutacji
  </span>
  </div>
+ );
+ }
+ if (stats && stats.top_score === null) {
+ return (
+ <span
+ className="text-xs text-muted-foreground"
+ title="Dopasowanie nie zostało jeszcze policzone dla tego kandydata — otwórz rekrutację, żeby je zmierzyć."
+ >
+ Nie policzono
+ </span>
  );
  }
  return <span className="text-xs text-muted-foreground">—</span>;

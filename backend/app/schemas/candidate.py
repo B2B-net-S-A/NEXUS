@@ -405,7 +405,12 @@ class MatchStats(BaseModel):
 
     open_count: int
     total_open: int
-    top_score: float
+    #: Ile z rozważonych ofert ma ZMIERZONĄ warstwę semantyczną (18.09.2026).
+    measured_open: int = 0
+    #: ``None`` = nic nie zmierzono. Wcześniej 0.0 — nie do odróżnienia od
+    #: zmierzonego zera, a odznaka pokazywała stałe 26,2 i „0 pasujących ofert"
+    #: o każdym kandydacie w bazie.
+    top_score: Optional[float] = None
 
 
 class CandidateCreatorBrief(BaseModel):

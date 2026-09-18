@@ -61,28 +61,93 @@ def _revision(entity) -> int:
     return 0
 
 
-def _desired_hash(entity_type: str, entity) -> str:
+# Model, którym zaindeksowano WSZYSTKO, co dziś leży w Qdrancie. Hasze sprzed
+# 18.09.2026 liczyły się z samej treści, więc porównanie musi wiedzieć, czym
+# były policzone. NIE zmieniaj tej stałej przy zmianie `VOYAGE_MODEL` — to
+# zapis historii, nie konfiguracja.
+LEGACY_EMBEDDING_MODEL = "voyage-3"
+
+
+def _entity_text(entity_type: str, entity) -> str:
     from app.services.embedding_service import (
         _build_candidate_text,
         _build_job_text,
     )
 
-    text_blob = (
+    return (
         _build_candidate_text(entity)
         if entity_type == CANDIDATE
         else _build_job_text(entity)
-    )
-    return hashlib.sha256((text_blob or "").encode("utf-8")).hexdigest()
+    ) or ""
+
+
+def _sha(blob: str) -> str:
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _desired_hash(entity_type: str, entity) -> str:
+    """Hasz TREŚCI **i** MODELU — wektor zależy od obu.
+
+    Audyt 18.09.2026: hasz był samym `sha256(text)`, więc zmiana
+    ``VOYAGE_MODEL`` nie tworzyła dryfu i nic się nie przeindeksowywało —
+    indeks cicho mieszałby wektory z dwóch przestrzeni, a podobieństwo między
+    nimi nie znaczy nic. Reconciler porównuje hasze, więc to jedyne miejsce,
+    w którym model może się w tym porównaniu pojawić.
+
+    Zostaje 64 znaki (kolumna `String(64)`), więc model wchodzi DO haszowanej
+    treści, nie jako prefiks. Cena: hasz historyczny wygląda inaczej dla tej
+    samej treści — dlatego `desired_state` niesie obok wariant historyczny,
+    a porównuje `hashes_match`.
+    """
+    from app.services.embedding_service import _voyage_model
+
+    return _sha(f"{_voyage_model()}\n{_entity_text(entity_type, entity)}")
+
+
+def _legacy_hash(entity_type: str, entity) -> str:
+    """Hasz w formie sprzed 18.09.2026: sama treść, bez modelu."""
+    return _sha(_entity_text(entity_type, entity))
 
 
 @dataclass(frozen=True)
 class DesiredState:
     revision: int
     desired_hash: str
+    #: Ta sama treść w formie haszowania sprzed 18.09.2026 (bez modelu).
+    #: Istnieje WYŁĄCZNIE po to, żeby rozpoznać wpis zaindeksowany wcześniej
+    #: i nie uznać go za dryf — patrz `hashes_match`.
+    legacy_hash: str = ""
 
 
 def desired_state(entity_type: str, entity) -> DesiredState:
-    return DesiredState(_revision(entity), _desired_hash(entity_type, entity))
+    return DesiredState(
+        _revision(entity),
+        _desired_hash(entity_type, entity),
+        _legacy_hash(entity_type, entity),
+    )
+
+
+def hashes_match(desired: DesiredState, indexed: str | None) -> bool:
+    """Czy indeks trzyma to, czego chcemy — z tolerancją dla haszy historycznych.
+
+    Bez tolerancji reconciler zobaczyłby dryf na CAŁEJ bazie przy pierwszym
+    tiku i zakolejkował ~60 tys. przeliczeń Voyage'a — płacąc za import jeszcze
+    raz, bez żadnej zmiany modelu. Wpis w formie historycznej znaczy „treść
+    zaindeksowana modelem ``LEGACY_EMBEDDING_MODEL``", więc zgadza się dokładnie
+    wtedy, gdy dziś używamy tego samego modelu. Zmiana modelu = dryf na
+    wszystkim, i to jest cała intencja tej zmiany.
+    """
+    from app.services.embedding_service import _voyage_model
+
+    if not indexed:
+        return False
+    if indexed == desired.desired_hash:
+        return True
+    return (
+        _voyage_model() == LEGACY_EMBEDDING_MODEL
+        and bool(desired.legacy_hash)
+        and indexed == desired.legacy_hash
+    )
 
 
 # ── Enqueue side ──────────────────────────────────────────────────────────────

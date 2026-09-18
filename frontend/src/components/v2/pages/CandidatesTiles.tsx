@@ -45,7 +45,9 @@ interface TileCandidate {
  match_stats?: {
  open_count: number;
  total_open: number;
- top_score: number;
+ measured_open?: number;
+ /** `null` = nie zmierzono; kafelek wtedy nie pokazuje liczby. */
+ top_score: number | null;
  } | null;
  talent_pools?: Array<{ id: number; name: string }>;
  competence_category?: string | null;
@@ -167,7 +169,12 @@ export function CandidatesTiles({
  candidate.position ?? candidate.current_role ??"";
  const isSelected = selectedIds.has(candidate.id);
  const topScore = candidate.match_stats?.top_score ?? 0;
- const showMatch = (candidate.match_stats?.open_count ?? 0) > 0;
+ // Bez ZMIERZONEJ semantyki nie ma czego pokazać: `?? 0` renderowało
+ // wcześniej stałą wartość jako wynik dopasowania (audyt 18.09.2026).
+ const showMatch =
+ candidate.match_stats?.top_score !== null &&
+ candidate.match_stats?.top_score !== undefined &&
+ (candidate.match_stats?.open_count ?? 0) > 0;
  const activeRecruitment = candidate.active_recruitments?.find(
  (recruitment) =>
  !["rejected", "withdrawn", "hired"].includes(recruitment.stage),
