@@ -725,7 +725,7 @@ _UPDATE_CANDIDATE_ADOPT = text(
                           END,
         phone           = COALESCE(CAST(:phone AS text), candidates.phone),
         linkedin        = COALESCE(CAST(:linkedin AS text), candidates.linkedin),
-        -- Blacklista jest LEPKA — dokładnie tak jak w `_UPSERT_CANDIDATE`.
+        -- Blacklista jest LEPKA — dokładnie tak jak w gałęzi upsertu wyżej.
         -- Bez tego warunku nocny sync ZDEJMOWAŁBY blacklisty założone
         -- w NEXUSIE: Traffit nie zna tego stanu (jest wklejony w imię), więc
         -- przysyła `active`, a produkcja idzie tą gałęzią, nie upsertem
@@ -847,7 +847,7 @@ _UPDATE_CANDIDATE_ADOPT = text(
                           ),
         updated_at      = NOW(),
         -- Kandydat jest w żywym feedzie `/employees/`, więc nagrobek jest
-        -- nieaktualny — lustro `_UPSERT_CANDIDATE`. To NIE jest kosmetyka:
+        -- nieaktualny — lustro gałęzi upsertu wyżej. To NIE jest kosmetyka:
         -- produkcja przechodzi tędy, a nie upsertem, więc raz postawiony
         -- nagrobek nie znikał NIGDY. Audyt 18.09.2026 znalazł dwóch
         -- pracujących konsultantów (kandydaci 154325 i 32903) niewidocznych
