@@ -447,6 +447,13 @@ class Settings(BaseSettings):
     TALENT_RADAR_STRUCTURED_SKILLS_ENABLED: bool = False
     QDRANT_PASSAGES_COLLECTION: str = "nexus_cv_passages"
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
+    # Darmowe sito duplikatów przed płatnym odczytem CV (`/from-cv`, 18.09.2026).
+    # Wyłącznik istnieje, bo sito czyta e-mail i telefon REGEXEM z nagłówka, a nie
+    # modelem: fałszywe trafienie odmawia 409 i `BulkImportCVsV2` nie ma wtedy
+    # przycisku „zapisz mimo wszystko" (ma go tylko AddCandidateFromCVModal).
+    # Wyłączenie wraca do zachowania sprzed zmiany — płacimy za odczyt każdego
+    # duplikatu, ale nikt nie jest zablokowany.
+    FROM_CV_SIEVE_ENABLED: bool = True
     # Okno tekstu CV dla pełnego odczytu (prompt v7). Dłuższe CV jest cięte
     # 70% początek / 30% koniec, bo wykształcenie i certyfikaty są na końcu.
     CV_PARSER_INPUT_CHAR_CAP: int = 24_000
