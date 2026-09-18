@@ -76,3 +76,13 @@ CLAUDE.md, sekcja „Narzędzia rekrutera — reguły po audycie 17.09.2026”.
 - „Wygeneruj ponownie” ładuje ustawienia do formularza zamiast od razu kolejkować płatną generację.
 - Testy E2E dla roli HoR (stack E2E nie ma konta HoR).
 - Weryfikacja UI w Chrome — po wdrożeniu.
+
+## Nota z 18.09.2026 — flaga `PENDING_VERIFICATION_ENABLED` usunięta
+
+Raport opisuje stan z 17.09.2026: bramka „Oczekuje" wyłączona flagą, kod
+backendu zachowany. 18.09.2026 flaga i cały kod bramki (trasy akceptacji
+i odrzucenia, lista oczekujących, ich schematy i komendy) zostały skasowane
+— zero zmiany zachowania widocznej dla użytkownika. Jednorazowa promocja
+starych wierszy `pending` (`pending_verification_promotion.py`, znacznik
+`pending_verification_promotion_2026_09_17`) zostaje: jest idempotentna
+i potrzebna przy świeżej instalacji oraz odtworzeniu bazy.

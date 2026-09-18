@@ -244,11 +244,11 @@ const NAV_SECTIONS: NavSection[] = [
       //    `/dashboard/delivery-lead` nadal działa — tylko link w nawigacji
       //    ukryty. Żeby przywrócić, odkomentuj poniższy obiekt.
       //
-      //    UWAGA przy przywracaniu: bramka „Pending" (akceptacja stawki
+      //    UWAGA przy przywracaniu: bramka „Oczekuje" (akceptacja stawki
       //    ponad budżet) jest USUNIĘTA od 17.09.2026 — strona
-      //    `/pending-verifications` i widget weryfikacji zostały usunięte,
-      //    a `GET /api/pipeline/pending-verifications` odpowiada 404. Nie
-      //    przywracaj `badgeKey: "pendingVerifications"`.
+      //    `/pending-verifications`, widget weryfikacji i trasy kolejki
+      //    akceptacji nie istnieją już ani we froncie, ani w backendzie.
+      //    Nie przywracaj `badgeKey: "pendingVerifications"`.
       /*
       {
         // DL Hub (PR #225/#229) — KPI + 3 taby (klienci/zespół/aktywne joby).

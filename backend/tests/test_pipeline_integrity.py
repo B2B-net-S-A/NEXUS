@@ -2,12 +2,12 @@
 
 Kontrakty:
 
-- **P0.5** — gate budżetowy porównuje stawki w JEDNEJ jednostce
-  (168h/21d → PLN/mc); waluta ≠ PLN i nieznana jednostka failują do manual
-  review (pending), nigdy do auto-approve.
-- **P0.4** — para z current row w statusie pending blokuje kolejny move
-  (409); approve/reject działa wyłącznie na CURRENT row pary (409 na
-  historycznym pending).
+- **P0.5** — porównanie stawki z budżetem idzie w JEDNEJ jednostce
+  (168h/21d → PLN/mc); waluta ≠ PLN i nieznana jednostka to BRAK porównania,
+  nigdy „ponad budżet". Od 17.09.2026 nic tu nie blokuje ruchu — wynik zasila
+  wyłącznie odznakę `budget_exceeded`.
+- **P0.4** — bramka „Oczekuje" USUNIĘTA: wiersz historyczny `pending` nie
+  blokuje kolejnego ruchu (dawniej 409).
 - **P1.1** — target stage musi istnieć i należeć do template'u joba;
   sprzeczne `stage`+`stage_def_id` → 422; rejection reason musi należeć do
   template'u i właściwej kategorii; withdrawn wymaga reason ze słownika;
@@ -32,7 +32,6 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 
-from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.services.rate_normalization import normalize_rate_to_monthly
 
@@ -181,38 +180,7 @@ async def _seed_template(
         return tpl.id, sd.id, reason_id
 
 
-# ── P0.5: gate budżetowy w jednej jednostce ──────────────────────────────────
-
-
-@pytest.fixture
-def pending_gate_on(monkeypatch: pytest.MonkeyPatch):
-    """Bramka „Pending" jest na prodzie wyłączona od 17.09.2026
-    (`PENDING_VERIFICATION_ENABLED=False`) — testy jej KODU włączają ją na
-    czas testu, bo kod ma dalej działać po ewentualnym włączeniu."""
-    monkeypatch.setattr(settings, "PENDING_VERIFICATION_ENABLED", True)
-    yield
-
-
-@pytest.mark.usefixtures("pending_gate_on")
-async def test_hourly_rate_over_monthly_budget_goes_pending(
-    app_client: AsyncClient, app_auth_headers
-):
-    """150 PLN/h vs budżet 25 000 PLN/mc: stary kod → active (150<25000);
-    po normalizacji 150×168=25 200 > 25 000 → pending."""
-    cand, (job, _) = await _seed_candidate(), await _seed_job(salary_max=25000)
-    r = await app_client.post(
-        MOVE,
-        json={
-            "candidate_id": cand,
-            "job_id": job,
-            "stage": "verified",
-            "expected_rate_value": 150,
-            "expected_rate_unit": "hourly",
-        },
-        headers=app_auth_headers,
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["verification_status"] == "pending"
+# ── P0.5: porównanie stawki z budżetem w jednej jednostce ───────────────────
 
 
 async def test_hourly_rate_within_budget_stays_active(
@@ -233,93 +201,6 @@ async def test_hourly_rate_within_budget_stays_active(
     )
     assert r.status_code == 200, r.text
     assert r.json()["verification_status"] == "active"
-
-
-@pytest.mark.usefixtures("pending_gate_on")
-async def test_foreign_currency_goes_manual_review(
-    app_client: AsyncClient, app_auth_headers
-):
-    """EUR nie jest auto-przeliczane — fail-closed do pending."""
-    cand, (job, _) = await _seed_candidate(), await _seed_job(salary_max=25000)
-    r = await app_client.post(
-        MOVE,
-        json={
-            "candidate_id": cand,
-            "job_id": job,
-            "stage": "verified",
-            "expected_rate_value": 10,
-            "expected_rate_unit": "hourly",
-            "expected_rate_currency": "EUR",
-        },
-        headers=app_auth_headers,
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["verification_status"] == "pending"
-
-
-@pytest.mark.usefixtures("pending_gate_on")
-async def test_pending_list_exposes_normalized_value(
-    app_client: AsyncClient, app_auth_headers
-):
-    cand, (job, _) = await _seed_candidate(), await _seed_job(salary_max=20000)
-    r = await app_client.post(
-        MOVE,
-        json={
-            "candidate_id": cand,
-            "job_id": job,
-            "stage": "verified",
-            "expected_rate_value": 200,
-            "expected_rate_unit": "hourly",
-        },
-        headers=app_auth_headers,
-    )
-    assert r.status_code == 200 and r.json()["verification_status"] == "pending"
-    lst = await app_client.get(
-        f"/api/pipeline/pending-verifications?job_id={job}",
-        headers=app_auth_headers,
-    )
-    assert lst.status_code == 200, lst.text
-    rows = [x for x in lst.json() if x["candidate_id"] == cand]
-    assert rows and Decimal(str(rows[0]["normalized_monthly_value"])) == Decimal(
-        "33600.00"
-    )
-
-
-# ── P0.4: pending blokuje ruch; decyzja tylko na current ─────────────────────
-
-
-@pytest.mark.usefixtures("pending_gate_on")
-async def test_move_blocked_while_pending(app_client: AsyncClient, app_auth_headers):
-    cand, (job, _) = await _seed_candidate(), await _seed_job()
-    await _seed_stage(cand, job, "verified", verification_status="pending")
-    r = await app_client.post(
-        MOVE,
-        json={"candidate_id": cand, "job_id": job, "stage": "interview"},
-        headers=app_auth_headers,
-    )
-    assert r.status_code == 409, r.text
-
-
-@pytest.mark.usefixtures("pending_gate_on")
-async def test_accept_verification_requires_current_row(
-    app_client: AsyncClient, app_auth_headers
-):
-    now = datetime.now(timezone.utc)
-    cand, (job, _) = await _seed_candidate(), await _seed_job()
-    stale_pending = await _seed_stage(
-        cand,
-        job,
-        "verified",
-        moved_at=now - timedelta(days=2),
-        verification_status="pending",
-    )
-    await _seed_stage(cand, job, "interview", moved_at=now - timedelta(days=1))
-    r = await app_client.post(
-        f"/api/pipeline/{stale_pending}/accept-verification",
-        headers=app_auth_headers,
-    )
-    assert r.status_code == 409, r.text
-    assert "aktualnym stanem" in r.json()["detail"]
 
 
 # ── P1.1: target/reason integrity ────────────────────────────────────────────

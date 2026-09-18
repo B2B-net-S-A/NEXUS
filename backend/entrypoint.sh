@@ -7913,14 +7913,15 @@ asyncio.run(repair())
 PY
 
 # Weryfikacje „Pending" (17.09.2026) — jednorazowo: bramka akceptacji stawki
-# ponad budżet jest wyłączona, a UI akceptacji usunięte, więc karty zapisane
-# wcześniej jako `pending` zostają zaliczone tak, jak zrobiłaby to ręczna
-# akceptacja (status `active` + zaliczenie pierwszego weryfikatora). Logika ORM
-# w `app/services/pending_verification_promotion.py`; marker w `app_settings`
-# + advisory lock → drugi start kończy się natychmiast. Przy włączonej bramce
-# (`PENDING_VERIFICATION_ENABLED=true`) blok nic nie robi. Log: same liczby.
+# ponad budżet została USUNIĘTA, więc karty zapisane wcześniej jako `pending`
+# zostają zaliczone tak, jak zrobiłaby to ręczna akceptacja (status `active`
+# + zaliczenie pierwszego weryfikatora). Logika ORM w
+# `app/services/pending_verification_promotion.py`; marker w `app_settings`
+# + advisory lock → drugi start kończy się natychmiast. Na produkcji wykonane
+# 17.09.2026; blok ZOSTAJE, bo świeża instalacja i odtworzenie bazy z kopii
+# sprzed tej daty nadal go potrzebują. Log: same liczby.
 startup_phase "repair-pending-verification-promotion"
-echo "Pending verifications: one-shot promotion to active (gate disabled)..."
+echo "Pending verifications: one-shot promotion to active (gate removed)..."
 python - <<'PY' || echo "pending verification promotion skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem

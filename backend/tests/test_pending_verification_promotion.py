@@ -1,9 +1,12 @@
 """Jednorazowe zaliczenie starych weryfikacji „Pending" (17.09.2026).
 
-Bramka akceptacji jest wyłączona, a UI akceptacji usunięte — karty zapisane
+Bramka akceptacji została usunięta razem z całym swoim kodem — karty zapisane
 wcześniej jako `pending` mają dostać to, co dałaby ręczna akceptacja: status
-`active` i zaliczenie pierwszego weryfikatora (KPI). Przy włączonej bramce blok
-nic nie robi, bo wtedy `pending` znaczy „czeka na człowieka".
+`active` i zaliczenie pierwszego weryfikatora (KPI).
+
+Na produkcji blok wykonano 17.09.2026, ale zostaje: jest idempotentny (marker
+w `app_settings` + advisory lock) i musi zadziałać przy świeżej instalacji oraz
+przy odtworzeniu bazy z kopii sprzed tej daty.
 """
 
 from __future__ import annotations
@@ -13,7 +16,6 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
@@ -73,8 +75,7 @@ async def _seed_pending_stage() -> tuple[int, int, int, int]:
 
 
 @pytest.mark.asyncio
-async def test_promotes_pending_like_a_manual_acceptance(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "PENDING_VERIFICATION_ENABLED", False)
+async def test_promotes_pending_like_a_manual_acceptance() -> None:
     stage_id, recruiter_id, candidate_id, job_id = await _seed_pending_stage()
 
     async with AsyncSessionLocal() as db:
@@ -109,20 +110,3 @@ async def test_promotes_pending_like_a_manual_acceptance(monkeypatch) -> None:
         again = await run_pending_verification_promotion(db, only_stage_ids={stage_id})
         await db.commit()
     assert again is not None and again["found"] == 0
-
-
-@pytest.mark.asyncio
-async def test_does_nothing_while_the_gate_is_enabled(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "PENDING_VERIFICATION_ENABLED", True)
-    stage_id, *_ = await _seed_pending_stage()
-
-    async with AsyncSessionLocal() as db:
-        summary = await run_pending_verification_promotion(
-            db, only_stage_ids={stage_id}
-        )
-        await db.commit()
-    assert summary is None
-    async with AsyncSessionLocal() as db:
-        stage = await db.get(CandidateStage, stage_id)
-    assert stage is not None
-    assert stage.verification_status == VerificationStatus.pending

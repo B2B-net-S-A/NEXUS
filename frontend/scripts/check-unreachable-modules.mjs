@@ -88,7 +88,6 @@ const BASELINE = new Set([
   "app/dashboard/delivery-lead/_components/DlRanking.tsx",
   "app/dashboard/delivery-lead/_components/DlTrendChart.tsx",
   "app/dashboard/delivery-lead/_components/PastelKpi.tsx",
-  "app/dashboard/delivery-lead/_components/PendingVerificationsWidget.tsx",
   "app/dashboard/delivery-lead/_components/tabs/ActiveJobsTab.tsx",
   "app/dashboard/delivery-lead/_components/tabs/MyClientsTab.tsx",
   "app/dashboard/delivery-lead/_components/tabs/MyTeamTab.tsx",

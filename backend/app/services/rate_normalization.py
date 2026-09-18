@@ -1,19 +1,19 @@
 """Normalizacja stawek do wspólnej jednostki miesięcznej (M4 audyt P0.5, PR-02).
 
-Gate budżetowy pending-verification porównywał surowe liczby bez jednostki i
-waluty: ``150 PLN/h > 25 000 PLN/mc`` było "w budżecie", bo 150 < 25 000.
+Dawny gate budżetowy porównywał surowe liczby bez jednostki i waluty:
+``150 PLN/h > 25 000 PLN/mc`` było "w budżecie", bo 150 < 25 000.
 ``Job.salary_max`` jest budżetem miesięcznym w PLN, więc stawkę kandydata
-normalizujemy do PLN/miesiąc przed porównaniem.
+normalizujemy do PLN/miesiąc przed porównaniem. Od 17.09.2026 porównanie
+niczego nie blokuje — zasila odznakę „ponad budżet" (`budget_exceeded`).
 
 Polityka (decyzja biznesowa Artura, 2026-07-16 — sekcja 20.4 planu):
 
 - **hourly → monthly: × 168** (21 dni × 8 h — standard polskiego kontraktingu),
 - **daily → monthly: × 21**,
 - **monthly → monthly: × 1**,
-- **waluta inna niż PLN → brak auto-przeliczenia** (żadnych kursów FX w gate);
-  wynik ``None`` = manual review → ruch dostaje ``verification_status=pending``,
-- **nieznana/pusta jednostka → manual review** (fail-closed, nigdy
-  auto-approve — wymóg audytu).
+- **waluta inna niż PLN → brak auto-przeliczenia** (żadnych kursów FX);
+  wynik ``None`` = „nie da się porównać",
+- **nieznana/pusta jednostka → ``None``** (tak samo: brak porównania).
 
 Zmiana polityki = bump ``POLICY_VERSION`` (trafia do Activity audit trail).
 """
@@ -42,9 +42,9 @@ def normalize_rate_to_monthly(
 ) -> tuple[Optional[Decimal], str]:
     """Zwraca ``(znormalizowana_stawka_miesięczna, nota)``.
 
-    ``None`` w pierwszym polu oznacza "nie da się bezpiecznie porównać" —
-    caller MUSI potraktować to jako manual review (pending), nigdy jako
-    auto-approve.
+    ``None`` w pierwszym polu oznacza "nie da się bezpiecznie porównać".
+    Caller NIE może czytać tego jako „ponad budżet": brak porównania to nie
+    jego wynik (patrz `budget_exceeded` w `/pipeline/move`).
     """
     cur = (currency or "PLN").strip().upper()
     if cur != "PLN":

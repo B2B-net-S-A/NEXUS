@@ -1857,14 +1857,23 @@ blokad. Razem z przełącznikiem „Rekrutacja prowadzona w NEXUSIE" (sekcja
 Traffit) to warunek przenoszenia zespołu z Traffita falami. Nie przywracaj
 żadnej z bramek bez decyzji właściciela.
 
-- **Brak karty „Oczekuje".** Bramkę wyłącza flaga `PENDING_VERIFICATION_ENABLED`
-  (domyślnie `False`, #1593 — sekcja „Narzędzia rekrutera"); przy wyłączonej
-  fladze ruch na „Zweryfikowany" daje `active`, a korekta stawki
+- **Brak karty „Oczekuje".** Bramka jest USUNIĘTA z kodu (18.09.2026; do tego
+  dnia wyłączała ją flaga — nazwa w raportach z 17.09.2026, #1593; stara
+  zmienna w Coolify jest nieszkodliwa, `Settings` ignoruje nieznane env).
+  Ruch na „Zweryfikowany" daje `active`, stawka jest
+  OPCJONALNA (jej brak to 200, nie 422), a korekta stawki
   (`update_latest_expected_rate`) NIGDY nie ustawia `pending` i sama aktywuje
-  stary wiersz `pending`. Stawka jest OPCJONALNA (bez niej 200; 422 tylko przy
-  włączonej fladze). `budget_max_at_move` zostaje jako snapshot. Stare wiersze
-  zalicza `pending_verification_promotion.py` (nie ma osobnej migracji).
-  Kredyt KPI pierwszego weryfikatora trafia od razu przy ruchu.
+  stary wiersz `pending`. `budget_max_at_move` zostaje jako snapshot. Kredyt
+  KPI pierwszego weryfikatora trafia od razu przy ruchu. **Tras kolejki
+  akceptacji nie ma** (`/pending-verifications`, `accept-verification`,
+  `reject-verification`) — pilnuje tego test czytający `app.routes`, nie HTTP
+  404. Stare wiersze zalicza jednorazowo `pending_verification_promotion.py`
+  (blok w `entrypoint.sh`, nie ma osobnej migracji) — idempotentny, zostaje na
+  potrzeby świeżej instalacji i odtworzenia bazy. W bazie zostaje wartość
+  `pending` w enumie `verificationstatus` (`ALTER TYPE … DROP VALUE`
+  w Postgresie nie istnieje) i typ powiadomienia `pending_verification` —
+  historycznych wierszy i powiadomień nikt nie kasuje, a `/pending-verifications`
+  nadal przekierowuje na `/jobs`. Żaden writer ich już nie tworzy.
 - **„Ponad budżet" to odznaka, nie stan.** Liczona na froncie
   (`lib/rate-to-hourly.ts`) ze stawki na karcie względem
   `effective_budget_hourly` rekrutacji (dzień ÷ 8, miesiąc ÷ 168, waluta ≠ PLN
@@ -4257,15 +4266,16 @@ Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek
 `docs/recruiter-tools-fixes-completion-report.md`. Decyzje Artura, które łatwo
 cofnąć „przy okazji”:
 
-- **Bramka „Pending” wyłączona** (`PENDING_VERIFICATION_ENABLED=False`). Ruch na
-  „Zweryfikowany” ze stawką ponad budżet przechodzi jako `active`, a przekroczenie
-  jedzie na kartę jako informacja (`budget_exceeded`, odznaka „ponad budżet”).
-  Trasy akceptacji/odrzucenia i `/pending-verifications` odpowiadają 404, UI
-  kolejki usunięte (`/pending-verifications` → 308 na `/jobs`). Stare wiersze
-  `pending` zalicza jednorazowo `pending_verification_promotion.py` (blok
-  w `entrypoint.sh`, znacznik `pending_verification_promotion_2026_09_17`): status
-  `active` + `record_accepted_verification`, `approved_by` puste. Samo `True`
-  w Coolify NIE przywraca bramki — frontend akceptacji trzeba odtworzyć.
+- **Bramka „Pending” USUNIĘTA** (wyłączona 17.09.2026, kod skasowany 18.09.2026
+  — szczegóły w sekcji „Kanban bez bramek”). Ruch na „Zweryfikowany” ze stawką
+  ponad budżet przechodzi jako `active`, a przekroczenie jedzie na kartę jako
+  informacja (`budget_exceeded`, odznaka „ponad budżet”). Trasy akceptacji /
+  odrzucenia i `/pending-verifications` nie istnieją, UI kolejki usunięte
+  (`/pending-verifications` → 308 na `/jobs`, bo stare powiadomienia w bazie
+  nadal tam linkują). Stare wiersze `pending` zalicza jednorazowo
+  `pending_verification_promotion.py` (blok w `entrypoint.sh`, znacznik
+  `pending_verification_promotion_2026_09_17`): status `active`
+  + `record_accepted_verification`, `approved_by` puste.
 - **Head of Recruitment = parytet z rekruterem.** HoR jest w `RecruiterPlus`,
   `CANDIDATE_WRITE_ROLES` i zbiorach `recruitment_access` (ruchy, notatki,
   przypisania, pliki, kalendarz). Front bramkuje zapis na profilu capability

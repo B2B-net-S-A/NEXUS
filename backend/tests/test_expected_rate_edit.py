@@ -1,18 +1,15 @@
-"""M4-P0.4 — editing the candidate rate re-runs the budget approval gate.
+"""Korekta stawki kandydata (PATCH …/expected-rate) nie ma bramki budżetowej.
 
-The /move gate correctly forced ``verification_status=pending`` when a
-``verified`` move carried an over-budget rate. But ``set_recruitment_expected_rate``
-(PATCH .../expected-rate) wrote the rate onto the latest stage WITHOUT re-running
-the gate. So a recruiter could move within budget (→ active, no approval), then
-PATCH an over-budget rate — leaving a ``verified``/``active`` row above budget
-with nobody's sign-off. RecruitmentRateEditAccess includes recruiter; approval
-needs ApproverPlus — the bypass defeated that separation of duties.
+Historia: M4-P0.4 dołożył tu lustro bramki „Oczekuje" z `/move`, bo recruiter
+mógł przesunąć kandydata w budżecie (→ `active`), a potem PATCH-em wpisać
+stawkę ponad budżet — omijając akceptację. Decyzja Artura 17.09.2026 zdjęła
+bramkę z OBU ścieżek, a 18.09.2026 jej kod został skasowany.
 
-Fix mirrors the /move gate on a ``verified`` stage: over budget (or a
-non-comparable rate) → ``pending`` + budget snapshot + approver notification;
-within budget → ``active``.
+Kontrakt dzisiaj: korekta stawki NIGDY nie ustawia `pending`, sama aktywuje
+wiersz historyczny `pending` i zostawia snapshot `budget_max_at_move` dla
+audytu. „Ponad budżet" jest odznaką na karcie, nie stanem procesu.
 
-Behavioural against a real Postgres (CI runs migrations first).
+Behawioralne na prawdziwym Postgresie (CI odpala najpierw migracje).
 """
 
 from __future__ import annotations
@@ -21,10 +18,7 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
-import pytest
-
 from app.api.candidates import set_recruitment_expected_rate
-from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate
@@ -77,34 +71,9 @@ async def _seed_verified(db, *, salary_max: int) -> tuple[int, int, User, int]:
     return cand.id, job.id, user, stage.id
 
 
-@pytest.fixture
-def pending_gate_on(monkeypatch: pytest.MonkeyPatch):
-    """Bramka „Pending” jest na prodzie wyłączona od 17.09.2026 — testy jej
-    kodu włączają ją na czas testu, bo kod ma działać po włączeniu flagi."""
-    monkeypatch.setattr(settings, "PENDING_VERIFICATION_ENABLED", True)
-    yield
-
-
 async def _status(db, stage_id: int) -> VerificationStatus:
     row = await db.get(CandidateStage, stage_id)
     return row.verification_status
-
-
-@pytest.mark.usefixtures("pending_gate_on")
-async def test_over_budget_rate_edit_forces_pending() -> None:
-    async with AsyncSessionLocal() as db:
-        cid, jid, actor, sid = await _seed_verified(db, salary_max=20000)
-        await set_recruitment_expected_rate(
-            cid,
-            jid,
-            ClientRateUpdate(rate_value=Decimal("30000"), rate_unit=RateUnit.monthly),
-            current_user=actor,
-            db=db,
-        )
-    async with AsyncSessionLocal() as db:
-        assert await _status(db, sid) == VerificationStatus.pending, (
-            "over-budget rate edit did not re-trigger approval (M4-P0.4 regressed)"
-        )
 
 
 async def test_within_budget_rate_edit_stays_active() -> None:
@@ -119,26 +88,6 @@ async def test_within_budget_rate_edit_stays_active() -> None:
         )
     async with AsyncSessionLocal() as db:
         assert await _status(db, sid) == VerificationStatus.active
-
-
-@pytest.mark.usefixtures("pending_gate_on")
-async def test_non_pln_rate_is_non_comparable_so_pending() -> None:
-    """A currency we can't convert must fail closed to pending, never auto-pass."""
-    async with AsyncSessionLocal() as db:
-        cid, jid, actor, sid = await _seed_verified(db, salary_max=20000)
-        await set_recruitment_expected_rate(
-            cid,
-            jid,
-            ClientRateUpdate(
-                rate_value=Decimal("100"),
-                rate_unit=RateUnit.monthly,
-                rate_currency="EUR",
-            ),
-            current_user=actor,
-            db=db,
-        )
-    async with AsyncSessionLocal() as db:
-        assert await _status(db, sid) == VerificationStatus.pending
 
 
 async def test_non_pln_rate_edit_stays_active() -> None:
