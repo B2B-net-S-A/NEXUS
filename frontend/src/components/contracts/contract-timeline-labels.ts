@@ -23,7 +23,7 @@ const ACTION_LABELS: Record<string, string> = {
   terminated: "Zakończono współpracę",
   end_date_cleared: "Wyczyszczono datę zakończenia (umowa bezterminowa)",
   synced_with_orders: "Zsynchronizowano z zamówieniami klienta",
-  bulk_marked_ended: "Oznaczono jako zakończony (operacja zbiorcza)",
+  bulk_marked_ended: "Zakończono współpracę (operacja zbiorcza)",
   contracts_merged: "Scalono zduplikowane kontrakty",
   draft_initialized: "Przygotowano szkic do podpisu",
   draft_finalized: "Zamknięto szkic i przekazano do podpisu",

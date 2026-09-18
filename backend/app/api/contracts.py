@@ -36,6 +36,7 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import (
     Contract,
     ContractStatus,
+    ContractTerminationReason,
     EngagementModel,
     RateUnit,
 )
@@ -74,6 +75,7 @@ from app.schemas.contract import (
     ContractStatusUpdate,
     ContractReopenRequest,
     ContractResponse,
+    ContractBulkTerminateRequest,
     ContractTemplateBrief,
     ContractTerminateRequest,
     ContractTimelineItem,
@@ -618,6 +620,139 @@ async def _apply_contract_status_change(
         )
 
     contract.status = target
+
+
+async def _apply_termination_to_contract(
+    db: AsyncSession,
+    contract: Contract,
+    *,
+    termination_reason: ContractTerminationReason,
+    when: date,
+    termination_lessons: Optional[str] = None,
+    overwrite_lessons: bool = True,
+    actor_id: Optional[int],
+    activity_action: str = "terminated",
+) -> None:
+    """Zakończenie współpracy na JEDNYM kontrakcie — wspólne dla obu dyspozycji.
+
+    Wołają to ``POST /{id}/terminate`` (okno „Zakończ współpracę") oraz
+    ``POST /bulk-mark-ended`` (masowe „Oznacz zakończone" w rejestrze umów).
+    Obie akcje znaczą to samo zdarzenie biznesowe — osoba kończy współpracę —
+    więc muszą zapisywać ten sam komplet: powód, datę, koherentny ``end_date``,
+    status wyliczony z daty, offboarding zamówień klienta, aneks
+    ``early_termination`` przy skróceniu i wpis audytowy.
+
+    Do 09.2026 bulk szedł przez ``_apply_contract_status_change(..., ended)``,
+    które ŚWIADOMIE nie dotyka ``terminated_at``/``termination_reason`` (patrz
+    jego docstring: „Zakończony" w rejestrze to nie to samo co wypowiedzenie).
+    Dla listy rozwijanej statusu ta reguła zostaje; dla przycisku „Oznacz
+    zakończone" była błędem — zakończone zbiorczo umowy nie miały powodu
+    w analityce odejść ani karty „Zakończenie współpracy" na szczegółach.
+
+    Dwie kopie tej sekwencji rozjechałyby się przy pierwszej poprawce, dlatego
+    jest jedna. Helper mieszka w tym module, a nie w ``app/services``, bo stoi
+    na ``_status_after_termination`` i ``_sync_client_orders_to_contract_end``
+    — serwis importujący router zamknąłby cykl importów.
+
+    ``overwrite_lessons=False`` (bulk) zostawia zapisane wcześniej wnioski TAC:
+    dyspozycja zbiorcza o nie nie pyta, więc nie ma czym ich zastąpić, a ciche
+    wyzerowanie skasowałoby notatkę umowie zakończonej kiedyś pojedynczo,
+    wznowionej i zakończonej ponownie z listy.
+    """
+    previous_end_date = contract.end_date
+    # Odmowa PRZED jakimkolwiek zapisem (także zamówień i ścieżki powtórzenia):
+    # unieważniona umowa nie może wrócić przez „Zakończ współpracę".
+    effective_end = (
+        when
+        if contract.end_date is None or contract.end_date > when
+        else contract.end_date
+    )
+    new_status = _status_after_termination(
+        contract.status, effective_end, business_today()
+    )
+
+    # Idempotentny replay (double-submit / retry): identyczna dyspozycja nie
+    # dokłada drugiej Activity ani aneksu — dotąd każdy resubmit dopisywał
+    # kolejny wpis 'terminated' (audyt-higiena z weryfikacji Fazy A/B).
+    if (
+        contract.terminated_at == when
+        and contract.termination_reason == termination_reason
+        and contract.end_date is not None
+        and contract.end_date <= when
+    ):
+        # Retry pozostaje audytowo idempotentny, ale naprawia ewentualny brak
+        # sprawy/alertu MD po przerwanym wcześniejszym wdrożeniu. Serwis ma
+        # unikalność per (order, effective_date), więc nie dubluje historii.
+        await _sync_client_orders_to_contract_end(
+            db,
+            contract.id,
+            when,
+            actor_id=actor_id,
+        )
+        return
+
+    contract.terminated_at = when
+    contract.termination_reason = termination_reason
+    if overwrite_lessons:
+        contract.termination_lessons = termination_lessons
+    # Keep end_date coherent — never let it lag the termination date.
+    if contract.end_date is None or contract.end_date > when:
+        contract.end_date = when
+    # P0.7: a future-dated termination must NOT flip the contract to `ended`
+    # today. It stays active/ending until the effective end date; the daily
+    # status job materializes `ended` on/after that date. Derived from the
+    # (already coherent) end_date, not from raw ContractStatus.ended — and
+    # validated against the CURRENT status (see `_status_after_termination`).
+    contract.status = new_status
+
+    synced_orders = await _sync_client_orders_to_contract_end(
+        db,
+        contract.id,
+        when,
+        actor_id=actor_id,
+    )
+
+    # Audit amendment if the contract was cut short.
+    early = previous_end_date is not None and when < previous_end_date
+    if early:
+        db.add(
+            ContractAmendment(
+                contract_id=contract.id,
+                amendment_type=ContractAmendmentType.early_termination,
+                old_values={
+                    "end_date": previous_end_date.isoformat(),
+                    "status": "active",
+                },
+                new_values={
+                    "end_date": when.isoformat(),
+                    "status": contract.status.value,
+                },
+                effective_date=when,
+                reason=(
+                    f"{termination_reason.value}: {termination_lessons}"
+                    if termination_lessons
+                    else termination_reason.value
+                ),
+                created_by=actor_id,
+            )
+        )
+
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action=activity_action,
+            user_id=actor_id,
+            details={
+                "termination_reason": termination_reason.value,
+                "terminated_at": when.isoformat(),
+                "early": early,
+                "synced_orders": synced_orders,
+            },
+        )
+    )
+    # Zamówienia skrócone do daty zakończenia → okres zamówienia w kontrakcie.
+    await resync_contract_safely(db, contract, actor_id=actor_id)
 
 
 def _normalize_contract_currency(value: object, field: str) -> str:
@@ -2608,11 +2743,26 @@ async def bulk_extend_contracts(
 
 @router.post("/bulk-mark-ended", status_code=status.HTTP_200_OK)
 async def bulk_mark_ended(
+    data: ContractBulkTerminateRequest,
     current_user: TacPlus,
     db: AsyncSession = Depends(get_db),
     contract_ids: list[int] = Query(..., alias="ids"),
 ):
-    """Mark each selected contract as ended (status='ended')."""
+    """Zakończ współpracę na każdej zaznaczonej umowie — powód i data z ciała.
+
+    To nie jest „ustaw status na zakończony": przycisk „Oznacz zakończone"
+    w rejestrze znaczy faktyczny koniec projektu, więc zapisuje dokładnie to
+    samo co okno „Zakończ współpracę" na pojedynczej umowie — przez ten sam
+    helper (``_apply_termination_to_contract``). Do 09.2026 szło to przez
+    ``_apply_contract_status_change``, które powodu i daty nie zapisuje, więc
+    zakończona zbiorczo umowa nie miała ich ani w analityce odejść, ani na
+    karcie „Zakończenie współpracy".
+
+    Operacja jest ATOMOWA: jedna umowa, której maszyna stanów nie pozwala
+    zakończyć (``void`` jest terminalny), odrzuca całą partię 409-ką i nic nie
+    zostaje zapisane. Cicha zmiana części zaznaczenia byłaby gorsza — nikt nie
+    wie wtedy, których wierszy dyspozycja nie objęła.
+    """
     if not contract_ids:
         raise HTTPException(status_code=422, detail="No contract ids provided")
     # Rodzic Contract przed dziećmi ClientOrder — ten sam porządek co cron.
@@ -2628,28 +2778,25 @@ async def bulk_mark_ended(
     for contract in contracts:
         await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     changed = 0
-    # Każde przejście na ``ended`` blokuje powiązane zamówienia. Dwa
-    # nakładające się bulki muszą brać kontrakty (a przez nie ordery) w tej
-    # samej kolejności, niezależnie od kolejności ``ids`` i planu zapytania.
+    # Każde zakończenie blokuje powiązane zamówienia. Dwa nakładające się bulki
+    # muszą brać kontrakty (a przez nie ordery) w tej samej kolejności,
+    # niezależnie od kolejności ``ids`` i planu zapytania.
     for c in sorted(contracts, key=lambda contract: contract.id):
-        await _apply_contract_status_change(
+        # `overwrite_lessons=False`: dyspozycja zbiorcza nie pyta o wnioski TAC,
+        # więc nie ma czym ich zastąpić — a ciche wyzerowanie skasowałoby
+        # notatkę umowie zakończonej kiedyś pojedynczo i wznowionej.
+        # Wpis audytowy zostaje `bulk_marked_ended` (etykieta istnieje w logu
+        # admina i na osi czasu kontraktu), ale niesie już powód i datę.
+        await _apply_termination_to_contract(
             db,
             c,
-            ContractStatus.ended,
+            termination_reason=data.termination_reason,
+            when=data.terminated_at,
+            overwrite_lessons=False,
             actor_id=current_user.id,
+            activity_action="bulk_marked_ended",
         )
         changed += 1
-        db.add(
-            Activity(
-                entity_type="contract",
-                entity_id=c.id,
-                action="bulk_marked_ended",
-                user_id=current_user.id,
-            )
-        )
-    # Zakończenie skróciło zamówienia — okres zamówienia w kontrakcie za nimi.
-    for c in contracts:
-        await resync_contract_safely(db, c, actor_id=current_user.id)
     await db.commit()
     return {"requested": len(contract_ids), "changed": changed}
 
@@ -4759,102 +4906,17 @@ async def terminate_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
 
+    # Puste pole = „dzisiaj" — kontrakt tego endpointu sprzed wydzielenia
+    # helpera; masowe zakończenie ma datę WYMAGANĄ (jedna wartość na N umów).
     when = data.terminated_at or business_today()
-    previous_end_date = contract.end_date
-    # Odmowa PRZED jakimkolwiek zapisem (także zamówień i ścieżki powtórzenia):
-    # unieważniona umowa nie może wrócić przez „Zakończ współpracę".
-    effective_end = (
-        when
-        if contract.end_date is None or contract.end_date > when
-        else contract.end_date
-    )
-    new_status = _status_after_termination(
-        contract.status, effective_end, business_today()
-    )
-
-    # Idempotentny replay (double-submit / retry): identyczna dyspozycja nie
-    # dokłada drugiej Activity ani aneksu — dotąd każdy resubmit dopisywał
-    # kolejny wpis 'terminated' (audyt-higiena z weryfikacji Fazy A/B).
-    if (
-        contract.terminated_at == when
-        and contract.termination_reason == data.termination_reason
-        and contract.end_date is not None
-        and contract.end_date <= when
-    ):
-        # Retry pozostaje audytowo idempotentny, ale naprawia ewentualny brak
-        # sprawy/alertu MD po przerwanym wcześniejszym wdrożeniu. Serwis ma
-        # unikalność per (order, effective_date), więc nie dubluje historii.
-        await _sync_client_orders_to_contract_end(
-            db,
-            contract_id,
-            when,
-            actor_id=current_user.id,
-        )
-        detail = _to_detail(contract)
-        if not await _can_read_contract_finance(contract, current_user, db):
-            _redact_contract_finance(detail)
-        return detail
-
-    contract.terminated_at = when
-    contract.termination_reason = data.termination_reason
-    contract.termination_lessons = data.termination_lessons
-    # Keep end_date coherent — never let it lag the termination date.
-    if contract.end_date is None or contract.end_date > when:
-        contract.end_date = when
-    # P0.7: a future-dated termination must NOT flip the contract to `ended`
-    # today. It stays active/ending until the effective end date; the daily
-    # status job materializes `ended` on/after that date. Derived from the
-    # (already coherent) end_date, not from raw ContractStatus.ended — and
-    # validated against the CURRENT status (see `_status_after_termination`).
-    contract.status = new_status
-
-    synced_orders = await _sync_client_orders_to_contract_end(
+    await _apply_termination_to_contract(
         db,
-        contract_id,
-        when,
+        contract,
+        termination_reason=data.termination_reason,
+        when=when,
+        termination_lessons=data.termination_lessons,
         actor_id=current_user.id,
     )
-
-    # Audit amendment if the contract was cut short.
-    if previous_end_date is not None and when < previous_end_date:
-        db.add(
-            ContractAmendment(
-                contract_id=contract_id,
-                amendment_type=ContractAmendmentType.early_termination,
-                old_values={
-                    "end_date": previous_end_date.isoformat(),
-                    "status": "active",
-                },
-                new_values={
-                    "end_date": when.isoformat(),
-                    "status": contract.status.value,
-                },
-                effective_date=when,
-                reason=(
-                    f"{data.termination_reason.value}: {data.termination_lessons}"
-                    if data.termination_lessons
-                    else data.termination_reason.value
-                ),
-                created_by=current_user.id,
-            )
-        )
-
-    db.add(
-        Activity(
-            entity_type="contract",
-            entity_id=contract_id,
-            action="terminated",
-            user_id=current_user.id,
-            details={
-                "termination_reason": data.termination_reason.value,
-                "terminated_at": when.isoformat(),
-                "early": previous_end_date is not None and when < previous_end_date,
-                "synced_orders": synced_orders,
-            },
-        )
-    )
-    # Zamówienia skrócone do daty zakończenia → okres zamówienia w kontrakcie.
-    await resync_contract_safely(db, contract, actor_id=current_user.id)
     await db.flush()
     await db.refresh(contract)
     detail = _to_detail(contract)

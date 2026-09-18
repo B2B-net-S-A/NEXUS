@@ -1643,6 +1643,18 @@ export interface ContractTerminateRequest {
   terminated_at?: string | null;
 }
 
+/**
+ * Masowe „Oznacz zakończone" w rejestrze umów.
+ *
+ * Data jest WYMAGANA (w `ContractTerminateRequest` bywa pusta i backend
+ * podstawia „dzisiaj"): ta sama wartość wjeżdża tu w N umów naraz, więc cichy
+ * default wpisałby całej grupie datę, której nikt nie zadeklarował.
+ */
+export interface ContractBulkTerminateRequest {
+  termination_reason: ContractTerminationReason;
+  terminated_at: string; // YYYY-MM-DD
+}
+
 export type ContractTerminationReason =
   | "poached_by_client"
   | "project_ended"
@@ -1814,6 +1826,14 @@ export const contractsApi = {
     api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
   terminate: (id: number, payload: ContractTerminateRequest) =>
     api.post(`/api/contracts/${id}/terminate`, payload),
+  bulkMarkEnded: (ids: number[], payload: ContractBulkTerminateRequest) => {
+    const params = new URLSearchParams();
+    ids.forEach((id) => params.append("ids", String(id)));
+    return api.post<{ requested: number; changed: number }>(
+      `/api/contracts/bulk-mark-ended?${params.toString()}`,
+      payload,
+    );
+  },
   activate: (id: number) => api.post(`/api/contracts/${id}/activate`, {}),
   benchmark: (id: number) =>
     api.get<ContractBenchmarkComparison>(`/api/contracts/${id}/benchmark`),
