@@ -494,7 +494,13 @@ export function filtersToApiParams(
   // multi-skill MUST default (uppercase would 422).
   const skillBuckets = parseSkillExpression(filters.skillsExpr);
   return {
-    q: filters.q || undefined,
+    // Poniżej 2 znaków NIE wysyłamy `q` — backend odpowiada wtedy 422
+    // (`min_length=2`, jak `/api/search/global`), a pole filtruje się przecież
+    // w trakcie pisania: pierwsza litera nie może dawać czerwonego błędu.
+    // Do 09.2026 backend po cichu pomijał taki filtr i zwracał CAŁĄ bazę
+    // (62 243 kandydatów) z kodem 200 — stąd i 422 po tamtej stronie, i ten
+    // guard po tej.
+    q: filters.q.trim().length >= 2 ? filters.q : undefined,
     status: filters.status.length ? filters.status : undefined,
     page,
     sort: filters.sort || undefined,

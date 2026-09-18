@@ -127,6 +127,7 @@ from app.services.hiring_manager_verdicts import (
     load_manager_rejections,
 )
 from app.services.experience_end import sql_current_end_literals
+from app.services.polish_ilike import contains_pattern
 from app.services.pipeline_eligibility import assert_candidate_move_eligible
 from app.services.pipeline_latest import current_hired_stage_exists
 from app.services.text_cleaning import clean_rich_text
@@ -538,7 +539,7 @@ def _current_company_predicate(values: list[str]):
         v = (v or "").strip()
         if not v:
             continue
-        pat = f"%{v.lower()}%"
+        pat = contains_pattern(v.lower())
         exists_clause = text(
             "EXISTS ("
             "SELECT 1 FROM jsonb_array_elements("
@@ -577,7 +578,7 @@ def _current_title_predicate(values: list[str]):
         v = (v or "").strip()
         if not v:
             continue
-        pat = f"%{v.lower()}%"
+        pat = contains_pattern(v.lower())
         exists_clause = text(
             "EXISTS ("
             "SELECT 1 FROM jsonb_array_elements("
@@ -624,7 +625,7 @@ def _past_company_predicate(values: list[str]):
         v = (v or "").strip()
         if not v:
             continue
-        pat = f"%{v.lower()}%"
+        pat = contains_pattern(v.lower())
         clauses.append(
             text(
                 "EXISTS ("
@@ -1320,7 +1321,15 @@ async def list_candidates(
     ),
     location: Optional[str] = None,
     # PostgreSQL text rejects NUL; reject the request before binding SQL.
-    q: Optional[str] = Query(None, pattern=r"^[^\x00]*$"),
+    #
+    # `min_length=2` — bo poniżej progu `single_phrase_filter` zwraca `None`,
+    # a wołający NIE dodawał wtedy żadnego `WHERE` (brak gałęzi `else`): `?q=a`
+    # i `?q=%` odpowiadały HTTP 200 z CAŁĄ bazą 62 243 kandydatów, bez żadnego
+    # sygnału, że filtr zignorowano. Bliźniaczy `/api/search/global` robi to
+    # poprawnie od dawna (`Query(..., min_length=2)`) — wyrównujemy kontrakt.
+    # Front nie wysyła `q` krótszego niż 2 znaki ani pustego (`q || undefined`),
+    # więc 422 nie pojawia się w trakcie pisania. Audyt 18.09.2026.
+    q: Optional[str] = Query(None, pattern=r"^[^\x00]*$", min_length=2),
     skills: Optional[list[str]] = Query(
         None,
         description=(
@@ -2116,7 +2125,7 @@ async def suggest_companies(
     filters. Groups by lowercased name — acceptable MVP trade-off (collapses
     "Google" / "google" to one suggestion).
     """
-    pat = f"%{q.strip().lower()}%" if q.strip() else ""
+    pat = contains_pattern(q.strip().lower()) if q.strip() else ""
     sql = text(
         "SELECT lower(elem->>'company') AS company, COUNT(DISTINCT c.id) AS n "
         "FROM candidates c, "
@@ -2163,7 +2172,7 @@ async def suggest_titles(
     Groups by lowercased role — same MVP trade-off (collapses "Senior Engineer"
     / "senior engineer" to one suggestion).
     """
-    pat = f"%{q.strip().lower()}%" if q.strip() else ""
+    pat = contains_pattern(q.strip().lower()) if q.strip() else ""
     sql = text(
         "SELECT lower(elem->>'role') AS role, COUNT(DISTINCT c.id) AS n "
         "FROM candidates c, "

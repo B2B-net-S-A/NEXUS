@@ -47,7 +47,7 @@ from app.services.client_identity import (
     visible_client_predicates,
 )
 from app.services.pipeline_eligibility import evaluate_candidates_for_job
-from app.services.polish_ilike import escape_like
+from app.services.polish_ilike import contains_pattern
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -124,8 +124,12 @@ def _contains_pattern(q: str) -> str:
     zwracał wszystkich, a ``_`` dopasowywał dowolny znak („Nowak_A" trafiało
     w „NowakXA"). Postgres domyślnie escapuje backslashem, więc wzorzec z
     ``escape_like`` działa bez klauzuli ESCAPE.
+
+    Delegat do `polish_ilike.contains_pattern` — ta sama poprawka była
+    potrzebna w `api/candidates.py` (filtry firmy i stanowiska), a dwie kopie
+    escapowania rozjechałyby się przy pierwszej zmianie.
     """
-    return f"%{escape_like(q)}%"
+    return contains_pattern(q)
 
 
 def _hybrid_soft_ranks(body: CandidateSearchRequest) -> list[Any]:

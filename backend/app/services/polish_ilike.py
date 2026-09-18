@@ -38,6 +38,16 @@ def escape_like(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def contains_pattern(value: str) -> str:
+    """Wzorzec ``%fraza%`` z ``%``/``_`` traktowanymi DOSŁOWNIE, bez foldu.
+
+    Jedno źródło dla wszystkich ``LIKE``/``ILIKE`` budowanych z tekstu od
+    użytkownika. Postgres domyślnie escapuje backslashem, więc wzorzec działa
+    bez klauzuli ``ESCAPE``.
+    """
+    return f"%{escape_like(value)}%"
+
+
 def folded_contains_pattern(value: str) -> str:
     """Wzorzec ``%fraza%`` po foldzie i escapowaniu — do ``polish_folded_ilike``."""
     return f"%{escape_like(fold_polish_query(value))}%"
