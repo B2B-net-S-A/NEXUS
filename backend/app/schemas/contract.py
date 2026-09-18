@@ -435,6 +435,23 @@ class ContractTerminateRequest(BaseModel):
     terminated_at: Optional[date] = None  # default = today
 
 
+class ContractBulkTerminateRequest(BaseModel):
+    """Payload dla POST /bulk-mark-ended — masowe zakończenie współpracy.
+
+    Data jest WYMAGANA, inaczej niż w ``/terminate``: tam puste pole znaczy
+    „dzisiaj", a dyspozycja dotyczy jednej umowy, którą operator ma przed sobą.
+    Tu ta sama wartość wjeżdża w N wierszy naraz, więc cichy default wpisałby
+    datę, której nikt nie zadeklarował, całej zaznaczonej grupie.
+
+    ``termination_lessons`` celowo NIE ma tu odpowiednika — wnioski opisują
+    konkretne rozstanie, a jeden tekst dla całej grupy nie opisywałby żadnego
+    z nich. Bulk ich też nie kasuje (``overwrite_lessons=False`` w API).
+    """
+
+    termination_reason: ContractTerminationReason
+    terminated_at: date
+
+
 class ContractBenchmarkComparison(BaseModel):
     """Porównanie stawki kontraktu vs nasza średnia vs rynek."""
 

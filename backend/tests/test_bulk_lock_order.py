@@ -96,12 +96,17 @@ def test_bulk_add_proposals_never_iterates_the_raw_client_list() -> None:
 
 
 def test_bulk_contract_termination_uses_one_lock_order() -> None:
+    # Od 09.2026 bulk zapisuje powód i datę przez `_apply_termination_to_contract`
+    # (wspólne z „Zakończ współpracę"), a nie przez `_apply_contract_status_change`.
+    # Mutacja jest inna, kolejność blokad ta sama — i to jej pilnuje ten test.
     src = inspect.getsource(contracts_api.bulk_mark_ended)
 
     assert src.index(".order_by(Contract.id.asc())") < src.index(
-        "_apply_contract_status_change("
+        "_apply_termination_to_contract("
     )
-    assert src.index(".with_for_update()") < src.index("_apply_contract_status_change(")
+    assert src.index(".with_for_update()") < src.index(
+        "_apply_termination_to_contract("
+    )
     assert "for c in sorted(contracts, key=lambda contract: contract.id):" in src
 
 
