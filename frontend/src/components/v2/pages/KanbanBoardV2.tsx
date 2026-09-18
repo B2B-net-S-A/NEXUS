@@ -866,7 +866,13 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <Trash2 className={density === "compact" ?"h-3 w-3" :"h-3.5 w-3.5"} />
  </button>}
 
+ {/* Screening jest WIERSZEM karty, nie elementem na `absolute bottom-1
+ right-1`: tamta pozycja to dokładnie wiersz „co dalej z tą kartą"
+ (`NextActionRow`), więc na „Zweryfikowany" pigułka „Uzupełnij screening"
+ przykrywała „Wyślij CV do klienta". Przy kartach 25 px (tryb kafelkowy)
+ nie było tego widać — odsłoniły to karty 200 px. */}
  {!readOnly && canScreen && (
+ <div className={cn("mt-1 flex justify-end", desktopOverview &&"xl:pointer-fine:mt-0")}>
  <button
  type="button"
  onClick={(e) => {
@@ -874,7 +880,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  e.preventDefault();
  onOpenScreening(item.id, fullName);
  }}
- className={cn("absolute bottom-1 right-1 inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-semibold hover:bg-primary hover:text-white transition-colors",
+ className={cn("inline-flex max-w-full items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-semibold hover:bg-primary hover:text-white transition-colors",
  screeningDue
  ? "bg-warning/15 text-warning ring-1 ring-warning/40"
  : "bg-primary/10 text-primary",
@@ -882,11 +888,12 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  title={screeningDue ? "Screening Championa — do uzupełnienia" : "Screening Championa"}
  aria-label={`${screeningDue ? "Uzupełnij screening" : "Screening Championa"} dla ${fullName}`}
  >
- <Sparkles className="h-2.5 w-2.5" />
- <span className={cn(desktopOverview &&"xl:pointer-fine:sr-only")}>
+ <Sparkles className="h-2.5 w-2.5 shrink-0" />
+ <span className={cn("truncate", desktopOverview &&"xl:pointer-fine:sr-only")}>
  {screeningDue ? "Uzupełnij screening" : "Screening"}
  </span>
  </button>
+ </div>
  )}
  </div>
  );
