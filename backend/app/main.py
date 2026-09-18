@@ -1876,6 +1876,19 @@ async def api_health_check():
         except Exception:
             checks["m365"] = "degraded"
 
+    # Zdolność do WYSYŁKI mailem systemowym — osobno od `m365`, bo tamta sonda
+    # patrzy na połączenia skrzynek rekruterów. Audyt 18.09.2026: 471 kolejnych
+    # `ErrorAccessDenied` z tego kanału przy `m365 = healthy`, bo zły nadawca
+    # nie dotyka żadnego połączenia. `unknown` = nic jeszcze nie wysyłaliśmy
+    # w tym procesie. Informacyjna — nie wpływa na bramkę 503.
+    if settings.M365_APP_MAIL_ENABLED:
+        try:
+            from app.services.m365.app_mail import send_health_status
+
+            checks["m365_mail"] = send_health_status()
+        except Exception:
+            checks["m365_mail"] = "degraded"
+
     # M365 encryption — separate from `m365` because a misconfigured key
     # silently breaks every refresh (see Sentry NEXUS-BE-1, 2026-05). Round-trip
     # encrypt→decrypt with a sentinel so "key set" alone is not enough.
