@@ -532,8 +532,9 @@ async def client_dashboard(
             ).scalars()
         )
         today = date.today()
-        # Tylko kontrakty OBECNE (start wpisany i ≤ dziś) — ta sama reguła co
-        # kafel „Aktywne MRR" na profilu tego klienta (UAT B46).
+        # Tylko kontrakty OBECNE — ta sama reguła co kafel „Aktywne MRR"
+        # na profilu tego klienta (UAT B46). Pusta data startu znaczy „start
+        # nieznany", nie „planowany" (audyt 18.09.2026).
         contract_rows = current_contracts(contract_rows, today)
         (
             monthly_margin_total,

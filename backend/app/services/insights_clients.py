@@ -396,10 +396,10 @@ async def compute_client_ranking(
             )
         ).scalars()
     )
-    # Tylko kontrakty OBECNE (start wpisany i ≤ dziś) — ta sama reguła co
-    # kafel „Aktywne MRR" na profilu klienta i zakładka Analityka (UAT B46);
-    # bez niej ranking Rady i profil tego samego klienta pokazywały różne
-    # liczby konsultantów i inną marżę.
+    # Tylko kontrakty OBECNE — ta sama reguła co kafel „Aktywne MRR" na
+    # profilu klienta i zakładka Analityka (UAT B46); bez niej ranking Rady
+    # i profil tego samego klienta pokazywały różne liczby konsultantów i inną
+    # marżę. Pusta data startu = start nieznany (audyt 18.09.2026).
     margin_rows = current_contracts(margin_rows, on)
     contractor_candidates: dict[int, list] = {}
     active_contracts_lookup: dict[int, int] = {}

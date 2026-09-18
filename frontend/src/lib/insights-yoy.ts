@@ -15,9 +15,18 @@
  *    dwunastu miesięcy 2025 daje spadek, którego nie ma. To jedyne miejsce,
  *    gdzie mianownik porównania jest INNY niż wartość wypisana w komórce obok
  *    — i dlatego wiersz musi to mówić.
- * 2. **Wskaźniki i stany się UŚREDNIAJĄ, przepływy SUMUJĄ.** Reguła przychodzi
- *    z serwera (`aggregate`) i nie ma tu własnej listy metryk. W DynaReporterze
- *    tej reguły nie było i kolumna „udział top klienta" sumowała się do 874%.
+ * 2. **Stany się UŚREDNIAJĄ, przepływy SUMUJĄ, WSKAŹNIKI liczą się od nowa.**
+ *    Reguła przychodzi z serwera (`aggregate`) i nie ma tu własnej listy metryk.
+ *    W DynaReporterze tej reguły nie było i kolumna „udział top klienta"
+ *    sumowała się do 874%.
+ * 3. **Wskaźnik za rok to Σlicznik / Σmianownik, nie średnia miesięcznych
+ *    procentów.** Mianowniki miesięcy różnią się pięciokrotnie, więc miesiąc
+ *    z 9 zamkniętymi rekrutacjami ważył tyle samo co miesiąc z 200. Zmierzone
+ *    na produkcji (audyt 18.09.2026): hit ratio 2024 pokazywane 14,57% przy
+ *    realnych 17,4% (134/770), 2025 — 16,58% przy realnych 14,5% (195/1342).
+ *    Delta zmieniała znak: „+2,0 pp, Lepiej" zamiast „−2,9 pp, Gorzej".
+ *    Liczności zbioru (`distinct`) nie da się złożyć z miesięcy w ogóle:
+ *    klient obsłużony w marcu i w lipcu to jeden klient, nie dwóch.
  */
 
 import type {
@@ -62,7 +71,9 @@ export function yoyDelta(
     return { value: null, mode, verdict: "unknown" };
   }
   const raw =
-    mode === "pp" ? current - previous : ((current - previous) / previous) * 100;
+    mode === "pp"
+      ? current - previous
+      : ((current - previous) / previous) * 100;
   const value = Math.round(raw * 10) / 10;
   return { value, mode, verdict: verdictFor(value, opts.lowerIsBetter) };
 }
@@ -115,7 +126,9 @@ export function aggregateSeries(
   limitMonths?: number,
 ): number | null {
   const scope =
-    limitMonths === undefined ? series : series.slice(0, Math.max(0, limitMonths));
+    limitMonths === undefined
+      ? series
+      : series.slice(0, Math.max(0, limitMonths));
   const values = scope.filter(
     (v): v is number => v !== null && v !== undefined,
   );
@@ -123,6 +136,45 @@ export function aggregateSeries(
   const total = values.reduce((a, b) => a + b, 0);
   const result = aggregate === "sum" ? total : total / values.length;
   return Math.round(result * 100) / 100;
+}
+
+/**
+ * Wskaźnik za rok: Σlicznik / Σmianownik, przeliczony od nowa.
+ *
+ * Liczymy WYŁĄCZNIE z miesięcy, w których znane są OBIE składowe — miesiąc
+ * z licznikiem bez mianownika (albo odwrotnie) zawyżałby albo zaniżał wynik
+ * w zależności od tego, której połowy brakuje. Zerowy mianownik to `null`,
+ * nie zero: „nie było czego zamykać" znaczy co innego niż „nic nie zamknięto".
+ *
+ * `scale` = 100 dla metryk procentowych (backend podaje je w procentach),
+ * 1 dla ilorazów mianowanych (PLN na godzinę).
+ */
+export function aggregateRatio(
+  numerator: Array<number | null>,
+  denominator: Array<number | null>,
+  scale: number,
+  limitMonths?: number,
+): number | null {
+  const cut = (series: Array<number | null>) =>
+    limitMonths === undefined
+      ? series
+      : series.slice(0, Math.max(0, limitMonths));
+  const num = cut(numerator);
+  const den = cut(denominator);
+  let sumNum = 0;
+  let sumDen = 0;
+  let months = 0;
+  for (let i = 0; i < Math.max(num.length, den.length); i += 1) {
+    const n = num[i];
+    const d = den[i];
+    if (n === null || n === undefined || d === null || d === undefined)
+      continue;
+    sumNum += n;
+    sumDen += d;
+    months += 1;
+  }
+  if (months === 0 || sumDen === 0) return null;
+  return Math.round((sumNum / sumDen) * scale * 100) / 100;
 }
 
 export interface YoYRow {
@@ -173,6 +225,7 @@ export function buildYoYTable(
   years: number[],
   monthLabels: string[],
   partialMonth: { year: number; month: number } | null,
+  componentSeries?: Record<string, Record<string, Array<number | null>>>,
 ): YoYTable {
   const columns = years.map((y) => metric.series[String(y)] ?? []);
   const opts = { unit: metric.unit, lowerIsBetter: metric.lower_is_better };
@@ -228,10 +281,31 @@ export function buildYoYTable(
   // czytelnik chce zobaczyć dla roku zamkniętego. Zawężony jest tylko MIANOWNIK
   // porównania, i tylko dla pary z ostatnim rokiem. Przy `comparedMonths === 0`
   // (styczeń w toku) porównywać nie ma czego — delta to „—", nie −100%.
-  const values = columns.map((col) => aggregateSeries(col, metric.aggregate));
-  const ytdValues = columns.map((col) =>
-    aggregateSeries(col, metric.aggregate, ytd ? comparedMonths : undefined),
-  );
+  const summarize = (limit?: number): Array<number | null> => {
+    if (metric.aggregate === "distinct") {
+      // Liczności zbioru nie da się zawęzić do N miesięcy bez samego zbioru,
+      // więc porównanie YTD dla tej metryki nie istnieje — rok jest rokiem.
+      return years.map((y) => metric.yearly?.[String(y)] ?? null);
+    }
+    if (metric.aggregate === "ratio") {
+      const parts = componentSeries ?? {};
+      const num = parts[metric.components?.numerator ?? ""] ?? {};
+      const den = parts[metric.components?.denominator ?? ""] ?? {};
+      const scale = metric.unit === "pct" ? 100 : 1;
+      return years.map((y) =>
+        aggregateRatio(
+          num[String(y)] ?? [],
+          den[String(y)] ?? [],
+          scale,
+          limit,
+        ),
+      );
+    }
+    return columns.map((col) => aggregateSeries(col, metric.aggregate, limit));
+  };
+
+  const values = summarize();
+  const ytdValues = summarize(ytd ? comparedMonths : undefined);
   const deltas = values.slice(0, -1).map((_, i) => {
     const isLastPair = i === values.length - 2;
     const previous = isLastPair && ytd ? ytdValues[i] : values[i];

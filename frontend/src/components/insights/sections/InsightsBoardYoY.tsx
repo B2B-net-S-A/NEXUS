@@ -38,6 +38,14 @@ import { count, definitionText, money, pct } from "./InsightsFormat";
  *    `isLoading === false` i puste dane, co bez tego warunku wygląda jak
  *    „brak danych".
  */
+/** Jak powstaje wiersz podsumowania — czytelnik musi wiedzieć, co widzi. */
+const AGGREGATE_LABEL: Record<InsightsYoYMetric["aggregate"], string> = {
+  sum: "Suma",
+  avg: "Średnia",
+  ratio: "Za cały rok",
+  distinct: "Za cały rok",
+};
+
 export function InsightsBoardYoY() {
   const params = useMemo(() => ({}), []);
   const { data, isPending, isSuccess, isError, error, refetch } = useQuery({
@@ -141,7 +149,8 @@ function CoverageWarning({ data }: { data: InsightsYoYResponse }) {
         <p className="opacity-90">{data.coverage.message}</p>
         {perYear.length > 0 ? (
           <p className="opacity-90">
-            Średnia liczba wycenionych kontraktów w miesiącu — {perYear.join(" · ")}.
+            Średnia liczba wycenionych kontraktów w miesiącu —{" "}
+            {perYear.join(" · ")}.
           </p>
         ) : null}
       </div>
@@ -227,7 +236,8 @@ function VerdictCell({ delta }: { delta: YoYDelta }) {
           "border-success/20 bg-success-muted text-success-muted-foreground",
         delta.verdict === "worse" &&
           "border-destructive/20 bg-destructive-muted text-destructive-muted-foreground",
-        delta.verdict === "flat" && "border-border bg-muted text-muted-foreground",
+        delta.verdict === "flat" &&
+          "border-border bg-muted text-muted-foreground",
       )}
     >
       {VERDICT_LABEL[delta.verdict]}
@@ -244,16 +254,32 @@ function MetricTable({
 }) {
   const table = useMemo(
     () =>
-      buildYoYTable(metric, data.years, data.month_labels, data.partial_month),
-    [metric, data.years, data.month_labels, data.partial_month],
+      buildYoYTable(
+        metric,
+        data.years,
+        data.month_labels,
+        data.partial_month,
+        // Bez tego wskaźniki wracają do średniej miesięcznych procentów —
+        // czyli do defektu, który odwracał werdykt roku (audyt 18.09.2026).
+        data.component_series,
+      ),
+    [
+      metric,
+      data.years,
+      data.month_labels,
+      data.partial_month,
+      data.component_series,
+    ],
   );
   const definition = definitionText(metric.definition);
-  const aggregateLabel = metric.aggregate === "sum" ? "Suma" : "Średnia";
+  const aggregateLabel = AGGREGATE_LABEL[metric.aggregate];
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card">
       <div className="flex flex-wrap items-baseline gap-x-2 border-b border-border px-4 py-3">
-        <h4 className="text-sm font-semibold text-foreground">{metric.label}</h4>
+        <h4 className="text-sm font-semibold text-foreground">
+          {metric.label}
+        </h4>
         {metric.note ? (
           <span className="text-xs text-muted-foreground">{metric.note}</span>
         ) : null}
@@ -335,9 +361,7 @@ function MetricTable({
               ))}
               <td className="px-3 py-2 text-center">
                 <VerdictCell
-                  delta={
-                    table.summary.deltas[table.summary.deltas.length - 1]
-                  }
+                  delta={table.summary.deltas[table.summary.deltas.length - 1]}
                 />
               </td>
             </tr>

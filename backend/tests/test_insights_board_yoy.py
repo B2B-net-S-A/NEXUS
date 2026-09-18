@@ -268,7 +268,10 @@ async def test_every_metric_declares_how_to_aggregate_it(yoy_client: AsyncClient
     """`aggregate` istnieje po to, żeby nie powtórzyć „Suma 874%".
 
     Stan (MRR, liczba konsultantów) uśrednia się przez rok; przepływ
-    (placementy, zejścia) sumuje. Wskaźniki NIGDY się nie sumują.
+    (placementy, zejścia) sumuje. Wskaźniki NIE sumują się i NIE uśredniają —
+    liczą się od nowa jako Σlicznik / Σmianownik (audyt 18.09.2026: średnia
+    miesięcznych procentów dawała hit ratio 16,58% zamiast 14,5% i odwracała
+    werdykt roku). Liczność zbioru nie powstaje z miesięcy żadnym działaniem.
     """
     email, password = await _seed_user(UserRole.admin)
     headers = await _login(yoy_client, email, password)
@@ -282,18 +285,82 @@ async def test_every_metric_declares_how_to_aggregate_it(yoy_client: AsyncClient
         "departures": "sum",
         "resignations": "sum",
         "placements": "sum",
-        "top_client_share_pct": "avg",
-        "hit_ratio_pct": "avg",
-        "margin_per_hour_pln": "avg",
+        "margin_pct": "ratio",
+        "top_client_share_pct": "ratio",
+        "hit_ratio_pct": "ratio",
+        "margin_per_hour_pln": "ratio",
+        "unique_clients": "distinct",
     }
     for key, aggregate in expected.items():
         assert _metric(payload, key)["aggregate"] == aggregate, key
 
-    # Żaden wskaźnik procentowy nie może być sumowalny — to jest dokładnie ta
-    # pomyłka, która dała 874% w kolumnie „udział top klienta".
+    # Żaden wskaźnik procentowy nie może być sumowalny ani uśredniany — to jest
+    # dokładnie ta pomyłka, która dała 874% w kolumnie „udział top klienta"
+    # i +2,0 pp „Lepiej" tam, gdzie prawda brzmiała −2,9 pp „Gorzej".
     for metric in payload["metrics"]:
         if metric["unit"] == "pct":
-            assert metric["aggregate"] == "avg", metric["key"]
+            assert metric["aggregate"] == "ratio", metric["key"]
+
+
+@pytest.mark.asyncio
+async def test_every_ratio_metric_ships_its_numerator_and_denominator(
+    yoy_client: AsyncClient,
+):
+    """Wskaźnik bez składowych nie ma jak zostać policzony za rok.
+
+    Widok NIE ma własnej listy „co dzielić przez co" — gdyby ją miał, byłaby
+    drugim lustrem tej wiedzy i rozjechałaby się przy pierwszej nowej metryce.
+    Dlatego brak serii składowej to błąd kontraktu, nie brak danych.
+    """
+    email, password = await _seed_user(UserRole.admin)
+    headers = await _login(yoy_client, email, password)
+    payload = await _yoy(yoy_client, headers, end_year=BASE_YEAR, years=2)
+
+    component_series = payload["component_series"]
+    years = [str(y) for y in payload["years"]]
+    for metric in payload["metrics"]:
+        if metric["aggregate"] != "ratio":
+            continue
+        components = metric["components"]
+        assert components is not None, metric["key"]
+        for role in ("numerator", "denominator"):
+            key = components[role]
+            assert key in component_series, f"{metric['key']}.{role} = {key}"
+            for year in years:
+                assert len(component_series[key][year]) == 12, key
+
+    for metric in payload["metrics"]:
+        if metric["aggregate"] != "distinct":
+            continue
+        assert metric["yearly"] is not None, metric["key"]
+        assert set(metric["yearly"]) == set(years), metric["key"]
+
+
+@pytest.mark.asyncio
+async def test_unique_clients_year_is_a_set_not_an_average_of_months(
+    yoy_client: AsyncClient,
+):
+    """Klient obsłużony w marcu i w lipcu to JEDEN klient.
+
+    Na produkcji ta metryka pokazywała 4,33 / 6,75 / 8,63 przy realnych
+    18 / 23 / 25 — czyli średnią miesięcznych liczności zbioru.
+    """
+    email, password = await _seed_user(UserRole.admin)
+    headers = await _login(yoy_client, email, password)
+    payload = await _yoy(yoy_client, headers, end_year=BASE_YEAR, years=2)
+
+    metric = _metric(payload, "unique_clients")
+    for year, months in metric["series"].items():
+        counted = [m for m in months if m is not None]
+        if not counted:
+            continue
+        yearly = metric["yearly"][year]
+        assert yearly is not None
+        # Rok nie może być mniejszy niż najlepszy miesiąc ani większy niż suma
+        # miesięcy: pierwsze znaczyłoby, że klient zniknął, drugie — że tego
+        # samego klienta policzono dwa razy.
+        assert yearly >= max(counted)
+        assert yearly <= sum(counted)
 
 
 @pytest.mark.asyncio

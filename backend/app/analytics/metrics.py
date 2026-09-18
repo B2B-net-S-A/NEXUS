@@ -48,10 +48,10 @@ from app.services.contract_rates import (
     REVENUE_BEARING_STATUSES,
     effective_rate_fields,
 )
+from app.services.consultant_population import consultant_population
 from app.services.contractor_identity import (
     count_unique_contractors,
     summarize_active_contracts,
-    unique_contractor_keys,
 )
 from app.services.fx_service import amount_to_pln_with_rate
 
@@ -677,48 +677,16 @@ async def _bench_and_utilization(
     Utilization = aktywni / (aktywni + bench) — mianownik to populacja
     konsultantów (ktokolwiek na kontrakcie do dnia ``on``), nie cała baza.
     ``on`` domyślnie dziś; przy okresie historycznym = koniec okresu (M7-P0.4).
+
+    Definicja mieszka w ``services/consultant_population.py``, bo od 18.09.2026
+    czyta ją też `/api/contract-analytics/utilization` — tamten liczył własny,
+    nieprzefiltrowany mianownik i podawał 0,8% zamiast 91,3%.
     """
-    on = on or date.today()
-    candidate_columns = (
-        Candidate.id,
-        Candidate.name,
-        Candidate.lastname,
-        Candidate.email,
-    )
-    active_rows = (
-        await db.execute(
-            select(*candidate_columns)
-            .join(Contract, Contract.candidate_id == Candidate.id)
-            .where(
-                Contract.status.in_(REVENUE_BEARING_STATUSES),
-                Contract.start_date.isnot(None),
-                Contract.start_date <= on,
-                (Contract.end_date.is_(None)) | (Contract.end_date >= on),
-            )
-        )
-    ).all()
-    ever_rows = (
-        await db.execute(
-            select(*candidate_columns)
-            .join(Contract, Contract.candidate_id == Candidate.id)
-            .where(
-                Contract.status.in_(REVENUE_BEARING_STATUSES),
-                Contract.start_date.isnot(None),
-                Contract.start_date <= on,
-            )
-        )
-    ).all()
-    active_keys = unique_contractor_keys(active_rows)
-    ever_keys = unique_contractor_keys(ever_rows)
-    active_cands = len(active_keys)
-    bench = len(ever_keys - active_keys)
-    denominator = active_cands + bench
+    population = await consultant_population(db, on=on)
     return {
-        "active_consultants": active_cands,
-        "bench": bench,
-        "utilization_pct": (
-            round(100.0 * active_cands / denominator, 1) if denominator else None
-        ),
+        "active_consultants": population.active,
+        "bench": population.bench,
+        "utilization_pct": population.utilization_pct,
     }
 
 

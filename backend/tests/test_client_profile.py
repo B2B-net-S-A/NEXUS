@@ -820,9 +820,18 @@ async def _seed_client_with_planned_contracts() -> tuple[int, dict[str, int]]:
         return client.id, ids
 
 
-async def test_future_and_undated_contracts_are_planned_not_current(
+async def test_future_contracts_are_planned_but_undated_ones_are_current(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ) -> None:
+    """Planowany = start w PRZYSZŁOŚCI. Brak daty to brak wiedzy, nie plan.
+
+    Pierwsza wersja tej reguły (UAT B46) wrzucała oba przypadki do jednego
+    kubełka. Audyt 18.09.2026 zmierzył cenę: u klienta 15 trzy AKTYWNE
+    kontrakty z żywymi liniami zamówień siedziały w „Planowanych”, bo nikt nie
+    wpisał im dnia rozpoczęcia — poza „Aktywnym MRR” zostało 13 920 PLN/mc,
+    czyli 54% realnej marży klienta, przy kaflu deklarującym komplet
+    (``active_mrr_unpriced_contracts == 0``).
+    """
     client_id, ids = await _seed_client_with_planned_contracts()
 
     resp = await app_client.get(
@@ -833,15 +842,15 @@ async def test_future_and_undated_contracts_are_planned_not_current(
 
     current_ids = {r["contract_id"] for r in body["active_consultants"]}
     planned_ids = {r["contract_id"] for r in body["planned_consultants"]}
-    assert current_ids == {ids["current"]}
-    # Przyszły start i brak daty startu NIE znikają z profilu — jadą osobno.
-    assert planned_ids == {ids["future"], ids["unknown"]}
+    assert current_ids == {ids["current"], ids["unknown"]}
+    # Przyszły start NIE znika z profilu — jedzie osobno.
+    assert planned_ids == {ids["future"]}
 
     summary = body["summary"]
-    assert summary["active_consultants"] == 1
-    assert summary["active_contracts"] == 1
+    assert summary["active_consultants"] == 2
+    assert summary["active_contracts"] == 2
     # Kafel = suma kolumny „Marża" u OBECNYCH; planowani nie dokładają swojej.
-    assert summary["active_mrr"] == 6000
+    assert summary["active_mrr"] == 12000
     assert summary["active_mrr_unpriced_contracts"] == 0
     # Placement to osoba zatrudniona — planowana też.
     assert summary["total_placements"] == 3
@@ -887,11 +896,9 @@ async def test_planned_consultants_money_is_redacted_without_view_finance(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     planned = [
-        r
-        for r in body["planned_consultants"]
-        if r["contract_id"] in {ids["future"], ids["unknown"]}
+        r for r in body["planned_consultants"] if r["contract_id"] == ids["future"]
     ]
-    assert len(planned) == 2
+    assert len(planned) == 1
     for row in planned:
         assert row["monthly_rate_client"] is None
         assert row["monthly_rate_candidate"] is None

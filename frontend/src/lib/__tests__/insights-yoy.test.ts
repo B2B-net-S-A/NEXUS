@@ -14,12 +14,16 @@
  *    dwunastu miesięcy 2025 pokazywało spadek, którego nie ma.
  * 4. **Zmiana wskaźnika podawana jako procent z procentu** — „hit ratio wzrosło
  *    o 50%" przy 20% → 30% jest prawdą arytmetyczną i myli każdego czytelnika.
+ * 5. **Średnia miesięcznych procentów udawała wskaźnik roczny** — mianowniki
+ *    miesięcy różnią się pięciokrotnie, więc rok 2025 pokazywał hit ratio
+ *    16,58% przy realnych 14,5% (195/1342) i delta zmieniała ZNAK.
  */
 
 import { describe, expect, it } from "vitest";
 
 import type { InsightsYoYMetric } from "@/lib/insights-api";
 import {
+  aggregateRatio,
   aggregateSeries,
   buildYoYTable,
   coveredMonths,
@@ -55,6 +59,8 @@ function metric(over: Partial<InsightsYoYMetric> = {}): InsightsYoYMetric {
     // Domyślnie „z kontraktów" — to podstawa dotknięta luką w ewidencji,
     // więc test bez jawnego wyboru pracuje na wariancie ostrożniejszym.
     basis: "contracts",
+    components: null,
+    yearly: null,
     series: {},
     ...over,
   };
@@ -88,12 +94,12 @@ describe("yoyDelta — jednostka zmiany zależy od jednostki metryki", () => {
   });
 
   it("brak którejkolwiek wartości daje null", () => {
-    expect(yoyDelta(null, 5, { unit: "count", lowerIsBetter: false }).value).toBe(
-      null,
-    );
-    expect(yoyDelta(5, null, { unit: "count", lowerIsBetter: false }).value).toBe(
-      null,
-    );
+    expect(
+      yoyDelta(null, 5, { unit: "count", lowerIsBetter: false }).value,
+    ).toBe(null);
+    expect(
+      yoyDelta(5, null, { unit: "count", lowerIsBetter: false }).value,
+    ).toBe(null);
   });
 
   it("wskaźnik procentowy Z ZEROWĄ bazą nadal liczy się w pp", () => {
@@ -319,5 +325,105 @@ describe("buildYoYTable", () => {
     const table = buildYoYTable(m, years, MONTHS, null);
     expect(table.rows[0].values).toEqual([null, null, 5]);
     expect(table.summary.values).toEqual([null, null, 60]);
+  });
+});
+
+describe("aggregateRatio — wskaźnik roczny liczy się od nowa", () => {
+  it("Σlicznik / Σmianownik, nie średnia miesięcznych procentów", () => {
+    // Miesiąc A: 1 z 10 = 10%. Miesiąc B: 50 z 100 = 50%.
+    // Średnia procentów: 30%. Prawda: 51 ze 110 = 46,36%.
+    expect(aggregateRatio([1, 50], [10, 100], 100)).toBe(46.36);
+    expect(aggregateSeries([10, 50], "avg")).toBe(30);
+  });
+
+  it("pomija miesiąc, w którym brakuje którejkolwiek składowej", () => {
+    // Licznik bez mianownika zawyżyłby wynik, mianownik bez licznika zaniżył.
+    expect(aggregateRatio([1, 5, null], [10, null, 100], 100)).toBe(10);
+  });
+
+  it("zerowy mianownik to null, nie zero", () => {
+    // „Nie było czego zamykać" znaczy co innego niż „nic nie zamknięto".
+    expect(aggregateRatio([0, 0], [0, 0], 100)).toBeNull();
+  });
+
+  it("iloraz mianowany nie jest skalowany do procentów", () => {
+    // Marża na godzinę: 300 zł z 20 h = 15 zł/h.
+    expect(aggregateRatio([100, 200], [10, 10], 1)).toBe(15);
+  });
+
+  it("puste serie dają null, nie zero", () => {
+    expect(aggregateRatio([], [], 100)).toBeNull();
+  });
+});
+
+describe("buildYoYTable — wskaźniki i liczności zbioru", () => {
+  const YEARS = [2024, 2025];
+  const MONTH12 = (v: number | null) => Array(12).fill(v);
+
+  it("hit ratio za rok jest ważony, a nie uśredniony miesiąc po miesiącu", () => {
+    // Kształt z produkcji: kilka chudych miesięcy o wysokim procencie i jeden
+    // gruby o niskim. Średnia procentów mówi „lepiej", prawda mówi „gorzej".
+    const filled = {
+      "2024": [9, 9, 9, ...Array(9).fill(0)],
+      "2025": [1, 1, 1, ...Array(9).fill(0)],
+    };
+    const total = {
+      "2024": [10, 10, 10, ...Array(9).fill(0)],
+      "2025": [100, 100, 100, ...Array(9).fill(0)],
+    };
+    const m = metric({
+      key: "hit_ratio_pct",
+      unit: "pct",
+      aggregate: "ratio",
+      components: {
+        numerator: "closed_jobs_filled",
+        denominator: "closed_jobs_total",
+      },
+      series: {
+        "2024": [90, 90, 90, ...Array(9).fill(0)],
+        "2025": [1, 1, 1, ...Array(9).fill(0)],
+      },
+    });
+
+    const table = buildYoYTable(m, YEARS, MONTHS, null, {
+      closed_jobs_filled: filled,
+      closed_jobs_total: total,
+    });
+
+    expect(table.summary.values).toEqual([90, 1]);
+    expect(table.summary.deltas[0].value).toBe(-89);
+    expect(table.summary.deltas[0].verdict).toBe("worse");
+  });
+
+  it("liczność zbioru bierze się z rocznego pola, bo z miesięcy jej nie ma", () => {
+    // Klient obsłużony w marcu i w lipcu to JEDEN klient. Średnia miesięcznych
+    // liczności dawała na produkcji 8,63 przy realnych 25.
+    const m = metric({
+      key: "unique_clients",
+      unit: "count",
+      aggregate: "distinct",
+      yearly: { "2024": 18, "2025": 25 },
+      series: { "2024": MONTH12(4), "2025": MONTH12(6) },
+    });
+
+    const table = buildYoYTable(m, YEARS, MONTHS, null);
+
+    expect(table.summary.values).toEqual([18, 25]);
+    // Wiersze miesięcy pokazują dalej miesięczne liczności — to prawda o miesiącu.
+    expect(table.rows[0].values).toEqual([4, 6]);
+  });
+
+  it("brak serii składowych nie wywraca tabeli — wskaźnik roczny to „—”", () => {
+    const m = metric({
+      key: "hit_ratio_pct",
+      unit: "pct",
+      aggregate: "ratio",
+      components: { numerator: "brak", denominator: "tez_brak" },
+      series: { "2024": MONTH12(10), "2025": MONTH12(20) },
+    });
+
+    const table = buildYoYTable(m, YEARS, MONTHS, null);
+
+    expect(table.summary.values).toEqual([null, null]);
   });
 });
