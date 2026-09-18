@@ -4,6 +4,8 @@ export type CvReviewState = {
   review_id: number | null;
   status: "queued" | "running" | "verified" | "rejected" | "failed" | "interrupted" | "cancelled" | "stale";
   error_code: string | null;
+  /** Ukończona kontrola doradcza też bywa "verified" — i mieć uwagi. */
+  findings_count?: number | null;
 };
 
 function abortCheck(signal?: AbortSignal) {

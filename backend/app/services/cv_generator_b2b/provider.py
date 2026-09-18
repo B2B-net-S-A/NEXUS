@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import Sequence
 from typing import Any
 
 import anthropic
@@ -160,6 +161,7 @@ def analyze_with_ai(
     model_override: str | None = None,
     response_schema: dict[str, Any] | None = None,
     total_timeout: float | None = None,
+    fallback_models: Sequence[str] | None = None,
 ) -> str:
     """Zawołaj model i zwróć tekst odpowiedzi. Sygnatura bez zmian.
 
@@ -170,8 +172,13 @@ def analyze_with_ai(
             cache'owania, żeby statyczne instrukcje nie były opłacane przy
             każdej generacji.
         model_override: inny model podstawowy dla wołającego spoza generatora
-            CV (analiza UoP, lint reguł). Łańcuch fallbacku zostaje wspólny,
-            ale wołający nie dziedziczy modelu przypiętego pod jakość CV.
+            CV (analiza UoP, lint reguł). Domyślnie łańcuch fallbacku zostaje
+            wspólny (klucz `cv_generator`), ale wołający nie dziedziczy modelu
+            przypiętego pod jakość CV.
+        fallback_models: WŁASNY łańcuch fallbacku. Bez niego wołający
+            z `model_override` dostaje fallback generatora CV (Opus 4.8) —
+            dla funkcji, której rejestr mówi „Luna, z Sonnetem 5", to cichy
+            rozjazd z zadeklarowaną decyzją. Pusta lista = bez fallbacku.
 
     Raises:
         CVGeneratorTruncatedError: odpowiedź ucięta limitem tokenów.
@@ -184,7 +191,9 @@ def analyze_with_ai(
     if budget <= 0:
         raise CVGeneratorTimeoutError("Przekroczono czas przygotowania danych CV.")
     primary = model_override or _model()
-    fallbacks = _fallback_models()
+    fallbacks = (
+        list(fallback_models) if fallback_models is not None else _fallback_models()
+    )
     if not primary:
         raise CVGeneratorAIError(
             "Brak skonfigurowanego modelu Claude (CV_B2B_MODEL jest pusty)."

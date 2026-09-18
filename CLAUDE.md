@@ -874,14 +874,39 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
   papieru firmowego #1449, filtr „Jest”), streaming/deadline w `provider.py`
   (przywrócenie starego pliku wywala start backendu). Zostaje też cała nowa
   infrastruktura: zadania trwałe, wersje, zatwierdzanie, zgoda RODO, dostęp.
+- **Niezależna kontrola AI treści CV — `CV_FINAL_REVIEW_ENABLED`, domyślnie ON
+  (0326, decyzja Artura 18.09.2026).** Gotowe CV recenzuje DRUGI model —
+  `AIFeatureKey.cv_factual_verification` = **GPT Luna**, fallback Sonnet 5 —
+  a nie ten, który je napisał: badanie z 16.09 zmierzyło, że sędzia LLM
+  faworyzuje własne wyjście, więc model oceniający własną pracę jest
+  systematycznie za łagodny. **Recenzja jest DORADCZA i nigdy nie rzuca**
+  (`final_review.run_final_review`): niepotwierdzone twierdzenia jadą jako
+  ostrzeżenia `BRAK POKRYCIA (kontrola AI): …`, raport ląduje w
+  `render_payload["factual_verification"]` (prywatny — `public_view` to
+  allowlista), a plakietka „Kontrola AI: OK / N uwag / niedostępna" stoi
+  w wierszu listy CV. Model per env `CV_FACTUAL_VERIFICATION_MODEL`, budżet
+  całej recenzji `CV_FINAL_REVIEW_TIMEOUT` (120 s, dzielony między paczki po
+  40 twierdzeń). Wyłączenie flagi zdejmuje wydatek i wszystkie uwagi.
+  **Nie zamieniaj tego w bramkę** — od blokowania jest osobne
+  `CV_SOURCE_EVIDENCE_ENFORCED`; powód w sekcji „AI w generatorze to dodatek,
+  nigdy bramka”.
 - **Zatwierdzanie przy `CV_SOURCE_EVIDENCE_ENFORCED` wyłączonym (domyślnie):**
-  „Zatwierdź wygenerowane CV” nie wymaga kontroli AI, a akceptacja z edytora
-  nie odpala płatnej kontroli AI (zapis: `status="unverified"`,
-  `method="evidence_enforcement_off"` — nigdy fałszywe „verified”). Kontrole
-  prywatności i struktury klienta działają dalej. Dwa dni wcześniej bramki
-  zatwierdzania nie było wcale. **Włączaj `CV_SOURCE_EVIDENCE_ENFORCED`
-  wyłącznie razem z `CV_GENERATION_PIPELINE=v10`** — przepływ legacy nie robi
-  kontroli AI, więc z włączonym egzekwowaniem każde „Zatwierdź” skończy się 409.
+  edytowane CV przechodzi kontrolę DORADCZĄ (gdy `CV_FINAL_REVIEW_ENABLED`):
+  zatwierdzenie zawsze przechodzi, a wynik ląduje w
+  `branded_render_metadata["content_review"]` — `status="reviewed"` z
+  `findings.count`, gdy recenzent czegoś nie potwierdził, `"verified"` przy
+  czystym wyniku, `"unverified"` + `method_detail`, gdy recenzja się nie
+  wykonała (nigdy fałszywe „verified”). Brak źródeł nie odmawia zatwierdzenia,
+  tylko degraduje do `advisory_source_unavailable`. Rekruter dostaje trwały
+  baner z liczbą uwag. Przy OBU flagach wyłączonych zostaje dotychczasowe
+  `evidence_enforcement_off` bez żadnego wywołania modelu. Kontrole prywatności
+  i struktury klienta działają w każdym wariancie. **`CV_SOURCE_EVIDENCE_ENFORCED`
+  włączaj wyłącznie razem z `CV_GENERATION_PIPELINE=v10`** — to twarda bramka,
+  a jej fałszywe alarmy zatrzymują pracę zespołu (10.09).
+- **Raport „verified" z generacji zwalnia z drugiej recenzji** przy
+  zatwierdzaniu NIEZMIENIONEGO CV (`cv_approval_provenance`,
+  `unchanged_generation`) — świadome: ten sam recenzent i ta sama treść, więc
+  druga płatna kontrola niczego by nie dodała.
 - **Zachowane zachowania sprzed przebudowy (wiedz, zanim „naprawisz”):** pełny
   słownik klienta (także wpisy sprzed #1445) trafia do promptu i podmienia
   tekst we wszystkich polach; długie punkty są skracane z „…”; w trybie
@@ -4176,6 +4201,7 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
 | F6 | job_description_generator | Sonnet 5 | F14 | cv_rule_lint | Sonnet 5 (z Haiku) |
 | F7 | order_parser | GPT Luna | F15 | mindy_chat | GPT Luna |
 | F8 | uop_check | GPT Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
+| F18 | cv_factual_verification | GPT Luna (z Sonnet 5) | | | |
 
 - **Rejestr jest JEDYNYM miejscem „funkcja → model".** Dostawca wynika z NAZWY
   modelu (`llm_providers.provider_of`: `claude-*` → Anthropic, `gpt-*` →

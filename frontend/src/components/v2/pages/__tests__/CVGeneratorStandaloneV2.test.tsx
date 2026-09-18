@@ -536,6 +536,42 @@ describe("CV upload context and server history", () => {
 });
 
 
+describe("plakietka niezależnej kontroli AI (0326)", () => {
+  const row = (factual_review: unknown) => ({
+    id: 7, candidate_name: "Jan Kowalski", language: "pl", mode: "upload",
+    status: "ready", filename: "cv.docx", warnings: [], can_download: false,
+    can_delete: false, factual_review,
+  });
+
+  const renderWithReview = (factual_review: unknown) => {
+    getMock.mockImplementation(async (url) =>
+      String(url) === "/api/cv-generator/generated" ? {data: [row(factual_review)]} : {data: []});
+    renderPage({embedded: true});
+  };
+
+  it("mówi „OK”, gdy recenzent potwierdził całe CV", async () => {
+    renderWithReview({status: "verified", findings: 0, model: "gpt-5.6-luna"});
+    expect(await screen.findByText("Kontrola AI: OK")).toBeInTheDocument();
+  });
+
+  it("pokazuje liczbę uwag, a nie samo „są uwagi”", async () => {
+    renderWithReview({status: "advisory", findings: 3, model: "gpt-5.6-luna"});
+    expect(await screen.findByText("Kontrola AI: 3 uwagi")).toBeInTheDocument();
+  });
+
+  it("odróżnia nieudaną kontrolę od czystego CV", async () => {
+    renderWithReview({status: "unavailable", findings: 0, reason: "CVGeneratorTimeoutError"});
+    expect(await screen.findByText("Kontrola AI: niedostępna")).toBeInTheDocument();
+  });
+
+  it("dla CV sprzed wdrożenia nie rysuje nic — brak raportu to nie awaria", async () => {
+    renderWithReview(null);
+    expect(await screen.findByText("Jan Kowalski")).toBeInTheDocument();
+    expect(screen.queryByText(/Kontrola AI/)).not.toBeInTheDocument();
+  });
+});
+
+
 describe("CV readiness follows the selected content mode", () => {
   it("allows CV-only redaction and refetches requirements for tailored mode", async () => {
     setSourcingAccess("write");

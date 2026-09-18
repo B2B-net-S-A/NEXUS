@@ -1,6 +1,15 @@
 /** Serialize autosave and approval without replacing edits made during a request. */
 export type CvSaveState = "saved" | "unsaved" | "saving" | "error" | "finalizing" | "finalized";
 
+/** Wynik zatwierdzenia wraz z werdyktem niezależnej kontroli AI (0326).
+ *  Kontrola jest doradcza: uwagi NIE wstrzymują zatwierdzenia, ale muszą
+ *  dojechać do rekrutera, więc podróżują razem z wynikiem. */
+export type CvFinalizeOutcome = {
+  edit_revision: number;
+  content_review_status?: string | null;
+  content_review_findings?: number | null;
+};
+
 export class CvDraftSession {
   revision: number;
   html: string;
@@ -14,7 +23,7 @@ export class CvDraftSession {
     finalized: boolean,
     private readonly transport: {
       save: (html: string, revision: number) => Promise<{ edit_revision: number }>;
-      finalize: (html: string, revision: number) => Promise<{ edit_revision: number }>;
+      finalize: (html: string, revision: number) => Promise<CvFinalizeOutcome>;
     },
     private readonly changed: (state: CvSaveState) => void,
   ) {
@@ -73,6 +82,7 @@ export class CvDraftSession {
       this.revision = result.edit_revision;
       this.persistedInput = this.html;
       this.notify("finalized");
+      return result;
     } catch (error) {
       this.notify("error");
       throw error;

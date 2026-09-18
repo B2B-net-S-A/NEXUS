@@ -5466,6 +5466,10 @@ export interface CVBrandedFinalizeResponseT {
   status: CVBrandedStatus;
   snapshot_filename: string;
   snapshot_size_bytes: number;
+  /** Niezależna kontrola AI treści: "verified" | "reviewed" | "unverified".
+   *  `null` = nie biegła. Zatwierdzenie przechodzi także z uwagami. */
+  content_review_status?: string | null;
+  content_review_findings?: number | null;
 }
 
 export interface CVShareTokenResp {
@@ -5656,7 +5660,9 @@ export type AIFeatureKey =
   | "mindy_chat"
   | "cv_rule_lint"
   | "uop_check"
-  | "cv_name_backfill";
+  | "cv_name_backfill"
+  | "experience_dates_on_demand"
+  | "cv_factual_verification";
 
 export interface AIFeatureConfigDto {
   feature: AIFeatureKey;

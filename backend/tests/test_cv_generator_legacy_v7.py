@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from app.services.cv_generator_b2b import factual_verification
 from app.services.cv_generator_b2b import standalone_service as svc
 from app.services.cv_generator_b2b.champion_builder import ChampionProfileForPrompt
 from app.services.cv_generator_b2b.client_rules import CvRuleSnapshot
@@ -66,6 +67,9 @@ def defaults(monkeypatch):
     entry point of the rebuilt pipeline booby-trapped."""
     monkeypatch.delenv("CV_GENERATION_PIPELINE", raising=False)
     monkeypatch.delenv("CV_SOURCE_EVIDENCE_ENFORCED", raising=False)
+    # Kontrola AI (0326) ma własny plik testów; tutaj sprawdzamy sam przepływ
+    # generacji, więc jest zgaszona — inaczej każdy bieg szedłby do dostawcy.
+    monkeypatch.setenv("CV_FINAL_REVIEW_ENABLED", "false")
     seen = {"calls": [], "extracted": 0, "response": _ai_json()}
 
     def extract(data, name):
@@ -84,6 +88,10 @@ def defaults(monkeypatch):
     monkeypatch.setattr(legacy, "render_cv_to_bytes", lambda *a, **k: b"DOCX")
     for name in ("extract_source_facts", "verify_final_cv", "analyze_with_ai"):
         monkeypatch.setattr(svc, name, forbidden)
+    # Weryfikator woła dostawcę przez SWÓJ moduł, więc pin na `svc` go nie
+    # łapie: bez tej pułapki wyciek flagi kończyłby się żywym wywołaniem
+    # zamiast czerwonego testu.
+    monkeypatch.setattr(factual_verification, "analyze_with_ai", forbidden)
     return seen
 
 

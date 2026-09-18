@@ -104,6 +104,7 @@ from app.services.cv_generator_b2b.client_rules import (
     resolve_content_mode,
     snapshot_rule,
 )
+from app.services.cv_generator_b2b.final_review import summarize_review
 from app.services.cv_generator_b2b.standalone_service import (
     CandidateGenerationSource,
     ContentMode,
@@ -193,6 +194,20 @@ class GenerateRequest(BaseModel):
     consent_screenshot_token: str = Field(default="", max_length=4096)
 
 
+class FactualReviewSummary(BaseModel):
+    """Wynik niezależnej kontroli AI — LICZBY, nigdy cytaty ani ścieżki.
+
+    Pełny raport (z fragmentami CV i cytatami ze źródeł) zostaje w
+    `render_payload` po stronie serwera; lista panelu dostaje tyle, ile trzeba
+    na plakietkę.
+    """
+
+    status: Literal["verified", "advisory", "unavailable"]
+    findings: int = 0
+    model: Optional[str] = None
+    reason: Optional[str] = None
+
+
 class GeneratedCvItem(BaseModel):
     """A row in the „Wygenerowane CV" panel list."""
 
@@ -221,6 +236,9 @@ class GeneratedCvItem(BaseModel):
     ] = None
     error_message: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
+    # `None` dla wierszy sprzed 0326 — front ma wtedy NIC nie rysować, bo
+    # „kontrola niedostępna" znaczyłoby, że próbowała i nie wyszła.
+    factual_review: Optional[FactualReviewSummary] = None
     created_at: Optional[str] = None
     created_by_name: Optional[str] = None
     can_download: bool
@@ -625,6 +643,50 @@ async def _charge_second_language_or_note(
         return None
 
 
+def _review_declaration_or_null(user_id: int | None, state: QuotaState | None):
+    """Deklaracja kubełka recenzenta dla pracy w wątku, albo nic.
+
+    Wchodzi się w nią TU, w korutynie wołającej pipeline: anyio kopiuje mapę
+    contextvarów do wątku `run_in_threadpool`, więc synchroniczna recenzja
+    w środku widzi deklarację. Wejście w nią poziom wyżej (`_run_declared`)
+    rozjechałoby ścieżkę drugiej wersji językowej, która ma własny kubełek.
+    """
+    from app.services.cv_generator_b2b.final_review import review_declaration
+
+    if state is None:
+        return nullcontext()
+    return review_declaration(user_id=user_id, state=state)
+
+
+async def _charge_final_review(db: AsyncSession, *, user_id: int) -> QuotaState | None:
+    """Obciąż kubełek niezależnej kontroli AI treści CV (0326).
+
+    OSOBNY od `cv_generator`, choć recenzja biegnie w tym samym żądaniu:
+    recenzentem jest INNY model u INNEGO dostawcy (GPT Luna), więc bez własnego
+    kubełka jego koszt schowałby się w koszcie generacji i nie dałoby się
+    odpowiedzieć, ile kosztuje samo sprawdzanie ani zgasić go osobno.
+
+    Naliczamy w workerze, nie w handlerze — `check_and_increment` od 17.09.2026
+    nigdy nie blokuje, więc argument „bramka musi stać w handlerze, żeby dać
+    czytelne 503" tu nie obowiązuje, a przeniesienie tego do snapshotu joba
+    dotykałoby czterech modułów kolejki dla gwarancji bez wartości.
+
+    `None` (flaga zgaszona albo odmowa kwoty) nie wyłącza recenzji — znaczy
+    tylko, że jej tokeny policzą się na kubełku generatora.
+    """
+    from app.services.cv_generator_b2b.final_review import final_review_enabled
+
+    if not final_review_enabled():
+        return None
+    try:
+        return await check_and_increment(
+            db, AIFeatureKey.cv_factual_verification, user_id=user_id
+        )
+    except AIQuotaExceeded as exc:
+        logger.info("[cv_b2b] kontrola AI bez własnego kubełka: %s", exc.reason)
+        return None
+
+
 # ── Background generation jobs ─────────────────────────────────────────────
 #
 # Scheduled via FastAPI ``BackgroundTasks`` AFTER the 202 response is fully sent,
@@ -661,15 +723,17 @@ async def _run_generate_new_job(
                 screening_notes_text=source.screening_notes_text,
                 request_id=f"cvgen_source_{generated_id}",
             )
-            result = await generate_cv_from_candidate_source(
-                source,
-                language=language,
-                blind_cv=blind_cv,
-                content_mode=content_mode,
-                client_rule=rule_snapshot,
-                project_ref=project_ref or None,
-                prepared_source_facts=source_facts,
-            )
+            review_quota = await _charge_final_review(db, user_id=user_id)
+            with _review_declaration_or_null(user_id, review_quota):
+                result = await generate_cv_from_candidate_source(
+                    source,
+                    language=language,
+                    blind_cv=blind_cv,
+                    content_mode=content_mode,
+                    client_rule=rule_snapshot,
+                    project_ref=project_ref or None,
+                    prepared_source_facts=source_facts,
+                )
         except StandaloneGenerationError as err:
             await _finalize_failure(
                 db, generated_id, err.message, diagnostic_code=err.diagnostic_code
@@ -775,8 +839,12 @@ async def _run_generate_new_job(
             await register_second_document(db, second_id)
             await db.commit()
             try:
-                with declared_call(
-                    AIFeatureKey.cv_generator, user_id=user_id, state=second_quota
+                second_review_quota = await _charge_final_review(db, user_id=user_id)
+                with (
+                    declared_call(
+                        AIFeatureKey.cv_generator, user_id=user_id, state=second_quota
+                    ),
+                    _review_declaration_or_null(user_id, second_review_quota),
                 ):
                     second_result = await generate_cv_from_candidate_source(
                         source,
@@ -873,9 +941,13 @@ async def _run_generate_upload_job(
                 screening_notes_text=payload.screening_notes or "",
                 request_id=f"cvgen_upload_source_{generated_id}",
             )
-            result = await run_in_threadpool(
-                generate_cv_from_uploads, payload, prepared_source_facts=source_facts
-            )
+            review_quota = await _charge_final_review(db, user_id=user_id)
+            with _review_declaration_or_null(user_id, review_quota):
+                result = await run_in_threadpool(
+                    generate_cv_from_uploads,
+                    payload,
+                    prepared_source_facts=source_facts,
+                )
         except StandaloneGenerationError as err:
             await _finalize_failure(
                 db, generated_id, err.message, diagnostic_code=err.diagnostic_code
@@ -982,8 +1054,12 @@ async def _run_generate_upload_job(
             await register_second_document(db, second_id)
             await db.commit()
             try:
-                with declared_call(
-                    AIFeatureKey.cv_generator, user_id=user_id, state=second_quota
+                second_review_quota = await _charge_final_review(db, user_id=user_id)
+                with (
+                    declared_call(
+                        AIFeatureKey.cv_generator, user_id=user_id, state=second_quota
+                    ),
+                    _review_declaration_or_null(user_id, second_review_quota),
                 ):
                     second_result = await run_in_threadpool(
                         generate_cv_from_uploads,
@@ -2166,6 +2242,9 @@ async def list_generated_cvs(
             job_status=job_status,
             error_message=r.error_message,
             warnings=list(r.warnings or []),
+            factual_review=summarize_review(
+                (r.render_payload or {}).get("factual_verification")
+            ),
             created_at=r.created_at.isoformat() if r.created_at else None,
             created_by_name=creator_name,
             can_download=r.status == "ready" and r.render_payload is not None,
@@ -2747,11 +2826,16 @@ async def finalize_generated_editor(
     from app.services.cv_version_map_jobs import schedule_approved_map
 
     await schedule_approved_map(db, version, current_user.id)
+    from app.services.cv_approval_review import review_outcome
+
+    review_status, review_findings = review_outcome(version.render_metadata)
     result = {
         **generated_editor.state(draft),
         "document_version_id": version.id,
         "snapshot_filename": version.docx_filename,
         "snapshot_size_bytes": len(version.docx_content),
+        "content_review_status": review_status,
+        "content_review_findings": review_findings,
     }
     db.add(
         Activity(

@@ -101,6 +101,13 @@ class AIFeatureKey(str, enum.Enum):
     # `cv_parser` też odpada: bieg na dziesiątkach tysięcy CV zjadłby sufit
     # rekruterów pracujących interaktywnie.
     cv_name_backfill = "cv_name_backfill"
+    # Niezależna kontrola AI treści wygenerowanego/edytowanego CV (drugi
+    # model, decyzja Artura 18.09.2026). OSOBNY kubełek od `cv_generator`,
+    # choć biegnie w tym samym żądaniu: recenzent jest INNYM modelem (GPT
+    # Luna — sędzia nie może oceniać własnej pracy), więc jego wydatek ma być
+    # widoczny obok generacji, a `CV_FINAL_REVIEW_ENABLED` ma go dać zgasić
+    # bez dotykania generatora.
+    cv_factual_verification = "cv_factual_verification"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -122,6 +129,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.cv_rule_lint: "Reguły CV klienta — lint instrukcji dla generatora",
     AIFeatureKey.uop_check: "Generator Umów B2B — sprawdzenie znamion umowy o pracę",
     AIFeatureKey.cv_name_backfill: "Uzupełnianie imion z CV (sync Traffita)",
+    AIFeatureKey.cv_factual_verification: "Generator CV B2B — niezależna kontrola AI treści CV (drugi model)",
     AIFeatureKey.experience_dates_on_demand: "Daty zatrudnienia z CV (kartoteka firmy w ATLAS-ie)",
 }
 
@@ -203,6 +211,12 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     ],
     AIFeatureKey.cv_name_backfill: [
         "Zapisany tekst CV kandydatów bez imienia (bieg nocny, tylko puste pola)",
+    ],
+    AIFeatureKey.cv_factual_verification: [
+        "Pełny tekst źródłowego CV (ponumerowane linie)",
+        "Notatki ze screeningu",
+        "Imię i nazwisko kandydata",
+        "Twierdzenia z wygenerowanego / edytowanego CV",
     ],
 }
 

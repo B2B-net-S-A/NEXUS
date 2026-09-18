@@ -838,6 +838,9 @@ async def finalize_branded_cv(
     await db.commit()
     await db.refresh(csv)
 
+    from app.services.cv_approval_review import review_outcome
+
+    review_status, review_findings = review_outcome(metadata)
     return CVBrandedFinalizeResponse(
         candidate_stage_id=csv.candidate_stage_id,
         edit_revision=csv.edit_revision or 0,
@@ -846,6 +849,8 @@ async def finalize_branded_cv(
         snapshot_filename=filename,
         snapshot_size_bytes=size,
         document_version_id=version.id,
+        content_review_status=review_status,
+        content_review_findings=review_findings,
     )
 
 

@@ -2,8 +2,13 @@
 
 ONE model call reads the raw CV text, the screening notes, the Champion section
 (tailored mode only) and the client-rule blocks — no source-facts extraction,
-no editorial rewrite of bullets, no final AI factual review. Bolding is the old
-rule: Champion MUST/NICE, tailored mode only.
+no editorial rewrite of bullets. Bolding is the old rule: Champion MUST/NICE,
+tailored mode only.
+
+Since 18.09.2026 the generated document is additionally reviewed by an
+INDEPENDENT second model (``final_review``, flag ``CV_FINAL_REVIEW_ENABLED``).
+That review is advisory by construction: it can only add warnings and a private
+report, never withhold the document — see the contract in ``final_review``.
 
 Kept from the live pipeline on purpose: DOCX rendering with a frozen template
 stream and ``artifact_provenance`` (stored artifacts and approvals rely on it),
@@ -37,6 +42,10 @@ from app.services.cv_generator_b2b.client_rules import (
     rule_reminders,
 )
 from app.services.cv_generator_b2b.docx_renderer import render_cv_to_bytes
+from app.services.cv_generator_b2b.final_review import (
+    final_review_enabled,
+    run_final_review,
+)
 from app.services.cv_generator_b2b.legacy_v7._helpers import (
     _cap_role_technologies,
     _champion_parse_warnings,
@@ -299,6 +308,23 @@ def run_legacy_generation(
     policy_notes = apply_presentation_policy(candidate_data, client_rule)
     apply_date_format(candidate_data, client_rule)
 
+    # ── 4b. Independent second-model review (advisory, never blocking) ───
+    # AFTER the glossary, presentation policy and date formatting: the review
+    # must describe the claims that will actually be rendered, not an earlier
+    # draft of them. BEFORE the deepcopy so the report travels with
+    # render_payload into cv_generated_documents (public_view's allowlist keeps
+    # it private). `run_final_review` never raises — see its module docstring.
+    review_warnings: list[str] = []
+    if final_review_enabled():
+        candidate_data["factual_verification"], review_warnings = run_final_review(
+            candidate_data,
+            cv_text=cv_text,
+            screening_notes=screening_notes_text,
+            identity=fallback_name or "",
+            request_id=request_id,
+            language=language,
+        )
+
     # Snapshot BEFORE render mutates candidate_data (blind mode rewrites
     # name/company in place); re-rendering this payload reproduces the DOCX.
     render_payload = copy.deepcopy(candidate_data)
@@ -343,11 +369,12 @@ def run_legacy_generation(
     duration_ms = int((time.time() - started_at) * 1000)
     warnings = [str(w) for w in candidate_data.get("warnings") or [] if w]
     warnings.extend(guard_warnings)
+    warnings.extend(review_warnings)
     warnings.extend(rule_warnings)
 
     logger.info(
         "[cv_b2b][%s] OK (%s) candidate=%s lang=%s blind=%s warnings=%d "
-        "(guard=%d) duration_ms=%d",
+        "(guard=%d) review=%s review_findings=%d duration_ms=%d",
         request_id,
         PIPELINE_ID,
         candidate_name,
@@ -355,6 +382,8 @@ def run_legacy_generation(
         blind_cv,
         len(warnings),
         len(guard_warnings),
+        (candidate_data.get("factual_verification") or {}).get("status", "off"),
+        len(review_warnings),
         duration_ms,
     )
 

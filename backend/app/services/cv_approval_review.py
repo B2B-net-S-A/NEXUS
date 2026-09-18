@@ -61,6 +61,20 @@ async def review_for_approval(db, csv, content_html: str, user_id: int) -> dict:
     )
 
 
+def review_outcome(render_metadata) -> tuple[str | None, int | None]:
+    """`(status, liczba_uwag)` zapisanej kontroli treści — dla odpowiedzi API.
+
+    Czytane z metadanych ZAPISANEJ wersji, nie z żywego szkicu: to ma opisywać
+    dokument, który właśnie powstał. `None` = kontrola nie biegła.
+    """
+    review = (render_metadata or {}).get("content_review")
+    if not isinstance(review, dict):
+        return None, None
+    findings = review.get("findings")
+    count = findings.get("count") if isinstance(findings, dict) else None
+    return review.get("status"), count
+
+
 async def prepare_approval_review(
     db, csv, content_html: str
 ) -> dict | PreparedApprovalReview:
@@ -78,20 +92,40 @@ async def prepare_approval_review(
             "presentation_review": presentation,
             "html_sha256": provenance["approved_editor_html_sha256"],
         }
+    from app.services.cv_generator_b2b.final_review import final_review_enabled
     from app.services.cv_generator_b2b.source_facts import source_evidence_enforced
 
-    if not source_evidence_enforced():
-        # Enforcement off (default): privacy and client structure checks above
-        # still apply, but no paid AI source review blocks the approval. The
-        # record says so honestly — it is not "verified".
+    enforced = source_evidence_enforced()
+    if not enforced and not final_review_enabled():
+        # Both off: privacy and client structure checks above still apply, but
+        # no paid AI source review runs at all. The record says so honestly —
+        # it is not "verified".
         return {
             "status": "unverified",
             "method": "evidence_enforcement_off",
             "presentation_review": presentation,
             "html_sha256": provenance["approved_editor_html_sha256"],
         }
+
+    def degraded(reason: str) -> dict:
+        """Advisory mode cannot refuse an approval over a missing source.
+
+        Enforced mode still does: there the review is the guarantee. Here it is
+        an aid, and an aid that blocks the recruiter is the defect this whole
+        feature was designed to avoid.
+        """
+        return {
+            "status": "unverified",
+            "method": "advisory_source_unavailable",
+            "reason": reason,
+            "presentation_review": presentation,
+            "html_sha256": provenance["approved_editor_html_sha256"],
+        }
+
     generated_id = csv.generated_document_id
     if generated_id is None:
+        if not enforced:
+            return degraded("no_generated_source")
         raise HTTPException(
             409,
             {
@@ -103,16 +137,19 @@ async def prepare_approval_review(
         editor_claims(content_html)
         source = await load_review_source(db, generated_id)
     except ReviewSourceMissing as exc:
+        if not enforced:
+            return degraded("source_missing")
         raise HTTPException(
             409,
             {"code": "cv_source_regeneration_required", "message": str(exc)},
         ) from exc
     except (EditorReviewInputError, ReviewSourceUnavailable) as exc:
+        if not enforced:
+            return degraded("source_unreadable")
         raise HTTPException(409, str(exc)) from exc
     html_sha256 = hashlib.sha256(content_html.encode()).hexdigest()
     prompt_sha256 = hashlib.sha256(VERIFICATION_PROMPT.encode()).hexdigest()
     expected_receipt = {
-        "status": "verified",
         "method": "edited_source_review",
         "generated_document_id": generated_id,
         "html_sha256": html_sha256,
@@ -124,8 +161,15 @@ async def prepare_approval_review(
     }
 
     def matches(receipt):
-        return isinstance(receipt, dict) and all(
-            receipt.get(key) == value for key, value in expected_receipt.items()
+        # Status is checked separately: an advisory review that FOUND problems
+        # is still a completed review of exactly this content ("reviewed"), and
+        # re-running it would charge the same model for the same verdict.
+        return (
+            isinstance(receipt, dict)
+            and receipt.get("status") in {"verified", "reviewed"}
+            and all(
+                receipt.get(key) == value for key, value in expected_receipt.items()
+            )
         )
 
     previous = (csv.branded_render_metadata or {}).get("content_review")
@@ -178,8 +222,32 @@ async def execute_approval_review(
     db, prepared: PreparedApprovalReview, user_id: int
 ) -> dict:
     """Meter and verify only captured input, without an ORM draft reference."""
+    from app.services.cv_generator_b2b.source_facts import source_evidence_enforced
+
+    enforced = source_evidence_enforced()
+
+    def receipt(status: str, **extra) -> dict:
+        return {
+            "status": status,
+            "method": "edited_source_review",
+            "presentation_review": json.loads(prepared.presentation_json),
+            "generated_document_id": prepared.generated_id,
+            "editor_review_version": EDITOR_REVIEW_VERSION,
+            "response_schema_sha256": REVIEW_RESPONSE_SCHEMA_SHA256,
+            "html_sha256": hashlib.sha256(prepared.content_html.encode()).hexdigest(),
+            "source_snapshot_sha256": prepared.source_sha256,
+            "verifier_version": VERIFIER_VERSION,
+            "prompt_sha256": hashlib.sha256(VERIFICATION_PROMPT.encode()).hexdigest(),
+            **extra,
+        }
+
     try:
-        async with ai_feature(db, AIFeatureKey.cv_generator, user_id=user_id):
+        # The reviewer is the INDEPENDENT model (`cv_factual_verification`),
+        # not the generator's — and it bills its own bucket, so the cost of
+        # checking an edited CV is visible next to the cost of writing one.
+        async with ai_feature(
+            db, AIFeatureKey.cv_factual_verification, user_id=user_id
+        ):
             report = await run_in_threadpool(
                 verify_editor_content,
                 prepared.content_html,
@@ -193,26 +261,41 @@ async def execute_approval_review(
             503, "Kontrola CV jest niedostępna: " + (exc.reason or "limit AI")
         ) from exc
     except FactualVerificationError as exc:
-        raise HTTPException(
-            422,
-            "Nie zatwierdzono CV: treść po edycji nie została potwierdzona w źródłach. Sprawdź dodane lub zmienione informacje.",
-        ) from exc
+        if enforced:
+            raise HTTPException(
+                422,
+                "Nie zatwierdzono CV: treść po edycji nie została potwierdzona w źródłach. Sprawdź dodane lub zmienione informacje.",
+            ) from exc
+        # Advisory: the review COMPLETED and found problems. That is a result,
+        # not a failure — it travels with the approved version so the recruiter
+        # sees what to check before sending the CV out.
+        return receipt(
+            "reviewed",
+            findings={
+                "reason": exc.reason,
+                "count": len(exc.paths),
+                "paths": list(exc.paths),
+                "statuses": dict(exc.statuses),
+            },
+        )
     except CVGeneratorAIError as exc:
-        raise HTTPException(
-            503,
-            "Kontrola zgodności CV jest chwilowo niedostępna. Nie zatwierdzono dokumentu.",
-        ) from exc
+        if enforced:
+            raise HTTPException(
+                503,
+                "Kontrola zgodności CV jest chwilowo niedostępna. Nie zatwierdzono dokumentu.",
+            ) from exc
+        return receipt("unverified", method_detail="review_unavailable")
     except CVTextExtractionError as exc:
-        raise HTTPException(422, "Nie można odczytać źródła do kontroli CV.") from exc
-    return {
-        "status": "verified",
-        "method": "edited_source_review",
-        "presentation_review": json.loads(prepared.presentation_json),
-        "generated_document_id": prepared.generated_id,
-        "editor_review_version": EDITOR_REVIEW_VERSION,
-        "response_schema_sha256": REVIEW_RESPONSE_SCHEMA_SHA256,
-        "html_sha256": hashlib.sha256(prepared.content_html.encode()).hexdigest(),
-        "source_snapshot_sha256": prepared.source_sha256,
-        "verifier_version": report["version"],
-        "prompt_sha256": report["prompt_sha256"],
-    }
+        if enforced:
+            raise HTTPException(
+                422, "Nie można odczytać źródła do kontroli CV."
+            ) from exc
+        return receipt("unverified", method_detail="source_unreadable")
+    # Values from the report itself on the success path: they are what the
+    # reviewer actually ran with, not what this module assumes it ran with.
+    return receipt(
+        "verified",
+        verifier_version=report["version"],
+        prompt_sha256=report["prompt_sha256"],
+        reviewer_model=report.get("model"),
+    )

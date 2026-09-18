@@ -142,7 +142,9 @@ def test_limited_cv_keeps_eleven_years_and_full_private_history(monkeypatch):
             }
         )
 
-    def review(content, request_id, system, response_schema):
+    def review(content, request_id, system, response_schema, **kwargs):
+        # 0326: weryfikator wybiera własny model i budżet czasu, więc
+        # dostaje też `model_override`/`fallback_models`/`total_timeout`.
         assert response_schema is gate.REVIEW_RESPONSE_SCHEMA
         data = json.loads(content)
         return json.dumps(

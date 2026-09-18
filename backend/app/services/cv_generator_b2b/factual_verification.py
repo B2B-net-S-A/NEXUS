@@ -10,10 +10,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
+from collections.abc import Sequence
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.models.ai_feature import AIFeatureKey
+from app.services.ai_models import fallbacks_for, model_for
 from app.services.cv_generator_b2b.provider import analyze_with_ai
 from app.services.cv_generator_b2b.source_lines import (
     SourceReference,
@@ -92,10 +96,18 @@ class FactualVerificationError(ValueError):
     """Do not include source content/model output in exception logs."""
 
     def __init__(
-        self, paths: list[str] | None = None, *, reason: str = "invalid_review"
+        self,
+        paths: list[str] | None = None,
+        *,
+        reason: str = "invalid_review",
+        statuses: dict[str, str] | None = None,
     ):
         self.paths = paths or []
         self.reason = reason
+        # Path -> unsupported | contradicted | private | invalid_evidence.
+        # The advisory surface needs to say WHY a claim failed; "no evidence"
+        # and "contradicts the source" are different instructions to a recruiter.
+        self.statuses = statuses or {}
         super().__init__("CV source verification did not pass")
 
 
@@ -149,13 +161,35 @@ def verify_final_cv(
     screening_notes: str,
     identity: str,
     request_id: str,
+    model: str | None = None,
+    fallback_models: Sequence[str] | None = None,
+    total_timeout: float | None = None,
 ) -> dict[str, Any]:
+    """Review the final CV against its sources with an INDEPENDENT model.
+
+    The reviewer defaults to `cv_factual_verification` (GPT Luna), never the
+    generator's model: the 16.09.2026 model study measured that an LLM judge
+    favours its own output, so a model grading its own CV is systematically
+    too lenient. Passing `model` explicitly is for tests and A/B runs only.
+
+    `total_timeout` is the budget for the WHOLE review, shared across batches;
+    without it a long CV could spend one full provider budget per batch.
+    """
     sources = {"cv": cv_text, "screening_notes": screening_notes, "identity": identity}
     projection = factual_projection(data)
     claims = claim_inventory(data)
     if not claims or len(claims) > 1000:
         raise FactualVerificationError()
+    model = model or model_for(AIFeatureKey.cv_factual_verification)
+    if fallback_models is None:
+        fallback_models = fallbacks_for(AIFeatureKey.cv_factual_verification)
+    deadline = None if total_timeout is None else time.monotonic() + total_timeout
     reviews: list[dict[str, Any]] = []
+    # Collected across ALL batches: an advisory report that stopped at the
+    # first failing batch would silently omit findings from the rest of the CV.
+    rejected: list[str] = []
+    invalid_evidence: list[str] = []
+    statuses: dict[str, str] = {}
     entries = list(claims.items())
     for offset in range(0, len(entries), 40):
         batch = dict(entries[offset : offset + 40])
@@ -171,6 +205,9 @@ def verify_final_cv(
             f"{request_id}:verify:{offset // 40}",
             system=VERIFICATION_PROMPT,
             response_schema=REVIEW_RESPONSE_SCHEMA,
+            model_override=model,
+            fallback_models=fallback_models,
+            total_timeout=None if deadline is None else deadline - time.monotonic(),
         )
         if len(response) > 1_000_000:
             raise FactualVerificationError(reason="oversized_response")
@@ -188,14 +225,14 @@ def verify_final_cv(
         paths = [item.path for item in reviewed.claims]
         if len(set(paths)) != len(paths) or set(paths) != set(batch):
             raise FactualVerificationError(reason="invalid_coverage")
-        rejected = []
-        invalid_evidence = []
         for item in reviewed.claims:
             if item.status != "supported":
                 rejected.append(item.path)
+                statuses[item.path] = item.status
                 continue
             if not item.evidence:
                 invalid_evidence.append(item.path)
+                statuses[item.path] = "invalid_evidence"
                 continue
             citations = []
             for evidence in item.evidence:
@@ -206,6 +243,7 @@ def verify_final_cv(
                     and item.path not in {"/name", "/first_name"}
                 ):
                     invalid_evidence.append(item.path)
+                    statuses[item.path] = "invalid_evidence"
                     break
                 start, end = span
                 citations.append(
@@ -217,14 +255,21 @@ def verify_final_cv(
                     }
                 )
             reviews.append({"path": item.path, "evidence": citations})
-        if invalid_evidence:
-            raise FactualVerificationError(invalid_evidence, reason="invalid_evidence")
-        if rejected:
-            raise FactualVerificationError(rejected, reason="semantic_rejection")
+    # Protocol failures above abort immediately (the batch cannot be trusted at
+    # all); per-claim verdicts are reported for the WHOLE document at once.
+    if invalid_evidence:
+        raise FactualVerificationError(
+            invalid_evidence, reason="invalid_evidence", statuses=statuses
+        )
+    if rejected:
+        raise FactualVerificationError(
+            rejected, reason="semantic_rejection", statuses=statuses
+        )
     serialized = json.dumps(projection, sort_keys=True, ensure_ascii=False)
     return {
         "status": "verified",
         "version": VERIFIER_VERSION,
+        "model": model,
         "prompt_sha256": hashlib.sha256(VERIFICATION_PROMPT.encode()).hexdigest(),
         "response_schema_sha256": REVIEW_RESPONSE_SCHEMA_SHA256,
         "document_sha256": hashlib.sha256(serialized.encode()).hexdigest(),
