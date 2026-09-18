@@ -563,6 +563,12 @@ export const dlPortalApi = {
   deleteOrder: (clientId: number, orderId: number) =>
     api.delete(`/api/clients/${clientId}/orders/${orderId}`),
 
+  /** Co NAPRAWDĘ zniknie razem z zamówieniem. Wyłącznie odczyt. */
+  previewOrderDeletion: (clientId: number, orderId: number) =>
+    api.get<OrderDeletePreview>(
+      `/api/clients/${clientId}/orders/${orderId}/delete-preview`
+    ),
+
   /** Zakończ JEDNO zamówienie okresowe — bez dotykania umowy.
    *
    *  Świadomie NIE `updateOrder({ status: "completed" })`: PATCH jest edycją
@@ -589,3 +595,35 @@ export const dlPortalApi = {
   adminOverview: () => api.get<OverviewRow[]>("/api/admin/clients-overview"),
   adminByDl: () => api.get<DlKpiRow[]>("/api/admin/clients-overview/by-dl"),
 };
+
+
+/** Jeden krok harmonogramu stawki klienta znikający razem z zamówieniem. */
+export interface OrderDeleteRateChange {
+  effective_from: string;
+  effective_until: string | null;
+  /** `null` = rola bez dostępu do finansów: widzi, ŻE się zmieni, nie ile. */
+  rate: number | null;
+  replacement_rate: number | null;
+  changes_amount: boolean;
+}
+
+/**
+ * Skutki usunięcia zamówienia.
+ *
+ * Dialog obiecywał „umowa tej osoby nie zmieni się”, a kasowanie zabiera przez
+ * CASCADE krok stawki klienta i przecenia miesiące historyczne (audyt
+ * 18.09.2026: 99 zamówień ma własny krok, 31 kontraktów ma ich więcej niż jeden).
+ */
+export interface OrderDeletePreview {
+  order_id: number;
+  order_number: string | null;
+  status: string;
+  is_group_line: boolean;
+  deletes_row: boolean;
+  blocked_by: string[];
+  has_file: boolean;
+  rate_changes: OrderDeleteRateChange[];
+  currency: string | null;
+  rate_unit: string | null;
+  amounts_redacted: boolean;
+}

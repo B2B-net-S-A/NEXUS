@@ -42,6 +42,23 @@ vi.mock("@/lib/api/dlPortal", () => ({
     listContractorsWithOrders: vi.fn(),
     updateOrder: vi.fn(),
     deleteOrder: vi.fn(),
+    // Dialog usuwania pyta serwer, CO zniknie razem z zamówieniem — bez tego
+    // przycisk „Usuń” zostaje wyłączony (patrz `DeleteOrderDialog`).
+    previewOrderDeletion: vi.fn().mockResolvedValue({
+      data: {
+        order_id: 61,
+        order_number: "61",
+        status: "active",
+        is_group_line: false,
+        deletes_row: true,
+        blocked_by: [],
+        has_file: false,
+        rate_changes: [],
+        currency: "PLN",
+        rate_unit: "hourly",
+        amounts_redacted: false,
+      },
+    }),
     closeOrder: vi.fn(),
     createOrderExtension: vi.fn(),
     extractOrderPdf: vi.fn(),
@@ -1560,22 +1577,70 @@ describe("OrdersAndContractsTab — przyciski „Zakończ zamówienie” i „Za
     // Ticket 09.2026: bieżące zamówienie nie miało kosza, a jedynym czerwonym
     // przyciskiem z ikoną kosza było „Zakończ współpracę”, które wypowiada
     // umowę i domyka wszystkie zamówienia osoby.
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    //
+    // Audyt 18.09.2026: potwierdzenie przestało być natywnym `confirm`
+    // z obietnicą „umowa tej osoby nie zmieni się” — nieprawdziwą, bo
+    // kasowanie zabiera przez CASCADE krok stawki klienta. Dialog pyta serwer,
+    // CO się przeceni, i dopiero wtedy odsłania przycisk.
     mockContractor("active");
     renderTab();
     await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
 
     fireEvent.click(screen.getByRole("button", { name: /^Usuń zamówienie$/ }));
 
+    // Otwiera się dialog, nie mutacja: samo kliknięcie kosza NIE kasuje.
+    await screen.findByRole("heading", { name: /Usunąć zamówienie/ });
+    expect(dlPortalApi.deleteOrder).not.toHaveBeenCalled();
+
+    const confirmButton = await screen.findByRole("button", {
+      name: /^Usuń zamówienie$/,
+      // Przycisk w stopce dialogu jest aktywny dopiero po odpowiedzi serwera.
+    });
+    await waitFor(() => expect(confirmButton).not.toBeDisabled());
+    fireEvent.click(confirmButton);
+
     await waitFor(() =>
       expect(dlPortalApi.deleteOrder).toHaveBeenCalledWith(7, 61),
     );
-    expect(confirmSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Zostanie usunięte tylko to zamówienie"),
-    );
     expect(contractsApi.update).not.toHaveBeenCalled();
     expect(dlPortalApi.closeOrder).not.toHaveBeenCalled();
-    confirmSpy.mockRestore();
+  });
+
+  it("dialog usuwania wymienia przeceniony okres zamiast obiecywać, że nic się nie zmieni", async () => {
+    // Kontrakt 167 z produkcji: usunięcie zamówienia 351 przecenia
+    // marzec–sierpień z 185,00 na 178,00 zł/h. Stary `confirm` twierdził,
+    // że umowa tej osoby się nie zmieni.
+    vi.mocked(dlPortalApi.previewOrderDeletion).mockResolvedValueOnce({
+      data: {
+        order_id: 61,
+        order_number: "61",
+        status: "active",
+        is_group_line: false,
+        deletes_row: true,
+        blocked_by: [],
+        has_file: false,
+        rate_changes: [
+          {
+            effective_from: "2026-03-01",
+            effective_until: "2026-09-01",
+            rate: 185,
+            replacement_rate: 178,
+            changes_amount: true,
+          },
+        ],
+        currency: "PLN",
+        rate_unit: "hourly",
+        amounts_redacted: false,
+      },
+    } as never);
+    mockContractor("active");
+    renderTab();
+    await screen.findByRole("heading", { name: /Wojciech Sokolnicki/ });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Usuń zamówienie$/ }));
+
+    expect(await screen.findByText(/przeceniony z 185,00 PLN\/h/)).toBeInTheDocument();
+    expect(screen.getByText(/01\.03\.2026/)).toBeInTheDocument();
   });
 
   it("„Zakończ współpracę” nie wygląda jak usuwanie (bez ikony kosza)", async () => {

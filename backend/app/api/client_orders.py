@@ -61,6 +61,7 @@ from app.models.client_order_offboarding import (
 )
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.contract_candidate_rate import ContractCandidateRate
+from app.models.contract_client_rate import ContractClientRate
 from app.models.job import Job
 from app.models.order_type import OrderType
 from app.models.user import User, UserRole
@@ -74,6 +75,8 @@ from app.schemas.client_order import (
     ContractWithOrdersRead,
     OrderDocumentItem,
     OrderDocumentsResponse,
+    OrderDeletePreview,
+    OrderDeleteRateChange,
     OrderExtractionConsultant,
     OrderExtractionResult,
 )
@@ -110,7 +113,10 @@ from app.services.order_types import (
     should_process_active_standalone_order,
 )
 from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
-from app.services.order_settlements import assert_order_has_no_settlements
+from app.services.order_settlements import (
+    assert_order_has_no_settlements,
+    settlement_blockers,
+)
 from app.services.order_write_errors import commit_order_write
 from app.services.order_pdf_parser import (
     drop_md_absence_reasons,
@@ -2692,6 +2698,126 @@ async def delete_order(
     # bez dokumentu od klienta.
     if po_path:
         storage_service.delete_client_order_po(po_path)
+
+
+@router.get(
+    "/{client_id}/orders/{order_id}/delete-preview",
+    response_model=OrderDeletePreview,
+)
+async def preview_order_deletion(
+    client_id: int,
+    order_id: int,
+    user: DeliveryLeadOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Co NAPRAWDĘ zniknie razem z tym zamówieniem. Niczego nie zapisuje.
+
+    Dialog usuwania mówił do 18.09.2026: „Zostanie usunięte tylko to
+    zamówienie — pozostałe zamówienia i umowa tej osoby nie zmienią się”.
+    To nieprawda. ``ContractClientRate.source_order_id`` ma ``ondelete=CASCADE``
+    (komentarz przy kolumnie zawęża intencję do SZKICU, a od #1594 kasujemy
+    w KAŻDYM statusie), więc razem z zamówieniem znika krok harmonogramu
+    stawki klienta. ``Contract._resolve_scheduled_rate`` przy braku kroku
+    obowiązującego sięga po NAJBLIŻSZY PRZYSZŁY, więc miesiące historyczne
+    dostają inną stawkę niż miały.
+
+    Zmierzone na produkcji: 99 zamówień ma dziś własny krok stawki, 31
+    kontraktów ma więcej niż jeden, 5 z RÓŻNYMI stawkami (np. kontrakt 167:
+    usunięcie zamówienia 351 przecenia marzec–sierpień z 185,00 na 178,00 zł/h).
+
+    Kwoty są redagowane tak jak wszędzie w module (``_can_see_finance``):
+    rola bez finansów widzi, ŻE stawka się zmieni, i od kiedy — bez kwot.
+    """
+    await _assert_client(db, client_id)
+    order = await db.scalar(
+        select(ClientOrder).where(
+            ClientOrder.id == order_id, ClientOrder.client_id == client_id
+        )
+    )
+    if order is None:
+        raise HTTPException(404, detail="Order not found")
+
+    from app.api.client_order_groups import _can_see_finance
+
+    with_finance = await _can_see_finance(db, user, client_id)
+    blockers = await settlement_blockers(db, [order.id])
+
+    steps = list(
+        (
+            await db.execute(
+                select(ContractClientRate)
+                .where(ContractClientRate.contract_id == order.contract_id)
+                .order_by(ContractClientRate.effective_from, ContractClientRate.id)
+            )
+        ).scalars()
+    )
+    doomed = [step for step in steps if step.source_order_id == order.id]
+    survivors = [step for step in steps if step.source_order_id != order.id]
+
+    contract = await db.get(Contract, order.contract_id)
+    currency = getattr(contract, "rate_client_currency", None) or getattr(
+        contract, "currency", None
+    )
+    unit = getattr(getattr(contract, "rate_unit", None), "value", None)
+
+    def _replacement(on: date) -> Optional[Decimal]:
+        """Stawka, która wejdzie na miejsce kasowanego kroku danego dnia.
+
+        Ta sama reguła co ``Contract._resolve_scheduled_rate`` — liczona na
+        liście BEZ kasowanych kroków, więc dialog pokazuje stan PO usunięciu,
+        a nie stan dzisiejszy.
+        """
+        past = [step for step in survivors if step.effective_from <= on]
+        if past:
+            return max(past, key=lambda step: (step.effective_from, step.id)).rate
+        if survivors:
+            earliest = min(step.effective_from for step in survivors)
+            return max(
+                (s for s in survivors if s.effective_from == earliest),
+                key=lambda s: s.id,
+            ).rate
+        # Bez ani jednego kroku harmonogram znika i zostaje kolumna cache'u.
+        return getattr(contract, "rate_client", None)
+
+    by_from = sorted(steps, key=lambda step: (step.effective_from, step.id))
+    rate_changes: list[OrderDeleteRateChange] = []
+    for step in doomed:
+        later = [
+            s
+            for s in by_from
+            if (s.effective_from, s.id) > (step.effective_from, step.id)
+        ]
+        until = later[0].effective_from if later else None
+        replacement = _replacement(step.effective_from)
+        rate_changes.append(
+            OrderDeleteRateChange(
+                effective_from=step.effective_from,
+                effective_until=until,
+                rate=step.rate if with_finance else None,
+                replacement_rate=(replacement if with_finance else None),
+                changes_amount=(
+                    replacement is None or Decimal(replacement) != Decimal(step.rate)
+                ),
+            )
+        )
+
+    return OrderDeletePreview(
+        order_id=order.id,
+        # `ClientOrder` nie ma `order_number` — numer zamówienia mieszka
+        # w `title` (grupy MD/kosztowe mają osobną kolumnę).
+        order_number=order.title,
+        status=getattr(order.status, "value", order.status),
+        is_group_line=order.order_group_id is not None,
+        deletes_row=(
+            order.order_group_id is None or order.status == ClientOrderStatus.draft
+        ),
+        blocked_by=blockers,
+        has_file=order.file_path is not None,
+        rate_changes=rate_changes,
+        currency=currency if with_finance else None,
+        rate_unit=unit,
+        amounts_redacted=not with_finance,
+    )
 
 
 # ── PO file ─────────────────────────────────────────────────────────────────

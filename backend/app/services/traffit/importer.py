@@ -725,7 +725,21 @@ _UPDATE_CANDIDATE_ADOPT = text(
                           END,
         phone           = COALESCE(CAST(:phone AS text), candidates.phone),
         linkedin        = COALESCE(CAST(:linkedin AS text), candidates.linkedin),
-        status          = CAST(:status AS candidatestatus),
+        -- Blacklista jest LEPKA — dokładnie tak jak w `_UPSERT_CANDIDATE`.
+        -- Bez tego warunku nocny sync ZDEJMOWAŁBY blacklisty założone
+        -- w NEXUSIE: Traffit nie zna tego stanu (jest wklejony w imię), więc
+        -- przysyła `active`, a produkcja idzie tą gałęzią, nie upsertem
+        -- (`email_to_id` jest budowane BEZ filtra `external_source`, więc
+        -- kandydat już zaimportowany dopasowuje się sam do siebie po mailu).
+        -- Audyt 18.09.2026: dziś bez ofiary (wszystkie 32 żywe blacklisty
+        -- mają marker w nazwisku, a blacklist spoza Traffita jest zero), ale
+        -- zadziała przy PIERWSZEJ założonej ręcznie.
+        status          = CASE
+                            WHEN candidates.status
+                                 = CAST('blacklisted' AS candidatestatus)
+                            THEN candidates.status
+                            ELSE CAST(:status AS candidatestatus)
+                          END,
         profile_about   = COALESCE(
             CAST(:profile_about AS text),
             candidates.profile_about
@@ -831,7 +845,20 @@ _UPDATE_CANDIDATE_ADOPT = text(
                                END,
                             true
                           ),
-        updated_at      = NOW()
+        updated_at      = NOW(),
+        -- Kandydat jest w żywym feedzie `/employees/`, więc nagrobek jest
+        -- nieaktualny — lustro `_UPSERT_CANDIDATE`. To NIE jest kosmetyka:
+        -- produkcja przechodzi tędy, a nie upsertem, więc raz postawiony
+        -- nagrobek nie znikał NIGDY. Audyt 18.09.2026 znalazł dwóch
+        -- pracujących konsultantów (kandydaci 154325 i 32903) niewidocznych
+        -- dla automatu zamówień z maila (`order_mail_apply`,
+        -- `order_mail_resolver` filtrują `external_deleted_at IS NULL`):
+        -- pierwszy nie miał ANI JEDNEGO widocznego imiennika, więc automat
+        -- założyłby drugiego kandydata i drugi kontrakt osobie, która już
+        -- pracuje; drugi miał DOKŁADNIE JEDNEGO, więc zamówienie trafiłoby
+        -- pod niewłaściwą osobę. Ta jedna linia leczy wszystkie 74 nagrobki
+        -- przy najbliższym syncu — bez migracji danych.
+        external_deleted_at = NULL
     WHERE id = :nexus_id
     RETURNING id
     """
