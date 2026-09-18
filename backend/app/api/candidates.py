@@ -5360,6 +5360,41 @@ async def _enrich_candidate_cv_task(
             await db.rollback()
 
 
+def _from_cv_duplicates(rows: list[dict]) -> list[CandidateFromCVDuplicate]:
+    """Wiersze `find_candidate_duplicates` → model odpowiedzi `/from-cv`."""
+    return [
+        CandidateFromCVDuplicate(
+            candidate_id=row["candidate_id"],
+            name=row.get("name"),
+            lastname=row.get("lastname"),
+            email=row.get("email"),
+            match_score=float(row.get("match_score", 0.0)),
+            match_reasons=list(row.get("match_reasons") or []),
+        )
+        for row in rows
+    ]
+
+
+def _raise_from_cv_duplicate_conflict(rows: list[dict]) -> None:
+    """Odmowa 409 o kształcie, który konsumuje front — JEDNO źródło dla obu sit.
+
+    Dwa ekrany czytają tę odpowiedź i KAŻDY sprawdza inny klucz:
+    `AddCandidateFromCVModal` obecność `matches`, `BulkImportCVsV2`
+    obecność `existing_candidate_id`. Osobne budowanie odpowiedzi w sicie
+    darmowym i w skanie po odczycie rozjechałoby się przy pierwszej zmianie,
+    a objawem byłby jeden z tych ekranów przestający rozpoznawać duplikat.
+    """
+    duplicates = _from_cv_duplicates(rows)
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "detail": "Kandydat wygląda na duplikat istniejącego rekordu.",
+            "existing_candidate_id": duplicates[0].candidate_id,
+            "matches": [m.model_dump() for m in duplicates],
+        },
+    )
+
+
 @router.post(
     "/from-cv",
     response_model=CandidateFromCVResponse,
@@ -5403,6 +5438,7 @@ async def create_candidate_from_cv(
 
     from app.services import cv_text_extractor
     from app.services.cv_parser import parse_cv
+    from app.services.cv_upload_dedup import find_duplicates_without_llm
 
     # 1 — persist the upload and extract text
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -5451,6 +5487,19 @@ async def create_candidate_from_cv(
             detail="Could not extract any text from the uploaded CV file.",
         )
 
+    # 1b — DARMOWE sito duplikatów PRZED płatnym odczytem (18.09.2026).
+    # Kroki 2 i 3 są w tej kolejności od początku, więc każdy duplikat płacił
+    # najpierw za odczyt modelem, a dopiero potem dostawał 409. W imporcie
+    # masowym duplikat jest regułą: zmierzone 9739 płatnych odczytów dało 689
+    # kandydatów. Sito jest jednostronne — trafi, to oszczędza; nie trafi, to
+    # nic nie przesądza, więc skan w kroku 3 ZOSTAJE (patrz `cv_upload_dedup`).
+    if not force:
+        cheap_rows = await find_duplicates_without_llm(
+            db, content=content, raw_text=raw_text
+        )
+        if cheap_rows:
+            _raise_from_cv_duplicate_conflict(cheap_rows)
+
     # 2 — parse structured facts
     parsed = await parse_cv(raw_text, db=db)
 
@@ -5463,27 +5512,9 @@ async def create_candidate_from_cv(
         name=parsed.get("first_name"),
         lastname=parsed.get("last_name"),
     )
-    duplicates = [
-        CandidateFromCVDuplicate(
-            candidate_id=row["candidate_id"],
-            name=row.get("name"),
-            lastname=row.get("lastname"),
-            email=row.get("email"),
-            match_score=float(row.get("match_score", 0.0)),
-            match_reasons=list(row.get("match_reasons") or []),
-        )
-        for row in dup_rows
-    ]
+    duplicates = _from_cv_duplicates(dup_rows)
     if duplicates and not force:
-        top = duplicates[0]
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "detail": "Kandydat wygląda na duplikat istniejącego rekordu.",
-                "existing_candidate_id": top.candidate_id,
-                "matches": [m.model_dump() for m in duplicates],
-            },
-        )
+        _raise_from_cv_duplicate_conflict(dup_rows)
 
     # 4 — insert and enrich
     first_name = (parsed.get("first_name") or "").strip() or _CV_PLACEHOLDER_NAME
