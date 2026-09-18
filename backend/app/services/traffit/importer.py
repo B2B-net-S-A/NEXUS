@@ -729,8 +729,9 @@ _UPDATE_CANDIDATE_ADOPT = text(
         -- Bez tego warunku nocny sync ZDEJMOWAŁBY blacklisty założone
         -- w NEXUSIE: Traffit nie zna tego stanu (jest wklejony w imię), więc
         -- przysyła `active`, a produkcja idzie tą gałęzią, nie upsertem
-        -- (`email_to_id` jest budowane BEZ filtra `external_source`, więc
-        -- kandydat już zaimportowany dopasowuje się sam do siebie po mailu).
+        -- (mapa adresów kontaktowych jest budowana BEZ filtra
+        -- `external_source`, więc kandydat już zaimportowany dopasowuje się
+        -- sam do siebie).
         -- Audyt 18.09.2026: dziś bez ofiary (wszystkie 32 żywe blacklisty
         -- mają marker w nazwisku, a blacklist spoza Traffita jest zero), ale
         -- zadziała przy PIERWSZEJ założonej ręcznie.
