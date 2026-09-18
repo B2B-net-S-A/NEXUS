@@ -347,3 +347,41 @@ class OrderDocumentItem(BaseModel):
 
 class OrderDocumentsResponse(BaseModel):
     documents: list[OrderDocumentItem]
+
+
+class OrderDeleteRateChange(BaseModel):
+    """Jeden krok harmonogramu stawki klienta, który zniknie razem z zamówieniem."""
+
+    effective_from: date
+    #: Do kiedy ten krok obowiązywał (początek następnego); ``None`` = do końca.
+    effective_until: Optional[date] = None
+    #: ``None`` dla roli bez dostępu do finansów — widzi, ŻE się zmieni, nie ile.
+    rate: Optional[Decimal] = None
+    #: Stawka, która wejdzie na to miejsce PO usunięciu.
+    replacement_rate: Optional[Decimal] = None
+    #: ``False`` = kwota wychodzi ta sama, zmienia się tylko pochodzenie kroku.
+    changes_amount: bool
+
+
+class OrderDeletePreview(BaseModel):
+    """Skutki usunięcia zamówienia — wyłącznie do odczytu, nic nie zapisuje.
+
+    Dialog usuwania obiecywał „umowa tej osoby nie zmieni się”, a kasowanie
+    zamówienia zabiera przez CASCADE jego krok stawki klienta i PRZECENIA
+    miesiące historyczne (audyt 18.09.2026). Ten kształt istnieje po to, żeby
+    dialog mógł wymienić konkretne daty i kwoty zamiast obietnicy.
+    """
+
+    order_id: int
+    order_number: Optional[str] = None
+    status: str
+    is_group_line: bool
+    #: ``False`` = wiersz zostanie ANULOWANY, nie usunięty (linia grupy).
+    deletes_row: bool
+    #: Niepuste = usunięcie jest zablokowane (rozliczenia), opisy po polsku.
+    blocked_by: list[str] = []
+    has_file: bool
+    rate_changes: list[OrderDeleteRateChange] = []
+    currency: Optional[str] = None
+    rate_unit: Optional[str] = None
+    amounts_redacted: bool = False

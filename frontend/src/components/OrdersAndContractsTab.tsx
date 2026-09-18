@@ -58,6 +58,7 @@ import {
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { EditOrderDialog } from "@/components/EditOrderDialog";
+import { DeleteOrderDialog } from "@/components/orders/DeleteOrderDialog";
 import { ExtendOrderDialog } from "@/components/ExtendOrderDialog";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
 import { CloseClientOrderModal } from "@/components/client-profile/orders/CloseClientOrderModal";
@@ -420,15 +421,15 @@ export interface ContractorOrderFocus {
  * edycji, przedłużeń, zakończeń ani draftów.
  */
 /**
- * Potwierdzenie usunięcia zamówienia okresowego. Kosz kasuje TYLKO ten wiersz
- * (`DELETE /orders/{id}`) — pozostałe zamówienia osoby i jej umowa zostają.
- * Do 09.2026 bieżące zamówienie nie miało kosza, a jedynym czerwonym
- * przyciskiem z ikoną kosza było „Zakończ współpracę", które wypowiada umowę
- * i domyka wszystkie zamówienia tej osoby.
+ * Potwierdzenie usunięcia zamówienia okresowego żyje w `DeleteOrderDialog`.
+ *
+ * Do 18.09.2026 było tu natywne `window.confirm` z jednym zdaniem: „pozostałe
+ * zamówienia i umowa tej osoby nie zmienią się". To nieprawda — usunięcie
+ * zabiera przez CASCADE krok stawki klienta (`ContractClientRate`) i przecenia
+ * miesiące historyczne. Dialog pyta serwer, CO konkretnie się przeceni.
+ * Natywny `confirm` zamrażał przy okazji automatyzację przeglądarki, więc tej
+ * ścieżki nie dało się przeklikać w testach.
  */
-export function deleteOrderConfirmMessage(title: string): string {
-  return `Usunąć zamówienie „${title}”? Zostanie usunięte tylko to zamówienie — pozostałe zamówienia i umowa tej osoby nie zmienią się.`;
-}
 
 export function ContractorOrderCards({
   clientId,
@@ -790,6 +791,8 @@ function ContractorCard({
   const cardRef = useRef<HTMLLIElement | null>(null);
   const servedFocusRef = useRef<number | null>(null);
   const [highlighted, setHighlighted] = useState(false);
+  const [deletingActiveOrder, setDeletingActiveOrder] =
+    useState<ClientOrderRead | null>(null);
   const historyOpen = searching ? true : showHistory;
   const deleteActiveOrder = useMutation({
     mutationFn: (orderId: number) => dlPortalApi.deleteOrder(clientId, orderId),
@@ -1397,11 +1400,7 @@ function ContractorCard({
             <button
               type="button"
               disabled={deleteActiveOrder.isPending}
-              onClick={() => {
-                if (confirm(deleteOrderConfirmMessage(activeOrder.title))) {
-                  deleteActiveOrder.mutate(activeOrder.id);
-                }
-              }}
+              onClick={() => setDeletingActiveOrder(activeOrder)}
               className="flex items-center gap-1 px-2 py-1 text-xs text-foreground border border-border rounded hover:bg-muted disabled:opacity-50"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -1502,6 +1501,20 @@ function ContractorCard({
           </div>
         )
       )}
+      {deletingActiveOrder ? (
+        <DeleteOrderDialog
+          clientId={clientId}
+          orderId={deletingActiveOrder.id}
+          title={deletingActiveOrder.title}
+          pending={deleteActiveOrder.isPending}
+          onConfirm={() => {
+            const target = deletingActiveOrder.id;
+            setDeletingActiveOrder(null);
+            deleteActiveOrder.mutate(target);
+          }}
+          onClose={() => setDeletingActiveOrder(null)}
+        />
+      ) : null}
     </li>
   );
 }
@@ -1531,6 +1544,7 @@ function FutureOrderRow({
   onSuccess,
   onChange,
 }: FutureOrderRowProps) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const deleteMutation = useMutation({
     mutationFn: () => dlPortalApi.deleteOrder(clientId, order.id),
     onSuccess: () => {
@@ -1584,17 +1598,26 @@ function FutureOrderRow({
       {canManageOrders ? (
         <button
           type="button"
-          onClick={() => {
-            if (confirm(deleteOrderConfirmMessage(order.title))) {
-              deleteMutation.mutate();
-            }
-          }}
+          onClick={() => setConfirmingDelete(true)}
           className="text-muted-foreground hover:text-destructive p-1"
           title="Usuń zamówienie"
           aria-label="Usuń zamówienie"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
+      ) : null}
+      {confirmingDelete ? (
+        <DeleteOrderDialog
+          clientId={clientId}
+          orderId={order.id}
+          title={order.title}
+          pending={deleteMutation.isPending}
+          onConfirm={() => {
+            setConfirmingDelete(false);
+            deleteMutation.mutate();
+          }}
+          onClose={() => setConfirmingDelete(false)}
+        />
       ) : null}
     </div>
   );
@@ -1630,6 +1653,7 @@ function HistoryOrderRow({
   onSuccess,
   onDeleted,
 }: HistoryOrderRowProps) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const deleteMutation = useMutation({
     mutationFn: () => dlPortalApi.deleteOrder(clientId, order.id),
     onSuccess: () => {
@@ -1709,17 +1733,26 @@ function HistoryOrderRow({
       {canManageOrders ? (
         <button
           type="button"
-          onClick={() => {
-            if (confirm(deleteOrderConfirmMessage(order.title))) {
-              deleteMutation.mutate();
-            }
-          }}
+          onClick={() => setConfirmingDelete(true)}
           className="text-muted-foreground hover:text-destructive p-1"
           title="Usuń zamówienie"
           aria-label="Usuń zamówienie"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
+      ) : null}
+      {confirmingDelete ? (
+        <DeleteOrderDialog
+          clientId={clientId}
+          orderId={order.id}
+          title={order.title}
+          pending={deleteMutation.isPending}
+          onConfirm={() => {
+            setConfirmingDelete(false);
+            deleteMutation.mutate();
+          }}
+          onClose={() => setConfirmingDelete(false)}
+        />
       ) : null}
     </div>
   );

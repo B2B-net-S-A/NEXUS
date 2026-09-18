@@ -353,6 +353,10 @@ _ALLOWED_SAMPLE_FIELDS = {
     "contract_number",
     "invoice_number",
     "effective_from",
+    # Numer zamówienia MD/kosztowego — identyfikator dokumentu od klienta,
+    # tej samej klasy co `contract_number`. Kwoty i nazwiska NIE wchodzą:
+    # ten raport czyta też maszyna (token snapshotu), a jego log bywa publiczny.
+    "order_number",
 }
 
 
