@@ -49,3 +49,18 @@ export function b2bExtensionLocked(state: ContractEndDateState): boolean {
 
 export const B2B_EXTENSION_HINT =
   "Umowa B2B bez zakończenia jest bezterminowa — nie ma czego przedłużać. Przedłuż zamówienie klienta; zakończoną umowę przywróć statusem „Aktywny”.";
+
+/**
+ * Data, którą „Zakończ współpracę” podstawia przy przejściu na „Zakończony”.
+ *
+ * Operator wpisał ją przed chwilą w formularzu edycji — dialog ma ją przyjąć,
+ * a nie pytać o to samo drugi raz. Pusta wartość z formularza (pole było
+ * zablokowane dla bezterminowej B2B) cofa się do daty zapisanej na umowie;
+ * brak obu zostawia dialogowi jego własną wartość domyślną (dzisiaj).
+ */
+export function terminationSeedDate(
+  formEndDate: string | null | undefined,
+  contractEndDate: string | null | undefined,
+): string | undefined {
+  return formEndDate || contractEndDate || undefined;
+}

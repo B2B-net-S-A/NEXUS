@@ -46,6 +46,7 @@ import {
   B2B_END_DATE_HOW,
   b2bEndDateLocked,
   b2bExtensionLocked,
+  terminationSeedDate,
 } from "@/lib/contract-end-date";
 import { celebrate } from "@/lib/celebrate";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
@@ -643,6 +644,12 @@ export default function ContractDetailPage() {
   };
 
   const [showTerminationDialog, setShowTerminationDialog] = useState(false);
+  // Data wpisana w formularzu, zapamiętana dla dialogu „Zakończ współpracę".
+  // Musi być zdjęta z `form` w tym samym zdarzeniu — zaraz niżej cofamy status,
+  // a po otwarciu dialogu formularz bywa odmontowany.
+  const [terminationDate, setTerminationDate] = useState<string | undefined>(
+    undefined,
+  );
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -651,6 +658,7 @@ export default function ContractDetailPage() {
     // than silently flipping status. Revert the form value so the save below
     // doesn't double-fire.
     if (form.status === "ended" && contract.status !== "ended") {
+      setTerminationDate(terminationSeedDate(form.end_date, contract.end_date));
       setShowTerminationDialog(true);
       setForm({ ...form, status: contract.status });
       return;
@@ -2365,10 +2373,17 @@ export default function ContractDetailPage() {
       {showTerminationDialog && (
         <ContractTerminationDialog
           contractId={id}
-          defaultDate={contract.end_date ?? undefined}
-          onClose={() => setShowTerminationDialog(false)}
+          // Data z formularza edycji, nie `contract.end_date` z serwera:
+          // operator wpisał ją przed chwilą obok statusu „Zakończony" i nie ma
+          // jej podawać drugi raz. Pole w dialogu zostaje edytowalne.
+          defaultDate={terminationDate}
+          onClose={() => {
+            setShowTerminationDialog(false);
+            setTerminationDate(undefined);
+          }}
           onSuccess={() => {
             setShowTerminationDialog(false);
+            setTerminationDate(undefined);
             setEditing(false);
           }}
         />
