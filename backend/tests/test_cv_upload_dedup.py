@@ -339,6 +339,36 @@ async def test_conflict_shape_keeps_both_keys_the_frontend_reads():
     assert detail["matches"][0]["match_reasons"] == ["identical_file"]
 
 
+async def test_kill_switch_restores_the_old_behaviour(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """`FROM_CV_SIEVE_ENABLED=False` wraca do zachowania sprzed zmiany.
+
+    Wyłącznik istnieje, bo sito czyta kontakt REGEXEM, a `BulkImportCVsV2` nie
+    ma przycisku „zapisz mimo wszystko" — więc fałszywe trafienie zablokowałoby
+    import masowy bez wyjścia z UI.
+    """
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "FROM_CV_SIEVE_ENABLED", False, raising=False)
+    content = _pdf_bytes(f"wylacznik-{uuid.uuid4().hex[:8]}")
+    existing = await _seed_candidate(digest=hashlib.sha256(content).hexdigest())
+    _patch_extractor(monkeypatch, _cv_text())
+    _patch_post_ingest(monkeypatch)
+    calls = _expect_model(
+        monkeypatch,
+        {"first_name": "Jan", "last_name": f"Wyl{uuid.uuid4().hex[:6]}"},
+    )
+    created: list[int] = []
+    try:
+        resp = await _post(app_client, app_auth_headers, content)
+        assert calls, "przy wyłączonym sicie płatny odczyt musi dojść do skutku"
+        if resp.status_code == 201:
+            created.append(resp.json()["candidate"]["id"])
+    finally:
+        await _cleanup(existing, *created)
+
+
 async def test_sieve_runs_before_the_paid_read():
     """Kolejność kroków w handlerze — czytana ze ŹRÓDŁA, nie z zachowania.
 

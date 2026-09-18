@@ -5493,7 +5493,7 @@ async def create_candidate_from_cv(
     # masowym duplikat jest regułą: zmierzone 9739 płatnych odczytów dało 689
     # kandydatów. Sito jest jednostronne — trafi, to oszczędza; nie trafi, to
     # nic nie przesądza, więc skan w kroku 3 ZOSTAJE (patrz `cv_upload_dedup`).
-    if not force:
+    if not force and settings.FROM_CV_SIEVE_ENABLED:
         cheap_rows = await find_duplicates_without_llm(
             db, content=content, raw_text=raw_text
         )
