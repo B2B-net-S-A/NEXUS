@@ -47,6 +47,7 @@ from app.models.screening_note import ScreeningNote
 from app.models.user import User, UserRole
 from app.schemas.pipeline import STAGE_LABELS
 from app.services.calendar_auto_complete import mark_ended_interviews_completed
+from app.services.notification_access import notification_recipient_has_access
 
 logger = logging.getLogger(__name__)
 
@@ -89,8 +90,45 @@ async def emit(
     rzuca IntegrityError → nested savepoint jest rollbackowany, a główna
     transakcja może kontynuować.
 
-    Zwraca utworzoną Notification lub None (duplikat).
+    Odbiorca jest sprawdzany TUTAJ, a nie w każdym triggerze z osobna.
+
+    `emit` jest jedynym wąskim gardłem wszystkich producentów powiadomień, więc
+    to jedyne miejsce, którego nie da się obejść przez dopisanie nowego
+    triggera. Do 09.2026 nie sprawdzało nic: ani `is_active`, ani polityki
+    sekcji. `_delivery_lead_targets` filtrowało aktywność WYŁĄCZNIE na gałęzi
+    eskalacji do HoR, a ścieżka podstawowa zwracała `job.delivery_lead_id`
+    wprost. Zmierzone na produkcji:
+
+        90 dni:  6 647 z 63 336 powiadomień (10,5%) trafiło na konta NIEAKTYWNE
+        stage_stuck_7d, 30 dni:  1 701 do 4 kont nieaktywnych
+                                   903 do 3 kont aktywnych   → 65% donikąd
+
+    Konta dezaktywowane odtwarza nocny sync Traffita i nadal bywają
+    właścicielami rekrutacji, więc to się nie naprawia samo. Alert był
+    zapisywany, liczony jako wysłany i niewidoczny dla kogokolwiek — a dedup
+    tygodniowy powodował, że wracał co tydzień w nieskończoność.
+
+    Polityka sekcji jest sprawdzana przy tej samej okazji, bo i tak obowiązuje
+    po stronie ODCZYTU (`api/notifications.py` filtruje listę, oba liczniki
+    i oznaczanie jako przeczytane). Wiersz, którego adresat nie może zobaczyć,
+    był więc dotąd wyłącznie śmieciem w tabeli.
+
+    Zwraca utworzoną Notification lub None (duplikat albo brak adresata).
     """
+    if not await notification_recipient_has_access(
+        db,
+        user_id,
+        ntype,
+        related_entity_type=related_entity_type,
+        link=link,
+    ):
+        logger.debug(
+            "notification skipped: user=%s type=%s — inactive or no access",
+            user_id,
+            ntype.value,
+        )
+        return None
+
     notif = Notification(
         user_id=user_id,
         title=title,
@@ -206,11 +244,30 @@ async def _latest_stage_per_pair(
     }
 
 
-async def _jobs_by_id(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, Job]:
+async def _open_jobs_by_id(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, Job]:
+    """Rekrutacje OPUBLIKOWANE — jedyny zbiór, w którym alert ma adresata.
+
+    JEDEN helper, świadomie: do 09.2026 obok tego stała nieprzefiltrowana
+    `_jobs_by_id`, a poprawka z 17.09 (#1593) objęła tylko jedną z dwóch
+    ścieżek — mimo że docstring `check_stage_stuck_7d` nazywa siebie „lustrem"
+    `check_dl_stage_stale_6h`. Zmierzone tego skutki na produkcji:
+
+        dl_stage_stale_6h   52 263 powiadomień, 30 993 (59,3%) o rekrutacjach
+                            ZAMKNIĘTYCH, przeczytane: 1
+
+    Kandydat wiszący w wersji roboczej ani w rekrutacji zamkniętej nie jest
+    powodem do przypomnienia — nie ma czego „przepuścić dalej".
+    Rozwidlenie było przyczyną, nie jego jedna gałąź: dopóki istnieją dwa
+    helpery, następna poprawka znów obejmie tylko jeden.
+    """
+    from app.models.job import JobStatus
+
     ids = list({jid for jid in job_ids if jid is not None})
     if not ids:
         return {}
-    rows = await db.execute(select(Job).where(Job.id.in_(ids)))
+    rows = await db.execute(
+        select(Job).where(Job.id.in_(ids), Job.status == JobStatus.published)
+    )
     return {j.id: j for j in rows.scalars().all()}
 
 
@@ -271,7 +328,7 @@ async def check_dl_stage_stale_6h(
     if not candidates:
         return 0
 
-    jobs = await _jobs_by_id(db, (s.job_id for s in candidates))
+    jobs = await _open_jobs_by_id(db, (s.job_id for s in candidates))
     emitted = 0
     for stage in candidates:
         job = jobs.get(stage.job_id)
@@ -337,7 +394,7 @@ async def check_client_feedback_eobd(
 
     latest = await _latest_stage_per_pair(db, latest)
     emitted = 0
-    jobs = await _jobs_by_id(db, (e.job_id for e in events))
+    jobs = await _open_jobs_by_id(db, (e.job_id for e in events))
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))
         if stage is None or stage.stage != PipelineStage.client_interview:
@@ -614,22 +671,6 @@ async def check_stage_stuck_7d(
     return emitted
 
 
-async def _open_jobs_by_id(db: AsyncSession, job_ids: Iterable[int]) -> dict[int, Job]:
-    """Rekrutacje OPUBLIKOWANE — tylko w nich zaległy kandydat to sprawa do
-    telefonu. Filtr listy „niezamknięte" liczy też Drafty, a kandydat wiszący
-    w wersji roboczej nie jest powodem do codziennego przypomnienia
-    (przegląd 17.09.2026)."""
-    from app.models.job import JobStatus
-
-    ids = list({jid for jid in job_ids if jid is not None})
-    if not ids:
-        return {}
-    rows = await db.execute(
-        select(Job).where(Job.id.in_(ids), Job.status == JobStatus.published)
-    )
-    return {j.id: j for j in rows.scalars().all()}
-
-
 async def _candidate_names(
     db: AsyncSession, candidate_ids: Iterable[int]
 ) -> dict[int, str]:
@@ -749,7 +790,7 @@ async def check_post_interview_t15(
         return 0
 
     latest = await _latest_stage_per_pair(db, latest)
-    jobs = await _jobs_by_id(db, (e.job_id for e in events))
+    jobs = await _open_jobs_by_id(db, (e.job_id for e in events))
     emitted = 0
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))
@@ -796,7 +837,7 @@ async def check_post_interview_t45(
         return 0
 
     latest = await _latest_stage_per_pair(db, latest)
-    jobs = await _jobs_by_id(db, (e.job_id for e in events))
+    jobs = await _open_jobs_by_id(db, (e.job_id for e in events))
     emitted = 0
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))
@@ -842,7 +883,7 @@ async def check_post_interview_t2h_escalation(
         return 0
 
     latest = await _latest_stage_per_pair(db, latest)
-    jobs = await _jobs_by_id(db, (e.job_id for e in events))
+    jobs = await _open_jobs_by_id(db, (e.job_id for e in events))
     emitted = 0
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))

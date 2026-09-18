@@ -132,6 +132,18 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
   połączenie wyłączone przez awarię (`is_active=False`) u aktywnego pracownika.
   Odłączenie przez użytkownika kasuje wiersz, więc nieaktywny wiersz to zawsze
   awaria. Sonda jest informacyjna — nie daje `unhealthy`.
+- **`checks.m365_mail` (`services/m365/app_mail.py`, od 18.09.2026) pyta
+  o zdolność do WYSYŁKI, nie o połączenia** — `checks.m365` patrzy na skrzynki
+  rekruterów, a zły nadawca (`M365_MAIL_SENDER_UPN` spoza polityki dostępu
+  aplikacji) nie dotyka żadnej z nich: audyt zastał 471 kolejnych
+  `ErrorAccessDenied` przy `m365 = healthy`. Wynik ostatnich prób żyje
+  w pamięci procesu (wzorem `loop_heartbeat`), więc restart go zeruje —
+  i dlatego `unknown` („nic jeszcze nie wysyłaliśmy") NIE jest `healthy`:
+  zdolności do wysyłki nie da się sprawdzić inaczej niż wysyłką, a sondowanie
+  jej pustym mailem wysyłałoby maile. `degraded` = trzy porażki z rzędu ALBO
+  pierwsza porażka kanału, z którego nigdy nic nie wyszło (tak wygląda zła
+  konfiguracja — nie ma czego ponawiać). 401/403 idzie `logger.error` (→ Sentry),
+  bo to konfiguracja, nie chwilowa awaria Grapha. Sonda informacyjna.
 - **`checks.compass_lifecycle` (od 14.09.2026, MON-04/INT-10):** pętla
   `compass_lifecycle_sync` stempluje każdy bieg w `app_settings['compass_lifecycle_state']`
   (`last_run_at`, `last_status`, `last_success_at`, `last_error` = kod + klasa
@@ -4306,6 +4318,22 @@ cofnąć „przy okazji”:
   Warsaw jak `ix_notif_dedup_daily` i zapisuje w savepoincie; `own_unread_count`
   steruje „Oznacz wszystko” (oznacza tylko własne); odświeżenia dzwonka po
   wiadomościach czatu są zlewane (`CHAT_REFRESH_COALESCE_MS`).
+- **Powiadomienie z triggera ma JEDNĄ bramkę odbiorcy i JEDEN helper
+  rekrutacji (od 18.09.2026).** `emit()` w `notification_triggers.py` pyta
+  `notification_recipient_has_access` (`is_active` + polityka sekcji) — to
+  jedyne wąskie gardło wszystkich producentów, więc nowy trigger nie ma jak go
+  obejść; sprawdzanie per trigger rozjeżdża się przy pierwszym dopisanym.
+  Mierzone przed zmianą: 10,5% powiadomień z 90 dni szło na konta NIEAKTYWNE
+  (`stage_stuck_7d` w 30 dni: 1 701 do 4 kont nieaktywnych vs 903 do 3
+  aktywnych), a konta dezaktywowane odtwarza nocny sync Traffita i nadal bywają
+  właścicielami rekrutacji, więc to się nie naprawiało samo. Konsekwencja:
+  **typ spoza `NOTIFICATION_SECTION_BY_TYPE` jest teraz odrzucany przy ZAPISIE**
+  (dotąd zapisywał się i był niewidoczny dopiero przy odczycie) — pilnuje tego
+  kontrakt w `test_notification_fanout.py`. Rekrutacje czyta wyłącznie
+  `_open_jobs_by_id` (`status == published`); nieprzefiltrowany `_jobs_by_id`
+  USUNIĘTY, bo to rozwidlenie było przyczyną: poprawka z 17.09 objęła jedną
+  z dwóch gałęzi i `dl_stage_stale_6h` uzbierał 52 263 powiadomienia, z tego
+  59,3% o rekrutacjach ZAMKNIĘTYCH, przeczytane: 1.
 - **`GET /api/cv-generator/clients/{id}/rule-for-generation`** (bramka
   `CandidateWriteAccess`) zwraca notatkę i instrukcje DL tylko przy
   `can_view_knowledge` klienta — reszta roli dostaje same wymogi formularza.
