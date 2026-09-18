@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from"react";
 import { CheckCircle2, Loader2, Paperclip } from"lucide-react";
 import { z } from"zod";
 
+import { messageFromApiResponse } from"@/lib/api-error";
+import { applyFieldErrors } from"@/lib/apply-form-errors";
+
 // UTM query params we forward to the apply endpoint (Traffit gap #4).
 // Standard Google Analytics dimensions; backend stores these on the
 // CandidateSourceEvent row created at apply time so /reports/sources can
@@ -163,7 +166,28 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  return;
  }
  const body = await res.json().catch(() => ({}));
- setSubmitError(body.detail ??"Coś poszło nie tak. Spróbuj ponownie.");
+ // `detail` z FastAPI NIE jest „na pewno stringiem": dla błędu walidacji
+ // `Form(...)` to TABLICA obiektów. Wstawiona wprost do JSX wywracała całą
+ // stronę (React #31), a kandydat tracił wypełniony formularz RAZEM
+ // z załączonym CV — i nie dowiadywał się, że chodziło o adres e-mail
+ // (zod 4 przyjmuje `jan@firma-.pl`, `EmailStr` odrzuca).
+ // Odmowa walidacji idzie PRZY POLU: „popraw dane" bez wskazania którego
+ // zostawia kandydata z formularzem, którego nie umie poprawić. Realna
+ // rozbieżność: zod 4 przyjmuje `jan@firma-.pl`, `EmailStr` odrzuca.
+ const fieldErrors = applyFieldErrors(body);
+ if (fieldErrors.length > 0) {
+ setErrors((prev) => ({
+ ...prev,
+ ...Object.fromEntries(fieldErrors.map((e) => [e.field, e.message])),
+ }));
+ setSubmitError("Popraw zaznaczone pola i wyślij ponownie.");
+ setStatus("idle");
+ return;
+ }
+ setSubmitError(
+ messageFromApiResponse(res.status, body) ??
+ "Coś poszło nie tak. Spróbuj ponownie."
+ );
  setStatus("error");
  } catch {
  setSubmitError("Brak połączenia. Sprawdź internet i spróbuj ponownie.");

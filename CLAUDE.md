@@ -4261,6 +4261,25 @@ a testy na PostgreSQL — że `location`, `q_all`, `q_any`, `q_none` miały ten 
   Pilnuje `test_nul_guard_sits_inside_cors_and_outside_the_unhandled_error_net`.
   Nie dokładaj `pattern=` NUL do kolejnych parametrów; ten przy `q` zostaje, bo
   opisuje kontrakt w OpenAPI, z którego generator Schemathesis bierze wartości.
+- **Publiczny formularz aplikacyjny stawia odmowę PRZY POLU** (18.09.2026):
+  `lib/apply-form-errors.ts` mapuje `loc: ["body", <pole>]` na komunikat obok
+  inputa, a `status` wraca do `idle` — kandydat poprawia i wysyła ponownie
+  z tym samym CV. Wcześniej `body.detail` szło wprost do JSX: dla błędu
+  walidacji `Form(...)` to TABLICA obiektów → React #31 → granica błędu zjadała
+  całą stronę razem z wypełnionym formularzem i załączonym plikiem, a kandydat
+  nie dowiadywał się, że chodziło o e-mail (zod 4 przyjmuje `jan@firma-.pl`,
+  `EmailStr` odrzuca — ta rozbieżność ZOSTAJE, dlatego komunikat musi być
+  konkretny). Strażnik `api-error-detail-guard.test.ts` nie wymaga już nazwy
+  `data` (to ona przepuściła `body.detail`); świadomy wyjątek dla własnego
+  endpointu z `detail: string` znaczy się markerem `// api-detail-ok: <powód>`.
+- **Harness `/preview/*` ma zasiany KAŻDY stały klucz react-query**
+  (`app/preview/__tests__/harness-seeds.test.ts`). Klucz, który się rozjechał
+  z komponentem, uruchamia `queryFn` → 401 → przerzut na `/login`, czyli
+  harness przestaje pokazywać cokolwiek — tak przestał działać
+  `/preview/contracts-consolidation`, gdy `AddProjectDialog` dołożył do klucza
+  klientów drugi element. Strażnik pomija `invalidateQueries` (nie pobiera) i
+  klucze z parametrami (zależą od stanu), a komentarze wycina przed
+  porównaniem — inaczej klucz wymieniony w komentarzu uciszałby go sam.
 - **`detail` z FastAPI nigdy nie jest „na pewno stringiem"** — bywa obiektem
   albo tablicą walidacji. Tekst błędu do stanu, toasta lub alertu budujesz
   wyłącznie przez `apiErrorMessage(error, fallback)` z `@/lib/api-error`

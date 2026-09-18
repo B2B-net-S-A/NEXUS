@@ -169,8 +169,14 @@ function seededClient(): QueryClient {
     LIST_PAYLOAD,
   );
   qc.setQueryData(["contracts-expiring-v2"], []);
+  // Klucz MUSI być pełny: `AddProjectDialog` pyta o klientów zdatnych do
+  // kontraktu (`["clients-lookup-add-project", "contract-eligible"]`).
+  // Harness zasiewał wersję JEDNOELEMENTOWĄ sprzed dołożenia tego filtra, więc
+  // `queryFn` startował, dostawał 401 i przerzucał na /login — dokładnie to,
+  // czemu zasiewanie ma zapobiegać (audyt 18.09.2026). Pilnuje tego test
+  // czytający klucze z komponentów.
   qc.setQueryData(
-    ["clients-lookup-add-project"],
+    ["clients-lookup-add-project", "contract-eligible"],
     [
       { id: 1, name: "Bank Pocztowy" },
       { id: 2, name: "VeloBank" },
@@ -234,7 +240,11 @@ export default function ContractsConsolidationPreview() {
               2. Dialog „+ Dodaj kolejny projekt” (Klient wymagany — spróbuj
               zapisać bez klienta)
             </h2>
-            <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setDialogOpen(true)}
+            >
               Otwórz dialog
             </Button>
             <AddProjectDialog

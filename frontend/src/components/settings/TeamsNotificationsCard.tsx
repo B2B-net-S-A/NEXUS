@@ -175,6 +175,8 @@ export default function TeamsNotificationsCard() {
       if (result.sent) {
         showSuccess(`Karta testowa wysłana do "${channel.workspace_label}"`);
       } else {
+        // api-detail-ok: `TeamsChannelTestResponse.detail` to nasze własne
+        // pole typu `string | null`, nie `detail` błędu FastAPI.
         showError(
           result.detail || "Test nie powiódł się — sprawdź konfigurację.",
         );
