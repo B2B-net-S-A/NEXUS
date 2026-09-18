@@ -1995,7 +1995,7 @@ function GeneratedCvRow({
             )}
             {item.status === "ready" && review && (
               review.status === "verified" ? (
-                <Badge variant="secondary" title={`Recenzent: ${review.model ?? "model AI"}`}>
+                <Badge variant="success" title={`Recenzent: ${review.model ?? "model AI"}`}>
                   Kontrola AI: OK
                 </Badge>
               ) : review.status === "advisory" ? (
