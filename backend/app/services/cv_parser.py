@@ -650,7 +650,15 @@ def _cv_input_for(template: PromptTemplate, cv_text: str) -> str:
 
 
 def _max_tokens_for(template: PromptTemplate) -> int:
-    return 6000 if template.name == CV_ENRICHMENT.name else 3000
+    """Sufit odpowiedzi; dla v7 podniesiony z 6000 do 8000 (18.09.2026).
+
+    Ucięta odpowiedź jest ZAPŁACONA i bezużyteczna — spada do regexu, więc
+    kandydat dostaje uboższy profil, a rachunek pełny. Zmierzone na produkcji
+    16–18.09: 52 wywołania `outcome='truncated'` ($3,64) przy średnim wyjściu
+    5885 tokenów, czyli tuż pod dawnym sufitem 6000 — to nie były pojedyncze
+    monstrualne CV, tylko normalne CV bijące w za ciasny limit.
+    """
+    return 8000 if template.name == CV_ENRICHMENT.name else 3000
 
 
 def _timeouts_for(template: PromptTemplate) -> dict:

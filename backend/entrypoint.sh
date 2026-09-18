@@ -7101,6 +7101,15 @@ _CONSTRAINT_STATEMENTS = [
 # ix_delivery_lead_client_assignments_delivery_lead_user_id. Dopisywanie ich
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
+    # 0326: darmowe sito duplikatów w `/from-cv` pyta „czy KTOKOLWIEK ma już
+    # dokument o tych bajtach". Indeks z 0173 jest na `(candidate_id, sha)`,
+    # więc lookup po samym skrócie schodziłby na skan ~96 tys. wierszy w gorącej
+    # ścieżce uploadu. Częściowy, bo `content_sha256` mają dziś tylko dokumenty
+    # `from_cv`/`manual`/`m365` (~1000); te z Traffita (93 945) mają NULL.
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+    "ix_candidate_documents_sha256 "
+    "ON candidate_documents (content_sha256) "
+    "WHERE content_sha256 IS NOT NULL AND source_deleted_at IS NULL",
     # 0249: pending MD decisions and their durable DL alerts.
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
     "ix_client_order_offboarding_cases_id "
