@@ -759,7 +759,12 @@ function OverflowEventsChip({
         +{events.length}
       </button>
       {open && (
+        // Kotwica dla testów: ten sam tytuł wydarzenia stoi też na liście
+        // „Nadchodzące" w szynie (tylko dla wydarzeń w przyszłości), więc
+        // zapytanie po samej nazwie przycisku trafia raz w jeden element,
+        // a raz w dwa — zależnie od pory dnia i strefy czasowej biegu.
         <ul
+          data-testid="calendar-overflow-popover"
           className="absolute right-0 mt-1 w-48 space-y-0.5 rounded-lg border border-border bg-card p-1 shadow-lg"
           onClick={(e) => e.stopPropagation()}
         >

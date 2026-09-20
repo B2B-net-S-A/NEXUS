@@ -1,9 +1,9 @@
 {
-  "reviewed_at": "2026-09-17",
+  "reviewed_at": "2026-09-18",
   "sources": {
     "backend/app/api/admin_order_mail.py": "98b2fe2401eca9cdd4cd2c96494dd9836a3d98f5736ec4df8308b86ef9161d74",
     "backend/app/api/client_order_groups.py": "fe7e7b736888bae717d5789ecba15cf0d2c7a40b52d653f63bd9ab87520d5b74",
-    "backend/app/api/client_orders.py": "cfd8a06e77f9ff48d72d5727deda91f9087fa83fa49449e5abff0ad43d815e8d",
+    "backend/app/api/client_orders.py": "5cf64753fb0870ad4c3c4afc0b3de5ebfbbb88e63fa04500612364123e2efa5b",
     "backend/app/api/md_consumption.py": "8e6adfc1c506115831aec48f7886f7c865d619c84023819cd664e1794f7d43aa",
     "backend/app/api/order_mail_queue.py": "ff21dc7a366d04c23296f353fd033adff0eee2a3b844a549567d0bac5444fa23",
     "backend/app/models/client_order.py": "df996b72ff1cca46c95c385cb5b3a33228215d4bdac9a8f8b87fdb062e7b0c34",
@@ -62,7 +62,7 @@
     "frontend/src/components/ExtendOrderDialog.tsx": "2dc18fd7b174440433acf5b4138bfd185c9545b4dc50f1bf0e0664689570aea0",
     "frontend/src/components/NewContractorOrderDialog.tsx": "b3c5aebd942abde64950eced0b9dcd416e68abf78831a9e4572163e6579e14fb",
     "frontend/src/components/OrderDocumentsSection.tsx": "750c49ec2456414632a38af8ebb94343fd3d63044b79f8f695c6f37d325ce41f",
-    "frontend/src/components/OrdersAndContractsTab.tsx": "c4e844c901b93b9bc85fa7c84055650793837d5ee2486703ca7af8957ad1c2f2",
+    "frontend/src/components/OrdersAndContractsTab.tsx": "70d6297ac574217f67769389dbebc7b881d791f88dbd5b9a5de4807e8f95eb20",
     "frontend/src/components/client-profile/orders/EndOrderGroupModal.tsx": "6dbc4e77d755bea610d2fe5dd7fadbefdf6c4aaf477afcd0f1bf4866c8240f8b",
     "frontend/src/components/client-profile/orders/ExtendOrderGroupModal.tsx": "9437e3d9b05a8e7b2fb89842aa52ea83c576c5f7238332082bb96794bca0bd3e",
     "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx": "6894f0a6b947868c74dbc18f6fe2664435837411f762110d3522408f937ed07f",

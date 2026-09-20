@@ -47,7 +47,7 @@ router = APIRouter()
 
 # Bump przy każdej zmianie definicji zapytań — raporty porównujemy tylko
 # w obrębie tej samej wersji.
-QUERY_VERSION = "m5-pr00-v2"
+QUERY_VERSION = "m5-pr00-v3"
 
 SAMPLE_LIMIT = 20
 CHECK_TIMEOUT_SECONDS = 20.0
@@ -387,6 +387,112 @@ _CHECKS: list[tuple[str, str, str, str]] = [
             HAVING COUNT(*) > 1
         ) dups
         ORDER BY occurrences DESC, invoice_number DESC
+        LIMIT :sample_limit
+        """,
+    ),
+    # ── Audyt 18.09.2026: wiersze do ręcznego rozstrzygnięcia przez Delivery ──
+    # Każdy z nich wymaga DECYZJI BIZNESOWEJ (którą wersję zostawić, jaka jest
+    # prawdziwa data), więc świadomie nie ma dla nich automatu — raport tak,
+    # migracja naprawcza nie.
+    (
+        "duplicate_order_group_number",
+        "P0",
+        "Dwa żywe zamówienia MD/kosztowe o TYM SAMYM numerze u tego samego "
+        "klienta — budżet jest liczony podwójnie. Brak unikalności na "
+        "(client_id, order_number) w `client_order_groups`; dołożenie "
+        "ograniczenia wymaga najpierw rozstrzygnięcia duplikatów.",
+        """
+        SELECT g.client_id, g.order_number, COUNT(*) AS occurrences,
+               COUNT(*) OVER () AS total_count
+        FROM client_order_groups g
+        WHERE g.order_number IS NOT NULL
+          AND g.order_number <> ''
+          AND g.status IN ('draft', 'active', 'scheduled')
+        GROUP BY g.client_id, g.order_number
+        HAVING COUNT(*) > 1
+        ORDER BY occurrences DESC, g.order_number DESC
+        LIMIT :sample_limit
+        """,
+    ),
+    (
+        "md_rate_looks_hourly",
+        "P1",
+        "Stawka w polu ZA MD jest tak niska, że wygląda na stawkę GODZINOWĄ "
+        "wpisaną w złą kolumnę (konsultant za 10,88 zł/MD). Próg 100 PLN/MD: "
+        "realna stawka dzienna nie schodzi tak nisko, a godzinowa rzadko ją "
+        "przekracza. Korekta to zwykle ×8, ale potwierdza ją człowiek.",
+        """
+        SELECT o.id AS order_id, o.contract_id, o.client_id,
+               COUNT(*) OVER () AS total_count
+        FROM client_orders o
+        WHERE o.order_group_id IS NOT NULL
+          AND o.status IN ('draft', 'active', 'paused')
+          AND (
+            (o.md_rate_cost IS NOT NULL AND o.md_rate_cost > 0
+             AND o.md_rate_cost < 100)
+            OR (o.md_rate_revenue IS NOT NULL AND o.md_rate_revenue > 0
+                AND o.md_rate_revenue < 100)
+          )
+        ORDER BY o.id DESC
+        LIMIT :sample_limit
+        """,
+    ),
+    (
+        "live_contract_without_start_date",
+        "P1",
+        "Żywy kontrakt bez daty rozpoczęcia. Od 18.09.2026 taki kontrakt LICZY "
+        "się do MRR i liczników (brak daty = brak wiedzy, nie „planowany”), "
+        "więc nie znika już po cichu — ale data nadal jest do uzupełnienia "
+        "i tylko Delivery ją zna.",
+        f"""
+        SELECT c.id AS contract_id, c.candidate_id, c.client_id,
+               COUNT(*) OVER () AS total_count
+        FROM contracts c
+        WHERE c.status IN {_LIVE}
+          AND c.start_date IS NULL
+        ORDER BY c.id DESC
+        LIMIT :sample_limit
+        """,
+    ),
+    (
+        "terminated_at_survived_reopen",
+        "P2",
+        "Kontrakt jest ŻYWY, a niesie datę wypowiedzenia — ślad po przywróceniu "
+        "współpracy. `terminated_at` nie jest czyszczone przy aneksie ani "
+        "`reopen_contract`, więc reguła daty końca umowy B2B czyta stan, który "
+        "przestał obowiązywać.",
+        f"""
+        SELECT c.id AS contract_id, c.candidate_id, c.client_id,
+               COUNT(*) OVER () AS total_count
+        FROM contracts c
+        WHERE c.status IN {_LIVE}
+          AND c.terminated_at IS NOT NULL
+        ORDER BY c.id DESC
+        LIMIT :sample_limit
+        """,
+    ),
+    (
+        "live_order_rate_not_synced_to_contract",
+        "P1",
+        "Żywe zamówienie niesie stawkę klienta, a kontrakt pod nim jej nie ma. "
+        "Podzbiór `active_without_rates`, ale wskazuje ZAMÓWIENIE, z którego "
+        "stawkę wziąć — dlatego jest osobno. "
+        "marża i MRR liczą się wtedy z niczego. Kierunek zamówienie→kontrakt "
+        "działa od 0304, więc to są wiersze SPRZED synchronizacji albo takie, "
+        "których żaden zapis od tego czasu nie dotknął.",
+        f"""
+        SELECT c.id AS contract_id, c.candidate_id, c.client_id,
+               o.id AS order_id,
+               COUNT(*) OVER () AS total_count
+        FROM contracts c
+        JOIN client_orders o ON o.contract_id = c.id
+        WHERE c.status IN {_LIVE}
+          AND o.order_group_id IS NULL
+          AND o.status IN ('active', 'paused')
+          AND o.rate_client IS NOT NULL
+          AND o.rate_client > 0
+          AND c.rate_client IS NULL
+        ORDER BY c.id DESC
         LIMIT :sample_limit
         """,
     ),

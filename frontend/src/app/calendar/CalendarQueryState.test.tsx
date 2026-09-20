@@ -13,7 +13,7 @@
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -220,7 +220,12 @@ describe("CalendarPage — nachodzące wydarzenia i okno podglądu (UAT M03-B11)
     expect(screen.queryByTestId("calendar-event-3")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Pokaż 1 kolejne wydarzenia/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Spotkanie C/ }));
+    // Klik MUSI trafić w pozycję z chipa „+1", nie w listę „Nadchodzące"
+    // w szynie: ta pokazuje to samo wydarzenie, dopóki jest w przyszłości,
+    // więc zapytanie bez zawężenia padało zależnie od pory dnia biegu CI
+    // (TZ=UTC, bieg przed 10:00 → dwa przyciski „Spotkanie C").
+    const overflow = within(screen.getByTestId("calendar-overflow-popover"));
+    fireEvent.click(overflow.getByRole("button", { name: /Spotkanie C/ }));
     expect(await screen.findByRole("dialog", { name: "Spotkanie C" })).toBeInTheDocument();
   });
 

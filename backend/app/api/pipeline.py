@@ -11,7 +11,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.recruitment_pipeline import (
@@ -43,21 +42,19 @@ from app.models.pipeline_template import (
     RejectionReason,
     TerminalType,
 )
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.pipeline import (
     CandidateStageResponse,
     HiringManagerVetoBrief,
     KanbanColumn,
     KanbanView,
     OffTemplateColumn,
-    PendingVerificationListItem,
-    PendingVerificationReject,
     StageMove,
     StageInfo,
     STAGE_LABELS,
 )
-from app.api.candidate_access import CandidateFinanceReadAccess, CandidatePIIAccess
-from app.api.deps import AdminUser, CurrentUser, OperationalUser, RecruiterPlus
+from app.api.candidate_access import CandidatePIIAccess
+from app.api.deps import CurrentUser, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import (
     ensure_job_read_access,
     ensure_job_membership,
@@ -79,14 +76,11 @@ from app.services.rate_normalization import (
     normalize_rate_to_monthly,
 )
 from app.services.recruitment_process_commands import (
-    accept_pending_verification,
     canonical_candidate_lock_order,
     lock_candidates_stmt,
-    reject_pending_verification,
     transition_process,
 )
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
-from app.services.notification_access import notification_recipient_has_access
 
 # Terminal wynikający wprost z legacy enuma — używane w gałęzi bez szablonu
 # pipeline'u, żeby `KanbanColumn.terminal_type` był wypełniany tak samo jak
@@ -192,25 +186,16 @@ def _budget_exceeded(stage: CandidateStage) -> bool:
 
 
 def _reported_verification_status(stage: CandidateStage) -> VerificationStatus:
-    if (
-        not settings.PENDING_VERIFICATION_ENABLED
-        and stage.verification_status == VerificationStatus.pending
-    ):
+    """Status weryfikacji widziany przez klienta — `pending` czytany jako aktywny.
+
+    Bramka „Oczekuje" została usunięta (17.09.2026), więc żaden writer nie
+    zapisuje już `pending`. Wartość zostaje w enumie bazy dla wierszy
+    historycznych (`ALTER TYPE … DROP VALUE` w Postgresie nie istnieje), a te
+    nie mogą wyglądać na kartę czekającą na decyzję, której nikt nie podejmie.
+    """
+    if stage.verification_status == VerificationStatus.pending:
         return VerificationStatus.active
     return stage.verification_status
-
-
-def _require_pending_gate() -> None:
-    """Trasy bramki „Pending" istnieją tylko przy włączonej fladze.
-
-    404, nie 403: przy wyłączonej bramce nie ma czego akceptować ani
-    odrzucać, a 403 sugerowałby, że inna rola by mogła.
-    """
-    if not settings.PENDING_VERIFICATION_ENABLED:
-        raise HTTPException(
-            status_code=404,
-            detail="Bramka akceptacji weryfikacji jest wyłączona.",
-        )
 
 
 def _http_detail_text(detail: object) -> str:
@@ -273,10 +258,10 @@ def _stage_response(
         "rating": stage.rating,
         "created_at": stage.created_at,
         "days_in_stage": _days_in_stage(stage.moved_at),
-        # Pending verification snapshot (migracja 0056)
-        # Przy wyłączonej bramce `pending` zapisany przed 17.09.2026 nie jest
-        # stanem, na który ktokolwiek może zareagować — raportujemy `active`,
-        # żeby żadna karta nie renderowała „oczekuje na akceptację".
+        # Snapshot stawki i budżetu (migracja 0056). `pending` zapisany przed
+        # 17.09.2026 nie jest stanem, na który ktokolwiek może zareagować —
+        # raportujemy `active`, żeby żadna karta nie renderowała „oczekuje
+        # na akceptację".
         "verification_status": _reported_verification_status(stage),
         "expected_rate_value": stage.expected_rate_value,
         "expected_rate_unit": stage.expected_rate_unit,
@@ -335,67 +320,6 @@ async def _process_state_versions(
         .distinct(RecruitmentProcess.candidate_id)
     )
     return {cid: int(version or 0) for cid, version in rows.all()}
-
-
-# ── Pending verification helper ─────────────────────────────────────────────
-
-
-async def _notify_pending_verification(
-    db: AsyncSession,
-    *,
-    stage: CandidateStage,
-    candidate: Optional[Candidate],
-    job: Job,
-) -> None:
-    """Send `pending_verification` notification to administrators.
-
-    Rate/budget exceptions are Admin-only. Delivery Lead and Head of
-    Recruitment must not receive the financial values or candidate identity in
-    this notification. A notification failure must not block the stage move.
-
-    Przy wyłączonej bramce (`PENDING_VERIFICATION_ENABLED=False`) nie ma czego
-    akceptować, więc nie ma też komu tego zgłaszać.
-    """
-    if not settings.PENDING_VERIFICATION_ENABLED:
-        return
-    approvers = (
-        await db.execute(
-            select(User.id).where(
-                User.role == UserRole.admin,
-                User.is_active.is_(True),
-            )
-        )
-    ).all()
-    candidate_label = (
-        f"{candidate.name} {candidate.lastname}".strip()
-        if candidate
-        else f"Kandydat #{stage.candidate_id}"
-    )
-    rate_label = (
-        f"{stage.expected_rate_value} "
-        f"{(stage.expected_rate_currency or 'PLN')}/"
-        f"{(stage.expected_rate_unit or 'monthly')}"
-    )
-    budget_label = (
-        f"{stage.budget_max_at_move} PLN/m"
-        if stage.budget_max_at_move is not None
-        else "?"
-    )
-    for (uid,) in approvers:
-        db.add(
-            Notification(
-                user_id=uid,
-                title="Wymagana akceptacja weryfikacji",
-                message=(
-                    f"{candidate_label} na ofercie '{job.title}' — "
-                    f"stawka {rate_label} przekracza budżet {budget_label}."
-                ),
-                link=f"/pending-verifications?stage={stage.id}",
-                notification_type=NotificationType.pending_verification,
-                related_entity_type="candidate_stage",
-                related_entity_id=stage.id,
-            )
-        )
 
 
 @router.get("/stages", response_model=List[StageInfo])
@@ -564,7 +488,9 @@ async def move_candidate(
         raise HTTPException(status_code=404, detail="Candidate not found")
 
     # Current row pary — kanoniczny tiebreaker (moved_at DESC, id DESC).
-    # Reużywany niżej: pending-block, cancel maili przy restore, notyfikacje.
+    # Reużywany niżej: cancel maili przy restore, notyfikacje. Wiersz
+    # historyczny `pending` NIE blokuje kolejnego ruchu — bramka „Oczekuje"
+    # została usunięta i nie ma approvera, który mógłby ją odblokować.
     previous_stage_row = await db.scalar(
         select(CandidateStage)
         .where(
@@ -574,24 +500,6 @@ async def move_candidate(
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
         .limit(1)
     )
-
-    # M4 PR-02 (audyt P0.4): gdy current row czeka na akceptację stawki,
-    # kolejny move nie może ominąć gate'u — najpierw decyzja approvera.
-    # Przy wyłączonej bramce (17.09.2026) nie ma approvera: wiersze zapisane
-    # jako `pending` przed wyłączeniem nie mogą trwale zablokować karty.
-    if (
-        settings.PENDING_VERIFICATION_ENABLED
-        and previous_stage_row is not None
-        and previous_stage_row.verification_status == VerificationStatus.pending
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Proces czeka na akceptację weryfikacji stawki "
-                "(pending verification). Zaakceptuj lub odrzuć weryfikację "
-                "zanim wykonasz kolejny ruch."
-            ),
-        )
 
     # Derive effective legacy-enum value for backward-compat column
     legacy_enum: PipelineStage = data.stage or PipelineStage.new
@@ -794,23 +702,11 @@ async def move_candidate(
     expected_rate_unit = data.expected_rate_unit
     expected_rate_currency = data.expected_rate_currency or "PLN"
     budget_max_snapshot: Optional[int] = None
-    needs_approval = False
     budget_exceeded = False
     normalization_note: Optional[str] = None
 
     if legacy_enum == PipelineStage.verified:
-        # Stawka opcjonalna (17.09.2026). Wymóg zostaje wyłącznie przy
-        # włączonej bramce „Pending" — bez stawki nie ma czego akceptować.
-        if settings.PENDING_VERIFICATION_ENABLED and (
-            expected_rate_value is None or expected_rate_unit is None
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Ruch na stage 'verified' wymaga `expected_rate_value` "
-                    "i `expected_rate_unit`."
-                ),
-            )
+        # Stawka jest OPCJONALNA (17.09.2026) — brak stawki to 200, nie 422.
         if job.salary_max is not None:
             budget_max_snapshot = int(job.salary_max)
         if job.salary_max is not None and expected_rate_value is not None:
@@ -826,13 +722,12 @@ async def move_candidate(
             if normalized_monthly is None or normalized_monthly > Decimal(
                 job.salary_max
             ):
-                # Decyzja 17.09.2026: bramka „Pending" wyłączona — ruch
-                # przechodzi, stawka zostaje zapisana, a przekroczenie budżetu
-                # jedzie na kartę jako informacja (`budget_exceeded`).
+                # Decyzja 17.09.2026: żadna bramka nie zatrzymuje ruchu —
+                # stawka zostaje zapisana, a przekroczenie budżetu jedzie na
+                # kartę wyłącznie jako informacja (`budget_exceeded`). Stawka
+                # nieporównywalna (inna waluta, nieznana jednostka) NIE jest
+                # „ponad budżetem" — to brak porównania, nie jego wynik.
                 budget_exceeded = normalized_monthly is not None
-                if settings.PENDING_VERIFICATION_ENABLED:
-                    verification_status = VerificationStatus.pending
-                    needs_approval = True
 
     # M4 PR-02 (audyt P1.1): free-text reason był przyjmowany, "zaliczał"
     # walidację terminalną i znikał (nie ma kolumny). Utrwalamy go w notes,
@@ -867,14 +762,6 @@ async def move_candidate(
         expected_state_version=data.expected_state_version,
     )
     await create_original_cv_snapshot(db, stage)
-    if needs_approval:
-        # Wyłącznie przy włączonej bramce „Pending" (domyślnie wyłączona).
-        candidate = await db.scalar(
-            select(Candidate).where(Candidate.id == data.candidate_id)
-        )
-        await _notify_pending_verification(
-            db, stage=stage, candidate=candidate, job=job
-        )
     if is_terminal_target:
         await maybe_close_contact_opportunity(
             db,
@@ -912,7 +799,6 @@ async def move_candidate(
         activity_details["rate_gate"] = {
             "policy": RATE_POLICY_VERSION,
             "note": normalization_note,
-            "pending": needs_approval,
             "budget_exceeded": budget_exceeded,
             "budget_max": budget_max_snapshot,
         }
@@ -2140,279 +2026,6 @@ async def pipeline_overview(
         "workload": workload,
         "stage_labels": {s.value: STAGE_LABELS[s] for s in PipelineStage},
     }
-
-
-# ── Pending verification endpoints (migracja 0056) ──────────────────────────
-
-
-@router.get(
-    "/pending-verifications",
-    response_model=List[PendingVerificationListItem],
-)
-async def list_pending_verifications(
-    current_user: CandidateFinanceReadAccess,
-    job_id: Optional[int] = Query(None, description="Filter by job_id"),
-    mine: bool = Query(
-        False,
-        description=(
-            "Legacy compatibility filter: limit to jobs where the current "
-            "user is also the assigned delivery_lead. This flag only narrows "
-            "the Admin/Finance read scope."
-        ),
-    ),
-    db: AsyncSession = Depends(get_db),
-):
-    """Lista kandydatów oczekujących akceptacji (verification_status=pending).
-
-    (Martwe od 17.09.2026 — bramka „pending" zdjęta, migracja 0323 odblokowała
-    stare wiersze; endpoint zostaje dla historii i testów ról.)
-
-    Dostępna dla administratora i Finance. Rekruter, Delivery Lead i Head of
-    Recruitment dostaną 403, ponieważ wiersze zawierają oczekiwaną stawkę oraz
-    budżet stanowiska. Akceptacja i odrzucenie pozostają Admin-only.
-    Przy wyłączonej bramce (`PENDING_VERIFICATION_ENABLED`) — 404.
-    """
-    _require_pending_gate()
-    query = (
-        select(CandidateStage, Candidate, Job, User)
-        .join(Candidate, Candidate.id == CandidateStage.candidate_id)
-        .join(Job, Job.id == CandidateStage.job_id)
-        .outerjoin(User, User.id == CandidateStage.moved_by)
-        .where(CandidateStage.verification_status == VerificationStatus.pending)
-        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
-    )
-    if job_id is not None:
-        query = query.where(CandidateStage.job_id == job_id)
-    if mine:
-        query = query.where(Job.delivery_lead_id == current_user.id)
-
-    rows = (await db.execute(query)).all()
-    items: list[PendingVerificationListItem] = []
-    for cs, cand, job, mover in rows:
-        full_name = f"{cand.name} {cand.lastname}".strip() or f"#{cand.id}"
-        # M4 PR-02: znormalizowane porównanie dla approvera (P0.5).
-        normalized_monthly = None
-        normalization_note = None
-        if cs.expected_rate_value is not None:
-            normalized_monthly, normalization_note = normalize_rate_to_monthly(
-                cs.expected_rate_value,
-                cs.expected_rate_unit,
-                cs.expected_rate_currency,
-            )
-        items.append(
-            PendingVerificationListItem(
-                candidate_stage_id=cs.id,
-                candidate_id=cand.id,
-                candidate_name=full_name,
-                job_id=job.id,
-                job_title=job.title,
-                expected_rate_value=cs.expected_rate_value,
-                expected_rate_unit=cs.expected_rate_unit,
-                expected_rate_currency=cs.expected_rate_currency,
-                budget_max_at_move=cs.budget_max_at_move,
-                normalized_monthly_value=normalized_monthly,
-                normalization_note=normalization_note,
-                moved_at=cs.moved_at,
-                moved_by=cs.moved_by,
-                moved_by_name=mover.name if mover else None,
-                notes=cs.notes,
-            )
-        )
-    return items
-
-
-@router.post(
-    "/{candidate_stage_id}/accept-verification",
-    response_model=CandidateStageResponse,
-)
-async def accept_verification(
-    candidate_stage_id: int,
-    current_user: AdminUser,
-    db: AsyncSession = Depends(get_db),
-):
-    """Akceptacja pending verification → status = active.
-
-    (Martwe od 17.09.2026 — bramka „pending" zdjęta, migracja 0323 odblokowała
-    stare wiersze; endpoint zostaje dla historii i testów ról.)
-
-    Audit: zapisujemy approved_by + approved_at na samym CandidateStage,
-    plus Activity log. Notyfikacja do recruitera który wrzucił (`moved_by`).
-    Przy wyłączonej bramce (`PENDING_VERIFICATION_ENABLED`) — 404.
-    """
-    _require_pending_gate()
-    stage = await accept_pending_verification(
-        db,
-        candidate_stage_id=candidate_stage_id,
-        approver_user_id=current_user.id,
-    )
-
-    db.add(
-        Activity(
-            entity_type="candidate_stage",
-            entity_id=stage.id,
-            action="verification_accepted",
-            user_id=current_user.id,
-            details={
-                "candidate_id": stage.candidate_id,
-                "job_id": stage.job_id,
-                "expected_rate_value": (
-                    str(stage.expected_rate_value)
-                    if stage.expected_rate_value is not None
-                    else None
-                ),
-                "budget_max_at_move": stage.budget_max_at_move,
-            },
-        )
-    )
-
-    if (
-        stage.moved_by
-        and stage.moved_by != current_user.id
-        and await notification_recipient_has_access(
-            db,
-            stage.moved_by,
-            NotificationType.pending_verification,
-            related_entity_type="candidate_stage",
-            link=f"/jobs/{stage.job_id}",
-        )
-    ):
-        db.add(
-            Notification(
-                user_id=stage.moved_by,
-                title="Weryfikacja zaakceptowana",
-                message=(
-                    f"Twoja weryfikacja kandydata #{stage.candidate_id} "
-                    f"na ofercie #{stage.job_id} została zaakceptowana."
-                ),
-                link=f"/jobs/{stage.job_id}",
-                notification_type=NotificationType.pending_verification,
-                related_entity_type="candidate_stage",
-                related_entity_id=stage.id,
-            )
-        )
-
-    await db.commit()
-    await db.refresh(stage)
-
-    # Phase 7.6 — fire-and-forget Teams notification (post-commit so the row
-    # is durable before the background task resolves it from its own session).
-    try:
-        from app.services.teams_notifications import notify_decision_by_stage_id
-
-        _spawn(
-            notify_decision_by_stage_id(
-                stage.id,
-                decision="accepted",
-                actor_name=current_user.name or current_user.email,
-            ),
-            f"teams_notify_decision_accepted(stage={stage.id})",
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Teams notify (decision_accepted) scheduling failed: %s", exc)
-
-    return CandidateStageResponse(**_stage_response(stage))
-
-
-@router.post(
-    "/{candidate_stage_id}/reject-verification",
-    response_model=CandidateStageResponse,
-)
-async def reject_verification(
-    candidate_stage_id: int,
-    payload: PendingVerificationReject,
-    current_user: AdminUser,
-    db: AsyncSession = Depends(get_db),
-):
-    """Odrzucenie pending verification → kandydat wraca na poprzedni stage.
-
-    (Martwe od 17.09.2026 — bramka „pending" zdjęta, migracja 0323 odblokowała
-    stare wiersze; endpoint zostaje dla historii i testów ról.)
-
-    Akcje:
-    1. Obecny CandidateStage dostaje status 'rejected' + audit fields.
-    2. Tworzymy NOWY CandidateStage z poprzednim stage'em (najnowszy przed
-       obecnym dla pary candidate+job) + notatkę "Rejected verification: …".
-    3. Activity log + notification do recruitera (`moved_by`).
-    Przy wyłączonej bramce (`PENDING_VERIFICATION_ENABLED`) — 404.
-    """
-    _require_pending_gate()
-    stage, revert = await reject_pending_verification(
-        db,
-        candidate_stage_id=candidate_stage_id,
-        approver_user_id=current_user.id,
-        note=payload.note,
-    )
-    revert_stage = revert.stage
-    await create_original_cv_snapshot(db, revert)
-    await maybe_ensure_contact_opportunity(
-        db,
-        candidate_id=stage.candidate_id,
-        job_id=stage.job_id,
-        source="pipeline",
-        occurred_at=revert.moved_at,
-    )
-
-    db.add(
-        Activity(
-            entity_type="candidate_stage",
-            entity_id=stage.id,
-            action="verification_rejected",
-            user_id=current_user.id,
-            details={
-                "candidate_id": stage.candidate_id,
-                "job_id": stage.job_id,
-                "reverted_to_stage": revert_stage.value,
-                "note": payload.note,
-            },
-        )
-    )
-
-    if (
-        stage.moved_by
-        and stage.moved_by != current_user.id
-        and await notification_recipient_has_access(
-            db,
-            stage.moved_by,
-            NotificationType.pending_verification,
-            related_entity_type="candidate_stage",
-            link=f"/jobs/{stage.job_id}",
-        )
-    ):
-        db.add(
-            Notification(
-                user_id=stage.moved_by,
-                title="Weryfikacja odrzucona",
-                message=(
-                    f"Twoja weryfikacja kandydata #{stage.candidate_id} "
-                    f"na ofercie #{stage.job_id} została odrzucona: {payload.note}"
-                ),
-                link=f"/jobs/{stage.job_id}",
-                notification_type=NotificationType.pending_verification,
-                related_entity_type="candidate_stage",
-                related_entity_id=stage.id,
-            )
-        )
-
-    await db.commit()
-    await db.refresh(stage)
-
-    # Phase 7.6 — fire-and-forget Teams notification.
-    try:
-        from app.services.teams_notifications import notify_decision_by_stage_id
-
-        _spawn(
-            notify_decision_by_stage_id(
-                stage.id,
-                decision="rejected",
-                actor_name=current_user.name or current_user.email,
-                note=payload.note,
-            ),
-            f"teams_notify_decision_rejected(stage={stage.id})",
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Teams notify (decision_rejected) scheduling failed: %s", exc)
-
-    return CandidateStageResponse(**_stage_response(stage))
 
 
 class BulkMoveRequest(BaseModel):

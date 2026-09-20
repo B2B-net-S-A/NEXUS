@@ -127,6 +127,7 @@ from app.services.hiring_manager_verdicts import (
     load_manager_rejections,
 )
 from app.services.experience_end import sql_current_end_literals
+from app.services.polish_ilike import contains_pattern
 from app.services.pipeline_eligibility import assert_candidate_move_eligible
 from app.services.pipeline_latest import current_hired_stage_exists
 from app.services.text_cleaning import clean_rich_text
@@ -538,7 +539,7 @@ def _current_company_predicate(values: list[str]):
         v = (v or "").strip()
         if not v:
             continue
-        pat = f"%{v.lower()}%"
+        pat = contains_pattern(v.lower())
         exists_clause = text(
             "EXISTS ("
             "SELECT 1 FROM jsonb_array_elements("
@@ -577,7 +578,7 @@ def _current_title_predicate(values: list[str]):
         v = (v or "").strip()
         if not v:
             continue
-        pat = f"%{v.lower()}%"
+        pat = contains_pattern(v.lower())
         exists_clause = text(
             "EXISTS ("
             "SELECT 1 FROM jsonb_array_elements("
@@ -624,7 +625,7 @@ def _past_company_predicate(values: list[str]):
         v = (v or "").strip()
         if not v:
             continue
-        pat = f"%{v.lower()}%"
+        pat = contains_pattern(v.lower())
         clauses.append(
             text(
                 "EXISTS ("
@@ -1320,7 +1321,15 @@ async def list_candidates(
     ),
     location: Optional[str] = None,
     # PostgreSQL text rejects NUL; reject the request before binding SQL.
-    q: Optional[str] = Query(None, pattern=r"^[^\x00]*$"),
+    #
+    # `min_length=2` — bo poniżej progu `single_phrase_filter` zwraca `None`,
+    # a wołający NIE dodawał wtedy żadnego `WHERE` (brak gałęzi `else`): `?q=a`
+    # i `?q=%` odpowiadały HTTP 200 z CAŁĄ bazą 62 243 kandydatów, bez żadnego
+    # sygnału, że filtr zignorowano. Bliźniaczy `/api/search/global` robi to
+    # poprawnie od dawna (`Query(..., min_length=2)`) — wyrównujemy kontrakt.
+    # Front nie wysyła `q` krótszego niż 2 znaki ani pustego (`q || undefined`),
+    # więc 422 nie pojawia się w trakcie pisania. Audyt 18.09.2026.
+    q: Optional[str] = Query(None, pattern=r"^[^\x00]*$", min_length=2),
     skills: Optional[list[str]] = Query(
         None,
         description=(
@@ -2116,7 +2125,7 @@ async def suggest_companies(
     filters. Groups by lowercased name — acceptable MVP trade-off (collapses
     "Google" / "google" to one suggestion).
     """
-    pat = f"%{q.strip().lower()}%" if q.strip() else ""
+    pat = contains_pattern(q.strip().lower()) if q.strip() else ""
     sql = text(
         "SELECT lower(elem->>'company') AS company, COUNT(DISTINCT c.id) AS n "
         "FROM candidates c, "
@@ -2163,7 +2172,7 @@ async def suggest_titles(
     Groups by lowercased role — same MVP trade-off (collapses "Senior Engineer"
     / "senior engineer" to one suggestion).
     """
-    pat = f"%{q.strip().lower()}%" if q.strip() else ""
+    pat = contains_pattern(q.strip().lower()) if q.strip() else ""
     sql = text(
         "SELECT lower(elem->>'role') AS role, COUNT(DISTINCT c.id) AS n "
         "FROM candidates c, "
@@ -3848,16 +3857,17 @@ async def set_recruitment_expected_rate(
     `CandidateStage` tej rekrutacji; odczyt w `/history` bierze ostatnią
     niepustą wartość. `rate_value=None` czyści stawkę.
 
-    Jeśli korekta przekroczy budżet requestu, zapis ponownie ustawia
-    `verification_status=pending`; akceptacja wracającej do budżetu stawki
-    przechodzi przez kanoniczne `record_accepted_verification`, dzięki czemu
-    pierwszy verifier i eligibility pozostają spójne.
+    Korekta stawki NIE ocenia budżetu — bramka „Oczekuje" została usunięta
+    (17.09.2026). Wiersz „Zweryfikowany" zostaje (albo staje się) aktywny,
+    także stary `pending`, a zaliczenie pierwszego weryfikatora przechodzi
+    przez kanoniczne `record_accepted_verification`, żeby KPI i eligibility
+    pozostały spójne. „Ponad budżet" to odznaka na karcie, nie stan procesu.
     """
     # Resource scope — jak w `client-rate` wyżej: rola dopuszcza edycję stawek
     # w ogóle, membership decyduje o KTÓREJ rekrutacji.
     await ensure_job_membership(db, current_user, job_id)
 
-    latest, job, became_pending = await update_latest_expected_rate(
+    latest, _job = await update_latest_expected_rate(
         db,
         candidate_id=candidate_id,
         job_id=job_id,
@@ -3873,19 +3883,6 @@ async def set_recruitment_expected_rate(
             else None
         ),
     )
-    if became_pending and job is not None:
-        from app.api.pipeline import _notify_pending_verification
-
-        candidate = await db.scalar(
-            select(Candidate).where(Candidate.id == candidate_id)
-        )
-        await _notify_pending_verification(
-            db,
-            stage=latest,
-            candidate=candidate,
-            job=job,
-        )
-
     await db.commit()
     await db.refresh(latest)
 
@@ -5372,6 +5369,41 @@ async def _enrich_candidate_cv_task(
             await db.rollback()
 
 
+def _from_cv_duplicates(rows: list[dict]) -> list[CandidateFromCVDuplicate]:
+    """Wiersze `find_candidate_duplicates` → model odpowiedzi `/from-cv`."""
+    return [
+        CandidateFromCVDuplicate(
+            candidate_id=row["candidate_id"],
+            name=row.get("name"),
+            lastname=row.get("lastname"),
+            email=row.get("email"),
+            match_score=float(row.get("match_score", 0.0)),
+            match_reasons=list(row.get("match_reasons") or []),
+        )
+        for row in rows
+    ]
+
+
+def _raise_from_cv_duplicate_conflict(rows: list[dict]) -> None:
+    """Odmowa 409 o kształcie, który konsumuje front — JEDNO źródło dla obu sit.
+
+    Dwa ekrany czytają tę odpowiedź i KAŻDY sprawdza inny klucz:
+    `AddCandidateFromCVModal` obecność `matches`, `BulkImportCVsV2`
+    obecność `existing_candidate_id`. Osobne budowanie odpowiedzi w sicie
+    darmowym i w skanie po odczycie rozjechałoby się przy pierwszej zmianie,
+    a objawem byłby jeden z tych ekranów przestający rozpoznawać duplikat.
+    """
+    duplicates = _from_cv_duplicates(rows)
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "detail": "Kandydat wygląda na duplikat istniejącego rekordu.",
+            "existing_candidate_id": duplicates[0].candidate_id,
+            "matches": [m.model_dump() for m in duplicates],
+        },
+    )
+
+
 @router.post(
     "/from-cv",
     response_model=CandidateFromCVResponse,
@@ -5415,6 +5447,7 @@ async def create_candidate_from_cv(
 
     from app.services import cv_text_extractor
     from app.services.cv_parser import parse_cv
+    from app.services.cv_upload_dedup import find_duplicates_without_llm
 
     # 1 — persist the upload and extract text
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -5463,6 +5496,19 @@ async def create_candidate_from_cv(
             detail="Could not extract any text from the uploaded CV file.",
         )
 
+    # 1b — DARMOWE sito duplikatów PRZED płatnym odczytem (18.09.2026).
+    # Kroki 2 i 3 są w tej kolejności od początku, więc każdy duplikat płacił
+    # najpierw za odczyt modelem, a dopiero potem dostawał 409. W imporcie
+    # masowym duplikat jest regułą: zmierzone 9739 płatnych odczytów dało 689
+    # kandydatów. Sito jest jednostronne — trafi, to oszczędza; nie trafi, to
+    # nic nie przesądza, więc skan w kroku 3 ZOSTAJE (patrz `cv_upload_dedup`).
+    if not force and settings.FROM_CV_SIEVE_ENABLED:
+        cheap_rows = await find_duplicates_without_llm(
+            db, content=content, raw_text=raw_text
+        )
+        if cheap_rows:
+            _raise_from_cv_duplicate_conflict(cheap_rows)
+
     # 2 — parse structured facts
     parsed = await parse_cv(raw_text, db=db)
 
@@ -5475,27 +5521,9 @@ async def create_candidate_from_cv(
         name=parsed.get("first_name"),
         lastname=parsed.get("last_name"),
     )
-    duplicates = [
-        CandidateFromCVDuplicate(
-            candidate_id=row["candidate_id"],
-            name=row.get("name"),
-            lastname=row.get("lastname"),
-            email=row.get("email"),
-            match_score=float(row.get("match_score", 0.0)),
-            match_reasons=list(row.get("match_reasons") or []),
-        )
-        for row in dup_rows
-    ]
+    duplicates = _from_cv_duplicates(dup_rows)
     if duplicates and not force:
-        top = duplicates[0]
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "detail": "Kandydat wygląda na duplikat istniejącego rekordu.",
-                "existing_candidate_id": top.candidate_id,
-                "matches": [m.model_dump() for m in duplicates],
-            },
-        )
+        _raise_from_cv_duplicate_conflict(dup_rows)
 
     # 4 — insert and enrich
     first_name = (parsed.get("first_name") or "").strip() or _CV_PLACEHOLDER_NAME

@@ -132,6 +132,18 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
   połączenie wyłączone przez awarię (`is_active=False`) u aktywnego pracownika.
   Odłączenie przez użytkownika kasuje wiersz, więc nieaktywny wiersz to zawsze
   awaria. Sonda jest informacyjna — nie daje `unhealthy`.
+- **`checks.m365_mail` (`services/m365/app_mail.py`, od 18.09.2026) pyta
+  o zdolność do WYSYŁKI, nie o połączenia** — `checks.m365` patrzy na skrzynki
+  rekruterów, a zły nadawca (`M365_MAIL_SENDER_UPN` spoza polityki dostępu
+  aplikacji) nie dotyka żadnej z nich: audyt zastał 471 kolejnych
+  `ErrorAccessDenied` przy `m365 = healthy`. Wynik ostatnich prób żyje
+  w pamięci procesu (wzorem `loop_heartbeat`), więc restart go zeruje —
+  i dlatego `unknown` („nic jeszcze nie wysyłaliśmy") NIE jest `healthy`:
+  zdolności do wysyłki nie da się sprawdzić inaczej niż wysyłką, a sondowanie
+  jej pustym mailem wysyłałoby maile. `degraded` = trzy porażki z rzędu ALBO
+  pierwsza porażka kanału, z którego nigdy nic nie wyszło (tak wygląda zła
+  konfiguracja — nie ma czego ponawiać). 401/403 idzie `logger.error` (→ Sentry),
+  bo to konfiguracja, nie chwilowa awaria Grapha. Sonda informacyjna.
 - **`checks.compass_lifecycle` (od 14.09.2026, MON-04/INT-10):** pętla
   `compass_lifecycle_sync` stempluje każdy bieg w `app_settings['compass_lifecycle_state']`
   (`last_run_at`, `last_status`, `last_success_at`, `last_error` = kod + klasa
@@ -435,15 +447,29 @@ cofnąć „przy okazji”:
   tokenu = `::error::` + `exit 1`, częściowy digest wysyła i kończy `exit 1`;
   deploy ma krok `/api/health/alembic` (bookmark bazy == heads kodu,
   `orphaned == []`) — czerwony deploy przy dryfie jest zamierzony.
-- **„Obecny" kontrakt = start wpisany i ≤ dziś — JEDNA reguła na każdej
-  powierzchni** (`contractor_identity.is_current_contract`/`current_contracts`,
-  UAT B46, PR 2): profil klienta (kafel „Aktywne MRR", liczniki), zakładka
-  Analityka (`/my-clients/{id}/dashboard`), ranking Rady (`insights_clients`),
-  przegląd admina; kokpit Rady ma ten sam warunek w SQL. Kontrakt z przyszłym
-  startem albo bez daty jedzie na profilu OSOBNO jako „Planowani" — z tą samą
-  redakcją kwot co „Obecni". Pierwsza wersja poprawki zmieniła tylko profil
-  i ten sam klient pokazywał inną marżę w sąsiedniej zakładce; pilnuje tego
-  `test_margin_rounding_parity.py` (kontrakt o przyszłym starcie w fixture).
+- **„Obecny" kontrakt = start nie później niż dziś ALBO brak daty startu —
+  JEDNA reguła na każdej powierzchni**
+  (`contractor_identity.is_current_contract`/`current_contracts`, UAT B46, PR 2;
+  pusta data od 18.09.2026): profil klienta (kafel „Aktywne MRR", liczniki),
+  zakładka Analityka (`/my-clients/{id}/dashboard`), ranking Rady
+  (`insights_clients`), przegląd admina, licznik katalogu klientów
+  (`client_directory.py` — to on jest lustrem tej reguły w SQL i jedynym
+  miejscem, w którym może się rozjechać). **„Planowany" to twierdzenie
+  o PRZYSZŁOŚCI i wymaga daty, która jeszcze nie nadeszła**; pusta data jest
+  brakiem WIEDZY, a konsultant nie przestaje pracować dlatego, że nikt nie
+  wpisał dnia rozpoczęcia. Audyt 18.09.2026 zmierzył cenę pierwszej wersji:
+  u klienta 15 trzy AKTYWNE kontrakty z żywymi liniami zamówień siedziały
+  w „Planowanych", czyli 13 920 PLN/mc (54% marży klienta) poza „Aktywnym MRR"
+  przy kaflu deklarującym komplet (`unpriced = 0`). Profil podstawia datę
+  reprezentatywnego zamówienia (`fallback_start`), więc umowa bez własnej daty,
+  ale z zamówieniem startującym za tydzień, zostaje planowana NAPRAWDĘ.
+  Kontrakt z przyszłym startem jedzie na profilu OSOBNO jako „Planowani" —
+  z tą samą redakcją kwot co „Obecni". Pierwsza wersja poprawki zmieniła tylko
+  profil i ten sam klient pokazywał inną marżę w sąsiedniej zakładce; pilnuje
+  tego `test_margin_rounding_parity.py` (kontrakt o przyszłym starcie
+  w fixture) i `test_contract_current_without_start_date.py`.
+  **Szeregi czasowe (`insights_board`, `insights_board_yoy`) świadomie wymagają
+  daty startu** — bez niej nie da się umieścić kontraktu na osi miesięcy.
 - **Stan ekranu w adresie:** `/candidates/search` trzyma request w `?s=`
   (`lib/candidate-search-request.ts` — tylko pola o kształcie zgodnym z bazą,
   bo adres pisze użytkownik), porównanie kandydatów wraca z `?sel=`,
@@ -1383,6 +1409,27 @@ w jednej zakładce i puste w sąsiedniej.
   Reguła obejmuje je dla spójności kontraktu API; nie szukaj tam efektu wizualnego.
   Efekt widać w zakładce **Analityka** (karta z listy linkuje wprost tam).
 
+## Analityka kontraktów: utylizacja i kafle sum (18.09.2026)
+
+- **Mianownik utylizacji to POPULACJA KONSULTANTÓW, nie baza CV.** Jedna
+  definicja: `services/consultant_population.py` (czytają ją
+  `GET /api/contract-analytics/utilization` i `analytics/metrics.finance_summary`).
+  Populacja = osoby z kontraktem `active`/`ending`/`ended` o starcie ≤ dziś,
+  fałdowane po tożsamości (`contractor_identity`), więc scalenie duplikatów nie
+  podbija wskaźnika. Endpoint liczył wcześniej `outerjoin(Contract)` BEZ filtra
+  statusu: 0,8% zamiast 91,3% (**błąd 114×**) i 56 647 osób „na ławce" zamiast
+  45 — przy czym `avg_bench_days` obok liczyło się już po tych 45, więc ekran
+  przeczył sam sobie. `utilization_pct = None` gdy nie ma kogo liczyć: zero
+  znaczyłoby „nikt z naszych konsultantów nie pracuje".
+- **Sumy firmowe mają własny endpoint `GET /api/contract-analytics/margin-totals`.**
+  Kafle „Miesięczna marża" i „Miesięczny przychód" liczyły się na froncie
+  z `margin-by-client`, a ta trasa oddaje 20 wierszy przyciętych po MARŻY —
+  klient o wysokim przychodzie i niskiej marży wypadał z kafla PRZYCHODU
+  (12 555 483 zamiast 12 772 543 PLN, brakowało 217 060 zł). Podniesienie
+  limitu byłoby tym samym błędem, tylko dalej: **suma nie może zależeć od tego,
+  ilu klientów mieści się w rankingu obok**. Ranking i suma mają wspólne
+  źródło (`_margin_by_client_rows`), ale osobne trasy i osobne stany ładowania.
+
 ## Interaktywne CV (publiczny link do wygenerowanego CV)
 
 Generator CV B2B ma ścieżkę do klienta: rekruter tworzy token-link
@@ -1552,6 +1599,7 @@ Migracja Traffit→Nexus z maja 2026 była **one-shot CLI** (`python -m app.cli.
 - **Wznawialność (kursory) — bo Coolify restartuje kontener przy KAŻDYM pushu na main, a pełne biegi trwają godziny.** Faza bez kursora startuje po restarcie od zera i przy deployach częstszych niż tydzień może **nigdy** nie dojść do ogona. Kursory ma dziś: `candidates`, `candidate_activities` i `pipelines` (po numerze strony, `get_pages(start_page=)`), oraz `candidate_files`, `candidates_cv`, `candidates_enrich_names` (po `after_id` + budżet). **`candidate_sources` świadomie NIE ma kursora** — ta faza agreguje wszystkie wiersze w pamięci i zapisuje dopiero na końcu, więc kursor na stronie N pomijałby strony 1..N-1, których dane nigdy nie zostały zapisane; kursor wymagałby wcześniej inkrementalnego zapisu. Zamiast tego strony gubione przez `skip_on_5xx` (znany server-side bug `/sources/`) są liczone do `skipped_pages` i widoczne w `/sync/status` — celowo NIE jako `add_error`, bo nieatrybutowalny błąd przypiąłby `degraded` na stałe. Kursor siedzi w `traffit_sync_state.cursor_payload` na wierszu **fazy z `_phase_plan`** (nie `PhaseProgress.phase` — te bywają różne, np. `candidate_files` vs `candidates_files`; pomyłka zakłada widmowy wiersz w `/sync/status`). **Sloty są per tryb** (`{"delta": {...}, "full": {...}}`): numery stron delty są filtrowane po `since`, fulla nie, więc wspólny slot powodował, że nocna delta najpierw nadpisywała, a potem kasowała zaparkowaną pozycję fulla — wznawianie fulla było mechanicznie obecne i praktycznie martwe. Stary płaski kształt jest migrowany przy odczycie. Po HTTP 400 na filtrze klient zdejmuje filtr i restartuje od strony 1 → `saw_fallback` wstrzymuje zapis kursora (numery stron przestają odpowiadać `since`).
 - **Faza `workflows` (szablony pipeline'ów) — zapis wsadowy pod SET-WIDE unique.** `pipeline_stage_defs` ma dwa ograniczenia obejmujące CAŁY szablon (`uq_stage_order_in_template (template_id, "order")` i `uq_stage_name_in_template (template_id, name)`), a wiersze pisane są **po jednym**, kluczem `(external_source, external_id)`. Przepisanie zbioru wiersz po wierszu pod ograniczeniem zbiorowym działa tylko wtedy, gdy żaden stan POŚREDNI nie koliduje — a zamiana kolejności w Traffit gwarantuje kolizję (stan B bierze pozycję 3, którą wciąż trzyma jeszcze nieprzepisany stan A). Cyklicznej zamiany nie da się rozwiązać kolejnością zapisów. Żadne z ograniczeń **nie jest DEFERRABLE** (entrypoint.sh obchodzi tę samą krawędź trikiem z przesunięciem), więc `_rewrite_template_stage_defs` najpierw **parkuje** wszystkie wiersze szablonu na `("order" = -id, name = '~<id>')` — unikalne per wiersz, bo `id` to PK, a ujemne pozycje nigdy nie spotkają docelowego układu (wszystkie ≥ 0) — i dopiero potem kładzie właściwy układ, już w dowolnej kolejności. **Stany, których Traffit przestał wysyłać, NIE są kasowane** (`candidate_stages.stage_def_id` na nie wskazuje — dlatego importer dawno porzucił DELETE+INSERT); dostają pozycje **za** żywymi, z zachowaniem względnej kolejności i nazw, a jeśli żywy stan zabrał nazwę wycofanego — ustępuje wycofany (żywy jest bieżącą prawdą). Każdy workflow siedzi w **SAVEPOINCIE**: stary handler wołał `db.rollback()`, czyli rollback SESJI, a faza commituje raz na końcu — jeden zepsuty workflow kasował wszystkie zapisane wcześniej w tym biegu. Na prodzie `processed: 2, updated: 2, errors: 1` nie znaczyło „1 z 2 padł", tylko „0 z 2 zapisanych", 23 biegi z rzędu.
 - **Nagrobki (`candidates.external_deleted_at`, migracja `0221`).** 404/410 z Traffita było wcześniej wyłącznie **liczone** (`gone_upstream`), a licznik żyje tyle co statystyki biegu — więc informacja „tej osoby już u źródła nie ma" nie docierała nigdzie: rekruter widział zwykły profil, `reconcile` pokazywał rozjazd bez wyjaśnienia, a każdy kolejny sweep pytał o tego samego nieistniejącego kandydata. Trzy rzeczy, których ten mechanizm **celowo nie robi**: (1) **nie kasuje wiersza** — profil w Nexusie ma własną wartość niezależną od Traffita (notatki, etapy, ślady RODO), więc usunięcie u źródła nie jest zgodą na usunięcie NASZYCH danych; (2) **nie stawia nagrobka za brakujący PLIK** — 404 na `/employees/{id}/files` to odpowiedź o osobie, 404 na pobraniu pliku tylko o pliku, a pomylenie tych poziomów oznaczałoby oznaczanie profili jako usunięte z powodu jednego nieudanego załącznika; (3) **nie utrwala pomyłki** — upsert kandydata czyści znacznik, więc powrót w żywym feedzie `/employees/` kasuje nagrobek (bez tego pojedyncze 404 przy chwilowej awarii Traffita zostawiałoby trwałe kłamstwo). Warunek `external_deleted_at IS NULL` w UPDATE sprawia, że znacznik zapamiętuje **pierwszą** obserwację zniknięcia — inaczej data mówiłaby „kiedy ostatnio sprawdzaliśmy", a licznik `tombstoned` rósłby w nieskończoność zamiast odpowiadać, czy zniknęło coś **nowego**.
+- **Ochrona dopisana do JEDNEJ ścieżki zapisu kandydata nie działa** (18.09.2026). Importer ma dwie gałęzie: `_UPSERT_CANDIDATE` (po `(external_source, external_id)`) i `_UPDATE_CANDIDATE_ADOPT` (po MAILU). **Produkcja chodzi drugą** — `email_to_id` jest budowane BEZ filtra `external_source`, więc kandydat już zaimportowany dopasowuje się sam do siebie po mailu. Czyszczenie nagrobka i lepka blacklista były wyłącznie w upsercie, więc: raz postawiony nagrobek nie znikał NIGDY (74 wiersze, w tym DWÓCH pracujących konsultantów niewidocznych dla automatu zamówień z maila — ten filtruje `external_deleted_at IS NULL`, więc jednemu założyłby drugiego kandydata i drugi kontrakt, a drugiemu podpiąłby zamówienie pod imiennika), a blacklista założona w NEXUSIE byłaby zdejmowana przy najbliższym syncu. Obie gałęzie mają teraz obie ochrony; pilnuje tego `test_traffit_adopt_path_protections.py`. **Dokładając cokolwiek do jednej z nich, sprawdź drugą.** Znany, nienaprawiony dług tej samej klasy: adopt przepisuje `cv_extracted_data.legacy_source` na `'traffit'` przy każdym biegu, niszcząc atrybucję pochodzenia, którą deklaruje zachowywać.
 - **Health:** `/api/health.checks.traffit` = `unconfigured` (off) / `misconfigured` (brak secretów) / `degraded` (włączony, brak świeżego runu / errors) / `healthy` (ostatni `__daily__` < 36h, status ok). **To sonda ŚWIEŻOŚCI, nie kompletności** — `healthy` nie znaczy, że dane się zgadzają z Traffitem (tak właśnie luka w plikach/CV żyła miesiącami przy zielonym healthu).
 - **Błędy WIERSZY faz wzbogacania są doradcze (od 11.09.2026):**
   `candidates_enrich_names`, `candidates_cv_fields` i `cortex` — błąd pojedynczego
@@ -1882,14 +1930,23 @@ blokad. Razem z przełącznikiem „Rekrutacja prowadzona w NEXUSIE" (sekcja
 Traffit) to warunek przenoszenia zespołu z Traffita falami. Nie przywracaj
 żadnej z bramek bez decyzji właściciela.
 
-- **Brak karty „Oczekuje".** Bramkę wyłącza flaga `PENDING_VERIFICATION_ENABLED`
-  (domyślnie `False`, #1593 — sekcja „Narzędzia rekrutera"); przy wyłączonej
-  fladze ruch na „Zweryfikowany" daje `active`, a korekta stawki
+- **Brak karty „Oczekuje".** Bramka jest USUNIĘTA z kodu (18.09.2026; do tego
+  dnia wyłączała ją flaga — nazwa w raportach z 17.09.2026, #1593; stara
+  zmienna w Coolify jest nieszkodliwa, `Settings` ignoruje nieznane env).
+  Ruch na „Zweryfikowany" daje `active`, stawka jest
+  OPCJONALNA (jej brak to 200, nie 422), a korekta stawki
   (`update_latest_expected_rate`) NIGDY nie ustawia `pending` i sama aktywuje
-  stary wiersz `pending`. Stawka jest OPCJONALNA (bez niej 200; 422 tylko przy
-  włączonej fladze). `budget_max_at_move` zostaje jako snapshot. Stare wiersze
-  zalicza `pending_verification_promotion.py` (nie ma osobnej migracji).
-  Kredyt KPI pierwszego weryfikatora trafia od razu przy ruchu.
+  stary wiersz `pending`. `budget_max_at_move` zostaje jako snapshot. Kredyt
+  KPI pierwszego weryfikatora trafia od razu przy ruchu. **Tras kolejki
+  akceptacji nie ma** (`/pending-verifications`, `accept-verification`,
+  `reject-verification`) — pilnuje tego test czytający `app.routes`, nie HTTP
+  404. Stare wiersze zalicza jednorazowo `pending_verification_promotion.py`
+  (blok w `entrypoint.sh`, nie ma osobnej migracji) — idempotentny, zostaje na
+  potrzeby świeżej instalacji i odtworzenia bazy. W bazie zostaje wartość
+  `pending` w enumie `verificationstatus` (`ALTER TYPE … DROP VALUE`
+  w Postgresie nie istnieje) i typ powiadomienia `pending_verification` —
+  historycznych wierszy i powiadomień nikt nie kasuje, a `/pending-verifications`
+  nadal przekierowuje na `/jobs`. Żaden writer ich już nie tworzy.
 - **„Ponad budżet" to odznaka, nie stan.** Liczona na froncie
   (`lib/rate-to-hourly.ts`) ze stawki na karcie względem
   `effective_budget_hourly` rekrutacji (dzień ÷ 8, miesiąc ÷ 168, waluta ≠ PLN
@@ -2394,6 +2451,31 @@ nie ma żadnej reguły do utrzymania.
   co zapis, więc bez duplikatów. Do adminów świadomie nie idzie (jak #1394).
 - **Migracja uruchamiana przez `text()` nie może zawierać `:słowo`** (SQLAlchemy
   zrobi z tego parametr) — czas przez `make_timestamptz(...)`, nie literał.
+
+## Usunięcie zamówienia przecenia historię — dialog musi to powiedzieć (18.09.2026)
+
+- **`ContractClientRate.source_order_id` ma `ondelete=CASCADE`.** Komentarz przy
+  kolumnie zawęża intencję do SZKICU, ale `delete_order` kasuje od #1594
+  w KAŻDYM statusie, więc razem z zamówieniem znika krok harmonogramu stawki
+  klienta. `Contract._resolve_scheduled_rate` przy braku kroku obowiązującego
+  sięga po NAJBLIŻSZY PRZYSZŁY — miesiące historyczne dostają wtedy stawkę,
+  której wtedy nie było. Na produkcji: 99 zamówień ma własny krok, 31
+  kontraktów ma ich więcej niż jeden, 5 z różnymi kwotami (kontrakt 167:
+  usunięcie zamówienia 351 przecenia III–VIII z 185,00 na 178,00 zł/h).
+- **Skutki liczy SERWER** (`GET /api/clients/{c}/orders/{o}/delete-preview`,
+  wyłącznie odczyt) — front nie zgaduje, bo reguła wyboru stawki zastępczej
+  żyje w modelu kontraktu i rozjechałaby się przy pierwszej jej zmianie.
+  Kwoty redagowane jak wszędzie w module (`_can_see_finance`): rola bez
+  finansów widzi, ŻE okres się przeceni, i od kiedy — bez kwot.
+- **Dialog zamiast `window.confirm`** (`components/orders/DeleteOrderDialog.tsx`,
+  zdania w `lib/order-delete-consequences.ts`). Stary tekst obiecywał „umowa
+  tej osoby nie zmieni się" i był nieprawdą; przy okazji natywny dialog
+  ZAMRAŻA automatyzację przeglądarki, więc tej ścieżki nie dało się przeklikać.
+  Zdanie „nic się nie zmieni" pada wyłącznie wtedy, gdy lista skutków jest
+  pusta. Dopóki podgląd się nie wczytał, przycisk „Usuń" jest wyłączony:
+  „nie wiem" nie jest tym samym co „nic się nie stanie".
+- Rozliczenia nadal blokują usunięcie (409, `settlement_blockers`) — dialog
+  tylko mówi to WCZEŚNIEJ i nazywa, co by przepadło.
 
 ## Zamówienia wielo-konsultantowe (BIK / Polkomtel / BNP) + import zużycia MD
 
@@ -3916,12 +3998,27 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   - **Backend zwraca WYŁĄCZNIE liczby.** Delta, „Ocena" i wiersz podsumowania
     to czysta arytmetyka w `frontend/src/lib/insights-yoy.ts` — testowana na
     wartościach, nie na zrzucie ekranu.
-  - **Każda metryka niesie `aggregate`** (`sum` dla przepływów, `avg` dla
-    stanów i wskaźników) oraz `lower_is_better`. Bez pierwszego widok
-    potrzebuje własnej listy „co się sumuje", czyli drugiego lustra tej wiedzy
-    — w DynaReporterze go nie było i wiersz „Suma" pod kolumną procentów
-    pokazywał 874%. Bez drugiego wzrost zejść i kosztów dostaje zieloną
-    strzałkę w górę, czyli komunikat odwrotny do prawdy.
+  - **Każda metryka niesie `aggregate`** (`sum` przepływy, `avg` stany,
+    `ratio` wskaźniki, `distinct` liczności zbioru) oraz `lower_is_better`.
+    Bez pierwszego widok potrzebuje własnej listy „co się sumuje", czyli
+    drugiego lustra tej wiedzy — w DynaReporterze go nie było i wiersz „Suma"
+    pod kolumną procentów pokazywał 874%. Bez drugiego wzrost zejść i kosztów
+    dostaje zieloną strzałkę w górę, czyli komunikat odwrotny do prawdy.
+  - **Wskaźnik za rok liczy się OD NOWA: Σlicznik / Σmianownik** (od 18.09.2026).
+    Średnia dwunastu miesięcznych procentów to ŚREDNIA ILORAZÓW, a mianowniki
+    miesięcy różnią się pięciokrotnie — miesiąc z 9 zamkniętymi rekrutacjami
+    ważył tyle samo co miesiąc z 200. Zmierzone na produkcji: hit ratio 2024
+    pokazywane 14,57% przy realnych 17,4% (134/770), 2025 — 16,58% przy
+    realnych 14,5% (195/1342); delta zmieniała ZNAK (+2,0 pp „Lepiej" zamiast
+    −2,9 pp „Gorzej"). Dlatego `ratio` niesie `components` (klucze licznika
+    i mianownika), a odpowiedź osobne `component_series` — to NIE są wiersze
+    tabeli. Nowy wskaźnik bez składowych = błąd kontraktu, nie brak danych
+    (`test_insights_board_yoy.py`).
+  - **Liczności zbioru (`unique_clients`) nie da się złożyć z miesięcy żadnym
+    działaniem** — klient obsłużony w marcu i w lipcu to jeden klient.
+    DynaReporter pokazywał 4,33 / 6,75 / 8,63 przy realnych 18 / 23 / 25.
+    Rok przychodzi gotowy w `yearly`; wiersze miesięcy zostają miesięczne,
+    bo to prawda o miesiącu. Porównania YTD ta metryka NIE ma — rok jest rokiem.
   - **Miesiąc PRZYSZŁY to `null`, miesiąc BIEŻĄCY jest oznaczony**
     (`partial_month`). Zera w kolumnie bieżącego roku czytają się jak awaria,
     a siedem dni danych — jak załamanie wyniku.
@@ -4266,6 +4363,25 @@ a testy na PostgreSQL — że `location`, `q_all`, `q_any`, `q_none` miały ten 
   Pilnuje `test_nul_guard_sits_inside_cors_and_outside_the_unhandled_error_net`.
   Nie dokładaj `pattern=` NUL do kolejnych parametrów; ten przy `q` zostaje, bo
   opisuje kontrakt w OpenAPI, z którego generator Schemathesis bierze wartości.
+- **Publiczny formularz aplikacyjny stawia odmowę PRZY POLU** (18.09.2026):
+  `lib/apply-form-errors.ts` mapuje `loc: ["body", <pole>]` na komunikat obok
+  inputa, a `status` wraca do `idle` — kandydat poprawia i wysyła ponownie
+  z tym samym CV. Wcześniej `body.detail` szło wprost do JSX: dla błędu
+  walidacji `Form(...)` to TABLICA obiektów → React #31 → granica błędu zjadała
+  całą stronę razem z wypełnionym formularzem i załączonym plikiem, a kandydat
+  nie dowiadywał się, że chodziło o e-mail (zod 4 przyjmuje `jan@firma-.pl`,
+  `EmailStr` odrzuca — ta rozbieżność ZOSTAJE, dlatego komunikat musi być
+  konkretny). Strażnik `api-error-detail-guard.test.ts` nie wymaga już nazwy
+  `data` (to ona przepuściła `body.detail`); świadomy wyjątek dla własnego
+  endpointu z `detail: string` znaczy się markerem `// api-detail-ok: <powód>`.
+- **Harness `/preview/*` ma zasiany KAŻDY stały klucz react-query**
+  (`app/preview/__tests__/harness-seeds.test.ts`). Klucz, który się rozjechał
+  z komponentem, uruchamia `queryFn` → 401 → przerzut na `/login`, czyli
+  harness przestaje pokazywać cokolwiek — tak przestał działać
+  `/preview/contracts-consolidation`, gdy `AddProjectDialog` dołożył do klucza
+  klientów drugi element. Strażnik pomija `invalidateQueries` (nie pobiera) i
+  klucze z parametrami (zależą od stanu), a komentarze wycina przed
+  porównaniem — inaczej klucz wymieniony w komentarzu uciszałby go sam.
 - **`detail` z FastAPI nigdy nie jest „na pewno stringiem"** — bywa obiektem
   albo tablicą walidacji. Tekst błędu do stanu, toasta lub alertu budujesz
   wyłącznie przez `apiErrorMessage(error, fallback)` z `@/lib/api-error`
@@ -4283,15 +4399,16 @@ Audyt `docs/recruiter-tools-audit-2026-09-17.md`, raport z poprawek
 `docs/recruiter-tools-fixes-completion-report.md`. Decyzje Artura, które łatwo
 cofnąć „przy okazji”:
 
-- **Bramka „Pending” wyłączona** (`PENDING_VERIFICATION_ENABLED=False`). Ruch na
-  „Zweryfikowany” ze stawką ponad budżet przechodzi jako `active`, a przekroczenie
-  jedzie na kartę jako informacja (`budget_exceeded`, odznaka „ponad budżet”).
-  Trasy akceptacji/odrzucenia i `/pending-verifications` odpowiadają 404, UI
-  kolejki usunięte (`/pending-verifications` → 308 na `/jobs`). Stare wiersze
-  `pending` zalicza jednorazowo `pending_verification_promotion.py` (blok
-  w `entrypoint.sh`, znacznik `pending_verification_promotion_2026_09_17`): status
-  `active` + `record_accepted_verification`, `approved_by` puste. Samo `True`
-  w Coolify NIE przywraca bramki — frontend akceptacji trzeba odtworzyć.
+- **Bramka „Pending” USUNIĘTA** (wyłączona 17.09.2026, kod skasowany 18.09.2026
+  — szczegóły w sekcji „Kanban bez bramek”). Ruch na „Zweryfikowany” ze stawką
+  ponad budżet przechodzi jako `active`, a przekroczenie jedzie na kartę jako
+  informacja (`budget_exceeded`, odznaka „ponad budżet”). Trasy akceptacji /
+  odrzucenia i `/pending-verifications` nie istnieją, UI kolejki usunięte
+  (`/pending-verifications` → 308 na `/jobs`, bo stare powiadomienia w bazie
+  nadal tam linkują). Stare wiersze `pending` zalicza jednorazowo
+  `pending_verification_promotion.py` (blok w `entrypoint.sh`, znacznik
+  `pending_verification_promotion_2026_09_17`): status `active`
+  + `record_accepted_verification`, `approved_by` puste.
 - **Head of Recruitment = parytet z rekruterem.** HoR jest w `RecruiterPlus`,
   `CANDIDATE_WRITE_ROLES` i zbiorach `recruitment_access` (ruchy, notatki,
   przypisania, pliki, kalendarz). Front bramkuje zapis na profilu capability
@@ -4322,6 +4439,22 @@ cofnąć „przy okazji”:
   Warsaw jak `ix_notif_dedup_daily` i zapisuje w savepoincie; `own_unread_count`
   steruje „Oznacz wszystko” (oznacza tylko własne); odświeżenia dzwonka po
   wiadomościach czatu są zlewane (`CHAT_REFRESH_COALESCE_MS`).
+- **Powiadomienie z triggera ma JEDNĄ bramkę odbiorcy i JEDEN helper
+  rekrutacji (od 18.09.2026).** `emit()` w `notification_triggers.py` pyta
+  `notification_recipient_has_access` (`is_active` + polityka sekcji) — to
+  jedyne wąskie gardło wszystkich producentów, więc nowy trigger nie ma jak go
+  obejść; sprawdzanie per trigger rozjeżdża się przy pierwszym dopisanym.
+  Mierzone przed zmianą: 10,5% powiadomień z 90 dni szło na konta NIEAKTYWNE
+  (`stage_stuck_7d` w 30 dni: 1 701 do 4 kont nieaktywnych vs 903 do 3
+  aktywnych), a konta dezaktywowane odtwarza nocny sync Traffita i nadal bywają
+  właścicielami rekrutacji, więc to się nie naprawiało samo. Konsekwencja:
+  **typ spoza `NOTIFICATION_SECTION_BY_TYPE` jest teraz odrzucany przy ZAPISIE**
+  (dotąd zapisywał się i był niewidoczny dopiero przy odczycie) — pilnuje tego
+  kontrakt w `test_notification_fanout.py`. Rekrutacje czyta wyłącznie
+  `_open_jobs_by_id` (`status == published`); nieprzefiltrowany `_jobs_by_id`
+  USUNIĘTY, bo to rozwidlenie było przyczyną: poprawka z 17.09 objęła jedną
+  z dwóch gałęzi i `dl_stage_stale_6h` uzbierał 52 263 powiadomienia, z tego
+  59,3% o rekrutacjach ZAMKNIĘTYCH, przeczytane: 1.
 - **`GET /api/cv-generator/clients/{id}/rule-for-generation`** (bramka
   `CandidateWriteAccess`) zwraca notatkę i instrukcje DL tylko przy
   `can_view_knowledge` klienta — reszta roli dostaje same wymogi formularza.

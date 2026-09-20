@@ -97,7 +97,6 @@ const PRIVATE_ROUTES = [
   "/my-clients",
   "/my-relationships",
   "/cv-generator",
-  "/pending-verifications",
   "/onboarding",
   "/seeking",
   "/help",

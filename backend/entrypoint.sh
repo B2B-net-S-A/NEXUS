@@ -7113,6 +7113,15 @@ _CONSTRAINT_STATEMENTS = [
 # ix_delivery_lead_client_assignments_delivery_lead_user_id. Dopisywanie ich
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
+    # 0326: darmowe sito duplikatów w `/from-cv` pyta „czy KTOKOLWIEK ma już
+    # dokument o tych bajtach". Indeks z 0173 jest na `(candidate_id, sha)`,
+    # więc lookup po samym skrócie schodziłby na skan ~96 tys. wierszy w gorącej
+    # ścieżce uploadu. Częściowy, bo `content_sha256` mają dziś tylko dokumenty
+    # `from_cv`/`manual`/`m365` (~1000); te z Traffita (93 945) mają NULL.
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+    "ix_candidate_documents_sha256 "
+    "ON candidate_documents (content_sha256) "
+    "WHERE content_sha256 IS NOT NULL AND source_deleted_at IS NULL",
     # 0249: pending MD decisions and their durable DL alerts.
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
     "ix_client_order_offboarding_cases_id "
@@ -7925,14 +7934,15 @@ asyncio.run(repair())
 PY
 
 # Weryfikacje „Pending" (17.09.2026) — jednorazowo: bramka akceptacji stawki
-# ponad budżet jest wyłączona, a UI akceptacji usunięte, więc karty zapisane
-# wcześniej jako `pending` zostają zaliczone tak, jak zrobiłaby to ręczna
-# akceptacja (status `active` + zaliczenie pierwszego weryfikatora). Logika ORM
-# w `app/services/pending_verification_promotion.py`; marker w `app_settings`
-# + advisory lock → drugi start kończy się natychmiast. Przy włączonej bramce
-# (`PENDING_VERIFICATION_ENABLED=true`) blok nic nie robi. Log: same liczby.
+# ponad budżet została USUNIĘTA, więc karty zapisane wcześniej jako `pending`
+# zostają zaliczone tak, jak zrobiłaby to ręczna akceptacja (status `active`
+# + zaliczenie pierwszego weryfikatora). Logika ORM w
+# `app/services/pending_verification_promotion.py`; marker w `app_settings`
+# + advisory lock → drugi start kończy się natychmiast. Na produkcji wykonane
+# 17.09.2026; blok ZOSTAJE, bo świeża instalacja i odtworzenie bazy z kopii
+# sprzed tej daty nadal go potrzebują. Log: same liczby.
 startup_phase "repair-pending-verification-promotion"
-echo "Pending verifications: one-shot promotion to active (gate disabled)..."
+echo "Pending verifications: one-shot promotion to active (gate removed)..."
 python - <<'PY' || echo "pending verification promotion skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem

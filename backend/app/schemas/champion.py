@@ -89,7 +89,13 @@ class ChampionBasics(BaseModel):
     # w którym ma być napisane CV — ten stoi w `ClientCvRule.cv_language`, jest
     # per klient i to jego słucha generator. Dwa różne fakty, dwa różne pola;
     # zlanie ich dałoby drugie źródło prawdy obok tego, które naprawdę działa.
-    language: Optional[str] = Field(default=None, max_length=50)
+    #
+    # BEZ `max_length` — jak `client.cv_language` niżej. `prepare_profile`
+    # przycina to pole (`text_limits`), ale WYŁĄCZNIE gdy jest w zbiorze
+    # `dirty`, więc profil z importu, którego nikt nie edytował, nosi wartość
+    # dłuższą niż 50 znaków w nieskończoność (najdłuższa na produkcji: 83).
+    # Limit wywracał wtedy sam odczyt profilu. Audyt 18.09.2026.
+    language: Optional[str] = None
     start_date: Optional[str] = Field(default=None, max_length=100)
     # Termin na dostarczenie kandydatów DO TEJ oferty. Osobno od KPI klienta
     # („mamy 5 dni roboczych"), bo tamto opisuje tempo, a to konkretną datę.
@@ -197,8 +203,19 @@ class ChampionClient(_NullTolerantSection):
     # From `client_standards` in the parsed document.
     priority_rules: str = ""
     offlimit: Optional[bool] = None
-    contract_type: Optional[str] = Field(default=None, max_length=120)
-    cv_language: Optional[str] = Field(default=None, max_length=50)
+    # BEZ `max_length` — celowo, ta sama zasada co przy `ChampionProject.about`.
+    #
+    # Oba pola są hoistowane z `client_standards` przez
+    # `migrate_legacy_champion_shape`, czyli POWSTAJĄ dopiero przy odczycie,
+    # już po sanityzacji w `champion_intake.prepare_profile`. Żaden guard ich
+    # więc nie przycina, a parser AI z 08.2026 wpisywał tam prozę („CV po polsku
+    # oraz po angielsku…", 102 znaki). Limit oznaczał, że 83 rekrutacje
+    # (19 opublikowanych, 2 665 kandydatów w pipeline'ach) zwracały 500 na
+    # KAŻDYM odczycie i na KAŻDYM zapisie — a `prepare_profile` normalizuje
+    # tylko pola ZMIENIONE, więc nietknięta wartość nie naprawiała się nigdy
+    # i rekrutacji nie dało się zapisać ani sklonować. Audyt 18.09.2026.
+    contract_type: Optional[str] = None
+    cv_language: Optional[str] = None
     # Ex-`internal_consultant_insight`: what our person already at the client says.
     consultant_insight: str = ""
     # Ex-`historical_client_questions`: what this client has asked before.
@@ -511,6 +528,27 @@ def migrate_legacy_champion_shape(data: Any) -> Any:
         "contract_length",
     ):
         _fill(basics, key, out.pop(key, None))
+
+    # 1b. Liczby całkowite zapisane jako ułamek — ucinamy zamiast odrzucać.
+    #
+    # Parser zapisywał „2,5 roku doświadczenia" jako `2.5`, a pół dnia w biurze
+    # jako `0.5`. Pydantic odrzuca `float` na polu `int` (`int_from_float`),
+    # więc pięć rekrutacji na produkcji wywracało cały odczyt profilu.
+    #
+    # UCINAMY W DÓŁ, nie zaokrąglamy do najbliższej — bo oba pola są wejściem
+    # do bramek, które UKRYWAJĄ kandydatów, a repo trzyma zasadę „nieznane
+    # przechodzi": `onsite_days_per_week` steruje `requires_office_days`
+    # (`days > 0`) i `office_days_exceeded`, a `seniority_min_years` karą za
+    # seniority. Zaokrąglenie `0.5 → 1` zaostrzyłoby bramkę na podstawie
+    # wartości, której nikt świadomie nie wpisał; `0.5 → 0` najwyżej jej nie
+    # zaostrza. Przy okazji `round()` w Pythonie jest bankierskie
+    # (`round(0.5) == 0`, ale `round(2.5) == 2`) — niespójne w obie strony.
+    # `ge`/`le` na polach nadal obowiązują. Audyt 18.09.2026.
+    for key in ("seniority_min_years", "onsite_days_per_week"):
+        value = basics.get(key)
+        if isinstance(value, float) and not isinstance(value, bool):
+            basics[key] = int(value)
+
     out["basics"] = basics
 
     legacy_ctx = out.pop("project_context", None) or {}

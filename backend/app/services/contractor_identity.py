@@ -207,8 +207,10 @@ class ContractorHeadcount:
     active_contracts: int
 
 
-def is_current_contract(contract: Any, today: date) -> bool:
-    """Kontrakt, który JUŻ obowiązuje: data startu wpisana i nie późniejsza niż dziś.
+def is_current_contract(
+    contract: Any, today: date, *, fallback_start: date | None = None
+) -> bool:
+    """Kontrakt, który JUŻ obowiązuje. Pusta data startu = start NIEZNANY.
 
     Jedna reguła dla WSZYSTKICH powierzchni liczących „dzisiejsze" kontrakty
     (profil klienta, zakładka Analityka, ranking Rady, przegląd admina) —
@@ -217,10 +219,31 @@ def is_current_contract(contract: Any, today: date) -> bool:
     samego klienta nadal je liczyły, więc ta sama kwota różniła się między
     zakładkami. Ta sama reguła co licznik w katalogu (`client_directory.py`).
     Statusu nie ocenia — o zakończeniu decyduje umowa (`Zakończeni`).
+
+    **Pusta data startu przestała znaczyć „planowany" (audyt 18.09.2026.)**
+    Pierwsza wersja reguły sprawdzała ``start is not None and start <= today``,
+    więc kontrakt bez daty startu lądował w tym samym kubełku co kontrakt
+    zaczynający się za miesiąc. Zmierzone u klienta 15: trzy AKTYWNE kontrakty
+    z żywymi liniami zamówień (474, 475, 476) siedziały w „Planowanych",
+    a kafel obok deklarował komplet (``active_mrr = 11 968``,
+    ``unpriced = 0``) — poza MRR zostało 13 920 PLN/mc, czyli **54% realnej
+    marży klienta**, i nic na ekranie o tym nie mówiło.
+
+    „Planowany" to twierdzenie o PRZYSZŁOŚCI i wymaga daty, która jeszcze nie
+    nadeszła. Brak daty jest brakiem wiedzy — a konsultant, który pracuje, nie
+    przestaje pracować dlatego, że ktoś nie wpisał dnia rozpoczęcia.
+
+    ``fallback_start`` pozwala wołającemu podstawić datę, którą już zna
+    (np. początek reprezentatywnego zamówienia): kontrakt bez własnej daty,
+    ale z zamówieniem startującym dopiero za tydzień, jest planowany naprawdę.
     """
 
     start = getattr(contract, "start_date", None)
-    return start is not None and start <= today
+    if start is None:
+        start = fallback_start
+    if start is None:
+        return True
+    return start <= today
 
 
 def current_contracts(contracts: Iterable[Any], today: date) -> list[Any]:

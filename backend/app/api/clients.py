@@ -43,7 +43,7 @@ from app.services.client_identity import (
     visible_client_predicates,
 )
 from app.services.contractor_identity import (
-    current_contracts as current_contracts_for,
+    is_current_contract as is_current_contract_for,
     summarize_active_contracts,
 )
 from app.schemas.client_executive_contract import ExecutiveContractBrief
@@ -683,8 +683,21 @@ async def get_client_profile(
     # startu jedzie OSOBNO jako planowany: nie wchodzi do „Aktywnego MRR" ani
     # do liczby obecnych, ale nie znika z profilu (UAT B46). Statusu nie
     # ruszamy — o zakończeniu decyduje umowa (patrz „Zakończeni" w CLAUDE.md).
-    current_contracts = current_contracts_for(active_contracts, today)
-    current_contract_ids = {c.id for c in current_contracts}
+    # Kontrakt bez własnej daty startu pyta o nią swoje zamówienie: aktywna
+    # umowa z żywą linią zamówienia JEST bieżąca (audyt 18.09.2026 — trzy takie
+    # kontrakty u jednego klienta trzymały 54% jego marży poza „Aktywnym MRR"),
+    # ale umowa bez daty, której zamówienie startuje dopiero za tydzień,
+    # zostaje planowana.
+    current_contract_ids = {
+        c.id
+        for c in active_contracts
+        if is_current_contract_for(
+            c,
+            today,
+            fallback_start=getattr(_representative_order(c, today), "start_date", None),
+        )
+    }
+    current_contracts = [c for c in active_contracts if c.id in current_contract_ids]
 
     # Stawki liczone z HARMONOGRAMÓW, nie z kolumn `contracts.rate_*`.
     # Kolumna niesie wartość zapisaną przy ostatnim zapisie kontraktu, więc

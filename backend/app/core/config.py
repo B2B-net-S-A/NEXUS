@@ -423,16 +423,6 @@ class Settings(BaseSettings):
     # `scoring_service._SCORING_CACHE_INPUTS` (dealbreakery działają PO
     # scoringu, nie zmieniają punktacji, którą cache przechowuje).
     RUBRIC_DEALBREAKERS_ENABLED: bool = True
-    # Bramka „Pending" (stawka ponad budżet przy ruchu na „Zweryfikowany").
-    # Decyzja Artura 17.09.2026: WYŁĄCZONA całkowicie — ruch zawsze przechodzi,
-    # stawka jest zapisana, a przekroczenie budżetu jedzie na kartę wyłącznie
-    # jako informacja (`budget_exceeded`). Przy `False` trasy akceptacji /
-    # odrzucenia i lista `/pending-verifications` odpowiadają 404, a żaden
-    # writer nie stawia `verification_status=pending`. Kod bramki backendu
-    # zostaje, ale UI akceptacji/odrzucenia i kolejki zostało USUNIĘTE —
-    # samo `True` da tablicy 409 na kartach Pending bez sposobu ich
-    # rozwiązania. Ponowne włączenie wymaga przywrócenia frontendu.
-    PENDING_VERIFICATION_ENABLED: bool = False
     # Rozmiar puli trybu semantycznego w RĘCZNEJ wyszukiwarce kandydatów.
     # To jednocześnie SUFIT liczby wyników, którą widzi rekruter, i liczba
     # dokumentów wysyłanych do rerankera Voyage przy KAŻDYM żądaniu strony
@@ -457,6 +447,13 @@ class Settings(BaseSettings):
     TALENT_RADAR_STRUCTURED_SKILLS_ENABLED: bool = False
     QDRANT_PASSAGES_COLLECTION: str = "nexus_cv_passages"
     CV_ENRICHMENT_ENABLED: bool = True  # kill-switch without redeploy
+    # Darmowe sito duplikatów przed płatnym odczytem CV (`/from-cv`, 18.09.2026).
+    # Wyłącznik istnieje, bo sito czyta e-mail i telefon REGEXEM z nagłówka, a nie
+    # modelem: fałszywe trafienie odmawia 409 i `BulkImportCVsV2` nie ma wtedy
+    # przycisku „zapisz mimo wszystko" (ma go tylko AddCandidateFromCVModal).
+    # Wyłączenie wraca do zachowania sprzed zmiany — płacimy za odczyt każdego
+    # duplikatu, ale nikt nie jest zablokowany.
+    FROM_CV_SIEVE_ENABLED: bool = True
     # Okno tekstu CV dla pełnego odczytu (prompt v7). Dłuższe CV jest cięte
     # 70% początek / 30% koniec, bo wykształcenie i certyfikaty są na końcu.
     CV_PARSER_INPUT_CHAR_CAP: int = 24_000

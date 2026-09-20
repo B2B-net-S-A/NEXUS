@@ -328,6 +328,22 @@ describe("url-filters", () => {
     expect(decoded.sentToClientTo).toBe("");
   });
 
+  it("does not send a q shorter than 2 characters (backend answers 422)", () => {
+    // Do 09.2026 backend po cichu pomijał taki filtr i zwracał CAŁĄ bazę
+    // (62 243 kandydatów) z kodem 200. Teraz odpowiada 422 (`min_length=2`,
+    // jak `/api/search/global`), więc pole nie może wysyłać pierwszej litery
+    // w trakcie pisania.
+    expect(filtersToApiParams({ ...DEFAULT_FILTERS, q: "a" }, 1).q).toBeUndefined();
+    expect(filtersToApiParams({ ...DEFAULT_FILTERS, q: "%" }, 1).q).toBeUndefined();
+    expect(filtersToApiParams({ ...DEFAULT_FILTERS, q: " x " }, 1).q).toBeUndefined();
+  });
+
+  it("sends a q of 2 characters or more unchanged", () => {
+    expect(filtersToApiParams({ ...DEFAULT_FILTERS, q: "ja" }, 1).q).toBe("ja");
+    // Spacje zostają — backend sam je przycina; guard liczy tylko długość.
+    expect(filtersToApiParams({ ...DEFAULT_FILTERS, q: " jan " }, 1).q).toBe(" jan ");
+  });
+
   it("maps the sent-to-client range to backend params", () => {
     const params = filtersToApiParams(
       { ...DEFAULT_FILTERS, sentToClientFrom: "2026-06-01", sentToClientTo: "" },

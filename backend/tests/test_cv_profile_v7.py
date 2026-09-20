@@ -130,7 +130,13 @@ def test_v7_prompt_asks_for_the_full_profile_and_bulk_template_is_untouched():
     bulk = CV_ENRICHMENT_BULK.render(cv_text="x")
     assert '"certifications"' not in bulk
     assert _max_tokens_for(CV_ENRICHMENT_BULK) == 3000
-    assert _max_tokens_for(CV_ENRICHMENT) == 6000
+    # 8000 od 18.09.2026 (było 6000). Zmierzone na produkcji 16–18.09: 52
+    # wywołania `outcome='truncated'` ($3,64) przy średnim wyjściu 5885 tokenów,
+    # czyli tuż pod dawnym sufitem — normalne CV, nie monstrualne. Ucięta
+    # odpowiedź jest zapłacona i bezużyteczna (JSON się nie parsuje, ścieżka
+    # spada do regexu). Bieg masowy zostaje przy 3000 — jego prompt nie prosi
+    # o pola generatywne, więc tam sufit nie był problemem.
+    assert _max_tokens_for(CV_ENRICHMENT) == 8000
 
 
 def test_long_cv_keeps_its_tail_for_the_rich_read_only():

@@ -144,13 +144,15 @@ class CandidateStageResponse(BaseModel):
 
     # ── Stawka z ruchu na „Zweryfikowany" (0056) ─────────────────────────
     # `verification_status` zostaje w odpowiedzi, ale od 17.09.2026 ruch
-    # nigdy nie ustawia `pending` (migracja 0323 odblokowała stare wiersze).
+    # nigdy nie ustawia `pending` (migracja 0323 odblokowała stare wiersze,
+    # a bramka „Oczekuje" została usunięta z kodu). Wiersz historyczny
+    # `pending` jest raportowany jako `active`.
     verification_status: VerificationStatus = VerificationStatus.active
     expected_rate_value: Optional[Decimal] = None
     expected_rate_unit: Optional[RateUnit] = None
     expected_rate_currency: Optional[str] = None
     budget_max_at_move: Optional[int] = None
-    # Informacja (decyzja 17.09.2026, bramka „Pending" wyłączona): stawka
+    # Informacja (decyzja 17.09.2026, bramka „Oczekuje" usunięta): stawka
     # zapisana przy ruchu przekracza budżet zamrożony na etapie. Karta na
     # tablicy pokazuje odznakę „ponad budżet"; nic nie blokuje.
     budget_exceeded: bool = False
@@ -165,41 +167,6 @@ class CandidateStageResponse(BaseModel):
     # akceptacji. `None` = nie zapisano; `pending` to JAWNA wartość znacząca
     # „czekamy na odpowiedź" — dlatego nie da się jej udawać brakiem pola.
     candidate_offer_response: Optional[CandidateOfferResponse] = None
-
-    model_config = {"from_attributes": True}
-
-
-class PendingVerificationReject(BaseModel):
-    """Body dla POST /pipeline/{stage_id}/reject-verification.
-
-    `note` jest wymagana, żeby recruiter zobaczył dlaczego zostało odrzucone
-    (trafia do notatki nowego CandidateStage z poprzednim stage'em).
-    """
-
-    note: str = Field(..., min_length=1, max_length=1000)
-
-
-class PendingVerificationListItem(BaseModel):
-    """Wiersz listy /pipeline/pending-verifications dla approverów."""
-
-    candidate_stage_id: int
-    candidate_id: int
-    candidate_name: str
-    job_id: int
-    job_title: str
-    expected_rate_value: Optional[Decimal] = None
-    expected_rate_unit: Optional[RateUnit] = None
-    expected_rate_currency: Optional[str] = None
-    budget_max_at_move: Optional[int] = None
-    # M4 PR-02 (audyt P0.5): approver widzi porównanie w JEDNEJ jednostce —
-    # stawka znormalizowana do PLN/mc (168h/21d) albo None + nota, czemu
-    # wymagany jest manual review (waluta ≠ PLN / nieznana jednostka).
-    normalized_monthly_value: Optional[Decimal] = None
-    normalization_note: Optional[str] = None
-    moved_at: datetime
-    moved_by: Optional[int] = None
-    moved_by_name: Optional[str] = None
-    notes: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

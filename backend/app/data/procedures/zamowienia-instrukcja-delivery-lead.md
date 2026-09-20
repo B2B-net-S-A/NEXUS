@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 17.09.2026
+> **Zgodność z systemem sprawdzona:** 18.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -223,11 +223,24 @@ niczego dzisiaj** — zamówienie obowiązuje do jej nadejścia.
 
 Trzecia akcja, **Usuń zamówienie** (kosz — przy bieżącym zamówieniu na karcie
 i przy każdym zamówieniu przyszłym oraz historycznym), służy do wycofania
-**pomyłki**: kasuje trwale **tylko to jedno zamówienie**. Umowa, jej status
+**pomyłki**: kasuje trwale **tylko to jedno zamówienie**. Status umowy
 i pozostałe zamówienia tej osoby (także linia na zamówieniu MD lub kosztowym)
 zostają nietknięte. Zamówienia z rozliczeniami (zaraportowane MD, zaimportowane
 faktury) system nie usunie — odmówi i wskaże, co blokuje; wtedy właściwą akcją
 jest **Zakończ zamówienie**.
+
+**Jedna rzecz na umowie jednak się zmienia i okno powie Ci o tym wprost.**
+Zamówienie, które wprowadziło stawkę klienta, niesie ze sobą **krok
+w harmonogramie stawek** tej umowy. Razem z zamówieniem znika ten krok, więc
+okres, który dotąd był po jego stawce, przechodzi na stawkę sąsiednią —
+a to zmienia kwoty w **miesiącach już rozliczonych**. Zanim potwierdzisz,
+okno usuwania wylicza to na serwerze i **wymienia konkretnie**: od kiedy do
+kiedy obowiązywał znikający krok i jaka stawka wejdzie na jego miejsce.
+Nic się nie zmieni **tylko wtedy**, gdy okno wprost to napisze — dopóki się
+liczy, przycisk „Usuń" jest nieaktywny, bo „nie wiadomo" to nie to samo co
+„nic się nie stanie". Jeśli lista skutków Cię zaskoczy, właściwą akcją jest
+**Zakończ zamówienie**, nie usunięcie: zakończenie zostawia historię taką,
+jaka była.
 
 ### Jedna osoba nie ma dwóch równoległych zamówień na to samo
 
