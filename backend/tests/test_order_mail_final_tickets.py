@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 from types import SimpleNamespace
 import pytest
 
-from app.services.order_mail_gate import evaluate
+from app.services.order_mail_gate import CODE_PERSON_NEW_TO_SYSTEM, evaluate
 from app.services.order_mail_planner import ExistingOrder, plan_document
 from app.services.order_mail_resolver import RosterContract, RosterPerson, resolve_rows
 from app.services.order_pdf_parser import (
@@ -179,9 +179,16 @@ def test_286506_fills_named_recruitment_draft_with_start_date():
     assert verdict.is_auto, verdict.reasons
 
 
-def test_new_person_is_normal_initial_draft():
+def test_new_person_waits_for_the_signed_agreement():
+    """Zgłoszenie 09.2026 (Nordea 1506/2026): PO nie zakłada kontraktora.
+
+    Plan zostaje szkicem (ręczne „Zastosuj" nadal działa), ale automat go nie
+    zapisze — kontrakt powstaje dopiero z „podpisana obustronnie".
+    """
     prop, verdict = plan([], {})
-    assert prop.rows[0].action == "new_draft" and verdict.is_auto
+    assert prop.rows[0].action == "new_draft"
+    assert not verdict.is_auto
+    assert CODE_PERSON_NEW_TO_SYSTEM in verdict.codes
 
 
 def test_ending_contract_wins_over_draft():

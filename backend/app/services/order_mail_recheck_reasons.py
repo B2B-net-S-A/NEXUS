@@ -32,6 +32,7 @@ from app.services.order_mail_gate import (
     CODE_AUTOAPPLY_EXCLUDED_CLIENT,
     CODE_PERSON_DECISION_NEW,
     CODE_PERSON_KNOWN_ELSEWHERE_IDLE,
+    CODE_PERSON_NEW_TO_SYSTEM,
 )
 
 #: Czeka bezterminowo, bez licznika prób i bez karty dla Delivery Leada.
@@ -57,6 +58,9 @@ AWAITING_CONTRACT_CODES = frozenset(
         # Kandydat jest w bazie, ale bez trwającej współpracy — dokładnie tak
         # wygląda nowy kontraktor z umową B2B w trakcie podpisu.
         CODE_PERSON_KNOWN_ELSEWHERE_IDLE,
+        # Osoby nie ma w bazie w ogóle: zamówienie klienta przyszło, zanim
+        # ktokolwiek założył kontraktora. Ten sam świat co wyżej, tylko wcześniej.
+        CODE_PERSON_NEW_TO_SYSTEM,
     }
 )
 

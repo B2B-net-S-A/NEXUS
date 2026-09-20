@@ -14,7 +14,12 @@ Trzy rzeczy pilnowane tutaj:
 2. kilku różnych imienników U TEGO SAMEGO klienta nadal wymaga ręcznego
    wyboru — automat nie chowa problemu pod dopasowanie;
 3. osoba spoza rostera, ale obecna w bazie, zatrzymuje automat i niesie
-   konkretną podpowiedź zamiast domyślnego „Nowy kontraktor".
+   konkretną podpowiedź zamiast domyślnego „Nowy kontraktor";
+4. osoba spoza rostera i spoza bazy też zatrzymuje automat — zgłoszenie
+   09.2026 (Nordea, umowa 1506/2026): PO od klienta przyszło przed podpisem
+   umowy B2B i automat założył kandydata, szkic kontraktu i zamówienie.
+   Wstrzymanie jest CZEKANIEM: gdy kontrakt powstanie z „podpisana
+   obustronnie", ten sam dokument jedzie automatem.
 
 Fixture'y syntetyczne; lata 2031+.
 """
@@ -23,10 +28,16 @@ from datetime import date
 from decimal import Decimal
 
 from app.services.order_mail_gate import (
+    CODE_PERSON_DECISION_NEW,
+    CODE_PERSON_NEW_TO_SYSTEM,
     VERDICT_AUTO,
     VERDICT_REVIEW,
     GateInput,
     evaluate,
+)
+from app.services.order_mail_recheck_reasons import (
+    CATEGORY_AWAITING_CONTRACT,
+    classify_hold,
 )
 from app.services.order_mail_planner import (
     ACTION_DECIDE_PERSON,
@@ -53,11 +64,12 @@ DOCUMENT_NAME = "Piotr Michałowski"
 CLIENT_WITH_CONTRACTS = 26
 
 
-def _row(name=DOCUMENT_NAME, start="2031-10-01", end="2031-12-31"):
+def _row(name=DOCUMENT_NAME, start="2031-10-01", end="2031-12-31", md=None):
     return ConsultantOrderRow(
         consultant_name=name,
         rate_client=Decimal("1240.00"),
         rate_unit="day",
+        md_total=md,
         start_date=start,
         end_date=end,
         uncertain=False,
@@ -213,8 +225,14 @@ def test_open_engagement_elsewhere_blocks_auto_and_names_the_contract():
     assert resolved[0].reason in verdict.reasons
 
 
-def test_genuinely_new_person_is_still_an_automatic_first_draft():
-    """Pierwsze zlecenie osoby, której w bazie NIE MA, zostaje automatyczne."""
+def test_person_absent_from_the_base_waits_for_the_signed_agreement():
+    """Zamówienie klienta nie zakłada kontraktora — czeka na podpisaną umowę.
+
+    Zgłoszenie 09.2026 (Nordea, Adam Grono): PO przyszło przed podpisem umowy
+    B2B, osoby nie było na rosterze klienta, a automat założył kandydata,
+    szkic kontraktu i zamówienie. Kontrakt rodzi się z podpisanej umowy,
+    a nie z PDF-a klienta.
+    """
     rows = [_row("Zenon Zupełnie Nowy")]
     resolved = resolve_rows(rows, [])
     assert (
@@ -222,8 +240,46 @@ def test_genuinely_new_person_is_still_an_automatic_first_draft():
     )
 
     proposal = _plan(rows, resolved)
+    # Plan ZOSTAJE szkicem: ręczne „Zastosuj" bramki nie czyta, więc Delivery
+    # Lead zachowuje drogę dla kontraktora bez umowy B2B (UoP, zlecenie).
     assert proposal.rows[0].action == ACTION_NEW_DRAFT
     assert proposal.rows[0].existing_person_ids == []
+
+    verdict = _gate(rows, resolved, proposal)
+    assert verdict.verdict == VERDICT_REVIEW
+    assert CODE_PERSON_NEW_TO_SYSTEM in verdict.codes
+    assert any("czeka na podpisaną umowę B2B" in r for r in verdict.reasons)
+
+
+def test_waiting_for_the_agreement_is_silent_for_the_delivery_lead():
+    """Kategoria „czeka na podpis": bez licznika prób i bez karty dla DL."""
+    rows = [_row("Zenon Zupełnie Nowy")]
+    resolved = resolve_rows(rows, [])
+    verdict = _gate(rows, resolved, _plan(rows, resolved))
+
+    assert classify_hold(verdict.codes) == CATEGORY_AWAITING_CONTRACT
+
+
+def test_the_same_order_applies_itself_once_the_contract_exists():
+    """Po „podpisana obustronnie" kontrakt istnieje — recheck dopisze zamówienie.
+
+    To druga połowa reguły: wstrzymanie ma być CZEKANIEM, nie zablokowaniem.
+    Ten sam dokument z tą samą osobą jedzie automatem, gdy tylko kontraktor
+    pojawi się na rosterze klienta.
+    """
+    rows = [_row("Zenon Zupełnie Nowy")]
+    roster = [
+        RosterPerson(
+            77,
+            "Zenon",
+            "Zupełnie Nowy",
+            (RosterContract(654, "active", date(2031, 10, 1), None),),
+        )
+    ]
+    resolved = resolve_rows(rows, roster)
+    assert resolved[0].match_kind == MATCH_EXACT and resolved[0].contract_id == 654
+
+    proposal = _plan(rows, resolved)
     assert _gate(rows, resolved, proposal).verdict == VERDICT_AUTO
 
 
@@ -277,6 +333,34 @@ def test_md_order_carries_the_finding_next_to_the_decide_person_message():
     assert row.existing_person_ids == [11]
     assert any("Nie znaleziono" in r for r in row.reasons)
     assert any("Bank Właściwy Rekord" in r for r in row.reasons)
+
+
+def test_md_order_for_an_unknown_person_says_it_once():
+    """Planer i bramka mówią o tym samym — kolejka ma dostać jedno zdanie.
+
+    Wiersz niesie liczbę MD: bez niej doszedłby `CODE_MD_MISSING`, a jeden
+    powód spoza „czeka na podpis" przesuwa dokument do kategorii `other`
+    (i do kart dla Delivery Leada) — czyli test mierzyłby co innego.
+    """
+    rows = [_row("Zenon Zupełnie Nowy", md=Decimal("20"))]
+    resolved = resolve_rows(rows, [])
+    proposal = plan_document(
+        client_id=CLIENT_WITH_CONTRACTS,
+        extraction=_extraction(rows),
+        resolved=resolved,
+        existing_orders_by_contract={},
+        is_group_client=True,
+        today=TODAY,
+        order_type="md",
+    )
+    assert proposal.rows[0].action == ACTION_DECIDE_PERSON
+
+    verdict = _gate(rows, resolved, proposal)
+    assert verdict.verdict == VERDICT_REVIEW
+    # Powód z planera (krok 8) zostaje; bramka nie dokłada drugiego o tym samym.
+    assert CODE_PERSON_NEW_TO_SYSTEM not in verdict.codes
+    assert CODE_PERSON_DECISION_NEW in verdict.codes
+    assert classify_hold(verdict.codes) == CATEGORY_AWAITING_CONTRACT
 
 
 def test_annotation_never_touches_a_row_that_matched_the_roster():

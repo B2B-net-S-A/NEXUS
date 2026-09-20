@@ -1,13 +1,15 @@
 """Pure decision: an automatic verdict always goes to the shared writer.
 
 Review reasons describe source ambiguity, incomplete data, conflicting people,
-rate outliers or an actual incompatible order. On a periodic order a missing
-or ended engagement is a normal lifecycle state, not a reason to stop a complete
-order — unless somebody with that exact name is already in the base, which the
-writer would refuse anyway and a human has to confirm. On MD and cost orders the
-planner stops such a person at ``ACTION_DECIDE_PERSON`` (keep as history /
-resume / replace / remove is the Delivery Lead's decision), which lands here as
-an ordinary non-auto action.
+rate outliers or an actual incompatible order. A person who is not on the
+client's roster NEVER auto-applies, on any order type: the contract is born
+from a signed B2B agreement, not from the client's purchase order, so such a
+document waits (``awaiting_contract`` — silent, no Delivery Lead card) until
+the contract exists. On a periodic order an *ended* engagement at this client
+stays a normal lifecycle state (10.09.2026: a return after a break is a new
+order). On MD and cost orders the planner stops both cases at
+``ACTION_DECIDE_PERSON`` (keep as history / resume / replace / remove is the
+Delivery Lead's decision), which lands here as an ordinary non-auto action.
 """
 
 from __future__ import annotations
@@ -64,6 +66,10 @@ CODE_PERSON_MATCH_UNCERTAIN = "person_match_uncertain"
 CODE_PERSON_KNOWN_ELSEWHERE_IDLE = "person_known_elsewhere_idle"
 CODE_PERSON_KNOWN_ELSEWHERE_OPEN = "person_known_elsewhere_open"
 CODE_PERSON_NAMESAKES = "person_namesakes"
+#: Osoby nie ma ani u tego klienta, ani nigdzie w bazie — zamówienie od klienta
+#: wyprzedziło podpis umowy. Automat NIE zakłada kontraktora z PDF-a klienta:
+#: kontrakt rodzi się z podpisanej umowy B2B, a nie z zamówienia.
+CODE_PERSON_NEW_TO_SYSTEM = "person_new_to_system"
 CODE_PERSON_MULTIPLE_CONTRACTS = "person_multiple_contracts"
 CODE_TITLE_NOT_CONFIRMED = "title_not_confirmed"
 CODE_ROW_EVIDENCE_MISSING = "row_evidence_missing"
@@ -300,22 +306,37 @@ def evaluate(inp: GateInput) -> GateVerdict:
             )
         )
 
-    # 3) + 4) exact person, or an initial draft; ambiguous people/contracts block
+    # 3) + 4) exact person; osoba spoza rostera nigdy nie jedzie automatem
     if not inp.resolved:
         reasons.append((CODE_NO_PEOPLE, "Brak osób do dopasowania"))
+    decided_rows = {
+        row.row_index for row in prop.rows if row.action == ACTION_DECIDE_PERSON
+    }
     for res in inp.resolved:
         if res.match_kind not in (MATCH_EXACT, "none"):
             reasons.append(
                 (CODE_PERSON_MATCH_UNCERTAIN, f"„{res.row_name}”: {res.reason}")
             )
         elif res.match_kind == "none":
-            # Pierwsze zlecenie osoby, której w bazie NIE MA, automat zakłada
-            # jak dotąd. Osoba, która w bazie JEST (imiennik albo ten sam
-            # człowiek pod drugim rekordem tego klienta), wymaga człowieka:
-            # writer i tak by odmówił, a tu odmowa jest widoczna w kolejce
-            # razem z tym, kogo znaleziono.
+            # Osoba, która w bazie JEST (imiennik albo ten sam człowiek pod
+            # drugim rekordem tego klienta), wymaga człowieka: writer i tak by
+            # odmówił, a tu odmowa jest widoczna w kolejce razem z tym, kogo
+            # znaleziono. Osoby, której w bazie NIE MA, automat nie zakłada
+            # wcale — zamówienie klienta wyprzedziło podpis umowy i czeka.
+            # Wiersz zatrzymany już przez planera (MD/kosztowe,
+            # ``ACTION_DECIDE_PERSON``) dostaje swoje zdanie w kroku 8; drugie
+            # o tym samym tylko zaśmieciłoby kolejkę.
             if res.known_elsewhere_ids:
                 reasons.append((_known_elsewhere_code(res), res.reason))
+            elif res.row_index not in decided_rows:
+                reasons.append(
+                    (
+                        CODE_PERSON_NEW_TO_SYSTEM,
+                        f"„{res.row_name}”: nie ma jej wśród konsultantów tego "
+                        "klienta ani w bazie — zamówienie czeka na podpisaną "
+                        "umowę B2B",
+                    )
+                )
         elif len(res.live_contract_ids) > 1:
             reasons.append(
                 (

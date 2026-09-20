@@ -18,7 +18,6 @@ import {
   FileSignature,
   Loader2,
   History,
-  Mail,
   PauseCircle,
   Pencil,
   Plus,
@@ -27,7 +26,6 @@ import {
   Search,
   Sparkles,
   Trash2,
-  Upload,
   X,
   XCircle,
 } from "lucide-react";
@@ -77,7 +75,6 @@ import { useToast } from "@/components/Toast";
 import api, {
   b2bGeneratorApi,
   extractErrorMsg,
-  signingApi,
   type B2BClosureReason,
   type B2BConfirmFullySignedResult,
   type B2BContractStatus,
@@ -350,6 +347,14 @@ export function hasSpecialClauses(clientName: string): boolean {
   return CLAUSE_OVERRIDE_NEEDLES.some((needle) => n.includes(needle));
 }
 
+/** Memo współdzielone przez akcje, które muszą mieć kontrakt PRZED zapisem.
+ *
+ * Od 09.2026 generator nie ma już takiej akcji: umowy podpisujemy offline
+ * (decyzja 17.09.2026), a jedyną drogą do kontraktu jest „Oznacz jako
+ * podpisaną" w rejestrze (`confirm-fully-signed`). Helper i `POST /generate`
+ * zostają — chronią endpoint przed podwójnym zapisem, gdyby wróciła akcja
+ * tworząca kontrakt przed podpisem — ale w tym komponencie nikt ich nie woła.
+ */
 export type GeneratedContractMemo = {
   key: string | null;
   contractId: number | null;
@@ -2986,11 +2991,6 @@ function GeneratorForm() {
   // promise. This makes rapid double actions single-flight; after a remount
   // the backend's candidate row lock and pair-based lookup remain the durable
   // idempotency layer.
-  const generatedContractMemo = useRef<GeneratedContractMemo>({
-    key: null,
-    contractId: null,
-    pending: null,
-  });
 
   // Pre-fill „raz na kandydata / ofertę" — nie nadpisuje ręcznych zmian.
   const prefilledCand = useRef<number | null>(null);
@@ -3359,7 +3359,6 @@ function GeneratorForm() {
   };
 
   // ── Wyślij do podpisu (in-house QES) ──────────────────────────────────────
-  const [signLink, setSignLink] = useState<string | null>(null);
 
   const buildGeneratePayload = (): B2BGeneratePayload | null => {
     if (!selectedRole || !candidate || !selectedRecruitment || !startDate) {
@@ -3390,143 +3389,6 @@ function GeneratorForm() {
       currency: currency.trim() || "PLN",
     };
   };
-
-  const ensureGeneratedContractId = () => {
-    if (!candidate || !selectedRecruitment) {
-      return Promise.reject(
-        new Error(
-          "Wybierz kandydata i rekrutację, aby utworzyć lub powiązać umowę.",
-        ),
-      );
-    }
-    const key = `${candidate.id}:${selectedRecruitment.job_id}`;
-    return reuseOrGenerateContractId({
-      key,
-      memo: generatedContractMemo.current,
-      generate: async (contractId) => {
-        const payload = buildGeneratePayload();
-        if (!payload) {
-          throw new Error(
-            "Wybierz kandydata, rekrutację, rolę i datę startu, aby utworzyć umowę.",
-          );
-        }
-        return b2bGeneratorApi.generate({
-          ...payload,
-          contract_id: contractId ?? undefined,
-        });
-      },
-    });
-  };
-
-  const sendSignMut = useMutation({
-    mutationFn: async () => {
-      const contractId = await ensureGeneratedContractId();
-      const res = await signingApi.sendForSignature(contractId, {
-        provider: "upload_validate",
-        signature_type: "QES",
-      });
-      return res.sign_url;
-    },
-    onSuccess: (signUrl) => {
-      setSignLink(signUrl);
-      toast.showSuccess("Link do podpisu wygenerowany — skopiuj i wyślij konsultantowi.");
-    },
-    onError: (e) => toast.showError(extractErrorMsg(e)),
-  });
-
-  const onSendSign = () => {
-    if (!validate()) return;
-    if (!candidate || !selectedRecruitment) {
-      toast.showError(
-        "Wybierz kandydata i rekrutację — wymagane do wysłania do podpisu.",
-      );
-      return;
-    }
-    setSignLink(null);
-    setUploadVerdict(null);
-    sendSignMut.mutate();
-  };
-
-  // ── Offline (e-mail) flow: oznacz wysłaną / wgraj podpisaną ────────────────
-  const signedFileRef = useRef<HTMLInputElement>(null);
-  const [uploadVerdict, setUploadVerdict] = useState<{
-    is_qes: boolean;
-    signed_by: string | null;
-    signature_level: string | null;
-    both_parties_signed: boolean;
-  } | null>(null);
-
-  const markSentMut = useMutation({
-    mutationFn: async () => {
-      const contractId = await ensureGeneratedContractId();
-      await signingApi.markSentOffline(contractId);
-    },
-    onSuccess: () => {
-      toast.showSuccess(
-        "Oznaczono jako wysłaną.",
-      );
-    },
-    onError: (e) => toast.showError(extractErrorMsg(e)),
-  });
-
-  const uploadSignedMut = useMutation({
-    mutationFn: async (file: File) => {
-      const contractId = await ensureGeneratedContractId();
-      return signingApi.uploadSigned(contractId, file);
-    },
-    onSuccess: (verdict) => {
-      setUploadVerdict({
-        is_qes: verdict.is_qes,
-        signed_by: verdict.signed_by,
-        signature_level: verdict.signature_level,
-        both_parties_signed: verdict.both_parties_signed,
-      });
-      toast.showSuccess(
-        verdict.both_parties_signed
-          ? "Umowa podpisana przez obie strony."
-          : "Podpisaną umowę wgrano i zweryfikowano.",
-      );
-    },
-    onError: (e) => toast.showError(extractErrorMsg(e)),
-  });
-
-  const onMarkSentOffline = () => {
-    if (!validate()) return;
-    if (!candidate || !selectedRecruitment) {
-      toast.showError(
-        "Wybierz kandydata i rekrutację — wymagane do oznaczenia wysłanej.",
-      );
-      return;
-    }
-    setSignLink(null);
-    setUploadVerdict(null);
-    markSentMut.mutate();
-  };
-
-  const onUploadSignedClick = () => {
-    if (!validate()) return;
-    if (!candidate || !selectedRecruitment) {
-      toast.showError(
-        "Wybierz kandydata i rekrutację — wymagane do wgrania podpisanej umowy.",
-      );
-      return;
-    }
-    signedFileRef.current?.click();
-  };
-
-  const onSignedFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-picking the same file
-    if (!file) return;
-    setSignLink(null);
-    setUploadVerdict(null);
-    uploadSignedMut.mutate(file);
-  };
-
-  const signingActionPending =
-    sendSignMut.isPending ||
-    markSentMut.isPending ||
-    uploadSignedMut.isPending;
 
   // Bez roli legal-team każdy endpoint generatora zwraca 403: lista obszarów
   // jest pusta, numer się nie nadaje, DOCX się nie wygeneruje. Pokazanie
@@ -4158,108 +4020,7 @@ function GeneratorForm() {
           <Download className="mr-2 h-4 w-4" />
           DOCX (EN)
         </Button>
-        <Button
-          variant="outline"
-          disabled={signingActionPending}
-          onClick={onSendSign}
-          title="Tworzy umowę i generuje link do podpisu kwalifikowanego dla konsultanta"
-        >
-          {sendSignMut.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <FileSignature className="mr-2 h-4 w-4" />
-          )}
-          Wyślij do podpisu (QES)
-        </Button>
-        <Button
-          variant="outline"
-          disabled={signingActionPending}
-          onClick={onMarkSentOffline}
-          title="Wysłałeś umowę mailem? Oznacz ją jako wysłaną."
-        >
-          {markSentMut.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Mail className="mr-2 h-4 w-4" />
-          )}
-          Oznacz: wysłana mailem
-        </Button>
-        <Button
-          variant="outline"
-          disabled={signingActionPending}
-          onClick={onUploadSignedClick}
-          title="Masz podpisaną umowę z maila? Wgraj PDF — zweryfikujemy podpis."
-        >
-          {uploadSignedMut.isPending ? (
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <Upload className="mr-2 h-4 w-4" />
-          )}
-          Wgraj podpisaną (z maila)
-        </Button>
-        <input
-          ref={signedFileRef}
-          type="file"
-          accept="application/pdf,.pdf"
-          className="hidden"
-          onChange={onSignedFilePicked}
-        />
       </div>
-
-      {signLink ? (
-        <Alert>
-          <div className="space-y-2">
-            <p className="font-medium">
-              Link do podpisu — wyślij go konsultantowi:
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                readOnly
-                value={signLink}
-                onFocus={(e) => e.currentTarget.select()}
-                className="flex-1 rounded border bg-background px-2 py-1 text-sm"
-              />
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  navigator.clipboard?.writeText(signLink);
-                  toast.showSuccess("Skopiowano link.");
-                }}
-              >
-                Kopiuj
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Konsultant otworzy link, przeczyta umowę w przeglądarce, podpisze
-              ją własnym podpisem kwalifikowanym i odeśle. Status zobaczysz w
-              profilu kandydata.
-            </p>
-          </div>
-        </Alert>
-      ) : null}
-
-      {uploadVerdict ? (
-        <Alert>
-          <div className="space-y-1">
-            <p className="flex items-center gap-2 font-medium">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              {uploadVerdict.both_parties_signed
-                ? "Umowa podpisana przez obie strony."
-                : "Podpisaną umowę wgrano."}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {uploadVerdict.is_qes
-                ? "Podpis kwalifikowany (QES) potwierdzony"
-                : "Podpis wgrany — kwalifikowalność niepotwierdzona automatycznie (zweryfikuj ręcznie)"}
-              {uploadVerdict.signed_by ? ` · podpisał: ${uploadVerdict.signed_by}` : ""}
-              {uploadVerdict.signature_level
-                ? ` · poziom: ${uploadVerdict.signature_level}`
-                : ""}
-            </p>
-          </div>
-        </Alert>
-      ) : null}
 
       {/* Podgląd */}
       {previewHtml ? (
