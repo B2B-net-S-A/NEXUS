@@ -1,4 +1,6 @@
-"""Schematy Finanse → Zmiany w zamówieniach (Zmiany · Wejścia · Zejścia · Braki).
+"""Schematy Finanse → Zmiany w zamówieniach.
+
+Pięć podzakładek: Zmiany · Wejścia · Zejścia · Kończące się zamówienia · Braki.
 
 Kwoty idą jako liczby JSON (``MoneyPLN`` z ``schemas.finance``) — goły
 ``Decimal`` Pydantic serializuje jako string, a front sklejałby go zamiast
@@ -28,6 +30,7 @@ class OrderChangesCounts(BaseModel):
     changes: int
     entries: int
     exits: int
+    ending: int
     gaps: int
 
 
@@ -49,6 +52,9 @@ class OrderEntryItem(OrderRef):
     ma tu już pól ``is_continuation`` / ``additional_project``: po korekcie
     kwalifikacji byłyby zawsze fałszywe, a pole, które zawsze kłamie w jedną
     stronę, zaprasza do budowania na nim.
+
+    Pierwsza współpraca wynika z UMOWY, nie tylko z wiersza zamówienia —
+    rejestr zamówień bywa młodszy niż współpraca, którą opisuje.
     """
 
     start_date: Optional[date] = None
@@ -64,6 +70,12 @@ class OrderEntryItem(OrderRef):
 # Bez „continuation": osoba, która pracuje dalej (następca albo linia MD
 # z budżetem), nie jest zejściem i nie trafia na tę listę — stąd też brak pól
 # o następcy.
+#
+# Werdykt rozdziela dwie podzakładki, które dzielą ten sam kształt wiersza:
+# ``ended_intent`` (człowiek zapisał koniec współpracy) idzie do Zejść,
+# a ``ending_pending`` / ``no_successor`` (kończy się samo ZAMÓWIENIE, przy
+# żywej współpracy) — do „Kończących się zamówień". Bliźniaczy typ różniący
+# się wyłącznie nazwą byłby drugim miejscem do rozjechania.
 ExitVerdict = Literal["ended_intent", "no_successor", "ending_pending"]
 
 
@@ -118,6 +130,10 @@ class OrderChangeItem(OrderRef):
     previous_end_date: Optional[date] = None
     previous_client_name: Optional[str] = None
     start_date: Optional[date] = None
+    # Początek współpracy odczytany z UMOWY, gdy poprzedniego zamówienia nie ma
+    # w NEXUSIE. Bez tego kontynuacja renderuje się jako „—", czyli dokładnie
+    # tak, jak utrata danych.
+    engagement_since: Optional[date] = None
 
 
 class OrderGapItem(OrderRef):
@@ -136,6 +152,9 @@ class OrderChangesResponse(BaseModel):
     changes: list[OrderChangeItem]
     entries: list[OrderEntryItem]
     exits: list[OrderExitItem]
+    # Zamówienia kończące się bez kolejnego przy ŻYWEJ współpracy — ten sam
+    # kształt wiersza co Zejścia, inne pytanie.
+    ending_orders: list[OrderExitItem]
     gaps: list[OrderGapItem]
     # Pierwszy zapis w dzienniku zmian — miesiące sprzed tej daty nie mają
     # historii zmian stawek i dat (dziennik nie działał wstecz).

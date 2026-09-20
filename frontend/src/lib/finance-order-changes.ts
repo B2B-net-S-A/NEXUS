@@ -209,15 +209,28 @@ function newOrderTail(item: OrderChangeItem): string {
   );
 }
 
+/**
+ * Skąd wiadomo, że współpraca już trwała: poprzednie zamówienie, a gdy go
+ * w NEXUSIE nie ma — data startu umowy. Puste „—" czytałoby się jak utrata
+ * danych, nie jak inny rodzaj dowodu.
+ */
 function previousOrderLabel(item: OrderChangeItem): string {
-  if (!item.previous_order_number) return "—";
-  return `zam. ${item.previous_order_number} (do ${formatDay(item.previous_end_date)})`;
+  if (item.previous_order_number) {
+    return `zam. ${item.previous_order_number} (do ${formatDay(item.previous_end_date)})`;
+  }
+  if (item.engagement_since) {
+    return `współpraca od ${formatDay(item.engagement_since)}`;
+  }
+  return "—";
 }
 
 /** Opis zmiany: „152,00 zł/h → 170,00 zł/h" albo „31.12.2026 → bezterminowo". */
 export function changeValue(item: OrderChangeItem): string {
   if (item.kind === "order_continuation") {
-    return `po ${previousOrderLabel(item)} · ${newOrderTail(item)}`;
+    const previous = item.previous_order_number
+      ? `po ${previousOrderLabel(item)}`
+      : previousOrderLabel(item);
+    return `${previous} · ${newOrderTail(item)}`;
   }
   if (item.kind === "client_change") {
     return (

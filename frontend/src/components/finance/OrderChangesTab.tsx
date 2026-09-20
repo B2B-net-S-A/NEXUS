@@ -193,7 +193,10 @@ export function OrderChangesTab() {
       const tabSlug = SUB_TAB_LABELS[subTab]
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
-        .replace(/ł/gi, "l");
+        .replace(/ł/gi, "l")
+        // Wielowyrazowa nazwa zakładki („Kończące się zamówienia") nie może
+        // wpuścić spacji do nazwy pliku.
+        .replace(/\s+/g, "_");
       downloadBlob(
         blob,
         `Zmiany_w_zamowieniach_${tabSlug}_${monthValue(period.year, period.month)}.xlsx`,

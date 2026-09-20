@@ -1,14 +1,21 @@
-"""Finanse → Zmiany w zamówieniach: odczyt czterech podzakładek i eksport.
+"""Finanse → Zmiany w zamówieniach: odczyt pięciu podzakładek i eksport.
 
-Wszystkie cztery listy liczone są w jednym odczycie, żeby liczniki przy
-podzakładkach zawsze zgadzały się z ich treścią.
+Wszystkie listy liczone są w jednym odczycie, żeby liczniki przy podzakładkach
+zawsze zgadzały się z ich treścią.
 
-* **Wejścia** — WYŁĄCZNIE osoby zaczynające z nami współpracę po raz pierwszy:
-  zamówienie z efektywnym startem w miesiącu, a osoba nie ma żadnego
-  wcześniejszego, niezanulowanego zamówienia u JAKIEGOKOLWIEK klienta.
-* **Zejścia** — zamówienia z efektywnym końcem w miesiącu, dla osób, które
-  od kolejnego miesiąca nie świadczą już usług (niezależnie od przyczyny).
-  Kontynuacja — następca albo linia MD z budżetem — to NIE jest zejście.
+* **Wejścia** — WYŁĄCZNIE osoby zaczynające z nami współpracę po raz pierwszy.
+  Dowodem wcześniejszej współpracy jest zamówienie **albo UMOWA**: rejestr
+  zamówień jest młodszy niż współpraca, którą opisuje, więc konsultant
+  z umową od grudnia i pierwszym wierszem zamówienia z września wyglądał
+  w Wejściach jak nowa osoba (zgłoszenie 09.2026).
+* **Zejścia** — osoby z zapisanym końcem współpracy (``load_ending_intents``):
+  wypowiedziana/zakończona umowa, zamiana kontraktora, decyzja DL po
+  offboardingu MD, usunięcie z zamówienia, zostawienie jako historia.
+  Wspólny mianownik: człowiek świadomie zapisał, że ta osoba schodzi.
+* **Kończące się zamówienia** — zamówienie kończy się (albo skończyło) bez
+  kolejnego, a współpraca TRWA. To nie jest zejście i do 09.2026 mieszało się
+  z nimi w jednej zakładce: „Kończy się 30.09 — na razie brak kolejnego
+  zamówienia" czytało się jak rozstanie z konsultantem, który pracuje dalej.
 * **Zmiany** — wszystko, co dzieje się w TRWAJĄCEJ współpracy: dziennik
   ``order_change_events`` z datą WPROWADZENIA w miesiącu (decyzja Artura
   14.09) plus nowe zamówienia osób, które już z nami pracują — kontynuacja
@@ -16,19 +23,16 @@ podzakładkach zawsze zgadzały się z ich treścią.
 * **Braki** — ``order_gaps`` z dniem wykrycia w miesiącu, także uzupełnione
   z opóźnieniem (wpis historyczny). Kwalifikacja bez zmian.
 
-Kwalifikacja zakładek była do 09.2026 inna: Wejścia zbierały każde zamówienie
-startujące w miesiącu (osoby przedłużające były tam tylko OZNACZANE jako
-kontynuacja), a Zejścia pokazywały też wiersze z werdyktem „Kontynuacja" —
-czyli osoby, które akurat nie schodzą. Zakładka ma nazywać się tak, jak to,
-co w niej jest.
+Zakładka ma nazywać się tak, jak to, co w niej jest — obie korekty (09.2026)
+wynikły z tej jednej zasady.
 
 **Zmiany stawek nie mają progu** — do Zmian trafia KAŻDA różnica stawki
 kosztowej i przychodowej. Filtruje je wyłącznie ``order_change_audit``
 (pierwsze wpisanie stawki to nie zmiana, szkice i anulowane nie liczą się).
 
 Filtry (szukaj / klient / zakres dat) liczy ``apply_filters`` na gotowych
-czterech listach — to jedno miejsce obsługuje i widok, i eksport, więc plik
-nie może pokazać czego innego niż ekran.
+listach — to jedno miejsce obsługuje i widok, i eksport, więc plik nie może
+pokazać czego innego niż ekran.
 
 Odczyt niczego nie zapisuje — braki wykrywa pętla ``order_gaps``, a zamyka
 zapis zamówienia.
@@ -57,7 +61,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.models.order_change_event import OrderChangeEvent
 from app.models.order_gap import GAP_STATUS_FILLED_LATE, GAP_STATUS_OPEN, OrderGap
 from app.models.user import User
@@ -159,11 +163,90 @@ EntryKind = Literal["new", "additional_project", "order_continuation", "client_c
 
 @dataclass(frozen=True)
 class EntryClass:
-    """Czym jest zamówienie startujące w miesiącu dla OSOBY, nie dla klienta."""
+    """Czym jest zamówienie startujące w miesiącu dla OSOBY, nie dla klienta.
+
+    Pola poza ``kind`` są PREZENTACYJNE, nie surowymi ``OrderFact``ami: dowód
+    wcześniejszej współpracy bywa umową, a nie zamówieniem, i wtedy nie ma
+    czego włożyć w ``OrderFact``. ``previous`` zostaje wyłącznie dla numeru
+    i daty końca poprzedniego ZAMÓWIENIA.
+    """
 
     kind: EntryKind
     previous: Optional[OrderFact] = None
-    running: tuple[OrderFact, ...] = ()
+    running_client_names: tuple[str, ...] = ()
+    previous_client_name: Optional[str] = None
+    engagement_since: Optional[date] = None
+
+
+@dataclass(frozen=True)
+class Engagement:
+    """Współpraca odczytana z UMOWY — dowód pracy sprzed pierwszego zamówienia."""
+
+    client_id: Optional[int]
+    client_name: str
+    start: date
+    end: Optional[date]
+    closed: bool
+
+    def runs_on(self, day: date) -> bool:
+        if self.end is not None:
+            return self.end >= day
+        # Umowa bezterminowa trwa, chyba że ktoś ją zamknął bez daty końca.
+        return not self.closed
+
+
+async def _prior_engagements(
+    db: AsyncSession, people: set[int], window: MonthWindow
+) -> dict[int, list[Engagement]]:
+    """Umowy osób z Wejść, które zaczęły się PRZED tym miesiącem.
+
+    Próg to pierwszy dzień miesiąca, nie dzień startu zamówienia — i to jest
+    decyzja, nie skrót. Osobie faktycznie nowej zakłada się umowę razem
+    z pierwszym zamówieniem, często z datą o kilka dni wcześniejszą (umowa
+    01.09, zamówienie 15.09); próg „ściśle przed startem zamówienia" zdjąłby
+    z Wejść także takie osoby i zakładka zrobiłaby się pusta. Próg miesięczny
+    czyta się dokładnie tak, jak brzmi obietnica zakładki: PIERWSZA współpraca
+    w tym miesiącu.
+
+    ``draft`` i ``void`` nie liczą się — lustro reguły, która w tym samym
+    klasyfikatorze wyklucza szkice zamówień: szkic to plan, nie praca,
+    a ``void`` to unieważnienie.
+    """
+
+    if not people:
+        return {}
+    rows = (
+        await db.execute(
+            select(
+                Contract.candidate_id,
+                Contract.client_id,
+                client_display_name_expression().label("client_name"),
+                Contract.start_date,
+                Contract.end_date,
+                Contract.status,
+            )
+            .outerjoin(Client, Client.id == Contract.client_id)
+            .where(
+                Contract.candidate_id.in_(sorted(people)),
+                Contract.status.notin_((ContractStatus.draft, ContractStatus.void)),
+                Contract.start_date.is_not(None),
+                Contract.start_date < window.first,
+            )
+        )
+    ).all()
+    result: dict[int, list[Engagement]] = {}
+    for row in rows:
+        result.setdefault(row.candidate_id, []).append(
+            Engagement(
+                client_id=row.client_id,
+                client_name=row.client_name or "—",
+                start=row.start_date,
+                end=row.end_date,
+                closed=row.status
+                in (ContractStatus.ended.value, ContractStatus.void.value),
+            )
+        )
+    return result
 
 
 def _precedes(other: OrderFact, fact: OrderFact) -> bool:
@@ -195,8 +278,16 @@ async def _classify_entries(
     db: AsyncSession,
     entry_facts: list[OrderFact],
     siblings: dict,
+    window: MonthWindow,
 ) -> dict[int, EntryClass]:
     """Wejście czy zmiana w trwającej współpracy — jedna reguła, pierwsze trafienie.
+
+    Dowodem wcześniejszej współpracy jest ZAMÓWIENIE albo UMOWA. Dowody
+    z zamówień idą pierwsze, bo są dokładniejsze (niosą klienta, okres
+    i numer); umowa rozstrzyga dopiero wtedy, gdy zamówień nie ma — a nie ma
+    ich często, bo rejestr zamówień jest młodszy niż współpraca, którą
+    opisuje. Bez tego szczebla konsultant z umową od grudnia i pierwszym
+    zamówieniem z września wyglądał jak nowa osoba (zgłoszenie 09.2026).
 
     Szkice u innych klientów NIE liczą się jako trwająca współpraca (szkic to
     plan, nie praca) — tak samo jak w regule „dodatkowego projektu" od 0308.
@@ -216,6 +307,7 @@ async def _classify_entries(
         )
         for other in others:
             by_person.setdefault(other.candidate_id, []).append(other)
+    engagements = await _prior_engagements(db, people, window)
 
     result: dict[int, EntryClass] = {}
     for fact in entry_facts:
@@ -238,13 +330,20 @@ async def _classify_entries(
         ]
         if running:
             result[fact.order_id] = EntryClass(
-                "additional_project", running=tuple(running)
+                "additional_project",
+                running_client_names=tuple(
+                    sorted({other.client_name for other in running})
+                ),
             )
             continue
 
         previous = previous_of(fact, siblings_of(fact, siblings))
         if previous is not None:
-            result[fact.order_id] = EntryClass("order_continuation", previous=previous)
+            result[fact.order_id] = EntryClass(
+                "order_continuation",
+                previous=previous,
+                previous_client_name=previous.client_name,
+            )
             continue
 
         if prior:
@@ -263,11 +362,51 @@ async def _classify_entries(
                 if last.client_id == fact.client_id
                 else "client_change",
                 previous=last,
+                previous_client_name=last.client_name,
             )
             continue
 
-        result[fact.order_id] = EntryClass("new")
+        entry_class = _classify_by_engagement(
+            fact, engagements.get(fact.candidate_id or 0, ())
+        )
+        result[fact.order_id] = entry_class
     return result
+
+
+def _classify_by_engagement(
+    fact: OrderFact, engagements: Sequence[Engagement]
+) -> EntryClass:
+    """Ta sama drabinka, gdy jedynym dowodem współpracy jest umowa.
+
+    Kolejność szczebli jest lustrem tej z zamówień: najpierw ten klient
+    (kontynuacja), potem równoległa praca u innego (dodatkowy projekt),
+    na końcu współpraca już zamknięta (zmiana klienta).
+    """
+
+    if not engagements:
+        return EntryClass("new")
+
+    here = [eng for eng in engagements if eng.client_id == fact.client_id]
+    if here:
+        first = min(eng.start for eng in here)
+        return EntryClass("order_continuation", engagement_since=first)
+
+    running = [
+        eng for eng in engagements if fact.start is not None and eng.runs_on(fact.start)
+    ]
+    if running:
+        return EntryClass(
+            "additional_project",
+            running_client_names=tuple(sorted({eng.client_name for eng in running})),
+            engagement_since=min(eng.start for eng in running),
+        )
+
+    last = max(engagements, key=lambda eng: (eng.end or eng.start, eng.start))
+    return EntryClass(
+        "client_change",
+        previous_client_name=last.client_name,
+        engagement_since=last.start,
+    )
 
 
 async def _entries(
@@ -282,7 +421,7 @@ async def _entries(
         start <= window.last,
     )
     siblings = await load_siblings(db, facts)
-    classes = await _classify_entries(db, facts, siblings)
+    classes = await _classify_entries(db, facts, siblings, window)
     items = [
         OrderEntryItem(
             **_ref(fact),
@@ -301,12 +440,19 @@ async def _entries(
     return sorted(items, key=_sort_key), facts, classes
 
 
-# ── Zejścia ──────────────────────────────────────────────────────────────────
+# ── Zejścia i kończące się zamówienia ────────────────────────────────────────
 
 
 async def _exits(
     db: AsyncSession, window: MonthWindow, today: date
-) -> list[OrderExitItem]:
+) -> tuple[list[OrderExitItem], list[OrderExitItem]]:
+    """Dwie listy z JEDNEGO przebiegu: zejścia i kończące się zamówienia.
+
+    Rozdziela je werdykt: zapisana intencja zakończenia to zejście, jej brak —
+    samo zamówienie dobiegające końca przy żywej współpracie. Dwa osobne
+    przebiegi rozjechałyby się przy pierwszej poprawce drabinki, a wtedy ta
+    sama osoba potrafiłaby stać w obu zakładkach albo w żadnej.
+    """
     end = effective_end_expr()
     facts = await load_facts(
         db,
@@ -336,7 +482,8 @@ async def _exits(
         if facts
         else set()
     )
-    items: list[OrderExitItem] = []
+    exits: list[OrderExitItem] = []
+    ending: list[OrderExitItem] = []
     for fact in facts:
         if fact.end is None:
             continue
@@ -349,6 +496,11 @@ async def _exits(
         # osoba pracuje dalej.
         if fact.works_until_md_exhausted or successor is not None:
             continue
+        # Zejście = ktoś ZAPISAŁ koniec współpracy (wypowiedzenie, zamiana
+        # kontraktora, decyzja DL po offboardingu MD, usunięcie z zamówienia,
+        # „zostaw jako historia"). Sam koniec daty zamówienia nic o współpracy
+        # nie mówi — to osobna zakładka. Decyzja Artura 20.09.2026: wszystkie
+        # pięć rodzajów intencji zostaje w Zejściach.
         if intent is not None:
             verdict, label = "ended_intent", INTENT_LABELS[intent]
         elif fact.end >= today and fact.order_id not in gap_orders:
@@ -359,7 +511,8 @@ async def _exits(
         else:
             verdict = "no_successor"
             label = "Brak kolejnego zamówienia — do usunięcia z rozliczeń"
-        items.append(
+        bucket = exits if verdict == "ended_intent" else ending
+        bucket.append(
             OrderExitItem(
                 **_ref(fact),
                 end_date=fact.end,
@@ -374,7 +527,7 @@ async def _exits(
                 intent=intent,
             )
         )
-    return sorted(items, key=_sort_key)
+    return sorted(exits, key=_sort_key), sorted(ending, key=_sort_key)
 
 
 # ── Zmiany ───────────────────────────────────────────────────────────────────
@@ -513,12 +666,11 @@ async def _changes(
                 rate_revenue=fact.rate_revenue,
                 rate_unit=fact.rate_unit,
                 currency=fact.currency,
-                other_client_names=sorted(
-                    {other.client_name for other in entry_class.running}
-                ),
+                other_client_names=list(entry_class.running_client_names),
                 previous_order_number=previous.number if previous else None,
                 previous_end_date=previous.end if previous else None,
-                previous_client_name=previous.client_name if previous else None,
+                previous_client_name=entry_class.previous_client_name,
+                engagement_since=entry_class.engagement_since,
             )
         )
 
@@ -586,11 +738,12 @@ async def _gaps(db: AsyncSession, window: MonthWindow) -> list[OrderGapItem]:
 
 # ── Filtry ───────────────────────────────────────────────────────────────────
 
-OrderChangesTab = Literal["changes", "entries", "exits", "gaps"]
+OrderChangesTab = Literal["changes", "entries", "exits", "ending", "gaps"]
 ORDER_CHANGES_TABS: tuple[OrderChangesTab, ...] = (
     "changes",
     "entries",
     "exits",
+    "ending",
     "gaps",
 )
 
@@ -661,10 +814,11 @@ def _filtered(
 def apply_filters(
     response: OrderChangesResponse, filters: OrderChangesFilters
 ) -> OrderChangesResponse:
-    """Zawęża cztery listy i przelicza liczniki.
+    """Zawęża wszystkie listy i przelicza liczniki.
 
     Data znaczy w każdej zakładce co innego: w Zmianach to dzień zmiany,
-    w Wejściach start, w Zejściach koniec, a w Brakach dzień wykrycia braku.
+    w Wejściach start, w Zejściach i Kończących się zamówieniach koniec,
+    a w Brakach dzień wykrycia braku.
     """
 
     if not filters.active:
@@ -673,17 +827,20 @@ def apply_filters(
     changes = _filtered(response.changes, filters, words, lambda i: i.effective_date)
     entries = _filtered(response.entries, filters, words, lambda i: i.start_date)
     exits = _filtered(response.exits, filters, words, lambda i: i.end_date)
+    ending = _filtered(response.ending_orders, filters, words, lambda i: i.end_date)
     gaps = _filtered(response.gaps, filters, words, lambda i: i.detected_on)
     return response.model_copy(
         update={
             "changes": changes,
             "entries": entries,
             "exits": exits,
+            "ending_orders": ending,
             "gaps": gaps,
             "counts": OrderChangesCounts(
                 changes=len(changes),
                 entries=len(entries),
                 exits=len(exits),
+                ending=len(ending),
                 gaps=len(gaps),
             ),
         }
@@ -701,7 +858,7 @@ async def build_order_changes(
     window = MonthWindow.of(year, month)
     day = today or business_today()
     entries, entry_facts, classes = await _entries(db, window)
-    exits = await _exits(db, window, day)
+    exits, ending = await _exits(db, window, day)
     changes = await _changes(db, window, entry_facts, classes)
     gaps = await _gaps(db, window)
     tracked_since = await db.scalar(select(func.min(OrderChangeEvent.created_at)))
@@ -713,11 +870,16 @@ async def build_order_changes(
             year=year, month=month, label=period_label(year, month)
         ),
         counts=OrderChangesCounts(
-            changes=len(changes), entries=len(entries), exits=len(exits), gaps=len(gaps)
+            changes=len(changes),
+            entries=len(entries),
+            exits=len(exits),
+            ending=len(ending),
+            gaps=len(gaps),
         ),
         changes=changes,
         entries=entries,
         exits=exits,
+        ending_orders=ending,
         gaps=gaps,
         changes_tracked_since=tracked_since,
         gaps_tracked_since=settings.ORDER_GAP_TRACKING_START,
@@ -752,9 +914,17 @@ def _new_order_value(item: OrderChangeItem) -> str:
 
 
 def _previous_order_label(item: OrderChangeItem) -> str:
-    if not item.previous_order_number:
-        return "—"
-    return f"zam. {item.previous_order_number} (do {_fmt_date(item.previous_end_date)})"
+    """Skąd wiadomo, że współpraca już trwała.
+
+    Poprzednie zamówienie, a gdy go w NEXUSIE nie ma — data startu umowy.
+    Puste „—" czytałoby się jak utrata danych, nie jak inny rodzaj dowodu.
+    """
+
+    if item.previous_order_number:
+        return f"zam. {item.previous_order_number} (do {_fmt_date(item.previous_end_date)})"
+    if item.engagement_since:
+        return f"współpraca od {_fmt_date(item.engagement_since)}"
+    return "—"
 
 
 def _change_description(item: OrderChangeItem) -> tuple[str, str, str]:
@@ -827,6 +997,41 @@ def _sheet(
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
     sheet.sheet_view.showGridLines = False
+
+
+def _exit_like_sheet(
+    workbook: Workbook, title: str, items: Sequence[OrderExitItem]
+) -> None:
+    """Zejścia i Kończące się zamówienia dzielą wiersz, więc i kolumny.
+
+    Tytuł arkusza musi się zmieścić w 31 znakach Excela — stąd skrót „zam."
+    zamiast pełnej nazwy zakładki.
+    """
+
+    _sheet(
+        workbook,
+        title,
+        [
+            "Konsultant",
+            "Klient",
+            "Numer zamówienia",
+            "Data zakończenia",
+            "Typ zamówienia",
+            "Decyzja dla rozliczeń",
+        ],
+        [
+            [
+                item.consultant_name,
+                item.client_name,
+                item.order_number,
+                item.end_date,
+                ORDER_TYPE_LABELS.get(item.order_type, item.order_type),
+                item.verdict_label,
+            ]
+            for item in items
+        ],
+        [28, 28, 22, 16, 15, 60],
+    )
 
 
 def build_order_changes_workbook(
@@ -909,29 +1114,12 @@ def build_order_changes_workbook(
             [28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10],
         )
     if "exits" in wanted:
-        _sheet(
+        _exit_like_sheet(workbook, f"Zejścia ({data.counts.exits})", data.exits)
+    if "ending" in wanted:
+        _exit_like_sheet(
             workbook,
-            f"Zejścia ({data.counts.exits})",
-            [
-                "Konsultant",
-                "Klient",
-                "Numer zamówienia",
-                "Data zakończenia",
-                "Typ zamówienia",
-                "Decyzja dla rozliczeń",
-            ],
-            [
-                [
-                    item.consultant_name,
-                    item.client_name,
-                    item.order_number,
-                    item.end_date,
-                    ORDER_TYPE_LABELS.get(item.order_type, item.order_type),
-                    item.verdict_label,
-                ]
-                for item in data.exits
-            ],
-            [28, 28, 22, 16, 15, 60],
+            f"Kończące się zam. ({data.counts.ending})",
+            data.ending_orders,
         )
     if "gaps" in wanted:
         _sheet(
@@ -977,6 +1165,7 @@ TAB_FILENAMES: dict[str, str] = {
     "changes": "Zmiany",
     "entries": "Wejscia",
     "exits": "Zejscia",
+    "ending": "Konczace_sie_zamowienia",
     "gaps": "Braki",
 }
 

@@ -48,6 +48,7 @@ function change(overrides: Partial<OrderChangeItem>): OrderChangeItem {
     previous_end_date: null,
     previous_client_name: null,
     start_date: null,
+    engagement_since: null,
     ...overrides,
   };
 }
@@ -75,6 +76,29 @@ describe("finance order changes formatting", () => {
         change({ kind: "end_date", old_date: "2026-12-31", new_date: null }),
       ),
     ).toBe("31.12.2026 → bezterminowo");
+  });
+
+  it("names the contract when the previous order is not in NEXUS at all", () => {
+    // Rejestr zamówień bywa młodszy niż współpraca. Puste „—" czytałoby się
+    // jak utrata danych, nie jak inny rodzaj dowodu.
+    const item = change({
+      kind: "order_continuation",
+      occurred_at: null,
+      effective_date: "2026-09-01",
+      rate_cost: 120,
+      rate_revenue: 152,
+      rate_unit: "hourly",
+      previous_order_number: null,
+      previous_end_date: null,
+      engagement_since: "2025-12-01",
+      old_amount: null,
+      new_amount: null,
+    });
+    expect(changeValue(item)).toBe(
+      "współpraca od 01.12.2025 · od 01.09.2026 · " +
+        "koszt 120,00 zł/h · przychód 152,00 zł/h",
+    );
+    expect(changeValue(item)).not.toContain("—");
   });
 
   it("describes a continuation as the previous order handing over to the new one", () => {

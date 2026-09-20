@@ -26,12 +26,18 @@ import {
   type Tone,
 } from "@/lib/finance-order-changes";
 
-export type OrderChangesSubTab = "changes" | "entries" | "exits" | "gaps";
+export type OrderChangesSubTab =
+  | "changes"
+  | "entries"
+  | "exits"
+  | "ending"
+  | "gaps";
 
 export const ORDER_CHANGES_SUB_TABS: readonly OrderChangesSubTab[] = [
   "changes",
   "entries",
   "exits",
+  "ending",
   "gaps",
 ];
 
@@ -46,6 +52,7 @@ export const SUB_TAB_LABELS: Record<OrderChangesSubTab, string> = {
   changes: "Zmiany",
   entries: "Wejścia",
   exits: "Zejścia",
+  ending: "Kończące się zamówienia",
   gaps: "Braki",
 };
 
@@ -54,6 +61,7 @@ export const DATE_FILTER_LABELS: Record<OrderChangesSubTab, string> = {
   changes: "Data zmiany",
   entries: "Data wejścia",
   exits: "Data zejścia",
+  ending: "Data końca zamówienia",
   gaps: "Data wykrycia braku",
 };
 
@@ -374,18 +382,27 @@ export function OrderChangesList({
     );
   }
 
-  if (subTab === "exits") {
+  if (subTab === "exits" || subTab === "ending") {
+    const items = subTab === "exits" ? data.exits : data.ending_orders;
     return (
       <div className="space-y-3">
-        {data.exits.length === 0 ? (
-          filteredOut ?? (
+        {items.length === 0 ? (
+          filteredOut ??
+          (subTab === "exits" ? (
             <EmptyList>
-              Nikt nie kończy współpracy w miesiącu {data.period.label}.
+              Nikt nie zakończył współpracy w miesiącu {data.period.label}.
+              Zamówienia, które kończą się bez kolejnego, są w zakładce
+              Kończące się zamówienia.
             </EmptyList>
-          )
+          ) : (
+            <EmptyList>
+              Żadne zamówienie nie kończy się w miesiącu {data.period.label} bez
+              kolejnego.
+            </EmptyList>
+          ))
         ) : (
           <ul className="space-y-2">
-            {data.exits.map((item) => (
+            {items.map((item) => (
               <Row
                 key={`x-${item.order_id}`}
                 name={item.consultant_name}
