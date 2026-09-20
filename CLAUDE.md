@@ -506,11 +506,47 @@ cofnąć „przy okazji”:
 
 ## Generator Umów B2B — trzy zakładki cyklu życia umowy
 
-Rejestr rozbity na trzy zakładki odpowiadające fazom życia umowy (migracja
-`0226_b2b_generated_contract_suspended`, na bazie 0203/0224):
-**„Umowy aktywne i w trakcie podpisu"** (`active` + `in_progress`) ·
+Rejestr rozbity na trzy zakładki odpowiadające fazom życia umowy (migracje
+`0226_b2b_generated_contract_suspended` i `0328_b2b_generated_contract_cancelled`,
+na bazie 0203/0224):
+**„Umowy bieżące"** (`active` + `in_progress` + `cancelled`) ·
 **„Umowy bez projektu"** (`suspended`) · **„Zakończone umowy"** (`closed`).
 Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
+
+- **„Anulowana" (`cancelled`, 0328) = umowa, która NIE DOSZŁA DO SKUTKU** —
+  Partner wycofał się przed podpisem. To NIE `closed`: tam skończył się projekt,
+  tu umowa nigdy nie zaczęła obowiązywać. Powstał, bo jedynym wyjściem była
+  „Zakończona", a numer jest już zużyty i nie wraca do puli (UNIQUE(year, seq)),
+  więc wpis musi zostać w rejestrze.
+  - **Wiersz ZOSTAJE w pierwszej zakładce** (stąd jej nazwa „Umowy bieżące",
+    nie „Umowy aktywne i w trakcie podpisu" — nagłówek wyliczający statusy
+    przestałby być prawdziwy). Ma być pod ręką, żeby dało się go cofnąć tam,
+    gdzie użytkownik patrzy. Filtr zakładki pyta o TRZY statusy.
+  - **BEZ powodu i daty**: `cancelled` jest w gałęzi „pola zamknięcia puste"
+    CHECK-a spójności, a NIE w `B2B_CLOSING_STATUSES`. Umowa, która nie doszła
+    do skutku, nie ma czego ani kiedy kończyć, a powrót na „W trakcie" ma być
+    jednym kliknięciem. Dialog nie pokazuje wtedy pól powodu i daty.
+  - **Umowy podpisanej obustronnie nie da się anulować** (409) — ta doszła do
+    skutku i kończy się przez „Zakończona". Opcja nie renderuje się w dialogu
+    (`canCancel = signature_status !== "signed_both"`).
+  - **Z „Anulowanej" nie ma skrótu na „Aktywną"** (422): `active` ustawia
+    WYŁĄCZNIE potwierdzenie podpisu obustronnego. Droga wiedzie przez „W trakcie".
+  - **Ręczny wybór „W trakcie" zszedł z walidatora DTO do handlera PATCH-a.**
+    `B2BGeneratedContractUpdate` odrzucało ten status bezwarunkowo; od 0328 ma
+    dokładnie jeden legalny wybór ręczny (powrót z „Anulowanej"), a ten warunek
+    zależy od BIEŻĄCEGO statusu wiersza, którego DTO nie widzi. Komunikat dla
+    przypadku niedozwolonego (`_IN_PROGRESS_IS_AUTOMATIC`) jest ten sam co był.
+  - **Status podpisu zostaje „Niepodpisana"**, zmienia się tylko kolor wskaźnika
+    na czerwony (`Badge variant="danger"` — badge nie ma osobnego elementu
+    kropki, ikona dziedziczy jego wariant). Etykiety nie ruszamy: podpisu
+    naprawdę nie ma.
+  - **Przycisk „Oznacz jako podpisaną" chowa `can_confirm_signed` z backendu**
+    (+ `blocked_reason` `_CANCELLED_BLOCKS_SIGNATURE`), a `confirm-fully-signed`
+    odmawia 409. Jedno i drugie, bo ukryty przycisk nie jest kontrolą — ten
+    endpoint do 0328 NIE patrzył na `contract_status` w ogóle.
+  - Drugi, łatwy do przeoczenia mirror etykiet:
+    `components/v2/jobs/JobContractTab.tsx` (`Record<string, string>`, więc
+    TypeScript NIE zgłosi brakującego statusu — wyjdzie surowe `cancelled`).
 
 - **Dostęp: KAŻDA rola (decyzja produktowa, 20.08 — mirror Talent Radar 19.08).**
   Sidebar nigdy nie miał tu `roles` ("Generator Umów B2B — dostępny dla
