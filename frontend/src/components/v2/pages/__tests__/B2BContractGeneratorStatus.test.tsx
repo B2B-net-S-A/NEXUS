@@ -330,6 +330,84 @@ describe("GeneratedContractsTab — status umowy", () => {
     );
   });
 
+  it("„Anulowana” zapisuje się jednym kliknięciem — bez powodu i daty", async () => {
+    // Umowa, która NIE DOSZŁA DO SKUTKU, nie ma czego ani kiedy kończyć.
+    // Formularz powodu byłby pytaniem o zakończenie czegoś, co się nie zaczęło,
+    // i zamieniłby cofnięcie statusu w kilkuetapową procedurę.
+    const user = setupUser();
+    mocks.updateGenerated.mockResolvedValue(
+      generatedRow({ contract_status: "cancelled" }),
+    );
+    renderTab([generatedRow({ contract_status: "in_progress" })]);
+
+    await user.click(
+      await screen.findByRole("button", { name: /Zmień status/ }),
+    );
+    await pickOption(user, /Status umowy/, "Anulowana");
+
+    expect(screen.queryByLabelText("Data zakończenia umowy")).toBeNull();
+    expect(screen.queryByLabelText(/Powód zakończenia/)).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Zapisz status/ }));
+    await waitFor(() =>
+      expect(mocks.updateGenerated).toHaveBeenCalledWith(1, {
+        contract_status: "cancelled",
+      }),
+    );
+  });
+
+  it("„W trakcie” da się wybrać TYLKO dla umowy anulowanej", async () => {
+    // Trzeci punkt ticketu. Poza tym jednym przypadkiem status ustawia system,
+    // więc pozycja zostaje widoczna (inaczej Radix pokazałby pusty trigger dla
+    // umowy, która właśnie w tym stanie jest), ale niewybieralna.
+    const user = setupUser();
+    mocks.updateGenerated.mockResolvedValue(
+      generatedRow({ contract_status: "in_progress" }),
+    );
+    renderTab([generatedRow({ contract_status: "cancelled" })]);
+
+    await user.click(
+      await screen.findByRole("button", { name: /Zmień status/ }),
+    );
+    await user.click(screen.getByRole("combobox", { name: /Status umowy/ }));
+    // Anulowana umowa jest niepodpisana, więc „Aktywna” nie jest tu opcją —
+    // ten status ustawia wyłącznie potwierdzenie podpisu.
+    expect(screen.queryByRole("option", { name: "Aktywna" })).toBeNull();
+    const inProgress = await screen.findByRole("option", {
+      name: "W trakcie",
+    });
+    expect(inProgress).not.toHaveAttribute("aria-disabled", "true");
+
+    await user.click(inProgress);
+    await user.click(screen.getByRole("button", { name: /Zapisz status/ }));
+    await waitFor(() =>
+      expect(mocks.updateGenerated).toHaveBeenCalledWith(1, {
+        contract_status: "in_progress",
+      }),
+    );
+  });
+
+  it("umowa podpisana obustronnie nie dostaje opcji „Anulowana”", async () => {
+    // Podpisana umowa DOSZŁA do skutku — kończy ją „Zakończona”. Backend
+    // odmawia 409; ukrycie opcji oszczędza wysyłki, która nie ma prawa się udać.
+    const user = setupUser();
+    renderTab([
+      generatedRow({
+        contract_status: "active",
+        signature_status: "signed_both",
+      }),
+    ]);
+
+    await user.click(
+      await screen.findByRole("button", { name: /Zmień status/ }),
+    );
+    await user.click(screen.getByRole("combobox", { name: /Status umowy/ }));
+    expect(
+      await screen.findByRole("option", { name: "Zakończona" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Anulowana" })).toBeNull();
+  });
+
   it("bez uprawnień nie pokazuje przycisku zmiany statusu", async () => {
     renderTab([generatedRow({ can_change_status: false })]);
     // Wiersz jest wyrenderowany — asercja po numerze umowy, nie po etykiecie
@@ -355,9 +433,10 @@ describe("GeneratedContractsTab — wyszukiwarka", () => {
       () =>
         expect(mocks.generated).toHaveBeenCalledWith(100, {
           q: "Kowalski",
-          // Zakładka pyta o DWA statusy naraz — „Wszystkie" znaczy tu
-          // „aktywne i w trakcie podpisu", nie „wszystkie umowy w systemie".
-          contractStatus: ["active", "in_progress"],
+          // Zakładka pyta o TRZY statusy naraz — „Wszystkie" znaczy tu
+          // „bieżące" (aktywne, w trakcie podpisu i anulowane), nie „wszystkie
+          // umowy w systemie": zakończone i zawieszone mają własne zakładki.
+          contractStatus: ["active", "in_progress", "cancelled"],
         }),
       { timeout: 2000 },
     );
@@ -393,6 +472,11 @@ describe("GeneratedContractsTab — wyszukiwarka", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Zakończona" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Zawieszona" })).toBeNull();
+    // „Anulowana" JEST tutaj — w odróżnieniu od tamtych dwóch nie ma własnej
+    // zakładki, więc bez tej pozycji nie dałoby się jej odfiltrować.
+    expect(
+      await screen.findByRole("option", { name: "Anulowana" }),
+    ).toBeInTheDocument();
   });
 
   it("pusty wynik wyszukiwania nie udaje braku umów w systemie", async () => {

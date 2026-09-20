@@ -29,6 +29,34 @@ _SNAPSHOT_COLUMNS = (
     "partner_entity_type",
 )
 
+# Aktualna domena statusu — rośnie z każdym poszerzeniem (0224, 0226, 0328).
+_STATUS_DOMAIN = (
+    "contract_status IN ('active', 'in_progress', 'cancelled', 'suspended', 'closed')"
+)
+# Gałąź koherencji „pola zamknięcia puste". `cancelled` jest tutaj, a nie
+# w gałęzi `('closed', 'suspended')`: umowa, która NIE DOSZŁA DO SKUTKU, nie ma
+# czego ani kiedy kończyć.
+_COHERENCE_OPEN_BRANCH = "contract_status IN ('active', 'in_progress', 'cancelled')"
+
+
+def _squash(text: str) -> str:
+    """Skleja literały łamane przez formatter i zwija białe znaki.
+
+    Pięciowartościowa domena statusu nie mieści się w jednej linii pod ruffem
+    ani w czytelnym SQL-u entrypointu, więc asercje o dosłownym napisie pękałyby
+    na samym ZAWIJANIU — czyli na formatowaniu, a nie na braku lustra, którego
+    ten plik pilnuje. Sklejamy wyłącznie sąsiadujące literały Pythona rozdzielone
+    końcem linii (`"…"\\n  "…"`), żeby nie zlepiać niezwiązanych napisów.
+
+    Na koniec zdejmujemy spacje przylegające do nawiasów: lustro
+    w `entrypoint.sh` to surowy SQL łamany zaraz po `IN (`, więc bez tego kroku
+    asercja widziałaby `IN ( 'active'` i nie trafiłaby w katalog.
+    """
+    joined = re.sub(r"\s+", " ", re.sub(r'"\s*\n\s*"', "", text))
+    # Tylko WEWNĄTRZ nawiasu — spacja przed `(` zostaje, żeby stałe niżej dało
+    # się czytać jako normalny SQL (`IN ('active', …)`), a nie `IN('active'…`.
+    return re.sub(r"\s+\)", ")", re.sub(r"\(\s+", "(", joined))
+
 
 def test_migration_chains_onto_the_single_head():
     """Jedna głowa alembica jest bramką CI (`test_analytics_release_gates`).
@@ -129,15 +157,13 @@ def test_entrypoint_drops_rewritten_checks_before_adding_them():
 
 
 def test_entrypoint_mirrors_the_widened_checks_and_entity_type_domain():
-    # Domena statusu została poszerzona ponownie w 0226 („Zawieszona"), więc
-    # asercja pilnuje `in_progress` W AKTUALNEJ liście, a nie dosłownego
-    # napisu z 0224 — inaczej każde kolejne poszerzenie fałszywie czerwieni
-    # test o luście, zamiast wykryć jego BRAK.
-    entry = ENTRYPOINT.read_text("utf-8")
-    assert (
-        "contract_status IN ('active', 'in_progress', 'suspended', 'closed')" in entry
-    )
-    assert "contract_status IN ('active', 'in_progress')" in entry
+    # Domena statusu była poszerzana ponownie w 0226 („Zawieszona") i 0328
+    # („Anulowana"), więc asercja pilnuje `in_progress` W AKTUALNEJ liście,
+    # a nie dosłownego napisu z 0224 — inaczej każde kolejne poszerzenie
+    # fałszywie czerwieni test o luście, zamiast wykryć jego BRAK.
+    entry = _squash(ENTRYPOINT.read_text("utf-8"))
+    assert _STATUS_DOMAIN in entry
+    assert _COHERENCE_OPEN_BRANCH in entry
     assert "ck_b2b_generated_contracts_partner_entity_type" in entry
 
 
@@ -145,14 +171,13 @@ def test_model_matches_the_migration():
     """`Base.metadata.create_all` w entrypoincie tworzy schemat z CHECK-ów ORM,
     nie z migracji — rozjazd oznacza, że świeża baza i CI mają inny constraint
     niż produkcja."""
-    model = MODEL.read_text("utf-8")
-    assert (
-        "contract_status IN ('active', 'in_progress', 'suspended', 'closed')" in model
-    )
-    assert "contract_status IN ('active', 'in_progress')" in model
+    raw = MODEL.read_text("utf-8")
+    model = _squash(raw)
+    assert _STATUS_DOMAIN in model
+    assert _COHERENCE_OPEN_BRANCH in model
     assert "ck_b2b_generated_contracts_partner_entity_type" in model
     for column in _SNAPSHOT_COLUMNS:
-        assert re.search(rf"^\s+{column}: Mapped", model, re.M), (
+        assert re.search(rf"^\s+{column}: Mapped", raw, re.M), (
             f"kolumna {column} nie jest zadeklarowana w modelu"
         )
 

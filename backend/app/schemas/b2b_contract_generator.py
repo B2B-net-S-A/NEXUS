@@ -19,7 +19,17 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 #
 # `suspended` (0226) = umowa nadal obowiązuje, ale kontraktor nie ma
 # przypisanego projektu. Zasila zakładkę „Umowy bez projektu".
-B2BContractStatus = Literal["active", "in_progress", "suspended", "closed"]
+#
+# `cancelled` (0328) = umowa NIE DOSZŁA DO SKUTKU (Partner wycofał się przed
+# podpisem). Jedyny status, z którego wolno ręcznie wrócić na `in_progress` —
+# egzekwuje to handler, bo DTO nie zna bieżącego stanu wiersza.
+B2BContractStatus = Literal[
+    "active",
+    "in_progress",
+    "cancelled",
+    "suspended",
+    "closed",
+]
 # Typ podmiotu Partnera. Katalog żyje w `services.b2b_contract_generator.
 # entity_type`; tutaj powtórzony jako Literal, bo DTO nie może importować
 # serwisu (cykl importów).
@@ -457,23 +467,20 @@ class B2BGeneratedContractUpdate(BaseModel):
         IntegrityError z bazy — sama baza pozostaje ostateczną barierą.
 
         Czego ten walidator NIE sprawdza i sprawdzić nie może: że przejście na
-        „Zawieszona" wychodzi z „Aktywnej" i że przywracana umowa ma powiązany
-        kontrakt. Oba wymagają znajomości BIEŻĄCEGO stanu wiersza, którego DTO
+        „Zawieszona" wychodzi z „Aktywnej", że przywracana umowa ma powiązany
+        kontrakt oraz że ręczny wybór „W trakcie" wychodzi z „Anulowanej".
+        Wszystkie trzy wymagają znajomości BIEŻĄCEGO stanu wiersza, którego DTO
         nie widzi — egzekwuje je handler.
         """
         # `in_progress` jest stanem, PRZEZ który umowa przechodzi automatycznie,
-        # nie stanem wybieranym. Odrzucane tutaj, a NIE przez zawężenie typu
-        # pola do Literal["active","closed"], z dwóch powodów: (1) wąski Literal
-        # daje angielskie „Input should be 'active' or 'closed'" bez wyjaśnienia,
-        # czego ten plik testowy nie da się złapać przez `pytest.raises(match=)`;
-        # (2) jeden katalog wartości dla odczytu i zapisu nie może się rozjechać.
-        if self.contract_status == "in_progress":
-            raise ValueError(
-                "Status „W trakcie” ustawia system automatycznie przy "
-                "generowaniu umowy — nie można go wybrać ręcznie. Umowa "
-                "staje się „Aktywna” po potwierdzeniu podpisu."
-            )
-
+        # i do 0328 był tu odrzucany bezwarunkowo. Od 0328 ma DOKŁADNIE JEDEN
+        # legalny wybór ręczny: powrót z „Anulowanej" (Partner jednak wraca do
+        # podpisu). Warunek „poprzedni status to `cancelled`" zależy od stanu
+        # wiersza, więc reguła — razem z jej komunikatem — przeniosła się do
+        # handlera PATCH-a. Tutaj zostaje tylko szeroki katalog wartości:
+        # zawężenie typu pola do Literal["active","cancelled","closed", …]
+        # dawałoby angielskie „Input should be …" bez wyjaśnienia, a jeden
+        # katalog dla odczytu i zapisu nie może się rozjechać.
         if self.contract_status is None:
             # Jawne ``{"contract_status": null}`` != pominięcie pola. Bez tego
             # rozróżnienia null przechodzi walidację jako „brak zmiany statusu",
@@ -518,11 +525,18 @@ class B2BGeneratedContractUpdate(BaseModel):
                 )
             return self
 
-        # active → wszystkie pola zamknięcia muszą zostać wyczyszczone.
+        # active / in_progress / cancelled → wszystkie pola zamknięcia muszą
+        # zostać wyczyszczone (lustro pierwszej gałęzi CHECK-a). „Anulowana"
+        # jest tu, a nie w `B2B_CLOSING_STATUSES`, bo umowa, która nie doszła do
+        # skutku, nie ma czego ani kiedy kończyć.
+        _no_closure = (
+            "Status „Aktywna”, „W trakcie” i „Anulowana” nie mogą nieść "
+            "powodu ani daty zakończenia."
+        )
         if self.closure_reason is not None or self.closure_date is not None:
-            raise ValueError("Aktywna umowa nie może mieć powodu ani daty zakończenia.")
+            raise ValueError(_no_closure)
         if (self.closure_reason_other or "").strip():
-            raise ValueError("Aktywna umowa nie może mieć powodu ani daty zakończenia.")
+            raise ValueError(_no_closure)
         # Jawne ``{"job_id": null}`` != pominięcie pola. Przywrócenie umowy do
         # gry BEZ projektu jest dokładnie tym stanem, który opisuje „Zawieszona",
         # więc pusty projekt przy statusie „Aktywna" nie jest korektą, tylko

@@ -192,8 +192,10 @@ async def test_orm_default_status_stays_active_for_directly_seeded_rows(
 async def test_in_progress_cannot_be_set_by_hand(app_client, app_auth_headers):
     """„W trakcie" to stan, PRZEZ który umowa przechodzi automatycznie.
 
-    Odrzucenie żyje w walidatorze DTO, a nie w zawężonym typie pola, żeby
-    komunikat był po polsku i wyjaśniał, skąd ten status się bierze.
+    Od 0328 ma DOKŁADNIE JEDEN legalny wybór ręczny — powrót z „Anulowanej"
+    (patrz test niżej) — więc odrzucenie zeszło z walidatora DTO do handlera:
+    warunek zależy od BIEŻĄCEGO statusu wiersza, którego DTO nie widzi.
+    Komunikat dla przypadku niedozwolonego został ten sam.
     """
     admin_id = await _admin_user_id(app_client)
     rid, _number = await _seed(admin_id)
@@ -214,9 +216,33 @@ async def test_in_progress_cannot_be_set_by_hand(app_client, app_auth_headers):
     assert item["contract_status"] == "active"
 
 
-def test_dto_rejects_in_progress_with_a_polish_explanation():
-    with pytest.raises(ValidationError, match="automatycznie"):
-        B2BGeneratedContractUpdate(contract_status="in_progress")
+def test_dto_passes_in_progress_through_to_the_handler():
+    """Lustro decyzji z 0328: katalog wartości jest JEDEN dla odczytu i zapisu.
+
+    Do 0328 DTO odrzucało „W trakcie" bezwarunkowo. Teraz przepuszcza, bo
+    legalność tego wyboru zależy od poprzedniego statusu wiersza — a tego DTO
+    z definicji nie zna. Sprawdzenie („tylko z Anulowanej") i komunikat żyją
+    w handlerze; zostawienie kopii reguły tutaj dawałoby dwie prawdy naraz.
+    """
+    dto = B2BGeneratedContractUpdate(contract_status="in_progress")
+    assert dto.contract_status == "in_progress"
+
+
+def test_dto_rejects_closure_fields_on_cancelled():
+    """„Anulowana" siedzi w gałęzi „pola zamknięcia puste", nie w `B2B_CLOSING_
+    STATUSES`: umowa, która nie doszła do skutku, nie ma czego ani kiedy
+    kończyć. To lustro pierwszej gałęzi CHECK-a spójności."""
+    with pytest.raises(ValidationError, match="nie mogą nieść"):
+        B2BGeneratedContractUpdate(
+            contract_status="cancelled",
+            closure_reason="project_completed",
+            closure_date="2026-08-01",
+        )
+    # Sam status przechodzi — bez powodu, bez daty, jednym kliknięciem.
+    assert (
+        B2BGeneratedContractUpdate(contract_status="cancelled").contract_status
+        == "cancelled"
+    )
 
 
 async def test_closing_keeps_the_row_and_records_reason_and_date(
@@ -1446,3 +1472,203 @@ async def test_reopening_a_closed_contract_does_not_require_a_project(
     ]
     # Bez projektu nie ma czego przypisać — wiersz zostaje bez rekrutacji.
     assert history.json()[-1]["job_id"] is None
+
+
+# ── „Anulowana" (0328): umowa, która nie doszła do skutku ────────────────────
+
+
+async def _set_status(rid: int, status: str) -> None:
+    """Ustaw status wprost w bazie — omija reguły przejść handlera.
+
+    Potrzebne, bo `_seed` wstawia wiersz z defaultem kolumny (`active`),
+    a punktem wyjścia scenariusza z ticketu jest umowa czekająca na podpis.
+    """
+    from sqlalchemy import update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(B2BGeneratedContract)
+            .where(B2BGeneratedContract.id == rid)
+            .values(contract_status=status)
+        )
+        await db.commit()
+
+
+async def _fetch(app_client, headers, rid: int) -> dict:
+    listing = await app_client.get(PATH, headers=headers, params={"limit": 200})
+    assert listing.status_code == 200, listing.text
+    return next(x for x in listing.json() if x["id"] == rid)
+
+
+async def test_cancelling_and_returning_to_signature_is_a_round_trip(
+    app_client, app_auth_headers
+):
+    """Pełna ścieżka z ticketu: „W trakcie" → „Anulowana" → „W trakcie".
+
+    Anulowanie NIE pyta o powód ani datę (umowa nie doszła do skutku, więc nie
+    ma czego kończyć), a powrót jest jednym kliknięciem — inaczej status byłby
+    pułapką dla Partnera, który jednak wraca do podpisu.
+    """
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+    await _set_status(rid, "in_progress")
+
+    cancel = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "cancelled"},
+    )
+    assert cancel.status_code == 200, cancel.text
+    body = cancel.json()
+    assert body["contract_status"] == "cancelled"
+    # Pola zamknięcia zostają puste — to nie jest zakończenie projektu.
+    assert body["closure_reason"] is None
+    assert body["closure_date"] is None
+    # Status PODPISU się nie zmienia: podpisu nadal nie ma.
+    assert body["signature_status"] == "unsigned"
+
+    back = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "in_progress"},
+    )
+    assert back.status_code == 200, back.text
+    assert back.json()["contract_status"] == "in_progress"
+
+    history = await app_client.get(
+        f"{PATH}/{rid}/status-history", headers=app_auth_headers
+    )
+    assert [(e["from_status"], e["to_status"]) for e in history.json()] == [
+        ("in_progress", "cancelled"),
+        ("cancelled", "in_progress"),
+    ]
+
+
+async def test_cancelled_row_hides_the_signature_button_and_blocks_confirming(
+    app_client, app_auth_headers
+):
+    """Dwa wymagania ticketu naraz — i to NIE jest ta sama rzecz.
+
+    `can_confirm_signed` chowa przycisk, a 409 z `confirm-fully-signed` jest
+    egzekwowaniem. Ukryty przycisk nie jest kontrolą: endpoint do 0328 nie
+    patrzył na `contract_status` w ogóle.
+    """
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+    await _set_status(rid, "in_progress")
+
+    before = await _fetch(app_client, app_auth_headers, rid)
+    assert before["can_confirm_signed"] is True
+    assert before["blocked_reason"] is None
+
+    cancel = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "cancelled"},
+    )
+    assert cancel.status_code == 200, cancel.text
+
+    after = await _fetch(app_client, app_auth_headers, rid)
+    assert after["can_confirm_signed"] is False
+    assert "anulowana" in (after["blocked_reason"] or "").lower()
+    assert "W trakcie" in after["blocked_reason"]
+
+    confirm = await app_client.post(
+        f"{PATH}/{rid}/confirm-fully-signed", headers=app_auth_headers, json={}
+    )
+    assert confirm.status_code == 409, confirm.text
+    assert "anulowana" in confirm.text.lower()
+
+    # Powrót na „W trakcie" przywraca przycisk — trzeci punkt ticketu.
+    back = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "in_progress"},
+    )
+    assert back.status_code == 200, back.text
+    restored = await _fetch(app_client, app_auth_headers, rid)
+    assert restored["can_confirm_signed"] is True
+    assert restored["blocked_reason"] is None
+
+
+async def test_a_signed_contract_cannot_be_cancelled(app_client, app_auth_headers):
+    """Podpisana obustronnie umowa DOSZŁA do skutku — kończy ją „Zakończona".
+
+    409, nie 422: dane w żądaniu są poprawne, wyklucza je stan wiersza.
+    """
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id, signature_status="signed_both")
+
+    resp = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "cancelled"},
+    )
+    assert resp.status_code == 409, resp.text
+    assert "Zakończona" in resp.json()["detail"]
+    assert (await _fetch(app_client, app_auth_headers, rid))[
+        "contract_status"
+    ] == "active"
+
+
+async def test_cancelled_has_no_shortcut_back_to_active(app_client, app_auth_headers):
+    """Z „Anulowanej" droga wiedzie przez „W trakcie".
+
+    Ta umowa jest z definicji niepodpisana, a „Aktywna" ustawia WYŁĄCZNIE
+    potwierdzenie podpisu obustronnego — skrót produkowałby umowę „aktywną"
+    bez podpisu.
+    """
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+    await _set_status(rid, "cancelled")
+
+    resp = await app_client.patch(
+        f"{PATH}/{rid}", headers=app_auth_headers, json={"contract_status": "active"}
+    )
+    assert resp.status_code == 422, resp.text
+    assert "W trakcie" in resp.json()["detail"]
+
+    # „Zawieszona" też odpada — zawiesić można tylko umowę obowiązującą.
+    suspended = await _suspend(app_client, app_auth_headers, rid)
+    assert suspended.status_code == 422, suspended.text
+
+
+async def test_cancelled_row_stays_in_the_current_tab(app_client, app_auth_headers):
+    """Decyzja produktowa: wiersz zostaje pod ręką, nie znika w osobną zakładkę.
+
+    Numer umowy jest już zużyty i nie wraca do puli, a cofnięcie statusu ma być
+    możliwe tam, gdzie użytkownik właśnie patrzy.
+    """
+    admin_id = await _admin_user_id(app_client)
+    rid, _ = await _seed(admin_id)
+    await _set_status(rid, "in_progress")
+    cancel = await app_client.patch(
+        f"{PATH}/{rid}",
+        headers=app_auth_headers,
+        json={"contract_status": "cancelled"},
+    )
+    assert cancel.status_code == 200, cancel.text
+
+    current_tab = await app_client.get(
+        PATH,
+        headers=app_auth_headers,
+        params=[
+            ("limit", "200"),
+            ("contract_status", "active"),
+            ("contract_status", "in_progress"),
+            ("contract_status", "cancelled"),
+        ],
+    )
+    assert current_tab.status_code == 200, current_tab.text
+    assert rid in {x["id"] for x in current_tab.json()}
+
+    # Sam filtr „Anulowana" też go zwraca — pozycja w pickerze zakładki.
+    only_cancelled = await app_client.get(
+        PATH,
+        headers=app_auth_headers,
+        params=[("limit", "200"), ("contract_status", "cancelled")],
+    )
+    assert rid in {x["id"] for x in only_cancelled.json()}

@@ -6984,18 +6984,21 @@ _CONSTRAINT_STATEMENTS = [
             FOREIGN KEY (signed_by_user_id) REFERENCES users (id)
             ON DELETE SET NULL NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0224/0226: 'in_progress' i 'suspended' jako trzeci i czwarty status.
-    # DROP PRZED ADD, bo `EXCEPTION WHEN duplicate_object THEN NULL` po cichu
-    # zostawiłby STARY, wąski constraint z 0203 — a wtedy INSERT z 'in_progress'
-    # wywalałby CheckViolation przy każdym generowaniu umowy, a entrypoint
-    # wypisałby tylko „backfill constraint skip".
+    # 0224/0226/0328: 'in_progress', 'suspended' i 'cancelled' jako trzeci,
+    # czwarty i piąty status. DROP PRZED ADD, bo `EXCEPTION WHEN
+    # duplicate_object THEN NULL` po cichu zostawiłby STARY, wąski constraint
+    # z 0203 — a wtedy INSERT z 'in_progress' wywalałby CheckViolation przy
+    # każdym generowaniu umowy, a entrypoint wypisałby tylko „backfill
+    # constraint skip".
     """ALTER TABLE b2b_generated_contracts
        DROP CONSTRAINT IF EXISTS ck_b2b_generated_contracts_contract_status""",
     """DO $$ BEGIN
         ALTER TABLE b2b_generated_contracts
             ADD CONSTRAINT ck_b2b_generated_contracts_contract_status
             CHECK (
-                contract_status IN ('active', 'in_progress', 'suspended', 'closed')
+                contract_status IN (
+                    'active', 'in_progress', 'cancelled', 'suspended', 'closed'
+                )
             )
             NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
@@ -7031,9 +7034,11 @@ _CONSTRAINT_STATEMENTS = [
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0224: 'in_progress' traktowany jak 'active' — umowa w drodze do podpisu
     # nie ma pól zamknięcia. 0226: 'suspended' traktowany jak 'closed' — umowa
-    # bez projektu MUSI powiedzieć, co i kiedy się skończyło. Bez tego
-    # przepisania wiersz 'suspended' łamie OBIE gałęzie tego CHECK-a, więc samo
-    # poszerzenie ck_..._contract_status wyżej NIE wystarczy. DROP przed ADD.
+    # bez projektu MUSI powiedzieć, co i kiedy się skończyło. 0328: 'cancelled'
+    # traktowany jak 'active' — umowa, która NIE DOSZŁA DO SKUTKU, nie ma czego
+    # ani kiedy kończyć. Bez tego przepisania wiersz 'suspended'/'cancelled'
+    # łamie OBIE gałęzie tego CHECK-a, więc samo poszerzenie
+    # ck_..._contract_status wyżej NIE wystarczy. DROP przed ADD.
     """ALTER TABLE b2b_generated_contracts
        DROP CONSTRAINT IF EXISTS ck_b2b_generated_contracts_closure_coherence""",
     """DO $$ BEGIN
@@ -7041,7 +7046,7 @@ _CONSTRAINT_STATEMENTS = [
             ADD CONSTRAINT ck_b2b_generated_contracts_closure_coherence
             CHECK (
                 (
-                    contract_status IN ('active', 'in_progress')
+                    contract_status IN ('active', 'in_progress', 'cancelled')
                     AND closure_reason IS NULL
                     AND closure_date IS NULL
                     AND closure_reason_other IS NULL

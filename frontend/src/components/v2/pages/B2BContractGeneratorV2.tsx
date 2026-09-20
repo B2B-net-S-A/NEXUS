@@ -29,6 +29,7 @@ import {
   Trash2,
   Upload,
   X,
+  XCircle,
 } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -520,9 +521,11 @@ export function B2BContractGeneratorV2() {
               {canGenerate ? (
                 <TabsTrigger value="generator">Generator</TabsTrigger>
               ) : null}
-              <TabsTrigger value="generated">
-                Umowy aktywne i w trakcie podpisu
-              </TabsTrigger>
+              {/* „Umowy bieżące", nie „aktywne i w trakcie podpisu": od 0328
+                  siedzą tu także umowy anulowane (wiersz zostaje pod ręką, żeby
+                  dało się go cofnąć na „W trakcie", gdy Partner wróci).
+                  Nagłówek wyliczający statusy przestałby być prawdziwy. */}
+              <TabsTrigger value="generated">Umowy bieżące</TabsTrigger>
               <TabsTrigger value="no-project">Umowy bez projektu</TabsTrigger>
               <TabsTrigger value="closed">Zakończone umowy</TabsTrigger>
               {isAdmin ? (
@@ -1043,6 +1046,7 @@ function ConfirmFullySignedDialog({
 export const B2B_CONTRACT_STATUS_LABEL: Record<B2BContractStatus, string> = {
   active: "Aktywna",
   in_progress: "W trakcie",
+  cancelled: "Anulowana",
   suspended: "Zawieszona",
   // „Zamknięta" → „Zakończona": tak nazywa ten stan proces i tak brzmi
   // zakładka, do której wiersz trafia. Wartość w bazie zostaje `closed`.
@@ -1059,13 +1063,19 @@ export const B2B_CONTRACT_STATUS_LABEL: Record<B2BContractStatus, string> = {
  *
  * „Zawieszona" dostaje `soft` — czyta się jako wstrzymanie, a nie awarię ani
  * stan terminalny. Umowa dalej obowiązuje, więc czerwień byłaby kłamstwem.
+ *
+ * „Anulowana" dostaje `danger` (czerwień) — i to jest JEDYNY status, któremu
+ * ona przysługuje: umowa nie doszła do skutku, więc wiersz jest martwy mimo
+ * tego, że siedzi w zakładce z żywymi. Bez czerwieni niczym nie różniłby się
+ * wzrokowo od umowy czekającej na podpis.
  */
 export const B2B_CONTRACT_STATUS_VARIANT: Record<
   B2BContractStatus,
-  "info" | "warning" | "neutral" | "soft"
+  "info" | "warning" | "neutral" | "soft" | "danger"
 > = {
   active: "info",
   in_progress: "warning",
+  cancelled: "danger",
   suspended: "soft",
   closed: "neutral",
 };
@@ -1074,6 +1084,7 @@ export const B2B_CONTRACT_STATUS_VARIANT: Record<
 function StatusIcon({ status }: { status: B2BContractStatus }) {
   const cls = "h-3.5 w-3.5";
   if (status === "closed") return <CircleSlash className={cls} />;
+  if (status === "cancelled") return <XCircle className={cls} />;
   if (status === "suspended") return <PauseCircle className={cls} />;
   if (status === "in_progress") return <CircleDashed className={cls} />;
   return <CircleDot className={cls} />;
@@ -1311,7 +1322,11 @@ export function ContractStatusDialog({
           ? "Umowa zakończona — wpis przeszedł do „Zakończone umowy”."
           : updated.contract_status === "suspended"
             ? "Umowa zawieszona — kontraktor jest teraz w „Umowy bez projektu”."
-            : "Umowa oznaczona jako aktywna.",
+            : updated.contract_status === "cancelled"
+              ? "Umowa anulowana — wpis zostaje w rejestrze, numer nie wraca do puli."
+              : updated.contract_status === "in_progress"
+                ? "Umowa wróciła do podpisu — możesz ją oznaczyć jako podpisaną."
+                : "Umowa oznaczona jako aktywna.",
       );
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
       queryClient.invalidateQueries({ queryKey: ["b2b-status-history", row.id] });
@@ -1328,9 +1343,17 @@ export function ContractStatusDialog({
   // odrzuca inne przejścia 422; ukrycie opcji oszczędza użytkownikowi wysyłki,
   // która i tak nie ma prawa się udać.
   const canSuspend = row.contract_status === "active";
+  // „Anulowana" = umowa nie doszła do skutku. Podpisana obustronnie doszła, więc
+  // jej koniec to „Zakończona" — backend odrzuca tamto przejście 409.
+  const canCancel = row.signature_status !== "signed_both";
+  // Jedyny ręczny wybór „W trakcie": powrót z „Anulowanej" (Partner jednak
+  // wraca do podpisu). Wszędzie indziej ten status ustawia system.
+  const canReturnToProgress = row.contract_status === "cancelled";
   const submit = () => {
     if (!closing) {
-      mut.mutate({ contract_status: "active" });
+      // `status`, nie sztywne „active": ten sam przycisk obsługuje teraz
+      // anulowanie i powrót na „W trakcie".
+      mut.mutate({ contract_status: status });
       return;
     }
     // Te same reguły egzekwuje backend (422) i CHECK w bazie — tu tylko po to,
@@ -1381,20 +1404,33 @@ export function ContractStatusDialog({
                     taki zapis 422. Opcja, która zawsze kończy się błędem, jest
                     gorsza niż jej brak — od tego jest przycisk „Przywróć",
                     który pyta o projekt. */}
-                {row.contract_status !== "suspended" ? (
+                {/* Dla wiersza ANULOWANEGO „Aktywna" odpada z tego samego
+                    powodu co dla zawieszonego, choć innego: ta umowa jest
+                    niepodpisana, a `active` ustawia wyłącznie potwierdzenie
+                    podpisu. Droga wiedzie przez „W trakcie". */}
+                {row.contract_status !== "suspended" &&
+                row.contract_status !== "cancelled" ? (
                   <SelectItem value="active">
                     {B2B_CONTRACT_STATUS_LABEL.active}
                   </SelectItem>
                 ) : null}
-                {/* „W trakcie" MUSI być na liście, ale wyszarzone. Widoczne,
-                    bo bez tej pozycji Radix wyrenderowałby pusty trigger dla
-                    umowy, która właśnie w tym stanie jest. Niewybieralne, bo
-                    ten status ustawia wyłącznie system — backend odrzuca
-                    ręczny wybór 422, a `disabled` domyka regułę po stronie UI,
-                    zamiast pozwolić użytkownikowi trafić na błąd. */}
-                <SelectItem value="in_progress" disabled>
+                {/* „W trakcie" MUSI być na liście, ale zwykle wyszarzone.
+                    Widoczne, bo bez tej pozycji Radix wyrenderowałby pusty
+                    trigger dla umowy, która właśnie w tym stanie jest.
+                    Wybieralne DOKŁADNIE dla umowy anulowanej — to jedyny
+                    ręczny wybór tego statusu (Partner wraca do podpisu);
+                    każde inne źródło backend odrzuca 422. */}
+                <SelectItem value="in_progress" disabled={!canReturnToProgress}>
                   {B2B_CONTRACT_STATUS_LABEL.in_progress}
                 </SelectItem>
+                {/* Anulować da się każdą umowę niepodpisaną — patrz
+                    `canCancel`. Dla wiersza JUŻ anulowanego pozycja musi
+                    zostać (reguła pustego triggera, jak przy „Zawieszona"). */}
+                {canCancel || row.contract_status === "cancelled" ? (
+                  <SelectItem value="cancelled">
+                    {B2B_CONTRACT_STATUS_LABEL.cancelled}
+                  </SelectItem>
+                ) : null}
                 {/* Widoczna tylko dla umowy obowiązującej — patrz `canSuspend`.
                     Dla wiersza JUŻ zawieszonego pozycja musi zostać, inaczej
                     Radix wyrenderowałby pusty trigger dla stanu, w którym umowa
@@ -1413,6 +1449,20 @@ export function ContractStatusDialog({
               <p className="text-xs text-muted-foreground">
                 Umowa nadal obowiązuje — kontraktor tylko nie ma przypisanego
                 projektu. Wpis przejdzie do zakładki „Umowy bez projektu”.
+              </p>
+            ) : null}
+            {status === "cancelled" ? (
+              <p className="text-xs text-muted-foreground">
+                Umowa nie doszła do skutku — Partner wycofał się przed
+                podpisem. Wpis zostaje na tej liście (numer jest już zużyty
+                i nie wraca do puli), ale nie da się go oznaczyć jako
+                podpisanego. Jeśli Partner wróci, ustaw status „W trakcie”.
+              </p>
+            ) : null}
+            {status === "in_progress" && canReturnToProgress ? (
+              <p className="text-xs text-muted-foreground">
+                Umowa wraca do podpisu — przycisk „Oznacz jako podpisaną”
+                pojawi się ponownie.
               </p>
             ) : null}
           </div>
@@ -1570,7 +1620,7 @@ export function ReactivateContractDialog({
       }),
     onSuccess: () => {
       toast.showSuccess(
-        "Umowa wróciła do „Umowy aktywne i w trakcie podpisu”. Notatkę " +
+        "Umowa wróciła do zakładki „Umowy bieżące”. Notatkę " +
           "o poprzednim projekcie dopisano w Kontraktach.",
       );
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
@@ -1835,11 +1885,12 @@ export function GeneratedContractsTab() {
     null,
   );
   const [search, setSearch] = useState("");
-  // „all" w TEJ zakładce znaczy „aktywne i w trakcie podpisu", nie „wszystkie
-  // umowy w systemie": zamknięte i zawieszone mają własne zakładki i nie mogą
-  // się tu pojawić, inaczej wiersz byłby widoczny w dwóch miejscach naraz.
+  // „all" w TEJ zakładce znaczy „bieżące" (aktywne, w trakcie podpisu
+  // i anulowane), nie „wszystkie umowy w systemie": zamknięte i zawieszone mają
+  // własne zakładki i nie mogą się tu pojawić, inaczej wiersz byłby widoczny
+  // w dwóch miejscach naraz.
   const [statusFilter, setStatusFilter] = useState<
-    "active" | "in_progress" | "all"
+    "active" | "in_progress" | "cancelled" | "all"
   >("all");
   // Zakres daty ROZPOCZĘCIA USŁUG. Trzy tryby panelu (zakres / cały miesiąc /
   // konkretny dzień) sprowadzają się do jednej pary granic: miesiąc to pierwszy
@@ -1856,8 +1907,13 @@ export function GeneratedContractsTab() {
     queryFn: () =>
       b2bGeneratorApi.generated(100, {
         q: debouncedSearch,
+        // „Wszystkie" w tej zakładce znaczy „bieżące": trzy statusy sprzed
+        // zakładek terminalnych. `cancelled` zostaje tutaj świadomie — wiersz
+        // ma być pod ręką, żeby dało się go cofnąć na „W trakcie".
         contractStatus:
-          statusFilter === "all" ? ["active", "in_progress"] : [statusFilter],
+          statusFilter === "all"
+            ? ["active", "in_progress", "cancelled"]
+            : [statusFilter],
         startFrom: startFrom || undefined,
         startTo: startTo || undefined,
       }),
@@ -1951,11 +2007,10 @@ export function GeneratedContractsTab() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">
-          Umowy aktywne i w trakcie podpisu
-        </CardTitle>
+        <CardTitle className="text-base">Umowy bieżące</CardTitle>
         <CardDescription>
-          Umowy obowiązujące oraz te, które czekają na podpis obu stron —
+          Umowy obowiązujące, czekające na podpis obu stron oraz anulowane (te,
+          które nie doszły do skutku — numer został zużyty, więc wpis zostaje) —
           sprawdź, czy sugerowany / wpisany numer nie powtarza istniejącego.
           Umowę można pobrać ponownie, a nazwę Klienta poprawić („Edytuj").
           Potwierdzenie podpisania uruchamia jednorazowo proces zatrudnienia.
@@ -1981,7 +2036,9 @@ export function GeneratedContractsTab() {
             <Select
               value={statusFilter}
               onValueChange={(v) =>
-                setStatusFilter(v as "active" | "in_progress" | "all")
+                setStatusFilter(
+                  v as "active" | "in_progress" | "cancelled" | "all",
+                )
               }
             >
               <SelectTrigger className="w-56" aria-label="Filtr statusu umowy">
@@ -1990,13 +2047,18 @@ export function GeneratedContractsTab() {
               <SelectContent>
                 {/* Bez „Zakończona" i „Zawieszona": te wiersze mają własne
                     zakładki. Zostawienie ich tutaj pokazywałoby tę samą umowę
-                    w dwóch miejscach naraz i psuło obietnicę nazwy zakładki. */}
+                    w dwóch miejscach naraz i psuło obietnicę nazwy zakładki.
+                    „Anulowana" JEST tutaj, bo własnej zakładki nie ma — jej
+                    miejsce jest obok umów, z których powstała. */}
                 <SelectItem value="all">Wszystkie statusy</SelectItem>
                 <SelectItem value="in_progress">
                   {B2B_CONTRACT_STATUS_LABEL.in_progress}
                 </SelectItem>
                 <SelectItem value="active">
                   {B2B_CONTRACT_STATUS_LABEL.active}
+                </SelectItem>
+                <SelectItem value="cancelled">
+                  {B2B_CONTRACT_STATUS_LABEL.cancelled}
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -2027,7 +2089,7 @@ export function GeneratedContractsTab() {
         ) : q.error ? (
           /* Awaria ≠ pustka — lustro zakładek „bez projektu” i „zakończone”.
              Bez tej gałęzi padnięte zapytanie wpadało w `rows = q.data ?? []`
-             i renderowało się jako „Brak umów aktywnych…”, czyli jako fakt. */
+             i renderowało się jako „Brak umów bieżących”, czyli jako fakt. */
           <div className="space-y-2">
             <Alert
               variant="warning"
@@ -2052,7 +2114,7 @@ export function GeneratedContractsTab() {
                 wyrenderowałaby się jako utrata danych. */}
             {debouncedSearch.trim() || statusFilter !== "all" || dateFilterActive
               ? "Brak umów pasujących do wyszukiwania."
-              : "Brak umów aktywnych i w trakcie podpisu."}
+              : "Brak umów bieżących."}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -2111,6 +2173,7 @@ export function GeneratedContractsTab() {
                   const saving = updateMut.isPending && editing;
                   const signed = r.signature_status === "signed_both";
                   const closed = r.contract_status === "closed";
+                  const cancelled = r.contract_status === "cancelled";
                   return (
                     <tr key={r.id} className="border-b">
                       <td className="py-2 pr-4 font-medium">
@@ -2185,7 +2248,9 @@ export function GeneratedContractsTab() {
                                     .join(" · ")
                                 : r.contract_status === "in_progress"
                                   ? "Wygenerowana, czeka na podpis obu stron"
-                                  : "Umowa podpisana i obowiązująca"
+                                  : cancelled
+                                    ? "Umowa nie doszła do skutku — Partner wycofał się przed podpisem. Numer został zużyty, więc wpis zostaje w rejestrze."
+                                    : "Umowa podpisana i obowiązująca"
                             }
                           >
                             <StatusIcon status={r.contract_status} />
@@ -2232,8 +2297,21 @@ export function GeneratedContractsTab() {
                       </td>
                       <td className="py-2 pr-4">
                         <div className="flex flex-col items-start gap-1.5">
+                          {/* Anulowana umowa NIE zmienia etykiety — podpisu
+                              nadal nie ma, więc „Niepodpisana" jest prawdą.
+                              Zmienia się kolor: badge nie ma osobnego elementu
+                              kropki, ikona dziedziczy jego wariant, więc
+                              `danger` jest sposobem na czerwony wskaźnik.
+                              Szary `outline` obok czerwonego statusu umowy
+                              sugerowałby, że ta umowa wciąż na coś czeka. */}
                           <Badge
-                            variant={signed ? "success" : "outline"}
+                            variant={
+                              signed
+                                ? "success"
+                                : cancelled
+                                  ? "danger"
+                                  : "outline"
+                            }
                             size="md"
                             title={
                               signed
@@ -2247,7 +2325,9 @@ export function GeneratedContractsTab() {
                                   ]
                                     .filter(Boolean)
                                     .join(" · ")
-                                : "Umowa nie została oznaczona jako podpisana"
+                                : cancelled
+                                  ? "Umowa anulowana — nie doszła do skutku i nie może zostać podpisana"
+                                  : "Umowa nie została oznaczona jako podpisana"
                             }
                           >
                             {signed ? (
