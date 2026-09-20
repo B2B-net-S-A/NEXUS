@@ -30,6 +30,13 @@ def _load(name: str) -> dict:
     return yaml.safe_load((_WORKFLOWS / name).read_text(encoding="utf-8"))
 
 
+def _triggers(workflow: dict) -> dict:
+    """Blok ``on:`` — PyYAML zamienia gołe ``on`` na ``True`` (YAML 1.1)."""
+    triggers = workflow.get("on", workflow.get(True))
+    assert isinstance(triggers, dict), "Workflow bez czytelnego bloku on:"
+    return triggers
+
+
 def _step(steps: list[dict], name: str) -> dict:
     for step in steps:
         if step.get("name") == name:
@@ -84,11 +91,11 @@ def test_combine_job_merges_shards_and_gates_codecov_on_token() -> None:
 
 
 def test_backend_coverage_measures_branches_and_blocks_regressions() -> None:
-    """Plan poprawy QA (15.09): pomiar gałęzi + bramka „bez spadku".
+    """Plan poprawy QA (15.09): pomiar gałęzi + bramka „bez spadku”.
 
     Próg 80% zostaje raportowy, ale spadek poniżej baseline'u z repo i
     niekompletny zestaw shardów kończą job czerwienią, a wymagany kontekst
-    „Backend (pytest)" czyta wynik tego joba.
+    „Backend (pytest)” czyta wynik tego joba.
     """
     ci = _load("ci.yml")
     pytest_run = _step(
@@ -220,7 +227,9 @@ def test_downtime_report_splits_targets_and_reads_postgres_start() -> None:
     assert "pg_before" in probe["run"]
 
     report = _step(steps, "Report user-facing downtime")
-    assert report["if"] == "${{ always() && steps.downtime_meter.outcome == 'success' }}"
+    assert (
+        report["if"] == "${{ always() && steps.downtime_meter.outcome == 'success' }}"
+    )
     run = report["run"]
     assert "deploy_downtime_report.py" in run
     assert "--postgres-before" in run and "--postgres-after" in run
@@ -250,11 +259,115 @@ def test_e2e_stack_job_runs_stack_scenarios_and_fails_on_skips() -> None:
     ), "Stack musi być zatrzymany niezależnie od wyniku."
 
     prod = e2e["jobs"]["playwright"]
-    assert "pull_request" in prod["if"], "Bieg produkcyjny nie może chodzić na PR-ach."
+    # Bieg produkcyjny nie może chodzić w przebiegu, który weryfikuje kod PRZED
+    # merge'em. Do 2026-09-20 był to `pull_request`; od przeniesienia stacku do
+    # kolejki merge'ów (cięcie kosztów Actions) jest to `merge_group`.
+    pre_merge_event = next(
+        event for event in ("merge_group", "pull_request") if event in (_triggers(e2e))
+    )
+    assert pre_merge_event in prod["if"], (
+        "Bieg produkcyjny nie może chodzić w przebiegu weryfikującym kod przed "
+        f"merge'em (zdarzenie {pre_merge_event!r})."
+    )
     prod_runs = "\n".join(str(step.get("run", "")) for step in prod["steps"])
     assert "--project=prod-smoke" in prod_runs
     assert "test:e2e" not in prod_runs, (
         "`npm run test:e2e` odpaliłby też scenariusze @stack."
+    )
+
+
+# ── Koszt Actions (2026-09-20) ─────────────────────────────────────────────
+#
+# Pula 50 000 min/mc organizacji wyszła we wrześniu (rachunek: 47 273 min,
+# rabat $0.00), a 99,3% tego to NEXUS. Poniższe testy pilnują trzech cięć,
+# które łatwo cofnąć „przy okazji” refaktoru — każde z nich ma policzoną cenę
+# w komentarzu przy samym workflow.
+
+
+def test_ci_does_not_repeat_itself_on_push_to_main() -> None:
+    """Ten sam commit testowany 3× (PR → kolejka → main) kosztował 18% rachunku.
+
+    Kolejka merge'ów uruchamia CI na DOKŁADNIE tym drzewie, które ląduje na
+    mainie, więc przebieg na `push` był trzecim wykonaniem tego samego kodu.
+    """
+    ci = _triggers(_load("ci.yml"))
+    assert "push" not in ci, (
+        "CI wróciło na `push: main` — to trzeci przebieg tego samego drzewa. "
+        "Jeśli kolejka merge'ów została WYŁĄCZONA, przywrócenie jest słuszne: "
+        "usuń wtedy także ten test i opisz decyzję w nagłówku ci.yml."
+    )
+    assert {"pull_request", "merge_group"} <= set(ci), (
+        "CI musi biec na PR-ze (bramka przed merge'em) i w kolejce merge'ów "
+        "(walidacja scalonego drzewa) — inaczej nic nie sprawdza kodu."
+    )
+    gate = _triggers(_load("ci-gate.yml"))
+    assert "push" in gate, (
+        "Bramką deployu jest „CI Gate” na push do maina (patrz deploy.yml) — "
+        "bez niej deploy nigdy nie wystartuje."
+    )
+
+
+def test_frontend_required_context_always_reports_even_when_skipped() -> None:
+    """Oszczędność nie może opierać się na tym, że `skipped` liczy się za sukces.
+
+    „Frontend (typecheck + build)” jest wymaganym kontekstem rulesetu, a kolejka
+    merge'ów ma `ALLGREEN`. Job więc ZAWSZE się zgłasza; pominięte są tylko jego
+    drogie kroki, gdy PR nie dotyka frontendu (25% PR-ów, ~16 z 17 min).
+    """
+    job = _load("ci.yml")["jobs"]["frontend-lint-build"]
+    assert "if" not in job, (
+        "Warunek na POZIOMIE joba zamieniłby wymagany kontekst w `skipped` — "
+        "to zachowanie GitHuba, nie nasza umowa, i jego zmiana zaklinowałaby "
+        "kolejkę merge'ów bez komunikatu."
+    )
+    scope = _step(job["steps"], "Czy ten PR dotyka frontendu?")
+    assert scope["id"] == "scope"
+    body = scope["run"]
+    # Fail-safe: każda gałąź niepewności musi kończyć się pełnym przebiegiem.
+    assert body.count('echo "run=true"') >= 3, (
+        "Brak listy plików, puste API albo inne zdarzenie niż pull_request MUSZĄ "
+        "dawać pełny przebieg — pominięcie weryfikacji jest droższe niż 17 min."
+    )
+    assert "grep -rhoE" in body and "backend/" in body, (
+        "Lustra backendu czytane przez testy frontendu wyliczamy Z REPO; lista "
+        "wpisana w YAML zgniłaby cicho przy pierwszym nowym lustrze."
+    )
+    expensive = ("ESLint", "Type check", "Vitest with coverage", "Build", "npm ci")
+    for name in expensive:
+        step = _step(job["steps"], name)
+        assert "steps.scope.outputs.run == 'true'" in str(step.get("if", "")), (
+            f"Krok {name!r} nie jest podpięty pod filtr — płacimy za niego na "
+            "każdym PR-ze, także takim, który nie tyka frontendu."
+        )
+
+
+def test_e2e_stack_verifies_the_merge_queue_not_every_pr_push() -> None:
+    """226 przebiegów na PR-ach, 3 czerwone, 0 bramek: 1 506 min za sygnał.
+
+    W kolejce ten sam sygnał BLOKUJE wejście na main, czyli po raz pierwszy coś
+    znaczy. `pull_request` wraca w dniu, w którym „E2E stack (ci-chromium)”
+    zostanie wymaganym kontekstem rulesetu.
+    """
+    triggers = _triggers(_load("e2e.yml"))
+    assert "merge_group" in triggers
+    assert "pull_request" not in triggers, (
+        "E2E na każdym PR-ze nie bramkuje niczego (nie jest wymaganym "
+        "kontekstem), a kosztowało ~9% rachunku za Actions."
+    )
+    assert "schedule" in triggers and "workflow_run" in triggers, (
+        "Nocny stack i smoke po deployu zostają — to inne sygnały niż pre-merge."
+    )
+
+
+def test_the_dead_claude_review_workflow_stays_deleted() -> None:
+    """174 przebiegi w 5 dni, wszystkie `skipped`: `CLAUDE_ENABLED=false`.
+
+    Zero minut, ale też zero wartości — i zakładka Actions, w której nie da się
+    odróżnić „nie było uwag” od „recenzji nie było”.
+    """
+    assert not (_WORKFLOWS / "claude-review.yml").exists(), (
+        "Przywrócenie ma sens WYŁĄCZNIE razem z żywym tokenem i "
+        "CLAUDE_ENABLED=true — inaczej wraca pusty szum."
     )
 
 
@@ -281,7 +394,7 @@ def test_e2e_specs_have_no_weak_assertions_or_parked_cases() -> None:
 
 def test_every_run_block_in_quality_workflows_is_valid_bash() -> None:
     """Niezbalansowany cudzysłów w komunikacie `::error::` wywalił job zbiorczy
-    „Backend (pytest)" kodem 2 przy dwóch zielonych wejściach (PR planu poprawy
+    „Backend (pytest)” kodem 2 przy dwóch zielonych wejściach (PR planu poprawy
     QA, 15.09.2026). `bash -n` łapie to przed wypchnięciem."""
     import re
     import shutil

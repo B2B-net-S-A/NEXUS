@@ -2,12 +2,25 @@ name: CI
 
 # Ciężka warstwa weryfikacji. Szybkie bramki (gitleaks, ruff, alembic, import
 # smoke) mieszkają w ci-gate.yml — to na NIE jest podpięty deploy, żeby wdrożenie
-# nie czekało 22 min na pytest. Ten workflow nadal leci na każdym PR-ze i na main,
-# i nadal jest wymagany przez branch protection przed merge'em.
+# nie czekało 22 min na pytest. Ten workflow leci na każdym PR-ze i w kolejce
+# merge'ów, i jest wymagany przez branch protection przed merge'em.
+#
+# NIE leci na `push: main` (zdjęte 2026-09-20). Powód jest policzony, nie
+# estetyczny: od włączenia kolejki merge'ów (17.09) KAŻDY merge przechodzi przez
+# `merge_group`, który uruchamia ten workflow na DOKŁADNIE tym drzewie, które
+# sekundę później ląduje na mainie — 21 merge'y, 24 przebiegi `merge_group`.
+# Przebieg na `push` był więc trzecim wykonaniem tego samego kodu (PR →
+# kolejka → main) i kosztował 3 946 min billable przez 5 dni (16–20.09), czyli
+# ~18% rachunku za Actions w repo. Bramką deployu był i jest „CI Gate", nie ten
+# workflow (patrz nagłówek deploy.yml), więc zdjęcie `push` niczego nie odbramkowuje.
+#
+# CO TRACIMY, świadomie: sygnał „main się zepsuł" PO merge'u. Ten sam sygnał
+# przychodzi teraz krok wcześniej — z kolejki, gdzie jeszcze blokuje merge
+# zamiast zawiadamiać o faktach dokonanych. Gdyby kolejka merge'ów kiedykolwiek
+# została wyłączona, TRZEBA tu wrócić `push: branches: [main]` — bez niej
+# `strict: true` jest jedyną gwarancją, że PR testowano na aktualnym mainie.
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   # Kolejka merge'ów GitHuba (merge queue, od 17.09.2026): wymagane konteksty
@@ -17,8 +30,8 @@ on:
   merge_group:
     types: [checks_requested]
 
-# A new PR revision supersedes older test runs of that same PR. Main uses
-# a unique run key so production gates never cancel one another.
+# A new PR revision supersedes older test runs of that same PR. Bieg z kolejki
+# merge'ów dostaje unikalny klucz, żeby grupy nigdy nie anulowały się nawzajem.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -337,44 +350,150 @@ jobs:
     name: Frontend (typecheck + build)
     runs-on: ubuntu-latest
     # Same decoupling rationale as backend-lint-test above (PR #118).
+    #
+    # Job NIE jest pomijany przez `if:` na poziomie joba, choć jego drogie kroki
+    # bywają pominięte (filtr niżej). To jest świadome: „Frontend (typecheck +
+    # build)" jest WYMAGANYM kontekstem rulesetu 22799346, a kolejka merge'ów
+    # ma `grouping_strategy: ALLGREEN`. Pominięty job raportuje się jako
+    # `skipped` i GitHub liczy to za sukces — ale to zachowanie jest cudzą
+    # umową, nie naszą, a jej zmiana zaklinowałaby kolejkę bez żadnego
+    # komunikatu. Job, który zawsze się zgłasza i zawsze kończy zielenią,
+    # nie zależy od tej interpretacji, a oszczędność jest ta sama (~16 z 17 min).
+    permissions:
+      contents: read
+      # Filtr czyta listę plików PR-a przez API. `permissions:` na jobie
+      # ZASTĘPUJE domyślne, więc `contents: read` (checkout) musi tu być jawnie.
+      pull-requests: read
     defaults:
       run:
         working-directory: frontend
     env:
-      # Jak w `backend-coverage-combine`: token przez env joba, żeby upload
+      # Jak w `backend-coverage-combine`: token przez `env:` joba, żeby upload
       # do Codecov dało się pominąć JAWNIE, gdy sekretu nie ma (QA-01).
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Filtr ścieżek (2026-09-20). Do tej zmiany KAŻDY przebieg płacił za pełny
+      # frontend — ESLint, type-check, Vitest z pokryciem i `next build`, 17 min
+      # billable — także dla PR-a, który tknął wyłącznie backend albo
+      # dokumentację. Zmierzone tym skryptem na 116 PR-ach z 11–20.09:
+      # 29 (25%) nie dotyka frontendu wcale.
+      #
+      # DLACZEGO analogicznego filtra NIE MA na shardach pytest: policzone i
+      # odrzucone w tym samym przebiegu. Testy backendu czytają 37 ścieżek spoza
+      # `backend/` — parsują workflowy (`test_ci_deploy_workflows_contract`),
+      # `docs/`, `scripts/` i 29 PLIKÓW frontendu (lustra kontraktów:
+      # `test_delivery_contract`, `test_client_tab_links`,
+      # `test_orders_procedure_freshness`). Po uwzględnieniu tych sprzężeń
+      # backend dałby się pominąć w 4 PR-ach na 116 (3%) — za 3% oszczędności
+      # nie warto brać ryzyka, że zmiana frontendu wywróci na mainie kontrakt,
+      # którego nikt nie uruchomił.
+      - name: Czy ten PR dotyka frontendu?
+        id: scope
+        # Bez `working-directory: .` — job ma domyślnie `frontend`, a grep niżej
+        # szuka w `src`. Pierwsza wersja tego kroku miała jedno i drugie
+        # (katalog roboczy korzeń repo + `grep ... src`), więc grep nie
+        # znajdował NICZEGO i lista luster backendu wychodziła pusta — filtr
+        # pomijałby frontend przy zmianie lustra, które testy frontendu czytają.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          # Poza `pull_request` (kolejka merge'ów, bieg ręczny) liczymy pełny
+          # przebieg: kolejka waliduje drzewo, które ląduje na produkcji, a
+          # zgadywanie zakresu na scalonej grupie kilku PR-ów to zły moment na
+          # oszczędności.
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Zdarzenie ${{ github.event_name }} — pełny przebieg frontendu."
+            exit 0
+          fi
+          # Fail-safe: cokolwiek pójdzie nie tak z odczytem listy plików, robimy
+          # pełny przebieg. Pominięcie weryfikacji, która powinna była pójść,
+          # jest droższe niż zbędne 17 minut.
+          if ! files=$(gh api --paginate \
+                "/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+                --jq '.[].filename'); then
+            echo "::warning::Nie udało się odczytać listy plików PR-a — pełny przebieg frontendu."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$files" ]; then
+            echo "::warning::Pusta lista plików PR-a — pełny przebieg frontendu."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Ścieżki spoza `frontend/`, które testy frontendu naprawdę czytają
+          # (lustra uprawnień: `capabilities.test.ts` wczytuje moduły backendu),
+          # wyliczamy Z REPO, nie z listy w tym pliku. Lista w YAML-u zgniłaby
+          # przy pierwszym nowym lustrze — i to CICHO, pomijając testy, które
+          # miały pilnować właśnie tego pliku.
+          crossrefs=$(grep -rhoE '"[^"]*backend/[^"]+"' src 2>/dev/null \
+            | tr -d '"' | sed 's|^.*backend/|backend/|' | sort -u || true)
+          echo "Lustra backendu czytane przez testy frontendu:"
+          echo "${crossrefs:-(brak)}" | sed 's/^/  /'
+          run=false
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            case "$f" in
+              frontend/*) run=true; echo "  -> $f (frontend)"; break ;;
+              .github/*)  run=true; echo "  -> $f (workflow/CI)"; break ;;
+              */*)        ;;
+              *)          run=true; echo "  -> $f (plik w korzeniu repo)"; break ;;
+            esac
+            if [ -n "$crossrefs" ] && printf '%s\n' "$crossrefs" | grep -qxF "$f"; then
+              run=true; echo "  -> $f (lustro czytane przez test frontendu)"; break
+            fi
+          done <<EOF
+          $files
+          EOF
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          if [ "$run" = "false" ]; then
+            echo "::notice::PR nie dotyka frontendu — ESLint, type-check, Vitest i build pominięte (oszczędność ~16 min runnera). Kontekst „Frontend (typecheck + build)” pozostaje zielony."
+            {
+              echo "### Frontend pominięty"
+              echo
+              echo "Ten PR nie zmienia niczego pod \`frontend/\`, ani żadnego pliku czytanego przez testy frontendu."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.scope.outputs.run == 'true'
         with:
           node-version: "24"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
       - name: Cache Next.js build
+        if: steps.scope.outputs.run == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: frontend/.next/cache
           key: ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-${{ hashFiles('frontend/src/**/*.{ts,tsx,js,jsx}') }}
           restore-keys: |
             ${{ runner.os }}-nextjs-${{ hashFiles('frontend/package-lock.json') }}-
-      - run: npm ci --legacy-peer-deps
+      - name: npm ci
+        if: steps.scope.outputs.run == 'true'
+        run: npm ci --legacy-peer-deps
       # Bramka sierot: usunięcie ostatniego miejsca montowania komponentu NIE
       # psuje builda ani testów (własny test komponentu trzyma go przy życiu),
       # więc funkcja potrafi zniknąć z produktu przy zielonym CI — tak zginął
       # nadzór nad kolejką kontaktu w #1031 i nikt nie zauważył przez 16 dni.
       # Zero zależności, więc może stać przed resztą kroków.
       - name: Nieosiągalne moduły (dead-code gate)
+        if: steps.scope.outputs.run == 'true'
         run: node scripts/check-unreachable-modules.mjs
       - name: ESLint
+        if: steps.scope.outputs.run == 'true'
         run: npm run lint
-      - run: npm run type-check
+      - name: Type check
+        if: steps.scope.outputs.run == 'true'
+        run: npm run type-check
       - name: Vitest with coverage
         # Progi w vitest.config.ts (`coverage.thresholds`) = bramka „bez spadku"
         # frontendu (QA-01); Vitest kończy się błędem poniżej nich.
+        if: steps.scope.outputs.run == 'true'
         run: npm run test:coverage
       - name: Upload frontend coverage (artifact)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.scope.outputs.run == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: frontend-coverage
@@ -382,7 +501,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Upload frontend coverage to Codecov
-        if: ${{ !cancelled() && env.CODECOV_TOKEN != '' }}
+        if: ${{ !cancelled() && steps.scope.outputs.run == 'true' && env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: frontend/coverage/lcov.info
@@ -391,6 +510,7 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Build
+        if: steps.scope.outputs.run == 'true'
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
         run: npm run build

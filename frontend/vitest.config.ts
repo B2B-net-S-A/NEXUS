@@ -13,7 +13,24 @@ export default defineConfig({
     css: true,
     coverage: {
       provider: "v8",
-      reporter: ["text", "lcov", "html"],
+      // W CI generujemy WYŁĄCZNIE to, co ktoś czyta: `text` (próg w logu joba)
+      // i `lcov.info` (artefakt + Codecov). Lokalnie dochodzi przeglądarkowy
+      // raport, bo tam jest jedynym czytelnym widokiem pokrycia.
+      //
+      // `lcovonly`, nie `lcov`: reporter `lcov` istanbula to ZŁOŻENIE
+      // `lcovonly` + `html`, więc samo usunięcie `html` z listy nie usuwało
+      // niczego — katalog `coverage/lcov-report/` (1001 plików) powstawał dalej.
+      // Sprawdzone uruchomieniem, nie odczytem konfiguracji.
+      //
+      // UCZCIWIE O ZYSKU: to NIE jest oszczędność czasu runnera. Zmierzone na
+      // tym samym podzbiorze testów: `lcovonly` 267 s, `lcov` 196 s — czyli
+      // wariancja między przebiegami (±70 s) jest większa niż koszt generowania
+      // raportu, a cały czas joba zjada wykonanie testów (813 s z 1044 s).
+      // Zostaje, bo jest szczersze (nie produkujemy 1000 plików, których nikt
+      // nie otwiera) — ale nie licz na tym oszczędności minut.
+      reporter: process.env.CI
+        ? ["text", "lcovonly"]
+        : ["text", "lcov", "html"],
       reportsDirectory: "./coverage",
       include: ["src/**/*.{ts,tsx}"],
       exclude: [

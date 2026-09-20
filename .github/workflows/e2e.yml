@@ -1,11 +1,17 @@
 name: E2E (Playwright)
 
 on:
-  # Efemeryczny stack (QA-02, plan poprawy po audycie 14.09.2026) chodzi na
-  # każdym PR-ze, ale NIE jest wymaganym checkiem — dopisanie go do rulesetu
-  # to decyzja po ~2 tygodniach stabilności (historia w zakładce Actions).
-  pull_request:
-    branches: [main]
+  # Efemeryczny stack (QA-02, plan poprawy po audycie 14.09.2026) chodził do
+  # 2026-09-20 na KAŻDYM PR-ze. Przeniesiony do kolejki merge'ów, bo rachunek
+  # i statystyka mówiły to samo: 1 506 min billable przez 5 dni (16–20.09) za
+  # 226 przebiegów, z których czerwone były 3. To nie jest wymagany check, więc
+  # na PR-ze nie bramkował niczego — zawiadamiał. W kolejce zawiadamia tak samo,
+  # a przy okazji zaczyna bramkować: czerwona grupa nie wchodzi na main.
+  #
+  # `pull_request` wraca tu w dniu, w którym „E2E stack (ci-chromium)" trafi do
+  # rulesetu jako wymagany kontekst — wtedy sygnał na PR-ze zaczyna mieć skutek.
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       k6_profile:
@@ -32,8 +38,11 @@ permissions:
   issues: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  # Nic już nie biegnie na `pull_request`, więc nie ma rewizji PR-a, którą
+  # kolejny push unieważnia. Bieg z kolejki merge'ów i bieg po deployu muszą
+  # dobiec do końca — anulowanie zostawiłoby grupę bez werdyktu.
+  cancel-in-progress: false
 
 jobs:
   stack:
@@ -52,7 +61,9 @@ jobs:
       E2E_API_URL: http://localhost:8000
       E2E_USER_EMAIL: e2e-admin@example.com
       E2E_REQUIRE_AUTH: "1"
-      GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      # `github.sha` na `merge_group` to scalone drzewo grupy — dokładnie to,
+      # co zaraz wyląduje na mainie, i dokładnie to, co stawia ten stack.
+      GIT_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -206,7 +217,9 @@ jobs:
     # Po deployu (MON-02) tylko przy włączniku repo — bez konta E2E każdy udany
     # deploy dawałby czerwony bieg i komentarz w issue, zanim konto w ogóle
     # powstanie. Włącz: `gh variable set E2E_POST_DEPLOY_ENABLED --body true`.
-    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && vars.E2E_POST_DEPLOY_ENABLED == 'true')) }}
+    # Projekt `prod-smoke` bije w PRODUKCJĘ, więc nie ma go w biegu weryfikującym
+    # kod przed merge'em (dawniej `pull_request`, od 2026-09-20 `merge_group`).
+    if: ${{ github.event_name != 'merge_group' && (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && vars.E2E_POST_DEPLOY_ENABLED == 'true')) }}
     runs-on: ubuntu-latest
     # Współbieżność na JOBIE, nie na workflow: pominięty bieg (deploy odroczony,
     # anulowany) nie może anulować trwającego smoke po ostatnim prawdziwym deployu.
