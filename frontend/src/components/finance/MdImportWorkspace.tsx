@@ -677,7 +677,7 @@ function ImportRowLine({
           </span>
         ) : (
           <span className="text-xs text-muted-foreground">
-            Brak aktywnej linii dla tego nazwiska w tym miesiącu
+            Żadne zamówienie tej osoby nie obejmuje tego miesiąca
           </span>
         )}
       </td>
