@@ -577,6 +577,19 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   sekcja Delivery: wyjątek TCM w `section_access.py` wymaga co najmniej
   odczytu Delivery, więc odebranie sekcji w panelu naprawdę odbiera akcję
   (do 10.09 wyjątek wracał, zanim porównał `granted`).
+- **Do kontraktu prowadzi JEDNA droga: „Oznacz jako podpisaną"** (zgłoszenie
+  09.2026, umowa 1506/2026). `POST /render` (generowanie DOCX) pisze wyłącznie
+  wiersz rejestru (`signature_status="unsigned"`, `contract_status="in_progress"`,
+  `contract_id` NULL) i **nie zakłada ani kontraktu, ani zamówienia** — kontakt
+  dopisuje fill-only do JUŻ istniejącego kontraktu. Kontrakt (od razu `active`)
+  i szkic zamówienia powstają dopiero w `confirm-fully-signed`. Z paska akcji
+  generatora zdjęte są trzy przyciski, które wołały `POST /generate` i zakładały
+  szkic kontraktu PRZED podpisem: „Wyślij do podpisu (QES)", „Oznacz: wysłana
+  mailem", „Wgraj podpisaną (z maila)" — umowy podpisujemy offline (17.09.2026),
+  a na produkcji ta ścieżka użyta była 4 razy, wyłącznie 2026-06-05. Endpoint
+  `POST /generate`, `signingApi` i `app/services/signing/` **zostają** (nietknięte,
+  bez konsumenta w generatorze); `reuseOrGenerateContractId` też — razem z testami.
+  Nie dokładaj do generatora akcji, która zakłada kontrakt przed podpisem.
 - **Potwierdzenie podpisu mimo różnic = „zachowaj warunki kontraktu", nigdy
   „nadpisz z dokumentu".** Gdy para (kandydat, rekrutacja) ma już żywy
   kontrakt o innych wypełnionych warunkach niż dokument, automatyzacja odmawia
@@ -2882,7 +2895,25 @@ Tryb edycji istniejącego zamówienia zostaje przy starym „Zczytaj dane z doku
   aktywuje szkice z maila po podpisie — linii grupy dotykać nie może. PDF z maila
   przy grupie, która MA już plik, domyślnie służy tylko do odczytu (podmiana
   pliku = checkbox). **Zamówienie okresowe zostaje przy decyzji z 10.09**: powrót
-  po przerwie = nowe zamówienie, nowa osoba = szkic nowego kontraktora.
+  po przerwie = nowe zamówienie (nie wskrzeszenie zakończonego).
+- **Osoby spoza rostera klienta automat NIE zakłada — na ŻADNYM typie
+  zamówienia** (zgłoszenie 09.2026, Nordea, umowa 1506/2026). Kontraktor rodzi
+  się z podpisanej umowy B2B, nie z PDF-a klienta: zamówienie, które przyszło
+  wcześniej, **czeka**. Rozstrzyga BRAMKA, nie planer — `match_kind == "none"`
+  zawsze daje powód (`CODE_PERSON_NEW_TO_SYSTEM`, gdy osoby nie ma też w bazie;
+  `_known_elsewhere_code` z #1561, gdy jest). Oba kody są
+  w `AWAITING_CONTRACT_CODES`, więc wpis wisi **cicho**: bez licznika prób,
+  bez karty dla Delivery Leada, z godzinową ponowną weryfikacją. Gdy ktoś
+  oznaczy umowę „podpisana obustronnie", `confirm-fully-signed` zakłada kontrakt
+  (`active`) i najbliższy recheck dopisze zamówienie sam. **Plan ZOSTAJE przy
+  `ACTION_NEW_DRAFT`** (poza MD/kosztowymi, gdzie planer i tak daje
+  `ACTION_DECIDE_PERSON`): ręczne „Zastosuj" bramki nie czyta, więc DL zachowuje
+  drogę dla kontraktora bez umowy B2B (UoP, zlecenie, klient spoza generatora).
+  Do 09.2026 zamówienie okresowe na nieznaną osobę jechało automatem i zakładało
+  kandydata + szkic kontraktu + zamówienie — tak powstał kontrakt #657.
+  `DECIDE_PERSON_ORDER_TYPES` **nie jest** listą typów, dla których nowa osoba
+  jedzie automatem; opisuje wyłącznie, gdzie decyzję podejmuje się w oknie
+  zamówienia.
 - **Wiersze modelu weryfikowane regułą klienta.** Gdy aktywna polityka ma
   `extract_rows` (deterministyczny regex tabeli), wartość z tabeli wygrywa z modelem
   (`_reconcile_with_evidence`; lustro `order_mail_gate._row_evidence_reasons`),

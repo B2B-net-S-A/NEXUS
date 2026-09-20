@@ -9,9 +9,12 @@ draft (same number or overlapping period = its correction). Actual period
 overlaps, ambiguous targets and revisions require review. On MD and cost
 orders a person whose engagement ended, or who is not in the system, waits for
 a human decision (``ACTION_DECIDE_PERSON``) instead of being revived or created.
-A person missing from this client's roster but present in the base keeps the
-initial-draft plan and carries the concrete finding (``existing_person_ids``),
-so the queue proposes an identity to confirm instead of a new contractor.
+A person missing from this client's roster keeps the initial-draft plan, and
+when present in the base also carries the concrete finding
+(``existing_person_ids``), so the queue proposes an identity to confirm instead
+of a new contractor. The plan stays a draft so a human "Zastosuj" can still
+write it, but the gate holds every such row: on any order type a contractor is
+born from a signed B2B agreement, never from the client's purchase order.
 """
 
 from __future__ import annotations
@@ -55,9 +58,15 @@ ACTION_DECIDE_PERSON = "decide_person"
 DECISION_NEW = "new"
 DECISION_NEW_AMBIGUOUS = "new_ambiguous"
 DECISION_ENDED = "ended"
-#: Typy zamówień, dla których osoba nieaktywna/nieznaleziona czeka na decyzję.
-#: Zamówienie okresowe zostaje przy decyzji z 10.09.2026: powrót po przerwie
-#: to nowe zamówienie, nowa osoba — szkic nowego kontraktora.
+#: Typy zamówień, dla których osoba nieaktywna/nieznaleziona czeka na DECYZJĘ
+#: człowieka w oknie zamówienia (``ACTION_DECIDE_PERSON``). Zamówienie okresowe
+#: zostaje przy decyzji z 10.09.2026: powrót po przerwie to nowe zamówienie,
+#: a nie wskrzeszenie zakończonego.
+#:
+#: UWAGA — to NIE jest lista typów, dla których nowa osoba jedzie automatem.
+#: Osoby spoza rostera wstrzymuje BRAMKA, na każdym typie zamówienia
+#: (``CODE_PERSON_NEW_TO_SYSTEM`` / ``_known_elsewhere_code``): plan zostaje
+#: szkicem, żeby ręczne „Zastosuj" działało, ale automat go nie zapisze.
 DECIDE_PERSON_ORDER_TYPES = frozenset({"md", "cost"})
 AUTO_ACTIONS = frozenset(
     {
@@ -312,11 +321,14 @@ def plan_document(
             continue
         if res.match_kind == "none":
             rp.action = ACTION_NEW_DRAFT
-            # Osoba jest w bazie, tylko nie u tego klienta: plan zostaje przy
-            # szkicu (po potwierdzeniu writer dopnie istniejącą kartotekę), ale
-            # Delivery Lead musi zobaczyć KOGO znaleziono, zanim kliknie —
-            # inaczej dokument przypięty do zdublowanego rekordu klienta
-            # wygląda jak zwyczajny nowy kontraktor.
+            # Szkic, nie decyzja: bramka i tak wstrzyma ten wiersz, a ręczne
+            # „Zastosuj" bramki nie czyta — Delivery Lead zachowuje drogę dla
+            # kontraktora bez umowy B2B (UoP, zlecenie, klient spoza generatora).
+            # Osoba jest w bazie, tylko nie u tego klienta: po potwierdzeniu
+            # writer dopnie istniejącą kartotekę, ale Delivery Lead musi
+            # zobaczyć KOGO znaleziono, zanim kliknie — inaczej dokument
+            # przypięty do zdublowanego rekordu klienta wygląda jak zwyczajny
+            # nowy kontraktor.
             if res.known_elsewhere_ids:
                 rp.existing_person_ids = list(res.known_elsewhere_ids)
                 rp.reasons.append(res.reason)
