@@ -182,6 +182,13 @@ function renderTab(onDone = vi.fn(), groups: OrderGroupRead[] = []) {
   return onDone;
 }
 
+// Okno „Uzupełnij zamówienie" otwiera się dopiero po ŁAŃCUCHU trzech obietnic:
+// `orderTarget` → pobranie PDF-a → `extractPlan`. Domyślny budżet `findBy*` to
+// 1 s na całość, więc na obciążonej maszynie (CI, równoległe shardy) ten test
+// potrafił paść na czasie, a nie na zachowaniu. Jawny, hojny limit czeka na to
+// samo, tylko dłużej — asercja nadal wymaga, żeby karta się pojawiła.
+const CARD_TIMEOUT = { timeout: 10_000 } as const;
+
 describe("dokument z maila rozstrzygany w oknie zamówienia", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -213,9 +220,11 @@ describe("dokument z maila rozstrzygany w oknie zamówienia", () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     const onDone = renderTab(vi.fn(), [GROUP]);
 
-    const card = await screen.findByRole("article", {
-      name: "Konsultant: Marian Odchodzący",
-    });
+    const card = await screen.findByRole(
+      "article",
+      { name: "Konsultant: Marian Odchodzący" },
+      CARD_TIMEOUT,
+    );
     expect(screen.getByText(/dokument #42/)).toBeInTheDocument();
     expect(fetchAuthenticatedBlob).toHaveBeenCalledWith("/api/order-mail/queue/42/file");
     const pdf = vi.mocked(orderGroupsApi.extractPlan).mock.calls[0][1];
@@ -250,9 +259,11 @@ describe("dokument z maila rozstrzygany w oknie zamówienia", () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderTab(vi.fn(), [withFile as OrderGroupRead]);
 
-    const card = await screen.findByRole("article", {
-      name: "Konsultant: Marian Odchodzący",
-    });
+    const card = await screen.findByRole(
+      "article",
+      { name: "Konsultant: Marian Odchodzący" },
+      CARD_TIMEOUT,
+    );
     expect(screen.getByLabelText(/Zastąp PDF tego zamówienia plikiem z maila/)).not.toBeChecked();
     await user.click(within(card).getByRole("button", { name: "Zostaw jako historię" }));
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
@@ -304,7 +315,11 @@ describe("dokument z maila rozstrzygany w oknie zamówienia", () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderTab(vi.fn(), [draftGroup]);
 
-    await screen.findByRole("article", { name: "Konsultant: Ewa Nowa" });
+    await screen.findByRole(
+      "article",
+      { name: "Konsultant: Ewa Nowa" },
+      CARD_TIMEOUT,
+    );
     await user.selectOptions(screen.getByLabelText("Status zamówienia"), "active");
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
 
@@ -337,9 +352,11 @@ describe("dokument z maila rozstrzygany w oknie zamówienia", () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderTab(vi.fn(), [GROUP]);
 
-    const card = await screen.findByRole("article", {
-      name: "Konsultant: Marian Odchodzący",
-    });
+    const card = await screen.findByRole(
+      "article",
+      { name: "Konsultant: Marian Odchodzący" },
+      CARD_TIMEOUT,
+    );
     await user.click(within(card).getByRole("button", { name: "Zostaw jako historię" }));
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
 
@@ -362,7 +379,11 @@ describe("dokument z maila rozstrzygany w oknie zamówienia", () => {
     } as never);
     renderTab();
     expect(
-      await screen.findByRole("article", { name: "Konsultant: Marian Odchodzący" }),
+      await screen.findByRole(
+        "article",
+        { name: "Konsultant: Marian Odchodzący" },
+        CARD_TIMEOUT,
+      ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Utwórz zamówienie" })).toBeInTheDocument();
   });

@@ -935,14 +935,16 @@ async def test_import_unmatched_row_does_not_break_the_rest(
     assert body["rows_applied"] == 1
 
 
-async def test_assign_rejects_a_line_closed_since_the_import(
+async def test_assign_takes_the_predecessor_line_after_a_swap_this_month(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Linia domknięta między importem a rozstrzygnięciem nie przyjmuje MD.
+    """Linia domknięta zamianą W TYM MIESIĄCU nadal przyjmuje rozstrzygnięcie.
 
-    Zużycie zapisane na nieaktywnej linii nie pojawiłoby się już w żadnym
-    dopasowaniu — nie da się go zobaczyć ani cofnąć z interfejsu, a policzy
-    się do faktury.
+    Do 09.2026 `assign_row` odrzucał każdą linię spoza `active`, więc miesiąc
+    zamiany kontraktora nie dawał się rozbić ręcznie: MD wypracowane przez
+    poprzednika przed datą zamiany nie miały gdzie wylądować. Decyduje teraz
+    OKRES (`client_order_lines.line_settles_in_month`), a poprzednik zamiany
+    ma datę końca równą dacie zamiany — czyli w tym miesiącu pracował.
     """
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import Candidate
@@ -1005,8 +1007,76 @@ async def test_assign_rejects_a_line_closed_since_the_import(
         json={"order_id": target},
         headers=app_auth_headers,
     )
+    assert assign.status_code == 200, assign.text
+    assert assign.json()["status"] == "applied"
+
+
+async def test_assign_rejects_a_line_whose_period_ends_before_the_month(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Okres jest granicą rozstrzygnięcia — status nią nie jest.
+
+    Bratni przypadek testu wyżej: linia, której udział skończył się PRZED
+    importowanym miesiącem, nie rozlicza go ani automatem, ani ręcznie.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract, ContractStatus
+    from sqlalchemy import select
+
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+
+    # Dwie linie tej samej osoby → wiersz „wymaga przypisania".
+    async with AsyncSessionLocal() as db:
+        first = await db.scalar(select(Contract).where(Contract.id == contracts[0]))
+        cand = await db.scalar(
+            select(Candidate).where(Candidate.id == first.candidate_id)
+        )
+        twin = Contract(
+            candidate_id=cand.id,
+            client_id=client_id,
+            status=ContractStatus.active,
+            start_date=_TODAY - timedelta(days=30),
+            rate_candidate=Decimal("100.000"),
+            rate_client=Decimal("150.000"),
+        )
+        db.add(twin)
+        await db.commit()
+        await db.refresh(twin)
+        twin_id = twin.id
+
+    await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    group_b = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(twin_id)]
+    )
+
+    body = (
+        await _upload(
+            app_client, app_auth_headers, [(names[0], 10)], _TODAY.strftime("%Y-%m")
+        )
+    ).json()
+    row = body["rows"][0]
+    assert row["status"] == "needs_assignment"
+
+    # Linia znika z importowanego miesiąca PO wgraniu pliku.
+    target = group_b["lines"][0]["id"]
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, target)
+        line.end_date = _TODAY.replace(day=1) - timedelta(days=1)
+        line.status = ClientOrderStatus.completed
+        await db.commit()
+
+    assign = await app_client.post(
+        f"/api/md-consumption/imports/{body['id']}/rows/{row['id']}/assign",
+        json={"order_id": target},
+        headers=app_auth_headers,
+    )
     assert assign.status_code == 409, assign.text
-    assert "nie jest już aktywna" in assign.text
+    assert "nie rozlicza tego miesiąca" in assign.text
 
 
 async def test_md_remaining_may_go_negative(

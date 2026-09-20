@@ -877,7 +877,7 @@ async def _finance_headers(app_client: AsyncClient) -> dict:
     return await _headers_for(app_client, email, password)
 
 
-#: Miesiąc importu MUSI zachodzić na okres linii — `active_cost_lines`
+#: Miesiąc importu MUSI zachodzić na okres linii — `cost_lines_settling_in_month`
 #: dopasowuje wyłącznie linie obowiązujące w danym miesiącu, więc sztywna data
 #: z przeszłości dawałaby zero trafień i test „przechodziłby" z zerem zmian.
 _PERIOD = _TODAY.strftime("%Y-%m")
@@ -1202,7 +1202,7 @@ async def test_invoice_import_reaches_a_cost_order_closed_with_a_future_date(
 ):
     """Lustro dla zamówienia kosztowego — także blokada celu po locku.
 
-    Kandydat z ``active_cost_lines`` jest sprawdzany ponownie po blokadach
+    Kandydat z ``cost_lines_settling_in_month`` jest sprawdzany ponownie po blokadach
     (``_ordinary_locked_target_is_valid``). Bez tej samej reguły stanu grupy
     import wybrałby zamówienie, a potem odrzucił całą partię 409.
     """
@@ -1671,7 +1671,7 @@ async def test_scanner_closes_by_date_everything_except_md_lines(
     """Linia MD z niewykorzystanym budżetem przeżywa skaner; zwykła nie.
 
     Zamówienie rozliczane w MD kończy budżet, nie kalendarz. Zamknięta po
-    dacie linia wypadała z importu zużycia (`active_md_lines` pyta o linie
+    dacie linia wypadała z importu zużycia (`md_lines_settling_in_month` pyta o linie
     aktywne), więc MD przestawały się odejmować, a budżet zamierał na
     ostatniej wartości — przy zielonym statusie zamówienia.
     """

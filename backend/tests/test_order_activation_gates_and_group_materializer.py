@@ -7,7 +7,7 @@ ekran wygląda poprawnie, a system robi coś innego, niż operator zobaczył.
    ``contracts.rate_candidate``, więc umowa ze stawką progresywną zaczynającą
    się w przyszłości nigdy nie wypychała zamówienia z Draftu. Dwa identycznie
    wypełnione formularze dawały różny wynik, a draftowa linia nie wchodzi ani
-   do ``active_md_lines``, ani do licznika konsultantów.
+   do ``md_lines_settling_in_month``, ani do licznika konsultantów.
 2. **Ten sam mechanizm nadpisywał jawny ``status: draft``**, czyli pierwszy
    krok jedynej udokumentowanej drogi twardego usunięcia zamówienia
    (``PATCH {"status": "draft"}`` → ``DELETE``).
@@ -524,7 +524,7 @@ async def test_boundary_defaults_to_the_business_day_not_the_container_clock(
 
     Między północą warszawską a UTC (1 h zimą, 2 h latem) ``date.today()``
     zwraca WCZORAJ, więc zamówienie startujące dziś zostawało ``scheduled``
-    z liniami w ``draft`` — poza ``active_md_lines`` i poza licznikiem
+    z liniami w ``draft`` — poza ``md_lines_settling_in_month`` i poza licznikiem
     konsultantów — podczas gdy bliźniaczy cron kontraktów był już na nowym
     dniu. Podmieniamy helper, bo przez większość doby obie odpowiedzi są
     identyczne i test oparty na realnym zegarze przespałby regres.

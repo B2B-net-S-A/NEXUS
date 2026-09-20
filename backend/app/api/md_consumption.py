@@ -11,7 +11,7 @@ ani wybierany jako „pierwszy pasujący". Dla ścieżki historycznej zostają t
 możliwe wyniki wiersza i tylko jeden z nich jest automatyczny:
 
 * dokładnie jedna aktywna linia → ``Zaktualizowano``,
-* zero linii → ``Brak aktywnego zamówienia`` (wiersz zostaje, nie przerywa
+* zero linii → ``Brak pasującego zamówienia`` (wiersz zostaje, nie przerywa
   importu reszty),
 * więcej niż jedna → ``Wymaga przypisania``; system NIE wybiera za człowieka.
   Trafienie w złe zamówienie odjęłoby MD nie temu klientowi i wyszło dopiero
@@ -84,18 +84,20 @@ from app.services import finance_order_matching
 from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import (
     LineMatch,
-    active_cost_lines,
-    active_md_lines,
-    active_shared_md_lines,
     apply_md_consumption,
+    cost_lines_settling_in_month,
     describe_import,
     group_settles_in_month,
     historical_cost_lines,
     historical_md_lines,
     historical_shared_md_lines,
+    line_settles_in_month,
     match_by_name,
+    prefer_active_line,
+    md_lines_settling_in_month,
     month_bounds,
     record_event,
+    shared_md_lines_settling_in_month,
     successor_line_for,
 )
 from app.services.cost_orders import (
@@ -299,29 +301,28 @@ async def _apply_to_line(
         .execution_options(populate_existing=True)
     )
     first, last = month_bounds(period_month)
-    historical_target_is_valid = (
-        historical_reprocess
-        and locked_order is not None
-        and locked_order.status
-        in (ClientOrderStatus.active, ClientOrderStatus.completed)
-        and locked_order.contract is not None
-        and locked_order.contract.status != ContractStatus.void
-        and locked_order.order_group is not None
-        and locked_order.order_group.status
-        in (GROUP_STATUS_ACTIVE, GROUP_STATUS_COMPLETED, GROUP_STATUS_EXHAUSTED)
-        and locked_order.order_group.start_date <= last
-        and (
-            locked_order.order_group.end_date is None
-            or locked_order.order_group.end_date >= first
+    # Jedna reguła dla obu ścieżek: linia rozlicza miesiąc, jeżeli go OBSADZAŁA
+    # (`line_settles_in_month`) — status „zakończona" nie jest przeszkodą, bo
+    # raport za sierpień wpływa do systemu długo po zejściu konsultanta.
+    # Anulowana linia nie rozlicza nigdy, a ostatnim sitem jest niezmienność
+    # grupy pod blokadą: to ona chroni przed nadpisaniem przez równoległą
+    # zmianę obsady.
+    line_is_valid = locked_order is not None and line_settles_in_month(
+        locked_order, period_month, contract=locked_order.contract
+    )
+    target_is_valid = line_is_valid
+    if target_is_valid and historical_reprocess:
+        # Replay starej paczki dokłada do tego okres samej GRUPY — zwykły
+        # import sprawdza go wcześniej (`_ordinary_locked_target_is_valid`),
+        # więc tutaj nie sięgamy po atrybuty grupy poza tą ścieżką.
+        group_now = locked_order.order_group
+        target_is_valid = (
+            group_now is not None
+            and group_now.status
+            in (GROUP_STATUS_ACTIVE, GROUP_STATUS_COMPLETED, GROUP_STATUS_EXHAUSTED)
+            and group_now.start_date <= last
+            and (group_now.end_date is None or group_now.end_date >= first)
         )
-        and (locked_order.start_date is None or locked_order.start_date <= last)
-        and (locked_order.end_date is None or locked_order.end_date >= first)
-    )
-    target_is_valid = historical_target_is_valid or (
-        not historical_reprocess
-        and locked_order is not None
-        and locked_order.status == ClientOrderStatus.active
-    )
     if (
         locked_order is None
         or not target_is_valid
@@ -463,23 +464,33 @@ def _ordinary_locked_target_is_valid(
     ):
         return False
 
-    if kind == "md_line":
-        if order.status != ClientOrderStatus.active or order.md_total is None:
-            return False
+    # Stan linii: OKRES, nie status — lustro `line_settles_in_month`, którym
+    # wybrano kandydatów. Linia zakończona po miesiącu, którego dotyczy
+    # raport, nadal go rozlicza; `cancelled` nie rozlicza nigdy.
+    #
     # Stan grupy: ta sama reguła co przy wyborze kandydatów
-    # (`active_shared_md_lines`/`active_cost_lines`). Zamówienie zakończone
-    # z datą nie wcześniejszą niż ten miesiąc nadal się w nim rozlicza — bez
-    # lustra import wybierał je, a po blokadach odrzucał całą partię 409.
+    # (`shared_md_lines_settling_in_month` / `cost_lines_settling_in_month`).
+    # Zamówienie zakończone z datą nie wcześniejszą niż ten miesiąc nadal się
+    # w nim rozlicza — bez lustra import wybierał je, a po blokadach odrzucał
+    # całą partię 409.
+    if kind == "md_line":
+        if (
+            not line_settles_in_month(order, period_month, contract=contract)
+            or order.md_total is None
+        ):
+            return False
     elif kind == "shared_md":
         if (
-            order.status != ClientOrderStatus.active
+            not line_settles_in_month(order, period_month, contract=contract)
             or not group_settles_in_month(group, first)
             or not uses_shared_md_pool(group)
         ):
             return False
     elif kind == "cost":
         if (
-            order.status not in (ClientOrderStatus.active, ClientOrderStatus.draft)
+            not line_settles_in_month(
+                order, period_month, contract=contract, include_draft=True
+            )
             or not group_settles_in_month(group, first)
             or not group.is_cost_based
         ):
@@ -543,9 +554,9 @@ async def create_import(
     except MdSheetFormatError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
 
-    candidates = await active_md_lines(db, period_month)
-    shared_md_candidates = await active_shared_md_lines(db, period_month)
-    cost_candidates = await active_cost_lines(db, period_month)
+    candidates = await md_lines_settling_in_month(db, period_month)
+    shared_md_candidates = await shared_md_lines_settling_in_month(db, period_month)
+    cost_candidates = await cost_lines_settling_in_month(db, period_month)
 
     batch = MdConsumptionImport(
         period_month=period_month,
@@ -820,17 +831,21 @@ def _match_per_consultant_md_row(*, parsed_row, candidates: list[LineMatch]):
         match.group.client_id == finance_order_matching.POLKOMTEL_CLIENT_ID
         for match in named
     )
+    # Preferencja linii aktywnej dopiero PO zawężeniu numerem — wpięta
+    # wcześniej wycinałaby linię, którą numer właśnie miał wskazać.
     if not has_polkomtel_candidate or not hints:
-        return named
-    return [
-        match
-        for match in named
-        if finance_order_matching.finance_order_number_matches(
-            client_id=match.group.client_id,
-            order_number=match.group.order_number,
-            numeric_hints=hints,
-        )
-    ]
+        return prefer_active_line(named)
+    return prefer_active_line(
+        [
+            match
+            for match in named
+            if finance_order_matching.finance_order_number_matches(
+                client_id=match.group.client_id,
+                order_number=match.group.order_number,
+                numeric_hints=hints,
+            )
+        ]
+    )
 
 
 def _match_shared_md_row(
@@ -854,15 +869,17 @@ def _match_shared_md_row(
         return False
 
     hints = extract_order_number_candidates(parsed_row.notes_raw)
-    numbered = [
-        match
-        for match in named
-        if finance_order_matching.finance_order_number_matches(
-            client_id=match.group.client_id,
-            order_number=match.group.order_number,
-            numeric_hints=hints,
-        )
-    ]
+    numbered = prefer_active_line(
+        [
+            match
+            for match in named
+            if finance_order_matching.finance_order_number_matches(
+                client_id=match.group.client_id,
+                order_number=match.group.order_number,
+                numeric_hints=hints,
+            )
+        ]
+    )
     if len(numbered) != 1:
         # Status pozostaje `unmatched`; ręczne przypisanie historycznej linii
         # zapisuje budżet per konsultant, więc nie jest bezpieczną ścieżką dla
@@ -925,7 +942,7 @@ def _match_cost_row(
         row.cost_status = COST_ROW_UNMATCHED_NUMBER
         return None
 
-    named = match_by_name(numbered, parsed_row.consultant_name)
+    named = prefer_active_line(match_by_name(numbered, parsed_row.consultant_name))
     if len(named) != 1:
         # Zero trafień albo niejednoznaczność — w obu przypadkach system NIE
         # zgaduje. Kwota trafiłaby wtedy na cudzą linię, a „Zafakturowano"
@@ -1731,8 +1748,8 @@ async def assign_row(
     allowed = {int(o) for o in (row.candidate_order_ids or [])}
     if payload.order_id not in allowed:
         # Wybór spoza listy kandydatów oznacza, że linia nie pasowała do
-        # nazwiska ALBO nie była aktywna w tym miesiącu. Przyjęcie go tutaj
-        # obeszłoby oba filtry naraz.
+        # nazwiska ALBO nie obsadzała zamówienia w tym miesiącu. Przyjęcie go
+        # tutaj obeszłoby oba filtry naraz.
         raise HTTPException(
             422,
             detail="To zamówienie nie jest jednym z dopasowań tego wiersza.",
@@ -1749,16 +1766,17 @@ async def assign_row(
     if order is None:
         raise HTTPException(404, detail="Linia zamówienia nie istnieje")
     # Lista kandydatów powstała przy wgraniu pliku, a rozstrzygnięcie następuje
-    # później — w międzyczasie linia mogła zostać domknięta (np. zamianą
-    # kontraktora). Zapis MD na nieaktywną linię tworzy zużycie, którego
-    # `active_md_lines` już nigdy nie pokaże: nie da się go zobaczyć ani cofnąć
-    # z interfejsu, a policzy się do faktury.
-    if order.status != ClientOrderStatus.active:
+    # później — w międzyczasie linia mogła zostać anulowana albo skrócona poza
+    # importowany miesiąc. Zakończenie współpracy przeszkodą NIE jest: to
+    # właśnie po nim przychodzi zaległy raport za miesiąc, w którym konsultant
+    # jeszcze pracował, i człowiek musi mieć jak go przypisać bez odblokowywania
+    # statusu linii.
+    if not line_settles_in_month(order, batch.period_month, contract=order.contract):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail=(
-                "Ta linia nie jest już aktywna — w międzyczasie została "
-                "zakończona lub zamieniona. Wybierz inne zamówienie."
+                "Ta linia nie rozlicza tego miesiąca — została anulowana albo "
+                "jej okres go nie obejmuje. Wybierz inne zamówienie."
             ),
         )
 

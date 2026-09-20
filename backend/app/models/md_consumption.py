@@ -54,7 +54,11 @@ IMPORT_ROW_STATUSES: tuple[str, ...] = (
 IMPORT_ROW_STATUS_LABELS: dict[str, str] = {
     IMPORT_ROW_APPLIED: "Zaktualizowano",
     IMPORT_ROW_NEEDS_ASSIGNMENT: "Wymaga przypisania",
-    IMPORT_ROW_UNMATCHED: "Brak aktywnego zamówienia",
+    # Od 09.2026 niedopasowanie NIE znaczy „osoba jest nieaktywna": import
+    # przyjmuje też linie zakończone, o ile ich okres obejmuje raportowany
+    # miesiąc (`client_order_lines.line_settles_in_month`). Stara etykieta
+    # wysyłała operatora po odblokowanie statusu, którego nikt już nie pyta.
+    IMPORT_ROW_UNMATCHED: "Brak pasującego zamówienia",
 }
 
 CONSUMPTION_SOURCE_IMPORT = "import"

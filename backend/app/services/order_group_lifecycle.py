@@ -120,7 +120,7 @@ async def materialize_scheduled_order_groups(
     # `business_today()`, nie `date.today()`: kontener chodzi w UTC, więc
     # między północą warszawską a UTC (1 h zimą, 2 h latem) `date.today()`
     # zwraca WCZORAJ. W tym oknie zamówienie startujące „dziś" zostawało
-    # `scheduled` z liniami w `draft` — czyli poza `active_md_lines` i poza
+    # `scheduled` z liniami w `draft` — czyli poza `md_lines_settling_in_month` i poza
     # licznikiem konsultantów — a bliźniaczy cron kontraktów
     # (`contract_alerts._promote_statuses`) był już na nowym dniu. Dwa
     # mechanizmy tego samego modułu datowały się różnymi dobami.
