@@ -142,7 +142,13 @@ export interface OrderEntryItem extends OrderRef {
   status: string;
 }
 
-/** Bez „continuation": osoba pracująca dalej nie jest zejściem. */
+/**
+ * Bez „continuation": osoba pracująca dalej nie jest zejściem.
+ *
+ * Werdykt rozdziela dwie podzakładki o tym samym kształcie wiersza:
+ * `ended_intent` → Zejścia (ktoś zapisał koniec współpracy),
+ * `ending_pending` / `no_successor` → Kończące się zamówienia.
+ */
 export type OrderExitVerdict = "ended_intent" | "no_successor" | "ending_pending";
 
 export interface OrderExitItem extends OrderRef {
@@ -188,6 +194,8 @@ export interface OrderChangeItem extends OrderRef {
   previous_end_date: string | null;
   previous_client_name: string | null;
   start_date: string | null;
+  /** Początek współpracy z UMOWY, gdy poprzedniego zamówienia nie ma w NEXUSIE. */
+  engagement_since: string | null;
 }
 
 export interface OrderGapItem extends OrderRef {
@@ -202,17 +210,30 @@ export interface OrderGapItem extends OrderRef {
 
 export interface OrderChangesResponse {
   period: { year: number; month: number; label: string };
-  counts: { changes: number; entries: number; exits: number; gaps: number };
+  counts: {
+    changes: number;
+    entries: number;
+    exits: number;
+    ending: number;
+    gaps: number;
+  };
   changes: OrderChangeItem[];
   entries: OrderEntryItem[];
   exits: OrderExitItem[];
+  /** Zamówienia kończące się bez kolejnego przy ŻYWEJ współpracy. */
+  ending_orders: OrderExitItem[];
   gaps: OrderGapItem[];
   changes_tracked_since: string | null;
   gaps_tracked_since: string;
   open_gaps_total: number;
 }
 
-export type OrderChangesTab = "changes" | "entries" | "exits" | "gaps";
+export type OrderChangesTab =
+  | "changes"
+  | "entries"
+  | "exits"
+  | "ending"
+  | "gaps";
 
 /** Filtry widoku. Serwer liczy je raz — dla ekranu i dla eksportu. */
 export interface OrderChangesFilters {
@@ -234,7 +255,7 @@ function orderChangesQuery(filters: OrderChangesFilters): string {
 
 /**
  * Eksport JEDNEJ podzakładki z aktywnymi filtrami — plik ma zawierać dokładnie
- * to, co widać na ekranie. Bez `tab` serwer zwraca cały audyt (cztery arkusze).
+ * to, co widać na ekranie. Bez `tab` serwer zwraca cały audyt (pięć arkuszy).
  */
 export function orderChangesExportPath(
   year: number,

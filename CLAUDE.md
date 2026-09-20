@@ -3602,7 +3602,8 @@ poprawny i też kończy się przestemplowaniem — to nie jest obejście.
   zachowanie `react-markdown` co do joty, a każdy rozjazd to link prowadzący
   w złe miejsce. Harness wizualny: `/preview/procedure-help`.
 
-## Finanse → Zmiany w zamówieniach (Zmiany · Wejścia · Zejścia · Braki, 0308)
+## Finanse → Zmiany w zamówieniach
+(Zmiany · Wejścia · Zejścia · Kończące się zamówienia · Braki, 0308)
 
 Comiesięczny audyt zamówień dla działu finansowego (`/finance?view=order-changes`,
 `GET /api/finance/order-changes?year&month&q&client_id&date_from&date_to`
@@ -3612,28 +3613,48 @@ wypowiedziana umowa, szkic następnego zamówienia ani decyzja offboardingu MD /
 „zostaw jako historię"; DL dostaje alert DL + dzwonek. Pełny opis:
 `docs/finance-order-changes-completion-report.md`.
 
-- **Zakładka nazywa się tak, jak to, co w niej jest (korekta 16.09.2026).**
-  Do 16.09 Wejścia zbierały KAŻDE zamówienie startujące w miesiącu (osoby już
-  z nami pracujące były tam tylko OZNACZANE jako „Kontynuacja po zam. …" albo
-  „Dodatkowy projekt"), a Zejścia pokazywały wiersze z werdyktem „Kontynuacja",
-  czyli osoby, które akurat NIE schodzą. Finanse czytają te listy jako „kto
-  doszedł" i „kogo zdjąć z rozliczeń", więc obie kłamały. Po korekcie:
-  **Wejścia** = osoba bez żadnego wcześniejszego, niezanulowanego zamówienia
-  u JAKIEGOKOLWIEK klienta; **Zejścia** = osoba, która od kolejnego miesiąca
-  nie świadczy już usług (niezależnie od przyczyny); **Zmiany** = wszystko, co
+- **Zakładka nazywa się tak, jak to, co w niej jest (korekty 16.09 i 20.09.2026).**
+  Do 16.09 Wejścia zbierały KAŻDE zamówienie startujące w miesiącu, a Zejścia
+  pokazywały wiersze z werdyktem „Kontynuacja". Do 20.09 Wejścia nadal brały za
+  nową osobę każdego, kto nie miał wcześniejszego WIERSZA ZAMÓWIENIA, a Zejścia
+  mieszały „kończy się zamówienie" z „kończy się współpraca". Finanse czytają te
+  listy jako „kto doszedł" i „kogo zdjąć z rozliczeń", więc obie kłamały.
+  Stan docelowy: **Wejścia** = pierwsza współpraca (dowód: zamówienie ALBO
+  umowa); **Zejścia** = zapisany koniec współpracy; **Kończące się zamówienia**
+  = zamówienie bez kolejnego przy żywej współpracy; **Zmiany** = wszystko, co
   dzieje się w trwającej współpracy; **Braki** bez zmian.
+- **Rejestr zamówień jest MŁODSZY niż współpraca, którą opisuje** — i to była
+  przyczyna zgłoszenia z 09.2026 (konsultantka z umową bezterminową od grudnia,
+  pierwszy wiersz zamówienia z września, w Wejściach jako „Nowy konsultant").
+  Zmierzone na produkcji: z 63 zamówień startujących we wrześniu 2026 **38 ma
+  umowę starszą niż własne zamówienie**, a 11 z nich nie miało ŻADNEGO
+  wcześniejszego zamówienia. Dlatego `_classify_by_engagement` czyta
+  `contracts` (bez `draft` i `void`) i dokłada szczebel tuż przed `new`.
+  **Próg to pierwszy dzień MIESIĄCA, nie dzień startu zamówienia**: osobie
+  faktycznie nowej zakłada się umowę razem z pierwszym zamówieniem, często
+  z datą o kilka dni wcześniejszą, więc próg „ściśle przed startem" opróżniłby
+  zakładkę (pilnuje tego
+  `test_contract_starting_in_the_same_month_still_counts_as_an_entry`).
 - **Klasyfikacja wejścia: `_classify_entries`, pierwsze trafienie wygrywa** —
   `additional_project` (trwające zamówienie u INNEGO klienta w dniu startu) →
   `order_continuation` (`previous_of`: poprzednie zamówienie u TEGO klienta
   ≤31 dni przed startem — reguła nietknięta) → `client_change` /
   `order_continuation` po kliencie OSTATNIEGO wcześniejszego zamówienia osoby
-  (powrót po przerwie, przejście do innego klienta) → `new` (jedyna klasa
-  w Wejściach). Trzy pierwsze to wiersze syntetyczne w Zmianach, liczone przy
+  (powrót po przerwie, przejście do innego klienta) → **ta sama drabinka na
+  UMOWACH** (`_classify_by_engagement`) → `new` (jedyna klasa w Wejściach).
+  Dowody z zamówień idą pierwsze, bo są dokładniejsze (niosą klienta, okres
+  i numer). Wszystko poza `new` to wiersze syntetyczne w Zmianach, liczone przy
   odczycie — **bez migracji**: CHECK na `order_change_events.field` i dziennik
   zostają nietknięte. Zamówienie zaczynające się PÓŹNIEJ nie czyni z osoby „już
   współpracującej"; dwa zamówienia tego samego dnia u dwóch klientów rozstrzyga
   niższe `order_id` (`_precedes`), żeby osoba naprawdę nowa pokazała się
   w Wejściach raz, a nie zniknęła z nich całkiem.
+- **Kontynuacja z UMOWY nie ma poprzedniego numeru zamówienia** — niesie
+  `engagement_since` (data startu umowy) i obie warstwy renderują „współpraca
+  od DD.MM.RRRR". Puste „—" czytałoby się jak utrata danych, nie jak inny
+  rodzaj dowodu. `EntryClass` niesie pola PREZENTACYJNE
+  (`running_client_names`, `previous_client_name`), nie surowe `OrderFact`y:
+  dowodu z umowy nie da się w nie włożyć.
 - **„Zmiana klienta" to konsultant przechodzący do innego klienta, nie zmiana
   pola.** `ClientOrderUpdate` nie ma `client_id` — zamówienia nie da się
   przepiąć z UI, więc literalna zmiana pola nie istnieje i nie ma czego
@@ -3644,11 +3665,27 @@ wypowiedziana umowa, szkic następnego zamówienia ani decyzja offboardingu MD /
   rzadkie „wypowiedzenie + żywy następca" zostawałoby inaczej w Zejściach mimo
   tego, że osoba pracuje dalej. `ExitVerdict` nie ma już `continuation`, a
   `OrderExitItem` pól o następcy (zawsze puste).
+- **Zejście wymaga ZAPISANEGO końca współpracy** (`load_ending_intents`,
+  werdykt `ended_intent`). **Decyzja Artura 20.09.2026: wszystkie pięć rodzajów
+  intencji zostaje w Zejściach** — wypowiedziana/zakończona umowa, zamiana
+  kontraktora, decyzja DL po offboardingu MD, usunięcie z zamówienia,
+  „zostaw jako historia". Wspólny mianownik: człowiek świadomie zapisał, że ta
+  osoba schodzi. Nie zawężaj tego do samego `INTENT_CONTRACT_ENDED`.
+  Zakres następcy per (osoba, klient) ZOSTAJE: przejście konsultanta do innego
+  klienta JEST zejściem z punktu widzenia rozliczeń klienta A.
+- **`ending_pending` i `no_successor` to „Kończące się zamówienia"** — osobna
+  zakładka (`?sub=ending`, `?tab=ending`), ten sam `OrderExitItem` i ten sam
+  render co Zejścia. Bliźniaczy typ różniący się wyłącznie nazwą byłby drugim
+  miejscem do rozjechania; rozstrzyga WERDYKT. Wrzesień 2026 na produkcji: do
+  87 zamówień kończących się przy żywej umowie stało w Zejściach obok ~13
+  faktycznych zakończeń. `_exits` zwraca obie listy z JEDNEGO przebiegu — dwa
+  osobne rozjechałyby się przy pierwszej poprawce drabinki i ta sama osoba
+  potrafiłaby stać w obu zakładkach albo w żadnej.
 - **Zmiany stawek NIE mają progu** — do Zmian trafia każda różnica stawki
   kosztowej i przychodowej. Jedyny filtr jest w `order_change_audit` (pierwsze
   wpisanie stawki to nie zmiana, szkice i anulowane się nie liczą).
 - **Filtry (szukaj / klient / zakres dat) liczy SERWER, jedną funkcją
-  `apply_filters` na czterech gotowych listach** — ten sam kod obsługuje ekran
+  `apply_filters` na gotowych listach** — ten sam kod obsługuje ekran
   i eksport, więc plik nie może pokazać czego innego niż lista. Data znaczy
   w każdej zakładce co innego (zmiana / start / koniec / dzień wykrycia braku),
   więc etykieta pola zmienia się z zakładką. Liczniki przy podzakładkach liczą
@@ -3656,7 +3693,8 @@ wypowiedziana umowa, szkic następnego zamówienia ani decyzja offboardingu MD /
   pod nim nie ma. Wiersz BEZ daty nie mieści się w żadnym zakresie.
   `open_gaps_total` zostaje globalne (baner o całej historii).
 - **Eksport bierze aktywną podzakładkę** (`?tab=`) z tymi samymi filtrami;
-  `tab` pominięty = cały audyt (cztery arkusze), zgodność wstecz.
+  `tab` pominięty = cały audyt (pięć arkuszy), zgodność wstecz. Tytuł
+  arkusza musi zmieścić się w 31 znakach Excela — stąd „Kończące się zam.".
   `OrderChangesPanel` NIE odpytuje API sam — picker klienta wchodzi slotem
   `filters.clientPicker`, bo ten sam komponent renderuje publiczny harness
   `/preview/finance-order-changes`, który musi robić ZERO zapytań.

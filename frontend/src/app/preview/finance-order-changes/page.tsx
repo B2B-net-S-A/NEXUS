@@ -30,7 +30,7 @@ const ref = (id: number, consultant: string, client: string, number: string) => 
 
 const DATA: OrderChangesResponse = {
   period: { year: 2026, month: 9, label: "Wrzesień 2026" },
-  counts: { changes: 6, entries: 2, exits: 3, gaps: 2 },
+  counts: { changes: 6, entries: 2, exits: 2, ending: 2, gaps: 2 },
   changes: [
     {
       ...ref(1, "Jan Nowak", "Bank Przykładowy S.A.", "NB-2291"),
@@ -55,6 +55,7 @@ const DATA: OrderChangesResponse = {
       previous_end_date: null,
       previous_client_name: null,
       start_date: null,
+      engagement_since: null,
     },
     {
       ...ref(2, "Adam Testowy", "Ubezpieczenia Demo", "UD-2295"),
@@ -79,6 +80,7 @@ const DATA: OrderChangesResponse = {
       previous_end_date: null,
       previous_client_name: null,
       start_date: null,
+      engagement_since: null,
     },
     {
       ...ref(3, "Całe zamówienie (4 os.)", "Telekom Demo", "SAP 4500123456"),
@@ -105,6 +107,7 @@ const DATA: OrderChangesResponse = {
       previous_end_date: null,
       previous_client_name: null,
       start_date: null,
+      engagement_since: null,
     },
     {
       ...ref(4, "Tomasz Przykładowy", "Bank Demo S.A.", "AB-1042"),
@@ -129,6 +132,7 @@ const DATA: OrderChangesResponse = {
       previous_end_date: null,
       previous_client_name: null,
       start_date: "2026-09-14",
+      engagement_since: null,
     },
     {
       ...ref(9, "Adam Matecki", "Bank Przykładowy S.A.", "NB-2291"),
@@ -153,6 +157,7 @@ const DATA: OrderChangesResponse = {
       previous_end_date: "2026-08-31",
       previous_client_name: "Bank Przykładowy S.A.",
       start_date: "2026-09-01",
+      engagement_since: null,
     },
     {
       ...ref(10, "Piotr Żukowski", "Telekom Demo", "TD-330"),
@@ -177,6 +182,7 @@ const DATA: OrderChangesResponse = {
       previous_end_date: "2026-08-29",
       previous_client_name: "Ubezpieczenia Demo",
       start_date: "2026-09-08",
+      engagement_since: null,
     },
   ],
   entries: [
@@ -203,7 +209,37 @@ const DATA: OrderChangesResponse = {
       status: "draft",
     },
   ],
+  // Zejścia = zapisany koniec współpracy. Kończące się zamówienia = zamówienie
+  // dobiega końca, a współpraca trwa. Werdykt jest tu jedynym rozróżnieniem.
   exits: [
+    {
+      ...ref(7, "Olga Wiśniewska", "Ubezpieczenia Demo", "UD-12"),
+      end_date: "2026-09-15",
+      start_date: "2026-01-01",
+      rate_cost: 100,
+      rate_revenue: 140,
+      rate_unit: "hourly",
+      currency: "PLN",
+      order_type: "cost",
+      verdict: "ended_intent",
+      verdict_label: "Współpraca zakończona (umowa wypowiedziana)",
+      intent: "contract_ended",
+    },
+    {
+      ...ref(8, "Robert Adamczyk", "Telekom Demo", "SAP 4500222222"),
+      end_date: "2026-09-30",
+      start_date: "2026-02-01",
+      rate_cost: 850,
+      rate_revenue: 1100,
+      rate_unit: "md",
+      currency: "PLN",
+      order_type: "md",
+      verdict: "ended_intent",
+      verdict_label: "Zastąpiony innym konsultantem na zamówieniu",
+      intent: "replaced",
+    },
+  ],
+  ending_orders: [
     {
       ...ref(5, "Ewa Kowalska", "Telekom Demo", "SAP 4500111111"),
       end_date: "2026-09-30",
@@ -229,19 +265,6 @@ const DATA: OrderChangesResponse = {
       verdict: "no_successor",
       verdict_label: "Brak kolejnego zamówienia — do usunięcia z rozliczeń",
       intent: null,
-    },
-    {
-      ...ref(7, "Olga Wiśniewska", "Ubezpieczenia Demo", "UD-12"),
-      end_date: "2026-09-15",
-      start_date: "2026-01-01",
-      rate_cost: 100,
-      rate_revenue: 140,
-      rate_unit: "hourly",
-      currency: "PLN",
-      order_type: "cost",
-      verdict: "ended_intent",
-      verdict_label: "Współpraca zakończona (umowa wypowiedziana)",
-      intent: "contract_ended",
     },
   ],
   gaps: [

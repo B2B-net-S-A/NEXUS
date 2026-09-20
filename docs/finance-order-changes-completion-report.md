@@ -4,6 +4,9 @@ Ticket: nowa zakładka „Zmiany w zamówieniach" w module Finanse z podzakładk
 Zmiany · Wejścia · Zejścia · Braki, eksportem do Excela, licznikami i
 powiadomieniem Delivery Leada o brakach.
 
+> **Korekta 20.09.2026** — piąta podzakładka „Kończące się zamówienia" oraz
+> zmiana kwalifikacji Wejść i Zejść. Patrz sekcja na końcu.
+
 ## Decyzje (Artur, 14.09.2026)
 
 | Pytanie | Decyzja |
@@ -137,3 +140,90 @@ odczycie; CHECK na `order_change_events.field` i dziennik zostają nietknięte.
   u tego samego klienta — ta reguła została świadomie nietknięta.
 - Filtry są wspólne dla czterech zakładek (przełączenie zakładki ich nie
   czyści); eksport bierze zakładkę aktywną.
+
+---
+
+# Korekta 20.09.2026 — Wejścia, Zejścia i „Kończące się zamówienia"
+
+## Zgłoszenie
+
+Dwie podzakładki odpowiadały na inne pytanie, niż mówi ich nazwa:
+
+* **Wejścia** obiecują „kto rozpoczął z nami współpracę", a pokazywały „czyje
+  pierwsze ZAMÓWIENIE trafiło do NEXUSA w tym miesiącu".
+* **Zejścia** obiecują „kto kończy współpracę", a pokazywały „czyje zamówienie
+  kończy się w tym miesiącu i nie ma jeszcze następnego".
+
+Zmierzone na produkcji (read-only SQL, wrzesień 2026):
+
+| | przed | po |
+|---|---|---|
+| Wejścia | **39** wierszy, z tego 11 kontynuacji | **28** faktycznie nowych osób |
+| Zejścia | do **87** wierszy z żywą umową + ~13 z zakończoną | tylko zapisane zakończenia |
+
+## Przyczyna Wejść: rejestr zamówień jest młodszy niż współpraca
+
+`_classify_entries` czytał wyłącznie wiersze `client_orders`. Przypadek ze
+zgłoszenia: umowa `active`, bezterminowa, start w grudniu poprzedniego roku —
+a pierwszy wiersz zamówienia startuje 1 września. Klasyfikator nie miał z czego
+wywnioskować, że współpraca trwa od grudnia. Z 63 zamówień startujących we
+wrześniu **38 miało umowę starszą niż własne zamówienie**.
+
+Poprawka: `_classify_by_engagement` czyta `contracts` (bez `draft` i `void`)
+i dokłada szczebel tuż przed `new`, lustrzany do drabinki z zamówień
+(ten klient → równoległy inny klient → zakończona współpraca gdzie indziej).
+
+**Próg to pierwszy dzień miesiąca, nie dzień startu zamówienia** — osobie
+faktycznie nowej zakłada się umowę razem z pierwszym zamówieniem, często z datą
+o kilka dni wcześniejszą; próg „ściśle przed startem" opróżniłby zakładkę.
+
+Kontynuacja wywnioskowana z umowy nie ma poprzedniego numeru zamówienia, więc
+`OrderChangeItem` niesie `engagement_since`, a obie warstwy renderują
+„współpraca od DD.MM.RRRR" zamiast „—" (puste czyta się jak utrata danych).
+
+## Przyczyna Zejść: trzy różne werdykty w jednej zakładce
+
+`_exits` nadawał trzy werdykty, a tylko jeden mówił cokolwiek o współpracy.
+Po korekcie `_exits` zwraca **dwie listy z jednego przebiegu**:
+
+* `exits` — `ended_intent`, czyli zapisany koniec współpracy. **Decyzja Artura
+  20.09.2026: wszystkie pięć rodzajów intencji zostaje w Zejściach**
+  (wypowiedzenie/koniec umowy, zamiana kontraktora, decyzja DL po offboardingu
+  MD, usunięcie z zamówienia, „zostaw jako historia") — wspólnym mianownikiem
+  jest świadomy zapis człowieka.
+* `ending_orders` — `ending_pending` i `no_successor`: zamówienie kończy się
+  (albo skończyło) bez kolejnego, a współpraca trwa.
+
+Bramka `works_until_md_exhausted or successor is not None` zostaje PRZED
+drabinką werdyktów i zakres następcy zostaje per (osoba, klient).
+
+## Piąta zakładka
+
+`?sub=ending` / `?tab=ending`, po Zejściach, przed Brakami. Ten sam
+`OrderExitItem`, ten sam render, ten sam komplet funkcji: szukajka, filtr
+klienta, zakres dat („Data końca zamówienia"), eksport XLSX. Arkusz nazywa się
+„Kończące się zam. (n)" — pełna nazwa nie mieści się w limicie 31 znaków Excela.
+
+**Bez migracji** — zmiana wyłącznie w regułach odczytu.
+
+## Weryfikacja korekty
+- pytest `test_finance_order_changes.py` — 7 nowych testów: umowa starsza niż
+  pierwsze zamówienie, próg miesięczny, szkic umowy jako niedowód, zakończona
+  umowa u innego klienta, kończące się zamówienie poza Zejściami, żywy następca
+  poza obiema listami, filtry + eksport nowej zakładki.
+- vitest: pięć zakładek z licznikami, etykieta filtra daty, rozdział Zejść od
+  Kończących się zamówień, „współpraca od …" zamiast „—".
+
+## Znane ograniczenia korekty
+- Osoba, której umowa zaczęła się w poprzednim miesiącu, a pierwsze zamówienie
+  powstało w tym, nie pokaże się w Wejściach ŻADNEGO miesiąca (w swoim własnym
+  nie było jeszcze zamówienia). Trafia do Zmian jako kontynuacja — tam, gdzie
+  Finanse i tak szukają numeru zamówienia do faktury.
+- Zejścia są nadal wyprowadzane z dat końca ZAMÓWIEŃ. Umowa zakończona
+  w miesiącu, której zamówienie kończy się w innym, do zakładki nie trafi;
+  `/terminate` dociąga daty zamówień do końca umowy, więc w praktyce pokrycie
+  jest pełne (wrzesień 2026: 11 zakończonych umów vs 13 zamówień z zakończoną
+  umową). Zmiana źródła danych zakładki to osobny ticket.
+- „Kończące się zamówienia" i „Braki" częściowo się pokrywają: Braki to rejestr
+  wykrytych luk z datą wykrycia i opóźnieniem (od `ORDER_GAP_TRACKING_START`),
+  nowa zakładka to widok miesięczny liczony z zamówień.

@@ -20,7 +20,7 @@ const ref = {
 
 const DATA: OrderChangesResponse = {
   period: { year: 2026, month: 9, label: "Wrzesień 2026" },
-  counts: { changes: 0, entries: 1, exits: 1, gaps: 2 },
+  counts: { changes: 0, entries: 1, exits: 1, ending: 1, gaps: 2 },
   changes: [],
   entries: [
     {
@@ -38,6 +38,23 @@ const DATA: OrderChangesResponse = {
     },
   ],
   exits: [
+    {
+      ...ref,
+      order_id: 12,
+      consultant_name: "Olga Wiśniewska",
+      end_date: "2026-09-15",
+      start_date: "2026-01-01",
+      rate_cost: 100,
+      rate_revenue: 140,
+      rate_unit: "hourly",
+      currency: "PLN",
+      order_type: "cost",
+      verdict: "ended_intent",
+      verdict_label: "Współpraca zakończona (umowa wypowiedziana)",
+      intent: "contract_ended",
+    },
+  ],
+  ending_orders: [
     {
       ...ref,
       order_id: 11,
@@ -147,13 +164,14 @@ function Harness({
 }
 
 describe("OrderChangesPanel", () => {
-  it("shows the four sub-tabs with their counts", () => {
+  it("shows the five sub-tabs with their counts", () => {
     render(<Harness />);
     const tabs = screen.getAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual([
       "Zmiany0",
       "Wejścia1",
       "Zejścia1",
+      "Kończące się zamówienia1",
       "Braki2",
     ]);
   });
@@ -190,6 +208,29 @@ describe("OrderChangesPanel", () => {
     fireEvent.mouseDown(screen.getByRole("tab", { name: /Zejścia/ }));
     expect(screen.getByLabelText("Data zejścia od")).toBeInTheDocument();
     expect(screen.queryByLabelText("Data wejścia od")).not.toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Kończące się/ }));
+    expect(screen.getByLabelText("Data końca zamówienia od")).toBeInTheDocument();
+  });
+
+  it("keeps a person whose order merely ends out of the exits tab", () => {
+    // Zejście = zapisany koniec współpracy. Kończące się zamówienie to inne
+    // pytanie i inna zakładka — ta sama osoba nie może stać w obu.
+    render(<Harness initial="exits" />);
+    expect(screen.getByText("Olga Wiśniewska")).toBeInTheDocument();
+    expect(screen.queryByText("Ewa Kowalska")).not.toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Kończące się/ }));
+    expect(screen.getByText("Ewa Kowalska")).toBeInTheDocument();
+    expect(screen.queryByText("Olga Wiśniewska")).not.toBeInTheDocument();
+  });
+
+  it("sends an empty exits tab to the tab that does hold those rows", () => {
+    const empty = { ...DATA, exits: [], counts: { ...DATA.counts, exits: 0 } };
+    render(<Harness data={empty} initial="exits" />);
+    expect(
+      screen.getByText(/są w zakładce\s+Kończące się zamówienia/),
+    ).toBeInTheDocument();
   });
 
   it("exports the sub-tab the user is looking at", () => {

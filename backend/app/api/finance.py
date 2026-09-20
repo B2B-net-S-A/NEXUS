@@ -798,8 +798,8 @@ async def get_order_changes(
 
     Liczone przy odczycie z bieżącego stanu zamówień i dziennika zmian, więc
     zamówienie dodane minutę temu jest już w odpowiedzi. Filtry zawężają
-    wszystkie cztery listy i liczniki przy podzakładkach — badge nie może
-    obiecywać wierszy, których pod nim nie ma.
+    wszystkie listy i liczniki przy podzakładkach — badge nie może obiecywać
+    wierszy, których pod nim nie ma.
     """
 
     resolved_year, resolved_month = _order_changes_period(year, month)
@@ -825,8 +825,8 @@ async def export_order_changes(
 ):
     """Ten sam widok jako XLSX — z tymi samymi filtrami, co ekran.
 
-    ``tab`` wskazuje jedną podzakładkę; pominięty daje cały audyt (cztery
-    arkusze), jak dotąd. Liczniki są w nazwach arkuszy.
+    ``tab`` wskazuje jedną podzakładkę; pominięty daje cały audyt (pięć
+    arkuszy), jak dotąd. Liczniki są w nazwach arkuszy.
     """
 
     resolved_year, resolved_month = _order_changes_period(year, month)
