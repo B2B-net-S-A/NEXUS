@@ -111,6 +111,11 @@ class CVBrandedFinalizeResponse(BaseModel):
     status: BrandedStatusLiteral
     snapshot_filename: str
     snapshot_size_bytes: int
+    # Wynik niezależnej kontroli AI treści (0326). Zatwierdzenie przechodzi
+    # także z uwagami — rekruter ma je zobaczyć PO fakcie, a nie zostać
+    # zablokowany przed wysyłką. `None` = kontrola nie biegła.
+    content_review_status: Optional[str] = None
+    content_review_findings: Optional[int] = None
 
 
 class CVShareTokenResponse(BaseModel):

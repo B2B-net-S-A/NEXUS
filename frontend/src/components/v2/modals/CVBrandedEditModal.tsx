@@ -82,6 +82,9 @@ function CVBrandedEditContent({
  const queryClient = useQueryClient();
  const { showSuccess, showError } = useToast();
  const [confirmFinalize, setConfirmFinalize] = useState(false);
+ // Werdykt niezależnej kontroli AI treści (0327). Trwały, bo to lista rzeczy
+ // do sprawdzenia przed wysyłką CV do klienta — nie powiadomienie chwilowe.
+ const [reviewNotice, setReviewNotice] = useState<{kind: "findings" | "unavailable"; count: number} | null>(null);
  const [approvalError, setApprovalError] = useState<{message: string; regenerate: boolean} | null>(null);
  // Trwały błąd zapisu (409 — ktoś zapisał nowszą wersję, 422 — puste CV).
  // Zamknięcie edytora = udany zapis, więc bez tej ścieżki okna nie dało się
@@ -242,12 +245,26 @@ function CVBrandedEditContent({
      if (!sessionRef.current) throw new Error("CV nie jest jeszcze wczytane");
      if (cancellingRef.current) throw new Error("Trwa anulowanie kontroli CV");
      setConfirmFinalize(false);
-     await sessionRef.current.finalize();
-     return editorApi.get(stageId);
+     const outcome = await sessionRef.current.finalize();
+     const response = await editorApi.get(stageId);
+     return {response, outcome};
    },
-   onSuccess: (response) => {
+   onSuccess: ({response, outcome}) => {
      loadState(response.data);
-     showSuccess("Zapisano i zatwierdzono bieżącą treść CV");
+     // Kontrola jest doradcza: zatwierdzenie SIĘ UDAŁO, więc toast zostaje
+     // pozytywny, a uwagi dostają własny, trwały baner — znikający toast nie
+     // jest miejscem na listę rzeczy do sprawdzenia przed wysyłką do klienta.
+     const findings = outcome?.content_review_findings ?? 0;
+     setReviewNotice(
+       findings > 0
+         ? {kind: "findings", count: findings}
+         : outcome?.content_review_status === "unverified"
+           ? {kind: "unavailable", count: 0}
+           : null,
+     );
+     showSuccess(findings > 0
+       ? `Zatwierdzono. Niezależna kontrola AI zgłosiła ${findings} ${findings === 1 ? "twierdzenie" : "twierdzeń"} bez pokrycia w źródłach.`
+       : "Zapisano i zatwierdzono bieżącą treść CV");
      setApprovalError(null);
      setConfirmFinalize(false);
    },
@@ -364,6 +381,18 @@ function CVBrandedEditContent({
  <>
  <Dialog open={open} onOpenChange={(value) => void closeEditor(value)}>
  <DialogContent size="2xl" className="p-0 max-h-[92vh] flex flex-col">
+ {reviewNotice && <div role="status" className="px-5 py-3 border-b border-border text-sm bg-amber-50 dark:bg-amber-950/30">
+   {reviewNotice.kind === "findings" ? <>
+     <p className="font-medium">Niezależna kontrola AI: {reviewNotice.count}{" "}
+       {reviewNotice.count === 1 ? "twierdzenie" : "twierdzeń"} bez pokrycia w źródłach.</p>
+     <p className="text-muted-foreground mt-1">
+       CV zostało zatwierdzone — kontrola jest doradcza. Porównaj zaznaczone treści
+       z oryginalnym CV i notatkami przed wysyłką do klienta.
+     </p>
+   </> : <p className="text-muted-foreground">
+     Niezależna kontrola AI treści nie wykonała się. CV zostało zatwierdzone; sprawdź je ręcznie z oryginałem.
+   </p>}
+ </div>}
  {approvalError && <div role="alert" className="px-5 py-3 border-b border-border text-sm">
    <p className="text-destructive">{approvalError.message}</p>
    {approvalError.regenerate && <>

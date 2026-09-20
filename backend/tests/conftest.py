@@ -311,6 +311,12 @@ def _pin_cv_generator_rebuilt_pipeline(monkeypatch):
 
     monkeypatch.setenv("CV_GENERATION_PIPELINE", "v10")
     monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true")
+    # Niezależna kontrola AI (0326) jest na produkcji domyślnie WŁĄCZONA, ale
+    # dla reszty suite'u trzymamy ją zgaszoną: te testy pisano zanim istniała,
+    # więc nie stubują recenzenta i każde wywołanie poszłoby do dostawcy.
+    # Ścieżkę doradczą pokrywa `test_cv_final_review_advisory.py`, który
+    # włącza flagę u siebie.
+    monkeypatch.setenv("CV_FINAL_REVIEW_ENABLED", "false")
 
 
 @pytest.fixture(params=("legacy", "v10"), ids=("pipeline-legacy", "pipeline-v10"))
@@ -336,6 +342,8 @@ def pipeline_mode(request, monkeypatch) -> str:
     else:
         monkeypatch.setenv("CV_GENERATION_PIPELINE", "v10")
         monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true")
+    # Oba tryby bez niezależnej kontroli AI — jak w pinie wyżej.
+    monkeypatch.setenv("CV_FINAL_REVIEW_ENABLED", "false")
     return request.param
 
 

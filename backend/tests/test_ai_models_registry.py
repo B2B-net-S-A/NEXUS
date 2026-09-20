@@ -117,6 +117,10 @@ DECISION_2026_09_16 = {
     AIFeatureKey.champion_draft: ("F13", "claude-sonnet-5"),
     AIFeatureKey.cv_rule_lint: ("F14", "claude-sonnet-5"),
     AIFeatureKey.mindy_chat: ("F15", "gpt-5.6-luna"),
+    # F18 — decyzja 18.09.2026, POZA badaniem 16.09: recenzent gotowego CV
+    # musi być INNYM modelem niż generator (F4), bo sędzia LLM faworyzuje
+    # własne wyjście. Zmiana tego wpisu na model generatora cofa sens funkcji.
+    AIFeatureKey.cv_factual_verification: ("F18", "gpt-5.6-luna"),
 }
 
 
@@ -171,6 +175,7 @@ def test_legacy_settings_defaults_agree_with_the_registry():
         AIFeatureKey.mindy_chat,
         AIFeatureKey.notes_extraction,
         AIFeatureKey.candidate_summary,
+        AIFeatureKey.cv_factual_verification,
     ],
 )
 def test_non_anthropic_functions_fall_back_to_sonnet_5(monkeypatch, feature):

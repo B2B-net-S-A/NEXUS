@@ -38,6 +38,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F13 | champion_draft                   | claude-sonnet-5          |
 | F14 | cv_rule_lint                     | claude-sonnet-5 (z Haiku)|
 | F15 | mindy_chat                       | gpt-5.6-luna             |
+| F18 | cv_factual_verification          | gpt-5.6-luna (z Sonnet 5)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -207,6 +208,16 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         fallbacks=(SONNET_5,),
         rationale="F8. Znamiona UoP: GPT Luna 100% nazewnictwa, recall 1.0 na podłożonych "
         "znamionach (badanie 16.09).",
+    ),
+    AIFeatureKey.cv_factual_verification: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("CV_FACTUAL_VERIFICATION_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F18 (decyzja 18.09.2026, POZA badaniem 16.09). Recenzent gotowego CV "
+        "MUSI być innym modelem niż generator (F4 = Sonnet 5): badanie zmierzyło, że sędzia "
+        "LLM faworyzuje własne wyjście (~+30 pkt), więc kontrola własnej pracy jest "
+        "systematycznie za łagodna. Luna wygrała F7/F8 — zadania „znajdź i zacytuj”, czyli "
+        "dokładnie to, co robi weryfikator.",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
         default=SONNET_5,

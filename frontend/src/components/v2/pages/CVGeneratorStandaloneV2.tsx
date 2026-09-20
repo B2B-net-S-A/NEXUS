@@ -122,6 +122,14 @@ type GeneratedCvItem = {
   job_status?: "queued" | "running" | "complete" | "failed" | "interrupted" | null;
   error_message?: string | null;
   warnings?: string[];
+  /** Niezależna kontrola AI treści (0326). `null`/brak dla CV sprzed wdrożenia
+   *  — wtedy nie rysujemy NICZEGO: „niedostępna" znaczyłoby, że próbowała. */
+  factual_review?: {
+    status: "verified" | "advisory" | "unavailable";
+    findings: number;
+    model?: string | null;
+    reason?: string | null;
+  } | null;
   created_at?: string | null;
   created_by_name?: string | null;
   can_download: boolean;
@@ -1934,6 +1942,7 @@ function GeneratedCvRow({
   canWrite,
 }: GeneratedCvRowProps) {
   const warnings = item.warnings ?? [];
+  const review = item.factual_review ?? null;
   // Ostrzeżenia klasy „BRAK POKRYCIA" (treść bez pokrycia w źródłowym CV)
   // rozwijają się SAME, gdy dokument powstał pod konkretnego klienta.
   // Dziesięć z czternastu szablonów Championa prosi wprost: „sprawdzajcie, czy
@@ -1983,6 +1992,29 @@ function GeneratedCvRow({
                 <AlertTriangle className="h-3 w-3" />
                 {warnings.length} {warnings.length === 1 ? "uwaga" : "uwagi"}
               </button>
+            )}
+            {item.status === "ready" && review && (
+              review.status === "verified" ? (
+                <Badge variant="success" title={`Recenzent: ${review.model ?? "model AI"}`}>
+                  Kontrola AI: OK
+                </Badge>
+              ) : review.status === "advisory" ? (
+                <button
+                  type="button"
+                  onClick={() => setShowWarnings((v) => !v)}
+                  className="inline-flex items-center gap-1 text-xs text-amber-600 hover:underline dark:text-amber-400"
+                  title={`Recenzent: ${review.model ?? "model AI"}`}
+                >
+                  Kontrola AI: {review.findings} {review.findings === 1 ? "uwaga" : "uwagi"}
+                </button>
+              ) : (
+                <Badge
+                  variant="outline"
+                  title={`Kontrola nie wykonała się (${review.reason ?? "brak powodu"}) — sprawdź CV ręcznie`}
+                >
+                  Kontrola AI: niedostępna
+                </Badge>
+              )
             )}
           </div>
           <p className="truncate text-xs text-muted-foreground">

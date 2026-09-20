@@ -78,6 +78,12 @@ from app.services.cv_generator_b2b.source_facts import (
     source_evidence_enforced,
 )
 from app.services.cv_generator_b2b.prompts import get_prompt
+from app.services.cv_generator_b2b.final_review import (
+    FIELD_LABELS,
+    final_review_enabled,
+    final_review_timeout,
+    run_final_review,
+)
 from app.services.cv_generator_b2b.factual_verification import (
     FactualVerificationError,
     verify_final_cv,
@@ -1783,48 +1789,42 @@ def _run_generation_pipeline(
     # Check the actual final claims, including glossary replacements and date
     # formatting. Warnings alone must never turn unsupported claims into a
     # downloadable document. Client rules and the vacancy are not evidence.
-    try:
-        candidate_data["factual_verification"] = verify_final_cv(
-            candidate_data,
-            cv_text=cv_text,
-            screening_notes=screening_notes_text,
-            identity=fallback_name or "",
-            request_id=request_id,
-        )
-    except FactualVerificationError as err:
-        if not source_evidence_enforced():
-            # Advisory mode: the final review could not confirm every claim,
-            # but do not block the document — record the outcome and proceed
-            # (pre-#1476 behavior). Flip CV_SOURCE_EVIDENCE_ENFORCED to block.
-            logger.info(
-                "[cv_b2b][%s] final factual review advisory: reason=%s field_count=%s",
-                request_id,
-                err.reason,
-                len(err.paths),
+    review_warnings: list[str] = []
+    if not source_evidence_enforced():
+        # Advisory mode (default): same independent reviewer, same report shape
+        # and the same recruiter-facing warnings as the legacy pipeline. The
+        # helper never raises, so an unavailable reviewer cannot withhold a CV
+        # the user has already paid for.
+        if final_review_enabled():
+            candidate_data["factual_verification"], review_warnings = run_final_review(
+                candidate_data,
+                cv_text=cv_text,
+                screening_notes=screening_notes_text,
+                identity=fallback_name or "",
+                request_id=request_id,
+                language=language,
             )
-            candidate_data["factual_verification"] = {
-                "status": "advisory",
-                "reason": err.reason,
-                "paths": list(err.paths),
-            }
-        else:
+    else:
+        # Enforced mode: an unconfirmed claim withholds the document. Kept
+        # deliberately separate from the advisory path above — this branch is
+        # the only one allowed to turn a review verdict into a refusal.
+        try:
+            candidate_data["factual_verification"] = verify_final_cv(
+                candidate_data,
+                cv_text=cv_text,
+                screening_notes=screening_notes_text,
+                identity=fallback_name or "",
+                request_id=request_id,
+                total_timeout=final_review_timeout(),
+            )
+        except FactualVerificationError as err:
             logger.info(
                 "[cv_b2b][%s] final factual review rejected: reason=%s field_count=%s",
                 request_id,
                 err.reason,
                 len(err.paths),
             )
-            labels = {
-                "why_points": "podsumowanie",
-                "experience": "doświadczenie",
-                "certifications": "certyfikaty",
-                "skills": "umiejętności",
-                "languages": "języki",
-                "education": "edukacja",
-                "name": "imię i nazwisko",
-                "first_name": "imię",
-                "position": "stanowisko",
-            }
+            labels = FIELD_LABELS["pl"]
             fields = ", ".join(
                 dict.fromkeys(
                     labels.get(path.split("/")[1], "dane kandydata")
@@ -1841,14 +1841,14 @@ def _run_generation_pipeline(
                     + (f" Pola do sprawdzenia: {fields}." if fields else "")
                 ),
             ) from err
-    except CVGeneratorAIError as err:
-        raise StandaloneGenerationError(
-            code="source_verification_unavailable",
-            message=(
-                "Nie utworzono CV: kontrola zgodności ze źródłami jest chwilowo "
-                "niedostępna. Ponów generację później."
-            ),
-        ) from err
+        except CVGeneratorAIError as err:
+            raise StandaloneGenerationError(
+                code="source_verification_unavailable",
+                message=(
+                    "Nie utworzono CV: kontrola zgodności ze źródłami jest chwilowo "
+                    "niedostępna. Ponów generację później."
+                ),
+            ) from err
 
     # Snapshot for the saved-CV log BEFORE render mutates candidate_data
     # (blind mode rewrites name/company in place). Re-rendering this payload
@@ -1906,6 +1906,7 @@ def _run_generation_pipeline(
     duration_ms = int((time.time() - started_at) * 1000)
     warnings = [str(w) for w in candidate_data.get("warnings") or [] if w]
     warnings.extend(guard_warnings)
+    warnings.extend(review_warnings)
     warnings.extend(rule_warnings)
     highlighting = candidate_data.get("highlight_policy_result") or {}
     if highlighting.get("requires_champion"):

@@ -70,6 +70,11 @@ class TestFeatureKeyEnum:
             # zatrzymać bieg masowy) ubiło rykoszetem fazę
             # `candidates_cv_fields` nocnego syncu Traffita.
             "experience_dates_on_demand",
+            # 0327: niezależna kontrola AI treści CV drugim modelem (GPT Luna).
+            # Osobny kubełek od `cv_generator`, bo to inny model i inny
+            # dostawca — inaczej koszt sprawdzania schowałby się w koszcie
+            # generacji i nie dałoby się go zgasić osobno.
+            "cv_factual_verification",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

@@ -35,7 +35,14 @@ async def test_enqueue_receipt_reuses_same_attempt_and_rejects_changed_content(
 
     db.flush.side_effect = flush
     first = await queue.enqueue_review(db, draft, payload, 7)
-    assert first == {"review_id": 21, "status": "queued", "error_code": None}
+    # `findings_count` (0326): ukończona kontrola doradcza bywa „verified"
+    # i mieć uwagi — zakolejkowana nie wie o nich jeszcze nic.
+    assert first == {
+        "review_id": 21,
+        "status": "queued",
+        "error_code": None,
+        "findings_count": None,
+    }
     job = db.add.call_args.args[0]
     assert (job.generated_draft_id == 12) is standalone
     assert (job.candidate_stage_cv_id == 12) is not standalone

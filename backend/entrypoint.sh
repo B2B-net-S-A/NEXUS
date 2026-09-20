@@ -242,6 +242,11 @@ _ENUM_STATEMENTS = [
     # (`experience_dates_on_demand`) — osobny kubełek od `cv_backfill`, żeby
     # dało się zgasić ścieżkę użytkownika bez nocnego syncu Traffita.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'experience_dates_on_demand'",
+    # 0327: niezależna kontrola AI treści CV (`cv_factual_verification`) —
+    # recenzent to INNY model niż generator (GPT Luna), więc osobny kubełek
+    # wydatku; bez wartości enuma `check_and_increment` przy każdej generacji
+    # CV wywala się na InvalidTextRepresentationError.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_factual_verification'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -5197,6 +5202,13 @@ _DATA_STATEMENTS = [
     "SELECT 'experience_dates_on_demand', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'experience_dates_on_demand')",
+    # 0327: seed feature'a AI `cv_factual_verification` (niezależna kontrola
+    # treści CV drugim modelem). Sam wiersz NIE włącza wydatku — bramką jest
+    # CV_FINAL_REVIEW_ENABLED.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'cv_factual_verification', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'cv_factual_verification')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

@@ -9,6 +9,9 @@ const state = vi.hoisted(() => ({
   status: "draft",
   revision: 1,
   onUpdate: null as null | (() => void),
+  // Werdykt niezależnej kontroli AI (0327) odsyłany przez /finalize.
+  reviewStatus: null as null | string,
+  reviewFindings: null as null | number,
 }));
 
 vi.mock("@tiptap/react", () => {
@@ -50,7 +53,11 @@ vi.mock("@/lib/api", () => {
       state.snapshot = state.stored = body.content_html;
       state.status = "finalized";
       state.revision += 1;
-      return {data: { edit_revision: state.revision }};
+      return {data: {
+        edit_revision: state.revision,
+        content_review_status: state.reviewStatus,
+        content_review_findings: state.reviewFindings,
+      }};
     },
   };
   return { candidateStageCvApi: { branded: adapter }, cvGeneratedEditorApi: adapter };
@@ -269,3 +276,42 @@ function footerClose(): HTMLElement {
   if (!button) throw new Error("footer close button not found");
   return button;
 }
+
+
+it("uwagi kontroli AI nie blokują zatwierdzenia, ale zostają na ekranie", async () => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.snapshot = ""; state.status = "draft"; state.revision = 1;
+  state.reviewStatus = "reviewed"; state.reviewFindings = 2;
+  vi.clearAllMocks();
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={()=>{}}
+    stageId={21} candidateName="Synthetic person" jobTitle="Synthetic job" /></QueryClientProvider>);
+  await screen.findByText("Szkic v1");
+  fireEvent.click(screen.getByRole("button", {name: "Zapisz i zatwierdź"}));
+  await screen.findByText("Sfinalizować brandowane CV?");
+  fireEvent.click(screen.getByRole("button", {name: "Sfinalizuj"}));
+
+  // Zatwierdzenie PRZECHODZI — kontrola jest doradcza.
+  await waitFor(() => expect(state.status).toBe("finalized"));
+  // …a uwagi zostają widoczne, nie znikają razem z toastem.
+  expect(await screen.findByText(/2 twierdzeń bez pokrycia w źródłach/)).toBeInTheDocument();
+  state.reviewStatus = null; state.reviewFindings = null;
+});
+
+it("nieudana kontrola mówi to wprost, zamiast udawać czyste CV", async () => {
+  state.html = state.stored = "<p>Old text</p>";
+  state.snapshot = ""; state.status = "draft"; state.revision = 1;
+  state.reviewStatus = "unverified"; state.reviewFindings = 0;
+  vi.clearAllMocks();
+  const qc = new QueryClient({defaultOptions: {queries: {retry: false}}});
+  render(<QueryClientProvider client={qc}><CVBrandedEditModal open onOpenChange={()=>{}}
+    stageId={21} candidateName="Synthetic person" jobTitle="Synthetic job" /></QueryClientProvider>);
+  await screen.findByText("Szkic v1");
+  fireEvent.click(screen.getByRole("button", {name: "Zapisz i zatwierdź"}));
+  await screen.findByText("Sfinalizować brandowane CV?");
+  fireEvent.click(screen.getByRole("button", {name: "Sfinalizuj"}));
+
+  await waitFor(() => expect(state.status).toBe("finalized"));
+  expect(await screen.findByText(/kontrola AI treści nie wykonała się/i)).toBeInTheDocument();
+  state.reviewStatus = null; state.reviewFindings = null;
+});

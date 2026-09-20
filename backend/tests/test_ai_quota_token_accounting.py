@@ -199,6 +199,15 @@ def test_declared_call_does_not_charge_anything():
 _DECLARED_CALL_ALLOWLIST: set[str] = {
     "app/api/cv_generator_b2b.py",
     "app/api/client_cv_rules.py",
+    # 0327, niezależna kontrola AI treści CV: kubełek `cv_factual_verification`
+    # JEST naliczany — `_charge_final_review` w `app/api/cv_generator_b2b.py`
+    # woła `check_and_increment` w workerze i podaje `QuotaState` dalej.
+    # `declared_call` służy tu wyłącznie do PRZENIESIENIA tej deklaracji przez
+    # granicę `run_in_threadpool` (contextvary kopiują się do wątku), żeby
+    # tokeny recenzenta policzyły się na jego operacji, a nie na operacji
+    # generatora. Bez naliczenia helper NIE wchodzi w ten blok (`nullcontext`),
+    # więc ta ścieżka nie omija ani sufitu, ani wyłącznika.
+    "app/services/cv_generator_b2b/final_review.py",
 }
 
 
