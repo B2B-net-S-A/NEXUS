@@ -151,7 +151,9 @@ async def reconcile_once(
                 to_enqueue.append(entity_id)
             continue
         desired = outbox.desired_state(entity_type, row)
-        if desired.desired_hash != known:
+        # `hashes_match`, nie `!=`: hasz sprzed 18.09.2026 nie niesie nazwy
+        # modelu i porównywany dosłownie wyglądałby jak dryf na CAŁEJ bazie.
+        if not outbox.hashes_match(desired, known):
             drifted += 1
             to_enqueue.append(entity_id)
 

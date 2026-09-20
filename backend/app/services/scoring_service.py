@@ -2094,6 +2094,22 @@ async def rank_candidates_for_job(
     return results
 
 
+def semantic_was_measured(breakdown: ScoreBreakdown) -> bool:
+    """Czy warstwa semantyczna tego wyniku powstała z POMIARU.
+
+    Warstwa warta 60 ze 100 punktów, której nikt nie zmierzył, daje wynik
+    arytmetycznie poprawny i bez znaczenia: audyt 18.09.2026 zastał odznakę
+    dopasowania na liście kandydatów z wartością **stałą 26,2** — sumą czterech
+    warstw „brak danych" przy semantyce 0 — i progiem 50, którego przy takim
+    suficie nie da się przekroczyć NIGDY. Odznaka mówiła „0 pasujących ofert"
+    o każdym kandydacie w bazie i nie było jak odróżnić tego od prawdy.
+    """
+    return breakdown.semantic.reason not in (
+        SEMANTIC_UNAVAILABLE_REASON,
+        NO_EMBEDDING_REASON,
+    )
+
+
 def summarize_match_stats(
     breakdowns: Sequence[ScoreBreakdown],
     total_open: int,
@@ -2106,18 +2122,29 @@ def summarize_match_stats(
     Returned shape matches what the candidates list UI renders on a row:
 
         {
-          "open_count": int,        # breakdowns with total >= min_score
-          "total_open": int,        # open jobs considered (from caller)
-          "top_score": float,       # highest total (0.0 when no breakdowns)
+          "open_count": int,           # breakdowns with total >= min_score
+          "total_open": int,           # open jobs considered (from caller)
+          "measured_open": int,        # ile z nich MA zmierzoną semantykę
+          "top_score": float | None,   # None = nic nie zmierzono
         }
+
+    ``top_score is None`` znaczy „nie wiemy", a nie „zero" — i UI ma to
+    renderować jako brak oceny, nie jako słaby wynik.
     """
-    if not breakdowns:
-        return {"open_count": 0, "total_open": total_open, "top_score": 0.0}
-    open_count = sum(1 for b in breakdowns if b.total >= min_score)
-    top_score = max(b.total for b in breakdowns)
+    measured = [b for b in breakdowns if semantic_was_measured(b)]
+    if not measured:
+        return {
+            "open_count": 0,
+            "total_open": total_open,
+            "measured_open": 0,
+            "top_score": None,
+        }
+    open_count = sum(1 for b in measured if b.total >= min_score)
+    top_score = max(b.total for b in measured)
     return {
         "open_count": open_count,
         "total_open": total_open,
+        "measured_open": len(measured),
         "top_score": round(top_score, 1),
     }
 

@@ -295,6 +295,10 @@ class PhaseProgress:
     # Ruchy pominięte, bo oferta ma `managed_in_nexus` (0325). Osobny licznik, nie
     # `skipped` (tamten = rekordy spoza NEXUSA) — decyzja świadoma, ma być policzalna.
     skipped_managed: int = 0
+    # Ile intencji przeindeksowania zapisała faza (rekrutacje — 18.09.2026).
+    # Bez tego licznika „sync działa" i „wektory ofert są aktualne" to dwa
+    # różne zdania, których nie da się rozróżnić z zewnątrz.
+    index_intents: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -341,6 +345,7 @@ class PhaseProgress:
             "unresolved_client": self.unresolved_client,
             "tombstoned": self.tombstoned,
             "skipped_managed": self.skipped_managed,
+            "index_intents": self.index_intents,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -2322,6 +2327,7 @@ class TraffitImporter:
         # klienta rekrutacji, która już go ma (patrz komentarz przy użyciu).
         existing_job_clients = await self._build_job_client_map()
         user_map = await self.build_user_id_map()
+        touched_job_ids: list[int] = []
         logger.info(
             "Jobs lookup maps: clients=%d workflows=%d users=%d",
             len(client_map),
@@ -2445,6 +2451,7 @@ class TraffitImporter:
                     row = result.fetchone()
                     if row is not None:
                         was_insert = bool(row[1])
+                        touched_job_ids.append(int(row[0]))
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
                     f"upsert job ext={payload.get('external_id')}: {e!r}"
@@ -2462,6 +2469,28 @@ class TraffitImporter:
                 progress.inserted += 1
             else:
                 progress.updated += 1
+
+        # Intencja przeindeksowania rekrutacji — jak dla kandydatów.
+        # `_UPSERT_JOB` nadpisuje `title`, a tytuł WCHODZI do tekstu embeddingu
+        # (`_build_job_text`), więc każda nocna zmiana tytułu zostawiała wektor
+        # nieaktualny NA STAŁE: importer nie zapisywał dla ofert żadnej
+        # intencji, a reconciler, który by to wyłapał, był wyłączony. Audyt
+        # 18.09.2026: 128 z 307 opublikowanych rekrutacji (41,7%) bez wektora.
+        #
+        # Zapis PRZED commitem, w tej samej transakcji — import wycofany nie
+        # może zostawić intencji dla wierszy, których nie ma.
+        if touched_job_ids and not self.dry_run:
+            from app.services.index_outbox_service import JOB, record_bulk_reindex
+
+            try:
+                progress.index_intents = await record_bulk_reindex(
+                    self.db, JOB, touched_job_ids
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Brak intencji to opóźniony wektor, nie utracony import —
+                # reconciler i tak go dogoni. Wywrócenie fazy kosztowałoby
+                # wszystkie rekrutacje zapisane w tym biegu.
+                progress.add_error(f"record job reindex intent: {exc!r}")
 
         if not self.dry_run:
             await self.db.commit()

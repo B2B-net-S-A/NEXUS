@@ -823,12 +823,35 @@ async def get_ai_matches(
                 for m in matches
                 if _location_matches(requested_tokens, m["candidate"]["location"])
             ]
-        degraded = any(m["match_score"] is None for m in matches)
         matches = [
             m
             for m in matches
             if m["match_score"] is None or m["match_score"] >= threshold
         ][:max_results]
+        # Liczone PO przycięciu do `max_results` i tylko dla WIERSZY, KTÓRE
+        # REKRUTER ZOBACZY. Wcześniej `any(... is None ...)` biegło po pełnej
+        # puli przed cięciem, więc jeden kandydat bez zmierzonego wyniku —
+        # dociągnięty przez BM25 i zaraz odfiltrowany — zapalał baner na całej
+        # odpowiedzi. Zmierzone 18.09.2026: 20 z 21 losowych rekrutacji
+        # w „trybie awaryjnym" przy zdrowym Qdrancie i Voyage'u, czyli jedyny
+        # sygnał ostrzegający przed nieufnym rankingiem świecił NON STOP —
+        # a realna awaria byłaby od niego nieodróżnialna.
+        engine_down = semantic_unavailable or any(
+            h.get("semantic_engine_down") for h in hits
+        )
+        # Ranking jest nieufny, gdy silnik padł ALBO gdy NIC z tego, co widać,
+        # nie zostało zmierzone. Pojedynczy wiersz bez pomiaru ma własną
+        # etykietę („Ocena niepełna") i nie jest awarią systemu — to różnica
+        # między „ten kandydat nie ma wektora" a „nie umiemy dziś mierzyć".
+        nothing_measured = bool(matches) and all(
+            m["match_score"] is None for m in matches
+        )
+        degraded = engine_down or nothing_measured or not matches
+        degraded_reason = (
+            "semantic_unavailable"
+            if engine_down or nothing_measured
+            else ("no_matches_above_threshold" if not matches else None)
+        )
         return {
             "job_id": job_id,
             "job_title": job.title,
@@ -843,7 +866,7 @@ async def get_ai_matches(
             "meta": {
                 "mode": search_type,
                 "degraded": degraded,
-                "reason": "semantic_unavailable" if degraded else None,
+                "reason": degraded_reason,
                 "hidden": hidden_meta,
                 "eligibility_filtered": eligibility_filtered,
                 "budget_hourly": resolve_job_budget_hourly(job),

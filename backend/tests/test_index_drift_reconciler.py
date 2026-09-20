@@ -187,10 +187,46 @@ async def test_cursor_walks_forward_and_reports_the_end_of_the_table():
         await db.rollback()
 
 
-def test_reconciler_ships_disabled():
-    """It must not start before the provider health probes exist: with
-    AI_INDEX_MAX_ATTEMPTS=5 a Voyage outage plus a reconciler feeding the
-    worker burns the backlog into dead rows behind a green healthcheck."""
-    from app.core.config import Settings
+def test_reconciler_ships_enabled_behind_a_provider_gate():
+    """Włączony od 18.09.2026 — ale z bramką, która zamyka powód wyłączenia.
 
-    assert Settings.model_fields["AI_INDEX_RECONCILER_ENABLED"].default is False
+    Pierwotne uzasadnienie („nie może startować, zanim powstaną sondy zdrowia
+    dostawców: przy ``AI_INDEX_MAX_ATTEMPTS=5`` awaria Voyage'a plus reconciler
+    karmiący workera wypala backlog w wiersze ``dead`` za zielonym healthem")
+    było słuszne i NIE zniknęło samo. Sondy istnieją (`checks.voyage`,
+    `checks.qdrant`), a tik przy niezdrowym dostawcy nic nie zapisuje.
+
+    Cena wyłączenia była zmierzona: 128 z 307 opublikowanych rekrutacji (41,7%)
+    bez wektora i 1 932 osierocone punkty kandydatów — a sama pętla była
+    zwolniona z heartbeatu, więc jej cisza nie była nawet widoczna.
+    """
+    from app.core.config import Settings
+    from app.services import loop_heartbeat
+    from app.tasks import index_drift_reconciler_task as task
+
+    assert Settings.model_fields["AI_INDEX_RECONCILER_ENABLED"].default is True
+    # Bramka dostawcy — bez niej ta zmiana byłaby cofnięciem tamtej decyzji.
+    assert hasattr(task, "embedding_provider_down")
+    # Heartbeat: pętla, która żyje i nic nie robi, ma być widoczna.
+    assert "index_drift_reconciler" not in loop_heartbeat.EXEMPT
+
+
+def test_provider_gate_pauses_only_on_a_real_outage(monkeypatch):
+    """``unknown`` to „jeszcze nie wołaliśmy", nie awaria.
+
+    Gdyby `unknown` pauzowało, reconciler po KAŻDYM deployu stałby do pierwszego
+    niezwiązanego wywołania modelu — czyli dokładnie wtedy, gdy dryf po imporcie
+    jest największy.
+    """
+    from app.tasks import index_drift_reconciler_task as task
+
+    for label, paused in (
+        ("unhealthy", True),
+        ("degraded", False),
+        ("unknown", False),
+        ("healthy", False),
+    ):
+        monkeypatch.setattr(
+            "app.services.ai_health.provider_health_label", lambda _p, r=label: r
+        )
+        assert task.embedding_provider_down() is paused, label

@@ -136,15 +136,24 @@ async def test_candidate_without_a_vector_is_unknown_not_a_measured_zero(
 
 
 def test_recommendations_treats_unknown_semantics_as_degraded():
-    """Wołający, który PISZE do cache'u, musi czytać `semantic_unknown`.
+    """`/recommendations` musi rozpoznawać pulę bez zmierzonych kosinusów.
 
     Test czyta ŹRÓDŁO, bo defekt jest w tym, czego kod NIE robi, a przejście
-    całej ścieżki `/recommendations` wymaga Qdranta, Voyage i zaseedowanej
-    oferty — czyli testowałoby wszystko poza tą jedną linijką.
+    całej ścieżki wymaga Qdranta, Voyage i zaseedowanej oferty — czyli
+    testowałoby wszystko poza tą jedną linijką.
 
-    Trzy warunki naraz, bo każdy z osobna daje się spełnić pozornie:
-    sam odczyt klucza bez wpięcia w `semantic_degraded` niczego nie blokuje,
-    a `semantic_degraded` nadal wisi na `allow_cache_write`.
+    **Zmiana z 18.09.2026: rozpoznawać ≠ alarmować przy każdym wierszu.**
+    Pierwotnie warunek brzmiał „ktokolwiek bez pomiaru", a ponieważ w puli
+    prawie zawsze jest ktoś bez wektora, baner „tryb awaryjny" świecił non
+    stop: zmierzone 20 z 21 losowych rekrutacji przy `checks.qdrant`
+    i `checks.voyage` = healthy. Jedyny sygnał ostrzegający przed nieufnym
+    rankingiem przestał więc cokolwiek znaczyć, a REALNA awaria była od
+    normalnej pracy nieodróżnialna. Teraz: awaria SILNIKA
+    (`semantic_engine_down`) albo brak pomiaru dla WSZYSTKIEGO, co widać.
+
+    Ochrona cache'u, o którą chodziło pierwotnie, jest dziś niepotrzebna na
+    tej ścieżce z innego powodu: `/recommendations` nie pisze już legacy
+    composites (pilnuje tego asercja niżej).
     """
     from pathlib import Path
 
@@ -152,12 +161,17 @@ def test_recommendations_treats_unknown_semantics_as_degraded():
         Path(__file__).resolve().parents[1] / "app" / "api" / "recommendations.py"
     ).read_text(encoding="utf-8")
 
-    assert "semantic_unknown" in src, (
-        "`/recommendations` pisze do candidate_job_match_scores i musi "
-        "rozpoznawać pulę bez zmierzonych kosinusów"
+    assert "semantic_engine_down" in src, (
+        "pula musi odróżniać awarię silnika od kandydata bez wektora"
     )
-    assert "semantic_degraded = not candidate_ids or" in src, (
-        "sama pustka nie wystarcza: pula pełna zer z awarii JEST niepusta"
+    assert "semantic_degraded = not candidate_ids or semantic_engine_down" in src, (
+        "sama pustka nie wystarcza, ale pojedynczy brak wektora to nie awaria"
+    )
+    assert "nothing_measured" in src, (
+        "brak pomiaru dla WSZYSTKIEGO, co widać, nadal musi zapalać baner"
+    )
+    assert "any(fit.fit_score is None for fit in fits)" not in src, (
+        "„ktokolwiek bez pomiaru” to powrót do banera świecącego non stop"
     )
     from tests._ast_calls import calls_in
 

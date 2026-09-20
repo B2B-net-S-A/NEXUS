@@ -10,7 +10,7 @@ import hashlib
 import logging
 import time
 from collections import OrderedDict
-from typing import Optional
+from typing import Optional, Sequence
 
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1243,6 +1243,15 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
                             "title": job.title or "",
                             "client_id": job.client_id,
                             "industry": job.industry or "",
+                            # Status W PAYLOADZIE — bez niego filtr po stronie
+                            # Qdranta jest niemożliwy, a 95,4% wektorów ofert
+                            # to rekrutacje ZAMKNIĘTE (audyt 18.09.2026).
+                            # Wyszukiwanie szło bez filtra, a `published|draft`
+                            # nakładał się dopiero w SQL na już pobraną pulę,
+                            # więc `top_k=50` dawało ~9 wyników — sufit
+                            # rekomendacji, którego nie dało się podnieść
+                            # inaczej niż pobierając całą kolekcję.
+                            "status": getattr(job.status, "value", job.status) or "",
                         },
                     )
                 ],
@@ -1300,7 +1309,11 @@ async def embed_job(job_id: int, db: AsyncSession) -> bool:
 
 
 async def search_jobs_semantic(
-    query: str, top_k: int = 20, *, raise_on_error: bool = False
+    query: str,
+    top_k: int = 20,
+    *,
+    raise_on_error: bool = False,
+    statuses: Optional[Sequence[str]] = None,
 ) -> list[dict]:
     """Embed *query* and return top-k closest job ids from nexus_jobs.
 
@@ -1315,6 +1328,15 @@ async def search_jobs_semantic(
     ``raise_on_error`` mirrors :func:`search_candidates_semantic`: a provider
     failure raises :class:`SemanticSearchUnavailable` instead of returning
     ``[]``, so hybrid retrieval can flag an outage rather than "no jobs".
+
+    ``statuses`` zawęża wyszukiwanie PO STRONIE QDRANTA. Bez tego ``top_k``
+    opisuje najbliższe punkty w kolekcji, w której 95,4% to rekrutacje
+    zamknięte — a filtr nałożony dopiero w SQL zamieniał ``top_k=50``
+    w ~9 wyników (audyt 18.09.2026). Punkty sprzed tej zmiany NIE mają
+    ``status`` w payloadzie i filtr ich nie przepuści; domyka to reconciler
+    przeindeksowujący oferty (`AI_INDEX_RECONCILER_ENABLED`), dlatego
+    ``statuses`` jest OPCJONALNE, a wołający decyduje, czy woli pełną
+    kolekcję niż pustkę.
     """
     embedding = await generate_embedding(query, input_type="query")
     if embedding is None:
@@ -1324,13 +1346,38 @@ async def search_jobs_semantic(
 
     def _search():
         from qdrant_client import QdrantClient
+        from qdrant_client.models import (
+            FieldCondition,
+            Filter,
+            IsEmptyCondition,
+            MatchAny,
+            PayloadField,
+        )
 
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+        # `should` = OR, i to jest cała ostrożność tego filtra. Punkty sprzed
+        # 18.09.2026 NIE mają `status` w payloadzie, więc twardy `must`
+        # odciąłby CAŁĄ dzisiejszą kolekcję i zamienił ~9 rekomendacji w ZERO
+        # — regresję gorszą niż defekt, który naprawiamy. Punkt bez statusu
+        # przechodzi jak dotąd; w miarę jak reconciler przeindeksowuje oferty,
+        # takich punktów ubywa i filtr staje się w pełni skuteczny. Żaden
+        # moment tego przejścia nie jest gorszy od stanu sprzed zmiany.
+        query_filter = (
+            Filter(
+                should=[
+                    FieldCondition(key="status", match=MatchAny(any=list(statuses))),
+                    IsEmptyCondition(is_empty=PayloadField(key="status")),
+                ]
+            )
+            if statuses
+            else None
+        )
         hits = client.search(
             collection_name=_jobs_collection(),
             query_vector=embedding,
             limit=top_k,
             with_payload=True,
+            query_filter=query_filter,
         )
         return [
             {

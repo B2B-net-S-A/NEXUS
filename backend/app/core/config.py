@@ -126,7 +126,12 @@ class Settings(BaseSettings):
     # with AI_INDEX_MAX_ATTEMPTS=5, a Voyage outage plus a reconciler feeding
     # the worker burns the whole backlog into dead rows behind a green
     # healthcheck.
-    AI_INDEX_RECONCILER_ENABLED: bool = False
+    # Włączony domyślnie od 18.09.2026. Audyt: 128 z 307 opublikowanych
+    # rekrutacji (41,7%) bez wektora i 1 932 osierocone punkty kandydatów —
+    # mechanizm, który to wyłapuje, był wyłączony ORAZ zwolniony z heartbeatu,
+    # więc jego cisza nie była nawet widoczna. Reconciler nie liczy embeddingów:
+    # zapisuje INTENCJE do outboxu, a wykonanie zależy od `AI_INDEX_WORKER_ENABLED`.
+    AI_INDEX_RECONCILER_ENABLED: bool = True
     AI_INDEX_RECONCILER_INTERVAL_SECONDS: int = 300
     AI_INDEX_RECONCILER_BATCH: int = 500
 

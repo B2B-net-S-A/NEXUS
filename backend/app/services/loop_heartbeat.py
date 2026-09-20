@@ -61,7 +61,6 @@ EXEMPT: dict[str, str] = {
     "match_digest": "digest dopasowań; nie ścieżka krytyczna",
     "candidate_contact_queue": "kolejka kontaktów ma własny stan last_success_at",
     "candidate_contact_traffit": "ma własny stan last_success_at",
-    "index_drift_reconciler": "uzgadnianie indeksu; outbox indeksu jest objęty",
     "priority_work": "ma własny heartbeat worker_heartbeat_at w checks.priority_work",
     "workforce_availability": "ma własną sondę świeżości w checks.workforce_availability",
     "recruitment_allocation": "ma własną sondę świeżości w checks.recruitment_allocation",
