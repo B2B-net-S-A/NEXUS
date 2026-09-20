@@ -694,28 +694,115 @@ def _group_settles_in_month_clause(first_day: date):
     )
 
 
-async def active_md_lines(db: AsyncSession, period_month: str) -> list[LineMatch]:
-    """Wszystkie AKTYWNE linie MD obowiązujące w danym miesiącu.
+# ── Kwalifikacja linii do importu: OKRES, nie status ────────────────────────
+#
+# Do 09.2026 import pytał wyłącznie o linie ``active``. Konsultant, który
+# zszedł z zamówienia, znikał przez to z matchera RAZEM z miesiącami, w
+# których jeszcze pracował — a raport z Finansów za sierpień trafia do systemu
+# w połowie września, czyli długo po jego zejściu. Rozliczenie za taki miesiąc
+# lądowało jako „Brak aktywnego zamówienia" i nie dawało się przypisać nawet
+# ręcznie.
+#
+# Regułą jest więc OKRES: linia jest celem importu za miesiąc M, jeżeli jej
+# okres obejmuje M choćby jednym dniem, jej kontrakt nie jest ``void``, a
+# grupa rozlicza M (``group_settles_in_month``). To ta sama reguła, którą od
+# dawna stosuje replay Polkomtela (``_historical_period_conditions``) —
+# przeniesiona do zwykłej ścieżki importu zamiast pozostawania jej wyjątkiem.
+#
+# ``cancelled`` NIGDY nie wchodzi: anulowana linia znaczy „tej osoby tu nie
+# było", więc dopisanie jej zużycia byłoby zapisaniem faktu, który się nie
+# wydarzył. ``draft`` wchodzi wyłącznie dla zamówień kosztowych — tak jak
+# przed tą zmianą.
+#
+# UWAGA: to NIE jest ta sama reguła co ``is_line_on_active_roster``. Tamta
+# dzieli kartę zamówienia na „Aktywną obsadę" i „Zakończone" i jest wyłącznie
+# prezentacją; ta decyduje o pieniądzach. Zlanie ich w jedną przywróciłoby
+# dokładnie ten defekt: osoba zdjęta z obsady znowu przestałaby przyjmować
+# zaległe rozliczenia.
+
+_SETTLING_LINE_STATUSES: tuple[ClientOrderStatus, ...] = (
+    ClientOrderStatus.active,
+    ClientOrderStatus.completed,
+)
+
+
+def _settling_line_statuses(*, include_draft: bool) -> tuple[ClientOrderStatus, ...]:
+    if include_draft:
+        return _SETTLING_LINE_STATUSES + (ClientOrderStatus.draft,)
+    return _SETTLING_LINE_STATUSES
+
+
+def line_settles_in_month_conditions(period_month: str, *, include_draft: bool = False):
+    """Warunki SQL: linia obsadzała zamówienie w importowanym miesiącu.
+
+    Wymaga JOIN-a na ``Contract`` — bez niego ``Contract.status`` zbudowałby
+    ukryty iloczyn kartezjański zamiast warunku o kontrakcie tej linii.
+    """
+    first, last = month_bounds(period_month)
+    return (
+        ClientOrder.status.in_(_settling_line_statuses(include_draft=include_draft)),
+        Contract.status != ContractStatus.void,
+        (ClientOrder.start_date.is_(None)) | (ClientOrder.start_date <= last),
+        (ClientOrder.end_date.is_(None)) | (ClientOrder.end_date >= first),
+    )
+
+
+def line_settles_in_month(
+    order: ClientOrder,
+    period_month: str,
+    *,
+    contract: Optional[Contract] = None,
+    include_draft: bool = False,
+) -> bool:
+    """Pythonowe lustro ``line_settles_in_month_conditions``.
+
+    Woła je ponowne sprawdzenie pod blokadą wiersza (``md_consumption``), więc
+    dobór kandydatów i zapis odpowiadają na dokładnie to samo pytanie.
+    ``contract`` podaje wołający, żeby nie doczytywać relacji leniwie w sesji
+    async (``MissingGreenlet``).
+    """
+    if order.status not in _settling_line_statuses(include_draft=include_draft):
+        return False
+    resolved = contract if contract is not None else order.contract
+    if resolved is not None and resolved.status == ContractStatus.void:
+        return False
+    first, last = month_bounds(period_month)
+    if order.start_date is not None and order.start_date > last:
+        return False
+    if order.end_date is not None and order.end_date < first:
+        return False
+    return True
+
+
+async def md_lines_settling_in_month(
+    db: AsyncSession, period_month: str
+) -> list[LineMatch]:
+    """Linie MD, które OBSADZAŁY zamówienie w danym miesiącu.
 
     Linia obowiązuje w miesiącu, jeśli jej okres zachodzi na ten miesiąc
     choćby jednym dniem — miesiąc rozliczeniowy dzieli się między poprzednika
     i następcę dokładnie w miesiącu zamiany kontraktora, więc porównanie
     z jednym dniem (np. pierwszym) gubiłoby jedną ze stron.
 
+    Do 09.2026 funkcja nazywała się ``active_md_lines`` i pytała o
+    ``status == active``. Przez to konsultant, który zszedł z zamówienia,
+    przestawał przyjmować rozliczenie za miesiąc, w którym JESZCZE PRACOWAŁ —
+    a raport z Finansów za ten miesiąc przychodzi kilka tygodni po jego
+    zejściu. Decyduje ``line_settles_in_month_conditions``, czyli okres.
+
     Filtr po liście klientów jest tutaj celowo, nie tylko w widoku: klient
     zdjęty z ``MULTI_CONSULTANT_ORDER_CLIENT_IDS`` przestaje pokazywać te
     linie w interfejsie, więc import nie może dalej po cichu odejmować im MD —
     powstałby stan niewidoczny i niemożliwy do poprawienia z aplikacji.
     """
-    first, last = month_bounds(period_month)
+    first, _last = month_bounds(period_month)
     result = await db.execute(
         _line_query()
+        .join(Contract, ClientOrder.contract_id == Contract.id)
         .options(selectinload(ClientOrder.order_group))
         .where(
             ClientOrder.md_total.isnot(None),
-            ClientOrder.status == ClientOrderStatus.active,
-            (ClientOrder.start_date.is_(None)) | (ClientOrder.start_date <= last),
-            (ClientOrder.end_date.is_(None)) | (ClientOrder.end_date >= first),
+            *line_settles_in_month_conditions(period_month),
         )
     )
     matches: list[LineMatch] = []
@@ -738,10 +825,12 @@ async def active_md_lines(db: AsyncSession, period_month: str) -> list[LineMatch
     return matches
 
 
-async def active_cost_lines(db: AsyncSession, period_month: str) -> list[LineMatch]:
-    """Linie należące do AKTYWNYCH zamówień KOSZTOWYCH obowiązujących w miesiącu.
+async def cost_lines_settling_in_month(
+    db: AsyncSession, period_month: str
+) -> list[LineMatch]:
+    """Linie zamówień KOSZTOWYCH, które obsadzały je w danym miesiącu.
 
-    Lustro ``active_md_lines``, ale z dwiema świadomymi różnicami:
+    Lustro ``md_lines_settling_in_month``, ale z dwiema świadomymi różnicami:
 
     * linia kosztowa NIE ma budżetu MD (``md_total IS NULL``), więc filtr po
       ``md_total`` byłby tu dokładnie odwrotny do potrzeby,
@@ -756,17 +845,16 @@ async def active_cost_lines(db: AsyncSession, period_month: str) -> list[LineMat
     """
     from app.services.cost_orders import is_cost_order_client
 
-    first, last = month_bounds(period_month)
+    first, _last = month_bounds(period_month)
     result = await db.execute(
         _line_query()
         .join(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
+        .join(Contract, ClientOrder.contract_id == Contract.id)
         .options(selectinload(ClientOrder.order_group))
         .where(
             ClientOrderGroup.is_cost_based.is_(True),
             _group_settles_in_month_clause(first),
-            ClientOrder.status.in_([ClientOrderStatus.active, ClientOrderStatus.draft]),
-            (ClientOrder.start_date.is_(None)) | (ClientOrder.start_date <= last),
-            (ClientOrder.end_date.is_(None)) | (ClientOrder.end_date >= first),
+            *line_settles_in_month_conditions(period_month, include_draft=True),
         )
     )
     matches: list[LineMatch] = []
@@ -786,27 +874,26 @@ async def active_cost_lines(db: AsyncSession, period_month: str) -> list[LineMat
     return matches
 
 
-async def active_shared_md_lines(
+async def shared_md_lines_settling_in_month(
     db: AsyncSession, period_month: str
 ) -> list[LineMatch]:
-    """Aktywne linie wspólnej puli MD w danym miesiącu.
+    """Linie wspólnej puli MD, które obsadzały zamówienie w danym miesiącu.
 
     To osobna pula na grupie, więc jej linie celowo mają ``md_total IS NULL``
-    i nie mogą przejść przez historyczny ``active_md_lines`` ani jego matcher
+    i nie mogą przejść przez ``md_lines_settling_in_month`` ani jego matcher
     po samym nazwisku. Raport dla wspólnej puli wymaga jednocześnie konsultanta
     i numeru zamówienia z kolumny „Uwagi".
     """
-    first, last = month_bounds(period_month)
+    first, _last = month_bounds(period_month)
     result = await db.execute(
         _line_query()
         .join(ClientOrderGroup, ClientOrder.order_group_id == ClientOrderGroup.id)
+        .join(Contract, ClientOrder.contract_id == Contract.id)
         .options(selectinload(ClientOrder.order_group))
         .where(
             ClientOrderGroup.is_md_budget_based.is_(True),
             _group_settles_in_month_clause(first),
-            ClientOrder.status == ClientOrderStatus.active,
-            (ClientOrder.start_date.is_(None)) | (ClientOrder.start_date <= last),
-            (ClientOrder.end_date.is_(None)) | (ClientOrder.end_date >= first),
+            *line_settles_in_month_conditions(period_month),
         )
     )
     matches: list[LineMatch] = []
@@ -824,11 +911,12 @@ async def active_shared_md_lines(
     return matches
 
 
-# A replay of an old Finance batch cannot use today's ``active`` snapshot.
-# An order that was valid in the batch month can legitimately be completed or
-# exhausted by the time the SAP-prefix correction is run.  These queries are
-# intentionally separate from the ordinary importer so new uploads retain the
-# existing active-only behavior.
+# A replay of an old Finance batch cannot use today's status snapshot.  An
+# order that was valid in the batch month can legitimately be completed or
+# exhausted by the time the SAP-prefix correction is run.  Since 09.2026 the
+# ordinary importer follows the same period-based rule for the LINE; these
+# queries stay separate because a replay additionally accepts an exhausted
+# GROUP and re-proves the contract-to-order client link.
 _HISTORICAL_GROUP_STATUSES: tuple[str, ...] = (
     GROUP_STATUS_ACTIVE,
     GROUP_STATUS_COMPLETED,
@@ -837,13 +925,19 @@ _HISTORICAL_GROUP_STATUSES: tuple[str, ...] = (
 
 
 def _historical_period_conditions(period_month: str):
+    """Replay starej paczki: okres linii plus okres grupy.
+
+    Reguła linii jest od 09.2026 wspólna ze zwykłym importem
+    (``line_settles_in_month_conditions``) — replay był jej pierwowzorem.
+    Replay dokłada do niej dwie rzeczy: okres samej GRUPY (zwykła ścieżka pyta
+    zamiast tego ``group_settles_in_month``) i zgodność klienta kontraktu
+    z klientem linii, bo korekta prefiksu SAP potrafi trafić w rozjechany
+    rekord sprzed lat.
+    """
     first, last = month_bounds(period_month)
     return (
-        ClientOrder.status.in_((ClientOrderStatus.active, ClientOrderStatus.completed)),
-        Contract.status != ContractStatus.void,
+        *line_settles_in_month_conditions(period_month),
         Contract.client_id == ClientOrder.client_id,
-        (ClientOrder.start_date.is_(None)) | (ClientOrder.start_date <= last),
-        (ClientOrder.end_date.is_(None)) | (ClientOrder.end_date >= first),
         ClientOrderGroup.start_date <= last,
         (ClientOrderGroup.end_date.is_(None)) | (ClientOrderGroup.end_date >= first),
     )
@@ -952,11 +1046,43 @@ async def historical_shared_md_lines(
 def match_by_name(
     candidates: Iterable[LineMatch], reported_name: str
 ) -> list[LineMatch]:
-    """Linie, których konsultant odpowiada nazwisku z arkusza."""
+    """Linie, których konsultant odpowiada nazwisku z arkusza.
+
+    Czyste dopasowanie po nazwisku, bez żadnej preferencji — rozstrzyganie
+    remisów należy do ``prefer_active_line`` i musi biec PO zawężeniu numerem
+    zamówienia (patrz tam).
+    """
     wanted = name_tokens(reported_name)
     if not wanted:
         return []
     return [m for m in candidates if name_tokens(m.consultant_name) == wanted]
+
+
+def prefer_active_line(matches: list[LineMatch]) -> list[LineMatch]:
+    """Remis rozstrzyga linia aktywna — zakończona jest celem ZAPASOWYM.
+
+    Odkąd pula kandydatów obejmuje też linie zakończone
+    (``line_settles_in_month``), ta sama osoba potrafi trafić w dwie linie
+    tego samego miesiąca: tę, z której zeszła, i tę, na którą weszła. Bez tej
+    preferencji rozliczenie, które wcześniej dopasowywało się samo, wpadałoby
+    do „wymaga przypisania" — czyli naprawa jednego defektu robiłaby drugi.
+
+    **Wołaj to na SAMYM KOŃCU zawężania, nigdy wewnątrz ``match_by_name``.**
+    Matchery najpierw dopasowują nazwisko, a dopiero potem numer zamówienia
+    z „Uwag"; preferencja wpięta przed numerem wycinała linię, którą numer
+    właśnie miał wskazać — i wiersz z poprawnym numerem kończył jako
+    niedopasowany (złapane przez ``test_polkomtel_finance_order_matching``).
+
+    Preferencja jest wąska z rozmysłem: wymaga DOKŁADNIE JEDNEJ linii
+    aktywnej. Dwie aktywne albo dwie zakończone to nadal niejednoznaczność
+    i nadal rozstrzyga ją człowiek — system nie zgaduje (reguła 2 modułu).
+    """
+    if len(matches) <= 1:
+        return matches
+    active = [m for m in matches if m.order.status == ClientOrderStatus.active]
+    if len(active) == 1:
+        return active
+    return matches
 
 
 # ── Budżet MD ───────────────────────────────────────────────────────────────
@@ -986,10 +1112,17 @@ def is_line_on_active_roster(
     więc wśród aktywnych.
 
     Ta funkcja **nie dotyka statusu w bazie i nie wolno jej do tego użyć.**
-    Status rządzi importem zużycia (``active_md_lines`` pyta o ``active``),
-    więc domknięcie linii datą odcięłoby ją od importu za miesiąc, w którym
-    osoba jeszcze pracowała — a taki import przychodzi po jej zejściu
-    (raport za sierpień trafia do systemu w połowie września).
+    Status rządzi cyklem życia linii: zamianą kontraktora (``swap_consultant``
+    wymaga ``active``), wyczerpaniem puli (``sync_md_group_exhaustion`` liczy
+    obsadę po statusie) i bramką dokładania konsultantów. Domknięcie linii
+    datą przestawiłoby te trzy rzeczy przy okazji naprawiania wyglądu karty.
+
+    Kwalifikacja do importu zużycia to od 09.2026 OSOBNA reguła —
+    ``line_settles_in_month`` — i pyta o OKRES, nie o status ani o obsadę.
+    Dzięki temu osoba zdjęta z obsady nadal przyjmuje zaległe rozliczenie za
+    miesiąc, w którym pracowała (raport za sierpień trafia do systemu w
+    połowie września). **Nie zlewaj tych dwóch reguł w jedną** — to właśnie
+    zlanie ich było defektem, który ta zmiana naprawia.
 
     Data własna linii zdejmuje z obsady tylko wtedy, gdy osoba zeszła
     WCZEŚNIEJ niż kończy się samo zamówienie: linia dziedziczy ``end_date``
@@ -1093,6 +1226,35 @@ async def _has_successor_line(db: AsyncSession, order: ClientOrder) -> bool:
     return successor is not None
 
 
+async def _has_open_offboarding_case(db: AsyncSession, order: ClientOrder) -> bool:
+    """Czy linia czeka na decyzję Delivery Leada o pozostałej puli MD.
+
+    Odkąd import zużycia przyjmuje linie zakończone (``line_settles_in_month``),
+    ``recompute_remaining`` biegnie także na liniach domkniętych
+    offboardingiem. Bez tego warunku zaległe rozliczenie linii z datą końca
+    „dziś" (data zejścia jest wtedy równa dzisiejszej, więc sam warunek okresu
+    jej nie zatrzyma) wskrzeszałoby ją na ``active`` — czyli cofało decyzję
+    o zakończeniu współpracy, zanim człowiek zdążył ją rozstrzygnąć.
+    """
+    if order.id is None:
+        return False
+
+    from app.models.client_order_offboarding import (
+        OFFBOARDING_STATUS_PENDING,
+        ClientOrderOffboardingCase,
+    )
+
+    open_case = await db.scalar(
+        select(ClientOrderOffboardingCase.id)
+        .where(
+            ClientOrderOffboardingCase.order_id == order.id,
+            ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+        )
+        .limit(1)
+    )
+    return open_case is not None
+
+
 async def sync_md_line_status(db: AsyncSession, order: ClientOrder) -> bool:
     """Dopasuj status linii MD do jej budżetu. Zwraca, czy status się zmienił.
 
@@ -1104,9 +1266,11 @@ async def sync_md_line_status(db: AsyncSession, order: ClientOrder) -> bool:
     (patrz `dl_portal_expiry_scanner._promote_statuses`).
 
     Wskrzeszenie linii z powrotem na ``active`` jest tu równie ważne jak jej
-    domknięcie: korekta budżetu albo cofnięcie omyłkowego zakończenia zostawiały
-    linię ``completed``, przez co import zużycia MD przestawał ją widzieć
-    (``active_md_lines`` pyta o linie aktywne) i budżet zamierał.
+    domknięcie: korekta budżetu albo cofnięcie omyłkowego zakończenia
+    zostawiały linię ``completed``, czyli poza obsadą zamówienia, poza bramką
+    zamiany kontraktora i poza liczeniem wyczerpania puli — budżet zamierał.
+    (Importu zużycia to nie dotyczy od 09.2026: on pyta o okres, nie o status
+    — ``line_settles_in_month``.)
 
     Trzy rzeczy, których ta funkcja CELOWO nie robi:
 
@@ -1140,6 +1304,8 @@ async def sync_md_line_status(db: AsyncSession, order: ClientOrder) -> bool:
         return False
     if await _has_successor_line(db, order):
         return False
+    if await _has_open_offboarding_case(db, order):
+        return False
     # Osoba z ZAKOŃCZONĄ współpracą nie wraca na obsadę przez stan budżetu —
     # także zapis historyczny z niewykorzystanym limitem MD (ticket 09.2026),
     # którego data końca udziału bywa dzisiejsza. Wznowienie współpracy to
@@ -1166,6 +1332,50 @@ async def sync_md_line_status(db: AsyncSession, order: ClientOrder) -> bool:
     return True
 
 
+async def _refresh_open_offboarding_snapshot(
+    db: AsyncSession, order: ClientOrder, remaining: Decimal
+) -> None:
+    """Dociągnij migawkę puli MD w NIEROZSTRZYGNIĘTEJ sprawie offboardingu.
+
+    Sprawa niesie ``remaining_md_snapshot`` z chwili zejścia konsultanta i to
+    z niej liczy się przeniesienie puli na inną osobę
+    (``client_order_groups``: ``remaining = max(0, case.remaining_md_snapshot)``).
+    Odkąd import zużycia przyjmuje linie zakończone, MD zaraportowane PO
+    zejściu zmniejszają realną pozostałość — nieodświeżona migawka
+    przeniosłaby więc na kogoś innego dni, które odchodzący już wypracował.
+
+    Sprawy rozstrzygnięte to historia decyzji i zostają nietknięte. Wspólna
+    pula MD ma migawkę zerową z definicji (pula mieszka na grupie), więc też
+    jej nie dotykamy.
+    """
+    if order.id is None:
+        # Linia jeszcze nie istnieje w bazie (materializacja szkicu), więc nie
+        # może mieć sprawy offboardingu — i nie ma po co jej szukać.
+        return
+
+    from app.models.client_order_offboarding import (
+        OFFBOARDING_STATUS_PENDING,
+        ClientOrderOffboardingCase,
+    )
+
+    case = await db.scalar(
+        select(ClientOrderOffboardingCase)
+        .where(
+            ClientOrderOffboardingCase.order_id == order.id,
+            ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+            ClientOrderOffboardingCase.uses_shared_md_pool.is_(False),
+        )
+        .limit(1)
+    )
+    if case is None:
+        return
+    # Nadwyżka zużycia jest historią, nigdy ujemną pulą do przeniesienia —
+    # ta sama zasada co przy zakładaniu sprawy.
+    refreshed = max(ZERO, quantize_md(remaining))
+    if Decimal(str(case.remaining_md_snapshot)) != refreshed:
+        case.remaining_md_snapshot = refreshed
+
+
 async def recompute_remaining(db: AsyncSession, order: ClientOrder) -> Decimal:
     """Przelicz ``md_remaining`` od zera i zapisz na linii.
 
@@ -1188,6 +1398,7 @@ async def recompute_remaining(db: AsyncSession, order: ClientOrder) -> Decimal:
     # o wyczerpaniu — osobie, która dopiero weszła w opcję z umowy.
     remaining = quantize_md(line_budget_total(order) - consumed + adjustment)
     order.md_remaining = remaining
+    await _refresh_open_offboarding_snapshot(db, order, remaining)
     await sync_md_line_status(db, order)
     if order.order_group_id is not None:
         # Klienci, u których zamówienie kończy wyczerpanie limitów WSZYSTKICH

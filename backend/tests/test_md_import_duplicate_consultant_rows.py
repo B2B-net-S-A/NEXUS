@@ -26,7 +26,7 @@ from httpx import AsyncClient
 pytestmark = pytest.mark.asyncio
 
 _TODAY = date.today()
-#: Miesiąc importu musi zachodzić na okres linii — inaczej `active_md_lines`
+#: Miesiąc importu musi zachodzić na okres linii — inaczej `md_lines_settling_in_month`
 #: nie zwraca nic i test „przechodzi" z zerem zmian.
 _PERIOD = _TODAY.strftime("%Y-%m")
 

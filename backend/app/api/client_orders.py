@@ -372,7 +372,7 @@ def _activation_candidate_rate(contract: Contract) -> Optional[Decimal]:
     identycznie wypełnione formularze dawały różny wynik: umowa ze stawką
     płaską auto-aktywowała zamówienie, umowa ze stawką progresywną zostawiała
     je w Draft — bez żadnego komunikatu, a draftowa linia nie wchodzi ani do
-    ``active_md_lines``, ani do licznika konsultantów.
+    ``md_lines_settling_in_month``, ani do licznika konsultantów.
 
     Odpowiedź daje ``effective_candidate_rate``: przy samych krokach przyszłych
     zwraca NAJBLIŻSZY nadchodzący, więc świeży kontrakt ma stawkę od razu.

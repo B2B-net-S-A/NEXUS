@@ -3779,7 +3779,7 @@ async def reopen_order_group(
     # Przywrócenie musi objąć LINIE, nie tylko nagłówek. Do tej rewizji reopen
     # cofał sam status grupy, a konsultantów zostawiał `completed` — zamówienie
     # wracało do Aktywnych bez ani jednej osoby, więc import zużycia MD dalej go
-    # nie widział (`active_md_lines` pyta o linie aktywne) i budżet stał w
+    # nie widział (`md_lines_settling_in_month` pyta o linie aktywne) i budżet stał w
     # miejscu. Wskrzeszamy wyłącznie linie z niewyczerpanym budżetem, których
     # okres jeszcze trwa: zakończenie z datą w przeszłości było świadomą
     # decyzją o okresie i reopen jej nie unieważnia (patrz `sync_md_line_status`).

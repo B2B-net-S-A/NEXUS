@@ -342,9 +342,16 @@ async def apply_contract_order_offboarding(
                 )
             continue
 
-        # MD always becomes non-matchable for future imports immediately.  A
-        # separate pending case keeps it visible until the DL decides what to
-        # do with the remaining budget.
+        # MD leaves the active roster immediately and a separate pending case
+        # holds the remaining budget until the DL decides what to do with it.
+        #
+        # Ending the line does NOT cut it off from future consumption imports
+        # (it did until 09.2026): a Finance report for a month the consultant
+        # actually worked arrives weeks after the departure, and the importer
+        # now qualifies a line by its PERIOD — `client_order_lines
+        # .line_settles_in_month`.  The snapshot below therefore tracks later
+        # consumption too (`_refresh_open_offboarding_snapshot`), so a transfer
+        # never moves days the departing consultant already burned.
         if group is None:
             # A detached historical line is no longer part of an actionable
             # multi-consultant order.  Creating a case without a group would

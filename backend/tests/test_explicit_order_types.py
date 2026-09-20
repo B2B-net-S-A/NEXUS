@@ -471,7 +471,7 @@ async def test_new_cost_marker_bypasses_legacy_matcher_gate_only_for_new_group(
     from app.models.client_order import ClientOrder, ClientOrderStatus
     from app.models.client_order_group import ClientOrderGroup
     from app.services import cost_orders
-    from app.services.client_order_lines import active_cost_lines
+    from app.services.client_order_lines import cost_lines_settling_in_month
 
     client_id, contracts = await _seed_client_with_contracts(2)
     monkeypatch.setattr(cost_orders, "cost_order_client_ids", lambda: frozenset())
@@ -519,7 +519,7 @@ async def test_new_cost_marker_bypasses_legacy_matcher_gate_only_for_new_group(
         await db.commit()
 
     async with AsyncSessionLocal() as db:
-        matches = await active_cost_lines(db, _TODAY.strftime("%Y-%m"))
+        matches = await cost_lines_settling_in_month(db, _TODAY.strftime("%Y-%m"))
     matched_ids = {match.order.id for match in matches}
     assert explicit_line_id in matched_ids
     assert legacy_line_id not in matched_ids

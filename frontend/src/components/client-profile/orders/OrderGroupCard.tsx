@@ -1124,21 +1124,26 @@ export function OrderGroupCard({
   });
 
   const sortedLines = sortOrderLinesByConsultant(group.lines);
-  const activeLines = sortedLines.filter(
-    (line) => line.is_active && line.offboarding_case?.status !== "pending",
-  );
-  // Sprawa pending pozostaje na widoku głównym do czasu decyzji, ale nie jest
-  // już liczona jako aktywna obsada w awatarach nagłówka.
+  // „Aktywna obsada" znaczy dokładnie tyle, ile mówi: osoby, które DZIŚ pracują
+  // na tym zamówieniu. Do 09.2026 wisiała tu także osoba z nierozstrzygniętą
+  // sprawą offboardingu — żeby decyzja DL nie zginęła — przez co sekcja
+  // odpowiadała na dwa różne pytania naraz i zespół czytał ją jako listę
+  // pracujących. Sprawa wędruje teraz razem z wierszem do „Zakończone", a żeby
+  // nie zniknęła z oczu, nagłówek tej sekcji niesie licznik decyzji.
+  const isDraftLine = (line: OrderLineRead) =>
+    group.status === "draft" && line.status === "draft";
   const currentLines = sortedLines.filter(
-    (line) => line.is_active || (group.status === "draft" && line.status === "draft") || line.offboarding_case?.status === "pending",
+    (line) => line.is_active || isDraftLine(line),
   );
+  const activeLines = currentLines.filter((line) => line.is_active);
   // „Zakończone" sortują się datą zejścia malejąco, nie alfabetem: sekcja mówi,
   // kto ostatnio zszedł z zamówienia.
   const completedLines = sortOrderLinesByEnd(
-    sortedLines.filter(
-      (line) => !line.is_active && !(group.status === "draft" && line.status === "draft") && line.offboarding_case?.status !== "pending",
-    ),
+    sortedLines.filter((line) => !line.is_active && !isDraftLine(line)),
   );
+  const pendingDecisions = completedLines.filter(
+    (line) => line.offboarding_case?.status === "pending",
+  ).length;
   const isActive = group.status === "active";
   // Pilotaż karty konsultanta: WYŁĄCZNIE Centrum e-Zdrowia (po `clientId`, nie
   // po samym `md_optional_total` — zakres opcjonalny bywa też u innych klientów,
@@ -1342,6 +1347,15 @@ export function OrderGroupCard({
                     className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
                   >
                     Zakończone
+                    {pendingDecisions > 0 ? (
+                      <span className="ml-2 font-semibold normal-case tracking-normal text-amber-600 dark:text-amber-500">
+                        {`· ${pendingDecisions} ${
+                          pendingDecisions === 1
+                            ? "wymaga decyzji"
+                            : "wymagają decyzji"
+                        }`}
+                      </span>
+                    ) : null}
                   </h4>
                   <ul className={lineListClass(completedLines)}>
                     {completedLines.map((line) => (

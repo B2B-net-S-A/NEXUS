@@ -254,13 +254,13 @@ async def test_departed_consultant_keeps_usage_and_still_gets_a_late_import(
 ):
     """Raport za poprzedni miesiąc, wrzucony po zejściu, dalej się dolicza.
 
-    Kryterium 3 i 5 ticketu naraz: import widzi linię (`active_md_lines`),
+    Kryterium 3 i 5 ticketu naraz: import widzi linię (`md_lines_settling_in_month`),
     `md_used` osoby rośnie, a sumy zamówienia liczą się tą samą metodą co
     przed jej zejściem.
     """
     from app.core.database import AsyncSessionLocal
     from app.models.client_order import ClientOrder
-    from app.services.client_order_lines import active_md_lines, upsert_consumption
+    from app.services.client_order_lines import md_lines_settling_in_month, upsert_consumption
 
     client_id, contracts, _ = await _seed_client_with_contracts(2)
     _enable_multi(monkeypatch, client_id)
@@ -283,7 +283,7 @@ async def test_departed_consultant_keeps_usage_and_still_gets_a_late_import(
     assert resp.status_code == 200, resp.text
 
     async with AsyncSessionLocal() as db:
-        matches = await active_md_lines(db, _LAST_MONTH)
+        matches = await md_lines_settling_in_month(db, _LAST_MONTH)
         assert departed_id in {m.order.id for m in matches}, (
             "linia zdjęta z obsady wypadła z importu zużycia za miesiąc, "
             "w którym osoba jeszcze pracowała"

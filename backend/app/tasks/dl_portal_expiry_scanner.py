@@ -228,7 +228,7 @@ async def _promote_statuses(
             # nadal opisuje okres obowiązywania i steruje alertami wygasania
             # niżej, ale nie domyka linii: konsultant z niewykorzystanymi MD
             # pracuje dalej, a zamknięty przez skaner wypadał z importu
-            # zużycia (`active_md_lines` pyta o linie aktywne), czyli MD
+            # zużycia (`md_lines_settling_in_month` pyta o linie aktywne), czyli MD
             # przestawały się odejmować i budżet zamierał na ostatniej
             # wartości. Statusem linii MD steruje wyłącznie
             # `client_order_lines.sync_md_line_status`.

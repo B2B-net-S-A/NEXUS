@@ -13,7 +13,7 @@ Stąd materializacja: w chwili aktywacji szkic staje się linią grupy o numerze
 z pola „numer zamówienia". Grupa o tym numerze już istnieje (aktywna lub
 zaplanowana) → dołączamy linię do niej (BIK prowadzi grupy wieloosobowe);
 nie istnieje → powstaje nowa. Dzięki temu import zużycia MD
-(``active_md_lines`` wymaga ``order_group_id``), alert ``ALERT_MD_BUDGET_LOW``
+(``md_lines_settling_in_month`` wymaga ``order_group_id``), alert ``ALERT_MD_BUDGET_LOW``
 (JOIN po aktywnej grupie), eksport XLSX i cały cykl życia grup działają na tych
 zamówieniach bez żadnych zmian po swojej stronie.
 

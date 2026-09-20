@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 18.09.2026
+> **Zgodność z systemem sprawdzona:** 20.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -432,6 +432,14 @@ kogo zastąpiła i kto zastąpił ją. **„Zakończeni" są ułożeni datą zej
 od najnowszego.** Osoba, która kogoś zastąpiła, zostaje w aktywnej obsadzie —
 dla niej nic się nie zmienia.
 
+**Decyzja o pozostałych MD czeka w „Zakończonych", nie w obsadzie.** Osoba,
+której współpraca się skończyła, a Ty nie rozstrzygnąłeś jeszcze, co zrobić z jej
+niewykorzystanym limitem, stoi od razu w dolnej sekcji — „Aktywna obsada" ma mówić
+wyłącznie o tym, kto dziś pracuje. Żeby decyzja nie zginęła, nagłówek sekcji mówi,
+ile ich czeka: **„Zakończone · 2 wymagają decyzji"**, a przyciski
+**Zostaw jako historię / Zastąp kimś innym / Usuń z zamówienia** stoją przy
+wierszu tak samo jak wcześniej.
+
 Dwie rzeczy, które celowo działają inaczej, niż mógłbyś się spodziewać:
 
 * **Upływ okresu CAŁEGO zamówienia nikogo nie przenosi.** Jeśli zamówienie
@@ -444,6 +452,15 @@ Dwie rzeczy, które celowo działają inaczej, niż mógłbyś się spodziewać:
   i do sumy wykorzystania zamówienia. Sumy „Wykorzystano X / Y MD" i
   „Wykorzystano wartości umowy" liczą się dokładnie tak samo jak przed jej
   zejściem: wykorzystane MD i kwoty osób zakończonych zawsze się w nich mieszczą.
+  O tym, czy wiersz z arkusza trafi w daną osobę, decyduje **okres jej udziału
+  w zamówieniu**, a nie to, w której sekcji stoi — nie musisz niczego odblokowywać
+  ani wznawiać jej współpracy. Gdy import nie dopasuje wiersza sam, przypiszesz go
+  ręcznie do tej samej osoby, także zakończonej. Jedyny wyjątek to osoba **usunięta
+  z zamówienia** — tam system przyjmuje, że jej tam nie było.
+* **Gdy ta sama osoba w jednym miesiącu zeszła z jednego zamówienia i weszła na
+  drugie**, rozliczenie za ten miesiąc idzie na zamówienie, na którym **nadal
+  pracuje**. Jeśli chcesz rozbić je między oba, wpisz miesięczne zużycie ręcznie
+  przy każdej z linii.
 
 **Usunięcie konsultanta usuwa tylko jego miejsce na tym zamówieniu.** Nie
 powstaje z niego nowe zamówienie okresowe, a umowa tej osoby i jej pozostałe
@@ -1114,15 +1131,21 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
 * Jeden plik obejmuje wszystkich klientów naraz. Miesiąc raportu **wybiera
   operator** — system nigdy nie zgaduje go z nazwy pliku.
 * Wiersze dopasowywane są do zamówień **po imieniu i nazwisku**. Jedno trafienie
-  → zaktualizowane; zero → „Brak aktywnego zamówienia"; **więcej niż jedno →
+  → zaktualizowane; zero → „Brak pasującego zamówienia"; **więcej niż jedno →
   „Wymaga przypisania"** i system czeka, aż człowiek wskaże właściwe zamówienie.
   Nie zgaduje, bo trafienie w złe zamówienie odejmuje dni nie temu klientowi
   i wychodzi dopiero na fakturze.
+* **Zakończenie współpracy konsultanta nie wyklucza go z importu.** Liczy się
+  okres, w którym obsadzał zamówienie — raport za sierpień wgrany we wrześniu
+  trafi w osobę, która zeszła 31 sierpnia, i doliczy jej MD. Gdy ta sama osoba
+  w jednym miesiącu zeszła z jednego zamówienia i weszła na drugie, wiersz
+  idzie na to, na którym **nadal pracuje**. Pominięta jest wyłącznie osoba
+  **usunięta z zamówienia**.
 * **Zamówienie zakończone z datą w przyszłości nadal przyjmuje import** za
   miesiące, które nie leżą po dacie zakończenia — konsultant pracuje do tej
   daty, choć zamówienie od razu figuruje w „Zakończonych”. Dotyczy MD przy
   osobie, wspólnej puli MD i zamówień kosztowych. Za miesiąc po dacie
-  zakończenia wiersz zostanie „Brak aktywnego zamówienia”. Zamówienie
+  zakończenia wiersz zostanie „Brak pasującego zamówienia”. Zamówienie
   **wyczerpane** importu nie przyjmuje.
 * **Przy wspólnej puli MD u dowolnego klienta samo nazwisko nie
   wystarcza** — wiersz musi mieć dodatkowo **numer tego zamówienia w kolumnie
