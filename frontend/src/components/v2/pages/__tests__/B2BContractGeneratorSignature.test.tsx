@@ -697,3 +697,61 @@ describe("GeneratedContractsTab — status podpisu", () => {
     });
   });
 });
+
+describe("GeneratedContractsTab — umowa anulowana", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.apiGet.mockRejectedValue(new Error("brak zapytań w tym teście"));
+  });
+
+  it("czerwieni wskaźnik przy „Niepodpisana” i chowa przycisk podpisu", async () => {
+    // Backend liczy `can_confirm_signed`/`blocked_reason` — front tylko je
+    // renderuje. Gdyby przycisk zniknął przez WŁASNY warunek, mielibyśmy dwie
+    // reguły naraz, a ukrycie i tak nie jest kontrolą (endpoint odmawia 409).
+    renderTab([
+      generatedRow({
+        contract_status: "cancelled",
+        can_confirm_signed: false,
+        blocked_reason:
+          "Umowa jest anulowana. Przywróć status „W trakcie”, aby potwierdzić podpis.",
+      }),
+    ]);
+
+    // Etykieta się NIE zmienia — podpisu nadal nie ma, więc to nadal prawda.
+    const label = await screen.findByText("Niepodpisana");
+    const badge = label.closest("span");
+    expect(badge).not.toBeNull();
+    expect(badge?.className).toContain("destructive");
+
+    expect(
+      screen.queryByRole("button", { name: /Oznacz jako podpisaną/ }),
+    ).toBeNull();
+    expect(
+      screen.getByText(/Umowa jest anulowana\. Przywróć status/),
+    ).toBeInTheDocument();
+  });
+
+  it("umowa w trakcie podpisu zostaje przy neutralnym wskaźniku i przycisku", async () => {
+    // Kontrola dla testu wyżej: bez niej „czerwony" przeszedłby też wtedy,
+    // gdyby czerwień wyciekła na każdy niepodpisany wiersz.
+    renderTab([generatedRow({ contract_status: "in_progress" })]);
+
+    const label = await screen.findByText("Niepodpisana");
+    expect(label.closest("span")?.className).not.toContain("destructive");
+    expect(
+      screen.getByRole("button", { name: /Oznacz jako podpisaną/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("pyta serwer o trzy statusy — anulowana zostaje w tej zakładce", async () => {
+    renderTab([generatedRow({ contract_status: "cancelled" })]);
+    await screen.findByText("1471/2026");
+
+    expect(mocks.generated).toHaveBeenCalledWith(
+      100,
+      expect.objectContaining({
+        contractStatus: ["active", "in_progress", "cancelled"],
+      }),
+    );
+  });
+});

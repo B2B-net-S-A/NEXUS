@@ -92,9 +92,14 @@ const SIGNATURE_LABEL: Record<string, string> = {
   signed_both: "Podpisana obustronnie",
 };
 
+// UWAGA: `Record<string, string>`, więc TypeScript NIE zgłosi brakującego
+// statusu — nowa wartość wypadnie tu jako surowy angielski kod (`cancelled`)
+// w badge'u i w historii statusów. Katalog trzymaj zgodny z
+// `B2B_CONTRACT_STATUS_LABEL` z `pages/B2BContractGeneratorV2`.
 const CONTRACT_STATUS_LABEL: Record<string, string> = {
   active: "Aktywna",
   in_progress: "W trakcie podpisu",
+  cancelled: "Anulowana",
   suspended: "Bez projektu",
   closed: "Zakończona",
 };

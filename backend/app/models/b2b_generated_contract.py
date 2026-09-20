@@ -46,7 +46,8 @@ class B2BGeneratedContract(Base, TimestampMixin):
             name="ck_b2b_generated_contracts_signature_source",
         ),
         CheckConstraint(
-            "contract_status IN ('active', 'in_progress', 'suspended', 'closed')",
+            "contract_status IN "
+            "('active', 'in_progress', 'cancelled', 'suspended', 'closed')",
             name="ck_b2b_generated_contracts_contract_status",
         ),
         # Katalog powodów opisuje KONIEC PROJEKTU (migracja 0226). Trzy wartości
@@ -79,9 +80,15 @@ class B2BGeneratedContract(Base, TimestampMixin):
         # projektu MUSI powiedzieć, co i kiedy się skończyło — inaczej zakładka
         # „Umowy bez projektu" pokazywałaby wiersze bez daty i powodu, czyli
         # dokładnie to, czego ten status miał uniknąć.
+        #
+        # `cancelled` (0328) idzie do gałęzi „pola zamknięcia puste", razem
+        # z `active`/`in_progress`: umowa, która NIE DOSZŁA DO SKUTKU, nie ma
+        # czego ani kiedy kończyć. Wymuszanie powodu i daty zamieniłoby
+        # jednoklikowe anulowanie (i powrót na „W trakcie") w formularz
+        # o zakończeniu czegoś, co nigdy się nie zaczęło.
         CheckConstraint(
             "("
-            "contract_status IN ('active', 'in_progress')"
+            "contract_status IN ('active', 'in_progress', 'cancelled')"
             " AND closure_reason IS NULL"
             " AND closure_date IS NULL"
             " AND closure_reason_other IS NULL"
@@ -150,16 +157,26 @@ class B2BGeneratedContract(Base, TimestampMixin):
     # zamknięta rezygnacją przed podpisem. Zamknięcie NIE usuwa wiersza —
     # kończy jego bieg i zostaje w rejestrze.
     #
-    # Cztery wartości: `in_progress` → `active` → (`suspended` ⇄ `active`) →
-    # `closed`. `in_progress` ustawia generowanie, `active` WYŁĄCZNIE
-    # potwierdzenie podpisu obustronnego (0224), a `suspended` (0226) opisuje
-    # umowę, która nadal obowiązuje, choć kontraktor nie ma przypisanego
-    # projektu — zasila zakładkę „Umowy bez projektu".
+    # Pięć wartości: `in_progress` → `active` → (`suspended` ⇄ `active`) →
+    # `closed`, plus `cancelled` obok toru głównego. `in_progress` ustawia
+    # generowanie, `active` WYŁĄCZNIE potwierdzenie podpisu obustronnego (0224),
+    # a `suspended` (0226) opisuje umowę, która nadal obowiązuje, choć
+    # kontraktor nie ma przypisanego projektu — zasila zakładkę „Umowy bez
+    # projektu".
+    #
+    # `cancelled` (0328) to umowa, która NIE DOSZŁA DO SKUTKU — Partner wycofał
+    # się przed podpisem. To NIE to samo co `closed`: tam skończył się projekt,
+    # tu umowa nigdy nie zaczęła obowiązywać. Wiersz zostaje w rejestrze, bo
+    # numer jest już zużyty i nie wraca do puli (UNIQUE(year, seq)).
     #
     # Zawiesić można WYŁĄCZNIE umowę `active`: „nadal obowiązuje" nie opisuje
     # dokumentu przed podpisem. Bez tej reguły `in_progress → suspended`
     # tworzyłby ślepy zaułek, bo powrót na `active` wymaga powiązanego
     # kontraktu (409), który powstaje dopiero przy potwierdzeniu podpisu.
+    #
+    # Anulować można każdą umowę, która nie jest podpisana obustronnie; wyjście
+    # z `cancelled` prowadzi WYŁĄCZNIE na `in_progress` (jedyny ręczny wybór
+    # tego statusu) — na `active` znów wpuszcza tylko potwierdzenie podpisu.
     #
     # Default kolumny ZOSTAJE `active` i to nie jest przeoczenie: opisuje wiersz
     # wstawiony bez decyzji o statusie (seed, safety-net entrypointu, surowy

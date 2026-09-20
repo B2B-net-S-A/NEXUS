@@ -306,15 +306,15 @@ describe("Umowy bez projektu", () => {
   });
 });
 
-describe("Umowy aktywne i w trakcie podpisu", () => {
-  it("awaria listy umów NIE renderuje się jako „Brak umów aktywnych…” (UAT M08-B08)", async () => {
+describe("Umowy bieżące", () => {
+  it("awaria listy umów NIE renderuje się jako „Brak umów bieżących” (UAT M08-B08)", async () => {
     renderTab(GeneratedContractsTab, new Error("Network Error"));
 
     expect(
       await screen.findByText("Nie udało się wczytać listy"),
     ).toBeInTheDocument();
     expect(
-      screen.queryByText("Brak umów aktywnych i w trakcie podpisu."),
+      screen.queryByText("Brak umów bieżących."),
     ).toBeNull();
     expect(screen.getByRole("button", { name: "Ponów" })).toBeInTheDocument();
   });

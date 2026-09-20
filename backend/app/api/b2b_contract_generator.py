@@ -258,9 +258,28 @@ def _docx_response(data: bytes, contract_number: str | None) -> Response:
 _STATUS_LABEL_PL = {
     "active": "Aktywna",
     "in_progress": "W trakcie",
+    "cancelled": "Anulowana",
     "suspended": "Zawieszona",
     "closed": "Zakończona",
 }
+
+# Komunikat o ręcznym wyborze „W trakcie". Do 0328 żył w walidatorze
+# `B2BGeneratedContractUpdate`, który odrzucał ten status bezwarunkowo. Od 0328
+# jest legalny DOKŁADNIE z „Anulowanej", a tego DTO nie potrafi sprawdzić (nie
+# zna bieżącego stanu wiersza) — więc reguła zeszła do handlera, a komunikat dla
+# przypadku niedozwolonego został bajt w bajt taki sam.
+_IN_PROGRESS_IS_AUTOMATIC = (
+    "Status „W trakcie” ustawia system automatycznie przy "
+    "generowaniu umowy — nie można go wybrać ręcznie. Umowa "
+    "staje się „Aktywna” po potwierdzeniu podpisu."
+)
+
+# Powód, dla którego anulowana umowa nie może zostać oznaczona jako podpisana.
+# Jedno źródło dla `blocked_reason` w serializerze (chowa przycisk) i dla 409
+# z `confirm-fully-signed` (egzekwuje) — ukrycie przycisku nie jest kontrolą.
+_CANCELLED_BLOCKS_SIGNATURE = (
+    "Umowa jest anulowana. Przywróć status „W trakcie”, aby potwierdzić podpis."
+)
 
 _CLOSURE_REASON_LABEL_PL = {
     "no_client_budget": "Brak budżetu u klienta",
@@ -664,6 +683,7 @@ async def _serialize_generated_contracts(
             and not is_signed
             and (is_admin or row.created_by == current_user.id)
         )
+        is_cancelled = row.contract_status == "cancelled"
         can_confirm = (
             generator_access >= ActionAccess.view
             and (
@@ -672,10 +692,17 @@ async def _serialize_generated_contracts(
             )
             and _has_signature_permission(current_user)
             and not is_signed
+            and not is_cancelled
         )
         blocked_reason: str | None = None
         if is_signed:
             blocked_reason = "Umowa została już oznaczona jako podpisana obustronnie."
+        # PRZED gałęziami uprawnień: anulowanie jest najbardziej konkretnym
+        # powodem i niesie następny krok („przywróć W trakcie”), a komunikat
+        # o brakującym uprawnieniu wysyłałby użytkownika do administratora po
+        # coś, co i tak nie odblokuje tego wiersza.
+        elif is_cancelled:
+            blocked_reason = _CANCELLED_BLOCKS_SIGNATURE
         elif generator_access < ActionAccess.view:
             blocked_reason = (
                 "Oznaczenie podpisu wymaga dostępu do rejestru Generatora Umów B2B."
@@ -1952,6 +1979,18 @@ async def confirm_generated_contract_fully_signed(
                 generated_contract=item,
             )
 
+        # Anulowana umowa nie może zostać oznaczona jako podpisana. Serializer
+        # chowa przycisk (`can_confirm_signed`), ale ukryty przycisk nie jest
+        # kontrolą — endpoint do 0328 NIE patrzył na `contract_status` w ogóle.
+        # Po idempotentnym replayu, żeby wiersz już podpisany (stan, którego ta
+        # ścieżka nie potrafi wytworzyć, ale który mógłby powstać w danych)
+        # nadal odpowiadał tym samym, co zawsze, zamiast nagle 409.
+        if row.contract_status == "cancelled":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=_CANCELLED_BLOCKS_SIGNATURE,
+            )
+
         if (
             row.candidate_id is not None
             and payload.candidate_id is not None
@@ -2313,6 +2352,38 @@ async def update_generated_contract(
         # dziś powierzchni w UI: zakładka „Zakończone umowy" jest read-only,
         # a dialog statusu nie oferuje „Aktywnej" dla wiersza zawieszonego.
         reactivating = new_status == "active" and old_status == "suspended"
+
+        # „Anulowana" opisuje umowę, która NIE DOSZŁA DO SKUTKU. Podpisana
+        # obustronnie doszła — jej koniec to „Zakończona". 409, nie 422: dane
+        # w żądaniu są poprawne, to stan wiersza wyklucza to przejście.
+        if new_status == "cancelled" and row.signature_status == "signed_both":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Ta umowa jest podpisana obustronnie, więc doszła do "
+                    "skutku — „Anulowana” opisuje umowę, która nigdy nie "
+                    "zaczęła obowiązywać. Zakończ ją statusem „Zakończona”."
+                ),
+            )
+
+        # Jedyny ręczny wybór „W trakcie": powrót z „Anulowanej" (Partner jednak
+        # wraca do podpisu). Każde inne źródło dostaje komunikat, który do 0328
+        # padał w walidatorze DTO — bez zmian dla użytkownika.
+        if new_status == "in_progress" and old_status != "cancelled":
+            raise HTTPException(status_code=422, detail=_IN_PROGRESS_IS_AUTOMATIC)
+
+        # Z „Anulowanej" nie ma skrótu do „Aktywnej": ta umowa jest z definicji
+        # niepodpisana (guard wyżej), a `active` ustawia WYŁĄCZNIE potwierdzenie
+        # podpisu obustronnego. Droga wiedzie przez „W trakcie".
+        if new_status == "active" and old_status == "cancelled":
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Anulowaną umowę przywróć najpierw na „W trakcie” — "
+                    "„Aktywna” ustawia się po potwierdzeniu podpisu "
+                    "obustronnego."
+                ),
+            )
 
         # Zawiesić można WYŁĄCZNIE umowę już obowiązującą. Bez tego guardu
         # `in_progress → suspended` byłby ślepym zaułkiem: powrót na „Aktywna"

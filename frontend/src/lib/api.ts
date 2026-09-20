@@ -3407,12 +3407,18 @@ export type B2BSignatureSource =
  * Status handlowy umowy — niezależny od `B2BSignatureStatus`.
  *
  * `in_progress` ustawia system automatycznie przy generowaniu umowy, a `active`
- * przy potwierdzeniu podpisu obustronnego. Użytkownik nie może wybrać
- * `in_progress` — backend odrzuca to 422 (patrz `B2BGeneratedContractUpdate`).
+ * przy potwierdzeniu podpisu obustronnego. Użytkownik może wybrać `in_progress`
+ * WYŁĄCZNIE jako powrót z `cancelled` — każde inne źródło backend odrzuca 422.
+ *
+ * `cancelled` = umowa nie doszła do skutku (Partner wycofał się przed
+ * podpisem). To NIE `closed`: tam skończył się projekt, tu umowa nigdy nie
+ * zaczęła obowiązywać. Wiersz zostaje w rejestrze — numer jest już zużyty.
+ * Anulować da się tylko umowę niepodpisaną (inaczej backend odpowiada 409).
  */
 export type B2BContractStatus =
   | "active"
   | "in_progress"
+  | "cancelled"
   | "suspended"
   | "closed";
 /**
@@ -3440,9 +3446,9 @@ export type B2BClosureReason =
 export interface B2BGeneratedListParams {
   q?: string;
   /**
-   * Tablica — zakładka „Umowy aktywne i w trakcie podpisu" prosi o DWA statusy
-   * naraz. Axios serializuje ją jako powtórzony parametr, tak jak czyta go
-   * FastAPI (`contract_status=active&contract_status=in_progress`).
+   * Tablica — zakładka „Umowy bieżące" prosi o TRZY statusy naraz. Axios
+   * serializuje ją jako powtórzony parametr, tak jak czyta go FastAPI
+   * (`contract_status=active&contract_status=in_progress&contract_status=cancelled`).
    */
   contractStatus?: B2BContractStatus[];
   closureReason?: B2BClosureReason;
