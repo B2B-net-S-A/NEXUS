@@ -130,6 +130,12 @@ class NotificationType(str, enum.Enum):
     # odczycie nowego CV albo po publikacji rekrutacji). Dedup po wierszu
     # etapu, nie po rekrutacji — dwóch kandydatów tego samego dnia to dwa dzwonki.
     auto_match = "auto_match"
+    # 0325: pełny przegląd bazy (Talent Radar / AI Matching w rekrutacji)
+    # zakończył się albo nie powiódł — trwa ~3 min, więc autor dostaje wpis
+    # w dzwonku zamiast pilnować karty. Emitowane przez
+    # `services/candidate_search_worker.py`; `related_entity_id` puste (id
+    # przeglądu to UUID), exactly-once daje przejście stanu runu.
+    candidate_search_completed = "candidate_search_completed"
 
 
 class Notification(Base, TimestampMixin):

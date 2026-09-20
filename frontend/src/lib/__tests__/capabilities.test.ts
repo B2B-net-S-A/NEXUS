@@ -913,6 +913,8 @@ function rolesSeeingHref(href: string): UserRole[] {
 /** Pozycja sidebara → capability, której lista `roles` ma być lustrem. */
 const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
   "/candidates": "nav.candidates",
+  // Wyszukiwarka to drugi widok tego samego modułu Kandydaci — te same role.
+  "/candidates/search": "nav.candidates",
   "/talents": "nav.talents",
   "/talent-radar": "nav.talent_radar",
   "/sourcing/marketplace": "nav.sourcing",

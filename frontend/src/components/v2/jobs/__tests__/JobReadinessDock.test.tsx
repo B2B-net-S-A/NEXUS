@@ -353,14 +353,14 @@ describe("JobReadinessDock — dane", () => {
 
     expect(screen.getByText("Must / nice zsynchronizowane")).toBeInTheDocument();
     expect(
-      screen.getByText("2 must · 1 nice · zasilają C2 i filtry."),
+      screen.getByText("2 must · 1 nice · zasilają AI Matching i filtry."),
     ).toBeInTheDocument();
 
     expect(screen.getByText("Hiring manager (klient)")).toBeInTheDocument();
     expect(screen.getByText("Jan Nowak")).toBeInTheDocument();
 
     expect(
-      screen.getByRole("link", { name: /Otwórz warsztat \(C2\)/ }),
+      screen.getByRole("link", { name: /Otwórz AI Matching/ }),
     ).toHaveAttribute("href", "/jobs/501?tab=similar");
   });
 
@@ -514,7 +514,7 @@ describe("JobReadinessDock — readOnly (RBAC)", () => {
     ).not.toBeInTheDocument();
     // Odczyt (checklista, nawigacja) NIE jest wyłączony przez readOnly.
     expect(
-      screen.getByRole("link", { name: /Otwórz warsztat \(C2\)/ }),
+      screen.getByRole("link", { name: /Otwórz AI Matching/ }),
     ).toBeInTheDocument();
   });
 });
@@ -746,7 +746,7 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     renderDock(501, undefined, true, "champion");
     await screen.findByText(CHAMPION_DOCK_LABEL);
     expect(
-      await screen.findByText("2 must · 1 nice · zasilają C2 i filtry."),
+      await screen.findByText("2 must · 1 nice · zasilają AI Matching i filtry."),
     ).toBeInTheDocument();
   });
 
@@ -764,7 +764,7 @@ describe("JobReadinessDock — variant=\"champion\" (krok 02)", () => {
     renderDock(501, undefined, true, "champion");
     await screen.findByText(CHAMPION_DOCK_LABEL);
     expect(
-      await screen.findByText("1 must · 0 nice · zasilają C2 i filtry."),
+      await screen.findByText("1 must · 0 nice · zasilają AI Matching i filtry."),
     ).toBeInTheDocument();
   });
 

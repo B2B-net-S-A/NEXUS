@@ -26,17 +26,18 @@ test("active scan exposes progress, not an empty completed ranking", () => {
   expect(screen.queryByRole("button", { name: "Następna" })).not.toBeInTheDocument();
 });
 
-test("unknown billing is explicit and is not rendered as zero dollars", () => {
-  render(<FullCandidateSearchStatus data={{ ...page, metrics: { elapsed_ms: 12345, cost_complete: false, known_cost_usd: 0 } }} offset={0} onPage={vi.fn()} />);
-  expect(screen.getByText(/Czas przeglądu: 12.3 s/)).toHaveTextContent("Koszt API niepełny");
-  expect(screen.queryByText(/0.000000 USD/)).not.toBeInTheDocument();
-});
+test("shows scan duration but never the API cost, known or unknown", () => {
+  const { unmount } = render(<FullCandidateSearchStatus data={{ ...page, metrics: { elapsed_ms: 12345, cost_complete: false, known_cost_usd: 0 } }} offset={0} onPage={vi.fn()} />);
+  expect(screen.getByText(/Czas przeglądu: 12.3 s/)).toBeVisible();
+  expect(screen.queryByText(/koszt/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/USD/)).not.toBeInTheDocument();
+  unmount();
 
-test("observed usage with configured pricing shows estimated API cost", () => {
   render(<FullCandidateSearchStatus data={{ ...page, metrics: { elapsed_ms: 1000, cost_complete: true, estimated_cost_usd: 0.000246 } }} offset={0} onPage={vi.fn()} />);
-  expect(screen.getByText(/Szacowany koszt API: 0.000246 USD/)).toBeVisible();
+  expect(screen.getByText(/Czas przeglądu: 1.0 s/)).toBeVisible();
+  expect(screen.queryByText(/koszt/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/0.000246/)).not.toBeInTheDocument();
 });
-
 
 test("shows primary exclusion totals without treating missing proof as confirmed failure", () => {
   render(<FullCandidateSearchStatus data={{ ...page, counts: { ...page.counts, exclusion_reasons: { over_budget: 3, missing_must: 5, unknown: 2, remote_only: 0 } } }} offset={0} onPage={vi.fn()} />);

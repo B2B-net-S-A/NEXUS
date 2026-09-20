@@ -123,7 +123,12 @@ describe("SourcingHub", () => {
     expect(await screen.findByTestId("sourcing-ai-matching-card")).toBeInTheDocument();
     expect(screen.getByTestId("sourcing-manual-search-card")).toBeInTheDocument();
     expect(screen.getByTestId("sourcing-similar-projects-card")).toBeInTheDocument();
-    expect(screen.getByTestId("sourcing-portals-card")).toBeInTheDocument();
+    const portals = screen.getByTestId("sourcing-portals-card");
+    // Integracja w przygotowaniu: pigułka „Wkrótce”, bez symulowanych liczb.
+    expect(within(portals).getByText("Wkrótce")).toBeInTheDocument();
+    expect(within(portals).queryByText("publikacji")).not.toBeInTheDocument();
+    expect(within(portals).queryByText("aplikacji")).not.toBeInTheDocument();
+    expect(within(portals).queryByText(/symulowane/)).not.toBeInTheDocument();
     // C2 (children) renderuje się bez zmian, niezależnie od stanu kart.
     expect(screen.getByTestId("c2-mock")).toBeInTheDocument();
     // Historia requestu (kompaktowa) zawsze pod ramą.

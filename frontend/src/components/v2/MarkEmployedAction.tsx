@@ -8,6 +8,7 @@ import { phase5Api, extractErrorMsg } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
@@ -27,6 +28,15 @@ interface MarkEmployedActionProps {
   className?: string;
   /** Fired after a successful mark, so the host can refetch its own data. */
   onMarked?: () => void;
+  /** Controlled open state — lets a host open the popover from a menu item. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /**
+   * When given, the popover is anchored on this element instead of rendering
+   * its own "Oznacz jako zatrudnionego" trigger button (e.g. a "…" menu that
+   * holds the action). The popover itself stays the confirmation step.
+   */
+  anchor?: React.ReactNode;
 }
 
 /**
@@ -45,10 +55,21 @@ export function MarkEmployedAction({
   variant = "outline",
   className,
   onMarked,
+  open: openProp,
+  onOpenChange,
+  anchor,
 }: MarkEmployedActionProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
-  const [open, setOpen] = React.useState(false);
+  const [innerOpen, setInnerOpen] = React.useState(false);
+  const open = openProp ?? innerOpen;
+  const setOpen = React.useCallback(
+    (next: boolean) => {
+      if (openProp === undefined) setInnerOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange, openProp],
+  );
   const [clientId, setClientId] = React.useState("");
   const [reason, setReason] = React.useState("");
 
@@ -85,16 +106,20 @@ export function MarkEmployedAction({
   });
 
   // Already employed at one of our clients — nothing to add.
-  if (employment?.state === "employed_at_client") return null;
+  if (employment?.state === "employed_at_client") return anchor ? <>{anchor}</> : null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button size={size} variant={variant} className={className}>
-          <BriefcaseBusiness className="h-4 w-4" />
-          Oznacz jako zatrudnionego
-        </Button>
-      </PopoverTrigger>
+      {anchor ? (
+        <PopoverAnchor asChild>{anchor}</PopoverAnchor>
+      ) : (
+        <PopoverTrigger asChild>
+          <Button size={size} variant={variant} className={className}>
+            <BriefcaseBusiness className="h-4 w-4" />
+            Oznacz jako zatrudnionego
+          </Button>
+        </PopoverTrigger>
+      )}
       <PopoverContent align="end" className="w-80 space-y-3">
         <div className="space-y-1">
           <h4 className="text-sm font-semibold text-foreground">

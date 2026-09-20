@@ -227,6 +227,36 @@ async def test_no_measurement_for_a_justification_that_cannot_be_served(
 
 
 @pytest.mark.asyncio
+async def test_llm_failure_detail_never_carries_the_provider_error(monkeypatch):
+    """The 502 detail is rendered on the recruiter's screen; the provider's
+    error text (model id, request id, raw output) belongs in the log only."""
+    secret = "anthropic 529 overloaded req_011CSecretRequestId model=claude-x"
+    fit = AsyncMock(return_value=(61, "measured"))
+    monkeypatch.setattr(candidate_scoring, "display_fit", fit)
+    monkeypatch.setattr(
+        candidate_scoring,
+        "get_or_generate",
+        AsyncMock(side_effect=mjs.MatchJustificationLLMError(secret)),
+    )
+    handler = inspect.unwrap(candidate_scoring.get_scoring_justification)
+
+    with pytest.raises(HTTPException) as error:
+        await handler(
+            request=None,
+            candidate_id=3,
+            job_id=9,
+            current_user=SimpleNamespace(id=12),
+            refresh=False,
+            db=object(),
+        )
+
+    assert error.value.status_code == 502
+    assert error.value.detail == "Nie udało się wygenerować uzasadnienia AI."
+    assert "req_011" not in error.value.detail
+    fit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_rating_response_keeps_the_same_number(monkeypatch):
     """The feedback response replaces the tab's data; a legacy number there
     would flip the ring after every thumbs-up."""

@@ -120,6 +120,14 @@ async def log_call(
     return call
 
 
+@router.get("/calls/cloudtalk-status")
+async def cloudtalk_status(current_user: CandidatePIIAccess) -> dict[str, bool]:
+    """Czy telefonia CloudTalk jest włączona — steruje widocznością przycisku
+    „Zadzwoń" na profilu i w quick view (17.09.2026). Sama flaga, bez
+    konfiguracji ani sekretów."""
+    return {"enabled": bool(settings.CLOUDTALK_ENABLED)}
+
+
 @router.get("/calls/stats")
 async def call_stats(
     current_user: CandidateSearchAccess,

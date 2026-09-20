@@ -53,6 +53,12 @@ import {
   type ChatBusEvent,
 } from "@/types/job-chat";
 
+/** Ruch zespołu na tablicy rekrutacji przychodzi jako `pipeline_changed`.
+ *  Ruch zbiorczy potrafi wysłać serię zdarzeń tej samej rekrutacji w ciągu
+ *  ułamka sekundy — okno skleja je w jedno odświeżenie tablicy. To nie jest
+ *  interwał odpytywania (stąd poza `lib/polling.ts`). */
+export const PIPELINE_CHANGED_DEBOUNCE_MS = 1_000;
+
 /** Wykładniczy backoff ponownego łączenia (sufit 30 s) z rozrzutem 50–100%. */
 export function reconnectDelayMs(attempt: number, random: () => number = Math.random): number {
   const base = Math.min(1000 * Math.pow(2, attempt), 30_000);
@@ -97,6 +103,32 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           queryClient.invalidateQueries({ queryKey: [key] });
         }
       }, CHAT_REFRESH_COALESCE_MS);
+    },
+    [queryClient],
+  );
+
+  // Timery debounce `pipeline_changed` — jeden na rekrutację.
+  const pipelineTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
+  const schedulePipelineRefresh = useCallback(
+    (jobId: number) => {
+      const timers = pipelineTimersRef.current;
+      const pending = timers.get(jobId);
+      if (pending) clearTimeout(pending);
+      timers.set(
+        jobId,
+        setTimeout(() => {
+          timers.delete(jobId);
+          if (!mountedRef.current) return;
+          // Tablica żyje pod dwoma kluczami (`String(id)` ze strony i `id`
+          // z tablicy), a wyniki dopasowania w dwóch formach — stąd prefiks.
+          queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+          queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+          queryClient.invalidateQueries({ queryKey: ["pipeline-scores", String(jobId)] });
+          queryClient.invalidateQueries({ queryKey: ["pipeline-scores", jobId] });
+          queryClient.invalidateQueries({ queryKey: ["my-next-steps"] });
+        }, PIPELINE_CHANGED_DEBOUNCE_MS),
+      );
     },
     [queryClient],
   );
@@ -203,6 +235,11 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           setUnreadCount((c) => c + 1);
           // Call external handler (for toast)
           onNotification?.(notif);
+        } else if (msg.type === "pipeline_changed" && msg.data) {
+          const jobId = Number(msg.data.job_id);
+          if (Number.isSafeInteger(jobId) && jobId > 0) {
+            schedulePipelineRefresh(jobId);
+          }
         } else if (msg.type === "champion_profile_changed" && msg.data) {
           // Re-broadcast to any mounted CP editor. The editor decides
           // whether the event is relevant (matching job_id, different
@@ -334,7 +371,15 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
         }
       }, delay);
     };
-  }, [token, queryClient, onNotification, startPolling, stopPolling, scheduleChatRefresh]);
+  }, [
+    token,
+    queryClient,
+    onNotification,
+    startPolling,
+    stopPolling,
+    scheduleChatRefresh,
+    schedulePipelineRefresh,
+  ]);
 
   // Reset unread badge when user opens notification dropdown
   const clearUnread = useCallback(() => {
@@ -344,9 +389,12 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
   useEffect(() => {
     mountedRef.current = true;
     connect();
+    const pipelineTimers = pipelineTimersRef.current;
 
     return () => {
       mountedRef.current = false;
+      for (const timer of pipelineTimers.values()) clearTimeout(timer);
+      pipelineTimers.clear();
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }

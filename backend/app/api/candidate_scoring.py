@@ -14,6 +14,7 @@ layer that maps domain errors to HTTP status codes.
 # adnotacje FastAPI w ForwardRef i wywala app.openapi() na Annotated
 # guardach (OperationalUser); ten sam trap co slowapi #579.
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -39,6 +40,8 @@ from app.services.match_justification_service import (
 )
 
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
@@ -159,9 +162,17 @@ async def get_scoring_justification(
         # AI globally off / feature disabled / monthly limit hit.
         raise HTTPException(status_code=503, detail=str(exc.reason)) from exc
     except MatchJustificationLLMError as exc:
+        # The provider's error text (model name, request id, raw output) is for
+        # the log, not the recruiter's screen.
+        logger.warning(
+            "match justification failed candidate=%s job=%s: %s",
+            candidate_id,
+            job_id,
+            exc,
+        )
         raise HTTPException(
             status_code=502,
-            detail=f"Nie udało się wygenerować uzasadnienia AI: {exc}",
+            detail="Nie udało się wygenerować uzasadnienia AI.",
         ) from exc
 
     # Own session inside, never raises: a failed measurement is a ring without

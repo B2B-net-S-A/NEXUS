@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { visibleNavSections } from "@/components/v2/shell/SidebarV2";
+import { isNavItemActive, visibleNavSections } from "@/components/v2/shell/SidebarV2";
 import type { UserRole } from "@/store/auth";
 
 // Czysta funkcja zamiast renderu — sidebar ciągnie `next/navigation`,
@@ -208,5 +208,26 @@ describe("SIDEBAR_VERTICAL_LAYOUT (UAT B57)", () => {
     const { SIDEBAR_VERTICAL_LAYOUT } = await import("@/components/v2/shell/SidebarV2");
     expect(SIDEBAR_VERTICAL_LAYOUT.navSpacing).toBe(SIDEBAR_VERTICAL_LAYOUT.itemSpacing);
     expect(SIDEBAR_VERTICAL_LAYOUT.sectionSlot).toMatch(/\bh-\d+\b/);
+  });
+});
+
+describe("Wyszukiwarka w menu (B5)", () => {
+  it("dostają ją dokładnie te role, które widzą „Kandydaci”", () => {
+    const roles: UserRole[] = ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "recruiter", "finance", "sourcer", "user"];
+    for (const role of roles) {
+      const items = hrefs(role);
+      expect(items.includes("/candidates/search")).toBe(items.includes("/candidates"));
+    }
+    expect(hrefs("recruiter")).toContain("/candidates/search");
+    expect(hrefs("user")).not.toContain("/candidates/search");
+  });
+
+  it("na wyszukiwarce świeci się tylko „Wyszukiwarka”, nie „Kandydaci”", () => {
+    expect(isNavItemActive("/candidates/search", "/candidates/search")).toBe(true);
+    expect(isNavItemActive("/candidates/search", "/candidates")).toBe(false);
+    expect(isNavItemActive("/candidates/contact-queue", "/candidates")).toBe(false);
+    expect(isNavItemActive("/candidates/123", "/candidates")).toBe(true);
+    expect(isNavItemActive("/candidates", "/candidates/search")).toBe(false);
+    expect(isNavItemActive("/candidates/searchable", "/candidates")).toBe(true);
   });
 });

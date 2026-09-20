@@ -127,6 +127,14 @@ describe("CandidateProfileFactsBar", () => {
     expect(screen.getByText("160 PLN netto/h")).toBeInTheDocument();
   });
 
+  it("shows only the date when availability status is unknown", async () => {
+    renderBar({ availability_status: "unknown", availability_date: "2026-08-15" });
+
+    expect(await screen.findByText("Angielski · C1")).toBeInTheDocument();
+    const value = screen.getByText(/^Od \d/);
+    expect(value.textContent).not.toMatch(/Nie ustalono/);
+  });
+
   it("allows long fact tokens to wrap instead of overflowing the profile", async () => {
     const longCity = "MiastoBezPrzerw".repeat(20);
     renderBar({ city: longCity, country: null });

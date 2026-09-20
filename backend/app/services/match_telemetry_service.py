@@ -411,7 +411,14 @@ async def record_full_search_page(
 # it is what separates an unattributed (NULL-run) add by surface. Anything
 # outside this closed vocabulary is stored as NULL, never as free text.
 PIPELINE_ADD_SOURCES = frozenset(
-    {"full_search", "manual_search", "historical", "quick_add"}
+    {
+        "full_search",
+        "manual_search",
+        "historical",
+        "quick_add",
+        "talent_radar",
+        "candidate_list",
+    }
 )
 
 # The run the caller declared, accepted only when it verifiably preceded the

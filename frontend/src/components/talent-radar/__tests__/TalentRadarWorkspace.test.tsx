@@ -148,7 +148,11 @@ describe("TalentRadarWorkspace — snapshot roboczy przeżywa powrót", () => {
     expect(await screen.findByText("Jan Kowalski")).toBeInTheDocument();
     expect(mocks.apiPost).not.toHaveBeenCalled();
 
-    // Formularz wrócił razem z nimi: klient w pickerze i treść requestu.
+    // Formularz wrócił razem z nimi — przy istniejącym przeglądzie zwinięty
+    // do linii podsumowania (B3); „Zmień kryteria” pokazuje klienta w pickerze
+    // i treść requestu.
+    expect(screen.getByTestId("tr-criteria-summary")).toHaveTextContent("Acme Sp. z o.o.");
+    fireEvent.click(screen.getByRole("button", { name: "Zmień kryteria" }));
     expect(screen.getByText("Acme Sp. z o.o.")).toBeInTheDocument();
     expect(screen.getByLabelText("Treść requestu")).toHaveValue(
       SAVED_SEARCH.text,

@@ -23,6 +23,7 @@ import {
   Sparkles,
   Store,
   Radar,
+  Search,
   Wallet,
   X,
   ChevronLeft,
@@ -92,6 +93,41 @@ const CORTEX_ROLES = rolesWithSectionAccess("insights").filter(
   (role) => role !== "user",
 );
 
+/** Moduł kandydatów — rola `user` (viewer/klient) nie ma dostępu. */
+const CANDIDATES_NAV_ROLES: UserRole[] = [
+  "admin",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "recruiter",
+  "finance",
+  "sourcer",
+];
+
+/**
+ * Czy pozycja menu świeci się dla bieżącej ścieżki. Podstrony modułu
+ * kandydatów z własną pozycją w menu („Do przedzwonienia”, „Wyszukiwarka”)
+ * nie zapalają jednocześnie „Kandydaci”.
+ */
+export function isNavItemActive(pathname: string, href: string): boolean {
+  const hrefPath = href.split("?")[0];
+  if (
+    hrefPath === "/candidates" &&
+    CANDIDATES_SUBPAGES_WITH_OWN_ITEM.some(
+      (sub) => pathname === sub || pathname.startsWith(sub + "/"),
+    )
+  ) {
+    return false;
+  }
+  return pathname === hrefPath || pathname.startsWith(hrefPath + "/");
+}
+
+const CANDIDATES_SUBPAGES_WITH_OWN_ITEM = [
+  "/candidates/contact-queue",
+  "/candidates/search",
+];
+
 const NAV_SECTIONS: NavSection[] = [
   {
     title: "Sourcing",
@@ -107,16 +143,15 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Kandydaci",
         icon: Users,
         badgeKey: "candidates",
-        roles: [
-          "admin",
-          "head_of_recruitment",
-          "delivery_lead",
-          "talent_community_manager",
-          "tac",
-          "recruiter",
-          "finance",
-          "sourcer",
-        ],
+        roles: CANDIDATES_NAV_ROLES,
+      },
+      // Wyszukiwarka CV istniała tylko jako link z listy kandydatów — rekruter
+      // jej nie znajdował. Te same role co „Kandydaci": to ten sam moduł.
+      {
+        href: "/candidates/search",
+        label: "Wyszukiwarka",
+        icon: Search,
+        roles: CANDIDATES_NAV_ROLES,
       },
       {
         href: "/candidates/contact-queue",
@@ -642,16 +677,7 @@ export function SidebarV2({
   });
 
   const badgeCounts = stats ?? {};
-  const isActive = (href: string) => {
-    const hrefPath = href.split("?")[0];
-    if (
-      pathname.startsWith("/candidates/contact-queue") &&
-      hrefPath === "/candidates"
-    ) {
-      return false;
-    }
-    return pathname === hrefPath || pathname.startsWith(hrefPath + "/");
-  };
+  const isActive = (href: string) => isNavItemActive(pathname, href);
   const initials = user?.name
     ? user.name
         .split(" ")

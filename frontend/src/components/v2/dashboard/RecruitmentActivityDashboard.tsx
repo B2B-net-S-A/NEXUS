@@ -36,7 +36,9 @@ import {
 } from "@/lib/recruitment-activity-api"
 import { cn } from "@/lib/utils"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
+import { hasSectionAccess } from "@/lib/section-access"
 import { useAuthStore } from "@/store/auth"
+import { MyNextStepsSection } from "./MyNextStepsSection"
 
 const TEAM_SCOPE = "team"
 const DETAIL_PAGE_SIZE = 25
@@ -500,7 +502,11 @@ export function RecruitmentActivityDashboard() {
     setDetailWindow(metric === "placement" ? "month" : "day")
   }
 
+  const canReadPipeline = hasSectionAccess(authUser, "pipeline")
+
   return (
+    <>
+    {canReadPipeline ? <MyNextStepsSection /> : null}
     <section
       aria-labelledby="recruitment-activity-heading"
       data-testid="recruitment-activity-dashboard"
@@ -704,5 +710,6 @@ export function RecruitmentActivityDashboard() {
         </>
       )}
     </section>
+    </>
   )
 }

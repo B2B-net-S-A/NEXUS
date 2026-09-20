@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -17,6 +17,12 @@ import {
   matchScoringApi,
   type MatchJustification,
 } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import {
+  candidateSearchApi,
+  type MatchScoresResponse,
+} from "@/lib/candidate-search-api";
+import { httpStatusFromError } from "@/lib/view-state";
 import { useToast } from "@/components/Toast";
 import { unmeasuredReason } from "@/lib/match-breakdown";
 import { cn } from "@/lib/utils";
@@ -119,6 +125,96 @@ function ScoreRing({
   );
 }
 
+const JUSTIFICATION_ERROR =
+  "Nie udało się przygotować opisu dopasowania. Spróbuj za chwilę.";
+
+function justificationErrorMessage(error: unknown): string {
+  const status = httpStatusFromError(error);
+  // 502 (model nie odpowiedział) i brak odpowiedzi: jeden ludzki komunikat
+  // zamiast treści wyjątku; inne statusy niosą czytelny `detail` (np. AI
+  // wyłączone, limit), więc go pokazujemy.
+  if (status === undefined || status === 502) return JUSTIFICATION_ERROR;
+  return apiErrorMessage(error, JUSTIFICATION_ERROR);
+}
+
+function MatchScoreSection({
+  candidateId,
+  query,
+  summary,
+}: {
+  candidateId: number;
+  query: {
+    data?: MatchScoresResponse;
+    isPending: boolean;
+    isError: boolean;
+    isSuccess: boolean;
+    isFetching: boolean;
+    error: unknown;
+    refetch: () => unknown;
+  };
+  summary: string | null;
+}) {
+  const key = String(candidateId);
+  let ring: ReactNode;
+  if (query.isError) {
+    const forbidden = httpStatusFromError(query.error) === 403;
+    ring = (
+      <div
+        role="status"
+        className="flex h-24 w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-full border border-dashed border-border text-center text-[11px] leading-tight text-muted-foreground"
+      >
+        {forbidden ? (
+          <span className="px-2">Brak dostępu do oceny tej rekrutacji</span>
+        ) : (
+          <>
+            <span className="px-2">nie policzono</span>
+            <button
+              type="button"
+              onClick={() => query.refetch()}
+              disabled={query.isFetching}
+              className="font-medium text-primary underline"
+            >
+              ponów
+            </button>
+          </>
+        )}
+      </div>
+    );
+  } else if (query.isSuccess && query.data) {
+    const score = query.data.scores?.[key];
+    ring = (
+      <ScoreRing
+        score={typeof score === "number" ? score : null}
+        measurement={query.data.breakdowns?.[key]?.measurement ?? undefined}
+      />
+    );
+  } else {
+    ring = (
+      <div
+        role="status"
+        aria-label="Liczę dopasowanie"
+        className="flex h-24 w-24 shrink-0 items-center justify-center rounded-full border border-border"
+      >
+        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border border-border bg-card/60 p-5 sm:flex-row sm:items-start">
+      {ring}
+      <div className="min-w-0 flex-1">
+        <h3 className="mb-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Podsumowanie
+        </h3>
+        <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+          {summary ||
+            "Liczba to dopasowanie wyliczone bez AI — opis poniżej pojawi się, gdy AI go przygotuje."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function DopasowanieTab({
   candidateId,
   recruitments,
@@ -152,6 +248,18 @@ export function DopasowanieTab({
   }, [jobId, defaultJobId, jobs]);
 
   const queryKey = ["match-justification", candidateId, jobId] as const;
+
+  // Pierścień liczy kanoniczny fit (bez AI) — niezależnie od uzasadnienia,
+  // które wymaga modelu i potrafi paść (brak klucza, 502). Ten sam wynik co
+  // w wyszukiwarce i na ekranach AI Matching.
+  const scoreQuery = useQuery<MatchScoresResponse>({
+    queryKey: ["candidate-match-score", candidateId, jobId],
+    queryFn: ({ signal }) =>
+      candidateSearchApi.matchScores(jobId!, [candidateId], { signal }),
+    enabled: jobId != null,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
 
   const query = useQuery<MatchJustification>({
     queryKey,
@@ -245,6 +353,13 @@ export function DopasowanieTab({
         ) : null}
       </div>
 
+      {/* Kanoniczny fit — zawsze, niezależnie od uzasadnienia AI */}
+      <MatchScoreSection
+        candidateId={candidateId}
+        query={scoreQuery}
+        summary={data?.summary ?? null}
+      />
+
       {/* Loading (first generation calls the LLM — can take a few seconds) */}
       {busy && !data && (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-border bg-card/60 px-6 py-12 text-center">
@@ -263,10 +378,10 @@ export function DopasowanieTab({
         <div className="flex flex-col items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-5 dark:border-amber-900/50 dark:bg-amber-950/30">
           <div className="flex items-center gap-2 text-sm font-medium text-amber-800 dark:text-amber-300">
             <AlertTriangle className="h-4 w-4" />
-            Nie udało się przygotować uzasadnienia
+            Opis dopasowania
           </div>
           <p className="text-sm text-amber-800/90 dark:text-amber-200/80">
-            {extractErrorMsg(query.error)}
+            {justificationErrorMessage(query.error)}
           </p>
           <Button
             variant="outline"
@@ -283,18 +398,7 @@ export function DopasowanieTab({
       {/* Result */}
       {data && (
         <div className="space-y-5">
-          {/* Score + summary */}
-          <div className="flex flex-col gap-4 rounded-xl border border-border bg-card/60 p-5 sm:flex-row sm:items-start">
-            <ScoreRing score={data.score} measurement={data.score_measurement} />
-            <div className="min-w-0 flex-1">
-              <h3 className="mb-1.5 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Podsumowanie
-              </h3>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                {data.summary || "Brak podsumowania."}
-              </p>
-            </div>
-          </div>
+          {/* Podsumowanie stoi obok pierścienia (MatchScoreSection). */}
 
           {/* Pros */}
           {data.pros.length > 0 && (

@@ -163,23 +163,19 @@ describe("buildJobSearchPrefill", () => {
     expect(prefill.q).toBe("Data Engineer");
   });
 
-  it("carries the job's description/requirements/seniority into the query", () => {
+  it("builds the query from title + seniority only, without description prose", () => {
     const prefill = buildJobSearchPrefill({
       title: "Data Engineer (ZOB-2846)",
       seniority: "senior",
       requirements: "Spark, Airflow",
       description: "Budowa hurtowni danych na GCP.",
     });
-    // Too-poor fix: the query is no longer just the bare title.
-    expect(prefill.q).toContain("Data Engineer");
-    expect(prefill.q).toContain("senior");
-    expect(prefill.q).toContain("Spark");
-    expect(prefill.q).toContain("hurtowni");
-    // Negative control: the OLD behavior sent only the stripped title.
-    expect(prefill.q).not.toBe("Data Engineer");
+    expect(prefill.q).toBe("Data Engineer senior");
+    expect(prefill.q).not.toContain("hurtowni");
+    expect(prefill.q).not.toContain("Spark");
   });
 
-  it("routes the enriched query through hybrid (semantic), not boolean AND", () => {
+  it("routes the query through hybrid (semantic), not boolean AND", () => {
     // Description text in `q` is only recall-safe under hybrid retrieval;
     // in boolean mode `q` becomes a hard websearch_to_tsquery AND.
     const prefill = buildJobSearchPrefill({
@@ -221,5 +217,30 @@ describe("buildJobSearchPrefill", () => {
       location: "Warszawa / Remote",
     });
     expect(prefill.location_cities).toEqual(["Warszawa"]);
+  });
+
+  it("takes skills_must from the saved requirement labels, splitting alternatives", () => {
+    const prefill = buildJobSearchPrefill(
+      { title: "Dev", must_skills: ["Python", "Komunikatywność w zespole rozproszonym"] },
+      ["java lub kotlin", "Spring"],
+    );
+    expect(prefill.skills_must).toEqual(["java", "kotlin", "Spring"]);
+  });
+
+  it("falls back to must_skills without prose entries longer than three words", () => {
+    const prefill = buildJobSearchPrefill({
+      title: "Dev",
+      must_skills: ["Python", "Apache Kafka", "Doświadczenie w pracy z dużymi systemami"],
+    });
+    expect(prefill.skills_must).toEqual(["Python", "Apache Kafka"]);
+  });
+
+  it("does not filter by city for fully remote jobs", () => {
+    const prefill = buildJobSearchPrefill({
+      title: "Dev",
+      location: "Warszawa",
+      remote_policy: "remote",
+    });
+    expect(prefill.location_cities).toEqual([]);
   });
 });

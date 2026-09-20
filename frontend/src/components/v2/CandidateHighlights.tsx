@@ -13,6 +13,8 @@ import {
 } from"lucide-react";
 import { Badge } from"@/components/ui/badge";
 import { cn } from"@/lib/utils";
+import { hasSectionAccess } from"@/lib/section-access";
+import { useAuthStore } from"@/store/auth";
 
 export type EmploymentState =
  |"employed_at_client"
@@ -263,6 +265,11 @@ export function AtOurClientBanner({
  employment: EmploymentInfo;
  className?: string;
 }) {
+ // Link do kontraktora tylko dla osób z dostępem do sekcji Delivery — bez
+ // niego prowadził na 403 (baner i ostrzeżenie zostają dla wszystkich).
+ const canOpenContractor = useAuthStore((state) =>
+ hasSectionAccess(state.user, "delivery"),
+ );
  if (employment.state !== "employed_at_client") return null;
  // Wieloklientowość: osoba z N równoległymi kontraktami pokazuje KOMPLET
  // klientów („Pracuje u: Bank Pocztowy, VeloBank"), nie tylko ten z najdłuższą
@@ -304,7 +311,7 @@ export function AtOurClientBanner({
  {endText} · Nie wysyłaj profilu bez konsultacji z delivery.
  </p>
  </div>
- {employment.contract_id ? (
+ {employment.contract_id && canOpenContractor ? (
  <Link
  href={`/contracts/${employment.contract_id}?from=candidate`}
  className={cn("inline-flex min-h-11 min-w-11 w-full shrink-0 items-center justify-center gap-1 rounded-md border border-primary-foreground/30 px-3 py-1.5 sm:w-auto",

@@ -482,3 +482,33 @@ describe("JobsListV2 — dok pokazuje pierwszy widoczny wiersz", () => {
     expect(screen.queryByTestId("mock-nav")).not.toBeInTheDocument();
   });
 });
+
+describe("JobsListV2 — wiersz bez dostępu (can_open === false)", () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    quickCountsMock.mockReset();
+    mockQuickCounts();
+    useUiStore.setState({ jobsView: "list" });
+  });
+
+  it("wiersz jest czytelny, ale nie udaje klikalnego — jak kafelek", async () => {
+    mockJobsResponse([
+      jobRow({ id: 5, title: "Otwarta" }),
+      jobRow({ id: 6, title: "Cudza", can_open: false }),
+    ]);
+    renderJobs();
+
+    // Tytuł bez dostępu NIE jest linkiem: `<span aria-disabled>` zamiast
+    // wyłączonego `<a>` — link prowadziłby prosto w 403.
+    expect(screen.queryByRole("link", { name: "Cudza" })).toBeNull();
+    const title = await screen.findByText("Cudza");
+    expect(title).toHaveAttribute("aria-disabled", "true");
+    expect(title.getAttribute("title")).toContain("Nie masz dostępu");
+    const row = title.closest("tr") as HTMLElement;
+    expect(row).toHaveAttribute("aria-disabled", "true");
+    expect(row.getAttribute("title")).toContain("Nie masz dostępu");
+
+    const openLink = screen.getByRole("link", { name: "Otwarta" });
+    expect(openLink).not.toHaveAttribute("aria-disabled");
+  });
+});

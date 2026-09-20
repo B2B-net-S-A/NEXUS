@@ -14,6 +14,7 @@ import {
   MapPin,
   Maximize2,
   MessageSquare,
+  MoreHorizontal,
   Phone,
   Sparkles,
   UserPlus,
@@ -26,6 +27,12 @@ import { DEFAULT_FILTERS, encodeNavContext } from "@/lib/url-filters";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
@@ -62,6 +69,7 @@ import {
   type CandidateContactSummary,
 } from "@/lib/candidate-contact";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
+import { useCloudTalkEnabled } from "@/hooks/useCloudTalkEnabled";
 import { canMutateSection } from "@/lib/section-access";
 
 type QuickViewDestination =
@@ -142,6 +150,11 @@ export interface CandidateQuickViewProps {
     candidateId: number,
     destination?: QuickViewDestination,
   ) => void;
+}
+
+/** Let a Radix menu close (and return focus) before the next layer opens. */
+function deferMenuAction(action: () => void) {
+  window.setTimeout(action, 0);
 }
 
 function requestStatus(error: unknown): number | null {
@@ -237,15 +250,31 @@ function QuickNotes({
   candidateId,
   notes,
   canWrite,
+  composeRequest = 0,
 }: {
   candidateId: number;
   notes: CandidateQuickViewData["recent_notes"];
   canWrite: boolean;
+  /** Bumped by the header "Dodaj notatkę" action: open, scroll, focus. */
+  composeRequest?: number;
 }) {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useToast();
   const [composerOpen, setComposerOpen] = React.useState(false);
   const [note, setNote] = React.useState("");
+  const sectionRef = React.useRef<HTMLElement>(null);
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+
+  React.useEffect(() => {
+    if (!canWrite || composeRequest === 0) return;
+    setComposerOpen(true);
+  }, [canWrite, composeRequest]);
+
+  React.useEffect(() => {
+    if (!composerOpen || composeRequest === 0) return;
+    sectionRef.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    textareaRef.current?.focus({ preventScroll: true });
+  }, [composerOpen, composeRequest]);
 
   const addNote = useMutation({
     mutationFn: () => {
@@ -270,7 +299,11 @@ function QuickNotes({
   });
 
   return (
-    <section aria-labelledby="quick-notes-heading" className="space-y-3">
+    <section
+      ref={sectionRef}
+      aria-labelledby="quick-notes-heading"
+      className="space-y-3"
+    >
       <div className="flex items-center justify-between gap-3">
         <h3
           id="quick-notes-heading"
@@ -293,6 +326,7 @@ function QuickNotes({
       {canWrite && composerOpen ? (
         <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
           <Textarea
+            ref={textareaRef}
             value={note}
             onChange={(event) => setNote(event.target.value)}
             rows={3}
@@ -365,7 +399,12 @@ export function CandidateQuickView({
     queryEnabled: Boolean(currentUser),
   });
   const { showError } = useToast();
+  const cloudTalkEnabled = useCloudTalkEnabled({
+    enabled: Boolean(currentUser) && canWriteSourcing,
+  });
   const [assignOpen, setAssignOpen] = React.useState(false);
+  const [markEmployedOpen, setMarkEmployedOpen] = React.useState(false);
+  const [composeNoteRequest, setComposeNoteRequest] = React.useState(0);
   const [contactOutcomeOpen, setContactOutcomeOpen] = React.useState(false);
   const [previewDocumentId, setPreviewDocumentId] = React.useState<
     number | null
@@ -498,6 +537,54 @@ export function CandidateQuickView({
         : !primaryCv && !documentsQuery.isPending
           ? "Brak sklasyfikowanego CV"
           : undefined;
+
+  const isEmployedAtClient =
+    candidate?.employment?.state === "employed_at_client";
+  const canMarkEmployed =
+    canWriteSourcing &&
+    !isEmployedAtClient &&
+    quickView?.capabilities.can_mark_employed === true;
+  // The popover of MarkEmployedAction anchors on this wrapper — a Radix
+  // menu root renders no DOM of its own, so the anchor needs a real box.
+  const moreActionsMenu = (
+    <div className="flex">
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            aria-label="Więcej akcji kandydata"
+            title="Więcej akcji"
+            className="h-auto min-h-12 w-full justify-start whitespace-normal px-3 py-2 text-left text-sm"
+          >
+            <MoreHorizontal className="h-4 w-4 shrink-0" />
+            Więcej
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-60">
+          {isEmployedAtClient ? (
+            <DropdownMenuItem disabled>
+              <BriefcaseBusiness className="h-4 w-4" />
+              Oznaczono jako zatrudnionego
+            </DropdownMenuItem>
+          ) : canMarkEmployed ? (
+            <DropdownMenuItem
+              onSelect={() =>
+                deferMenuAction(() => setMarkEmployedOpen(true))
+              }
+            >
+              <BriefcaseBusiness className="h-4 w-4" />
+              Oznacz jako zatrudnionego
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem disabled>
+              <BriefcaseBusiness className="h-4 w-4" />
+              Oznacz jako zatrudnionego
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
 
   const downloadDocument = React.useCallback(
     async (document: CandidateDocument) => {
@@ -711,7 +798,7 @@ export function CandidateQuickView({
                       label="Telefon"
                     >
                       {candidate.phone ? (
-                        canWriteSourcing ? (
+                        canWriteSourcing && cloudTalkEnabled ? (
                           <CallButton
                             candidateId={candidateId}
                             phone={candidate.phone}
@@ -754,40 +841,14 @@ export function CandidateQuickView({
                       Przypisz do rekrutacji
                     </Button>
                   ) : null}
-                  {canOwnContact && fullContactCaseQuery.data ? (
+                  {canWriteSourcing ? (
                     <Button
                       variant="outline"
                       className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
-                      onClick={() => setContactOutcomeOpen(true)}
+                      onClick={() => setComposeNoteRequest((value) => value + 1)}
                     >
-                      <Phone className="h-4 w-4 shrink-0" />
-                      Zaloguj wynik telefonu
-                    </Button>
-                  ) : null}
-                  {candidate.employment?.state === "employed_at_client" ? (
-                    <Button
-                      variant="outline"
-                      disabled
-                      className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
-                    >
-                      <BriefcaseBusiness className="h-4 w-4 shrink-0" />
-                      Oznaczono jako zatrudnionego
-                    </Button>
-                  ) : canWriteSourcing &&
-                    quickView.capabilities.can_mark_employed ? (
-                    <MarkEmployedAction
-                      candidateId={candidateId}
-                      employment={candidate.employment}
-                      variant="outline"
-                      className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
-                    />
-                  ) : canWriteSourcing ? (
-                    <Button
-                      variant="outline"
-                      disabled
-                      className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
-                    >
-                      Oznacz jako zatrudnionego
+                      <MessageSquare className="h-4 w-4 shrink-0" />
+                      Dodaj notatkę
                     </Button>
                   ) : null}
                   <Button
@@ -810,6 +871,29 @@ export function CandidateQuickView({
                     <Maximize2 className="h-4 w-4 shrink-0" />
                     Pełny profil
                   </Button>
+                  {canOwnContact && fullContactCaseQuery.data ? (
+                    <Button
+                      variant="outline"
+                      className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
+                      onClick={() => setContactOutcomeOpen(true)}
+                    >
+                      <Phone className="h-4 w-4 shrink-0" />
+                      Zaloguj wynik telefonu
+                    </Button>
+                  ) : null}
+                  {canWriteSourcing ? (
+                    canMarkEmployed ? (
+                      <MarkEmployedAction
+                        candidateId={candidateId}
+                        employment={candidate.employment}
+                        open={markEmployedOpen}
+                        onOpenChange={setMarkEmployedOpen}
+                        anchor={moreActionsMenu}
+                      />
+                    ) : (
+                      moreActionsMenu
+                    )
+                  ) : null}
                 </div>
               </div>
 
@@ -937,6 +1021,7 @@ export function CandidateQuickView({
                 candidateId={candidateId}
                 notes={quickView.recent_notes}
                 canWrite={canWriteSourcing}
+                composeRequest={composeNoteRequest}
               />
             </div>
 

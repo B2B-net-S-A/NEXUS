@@ -40,6 +40,21 @@ import {
   type EmploymentInfo,
 } from "@/components/v2/CandidateHighlights";
 import { ContractorsListV2 } from "@/components/v2/pages/ContractorsListV2";
+import { useAuthStore } from "@/store/auth";
+
+function setDeliveryAccess(access: "read" | "none") {
+  useAuthStore.setState({
+    user: {
+      id: 5,
+      email: "dl@example.com",
+      name: "DL",
+      role: "recruiter",
+      effective_section_access: { delivery: access },
+    } as never,
+    realUser: null,
+    hydrated: true,
+  });
+}
 
 function renderWithQueryClient(ui: React.ReactNode) {
   const client = new QueryClient({
@@ -108,12 +123,32 @@ describe("powiązania kandydata i kontraktora", () => {
       source: "pipeline",
     };
 
+    setDeliveryAccess("read");
     render(<AtOurClientBanner employment={employment} />);
 
     expect(screen.getByText("Zatrudniony u: Nordea")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: /Przejdź do kontraktora/ }),
     ).toHaveAttribute("href", "/contracts/91?from=candidate");
+  });
+
+  it("bez sekcji Delivery baner zostaje, ale bez linku do kontraktora", () => {
+    const employment: EmploymentInfo = {
+      state: "employed_at_client",
+      client_id: 3,
+      client_name: "Nordea",
+      contract_id: 91,
+      job_id: 20,
+      source: "pipeline",
+    };
+
+    setDeliveryAccess("none");
+    render(<AtOurClientBanner employment={employment} />);
+
+    expect(screen.getByText("Zatrudniony u: Nordea")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /Przejdź do kontraktora/ }),
+    ).toBeNull();
   });
 
   it("lista kontraktorów pokazuje oczekujący status i osobne linki w obie strony", async () => {

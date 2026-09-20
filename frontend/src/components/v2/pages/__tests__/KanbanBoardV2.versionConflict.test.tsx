@@ -104,16 +104,17 @@ function renderBoard() {
   return { invalidate };
 }
 
-async function clickDockPill(name: string) {
+async function clickDockStage(name: string) {
   const card = await waitFor(() => {
     const el = document.querySelector("[data-kanban-card]");
     expect(el).toBeTruthy();
     return el as HTMLElement;
   });
   fireEvent.click(card);
-  const heading = await screen.findByText("Przenieś na etap");
-  const pills = heading.parentElement as HTMLElement;
-  fireEvent.click(within(pills).getByRole("button", { name }));
+  // Etapy poza główną akcją są w menu „Inny etap…” doku.
+  await userEvent.click(await screen.findByRole("button", { name: "Inny etap…" }));
+  const menu = await screen.findByRole("menu");
+  await userEvent.click(within(menu).getByRole("menuitem", { name }));
 }
 
 function moveCalls() {
@@ -132,7 +133,7 @@ describe("KanbanBoardV2 — wersja procesu przy ruchu (F05)", () => {
     post.mockResolvedValue({ data: { id: 802, process_state_version: 5 } });
     renderBoard();
 
-    await clickDockPill("Interview Wewnętrzny");
+    await clickDockStage("Interview Wewnętrzny");
 
     await waitFor(() => expect(moveCalls()).toHaveLength(1));
     expect(moveCalls()[0][1]).toMatchObject({
@@ -160,7 +161,7 @@ describe("KanbanBoardV2 — wersja procesu przy ruchu (F05)", () => {
     });
     const { invalidate } = renderBoard();
 
-    await clickDockPill("Interview Wewnętrzny");
+    await clickDockStage("Interview Wewnętrzny");
 
     await waitFor(() =>
       expect(showError).toHaveBeenCalledWith(PIPELINE_VERSION_CONFLICT_MESSAGE),

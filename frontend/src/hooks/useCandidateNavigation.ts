@@ -86,8 +86,8 @@ export interface NavigationState {
   retry: () => void;
 }
 
-const candidatesPageQueryKey = (filters: CandidateFilters, page: number) =>
-  ["candidate-nav", filters, page] as const;
+const candidatesPageQueryKey = (filters: CandidateFilters, page: number, pageSize: number) =>
+  ["candidate-nav", filters, page, pageSize] as const;
 
 const positionToPage = (position: number, pageSize: number) =>
   Math.max(1, Math.floor((position - 1) / pageSize) + 1);
@@ -98,9 +98,13 @@ const positionWithinPage = (position: number, pageSize: number) =>
 async function fetchCandidatesPage(
   filters: CandidateFilters,
   page: number,
+  pageSize: number,
   signal?: AbortSignal,
 ): Promise<CandidatesPage> {
-  const params = filtersToApiParams(filters, page);
+  // `page_size` MUSI być ten sam co przy liczeniu strony z pozycji — lista
+  // pokazuje 20/50/100 wierszy, a bez parametru serwer zwraca domyślne 20 i
+  // „Następny kandydat” za granicą strony otwierał inną osobę.
+  const params = filtersToApiParams(filters, page, { page_size: pageSize });
   const res = await api.get<CandidatesPage>("/api/candidates", {
     params,
     paramsSerializer: { indexes: null },
@@ -136,8 +140,8 @@ export function useCandidateNavigation(opts: Options): NavigationState {
       : targetPage !== parentPage;
 
   const pageQuery = useQuery({
-    queryKey: candidatesPageQueryKey(filters, targetPage),
-    queryFn: ({ signal }) => fetchCandidatesPage(filters, targetPage, signal),
+    queryKey: candidatesPageQueryKey(filters, targetPage, pageSize),
+    queryFn: ({ signal }) => fetchCandidatesPage(filters, targetPage, pageSize, signal),
     enabled: needsFetch,
     staleTime: 30_000,
   });
@@ -183,7 +187,7 @@ export function useCandidateNavigation(opts: Options): NavigationState {
       // Different page → fetch it (react-query will cache by queryKey).
       try {
         setNavigationError(null);
-        const data = await fetchCandidatesPage(filters, nextPage);
+        const data = await fetchCandidatesPage(filters, nextPage, pageSize);
         const target = data.items[idx];
         if (target) {
           setTrackedTotal(data.total);

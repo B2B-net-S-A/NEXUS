@@ -59,6 +59,14 @@ import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
+import { KANBAN_VIEW_MODE_STORAGE_KEY } from "@/lib/kanban-view-preferences";
+
+// Domyślnie `nexus-ui` chowa puste kolumny (przegląd UX 17.09.2026). Te testy
+// liczą kolumny szablonu, więc startują z pełną tablicą; testy ukrywania
+// ustawiają flagę same.
+beforeEach(() => {
+  useUiStore.setState({ hideEmptyKanbanColumns: false } as never);
+});
 
 beforeAll(() => {
   // Radix Select uses pointer-capture APIs that jsdom does not implement.
@@ -462,15 +470,20 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     ] as never;
   }
 
-  async function openDockPills() {
+  async function openDock() {
     const card = await waitFor(() => {
       const el = document.querySelector("[data-kanban-card]");
       expect(el).toBeTruthy();
       return el as HTMLElement;
     });
     fireEvent.click(card);
-    const heading = await screen.findByText("Przenieś na etap");
-    return heading.parentElement as HTMLElement;
+    return screen.findByRole("complementary", { name: "Karta kandydata" });
+  }
+
+  async function openDockStageMenu() {
+    await openDock();
+    await userEvent.click(screen.getByRole("button", { name: "Inny etap…" }));
+    return screen.findByRole("menu");
   }
 
   const VETO = {
@@ -505,13 +518,15 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
 
   it("weto HM NIE wyszarza w doku „CV Wysłane” ani żadnego innego etapu", async () => {
     renderBoard(gateColumns(VETO));
-    const pills = await openDockPills();
+    const menu = await openDockStageMenu();
 
     for (const name of ["Zweryfikowany", "CV Wysłane", "Odrzucony"]) {
-      const pill = within(pills).getByRole("button", { name });
-      expect(pill).not.toBeDisabled();
-      expect(pill.getAttribute("title")).toBeNull();
+      const option = within(menu).getByRole("menuitem", { name });
+      expect(option).not.toHaveAttribute("aria-disabled", "true");
+      expect(option.getAttribute("title")).toBeNull();
     }
+    // Menu trzeba zamknąć, żeby przycisk doku pod nim był osiągalny.
+    await userEvent.keyboard("{Escape}");
     expect(screen.getByRole("button", { name: /Odrzuć z powodem/ })).not.toBeDisabled();
   });
 
@@ -556,7 +571,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
 
   it("weto HM na drodze naprzód: główna akcja doku proponuje następny etap, aktywny", async () => {
     renderBoard(vetoRouteColumns(VETO));
-    await openDockPills();
+    await openDock();
 
     const forward = screen.getByRole("button", { name: /Przenieś na etap: CV Wysłane/ });
     expect(forward).not.toBeDisabled();
@@ -567,7 +582,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
 
   it("karta bez weta dostaje zwykłą akcję naprzód na „CV Wysłane”", async () => {
     renderBoard(vetoRouteColumns({}));
-    await openDockPills();
+    await openDock();
 
     expect(
       screen.getByRole("button", { name: /Przenieś na etap: CV Wysłane/ }),
@@ -587,8 +602,8 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
         </TooltipProvider>
       </QueryClientProvider>,
     );
-    const pills = await openDockPills();
-    fireEvent.click(within(pills).getByRole("button", { name: "Preparation Meeting" }));
+    const menu = await openDockStageMenu();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Preparation Meeting" }));
 
     const dialog = await screen.findByRole("dialog");
     expect(
@@ -629,8 +644,8 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
   it("„Anuluj” w oknie ostrzeżenia nie wysyła drugiego ruchu i dociąga prawdę serwera", async () => {
     post.mockRejectedValueOnce(eligibilityWarning409());
     renderBoard(vetoRouteColumns(VETO));
-    const pills = await openDockPills();
-    fireEvent.click(within(pills).getByRole("button", { name: "Preparation Meeting" }));
+    const menu = await openDockStageMenu();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Preparation Meeting" }));
 
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Anuluj" }));
@@ -675,8 +690,8 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
       }),
     );
     renderBoard(gateColumns({}));
-    const pills = await openDockPills();
-    await userEvent.click(within(pills).getByRole("button", { name: "CV Wysłane" }));
+    const menu = await openDockStageMenu();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "CV Wysłane" }));
 
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith(
@@ -701,8 +716,8 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     // Odpowiedź `GET /api/jobs/{id}` musi dojść, zanim klikniemy.
     await waitFor(() => expect(get).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 0));
-    const pills = await openDockPills();
-    await userEvent.click(within(pills).getByRole("button", { name: "CV Wysłane" }));
+    const menu = await openDockStageMenu();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "CV Wysłane" }));
 
     expect(await screen.findByRole("dialog")).toBeTruthy();
     expect(moveCalls()).toHaveLength(0);
@@ -710,8 +725,8 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
 
   it("okno „Zweryfikowany” podpowiada stawkę z profilu, a „Pomiń stawkę” przesuwa bez stawki", async () => {
     renderBoard(gateColumns({ candidate_expected_rate_hourly: "120.00" }));
-    const pills = await openDockPills();
-    fireEvent.click(within(pills).getByRole("button", { name: "Zweryfikowany" }));
+    const menu = await openDockStageMenu();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Zweryfikowany" }));
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText("Kwota")).toHaveValue(120);
@@ -734,29 +749,36 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
 
 describe("KanbanBoardV2 — focus na etapie", () => {
   beforeEach(() => {
+    // Preferencja widoku jest globalna (per użytkownik, nie per rekrutacja),
+    // więc test, który kliknie „Kolumny", zapisałby ją dla następnych.
+    window.localStorage.clear();
     vi.clearAllMocks();
     kanban.mockResolvedValue({ data: { columns: [] } });
     post.mockResolvedValue({ data: {} });
   });
 
-  it("pokazuje pełny pipeline w równych desktopowych kolumnach", async () => {
+  it("pokazuje pełny pipeline w kolumnach o podłodze 200 px", async () => {
     const { container } = renderBoard(
       overviewColumns(),
       new Map([[90, 82]]),
     );
 
+    // 15 kolumn otwiera się domyślnie w widoku przeglądowym (decyzja Artura
+    // 20.09.2026) — ten test opisuje widok KOLUMNOWY, więc przełączamy jawnie.
+    await userEvent.click(await screen.findByRole("button", { name: "Widok kolumnowy" }));
     const board = await screen.findByTestId("pipeline-board");
     expect(board).toHaveAttribute("data-desktop-layout", "full-pipeline");
     expect(board).toHaveClass("overflow-auto", "xl:pointer-fine:gap-1");
     expect(container.querySelectorAll("[data-colid]")).toHaveLength(15);
     for (const column of container.querySelectorAll("[data-colid]")) {
       expect(column).toHaveClass(
-        "xl:pointer-fine:w-0",
-        "xl:pointer-fine:min-w-0",
-        "xl:pointer-fine:basis-0",
+        "xl:pointer-fine:w-auto",
+        "xl:pointer-fine:min-w-[12.5rem]",
+        "xl:pointer-fine:basis-[12.5rem]",
         "xl:pointer-fine:grow",
-        "xl:pointer-fine:shrink",
       );
+      // Dawny tryb kafelkowy ściskał kolumnę do zera.
+      expect(column).not.toHaveClass("xl:pointer-fine:min-w-0");
     }
 
     expect(container.querySelector("[data-mobile-stage-navigation]")).toHaveClass(
@@ -770,19 +792,14 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     const candidate = await screen.findByRole("link", {
       name: "Aleksandra Nowakowska",
     });
-    expect(candidate.closest("[data-kanban-card]")).toHaveClass(
-      "xl:pointer-fine:p-1",
-      "xl:pointer-fine:pb-6",
-      "xl:pointer-fine:pt-6",
-    );
-    expect(candidate.closest("[data-kanban-card]")?.getAttribute("title")).toContain(
-      "Aleksandra Nowakowska",
-    );
-    expect(candidate.closest("[data-kanban-card]")?.getAttribute("title")).toContain(
+    const card = candidate.closest("[data-kanban-card]");
+    expect(card).not.toHaveClass("xl:pointer-fine:pt-6");
+    expect(card).toHaveAttribute("data-candidate-id", "90");
+    expect(card?.getAttribute("title")).toContain("Aleksandra Nowakowska");
+    expect(card?.getAttribute("title")).toContain(
       "Dodano do rekrutacji przez: Ewa Nowak",
     );
-    expect(screen.getByTestId("overview-match-score-90")).toHaveTextContent("82");
-    expect(screen.getByText("R: Ewa")).toBeTruthy();
+    expect(screen.queryByTestId("overview-match-score-90")).toBeNull();
     const descriptionId = candidate.getAttribute("aria-describedby");
     expect(descriptionId).toBeTruthy();
     expect(container.querySelector(`#${descriptionId}`)).toHaveTextContent(
@@ -799,11 +816,6 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     ).toBeTruthy();
   });
 
-  // Fala 3 („parytet z makietami") przesunęła próg zwężenia karty z czterech
-  // etapów na dziesięć: po zwinięciu pustych grup „Default B2B" renderuje
-  // dziesięć kolumn (z „Ogłoszeniami") i to WŁAŚNIE tam karta ma pokazać
-  // pełny układ z makiety.
-  // Cztery kolumny to tym bardziej pełna karta — nie kafelek.
   it("przy czterech etapach zostawia pełną kartę, nie kafelek", async () => {
     const columns = (
       overviewColumns() as unknown as Array<Record<string, unknown>>
@@ -818,7 +830,6 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     expect(candidate.closest("[data-kanban-card]")).not.toHaveClass(
       "xl:pointer-fine:pt-6",
     );
-    // Kafelkowy badge wyniku jest tylko w trybie przeglądowym.
     expect(screen.queryByTestId("overview-match-score-90")).toBeNull();
     // Pełna karta niesie wiersz „co dalej" (5 dni na etapie wejściowym).
     expect(screen.getByText("Umów screening")).toBeTruthy();
@@ -829,17 +840,26 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     );
   });
 
-  it("powyżej dziesięciu kolumn karta wraca do kafelka", async () => {
-    renderBoard(overviewColumns());
+  it("powyżej dziesięciu kolumn karta startuje jako kafelek, a „Kolumny” ją rozwijają", async () => {
+    renderBoard(overviewColumns(), new Map([[90, 82]]));
 
     await screen.findByTestId("pipeline-board");
     const candidate = await screen.findByRole("link", {
       name: "Aleksandra Nowakowska",
     });
+    // Domyślnie kafelek: karta ściśnięta, wynik jako odznaka zamiast pierścienia.
     expect(candidate.closest("[data-kanban-card]")).toHaveClass(
       "xl:pointer-fine:pt-6",
     );
     expect(screen.getByTestId("overview-match-score-90")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Widok kolumnowy" }));
+
+    expect(candidate.closest("[data-kanban-card]")).not.toHaveClass(
+      "xl:pointer-fine:pt-6",
+    );
+    expect(screen.queryByTestId("overview-match-score-90")).toBeNull();
+    expect(screen.getByText("Umów screening")).toBeTruthy();
   });
 
   it("zachowuje scroll i navigator dla pipeline dłuższego niż 16 etapów", async () => {
@@ -1027,7 +1047,9 @@ describe("KanbanBoardV2 — karty poza szablonem", () => {
     await userEvent.click(bulkTrigger as Element);
 
     const options = await screen.findAllByRole("option");
-    expect(options).toHaveLength(15);
+    // 15 etapów szablonu bez „Zatrudniony" — hired oznacza się pojedynczo.
+    expect(options).toHaveLength(14);
+    expect(options.some((o) => o.textContent?.includes("Zatrudniony"))).toBe(false);
     expect(
       options.some((o) => o.textContent?.includes("Poza szablonem")),
     ).toBe(false);
@@ -1362,5 +1384,227 @@ describe("KanbanBoardV2 — „Utknęli > 7 d” bez kolumn terminalnych", () =>
     };
     renderBoard(columns as never);
     expect(await screen.findByText("Utknęli > 7 d · 1")).toBeInTheDocument();
+  });
+});
+
+// Przegląd UX 17.09.2026: dok nie zajmuje kolumny siatki — wysuwa się z prawej
+// dopiero po kliknięciu karty, Escape go zamyka, a `?candidate=` otwiera go
+// od razu z powiadomienia.
+describe("KanbanBoardV2 — wysuwany dok i deep link ?candidate=", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
+    post.mockResolvedValue({ data: {} });
+    useAuthStore.setState({ user: { id: 1, role: "admin", roles: ["admin"] } } as never);
+    useUiStore.setState({ density: "cozy" } as never);
+  });
+
+  function dockColumns() {
+    return overviewColumns();
+  }
+
+  it("bez kliknięcia karty nie ma doku ani pustego panelu obok tablicy", async () => {
+    renderBoard(dockColumns());
+    await screen.findByTestId("pipeline-board");
+    expect(
+      screen.queryByRole("complementary", { name: "Karta kandydata" }),
+    ).toBeNull();
+    expect(screen.queryByText(/Kliknij kartę na tablicy/)).toBeNull();
+  });
+
+  it("klik karty otwiera dok, Escape go zamyka", async () => {
+    renderBoard(dockColumns());
+    const link = await screen.findByRole("link", { name: "Aleksandra Nowakowska" });
+    fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
+    expect(
+      await screen.findByRole("complementary", { name: "Karta kandydata" }),
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("complementary", { name: "Karta kandydata" }),
+      ).toBeNull(),
+    );
+  });
+
+  it("Escape przy otwartym dialogu nie zamyka doku", async () => {
+    renderBoard(dockColumns());
+    const link = await screen.findByRole("link", { name: "Aleksandra Nowakowska" });
+    fireEvent.click(link.closest("[data-kanban-card]") as HTMLElement);
+    await screen.findByRole("complementary", { name: "Karta kandydata" });
+
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    document.body.appendChild(dialog);
+    try {
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(
+        screen.getByRole("complementary", { name: "Karta kandydata" }),
+      ).toBeInTheDocument();
+    } finally {
+      dialog.remove();
+    }
+  });
+
+  it("initialDockCandidateId otwiera dok tej osoby i prosi stronę o zdjęcie parametru", async () => {
+    const onHandled = vi.fn();
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2
+            columns={dockColumns()}
+            jobId={10}
+            initialDockCandidateId={90}
+            onInitialDockHandled={onHandled}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+
+    const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
+    expect(within(dock).getByText("Aleksandra Nowakowska")).toBeInTheDocument();
+    expect(onHandled).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenCalled();
+    scrollIntoView.mockRestore();
+  });
+
+  it("initialDockCandidateId spoza tablicy nie otwiera doku, ale i tak zdejmuje parametr", async () => {
+    const onHandled = vi.fn();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2
+            columns={dockColumns()}
+            jobId={10}
+            initialDockCandidateId={12345}
+            onInitialDockHandled={onHandled}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByTestId("pipeline-board");
+    await waitFor(() => expect(onHandled).toHaveBeenCalledTimes(1));
+    expect(
+      screen.queryByRole("complementary", { name: "Karta kandydata" }),
+    ).toBeNull();
+  });
+});
+
+
+// ── Przełącznik widoku: kafelki ↔ kolumny (decyzja Artura 20.09.2026) ────────
+//
+// Tryb kafelkowy (karty degradowane do ~25 px, żeby cały szablon zmieścił się
+// bez przewijania) ZOSTAJE, ale jako wybór użytkownika. Reguła automatyczna —
+// szablon szerszy niż `OVERVIEW_COLUMN_THRESHOLD` otwiera się kafelkowo — jest
+// tylko WARTOŚCIĄ DOMYŚLNĄ.
+//
+// To jedyna warstwa, która to łapie: usterka #1604 (odznaka screeningu na
+// `absolute bottom-1 right-1` przykrywająca „następną akcję") przeszła przez
+// komplet zielonych testów, bo układu karty nikt nie asercjonował.
+describe("KanbanBoardV2 — przełącznik widoku tablicy", () => {
+  /** `n` kolumn, każda z jedną kartą (pustych nie ukrywamy w tych testach). */
+  function wideColumns(n: number) {
+    return Array.from({ length: n }, (_, i) => ({
+      stage: "new",
+      name: `Etap ${i + 1}`,
+      category: "internal",
+      stage_def_id: 900 + i,
+      count: 1,
+      items: [
+        {
+          id: 7000 + i,
+          candidate_id: 7000 + i,
+          name: "Kandydat",
+          lastname: `Nr${i + 1}`,
+          stage: "new",
+          days_in_stage: 1,
+          verification_status: "active",
+        },
+      ],
+    })) as never;
+  }
+
+  function renderWide(n: number) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2 columns={wideColumns(n)} jobId={10} />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  const toggle = () => screen.queryByRole("group", { name: "Widok tablicy" });
+  const tiles = () => screen.getByRole("button", { name: "Widok przeglądowy" });
+  const columns = () => screen.getByRole("button", { name: "Widok kolumnowy" });
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.clearAllMocks();
+    kanban.mockResolvedValue({ data: { columns: [], off_template: null } });
+    post.mockResolvedValue({ data: {} });
+    get.mockImplementation(() =>
+      Promise.resolve({
+        data: { effective_budget_hourly: null, pipeline_template_id: null },
+      }),
+    );
+  });
+
+  it("szeroki szablon startuje w widoku przeglądowym, bez zapisanej preferencji", async () => {
+    renderWide(12);
+    await screen.findByTestId("pipeline-board");
+
+    expect(toggle()).toBeInTheDocument();
+    expect(tiles()).toHaveAttribute("aria-pressed", "true");
+    expect(columns()).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("kliknięcie „Kolumny” przełącza widok i zapisuje wybór", async () => {
+    renderWide(12);
+    await screen.findByTestId("pipeline-board");
+
+    await userEvent.click(columns());
+
+    expect(columns()).toHaveAttribute("aria-pressed", "true");
+    expect(tiles()).toHaveAttribute("aria-pressed", "false");
+    expect(window.localStorage.getItem(KANBAN_VIEW_MODE_STORAGE_KEY)).toBe("columns");
+  });
+
+  it("wybór przeżywa przemontowanie — reguła automatyczna go nie nadpisuje", async () => {
+    const first = renderWide(12);
+    await screen.findByTestId("pipeline-board");
+    await userEvent.click(columns());
+    first.unmount();
+
+    renderWide(12);
+    await screen.findByTestId("pipeline-board");
+
+    expect(columns()).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("wąski szablon nie ma przełącznika — kafelki dałyby tam tylko mniejsze karty", async () => {
+    renderWide(4);
+    await screen.findByTestId("pipeline-board");
+
+    expect(toggle()).toBeNull();
+  });
+
+  it("zapamiętane kafelki NIE wracają na wąskim szablonie — byłby to stan bez wyjścia", async () => {
+    window.localStorage.setItem(KANBAN_VIEW_MODE_STORAGE_KEY, "tiles");
+    renderWide(4);
+    await screen.findByTestId("pipeline-board");
+
+    // Przełącznika nie ma, więc nie ma czym wyjść z kafelków — widok musi być
+    // kolumnowy. Preferencja zostaje zapisana i wróci na szerokim szablonie.
+    expect(toggle()).toBeNull();
+    expect(window.localStorage.getItem(KANBAN_VIEW_MODE_STORAGE_KEY)).toBe("tiles");
   });
 });

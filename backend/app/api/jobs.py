@@ -82,6 +82,7 @@ from app.api.recruitment_access import (
     ensure_champion_job_read_visible,
     ensure_delivery_lead_job_visible,
     ensure_job_membership,
+    ensure_job_read_access,
 )
 from app.services.requirement_contract import apply_requirement_source_update
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
@@ -136,6 +137,11 @@ RecruitmentHistoryReadUser = Annotated[
         )
     ),
 ]
+
+# Organisation-wide readers of the request history (every client, fee amounts).
+# Everyone else reaches the Historia tab only as a member of the recruitment's
+# team — same client only, without fee amounts (decision 17.09.2026).
+_HISTORY_ORG_READER_ROLES = (UserRole.admin, UserRole.delivery_lead, UserRole.finance)
 
 
 # Moved to `app.api.recruitment_access` so surfaces outside this router — a
@@ -3473,7 +3479,7 @@ def _split_entries(entries):
 @router.get("/{job_id}/request-history")
 async def get_request_history(
     job_id: int,
-    current_user: RecruitmentHistoryReadUser,
+    current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),
     top_k: int = Query(default=10, ge=1, le=30),
     cross_client: bool = Query(default=False),
@@ -3484,6 +3490,11 @@ async def get_request_history(
     Splits the list into `closed` and `in_progress`. `skill_frequency` is
     computed only on closed entries (open jobs have no hire yet). Cheap by
     default — same-client SQL hit avoids Voyage entirely.
+
+    Admin / Delivery Lead / Finance read it organisation-wide, as before.
+    Any other operational role reads it only as a member of this recruitment's
+    team: history of THIS client only (``cross_client`` is ignored) and without
+    fee amounts (17.09.2026).
     """
     from app.schemas.request_history import (
         RequestHistoryEntry as RequestHistoryEntrySchema,
@@ -3502,9 +3513,15 @@ async def get_request_history(
     job = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
-    await ensure_champion_job_read_visible(job, current_user, db)
-    _assert_delivery_lead_cross_client_disabled(cross_client, delivery_lead_pairs)
+    is_org_reader = current_user.has_any_role(*_HISTORY_ORG_READER_ROLES)
+    if is_org_reader:
+        delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
+        await ensure_champion_job_read_visible(job, current_user, db)
+        _assert_delivery_lead_cross_client_disabled(cross_client, delivery_lead_pairs)
+    else:
+        await ensure_job_read_access(db, current_user, job.id)
+        # Recruitment team members see this client's history only.
+        cross_client = False
 
     entries = await find_similar_requests(
         db,
@@ -3517,6 +3534,15 @@ async def get_request_history(
         exclude_job_id=job.id,
         include_open=include_open,
     )
+
+    if not is_org_reader:
+        # ``cross_client=False`` alone is not a client scope: a job without a
+        # client makes the semantic step unscoped. Keep this client's rows only.
+        entries = [
+            e
+            for e in entries
+            if job.client_id is not None and e.client_id == job.client_id
+        ]
 
     closed, in_progress = _split_entries(entries)
 
@@ -3551,11 +3577,18 @@ async def get_request_history(
         skill_freq = skill_frequency(proxy_matches)
 
     counts = aggregate_meta_counts(entries)
+
+    def _entry(e) -> RequestHistoryEntrySchema:
+        data = dict(e.__dict__)
+        if not is_org_reader:
+            # Service entries are frozen dataclasses — redact on the copy.
+            # Not VIEW_FINANCE: a Delivery Lead keeps the amounts they see today.
+            data.update(fee_rate=None, fee_currency=None, rate_unit=None)
+        return RequestHistoryEntrySchema.model_validate(data)
+
     return RequestHistoryResponse(
-        closed=[RequestHistoryEntrySchema.model_validate(e.__dict__) for e in closed],
-        in_progress=[
-            RequestHistoryEntrySchema.model_validate(e.__dict__) for e in in_progress
-        ],
+        closed=[_entry(e) for e in closed],
+        in_progress=[_entry(e) for e in in_progress],
         skill_frequency=skill_freq,
         meta=RequestHistoryMeta(
             sql_count=counts["sql_count"],

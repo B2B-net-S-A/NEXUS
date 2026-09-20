@@ -5,9 +5,16 @@ import { useRouter } from "next/navigation";
 import { X, ArrowRight, LayoutDashboard, Users, Briefcase, Sparkles, CheckCircle2 } from "lucide-react";
 import {
   clearOnboardingCompleted,
-  isOnboardingCompleted,
   markOnboardingCompleted,
 } from "@/lib/onboarding-storage";
+
+/** Zdarzenie otwierające przewodnik (Ustawienia → „Pokaż przewodnik"). */
+export const OPEN_ONBOARDING_EVENT = "nexus:open-onboarding";
+
+export function requestOnboardingOpen(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(OPEN_ONBOARDING_EVENT));
+}
 
 // ── Steps config ──────────────────────────────────────────────────────────────
 
@@ -49,11 +56,12 @@ const STEPS = [
 export function useOnboarding() {
   const [shouldShow, setShouldShow] = useState(false);
 
+  // Bez automatycznego startu (przegląd UX 17.09.2026): modal zasłaniał
+  // pierwszy ekran nowej osoby. Przewodnik otwiera się wyłącznie na żądanie.
   useEffect(() => {
-    if (!isOnboardingCompleted()) {
-      // Slight delay so the page loads first
-      setTimeout(() => setShouldShow(true), 800);
-    }
+    const open = () => setShouldShow(true);
+    window.addEventListener(OPEN_ONBOARDING_EVENT, open);
+    return () => window.removeEventListener(OPEN_ONBOARDING_EVENT, open);
   }, []);
 
   const dismiss = () => {

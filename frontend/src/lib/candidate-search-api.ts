@@ -252,7 +252,9 @@ export type BulkAddSource =
   | "full_search"
   | "manual_search"
   | "historical"
-  | "quick_add";
+  | "quick_add"
+  | "talent_radar"
+  | "candidate_list";
 
 export interface BulkProposalsRequest {
   candidate_ids: number[];

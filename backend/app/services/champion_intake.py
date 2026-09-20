@@ -195,6 +195,51 @@ def pln_hourly_bounds(value):
     return None
 
 
+# A rate phrase inside free text (a pasted request, not a rate field): an
+# optional label, an optional bound word, one value or a range, the currency
+# and net qualifiers, then the per-hour unit. Only the WINDOW is found here;
+# whether it really is a PLN/h rate is decided by `pln_hourly_bounds`.
+# The text is whitespace-collapsed BEFORE matching (``budget_max_pln_hour``),
+# so every separator below is at most ONE space (`` ?``). Stacked ``\s*``
+# groups next to each other made this regex backtrack cubically on a pasted
+# request with a long run of blank lines after a number — one call froze the
+# single uvicorn process for tens of seconds (adversarial review 17.09.2026).
+_BUDGET_WINDOW = re.compile(
+    rf"(?:(?:stawka|budzet)[^:\n]{{0,30}}: ?)?"
+    rf"(?:(?:od|do|max\.?|maks\.?|maksymalnie) ?)?(?:pln ?)?(?:{_RATE_NUMBER})"
+    rf"(?: ?(?:-|/|do) ?(?:{_RATE_NUMBER}))? ?(?:pln|zl)?\.? ?"
+    rf"(?:(?:netto|net|\+ ?vat|b2b) ?)*"
+    rf"(?:/ ?(?:1 ?)?(?:h|hr|godz(?:ina|ine|\.)?)"
+    rf"|(?:za|na|per) (?:1 ?)?(?:h|godz(?:ina|ine|\.)?))(?![a-z])"
+)
+
+# A budget phrase is short; a 20 000-character paste never needs more than
+# this to find it, and the cap bounds the work regardless of the regex.
+_BUDGET_TEXT_LIMIT = 5000
+
+
+def budget_max_pln_hour(text: str | None) -> int | None:
+    """Upper PLN/h budget stated in a pasted request, else None.
+
+    A SUGGESTION for the Talent Radar budget field (17.09.2026), never a
+    filter by itself: the recruiter sees it filled and can clear it. Every
+    rate phrase in the text must agree on one upper bound — two different
+    rates ("120 zł/h i 160 zł/h") are ambiguous and suggest nothing.
+    """
+    t = folded((text or "")[:_BUDGET_TEXT_LIMIT])
+    t = re.sub(r"[\u2010-\u2015\u2212]", "-", t)
+    t = re.sub(r"\s+", " ", t)
+    highs = {
+        bounds[1]
+        for match in _BUDGET_WINDOW.finditer(t)
+        if (bounds := pln_hourly_bounds(match.group(0)))
+    }
+    if len(highs) != 1:
+        return None
+    high = next(iter(highs))
+    return int(high) if 0 < high <= 2000 else None
+
+
 def document_rate(text):
     """``(rate, is_bound)`` read from a document's rate text, or None.
 

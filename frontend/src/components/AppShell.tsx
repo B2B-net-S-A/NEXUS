@@ -38,6 +38,7 @@ import type {
 import { useCapability } from "@/hooks/useCapability";
 import { editableTagText, mergeEditedTags, structuredTagLabels } from "@/lib/candidate-tags";
 import { useClickOutside } from "@/lib/use-click-outside";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { CompetenceCategoryPicker } from "@/components/jobs/CompetenceCategoryPicker";
 import { CreateJobModal } from "@/components/v2/modals/CreateJobModal";
 
@@ -538,6 +539,7 @@ function CandidateFormFields({
   users,
   clients,
   importedTagLabels = [],
+  collapseSecondary = false,
 }: {
   form: CandidateFormData;
   onChange: (k: keyof CandidateFormData, v: string) => void;
@@ -547,6 +549,11 @@ function CandidateFormFields({
   clients: { id: number; name: string }[];
   /** Tagi z importu (np. źródło z Traffita) — zapis ich nie zmienia (UAT B60). */
   importedTagLabels?: string[];
+  /**
+   * Ręczne dodanie: widoczne tylko Imię, Nazwisko, E-mail, Telefon i Miasto,
+   * reszta pod „Więcej danych”. Edycja profilu pokazuje wszystko jak dotąd.
+   */
+  collapseSecondary?: boolean;
 }) {
   const CB = ({
     field,
@@ -572,24 +579,9 @@ function CandidateFormFields({
     );
   };
 
-  return (
+  const secondaryFields = (
     <>
       <div className="grid grid-cols-2 gap-3">
-        <FieldGroup label="Imię" required>
-          <Input value={form.name} onChange={e => onChange("name", e.target.value)} placeholder="Jan" />
-        </FieldGroup>
-        <FieldGroup label="Nazwisko" required>
-          <Input value={form.lastname} onChange={e => onChange("lastname", e.target.value)} placeholder="Kowalski" />
-        </FieldGroup>
-        <FieldGroup label="Email">
-          <Input type="email" value={form.email} onChange={e => onChange("email", e.target.value)} placeholder="jan@mail.pl" />
-        </FieldGroup>
-        <FieldGroup label="Telefon">
-          <Input type="tel" value={form.phone} onChange={e => onChange("phone", e.target.value)} placeholder="+48 500..." />
-        </FieldGroup>
-        <FieldGroup label="Miasto">
-          <Input value={form.city} onChange={e => onChange("city", e.target.value)} placeholder="Warszawa" />
-        </FieldGroup>
         <FieldGroup label="Kraj (ISO)">
           <Input
             value={form.country}
@@ -800,6 +792,38 @@ function CandidateFormFields({
       </div>
     </>
   );
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldGroup label="Imię" required>
+          <Input value={form.name} onChange={e => onChange("name", e.target.value)} placeholder="Jan" />
+        </FieldGroup>
+        <FieldGroup label="Nazwisko" required>
+          <Input value={form.lastname} onChange={e => onChange("lastname", e.target.value)} placeholder="Kowalski" />
+        </FieldGroup>
+        <FieldGroup label="Email">
+          <Input type="email" value={form.email} onChange={e => onChange("email", e.target.value)} placeholder="jan@mail.pl" />
+        </FieldGroup>
+        <FieldGroup label="Telefon">
+          <Input type="tel" value={form.phone} onChange={e => onChange("phone", e.target.value)} placeholder="+48 500..." />
+        </FieldGroup>
+        <FieldGroup label="Miasto">
+          <Input value={form.city} onChange={e => onChange("city", e.target.value)} placeholder="Warszawa" />
+        </FieldGroup>
+      </div>
+      {collapseSecondary ? (
+        <details className="group rounded-lg border border-border">
+          <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium text-foreground">
+            Więcej danych
+          </summary>
+          <div className="space-y-4 border-t border-border p-3">{secondaryFields}</div>
+        </details>
+      ) : (
+        secondaryFields
+      )}
+    </>
+  );
 }
 
 interface DuplicateCandidateHit {
@@ -811,12 +835,48 @@ interface DuplicateCandidateHit {
   match_reasons: string[];
 }
 
+type DuplicateIdentityFields = Pick<CandidateFormData, "email" | "phone" | "linkedin" | "name" | "lastname">;
+
+/**
+ * Tożsamość sprawdzana automatycznie — te same pola, po których dopasowuje
+ * backend (`dedup_service`: e-mail, telefon, LinkedIn, imię+nazwisko). Zmiana
+ * któregokolwiek = nowe sprawdzenie; inaczej zapis użyłby wyniku sprzed
+ * wpisania nazwiska albo profilu LinkedIn istniejącej osoby.
+ */
+function duplicateIdentityKey(form: DuplicateIdentityFields): string {
+  return JSON.stringify([
+    form.email.trim().toLowerCase(),
+    form.phone.trim(),
+    form.linkedin.trim().toLowerCase(),
+    form.name.trim().toLowerCase(),
+    form.lastname.trim().toLowerCase(),
+  ]);
+}
+
+/** Czy jest z czym porównać: kontakt, LinkedIn albo pełne imię i nazwisko. */
+function hasDuplicateIdentity(form: DuplicateIdentityFields): boolean {
+  return Boolean(
+    form.email.trim() ||
+      form.phone.trim() ||
+      form.linkedin.trim() ||
+      (form.name.trim() && form.lastname.trim()),
+  );
+}
+
+const DUPLICATE_CHECK_DEBOUNCE_MS = 400;
+
 export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
   const [form, setForm] = useState<CandidateFormData>(EMPTY_CANDIDATE);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [duplicates, setDuplicates] = useState<DuplicateCandidateHit[]>([]);
-  const [dupeChecked, setDupeChecked] = useState(false);
+  // Klucz tożsamości (e-mail, telefon, LinkedIn, imię i nazwisko), dla którego `duplicates` jest aktualne.
+  const [checkedKey, setCheckedKey] = useState<string>(() => duplicateIdentityKey(EMPTY_CANDIDATE));
+  // Zapis zatrzymany na trafieniach — rekruter wybiera „Otwórz istniejącego” albo „Zapisz mimo to”.
+  const [decisionPending, setDecisionPending] = useState(false);
+  const checkSeqRef = useRef(0);
+  const formRef = useRef(form);
+  formRef.current = form;
 
   const { data: usersData } = useQuery({
     queryKey: ["users-list-for-candidate"],
@@ -842,35 +902,77 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
       return { ...f, [k]: next };
     });
 
-  const checkDuplicates = async () => {
-    if (!form.email && !form.phone && !form.linkedin && !(form.name && form.lastname)) return;
+  /**
+   * Sprawdza duplikaty dla migawki formularza. Każde wywołanie unieważnia
+   * wcześniejsze w locie (licznik), więc spóźniona odpowiedź dla starego
+   * e-maila nie nadpisze wyniku dla bieżącego. Zwraca trafienia tego
+   * wywołania (fail-open: błąd usługi = brak trafień, nie blokada zapisu).
+   */
+  const checkDuplicates = async (snapshot: CandidateFormData): Promise<DuplicateCandidateHit[]> => {
+    const seq = ++checkSeqRef.current;
+    const key = duplicateIdentityKey(snapshot);
+    if (!hasDuplicateIdentity(snapshot)) {
+      setDuplicates([]);
+      setCheckedKey(key);
+      return [];
+    }
+    let hits: DuplicateCandidateHit[] = [];
     try {
       const res = await api.post("/api/candidates/check-duplicates", {
-        email: form.email || undefined,
-        phone: form.phone || undefined,
-        linkedin: form.linkedin || undefined,
-        name: form.name || undefined,
-        lastname: form.lastname || undefined,
+        email: snapshot.email || undefined,
+        phone: snapshot.phone || undefined,
+        linkedin: snapshot.linkedin || undefined,
+        name: snapshot.name || undefined,
+        lastname: snapshot.lastname || undefined,
       });
-      setDuplicates(Array.isArray(res.data) ? res.data : []);
-      setDupeChecked(true);
+      hits = Array.isArray(res?.data) ? res.data : [];
     } catch (err) {
       console.error("Duplicate check failed: ", err);
-      setDupeChecked(true); // Fail-open: don't block save on service error
     }
+    if (seq === checkSeqRef.current) {
+      setDuplicates(hits);
+      setCheckedKey(key);
+    }
+    return hits;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const debouncedIdentityKey = useDebouncedValue(duplicateIdentityKey(form), DUPLICATE_CHECK_DEBOUNCE_MS);
+  useEffect(() => {
+    const snapshot = formRef.current;
+    // Pierwszy render z pustym formularzem — nic do sprawdzenia.
+    if (!hasDuplicateIdentity(snapshot) && duplicates.length === 0) return;
+    // Klucz się zmienił w trakcie opóźnienia — kolejne wywołanie efektu sprawdzi świeży stan.
+    if (duplicateIdentityKey(snapshot) !== debouncedIdentityKey) return;
+    void checkDuplicates(snapshot);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedIdentityKey]);
+
+  const currentKey = duplicateIdentityKey(form);
+  const showDecision = decisionPending && duplicates.length > 0 && currentKey === checkedKey;
+
+  const saveCandidate = async (force: boolean) => {
     if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
     setSaving(true); setError("");
     try {
+      if (!force) {
+        // Szybki zapis przed końcem debounce: sprawdź to, co jest w polach teraz.
+        const hits = currentKey === checkedKey ? duplicates : await checkDuplicates(form);
+        if (hits.length > 0) {
+          setDecisionPending(true);
+          return;
+        }
+      }
       await api.post("/api/candidates", candidateFormToPayload(form));
       onSuccess("Kandydat dodany pomyślnie");
       onClose();
     } catch (err: any) {
       setError(formErrorMsg(err, "Błąd podczas zapisywania"));
     } finally { setSaving(false); }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveCandidate(false);
   };
 
   return (
@@ -917,20 +1019,48 @@ export function AddCandidateModal({ onClose, onSuccess }: { onClose: () => void;
           onMulti={onMulti}
           users={users}
           clients={clients}
+          collapseSecondary
         />
-        <div className="flex justify-between items-center pt-1">
-          <button
-            type="button"
-            onClick={checkDuplicates}
-            className="h-9 px-3 text-xs text-primary dark:text-primary hover:bg-primary/10 dark:hover:bg-primary/15 rounded-md transition-colors"
+        {showDecision ? (
+          <div
+            role="alert"
+            className="space-y-3 rounded-md border border-amber-300 bg-amber-50 p-3 dark:bg-amber-900/20"
           >
-            {dupeChecked ? "Sprawdź duplikaty ponownie" : "Sprawdź duplikaty"}
-          </button>
-          <div className="flex gap-3">
+            <p className="text-sm font-medium text-foreground">
+              Ten kandydat może już być w bazie: {duplicates[0].name} {duplicates[0].lastname}
+              {duplicates[0].email ? ` (${duplicates[0].email})` : ""}.
+            </p>
+            <div className="flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDecisionPending(false)}
+                className="h-10 px-4 text-sm text-muted-foreground hover:text-foreground rounded-lg transition-colors"
+              >
+                Wróć do formularza
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => void saveCandidate(true)}
+                className="h-10 px-4 text-sm font-medium rounded-lg border border-border bg-card hover:bg-muted disabled:opacity-60 transition-colors"
+              >
+                Zapisz mimo to
+              </button>
+              <Link
+                href={`/candidates/${duplicates[0].candidate_id}`}
+                onClick={onClose}
+                className="inline-flex h-10 items-center px-4 bg-primary hover:bg-primary/90 text-white rounded-lg text-sm font-medium transition-all"
+              >
+                Otwórz istniejącego
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-end items-center gap-3 pt-1">
             <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
             <SaveButton saving={saving} label="Dodaj kandydata" />
           </div>
-        </div>
+        )}
       </form>
     </Modal>
   );

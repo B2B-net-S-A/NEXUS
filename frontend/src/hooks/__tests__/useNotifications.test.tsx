@@ -9,6 +9,7 @@ vi.mock("@/store/auth", () => ({
 
 import {
   CHAT_REFRESH_COALESCE_MS,
+  PIPELINE_CHANGED_DEBOUNCE_MS,
   reconnectDelayMs,
   useNotifications,
 } from "@/hooks/useNotifications";
@@ -174,6 +175,79 @@ describe("useNotifications — zdarzenia czatu odświeżają dzwonek", () => {
     flushChatRefresh();
     expect(keys()).not.toContain(JSON.stringify(["notifications"]));
     hook.unmount();
+  });
+});
+
+describe("useNotifications — pipeline_changed (live kanban)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeWebSocket.instances = [];
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  function emit(ws: FakeWebSocket, payload: unknown) {
+    act(() => ws.onmessage?.({ data: JSON.stringify(payload) }));
+  }
+
+  it("seria zdarzeń jednej rekrutacji odświeża tablicę raz, po oknie debounce", () => {
+    const { hook, invalidate, keys } = setup();
+    const ws = FakeWebSocket.instances[0];
+    act(() => ws.onopen?.());
+
+    emit(ws, { type: "pipeline_changed", data: { job_id: 42 } });
+    act(() => {
+      vi.advanceTimersByTime(PIPELINE_CHANGED_DEBOUNCE_MS / 2);
+    });
+    emit(ws, { type: "pipeline_changed", data: { job_id: 42 } });
+    expect(keys()).toEqual([]);
+
+    act(() => {
+      vi.advanceTimersByTime(PIPELINE_CHANGED_DEBOUNCE_MS);
+    });
+    expect(keys()).toEqual([
+      JSON.stringify(["kanban", "42"]),
+      JSON.stringify(["kanban", 42]),
+      JSON.stringify(["pipeline-scores", "42"]),
+      JSON.stringify(["pipeline-scores", 42]),
+      JSON.stringify(["my-next-steps"]),
+    ]);
+    expect(invalidate).toHaveBeenCalledTimes(5);
+    hook.unmount();
+  });
+
+  it("różne rekrutacje mają osobne okna, a śmieciowe job_id nic nie robią", () => {
+    const { hook, keys } = setup();
+    const ws = FakeWebSocket.instances[0];
+    act(() => ws.onopen?.());
+
+    emit(ws, { type: "pipeline_changed", data: { job_id: 1 } });
+    emit(ws, { type: "pipeline_changed", data: { job_id: 2 } });
+    emit(ws, { type: "pipeline_changed", data: { job_id: "abc" } });
+    act(() => {
+      vi.advanceTimersByTime(PIPELINE_CHANGED_DEBOUNCE_MS);
+    });
+    expect(keys()).toContain(JSON.stringify(["kanban", 1]));
+    expect(keys()).toContain(JSON.stringify(["kanban", 2]));
+    expect(keys().filter((k) => k.startsWith('["kanban"'))).toHaveLength(4);
+    hook.unmount();
+  });
+
+  it("odmontowanie przed końcem okna nie odświeża niczego", () => {
+    const { hook, keys } = setup();
+    const ws = FakeWebSocket.instances[0];
+    act(() => ws.onopen?.());
+    emit(ws, { type: "pipeline_changed", data: { job_id: 7 } });
+    hook.unmount();
+    act(() => {
+      vi.advanceTimersByTime(PIPELINE_CHANGED_DEBOUNCE_MS * 2);
+    });
+    expect(keys()).toEqual([]);
   });
 });
 

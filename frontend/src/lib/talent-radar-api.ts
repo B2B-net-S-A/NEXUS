@@ -159,9 +159,30 @@ export interface ChampionParseResponse {
   summary: ChampionParseSummary;
 }
 
+/**
+ * Podpowiedzi wyczytane z treści requestu (`champion_intake.budget_max_pln_hour`
+ * i tryb pracy). Tylko podpowiedzi: formularz wypełnia budżet wyłącznie, gdy
+ * pole jest puste, a „praca zdalna” pokazuje jako wskazówkę bez ustawiania pól.
+ * Opcjonalne — starszy backend ich nie wysyła.
+ */
+export interface TalentRadarInterpretSuggestions {
+  /** Jedna, jednoznaczna górna stawka PLN/h z treści; `null` gdy brak albo kilka różnych. */
+  budget_max_pln_hour: number | null;
+  /** `true` gdy treść mówi o pracy wyłącznie zdalnej; `null` gdy nie wiadomo. */
+  remote_only: boolean | null;
+}
+
+export interface TalentRadarInterpretResponse {
+  must: string[];
+  nice: string[];
+  excluded: string[];
+  uncertain: string[];
+  suggestions?: TalentRadarInterpretSuggestions;
+}
+
 export const talentRadarApi = {
   interpret: (body: TalentRadarSearchRequest) =>
-    api.post<{ must: string[]; nice: string[]; excluded: string[]; uncertain: string[] }>("/api/talent-radar/interpret", body).then(r => r.data),
+    api.post<TalentRadarInterpretResponse>("/api/talent-radar/interpret", body).then(r => r.data),
   search: (
     payload: TalentRadarSearchRequest,
   ): Promise<TalentRadarSearchResponse> =>

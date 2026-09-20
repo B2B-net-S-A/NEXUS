@@ -56,11 +56,10 @@ export function FullCandidateSearchStatus({ data, offset, onPage, fetching = fal
       {!data.ranking_complete && <p className="text-amber-700">Ranking nie jest kompletny. Niepełna ocena nie oznacza zerowego dopasowania.</p>}
       {data.data_changed && <p className="text-amber-700">Dane zmieniły się od przeglądu. Uruchom wyszukiwanie ponownie, aby uzyskać aktualny ranking.</p>}
       {data.brief_status === "title_only" && <p className="text-amber-700">Ocena wstępna — request zawiera tylko nazwę roli. Uzupełnij wymagania.</p>}
-      {data.metrics && <p className="text-xs text-muted-foreground">
-        {data.metrics.elapsed_ms != null && `Czas przeglądu: ${(data.metrics.elapsed_ms / 1000).toFixed(1)} s. `}
-        {data.metrics.cost_complete && data.metrics.estimated_cost_usd != null
-          ? `Szacowany koszt API: ${data.metrics.estimated_cost_usd.toFixed(6)} USD.`
-          : "Koszt API niepełny — brak pełnych danych o zużyciu lub taryfie."}
+      {/* Koszt API świadomie poza widokiem (decyzja 17.09.2026) — rekruterowi
+          nic nie mówi, a czytał się jak rachunek za kliknięcie. */}
+      {data.metrics?.elapsed_ms != null && <p className="text-xs text-muted-foreground">
+        {`Czas przeglądu: ${(data.metrics.elapsed_ms / 1000).toFixed(1)} s.`}
       </p>}
       <div className="flex items-center gap-3">
         <Button variant="outline" disabled={offset === 0 || fetching} onClick={() => onPage(Math.max(0, offset - 20))}>Poprzednia</Button>

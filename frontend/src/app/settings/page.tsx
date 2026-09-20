@@ -10,7 +10,6 @@ import {
   Plug,
   Mail,
   RefreshCw,
-  CheckCircle2,
   AlertCircle,
   Loader2,
   ExternalLink,
@@ -43,6 +42,7 @@ import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import { clearOnboardingCompleted } from "@/lib/onboarding-storage";
+import { requestOnboardingOpen } from "@/components/OnboardingWalkthrough";
 import { useSettingsTab, type SettingsTab } from "@/lib/settings-tab";
 import {
   hasSectionAccess,
@@ -727,14 +727,11 @@ function CoachingSettings() {
 }
 
 function OnboardingSettings() {
-  const [shown, setShown] = useState(false);
-
+  // Otwiera przewodnik od razu, bez przeładowania strony — przewodnik nie
+  // startuje już sam, więc to jedyna droga do niego.
   const handleReset = () => {
     clearOnboardingCompleted();
-    setShown(true);
-    setTimeout(() => {
-      window.location.reload();
-    }, 1500);
+    requestOnboardingOpen();
   };
 
   return (
@@ -751,20 +748,14 @@ function OnboardingSettings() {
         </div>
       </div>
 
-      {shown ? (
-        <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
-          <CheckCircle2 className="w-4 h-4" />
-          Przewodnik zostanie wyświetlony po przeładowaniu strony
-        </div>
-      ) : (
-        <button
-          onClick={handleReset}
-          className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Pokaż przewodnik ponownie
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={handleReset}
+        className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
+      >
+        <RefreshCw className="w-4 h-4" />
+        Pokaż przewodnik
+      </button>
 
       <div className="mt-6 pt-6 border-t border-border dark:border-border">
         <h4 className="text-sm font-semibold text-foreground dark:text-muted-foreground mb-3">Skróty klawiszowe</h4>

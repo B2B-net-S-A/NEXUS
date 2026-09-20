@@ -8,6 +8,7 @@ import { RequestHistorySection } from "@/components/RequestHistorySection"
 import { AddCandidateToJobModal } from "@/components/client-profile/actions/AddCandidateToJobModal"
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2"
 import api, { requestHistoryApi } from "@/lib/api"
+import { useAuthStore } from "@/store/auth"
 
 vi.mock("@/components/AppShell", () => ({
   AddJobModal: () => null,
@@ -169,6 +170,11 @@ describe("Priority Work errors in candidate-add surfaces", () => {
       priorityLockConflict(),
     )
 
+    // „Dodaj championa” jest akcją ról z organizacyjnym odczytem historii
+    // (admin / delivery lead / finanse) — zespół rekrutacji jej nie ma.
+    useAuthStore.setState({
+      user: { id: 1, role: "delivery_lead", roles: ["delivery_lead"] },
+    } as never)
     renderWithProviders(<RequestHistorySection jobId={101} clientId={7} />)
     await user.click(
       await screen.findByRole("button", { name: "Dodaj championa" }),

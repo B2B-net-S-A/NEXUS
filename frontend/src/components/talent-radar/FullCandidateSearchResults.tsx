@@ -1,13 +1,25 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { extractErrorMsg } from "@/lib/api";
 import { searchFailed, searchIsRunning, type CandidateSearchPage } from "@/lib/full-candidate-search-api";
 import { RequirementVerificationDialog } from "./RequirementVerificationDialog";
 import { FullCandidateSearchStatus } from "./FullCandidateSearchStatus";
+import type { BulkAddSource } from "@/lib/candidate-search-api";
+import {
+  AddToRecruitmentDialog,
+  type AddToRecruitmentResult,
+} from "@/components/v2/recruitment/AddToRecruitmentDialog";
 
-export function FullCandidateSearchResults({ data, error, loading, fetching, offset, onPage, onRetry, onRestart, needsNewRun = false, canOpenProfile, jobId, canVerify = false, onVerified }: {
+/** „Dodaj do rekrutacji” na karcie wyniku — tylko gdy rola może dodawać do pipeline'u. */
+export interface ResultsAddToRecruitment {
+  source: BulkAddSource;
+  onAdded?: (result: AddToRecruitmentResult) => void;
+}
+
+export function FullCandidateSearchResults({ data, error, loading, fetching, offset, onPage, onRetry, onRestart, needsNewRun = false, canOpenProfile, jobId, canVerify = false, onVerified, addToRecruitment }: {
   data?: CandidateSearchPage;
   error: unknown;
   loading: boolean;
@@ -24,7 +36,10 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
   jobId?: number;
   canVerify?: boolean;
   onVerified?: () => void;
+  /** Brak = brak przycisku (rola bez prawa dodawania do pipeline'u). */
+  addToRecruitment?: ResultsAddToRecruitment;
 }) {
+  const [addTarget, setAddTarget] = useState<{ id: number; name: string } | null>(null);
   // A transient read error while the scan is still running must not hide the
   // progress: the scan keeps going on the server and polling resumes by itself.
   if (error && !needsNewRun && data && searchIsRunning(data.state)) return <div className="space-y-4">
@@ -65,9 +80,21 @@ export function FullCandidateSearchResults({ data, error, loading, fetching, off
           {/* Konflikt z klientem = ostrzeżenie (17.09.2026); czerwień tylko dla weta HM. */}
           {row.eligibility && <p className={row.eligibility.assignment_allowed === false ? "text-sm text-destructive" : "text-sm text-warning-muted-foreground"}>{row.eligibility.reason}</p>}
           {jobId && canVerify && onVerified && <RequirementVerificationDialog jobId={jobId} candidateId={row.candidate.id} candidateName={[row.candidate.name, row.candidate.lastname].filter(Boolean).join(" ")} onSaved={onVerified} />}
-          {canOpenProfile && <Link className={buttonVariants({ variant: "outline" })} href={`/candidates/${row.candidate.id}?from=talent-radar`}>Otwórz profil</Link>}
+          <div className="flex flex-wrap gap-2">
+            {canOpenProfile && <Link className={buttonVariants({ variant: "outline" })} href={`/candidates/${row.candidate.id}?from=talent-radar`}>Otwórz profil</Link>}
+            {addToRecruitment && <Button variant="outline" onClick={() => setAddTarget({ id: row.candidate.id, name: [row.candidate.name, row.candidate.lastname].filter(Boolean).join(" ") || `Kandydat #${row.candidate.id}` })}>Dodaj do rekrutacji</Button>}
+          </div>
         </article>)}
       </div>
     </>}
+    {addToRecruitment && addTarget && <AddToRecruitmentDialog
+      open
+      onOpenChange={(next) => { if (!next) setAddTarget(null); }}
+      candidateIds={[addTarget.id]}
+      source={addToRecruitment.source}
+      runId={data.run_id}
+      subject={`Wybierz rekrutację dla: ${addTarget.name}.`}
+      onAdded={addToRecruitment.onAdded}
+    />}
   </div>;
 }

@@ -44,6 +44,8 @@ export interface JobPrefillSource {
   salary_min?: number | null;
   salary_max?: number | null;
   location?: string | null;
+  /** `remote` = praca w pełni zdalna — miasto oferty nie jest wtedy filtrem. */
+  remote_policy?: string | null;
 }
 
 /**
@@ -186,14 +188,59 @@ export function parseJobLocationCities(location?: string | null): string[] {
   return cities;
 }
 
+/** Nazwa oferty do pola wyszukiwania: tytuł bez numeru referencyjnego +
+ *  seniority. Opis i wymagania ZOSTAJĄ poza polem (przegląd UX 17.09.2026):
+ *  kilkaset znaków prozy w polu „szukaj" wyglądało jak zepsuty formularz,
+ *  a sygnał wymagań niesie już `skills_must`. */
+export function buildJobSearchTitleQuery(job: JobPrefillSource): string {
+  const title = stripJobReference(job.title);
+  const seniority = job.seniority ? String(job.seniority).trim() : "";
+  return [title, seniority].filter((part) => part.length > 0).join(" ").trim();
+}
+
+// Grupa zapisana jako „java lub kotlin" (etykieta `requirementLabels`) to kilka
+// alternatywnych technologii — do rankingu idzie każda z nich osobno.
+const ALTERNATIVE_SEPARATOR = /\s+(?:lub|albo|or)\s+/i;
+
+/** Wymagania obowiązkowe do `skills_must`: zapisane wymagania rekrutacji
+ *  (`mustLabels`) wygrywają; bez nich — kolumna `must_skills`, ale wyłącznie
+ *  pozycje do trzech słów (kolumna bywa prozą, a zdanie nie jest nazwą
+ *  technologii). */
+export function jobMustSkillNames(
+  job: JobPrefillSource,
+  mustLabels?: readonly string[] | null,
+): string[] {
+  const fromLabels = (mustLabels ?? [])
+    .flatMap((label) => label.split(ALTERNATIVE_SEPARATOR))
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const source =
+    fromLabels.length > 0
+      ? fromLabels
+      : extractSkillNames(job.must_skills).filter(
+          (name) => name.split(/\s+/).length <= 3,
+        );
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of source) {
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
 /**
  * Build the candidate-search prefill for a job's manual-search tab.
  *
- * The free-text ``q`` carries the job's real signal (title + seniority +
- * requirements + description, ref-stripped) and rides ``search_mode: "hybrid"``
- * so that text drives semantic retrieval rather than a boolean ``AND`` over FTS
- * — otherwise a multi-sentence description would zero out results. See
- * ``buildJobSearchQueryText``.
+ * The free-text ``q`` is the ref-stripped title + seniority only (UX review
+ * 17.09.2026 — description prose in the search box read as a broken form) and
+ * rides ``search_mode: "hybrid"``. Requirements reach the search through
+ * ``skills_must`` (saved matching requirements, see ``jobMustSkillNames``).
+ * ``buildJobSearchQueryText`` stays available for callers that want the full
+ * enriched text.
  *
  * ``nice_skills`` are omitted for historical reasons: they used to be sent as
  * ``skills_any`` back when the backend turned that into a mandatory "at least
@@ -210,17 +257,20 @@ export function parseJobLocationCities(location?: string | null): string[] {
  */
 export function buildJobSearchPrefill(
   job: JobPrefillSource,
+  mustLabels?: readonly string[] | null,
 ): Partial<CandidateSearchRequest> {
   return {
-    q: buildJobSearchQueryText(job),
-    // Description-driven `q` is only recall-safe under hybrid retrieval; in the
+    q: buildJobSearchTitleQuery(job) || stripJobReference(job.title),
+    // `q` from the title stays recall-safe under hybrid retrieval; in the
     // default boolean mode `q` becomes a hard `websearch_to_tsquery` AND.
     search_mode: "hybrid",
     competence_category_ids: job.competence_category_id
       ? [job.competence_category_id]
       : [],
-    skills_must: extractSkillNames(job.must_skills),
-    location_cities: parseJobLocationCities(job.location),
+    skills_must: jobMustSkillNames(job, mustLabels),
+    // Praca w pełni zdalna: miasto z oferty nie może zawężać kandydatów.
+    location_cities:
+      job.remote_policy === "remote" ? [] : parseJobLocationCities(job.location),
     sort: "relevance",
   };
 }
