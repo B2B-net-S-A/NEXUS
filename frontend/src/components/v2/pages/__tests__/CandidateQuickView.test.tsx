@@ -1,6 +1,7 @@
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import api from "@/lib/api";
@@ -16,6 +17,10 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/api", () => ({
   default: { get: vi.fn(), post: vi.fn() },
   extractErrorMsg: () => "",
+  phase5Api: {
+    clientsLookup: () => Promise.resolve({ data: [{ id: 5, name: "Bank SA" }] }),
+    conflicts: { create: vi.fn() },
+  },
 }));
 
 vi.mock("@/components/Toast", () => ({
@@ -249,7 +254,10 @@ describe("CandidateQuickView", () => {
       screen.getByRole("button", { name: "Przypisz do rekrutacji" }),
     ).toBeEnabled();
     expect(
-      screen.getByRole("button", { name: "Oznacz jako zatrudnionego" }),
+      screen.queryByRole("button", { name: "Oznacz jako zatrudnionego" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Więcej akcji kandydata" }),
     ).toBeEnabled();
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Otwórz CV" })).toBeEnabled(),
@@ -320,6 +328,9 @@ describe("CandidateQuickView", () => {
         screen.queryByRole("button", { name: "Oznacz jako zatrudnionego" }),
       ).not.toBeInTheDocument();
       expect(
+        screen.queryByRole("button", { name: "Więcej akcji kandydata" }),
+      ).not.toBeInTheDocument();
+      expect(
         screen.queryByRole("button", { name: "Dodaj notatkę" }),
       ).not.toBeInTheDocument();
       expect(
@@ -339,7 +350,122 @@ describe("CandidateQuickView", () => {
       await screen.findByRole("button", { name: "Przypisz do rekrutacji" }),
     ).toBeEnabled();
     expect(
-      screen.getByRole("button", { name: "Dodaj notatkę" }),
+      screen.getAllByRole("button", { name: "Dodaj notatkę" }).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("orders the quick actions: assign, note, CV, full profile, more", async () => {
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
+      wrapper,
+    });
+
+    await screen.findByRole("button", { name: "Pełny profil" });
+    const group = screen.getByLabelText("Akcje kandydata");
+    const names = within(group)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label") ?? button.textContent?.trim());
+    expect(names).toEqual([
+      "Przypisz do rekrutacji",
+      "Dodaj notatkę",
+      "Otwórz CV",
+      "Pełny profil",
+      "Więcej akcji kandydata",
+    ]);
+  });
+
+  it("opens and focuses the note composer from the header action", async () => {
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
+      wrapper,
+    });
+
+    const group = await screen.findByLabelText("Akcje kandydata");
+    await userEvent.click(
+      within(group).getByRole("button", { name: "Dodaj notatkę" }),
+    );
+
+    const textarea = await screen.findByRole("textbox", {
+      name: "Treść notatki",
+    });
+    await waitFor(() => expect(textarea).toHaveFocus());
+  });
+
+  it("marks as employed from the more menu through the anchored popover", async () => {
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
+      wrapper,
+    });
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Więcej akcji kandydata" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "Oznacz jako zatrudnionego",
+      }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Oznacz jako zatrudnionego" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Klient")).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem")).toBeNull();
+  });
+
+  it("shows the employed state as a disabled menu item", async () => {
+    apiGet.mockImplementation((url: string) => {
+      if (url === "/api/candidates/7/quick-view") {
+        const data = quickViewData();
+        return Promise.resolve({
+          data: {
+            ...data,
+            candidate: {
+              ...data.candidate,
+              employment: { state: "employed_at_client" },
+            },
+          },
+        } as never);
+      }
+      if (url === "/api/candidates/7/documents?kind=cv") {
+        return Promise.resolve({ data: [documentData()] } as never);
+      }
+      return Promise.resolve({ data: {} } as never);
+    });
+
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
+      wrapper,
+    });
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Więcej akcji kandydata" }),
+    );
+    const item = await screen.findByRole("menuitem", {
+      name: "Oznaczono jako zatrudnionego",
+    });
+    expect(item).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("offers click-to-call only when CloudTalk is enabled", async () => {
+    const { unmount } = render(
+      <CandidateQuickView candidateId={7} onClose={vi.fn()} />,
+      { wrapper },
+    );
+    expect(await screen.findByText("+48 500 100 200")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "+48 500 100 200" }),
+    ).not.toBeInTheDocument();
+    unmount();
+
+    const base = apiGet.getMockImplementation()!;
+    apiGet.mockImplementation((url: string, config?: unknown) => {
+      if (url === "/api/calls/cloudtalk-status") {
+        return Promise.resolve({ data: { enabled: true } } as never);
+      }
+      return base(url, config as never);
+    });
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
+      wrapper,
+    });
+    expect(
+      await screen.findByRole("button", { name: "+48 500 100 200" }),
     ).toBeInTheDocument();
   });
 

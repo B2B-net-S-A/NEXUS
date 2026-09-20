@@ -276,3 +276,102 @@ def test_warsaw_week_start_is_monday_midnight_local():
     assert nt._warsaw_week_start_utc(now) == datetime(
         2035, 6, 10, 22, 0, tzinfo=timezone.utc
     )
+
+
+# ── Linki powiadomień otwierają kartę kandydata (17.09.2026) ─────────────────
+
+
+class _Captured:
+    def __init__(self) -> None:
+        self.links: list[str | None] = []
+
+    async def emit(self, db, **kwargs):
+        self.links.append(kwargs.get("link"))
+        return object()
+
+
+@pytest.mark.asyncio
+async def test_dl_stage_stale_link_opens_the_candidate_on_the_board(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.models.recruitment_pipeline import PipelineStage
+
+    now = datetime(2026, 9, 17, 12, 0, tzinfo=timezone.utc)
+    stage = nt.LatestStage(
+        id=5,
+        candidate_id=77,
+        job_id=12,
+        stage=PipelineStage.cv_sent,
+        moved_at=now - timedelta(hours=8),
+    )
+    captured = _Captured()
+
+    async def jobs_by_id(db, ids):  # lustro `_open_jobs_by_id` (#1593)
+        return {12: SimpleNamespace(id=12, title="Java")}
+
+    async def targets(db, job):
+        return [3]
+
+    monkeypatch.setattr(nt, "_open_jobs_by_id", jobs_by_id)
+    monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
+    monkeypatch.setattr(nt, "emit", captured.emit)
+
+    assert await nt.check_dl_stage_stale_6h(None, now, {(77, 12): stage}) == 1
+    assert captured.links == ["/jobs/12?candidate=77"]
+
+
+@pytest.mark.asyncio
+async def test_client_feedback_link_opens_the_candidate_on_the_board(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.models.recruitment_pipeline import PipelineStage
+
+    now = datetime(2026, 9, 17, 14, 30, tzinfo=timezone.utc)
+    event = SimpleNamespace(
+        id=9, candidate_id=77, job_id=12, end_time=now - timedelta(hours=2)
+    )
+
+    class _Rows:
+        def __init__(self, items=None, scalar=None):
+            self._items, self._scalar = items, scalar
+
+        def scalars(self):
+            return SimpleNamespace(all=lambda: list(self._items))
+
+        def scalar(self):
+            return self._scalar
+
+    class _Db:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, statement):
+            self.calls += 1
+            return _Rows(items=[event]) if self.calls == 1 else _Rows(scalar=0)
+
+    latest = {
+        (77, 12): nt.LatestStage(
+            id=5,
+            candidate_id=77,
+            job_id=12,
+            stage=PipelineStage.client_interview,
+            moved_at=now - timedelta(days=1),
+        )
+    }
+    captured = _Captured()
+
+    async def jobs_by_id(db, ids):  # lustro `_open_jobs_by_id` (#1593)
+        return {12: SimpleNamespace(id=12, title="Java")}
+
+    async def targets(db, job):
+        return [3]
+
+    monkeypatch.setattr(nt, "is_within_window", lambda *a, **k: True)
+    monkeypatch.setattr(nt, "_open_jobs_by_id", jobs_by_id)
+    monkeypatch.setattr(nt, "_delivery_lead_targets", targets)
+    monkeypatch.setattr(nt, "emit", captured.emit)
+
+    assert await nt.check_client_feedback_eobd(_Db(), now, latest) == 1
+    assert captured.links == ["/jobs/12?candidate=77"]

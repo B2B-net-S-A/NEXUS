@@ -305,8 +305,8 @@ export function CandidatesTiles({
  )}
  {!showMatch && updatedAt && (
  // Czas modyfikacji rekordu, nie aktywności (UAT B66).
- <span className="shrink-0" title="Ostatnia aktualizacja profilu">
- Aktualizacja: {formatRelativeTime(updatedAt)}
+ <span className="shrink-0" title="Ostatnia zmiana rekordu kandydata">
+ Rekord zmieniony: {formatRelativeTime(updatedAt)}
  </span>
  )}
  </div>

@@ -36,7 +36,7 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  const canEditDocuments = useCapability("candidate.document.manage");
  const [previewDoc, setPreviewDoc] = useState<CandidateDocument | null>(null);
  const [uploadKind, setUploadKind] =
- useState<CandidateDocument["document_kind"]>("other");
+ useState<CandidateDocument["document_kind"]>("cv");
  const fileInputRef = useRef<HTMLInputElement>(null);
  const { data: documents, isLoading, error } = useQuery<CandidateDocument[]>({
  queryKey: candidateQueryKeys.documents(candidateId),
@@ -176,10 +176,10 @@ export function CandidateFilesTab({ candidateId }: { candidateId: number }) {
  disabled={uploadMutation.isPending}
  className="rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground"
  >
- <option value="other">Inny</option>
  <option value="cv">CV</option>
  <option value="cover_letter">List motywacyjny</option>
  <option value="certificate">Certyfikat</option>
+ <option value="other">Inny</option>
  </select>
  <input
  ref={fileInputRef}

@@ -363,6 +363,13 @@ const TYPE_CONFIG: Record<
     color: "text-warning",
     bgColor: "bg-warning/15",
   },
+  // Koniec przeglądu całej bazy (Talent Radar / AI Matching w rekrutacji).
+  // Link → /jobs/{id}?tab=similar albo /talent-radar.
+  candidate_search_completed: {
+    icon: <Sparkles className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
 };
 
 /** Nieznany (nowy) typ dostaje neutralny dzwonek, nie ikonę „nowy kandydat". */

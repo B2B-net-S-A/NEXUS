@@ -57,7 +57,10 @@ test("wyniki pokazują kryteria biegu, a zmiana budżetu je unieważnia jak zmia
   const criteria = await screen.findByTestId("tr-run-criteria");
   expect(criteria).toHaveTextContent("Klient: Acme · budżet do 150 PLN/h · lokalizacja: Warszawa · biuro 2 dni/tydz.");
 
-  fireEvent.change(screen.getByLabelText("Budżet PLN/h"), { target: { value: "170" } });
+  // Po starcie formularz jest zwinięty do jednej linii (#1597) — najpierw
+  // „Zmień kryteria", potem zmiana budżetu.
+  fireEvent.click(screen.getByRole("button", { name: "Zmień kryteria" }));
+  fireEvent.change(await screen.findByLabelText("Budżet PLN/h"), { target: { value: "170" } });
   await waitFor(() => expect(screen.queryByTestId("tr-run-criteria")).not.toBeInTheDocument());
   expect(sessionStorage.getItem("nexus-full-radar:7")).toBeNull();
   expect(mocks.start).toHaveBeenCalledTimes(1);

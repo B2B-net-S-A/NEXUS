@@ -26,6 +26,7 @@ import {
   Search,
   Trash2,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -66,6 +67,13 @@ import { assignErrorMessage } from "@/lib/assign-error";
 import { eligibilityBadgeClass } from "@/lib/conflicts";
 import { apiErrorMessage } from "@/lib/api-error";
 import { encodeJobBackRef } from "@/lib/url-filters";
+import { jobsApi } from "@/lib/api";
+import { isForbiddenError, isNotFoundError } from "@/lib/view-state";
+import {
+  JobPicker,
+  type JobPickerJob,
+} from "@/components/v2/recruitment/JobPicker";
+import { useCanAddToRecruitment } from "@/components/v2/recruitment/useCanAddToRecruitment";
 import {
   SEARCH_REQUEST_URL_PARAM,
   decodeSearchRequest,
@@ -111,6 +119,9 @@ export { parseTagInput };
 
 /** Ile osób obsługuje porównanie (`CandidateCompareModal`). */
 export const COMPARE_MAX_CANDIDATES = 5;
+
+/** Parametr URL-a z rekrutacją wybraną w samodzielnej wyszukiwarce. */
+export const JOB_URL_PARAM = "job";
 
 /**
  * Po ilu ms od pustego wyniku odpalamy diagnostykę (wodospad kilku COUNT-ów).
@@ -183,17 +194,36 @@ export function CandidateSearchView({
   syncUrl = false,
 }: CandidateSearchViewProps) {
   const searchParams = useSearchParams();
+  // Samodzielna wyszukiwarka: rekruter może wskazać rekrutację („Szukasz do
+  // rekrutacji?”). Wybrana rekrutacja działa dokładnie jak `addToJob` —
+  // ocena dopasowania, zaznaczanie, dodawanie — i siedzi w URL-u (`?job=`),
+  // czytanym jak reszta stanu tylko przy montowaniu.
+  const [pickedJob, setPickedJob] = useState<JobPickerJob | null>(() => {
+    if (addToJob || !syncUrl) return null;
+    const id = Number(searchParams?.get(JOB_URL_PARAM));
+    return Number.isInteger(id) && id > 0 ? { id, title: `Rekrutacja #${id}` } : null;
+  });
+  const [jobPickerOpen, setJobPickerOpen] = useState(false);
+  const jobContext = useMemo(
+    () => addToJob ?? (pickedJob ? { id: pickedJob.id, title: pickedJob.title } : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [addToJob?.id, addToJob?.title, pickedJob?.id, pickedJob?.title],
+  );
+  const canAddToRecruitment = useCanAddToRecruitment();
+  // Zapisy w kontekście rekrutacji: na stronie rekrutacji decyduje rodzic
+  // (`readOnly`); w samodzielnej wyszukiwarce — prawo dodawania do pipeline'u.
+  const jobWritesBlocked = readOnly || (!addToJob && !canAddToRecruitment);
   // Baza = domyślne + kontekst rekrutacji + prefill; URL niesie tylko różnicę
   // względem niej. `initial` na stronie rekrutacji bywa nowym obiektem co
   // render, ale tam `syncUrl` jest wyłączone, więc efekt niżej nic nie robi.
   const baseRequest = useMemo<CandidateSearchRequest>(
     () => ({
       ...DEFAULT_REQUEST,
-      ...(addToJob ? { exclude_in_job_id: addToJob.id } : {}),
+      ...(jobContext ? { exclude_in_job_id: jobContext.id } : {}),
       ...initial,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [addToJob?.id, initial],
+    [jobContext?.id, initial],
   );
   // Stan z URL czytany PRZY MONTOWANIU (jak w CandidatesListV2): Wstecz
   // z profilu montuje stronę od nowa, więc inicjalizator wystarcza. Efekt na
@@ -212,10 +242,12 @@ export function CandidateSearchView({
   // w historii (Wstecz ma prowadzić do poprzedniej strony, nie po filtrach).
   useEffect(() => {
     if (!syncUrl) return;
-    const qs = encodeSearchRequest(request, baseRequest).toString();
+    const params = encodeSearchRequest(request, baseRequest);
+    if (!addToJob && pickedJob) params.set(JOB_URL_PARAM, String(pickedJob.id));
+    const qs = params.toString();
     const { pathname } = window.location;
     window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
-  }, [syncUrl, request, baseRequest]);
+  }, [syncUrl, request, baseRequest, addToJob, pickedJob]);
   const [data, setData] = useState<CandidateSearchResponse | null>(null);
   // Request, który wyprodukował `data` — diagnostyka pyta o TO zapytanie,
   // nie o to, które użytkownik właśnie pisze.
@@ -277,10 +309,10 @@ export function CandidateSearchView({
   // Load the job's assignable (non-terminal) stages once, for the bulk-add
   // target-stage picker. Best-effort: on failure the picker just isn't shown.
   useEffect(() => {
-    if (!addToJob || readOnly) return;
+    if (!jobContext || jobWritesBlocked) return;
     let cancelled = false;
     proposalsBulkApi
-      .assignableStages(addToJob.id)
+      .assignableStages(jobContext.id)
       .then((s) => {
         if (!cancelled) setAssignableStages(s);
       })
@@ -290,7 +322,57 @@ export function CandidateSearchView({
     return () => {
       cancelled = true;
     };
-  }, [addToJob, readOnly]);
+  }, [jobContext, jobWritesBlocked]);
+
+  // `?job=` z URL-a niesie samo ID — tytuł dociągamy. Rekrutacja, do której
+  // nie ma dostępu albo której już nie ma, zdejmuje wybór zamiast zostawiać
+  // wyszukiwarkę w kontekście, w którym każde dodanie skończy się błędem.
+  const urlJobId = useRef(pickedJob?.id ?? null);
+  useEffect(() => {
+    const id = urlJobId.current;
+    if (id === null) return;
+    let cancelled = false;
+    jobsApi
+      .get(id)
+      .then((r) => {
+        const job = r.data as { id: number; title?: string | null; client_name?: string | null };
+        if (cancelled) return;
+        setPickedJob((current) =>
+          current?.id === id
+            ? { id, title: job.title || current.title, client_name: job.client_name ?? null }
+            : current,
+        );
+      })
+      .catch((err: unknown) => {
+        if (cancelled || !(isForbiddenError(err) || isNotFoundError(err))) return;
+        setPickedJob((current) => (current?.id === id ? null : current));
+        setRequest(({ exclude_in_job_id: _drop, ...rest }) => {
+          void _drop;
+          return { ...rest, page: 1 };
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const pickJob = (job: JobPickerJob) => {
+    setPickedJob(job);
+    setJobPickerOpen(false);
+    setSelected(new Set());
+    setBulkResult(null);
+    setRequest((r) => ({ ...r, exclude_in_job_id: job.id, page: 1 }));
+  };
+
+  const clearPickedJob = () => {
+    setPickedJob(null);
+    setSelected(new Set());
+    setBulkResult(null);
+    setRequest(({ exclude_in_job_id: _drop, ...rest }) => {
+      void _drop;
+      return { ...rest, page: 1 };
+    });
+  };
 
   const toggleSelect = (item: CandidateSearchItem) => {
     const { id } = item;
@@ -344,7 +426,7 @@ export function CandidateSearchView({
     clearSelection();
     setRequest({
       ...DEFAULT_REQUEST,
-      ...(addToJob ? { exclude_in_job_id: addToJob.id } : {}),
+      ...(jobContext ? { exclude_in_job_id: jobContext.id } : {}),
       ...filters,
       page: 1,
     });
@@ -430,20 +512,22 @@ export function CandidateSearchView({
   // shortlist promote) must invalidate it, or the Pipeline tab keeps showing
   // stale counts until a full page reload.
   const invalidatePipeline = useCallback(() => {
-    if (!addToJob) return;
-    const id = String(addToJob.id);
+    if (!jobContext) return;
+    const id = String(jobContext.id);
     queryClient.invalidateQueries({ queryKey: ["kanban", id] });
+    queryClient.invalidateQueries({ queryKey: ["kanban", jobContext.id] });
     queryClient.invalidateQueries({ queryKey: ["pipeline-scores", id] });
-  }, [addToJob, queryClient]);
+    queryClient.invalidateQueries({ queryKey: ["pipeline-scores", jobContext.id] });
+  }, [jobContext, queryClient]);
 
   const submitBulk = async () => {
-    if (readOnly || !addToJob || selected.size === 0) return;
+    if (jobWritesBlocked || !jobContext || selected.size === 0) return;
     setBulkPending(true);
     setError(null);
     try {
       const note = bulkNote.trim();
       const tags = parseTagInput(bulkTagsInput);
-      const resp = await proposalsBulkApi.add(addToJob.id, {
+      const resp = await proposalsBulkApi.add(jobContext.id, {
         candidate_ids: Array.from(selected),
         ...(typeof bulkStageId === "number"
           ? { initial_stage_def_id: bulkStageId }
@@ -471,11 +555,11 @@ export function CandidateSearchView({
   };
 
   const submitShortlist = async () => {
-    if (readOnly || !addToJob || selected.size === 0) return;
+    if (jobWritesBlocked || !jobContext || selected.size === 0) return;
     setShortlistPending(true);
     setError(null);
     try {
-      await shortlistApi.add(addToJob.id, Array.from(selected));
+      await shortlistApi.add(jobContext.id, Array.from(selected));
       clearSelection();
       setShortlistRefresh((n) => n + 1);
     } catch (err) {
@@ -609,7 +693,7 @@ export function CandidateSearchView({
     failures: matchFailures,
     onRowVisible,
     retry: retryMatchScores,
-  } = useVisibleMatchScores(addToJob?.id, data?.items);
+  } = useVisibleMatchScores(jobContext?.id, data?.items);
 
   // Stable while the selection and the result set are: the compare modal
   // keys its request on these ids, so a new array per render must not look
@@ -739,6 +823,62 @@ export function CandidateSearchView({
             pokazać. Spróbuj ponownie za chwilę.
           </div>
         </div>
+      )}
+
+      {!addToJob && (
+        <section
+          aria-label="Rekrutacja"
+          className="space-y-3 rounded-lg border bg-card p-3 dark:border-zinc-800"
+        >
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {pickedJob ? (
+              <>
+                <span className="text-muted-foreground">Szukasz do rekrutacji:</span>
+                <strong data-testid="search-picked-job">
+                  {pickedJob.title}
+                  {pickedJob.client_name ? ` · ${pickedJob.client_name}` : ""}
+                </strong>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setJobPickerOpen((o) => !o)}
+                >
+                  Zmień
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={clearPickedJob}
+                  aria-label="Wyczyść rekrutację"
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  Wyczyść
+                </Button>
+              </>
+            ) : (
+              <>
+                <span className="text-muted-foreground">Szukasz do rekrutacji?</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setJobPickerOpen((o) => !o)}
+                  aria-expanded={jobPickerOpen}
+                >
+                  Wybierz rekrutację
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  Pokażemy ocenę dopasowania i pozwolimy dodać zaznaczone osoby.
+                </span>
+              </>
+            )}
+          </div>
+          {jobPickerOpen && (
+            <JobPicker value={pickedJob} onChange={pickJob} scope="mine" />
+          )}
+        </section>
       )}
 
       <FiltersPanel value={request} onChange={setRequestPatch} ccCounts={ccCounts} />
@@ -996,7 +1136,7 @@ export function CandidateSearchView({
           return (
             <div className="space-y-1 rounded-md border border-success/30 bg-success-muted p-3 text-sm text-success-muted-foreground">
               <div>
-                Dodano {summary.added} kandydatów do requestu „{addToJob?.title}
+                Dodano {summary.added} kandydatów do requestu „{jobContext?.title}
                 ".
               </div>
               {summary.warnings.length > 0 && (
@@ -1028,7 +1168,7 @@ export function CandidateSearchView({
           <CandidateSearchRow
             key={c.id}
             item={c}
-            selectable={Boolean(addToJob)}
+            selectable={Boolean(jobContext)}
             selected={selected.has(c.id)}
             onToggleSelect={() => toggleSelect(c)}
             backRefJobId={addToJob?.id}
@@ -1036,16 +1176,16 @@ export function CandidateSearchView({
             breakdown={matchBreakdowns[String(c.id)]}
             scoreFailure={matchFailures[String(c.id)]}
             onRetryScore={retryMatchScores}
-            onVisible={addToJob ? onRowVisible : undefined}
+            onVisible={jobContext ? onRowVisible : undefined}
             scoreWithoutObserver={index < MATCH_SCORES_MAX_CANDIDATES}
           />
         ))}
       </ul>
 
       {/* Sticky bulk-add bar — only when in job context */}
-      {addToJob && selected.size > 0 && (
+      {jobContext && selected.size > 0 && (
         <div className="sticky bottom-4 z-10 mx-auto flex w-fit max-w-full flex-col items-center gap-2">
-          {!readOnly && bulkOptionsOpen && (
+          {!jobWritesBlocked && bulkOptionsOpen && (
             <div className="w-80 max-w-full space-y-2 rounded-xl border bg-card p-3 text-left shadow-lg">
               {assignableStages.length > 0 && (
                 <div className="space-y-1">
@@ -1112,7 +1252,7 @@ export function CandidateSearchView({
             <span className="tabular-nums">
               Wybrano <strong>{selected.size}</strong>
             </span>
-            {!readOnly ? (
+            {!jobWritesBlocked ? (
               <Button
                 type="button"
                 size="sm"
@@ -1144,7 +1284,9 @@ export function CandidateSearchView({
             >
               Wyczyść
             </Button>
-            {!readOnly ? (
+            {/* Shortlista ma panel tylko na stronie rekrutacji — w samodzielnej
+                wyszukiwarce dodanie do niej byłoby niewidocznym skutkiem. */}
+            {!jobWritesBlocked && addToJob ? (
               <Button
                 type="button"
                 size="sm"
@@ -1183,7 +1325,7 @@ export function CandidateSearchView({
                   : "Porównaj"}
               </Button>
             )}
-            {!readOnly ? (
+            {!jobWritesBlocked ? (
               <Button
                 type="button"
                 size="sm"
@@ -1196,7 +1338,7 @@ export function CandidateSearchView({
                 ) : (
                   <Plus className="h-3 w-3" />
                 )}
-                Dodaj do „{addToJob.title}"
+                Dodaj do „{jobContext.title}"
               </Button>
             ) : null}
           </div>
@@ -1230,9 +1372,9 @@ export function CandidateSearchView({
         </div>
       )}
 
-      {compareOpen && addToJob && !compareTooMany && (
+      {compareOpen && jobContext && !compareTooMany && (
         <CandidateCompareModal
-          jobId={addToJob.id}
+          jobId={jobContext.id}
           candidates={compareCandidates}
           onClose={() => setCompareOpen(false)}
         />

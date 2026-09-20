@@ -11,9 +11,11 @@ from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app.core.database import AsyncSessionLocal
 from app.models.candidate_search_run import CandidateSearchRun
+from app.models.notification import Notification, NotificationType
 from app.services import candidate_search_store as store
 from app.services.full_candidate_scan import CandidateEvaluation, load_snapshot_batch
 from app.services.full_search_measurement import measure_candidates, request_vector
+from app.services.notification_access import notification_recipient_has_access
 from app.services.request_matching_context import RequestMatchingContext
 from app.services.search_telemetry import SearchTelemetry, stage
 
@@ -34,6 +36,60 @@ MAX_CLAIMS = 8
 # Hand the event loop back while a batch is scored in-process, so HTTP
 # requests served by the same process are not starved by one long scan.
 YIELD_EVERY = 32
+
+
+async def _notify_search_finished(
+    db, run_id: str, *, eligible: int | None, failed: bool
+) -> None:
+    """Bell entry for the author when a full search ends (17.09.2026).
+
+    Runs in the caller's session BEFORE its commit, inside a savepoint: the
+    notification commits together with the run's terminal state, so the state
+    transition (``finish_run`` / a ``fail_run`` that returned ``True``) is what
+    makes it exactly-once. Never blocks finishing the run — any error only
+    drops the entry.
+    """
+    try:
+        async with db.begin_nested():
+            run = await db.get(CandidateSearchRun, run_id)
+            if run is None or run.created_by is None:
+                return
+            link = f"/jobs/{run.job_id}?tab=similar" if run.job_id else "/talent-radar"
+            ntype = NotificationType.candidate_search_completed
+            if not await notification_recipient_has_access(
+                db,
+                run.created_by,
+                ntype,
+                related_entity_type="candidate_search_run",
+                link=link,
+            ):
+                return
+            db.add(
+                Notification(
+                    user_id=run.created_by,
+                    notification_type=ntype,
+                    title=(
+                        "Przegląd bazy nie powiódł się"
+                        if failed
+                        else "Przegląd bazy zakończony"
+                    ),
+                    message=(
+                        "Uruchom go ponownie."
+                        if failed
+                        else f"{eligible} kandydatów w wynikach"
+                    ),
+                    link=link,
+                    related_entity_type="candidate_search_run",
+                    # The run id is a UUID; the column is an integer.
+                    related_entity_id=None,
+                )
+            )
+    except Exception as exc:  # noqa: BLE001 — never blocks finishing the run
+        logger.warning(
+            "search-finished notification skipped run=%s: %s",
+            run_id,
+            type(exc).__name__,
+        )
 
 
 def _is_transient(exc: BaseException) -> bool:
@@ -175,6 +231,7 @@ async def _record_failure(run_id: str, token: str, exc: BaseException) -> None:
                     claims,
                     code,
                 )
+                await _notify_search_finished(db, run_id, eligible=None, failed=True)
         else:
             # Retry soon with a fresh claim; the counter bounds the retries.
             await store.release_run(db, run_id, token)
@@ -186,7 +243,8 @@ async def _execute_claimed(run_id: str, token: str):
         run = await db.get(CandidateSearchRun, run_id)
         if store.claim_count(run.metrics) > MAX_CLAIMS:
             # Earlier attempts died without reporting (e.g. process crash).
-            await store.fail_run(db, run_id, "attempts_exhausted", token=token)
+            if await store.fail_run(db, run_id, "attempts_exhausted", token=token):
+                await _notify_search_finished(db, run_id, eligible=None, failed=True)
             await db.commit()
             return
         request = RequestMatchingContext(**run.request_context)
@@ -211,7 +269,10 @@ async def _execute_claimed(run_id: str, token: str):
         async with AsyncSessionLocal() as db:
             batch = await store.pending_batch(db, run_id)
             if not batch:
-                await store.finish_run(db, run_id, token)
+                counts = await store.finish_run(db, run_id, token)
+                await _notify_search_finished(
+                    db, run_id, eligible=counts["eligible"], failed=False
+                )
                 await db.commit()
                 return
             error_code = None

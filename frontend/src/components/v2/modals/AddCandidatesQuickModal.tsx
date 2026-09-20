@@ -16,6 +16,7 @@ import { AVATAR_COLORS } from "@/lib/colors";
 import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { eligibilityBadgeClass } from "@/lib/conflicts";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 interface Props {
   open: boolean;
@@ -149,17 +150,24 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
 
   if (!open) return null;
 
+  // Rama na `Dialog` (Radix): Escape i klik w tło zamykają, fokus zostaje
+  // w oknie, a czytnik ekranu dostaje `role="dialog"` z tytułem. Logika
+  // wyszukiwania i dodawania bez zmian.
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-card rounded-2xl shadow-xl w-full max-w-2xl max-h-[88vh] flex flex-col">
+    <Dialog open onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogContent
+        size="lg"
+        hideClose
+        className="rounded-2xl shadow-xl max-h-[88vh]"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-2 min-w-0">
             <UserPlus className="w-5 h-5 text-primary shrink-0" />
             <div className="min-w-0">
-              <h2 className="text-lg font-bold text-foreground truncate">
+              <DialogTitle className="text-lg font-bold text-foreground truncate">
                 Dodaj kandydatów do pipeline
-              </h2>
+              </DialogTitle>
               <p className="text-xs text-muted-foreground truncate">
                 Rekrutacja: {jobTitle}
               </p>
@@ -360,7 +368,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -29,6 +29,11 @@ vi.mock("@/components/v2/modals/CreateJobModal", () => ({
 }));
 
 import { RequestHistorySection } from "@/components/RequestHistorySection";
+import { useAuthStore } from "@/store/auth";
+
+function signInAs(role: string) {
+  useAuthStore.setState({ user: { id: 1, role, roles: [role] } } as never);
+}
 
 const RESPONSE = {
   closed: [
@@ -74,6 +79,7 @@ function renderSection(readOnly: boolean) {
 describe("RequestHistorySection read-only", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    signInAs("admin");
     mocks.forJob.mockResolvedValue({ data: RESPONSE });
     mocks.addCandidate.mockResolvedValue({ data: {} });
   });
@@ -143,6 +149,7 @@ const MULTI_RESPONSE = {
 describe("RequestHistorySection compact (rama źródeł, krok 03)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    signInAs("admin");
     mocks.forJob.mockResolvedValue({ data: MULTI_RESPONSE });
     mocks.addCandidate.mockResolvedValue({ data: {} });
   });
@@ -224,5 +231,64 @@ describe("RequestHistorySection compact (rama źródeł, krok 03)", () => {
     expect(
       screen.queryByRole("button", { name: "Skopiuj jako template" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+// Historia requestu otwarta dla członków zespołu rekrutacji (przegląd UX
+// 17.09.2026): bez kwot fee, tylko ten klient, bez akcji na wpisach.
+describe("RequestHistorySection — zespół rekrutacji i brak dostępu", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.forJob.mockResolvedValue({ data: RESPONSE });
+    mocks.addCandidate.mockResolvedValue({ data: {} });
+  });
+
+  it("rekruter nie widzi „Wszyscy klienci”, kopiowania ani dodania championa i pyta tylko o tego klienta", async () => {
+    signInAs("recruiter");
+    renderSection(false);
+
+    expect(await screen.findByText("Senior Java Developer")).toBeInTheDocument();
+    expect(screen.queryByTestId("request-history-cross-client")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Skopiuj jako template" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Dodaj championa" }),
+    ).not.toBeInTheDocument();
+    expect(mocks.forJob).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ cross_client: false }),
+    );
+  });
+
+  it("delivery lead zachowuje wszystkie trzy kontrolki", async () => {
+    signInAs("delivery_lead");
+    renderSection(false);
+
+    expect(
+      await screen.findByRole("button", { name: "Skopiuj jako template" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dodaj championa" })).toBeInTheDocument();
+    expect(screen.getByTestId("request-history-cross-client")).toBeInTheDocument();
+  });
+
+  it("403 mówi o dostępie zespołu rekrutacji, a nie o błędzie serwera", async () => {
+    signInAs("recruiter");
+    mocks.forJob.mockRejectedValue({ isAxiosError: true, response: { status: 403, data: {} } });
+    renderSection(false);
+
+    expect(
+      await screen.findByText("Historia requestu jest dostępna dla zespołu rekrutacji."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Nie udało się pobrać historii/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Brak historycznych requestów/)).not.toBeInTheDocument();
+  });
+
+  it("inny błąd zostaje błędem pobierania", async () => {
+    signInAs("admin");
+    mocks.forJob.mockRejectedValue({ isAxiosError: true, response: { status: 500, data: {} } });
+    renderSection(false);
+
+    expect(await screen.findByText(/Nie udało się pobrać historii/)).toBeInTheDocument();
   });
 });

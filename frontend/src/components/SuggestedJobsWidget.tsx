@@ -44,7 +44,7 @@ function ScoreChip({ score }: { score: number | null }) {
   if (score === null) {
     return (
       <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
-        BM25 · tryb awaryjny
+        bez AI
       </span>
     );
   }
@@ -193,7 +193,7 @@ export function SuggestedJobsWidget({
             role="status"
             className="mb-2 rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground"
           >
-            Ranking działa w trybie awaryjnym BM25. Standardowy wynik
+            Ranking uproszczony (bez AI). Standardowy wynik
             dopasowania nie został wyliczony.
           </div>
         ) : null}

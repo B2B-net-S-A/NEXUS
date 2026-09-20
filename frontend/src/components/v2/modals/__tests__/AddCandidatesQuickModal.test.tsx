@@ -122,3 +122,25 @@ describe("AddCandidatesQuickModal — eligibility", () => {
     expect(screen.queryByText("Wpisz imię lub nazwisko kandydata")).not.toBeInTheDocument();
   });
 });
+
+describe("AddCandidatesQuickModal — rama dialogu", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.search.mockResolvedValue({ items: [item(1)], total: 1 });
+  });
+
+  it("jest dostępnym dialogiem z tytułem, a Escape go zamyka", async () => {
+    const onClose = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <AddCandidatesQuickModal open onClose={onClose} jobId={9} jobTitle="Java" />
+      </QueryClientProvider>,
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "Dodaj kandydatów do pipeline" });
+    expect(dialog).toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+});

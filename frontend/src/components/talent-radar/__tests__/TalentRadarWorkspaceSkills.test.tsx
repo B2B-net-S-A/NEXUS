@@ -19,7 +19,13 @@ const mocks = vi.hoisted(() => ({
   search: vi.fn(),
   parseChampion: vi.fn(),
   showError: vi.fn(),
+  showSuccess: vi.fn(),
+  interpret: vi.fn(),
 }));
+
+const defaultInterpret = async (body: { must_skills?: string[]; nice_skills?: string[] }) => ({
+  must: body.must_skills ?? ["Python"], nice: body.nice_skills ?? [], excluded: ["Java"], uncertain: [] as string[],
+});
 
 vi.mock("next/link", () => ({
   default: ({
@@ -45,9 +51,7 @@ vi.mock("@/lib/full-candidate-search-api", async importOriginal => ({
 
 vi.mock("@/lib/talent-radar-api", () => ({
   talentRadarApi: {
-    interpret: async (body: { must_skills?: string[]; nice_skills?: string[] }) => ({
-      must: body.must_skills ?? ["Python"], nice: body.nice_skills ?? [], excluded: ["Java"], uncertain: [],
-    }),
+    interpret: (...args: unknown[]) => mocks.interpret(...args),
     search: (...args: unknown[]) => mocks.search(...args),
     parseChampion: (...args: unknown[]) => mocks.parseChampion(...args),
   },
@@ -73,7 +77,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showError: mocks.showError }),
+  useToast: () => ({ showError: mocks.showError, showSuccess: mocks.showSuccess }),
 }));
 
 vi.mock("@/hooks/useCapability", () => ({
@@ -154,6 +158,7 @@ describe("TalentRadarWorkspace — wymagania z profilu", () => {
       },
     });
     mocks.parseChampion.mockResolvedValue(PARSED);
+    mocks.interpret.mockImplementation(defaultInterpret);
   });
 
   it("wysyła must/nice z `parse-champion` do wyszukiwania", async () => {
@@ -210,4 +215,105 @@ describe("TalentRadarWorkspace — wymagania z profilu", () => {
     expect(mocks.search.mock.calls[0][0]).toMatchObject({ must_skills: [], nice_skills: ["Python"], requirements_reviewed: true });
   });
 
+
+});
+
+const REQUEST_TEXT = "Szukamy senior python developera z FastAPI i Postgresem, stawka do 160 zl/h, praca zdalna.";
+
+async function interpretText(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: /Wybierz klienta/ }));
+  await user.type(screen.getByLabelText("Treść requestu"), REQUEST_TEXT);
+  await user.click(screen.getByRole("button", { name: /Sprawdź wymagania/ }));
+  await screen.findByLabelText("Obowiązkowe");
+}
+
+describe("TalentRadarWorkspace — nierozstrzygnięte umiejętności (B3)", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    vi.clearAllMocks();
+    mocks.search.mockResolvedValue(undefined);
+    mocks.interpret.mockResolvedValue({ must: ["Python"], nice: [], excluded: [], uncertain: ["Kafka", "Docker"] });
+  });
+
+  it("„→ obowiązkowe” dopisuje nazwę do obowiązkowych i trafia do wyszukiwania", async () => {
+    const user = renderWorkspace();
+    await interpretText(user);
+    await user.click(screen.getByRole("button", { name: "Kafka do obowiązkowych" }));
+    await user.click(screen.getByRole("button", { name: "Docker do dodatkowych" }));
+
+    expect(screen.getByLabelText("Obowiązkowe")).toHaveValue("Python, Kafka");
+    expect(screen.getByLabelText("Dodatkowe")).toHaveValue("Docker");
+    expect(screen.queryByRole("button", { name: "Kafka do obowiązkowych" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Szukaj w całej bazie/ }));
+    await waitFor(() => expect(mocks.search).toHaveBeenCalled());
+    expect(mocks.search.mock.calls[0][0]).toMatchObject({ must_skills: ["Python", "Kafka"], nice_skills: ["Docker"] });
+  });
+
+  it("„Wszystkie do obowiązkowych” przenosi całą listę", async () => {
+    const user = renderWorkspace();
+    await interpretText(user);
+    await user.click(screen.getByRole("button", { name: "Wszystkie do obowiązkowych" }));
+    expect(screen.getByLabelText("Obowiązkowe")).toHaveValue("Python, Kafka, Docker");
+    expect(screen.queryByRole("button", { name: "Wszystkie do obowiązkowych" })).not.toBeInTheDocument();
+  });
+});
+
+describe("TalentRadarWorkspace — podpowiedzi z treści (B3)", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    vi.clearAllMocks();
+    mocks.search.mockResolvedValue(undefined);
+    mocks.interpret.mockResolvedValue({ must: ["Python"], nice: [], excluded: [], uncertain: [], suggestions: { budget_max_pln_hour: 160, remote_only: true } });
+  });
+
+  it("wypełnia pusty budżet raz na treść i tylko pokazuje wskazówkę o pracy zdalnej", async () => {
+    const user = renderWorkspace();
+    await interpretText(user);
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue(160);
+    expect(screen.getByTestId("tr-budget-hint")).toBeVisible();
+    expect(screen.getByTestId("tr-remote-hint")).toHaveTextContent("W treści: praca zdalna.");
+    expect(screen.getByTestId("tr-exclude-remote-only")).not.toBeChecked();
+    expect(screen.getByLabelText("Dni w biurze / tydzień")).toHaveValue(null);
+
+    // Rekruter czyści budżet i ponownie sprawdza tę samą treść — nie wpisujemy go znowu.
+    await user.clear(screen.getByLabelText("Budżet PLN/h"));
+    await user.type(screen.getByLabelText("Nazwa roli"), "x");
+    await user.click(screen.getByRole("button", { name: /Sprawdź wymagania/ }));
+    await waitFor(() => expect(mocks.interpret).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue(null);
+  });
+
+  it("nie nadpisuje budżetu wpisanego ręcznie", async () => {
+    const user = renderWorkspace();
+    await user.type(screen.getByLabelText("Budżet PLN/h"), "140");
+    await interpretText(user);
+    expect(screen.getByLabelText("Budżet PLN/h")).toHaveValue(140);
+    expect(screen.queryByTestId("tr-budget-hint")).not.toBeInTheDocument();
+  });
+});
+
+describe("TalentRadarWorkspace — zwijany formularz (B3)", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    vi.clearAllMocks();
+    mocks.search.mockResolvedValue(undefined);
+    mocks.interpret.mockResolvedValue({ must: ["Python", "FastAPI"], nice: [], excluded: [], uncertain: [] });
+  });
+
+  it("po uruchomieniu przeglądu zostaje linia podsumowania z „Zmień kryteria”", async () => {
+    const user = renderWorkspace();
+    await interpretText(user);
+    await user.click(screen.getByRole("button", { name: /Szukaj w całej bazie/ }));
+
+    const summary = await screen.findByTestId("tr-criteria-summary");
+    expect(summary).toHaveTextContent("Klient");
+    expect(summary).toHaveTextContent("obowiązkowe: Python, FastAPI");
+    expect(summary.textContent).toContain(`${REQUEST_TEXT.slice(0, 80)}…`);
+    expect(screen.queryByLabelText("Treść requestu")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Zmień kryteria" }));
+    expect(screen.getByLabelText("Treść requestu")).toHaveValue(REQUEST_TEXT);
+    expect(screen.queryByTestId("tr-criteria-summary")).not.toBeInTheDocument();
+  });
 });

@@ -37,7 +37,6 @@ import {
 
 import {
   historicalCandidatesApi,
-  postingsApi,
   proposalsApi,
 } from "@/lib/api";
 import { savedSearchesApi, shortlistApi } from "@/lib/candidate-search-api";
@@ -52,14 +51,6 @@ import { assignErrorMessage } from "@/lib/assign-error";
 import { cn } from "@/lib/utils";
 import type { FullSearchSummary } from "@/lib/full-search-summary";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
-
-// `postingsApi.list` nie ma własnego generyku (zwraca `any`) — `PostingsSection`
-// w page.tsx typuje ją lokalnie tym samym wzorcem; robimy identycznie zamiast
-// eksportować typ z page.tsx (plik strony, nie moduł).
-interface JobPostingCount {
-  status: string;
-  applications: number;
-}
 
 /** Wąski wycinek oferty, którego rama naprawdę używa. `page.tsx` trzyma `job`
  *  z `useQuery` bez generyku (`any`), więc przypisanie jest bezproblemowe, a
@@ -296,19 +287,6 @@ export function SourcingHub({
     staleTime: 60_000,
   });
 
-  // ── Portale — licznik (TEN SAM klucz co PostingsSection w page.tsx) ─────
-  const postingsQuery = useQuery<JobPostingCount[]>({
-    queryKey: ["postings", jobId],
-    queryFn: () => postingsApi.list(jobId).then((r) => r.data),
-    staleTime: 60_000,
-  });
-  const postings = postingsQuery.data ?? [];
-  const postingsFailed = postingsQuery.isLoading || postingsQuery.isError;
-  const applicationsTotal = postings.reduce(
-    (sum, p) => sum + (p.applications ?? 0),
-    0,
-  );
-
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -322,9 +300,9 @@ export function SourcingHub({
         >
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <Sparkles className="h-4 w-4 text-primary" />
-            AI Matching · C2
+            AI Matching
             <Badge variant="success" size="sm" className="ml-auto shrink-0">
-              Semantic AI
+              AI
             </Badge>
           </div>
           <p className="text-xs leading-snug text-muted-foreground">
@@ -416,13 +394,13 @@ export function SourcingHub({
           testId="sourcing-portals-card"
           icon={<Globe className="h-4 w-4" />}
           title="Portale ogłoszeniowe"
-          pillLabel="symulowane"
-          pillVariant="warning"
-          description="Publikuj na wszystkich / Opublikuj ogłoszenie. Integracja w przygotowaniu — dane symulowane."
-          stats={[
-            { value: postingsFailed ? "—" : postings.length, label: "publikacji" },
-            { value: postingsFailed ? "—" : applicationsTotal, label: "aplikacji" },
-          ]}
+          // Integracja z portalami jest w przygotowaniu — liczby publikacji
+          // i aplikacji były symulowane, więc kafel ich nie pokazuje
+          // (przegląd UX 17.09.2026).
+          pillLabel="Wkrótce"
+          pillVariant="neutral"
+          description="Publikacja ogłoszeń na portalach rekrutacyjnych. Integracja w przygotowaniu."
+          stats={[]}
           onClick={() => onTabChange("portals")}
         />
       </div>
@@ -450,7 +428,7 @@ export function SourcingHub({
         >
           <Sparkles className="h-4 w-4 text-primary" />
           <span className="text-sm font-semibold text-foreground">
-            Rekomendowani (tryb snapshot)
+            Rekomendowani
           </span>
           <span className="ml-auto inline-flex items-center gap-1 text-xs text-primary">
             {recommendedOpen ? "Zwiń" : "Rozwiń"}

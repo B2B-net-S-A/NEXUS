@@ -81,6 +81,36 @@ describe("CommandPaletteV2 — wyszukiwanie kandydatów", () => {
   });
 });
 
+describe("CommandPaletteV2 — podpis kandydata", () => {
+  it("pokazuje stanowisko z LinkedIna i miasto, żeby odróżnić imienników", async () => {
+    apiGet.mockImplementation((url: string) =>
+      Promise.resolve({
+        data:
+          url === "/api/candidates"
+            ? {
+                items: [
+                  { id: 7, name: "Jan", lastname: "Kowalski", linkedin_current_title: "Java Developer", city: "Kraków" },
+                  { id: 8, name: "Jan", lastname: "Kowalski", linkedin_current_title: null, city: "Gdańsk" },
+                ],
+                total: 2,
+              }
+            : { items: [], total: 0 },
+      }),
+    );
+    const { getByPlaceholderText, getByText } = render(
+      <CommandPaletteV2 open onOpenChange={() => {}} />,
+    );
+    fireEvent.change(getByPlaceholderText(/Szukaj kandydatów/), {
+      target: { value: "Jan Kowalski" },
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(getByText("· Java Developer · Kraków")).toBeTruthy();
+    expect(getByText("· Gdańsk")).toBeTruthy();
+  });
+});
+
 describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", () => {
   it.each([
     ["kand", "Kandydaci"],

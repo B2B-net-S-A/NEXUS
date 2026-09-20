@@ -58,19 +58,19 @@ test.describe("Candidates flow", () => {
       node.scrollTop = node.scrollHeight;
     });
 
-    const lastRow = page.locator('[data-testid^="candidate-row-"][data-index="19"]');
+    const lastRow = page.locator('[data-testid^="candidate-row-"][data-index="49"]');
     await expect(lastRow).toBeVisible();
     const trigger = lastRow.getByRole("button").first();
     await trigger.click();
 
     const quickView = page.getByTestId("candidate-quick-view");
     await expect(quickView).toBeVisible();
-    await expect(quickView.getByText(/^20 z /)).toBeVisible();
+    await expect(quickView.getByText(/^50 z /)).toBeVisible();
     await quickView.getByRole("button", { name: "Następny kandydat" }).click();
-    await expect(quickView.getByText(/^21 z /)).toBeVisible();
+    await expect(quickView.getByText(/^51 z /)).toBeVisible();
 
     await page.keyboard.press("k");
-    await expect(quickView.getByText(/^20 z /)).toBeVisible();
+    await expect(quickView.getByText(/^50 z /)).toBeVisible();
     await expect(quickView.getByRole("button", { name: "Zamknij szybki podgląd" })).toHaveCount(1);
 
     for (let index = 0; index < 12; index += 1) await page.keyboard.press("Tab");

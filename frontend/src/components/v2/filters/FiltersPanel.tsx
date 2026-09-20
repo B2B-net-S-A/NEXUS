@@ -264,7 +264,7 @@ export function FiltersPanel({
               aria-describedby="candidate-search-q-counter"
               placeholder={
                 value.search_mode === "hybrid"
-                  ? "Szukaj semantycznie (BM25 + dense + rerank)…"
+                  ? "Szukaj semantycznie (po znaczeniu)…"
                   : "Szukaj w CV (full-text)…"
               }
               className="w-full pr-16"
@@ -294,7 +294,7 @@ export function FiltersPanel({
             title={
               value.search_mode === "hybrid"
                 ? "Tryb hybrydowy: Postgres FTS + Voyage embeddings + RRF fusion + Voyage Rerank 2.5. Wyższa jakość, dłuższa latencja (~600ms rerank)."
-                : "Włącz wyszukiwanie semantyczne (BM25 + dense + rerank)."
+                : "Włącz wyszukiwanie po znaczeniu, nie tylko po słowach."
             }
           >
             {value.search_mode === "hybrid" ? "Semantycznie ✓" : "Semantycznie"}

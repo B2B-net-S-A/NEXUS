@@ -10,6 +10,7 @@ from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.models.candidate import Candidate
@@ -48,6 +49,8 @@ from app.schemas.pipeline import (
     HiringManagerVetoBrief,
     KanbanColumn,
     KanbanView,
+    MyNextStepsJob,
+    MyNextStepsResponse,
     OffTemplateColumn,
     StageMove,
     StageInfo,
@@ -81,6 +84,7 @@ from app.services.recruitment_process_commands import (
     transition_process,
 )
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
+from app.services.pipeline_realtime import broadcast_pipeline_changed
 
 # Terminal wynikający wprost z legacy enuma — używane w gałęzi bez szablonu
 # pipeline'u, żeby `KanbanColumn.terminal_type` był wypełniany tak samo jak
@@ -1116,8 +1120,11 @@ async def move_candidate(
         if scheduled is not None:
             scheduled_rejection_email_id = scheduled.id
 
+    actor_id = current_user.id
     await db.commit()
     await db.refresh(stage)
+    # Live kanban: the rest of the team re-reads the board (best-effort).
+    await broadcast_pipeline_changed(db, data.job_id, actor_id)
 
     # ── Post-commit best-effort side effects (M4 PR-02, audyt P0.6) ────────
     # Transition jest już trwały. Nic poniżej nie może zwrócić 500 ani
@@ -1420,7 +1427,16 @@ async def get_kanban(
 
     # P1-PIPE-01: reading a job's board is a pipeline ingress — members only.
     await ensure_job_read_access(db, current_user, job.id)
+    return await build_kanban_view(db, job)
 
+
+async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
+    """The board of ``job`` — shared by ``/kanban/{job_id}`` and ``/my-next-steps``.
+
+    The caller has already checked access (``ensure_job_read_access``); this
+    function only reads.
+    """
+    job_id = job.id
     # All CandidateStage rows for this job, newest→oldest per candidate.
     # Secondary id.desc() makes the per-candidate "first" (latest) and "last"
     # (earliest) rows deterministic when two moves share a `moved_at`.
@@ -1608,6 +1624,55 @@ async def get_kanban(
             render=_stage_resp_with_name,
         ),
     )
+
+
+# Dashboard section "Następne kroki w moich rekrutacjach" — a bounded fan-out.
+MY_NEXT_STEPS_JOB_LIMIT = 25
+
+
+@router.get("/my-next-steps", response_model=MyNextStepsResponse)
+async def my_next_steps(
+    current_user: CandidatePIIAccess,
+    db: AsyncSession = Depends(get_db),
+) -> MyNextStepsResponse:
+    """Boards of the caller's own open recruitments (owner or collaborator).
+
+    The dashboard computes the next action per card from these boards with the
+    same rules as the kanban, so the two screens never disagree. At most
+    ``MY_NEXT_STEPS_JOB_LIMIT`` recruitments, nearest deadline first;
+    ``truncated`` says the list was cut.
+    """
+    from app.api.jobs import jobs_mine_clause  # noqa: PLC0415 — import cycle
+
+    jobs = (
+        await db.scalars(
+            select(Job)
+            .options(selectinload(Job.client))
+            .where(jobs_mine_clause(current_user), Job.status != JobStatus.closed)
+            .order_by(Job.deadline.asc().nullslast(), Job.id.desc())
+            # One extra row tells a full page from a cut list.
+            .limit(MY_NEXT_STEPS_JOB_LIMIT + 1)
+        )
+    ).all()
+    truncated = len(jobs) > MY_NEXT_STEPS_JOB_LIMIT
+    jobs = jobs[:MY_NEXT_STEPS_JOB_LIMIT]
+    out: list[MyNextStepsJob] = []
+    for job in jobs:
+        try:
+            # `jobs_mine_clause` keeps collaborators removed from the team;
+            # the board read guard is the one that decides.
+            await ensure_job_read_access(db, current_user, job.id)
+        except HTTPException:
+            continue
+        out.append(
+            MyNextStepsJob(
+                job_id=job.id,
+                title=job.title,
+                client_name=job.client.name if job.client else None,
+                view=await build_kanban_view(db, job),
+            )
+        )
+    return MyNextStepsResponse(jobs=out, truncated=truncated)
 
 
 @router.get(
@@ -2146,7 +2211,9 @@ async def bulk_move_candidates(
         )
         moved += 1
 
+    actor_id = current_user.id
     await db.commit()
+    await broadcast_pipeline_changed(db, data.job_id, actor_id)
 
     # Phase 17 (migracja 0068): recompute risk dla każdego kandydata.
     # Best-effort — pojedynczy fail nie blokuje response ani nie zostawia

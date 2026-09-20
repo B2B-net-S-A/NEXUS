@@ -228,6 +228,21 @@ class KanbanView(BaseModel):
     off_template: Optional[OffTemplateColumn] = None
 
 
+class MyNextStepsJob(BaseModel):
+    """One of the caller's open recruitments with its full board."""
+
+    job_id: int
+    title: str
+    client_name: Optional[str] = None
+    view: KanbanView
+
+
+class MyNextStepsResponse(BaseModel):
+    jobs: List[MyNextStepsJob]
+    # The list is capped (nearest deadline first); True = more exist.
+    truncated: bool = False
+
+
 class StageInfo(BaseModel):
     stage: PipelineStage
     category: StageCategory

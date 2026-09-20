@@ -39,6 +39,36 @@ import type {
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { CreateJobModal } from "@/components/v2/modals/CreateJobModal";
+import { hasRole, useAuthStore } from "@/store/auth";
+import { resolveViewState, type ViewState } from "@/lib/view-state";
+
+/** Role z organizacyjnym odczytem historii (lustro `_HISTORY_ORG_READER_ROLES`
+ *  w `backend/app/api/jobs.py`): widzą kwoty fee, historię innych klientów
+ *  i akcje na wpisach. Członek zespołu rekrutacji dostaje historię TEGO
+ *  klienta, bez kwot i bez akcji. */
+const HISTORY_ORG_READER_ROLES = ["admin", "delivery_lead", "finance"] as const;
+
+const FORBIDDEN_COPY = "Historia requestu jest dostępna dla zespołu rekrutacji.";
+
+function HistoryLoadProblem({ state }: { state: ViewState }) {
+  if (state === "forbidden") {
+    return (
+      <p
+        role="status"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground"
+      >
+        <AlertCircle className="w-4 h-4" />
+        {FORBIDDEN_COPY}
+      </p>
+    );
+  }
+  return (
+    <div className="text-sm text-destructive dark:text-destructive inline-flex items-center gap-1.5">
+      <AlertCircle className="w-4 h-4" />
+      Nie udało się pobrać historii. Spróbuj ponownie.
+    </div>
+  );
+}
 
 interface Props {
   jobId: number;
@@ -117,7 +147,13 @@ export function RequestHistorySection({
   maxItems = 3,
   onCandidatesToSource,
 }: Props) {
-  const [crossClient, setCrossClient] = useState(false);
+  const authUser = useAuthStore((st) => st.user);
+  const orgReader = hasRole(authUser, ...HISTORY_ORG_READER_ROLES);
+  const [crossClientChoice, setCrossClient] = useState(false);
+  // Backend i tak przycina `cross_client` do tego klienta dla zespołu
+  // rekrutacji — nie pytamy o coś, czego odpowiedź nie zmieni.
+  const crossClient = orgReader && crossClientChoice;
+  const mutationActions = !readOnly && orgReader;
   const [activeBucket, setActiveBucket] = useState<"in_progress" | "closed">(
     "closed",
   );
@@ -179,6 +215,16 @@ export function RequestHistorySection({
   const closed = query.data?.closed ?? [];
   const inProgress = query.data?.in_progress ?? [];
   const total = closed.length + inProgress.length;
+  const viewState = resolveViewState({
+    isLoading: query.isLoading,
+    isError: query.isError,
+    error: query.error,
+    isSuccess: query.isSuccess,
+    isEmpty: total === 0,
+  });
+  const loadProblem =
+    viewState === "forbidden" || viewState === "not_found" || viewState === "error";
+  const hasRows = viewState === "ready";
 
   const visible = useMemo(
     () => (activeBucket === "closed" ? closed : inProgress),
@@ -205,44 +251,43 @@ export function RequestHistorySection({
             Historia requestu
           </h3>
           <span className="text-xs text-muted-foreground">
-            {query.isLoading
+            {viewState === "loading"
               ? "ładowanie…"
-              : query.isError
-                ? "nie udało się pobrać"
-                : `Zamknięte ${closed.length} · W toku ${inProgress.length}`}
+              : viewState === "forbidden"
+                ? "brak dostępu"
+                : loadProblem
+                  ? "nie udało się pobrać"
+                  : `Zamknięte ${closed.length} · W toku ${inProgress.length}`}
           </span>
-          <label className="ml-auto inline-flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={crossClient}
-              onChange={(e) => setCrossClient(e.target.checked)}
-              className="accent-warning"
-              data-testid="request-history-cross-client"
-            />
-            Wszyscy klienci
-          </label>
+          {orgReader && (
+            <label className="ml-auto inline-flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={crossClient}
+                onChange={(e) => setCrossClient(e.target.checked)}
+                className="accent-warning"
+                data-testid="request-history-cross-client"
+              />
+              Wszyscy klienci
+            </label>
+          )}
         </div>
 
-        {query.isLoading && (
+        {viewState === "loading" && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" />
             Szukam siostrzanych requestów…
           </div>
         )}
-        {query.isError && (
-          <div className="text-sm text-destructive dark:text-destructive inline-flex items-center gap-1.5">
-            <AlertCircle className="w-4 h-4" />
-            Nie udało się pobrać historii. Spróbuj ponownie.
-          </div>
-        )}
-        {!query.isLoading && !query.isError && total === 0 && (
+        {loadProblem && <HistoryLoadProblem state={viewState} />}
+        {viewState === "empty" && (
           <EmptyState
             crossClient={crossClient}
-            onTryCrossClient={() => setCrossClient(true)}
+            onTryCrossClient={orgReader ? () => setCrossClient(true) : undefined}
           />
         )}
 
-        {!query.isLoading && !query.isError && compactVisible.length > 0 && (
+        {hasRows && compactVisible.length > 0 && (
           <ul className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {compactVisible.map((entry) => (
               <RequestHistoryRow
@@ -252,10 +297,10 @@ export function RequestHistorySection({
                   window.open(`/jobs/${entry.job_id}`, "_blank", "noopener,noreferrer")
                 }
                 onCopyAsTemplate={
-                  readOnly ? undefined : () => setTemplateJobId(entry.job_id)
+                  mutationActions ? () => setTemplateJobId(entry.job_id) : undefined
                 }
                 onAddChampion={
-                  !readOnly && entry.champion_candidate_id != null
+                  mutationActions && entry.champion_candidate_id != null
                     ? () =>
                         addCandidateMutation.mutate({
                           candidateId: entry.champion_candidate_id as number,
@@ -264,7 +309,7 @@ export function RequestHistorySection({
                     : undefined
                 }
                 isAddingChampion={addCandidateMutation.isPending}
-                showMutationActions={!readOnly}
+                showMutationActions={mutationActions}
                 onCandidatesToSource={
                   onCandidatesToSource && entry.candidates_count > 0
                     ? () => onCandidatesToSource(entry)
@@ -275,7 +320,7 @@ export function RequestHistorySection({
           </ul>
         )}
 
-        {!readOnly && templateJobId !== null && (
+        {mutationActions && templateJobId !== null && (
           <CreateJobModal
             fromJobId={templateJobId}
             onClose={() => setTemplateJobId(null)}
@@ -305,16 +350,18 @@ export function RequestHistorySection({
               : "Bliźniacze requesty tego klienta — najbardziej podobne rolą. Outcome, champion, TTH, fee, owner."}
           </p>
         </div>
-        <label className="text-xs text-muted-foreground dark:text-muted-foreground inline-flex items-center gap-1.5 cursor-pointer select-none whitespace-nowrap">
-          <input
-            type="checkbox"
-            checked={crossClient}
-            onChange={(e) => setCrossClient(e.target.checked)}
-            className="accent-amber-600"
-            data-testid="request-history-cross-client"
-          />
-          Wszyscy klienci
-        </label>
+        {orgReader && (
+          <label className="text-xs text-muted-foreground dark:text-muted-foreground inline-flex items-center gap-1.5 cursor-pointer select-none whitespace-nowrap">
+            <input
+              type="checkbox"
+              checked={crossClient}
+              onChange={(e) => setCrossClient(e.target.checked)}
+              className="accent-amber-600"
+              data-testid="request-history-cross-client"
+            />
+            Wszyscy klienci
+          </label>
+        )}
       </div>
 
       {/* Bucket tabs */}
@@ -346,25 +393,20 @@ export function RequestHistorySection({
       </div>
 
       {/* Content */}
-      {query.isLoading && (
+      {viewState === "loading" && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="w-4 h-4 animate-spin" />
           Szukam siostrzanych requestów…
         </div>
       )}
-      {query.isError && (
-        <div className="text-sm text-destructive dark:text-destructive inline-flex items-center gap-1.5">
-          <AlertCircle className="w-4 h-4" />
-          Nie udało się pobrać historii. Spróbuj ponownie.
-        </div>
-      )}
-      {!query.isLoading && !query.isError && total === 0 && (
+      {loadProblem && <HistoryLoadProblem state={viewState} />}
+      {viewState === "empty" && (
         <EmptyState
           crossClient={crossClient}
-          onTryCrossClient={() => setCrossClient(true)}
+          onTryCrossClient={orgReader ? () => setCrossClient(true) : undefined}
         />
       )}
-      {!query.isLoading && !query.isError && total > 0 && visible.length === 0 && (
+      {hasRows && visible.length === 0 && (
         <p className="text-sm text-muted-foreground italic">
           {activeBucket === "closed"
             ? "Brak zamkniętych siostrzanych requestów."
@@ -381,10 +423,10 @@ export function RequestHistorySection({
               window.open(`/jobs/${entry.job_id}`, "_blank", "noopener,noreferrer")
             }
             onCopyAsTemplate={
-              readOnly ? undefined : () => setTemplateJobId(entry.job_id)
+              mutationActions ? () => setTemplateJobId(entry.job_id) : undefined
             }
             onAddChampion={
-              !readOnly && entry.champion_candidate_id != null
+              mutationActions && entry.champion_candidate_id != null
                 ? () =>
                     addCandidateMutation.mutate({
                       candidateId: entry.champion_candidate_id as number,
@@ -393,13 +435,13 @@ export function RequestHistorySection({
                 : undefined
             }
             isAddingChampion={addCandidateMutation.isPending}
-            showMutationActions={!readOnly}
+            showMutationActions={mutationActions}
           />
         ))}
       </ul>
 
       {/* Skopiuj jako template — modal rendered locally */}
-      {!readOnly && templateJobId !== null && (
+      {mutationActions && templateJobId !== null && (
         <CreateJobModal
           fromJobId={templateJobId}
           onClose={() => setTemplateJobId(null)}
@@ -610,14 +652,15 @@ function EmptyState({
   onTryCrossClient,
 }: {
   crossClient: boolean;
-  onTryCrossClient: () => void;
+  /** Brak = odbiorca nie ma odczytu innych klientów (zespół rekrutacji). */
+  onTryCrossClient?: () => void;
 }) {
   return (
     <div className="text-sm text-muted-foreground dark:text-muted-foreground italic">
       {crossClient
         ? "Brak siostrzanych requestów w bazie."
         : "Brak historycznych requestów u tego klienta."}
-      {!crossClient && (
+      {!crossClient && onTryCrossClient && (
         <>
           {" "}
           <button

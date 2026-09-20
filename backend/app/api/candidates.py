@@ -108,6 +108,7 @@ from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, Stage
 from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
 from app.services.match_score_cache import bulk_get_or_compute
 from app.services.critical_events import record_executed
+from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.candidate_contact_hooks import (
     has_active_contact_trigger,
     load_contact_case_summaries,
@@ -4117,12 +4118,16 @@ async def remove_candidate_from_recruitment(
         )
     )
 
+    actor_id = current_user.id
+    removed_stage_count = len(stage_rows)
     await db.commit()
+    # Live kanban: the rest of the team re-reads the board (best-effort).
+    await broadcast_pipeline_changed(db, job_id, actor_id)
 
     return {
         "candidate_id": candidate_id,
         "job_id": job_id,
-        "removed_stage_count": len(stage_rows),
+        "removed_stage_count": removed_stage_count,
     }
 
 

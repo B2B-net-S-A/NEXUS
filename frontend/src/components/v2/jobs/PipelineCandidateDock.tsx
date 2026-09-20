@@ -27,6 +27,7 @@ import {
   AlertTriangle,
   Ban,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -53,6 +54,12 @@ import api, {
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { TabbedNav } from "@/components/ds";
 import { cn, formatDate } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
@@ -71,6 +78,13 @@ import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
 // nigdy nie otworzą.
+// Radix zamyka menu i oddaje fokus PO `onSelect` — akcja otwierająca modal
+// (stawka, powód odrzucenia) musi poczekać jeden tick, inaczej zwrot fokusu
+// zamyka świeżo otwarty dialog. Kopia z `JobDetailCompactHeader`.
+const deferMenuAction = (action: () => void) => {
+  window.setTimeout(action, 0);
+};
+
 const CVBrandedEditModal = dynamic(
   () =>
     import("@/components/v2/modals/CVBrandedEditModal").then(
@@ -425,7 +439,7 @@ export function PipelineCandidateDock({
   }, [emailLookupFailed, showError]);
 
   return (
-    <div className="flex max-h-[calc(100vh-2rem)] flex-col rounded-xl border border-border bg-card">
+    <div className="flex h-full flex-col rounded-xl border border-border bg-card">
       {/* ── Nagłówek ──────────────────────────────────────────────────── */}
       <div className="space-y-2.5 border-b border-border p-4">
         {/* Nawigator „‹ N z M ›" — kolejność tablicy, kolumna po kolumnie.
@@ -610,7 +624,7 @@ export function PipelineCandidateDock({
                     title={`Następna akcja: ${nextAction.label}`}
                     who={
                       nextAction.tone === "gate"
-                        ? "Ruch zablokowany bramką — patrz „Przenieś na etap”."
+                        ? "Ruch zablokowany bramką — patrz „Inny etap…”."
                         : nextAction.tone === "due"
                           ? "Po terminie — ta karta czeka dłużej, niż powinna."
                           : null
@@ -884,35 +898,6 @@ export function PipelineCandidateDock({
 
       {/* ── Przenieś na etap + akcje (zawsze widoczne, niezależnie od zakładki) ── */}
       <div className="space-y-3 border-t border-border bg-muted/10 p-4">
-        {moveTargets.length > 0 && (
-          <div className="space-y-1.5">
-            <div className="text-xs font-semibold text-foreground">Przenieś na etap</div>
-            <div className="flex flex-wrap gap-1">
-              {moveTargets.map(({ col, blockedReason }) => (
-                <button
-                  key={col.stage_def_id ?? col.stage}
-                  type="button"
-                  disabled={Boolean(blockedReason)}
-                  title={blockedReason ?? undefined}
-                  onClick={() => onMoveTo(col)}
-                  className={cn(
-                    "rounded-full border px-2 py-0.5 text-[11px] transition-colors",
-                    blockedReason
-                      ? "cursor-not-allowed border-border bg-muted text-muted-foreground/60"
-                      : "border-border bg-background text-foreground hover:border-primary hover:bg-primary/5"
-                  )}
-                >
-                  {col.name ?? col.stage}
-                </button>
-              ))}
-            </div>
-            <p className="text-[10.5px] leading-snug text-muted-foreground">
-              Ta sama bramka co w C2 — zablokowany etap jest wyszarzony
-              z powodem, zamiast odbić się o 409 po kliknięciu.
-            </p>
-          </div>
-        )}
-
         <div className="grid grid-cols-2 gap-1.5">
           {/* Główna akcja: pierwszy DOZWOLONY etap po bieżącym. Ta sama ścieżka
               co drag&drop (`requestMove`), więc modale stawki, potwierdzenia
@@ -945,6 +930,48 @@ export function PipelineCandidateDock({
                 {primaryBlocked.reason}
               </p>
             </div>
+          )}
+          {/* Pozostałe etapy w menu zamiast ściany pigułek (przegląd UX
+              17.09.2026). Bramka jest ta sama: zablokowany etap jest
+              wyszarzony z powodem pod nazwą. */}
+          {moveTargets.length > 0 && !readOnly && (
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="col-span-2 justify-between"
+                >
+                  Inny etap…
+                  <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="max-h-[60vh] w-72 overflow-y-auto"
+              >
+                {moveTargets.map(({ col, blockedReason }) => {
+                  const label = col.name ?? col.stage;
+                  return (
+                    <DropdownMenuItem
+                      key={col.stage_def_id ?? col.stage}
+                      aria-label={label}
+                      disabled={Boolean(blockedReason)}
+                      title={blockedReason ?? undefined}
+                      onSelect={() => deferMenuAction(() => onMoveTo(col))}
+                      className="block"
+                    >
+                      <span className="block">{label}</span>
+                      {blockedReason && (
+                        <span className="block text-xs text-muted-foreground">
+                          {blockedReason}
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           <Button
             size="sm"
@@ -1048,18 +1075,6 @@ export function PipelineCandidateDock({
           candidateEmail={candidateDetailQuery.data.email ?? ""}
         />
       )}
-    </div>
-  );
-}
-
-/** Pusty stan doku — nic nie jest kliknięte na tablicy. Ten sam ton co
- *  `JobMatchDock` w warsztacie C2, żeby dwa doki tej samej rekrutacji
- *  mówiły tym samym językiem. */
-export function PipelineCandidateDockEmpty() {
-  return (
-    <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-      <CheckCircle2 className="mx-auto mb-2 h-6 w-6 opacity-40" />
-      Kliknij kartę na tablicy, aby zobaczyć jej etap, screening, CV i historię.
     </div>
   );
 }

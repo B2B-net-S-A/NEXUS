@@ -66,9 +66,9 @@ describe("SuggestedJobsWidget degraded recommendations", () => {
     );
 
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "trybie awaryjnym BM25",
+      "Ranking uproszczony (bez AI)",
     );
-    expect(screen.getByText("BM25 · tryb awaryjny")).toBeInTheDocument();
+    expect(screen.getByText("bez AI")).toBeInTheDocument();
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });
 

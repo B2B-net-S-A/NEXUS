@@ -46,6 +46,7 @@ from app.services.pipeline_eligibility import (
     detail_for,
     evaluate_candidates_for_job_with_verdicts,
 )
+from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.priority_work_policy import milestone_counts_scope
 from app.services.recruitment_process_commands import (
     canonical_candidate_lock_order,
@@ -69,9 +70,18 @@ WarningReason = Literal[
     "current_employment",
     "excluded_by_candidate",
 ]
-# The screen an add came from — the four callers of this route. A closed
+# The screen an add came from — the callers of this route. A closed
 # vocabulary on purpose: it lands in the analytics table (PII policy).
-BulkAddSource = Literal["full_search", "manual_search", "historical", "quick_add"]
+# ``talent_radar`` (result card of a Radar run, which has no job) and
+# ``candidate_list`` (bulk bar of /candidates) joined on 17.09.2026.
+BulkAddSource = Literal[
+    "full_search",
+    "manual_search",
+    "historical",
+    "quick_add",
+    "talent_radar",
+    "candidate_list",
+]
 
 # Eligibility reason → bulk-add skip reason. Reasons that block assignment.
 _SKIP_REASON_BY_ELIGIBILITY: dict[EligibilityReason, SkipReason] = {
@@ -551,7 +561,11 @@ async def bulk_add_proposals(
     )
     added, skipped, warnings = result.added, result.skipped, result.warnings
 
+    actor_id = current_user.id
     await db.commit()
+    if added:
+        # Live kanban: the rest of the team re-reads the board (best-effort).
+        await broadcast_pipeline_changed(db, job_id, actor_id)
 
     # Match telemetry (no-op unless AI_MATCH_TELEMETRY_ENABLED): one
     # `add_to_pipeline` outcome per candidate that actually entered the
@@ -566,7 +580,7 @@ async def bulk_add_proposals(
         await emit_pipeline_additions(
             job_id=job_id,
             candidate_ids=added,
-            user_id=current_user.id,
+            user_id=actor_id,
             run_id=body.run_id,
             source=body.source,
         )

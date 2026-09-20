@@ -95,11 +95,17 @@ class TalentRadarSearchRequest(BaseModel):
 async def interpret_requirements(
     payload: TalentRadarSearchRequest, _: CurrentUser
 ) -> dict:
-    """Preview the same deterministic requirements used by the ranking."""
+    """Preview the same deterministic requirements used by the ranking.
+
+    ``suggestions`` (17.09.2026) are hints for the form, never applied on the
+    server: the upper PLN/h budget stated in the text and whether the text says
+    the work is remote. The front fills an EMPTY budget field only.
+    """
+    from app.services.champion_intake import budget_max_pln_hour, mode
     from app.services.scoring_service import job_skill_requirements
     from app.services.talent_radar_search import build_ephemeral_job
 
-    return job_skill_requirements(
+    requirements = job_skill_requirements(
         build_ephemeral_job(
             RadarQuery(
                 client_id=payload.client_id,
@@ -115,6 +121,13 @@ async def interpret_requirements(
             )
         )
     )
+    return {
+        **requirements,
+        "suggestions": {
+            "budget_max_pln_hour": budget_max_pln_hour(payload.text),
+            "remote_only": True if mode(payload.text or "") == "zdalnie" else None,
+        },
+    }
 
 
 @router.post("/talent-radar/search")

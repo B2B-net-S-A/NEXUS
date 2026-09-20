@@ -87,7 +87,6 @@ import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { PipelineFiltersRail } from "@/components/v2/jobs/PipelineFiltersRail";
 import {
  PipelineCandidateDock,
- PipelineCandidateDockEmpty,
  type PipelineMoveTarget,
 } from "@/components/v2/jobs/PipelineCandidateDock";
 import {
@@ -130,6 +129,12 @@ import {
 } from "@/lib/pipeline-eligibility-warning";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { jobBudgetHourly as resolveJobBudgetHourly } from "@/lib/job-budget";
+import {
+ kanbanViewToggleVisible,
+ resolveKanbanViewMode,
+ useKanbanViewPreference,
+ type KanbanViewMode,
+} from "@/lib/kanban-view-preferences";
 
 // Re-eksport — `KanbanColumn`/`KanbanItem`/`colId`/`columnLabel`/`ScoreRing`
 // mieszkają teraz w `kanban-shared.tsx` (dok i lewy rail importują je STAMTĄD,
@@ -177,9 +182,12 @@ interface KanbanBoardV2Props {
   *  „Screening". Bez niego tablica działa jak dotąd i mówi wprost, że SLA
   *  nie jest ustawione — nigdy go nie zgaduje. */
  clientId?: number | null;
- /** `?candidate=<id>` z adresu rekrutacji (np. wzmianka w notatce) — otwiera
-  *  dok tego kandydata raz, gdy jego karta pojawi się na tablicy. */
- focusCandidateId?: number | null;}
+ /** Deep link `?candidate=<id>` (powiadomienia, „Wróć do rekrutacji"): po
+  *  załadowaniu tablicy otwiera dok tej osoby i przewija do jej karty. */
+ initialDockCandidateId?: number | null;
+ /** Woła się raz po obsłużeniu `initialDockCandidateId` — niezależnie od tego,
+  *  czy karta była na tablicy — żeby strona zdjęła parametr z adresu. */
+ onInitialDockHandled?: () => void;}
 
 const CATEGORY_COLOR: Record<string, string> = {
  internal: "bg-primary",
@@ -261,6 +269,8 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  onFocus,
  density,
  onToggleDensity,
+ viewMode,
+ onSetViewMode,
  fullPipelineDesktop,
 }: {
  cols: KanbanColumn[];
@@ -268,6 +278,8 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  onFocus: (id: string) => void;
  density: "cozy" | "compact";
  onToggleDensity: () => void;
+ viewMode: KanbanViewMode | null;
+ onSetViewMode: (next: KanbanViewMode) => void;
  fullPipelineDesktop: boolean;
 }) {
  const total = cols.reduce(
@@ -352,7 +364,40 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  </Button>
  </div>
 
+ {/* Przełącznik widoku. Renderowany TYLKO gdy jest co przełączać
+ (`kanbanViewToggleVisible`): poniżej progu kolumny i tak mieszczą się bez
+ przewijania, więc „widok przeglądowy" dałby wyłącznie mniejsze karty. */}
+ {viewMode !== null && (
+ <div
+ role="group"
+ aria-label="Widok tablicy"
+ className="inline-flex items-center gap-0.5 rounded-md border border-border p-0.5"
+ >
+ <Button
+ type="button"
+ size="sm"
+ variant={viewMode === "tiles" ? "primary" : "ghost"}
+ aria-pressed={viewMode === "tiles"}
+ onClick={() => onSetViewMode("tiles")}
+ className="h-6 px-2 text-[11px]"
+ >
+ Widok przeglądowy
+ </Button>
+ <Button
+ type="button"
+ size="sm"
+ variant={viewMode === "columns" ? "primary" : "ghost"}
+ aria-pressed={viewMode === "columns"}
+ onClick={() => onSetViewMode("columns")}
+ className="h-6 px-2 text-[11px]"
+ >
+ Widok kolumnowy
+ </Button>
+ </div>
+ )}
+
  <Tooltip>
+
  <TooltipTrigger asChild>
  <Button
  type="button"
@@ -480,6 +525,8 @@ interface CardProps {
  scoresLoading?: boolean;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
  contactFeatureEnabled: boolean;
+ /** Tryb przeglądowy: karta degraduje się do kafelka (patrz
+  *  `lib/kanban-view-preferences.ts`). */
  desktopOverview: boolean;
  readOnly: boolean;
  /** Krok 04 Pipeline (flow C2, PR 3/7): klik na kartę otwiera dok „Karta w
@@ -603,6 +650,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  return (
  <div
  data-kanban-card=""
+ data-candidate-id={item.candidate_id}
  onClick={handleCardClick}
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-xs hover:border-primary/40",
  selected &&"ring-2 ring-primary border-primary",
@@ -653,12 +701,9 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  />
  </div>
 
- {/* Kropka ostrzeżenia — jedyny sygnał hm_veto, który przeżywa gęsty
- widok pełnego pipeline'u (`desktopOverview`): tekstowy badge niżej na
- karcie (Weto HM) jest tam schowany (`xl:pointer-fine:hidden`),
- bo w tym trybie karta jest kilkunastopikselowym kafelkiem. Ta kropka
- NIE jest owinięta tym warunkiem — patrz `dołóż flagę bramki jako
- kropkę` w brief programu C2 (04 Pipeline). */}
+ {/* Kropka ostrzeżenia — sygnał hm_veto widoczny także bez czytania
+ tekstowego badge'a „Weto HM" niżej na karcie (patrz `dołóż flagę
+ bramki jako kropkę` w brief programu C2, 04 Pipeline). */}
  {gateFlagReason && (
  <span
  className="absolute left-4 top-0 z-10 h-2 w-2 rounded-full ring-2 ring-card bg-destructive"
@@ -701,7 +746,12 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // dokładnie to, czego ta karta miała się pozbyć.
  className={cn("block font-semibold text-foreground hover:underline break-words line-clamp-2",
  density === "compact" ?"text-[11px] leading-tight" :"text-[13px] leading-snug",
- desktopOverview &&"xl:pointer-fine:whitespace-normal xl:pointer-fine:break-words xl:pointer-fine:text-[10px] xl:pointer-fine:font-semibold xl:pointer-fine:leading-3"
+ desktopOverview &&"xl:pointer-fine:whitespace-normal xl:pointer-fine:break-words xl:pointer-fine:text-[10px] xl:pointer-fine:font-semibold xl:pointer-fine:leading-3",
+ // W kafelku nazwisko zajmuje CAŁĄ kartę (39x87 px), więc link do profilu
+ // przechwytywał każde kliknięcie i dok był nieosiągalny. `pointer-events-none`
+ // przepuszcza klik do karty (dok), a link zostaje w drzewie dostępności
+ // i pod Tabem — profil jest też w doku („Pełny profil").
+ desktopOverview &&"xl:pointer-fine:pointer-events-none"
  )}
  >
  {fullName}
@@ -869,8 +919,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {/* Screening jest WIERSZEM karty, nie elementem na `absolute bottom-1
  right-1`: tamta pozycja to dokładnie wiersz „co dalej z tą kartą"
  (`NextActionRow`), więc na „Zweryfikowany" pigułka „Uzupełnij screening"
- przykrywała „Wyślij CV do klienta". Przy kartach 25 px (tryb kafelkowy)
- nie było tego widać — odsłoniły to karty 200 px. */}
+ przykrywała „Wyślij CV do klienta" (#1604). */}
  {!readOnly && canScreen && (
  <div className={cn("mt-1 flex justify-end", desktopOverview &&"xl:pointer-fine:mt-0")}>
  <button
@@ -917,8 +966,8 @@ interface ColProps {
  jobBudgetHourly: number | null;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
  contactFeatureEnabled: boolean;
- desktopOverview: boolean;
  fullPipelineDesktop: boolean;
+ desktopOverview: boolean;
  readOnly: boolean;
  /** Kolumna „poza szablonem" jest wyłącznie ŹRÓDŁEM: kartę można z niej
   *  wyciągnąć, ale nie da się jej tam upuścić (upuszczenie znaczyłoby ruch
@@ -946,9 +995,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  stagesWithScorecard,
  onOpenScorecard,
  jobBudgetHourly,
+ desktopOverview,
  onRemoveFromRecruitment,
  contactFeatureEnabled,
- desktopOverview,
  fullPipelineDesktop,
  readOnly,
  dropDisabled,
@@ -981,13 +1030,15 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  aria-label={`${columnLabel(col)}, liczba kandydatów: ${col.count}`}
  className={cn(
  "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-border bg-background/60 sm:min-w-[19rem]",
+ // NIE ściskamy kolumn do zera. Podłoga 12,5 rem (200 px) mieści pełną
+ // kartę (nazwisko do dwóch linii, właściciel, wiek, następna akcja)
+ // niezależnie od liczby kolumn. Board ma `overflow-auto`, więc nadmiar
+ // kolumn przewija się w poziomie.
+ // Kafelek: kolumny dzielą się dostępną szerokością i mieszczą się bez
+ // przewijania. Kolumny: podłoga 12,5 rem (200 px), nadmiar przewija się
+ // w poziomie — patrz `lib/kanban-view-preferences.ts`.
  fullPipelineDesktop && desktopOverview &&"xl:pointer-fine:w-0 xl:pointer-fine:min-w-0 xl:pointer-fine:basis-0 xl:pointer-fine:grow xl:pointer-fine:shrink",
- // Mało kolumn: NIE ściskamy ich do zera. Podłoga 11 rem to szerokość,
- // przy której makieta mieści pełną kartę (nazwisko do dwóch linii,
- // właściciel, wiek, następna akcja); poniżej karta znów byłaby kafelkiem,
- // tylko bez uczciwego trybu przeglądowego. Board ma `overflow-auto`, więc
- // nadmiar kolumn scrolluje się w poziomie — tak jak w makiecie.
- fullPipelineDesktop && !desktopOverview &&"xl:pointer-fine:w-auto xl:pointer-fine:min-w-[11rem] xl:pointer-fine:basis-[11rem] xl:pointer-fine:grow"
+ fullPipelineDesktop && !desktopOverview &&"xl:pointer-fine:w-auto xl:pointer-fine:min-w-[12.5rem] xl:pointer-fine:basis-[12.5rem] xl:pointer-fine:grow"
  )}
  >
  <div className={cn("sticky top-0 z-10 rounded-t-lg bg-background/95 backdrop-blur-xs border-b border-border flex items-center gap-2", density === "compact" ?"px-3 py-2" :"px-4 py-3", desktopOverview &&"xl:pointer-fine:min-h-14 xl:pointer-fine:flex-col xl:pointer-fine:items-stretch xl:pointer-fine:gap-1 xl:pointer-fine:px-1 xl:pointer-fine:py-1.5")}>
@@ -1168,8 +1219,11 @@ const CollapsedGroupColumn = memo(function CollapsedGroupColumn({
  .join(", ")}. Upuszczenie karty przenosi ją na etap ${columnLabel(dropTarget)}.`}
  className={cn(
  "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-dashed border-border bg-background/40 sm:min-w-[19rem]",
- fullPipelineDesktop && desktopOverview && "xl:pointer-fine:w-0 xl:pointer-fine:min-w-0 xl:pointer-fine:basis-0 xl:pointer-fine:grow xl:pointer-fine:shrink",
- fullPipelineDesktop && !desktopOverview && "xl:pointer-fine:w-auto xl:pointer-fine:min-w-[11rem] xl:pointer-fine:basis-[11rem] xl:pointer-fine:grow"
+ // Kafelek: kolumny dzielą się dostępną szerokością i mieszczą się bez
+ // przewijania. Kolumny: podłoga 12,5 rem (200 px), nadmiar przewija się
+ // w poziomie — patrz `lib/kanban-view-preferences.ts`.
+ fullPipelineDesktop && desktopOverview &&"xl:pointer-fine:w-0 xl:pointer-fine:min-w-0 xl:pointer-fine:basis-0 xl:pointer-fine:grow xl:pointer-fine:shrink",
+ fullPipelineDesktop && !desktopOverview &&"xl:pointer-fine:w-auto xl:pointer-fine:min-w-[12.5rem] xl:pointer-fine:basis-[12.5rem] xl:pointer-fine:grow"
  )}
  >
  <div className="flex items-center gap-2 border-b border-border px-3 py-2">
@@ -1235,13 +1289,17 @@ const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, focusCandidateId = null }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
  // świadomie nie per-job.
  const hideEmptyColumns = useUiStore((s) => s.hideEmptyKanbanColumns);
  const setHideEmptyColumns = useUiStore((s) => s.setHideEmptyKanbanColumns);
+ // Widok tablicy: kafelki ↔ kolumny. Reguła automatyczna (szeroki szablon
+ // otwiera się kafelkowo) jest WARTOŚCIĄ DOMYŚLNĄ, wybór użytkownika ją
+ // nadpisuje i jest pamiętany — patrz `lib/kanban-view-preferences.ts`.
+ const [viewPreference, setViewPreference] = useKanbanViewPreference();
  const queryClient = useQueryClient();
  const contactFeature = useCandidateContactFeature();
  const { showActionToast, showSuccess, showError } = useToast();
@@ -1300,15 +1358,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setDockCandidateId(item.candidate_id);
  }, []);
  const closeDock = useCallback(() => setDockCandidateId(null), []);
- // Deep link `?candidate=` otwiera dok RAZ na wartość parametru — zamknięcie
- // doku przez użytkownika nie może go ponownie otworzyć przy odświeżeniu kart.
- const focusHandledRef = useRef<number | null>(null);
- useEffect(() => {
- if (focusCandidateId == null || focusHandledRef.current === focusCandidateId) return;
- if (!cols.some((c) => c.items.some((i) => i.candidate_id === focusCandidateId))) return;
- focusHandledRef.current = focusCandidateId;
- setDockCandidateId(focusCandidateId);
- }, [focusCandidateId, cols]);
 
  // Lewa kolumna: filtry NIE usuwają kart z `cols` (zepsułoby to indeksy
  // `@hello-pangea/dnd`, na których stoi `onDragEnd` — patrz `PipelineFiltersRail`).
@@ -2139,6 +2188,43 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return { dockItem: null, dockItemColId: null, dockItemColLabel: null };
  }, [cols, dockCandidateId]);
 
+ // Dok jest nakładką z prawej — Escape go zamyka, chyba że otwarty jest
+ // dialog (modal powodu odrzucenia, stawki itp.): wtedy Escape należy do niego.
+ useEffect(() => {
+ if (!dockItem) return;
+ const onKey = (e: KeyboardEvent) => {
+ if (e.key !== "Escape" || e.defaultPrevented) return;
+ if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return;
+ closeDock();
+ };
+ window.addEventListener("keydown", onKey);
+ return () => window.removeEventListener("keydown", onKey);
+ }, [dockItem, closeDock]);
+
+ // Deep link `?candidate=<id>`: jednorazowo na każdą NOWĄ wartość parametru.
+ // Ref trzyma obsłużone id, żeby przebudowa `cols` (ruch, odświeżenie) nie
+ // otwierała doku ponownie po tym, jak użytkownik go zamknął.
+ const handledInitialDockRef = useRef<number | null>(null);
+ useEffect(() => {
+ if (initialDockCandidateId == null) {
+ handledInitialDockRef.current = null;
+ return;
+ }
+ if (handledInitialDockRef.current === initialDockCandidateId) return;
+ handledInitialDockRef.current = initialDockCandidateId;
+ const onBoard = cols.some((c) =>
+ c.items.some((i) => i.candidate_id === initialDockCandidateId)
+ );
+ if (onBoard) {
+ setDockCandidateId(initialDockCandidateId);
+ const card = document.querySelector<HTMLElement>(
+ `[data-candidate-id="${initialDockCandidateId}"]`
+ );
+ card?.scrollIntoView?.({ block: "center", inline: "center" });
+ }
+ onInitialDockHandled?.();
+ }, [initialDockCandidateId, cols, onInitialDockHandled]);
+
  // Kolumna terminala „Odrzucony" tego szablonu — potrzebna zarówno „Odrzuć
  // z powodem" w doku, jak i sprawdzeniu, czy dana karta w ogóle DA się
  // jeszcze odrzucić (kandydat już `hired`/`rejected`/`withdrawn` — nie ma
@@ -2585,28 +2671,26 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // (migracja 0317) — bez podniesienia progu każda rekrutacja wpadałaby w tryb
  // przewijania.
  const fullPipelineDesktop = stageCols.length > 0 && stageCols.length <= 16;
- // Próg zwężenia karty liczy się z liczby RENDEROWANYCH kolumn, nie z liczby
- // etapów szablonu: po zwinięciu pustych grup „Default B2B" pokazuje dziesięć
- // kolumn zamiast szesnastu, więc na kolumnę wypada ~140 px — tyle, ile
- // makieta przewiduje dla pełnej karty (nazwisko do dwóch linii, właściciel,
- // wiek, następna akcja). Powyżej karta znowu musi degradować się do kafelka.
- //
- // Dziesięć, nie dziewięć: to jest DOKŁADNIE tyle, ile zostaje z „Default B2B"
- // po zwinięciu grup „U klienta" i „Umowa → zatrudnieni" — osiem prawdziwych
- // kolumn (16 − 4 − 4, w tym „Ogłoszenia" z migracji 0317) plus dwa
- // zastępniki. Próg o jeden niżej zostawiałby najczęstszy szablon w produkcie
- // po gorszej stronie granicy, czyli cała ta karta nigdy nie pokazałaby się
- // nikomu (a przy wąskiej planszy kafelki o zerowej szerokości chowały karty).
- const OVERVIEW_COLUMN_THRESHOLD = 10;
- const desktopOverview =
- fullPipelineDesktop && boardEntries.length > OVERVIEW_COLUMN_THRESHOLD;
+ // Tryb widoku: `auto` rozstrzyga próg kolumn, jawny wybór użytkownika
+ // wygrywa. Poniżej progu przełącznika nie ma, więc wynik jest zawsze
+ // „kolumny" — kafelki na wąskim szablonie byłyby stanem bez wyjścia.
+ const viewToggleVisible = kanbanViewToggleVisible({
+ renderedColumns: boardEntries.length,
+ fullPipelineDesktop,
+ });
+ const viewMode = resolveKanbanViewMode(viewPreference, {
+ renderedColumns: boardEntries.length,
+ fullPipelineDesktop,
+ });
+ const desktopOverview = viewMode === "tiles";
 
  return (
  <div className="relative space-y-3">
- {/* Krok 04 Pipeline (flow C2, PR 3/7): ten sam grid co warsztat C2
- (`AIMatchingSection`/`JobMatchDock`) — lewa kolumna filtrów, środek,
- dok. Poniżej `xl` dok spływa pod tablicę, nie obok niej. */}
- <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
+ {/* Krok 04 Pipeline: lewa kolumna filtrów i tablica. Dok „Karta
+ kandydata" NIE zajmuje kolumny siatki — wysuwa się z prawej dopiero po
+ kliknięciu karty (przegląd UX 17.09.2026: stała trzecia kolumna zjadała
+ tablicy 360 px nawet wtedy, gdy nic nie było wybrane). */}
+ <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)]">
  <PipelineFiltersRail
  stageCols={stageCols}
  groups={stageGroups}
@@ -2634,7 +2718,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  slaLoading={playbookQuery.isLoading}
  />
 
- <div className="min-w-0 space-y-3">
+ <div className={cn("min-w-0 space-y-3", dockItem && dockItemColLabel !== null &&"xl:pr-[380px]")}>
  {offTemplate && offTemplate.count > 0 && (
  <Alert
  variant="warning"
@@ -2676,6 +2760,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onToggleDensity={() =>
  setDensity(density === "cozy" ? "compact" : "cozy")
  }
+ viewMode={viewToggleVisible ? viewMode : null}
+ onSetViewMode={setViewPreference}
  fullPipelineDesktop={fullPipelineDesktop}
  />
  )}
@@ -2694,7 +2780,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  <SelectValue placeholder="Przenieś na etap…" />
  </SelectTrigger>
  <SelectContent>
- {stageCols.map((c) => (
+ {/* „Zatrudniony" nie jest celem ruchu zbiorczego — hired zakłada
+ szkic kontraktu i zamówienia per osoba (guard w `bulkMove`
+ odrzuca go i tak; tu nie kusimy opcją, która zawsze odmówi). */}
+ {stageCols
+ .filter((c) => terminalOf(c) !== "hired")
+ .map((c) => (
  <SelectItem key={colId(c)} value={colId(c)}>
  {columnLabel(c)}
  </SelectItem>
@@ -2813,8 +2904,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  jobBudgetHourly={jobBudgetHourlyValue}
  onRemoveFromRecruitment={handleRemoveFromRecruitment}
  contactFeatureEnabled={contactFeature.enabled}
- desktopOverview={desktopOverview}
  fullPipelineDesktop={fullPipelineDesktop}
+ desktopOverview={desktopOverview}
  readOnly={readOnly}
  dropDisabled={isOffTemplate(entry.col)}
  onOpenDock={openDock}
@@ -2829,8 +2920,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </DragDropContext>
  </div>
 
- <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:self-start">
- {dockItem && dockItemColLabel !== null ? (
+ </div>
+
+ {dockItem && dockItemColLabel !== null && (
+ <aside
+ aria-label="Karta kandydata"
+ className="fixed right-0 top-12 bottom-0 z-30 flex w-full max-w-[380px] flex-col border-l border-border bg-background shadow-xl"
+ >
  <PipelineCandidateDock
  key={dockItem.candidate_id}
  item={dockItem}
@@ -2857,11 +2953,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onOpenScreening={handleOpenScreening}
  onReject={handleDockReject}
  />
- ) : (
- <PipelineCandidateDockEmpty />
- )}
  </aside>
- </div>
+ )}
 
  {/* Modals */}
  <RejectionV2

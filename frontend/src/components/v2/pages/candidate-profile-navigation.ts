@@ -192,9 +192,11 @@ export function parseCandidateProfileView(
     };
   }
 
+  // Wejście z rekrutacji: zakładka Rekrutacje z tą rekrutacją rozwiniętą
+  // (fokus liczony w profilu z `jobId`, gdy brak `focusJobId`).
   if (options.fromJob) {
     return {
-      section: "activity",
+      section: "recruitments",
       activity: "timeline",
       documents: "files",
       isLegacy: false,

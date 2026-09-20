@@ -91,6 +91,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.order_missing_successor: ProductSection.delivery,
     # 0324: system sam dodał kandydata do pipeline'u rekrutacji.
     NotificationType.auto_match: ProductSection.pipeline,
+    NotificationType.candidate_search_completed: ProductSection.sourcing,
 }
 
 CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
@@ -392,7 +393,10 @@ def user_can_receive_realtime_event(user: User, event: dict[str, Any]) -> bool:
         )
     if event_type == "kpi_nudge":
         return _has_section_read(user, ProductSection.insights)
-    if event_type == "champion_profile_changed" or event_type.startswith("chat:"):
+    if event_type in {
+        "champion_profile_changed",
+        "pipeline_changed",
+    } or event_type.startswith("chat:"):
         return _has_section_read(user, ProductSection.pipeline)
     if event_type.startswith("candidate-chat:"):
         return _has_section_read(user, ProductSection.sourcing)

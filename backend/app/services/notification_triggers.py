@@ -351,7 +351,7 @@ async def check_dl_stage_stale_6h(
                     f"od {hours}h w ofercie '{job.title}' (#{job.id}). "
                     "Przepuść go dalej albo odrzuć."
                 ),
-                link=f"/jobs/{job.id}",
+                link=f"/jobs/{job.id}?candidate={stage.candidate_id}",
                 ntype=NotificationType.dl_stage_stale_6h,
                 related_entity_type="candidate_stage",
                 related_entity_id=stage.id,
@@ -425,7 +425,7 @@ async def check_client_feedback_eobd(
                     f"w ofercie '{job.title}' (#{job.id}). Brak zanotowanego "
                     "feedbacku — złap go do końca dnia pracy."
                 ),
-                link=f"/jobs/{job.id}",
+                link=f"/jobs/{job.id}?candidate={event.candidate_id}",
                 ntype=NotificationType.client_feedback_eobd,
                 related_entity_type="calendar_event",
                 related_entity_id=event.id,

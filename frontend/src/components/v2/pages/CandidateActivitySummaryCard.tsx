@@ -31,6 +31,11 @@ import {
 
 interface CandidateActivitySummaryCardProps {
   candidateId: number;
+  /**
+   * Krótkie podsumowanie wyekstrahowane z CV (`candidate.ai_summary`). Jedna
+   * karta AI na profilu: akapit „Z CV” stoi na górze, pod nim historia.
+   */
+  cvSummary?: string | null;
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -159,6 +164,7 @@ function SummarySources({ data }: { data: CandidateActivitySummary }) {
  */
 export function CandidateActivitySummaryCard({
   candidateId,
+  cvSummary = null,
 }: CandidateActivitySummaryCardProps) {
   const { showError, showSuccess } = useToast();
   const queryClient = useQueryClient();
@@ -264,7 +270,7 @@ export function CandidateActivitySummaryCard({
               className="flex items-center gap-2"
             >
               <Sparkles aria-hidden="true" className="size-4 text-primary" />
-              Podsumowanie historii AI
+              Podsumowanie AI
             </CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
               Zwięzły obraz aktywności widocznej w Twoim zakresie uprawnień.
@@ -297,6 +303,22 @@ export function CandidateActivitySummaryCard({
           query.isPending || query.isFetching || refreshMutation.isPending
         }
       >
+        {cvSummary?.trim() ? (
+          <section
+            aria-labelledby="candidate-cv-summary-title"
+            className="mb-4 border-b border-border pb-4"
+          >
+            <h4
+              id="candidate-cv-summary-title"
+              className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+            >
+              Z CV
+            </h4>
+            <div className="text-sm leading-6 text-foreground">
+              <ExpandableText text={cvSummary} maxLines={3} />
+            </div>
+          </section>
+        ) : null}
         {refreshError ? (
           <p
             role="alert"

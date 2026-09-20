@@ -442,6 +442,78 @@ async def test_pipeline_addition_never_guesses_a_run(monkeypatch, case):
 
 
 @pytest.mark.asyncio
+async def test_talent_radar_run_without_a_job_never_joins_the_add(monkeypatch):
+    """17.09.2026: Talent Radar result cards and the /candidates bulk bar add
+    through the same route. A Radar run has no job, so even when the user WAS
+    shown the candidate in it, the add cannot join that run (``job_id`` of the
+    run never equals the job added to) — ``run_id`` stays NULL, the source is
+    still recorded from the closed vocabulary."""
+    from app.models.candidate_search_run import CandidateSearchRun
+    from app.models.client import Client
+    from app.models.job import Job
+    from app.models.user import User, UserRole
+
+    monkeypatch.setattr(settings, "AI_MATCH_TELEMETRY_ENABLED", True)
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Telemetry radar {tag}")
+        me = User(
+            email=f"tel-radar-{tag}@example.com", name="Me", role=UserRole.recruiter
+        )
+        db.add_all([client, me])
+        await db.flush()
+        job = Job(title=f"Telemetry radar job {tag}", client_id=client.id)
+        db.add(job)
+        await db.flush()
+        radar = CandidateSearchRun(
+            id=str(uuid.uuid4()),
+            created_by=me.id,
+            client_id=client.id,
+            job_id=None,
+            state="complete",
+            request_fingerprint="f" * 64,
+            request_context={},
+            version_trace={},
+            population_size=0,
+            metrics={},
+        )
+        db.add(radar)
+        await db.commit()
+        job_id, user_id, radar_id = job.id, me.id, radar.id
+    try:
+        await tel.record_full_search_page(
+            None,
+            run_id=radar_id,
+            job_id=None,
+            client_id=1,
+            user_id=user_id,
+            version_trace=None,
+            entries=[ImpressionEntry(candidate_id=401, rank=0)],
+            degraded=False,
+        )
+        await tel.emit_pipeline_additions(
+            job_id=job_id,
+            candidate_ids=[401],
+            user_id=user_id,
+            run_id=radar_id,
+            source="talent_radar",
+        )
+        await tel.emit_pipeline_additions(
+            job_id=job_id,
+            candidate_ids=[402],
+            user_id=user_id,
+            source="candidate_list",
+        )
+        rows = await _outcomes(job_id)
+        assert [(r.candidate_id, r.run_id, r.reason_code) for r in rows] == [
+            (401, None, "talent_radar"),
+            (402, None, "candidate_list"),
+        ]
+    finally:
+        await _cleanup_job(job_id, [radar_id])
+
+
+@pytest.mark.asyncio
 async def test_unknown_add_source_is_stored_as_null_not_free_text(monkeypatch):
     monkeypatch.setattr(settings, "AI_MATCH_TELEMETRY_ENABLED", True)
     job_id = _job_id()

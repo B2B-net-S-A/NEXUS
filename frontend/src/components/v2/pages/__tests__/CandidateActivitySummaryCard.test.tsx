@@ -113,6 +113,38 @@ describe("CandidateActivitySummaryCard", () => {
     expect(generatedAt.textContent).toMatch(/\d{1,2}:\d{2}/);
   });
 
+  it("shows the CV summary on top of the single AI card", async () => {
+    mockedApi.get.mockResolvedValue({ data: summaryPayload } as never);
+    const queryClient = createQueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CandidateActivitySummaryCard
+          candidateId={7}
+          cvSummary="Java developer z 8-letnim doświadczeniem w bankowości."
+        />
+      </QueryClientProvider>,
+    );
+
+    const cvHeading = await screen.findByRole("heading", { name: "Z CV" });
+    expect(
+      screen.getByText("Java developer z 8-letnim doświadczeniem w bankowości."),
+    ).toBeInTheDocument();
+    const historyText = await screen.findByText(/Senior Java Developer w Nordea/);
+    expect(
+      cvHeading.compareDocumentPosition(historyText) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Podsumowanie AI" })).toBeInTheDocument();
+  });
+
+  it("omits the CV paragraph when the profile has no CV summary", async () => {
+    mockedApi.get.mockResolvedValue({ data: summaryPayload } as never);
+    renderCard();
+    await screen.findByText(/Senior Java Developer w Nordea/);
+    expect(screen.queryByRole("heading", { name: "Z CV" })).toBeNull();
+  });
+
   it("marks a redacted or truncated source manifest as partial", async () => {
     mockedApi.get.mockResolvedValue({
       data: {

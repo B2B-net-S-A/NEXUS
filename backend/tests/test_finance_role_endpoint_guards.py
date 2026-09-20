@@ -857,11 +857,14 @@ def test_recruitment_history_gets_use_finance_extended_reader_only():
         jobs.champion_consultant_suggestions,
         jobs.get_champion_historical_matches,
         jobs.preview_historical_matches_for_new_role,
-        jobs.get_request_history,
         jobs.preview_request_history,
         jobs.list_champion_suggestions,
     ):
         assert _current_user_annotation(endpoint) == jobs.RecruitmentHistoryReadUser
+
+    # 17.09.2026: the Historia tab of a saved recruitment is open to its team
+    # (resource guard inside the handler); org readers keep the full view.
+    assert _current_user_annotation(jobs.get_request_history) == jobs.OperationalUser
 
     assert (
         _current_user_annotation(jobs.generate_champion_from_history)

@@ -148,6 +148,11 @@ function availabilityValue(
     AVAILABILITY_LABELS[candidate.availability_status ?? "unknown"] ??
     "Nie ustalono";
   if (candidate.availability_date) {
+    // Nieznany status + data: sama data mówi wszystko („Nie ustalono · od …”
+    // czytało się jak sprzeczność).
+    if ((candidate.availability_status ?? "unknown") === "unknown") {
+      return `Od ${formatDate(candidate.availability_date)}`;
+    }
     return `${status} · od ${formatDate(candidate.availability_date)}`;
   }
   if (candidate.notice_period != null) {

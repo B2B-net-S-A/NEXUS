@@ -642,7 +642,7 @@ export function SuggestedCandidatesWidget({
         >
           {activeRecommendationMeta?.mode === "bm25" ? (
             <>
-              Wyszukiwanie działa w trybie awaryjnym BM25. Pokazujemy ranking
+              Ranking uproszczony (bez AI). Pokazujemy ranking
               tekstowy bez standardowego wyniku dopasowania; tych wyników nie
               zapisujemy w historii.
             </>
@@ -818,10 +818,10 @@ export function SuggestedCandidatesWidget({
                         data-testid={`degraded-score-${cand.id}`}
                         className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
                         title={mode === "fallback-live" && liveMeta?.mode === "bm25"
-                          ? "Ranking tekstowy BM25 — standardowy wynik dopasowania jest niedostępny"
+                          ? "Ranking uproszczony (bez AI) — standardowy wynik dopasowania jest niedostępny"
                           : "Brak aktualnego pomiaru dopasowania — kandydat wymaga weryfikacji"}
                       >
-                        {mode === "fallback-live" && liveMeta?.mode === "bm25" ? "BM25 · tryb awaryjny" : "Ocena niepełna"}
+                        {mode === "fallback-live" && liveMeta?.mode === "bm25" ? "bez AI" : "Ocena niepełna"}
                       </span>
                     ) : (
                       <span

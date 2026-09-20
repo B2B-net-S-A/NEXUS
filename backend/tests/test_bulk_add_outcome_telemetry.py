@@ -243,3 +243,15 @@ async def test_telemetry_fields_are_validated_at_the_boundary(
         json={"candidate_ids": [1], "run_id": "x" * 65},
     )
     assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.parametrize("source", ["talent_radar", "candidate_list"])
+def test_new_add_surfaces_are_accepted_by_the_request_model(source: str):
+    """17.09.2026: Talent Radar result cards and the /candidates bulk bar send
+    their own source; both are part of the closed vocabulary."""
+    from app.api.proposals_bulk import BulkProposalsRequest
+    from app.services.match_telemetry_service import PIPELINE_ADD_SOURCES
+
+    body = BulkProposalsRequest(candidate_ids=[1], source=source)
+    assert body.source == source
+    assert source in PIPELINE_ADD_SOURCES

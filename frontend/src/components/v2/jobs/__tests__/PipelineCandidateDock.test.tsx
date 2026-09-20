@@ -12,7 +12,7 @@
  */
 
 import type { ComponentProps } from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -203,7 +203,8 @@ describe("PipelineCandidateDock", () => {
     expect(screen.getByRole("tab", { name: /Notatki/ })).toBeTruthy();
   });
 
-  it("wyszarza zablokowany etap w „Przenieś na etap” z powodem widocznym w title", () => {
+  it("wyszarza zablokowany etap w menu „Inny etap…” z powodem pod nazwą", async () => {
+    const user = userEvent.setup();
     const target = stageCol("cv_sent", "CV Wysłane", { stage_def_id: 5 });
     renderDock({
       moveTargets: [
@@ -211,28 +212,39 @@ describe("PipelineCandidateDock", () => {
       ],
     });
 
-    const btn = screen.getByRole("button", { name: "CV Wysłane" });
-    expect(btn).toBeDisabled();
-    expect(btn).toHaveAttribute("title", "Weto hiring managera — nie proponuj ponownie.");
+    // Ściana pigułek zniknęła — etapy są dopiero w menu.
+    expect(screen.queryByRole("button", { name: "CV Wysłane" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Inny etap…" }));
+    const item = await screen.findByRole("menuitem", { name: "CV Wysłane" });
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    expect(item).toHaveTextContent("Weto hiring managera — nie proponuj ponownie.");
   });
 
-  it("klik w odblokowaną pigułkę woła onMoveTo z tą samą kolumną", async () => {
+  it("wybór odblokowanego etapu z menu woła onMoveTo z tą samą kolumną", async () => {
     const user = userEvent.setup();
     const target = stageCol("screening", "Screening", { stage_def_id: 2 });
     const onMoveTo = vi.fn();
     renderDock({ moveTargets: [{ col: target, blockedReason: null }], onMoveTo });
 
-    const btn = screen.getByRole("button", { name: "Screening" });
-    expect(btn).not.toBeDisabled();
-    await user.click(btn);
+    await user.click(screen.getByRole("button", { name: "Inny etap…" }));
+    const item = await screen.findByRole("menuitem", { name: "Screening" });
+    expect(item).not.toHaveAttribute("aria-disabled", "true");
+    await user.click(item);
 
-    expect(onMoveTo).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onMoveTo).toHaveBeenCalledTimes(1));
     expect(onMoveTo).toHaveBeenCalledWith(target);
   });
 
-  it("nie pokazuje żadnych pigułek, gdy moveTargets jest puste (nie wymyśla etapów)", () => {
+  it("nie pokazuje menu etapów, gdy moveTargets jest puste (nie wymyśla etapów)", () => {
     renderDock({ moveTargets: [] });
-    expect(screen.queryByText("Przenieś na etap")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Inny etap…" })).toBeNull();
+  });
+
+  it("w trybie readOnly nie pokazuje menu etapów ani noty o kodzie 409", () => {
+    const target = stageCol("screening", "Screening", { stage_def_id: 2 });
+    renderDock({ moveTargets: [{ col: target, blockedReason: "Tylko odczyt" }], readOnly: true });
+    expect(screen.queryByRole("button", { name: "Inny etap…" })).toBeNull();
+    expect(screen.queryByText(/409/)).toBeNull();
   });
 
   it("chowa „Odrzuć z powodem”, gdy canReject=false (np. kandydat już terminalny)", () => {

@@ -11,7 +11,7 @@ import { jobBudgetHourly } from "@/lib/job-budget";
 import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
 import { useEffect, useState, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
@@ -103,6 +103,7 @@ import {
 import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
 import { JobContractTab } from "@/components/v2/jobs/JobContractTab";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1194,7 +1195,7 @@ function AIMatchingSection({
               )}
               {searchType?.startsWith("semantic") && (
                 <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary">
-                  Semantic AI
+                  AI
                 </span>
               )}
               {degraded && (
@@ -1216,13 +1217,18 @@ function AIMatchingSection({
                   placeholder="Lokalizacja (np. Warszawa)"
                 />
               </div>
-              <button
-                onClick={() => void startNewSearch()}
+              {/* Start przeglądu to główna akcja tej zakładki — przycisk, nie
+                  link (przegląd UX 17.09.2026: rekruterka go nie zauważyła). */}
+              <Button
+                size="sm"
+                variant="primary"
+                loading={fullSearch.starting}
                 disabled={fullSearch.running}
-                className="whitespace-nowrap text-xs text-primary hover:underline disabled:opacity-50"
+                onClick={() => void startNewSearch()}
+                className="whitespace-nowrap"
               >
-                {fullSearch.runId ? "Uruchom ponownie" : "Szukaj w całej bazie"}
-              </button>
+                {fullSearch.runId ? "Uruchom ponownie" : "Przeszukaj całą bazę"}
+              </Button>
             </div>
           </div>
 
@@ -1320,6 +1326,17 @@ function AIMatchingSection({
                   ? "Zmień lub wyczyść filtr lokalizacji powyżej"
                   : "Wyszukiwanie korzysta z tych samych kryteriów i punktacji co Talent Radar."}
               </p>
+              {!locationActive && !fullSearch.runId && (
+                <Button
+                  variant="primary"
+                  loading={fullSearch.starting}
+                  disabled={fullSearch.running}
+                  onClick={() => void startNewSearch()}
+                  className="mt-2"
+                >
+                  Przeszukaj całą bazę (ok. 3 min)
+                </Button>
+              )}
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
@@ -1980,19 +1997,24 @@ const RECRUITMENT_TYPE_CONFIG: Record<
 // renderują się dopiero po kliknięciu kroku na listwie — dokładnie ten sam
 // wzorzec, którego pilnuje `heavy-bundle-boundaries.test.ts` dla TipTapa
 // i rechartsa.
+// `loading` jest obowiązkowy: bez niego zakładka jest pusta, dopóki chunk się
+// nie pobierze, a pustka czyta się jak „brak danych" (przegląd UX 17.09.2026).
+function WorkbenchChunkLoading() {
+  return <p className="p-6 text-sm text-muted-foreground">Ładowanie…</p>;
+}
 const ScreeningWorkbench = dynamic(
   () =>
     import("@/components/v2/jobs/ScreeningWorkbench").then(
       (m) => m.ScreeningWorkbench,
     ),
-  { ssr: false },
+  { ssr: false, loading: WorkbenchChunkLoading },
 );
 const CvHandoffWorkbench = dynamic(
   () =>
     import("@/components/v2/jobs/CvHandoffWorkbench").then(
       (m) => m.CvHandoffWorkbench,
     ),
-  { ssr: false },
+  { ssr: false, loading: WorkbenchChunkLoading },
 );
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
@@ -2028,6 +2050,8 @@ const JOB_DETAIL_TAB_ALIASES: Readonly<Record<string, JobDetailTab>> = {
 export default function JobDetailPage() {
   const { id } = useParams();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
   // Legacy AI Matching (M3-UI-01): trzy równoległe rankingi na jednym ekranie
@@ -2062,9 +2086,9 @@ export default function JobDetailPage() {
     defaultTab: "pipeline",
     aliases: JOB_DETAIL_TAB_ALIASES,
   });
-  // `?candidate=<id>` (np. wzmianka w notatce) — otwórz dok tego kandydata
-  // na tablicy, jeśli jest w pipelinie tej rekrutacji.
-  const focusCandidateId = positiveIntParam(searchParams?.get("candidate") ?? null);
+  // `?candidate=<id>` (powiadomienia, wzmianka w notatce, „Wróć do rekrutacji")
+  // — otwórz dok tego kandydata na tablicy, jeśli jest w pipelinie.
+  const dockCandidateId = positiveIntParam(searchParams?.get("candidate") ?? null);
   // Zwijanie nagłówka oferty (przyciski + właściciele + opis) — daje pipeline'owi
   // więcej miejsca. Preferencja globalna w localStorage, więc trzyma się między
   // ofertami i sesjami.
@@ -2080,6 +2104,18 @@ export default function JobDetailPage() {
     JOB_CHAMPION_DOCK_COLLAPSED_DEFAULT,
   );
 
+
+  // Parametr jest jednorazowy: po otwarciu doku znika z adresu, żeby odświeżenie
+  // strony albo zamknięcie doku nie otwierało go ponownie. Pozostałe parametry
+  // zostają nietknięte.
+  const clearCandidateParam = useCallback(() => {
+    if (!pathname) return;
+    const next = new URLSearchParams(searchParams?.toString() ?? "");
+    if (!next.has("candidate")) return;
+    next.delete("candidate");
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
 
   // Unread badge dla taba Chat
   const { data: chatUnread } = useQuery({
@@ -2150,6 +2186,7 @@ export default function JobDetailPage() {
     isError: kanbanIsError,
     error: kanbanError,
     isSuccess: kanbanIsSuccess,
+    isFetching: kanbanIsFetching,
     refetch: refetchKanban,
   } = useQuery({
     queryKey: ["kanban", id],
@@ -2162,6 +2199,12 @@ export default function JobDetailPage() {
     error: kanbanError,
     isSuccess: kanbanIsSuccess,
   });
+
+  // Tablica niedostępna (403) — dok się nie otworzy, więc nie zostawiamy
+  // martwego `?candidate=` w adresie.
+  useEffect(() => {
+    if (kanbanViewState === "forbidden" && dockCandidateId != null) clearCandidateParam();
+  }, [kanbanViewState, dockCandidateId, clearCandidateParam]);
 
   // Kroki 05–08 (Screening, CV do klienta, Rozmowy, Umowa) czytają TE SAME
   // kolumny co listwa kroków — bez własnego zapytania (program „flow w języku
@@ -2511,7 +2554,11 @@ export default function JobDetailPage() {
               // ten sam klucz zapytania karty klienta co krok 06 (zero nowych
               // requestów). Bez klienta tablica mówi „nie ustawiono".
               clientId={job?.client_id ?? null}
-              focusCandidateId={focusCandidateId}
+              // Deep link rozstrzygamy dopiero na ŚWIEŻEJ tablicy: z ciepłego cache
+              // karta osoby, która właśnie weszła do rekrutacji (powiadomienie),
+              // jeszcze nie istnieje, a parametr zostałby zużyty na próżno.
+              initialDockCandidateId={kanbanIsFetching ? null : dockCandidateId}
+              onInitialDockHandled={clearCandidateParam}
             />
           </PipelineBoardGate>
         </div>
@@ -2741,6 +2788,7 @@ interface JobLite {
   salary_min?: number | null;
   salary_max?: number | null;
   location?: string | null;
+  remote_policy?: string | null;
 }
 
 interface ManualSearchTabProps {
@@ -2762,10 +2810,31 @@ function ManualSearchTab({
   onBulkAdded,
   readOnly = false,
 }: ManualSearchTabProps) {
-  const initial = buildJobSearchPrefill(job);
+  // Wymagania obowiązkowe z zapisanego kontraktu rekrutacji — ten sam, którego
+  // używa przegląd całej bazy. `CandidateSearchView` czyta `initial` tylko przy
+  // montowaniu (inicjalizator `useState`), więc montujemy go dopiero PO
+  // odpowiedzi, a `key` przemontowuje formularz, gdy wymagania się zmienią.
+  const savedReqs = useQuery({
+    queryKey: ["matching-requirements", jobId],
+    queryFn: () => matchingRequirementsApi.get(jobId),
+  });
+
+  if (!savedReqs.isSuccess && !savedReqs.isError) {
+    return <p className="p-6 text-sm text-muted-foreground">Ładowanie…</p>;
+  }
+
+  // Błąd odczytu wymagań nie blokuje wyszukiwania — prefill wraca wtedy do
+  // kolumny `must_skills` rekrutacji.
+  const mustLabels = savedReqs.isSuccess
+    ? requirementLabels(savedReqs.data, "must")
+    : null;
+  const initial = buildJobSearchPrefill(job, mustLabels);
 
   return (
     <CandidateSearchView
+      // Klucz z TREŚCI wymagań, nie z `dataUpdatedAt`: odświeżenie przy powrocie
+      // do karty z identycznymi danymi nie może kasować wpisanych filtrów.
+      key={mustLabels ? `must:${mustLabels.join("|")}` : "must:fallback"}
       initial={initial}
       addToJob={{ id: jobId, title: job.title }}
       onBulkAdded={onBulkAdded}

@@ -40,6 +40,8 @@ import {
   radarOfficeDaysError,
   type RadarRunCriteria,
 } from "@/components/talent-radar/run-criteria";
+import { addToRecruitmentSummary } from "@/components/v2/recruitment/AddToRecruitmentDialog";
+import { useCanAddToRecruitment } from "@/components/v2/recruitment/useCanAddToRecruitment";
 
 /** Poniżej tego progu opis roli nie niesie sygnału wartego embeddingu. */
 const MIN_QUERY_LENGTH = 30;
@@ -66,7 +68,8 @@ export function TalentRadarWorkspace() {
 }
 
 function AdHocTalentRadarWorkspace() {
-  const { showError } = useToast();
+  const { showError, showSuccess } = useToast();
+  const canAddToRecruitment = useCanAddToRecruitment();
   // Radar jest dla KAŻDEJ roli, ale pełny profil kandydata pozostaje za
   // bramkami modułu kandydatów — rola bez tej capability nie dostaje
   // martwego przycisku „Otwórz profil" (klik kończyłby się 403).
@@ -99,6 +102,10 @@ function AdHocTalentRadarWorkspace() {
   // osobnego uzbrajania (decyzja produktowa 19.08). Nieznana stawka/
   // preferencja kandydata przechodzi po stronie backendu.
   const [budgetMax, setBudgetMax] = useState("");
+  // Odczyt aktualnej wartości po `await` w „Sprawdź wymagania” — domknięcie
+  // widziałoby stan sprzed zapytania.
+  const budgetMaxRef = useRef(budgetMax);
+  budgetMaxRef.current = budgetMax;
   const [excludeRemoteOnly, setExcludeRemoteOnly] = useState(false);
   // Rubryki 0278: dni w biurze / tydzień i miasto biura, podane WPROST przez
   // rekrutera (radar nie ma kolumn oferty ani profilu Championa do fallbacku
@@ -152,9 +159,30 @@ function AdHocTalentRadarWorkspace() {
     source: string; must: string; nice: string; excluded: string[]; uncertain: string[];
   } | null>(null);
   const [interpreting, setInterpreting] = useState(false);
+  // Podpowiedzi z treści requestu. Budżet wpisujemy RAZ na daną treść i tylko
+  // do pustego pola — ponowne „Sprawdź wymagania” nie nadpisze stawki, którą
+  // rekruter wyczyścił albo poprawił.
+  const budgetFilledFromText = useRef<string | null>(null);
+  const [budgetHint, setBudgetHint] = useState<number | null>(null);
+  const [remoteHint, setRemoteHint] = useState(false);
+  // Po uruchomieniu przeglądu formularz zwija się do jednej linii — wyniki
+  // stają na górze ekranu. „Zmień kryteria” rozwija go z powrotem.
+  const [editingCriteria, setEditingCriteria] = useState(false);
   const requirementSource = JSON.stringify([text, title, championProfile]);
   const previewCurrent = requirementsPreview?.source === requirementSource;
   const splitSkills = (value: string) => value.split(/[,;\n]/).map(s => s.trim()).filter(Boolean);
+  /** Dopisuje nierozstrzygnięte umiejętności do listy (przecinkiem) i zdejmuje je z „do rozstrzygnięcia”. */
+  const moveUncertain = (names: string[], level: "must" | "nice") => {
+    if (!requirementsPreview || names.length === 0) return;
+    const current = requirementsPreview[level];
+    const present = new Set(splitSkills(current).map(s => s.toLowerCase()));
+    const additions = names.filter(n => !present.has(n.toLowerCase()));
+    const base = current.trim().replace(/[,;]\s*$/, "");
+    const next = additions.length === 0 ? current : base ? `${base}, ${additions.join(", ")}` : additions.join(", ");
+    const moved = new Set(names);
+    setRequirementsPreview({ ...requirementsPreview, [level]: next, uncertain: requirementsPreview.uncertain.filter(u => !moved.has(u)) });
+    clearResults();
+  };
   const previewRequirements = async () => {
     if (!client) return;
     setInterpreting(true);
@@ -167,6 +195,13 @@ function AdHocTalentRadarWorkspace() {
       });
       setRequirementsPreview({ source: requirementSource, must: parsed.must.join(", "),
         nice: parsed.nice.join(", "), excluded: parsed.excluded, uncertain: parsed.uncertain });
+      const suggested = championProfile ? null : parsed.suggestions?.budget_max_pln_hour ?? null;
+      if (suggested !== null && suggested > 0 && !budgetMaxRef.current.trim() && budgetFilledFromText.current !== text) {
+        budgetFilledFromText.current = text;
+        setBudgetMax(String(suggested));
+        setBudgetHint(suggested);
+      }
+      setRemoteHint(!championProfile && parsed.suggestions?.remote_only === true);
       fullSearch.clear();
     } catch (error) { showError(extractErrorMsg(error)); }
     finally { setInterpreting(false); }
@@ -244,6 +279,8 @@ function AdHocTalentRadarWorkspace() {
   ]);
 
   const startSearch = async () => {
+    // Zwiń formularz kryteriów (#1597) — wyniki biegu mają być tym, co widać.
+    setEditingCriteria(false);
     const criteria: RadarRunCriteria = {
       clientName: client!.name,
       budget: Number(budgetMax) > 0 ? Number(budgetMax) : null,
@@ -301,6 +338,14 @@ function AdHocTalentRadarWorkspace() {
   const officeDaysError = radarOfficeDaysError(onsiteDaysPerWeek);
 
   const hasProfile = championProfile !== null;
+  const formCollapsed = fullSearch.runId !== null && !editingCriteria;
+  const criteriaSummary = useMemo(() => {
+    const request = hasProfile
+      ? championSummary?.role_name || "Profil Championa"
+      : (() => { const flat = text.trim().replace(/\s+/g, " "); return flat.length > 80 ? `${flat.slice(0, 80)}…` : flat; })();
+    const must = previewCurrent && requirementsPreview ? requirementsPreview.must : championSkills?.must.join(", ") ?? "";
+    return [client?.name, request, must.trim() ? `obowiązkowe: ${must.trim()}` : null].filter(Boolean).join(" · ");
+  }, [hasProfile, championSummary, text, previewCurrent, requirementsPreview, championSkills, client]);
   const tooShort = text.trim().length < MIN_QUERY_LENGTH;
   const blocked = useMemo(() => {
     if (!client) return "Wybierz klienta.";
@@ -344,6 +389,12 @@ function AdHocTalentRadarWorkspace() {
       />
       <p className="text-sm text-muted-foreground">Nowy request — bez kontekstu zapisanej rekrutacji i jej hiring managera. Reguły klienta sprawdzamy dla wybranego klienta.</p>
 
+      {formCollapsed ? (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-4 py-3" data-testid="tr-criteria-summary">
+          <p className="min-w-0 flex-1 truncate text-sm text-foreground">{criteriaSummary}</p>
+          <Button type="button" variant="outline" size="sm" onClick={() => setEditingCriteria(true)}>Zmień kryteria</Button>
+        </div>
+      ) : (
       <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4">
         {/* Profil na SAMEJ GÓRZE: steruje resztą formularza (stawka
             wskakuje w budżet, nazwa roli idzie z profilu, treść requestu
@@ -485,6 +536,8 @@ function AdHocTalentRadarWorkspace() {
             {budgetError && (
               <p id="tr-budget-error" className="text-xs text-destructive">{budgetError}</p>
             )}
+            {budgetHint !== null && budgetMax === String(budgetHint) && !championSummary?.rate_value && <p className="text-xs text-muted-foreground" data-testid="tr-budget-hint">Stawkę {budgetHint} PLN/h wzięliśmy z treści requestu — popraw ją, jeżeli to nie budżet.</p>}
+
             <p className="text-xs text-muted-foreground">
               {championSummary?.rate_value
                 ? `Stawka ${championSummary.rate_value} PLN/h wzięta z profilu Championa — wpisz własną, żeby ją nadpisać, albo wyczyść pole, żeby wyłączyć sufit.`
@@ -508,6 +561,8 @@ function AdHocTalentRadarWorkspace() {
             {officeDaysError && (
               <p id="tr-onsite-days-error" className="text-xs text-destructive">{officeDaysError}</p>
             )}
+            {remoteHint && previewCurrent && <p className="text-xs text-muted-foreground" data-testid="tr-remote-hint">W treści: praca zdalna.</p>}
+
             <p className="text-xs text-muted-foreground">
               Bez tej liczby dealbreakery dni/miasta biura są nieaktywne —
               „nie wiemy" przechodzi. Wpisz 0, żeby zaznaczyć „tylko zdalnie".
@@ -583,7 +638,19 @@ function AdHocTalentRadarWorkspace() {
                   onChange={e => { setRequirementsPreview({ ...requirementsPreview, nice: e.target.value }); clearResults(); }} />
               </div>
               {requirementsPreview.excluded.length > 0 && <p className="text-sm text-muted-foreground">Niewymagane: {requirementsPreview.excluded.join(", ")}. Nie wpływają na ocenę umiejętności.</p>}
-              {requirementsPreview.uncertain.length > 0 && <p className="text-sm text-muted-foreground">Do rozstrzygnięcia: {requirementsPreview.uncertain.join(", ")}. Dodaj je do właściwej listy, jeżeli mają wpływać na ocenę.</p>}
+              {requirementsPreview.uncertain.length > 0 && <div className="space-y-2" aria-label="Do rozstrzygnięcia">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm text-muted-foreground">Do rozstrzygnięcia — przenieś na właściwą listę, jeżeli mają wpływać na ocenę:</p>
+                  <Button type="button" size="sm" variant="outline" onClick={() => moveUncertain(requirementsPreview.uncertain, "must")}>Wszystkie do obowiązkowych</Button>
+                </div>
+                <ul className="flex flex-wrap gap-2">
+                  {requirementsPreview.uncertain.map(name => <li key={name} className="flex items-center gap-1 rounded-full border border-border bg-muted py-0.5 pl-3 pr-1 text-sm">
+                    <span>{name}</span>
+                    <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs" aria-label={`${name} do obowiązkowych`} onClick={() => moveUncertain([name], "must")}>→ obowiązkowe</Button>
+                    <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-xs" aria-label={`${name} do dodatkowych`} onClick={() => moveUncertain([name], "nice")}>→ dodatkowe</Button>
+                  </li>)}
+                </ul>
+              </div>}
             </div>
           </section>
         )}
@@ -598,6 +665,7 @@ function AdHocTalentRadarWorkspace() {
           </Button>
         </div>
       </div>
+      )}
 
       {fullSearch.runId && runCriteria && (
         <p
@@ -623,6 +691,7 @@ function AdHocTalentRadarWorkspace() {
         needsNewRun={fullSearch.needsNewRun}
         onRestart={blocked === null && previewCurrent ? () => void startSearch() : undefined}
         canOpenProfile={canOpenProfile}
+        addToRecruitment={canAddToRecruitment ? { source: "talent_radar", onAdded: result => showSuccess(addToRecruitmentSummary(result)) } : undefined}
       />
     </div>
   );

@@ -182,10 +182,7 @@ import { SuggestedJobsWidget } from"@/components/SuggestedJobsWidget";
 import { SuggestedPoolsWidget } from"@/components/candidates/SuggestedPoolsWidget";
 import ScheduleInterviewModal from"@/components/calendar/ScheduleInterviewModal";
 import { PrepInviteModal } from"@/components/v2/modals/PrepInviteModal";
-import {
- CandidatePipelinesWidget,
- candidatePipelinesQueryKey,
-} from"@/components/CandidatePipelinesWidget";
+import { candidatePipelinesQueryKey } from"@/components/CandidatePipelinesWidget";
 import { RateHistoryWidget } from"@/components/RateHistoryWidget";
 import { ConflictsWidget } from"@/components/ConflictsWidget";
 import { HiringManagerVetoesWidget } from"@/components/HiringManagerVetoesWidget";
@@ -244,6 +241,7 @@ import {
 } from "@/lib/candidate-contact";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCapability } from "@/hooks/useCapability";
+import { useCloudTalkEnabled } from "@/hooks/useCloudTalkEnabled";
 
 const STATUS_VARIANT: Record<string, "success" |"warning" |"danger" |"neutral"> = {
  active: "success",
@@ -343,12 +341,6 @@ export function CandidateDetailV2({
  // Use `useSearchParams` so the value re-evaluates after client hydration
  // and on every push() — `window.location` inside useMemo wouldn't.
  const searchParamsForNav = useSearchParams();
- const requestedFocusJobId = React.useMemo(() => {
- if (embedded || !searchParamsForNav) return null;
- return parseCandidateRecruitmentFocus(
- new URLSearchParams(searchParamsForNav.toString()),
- );
- }, [embedded, searchParamsForNav]);
  const urlNav = React.useMemo(() => {
  if (embedded) return null; // embedded uses props, not URL
  if (!searchParamsForNav) return null;
@@ -366,6 +358,15 @@ export function CandidateDetailV2({
  if (!searchParamsForNav) return null;
  return decodeJobBackRef(new URLSearchParams(searchParamsForNav.toString()));
  }, [embedded, searchParamsForNav]);
+ // Wejście z rekrutacji bez jawnego `focusJobId` rozwija tę rekrutację.
+ const requestedFocusJobId = React.useMemo(() => {
+ if (embedded || !searchParamsForNav) return null;
+ return (
+ parseCandidateRecruitmentFocus(
+ new URLSearchParams(searchParamsForNav.toString()),
+ ) ?? backJobId
+ );
+ }, [backJobId, embedded, searchParamsForNav]);
 
  // ── "Came from Talent Radar" back-reference ────────────────────────────
  // `?from=talent-radar` — profil otwarty z wyników radaru wraca na
@@ -451,6 +452,32 @@ const backJobTitle =
  replaceProfileView({ ...profileView, section: "documents", documents }),
  [profileView, replaceProfileView],
  );
+
+ // „Dodaj notatkę”: Aktywność → Notatki i fokus w kompozytorze. Link
+ // `?tab=activity&activity=notes&compose=1` robi to samo; parametr znika
+ // z adresu po odczycie, żeby odświeżenie strony nie kradło fokusu.
+ const [composeNoteRequest, setComposeNoteRequest] = React.useState(0);
+ const clearComposeNoteRequest = React.useCallback(
+ () => setComposeNoteRequest(0),
+ [],
+ );
+ const openNoteComposer = React.useCallback(() => {
+ replaceProfileView({
+ section: "activity",
+ activity: "notes",
+ documents: profileView.documents,
+ });
+ setComposeNoteRequest((value) => value + 1);
+ }, [profileView.documents, replaceProfileView]);
+ const composeParam = embedded ? null : searchParamsForNav?.get("compose");
+ React.useEffect(() => {
+ if (composeParam !== "1") return;
+ setComposeNoteRequest((value) => value + 1);
+ const params = new URLSearchParams(searchParamsForNav?.toString() ?? "");
+ params.delete("compose");
+ router.replace(`/candidates/${id}?${params.toString()}`, { scroll: false });
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [composeParam]);
 
  // Replace legacy deep links once, preserving context such as `msg`, nav
  // filters and the job back-reference. A job entry without an explicit tab
@@ -588,6 +615,9 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  // impersonacji). Dotąd liczone z samej sekcji, więc rozjeżdżały się z bramką
  // roli na backendzie (audyt 2026-09-17).
  const canWriteSourcing = useCapability("candidate.write");
+ const cloudTalkEnabled = useCloudTalkEnabled({
+ enabled: Boolean(currentUser) && canWriteSourcing,
+ });
  const contactFeature = useCandidateContactFeature({
  queryEnabled: hasRole(
  currentUser,
@@ -963,7 +993,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  <div className="flex items-center justify-between gap-3 flex-wrap">
  {backJobId != null ? (
  <Link
- href={`/jobs/${backJobId}`}
+ href={`/jobs/${backJobId}?candidate=${id}`}
  className="inline-flex min-h-11 min-w-11 max-w-88 items-center gap-1 px-2 text-sm text-muted-foreground hover:text-primary"
  title={backJobTitle ? `Wróć do rekrutacji: ${backJobTitle}` :"Wróć do rekrutacji"}
  >
@@ -1128,7 +1158,7 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  {candidate.email}
  </a>
  )}
- {candidate.phone && canWriteSourcing ? (
+ {candidate.phone && canWriteSourcing && cloudTalkEnabled ? (
  <CallButton
  candidateId={Number(id)}
  phone={candidate.phone}
@@ -1244,6 +1274,16 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  >
  <UserPlus className="h-4 w-4" />
  Przypisz do rekrutacji
+ </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ className="min-h-11 min-w-11"
+ onClick={openNoteComposer}
+ disabled={!candidate}
+ >
+ <MessageSquare className="h-4 w-4" />
+ Dodaj notatkę
  </Button>
  {/* Utility cluster — secondary actions collapse into "Więcej" so only the
  primary "Przypisz do rekrutacji" task stays visible in the strip. */}
@@ -1436,8 +1476,10 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  onRetry={() => historyQuery.refetch()}
  />
  ) : (
- <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
- <div className="lg:col-span-2">
+ // Jedna lista rekrutacji — widżet pipeline'ów z prawej dublował te same
+ // procesy (przegląd UX 17.09.2026). Panel feedbacku po rozmowie (#1593)
+ // zostaje: to jedyne miejsce na profilu, gdzie go widać.
+ <div className="space-y-4">
  <RekrutacjeTab
  history={history}
  candidateId={Number(id)}
@@ -1446,18 +1488,10 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  readOnly={!canWriteSourcing}
  refreshing={historyQuery.isRefreshing}
  />
- </div>
- <div className="space-y-4">
- <CandidatePipelinesWidget
- candidateId={Number(id)}
- employment={candidate.employment}
- readOnly={!canWriteSourcing}
- />
  <CandidateInterviewFeedbackPanel
  candidateId={Number(id)}
  jobTitles={historyJobTitles}
  />
- </div>
  </div>
  )}
  </TabsContent>
@@ -1548,6 +1582,9 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  candidateLastname={candidate.lastname ?? null}
  readOnly={!canWriteSourcing}
  focusedNoteId={focusedNoteId}
+ composerFocusRequest={composeNoteRequest}
+ onComposerFocusHandled={clearComposeNoteRequest}
+
  />
  )
  ) : null}
@@ -2661,7 +2698,10 @@ function ProfilTab({
  </section>
 
  {/* 0.5 Podsumowanie AI — directly under the CV, per profile layout. */}
- <CandidateActivitySummaryCard candidateId={candidate.id} />
+ <CandidateActivitySummaryCard
+ candidateId={candidate.id}
+ cvSummary={aiSummary}
+ />
 
  {/* 1. Key facts — scannable grid (only tiles with data) */}
  {facts.length > 0 && (
@@ -2730,20 +2770,7 @@ function ProfilTab({
  </section>
  )}
 
- {/* 4. Podsumowanie AI — truncated */}
- {aiSummary && (
- <section>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2 flex items-center gap-2">
- Podsumowanie AI
- {aiBadge && (
- <Badge size="sm" variant="info">
- AI
- </Badge>
- )}
- </h3>
- <ExpandableText text={aiSummary} maxLines={3} />
- </section>
- )}
+ {/* 4. Podsumowanie AI z CV — w karcie AI powyżej (akapit „Z CV”). */}
 
  {/* 5. O sobie — truncated */}
  {candidate.about && (
@@ -3187,9 +3214,10 @@ function TimelineHeadline({
   if (item.type === "stage_change") {
     return (
       <span className="text-sm text-foreground">
-        <span className="font-semibold">{actor ?? "System"}</span>{" "}
+        <span className="font-semibold">{actor ?? "System"}</span>
         <span className="text-muted-foreground">
-          {fromStage ? "zmienił etap" : "przypisał do etapu"}
+          {" · "}
+          {fromStage ? "zmiana etapu" : "przypisanie do etapu"}
         </span>
       </span>
     );
@@ -3197,8 +3225,14 @@ function TimelineHeadline({
   if (item.type === "note") {
     return (
       <span className="text-sm text-foreground">
-        <span className="font-semibold">{actor ?? "Notatka"}</span>{" "}
-        <span className="text-muted-foreground">dodał notatkę</span>
+        {actor ? (
+          <>
+            <span className="font-semibold">{actor}</span>
+            <span className="text-muted-foreground"> · notatka</span>
+          </>
+        ) : (
+          <span className="font-semibold">Notatka</span>
+        )}
       </span>
     );
   }
@@ -4004,6 +4038,8 @@ function NoteComposer({
  setEditing,
  candidateName,
  candidateLastname,
+ focusRequest = 0,
+ onFocusHandled,
 }: {
  recruitments?: any[];
  defaultJobId?: number | null;
@@ -4016,7 +4052,19 @@ function NoteComposer({
  setEditing?: (field: string, active: boolean) => void;
  candidateName?: string | null;
  candidateLastname?: string | null;
+ /** >0 = „Dodaj notatkę” z paska akcji: przewiń do pola i ustaw fokus. */
+ focusRequest?: number;
+ onFocusHandled?: () => void;
 }) {
+ const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+ useEffect(() => {
+ if (focusRequest <= 0) return;
+ const textarea = composerTextareaRef.current;
+ if (!textarea) return;
+ textarea.scrollIntoView?.({ block: "center" });
+ textarea.focus({ preventScroll: true });
+ onFocusHandled?.();
+ }, [focusRequest, onFocusHandled]);
  const recList = useMemo(
  () =>
  Array.isArray(recruitments)
@@ -4108,6 +4156,7 @@ function NoteComposer({
  placeholder="Nowa notatka… (@email aby oznaczyć osobę)"
  rows={3}
  ariaLabel="Treść nowej notatki"
+ textareaRef={composerTextareaRef}
  />
  {personMismatch ? (
  <div
@@ -4330,6 +4379,9 @@ function NotatkiTab({
  candidateLastname,
  readOnly = false,
  focusedNoteId = null,
+ composerFocusRequest = 0,
+ onComposerFocusHandled,
+
 }: {
  timeline: any[];
  recruitments?: any[];
@@ -4348,6 +4400,9 @@ function NotatkiTab({
  candidateLastname?: string | null;
  readOnly?: boolean;
  focusedNoteId?: number | null;
+ composerFocusRequest?: number;
+ onComposerFocusHandled?: () => void;
+
 }) {
  const items = Array.isArray(timeline) ? timeline : [];
  const notes = items.filter((t: any) => t.type === "note");
@@ -4420,6 +4475,8 @@ function NotatkiTab({
  setEditing={setEditing}
  candidateName={candidateName}
  candidateLastname={candidateLastname}
+ focusRequest={composerFocusRequest}
+ onFocusHandled={onComposerFocusHandled}
  />
  ) : null}
 

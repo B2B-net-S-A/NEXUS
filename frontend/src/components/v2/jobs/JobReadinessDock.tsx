@@ -674,7 +674,7 @@ export function JobReadinessDock({
       variant === "champion" ? "Stack → must / nice" : "Must / nice zsynchronizowane",
     description:
       must.length > 0
-        ? `${must.length} must · ${nice.length} nice · zasilają C2 i filtry.`
+        ? `${must.length} must · ${nice.length} nice · zasilają AI Matching i filtry.`
         : "Brak — dodaj wymagania w Profilu Championa (sekcja Stack) lub w rekrutacji.",
   };
 
@@ -1085,8 +1085,7 @@ export function JobReadinessDock({
                   "col-span-2 w-full",
                 )}
               >
-                <Target className="h-3.5 w-3.5" aria-hidden="true" /> Otwórz warsztat
-                (C2)
+                <Target className="h-3.5 w-3.5" aria-hidden="true" /> Otwórz AI Matching
               </Link>
               {/* Makieta kroku 02 ma tu jeszcze „Wzór Word (SharePoint)"
                   i „Historia requestu" — pierwszego dok nie zna (link żyje

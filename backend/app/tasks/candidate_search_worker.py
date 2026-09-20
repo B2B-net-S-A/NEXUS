@@ -9,7 +9,10 @@ from sqlalchemy import or_, select
 from app.core.database import AsyncSessionLocal
 from app.models.candidate_search_run import CandidateSearchRun
 from app.services import candidate_search_store as store
-from app.services.candidate_search_worker import execute_run
+from app.services.candidate_search_worker import (
+    _notify_search_finished,
+    execute_run,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +24,10 @@ STALLED_AFTER = timedelta(minutes=30)
 async def _reap_stalled() -> None:
     async with AsyncSessionLocal() as db:
         reaped = await store.reap_stalled_runs(db, stalled_after=STALLED_AFTER)
+        # Only the runs this statement transitioned — the author learns the
+        # search died instead of waiting on a spinner.
+        for run_id in reaped:
+            await _notify_search_finished(db, run_id, eligible=None, failed=True)
         await db.commit()
     if reaped:
         logger.warning("Candidate search reaped %s stalled run(s)", len(reaped))

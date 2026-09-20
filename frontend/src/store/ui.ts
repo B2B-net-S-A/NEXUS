@@ -4,6 +4,9 @@ import { persist } from "zustand/middleware";
 export type UiDensity = "cozy" | "compact";
 export type CandidatesView = "list" | "tiles";
 export type JobsView = "tiles" | "list";
+/** Rozmiar strony listy kandydatów — zapamiętany w przeglądarce. */
+export type CandidatesPageSize = 20 | 50 | 100;
+export const CANDIDATES_PAGE_SIZES: readonly CandidatesPageSize[] = [20, 50, 100];
 
 interface UiStoreState {
   density: UiDensity;
@@ -21,8 +24,11 @@ interface UiStoreState {
    */
   columnPreferences: Record<string, string[]>;
   /** Pipeline kanban (04 „Pipeline" — flow C2 PR3): ukryj kolumny szablonu bez
-   *  kandydatów. Globalne (nie per-job) — świadomie proste, jak `density`. */
+   *  kandydatów. Globalne (nie per-job) — świadomie proste, jak `density`.
+   *  Domyślnie włączone od v6 (przegląd UX 17.09.2026). */
   hideEmptyKanbanColumns: boolean;
+  /** Liczba wierszy na stronę listy kandydatów (20 / 50 / 100, domyślnie 50). */
+  candidatesPageSize: CandidatesPageSize;
   setDensity: (d: UiDensity) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (v: boolean) => void;
@@ -31,6 +37,7 @@ interface UiStoreState {
   setColumnPreference: (entity: string, hidden: string[]) => void;
   clearColumnPreference: (entity: string) => void;
   setHideEmptyKanbanColumns: (v: boolean) => void;
+  setCandidatesPageSize: (v: CandidatesPageSize) => void;
 }
 
 export const useUiStore = create<UiStoreState>()(
@@ -41,7 +48,8 @@ export const useUiStore = create<UiStoreState>()(
       candidatesView: "list",
       jobsView: "list",
       columnPreferences: {},
-      hideEmptyKanbanColumns: false,
+      hideEmptyKanbanColumns: true,
+      candidatesPageSize: 50,
       setDensity: (density) => set({ density }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
@@ -59,10 +67,11 @@ export const useUiStore = create<UiStoreState>()(
         }),
       setHideEmptyKanbanColumns: (hideEmptyKanbanColumns) =>
         set({ hideEmptyKanbanColumns }),
+      setCandidatesPageSize: (candidatesPageSize) => set({ candidatesPageSize }),
     }),
     {
       name: "nexus-ui",
-      version: 5,
+      version: 6,
       migrate: (persisted, fromVersion) => {
         let state = (persisted ?? {}) as Partial<UiStoreState>;
         if (fromVersion < 2) {
@@ -83,6 +92,13 @@ export const useUiStore = create<UiStoreState>()(
           // reset preferencji — do v4 domyślne „tiles" nie było odróżnialne
           // od świadomego wyboru; kafelki wracają jednym kliknięciem.
           state = { ...state, jobsView: "list" };
+        }
+        if (fromVersion < 6) {
+          // Przegląd UX rekrutera (17.09.2026): puste kolumny kanbanu są
+          // domyślnie ukryte, a lista kandydatów pokazuje 50 wierszy na stronę.
+          // Jednorazowy reset — do v5 `false` nie odróżniało świadomego wyboru
+          // od starej wartości domyślnej.
+          state = { ...state, hideEmptyKanbanColumns: true, candidatesPageSize: 50 };
         }
         return state;
       },

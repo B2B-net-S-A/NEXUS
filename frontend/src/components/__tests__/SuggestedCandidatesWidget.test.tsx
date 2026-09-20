@@ -173,7 +173,7 @@ describe("SuggestedCandidatesWidget degraded recommendations", () => {
     renderWidget();
     expect(await screen.findByTestId("degraded-score-42")).toHaveTextContent("Ocena niepełna");
     expect(screen.queryByText("0/100")).not.toBeInTheDocument();
-    expect(screen.queryByText("BM25 · tryb awaryjny")).not.toBeInTheDocument();
+    expect(screen.queryByText("bez AI")).not.toBeInTheDocument();
     await waitFor(() => expect(mocks.logHistory).not.toHaveBeenCalled());
   });
 
@@ -196,10 +196,10 @@ describe("SuggestedCandidatesWidget degraded recommendations", () => {
     fireEvent.click(await screen.findByTestId("suggest-candidates-btn"));
 
     expect(await screen.findByTestId("degraded-recommendations-notice")).toHaveTextContent(
-      "trybie awaryjnym BM25",
+      "Ranking uproszczony (bez AI)",
     );
     expect(screen.getByTestId("degraded-score-42")).toHaveTextContent(
-      "BM25 · tryb awaryjny",
+      "bez AI",
     );
     expect(screen.queryByText("0/100")).not.toBeInTheDocument();
     await waitFor(() => expect(mocks.logHistory).not.toHaveBeenCalled());

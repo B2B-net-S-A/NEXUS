@@ -56,8 +56,9 @@ interface RawSearchItem {
   id: number;
   name?: string | null;
   lastname?: string | null;
-  position?: string | null;
-  current_role?: string | null;
+  /** Kandydat: stanowisko z LinkedIna i miasto (pola `CandidateResponse`). */
+  linkedin_current_title?: string | null;
+  city?: string | null;
   title?: string | null;
   client_name?: string | null;
   industry?: string | null;
@@ -145,7 +146,11 @@ export function CommandPaletteV2({
                 title:
                   `${c.name ?? ""} ${c.lastname ?? ""}`.trim() ||
                   `Kandydat #${c.id}`,
-                subtitle: c.position ?? c.current_role ?? null,
+                // `position`/`current_role` nie istnieją w `CandidateResponse`,
+                // więc podpis był zawsze pusty i imiennicy byli nie do odróżnienia.
+                subtitle:
+                  [c.linkedin_current_title, c.city].filter(Boolean).join(" · ") ||
+                  null,
               }));
               flush();
             }),

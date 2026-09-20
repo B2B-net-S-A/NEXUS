@@ -86,7 +86,7 @@ import {
  SheetTitle,
  SheetDescription,
 } from"@/components/ui/sheet";
-import { useUiStore } from"@/store/ui";
+import { CANDIDATES_PAGE_SIZES, useUiStore, type CandidatesPageSize } from"@/store/ui";
 import { Avatar, AvatarFallback } from"@/components/ui/avatar";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
@@ -115,7 +115,6 @@ import {
 import { useAuthStore, hasRole } from"@/store/auth";
 import { LocationInput } from"@/components/v2/filters/LocationInput";
 import { TalentPoolMultiSelect } from"@/components/v2/filters/TalentPoolMultiSelect";
-import { CompetenceCategoryMultiSelect } from"@/components/v2/filters/CompetenceCategoryMultiSelect";
 import { CompetenceCategoryBadge } from"@/components/v2/CompetenceCategoryBadge";
 import { AddedByMultiSelect } from"@/components/v2/filters/AddedByMultiSelect";
 import { CompanyAutocomplete } from"@/components/v2/filters/CompanyAutocomplete";
@@ -123,22 +122,30 @@ import { ClientMultiSelect } from"@/components/v2/filters/ClientMultiSelect";
 import { RecruitmentMultiSelect } from"@/components/v2/filters/RecruitmentMultiSelect";
 import { ActiveFilterChips } from"@/components/v2/filters/ActiveFilterChips";
 import { StageFilterPanel } from"@/components/v2/filters/StageFilterPanel";
+import { OPEN_TO_OPTIONS, type OpenToValue } from"@/lib/filter-options";
 import {
- AVAILABILITY_OPTIONS,
- type AvailabilityValue,
- CANDIDATE_STATUS_OPTIONS,
- type CandidateStatusValue,
- EMPLOYMENT_OPTIONS,
- OPEN_TO_OPTIONS,
- type OpenToValue,
-} from"@/lib/filter-options";
+  PillGroup,
+  toggleInList,
+} from "@/components/v2/candidates/filters/FilterPillGroup";
 import {
+  StatusAvailabilityFilterFields,
+  countStatusAvailability,
+} from "@/components/v2/candidates/filters/StatusAvailabilityFilterFields";
+import { CompetenceCategoryFilterFields } from "@/components/v2/candidates/filters/CompetenceCategoryFilterFields";
+import { ToolbarFilterPill } from "@/components/v2/candidates/filters/ToolbarFilterPill";
+import {
+  AddToRecruitmentDialog,
+  addToRecruitmentSummary,
+} from "@/components/v2/recruitment/AddToRecruitmentDialog";
+import type { StageFilterValue } from "@/components/v2/filters/StageFilterPanel";
+import {
+ decodeFilters,
  decodeSelectedIds,
  decodeSkillsExpr,
  encodeCompareHref,
- decodeFilters,
  encodeFilterCriteria,
  encodeFilters,
+ filtersEqual,
  filtersToApiParams,
  parseRateBound,
  parseYearBound,
@@ -191,15 +198,9 @@ const STATUS_VARIANT: Record<string, "success" |"warning" |"danger"> = {
 
 // ── Drawer filter primitives (panel „Filtry") ───────────────────────────────
 // Małe, czysto prezentacyjne klocki używane tylko przez boczny panel filtrów:
-// sekcja z separatorem, pole z etykietą, grupa „pigułek" (multi-select bez
-// zagnieżdżonego popovera — wszystkie opcje widoczne od razu) oraz preset.
+// sekcja z separatorem, pole z etykietą oraz preset. Grupa „pigułek" i bloki
+// współdzielone z paskiem narzędzi żyją w `components/v2/candidates/filters`.
 // Cały stan trzyma rodzic (CandidatesListV2); tu zero logiki biznesowej.
-function toggleInList<T>(list: readonly T[], value: T): T[] {
-  return list.includes(value)
-    ? list.filter((x) => x !== value)
-    : [...list, value];
-}
-
 // Akcent nagłówka sekcji — kolorowa „plakietka" z ikoną. Po jednym tonie na
 // sekcję, żeby bloki filtrów dało się rozróżnić na pierwszy rzut oka. Statyczne
 // klasy (Tailwind nie czyta dynamicznie sklejanych nazw).
@@ -266,88 +267,6 @@ function FilterField({
   );
 }
 
-// Semantyczne tony „pigułek" — subtelny tint, gdy nieaktywne; pełny kolor po
-// zaznaczeniu. Używane tam, gdzie kolor niesie znaczenie (status, dyspozycyjność);
-// reszta grup zostaje neutralna (indygo), żeby nie robić tęczy. Statyczne klasy.
-type PillTone = "neutral" | "emerald" | "amber" | "rose" | "sky";
-
-const PILL_TONE_CLASSES: Record<PillTone, { on: string; off: string }> = {
-  neutral: {
-    on: "bg-primary text-primary-foreground border-primary",
-    off: "bg-card text-foreground border-border hover:bg-accent",
-  },
-  emerald: {
-    on: "bg-success text-success-foreground border-success",
-    off: "bg-success-muted text-success-muted-foreground border-success/30 hover:bg-success-muted/70",
-  },
-  amber: {
-    on: "bg-warning text-warning-foreground border-warning",
-    off: "bg-warning-muted text-warning-muted-foreground border-warning/30 hover:bg-warning-muted/70",
-  },
-  rose: {
-    on: "bg-destructive text-destructive-foreground border-destructive",
-    off: "bg-destructive-muted text-destructive-muted-foreground border-destructive/30 hover:bg-destructive-muted/70",
-  },
-  sky: {
-    on: "bg-info text-info-foreground border-info",
-    off: "bg-info-muted text-info-muted-foreground border-info/30 hover:bg-info-muted/70",
-  },
-};
-
-function PillGroup<V extends string>({
-  label,
-  options,
-  value,
-  onToggle,
-  tones,
-}: {
-  label: string;
-  options: ReadonlyArray<{ value: V; label: string }>;
-  value: readonly string[];
-  onToggle: (value: V) => void;
-  tones?: Partial<Record<V, PillTone>>;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-        {label}
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        {options.map((opt) => {
-          const active = value.includes(opt.value);
-          const tone = PILL_TONE_CLASSES[tones?.[opt.value] ?? "neutral"];
-          return (
-            <button
-              key={String(opt.value)}
-              type="button"
-              onClick={() => onToggle(opt.value)}
-              aria-pressed={active}
-              className={cn(
-                "px-2.5 py-1 text-xs rounded-full border transition-colors",
-                active ? tone.on : tone.off,
-              )}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// Mapy tonów dla grup, gdzie kolor niesie znaczenie. Reszta pigułek = neutral.
-const STATUS_PILL_TONES: Partial<Record<CandidateStatusValue, PillTone>> = {
-  active: "emerald",
-  passive: "amber",
-  blacklisted: "rose",
-};
-
-const AVAILABILITY_PILL_TONES: Partial<Record<AvailabilityValue, PillTone>> = {
-  actively_looking: "emerald",
-  open_to_offers: "sky",
-};
-
 function PresetChip({
   active,
   onClick,
@@ -412,12 +331,10 @@ function avatarColorClass(id: number): string {
 const SORT_OPTIONS = [
  { value: "newest", label: "Najnowsi" },
  { value: "oldest", label: "Najstarsi" },
- // Etykieta neutralna, bo backend pod kluczem "name" sortuje po IMIENIU
- // (candidates.py: `Candidate.name ASC, Candidate.lastname ASC`), a nie po
- // nazwisku — „Nazwisko (A-Z)" obiecywało porządek, którego ta kontrolka nie
- // dostarcza. To samo brzmienie co na drugiej powierzchni sortującej ten sam
- // klucz (CandidateSearchView: „Alfabetycznie"), żeby obie mówiły jedno.
- { value: "name", label: "Alfabetycznie (A-Z)" },
+ // Backend pod kluczem "name" sortuje po NAZWISKU, potem po imieniu, bez
+ // polskich znaków, z rekordami bez nazwiska na końcu
+ // (candidates.py `_apply_candidate_sort`) — etykieta mówi dokładnie to.
+ { value: "name", label: "Nazwisko (A–Z)" },
  { value: "relevance", label: "Trafność" },
 ];
 
@@ -604,6 +521,48 @@ const ALL_COLUMNS = [
  { id: "added_by", label: "Dodał", required: false, width: "minmax(140px, 0.7fr)", minWidth: 140 },
 ] as const;
 type ColumnId = (typeof ALL_COLUMNS)[number]["id"];
+
+// Kolumny sprzed zgrupowania (Kontakt i CV / Status i dostępność / Proces).
+// Zostają w ALL_COLUMNS, bo zapisane preferencje i domyślne ustawienia admina
+// mogą je jeszcze wskazywać, ale nie da się ich już wybrać: przy odczycie
+// preferencji zamieniamy je na kolumnę, która przejęła ich treść.
+const HIDDEN_FROM_PICKER: ReadonlySet<string> = new Set([
+ "recruitments",
+ "status",
+ "cv",
+ "position",
+]);
+const LEGACY_COLUMN_REPLACEMENTS: Readonly<Record<string, ColumnId | null>> = {
+ recruitments: "process",
+ status: "status_availability",
+ cv: "contact",
+ position: null,
+};
+const PICKER_COLUMNS = ALL_COLUMNS.filter((c) => !HIDDEN_FROM_PICKER.has(c.id));
+
+/** Widoczne kolumny po zamianie wycofanych identyfikatorów na ich następców
+ *  (bez duplikatów, w kolejności ALL_COLUMNS). */
+export function normalizeVisibleColumnIds(ids: readonly string[]): ColumnId[] {
+ const visible = new Set<string>();
+ for (const id of ids) {
+ const mapped = id in LEGACY_COLUMN_REPLACEMENTS ? LEGACY_COLUMN_REPLACEMENTS[id] : id;
+ if (mapped) visible.add(mapped);
+ }
+ return ALL_COLUMNS.filter((c) => visible.has(c.id)).map((c) => c.id as ColumnId);
+}
+
+/** Zapisana preferencja to lista UKRYTYCH kolumn — normalizujemy przez listę
+ *  widocznych, żeby wycofana kolumna przeniosła widoczność na następczynię. */
+export function normalizeHiddenColumnIds(hidden: readonly string[]): ColumnId[] {
+ const hiddenSet = new Set(hidden);
+ const visible = normalizeVisibleColumnIds(
+ ALL_COLUMNS.filter((c) => c.required || !hiddenSet.has(c.id)).map((c) => c.id),
+ );
+ const visibleSet = new Set<string>(visible);
+ return ALL_COLUMNS.filter((c) => !c.required && !visibleSet.has(c.id)).map(
+ (c) => c.id as ColumnId,
+ );
+}
 
 // Default columns shown to a new user (no global override, no per-user override).
 // Triage-first set: dokładnie te kolumny, których rekruter potrzebuje BEZ
@@ -994,7 +953,7 @@ function CandidateCell({
  // wprost, żeby nie stał obok „Brak aktywności” jak data
  // aktywności (UAT B66).
  <p className="mt-1 text-[11px] text-muted-foreground">
- Aktualizacja: {formatRelativeTime(candidate.updated_at ?? candidate.created_at!)}
+ Rekord zmieniony: {formatRelativeTime(candidate.updated_at ?? candidate.created_at!)}
  </p>
  )}
  </div>
@@ -1309,8 +1268,26 @@ function CandidateCell({
  }
 }
 
+/** Ścieżka, pod którą lista pisze swój stan do adresu. */
+const CANDIDATES_LIST_PATH = "/candidates";
+
+/**
+ * Czy zmiana stanu listy NIE jest krokiem historii przeglądarki. Pisanie w polu
+ * wyszukiwania, zmiana strony i przełączenie widoku (tabela/kafelki) tylko
+ * podmieniają bieżący wpis; zmiana filtra, sortowania albo zapisanego
+ * wyszukiwania dodaje nowy, żeby „Wstecz" cofało filtr.
+ */
+export function isHistoryNeutralChange(
+ previous: CandidateFilters,
+ next: CandidateFilters,
+): boolean {
+ const neutral = { q: "", page: 1, view: "list" } as const;
+ return filtersEqual({ ...previous, ...neutral }, { ...next, ...neutral });
+}
+
 export function CandidatesListV2() {
  const router = useRouter();
+ const { showSuccess } = useToast();
  const searchParams = useSearchParams();
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
@@ -1325,6 +1302,8 @@ export function CandidatesListV2() {
  return () => media.removeEventListener("change", sync);
  }, []);
  const effectiveCandidatesView = isMobileViewport ? "tiles" : candidatesView;
+ const candidatesPageSize = useUiStore((s) => s.candidatesPageSize);
+ const setCandidatesPageSize = useUiStore((s) => s.setCandidatesPageSize);
  const columnPrefs = useUiStore((s) => s.columnPreferences);
  const setColumnPref = useUiStore((s) => s.setColumnPreference);
  const parentRef = useRef<HTMLDivElement>(null);
@@ -1341,15 +1320,17 @@ export function CandidatesListV2() {
  });
  const globalDefaultHiddenCols: ColumnId[] = useMemo(() => {
  const visibleIds = new Set<string>(
- globalColumnsConfig?.columns ?? HARD_DEFAULT_COLUMNS
+ normalizeVisibleColumnIds(globalColumnsConfig?.columns ?? HARD_DEFAULT_COLUMNS)
  );
  return ALL_COLUMNS.filter((c) => !c.required && !visibleIds.has(c.id)).map(
  (c) => c.id as ColumnId
  );
  }, [globalColumnsConfig]);
  const userOverride = columnPrefs["candidates-v2"];
+ // Zapisane preferencje mogą wskazywać wycofane kolumny (Rekrutacje, Status,
+ // CV, Pozycja) — normalizacja przy odczycie, bez przepisywania zapisu.
  const hiddenColumns = new Set<string>(
- userOverride ?? globalDefaultHiddenCols
+ userOverride ? normalizeHiddenColumnIds(userOverride) : globalDefaultHiddenCols
  );
  const visibleColumns = ALL_COLUMNS.filter((c) => !hiddenColumns.has(c.id));
  const visibleColumnIdsInOrder = visibleColumns.map((column) => column.id);
@@ -1747,9 +1728,37 @@ export function CandidatesListV2() {
  );
 
  // Sync URL -----------------------------------------------------
+ // Pierwszy zapis i zmiany „neutralne" (pole wyszukiwania, strona, widok) →
+ // replaceState; zmiana filtra/sortowania → pushState, więc „Wstecz" cofa
+ // filtr. Pierwszy zapis podmienia wpis, więc zdejmuje też `?sel=` (patrz
+ // odczyt zaznaczenia niżej). Dane stanu `null`, nie `window.history.state`:
+ // łatka Next.js dokleja wtedy własny stan routera ORAZ aktualizuje jego URL;
+ // stan z `__NA` pomija tę synchronizację i router mógłby później przywrócić
+ // stary adres.
+ const lastSyncedFiltersRef = useRef<CandidateFilters | null>(null);
+ // Ustawiany przez `popstate` — przywrócenie wpisu nie może dodać nowego.
+ const restoringHistoryRef = useRef(false);
  useEffect(() => {
+ const previous = lastSyncedFiltersRef.current;
+ lastSyncedFiltersRef.current = filtersSnapshot;
+ const restoring = restoringHistoryRef.current;
+ restoringHistoryRef.current = false;
+ // Lista mogła zostać opuszczona (Wstecz do profilu) — nie nadpisujemy
+ // cudzego adresu.
+ if (window.location.pathname !== CANDIDATES_LIST_PATH) return;
  const qs = encodeFilters(filtersSnapshot).toString();
- window.history.replaceState(null, "", qs ? `/candidates?${qs}` :"/candidates");
+ const target = qs ? `${CANDIDATES_LIST_PATH}?${qs}` : CANDIDATES_LIST_PATH;
+ const current = `${window.location.pathname}${window.location.search}`;
+ if (
+ previous === null ||
+ restoring ||
+ target === current ||
+ isHistoryNeutralChange(previous, filtersSnapshot)
+ ) {
+ window.history.replaceState(null, "", target);
+ } else {
+ window.history.pushState(null, "", target);
+ }
  }, [filtersSnapshot]);
 
  // Data --------------------------------------------------------
@@ -1765,6 +1774,7 @@ export function CandidatesListV2() {
  const candidatesApiParams = useMemo(
  () =>
  filtersToApiParams(filtersSnapshot, page, {
+ page_size: candidatesPageSize,
  include_match_stats: includeMatchStats,
  include_active_recruitments: includeActiveRecruitments,
  include_last_activity: includeLastActivity,
@@ -1773,6 +1783,7 @@ export function CandidatesListV2() {
  [
  filtersSnapshot,
  page,
+ candidatesPageSize,
  includeMatchStats,
  includeActiveRecruitments,
  includeLastActivity,
@@ -1800,7 +1811,7 @@ export function CandidatesListV2() {
  itemCount: items.length,
  });
  const total = data?.total ?? 0;
- const pageSize = data?.page_size ?? 20;
+ const pageSize = data?.page_size ?? candidatesPageSize;
  const totalPages = Math.max(1, Math.ceil(total / pageSize));
  // Strona spoza zakresu (stary link, usunięci kandydaci) — cofamy do ostatniej
  // strony zamiast pokazywać „0 wyników” bez paginacji. Liczymy wyłącznie z
@@ -1862,7 +1873,7 @@ export function CandidatesListV2() {
  // Selection ---------------------------------------------------
  // `?sel=` odtwarza zaznaczenie po powrocie z porównania (UAT B21) — czytane
  // przy montowaniu, jak reszta stanu listy; `encodeFilters` go nie zapisuje,
- // więc replaceState niżej zdejmuje parametr po pierwszym renderze.
+ // więc pierwszy zapis adresu (zawsze replaceState, wyżej) zdejmuje parametr.
  const [selectedIds, setSelectedIds] = useState<Set<number>>(
  () => new Set(decodeSelectedIds(new URLSearchParams(searchParams.toString())))
  );
@@ -1914,6 +1925,7 @@ export function CandidatesListV2() {
  const [showAddFromCV, setShowAddFromCV] = useState(false);
  const [showInvite, setShowInvite] = useState(false);
  const [showBulkPool, setShowBulkPool] = useState(false);
+ const [showBulkRecruitment, setShowBulkRecruitment] = useState(false);
  const [bulkPoolPending, setBulkPoolPending] = useState(false);
  const [assignFor, setAssignFor] = useState<{ id: number; name: string } | null>(null);
  const [detailId, setDetailId] = useState<number | null>(null);
@@ -2130,6 +2142,56 @@ export function CandidatesListV2() {
  if (patch.qNone !== undefined) setQNone(patch.qNone);
  };
 
+ // „Wstecz"/„Dalej" w przeglądarce przywraca filtry z adresu wpisu. Widok
+ // (tabela/kafelki) nie jest krokiem historii, więc go nie cofamy.
+ const applyFiltersPatchRef = useRef(applyFiltersPatch);
+ applyFiltersPatchRef.current = applyFiltersPatch;
+ useEffect(() => {
+ const onPopState = () => {
+ if (window.location.pathname !== CANDIDATES_LIST_PATH) return;
+ const decoded: Partial<CandidateFilters> = decodeFilters(
+ new URLSearchParams(window.location.search),
+ );
+ delete decoded.view;
+ const current = lastSyncedFiltersRef.current;
+ if (current && filtersEqual({ ...current, ...decoded }, current)) return;
+ restoringHistoryRef.current = true;
+ applyFiltersPatchRef.current(decoded);
+ };
+ window.addEventListener("popstate", onPopState);
+ return () => window.removeEventListener("popstate", onPopState);
+ }, []);
+
+ // Współdzielone przez szufladę „Filtry" i skróty w pasku narzędzi.
+ const patchFiltersFromFields = (patch: Partial<CandidateFilters>) =>
+ applyFiltersPatch({ ...patch, page: 1 });
+ const stageFilterValue: StageFilterValue = {
+ stages: pipelineStageFilter,
+ currentOnly: stageCurrentOnly,
+ clientIds: stageClientIds,
+ movedByIds: stageMovedByIds,
+ movedAfter: stageMovedAfter,
+ movedBefore: stageMovedBefore,
+ };
+ const onStageFilterChange = (patch: Partial<StageFilterValue>) => {
+ if (patch.stages !== undefined) setPipelineStageFilter(patch.stages);
+ if (patch.currentOnly !== undefined) setStageCurrentOnly(patch.currentOnly);
+ if (patch.clientIds !== undefined) setStageClientIds(patch.clientIds);
+ if (patch.movedByIds !== undefined) setStageMovedByIds(patch.movedByIds);
+ if (patch.movedAfter !== undefined) setStageMovedAfter(patch.movedAfter);
+ if (patch.movedBefore !== undefined) setStageMovedBefore(patch.movedBefore);
+ setPage(1);
+ };
+ const mineActive =
+ !!currentUser && addedByIds.length === 1 && addedByIds[0] === currentUser.id;
+ const toggleMine = () => {
+ if (!currentUser) return;
+ setAddedByIds(mineActive ? [] : [currentUser.id]);
+ setPage(1);
+ };
+ const hasActiveCriteria = Boolean(search) || totalActiveFilters > 0;
+ const compareOverflow = Math.max(0, selectedIds.size - 3);
+
  // Reset kompletu filtrów („Wyczyść wszystko" w panelu). Obejmuje też pola
  // spoza CandidateFilters (open_to, recently_changed_jobs) oraz proste „q".
  // Sortowanie i ustawienia widoku zostają bez zmian.
@@ -2199,6 +2261,38 @@ export function CandidatesListV2() {
  </Button>
  </div>
  );
+ // Pusty wynik: przy aktywnych filtrach mówimy wprost, że to one zawęziły
+ // listę, i dajemy jedno kliknięcie do ich zdjęcia.
+ const emptyState = (
+ <div className="py-16 text-center text-sm text-muted-foreground">
+ <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
+ <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
+ {hasActiveCriteria ? (
+ <>
+ <p>Brak kandydatów spełniających filtry.</p>
+ <Button
+ variant="outline"
+ size="sm"
+ className="mt-3"
+ onClick={resetAllFilters}
+ >
+ Wyczyść filtry
+ </Button>
+ </>
+ ) : (
+ <>
+ Brak wyników. Zmień filtry lub{" "}
+ <button
+ className="text-primary hover:underline"
+ onClick={() => setShowAdd(true)}
+ >
+ dodaj nowego kandydata
+ </button>
+ .
+ </>
+ )}
+ </div>
+ );
  const loadingRows = (
  <div className="space-y-1 p-3" aria-busy="true" aria-label="Ładowanie kandydatów">
  {Array.from({ length: 7 }, (_, index) => (
@@ -2235,19 +2329,6 @@ export function CandidatesListV2() {
  <h1 className="text-lg font-semibold tracking-tight text-foreground/80 mt-0.5">
  Kandydaci
  </h1>
- <p className="text-xs text-muted-foreground mt-0.5" aria-live="polite">
- {isLoading ? (
- "Ładowanie…"
- ) : isError && items.length === 0 ? (
- "Nie udało się pobrać danych"
- ) : (
- <>
- {total.toLocaleString("pl-PL")}{" "}
- {search || totalActiveFilters > 0 ? "wyników" : "w bazie"}
- </>
- )}
- {isFetching && !isLoading ? " · aktualizuję…" : ""}
- </p>
  </div>
 
  <div className="flex items-center gap-2">
@@ -2276,15 +2357,24 @@ export function CandidatesListV2() {
  >
  <FileArchive className="h-4 w-4 text-muted-foreground" /> Masowy import CV
  </Link>
+ <button
+ onClick={() => setShowInvite(true)}
+ className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
+ >
+ <LinkIcon className="h-4 w-4 text-muted-foreground" /> Wygeneruj link
+ </button>
  </PopoverContent>
  </Popover>
+ {/* „Więcej" niesie już tylko eksport, więc bramkujemy CAŁE menu listą
+ `CANDIDATE_EXPORT_ROLES` (candidate_access.py) — admin, HoR, DL, TCM, TAC,
+ finance. Backend zwraca 403 pozostałym („Wygeneruj link" przeszło do
+ „Importuj"). */}
+ <RequireRole roles={["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "finance"]}>
  <Popover>
  <PopoverTrigger asChild>
  <Button size="sm" variant="outline">Więcej</Button>
  </PopoverTrigger>
  <PopoverContent align="end" className="w-56 p-1">
- {/* Eksport: CANDIDATE_EXPORT_ROLES (candidate_access.py) — admin, HoR, DL, TCM, TAC, finance. */}
- <RequireRole roles={["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "finance"]}>
  <button
  onClick={() => doExport("csv", "filtered")}
  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
@@ -2297,15 +2387,9 @@ export function CandidatesListV2() {
  >
  <FileText className="h-4 w-4 text-muted-foreground" /> Eksportuj wyniki XLSX
  </button>
- </RequireRole>
- <button
- onClick={() => setShowInvite(true)}
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
- >
- <LinkIcon className="h-4 w-4 text-muted-foreground" /> Wygeneruj link
- </button>
  </PopoverContent>
  </Popover>
+ </RequireRole>
  <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
  <Plus className="h-4 w-4" />
  <span className="hidden sm:inline">Dodaj kandydata</span>
@@ -2349,6 +2433,57 @@ export function CandidatesListV2() {
               </Badge>
             )}
           </Button>
+
+          {/* Skróty do najczęstszych grup filtrów — ten sam stan co szuflada. */}
+          <div
+            className="flex flex-wrap items-center gap-1.5"
+            role="group"
+            aria-label="Szybkie filtry"
+          >
+            <ToolbarFilterPill
+              label="Status"
+              icon={<CircleDot className="h-3.5 w-3.5" />}
+              count={countStatusAvailability({
+                status: statusFilter,
+                employment: employmentFilter,
+                availability: availabilityFilter,
+                openTo: openToFilter,
+              })}
+            >
+              <StatusAvailabilityFilterFields
+                value={{
+                  status: statusFilter,
+                  employment: employmentFilter,
+                  availability: availabilityFilter,
+                  openTo: openToFilter,
+                }}
+                onPatch={patchFiltersFromFields}
+              />
+            </ToolbarFilterPill>
+            <StageFilterPanel
+              value={stageFilterValue}
+              onChange={onStageFilterChange}
+            />
+            <ToolbarFilterPill
+              label="Kategoria"
+              icon={<Layers className="h-3.5 w-3.5" />}
+              count={competenceCategoryIds.length}
+            >
+              <CompetenceCategoryFilterFields
+                value={{ competenceCategoryIds }}
+                onPatch={patchFiltersFromFields}
+              />
+            </ToolbarFilterPill>
+            {currentUser && (
+              <PresetChip
+                icon={<Users className="h-4 w-4" />}
+                active={mineActive}
+                onClick={toggleMine}
+              >
+                Moi kandydaci
+              </PresetChip>
+            )}
+          </div>
 
           <SavedSearchesMenu
             currentQs={encodeFilterCriteria(filtersSnapshot).toString()}
@@ -2446,7 +2581,7 @@ export function CandidatesListV2() {
  Kolumny niestandardowe
  </h3>
  <div className="space-y-1.5">
- {ALL_COLUMNS.map((col) => {
+ {PICKER_COLUMNS.map((col) => {
  const shown = !hiddenColumns.has(col.id);
  return (
  <label
@@ -2589,8 +2724,17 @@ export function CandidatesListV2() {
  <div className="flex flex-wrap items-center justify-between gap-2" aria-live="polite">
  <ActiveFilterChips filters={filtersSnapshot} onUpdate={applyFiltersPatch} />
  <span className="ml-auto text-xs text-muted-foreground">
+ {isLoading ? (
+ "Ładowanie…"
+ ) : isError && items.length === 0 ? (
+ "Nie udało się pobrać danych"
+ ) : (
+ <>
  {total.toLocaleString("pl-PL")}{" "}
- {search || totalActiveFilters > 0 ? "wyników" : "w bazie"}
+ {hasActiveCriteria ? "wyników" : "w bazie"}
+ </>
+ )}
+ {isFetching && !isLoading ? " · aktualizuję…" : ""}
  </span>
  </div>
 
@@ -2617,21 +2761,6 @@ export function CandidatesListV2() {
           </SheetHeader>
 
           <SheetBody className="space-y-4 bg-muted/30">
-            {/* Wyszukiwanie zaawansowane (boolean ALL / ANY / NONE) — na górze,
-                bo to najczęściej używany sposób zawężania wyników.
-                Karta bez własnego nagłówka — popover renderuje swój h3. */}
-            <section className="rounded-xl border border-border bg-card p-4 shadow-xs">
-              <AdvancedSearchPopover
-                value={{ all: qAll, any: qAny, none: qNone }}
-                onChange={(next) => {
-                  setQAll(next.all);
-                  setQAny(next.any);
-                  setQNone(next.none);
-                  setPage(1);
-                }}
-              />
-            </section>
-
             {/* Szybkie filtry — gotowe presety jednym kliknięciem. */}
             <FilterSection
               title="Szybkie filtry"
@@ -2668,16 +2797,8 @@ export function CandidatesListV2() {
                 {currentUser && (
                   <PresetChip
                     icon={<Users className="h-4 w-4" />}
-                    active={
-                      addedByIds.length === 1 && addedByIds[0] === currentUser.id
-                    }
-                    onClick={() => {
-                      const mine =
-                        addedByIds.length === 1 &&
-                        addedByIds[0] === currentUser.id;
-                      setAddedByIds(mine ? [] : [currentUser.id]);
-                      setPage(1);
-                    }}
+                    active={mineActive}
+                    onClick={toggleMine}
                   >
                     Moi kandydaci
                   </PresetChip>
@@ -2691,43 +2812,14 @@ export function CandidatesListV2() {
               icon={<CircleDot />}
               accent="emerald"
             >
-              <PillGroup
-                label="Status"
-                options={CANDIDATE_STATUS_OPTIONS}
-                value={statusFilter}
-                tones={STATUS_PILL_TONES}
-                onToggle={(v) => {
-                  setStatusFilter(toggleInList(statusFilter, v));
-                  setPage(1);
+              <StatusAvailabilityFilterFields
+                value={{
+                  status: statusFilter,
+                  employment: employmentFilter,
+                  availability: availabilityFilter,
+                  openTo: openToFilter,
                 }}
-              />
-              <PillGroup
-                label="Zatrudnienie"
-                options={EMPLOYMENT_OPTIONS}
-                value={employmentFilter}
-                onToggle={(v) => {
-                  setEmploymentFilter(toggleInList(employmentFilter, v));
-                  setPage(1);
-                }}
-              />
-              <PillGroup
-                label="Dyspozycyjność"
-                options={AVAILABILITY_OPTIONS}
-                value={availabilityFilter}
-                tones={AVAILABILITY_PILL_TONES}
-                onToggle={(v) => {
-                  setAvailabilityFilter(toggleInList(availabilityFilter, v));
-                  setPage(1);
-                }}
-              />
-              <PillGroup
-                label="Otwartość na dodatkowe"
-                options={OPEN_TO_OPTIONS}
-                value={openToFilter}
-                onToggle={(v) => {
-                  setOpenToFilter(toggleInList(openToFilter, v));
-                  setPage(1);
-                }}
+                onPatch={patchFiltersFromFields}
               />
             </FilterSection>
 
@@ -2738,29 +2830,8 @@ export function CandidatesListV2() {
               accent="violet"
             >
               <StageFilterPanel
-                value={{
-                  stages: pipelineStageFilter,
-                  currentOnly: stageCurrentOnly,
-                  clientIds: stageClientIds,
-                  movedByIds: stageMovedByIds,
-                  movedAfter: stageMovedAfter,
-                  movedBefore: stageMovedBefore,
-                }}
-                onChange={(patch) => {
-                  if (patch.stages !== undefined)
-                    setPipelineStageFilter(patch.stages);
-                  if (patch.currentOnly !== undefined)
-                    setStageCurrentOnly(patch.currentOnly);
-                  if (patch.clientIds !== undefined)
-                    setStageClientIds(patch.clientIds);
-                  if (patch.movedByIds !== undefined)
-                    setStageMovedByIds(patch.movedByIds);
-                  if (patch.movedAfter !== undefined)
-                    setStageMovedAfter(patch.movedAfter);
-                  if (patch.movedBefore !== undefined)
-                    setStageMovedBefore(patch.movedBefore);
-                  setPage(1);
-                }}
+                value={stageFilterValue}
+                onChange={onStageFilterChange}
               />
             </FilterSection>
 
@@ -3049,19 +3120,10 @@ export function CandidatesListV2() {
               icon={<Layers />}
               accent="violet"
             >
-              <FilterField
-                label="Kategoria"
-                hint="Główny obszar kandydata (dopasowuje też kategorie poboczne)."
-              >
-                <CompetenceCategoryMultiSelect
-                  value={competenceCategoryIds}
-                  onChange={(ids) => {
-                    setCompetenceCategoryIds(ids);
-                    setPage(1);
-                  }}
-                  triggerWidthClass="w-full"
-                />
-              </FilterField>
+              <CompetenceCategoryFilterFields
+                value={{ competenceCategoryIds }}
+                onPatch={patchFiltersFromFields}
+              />
             </FilterSection>
 
             {/* Pule i przynależność — talent pool, kto dodał, historia klienta. */}
@@ -3143,6 +3205,24 @@ export function CandidatesListV2() {
                   </div>
                 )}
               </FilterField>
+            </FilterSection>
+
+            {/* Wyszukiwanie po frazach (boolean ALL / ANY / NONE) — na końcu:
+                najczęstsze filtry są wyżej i w pasku nad listą. */}
+            <FilterSection
+              title="Wyszukiwanie po frazach"
+              icon={<Search />}
+              accent="primary"
+            >
+              <AdvancedSearchPopover
+                value={{ all: qAll, any: qAny, none: qNone }}
+                onChange={(next) => {
+                  setQAll(next.all);
+                  setQAny(next.any);
+                  setQNone(next.none);
+                  setPage(1);
+                }}
+              />
             </FilterSection>
           </SheetBody>
 
@@ -3240,18 +3320,7 @@ export function CandidatesListV2() {
  ) : listViewState === "error" ? (
  queryErrorPanel
  ) : listViewState === "empty" ? (
- <div className="py-16 text-center text-sm text-muted-foreground">
- <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
- <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
- Brak wyników. Zmień filtry lub{" "}
- <button
- className="text-primary hover:underline"
- onClick={() => setShowAdd(true)}
- >
- dodaj nowego kandydata
- </button>
- .
- </div>
+ emptyState
  ) : (
  <CandidatesTiles
  items={items}
@@ -3273,7 +3342,7 @@ export function CandidatesListV2() {
  ref={parentRef}
  data-testid="candidate-list-scroll"
  style={{
- height: "calc(100vh - 340px)",
+ height: "calc(100vh - 290px)",
  minHeight: 360,
  minWidth: `${gridMinWidth}px`,
  }}
@@ -3284,18 +3353,7 @@ export function CandidatesListV2() {
  ) : listViewState === "error" ? (
  queryErrorPanel
  ) : listViewState === "empty" ? (
- <div className="py-16 text-center text-sm text-muted-foreground">
- <Users className="kids-hidden h-12 w-12 mx-auto mb-3 text-muted-foreground" />
- <span className="kids-only justify-center text-5xl mb-3 kids-anim-float" aria-hidden>🤖</span>
- Brak wyników. Zmień filtry lub{" "}
- <button
- className="text-primary hover:underline"
- onClick={() => setShowAdd(true)}
- >
- dodaj nowego kandydata
- </button>
- .
- </div>
+ emptyState
  ) : (
  <div
  style={{
@@ -3459,6 +3517,29 @@ export function CandidatesListV2() {
  )}
  </span>
  <div className="flex items-center gap-2">
+ <Select
+ value={String(candidatesPageSize)}
+ onValueChange={(value) => {
+ const next = Number(value) as CandidatesPageSize;
+ if (!CANDIDATES_PAGE_SIZES.includes(next)) return;
+ setCandidatesPageSize(next);
+ applyFiltersPatch({ page: 1 });
+ }}
+ >
+ <SelectTrigger
+ aria-label="Liczba kandydatów na stronie"
+ className="h-8 w-[132px] rounded-md"
+ >
+ <SelectValue />
+ </SelectTrigger>
+ <SelectContent>
+ {CANDIDATES_PAGE_SIZES.map((size) => (
+ <SelectItem key={size} value={String(size)}>
+ {size} na stronie
+ </SelectItem>
+ ))}
+ </SelectContent>
+ </Select>
  <Button
  size="sm"
  variant="outline"
@@ -3487,17 +3568,39 @@ export function CandidatesListV2() {
  Zaznaczono: <span className="font-bold">{selectedIds.size}</span>
  </span>
  <div className="h-4 w-px bg-card/15" />
+ <div className="flex flex-col items-center">
  <Button
  size="sm"
  variant="primary"
+ disabled={compareOverflow > 0}
+ aria-describedby={compareOverflow > 0 ? "candidates-compare-limit" : undefined}
  onClick={() => {
+ // Porównanie mieści 3 osoby — nadmiarowego zaznaczenia nie ucinamy
+ // po cichu, tylko prosimy o odznaczenie (przycisk jest wtedy wyłączony).
+ if (selectedIds.size > 3) return;
  // Link niesie kontekst listy — „Wróć do kandydatów" oddaje filtry,
  // stronę i zaznaczenie (UAT B21).
- const ids = Array.from(selectedIds).slice(0, 3);
- router.push(encodeCompareHref(filtersSnapshot, ids));
+ router.push(encodeCompareHref(filtersSnapshot, Array.from(selectedIds)));
  }}
  >
- <GitCompare className="h-3.5 w-3.5" /> Porównaj (max 3)
+ <GitCompare className="h-3.5 w-3.5" /> Porównaj
+ </Button>
+ {compareOverflow > 0 && (
+ <span
+ id="candidates-compare-limit"
+ className="mt-0.5 text-[10px] text-muted-foreground"
+ >
+ Maks. 3 — odznacz {compareOverflow}
+ </span>
+ )}
+ </div>
+ <Button
+ size="sm"
+ variant="ghost"
+ onClick={() => setShowBulkRecruitment(true)}
+ title="Dodaj zaznaczonych do rekrutacji"
+ >
+ <Briefcase className="h-3.5 w-3.5" /> Dodaj do rekrutacji
  </Button>
  <RequireRole roles={["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "finance"]}>
  <Button
@@ -3538,6 +3641,19 @@ export function CandidatesListV2() {
  </button>
  </div>
  )}
+
+ <AddToRecruitmentDialog
+ open={showBulkRecruitment}
+ onOpenChange={setShowBulkRecruitment}
+ candidateIds={Array.from(selectedIds)}
+ source="candidate_list"
+ onAdded={(result) => {
+ showSuccess(addToRecruitmentSummary(result));
+ clearSelection();
+ // Kolumna „Proces" pokazuje rekrutacje kandydata.
+ void queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+ }}
+ />
 
  {/* Bulk add-to-pool modal */}
  {showBulkPool && (

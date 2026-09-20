@@ -1,10 +1,19 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import api from "@/lib/api";
-import { AlertTriangle, ArrowLeft, RefreshCw, User2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Check,
+  Minus,
+  RefreshCw,
+  RotateCcw,
+  User2,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { AVATAR_COLORS } from "@/lib/colors";
@@ -16,6 +25,20 @@ import {
 import { formatExperienceDate } from "@/components/v2/pages/candidate-profile-helpers";
 import { decodeCompareBackHref } from "@/lib/url-filters";
 import { profileCompleteness, skillLevelLabel } from "./compare-helpers";
+import {
+  candidateSearchApi,
+  type MatchScoresResponse,
+} from "@/lib/candidate-search-api";
+import { MATCH_SCORES_MAX_CANDIDATES } from "@/hooks/useVisibleMatchScores";
+import {
+  matchingRequirementsApi,
+  type MatchingRequirement,
+  type MatchingRequirements,
+} from "@/lib/matching-requirements";
+import { unmeasuredReason } from "@/lib/match-breakdown";
+import { isForbiddenError } from "@/lib/view-state";
+import { Button } from "@/components/ui/button";
+import { JobPicker, type JobPickerJob } from "@/components/v2/recruitment/JobPicker";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -62,9 +85,122 @@ function CompletenessBadge({ score }: { score: number }) {
   );
 }
 
+// ── Dopasowanie do wybranej rekrutacji (B6) ───────────────────────────────────
+
+/** Nazwy umiejętności kandydata, bez wielkości liter. */
+function candidateSkillSet(candidate: { skills?: unknown }): Set<string> {
+  const skills: unknown[] = Array.isArray(candidate?.skills) ? candidate.skills : [];
+  return new Set(
+    skills
+      .map((s) => (typeof s === "string" ? s : (s as { name?: unknown })?.name))
+      .filter((s): s is string => typeof s === "string" && s.trim() !== "")
+      .map((s) => s.trim().toLowerCase()),
+  );
+}
+
+function groupMet(group: MatchingRequirement, skills: Set<string>): boolean {
+  return group.any_of.some((name) => skills.has(name.trim().toLowerCase()));
+}
+
+/**
+ * Ocena dopasowania tak, jak w AI Matching — nigdy „0” ani puste pole, gdy
+ * liczby nie ma: brak pomiaru, brak dostępu i nieudane zapytanie mają własne
+ * zdania (UAT M01 S13).
+ */
+function MatchScoreCell({
+  candidateId,
+  scores,
+}: {
+  candidateId: number;
+  scores: UseQueryResult<MatchScoresResponse>;
+}) {
+  if (scores.isError) {
+    if (isForbiddenError(scores.error)) {
+      return <p className="text-sm text-muted-foreground">Brak dostępu do oceny tej rekrutacji</p>;
+    }
+    return (
+      <Button type="button" size="sm" variant="outline" onClick={() => void scores.refetch()}>
+        <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
+        nie policzono — ponów
+      </Button>
+    );
+  }
+  if (!scores.isSuccess) {
+    return <p role="status" className="text-sm text-muted-foreground">Liczę dopasowanie…</p>;
+  }
+  const score = scores.data.scores[String(candidateId)];
+  if (typeof score === "number") {
+    return (
+      <p className="text-2xl font-bold tabular-nums text-foreground">
+        {Math.round(score)}
+        <span className="text-sm font-normal text-muted-foreground">/100</span>
+      </p>
+    );
+  }
+  const reason = unmeasuredReason(scores.data.breakdowns[String(candidateId)]?.measurement);
+  return (
+    <p className="text-sm text-muted-foreground">
+      Ocena niepełna{reason ? `: ${reason}` : ""}
+    </p>
+  );
+}
+
+function MustHaveList({
+  candidate,
+  requirements,
+}: {
+  candidate: { skills?: unknown };
+  requirements: UseQueryResult<MatchingRequirements>;
+}) {
+  if (requirements.isError) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {isForbiddenError(requirements.error)
+          ? "Brak dostępu do wymagań tej rekrutacji"
+          : apiErrorMessage(requirements.error, "Nie udało się wczytać wymagań rekrutacji.")}
+      </p>
+    );
+  }
+  if (!requirements.isSuccess) {
+    return <p role="status" className="text-xs text-muted-foreground">Wczytuję wymagania…</p>;
+  }
+  const must = requirements.data.all_of.filter((g) => g.level === "must");
+  if (must.length === 0) {
+    return <p className="text-xs text-muted-foreground">Rekrutacja nie ma wymagań obowiązkowych.</p>;
+  }
+  const skills = candidateSkillSet(candidate);
+  return (
+    <ul className="space-y-1">
+      {must.map((group, i) => {
+        const label = group.any_of.join(" lub ");
+        const met = groupMet(group, skills);
+        return (
+          <li key={`${label}-${i}`} className="flex items-center justify-between gap-2 text-xs">
+            <span className="truncate text-foreground">{label}</span>
+            {met ? (
+              <span className="inline-flex items-center gap-1 text-success" aria-label={`${label}: jest w umiejętnościach`}>
+                <Check className="h-3.5 w-3.5" aria-hidden="true" />✓
+              </span>
+            ) : (
+              <span className="inline-flex items-center text-muted-foreground" aria-label={`${label}: brak w umiejętnościach`}>
+                <Minus className="h-3.5 w-3.5" aria-hidden="true" />—
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+interface CompareJobContext {
+  scores: UseQueryResult<MatchScoresResponse>;
+  requirements: UseQueryResult<MatchingRequirements>;
+}
+
 // ── Candidate Card ────────────────────────────────────────────────────────────
 
-function CandidateCompareCard({ candidate }: { candidate: any }) {
+function CandidateCompareCard({ candidate, job }: { candidate: any; job?: CompareJobContext }) {
   const fullName = `${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim();
   const initials = fullName.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
   const avatarColor = getAvatarColor(fullName);
@@ -101,6 +237,19 @@ function CandidateCompareCard({ candidate }: { candidate: any }) {
           </p>
         </div>
       </div>
+
+      {job && (
+        <div className="px-5 py-3 border-b border-border dark:border-border space-y-3" data-testid={`compare-match-${candidate.id}`}>
+          <div>
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-1">Dopasowanie</h4>
+            <MatchScoreCell candidateId={candidate.id} scores={job.scores} />
+          </div>
+          <div>
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-1" title="✓ gdy ta sama nazwa jest w umiejętnościach kandydata. Synonimy (np. k8s) liczy tylko ocena dopasowania.">Must-have w umiejętnościach</h4>
+            <MustHaveList candidate={candidate} requirements={job.requirements} />
+          </div>
+        </div>
+      )}
 
       {/* Status & tags */}
       <div className="px-5 py-3 border-b border-border dark:border-border">
@@ -287,6 +436,50 @@ function CompareCandidatesInner() {
   // i nie zmienia licznika w nagłówku (ten liczy osoby wybrane do porównania).
   const slots = ids.map((id, i) => ({ id, query: queries[i] }));
 
+  // Rekrutacja, do której porównujemy — w URL-u (`?job=`), obok `?ids=`.
+  const jobParam = Number(searchParams.get("job"));
+  const jobId = Number.isInteger(jobParam) && jobParam > 0 ? jobParam : null;
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickedTitle, setPickedTitle] = useState<JobPickerJob | null>(null);
+  const jobInfo = useQuery({
+    queryKey: ["compare-job", jobId],
+    queryFn: () =>
+      api.get(`/api/jobs/${jobId}`).then((r) => r.data as { id: number; title?: string | null; client_name?: string | null }),
+    enabled: jobId !== null && pickedTitle?.id !== jobId,
+    retry: false,
+  });
+  const scoreIds = ids.slice(0, MATCH_SCORES_MAX_CANDIDATES);
+  const scores = useQuery({
+    queryKey: ["compare-match-scores", jobId, scoreIds.join(",")],
+    queryFn: ({ signal }) => candidateSearchApi.matchScores(jobId!, scoreIds, { signal }),
+    enabled: jobId !== null && scoreIds.length >= 2,
+    retry: false,
+  });
+  const requirements = useQuery({
+    queryKey: ["matching-requirements", jobId],
+    queryFn: () => matchingRequirementsApi.get(jobId!),
+    enabled: jobId !== null,
+    retry: false,
+  });
+  const jobContext: CompareJobContext | undefined = jobId !== null ? { scores, requirements } : undefined;
+  const jobLabel =
+    pickedTitle?.id === jobId
+      ? pickedTitle
+      : jobInfo.data
+        ? { id: jobInfo.data.id, title: jobInfo.data.title ?? `Rekrutacja #${jobId}`, client_name: jobInfo.data.client_name }
+        : jobId !== null
+          ? { id: jobId, title: `Rekrutacja #${jobId}` }
+          : null;
+
+  const setJobInUrl = (job: JobPickerJob | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (job) params.set("job", String(job.id));
+    else params.delete("job");
+    setPickedTitle(job);
+    setPickerOpen(false);
+    router.replace(`/candidates/compare?${params.toString()}`);
+  };
+
   if (ids.length < 2) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-muted-foreground gap-4">
@@ -312,6 +505,36 @@ function CompareCandidatesInner() {
         <span className="text-sm text-muted-foreground">({ids.length} kandydatów)</span>
       </div>
 
+      <section aria-label="Rekrutacja do porównania" className="space-y-3 rounded-xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          {jobLabel ? (
+            <>
+              <span className="text-muted-foreground">Dopasowanie do:</span>
+              <strong data-testid="compare-job">
+                {jobLabel.title}
+                {jobLabel.client_name ? ` · ${jobLabel.client_name}` : ""}
+              </strong>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setPickerOpen((o) => !o)}>
+                Zmień
+              </Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setJobInUrl(null)} aria-label="Wyczyść rekrutację">
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                Wyczyść
+              </Button>
+            </>
+          ) : (
+            <>
+              <span className="text-muted-foreground">Porównaj pod kątem rekrutacji:</span>
+              <Button type="button" size="sm" variant="outline" onClick={() => setPickerOpen((o) => !o)} aria-expanded={pickerOpen}>
+                Wybierz rekrutację
+              </Button>
+            </>
+          )}
+        </div>
+        {pickerOpen && <JobPicker value={jobLabel} onChange={setJobInUrl} scope="all" />}
+      </section>
+
+
       <div
         className={cn("grid gap-6", {
           "grid-cols-1 md:grid-cols-2": ids.length === 2,
@@ -320,7 +543,7 @@ function CompareCandidatesInner() {
       >
         {slots.map(({ id, query }) =>
           query.data ? (
-            <CandidateCompareCard key={id} candidate={query.data} />
+            <CandidateCompareCard key={id} candidate={query.data} job={jobContext} />
           ) : query.isError ? (
             <CandidateErrorCard
               key={id}

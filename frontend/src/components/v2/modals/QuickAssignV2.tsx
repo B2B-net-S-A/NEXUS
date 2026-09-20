@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from"react";
-import { useEffect, useState } from"react";
+import { useEffect, useMemo, useState } from"react";
+import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Briefcase, CheckCircle2, Search, Sparkles } from"lucide-react";
 import api, {
+ jobsApi,
  recommendationsApi,
  type JobMatch,
  type RecommendationMeta,
@@ -25,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from"@/components/ui/tabs";
 import { RiskBadge } from"@/components/v2/RiskBadge";
 import { assignErrorMessage } from"@/lib/assign-error";
 import type { CandidateRiskProfile } from"@/types/candidate-risk";
+import { useTabsStore } from "@/store/tabs";
 
 interface JobLite {
  id: number;
@@ -68,8 +71,10 @@ export function QuickAssignV2({
  const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
  // Phase 17 (migracja 0068): risk profile dla ostrzeżenia przy assign'ie.
  const [risk, setRisk] = useState<CandidateRiskProfile | null>(null);
- // "AI sugestie" (domyślny) vs "Wszystkie" — pozwala przypisać do dowolnej rekrutacji.
- const [tab, setTab] = useState<"ai" |"all">("ai");
+ // "Wszystkie" (domyślny) vs "AI sugestie". Rekruter najczęściej wie, do
+ // której rekrutacji przypisuje — lista AI była pierwszym ekranem, a wybranie
+ // własnej rekrutacji wymagało przełączenia zakładki i wpisania nazwy.
+ const [tab, setTab] = useState<"ai" |"all">("all");
  const [searchQuery, setSearchQuery] = useState("");
  const [allJobs, setAllJobs] = useState<JobLite[]>([]);
  const [allLoading, setAllLoading] = useState(false);
@@ -112,7 +117,7 @@ export function QuickAssignV2({
  // Reset state otwarcia/zamknięcia — żeby search query nie został z poprzedniego kandydata.
  useEffect(() => {
  if (!open) {
- setTab("ai");
+ setTab("all");
  setSearchQuery("");
  setAllJobs([]);
  setAllError(null);
@@ -154,6 +159,28 @@ export function QuickAssignV2({
  clearTimeout(timer);
  };
  }, [open, tab, searchQuery]);
+
+ // Skróty na górze „Wszystkie": moje otwarte rekrutacje i ostatnio otwierane
+ // karty. Ten sam klucz zapytania co `JobPicker` — jedna odpowiedź w cache.
+ const mineJobs = useQuery({
+ queryKey: ["job-picker","mine"],
+ queryFn: () =>
+ jobsApi
+ .list({ mine: true, open_only: true, page_size: 20 })
+ .then((r) => r.data as { items: JobLite[] }),
+ enabled: open && tab ==="all",
+ staleTime: 60_000,
+ });
+ const openTabs = useTabsStore((s) => s.tabs);
+ const recentJobs = useMemo(
+ () =>
+ openTabs
+ .filter((t) => t.type ==="job")
+ .slice(0, 5)
+ .map((t) => ({ id: t.entityId, title: t.title })),
+ [openTabs],
+ );
+ const showShortcuts = !searchQuery.trim();
 
  const handleAssign = async (jobId: number) => {
  setAssigning(jobId);
@@ -197,7 +224,7 @@ export function QuickAssignV2({
  )}
  {score === null && (
  <Badge variant="neutral" size="sm">
- BM25 · tryb awaryjny
+ bez AI
  </Badge>
  )}
  </div>
@@ -279,7 +306,7 @@ export function QuickAssignV2({
  <TabsContent value="ai">
  {recommendationMeta?.degraded && (
  <div className="mb-3 rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
- Ranking awaryjny BM25 — bez standardowego wyniku dopasowania.
+ Ranking uproszczony (bez AI).
  </div>
  )}
  {loading ? (
@@ -311,6 +338,41 @@ export function QuickAssignV2({
  onChange={(e) => setSearchQuery(e.target.value)}
  autoFocus
  />
+ {showShortcuts && (
+ <section aria-label="Moje otwarte" className="space-y-2">
+ <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+ Moje otwarte
+ </h3>
+ {mineJobs.isError ? (
+ <div className="text-sm text-primary bg-primary/10 px-3 py-2 rounded-md">
+ {apiErrorMessage(mineJobs.error, "Nie udało się wczytać Twoich rekrutacji")}
+ </div>
+ ) : !mineJobs.isSuccess ? (
+ <div className="text-sm text-muted-foreground">Ładuję Twoje rekrutacje…</div>
+ ) : (mineJobs.data.items ?? []).length === 0 ? (
+ <div className="text-sm text-muted-foreground">Nie masz otwartych rekrutacji.</div>
+ ) : (
+ <div className="space-y-2">
+ {(mineJobs.data.items ?? []).map((j) => renderJobRow(j))}
+ </div>
+ )}
+ </section>
+ )}
+ {showShortcuts && recentJobs.length > 0 && (
+ <section aria-label="Ostatnio otwierane" className="space-y-2">
+ <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+ Ostatnio otwierane
+ </h3>
+ <div className="space-y-2">
+ {recentJobs.map((j) => renderJobRow(j))}
+ </div>
+ </section>
+ )}
+ {showShortcuts && (
+ <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+ Wszystkie
+ </h3>
+ )}
  {allLoading ? (
  <div className="text-sm text-muted-foreground py-8 text-center">
  Ładuję rekrutacje…

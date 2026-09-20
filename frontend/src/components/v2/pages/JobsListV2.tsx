@@ -477,12 +477,22 @@ function JobsTable({
             100,
             Math.round((filledCount / Math.max(1, targetCount)) * 100),
           );
+          // `can_open === false` — ten sam kontrakt co kafelki: wiersz zostaje
+          // czytelny, ale nie udaje klikalnego (detal zwróciłby 403).
+          const locked = job.can_open === false;
           return (
             <TableRow
               key={job.id}
-              interactive
+              interactive={!locked}
               selected={selectedId === job.id}
-              onClick={() => onSelect(job.id)}
+              onClick={locked ? undefined : () => onSelect(job.id)}
+              aria-disabled={locked || undefined}
+              title={
+                locked
+                  ? "Nie masz dostępu do tej rekrutacji — poproś o dodanie Cię do jej zespołu."
+                  : undefined
+              }
+              className={locked ? "opacity-60" : undefined}
             >
               <TableCell className="max-w-[300px]">
                 {/* `can_open === false` — ta sama reguła co kafelki: rekrutacja
@@ -1075,7 +1085,7 @@ export function JobsListV2() {
               }}
               label="Niezamknięte"
               count={quickCounts?.open}
-              title="Wszystko poza zamkniętymi — Draft też się liczy"
+              title="Otwarte i szkice"
             />
             <QuickFilterRow
               active={needsSourcing}
@@ -1086,7 +1096,7 @@ export function JobsListV2() {
               label="Potrzebny search"
               count={quickCounts?.needs_sourcing}
               tone="warning"
-              title="Tylko rekrutacje oznaczone jako wymagające sourcingu"
+              title="Wymagają sourcingu"
             />
             <QuickFilterRow
               active={activeInSearch}
@@ -1096,7 +1106,7 @@ export function JobsListV2() {
               }}
               label="Aktywni w searchu"
               count={quickCounts?.active_in_search}
-              title="Tylko rekrutacje z aktywnym rekruterem w sourcingu"
+              title="Rekruter aktywnie szuka"
             />
             <QuickFilterRow
               active={noOwnerOnly}
@@ -1107,7 +1117,7 @@ export function JobsListV2() {
               label="Brak ownera requestu"
               count={quickCounts?.owner_missing}
               tone="danger"
-              title="Rekrutacje bez jawnie wybranego ownera TAC (tac_id) — liczba dotyczy całej bazy, nie tej strony"
+              title="Bez opiekuna TAC"
             />
             <QuickFilterRow
               active={deadlinePreset === "next7"}
@@ -1118,7 +1128,7 @@ export function JobsListV2() {
               label="Deadline ≤ 7 dni"
               count={quickCounts?.deadline_7d}
               tone="warning"
-              title="To samo co opcja „Najbliższe 7 dni” w filtrze Termin niżej"
+              title="Termin w ciągu 7 dni"
             />
           </div>
 

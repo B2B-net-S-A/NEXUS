@@ -80,6 +80,20 @@ describe("CandidateFilesTab upload", () => {
     ).toBeInTheDocument();
   });
 
+  it("defaults the upload kind to CV and lists CV first", async () => {
+    renderTab();
+    await screen.findByRole("button", { name: /Dodaj plik/ });
+
+    const select = screen.getByLabelText("Rodzaj") as HTMLSelectElement;
+    expect(select.value).toBe("cv");
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      "CV",
+      "List motywacyjny",
+      "Certyfikat",
+      "Inny",
+    ]);
+  });
+
   it("posts the picked file as multipart with the selected kind", async () => {
     renderTab();
     await screen.findByRole("button", { name: /Dodaj plik/ });

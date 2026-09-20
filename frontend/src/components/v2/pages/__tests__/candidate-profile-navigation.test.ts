@@ -65,13 +65,13 @@ describe("candidate profile navigation", () => {
     );
   });
 
-  it("opens Activity/History for a pipeline entry without an explicit tab", () => {
+  it("opens Recruitments for a pipeline entry without an explicit tab", () => {
     expect(
       parseCandidateProfileView(new URLSearchParams("from=job&jobId=9"), {
         fromJob: true,
       }),
     ).toMatchObject({
-      section: "activity",
+      section: "recruitments",
       activity: "timeline",
       hasExplicitTab: false,
     });
