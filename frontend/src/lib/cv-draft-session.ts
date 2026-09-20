@@ -1,7 +1,7 @@
 /** Serialize autosave and approval without replacing edits made during a request. */
 export type CvSaveState = "saved" | "unsaved" | "saving" | "error" | "finalizing" | "finalized";
 
-/** Wynik zatwierdzenia wraz z werdyktem niezależnej kontroli AI (0326).
+/** Wynik zatwierdzenia wraz z werdyktem niezależnej kontroli AI (0327).
  *  Kontrola jest doradcza: uwagi NIE wstrzymują zatwierdzenia, ale muszą
  *  dojechać do rekrutera, więc podróżują razem z wynikiem. */
 export type CvFinalizeOutcome = {

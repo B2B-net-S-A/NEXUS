@@ -536,7 +536,7 @@ describe("CV upload context and server history", () => {
 });
 
 
-describe("plakietka niezależnej kontroli AI (0326)", () => {
+describe("plakietka niezależnej kontroli AI (0327)", () => {
   const row = (factual_review: unknown) => ({
     id: 7, candidate_name: "Jan Kowalski", language: "pl", mode: "upload",
     status: "ready", filename: "cv.docx", warnings: [], can_download: false,

@@ -1,7 +1,7 @@
 """Kubełek kwoty dla niezależnej kontroli AI treści CV (drugi model).
 
-Revision ID: 0326_cv_factual_verification
-Revises: 0325_jobs_managed_in_nexus
+Revision ID: 0327_cv_factual_verification
+Revises: 0326_candidate_documents_sha256_index
 
 `cv_factual_verification` — recenzja gotowego CV względem źródeł, robiona
 INNYM modelem niż generator (GPT Luna; decyzja Artura 18.09.2026). Osobny
@@ -20,8 +20,8 @@ alembic bywa orphaned.
 
 from alembic import op
 
-revision = "0326_cv_factual_verification"
-down_revision = "0325_jobs_managed_in_nexus"
+revision = "0327_cv_factual_verification"
+down_revision = "0326_candidate_documents_sha256_index"
 branch_labels = None
 depends_on = None
 

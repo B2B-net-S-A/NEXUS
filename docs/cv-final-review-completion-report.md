@@ -1,6 +1,6 @@
 # Niezależna kontrola AI wygenerowanego CV (GPT Luna, tryb doradczy)
 
-Data: 18.09.2026 · Migracja: `0326_cv_factual_verification_quota`
+Data: 18.09.2026 · Migracja: `0327_cv_factual_verification_quota`
 Flagi: `CV_FINAL_REVIEW_ENABLED` (domyślnie **ON**), `CV_FINAL_REVIEW_TIMEOUT` (120 s),
 `CV_FACTUAL_VERIFICATION_MODEL` (override modelu).
 
@@ -37,7 +37,7 @@ Badanie modeli z 16.09.2026 zmierzyło, że sędzia LLM faworyzuje własne wyjś
 
 ### Klucz AI `cv_factual_verification` (F18)
 `models/ai_feature.py` (enum + etykieta + opis danych wysyłanych), migracja
-`0326`, lustro w `entrypoint.sh` (`_ENUM_STATEMENTS` + `_DATA_STATEMENTS`),
+`0327`, lustro w `entrypoint.sh` (`_ENUM_STATEMENTS` + `_DATA_STATEMENTS`),
 wpis w `services/ai_models.py` (`default=GPT_LUNA`, `fallbacks=(SONNET_5,)`),
 union w `frontend/src/lib/api.ts` (przy okazji dopisane brakujące
 `experience_dates_on_demand`). Cena Luny i sonda `checks.openai` były już
@@ -101,7 +101,7 @@ i `content_review_findings`.
 ## Weryfikacja
 
 Backend w `nexus-deps-test:pytest-2026-09-16` (baza `nexus_cvreview`,
-`alembic upgrade heads` z 0326):
+`alembic upgrade heads` z 0327):
 - `test_cv_final_review_advisory.py` — **nowy**, 13 + 6 przypadków;
 - pakiet dotkniętych modułów: 88 passed (legacy, approval, queue, worker);
 - klucze/rejestr/lustro entrypointu: 56 passed.
@@ -134,7 +134,7 @@ robi CI na własnym `npm ci`.
 
 ## Wdrożenie
 
-Migracja 0326 + lustro w `entrypoint.sh` wchodzą z deployem; flagi nie są
+Migracja 0327 + lustro w `entrypoint.sh` wchodzą z deployem; flagi nie są
 wymagane (domyślne wartości są docelowe). `OPENAI_API_KEY` jest w Coolify od
 16.09. Wyłączenie funkcji: `CV_FINAL_REVIEW_ENABLED=false` (workflow „Coolify
 set env"). Po deployu sprawdzić: `/api/health` → `checks.openai`, jedna

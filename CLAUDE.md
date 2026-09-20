@@ -901,7 +901,7 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
   (przywrócenie starego pliku wywala start backendu). Zostaje też cała nowa
   infrastruktura: zadania trwałe, wersje, zatwierdzanie, zgoda RODO, dostęp.
 - **Niezależna kontrola AI treści CV — `CV_FINAL_REVIEW_ENABLED`, domyślnie ON
-  (0326, decyzja Artura 18.09.2026).** Gotowe CV recenzuje DRUGI model —
+  (0327, decyzja Artura 18.09.2026).** Gotowe CV recenzuje DRUGI model —
   `AIFeatureKey.cv_factual_verification` = **GPT Luna**, fallback Sonnet 5 —
   a nie ten, który je napisał: badanie z 16.09 zmierzyło, że sędzia LLM
   faworyzuje własne wyjście, więc model oceniający własną pracę jest

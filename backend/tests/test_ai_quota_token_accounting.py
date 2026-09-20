@@ -199,7 +199,7 @@ def test_declared_call_does_not_charge_anything():
 _DECLARED_CALL_ALLOWLIST: set[str] = {
     "app/api/cv_generator_b2b.py",
     "app/api/client_cv_rules.py",
-    # 0326, niezależna kontrola AI treści CV: kubełek `cv_factual_verification`
+    # 0327, niezależna kontrola AI treści CV: kubełek `cv_factual_verification`
     # JEST naliczany — `_charge_final_review` w `app/api/cv_generator_b2b.py`
     # woła `check_and_increment` w workerze i podaje `QuotaState` dalej.
     # `declared_call` służy tu wyłącznie do PRZENIESIENIA tej deklaracji przez

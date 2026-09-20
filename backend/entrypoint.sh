@@ -242,7 +242,7 @@ _ENUM_STATEMENTS = [
     # (`experience_dates_on_demand`) — osobny kubełek od `cv_backfill`, żeby
     # dało się zgasić ścieżkę użytkownika bez nocnego syncu Traffita.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'experience_dates_on_demand'",
-    # 0326: niezależna kontrola AI treści CV (`cv_factual_verification`) —
+    # 0327: niezależna kontrola AI treści CV (`cv_factual_verification`) —
     # recenzent to INNY model niż generator (GPT Luna), więc osobny kubełek
     # wydatku; bez wartości enuma `check_and_increment` przy każdej generacji
     # CV wywala się na InvalidTextRepresentationError.
@@ -5202,7 +5202,7 @@ _DATA_STATEMENTS = [
     "SELECT 'experience_dates_on_demand', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'experience_dates_on_demand')",
-    # 0326: seed feature'a AI `cv_factual_verification` (niezależna kontrola
+    # 0327: seed feature'a AI `cv_factual_verification` (niezależna kontrola
     # treści CV drugim modelem). Sam wiersz NIE włącza wydatku — bramką jest
     # CV_FINAL_REVIEW_ENABLED.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "

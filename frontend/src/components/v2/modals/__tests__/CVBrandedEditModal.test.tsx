@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({
   status: "draft",
   revision: 1,
   onUpdate: null as null | (() => void),
-  // Werdykt niezależnej kontroli AI (0326) odsyłany przez /finalize.
+  // Werdykt niezależnej kontroli AI (0327) odsyłany przez /finalize.
   reviewStatus: null as null | string,
   reviewFindings: null as null | number,
 }));

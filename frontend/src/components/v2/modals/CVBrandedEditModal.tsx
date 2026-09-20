@@ -82,7 +82,7 @@ function CVBrandedEditContent({
  const queryClient = useQueryClient();
  const { showSuccess, showError } = useToast();
  const [confirmFinalize, setConfirmFinalize] = useState(false);
- // Werdykt niezależnej kontroli AI treści (0326). Trwały, bo to lista rzeczy
+ // Werdykt niezależnej kontroli AI treści (0327). Trwały, bo to lista rzeczy
  // do sprawdzenia przed wysyłką CV do klienta — nie powiadomienie chwilowe.
  const [reviewNotice, setReviewNotice] = useState<{kind: "findings" | "unavailable"; count: number} | null>(null);
  const [approvalError, setApprovalError] = useState<{message: string; regenerate: boolean} | null>(null);

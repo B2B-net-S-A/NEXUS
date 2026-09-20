@@ -332,7 +332,7 @@ def test_summary_hides_quotes_and_says_nothing_about_rows_from_before(review_on)
 
 # ── Zatwierdzanie ręcznie edytowanego CV ────────────────────────────────────
 #
-# Do 0326 edytowane CV NIE przechodziło żadnej kontroli przy wyłączonym
+# Do 0327 edytowane CV NIE przechodziło żadnej kontroli przy wyłączonym
 # egzekwowaniu (`evidence_enforcement_off`). Teraz przechodzi doradczą: uwagi
 # jadą z zatwierdzoną wersją, ale NIGDY jej nie wstrzymują.
 
