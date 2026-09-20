@@ -643,8 +643,9 @@ Takie dopasowanie wymaga potwierdzenia osoby przed zapisem. Gdy pasuje kilka
 osób, system pokazuje ich imiona i nazwiska, identyfikatory rekordów oraz
 numery kontraktów do ręcznego rozstrzygnięcia.
 
-**Zamówienie MD albo kosztowe z osobą bez aktywnej współpracy albo nieznalezioną
-w systemie nie zapisze się samo** — u żadnego klienta. Automat nie wznowi
+**Żadne zamówienie na osobę spoza listy konsultantów klienta nie zapisze się
+samo — u żadnego klienta i na żadnym typie zamówienia.** Na zamówieniu MD albo
+kosztowym dotyczy to także osoby z zakończoną współpracą. Automat nie wznowi
 zakończonego kontraktu i nie założy nowej osoby: plan pokazuje przy niej
 **„Decyzja o osobie — w oknie zamówienia"** z tym samym komunikatem co karta
 w oknie zamówienia („… nie ma już aktywnej współpracy …" albo „Nie znaleziono …
@@ -656,8 +657,15 @@ historię / wznów / zastąp / usuń) i zapisujesz. **Po zapisie dokument sam sc
 z kolejki** (zakładka „Zapisane ręcznie", z numerem zamówienia). Zamknięcie okna
 bez zapisu zostawia dokument w kolejce.
 
-**Na zamówieniu okresowym brak osoby u klienta tworzy nowy draft z numerem,
-okresem i stawką przychodową z maila.** DL otrzymuje raz
+**Na zamówieniu okresowym brak osoby u klienta przygotowuje nowy draft
+z numerem, okresem i stawką przychodową z maila — ale go NIE zapisuje.**
+Kontraktor powstaje z podpisanej umowy, nie z zamówienia klienta, więc wpis
+czeka w „Do weryfikacji” z powodem „… nie ma jej wśród konsultantów tego klienta
+ani w bazie — zamówienie czeka na podpisaną umowę B2B”. Zapisze się sam
+w ciągu godziny od chwili, gdy umowa zostanie oznaczona jako **podpisana
+obustronnie**. Jeśli konsultant pracuje na innej podstawie (umowa o pracę,
+zlecenie) i umowy B2B nie będzie, zapisz wpis ręcznie przyciskiem
+**„Zastosuj”**. Po zapisie DL otrzymuje raz
 powiadomienie „Nowy kontraktor [osoba] w [klient] — uzupełnij dane: stawka kosztowa”;
 kliknięcie otwiera zakładkę „Zamówienia” tego klienta.
 Aktualizacje tego draftu nie powtarzają powiadomienia. Jeśli klient nie miał
@@ -703,8 +711,9 @@ wypowiedzeniu przedłużysz umowę aneksem albo przywrócisz ją bezterminowo,
 kolejne zamówienia z maila w nowym okresie też aktywują się normalnie.
 
 **„Automat: pewne” uruchamia zapis bez przycisku „Zastosuj”, dopóki automat jest
-włączony.** Wynik jest w zakładce **„Zapisane automatycznie”**. Dotyczy to również
-pierwszego zamówienia na nową osobę. Administrator może automat **wyłączyć bez
+włączony.** Wynik jest w zakładce **„Zapisane automatycznie”**. **Nie dotyczy to
+pierwszego zamówienia na osobę spoza listy konsultantów klienta** — takie czeka
+na podpisaną umowę (patrz niżej). Administrator może automat **wyłączyć bez
 wdrożenia** — wtedy pewny plan czeka w **„Do weryfikacji”** z powodem
 „Automatyczny zapis jest wyłączony…” i zapisujesz go przyciskiem „Zastosuj”.
 Wyłącznik obejmuje także „Przelicz plan”.
