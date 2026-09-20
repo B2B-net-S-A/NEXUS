@@ -1,7 +1,7 @@
 """notificationtype: ``candidate_search_completed`` — koniec przeglądu bazy.
 
-Revision ID: 0328_candidate_search_completed_notif
-Revises: 0327_cv_factual_verification
+Revision ID: 0329_candidate_search_completed_notif
+Revises: 0328_b2b_generated_contract_cancelled
 
 Pełny przegląd bazy kandydatów (Talent Radar, AI Matching w rekrutacji) trwa
 około trzech minut. Autor dostaje wpis w dzwonku, gdy przegląd się zakończy
@@ -11,8 +11,8 @@ Postgres nie usuwa wartości enuma, więc downgrade jest no-opem.
 
 from alembic import op
 
-revision = "0328_candidate_search_completed_notif"
-down_revision = "0327_cv_factual_verification"
+revision = "0329_candidate_search_completed_notif"
+down_revision = "0328_b2b_generated_contract_cancelled"
 branch_labels = None
 depends_on = None
 

@@ -622,7 +622,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'rejection_email_failed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'rejection_email_cancelled'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'rejection_email_skipped'",
-    # 0328: koniec pełnego przeglądu bazy kandydatów (dzwonek autora).
+    # 0329: koniec pełnego przeglądu bazy kandydatów (dzwonek autora).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_search_completed'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
