@@ -22,16 +22,36 @@ Dwie ścieżki, bo dwa różne stany wstrzymania:
 
 Kartę Delivery Leada wystawia dopiero trzecia nieudana próba z rzędu — i nigdy
 zamówienie czekające na podpis umowy (patrz ``order_mail_recheck_reasons``).
+
+Dwa ograniczenia dołożone 09.2026, oba widoczne dla użytkownika:
+
+* bieg AUTOMATYCZNY rusza wyłącznie w oknie godzin pracy
+  (``ORDER_MAIL_RECHECK_START_HOUR_LOCAL`` .. ``_END_HOUR_LOCAL``, Europe/Warsaw).
+  Bieg ręczny okna nie pyta. Zawężenie dotyczy TYLKO tego modułu — pobieranie
+  poczty i sonda ``checks.order_mail`` zostają dobowe;
+* wiersz w ``order_mail_recheck_runs`` powstaje TYLKO wtedy, gdy bieg coś
+  zmienił. Wcześniej historia dostawała 24 wiersze dziennie, w większości
+  identyczne („sprawdzono N, zaakceptowano 0, te same powody"), a realna
+  informacja w nich tonęła. Bieg bez zmian przesuwa wyłącznie znacznik
+  „Sprawdzone ostatnio" (``app_settings[STATE_KEY]``).
+
+Czego pominięty wiersz NIE pomija: stempla ``last_at`` na dokumencie, licznika
+prób i karty dla Delivery Leada. Historia jest podsumowaniem biegu, a nie jego
+mechanizmem — gdyby te trzy rzeczy zależały od zapisu wiersza, karta przestałaby
+wychodzić dokładnie wtedy, gdy nic się nie zmienia, czyli gdy jest najbardziej
+potrzebna.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -50,7 +70,9 @@ from app.services.order_pdf_parser import polish_gate_reason
 from app.services.order_mail_recheck_reasons import (
     CATEGORY_UNRECOGNIZED,
     advance_attempts,
+    alert_after_hours,
     classify_hold,
+    is_recheck_time,
     should_alert,
 )
 
@@ -64,6 +86,38 @@ MAX_HISTORY_REASON_CHARS = 400
 OUTCOME_ENTRY_APPLIED = "applied"
 OUTCOME_ENTRY_HELD = "held"
 OUTCOME_ENTRY_ERROR = "error"
+
+#: Znacznik „Sprawdzone ostatnio" + odcisk poprzedniego wyniku. Wiersz
+#: ``app_settings``, bez migracji — to stan pętli, nie konfiguracja (ten sam
+#: wzorzec co ``compass_lifecycle``). Kolumna na ``order_mail_recheck_runs``
+#: odpada z definicji: bieg bez zmian nie zapisuje tam wiersza, więc nie ma na
+#: czym stanąć. ``order_mail_sync_state.stats`` też — ``_write_state``
+#: przepisuje ten jsonb w całości na końcu biegu skrzynki.
+STATE_KEY = "order_mail_recheck_state"
+_STATE_VERSION = 1
+
+#: Pola wpisu historii wchodzące do odcisku. ``client_name`` jest świadomie
+#: poza: uzupełnia je dopiero ``_fill_client_names`` przy zapisie, więc w tym
+#: miejscu jest zawsze ``None`` i niczego by nie rozróżniło.
+_FINGERPRINT_FIELDS = (
+    "document_id",
+    "outcome",
+    "category",
+    "reasons",
+    "alerted",
+    "order_number",
+    "people",
+)
+
+_STATE_UPSERT = text(
+    """
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (:key, CAST(:patch AS jsonb), NOW())
+    ON CONFLICT (key) DO UPDATE SET
+        value = app_settings.value || EXCLUDED.value,
+        updated_at = NOW()
+    """
+)
 
 
 @dataclass
@@ -193,7 +247,9 @@ async def _maybe_alert(db: AsyncSession, row: OrderMailDocument, meta: dict) -> 
         waiting_since=row.received_at or row.created_at,
         now=_now(),
         after_attempts=settings.ORDER_MAIL_RECHECK_ALERT_AFTER_ATTEMPTS,
-        after_hours=settings.ORDER_MAIL_RECHECK_ALERT_AFTER_HOURS,
+        # WYPROWADZONY z okna godzin, nie surowa wartość z konfiguracji — przy
+        # zamkniętym oknie nocnym surowe 6 h alarmowałoby całą kolejkę co noc.
+        after_hours=alert_after_hours(),
     ):
         return False
     try:
@@ -348,10 +404,100 @@ async def _fill_client_names(db: AsyncSession, details: list[dict[str, Any]]) ->
         detail["client_name"] = names.get(detail.get("client_id"))
 
 
+def outcome_fingerprint(details: list[dict[str, Any]]) -> str:
+    """Odcisk WYNIKU biegu — po nim poznajemy „nic się nie zmieniło".
+
+    Porównujemy stan wstrzymanych zamówień, nie same liczniki: zmiana powodu
+    przy niezmienionej liczbie wpisów też jest zmianą i musi zostawić ślad
+    w historii. ``alerted`` wchodzi do odcisku, bo bieg, w którym poszła karta
+    do Delivery Leada, jest zdarzeniem, choć powody wyglądają identycznie.
+
+    Sortowanie po ``document_id``: kolejność wpisów zależy od rotacji
+    ``last_at NULLS FIRST``, więc ta sama kolejka potrafi przyjść w innej
+    kolejności i bez sortowania każdy bieg wyglądałby na zmianę.
+    """
+    rows = sorted(
+        (
+            {k: entry.get(k) for k in _FINGERPRINT_FIELDS}
+            for entry in details
+            if isinstance(entry, dict)
+        ),
+        key=lambda row: row.get("document_id") or 0,
+    )
+    blob = json.dumps(rows, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+async def read_recheck_state(db: AsyncSession) -> dict[str, Any]:
+    """Znacznik ostatniego sprawdzenia. Brak wiersza = pusty stan, nie błąd."""
+    try:
+        row = await db.execute(
+            text("SELECT value FROM app_settings WHERE key = :key"),
+            {"key": STATE_KEY},
+        )
+        value = row.scalar()
+    except Exception:  # noqa: BLE001 — brak znacznika nie może wywrócić biegu
+        logger.exception("order_mail: could not read recheck state")
+        # Bez wycofania sesja zostaje w padniętej transakcji i wywraca to, co
+        # wołający zrobi dalej — a ta funkcja ma odpowiadać „nie wiem", nie
+        # zatruwać cudzą pracę.
+        await db.rollback()
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+async def _save_state(
+    db: AsyncSession,
+    *,
+    checked_at: datetime,
+    fingerprint: str,
+    changed: bool,
+    unchanged_runs: int,
+) -> None:
+    """Przesuń znacznik „Sprawdzone ostatnio". Nigdy nie rzuca.
+
+    Scalenie (``||``), nie nadpisanie: wiersz może z czasem dostać klucze
+    zapisywane gdzie indziej, a padnięty zapis znacznika nie ma prawa wycofać
+    przeliczenia, które właśnie się udało.
+    """
+    patch = {
+        "version": _STATE_VERSION,
+        "last_checked_at": checked_at.astimezone(timezone.utc).isoformat(),
+        "fingerprint": fingerprint,
+        "unchanged_runs": unchanged_runs,
+    }
+    if changed:
+        patch["last_change_at"] = patch["last_checked_at"]
+    try:
+        await db.execute(_STATE_UPSERT, {"key": STATE_KEY, "patch": json.dumps(patch)})
+        await db.commit()
+    except Exception:  # noqa: BLE001 — znacznik jest informacją, nie mechanizmem
+        logger.exception("order_mail: could not stamp recheck state")
+        await db.rollback()
+
+
+async def _prune_history(db: AsyncSession) -> None:
+    """Retencja historii — wołana w KAŻDYM biegu, także tym bez zmian.
+
+    Gdyby wisiała na zapisie wiersza, tydzień bez zmian oznaczałby tydzień bez
+    sprzątania, a trzydziestodniowa obietnica retencji byłaby spełniana
+    przypadkiem.
+    """
+    cutoff = _now() - timedelta(days=max(1, settings.ORDER_MAIL_RECHECK_HISTORY_DAYS))
+    try:
+        await db.execute(
+            delete(OrderMailRecheckRun).where(OrderMailRecheckRun.started_at < cutoff)
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001 — sprzątanie nie wywraca biegu
+        logger.exception("order_mail: recheck history retention failed")
+        await db.rollback()
+
+
 async def _record_run(
     db: AsyncSession, result: RecheckRunResult, *, started_at: datetime, trigger: str
 ) -> None:
-    """Wiersz historii + retencja. Historia jest ZDENORMALIZOWANA świadomie."""
+    """Wiersz historii. Historia jest ZDENORMALIZOWANA świadomie."""
     await _fill_client_names(db, result.details)
     db.add(
         OrderMailRecheckRun(
@@ -364,10 +510,6 @@ async def _record_run(
             details=result.details,
         )
     )
-    cutoff = _now() - timedelta(days=max(1, settings.ORDER_MAIL_RECHECK_HISTORY_DAYS))
-    await db.execute(
-        delete(OrderMailRecheckRun).where(OrderMailRecheckRun.started_at < cutoff)
-    )
     await db.commit()
 
 
@@ -379,6 +521,13 @@ async def run_recheck(
     if not recheck_enabled():
         return result
     started_at = _now()
+    if trigger != "manual" and not is_recheck_time(started_at):
+        # Poza oknem godzin pracy: zero zapytań, zero stempli, znacznik
+        # „Sprawdzone ostatnio" stoi na ostatnim realnym biegu. To jest prawda
+        # („ostatnio sprawdzone o 17:05"), a nie brak danych — dlatego marker
+        # NIE jest tu przesuwany. Ręczne „Pobierz zamówienia z maila"
+        # (`trigger="manual"`) tu nie trafia.
+        return result
     for doc_id in await _candidate_ids(db, now=started_at):
         try:
             entry = await _recheck_one(db, doc_id)
@@ -419,6 +568,33 @@ async def run_recheck(
         if entry.get("alerted"):
             result.alerts += 1
         result.details.append(entry)
+    state = await read_recheck_state(db)
+    fingerprint = outcome_fingerprint(result.details)
     if result.checked or result.details:
-        await _record_run(db, result, started_at=started_at, trigger=trigger)
+        # Bieg ręczny zapisuje wiersz zawsze: jest odpowiedzią na kliknięcie,
+        # a „nic się nie zmieniło" to odpowiedź, na którą klikający czeka.
+        # `applied` jest wymienione osobno, choć zapis i tak zdejmuje wpis
+        # z kolejki i zmienia odcisk — reguła z ticketu ma być widoczna
+        # w kodzie, nie wyprowadzana.
+        changed = (
+            trigger == "manual"
+            or result.applied > 0
+            or fingerprint != state.get("fingerprint")
+        )
+        if changed:
+            await _record_run(db, result, started_at=started_at, trigger=trigger)
+    else:
+        # Pusta kolejka: bieg się odbył, ale nie miał czego raportować. Znacznik
+        # i tak przesuwamy — pusta historia z aktualnym „Sprawdzone ostatnio"
+        # mówi „mechanizm żyje, nie ma nic do zrobienia", a bez znacznika
+        # czytałaby się jak awaria.
+        changed = False
+    await _prune_history(db)
+    await _save_state(
+        db,
+        checked_at=started_at,
+        fingerprint=fingerprint,
+        changed=changed,
+        unchanged_runs=0 if changed else int(state.get("unchanged_runs") or 0) + 1,
+    )
     return result

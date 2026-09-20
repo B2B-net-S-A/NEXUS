@@ -168,6 +168,46 @@ def is_within_window(
     return delta <= window_minutes * 60
 
 
+def is_within_local_hours(
+    now: datetime,
+    *,
+    start_hour: int,
+    end_hour: int,
+    tz: str = DEFAULT_TZ,
+) -> bool:
+    """Czy lokalna godzina ``now`` mieści się w oknie ``[start_hour, end_hour)``?
+
+    Odpowiada na inne pytanie niż `is_within_window`: tamta pilnuje PUNKTU
+    w czasie (trigger o 11:45), ta — PRZEDZIAŁU godzin pracy, w którym wolno
+    ruszyć pętli.
+
+    Trzy przypadki, wszystkie świadome:
+
+    * ``start < end`` — zwykłe okno dzienne, półotwarte. Domknięty koniec
+      znaczyłby, że bieg wolno ZACZĄĆ dokładnie o 18:00:00, a „do 18:00" czyta
+      się jako „ostatni bieg o 17:xx";
+    * ``start == end`` — okno wyłączone, czyli cała doba. To escape hatch bez
+      deployu: wyrównanie dwóch zmiennych środowiskowych przywraca poprzednie
+      zachowanie, gdy okno okaże się pomyłką;
+    * ``start > end`` — okno przez północ (np. 22–6). Nie jest dziś używane,
+      ale bez tej gałęzi taka konfiguracja cicho blokowałaby pętlę na zawsze,
+      a objawem byłaby wyłącznie cisza.
+
+    Godziny spoza ``0..23`` są przycinane — konfiguracja z literówką ma zawęzić
+    okno, nie wywrócić pętli, która tę funkcję woła.
+    """
+    zone = ZoneInfo(tz)
+    local = now.astimezone(zone) if now.tzinfo else now.replace(tzinfo=zone)
+    start = max(0, min(23, int(start_hour)))
+    end = max(0, min(23, int(end_hour)))
+    hour = local.hour
+    if start == end:
+        return True
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
+
+
 def seconds_until_local_time(
     now: datetime,
     hour: int,
@@ -190,6 +230,7 @@ __all__ = [
     "DEFAULT_TZ",
     "DayBounds",
     "is_business_day",
+    "is_within_local_hours",
     "is_within_window",
     "local_day_bounds",
     "local_now",

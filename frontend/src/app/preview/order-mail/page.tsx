@@ -11,9 +11,15 @@
  * istniejącego zamówienia.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { OrderMailQueueView } from "@/components/order-mail/OrderMailQueue";
-import type { OrderMailDocument, OrderMailOutcome, OrderMailRecheckRun, OrderMailSyncStatus } from "@/lib/api/orderMail";
+import type {
+  OrderMailDocument,
+  OrderMailOutcome,
+  OrderMailRecheckRun,
+  OrderMailRecheckWindow,
+  OrderMailSyncStatus,
+} from "@/lib/api/orderMail";
 
 function doc(id: number, over: Partial<OrderMailDocument>): OrderMailDocument {
   return {
@@ -166,10 +172,19 @@ const RECHECK_RUNS: OrderMailRecheckRun[] = [
   },
 ];
 
+const RECHECK_WINDOW: OrderMailRecheckWindow = { start_hour: 8, end_hour: 18, enabled: true };
+
 export default function OrderMailPreviewPage() {
   const [outcome, setOutcome] = useState<OrderMailOutcome>("needs_review");
   const [selectedId, setSelectedId] = useState<number | null>(1);
   const [checking, setChecking] = useState(false);
+  // `?empty=1` pokazuje sekcję historii bez wierszy, ale ze znacznikiem —
+  // wariant „nic się nie zmieniło od tygodnia". Czytane w efekcie, nie przy
+  // renderze: `window` nie istnieje przy SSR, a rozjazd wywala hydrację.
+  const [emptyHistory, setEmptyHistory] = useState(false);
+  useEffect(() => {
+    setEmptyHistory(new URLSearchParams(window.location.search).has("empty"));
+  }, []);
   const items = outcome === "needs_review" ? ITEMS : [];
   return (
     <OrderMailQueueView
@@ -193,7 +208,17 @@ export default function OrderMailPreviewPage() {
       onRetry={() => undefined}
       busy={false}
       applyError={null}
-      recheck={{ runs: RECHECK_RUNS, state: "ready", scoped: false, onRetry: () => undefined }}
+      recheck={{
+        runs: emptyHistory ? [] : RECHECK_RUNS,
+        state: "ready",
+        scoped: false,
+        // Bieg bez zmian nie zapisuje wiersza — znacznik jest wtedy jedynym
+        // dowodem, że mechanizm żyje. Stąd wariant „pusta historia + znacznik".
+        lastCheckedAt: "2031-03-03T08:02:00Z",
+        unchangedRuns: emptyHistory ? 7 : 0,
+        window: RECHECK_WINDOW,
+        onRetry: () => undefined,
+      }}
     />
   );
 }

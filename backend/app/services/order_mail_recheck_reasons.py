@@ -10,8 +10,14 @@ przeciwne zachowania:
 
 Rozstrzyga KOD powodu z bramki (``order_mail_gate``), nigdy tekst po polsku:
 zdania są redagowane, a cena pomyłki to albo zalanie DL kartami, albo cisza
-przy realnym problemie. Moduł jest czysty — bez bazy, bez zegara z zewnątrz
-poza jawnym argumentem — więc cała reguła daje się przetestować tablicowo.
+przy realnym problemie. Reguła jest czysta — bez bazy, bez zegara z zewnątrz
+poza jawnym argumentem — więc daje się przetestować tablicowo.
+
+Na końcu modułu mieszka też okno godzin recheku i WYPROWADZONY z niego próg
+bezpiecznika (`alert_after_hours`). Te dwie rzeczy czytają konfigurację, więc
+nie są czyste — ale muszą stać obok `should_alert`, bo to jedyna obrona przed
+wołaniem jej z surowym `ORDER_MAIL_RECHECK_ALERT_AFTER_HOURS` (patrz komentarz
+przy `alert_after_hours`).
 """
 
 from __future__ import annotations
@@ -19,6 +25,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
+from app.core.config import settings
+from app.core.scheduling import is_within_local_hours
 from app.services.order_mail_gate import (
     CODE_AUTOAPPLY_DISABLED,
     CODE_AUTOAPPLY_EXCLUDED_CLIENT,
@@ -160,3 +168,60 @@ def should_alert(
         return False
     last_at = _parse(meta.get("last_at"))
     return last_at is None or moment - last_at >= deadline
+
+
+# ── Okno godzin pracy i wyprowadzony z niego próg bezpiecznika ───────────────
+
+
+def recheck_window() -> tuple[int, int]:
+    """Godziny (lokalne), w których wolno ruszyć automatycznemu recheckowi."""
+    return (
+        int(settings.ORDER_MAIL_RECHECK_START_HOUR_LOCAL),
+        int(settings.ORDER_MAIL_RECHECK_END_HOUR_LOCAL),
+    )
+
+
+def is_recheck_time(now: datetime) -> bool:
+    """Czy ``now`` wypada w oknie automatycznego recheku (`BUSINESS_TZ`).
+
+    Bieg RĘCZNY tego nie pyta: człowiek klikający „Pobierz zamówienia z maila"
+    o 19:00 prosi o sprawdzenie teraz.
+    """
+    start, end = recheck_window()
+    return is_within_local_hours(
+        now, start_hour=start, end_hour=end, tz=settings.BUSINESS_TZ
+    )
+
+
+def window_closed_hours() -> int:
+    """Ile godzin na dobę okno jest ZAMKNIĘTE (0, gdy chodzi całą dobę)."""
+    start, end = recheck_window()
+    start = max(0, min(23, start))
+    end = max(0, min(23, end))
+    if start == end:
+        return 0
+    open_hours = (end - start) if start < end else (24 - start + end)
+    return 24 - open_hours
+
+
+def alert_after_hours() -> int:
+    """Efektywny próg bezpiecznika „pętla przestała widzieć ten wpis".
+
+    WYPROWADZONY z okna, nie wpisany ręcznie — i to jest cały sens tej funkcji.
+    Bezpiecznik w `should_alert` zakłada, że pętla ogląda dokumenty mniej więcej
+    ciągle. Przy oknie 8–18 stempel `last_at` każdego wstrzymanego wpisu ma
+    o 01:00 czternaście godzin, więc surowe sześć godzin z konfiguracji kazałoby
+    dobowemu skanerowi (`rule_order_mail_review`) wystawić kartę CAŁEJ kolejce
+    każdej nocy — a `dl_alerts_loop` chodzi co 24 h od startu kontenera, więc
+    trafienie w zamknięte okno jest kwestią godziny ostatniego deployu.
+
+    Dwie godziny zapasu ponad długość nocy: bieg wznawia się ~08:0x, nie
+    punktualnie o 08:00. Bezpiecznik dalej łapie martwą pętlę — tylko w ciągu
+    doby zamiast sześciu godzin. W normalnej pracy nie odpala się wcale;
+    o karcie decyduje licznik prób.
+    """
+    closed = window_closed_hours()
+    minimum = int(settings.ORDER_MAIL_RECHECK_ALERT_AFTER_HOURS)
+    if closed <= 0:
+        return minimum
+    return max(minimum, closed + 2)

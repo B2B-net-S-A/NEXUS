@@ -745,12 +745,19 @@ Delivery Leadowi przypisanemu do klienta, jeśli wpis ma plik źródłowy.
 Przeliczenie jest możliwe tylko przed zapisaniem pierwszego zamówienia
 z danego wpisu.
 
-**Każdy wstrzymany wpis przelicza się sam co godzinę.** Przy każdym sprawdzeniu
-skrzynki system bierze wszystko, co czeka w „Do weryfikacji" i w „Nierozpoznane",
-i robi z tym dokładnie to, co „Przelicz plan": pewny plan zapisuje się
-automatycznie, plan z wątpliwością zostaje w weryfikacji już z aktualnymi
-powodami. Nie trzeba przesyłać zamówienia ponownie — ten sam PDF wysłany drugi
-raz system i tak rozpoznaje jako duplikat i pomija.
+**Każdy wstrzymany wpis przelicza się sam co godzinę, w godzinach 8:00–18:00.**
+Przy każdym sprawdzeniu skrzynki w tych godzinach system bierze wszystko, co
+czeka w „Do weryfikacji" i w „Nierozpoznane", i robi z tym dokładnie to, co
+„Przelicz plan": pewny plan zapisuje się automatycznie, plan z wątpliwością
+zostaje w weryfikacji już z aktualnymi powodami. Nie trzeba przesyłać zamówienia
+ponownie — ten sam PDF wysłany drugi raz system i tak rozpoznaje jako duplikat
+i pomija.
+
+**Pocztę system sprawdza dalej całą dobę** — nowe zamówienie przysłane
+wieczorem pojawia się w kolejce tego samego dnia. Ograniczenie do godzin pracy
+dotyczy wyłącznie ponownego przeliczania tego, co już w kolejce wisi. Przycisk
+**„Pobierz zamówienia z maila"** działa o każdej porze i przelicza wstrzymane
+wpisy od razu, także po 18:00.
 
 Najczęstsza przyczyna wstrzymania znika **gdzie indziej niż w kolejce**:
 podpisanie umowy B2B nowego kontraktora albo uzupełnienie NIP-u na karcie
@@ -768,17 +775,26 @@ odczytu.
 * **Każda inna przyczyna** (niedopasowana osoba, stawka poza pasmem, niepewny
   odczyt, błąd danych) — po **trzech nieudanych próbach z rzędu** do Delivery
   Leada klienta idzie karta „Sprawdź zamówienie z maila" ze wskazaniem
-  zamówienia i przyczyny. Wpis jest sprawdzany dalej.
+  zamówienia i przyczyny. Wpis jest sprawdzany dalej. Próby liczą się tylko
+  w godzinach pracy, więc zamówienie wstrzymane o 17:30 dobija do trzeciej
+  próby następnego przedpołudnia, a nie w nocy.
 
 Zmiana przyczyny zaczyna liczenie od nowa — trzy próby dotyczą **tego samego**
 problemu. **Automatyczne dokończenie zamówienia nie wysyła powiadomienia**:
 widać je w historii poniżej.
 
-**„Historia automatycznej weryfikacji"** na dole widoku pokazuje każdy bieg:
-datę i godzinę, ile wpisów sprawdzono, ile zaakceptowano i ile zostało
-wstrzymanych. Wiersz rozwija się do konkretnych dokumentów — zaakceptowane
-i wstrzymane z powodem, każdy z linkiem do wpisu. Delivery Lead widzi w niej
-wpisy swojego portfela klientów.
+**„Historia automatycznej weryfikacji"** na dole widoku pokazuje **tylko te
+sprawdzenia, które coś zmieniły**: zapisały zamówienie, zmieniły powód
+wstrzymania albo wysłały kartę Delivery Leadowi. Wiersz niesie datę i godzinę,
+liczbę wpisów sprawdzonych, zaakceptowanych i wstrzymanych, a rozwija się do
+konkretnych dokumentów — każdy z powodem i linkiem do wpisu. Delivery Lead widzi
+w niej wpisy swojego portfela klientów.
+
+Nad tabelą stoi zdanie **„Sprawdzone ostatnio: [data, godzina]"**. To ono mówi,
+czy mechanizm działa — sprawdzenie, po którym nic się nie zmieniło, przesuwa
+tylko ten znacznik i nie dopisuje wiersza. Pusta tabela pod aktualnym
+znacznikiem znaczy „nic nie wymagało zmiany", a nie „nie działa". Wpisy sprzed
+wdrożenia tej zasady zostają w historii i znikają same po 30 dniach.
 
 **Wpis z odczytem awaryjnym (AI było chwilowo niedostępne przy odczycie maila)
 system próbuje przeczytać AI ponownie sam** — przy kolejnych sprawdzeniach
@@ -920,7 +936,7 @@ nie samą zakładkę. Karty są pogrupowane:
 | Nowi kontraktorzy — draft zamówienia | **Nowy kontraktor u [klient] — uzupełnij zamówienie** | umowa oznaczona w Generatorze umów jako **podpisana obustronnie** (powstaje draft kontraktu i zamówienia); karta wypunktowuje braki: stawka przychodowa, okres zamówienia, numer zamówienia | co 7 dni, dopóki czegoś brakuje |
 | | **[Klient] — [kto] bez zamówienia** | zamówienie konsultanta wisi w statusie **Draft** (z innego źródła niż podpis umowy); pierwszy draft z maila ma osobne jednorazowe powiadomienie | co 7 dni |
 | | **Brak stawki przychodowej** | aktywne zamówienie bez stawki, którą płaci klient | co 7 dni |
-| Zamówienia z maila do weryfikacji | **Sprawdź zamówienie z maila: [numer]** — „Zamówienie dla [kto] do [klient] czeka na ręczną weryfikację”, z powodem | **trzy nieudane próby automatycznego dokończenia z rzędu** (czyli po ok. 3 godzinach). Zamówienie czekające na podpis umowy nowego kontraktora **nie wysyła karty nigdy**; wpis bez rozpoznanego klienta też nie — nie ma komu | co 7 dni |
+| Zamówienia z maila do weryfikacji | **Sprawdź zamówienie z maila: [numer]** — „Zamówienie dla [kto] do [klient] czeka na ręczną weryfikację”, z powodem | **trzy nieudane próby automatycznego dokończenia z rzędu** (czyli po ok. 3 godzinach pracy, licząc tylko 8:00–18:00). Zamówienie czekające na podpis umowy nowego kontraktora **nie wysyła karty nigdy**; wpis bez rozpoznanego klienta też nie — nie ma komu | co 7 dni |
 | Decyzje po zakończeniu współpracy | **Decyzja MD po zakończeniu współpracy** | konsultant zakończył pracę na zamówieniu MD — **zawsze**, także gdy nie zostało ani jedno MD | raz; **nie da się jej odhaczyć** — zamyka ją decyzja w zamówieniu |
 | | **[Klient] — brak kolejnego zamówienia** | dzień po końcu zamówienia osoba nie ma u tego klienta następnego zamówienia — aktywnego, przyszłego ani szkicu | co 7 dni, do dodania zamówienia |
 

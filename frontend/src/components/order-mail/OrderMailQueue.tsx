@@ -20,6 +20,7 @@ import {
   type OrderMailOutcome,
   type OrderMailRecheckEntry,
   type OrderMailRecheckRun,
+  type OrderMailRecheckWindow,
   type OrderMailSyncStatus,
 } from "@/lib/api/orderMail";
 import { openAuthenticatedFile } from "@/lib/authenticated-files";
@@ -155,7 +156,31 @@ export interface RecheckHistoryProps {
   state: OrderMailViewState;
   /** Liczby policzone z widocznych wpisów (Delivery Lead widzi swój portfel). */
   scoped: boolean;
+  /**
+   * Kiedy weryfikacja ostatnio cokolwiek sprawdziła. Wiersz w tabeli powstaje
+   * tylko przy zmianie, więc pusta tabela pod aktualnym znacznikiem znaczy
+   * „nic nie wymagało zmiany", a nie „to nie działa". Brak wartości (serwer
+   * sprzed wdrożenia) → linia się nie renderuje.
+   */
+  lastCheckedAt?: string | null;
+  /** Ile sprawdzeń z rzędu nic nie zmieniło — zdanie „bez zmian". */
+  unchangedRuns?: number;
+  window?: OrderMailRecheckWindow;
   onRetry: () => void;
+}
+
+/**
+ * Początek zdania o kadencji — cały, nie sama godzina.
+ *
+ * Wyrównane godziny znaczą „okno wyłączone", a wklejenie w jedno zdanie
+ * fragmentu „całą dobę" po „w godzinach" dawało „w godzinach całą dobę".
+ * Serwer sprzed wdrożenia okna nie przysyła pola — i wtedy faktycznie chodzi
+ * całą dobę, więc brak wartości ma ten sam wariant co okno wyłączone.
+ */
+function recheckScheduleSentence(w: OrderMailRecheckWindow | undefined): string {
+  if (!w || !w.enabled) return "Co godzinę, całą dobę,";
+  const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
+  return `Co godzinę w godzinach ${hh(w.start_hour)}–${hh(w.end_hour)}`;
 }
 
 const RECHECK_CATEGORY_LABEL: Record<string, string> = {
@@ -185,10 +210,23 @@ export function RecheckHistoryPanel(p: RecheckHistoryProps) {
     <section className="mt-10" data-testid="recheck-history">
       <h2 className="text-lg font-semibold">Historia automatycznej weryfikacji</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Co godzinę system sam próbuje dokończyć wstrzymane zamówienia. Zamówienie czekające na
-        podpis umowy nowego kontraktora czeka bez limitu czasu i nie powiadamia Delivery Leada.
+        {recheckScheduleSentence(p.window)} system sam próbuje dokończyć
+        wstrzymane zamówienia. Wpis w tabeli powstaje tylko wtedy, gdy sprawdzenie coś zmieniło.
+        Zamówienie czekające na podpis umowy nowego kontraktora czeka bez limitu czasu i nie
+        powiadamia Delivery Leada.
         {p.scoped ? " Liczby dotyczą Twojego portfela klientów." : ""}
       </p>
+      {p.lastCheckedAt ? (
+        <p
+          className="mt-1 text-sm text-muted-foreground"
+          data-testid="recheck-last-checked"
+          role="status"
+        >
+          Sprawdzone ostatnio:{" "}
+          <span className="font-medium text-foreground">{formatDateTimePl(p.lastCheckedAt)}</span>
+          {p.unchangedRuns ? " — bez zmian." : "."}
+        </p>
+      ) : null}
       {p.state === "error" || p.state === "forbidden" ? (
         <QueryStateNotice
           state={p.state === "forbidden" ? "forbidden" : "error"}
@@ -202,8 +240,8 @@ export function RecheckHistoryPanel(p: RecheckHistoryProps) {
         <EmptyState
           className="mt-4"
           icon={History}
-          title="Brak biegów"
-          description="Pierwszy bieg pojawi się tu po najbliższym sprawdzeniu skrzynki."
+          title="Brak zmian do pokazania"
+          description="Tu trafiają tylko te sprawdzenia, które coś zmieniły — zapisały zamówienie, zmieniły powód wstrzymania albo wysłały kartę Delivery Leadowi."
         />
       ) : (
         <div className="mt-4 overflow-x-auto rounded-lg border border-border">
@@ -501,6 +539,9 @@ export function OrderMailQueue() {
       recheck={{
         runs: recheck.data?.items ?? [],
         scoped: recheck.data?.scoped ?? false,
+        lastCheckedAt: recheck.data?.last_checked_at ?? null,
+        unchangedRuns: recheck.data?.unchanged_runs ?? 0,
+        window: recheck.data?.window,
         state: recheck.isError
           ? httpStatus(recheck.error) === 403
             ? "forbidden"
