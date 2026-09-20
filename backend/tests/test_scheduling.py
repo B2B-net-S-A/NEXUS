@@ -9,6 +9,7 @@ import pytest
 
 from app.core.scheduling import (
     is_business_day,
+    is_within_local_hours,
     is_within_window,
     local_day_bounds,
     seconds_until_local_time,
@@ -161,3 +162,78 @@ def test_seconds_until_target_passed_today_rolls_to_tomorrow():
     secs = seconds_until_local_time(now, hour=11, minute=45)
     # Cel minął o 15 min → jutro = 23h 45min = 85500s
     assert secs == pytest.approx(23 * 3600 + 45 * 60, abs=1)
+
+
+# ── is_within_local_hours ────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "hour,expected",
+    [
+        (7, False),
+        (8, True),  # granica otwarcia jest DOMKNIĘTA
+        (12, True),
+        (17, True),
+        (18, False),  # granica zamknięcia jest OTWARTA: „do 18:00"
+        (23, False),
+        (0, False),
+    ],
+)
+def test_business_hours_window_is_half_open(hour: int, expected: bool):
+    now = datetime(2026, 4, 21, hour, 30, tzinfo=WARSAW)
+    assert is_within_local_hours(now, start_hour=8, end_hour=18) is expected
+
+
+def test_equal_hours_mean_the_window_is_off_not_empty():
+    """Escape hatch bez deployu: wyrównane godziny = bieg całą dobę.
+
+    Odwrotna interpretacja („okno o zerowej długości") zatrzymałaby pętlę na
+    zawsze, a jedynym objawem byłaby cisza.
+    """
+    for hour in (0, 3, 12, 23):
+        now = datetime(2026, 4, 21, hour, tzinfo=WARSAW)
+        assert is_within_local_hours(now, start_hour=8, end_hour=8) is True
+
+
+def test_window_may_wrap_around_midnight():
+    assert is_within_local_hours(
+        datetime(2026, 4, 21, 23, tzinfo=WARSAW), start_hour=22, end_hour=6
+    )
+    assert is_within_local_hours(
+        datetime(2026, 4, 21, 3, tzinfo=WARSAW), start_hour=22, end_hour=6
+    )
+    assert not is_within_local_hours(
+        datetime(2026, 4, 21, 12, tzinfo=WARSAW), start_hour=22, end_hour=6
+    )
+
+
+def test_hours_out_of_range_narrow_the_window_instead_of_crashing():
+    """Literówka w konfiguracji ma zawęzić okno, nie wywrócić pętli."""
+    now = datetime(2026, 4, 21, 12, tzinfo=WARSAW)
+    assert is_within_local_hours(now, start_hour=-5, end_hour=99) is True
+
+
+def test_utc_clock_is_converted_before_the_hour_is_read():
+    """Kontener chodzi w UTC — bez konwersji okno przesuwałoby się o 1–2 h.
+
+    07:30 UTC to 09:30 w Warszawie (czas letni), czyli środek okna; bez
+    konwersji wypadłoby przed 8:00 i bieg by nie ruszył.
+    """
+    now = datetime(2026, 7, 21, 7, 30, tzinfo=timezone.utc)
+    assert is_within_local_hours(now, start_hour=8, end_hour=18) is True
+
+
+def test_dst_shift_moves_the_window_with_the_local_clock():
+    """Ta sama godzina UTC, dwie strony zmiany czasu, dwie różne odpowiedzi.
+
+    16:30 UTC = 18:30 w czasie letnim (poza oknem) i 17:30 w zimowym (w oknie).
+    """
+    summer = datetime(2026, 10, 20, 16, 30, tzinfo=timezone.utc)
+    winter = datetime(2026, 11, 20, 16, 30, tzinfo=timezone.utc)
+    assert is_within_local_hours(summer, start_hour=8, end_hour=18) is False
+    assert is_within_local_hours(winter, start_hour=8, end_hour=18) is True
+
+
+def test_naive_datetime_is_read_as_local_not_utc():
+    now = datetime(2026, 4, 21, 9, 0)
+    assert is_within_local_hours(now, start_hour=8, end_hour=18) is True

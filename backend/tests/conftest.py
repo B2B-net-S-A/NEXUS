@@ -29,6 +29,7 @@ import pytest_asyncio
 import time_machine
 from httpx import ASGITransport, AsyncClient
 
+from app.core.config import settings
 from app.core.scheduling import DEFAULT_TZ, business_today
 
 
@@ -176,6 +177,27 @@ def _detach_lotte_wedel_client_gate(monkeypatch):
     """
 
     monkeypatch.setattr("app.services.lotte_wedel_orders.LOTTE_WEDEL_CLIENT_ID", -2)
+
+
+# ── Zamówienia z maila: okno godzin recheku ─────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _open_the_order_mail_recheck_window(monkeypatch):
+    """Automatyczny recheck ma w testach chodzić niezależnie od pory dnia.
+
+    Produkcyjnie `run_recheck(trigger="scheduled")` rusza tylko w godzinach
+    8:00–18:00 (Europe/Warsaw). W testach zegar jest prawdziwy przez ~23 h na
+    dobę (`_pin_business_day` jest no-opem, dopóki doba się nie zmieni), więc
+    bez tego bramka zamieniłaby KAŻDY test recheku w test „czy jest teraz
+    dzień" — zielony po południu, czerwony wieczorem i na nocnym CI.
+
+    Wyrównane godziny = okno wyłączone. Testy samego okna ustawiają je jawnie
+    i podmieniają zegar (`time_machine`), więc ta fixture ich nie dotyczy.
+    """
+
+    monkeypatch.setattr(settings, "ORDER_MAIL_RECHECK_START_HOUR_LOCAL", 0)
+    monkeypatch.setattr(settings, "ORDER_MAIL_RECHECK_END_HOUR_LOCAL", 0)
 
 
 # ── Polkomtel: klientowa normalizacja numerów Finansów ─────────────────────

@@ -190,7 +190,38 @@ na czystej bazie przeszła):
   „Przelicz plan" na tym samym dokumencie poczeka.
 * Wpis „Nie rozpoznano klienta" **nigdy nie alarmuje** — odbiorcą karty są
   Delivery Leadzi KLIENTA, a klienta nie ma. Widać go w kolejce i w historii.
-* Retencja historii kasuje CAŁY wiersz biegu, nie przycina pojedynczych wpisów,
-  i odpala się tylko wtedy, gdy bieg ma co zapisać.
+* Retencja historii kasuje CAŁY wiersz biegu, nie przycina pojedynczych wpisów.
+  (Od 18.09.2026 odpala się w każdym biegu, także tym bez zmian — patrz niżej.)
 * Przy 400 px rozwinięte powody scrollują się razem z tabelą (wspólny wzorzec
   z `FinanceArchiveTab`); strona jako całość nie przewija się w poziomie.
+
+---
+
+## Nowelizacja 18.09.2026 — okno godzin i wiersz tylko przy zmianie
+
+Ticket „Ograniczenie częstotliwości i zapisów automatycznej weryfikacji
+zamówień". Dwie zmiany w zachowaniu opisanym wyżej:
+
+1. **Bieg automatyczny rusza tylko 8:00–18:00** (`ORDER_MAIL_RECHECK_START_HOUR_LOCAL`
+   .. `_END_HOUR_LOCAL`, Europe/Warsaw, półotwarte). Bieg ręczny okna nie pyta.
+   Pobieranie poczty i sonda `checks.order_mail` zostają dobowe — zawężenie
+   dotyczy wyłącznie przeliczania tego, co już wisi w kolejce.
+2. **Wiersz w `order_mail_recheck_runs` powstaje tylko wtedy, gdy bieg coś
+   zmienił** (odcisk `outcome_fingerprint`: dokumenty, ich wynik, kategoria,
+   powody i wysłane karty). Bieg bez zmian przesuwa wyłącznie znacznik
+   `app_settings['order_mail_recheck_state']`, który front pokazuje jako
+   „Sprawdzone ostatnio: …" nad tabelą.
+
+Czego to NIE zmienia: stempla `last_at`, licznika prób i kart dla Delivery
+Leada. Historia jest podsumowaniem biegu, nie jego mechanizmem.
+
+Efekt uboczny warty odnotowania: wpisy `awaiting_contract` (znane ograniczenie
+wyżej) są teraz OCR-owane 10 razy na dobę zamiast 24 — koszt spada o ~58%,
+ale problem zostaje decyzją produktową.
+
+Pułapka, przed którą broni `alert_after_hours()`: po zamknięciu okna stempel
+`last_at` każdego wstrzymanego wpisu ma nad ranem ~14 h, więc bezpiecznik
+`ORDER_MAIL_RECHECK_ALERT_AFTER_HOURS` (6 h) kazałby dobowemu skanerowi
+wystawić kartę CAŁEJ kolejce każdej nocy. Próg jest teraz wyprowadzany
+z długości okna (`max(konfiguracja, godziny_zamknięcia + 2)` = 16 h), więc
+dalsze zawężanie okna nie odradza tej pułapki po cichu.

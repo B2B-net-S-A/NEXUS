@@ -298,13 +298,68 @@ async def test_recheck_history_hides_reasons_from_the_read_only_tcm(
     resp = await app_client.get("/api/order-mail/recheck-runs", headers=tcm)
     assert resp.status_code == 200, resp.text
     entry = next(
-        e
-        for r in resp.json()["items"]
-        for e in r["entries"]
-        if e["document_id"] == 911
+        e for r in resp.json()["items"] for e in r["entries"] if e["document_id"] == 911
     )
     assert entry["reasons"] == [] and entry["people"] == []
     assert entry["outcome"] == "held"
+
+
+@pytest.mark.asyncio
+async def test_recheck_history_carries_the_last_checked_marker_for_everyone(
+    app_client: AsyncClient, monkeypatch
+):
+    """Znacznik „Sprawdzone ostatnio" to opis MECHANIZMU, nie dokumentu klienta.
+
+    Wiersz historii powstaje tylko wtedy, gdy bieg coś zmienił, więc sama lista
+    nie odpowiada już na pytanie „czy to działa" — odpowiada na nie ten
+    znacznik. Dlatego nie podlega ani zawężeniu po portfelu (Delivery Lead),
+    ani redakcji (TCM): jedno i drugie zostawiłoby ekran, na którym pusta
+    tabela nie ma żadnego wyjaśnienia.
+    """
+    from app.core.config import settings
+    from sqlalchemy import text as sql_text
+
+    # Okno jedzie z konfiguracji, nie z literału w kodzie widoku — front pisze
+    # z niego zdanie „w godzinach 8:00–18:00".
+    monkeypatch.setattr(settings, "ORDER_MAIL_RECHECK_START_HOUR_LOCAL", 8)
+    monkeypatch.setattr(settings, "ORDER_MAIL_RECHECK_END_HOUR_LOCAL", 18)
+    stamped = datetime.now(timezone.utc).isoformat()
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            sql_text(
+                "INSERT INTO app_settings (key, value, updated_at)"
+                " VALUES (:key, CAST(:patch AS jsonb), NOW())"
+                " ON CONFLICT (key) DO UPDATE SET value = app_settings.value"
+                " || EXCLUDED.value, updated_at = NOW()"
+            ),
+            {
+                "key": "order_mail_recheck_state",
+                "patch": json.dumps(
+                    {
+                        "version": 1,
+                        "last_checked_at": stamped,
+                        "last_change_at": stamped,
+                        "unchanged_runs": 4,
+                    }
+                ),
+            },
+        )
+        await db.commit()
+
+    for role in (
+        UserRole.admin,
+        UserRole.delivery_lead,
+        UserRole.talent_community_manager,
+    ):
+        headers = await _headers_for_role(app_client, role)
+        resp = await app_client.get("/api/order-mail/recheck-runs", headers=headers)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["last_checked_at"] == stamped, role
+        assert body["unchanged_runs"] == 4, role
+        assert body["window"] == {"start_hour": 8, "end_hour": 18, "enabled": True}, (
+            role
+        )
 
 
 @pytest.mark.asyncio

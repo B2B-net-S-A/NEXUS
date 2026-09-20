@@ -321,7 +321,7 @@ describe("Historia automatycznej weryfikacji", () => {
         recheck={{ runs: [], state: "error", scoped: false, onRetry }}
       />,
     );
-    expect(screen.getByTestId("recheck-history")).not.toHaveTextContent("Brak biegów");
+    expect(screen.getByTestId("recheck-history")).not.toHaveTextContent("Brak zmian do pokazania");
     fireEvent.click(screen.getByRole("button", { name: /ponów|spróbuj/i }));
     expect(onRetry).toHaveBeenCalled();
   });
@@ -344,8 +344,63 @@ describe("Historia automatycznej weryfikacji", () => {
     const { rerender } = render(
       <OrderMailQueueView {...base} state="ready" items={[doc()]} recheck={{ ...noRecheck, state: "loading" }} />,
     );
-    expect(screen.getByTestId("recheck-history")).not.toHaveTextContent("Brak biegów");
+    expect(screen.getByTestId("recheck-history")).not.toHaveTextContent("Brak zmian do pokazania");
     rerender(<OrderMailQueueView {...base} state="ready" items={[doc()]} recheck={noRecheck} />);
-    expect(screen.getByTestId("recheck-history")).toHaveTextContent("Brak biegów");
+    expect(screen.getByTestId("recheck-history")).toHaveTextContent("Brak zmian do pokazania");
+  });
+
+  it("pusta historia ze znacznikiem znaczy „nic nie wymagało zmiany”, nie awarię", () => {
+    // Wiersz powstaje tylko przy zmianie, więc bez tego zdania pusta tabela
+    // czytałaby się jak zepsuty mechanizm.
+    render(
+      <OrderMailQueueView
+        {...base}
+        state="ready"
+        items={[doc()]}
+        recheck={{ ...noRecheck, lastCheckedAt: "2031-03-03T08:02:00Z", unchangedRuns: 7 }}
+      />,
+    );
+    const marker = screen.getByTestId("recheck-last-checked");
+    expect(marker).toHaveTextContent("Sprawdzone ostatnio");
+    expect(marker).toHaveTextContent("bez zmian");
+  });
+
+  it("nie zmyśla znacznika, gdy serwer go nie przysłał", () => {
+    render(<OrderMailQueueView {...base} state="ready" items={[doc()]} recheck={noRecheck} />);
+    expect(screen.queryByTestId("recheck-last-checked")).toBeNull();
+  });
+
+  it("po biegu, który coś zmienił, znacznik nie mówi „bez zmian”", () => {
+    render(
+      <OrderMailQueueView
+        {...base}
+        state="ready"
+        items={[doc()]}
+        recheck={{ ...noRecheck, runs: [recheckRun()], lastCheckedAt: "2031-03-03T08:02:00Z", unchangedRuns: 0 }}
+      />,
+    );
+    expect(screen.getByTestId("recheck-last-checked")).not.toHaveTextContent("bez zmian");
+  });
+
+  it("opisuje okno godzin przysłane przez serwer, a nie zaszyte w kodzie", () => {
+    const { rerender } = render(
+      <OrderMailQueueView
+        {...base}
+        state="ready"
+        items={[doc()]}
+        recheck={{ ...noRecheck, window: { start_hour: 8, end_hour: 18, enabled: true } }}
+      />,
+    );
+    expect(screen.getByTestId("recheck-history")).toHaveTextContent("08:00–18:00");
+    // Wyrównane godziny = okno wyłączone, czyli bieg całą dobę.
+    rerender(
+      <OrderMailQueueView
+        {...base}
+        state="ready"
+        items={[doc()]}
+        recheck={{ ...noRecheck, window: { start_hour: 0, end_hour: 0, enabled: false } }}
+      />,
+    );
+    expect(screen.getByTestId("recheck-history")).toHaveTextContent("całą dobę");
   });
 });

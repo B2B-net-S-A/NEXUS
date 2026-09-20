@@ -2333,6 +2333,50 @@ nie ma żadnej reguły do utrzymania.
   i przesuwał okno wstecz).
 ### Godzinowa ponowna weryfikacja wstrzymanych wpisów (0316, 16.09.2026)
 
+- **Bieg AUTOMATYCZNY rusza tylko 8:00–18:00** (`ORDER_MAIL_RECHECK_START_HOUR_LOCAL`
+  .. `_END_HOUR_LOCAL`, `BUSINESS_TZ`, półotwarte — ostatni bieg o 17:xx;
+  wyrównane godziny = okno wyłączone, escape hatch bez deployu). Bramka siedzi
+  na wejściu `run_recheck`, PRZED `_candidate_ids`, i czyta `trigger`: bieg
+  RĘCZNY („Pobierz zamówienia z maila") okna nie pyta i zapisuje wiersz zawsze.
+  **Zawężenie dotyczy WYŁĄCZNIE recheku** — pobieranie poczty
+  (`ORDER_MAIL_POLL_INTERVAL_MINUTES`) i sonda `checks.order_mail` zostają
+  dobowe. Nie zamykaj na noc całego `run_order_mail_ingest`: zamówienie
+  przysłane o 18:30 czekałoby do rana, a sonda zdrowia (`stale_after =
+  max(3 × poll_interval, 180)` min) degradowałaby co noc.
+- **Wiersz historii powstaje TYLKO przy zmianie** (09.2026). Do tego dnia
+  kolejka rzadko bywała pusta, więc tabela dostawała 24 wiersze dziennie,
+  w większości identyczne. `outcome_fingerprint(details)` liczy odcisk STANU
+  wstrzymanych zamówień (`document_id`, `outcome`, `category`, `reasons`,
+  `alerted`, `order_number`, `people`; posortowane po `document_id`, bo rotacja
+  `last_at NULLS FIRST` tasuje kolejność); `changed = trigger == "manual" or
+  applied > 0 or odcisk != poprzedni`. Bieg bez zmian przesuwa tylko znacznik
+  `app_settings['order_mail_recheck_state']` (`last_checked_at`,
+  `last_change_at`, `fingerprint`, `unchanged_runs`; upsert scaleniem `||`, bez
+  migracji — to stan pętli, nie konfiguracja). **Poza oknem marker NIE jest
+  przesuwany** — „sprawdzone ostatnio 17:05" ma zostać prawdą przez całą noc.
+  `GET /recheck-runs` zwraca marker i okno obok `items`; są GLOBALNE (opisują
+  mechanizm, nie dokument klienta), więc nie podlegają zawężeniu po portfelu
+  ani redakcji TCM. Front: zdanie „Sprawdzone ostatnio: …" nad tabelą i pusty
+  stan „Tu trafiają tylko te sprawdzenia, które coś zmieniły".
+- **Pominięty wiersz NIE pomija stempla `last_at`, licznika prób ani karty DL.**
+  Karta wychodzi po trzeciej próbie z rzędu, więc gdyby licznik wisiał na
+  zapisie wiersza, przestałaby wychodzić dokładnie wtedy, gdy nic się nie
+  zmienia. Retencja (`_prune_history`) też jest wołana w KAŻDYM biegu — inaczej
+  tydzień bez zmian to tydzień bez sprzątania.
+- **Próg bezpiecznika alertu jest WYPROWADZONY z okna**
+  (`order_mail_recheck_reasons.alert_after_hours()` =
+  `max(ORDER_MAIL_RECHECK_ALERT_AFTER_HOURS, godziny_zamknięcia + 2)`, domyślnie
+  16 h). Nie wołaj `should_alert` z surową wartością z konfiguracji: recheck
+  stoi w nocy, więc o 01:00 stempel `last_at` KAŻDEGO wstrzymanego wpisu ma
+  ~14 h i sześciogodzinny próg kazałby dobowemu `rule_order_mail_review`
+  wystawić kartę całej kolejce — a `dl_alerts_loop` chodzi co 24 h od startu
+  kontenera, więc trafienie w noc jest kwestią godziny ostatniego deployu.
+- **W testach okno jest WYŁĄCZONE** (autouse `_open_the_order_mail_recheck_window`
+  w `conftest.py`): zegar w suicie jest prawdziwy, więc bramka zamieniłaby każdy
+  test recheku w test „czy jest teraz dzień". Testy okna włączają je jawnie
+  i podróżują zegarem — ale NIE o lata w przód: retencja liczy się od `now()`,
+  więc skasowałyby wiersze innych testów na wspólnej bazie.
+
 - **Wstrzymany wpis nie wracał sam.** Jedyne automatyczne przeliczenie
   (`replan_outdated_documents`, USUNIĘTE) odpalało się tylko po zmianie
   `rule_version`. Przyczyna wstrzymania znika najczęściej GDZIE INDZIEJ:
@@ -2381,8 +2425,10 @@ nie ma żadnej reguły do utrzymania.
   wystawioną wcześniej. Udany zapis kasuje ślad i zamyka kartę od razu
   (`resolve_entity_alerts`).
 - **KAŻDY dokument, który zjadł budżet biegu, MUSI dostać stempel `last_at`
-  i wiersz w historii** — także ten, którego nie da się przeliczyć, i ten,
-  na którym bieg padł (stempel idzie wtedy osobną transakcją PO rollbacku).
+  i trafić do `details` biegu** — także ten, którego nie da się przeliczyć,
+  i ten, na którym bieg padł (stempel idzie wtedy osobną transakcją PO
+  rollbacku). Czy `details` staną się WIERSZEM historii, rozstrzyga odcisk
+  (wyżej) — ale stempel i tak musi paść.
   Sortowanie `last_at NULLS FIRST` jest rotacją tylko pod tym warunkiem: wpis
   bez stempla wraca na czoło w każdym biegu, a sto takich wierszy zatrzymuje
   całą funkcję — niewidzialnie, bo historia pokazuje wtedy bieg „sprawdzono 0".
@@ -2395,7 +2441,8 @@ nie ma żadnej reguły do utrzymania.
   pokazuje powód z chwili biegu, nie dzisiejszy stan dokumentu. DL widzi wpisy
   swojego portfela, a **liczniki są przeliczane z widocznych wpisów** (globalne
   „sprawdzono 12" nad listą z jednym wierszem to ekran, który sam sobie
-  przeczy). Retencja `ORDER_MAIL_RECHECK_HISTORY_DAYS` (30 dni).
+  przeczy). Retencja `ORDER_MAIL_RECHECK_HISTORY_DAYS` (30 dni) — po niej znikną
+  też bezzmianowe wiersze sprzed 09.2026, więc nie ma czego czyścić ręcznie.
 - **Sufit `ORDER_MAIL_RECHECK_MAX_DOCS` (100) i rotacja po `last_at NULLS
   FIRST`** — każdy recheck to ekstrakcja tekstu z PDF-a, a skan idzie przez OCR.
   Wpisy `unrecognized_client` starsze niż

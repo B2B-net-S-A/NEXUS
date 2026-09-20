@@ -56,6 +56,8 @@ from app.services.order_mail_ingest import (
     sync_snapshot,
 )
 from app.services.order_mail_planner import DECIDE_PERSON_ORDER_TYPES, titles_collide
+from app.services.order_mail_recheck import read_recheck_state
+from app.services.order_mail_recheck_reasons import recheck_window
 from app.services.order_pdf_parser import polish_gate_reason
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
@@ -340,6 +342,11 @@ async def list_recheck_runs(
 
     TCM dostaje liczby bez powodów — te cytują nazwiska i nazwy załączników
     (lustro redakcji w ``_serialize`` i w ``/sync/status``).
+
+    Wiersz powstaje TYLKO wtedy, gdy bieg coś zmienił, więc sama lista nie
+    odpowiada już na pytanie „czy to w ogóle działa". Odpowiada na nie znacznik
+    ``last_checked_at`` — globalny, bo opisuje mechanizm, a nie dokument
+    klienta, i dlatego nie podlega ani zawężeniu po portfelu, ani redakcji TCM.
     """
     visible = await _visible_client_ids(db, user)
     redact = _is_read_only_tcm(user)
@@ -374,7 +381,21 @@ async def list_recheck_runs(
                 "entries": entries,
             }
         )
-    return {"items": out, "scoped": visible is not None}
+    state = await read_recheck_state(db)
+    start_hour, end_hour = recheck_window()
+    return {
+        "items": out,
+        "scoped": visible is not None,
+        "last_checked_at": state.get("last_checked_at"),
+        "last_change_at": state.get("last_change_at"),
+        "unchanged_runs": int(state.get("unchanged_runs") or 0),
+        "window": {
+            "start_hour": start_hour,
+            "end_hour": end_hour,
+            # Wyrównane godziny = okno wyłączone, czyli bieg całą dobę.
+            "enabled": start_hour != end_hour,
+        },
+    }
 
 
 @router.get("/queue")

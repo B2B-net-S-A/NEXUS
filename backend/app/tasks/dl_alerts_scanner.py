@@ -1180,9 +1180,13 @@ async def rule_order_mail_review(
 
     Dokument, który przestał się kwalifikować (np. stał się „czeka na podpis"),
     nie trafia do ``live`` — ``resolve_stale`` zamyka wtedy jego kartę.
+
+    Ta pętla chodzi co 24 h od startu kontenera, więc bywa, że ogląda kolejkę
+    w środku nocy — kiedy recheck stoi. Dlatego bezpiecznik czasowy czyta
+    ``alert_after_hours()``, a nie samą konfigurację.
     """
     from app.services.order_mail_ingest import notify_review
-    from app.services.order_mail_recheck_reasons import should_alert
+    from app.services.order_mail_recheck_reasons import alert_after_hours, should_alert
 
     rows = (
         await db.execute(
@@ -1201,7 +1205,11 @@ async def rule_order_mail_review(
             waiting_since=doc.received_at or doc.created_at,
             now=now,
             after_attempts=settings.ORDER_MAIL_RECHECK_ALERT_AFTER_ATTEMPTS,
-            after_hours=settings.ORDER_MAIL_RECHECK_ALERT_AFTER_HOURS,
+            # Próg WYPROWADZONY z okna godzin recheku, nie surowa wartość
+            # z konfiguracji: recheck stoi w nocy, więc o 01:00 stempel
+            # `last_at` każdego wstrzymanego wpisu jest starszy niż sześć
+            # godzin — surowy próg wystawiłby kartę całej kolejce.
+            after_hours=alert_after_hours(),
         ):
             continue
         created += await notify_review(

@@ -189,10 +189,31 @@ export interface OrderMailRecheckRun {
   entries: OrderMailRecheckEntry[];
 }
 
+/** Okno godzin, w którym rusza automatyczna weryfikacja (Europe/Warsaw). */
+export interface OrderMailRecheckWindow {
+  start_hour: number;
+  end_hour: number;
+  /** Wyrównane godziny = okno wyłączone, czyli bieg całą dobę. */
+  enabled: boolean;
+}
+
 export interface OrderMailRecheckRunsResponse {
   items: OrderMailRecheckRun[];
   /** Liczby policzone z WIDOCZNYCH wpisów (Delivery Lead widzi swój portfel). */
   scoped: boolean;
+  /**
+   * Kiedy weryfikacja ostatnio COKOLWIEK sprawdziła. Wiersz w `items` powstaje
+   * tylko wtedy, gdy bieg coś zmienił, więc sama lista nie odpowiada już na
+   * pytanie „czy to działa" — odpowiada na nie ten znacznik. Globalny: opisuje
+   * mechanizm, nie dokument klienta, więc nie jest zawężany po portfelu.
+   * Opcjonalny — serwer sprzed wdrożenia tych pól ich nie zwraca.
+   */
+  last_checked_at?: string | null;
+  /** Ostatnie sprawdzenie, które coś zmieniło (czyli ostatni wiersz historii). */
+  last_change_at?: string | null;
+  /** Ile sprawdzeń z rzędu nic nie zmieniło. */
+  unchanged_runs?: number;
+  window?: OrderMailRecheckWindow;
 }
 
 export interface OrderMailSyncStatus {

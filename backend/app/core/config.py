@@ -556,6 +556,19 @@ class Settings(BaseSettings):
     # „Nie rozpoznano klienta" — te znikają z kolejki tylko ręcznie, więc bez
     # sufitu OCR-owalibyśmy je co godzinę bez końca.
     ORDER_MAIL_RECHECK_UNRECOGNIZED_DAYS: int = 90
+    # Okno godzin (Europe/Warsaw = `BUSINESS_TZ`), w którym wolno ruszyć
+    # AUTOMATYCZNEMU przeliczeniu; półotwarte `[start, end)`, więc ostatni bieg
+    # startuje o 17:xx. Do 09.2026 recheck jechał całą dobę i zapisywał wiersz
+    # historii co godzinę — 24 wiersze dziennie, w większości identyczne, a nocne
+    # biegi OCR-owały PDF-y w godzinach, w których nikt i tak nic z wynikiem nie
+    # zrobi. Zawężenie dotyczy WYŁĄCZNIE recheku: pobieranie poczty
+    # (`ORDER_MAIL_POLL_INTERVAL_MINUTES`) i sonda `checks.order_mail` zostają
+    # dobowe, bo zamówienie przysłane o 18:30 ma się pojawić o 19:00, a nie
+    # nazajutrz. Ręczne „Pobierz zamówienia z maila" omija okno.
+    # Wyrównanie obu wartości (`start == end`) WYŁĄCZA okno — escape hatch bez
+    # deployu, gdyby ograniczenie okazało się pomyłką.
+    ORDER_MAIL_RECHECK_START_HOUR_LOCAL: int = 8
+    ORDER_MAIL_RECHECK_END_HOUR_LOCAL: int = 18
     # Ile nieudanych prób Z RZĘDU zanim Delivery Lead dostanie kartę. Nowy
     # kontraktor czekający na podpis umowy NIE jest liczony (patrz
     # `order_mail_recheck_reasons.classify_hold`).
@@ -563,6 +576,11 @@ class Settings(BaseSettings):
     # Bezpiecznik: dokument, którego pętla nigdy nie obejrzała (wyłączona albo
     # zatrzymana), i tak dostaje kartę po tylu godzinach czekania. Bez tego
     # awaria pętli zamieniłaby „powiadom po trzech próbach" w „nigdy".
+    # UWAGA: to wartość MINIMALNA, nie efektywna. Przy zamkniętym oknie nocnym
+    # stempel `last_at` każdego wstrzymanego wpisu ma nad ranem ~14 h, więc
+    # sześć godzin oznaczałoby kartę dla CAŁEJ kolejki co noc. Próg efektywny
+    # wylicza `order_mail_recheck_reasons.alert_after_hours()` z długości okna —
+    # nie czytaj tej zmiennej wprost przy wołaniu `should_alert`.
     ORDER_MAIL_RECHECK_ALERT_AFTER_HOURS: int = 6
     # Retencja historii biegów pokazywanej pod kolejką.
     ORDER_MAIL_RECHECK_HISTORY_DAYS: int = 30
