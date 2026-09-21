@@ -44,6 +44,7 @@ class CvGenerationJob(Base, TimestampMixin):
     )
     input_storage_key: Mapped[str] = mapped_column(String(500), nullable=False)
     input_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    prepared_source_facts: Mapped[dict | None] = mapped_column(JSON())
     quota_snapshot: Mapped[dict | None] = mapped_column(JSON())
     lease_token: Mapped[str | None] = mapped_column(String(36))
     lease_expires_at: Mapped[datetime | None] = mapped_column(

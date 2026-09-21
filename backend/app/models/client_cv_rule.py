@@ -78,6 +78,10 @@ class ClientCvRule(Base, TimestampMixin):
         # zatwierdzenia (`confirmed_at`) jest tym, co steruje runtime'em.
     )
 
+    managed_policy: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     client_id: Mapped[int] = mapped_column(
         ForeignKey("clients.id", ondelete="CASCADE"),

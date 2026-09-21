@@ -168,6 +168,7 @@ async def retire_unneeded_job_inputs(db, *, now=None, limit=50) -> int:
     for job in jobs:
         key = job.input_storage_key
         job.input_storage_key = f"{PURGED_KEY_PREFIX}{job.id}"
+        job.prepared_source_facts = None
         await schedule_source_cleanup(db, key)
     await db.commit()
     if jobs:

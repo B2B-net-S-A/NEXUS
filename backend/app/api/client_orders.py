@@ -117,6 +117,7 @@ from app.services.order_settlements import (
     assert_order_has_no_settlements,
     settlement_blockers,
 )
+from app.services.periodic_order_lifecycle import refresh_periodic_order_status
 from app.services.order_write_errors import commit_order_write
 from app.services.order_pdf_parser import (
     drop_md_absence_reasons,
@@ -1899,6 +1900,8 @@ async def create_order_extension(
     # obszary kolejnymi zapisami. Gdy komplet jest już obecny przy tworzeniu,
     # rekord od razu trafia do „Aktywnych”.
     _activate_complete_draft(order)
+    if order.status == ClientOrderStatus.active:
+        refresh_periodic_order_status(order)
     if (
         order.status == ClientOrderStatus.active
         and order_type in (OrderType.cost, OrderType.md)
@@ -2404,14 +2407,21 @@ async def update_order(
     auto_activated = _auto_activate_unless_status_explicit(
         order, explicit_fields=payload.model_fields_set
     )
-    if auto_activated:
-        data["status"] = ClientOrderStatus.active
+    period_changed = (
+        order.start_date != previous_start_date or order.end_date != previous_end_date
+    )
+    if "status" not in payload.model_fields_set and (period_changed or auto_activated):
+        refresh_periodic_order_status(order)
+    if order.status != previous_status:
+        data["status"] = order.status
 
     # PR 6 (plan analytics): pierwsze przejście na active stempluje filled_at
     # (fakt, ustawiany RAZ — kolejne pauzy/reaktywacje go nie ruszają).
     if (
         order.status == ClientOrderStatus.active
         and order.filled_at is None
+        # Reactivating history is not evidence of its FIRST activation date.
+        and previous_status != ClientOrderStatus.completed
         and "status" in data
     ):
         order.filled_at = datetime.now(timezone.utc)
@@ -2474,6 +2484,8 @@ async def update_order(
                 "order_id": order_id,
                 "changed": sorted(payload.model_fields_set),
                 "auto_activated": auto_activated,
+                "previous_status": previous_status.value,
+                "status": order.status.value,
                 "contract_revived": contract_revived,
             },
         )
@@ -3102,6 +3114,8 @@ async def create_contract_with_order(
     # powinien zaliczać zbędnego przystanku w zakładce Draft. Kontrakt zachowuje
     # własny, niezależny i bardziej rygorystyczny lifecycle podpisu.
     _activate_complete_draft(order)
+    if order.status == ClientOrderStatus.active:
+        refresh_periodic_order_status(order)
     if order.status == ClientOrderStatus.active:
         await db.flush()
         await _materialize_group_after_activation(db, order, actor_id=user.id)

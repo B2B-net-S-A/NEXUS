@@ -614,6 +614,13 @@ async def lifespan(app: FastAPI):
         retired_searches,
     )
 
+    from app.services.cv_generator_b2b import central_policies
+
+    if central_policies.enabled():
+        async with AsyncSessionLocal() as _cv_policy_db:
+            published = await central_policies.synchronize(_cv_policy_db)
+        logger.info("Central CV policies: published=%d", published)
+
     # Startup: ensure Qdrant collection exists
     import asyncio
     from app.services.embedding_service import init_qdrant_collection

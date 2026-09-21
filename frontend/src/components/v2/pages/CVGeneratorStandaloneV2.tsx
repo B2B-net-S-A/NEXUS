@@ -1,5 +1,7 @@
 "use client";
 
+import { useCentralPolicy } from "@/components/cv-rules/CentralPolicyView";
+import { CvPackagePanel } from "@/components/v2/cv-generator/CvPackagePanel";
 import { withCvGenerationRequest } from "@/lib/cv-generation-request";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -106,6 +108,9 @@ type CandidateOption = {
 type Mode = "new" | "old";
 
 type GeneratedCvItem = {
+  approved_version_id?: number | null;
+  central_policy?: Record<string, unknown> | null;
+  package_id?: number | null;
   id: number;
   candidate_id?: number | null;
   job_id?: number | null;
@@ -453,9 +458,12 @@ export function CVGeneratorStandaloneV2({
   // rekrutacji (serwer i tak liczy go sam), w uploadzie — z pickera.
   const effectiveClientId =
     mode === "new" ? (selectedRecruitment?.client_id ?? null) : (uploadRecruitment ? (uploadRecruitment.client_id ?? null) : (uploadClient?.id ?? null));
+  const centralPolicy = useCentralPolicy(effectiveClientId, mode === "new" ? selectedRecruitment?.stage_id : uploadRecruitment?.stage_id);
+  const centrallyManaged = !!centralPolicy.data?.managed;
+  useEffect(() => { if (centralPolicy.data?.project_ref) setProjectRef(centralPolicy.data.project_ref); }, [centralPolicy.data?.project_ref]);
   const cvRuleQuery = useClientCvRule(effectiveClientId);
   const activeRule = cvRuleQuery.data?.is_active ? cvRuleQuery.data : undefined;
-  const forcedLanguage = activeRule?.cv_language ?? null;
+  const forcedLanguage = centralPolicy.data?.effective_policy?.cv_language ?? activeRule?.cv_language ?? null;
   // Zrzut zgody kandydata — wymagany u klientów z `requires_rodo_consent_block`
   // (dziś PKO BP). `activeRule`, nie surowe `cvRuleQuery.data`: propozycja
   // z seeda nie obowiązuje i serwer też jej nie stosuje.
@@ -475,7 +483,7 @@ export function CVGeneratorStandaloneV2({
   // Zablokowany tryb: kafelki wyłączone, wartość wymuszona (serwer i tak
   // nadpisuje). Domyślny tryb: zaznaczany RAZ przy zmianie klienta — potem
   // rekruter może go zmienić.
-  const lockedMode = activeRule?.content_mode_locked
+  const lockedMode = centrallyManaged ? centralPolicy.data!.content_mode : activeRule?.content_mode_locked
     ? activeRule.content_mode
     : null;
   const defaultMode = activeRule?.content_mode ?? null;
@@ -521,7 +529,7 @@ export function CVGeneratorStandaloneV2({
     (!!effectiveClientId || outsideAssignment);
   const canSubmit =
     (mode === "new" ? canSubmitNew : canSubmitOld) &&
-    (!consentRequired || !!consentKey) &&
+    (centrallyManaged || !consentRequired || !!consentKey) &&
     requirementProblems.length === 0;
 
   // ── New mode mutation ───────────────────────────────────────────────────
@@ -735,7 +743,7 @@ export function CVGeneratorStandaloneV2({
 
   async function handleDownloadGenerated(item: GeneratedCvItem) {
     try {
-      const res = await api.get(`/api/cv-generator/generated/${item.id}/docx`, {
+      const res = await api.get(item.approved_version_id ? `/api/cv-generator/generated/${item.id}/approved/${item.approved_version_id}/docx` : `/api/cv-generator/generated/${item.id}/docx`, {
         responseType: "blob",
       });
       downloadBlob(res.data as Blob, item.filename);
@@ -747,7 +755,7 @@ export function CVGeneratorStandaloneV2({
   async function handleDownloadHtml(item: GeneratedCvItem) {
     // Interaktywne CV jako JEDEN plik HTML — do wysyłki mailem jak DOCX.
     try {
-      const res = await api.get(`/api/cv-generator/generated/${item.id}/html`, {
+      const res = await api.get(item.approved_version_id ? `/api/cv-generator/generated/${item.id}/approved/${item.approved_version_id}/html` : `/api/cv-generator/generated/${item.id}/html`, {
         responseType: "blob",
       });
       downloadBlob(
@@ -893,6 +901,7 @@ export function CVGeneratorStandaloneV2({
 
       {mode === "new" ? (
         <NewModeForm
+          contextLocked={embedded}
           candidate={candidate}
           candidateOpen={candidateOpen}
           candidateQuery={candidateQuery}
@@ -1022,8 +1031,8 @@ export function CVGeneratorStandaloneV2({
                   allowClear
                 />
                 <p className="text-xs text-muted-foreground">
-                  Klient włącza jego reguły: nazwę pliku, język, blokady i
-                  instrukcje Delivery Leada. Wybrany kandydat i proces określają,
+                  Klient określa zasady nazwy pliku, języka i prezentacji CV.
+                  Wybrany kandydat i proces określają,
                   w której historii zapisze się wynik. Bez osoby plik pozostanie nieprzypisany.
                 </p>
                 </>}
@@ -1036,9 +1045,8 @@ export function CVGeneratorStandaloneV2({
                       onChange={(e) => setOutsideAssignment(e.target.checked)}
                     />
                     <span>
-                      Generuję CV poza zleceniem — bez klienta nie zadziała żadna
-                      reguła (nazwa pliku i język będą ogólne, bez blokad i
-                      instrukcji Delivery Leada).
+                      Generuję CV poza zleceniem — obowiązuje wspólny standard CV,
+                      a język wybieram samodzielnie.
                     </span>
                   </label>
                 ) : null}
@@ -1103,8 +1111,7 @@ export function CVGeneratorStandaloneV2({
             </div>
             {lockedMode ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Tryb ustalony przez Delivery Leada dla tego klienta — wybór jest
-                zablokowany. Zmienisz to w regułach CV klienta.
+                {centrallyManaged ? "Tryb ustalony automatycznie na podstawie kontekstu rekrutacji i centralnych zasad klienta." : "Tryb ustalony w regułach CV klienta — wybór jest zablokowany."}
               </p>
             ) : null}
           </div>
@@ -1123,15 +1130,15 @@ export function CVGeneratorStandaloneV2({
               <p className="mt-1 text-xs text-muted-foreground">
                 Ten klient wymaga CV w języku{" "}
                 {forcedLanguage === "en" ? "angielskim" : "polskim"} — wybór
-                jest zablokowany. Zmienisz to w regułach CV klienta.
+                jest zablokowany przez zasady klienta.
               </p>
             ) : null}
           </div>
 
           <ConsentScreenshotField
             context={mode === "new"
-              ? { candidateId: candidate?.id, stageId: selectedRecruitment?.stage_id, clientId: effectiveClientId }
-              : { cvFile, candidateId: uploadBindingCandidateId, clientId: effectiveClientId }}
+              ? { candidateId: candidate?.id, stageId: selectedRecruitment?.stage_id, clientId: effectiveClientId, projectRef }
+              : { cvFile, candidateId: uploadBindingCandidateId, clientId: effectiveClientId, projectRef, bindingStageId: uploadRecruitment?.stage_id }}
             value={consentKey}
             onChange={(key: string | null) => setConsentKey(key)}
             required={consentRequired}
@@ -1195,6 +1202,14 @@ export function CVGeneratorStandaloneV2({
           bottom-0` w kontenerze przewijania (main z overflow-y-auto) trzyma
           przycisk przy dolnej krawędzi widoku przez cały formularz i zwalnia go
           dopiero przy liście „Wygenerowane CV" poniżej. */}
+      {centrallyManaged && <div className="mt-4 rounded-md border border-border bg-muted/30 p-3 text-sm">
+        <p className="font-medium">{centralPolicy.data?.content_mode === "tailored" ? "Automatyczne dopasowanie do kompletnego Profilu Championa" : "CV ogólne — neutralna redakcja z zachowaniem faktów"}</p>
+        <p>{centralPolicy.data?.effective_policy?.requires_en_copy ? "Powstaną 2 wersje: PL i EN. Druga wersja oznacza dodatkowe zużycie AI." : `Powstanie 1 wersja: ${(forcedLanguage || language).toUpperCase()}.`}</p>
+        <p>Nazwa: {centralPolicy.data?.effective_policy?.filename_pattern}</p>
+        {centralPolicy.data?.effective_policy?.require_recommendation_note && <p>Przed udostępnieniem wskaż istniejącą notatkę rekomendacyjną dla kandydata i rekrutacji.</p>}
+        {centralPolicy.data?.effective_policy?.requires_rodo_consent_block && <p>Pakiet wymaga czytelnej zgody oraz numeru zapytania zgodnego z rekrutacją PKO BP.</p>}
+        <p>Każdą wersję należy sprawdzić i zatwierdzić. Niekompletny pakiet pozostaje szkicem.</p>
+      </div>}
       <div className="sticky bottom-0 z-20 mt-6 flex flex-wrap items-center justify-end gap-x-4 gap-y-2 border-t border-border bg-background/95 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <p className="mr-auto hidden text-xs text-muted-foreground sm:block">
           {activeMut.isPending
@@ -1261,7 +1276,7 @@ export function CVGeneratorStandaloneV2({
             // Własny scroll domyka listę w samodzielną kartę z widocznym paskiem;
             // najnowsze CV jest na górze, a strona przestaje być monolitem ~7000 px.
             <ul className="max-h-[30rem] divide-y divide-border overflow-y-auto pr-2">
-              {visibleGenerated.map((item) => (
+              {visibleGenerated.filter(item => !item.central_policy || !item.package_id || item.package_id === item.id || !visibleGenerated.some(parent => parent.id === item.package_id)).map((item) => (
                 <GeneratedCvRow
                   key={item.id}
                   item={item}
@@ -1320,6 +1335,7 @@ export function CVGeneratorStandaloneV2({
 // ── New mode form ──────────────────────────────────────────────────────────
 
 type NewModeFormProps = {
+  contextLocked?: boolean;
   candidate: CandidateOption | null;
   candidateOpen: boolean;
   candidateQuery: string;
@@ -1341,6 +1357,7 @@ type NewModeFormProps = {
 };
 
 function NewModeForm({
+  contextLocked = false,
   candidate,
   candidateOpen,
   candidateQuery,
@@ -1370,6 +1387,7 @@ function NewModeForm({
                 variant="outline"
                 role="combobox"
                 aria-expanded={candidateOpen}
+                disabled={contextLocked}
                 className="w-full justify-between"
               >
                 <span className="flex items-center gap-2 truncate">
@@ -1460,6 +1478,7 @@ function NewModeForm({
               value={stageId}
               onChange={setStageId}
               loading={recruitmentsQuery.isLoading}
+              disabled={contextLocked}
             />
 
             {selectedRecruitment && (
@@ -1941,6 +1960,7 @@ function GeneratedCvRow({
   onRetry,
   canWrite,
 }: GeneratedCvRowProps) {
+  const [showPackage, setShowPackage] = useState(false);
   const warnings = item.warnings ?? [];
   const review = item.factual_review ?? null;
   // Ostrzeżenia klasy „BRAK POKRYCIA" (treść bez pokrycia w źródłowym CV)
@@ -2118,6 +2138,8 @@ function GeneratedCvRow({
           ))}
         </ul>
       )}
+      {item.central_policy && <Button className="mt-2" size="sm" variant="outline" aria-expanded={showPackage} onClick={() => setShowPackage(value => !value)}>Pakiet CV · wersje i gotowość do wysłania</Button>}
+      {item.central_policy && showPackage && <CvPackagePanel id={item.package_id || item.id} canWrite={canWrite} onDownloadHtml={doc => onDownloadHtml({ ...item, ...doc, status: "ready" })} onEdit={doc => onEdit({ ...item, ...doc, status: "ready" })} onDownload={doc => onDownload({ ...item, ...doc, status: "ready" })} />}
     </li>
   );
 }

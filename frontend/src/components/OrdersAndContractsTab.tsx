@@ -239,14 +239,11 @@ export function OrdersAndContractsTab({
   }
 
   function refresh() {
-    queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] });
-    // Zapis jawnego draftu kosztowego/MD może w tej samej transakcji
-    // zmaterializować grupę i zmienić podpowiedź typu dla kolejnego zamówienia.
-    queryClient.invalidateQueries({ queryKey: ["client-order-groups", clientId] });
-    // Ten sam plik żyje w sekcji „Dokumenty zamówień" w zakładce Dokumenty
-    // kontraktu i w Plikach osoby (read-time bridge, zero kopii). Bez tego
-    // wgrany PDF pokazuje się tam dopiero po przeładowaniu strony.
-    queryClient.invalidateQueries({ queryKey: ["order-documents"] });
+    return Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] }),
+      queryClient.invalidateQueries({ queryKey: ["client-order-groups", clientId] }),
+      queryClient.invalidateQueries({ queryKey: ["order-documents"] }),
+    ]).then(() => undefined);
   }
 
   if (isLoading) {
@@ -378,9 +375,9 @@ export function OrdersAndContractsTab({
           canManageFinance={canManageFinance}
           defaultRateUnit={defaultRateUnit}
           onClose={() => setNewContractor(false)}
-          onCreated={() => {
+          onCreated={async () => {
+            await refresh();
             setNewContractor(false);
-            refresh();
           }}
         />
       )}
@@ -467,9 +464,11 @@ export function ContractorOrderCards({
   } | null>(null);
 
   function refresh() {
-    queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] });
-    queryClient.invalidateQueries({ queryKey: ["client-order-groups", clientId] });
-    queryClient.invalidateQueries({ queryKey: ["order-documents"] });
+    return Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] }),
+      queryClient.invalidateQueries({ queryKey: ["client-order-groups", clientId] }),
+      queryClient.invalidateQueries({ queryKey: ["order-documents"] }),
+    ]).then(() => undefined);
   }
 
   const closeOrder = useMutation({
@@ -559,9 +558,9 @@ export function ContractorOrderCards({
           contract={extendingContract}
           canManageFinance={canManageFinance}
           onClose={() => setExtendingContract(null)}
-          onCreated={() => {
+          onCreated={async () => {
+            await refresh();
             setExtendingContract(null);
-            refresh();
           }}
         />
       ) : null}
@@ -614,9 +613,9 @@ export function ContractorOrderCards({
           allowedOrderTypes={allowedOrderTypes}
           legacyNullOrderType={legacyNullOrderType}
           onClose={() => setEditingOrder(null)}
-          onSaved={() => {
+          onSaved={async () => {
+            await refresh();
             setEditingOrder(null);
-            refresh();
           }}
           onChanged={refresh}
         />

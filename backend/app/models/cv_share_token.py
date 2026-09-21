@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -28,6 +28,8 @@ if TYPE_CHECKING:  # pragma: no cover
 
 class CVShareToken(Base):
     __tablename__ = "cv_share_tokens"
+
+    package_versions: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     token: Mapped[str] = mapped_column(String(64), primary_key=True)
     document_version_id: Mapped[int | None] = mapped_column(

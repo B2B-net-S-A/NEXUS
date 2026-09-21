@@ -271,20 +271,15 @@ export function MultiConsultantOrdersTab({
     setGroupModal({ open: true, group: null });
   }
 
-  const invalidate = () => {
-    queryClient.invalidateQueries({
-      queryKey: ["client-order-groups", clientId],
-    });
-    queryClient.invalidateQueries({
-      queryKey: ["dl-orders-grouped", clientId],
-    });
-    queryClient.invalidateQueries({
-      queryKey: ["order-group-events", clientId],
-    });
-    queryClient.invalidateQueries({ queryKey: ["contract-documents"] });
-    // Backend oznacza alert jako handled w tej samej transakcji co decyzję.
-    // Dashboard ma od razu odczytać ten stan, bez czekania na staleTime.
-    queryClient.invalidateQueries({ queryKey: ["dl-alerts"] });
+  const invalidate = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["client-order-groups", clientId] }),
+      queryClient.invalidateQueries({ queryKey: ["dl-orders-grouped", clientId] }),
+      queryClient.invalidateQueries({ queryKey: ["order-group-events", clientId] }),
+      queryClient.invalidateQueries({ queryKey: ["contract-documents"] }),
+      // The backend marks the alert handled in the decision transaction.
+      queryClient.invalidateQueries({ queryKey: ["dl-alerts"] }),
+    ]);
   };
 
   /** Dokument z maila zostaje w kolejce — okno zamknięte bez zapisu. */
@@ -1210,9 +1205,9 @@ export function MultiConsultantOrdersTab({
           initialFile={carriedFile}
           initialOrderNumber={carriedOrderNumber}
           onClose={() => setStandardOrderModalOpen(false)}
-          onCreated={() => {
+          onCreated={async () => {
+            await invalidate();
             setStandardOrderModalOpen(false);
-            invalidate();
           }}
         />
       ) : null}

@@ -1052,6 +1052,12 @@ async def update_client(
     if not client:
         raise HTTPException(status_code=404, detail="Client not found")
     updates = data.model_dump(exclude_unset=True)
+    from app.services.cv_generator_b2b import central_policies
+
+    if central_policies.enabled() and "cv_content_mode_cap" in updates:
+        raise HTTPException(
+            403, "Ograniczenia CV są zarządzane centralnie w backendzie."
+        )
     for k, v in updates.items():
         setattr(client, k, v)
     db.add(

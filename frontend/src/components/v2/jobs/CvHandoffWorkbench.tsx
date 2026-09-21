@@ -67,6 +67,7 @@ import {
   useClientCvRule,
 } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { useClientPlaybook } from "@/lib/client-playbooks";
+import { useCentralPolicy } from "@/components/cv-rules/CentralPolicyView";
 import { CVGeneratorStandaloneV2 } from "@/components/v2/pages/CVGeneratorStandaloneV2";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { RATE_UNIT_LABELS } from "@/lib/verified-rate-gate";
@@ -228,6 +229,8 @@ export function CvHandoffWorkbench({
 
   // ── Reguły klienta (te same, które generator pokazuje po wyborze klienta) ─
   const cvRuleQuery = useClientCvRule(clientId);
+  const centralPolicy = useCentralPolicy(clientId, stageId);
+  const centrallyManaged = !!centralPolicy.data?.managed;
   const rule = cvRuleQuery.data ?? null;
   const ruleActive = Boolean(rule?.is_active);
   const playbookQuery = useClientPlaybook(clientId);
@@ -638,7 +641,7 @@ export function CvHandoffWorkbench({
               href={`/settings/cv-rules?client=${clientId}`}
               className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
             >
-              <Settings2 className="h-3.5 w-3.5" /> Reguły CV (DL) →
+              <Settings2 className="h-3.5 w-3.5" /> {centrallyManaged ? "Centralne reguły CV →" : "Reguły CV (DL) →"}
             </Link>
           ) : undefined
         }
@@ -708,13 +711,13 @@ export function CvHandoffWorkbench({
                   <ReadyItem
                     tone={rule?.content_mode_locked ? "y" : "z"}
                     title={`Tryb: ${
-                      rule?.content_mode
+                      centrallyManaged ? "automatyczny" : rule?.content_mode
                         ? (CONTENT_MODE_LABEL[rule.content_mode] ??
                           rule.content_mode)
                         : "do wyboru"
                     }`}
                     detail={
-                      rule?.content_mode_locked
+                      centrallyManaged ? "ustalony z kontekstu rekrutacji i centralnych zasad" : rule?.content_mode_locked
                         ? "zablokowany regułą — serwer nadpisze inny wybór"
                         : "rekruter wybiera w generatorze"
                     }
@@ -1003,9 +1006,7 @@ export function CvHandoffWorkbench({
             rule?.requires_rodo_consent_block ? (
               <>
                 <AlertTriangle className="h-3 w-3 shrink-0" />
-                Bez zrzutu zgody RODO generacja dla klienta{" "}
-                {clientLabel || "tego klienta"} odmawia (422), zanim naliczy
-                kwotę.
+                {centrallyManaged ? "Bez poprawnej, czytelnej zgody pakiet pozostaje szkicem i nie można go udostępnić klientowi." : `Bez zrzutu zgody RODO generacja dla klienta ${clientLabel || "tego klienta"} odmawia (422), zanim naliczy kwotę.`}
               </>
             ) : (
               <>

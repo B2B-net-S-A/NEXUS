@@ -110,6 +110,7 @@ vi.mock("@/components/v2/pages/CVGeneratorStandaloneV2", () => ({
 }));
 // Reguła CV klienta — szyna makiety wypisuje ją klockami, więc test musi móc
 // podać ZATWIERDZONĄ regułę (bez `is_active` obowiązuje baner „brak reguł").
+vi.mock("@/components/cv-rules/CentralPolicyView", () => ({ useCentralPolicy: () => ({data: {managed: false}}) }));
 let cvRule: Record<string, unknown> | undefined = undefined;
 vi.mock("@/components/v2/cv-generator/ClientCvRuleBanner", () => ({
   ClientCvRuleBanner: () => <div data-testid="cv-rule-banner" />,

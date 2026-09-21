@@ -306,7 +306,11 @@ async def get_public_cv(
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
 
+    from app.services.cv_packages import public_documents
+
+    package = await public_documents(db, getattr(row, "package_versions", None))
     return {
+        **package,
         "candidate_first_name": version.candidate_first_name
         if version
         else (candidate.name if candidate else None),
@@ -510,7 +514,11 @@ async def get_public_generated_cv(
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
 
+    from app.services.cv_packages import public_documents
+
+    package = await public_documents(db, getattr(row, "package_versions", None))
     return {
+        **package,
         "cv": payload,
         "cv_html": approved.content_html if approved is not None else None,
         "document_version_id": version_id,

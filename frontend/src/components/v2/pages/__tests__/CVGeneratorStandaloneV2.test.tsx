@@ -659,3 +659,16 @@ describe("durable generation status", () => {
     expect(await screen.findByText(/Retry job/)).toBeInTheDocument();
   });
 });
+
+it("keeps candidate and recruitment fixed in the embedded generator", async () => {
+  setSourcingAccess("write");
+  getMock.mockImplementation(async (url) => ({data: String(url).endsWith("/recruitments") ? [{
+    stage_id: 71, job_id: 88, job_title: "Data Engineer", client_id: 11,
+    stage: "verified", ready: true, has_cv: true, has_champion: false, has_notes: false,
+  }] : []}));
+  try {
+    renderPage({embedded: true, prefillCandidateId: 77, prefillCandidateName: "Test Person", prefillJobId: 88});
+    expect((await screen.findByText("Test Person")).closest("button")).toBeDisabled();
+    expect((await screen.findByText("Data Engineer")).closest("button")).toBeDisabled();
+  } finally { getMock.mockImplementation(async () => ({data: []})); }
+});
