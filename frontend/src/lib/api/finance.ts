@@ -270,6 +270,48 @@ export function orderChangesExportPath(
   );
 }
 
+// ── Zamówienia PDF ──────────────────────────────────────────────────────────
+
+export interface OrderPdfMonth {
+  month: string; // "RRRR-MM"
+  clients: number;
+  files: number;
+}
+
+export type OrderPdfKind = "order" | "group" | "amendment";
+export type OrderPdfEntryType = "new" | "extension" | "amendment";
+
+export interface OrderPdfFile {
+  kind: OrderPdfKind;
+  id: number;
+  download_name: string;
+  original_name: string;
+  consultant_name: string | null;
+  start: string;
+  end: string | null;
+  entry_type: OrderPdfEntryType;
+  status: string | null;
+  order_number: string | null;
+  uploaded_at: string | null;
+}
+
+export interface OrderPdfClient {
+  client_id: number;
+  client_name: string;
+  files: OrderPdfFile[];
+}
+
+export interface OrderPdfsResponse {
+  year: number;
+  month: number;
+  clients: OrderPdfClient[];
+}
+
+/** Ścieżka pobrania — serwer nadaje nazwę z nazwiskiem i okresem. */
+export function orderPdfFilePath(file: Pick<OrderPdfFile, "kind" | "id">): string {
+  return `/api/finance/order-pdfs/${file.kind}/${file.id}/file`;
+}
+
 export const financeApi = {
   listPeriods: () => api.get<FinancePeriod[]>("/api/finance/periods"),
 
@@ -313,4 +355,10 @@ export const financeApi = {
   getOrderChanges: (
     params: { year: number; month: number } & OrderChangesFilters,
   ) => api.get<OrderChangesResponse>("/api/finance/order-changes", { params }),
+
+  getOrderPdfMonths: () =>
+    api.get<{ items: OrderPdfMonth[] }>("/api/finance/order-pdfs/months"),
+
+  getOrderPdfs: (params: { year: number; month: number }) =>
+    api.get<OrderPdfsResponse>("/api/finance/order-pdfs", { params }),
 };

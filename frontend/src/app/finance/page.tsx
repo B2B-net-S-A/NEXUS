@@ -12,11 +12,15 @@ import {
   ORDER_CHANGES_URL_KEYS,
   OrderChangesTab,
 } from "@/components/finance/OrderChangesTab";
+import {
+  ORDER_PDFS_URL_KEYS,
+  OrderPdfsTab,
+} from "@/components/finance/OrderPdfsTab";
 import { hasSectionAccess } from "@/lib/section-access";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
-type ViewMode = "results" | "archive" | "md" | "order-changes";
+type ViewMode = "results" | "archive" | "md" | "order-changes" | "order-pdfs";
 
 /**
  * /finance — moduł „Finanse", trzy powierzchnie pod jedną trasą:
@@ -26,7 +30,9 @@ type ViewMode = "results" | "archive" | "md" | "order-changes";
  *  • „Import zużycia MD"  — miesięczne raporty zasilające budżety MD zamówień
  *                           wielo-konsultantowych (PR #1162),
  *  • „Zmiany w zamówieniach" — comiesięczny audyt wejść, zejść, zmian stawek
- *                           i braków kolejnego zamówienia (tylko odczyt).
+ *                           i braków kolejnego zamówienia (tylko odczyt),
+ *  • „Zamówienia PDF"     — PDF-y zamówień po miesiącu startu i kliencie,
+ *                           z nazwą pliku z nazwiskiem i okresem.
  *
  * Dwa niezależne moduły trafiły na tę samą trasę w tym samym tygodniu. Zamiast
  * rozdzielać je na dwa adresy i dwa wpisy w nawigacji (obie nazwane „Finanse",
@@ -58,7 +64,12 @@ export default function FinancePage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const initial = params.get("view");
-    if (initial === "archive" || initial === "md" || initial === "order-changes") {
+    if (
+      initial === "archive" ||
+      initial === "md" ||
+      initial === "order-changes" ||
+      initial === "order-pdfs"
+    ) {
       setView(initial);
     }
     setMounted(true);
@@ -76,6 +87,9 @@ export default function FinancePage() {
     // widoku zostałyby w adresie jako martwy parametr.
     if (next !== "order-changes") {
       ORDER_CHANGES_URL_KEYS.forEach((key) => params.delete(key));
+    }
+    if (next !== "order-pdfs") {
+      ORDER_PDFS_URL_KEYS.forEach((key) => params.delete(key));
     }
     const query = params.toString();
     window.history.replaceState(
@@ -124,17 +138,33 @@ export default function FinancePage() {
           >
             Zmiany w zamówieniach
           </ModeButton>
+          <ModeButton
+            active={visibleView === "order-pdfs"}
+            onClick={() => changeView("order-pdfs")}
+          >
+            Zamówienia PDF
+          </ModeButton>
         </div>
 
         <PageHeader
           eyebrow={
             visibleView === "order-changes"
               ? "Finanse · Zmiany w zamówieniach"
-              : "Finanse · Wyniki kontraktorów"
+              : visibleView === "order-pdfs"
+                ? "Finanse · Zamówienia PDF"
+                : "Finanse · Wyniki kontraktorów"
           }
-          title={visibleView === "order-changes" ? "Zmiany w zamówieniach" : "Finanse"}
+          title={
+            visibleView === "order-changes"
+              ? "Zmiany w zamówieniach"
+              : visibleView === "order-pdfs"
+                ? "Zamówienia PDF"
+                : "Finanse"
+          }
           description={
-            visibleView === "md"
+            visibleView === "order-pdfs"
+              ? "PDF-y nowych zamówień, przedłużeń i aneksów według miesiąca rozpoczęcia i klienta"
+              : visibleView === "md"
               ? "Miesięczne raporty zużycia MD zasilające budżety zamówień klientów"
               : visibleView === "order-changes"
                 ? "Bieżący, comiesięczny audyt zdarzeń w zamówieniach na potrzeby rozliczeń"
@@ -152,6 +182,8 @@ export default function FinancePage() {
           <FinanceArchiveTab canWrite={canWrite} />
         ) : visibleView === "order-changes" ? (
           <OrderChangesTab />
+        ) : visibleView === "order-pdfs" ? (
+          <OrderPdfsTab />
         ) : (
           <MdImportWorkspace />
         )}

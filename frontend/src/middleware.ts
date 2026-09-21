@@ -332,6 +332,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/procedure-help`, `/preview/champion-profile`,
 //   `/preview/client-playbook`, `/preview/inactive-clients-cleanup`,
 //   `/preview/order-new-from-pdf`, `/preview/finance-order-changes`,
+//   `/preview/finance-order-pdfs`,
 //   `/preview/contract-candidate-contact`, `/preview/cv-search`
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
@@ -379,6 +380,7 @@ const PUBLIC_PATHS = [
   "/preview/inactive-clients-cleanup",
   "/preview/order-new-from-pdf",
   "/preview/finance-order-changes",
+  "/preview/finance-order-pdfs",
   "/preview/contract-candidate-contact",
   "/preview/cv-search",
   "/preview/jarvis",
