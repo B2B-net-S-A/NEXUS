@@ -212,7 +212,7 @@ describe("Priority Work errors in candidate-add surfaces", () => {
     )
 
     await user.click(
-      screen.getByRole("button", { name: "Wygeneruj link" }),
+      await screen.findByRole("button", { name: "Wygeneruj link" }),
     )
 
     expect(

@@ -125,6 +125,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.cv_factual_verification: ("F18", "gpt-5.6-luna"),
     # F19 — decyzja 21.09.2026: Jarvis woła `tools`, więc tylko Anthropic.
     AIFeatureKey.jarvis: ("F19", "claude-sonnet-5"),
+    # F20 — decyzja 21.09.2026: szkic opisu na stronę kariery, jak F6.
+    AIFeatureKey.job_public_description: ("F20", "claude-sonnet-5"),
 }
 
 

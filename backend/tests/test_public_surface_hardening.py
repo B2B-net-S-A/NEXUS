@@ -44,6 +44,8 @@ _RATE_LIMITED_MODULES = (
     "api/champion_intake.py",
     # Własna metryka pulpitu: każde wywołanie liczy agregat po bazie.
     "api/dashboard_metrics.py",
+    # Strona kariery (0339): publiczne GET-y i formularz multipart.
+    "api/public_career.py",
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.

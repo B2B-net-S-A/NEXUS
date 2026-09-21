@@ -29,23 +29,15 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.services.candidate_stage_cv_service import (
-    create_original_cv_snapshot,
-)
-from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.services import champion_view
 from app.models.activity import Activity
-from app.models.application_submission import (
-    ApplicationSubmission,
-    ApplicationSubmissionStatus,
-)
-from app.models.candidate import Candidate, CandidateStatus
+from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_document_version import CvDocumentVersion
@@ -56,11 +48,8 @@ from app.models.cv_share_token import CVShareToken
 from app.services.html_sanitizer import sanitize_cv_html
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
-from app.models.recruitment_pipeline import CandidateStage, PipelineStage
-from app.models.recruitment_priority import PriorityOriginKind
-from app.services.recruitment_process_commands import open_process
+from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
-from app.models.user_activity import UserActionType, UserActivity
 
 logger = logging.getLogger(__name__)
 
@@ -658,10 +647,17 @@ async def _load_valid_link(token: str, db: AsyncSession) -> CandidateInviteLink:
             )
         )
     )
-    if link is None or link.revoked:
+    if link is None or link.revoked or link.kind != "job" or link.job_id is None:
         raise HTTPException(status_code=404, detail="Invite link not found or revoked")
-    if link.expires_at < datetime.now(timezone.utc):
+    if link.expires_at is not None and link.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=404, detail="Invite link expired")
+    # 0339: link bez terminu żyje do zamknięcia rekrutacji — ta sama reguła
+    # dla starych linków z terminem (zamknięta rekrutacja nie przyjmuje CV).
+    from app.services.job_public_profile import job_is_open
+
+    job = await db.get(Job, link.job_id)
+    if not job_is_open(job):
+        raise HTTPException(status_code=404, detail="Invite link no longer valid")
     return link
 
 
@@ -696,7 +692,7 @@ async def get_public_apply_meta(
             "seniority": job.seniority.value if job.seniority else None,
             "remote_policy": (job.remote_policy.value if job.remote_policy else None),
         },
-        "expires_at": link.expires_at.isoformat(),
+        "expires_at": link.expires_at.isoformat() if link.expires_at else None,
     }
 
 
@@ -818,6 +814,15 @@ async def submit_public_apply(
     linkedin: Optional[str] = Form(None, max_length=500),
     message: Optional[str] = Form(None, max_length=2000),
     cv: UploadFile = File(...),
+    # Zgoda (0339) — wymagana; bez niej 422 przy polu `consent`.
+    consent: Optional[str] = Form(None, max_length=10),
+    # Opcjonalne pola strony kariery, przyjmowane też tutaj (ten sam serwis).
+    expected_rate_hourly: Optional[str] = Form(None, max_length=20),
+    availability_date: Optional[str] = Form(None, max_length=20),
+    city: Optional[str] = Form(None, max_length=200),
+    work_mode: Optional[str] = Form(None, max_length=20),
+    # Pułapka na boty (ukryte pole). Wypełnione = cichy 201 bez zapisu.
+    website: Optional[str] = Form(None, max_length=500),
     # UTM attribution (Traffit gap #4) — sent by the public /apply page from
     # the URL query string (?utm_source=linkedin&utm_campaign=...). All five
     # are optional Form fields so old applications without UTM still validate.
@@ -842,8 +847,23 @@ async def submit_public_apply(
       ``ApplicationSubmission`` for recruiter triage (link / merge / create /
       reject) via ``/api/application-submissions``. A public, reusable invite
       link plus a known e-mail can no longer poison a canonical profile.
+
+    Both branches run through ``services/public_apply.submit_application`` —
+    the same code as the career page (``/api/public/career/apply``).
     """
+    from app.services import public_apply
+
+    if website and website.strip():
+        return {"ok": True, "status": "received"}
+
     link = await _load_valid_link(token, db)
+    public_apply.require_consent(consent)
+    optional = public_apply.parse_optional_fields(
+        expected_rate_hourly=expected_rate_hourly,
+        availability_date=availability_date,
+        city=city,
+        work_mode=work_mode,
+    )
 
     if phone and not _PHONE_RE.match(phone.strip()):
         raise HTTPException(status_code=422, detail="Invalid phone format")
@@ -851,225 +871,41 @@ async def submit_public_apply(
     content = await cv.read()
     _validate_cv_file(cv, content)
 
-    # Identifies the link in rows that must not carry the raw secret. Both
-    # branches below stamp it: a v2 link's `token` PK is a non-secret revoke
-    # key, so the raw-token prefix they also record resolves nothing on its own.
+    # Identifies the link in rows that must not carry the raw secret. A v2
+    # link's `token` PK is a non-secret revoke key, so the raw-token prefix
+    # recorded next to it resolves nothing on its own.
     # Read side: `_resolve_invite_source` in api/candidates.
     token_digest = hashlib.sha256(token.encode()).hexdigest()
 
-    # Duplicate-by-email — case-insensitive match.
-    normalized_email = str(email).strip().lower()
-    existing = await db.scalar(
-        select(Candidate).where(func.lower(Candidate.email) == normalized_email)
-    )
-
-    if existing is not None:
-        # ── Branch B: park the submission, never mutate the candidate ──────
-        object_key, cv_bytes, submission_raw_text = await _persist_submission_cv(
-            cv, content
-        )
-        submission = ApplicationSubmission(
-            invite_link_token_sha256=token_digest,
-            job_id=link.job_id,
-            status=ApplicationSubmissionStatus.pending_review.value,
-            submitted_first_name=first_name.strip(),
-            submitted_last_name=last_name.strip(),
-            submitted_email=str(email),
-            submitted_phone=phone.strip() if phone else None,
-            submitted_linkedin=linkedin.strip() if linkedin else None,
-            submitted_message=message.strip() if message else None,
-            matched_candidate_id=existing.id,
-            cv_object_key=object_key,
-            cv_file_content=cv_bytes,
-            cv_filename=(cv.filename or "cv.pdf"),
-            cv_content_type=cv.content_type,
-            cv_size_bytes=len(content),
-            raw_cv_text=submission_raw_text,
-            raw_payload={
-                "origin_assignment_id": link.origin_assignment_id,
-                "priority_compliant_at_create": (link.priority_compliant_at_create),
-                "first_name": first_name.strip(),
-                "last_name": last_name.strip(),
-                "email": str(email),
-                "phone": phone.strip() if phone else None,
-                "linkedin": linkedin.strip() if linkedin else None,
-                "message": message.strip() if message else None,
-                "utm": {
-                    "source": utm_source,
-                    "medium": utm_medium,
-                    "campaign": utm_campaign,
-                    "term": utm_term,
-                    "content": utm_content,
-                },
-            },
-        )
-        db.add(submission)
-        await db.flush()
-
-        # Audit against the SUBMISSION, not the candidate (which is untouched):
-        # no candidate history is rewritten and no candidate PII is exposed.
-        db.add(
-            Activity(
-                entity_type="application_submission",
-                entity_id=submission.id,
-                action="submission_received",
-                user_id=link.created_by,
-                details={
-                    "invite_token": token[:8],
-                    "invite_token_sha256": token_digest,
-                    "job_id": link.job_id,
-                    "matched_candidate_id": existing.id,
-                },
-            )
-        )
-
-        # The link WAS used — count it, even though no candidate was created.
-        link.use_count += 1
-        link.last_used_at = datetime.now(timezone.utc)
-        await db.commit()
-
-        return {"ok": True, "status": "received"}
-
-    # ── Branch A: genuinely new applicant — create the candidate ──────────
-    candidate = Candidate(
-        name=first_name.strip(),
-        lastname=last_name.strip(),
+    applicant = public_apply.ApplicantInput(
+        first_name=first_name.strip(),
+        last_name=last_name.strip(),
         email=str(email),
         phone=phone.strip() if phone else None,
         linkedin=linkedin.strip() if linkedin else None,
-        source=f"invite_link:{token[:8]}",
-        status=CandidateStatus.active,
-        created_by=link.created_by,
-        profile_about=message.strip() if message else None,
+        message=message.strip() if message else None,
+        utm={
+            "source": utm_source,
+            "medium": utm_medium,
+            "campaign": utm_campaign,
+            "term": utm_term,
+            "content": utm_content,
+        },
+        **optional,
     )
-    db.add(candidate)
-    await db.flush()
-
-    # Persist CV onto the new candidate.
-    stored_filename, _raw_text = await _persist_cv(candidate.id, cv, content)
-    content_hash = hashlib.sha256(content).hexdigest()
-    document = CandidateDocument(
-        candidate_id=candidate.id,
-        filename=stored_filename,
-        file_content=content,
-        content_type=cv.content_type,
-        size_bytes=len(content),
-        document_kind=CandidateDocumentKind.cv,
-        is_primary=True,
-        uploaded_at=datetime.now(timezone.utc),
-        external_source="invite_link",
-        content_sha256=content_hash,
+    return await public_apply.submit_application(
+        db,
+        ref=public_apply.LinkRef(
+            link=link,
+            digest=token_digest,
+            audit_prefix=token[:8],
+            via="invite_link",
+        ),
+        applicant=applicant,
+        cv=cv,
+        content=content,
+        background_tasks=background_tasks,
     )
-    db.add(document)
-    await db.flush()
-
-    # Ensure CandidateStage for (candidate, link.job_id) exists at stage="new".
-    stage_exists = await db.scalar(
-        select(CandidateStage).where(
-            CandidateStage.candidate_id == candidate.id,
-            CandidateStage.job_id == link.job_id,
-        )
-    )
-    if stage_exists is None:
-        new_stage = await open_process(
-            db,
-            candidate_id=candidate.id,
-            job_id=link.job_id,
-            stage=PipelineStage.new,
-            actor_user_id=link.created_by,
-            origin_kind=PriorityOriginKind.external_inbound,
-            frozen_origin_assignment_id=link.origin_assignment_id,
-            frozen_priority_compliant=link.priority_compliant_at_create,
-            notes="Aplikacja przez invite link",
-        )
-        # Snapshot CV — kandydat właśnie wgrał `stored_filename` powyżej, więc
-        # `candidate.cv_file_content` już jest aktualny i pójdzie do snapshotu.
-        await create_original_cv_snapshot(db, new_stage)
-        await maybe_ensure_contact_opportunity(
-            db,
-            candidate_id=candidate.id,
-            job_id=link.job_id,
-            source="pipeline",
-            occurred_at=new_stage.moved_at,
-        )
-
-    # Audit trail — link the Activity to the inviting recruiter.
-    db.add(
-        Activity(
-            entity_type="candidate",
-            entity_id=candidate.id,
-            action="applied_via_invite",
-            user_id=link.created_by,
-            details={
-                "invite_token": token[:8],
-                "invite_token_sha256": token_digest,
-                "job_id": link.job_id,
-                "was_duplicate": False,
-            },
-        )
-    )
-    db.add(
-        UserActivity(
-            user_id=link.created_by,
-            action_type=UserActionType.candidate_added,
-            entity_type="candidate",
-            entity_id=candidate.id,
-            details={
-                "name": f"{candidate.name} {candidate.lastname}",
-                "source": "invite_link",
-                "invite_token": token[:8],
-                "invite_token_sha256": token_digest,
-                "was_duplicate": False,
-            },
-        )
-    )
-
-    # Increment usage counters on the link.
-    link.use_count += 1
-    link.last_used_at = datetime.now(timezone.utc)
-
-    # Record source attribution event (Traffit gap #4). Channel is always
-    # ``posting`` for invite-link apply — this is the public landing page
-    # for a published job. UTM params come from the URL the candidate
-    # followed; absent = direct apply.
-    from app.models.candidate_source_event import (
-        CandidateSourceEvent,
-        SourceChannel,
-    )
-
-    db.add(
-        CandidateSourceEvent(
-            candidate_id=candidate.id,
-            channel=SourceChannel.posting,
-            job_id=link.job_id,
-            utm_source=utm_source,
-            utm_medium=utm_medium,
-            utm_campaign=utm_campaign,
-            utm_term=utm_term,
-            utm_content=utm_content,
-        )
-    )
-
-    await db.commit()
-
-    # ── Post-apply enrichment pipeline ────────────────────────────────────
-    # Siatka bezpieczeństwa: kandydat ma być w indeksie nawet wtedy, gdy odczyt
-    # CV w tle się nie powiedzie (skan bez tekstu). Przez outbox, nie wprost
-    # `embed_candidate` — pełny wektor po odczycie liczy `finish_cv_ingest`.
-    try:
-        from app.services.index_outbox_service import schedule_or_embed_candidate
-
-        await schedule_or_embed_candidate(candidate.id, db)
-        await db.commit()
-    except Exception as e:  # pragma: no cover — defensive
-        logger.warning("[apply] index intent failed candidate=%s: %s", candidate.id, e)
-
-    # Background: CV parse (companies, skills, ai_summary) + CC auto-classify.
-    # Runs in a fresh DB session after the response has been sent, so the
-    # candidate sees a fast 201.
-    background_tasks.add_task(_invite_post_apply_task, candidate.id)
-
-    return {"ok": True, "status": "received"}
 
 
 async def _invite_post_apply_task(

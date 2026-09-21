@@ -21,10 +21,35 @@ const FIELD_LABELS: Record<string, string> = {
   linkedin: "LinkedIn",
   message: "Wiadomość",
   cv: "CV",
+  // Strona kariery (`/kariera`) i — od wprowadzenia zgody — stary `/apply`.
+  consent: "Zgoda",
+  expected_rate_hourly: "Stawka",
+  availability_date: "Dostępność",
+  city: "Miasto",
+  work_mode: "Tryb pracy",
+  // Nie jest polem, które kandydat wypełnia — formularz kariery pokazuje tę
+  // odmowę w podsumowaniu („link wygasł"), a nie przy żadnym inpucie.
+  link_slug: "Link",
+};
+
+/**
+ * Pola, dla których zdanie zależy od POLA, nie od treści odmowy — backend
+ * opisuje je po angielsku na kilka sposobów („less than or equal to 10000",
+ * „valid date", „Input should be 'remote', …"), a kandydatowi wystarczy jedno
+ * zdanie mówiące, co wpisać.
+ */
+const FIELD_MESSAGES: Record<string, string> = {
+  consent: "Bez zgody nie możemy przyjąć zgłoszenia.",
+  expected_rate_hourly: "Podaj stawkę godzinową netto od 1 do 10 000 zł.",
+  availability_date: "Podaj datę dostępności (dzień, miesiąc, rok).",
+  city: "Nazwa miasta może mieć najwyżej 120 znaków.",
+  work_mode: "Wybierz tryb pracy z listy.",
+  link_slug: "Ten link wygasł albo rekrutacja jest zamknięta.",
 };
 
 /** Zdania po polsku dla odmów, które backend opisuje po angielsku. */
 function friendly(field: string, raw: string): string {
+  if (field in FIELD_MESSAGES) return FIELD_MESSAGES[field];
   const lowered = raw.toLowerCase();
   if (field === "email" && lowered.includes("email")) {
     return "Ten adres e-mail wygląda na niepoprawny — sprawdź, czy nie ma literówki.";

@@ -251,6 +251,8 @@ _ENUM_STATEMENTS = [
     # enuma `check_and_increment` wywala każdą turę na
     # InvalidTextRepresentationError.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'jarvis'",
+    # 0339: szkic publicznego opisu rekrutacji na stronę kariery.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'job_public_description'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -4840,6 +4842,50 @@ _COLUMN_STATEMENTS = [
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         CONSTRAINT ck_user_dashboards_version CHECK (version >= 0)
     )""",
+    # 0339: strona kariery. Link bez rekrutacji (stały link rekrutera), slug,
+    # licznik wejść; opis publiczny rekrutacji; zgody z formularza (CASCADE
+    # z kandydatem — art. 17 RODO). Lustro 1:1 z migracją — pilnuje
+    # `test_career_migration_mirror.py`.
+    "ALTER TABLE candidate_invite_links "
+    "ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'job'",
+    "ALTER TABLE candidate_invite_links ADD COLUMN IF NOT EXISTS slug VARCHAR(64) NULL",
+    "ALTER TABLE candidate_invite_links "
+    "ADD COLUMN IF NOT EXISTS visit_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE candidate_invite_links ALTER COLUMN job_id DROP NOT NULL",
+    "ALTER TABLE candidate_invite_links ALTER COLUMN expires_at DROP NOT NULL",
+    """CREATE TABLE IF NOT EXISTS job_public_profiles (
+        job_id INTEGER PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+        subtitle TEXT NULL,
+        about TEXT NULL,
+        sections JSONB NOT NULL
+            DEFAULT '{"must": true, "nice": true, "params": true, "process": true}'::jsonb,
+        show_on_recruiter_page BOOLEAN NOT NULL DEFAULT true,
+        approved_at TIMESTAMPTZ NULL,
+        approved_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        approved_hash VARCHAR(64) NULL,
+        updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    """CREATE TABLE IF NOT EXISTS candidate_consents (
+        id BIGSERIAL PRIMARY KEY,
+        candidate_id INTEGER NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        application_submission_id INTEGER NULL
+            REFERENCES application_submissions(id) ON DELETE CASCADE,
+        kind VARCHAR(40) NOT NULL,
+        text_version VARCHAR(20) NOT NULL,
+        text_sha256 VARCHAR(64) NOT NULL,
+        given_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        invite_link_key VARCHAR(64) NULL,
+        CONSTRAINT ck_candidate_consents_one_subject
+            CHECK ((candidate_id IS NOT NULL) <> (application_submission_id IS NOT NULL)),
+        CONSTRAINT ck_candidate_consents_kind
+            CHECK (kind IN ('recruitment_current_future'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_consents_candidate_id "
+    "ON candidate_consents (candidate_id)",
+    "CREATE INDEX IF NOT EXISTS ix_candidate_consents_application_submission_id "
+    "ON candidate_consents (application_submission_id)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -5439,6 +5485,12 @@ _DATA_STATEMENTS = [
     "SELECT 'jarvis', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'jarvis')",
+    # 0339: seed feature'a AI `job_public_description` (szkic opisu na stronę
+    # kariery; wywołanie wyłącznie przyciskiem rekrutera).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'job_public_description', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'job_public_description')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.
@@ -6707,6 +6759,21 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0339: kształt linku aplikacyjnego — `job` wymaga rekrutacji, `recruiter`
+    # (stały link) nie ma rekrutacji i ma slug. DROP+ADD w jednym bloku.
+    """DO $$ BEGIN
+        ALTER TABLE candidate_invite_links
+            DROP CONSTRAINT IF EXISTS ck_candidate_invite_links_kind;
+        ALTER TABLE candidate_invite_links
+            ADD CONSTRAINT ck_candidate_invite_links_kind
+            CHECK (kind IN ('job', 'recruiter'));
+        ALTER TABLE candidate_invite_links
+            DROP CONSTRAINT IF EXISTS ck_candidate_invite_links_kind_shape;
+        ALTER TABLE candidate_invite_links
+            ADD CONSTRAINT ck_candidate_invite_links_kind_shape
+            CHECK ((kind = 'job' AND job_id IS NOT NULL) OR
+                   (kind = 'recruiter' AND job_id IS NULL AND slug IS NOT NULL));
+    END $$""",
     # 0249: data phase above has filled every existing row. Defaults protect
     # rolling legacy writers; NOT NULL matches the ORM snapshot invariant.
     "ALTER TABLE client_orders ALTER COLUMN rate_unit SET DEFAULT 'monthly'",
@@ -7348,6 +7415,13 @@ _CONSTRAINT_STATEMENTS = [
 # ix_delivery_lead_client_assignments_delivery_lead_user_id. Dopisywanie ich
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
+    # 0339: slug linku unikalny; jeden nieodwołany stały link na rekrutera.
+    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_candidate_invite_links_slug "
+    "ON candidate_invite_links (slug) WHERE slug IS NOT NULL",
+    "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "
+    "ux_candidate_invite_links_one_recruiter_link "
+    "ON candidate_invite_links (created_by) "
+    "WHERE kind = 'recruiter' AND revoked = false",
     # 0326: darmowe sito duplikatów w `/from-cv` pyta „czy KTOKOLWIEK ma już
     # dokument o tych bajtach". Indeks z 0173 jest na `(candidate_id, sha)`,
     # więc lookup po samym skrócie schodziłby na skan ~96 tys. wierszy w gorącej

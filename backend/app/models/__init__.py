@@ -688,3 +688,5 @@ from app.models.user_dashboard import UserDashboard  # noqa: F401
 from app.models.client_interview_slot_request import (  # noqa: F401
     ClientInterviewSlotRequest,
 )
+from app.models.job_public_profile import JobPublicProfile  # noqa: F401
+from app.models.candidate_consent import CandidateConsent  # noqa: F401

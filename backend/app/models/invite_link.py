@@ -11,21 +11,69 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
 
+INVITE_LINK_KINDS = ("job", "recruiter")
+
+
 class CandidateInviteLink(Base):
+    """Link aplikacyjny: do rekrutacji (``kind='job'``) albo stały rekrutera.
+
+    0339 (strona kariery): link ``recruiter`` nie ma rekrutacji ani terminu —
+    CV trafia do bazy i do „Moich ludzi" właściciela. Link ``job`` dostaje
+    czytelny ``slug`` i domyślnie żyje do zamknięcia rekrutacji
+    (``expires_at IS NULL``).
+    """
+
     __tablename__ = "candidate_invite_links"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('job', 'recruiter')", name="ck_candidate_invite_links_kind"
+        ),
+        CheckConstraint(
+            "(kind = 'job' AND job_id IS NOT NULL) OR "
+            "(kind = 'recruiter' AND job_id IS NULL AND slug IS NOT NULL)",
+            name="ck_candidate_invite_links_kind_shape",
+        ),
+        Index(
+            "ux_candidate_invite_links_slug",
+            "slug",
+            unique=True,
+            postgresql_where=text("slug IS NOT NULL"),
+        ),
+        Index(
+            "ux_candidate_invite_links_one_recruiter_link",
+            "created_by",
+            unique=True,
+            postgresql_where=text("kind = 'recruiter' AND revoked = false"),
+        ),
+    )
 
     token: Mapped[str] = mapped_column(Text, primary_key=True)
     created_by: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
-    job_id: Mapped[int] = mapped_column(
-        ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="job", default="job"
+    )
+    slug: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    job_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("jobs.id", ondelete="CASCADE"), nullable=True
     )
     # Frozen sourcing authority at link creation. A later plan supersede must
     # not discard a legitimate inbound application or reattribute its origin.
@@ -38,13 +86,19 @@ class CandidateInviteLink(Base):
         Boolean, nullable=True
     )
     label: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
+    # NULL = bez terminu (link rekrutacji żyje do jej zamknięcia, stały link
+    # rekrutera — do odwołania).
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     revoked: Mapped[bool] = mapped_column(
         Boolean, server_default="false", nullable=False
     )
     use_count: Mapped[int] = mapped_column(
+        Integer, server_default="0", nullable=False, default=0
+    )
+    # Wejścia na publiczną stronę linku (GET), osobno od zgłoszeń (use_count).
+    visit_count: Mapped[int] = mapped_column(
         Integer, server_default="0", nullable=False, default=0
     )
     last_used_at: Mapped[Optional[datetime]] = mapped_column(
