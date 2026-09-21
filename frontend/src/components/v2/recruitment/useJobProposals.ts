@@ -460,6 +460,14 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
         hiddenIneligible: similar.data?.meta.hidden_ineligible ?? 0,
         isError: similar.isError,
       },
+      // Awaria silnika nie może zostawić rekrutera bez wyjścia: jedno „Ponów"
+      // odświeża wszystko, z czego powstała lista (skrzynka, podobne projekty
+      // i odczyt przeglądu bazy).
+      retryEngine: () => {
+        void inbox.refetch();
+        void similar.refetch();
+        retryRun();
+      },
       recommendations: {
         degraded: recommendations.data?.degraded === true,
         stale: recommendations.data?.stale === true,

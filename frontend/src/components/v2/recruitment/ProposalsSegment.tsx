@@ -203,10 +203,13 @@ export function ProposalsSegmentView({
       );
     } else if (status.engineDegraded) {
       empty = (
-        <p role="alert">
-          Silnik dopasowań jest chwilowo niedostępny, więc nie wiemy, kto pasuje do tej rekrutacji. To NIE znaczy,
-          że w bazie nikogo nie ma — spróbuj ponownie za kilka minut albo użyj „Szukaj ręcznie".
-        </p>
+        <div role="alert" className="space-y-2">
+          <p>
+            Silnik dopasowań jest chwilowo niedostępny, więc nie wiadomo, kto pasuje do tej rekrutacji. To NIE znaczy,
+            że w bazie nikogo nie ma — spróbuj ponownie za kilka minut albo użyj „Szukaj ręcznie".
+          </p>
+          <Button variant="outline" size="sm" onClick={status.retryEngine}>Ponów</Button>
+        </div>
       );
     } else if (run.running) {
       empty = <p role="status">Przegląd bazy trwa — propozycje pojawią się po jego zakończeniu.</p>;
