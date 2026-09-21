@@ -56,12 +56,12 @@ describe("CVGeneratorV2 — reguły klienta", () => {
 
   it("forces the language, locks the mode and requires the project number", async () => {
     renderModal();
-    expect(await screen.findByText(/Tryb ustalony w regułach CV klienta/, {}, { timeout: 4000 })).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByRole("radio", { name: /English/ })).toHaveAttribute("aria-checked", "true"),
-    );
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Polski/ })).toBeDisabled());
-    expect(screen.getByText(/Tryb ustalony w regułach CV klienta/)).toBeInTheDocument();
+    // Zablokowany tryb i wymuszony język jako tekst, nie wyłączone kafelki.
+    const summary = await screen.findByTestId("cvgen-modal-policy-summary", {}, { timeout: 4000 });
+    await waitFor(() => expect(summary).toHaveTextContent("Obróbka treści: Przepisanie — ustala reguła klienta."));
+    expect(summary).toHaveTextContent("Język CV: EN (wymóg klienta).");
+    expect(screen.queryByRole("radio", { name: /Polski/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /Przepisanie/ })).not.toBeInTheDocument();
     expect(screen.getByText("Klient wymaga uzupełnienia danych przed generacją")).toBeInTheDocument();
 
     await screen.findByRole("option", { name: /cv\.pdf/ });
@@ -69,7 +69,7 @@ describe("CVGeneratorV2 — reguły klienta", () => {
     const submit = screen.getByRole("button", { name: /Generuj CV w tle/ });
     expect(submit).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText("Numer / nazwa projektu"), { target: { value: "4521" } });
+    fireEvent.change(screen.getByLabelText(/^Numer \/ nazwa projektu/), { target: { value: "4521" } });
     await waitFor(() => expect(submit).toBeEnabled());
     api.post.mockResolvedValueOnce({ data: { id: 1, status: "processing", candidate_name: "Jan" } });
     fireEvent.click(submit);

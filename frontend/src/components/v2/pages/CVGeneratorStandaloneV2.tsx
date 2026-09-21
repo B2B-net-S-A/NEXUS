@@ -10,6 +10,7 @@ import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   ChevronsUpDown,
   Download,
   Eye,
@@ -52,14 +53,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { LanguageTiles } from "@/components/v2/LanguageTiles";
 import { Switch } from "@/components/ui/switch";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/Toast";
 import { ContentModeTiles } from "@/components/v2/cv-generator/ContentModeTiles";
 import { CvSourcePicker, useCvSourceSelection } from "@/components/v2/cv-generator/CvSourcePicker";
 import { ConsentScreenshotField } from "@/components/v2/cv/ConsentScreenshotField";
+import { CHAMPION_HINT, FieldMarksLegend, GenerationChecklist, OptionalMark, RequiredMark } from "@/components/v2/cv-generator/FieldMarks";
 import { CVBrandedEditModal } from "@/components/v2/modals/CVBrandedEditModal";
 import { CvGeneratedShareModal } from "@/components/v2/modals/CvGeneratedShareModal";
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
@@ -73,7 +75,7 @@ import {
   ClientCvRuleBanner,
   useClientCvRule,
 } from "@/components/v2/cv-generator/ClientCvRuleBanner";
-import { CV_INTERACTIVE_UI_ENABLED } from "@/lib/cv-generator";
+import { CV_CLIENT_LINKS_UI_ENABLED, CV_INTERACTIVE_UI_ENABLED } from "@/lib/cv-generator";
 import {
   type CvContentMode,
   type RecruitmentOption,
@@ -166,9 +168,10 @@ export interface CVGeneratorStandaloneV2Props {
    * Tryb osadzony — krok 06 „CV do klienta" (program „flow w języku C2",
    * PR 6/7) renderuje generator W ŚRODKU stanowiska pracy. Zdejmuje wyłącznie
    * chrom STRONY (kontener `max-w-3xl`, nagłówek z ikoną i podtytułem), bo na
-   * zakładce rekrutacji jest już nagłówek i listwa kroków. Przełącznik
-   * „New / Old", opcje, reguły klienta i lista wygenerowanych CV zostają —
-   * krok 06 ma zbierać funkcje, nie je odbierać.
+   * zakładce rekrutacji jest już nagłówek i listwa kroków. Kandydat
+   * i rekrutacja są pokazane jedną linią kontekstu (nie wyłączonymi
+   * comboboxami). Dyskretny przełącznik uploadu, opcje, reguły klienta i lista
+   * wygenerowanych CV zostają — krok 06 ma zbierać funkcje, nie je odbierać.
    */
   embedded?: boolean;
   /** Kandydat wybrany w kroku 06 — wypełnia krok 1 formularza „New". */
@@ -256,6 +259,11 @@ export function CVGeneratorStandaloneV2({
   const [language, setLanguage] = useState<"pl" | "en">("pl");
 
   const [blindCv, setBlindCv] = useState(false);
+  // „Więcej opcji" (Blind CV, auto-pobieranie) zwinięte domyślnie; rozwija
+  // się samo, gdy Blind zostaje włączony z historii — włączona opcja nie może
+  // być niewidoczna.
+  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
+  useEffect(() => { if (blindCv) setMoreOptionsOpen(true); }, [blindCv]);
   const [contentMode, setContentMode] = useState<CvContentMode>(
     DEFAULT_CV_CONTENT_MODE,
   );
@@ -495,9 +503,31 @@ export function CVGeneratorStandaloneV2({
     lastCentralDefault.current = centralDefaultMode;
     setContentMode(centralDefaultMode);
   }, [centralDefaultMode]);
-  const lockedMode = centrallyManaged ? null : activeRule?.content_mode_locked
-    ? activeRule.content_mode
-    : null;
+  // Blokada tylko wtedy, gdy serwer JAWNIE ją zgłosi (content_mode_locked=true)
+  // albo gdy tryb blokuje reguła klienta spoza polityki centralnej.
+  const lockedMode = centrallyManaged
+    ? (centralPolicy.data!.content_mode_locked === true ? centralPolicy.data!.content_mode : null)
+    : activeRule?.content_mode_locked
+      ? activeRule.content_mode
+      : null;
+  const requiresEnCopy = centrallyManaged && !!centralPolicy.data?.effective_policy?.requires_en_copy;
+  const contentModeSummary = !lockedMode
+    ? null
+    : centrallyManaged
+      ? `automatyczna — ${lockedMode === "tailored" ? "dopasowanie do Profilu Championa" : "CV ogólne, neutralna redakcja z zachowaniem faktów"}, ustala reguła klienta.`
+      : `${CV_CONTENT_MODES.find((option) => option.value === lockedMode)?.label ?? lockedMode} — ustala reguła klienta.`;
+  const languageSummary = requiresEnCopy
+    ? "PL + EN — powstaną dwie wersje. Druga wersja oznacza dodatkowe zużycie AI."
+    : forcedLanguage
+      ? `${forcedLanguage.toUpperCase()} (wymóg klienta)${centrallyManaged ? " — powstanie 1 wersja." : "."}`
+      : null;
+  const showPolicySummary = !!lockedMode || !!forcedLanguage || centrallyManaged;
+  // Zrzut zgody pokazujemy tylko tam, gdzie klient go wymaga (dziś PKO BP),
+  // albo gdy jest już dołączony — inaczej to pole, którego nikt nie potrzebuje.
+  const showConsentField =
+    consentRequired ||
+    !!centralPolicy.data?.effective_policy?.requires_rodo_consent_block ||
+    !!consentKey;
   const defaultMode = activeRule?.content_mode ?? null;
   const ruleClientId = activeRule?.client_id ?? null;
   const lastDefaultedClient = useRef<number | null>(null);
@@ -515,6 +545,10 @@ export function CVGeneratorStandaloneV2({
     mode === "new"
       ? !!selectedRecruitment?.has_champion
       : !!championFile || !!mustRequirements.trim() || !!niceRequirements.trim();
+  // „Pod rekrutację" bez Championa: nadal do wyboru (serwer przejdzie na
+  // Redakcję), ale mówimy to wprost przy opcji.
+  const tailoredWithoutChampion =
+    mode === "new" ? !!selectedRecruitment && !selectedRecruitment.has_champion : !championFile;
   const notesChars =
     mode === "new" ? (selectedRecruitment?.notes_chars ?? 0) : screeningNotes.trim().length;
   const requirementProblems = useMemo(
@@ -534,16 +568,46 @@ export function CVGeneratorStandaloneV2({
   const showRequirementProblems =
     requirementProblems.length > 0 && !!effectiveClientId;
 
-  const canSubmitNew =
-    !!candidate && !!selectedRecruitment && selectedRecruitment.ready && !!selectedSource;
-  const canSubmitOld = !!cvFile &&
-    (embedded ? !!uploadRecruitment : (!uploadStageId || !!uploadRecruitment)) &&
-    (!!effectiveClientId || outsideAssignment);
-  const canSubmit =
-    !centralPolicy.isPending && !centralPolicy.isError &&
-    (mode === "new" ? canSubmitNew : canSubmitOld) &&
-    (centrallyManaged || !consentRequired || !!consentKey) &&
-    requirementProblems.length === 0;
+  // Zrzut zgody BLOKUJE generację tylko przy regule klienta spoza centralnej
+  // polityki (jak dotąd). W polityce centralnej (PKO BP) jest warunkiem
+  // gotowości pakietu do wysyłki, nie generacji.
+  const consentBlocksGeneration = !centrallyManaged && consentRequired;
+  const consentNeededForSending =
+    !consentBlocksGeneration &&
+    (consentRequired || !!centralPolicy.data?.effective_policy?.requires_rodo_consent_block);
+
+  // Braki do wygenerowania CV — JEDNO źródło dla przycisku „Generuj" i listy
+  // przy nim: przycisk jest aktywny dokładnie wtedy, gdy lista jest pusta.
+  // Warunki są te same co wcześniej w `canSubmit` (nic nowego po stronie reguł).
+  const missingItems = useMemo(() => {
+    const items: string[] = [];
+    if (centralPolicy.isPending) items.push("Zasady CV klienta — wczytuję…");
+    if (centralPolicy.isError) items.push("Zasady CV klienta — nie udało się ich odczytać, odśwież stronę.");
+    if (mode === "new") {
+      if (!candidate) items.push("Konsultant");
+      else if (!selectedRecruitment) {
+        items.push(embedded ? "Rekrutacja kwalifikująca się do generacji CV" : "Proces rekrutacyjny");
+      } else if (!selectedRecruitment.ready) {
+        items.push(...(selectedRecruitment.missing_inputs?.length
+          ? selectedRecruitment.missing_inputs
+          : ["Komplet źródeł w rekrutacji (szczegóły wyżej)"]));
+      }
+      if (candidate && !selectedSource) items.push("Źródłowe CV — wybierz plik do generacji");
+    } else {
+      if (!cvFile) items.push("Plik CV (PDF / DOCX)");
+      if (embedded && !uploadRecruitment) items.push("Rekrutacja kandydata kwalifikująca się do generacji CV");
+      if (!embedded && !!uploadStageId && !uploadRecruitment) items.push("Przypisanie do rekrutacji — wczytuję…");
+      if (!effectiveClientId && !outsideAssignment) items.push("Klient albo zaznaczenie „Generuję CV poza zleceniem”");
+    }
+    if (consentBlocksGeneration && !consentKey) items.push("Zrzut zgody kandydata (RODO)");
+    items.push(...requirementProblems);
+    return items;
+  }, [
+    centralPolicy.isPending, centralPolicy.isError, mode, candidate, selectedRecruitment,
+    embedded, selectedSource, cvFile, uploadRecruitment, uploadStageId, effectiveClientId,
+    outsideAssignment, consentBlocksGeneration, consentKey, requirementProblems,
+  ]);
+  const canSubmit = missingItems.length === 0;
 
   // ── New mode mutation ───────────────────────────────────────────────────
   // Enqueues background generation (202) and returns immediately — the recruiter
@@ -854,9 +918,8 @@ export function CVGeneratorStandaloneV2({
           <div>
             <h1 className="text-2xl font-bold text-foreground">Generator CV</h1>
             <p className="text-sm text-muted-foreground">
-              Wygeneruj branżowo dopasowane CV w szablonie B2B Network. Dwa
-              tryby: zaciąganie danych z NEXUSa lub manualny upload plików (1:1
-              jak zewnętrzny CV-Generator).
+              Wygeneruj CV w szablonie B2B Network z danych procesu w NEXUSie.
+              Masz tylko plik CV? Przełącz się na upload poniżej.
             </p>
           </div>
         </div>
@@ -864,53 +927,23 @@ export function CVGeneratorStandaloneV2({
 
       {canWriteSourcing ? (
         <>
-      <Card className="mb-4">
-        <CardHeader>
-          <CardTitle className="text-base">Tryb</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <RadioGroup
-            value={mode}
-            onValueChange={handleModeChange}
-            className="grid grid-cols-1 gap-3 sm:grid-cols-2"
-          >
-            <label
-              className={cn(
-                "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors",
-                mode === "new"
-                  ? "border-primary bg-primary/5"
-                  : "border-border hover:bg-muted/30",
-              )}
-            >
-              <RadioGroupItem value="new" className="mt-1" />
-              <div>
-                <div className="text-sm font-medium">New (z procesu)</div>
-                <div className="text-xs text-muted-foreground">
-                  Wybierz konsultanta i rekrutację — system zaciąga CV, profil
-                  championa i notatki z NEXUSa.
-                </div>
-              </div>
-            </label>
-            <label
-              className={cn(
-                "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors",
-                mode === "old"
-                  ? "border-primary bg-primary/5"
-                  : "border-border hover:bg-muted/30",
-              )}
-            >
-              <RadioGroupItem value="old" className="mt-1" />
-              <div>
-                <div className="text-sm font-medium">Old (upload plików)</div>
-                <div className="text-xs text-muted-foreground">
-                  Wgraj CV (PDF / DOCX), opcjonalnie Profil Championa i
-                  notatki — 1:1 jak external CV-Generator.
-                </div>
-              </div>
-            </label>
-          </RadioGroup>
-        </CardContent>
-      </Card>
+      {/* Domyślna ścieżka to generacja z procesu. Upload samego pliku jest
+          wyjątkiem, więc zamiast dwóch równorzędnych kafelków „New / Old"
+          jest jeden dyskretny przełącznik — mniej decyzji na starcie. */}
+      <div className="mb-3 flex justify-end">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-auto px-0 text-xs text-muted-foreground hover:text-foreground"
+          onClick={() => handleModeChange(mode === "new" ? "old" : "new")}
+        >
+          {mode === "new"
+            ? "Mam tylko plik CV (bez procesu)"
+            : "Wróć do generowania z procesu"}
+        </Button>
+      </div>
+      <FieldMarksLegend className="mb-3" />
 
       {mode === "new" ? (
         <NewModeForm
@@ -946,6 +979,8 @@ export function CVGeneratorStandaloneV2({
           setScreeningNotes={setScreeningNotes}
           setMustRequirements={setMustRequirements}
           setNiceRequirements={setNiceRequirements}
+          championRequired={!!activeRule?.require_champion}
+          notesRequired={(activeRule?.require_screening_notes_min_chars ?? 0) > 0}
         />
         </>
       )}
@@ -953,7 +988,7 @@ export function CVGeneratorStandaloneV2({
       <ChampionValidationPanel validation={championValidation} />
       {mode === "new" && candidate && (
         <Card className="mt-4">
-          <CardHeader><CardTitle>Źródłowe CV</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Źródłowe CV<RequiredMark /></CardTitle></CardHeader>
           <CardContent className="space-y-2">
             <CvSourcePicker selection={sourceSelection} />
           </CardContent>
@@ -966,8 +1001,8 @@ export function CVGeneratorStandaloneV2({
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-2">
-            <Label className="block">Klient</Label>
-            {mode === "new" ? (
+            {mode === "new" && embedded ? null : <Label className="block">Klient{mode === "old" && !embedded && !uploadRecruitment ? <RequiredMark /> : null}</Label>}
+            {mode === "new" && embedded ? null : mode === "new" ? (
               // W tym trybie klient WYNIKA z rekrutacji — pokazujemy go, ale
               // nie pozwalamy wybrać. Możliwość rozjazdu z ofertą oznaczałaby
               // zastosowanie reguł innego klienta, niż widać na ekranie.
@@ -999,7 +1034,7 @@ export function CVGeneratorStandaloneV2({
                   setOpen={setUploadCandidateOpen}
                   setQuery={setUploadCandidateQuery}
                 />
-                  {uploadCandidate && <label className="block text-sm">Przypisanie do rekrutacji
+                  {uploadCandidate && <label className="block text-sm">Przypisanie do rekrutacji<OptionalMark />
                     <select aria-label="Przypisanie do rekrutacji" className="mt-1 w-full rounded-md border bg-background p-2" value={uploadStageId} onChange={(e) => setUploadStageId(e.target.value)}>
                       <option value="">Bez przypisania do procesu</option>
                       {(uploadRecruitmentsQuery.data ?? []).map((r) => <option key={r.stage_id} value={r.stage_id}>{r.job_title} · {r.client_name || "Bez klienta"}</option>)}
@@ -1076,7 +1111,7 @@ export function CVGeneratorStandaloneV2({
           {mode === "old" && (
             <div>
               <Label className="mb-2 block" htmlFor="cvgen-position">
-                Stanowisko
+                Stanowisko{activeRule?.require_position ? <RequiredMark /> : <OptionalMark />}
               </Label>
               <Input
                 id="cvgen-position"
@@ -1096,7 +1131,7 @@ export function CVGeneratorStandaloneV2({
           {ruleNeedsProjectRef(activeRule) && (
             <div>
               <Label className="mb-2 block" htmlFor="cvgen-project">
-                Numer / nazwa projektu
+                Numer / nazwa projektu{activeRule?.require_project_ref ? <RequiredMark /> : <OptionalMark />}
               </Label>
               <Input
                 id="cvgen-project"
@@ -1113,74 +1148,121 @@ export function CVGeneratorStandaloneV2({
             </div>
           )}
 
-          <div>
-            <Label className="mb-2 block">Obróbka treści</Label>
-            <div className={lockedMode ? "opacity-60" : undefined}>
+          {/* Ustawienia narzucone przez klienta nie są kafelkami do klikania,
+              tylko jednym zwięzłym podsumowaniem — zablokowany wybór to szum. */}
+          {showPolicySummary ? (
+            <div
+              className="space-y-1 rounded-md border border-border bg-muted/30 p-3 text-sm"
+              data-testid="cvgen-policy-summary"
+            >
+              {lockedMode ? (
+                <p>
+                  <span className="font-medium">Obróbka treści:</span>{" "}
+                  {contentModeSummary}
+                </p>
+              ) : null}
+              {centralPolicy.data?.content_mode_notice ? (
+                <p role="note" className="text-warning-muted-foreground">{centralPolicy.data.content_mode_notice}</p>
+              ) : null}
+              {languageSummary ? (
+                <p>
+                  <span className="font-medium">Język CV:</span> {languageSummary}
+                </p>
+              ) : centrallyManaged ? (
+                <p>{`Powstanie 1 wersja: ${language.toUpperCase()}.`}</p>
+              ) : null}
+              {centrallyManaged ? (
+                <>
+                  {centralPolicy.data?.effective_policy?.filename_pattern ? (
+                    <p className="text-muted-foreground">
+                      Nazwa pliku: {centralPolicy.data.effective_policy.filename_pattern}
+                    </p>
+                  ) : null}
+                  {centralPolicy.data?.effective_policy?.require_recommendation_note && <p className="text-muted-foreground">Przed udostępnieniem wskaż istniejącą notatkę rekomendacyjną dla kandydata i rekrutacji.</p>}
+                  {centralPolicy.data?.effective_policy?.requires_rodo_consent_block && <p className="text-muted-foreground">Pakiet wymaga czytelnej zgody oraz numeru zapytania zgodnego z rekrutacją PKO BP.</p>}
+                  <p className="text-muted-foreground">Każdą wersję należy sprawdzić i zatwierdzić. Niekompletny pakiet pozostaje szkicem.</p>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+
+          {!lockedMode ? (
+            <div>
+              <Label className="mb-2 block">Obróbka treści</Label>
               <ContentModeTiles
+                compact
                 value={contentMode}
                 onChange={setContentMode}
-                disabled={!!lockedMode}
+                hints={tailoredWithoutChampion ? { tailored: "wymaga Championa — bez niego powstanie Redakcja" } : undefined}
               />
             </div>
-            {lockedMode ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {centrallyManaged ? "Tryb ustalony automatycznie na podstawie kontekstu rekrutacji i centralnych zasad klienta." : "Tryb ustalony w regułach CV klienta — wybór jest zablokowany."}
-              </p>
-            ) : null}
-          </div>
+          ) : null}
 
-          <div>
-            <Label className="mb-2 block">Język CV</Label>
-            <div className={forcedLanguage ? "opacity-60" : undefined}>
+          {!forcedLanguage ? (
+            <div>
+              <Label className="mb-2 block">Język CV</Label>
               <LanguageTiles
                 value={language}
                 onChange={setLanguage}
                 className="sm:max-w-md"
-                disabled={!!forcedLanguage}
               />
             </div>
-            {forcedLanguage ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Ten klient wymaga CV w języku{" "}
-                {forcedLanguage === "en" ? "angielskim" : "polskim"} — wybór
-                jest zablokowany przez zasady klienta.
-              </p>
-            ) : null}
-          </div>
+          ) : null}
 
-          <ConsentScreenshotField
-            context={mode === "new"
-              ? { candidateId: candidate?.id, stageId: selectedRecruitment?.stage_id, clientId: effectiveClientId, projectRef }
-              : { cvFile, candidateId: uploadBindingCandidateId, clientId: effectiveClientId, projectRef, bindingStageId: uploadRecruitment?.stage_id }}
-            value={consentKey}
-            onChange={(key: string | null) => setConsentKey(key)}
-            required={consentRequired}
-            disabled={generateMut.isPending || uploadMut.isPending}
-          />
+          {showConsentField ? (
+            <ConsentScreenshotField
+              context={mode === "new"
+                ? { candidateId: candidate?.id, stageId: selectedRecruitment?.stage_id, clientId: effectiveClientId, projectRef }
+                : { cvFile, candidateId: uploadBindingCandidateId, clientId: effectiveClientId, projectRef, bindingStageId: uploadRecruitment?.stage_id }}
+              value={consentKey}
+              onChange={(key: string | null) => setConsentKey(key)}
+              required={consentBlocksGeneration}
+              requiredForSending={consentNeededForSending}
+              disabled={generateMut.isPending || uploadMut.isPending}
+            />
+          ) : null}
 
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <Label className="block">Blind CV</Label>
-              <p className="text-xs text-muted-foreground">
-                Anonimizuje imię, nazwisko i nazwy firm w doświadczeniu — używaj
-                przy share-ach klientom przed zaakceptowaniem profilu.
-              </p>
-            </div>
-            <Switch checked={blindCv} onCheckedChange={setBlindCv} />
-          </div>
+          <Collapsible open={moreOptionsOpen} onOpenChange={setMoreOptionsOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground"
+              >
+                <ChevronDown
+                  className={cn("h-4 w-4 transition-transform", moreOptionsOpen && "rotate-180")}
+                  aria-hidden
+                />
+                Więcej opcji
+                <OptionalMark />
+                {blindCv ? (
+                  <span className="ml-1 text-xs font-normal">(Blind CV włączone)</span>
+                ) : null}
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-4 space-y-6">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <Label className="block" htmlFor="cvgen-blind">Blind CV</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Anonimizuje imię, nazwisko i nazwy firm w doświadczeniu — używaj
+                    przy share-ach klientom przed zaakceptowaniem profilu.
+                  </p>
+                </div>
+                <Switch id="cvgen-blind" checked={blindCv} onCheckedChange={setBlindCv} />
+              </div>
 
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <Label className="block">Pobierz automatycznie po wygenerowaniu</Label>
-              <p className="text-xs text-muted-foreground">
-                Włączone — CV od razu trafia do folderu „Pobrane" (jak
-                dotychczas). Wyłączone — CV pojawia się tylko na liście
-                „Wygenerowane CV" poniżej (Podgląd / Pobierz), bez zaśmiecania
-                Pobranych przy generowaniu wielu CV pod rząd.
-              </p>
-            </div>
-            <Switch checked={autoDownload} onCheckedChange={setAutoDownload} />
-          </div>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <Label className="block" htmlFor="cvgen-autodownload">Pobierz automatycznie po wygenerowaniu</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Włączone — CV od razu trafia do folderu „Pobrane". Wyłączone —
+                    CV pojawia się tylko na liście „Wygenerowane CV" poniżej.
+                  </p>
+                </div>
+                <Switch id="cvgen-autodownload" checked={autoDownload} onCheckedChange={setAutoDownload} />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </CardContent>
       </Card>
 
@@ -1217,25 +1299,21 @@ export function CVGeneratorStandaloneV2({
           dopiero przy liście „Wygenerowane CV" poniżej. */}
       {centralPolicy.isPending && <p role="status">Wczytuję zasady CV i liczbę wersji językowych…</p>}
       {centralPolicy.isError && <p role="alert">Nie udało się odczytać zasad CV. Odśwież stronę przed generacją.</p>}
-      {centrallyManaged && <div className="mt-4 rounded-md border border-border bg-muted/30 p-3 text-sm">
-        <p className="font-medium">{contentMode === "tailored" ? "Pod rekrutację — dopasowanie do Profilu Championa" : "CV bez dopasowania do rekrutacji — neutralna redakcja z zachowaniem faktów"}</p>
-        {centralPolicy.data?.content_mode_notice && <p role="note" className="text-warning">{centralPolicy.data.content_mode_notice}</p>}
-        <p>{centralPolicy.data?.effective_policy?.requires_en_copy ? "Powstaną 2 wersje: PL i EN. Druga wersja oznacza dodatkowe zużycie AI." : `Powstanie 1 wersja: ${(forcedLanguage || language).toUpperCase()}.`}</p>
-        <p>Nazwa: {centralPolicy.data?.effective_policy?.filename_pattern}</p>
-        {centralPolicy.data?.effective_policy?.require_recommendation_note && <p>Przed udostępnieniem wskaż istniejącą notatkę rekomendacyjną dla kandydata i rekrutacji.</p>}
-        {centralPolicy.data?.effective_policy?.requires_rodo_consent_block && <p>Pakiet wymaga czytelnej zgody oraz numeru zapytania zgodnego z rekrutacją PKO BP.</p>}
-        <p>Każdą wersję należy sprawdzić i zatwierdzić. Niekompletny pakiet pozostaje szkicem.</p>
-      </div>}
       <div className="sticky bottom-0 z-20 mt-6 flex flex-wrap items-center justify-end gap-x-4 gap-y-2 border-t border-border bg-background/95 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <p className="mr-auto hidden text-xs text-muted-foreground sm:block">
-          {activeMut.isPending
-            ? "Uruchamiam generację…"
-            : "Generowanie i sprawdzanie CV ze źródłami odbywa się w tle — wynik pojawi się na liście poniżej. Możesz zamknąć kartę."}
-        </p>
+        <div className="mr-auto min-w-0 space-y-1">
+          <GenerationChecklist id="cvgen-checklist" missing={missingItems} />
+          <p className="hidden text-xs text-muted-foreground sm:block">
+            {activeMut.isPending
+              ? "Uruchamiam generację…"
+              : "Generowanie i sprawdzanie CV ze źródłami odbywa się w tle — wynik pojawi się na liście poniżej. Możesz zamknąć kartę."}
+          </p>
+        </div>
         <Button
           size="lg"
           disabled={!canSubmit || activeMut.isPending}
           onClick={handleSubmit}
+          aria-describedby="cvgen-checklist"
+          title={canSubmit ? undefined : `Do wygenerowania CV brakuje: ${missingItems.join("; ")}`}
         >
           {activeMut.isPending ? (
             <>
@@ -1337,7 +1415,7 @@ export function CVGeneratorStandaloneV2({
         onDownload={handleDownloadGenerated}
       />
 
-      {canWriteSourcing ? (
+      {canWriteSourcing && CV_CLIENT_LINKS_UI_ENABLED ? (
         <CvGeneratedShareModal
           generatedId={shareItem?.id ?? null}
           candidateName={shareItem?.candidate_name}
@@ -1389,9 +1467,13 @@ function NewModeForm({
 }: NewModeFormProps) {
   return (
     <>
+      {/* Osadzony generator (krok 06 rekrutacji) ma kandydata i rekrutację
+          ustalone z góry — zamiast dwóch wyłączonych comboboxów jedna linia
+          kontekstu. */}
+      {!contextLocked && (
       <Card>
         <CardHeader>
-          <CardTitle>Krok 1 — Konsultant</CardTitle>
+          <CardTitle>Krok 1 — Konsultant<RequiredMark /></CardTitle>
           <CardDescription>
             Zacznij wpisywać imię, nazwisko lub e-mail.
           </CardDescription>
@@ -1478,24 +1560,46 @@ function NewModeForm({
           </Popover>
         </CardContent>
       </Card>
+      )}
 
       {candidate && (
-        <Card className="mt-4">
+        <Card className={contextLocked ? undefined : "mt-4"}>
+          {contextLocked ? null : (
           <CardHeader>
-            <CardTitle>Krok 2 — Proces rekrutacyjny</CardTitle>
+            <CardTitle>Krok 2 — Proces rekrutacyjny<RequiredMark /></CardTitle>
             <CardDescription>
               Wymagane źródła zależą od trybu obróbki i reguły klienta.
               Po wybraniu procesu zobaczysz, które dane są potrzebne.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          )}
+          <CardContent className={cn("space-y-3", contextLocked && "pt-6")}>
+            {contextLocked ? (
+              <p className="text-sm" data-testid="cvgen-context">
+                <span className="text-muted-foreground">Kandydat:</span>{" "}
+                <span className="font-medium">{candidate.full_name}</span>
+                <span className="text-muted-foreground"> · Rekrutacja:</span>{" "}
+                {selectedRecruitment ? (
+                  <span className="font-medium">
+                    {selectedRecruitment.job_title}
+                    {selectedRecruitment.client_name ? ` (${selectedRecruitment.client_name})` : ""}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    {recruitmentsQuery.isLoading
+                      ? "wczytuję…"
+                      : "ta rekrutacja nie kwalifikuje się do generacji CV"}
+                  </span>
+                )}
+              </p>
+            ) : (
             <RecruitmentCombobox
               recruitments={recruitmentsQuery.data ?? []}
               value={stageId}
               onChange={setStageId}
               loading={recruitmentsQuery.isLoading}
-              disabled={contextLocked}
             />
+            )}
 
             {selectedRecruitment && (
               <div className="flex flex-wrap gap-2 text-xs">
@@ -1514,6 +1618,9 @@ function NewModeForm({
                   optional={selectedRecruitment.required_notes_min_chars === 0}
                 />
               </div>
+            )}
+            {selectedRecruitment && selectedRecruitment.required_champion !== true && (
+              <p className="text-xs text-muted-foreground">{CHAMPION_HINT}</p>
             )}
 
             {selectedRecruitment && !selectedRecruitment.ready && (
@@ -1679,6 +1786,9 @@ type OldModeFormProps = {
   setScreeningNotes: (v: string) => void;
   setMustRequirements: (v: string) => void;
   setNiceRequirements: (v: string) => void;
+  /** Reguła klienta wymaga Championa / notatek — oznaczenie pola, nie nowa walidacja. */
+  championRequired?: boolean;
+  notesRequired?: boolean;
 };
 
 function OldModeForm({
@@ -1695,12 +1805,14 @@ function OldModeForm({
   setScreeningNotes,
   setMustRequirements,
   setNiceRequirements,
+  championRequired = false,
+  notesRequired = false,
 }: OldModeFormProps) {
   return (
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Krok 1 — Plik CV</CardTitle>
+          <CardTitle>Krok 1 — Plik CV<RequiredMark /></CardTitle>
           <CardDescription>
             Wgraj surowe CV kandydata (PDF lub DOCX, max {MAX_UPLOAD_MB} MB) —
             Claude przeanalizuje treść i wyciągnie strukturę.
@@ -1719,8 +1831,9 @@ function OldModeForm({
 
       <Card className="mt-4">
         <CardHeader>
-          <CardTitle>Krok 2 — Profil Championa (opcjonalnie)</CardTitle>
+          <CardTitle>Krok 2 — Profil Championa{championRequired ? <RequiredMark /> : <OptionalMark />}</CardTitle>
           <CardDescription>
+            {championRequired ? "Ten klient wymaga Profilu Championa." : CHAMPION_HINT}{" "}
             Wgraj DOCX z sekcjami MUST-HAVE / NICE-TO-HAVE / Kontekst /
             Pytania — system wytłuści kluczowe technologie w wygenerowanym CV
             i zwróci listę brakujących wymagań.
@@ -1757,7 +1870,7 @@ function OldModeForm({
 
       <Card className="mt-4">
         <CardHeader>
-          <CardTitle>Krok 3 — Notatki ze screeningu (opcjonalnie)</CardTitle>
+          <CardTitle>Krok 3 — Notatki ze screeningu{notesRequired ? <RequiredMark /> : <OptionalMark />}</CardTitle>
           <CardDescription>
             Wklej notatki z rozmowy rekrutera — Claude wzbogaci CV o
             technologie i kompetencje wspomniane na screeningu.
@@ -2111,7 +2224,7 @@ function GeneratedCvRow({
                   </Button>
                   {canWrite && <Button variant="ghost" size="sm" disabled={!item.can_download}
                     onClick={() => onEdit(item)} title="Edytuj i zatwierdź CV"><Pencil className="h-4 w-4" /></Button>}
-                  {canWrite ? (
+                  {canWrite && CV_CLIENT_LINKS_UI_ENABLED ? (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -2156,7 +2269,7 @@ function GeneratedCvRow({
           ))}
         </ul>
       )}
-      {item.central_policy && <Button className="mt-2" size="sm" variant="outline" aria-expanded={showPackage} onClick={() => setShowPackage(value => !value)}>Pakiet CV · wersje i gotowość do wysłania</Button>}
+      {item.central_policy && <Button className="mt-2" size="sm" variant="outline" aria-expanded={showPackage} onClick={() => setShowPackage(value => !value)}>Wersje językowe CV</Button>}
       {item.central_policy && showPackage && <CvPackagePanel id={item.package_id || item.id} canWrite={canWrite} onDownloadHtml={doc => onDownloadHtml({ ...item, ...doc, status: "ready" })} onEdit={doc => onEdit({ ...item, ...doc, status: "ready" })} onDownload={doc => onDownload({ ...item, ...doc, status: "ready" })} />}
     </li>
   );
