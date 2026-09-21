@@ -109,8 +109,9 @@ def test_default_b2b_positional_grouping():
         "closed",
     ]
     assert rule.owner_modes_for_columns(columns) == [
-        "always",
-        "always",
+        # Stos wejściowy to „Do przejrzenia", nie „wymaga ruchu" (21.09.2026).
+        "review",
+        "review",
         "always",
         "always",
         "always",

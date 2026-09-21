@@ -883,17 +883,17 @@ async def list_jobs(
     # odróżnia własnego etapu szablonu od „Nowi" (UAT B33).
     stage_columns: dict[int, list[dict]] = {}
     off_template_counts: dict[int, int] = {}
-    needs_action: dict[int, int] = {}
+    attention_by_job: dict[int, tuple[int, int]] = {}
     open_proposals: dict[int, int] = {}
     if include_stage_counts and job_ids:
         from app.services.job_needs_action import (  # noqa: PLC0415
-            needs_action_counts,
+            attention_counts,
         )
         from app.services.job_proposals import open_counts_for_jobs  # noqa: PLC0415
 
         # Po jednym zapytaniu na stronę: „wymaga ruchu" (ta sama reguła i to
         # samo wyrażenie co `sort=attention`) i otwarte propozycje (zespołowo).
-        needs_action = await needs_action_counts(
+        attention_by_job = await attention_counts(
             db,
             job_ids=job_ids,
             default_template_id=default_template_id_for_counts,
@@ -1096,7 +1096,10 @@ async def list_jobs(
             d["stage_breakdown"] = stage_breakdown.get(j.id, {})
             d["stage_columns"] = stage_columns.get(j.id, [])
             d["off_template_count"] = off_template_counts.get(j.id, 0)
-            d["needs_action_count"] = needs_action.get(j.id, 0)
+            needs_n, review_n = attention_by_job.get(j.id, (0, 0))
+            d["needs_action_count"] = needs_n
+            # Stos wejściowy (Ogłoszenia, Nowi) — osobno od „wymaga ruchu".
+            d["review_count"] = review_n
             d["open_proposals_count"] = open_proposals.get(j.id, 0)
         d["priority_assignment"] = priority_assignment_map.get(j.id)
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)

@@ -439,7 +439,7 @@ export function PersonPanel({
   );
 
   const section: PersonPanelSection =
-    controlledSection ?? localSection ?? defaultPanelSectionFor(row.group);
+    controlledSection ?? localSection ?? defaultPanelSectionFor(row.group, column);
   const changeSection = useCallback(
     (next: PersonPanelSection) => {
       setLocalSection(next);

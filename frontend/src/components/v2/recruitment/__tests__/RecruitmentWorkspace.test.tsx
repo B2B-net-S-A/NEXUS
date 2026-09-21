@@ -184,8 +184,9 @@ describe("RecruitmentWorkspace — stany zapytania", () => {
 describe("RecruitmentWorkspace — tabela", () => {
   it("domyślnie: w procesie, najpierw to, co wymaga mojego ruchu; dopasowanie z pipeline-scores", async () => {
     renderWorkspace();
-    // Ewa: 9 dni na wejściu → po terminie; zweryfikowani: zwykły ruch; Natalia czeka na klienta.
-    expect(names()).toEqual(["Ewa Pawlak", "Marek Zieliński", "Katarzyna Wójcik", "Natalia Krawczyk"]);
+    // Zweryfikowani: mój ruch. Ewa stoi na wejściu („Do przejrzenia"), Natalia
+    // czeka na klienta — obie po moich, po dniach malejąco.
+    expect(names()).toEqual(["Marek Zieliński", "Katarzyna Wójcik", "Ewa Pawlak", "Natalia Krawczyk"]);
     expect(await screen.findByLabelText("Dopasowanie: 91 na 100")).toBeInTheDocument();
     expect(mocks.pipelineScores).toHaveBeenCalledWith(42);
   });
@@ -215,7 +216,8 @@ describe("RecruitmentWorkspace — tabela", () => {
     ).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Grupuj: kto ma ruch" }));
     const grid = within(screen.getByRole("grid"));
-    expect(grid.getByRole("button", { name: /Wymaga mojego ruchu/ })).toHaveTextContent("3");
+    expect(grid.getByRole("button", { name: /Wymaga mojego ruchu/ })).toHaveTextContent("2");
+    expect(grid.getByRole("button", { name: /Do przejrzenia/ })).toHaveTextContent("1");
     expect(grid.getByRole("button", { name: /Czeka na klienta/ })).toHaveTextContent("1");
   });
 
