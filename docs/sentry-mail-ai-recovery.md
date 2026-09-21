@@ -67,3 +67,9 @@ pozostaje wymagany niezależnie od sukcesu prywatnego kontaktu Grafany.
 
 Nie zmieniamy teraz próbkowania replayów ani transportu Sentry: limit replay
 jest wspólny dla organizacji i wymaga najpierw przypisania zużycia do projektów.
+
+
+Pomiar `ready_candidates_upper_bound` obejmuje również niepodjęte wiadomości z tego samego zapytania SQL, którego używa worker. Jest górną granicą liczby wiadomości gotowych do próby: worker dodatkowo sprawdza uprawnienia sekcji. `pending_retry` obejmuje odroczone próby i może nakładać się na tę liczbę; nie sumować obu liczników. Odczytać oba przed odblokowaniem Exchange.
+
+
+Po zatwierdzeniu i propagacji uprawnień operator może jawnie uruchomić Coolify Ops `app-mail-send-probe`: jedna syntetyczna wiadomość wyłącznie do Artura, bez retry, bez sekretów w logach i bez zmiany konfiguracji. Sprawdza bezpośrednio Graph/Exchange, niezależnie od aplikacyjnego circuit; osobno należy potwierdzić naturalną wysyłkę NEXUS. HTTP 202 nie dowodzi dostawy. Wynik niepewny wymaga sprawdzenia skrzynki/trace przed kolejną próbą. Domyślny `app-mail-config-audit` niczego nie wysyła.

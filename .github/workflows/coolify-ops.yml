@@ -46,7 +46,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [app-mail-config-audit, release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing]
+        options: [app-mail-send-probe, app-mail-config-audit, release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing]
         default: list
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
@@ -179,8 +179,8 @@ permissions:
 
 jobs:
   app-mail-config-audit:
-    name: Read system mail identities without credentials
-    if: inputs.action == 'app-mail-config-audit'
+    name: System mail diagnosis and optional owner probe
+    if: inputs.action == 'app-mail-config-audit' || inputs.action == 'app-mail-send-probe'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -189,11 +189,12 @@ jobs:
           sparse-checkout: .github/scripts
       - name: Verify diagnostic redaction
         run: python3 -m unittest discover -s .github/scripts/tests -p test_app_mail_config_audit.py
-      - name: Read business sender and application ID only
+      - name: Read identities or send one explicitly requested owner probe
         env:
           CO_URL: ${{ secrets.COOLIFY_URL }}
           CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          MAIL_SEND_PROBE: ${{ inputs.action == 'app-mail-send-probe' && '1' || '0' }}
         run: python3 .github/scripts/app_mail_config_audit.py
 
   release-config-audit:

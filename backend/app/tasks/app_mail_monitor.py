@@ -2,12 +2,14 @@
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.services.m365 import app_mail, mail_circuit
+from app.tasks.chat_email_fallback import pending_candidate_query
 
 logger = logging.getLogger(__name__)
 INTERVAL_SECONDS = 60
@@ -51,6 +53,16 @@ async def sample_app_mail() -> None:
                 .one()
             )
             queue = {key: int(value) for key, value in row.items()}
+            candidates = (
+                pending_candidate_query(datetime.now(timezone.utc))
+                .order_by(None)
+                .subquery()
+            )
+            queue["ready_candidates_upper_bound"] = int(
+                (
+                    await db.execute(select(func.count()).select_from(candidates))
+                ).scalar_one()
+            )
         configured = app_mail.is_configured()
         logger.info(
             "app_mail_monitor",

@@ -44,6 +44,7 @@ async def test_monitor_read_failure_is_not_healthy_and_recovers(monkeypatch, cap
         TimeoutError("private sql"),
         None,
         result,
+        Mock(scalar_one=Mock(return_value=7)),
     ]
     monkeypatch.setattr(monitor, "AsyncSessionLocal", lambda: session)
     with caplog.at_level(logging.INFO):
@@ -56,4 +57,5 @@ async def test_monitor_read_failure_is_not_healthy_and_recovers(monkeypatch, cap
     ]
     assert [e.alarm for e in events] == [1, 0]
     assert [e.monitor_status for e in events] == ["error", "ok"]
+    assert events[-1].ready_candidates_upper_bound == 7
     assert "private sql" not in caplog.text

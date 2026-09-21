@@ -197,24 +197,15 @@ async def _channel_waiting() -> bool:
     return max(state.get("next_attempt_at", 0), state.get("lease_until", 0)) > now
 
 
-async def _process_one_pass(db: AsyncSession) -> int:
-    """Single pass — return count of emails fired."""
-    if await _channel_waiting():
-        return 0
-    now = datetime.now(timezone.utc)
-    threshold = now - timedelta(minutes=OFFLINE_THRESHOLD_MIN)
+def pending_candidate_query(now: datetime):
+    """SQL candidate queue; final section access is checked by the worker.
 
-    # Find candidate notifications:
-    #   - chat type
-    #   - older than threshold
-    #   - unread
-    #   - not yet email-sent
-    #   - not currently reserved by a live pass (stale reservations left by a
-    #     crashed process ARE picked up again — that is the recovery path)
-    # These filters only narrow the batch; the atomic claim below is the real
-    # guard against a double send.
+    Reused by monitoring so unattempted rows are included in backlog evidence.
+    This is an upper bound, not a promise that every row will be emailed.
+    """
+    threshold = now - timedelta(minutes=OFFLINE_THRESHOLD_MIN)
     stale_cutoff = now - timedelta(minutes=CLAIM_STALE_MIN)
-    rows = await db.execute(
+    return (
         select(Notification, User)
         .join(User, User.id == Notification.user_id)
         .where(Notification.notification_type.in_(_CHAT_NOTIF_TYPES))
@@ -243,8 +234,26 @@ async def _process_one_pass(db: AsyncSession) -> int:
         )
         .where((User.last_seen_at.is_(None)) | (User.last_seen_at <= threshold))
         .order_by(Notification.created_at.asc())
-        .limit(BATCH_SIZE)
     )
+
+
+async def _process_one_pass(db: AsyncSession) -> int:
+    """Single pass — return count of emails fired."""
+    if await _channel_waiting():
+        return 0
+    now = datetime.now(timezone.utc)
+    threshold = now - timedelta(minutes=OFFLINE_THRESHOLD_MIN)
+
+    # Find candidate notifications:
+    #   - chat type
+    #   - older than threshold
+    #   - unread
+    #   - not yet email-sent
+    #   - not currently reserved by a live pass (stale reservations left by a
+    #     crashed process ARE picked up again — that is the recovery path)
+    # These filters only narrow the batch; the atomic claim below is the real
+    # guard against a double send.
+    rows = await db.execute(pending_candidate_query(now).limit(BATCH_SIZE))
     pairs = rows.all()
     if not pairs:
         return 0
