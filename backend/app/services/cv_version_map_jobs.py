@@ -128,6 +128,10 @@ async def measure(prepared, user_id):
 
 
 async def execute_map(version_id):
+    from app.core.config import settings
+
+    if not settings.CV_INTERACTIVE_ENABLED:
+        return
     async with AsyncSessionLocal() as db:
         token = await claim_map(db, version_id)
     if token is None:

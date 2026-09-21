@@ -287,6 +287,10 @@ async def ensure_requirement_map(
     użyteczne bez mapy. Committuje samodzielnie (job po ``_finalize_success``
     już zrobił commit).
     """
+    from app.core.config import settings
+
+    if not settings.CV_INTERACTIVE_ENABLED:
+        return
     try:
         row = await db.get(CvGeneratedDocument, generated_id)
         if row is None or row.status != "ready" or not row.render_payload:

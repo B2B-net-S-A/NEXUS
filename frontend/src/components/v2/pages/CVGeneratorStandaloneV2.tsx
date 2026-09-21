@@ -73,6 +73,7 @@ import {
   ClientCvRuleBanner,
   useClientCvRule,
 } from "@/components/v2/cv-generator/ClientCvRuleBanner";
+import { CV_INTERACTIVE_UI_ENABLED } from "@/lib/cv-generator";
 import {
   type CvContentMode,
   type RecruitmentOption,
@@ -1760,6 +1761,7 @@ function OldModeForm({
         </CardContent>
       </Card>
 
+      {CV_INTERACTIVE_UI_ENABLED && (
       <Card className="mt-4">
         <CardHeader>
           <CardTitle>
@@ -1799,6 +1801,7 @@ function OldModeForm({
           </div>
         </CardContent>
       </Card>
+      )}
     </>
   );
 }
@@ -2090,7 +2093,7 @@ function GeneratedCvRow({
                     size="sm"
                     disabled={!item.can_download}
                     onClick={() => onDownloadHtml(item)}
-                    title="Pobierz interaktywny HTML (jeden plik: kafelki + widok klasyczny)"
+                    title={CV_INTERACTIVE_UI_ENABLED ? "Pobierz interaktywny HTML (jeden plik: kafelki + widok klasyczny)" : "Pobierz CV jako HTML (jeden plik)"}
                   >
                     <FileCode2 className="h-4 w-4" />
                   </Button>

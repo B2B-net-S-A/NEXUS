@@ -356,6 +356,12 @@ class Settings(BaseSettings):
     # gotowych CV zostają — czyta je kontrola przy zatwierdzaniu i mapa wersji.
     # Kill-switch (env, bez zmiany kodu): CV_JOB_INPUT_RETENTION_ENABLED=false.
     CV_CENTRAL_POLICIES_ENABLED: bool = False
+    # Interaktywne CV (kafelki wymagań z cytatami, przełącznik widoku na
+    # publicznym linku, czat AI, kafelki w eksporcie HTML). Wyłączone
+    # 21.09.2026 decyzją Artura — generator ma być prosty; kod zostaje, powrót
+    # = CV_INTERACTIVE_ENABLED=true w Coolify. Wyłączone: brak dodatkowego
+    # wywołania AI mapy wymagań, link i plik HTML pokazują widok klasyczny.
+    CV_INTERACTIVE_ENABLED: bool = False
     CV_JOB_INPUT_RETENTION_ENABLED: bool = True
     CV_JOB_INPUT_RETENTION_DAYS: int = 7
 

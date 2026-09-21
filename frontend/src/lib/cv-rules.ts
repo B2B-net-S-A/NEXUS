@@ -12,6 +12,7 @@ import { withCvGenerationRequest } from "./cv-generation-request";
 
 import api from "@/lib/api";
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
+import { CV_INTERACTIVE_UI_ENABLED } from "@/lib/cv-generator";
 import type { CvContentMode } from "@/lib/cv-generator";
 
 export type CvHighlightPolicy = "none" | "technologies" | "must" | "must_nice" | "explicit";
@@ -450,7 +451,7 @@ export function countActiveAdvanced(form: CvRuleForm): number {
   let n = 0;
   if (form.content_mode) n += 1;
   if (form.cv_content_mode_cap) n += 1;
-  if (!form.cv_interactive_enabled) n += 1;
+  if (CV_INTERACTIVE_UI_ENABLED && !form.cv_interactive_enabled) n += 1;
   if (intOrNull(form.require_screening_notes_min_chars)) n += 1;
   if (form.require_project_ref) n += 1;
   if (form.require_position) n += 1;

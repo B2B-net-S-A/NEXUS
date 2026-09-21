@@ -2,6 +2,8 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+
 from app.models.client import Client
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.job import Job
@@ -15,6 +17,8 @@ async def interactive_client_enabled(
     A document associated with a missing client fails closed. Unassociated
     standalone documents retain the global/default interactive behavior.
     """
+    if not settings.CV_INTERACTIVE_ENABLED:
+        return False
     client_id = doc.client_id
     if client_id is None and doc.job_id is not None:
         job = await db.get(Job, doc.job_id)

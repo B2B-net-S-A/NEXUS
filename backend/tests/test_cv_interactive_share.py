@@ -30,6 +30,15 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 
 
+@pytest.fixture(autouse=True)
+def _interactive_cv_on(monkeypatch):
+    """Te testy sprawdzają samą funkcję interaktywnego CV — od 21.09.2026
+    domyślnie wyłączonej flagą ``CV_INTERACTIVE_ENABLED``."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CV_INTERACTIVE_ENABLED", True)
+
+
 def _render_payload(*, blind: bool = False, language: str = "pl") -> dict[str, Any]:
     return {
         "name": "Jan Interaktywny",
