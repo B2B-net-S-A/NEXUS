@@ -192,6 +192,8 @@ from app.api import job_proposals as job_proposals_api
 from app.api import invite_links as invite_links_api
 from app.api import application_submissions as application_submissions_api
 from app.api import users as users_api
+from app.api import user_dashboard as user_dashboard_api
+from app.api import dashboard_metrics as dashboard_metrics_api
 from app.api import settings as app_settings_api
 from app.api import champion_intake as champion_intake_api
 from app.api import champion_suggestions as champion_suggestions_api
@@ -1526,6 +1528,14 @@ app.include_router(
 # Moduł „Finanse" — import miesięcznych wyników kontraktorów (admin + finance).
 app.include_router(finance_api.router, prefix="/api/finance", tags=["finance"])
 app.include_router(onboarding_api.router, prefix="/api/users", tags=["onboarding"])
+# Własny pulpit (0336) PRZED routerem `/api/users`, żeby `/me/dashboard`
+# nigdy nie trafił w trasę z parametrem ścieżki.
+app.include_router(
+    user_dashboard_api.router, prefix="/api/users/me/dashboard", tags=["dashboard"]
+)
+app.include_router(
+    dashboard_metrics_api.router, prefix="/api/dashboard-metrics", tags=["dashboard"]
+)
 app.include_router(users_api.router, prefix="/api/users", tags=["users"])
 app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
 app.include_router(help_materials_api.router, prefix="/api", tags=["help-materials"])
@@ -2656,6 +2666,7 @@ async def api_health_deep_check():
     )
     from app.models.job_proposal import JobProposal
     from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride
+    from app.models.user_dashboard import UserDashboard
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2811,6 +2822,8 @@ async def api_health_deep_check():
         # 0334: „Moi ludzie" — panel rekrutera i dzwonek po publikacji rekrutacji.
         ("my_people_overrides", MyPeopleOverride),
         ("my_people_job_matches", MyPeopleJobMatch),
+        # 0336: własny pulpit startowy — /dashboard czyta go przy każdym wejściu.
+        ("user_dashboards", UserDashboard),
     ]
 
     checks: dict[str, str] = {}

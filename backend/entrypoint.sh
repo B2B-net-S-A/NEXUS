@@ -4774,6 +4774,16 @@ _COLUMN_STATEMENTS = [
     "ON my_people_job_matches (user_id, seen_at)",
     "CREATE INDEX IF NOT EXISTS ix_my_people_job_matches_job "
     "ON my_people_job_matches (job_id)",
+    # 0336: własny pulpit startowy — jeden układ kafelków na osobę. Sonda
+    # `/api/health/deep` ją czyta; lustro pilnuje
+    # `test_user_dashboard_migration_mirror.py`.
+    """CREATE TABLE IF NOT EXISTS user_dashboards (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        layout JSONB NOT NULL DEFAULT '{"tiles": []}'::jsonb,
+        version INTEGER NOT NULL DEFAULT 0,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_user_dashboards_version CHECK (version >= 0)
+    )""",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
