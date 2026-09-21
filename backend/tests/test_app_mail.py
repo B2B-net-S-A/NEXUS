@@ -10,6 +10,15 @@ import app.services.m365.app_mail as app_mail
 from app.core.config import settings
 
 
+import pytest
+from tests.test_mail_circuit import memory_circuit  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def _durable_test_store(memory_circuit):  # noqa: F811
+    return memory_circuit
+
+
 class _FakeResp:
     def __init__(self, status_code: int, text: str = ""):
         self.status_code = status_code
@@ -188,3 +197,85 @@ def test_email_channel_enabled_false_when_nothing_configured(monkeypatch):
     monkeypatch.setattr(settings, "SMTP_ENABLED", False)
     monkeypatch.setattr(settings, "SMTP_HOST", "")
     assert email_mod.email_channel_enabled() is False
+
+
+def test_401_refreshes_once_then_recovers(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setattr(app_mail, "_acquire_token", lambda: "old")
+    refreshes, requests = [], []
+    monkeypatch.setattr(
+        app_mail, "acquire_app_token", lambda **kw: refreshes.append(kw) or "new"
+    )
+
+    def post(*args, **kwargs):
+        requests.append(kwargs)
+        return _FakeResp(401 if len(requests) == 1 else 202)
+
+    monkeypatch.setattr(app_mail.httpx, "post", post)
+    assert app_mail.send_via_graph_app(
+        to="synthetic@example.com", subject="s", text_body="b"
+    )
+    assert refreshes == [{"force_refresh": True}]
+    assert len(requests) == 2
+    assert requests[1]["headers"]["Authorization"] == "Bearer new"
+
+
+def test_read_timeout_is_uncertain_but_connect_error_is_not(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setattr(app_mail, "_acquire_token", lambda: "tok")
+
+    def timeout(*a, **kw):
+        raise app_mail.httpx.ReadTimeout("synthetic private body")
+
+    monkeypatch.setattr(app_mail.httpx, "post", timeout)
+    assert not app_mail.send_via_graph_app(
+        to="x@example.com", subject="s", text_body="b"
+    )
+    assert app_mail.last_delivery_uncertain()
+    # A blocked call is explicitly not an attempted/ambiguous POST.
+    assert not app_mail.send_via_graph_app(
+        to="x@example.com", subject="s", text_body="b"
+    )
+    assert not app_mail.last_delivery_uncertain()
+
+
+def test_repeated_denial_emits_one_sentry_event_and_no_private_logs(
+    monkeypatch, caplog
+):
+    import sentry_sdk
+
+    _configure(monkeypatch)
+    monkeypatch.setattr(app_mail, "_acquire_token", lambda: "tok")
+    posts, events = [], []
+    monkeypatch.setattr(
+        sentry_sdk, "capture_message", lambda *a, **kw: events.append(a)
+    )
+
+    def post(*a, **kw):
+        posts.append(1)
+        return _FakeResp(403, "private@example.com token=synthetic_secret")
+
+    monkeypatch.setattr(app_mail.httpx, "post", post)
+    for _ in range(50):
+        assert not app_mail.send_via_graph_app(
+            to="private@example.com",
+            subject="private subject",
+            text_body="private body",
+        )
+    assert len(posts) == len(events) == 1
+    assert "private" not in caplog.text and "synthetic_secret" not in caplog.text
+
+
+def test_gate_unavailable_does_not_send_or_report_success(monkeypatch):
+    _configure(monkeypatch)
+
+    def failed():
+        raise RuntimeError("private database connection")
+
+    monkeypatch.setattr(app_mail.mail_circuit, "acquire", failed)
+    monkeypatch.setattr(
+        app_mail.httpx, "post", lambda **kw: pytest.fail("must not send")
+    )
+    assert not app_mail.send_via_graph_app(
+        to="x@example.com", subject="s", text_body="b"
+    )

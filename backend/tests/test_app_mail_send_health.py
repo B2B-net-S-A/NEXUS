@@ -17,6 +17,14 @@ import app.services.m365.app_mail as app_mail
 from app.core.config import settings
 
 
+from tests.test_mail_circuit import memory_circuit  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def _durable_test_store(memory_circuit):  # noqa: F811
+    return memory_circuit
+
+
 class _FakeResp:
     def __init__(self, status_code: int, text: str = ""):
         self.status_code = status_code
@@ -24,7 +32,7 @@ class _FakeResp:
 
 
 @pytest.fixture(autouse=True)
-def _clean_state():
+def _clean_state(_durable_test_store):
     app_mail.reset_send_state()
     yield
     app_mail.reset_send_state()
@@ -121,26 +129,27 @@ def test_access_denied_run_turns_the_probe_red(monkeypatch):
         )
 
     state = app_mail.send_state()
-    assert state.attempts == 3
-    assert state.failures == 3
-    assert state.consecutive_failures == 3
+    assert state.attempts == 1
+    assert state.failures == 1
+    assert state.consecutive_failures == 1
     assert state.last_failure_code == "http_403"
     assert state.last_success_at is None
     assert app_mail.send_health_status() == "degraded"
 
 
-def test_success_clears_the_streak(monkeypatch):
+def test_success_clears_the_streak(monkeypatch, memory_circuit):  # noqa: F811
     _configure(monkeypatch)
     _send(monkeypatch, 403)
     _send(monkeypatch, 403)
     assert app_mail.send_health_status() == "degraded"
 
+    memory_circuit[1][0] += 901
     assert _send(monkeypatch, 202) is True
     state = app_mail.send_state()
     assert state.consecutive_failures == 0
     assert state.last_success_at is not None
     # Historyczne porażki zostają w liczniku — kasujemy streak, nie pamięć.
-    assert state.failures == 2
+    assert state.failures == 1
     assert app_mail.send_health_status() == "healthy"
 
 
@@ -158,7 +167,7 @@ def test_transport_error_counts_as_a_failed_send(monkeypatch):
     )
     state = app_mail.send_state()
     assert state.consecutive_failures == 1
-    assert state.last_failure_code == "transport_TimeoutError"
+    assert state.last_failure_code == "delivery_uncertain"
 
 
 def test_token_failure_counts_as_a_failed_send(monkeypatch):

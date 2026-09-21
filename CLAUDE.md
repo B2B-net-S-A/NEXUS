@@ -132,18 +132,17 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
   połączenie wyłączone przez awarię (`is_active=False`) u aktywnego pracownika.
   Odłączenie przez użytkownika kasuje wiersz, więc nieaktywny wiersz to zawsze
   awaria. Sonda jest informacyjna — nie daje `unhealthy`.
-- **`checks.m365_mail` (`services/m365/app_mail.py`, od 18.09.2026) pyta
-  o zdolność do WYSYŁKI, nie o połączenia** — `checks.m365` patrzy na skrzynki
-  rekruterów, a zły nadawca (`M365_MAIL_SENDER_UPN` spoza polityki dostępu
-  aplikacji) nie dotyka żadnej z nich: audyt zastał 471 kolejnych
-  `ErrorAccessDenied` przy `m365 = healthy`. Wynik ostatnich prób żyje
-  w pamięci procesu (wzorem `loop_heartbeat`), więc restart go zeruje —
-  i dlatego `unknown` („nic jeszcze nie wysyłaliśmy") NIE jest `healthy`:
-  zdolności do wysyłki nie da się sprawdzić inaczej niż wysyłką, a sondowanie
-  jej pustym mailem wysyłałoby maile. `degraded` = trzy porażki z rzędu ALBO
-  pierwsza porażka kanału, z którego nigdy nic nie wyszło (tak wygląda zła
-  konfiguracja — nie ma czego ponawiać). 401/403 idzie `logger.error` (→ Sentry),
-  bo to konfiguracja, nie chwilowa awaria Grapha. Sonda informacyjna.
+- **`checks.m365_mail` pyta o wysyłkę app-only, niezależnie od synchronizacji
+  skrzynek rekruterów.** Stan i blokada ponowień żyją w `mail_delivery_state`
+  (0331), per hash tenanta/aplikacji/nadawcy; restart nie resetuje awarii.
+  403/odrzucone uwierzytelnienie: pojedyncza próba odzyskania po 15 minutach;
+  401: najpierw jedno odświeżenie tokenu. 429 respektuje `Retry-After`.
+  Sentry dostaje zmianę stanu, pełne próby liczy `app_mail_outcome`, a niezależny
+  `app_mail_monitor` co minutę mierzy awarię, zaległość i niepewne wysyłki.
+  `email_delivery_uncertain` chroni chat fallback przed duplikatem po utracie
+  odpowiedzi/crashu. Nie czyścić tej flagi bez ustalenia wyniku dostawy.
+  `unknown` nie jest sukcesem; sonda nie zmienia liveness ani routingu HTTP.
+
 - **`checks.compass_lifecycle` (od 14.09.2026, MON-04/INT-10):** pętla
   `compass_lifecycle_sync` stempluje każdy bieg w `app_settings['compass_lifecycle_state']`
   (`last_run_at`, `last_status`, `last_success_at`, `last_error` = kod + klasa
