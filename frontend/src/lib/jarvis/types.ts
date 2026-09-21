@@ -39,6 +39,14 @@ export interface JarvisStatus {
   used_today: number;
   soft_limit: number;
   busy: boolean;
+  web_enabled?: boolean;
+  web_used_today?: number;
+  web_limit?: number;
+}
+
+export interface JarvisSource {
+  url: string;
+  title: string;
 }
 
 export type JarvisActionStatus = "proposed" | "confirmed" | "rejected" | "executed" | "failed" | "expired";
@@ -63,6 +71,7 @@ export type JarvisItem =
   | { kind: "link"; href: string; label: string; reason: string }
   | { kind: "action"; action: JarvisAction }
   | { kind: "steps"; steps: JarvisStep[] }
+  | { kind: "sources"; items: JarvisSource[] }
   | { kind: "error"; message: string };
 
 export interface JarvisStep {
@@ -97,6 +106,7 @@ export type JarvisStreamEvent =
   | { type: "message"; markdown: string; final?: boolean }
   | { type: "action_proposed"; action: JarvisAction }
   | ({ type: "deep_link" } & JarvisLink)
+  | { type: "sources"; items: JarvisSource[] }
   | { type: "error"; message: string; code?: string }
   | { type: "done" };
 

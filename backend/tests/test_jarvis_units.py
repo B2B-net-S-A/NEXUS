@@ -136,10 +136,40 @@ def test_client_tools_keep_standard_pricing_server_tools_do_not():
     ]
     assert _has_server_tools(client_tools) is False
     assert _has_server_tools(None) is False
+    # Wyszukiwarka ma znaną cenę (tokeny + 0,01 USD/wyszukiwanie) — jest wyceniana.
     assert (
         _has_server_tools([{"type": "web_search_20250305", "name": "web_search"}])
+        is False
+    )
+    # Inne narzędzie serwerowe bez cennika zostaje „unpriced”.
+    assert (
+        _has_server_tools([{"type": "code_execution_20250825", "name": "code"}])
         is True
     )
+
+
+def test_web_searches_are_added_to_the_cost():
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.services.ai_metering import response_event
+
+    def message(searches: int):
+        usage = SimpleNamespace(
+            input_tokens=1000,
+            output_tokens=100,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+            cache_creation=None,
+            server_tool_use=SimpleNamespace(web_search_requests=searches),
+        )
+        return SimpleNamespace(
+            usage=usage, model="claude-sonnet-5", id="msg_x", stop_reason="end_turn"
+        )
+
+    plain = response_event("op", message(0), model="claude-sonnet-5", latency_ms=1)
+    web = response_event("op", message(3), model="claude-sonnet-5", latency_ms=1)
+    assert web["estimated_cost_usd"] - plain["estimated_cost_usd"] == Decimal("0.03")
 
 
 # ── tag „via jarvis” ───────────────────────────────────────────────────────

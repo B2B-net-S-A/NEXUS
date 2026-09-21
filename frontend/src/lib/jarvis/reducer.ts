@@ -45,6 +45,10 @@ export function applyStreamEvent(state: JarvisTurnState, event: JarvisStreamEven
       };
     case "action_proposed":
       return { ...state, items: [...state.items, { kind: "action", action: event.action }], mood: "listening" };
+    case "sources":
+      return state.items.length === 0 && event.items.length === 0
+        ? state
+        : { ...state, items: [...state.items, { kind: "sources", items: event.items }] };
     case "deep_link":
       return {
         ...state,

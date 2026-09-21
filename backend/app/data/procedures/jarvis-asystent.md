@@ -39,6 +39,14 @@ Jarvis widzi **dokładnie to, co Ty**. Każde jego sprawdzenie idzie przez te sa
 
 Zadanie pojawia się jako **karta** z opisem. Nic się nie dzieje, dopóki nie klikniesz **„Zrób to”**. „Anuluj” odrzuca propozycję. Propozycja wygasa po 15 minutach. Jeśli NEXUS ostrzeże przy przesunięciu (np. konflikt z klientem), Jarvis pokaże nową kartę „mimo ostrzeżenia” — decyzja zostaje przy Tobie.
 
+## Internet
+
+Przycisk **🌐** obok pola wiadomości włącza wyszukiwanie w internecie — **tylko dla następnej wiadomości**. Przydaje się przy pytaniach typu „co wiadomo o firmie X”, „jakie są dziś widełki dla senior Go w Warszawie”, „co nowego w Spring Boot”.
+
+- W takiej wiadomości Jarvis **nie widzi danych z NEXUSA ani wcześniejszej rozmowy**. Dzięki temu nazwiska, kontakty i stawki z bazy nie trafiają do zewnętrznej wyszukiwarki. Nie wpisuj ich też sam do pytania.
+- Pod odpowiedzią są **źródła** — linki otwierają się w nowej karcie. Sprawdzaj je, bo informacje z internetu bywają nieaktualne.
+- Limit to **20 wyszukiwań dziennie** na osobę; licznik widać w stopce, gdy przycisk jest włączony.
+
 ## Czego nie zrobi
 
 Jarvis **nigdy** nie wykonuje:

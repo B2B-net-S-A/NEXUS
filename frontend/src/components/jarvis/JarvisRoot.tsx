@@ -126,6 +126,7 @@ export function JarvisRoot() {
   const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [brief, setBrief] = useState<string | null>(null);
+  const [webMode, setWebMode] = useState(false);
   const loadedConversation = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -181,6 +182,8 @@ export function JarvisRoot() {
       setDraft("");
       setView("chat");
       setStreaming(true);
+      // Internet dotyczy tylko tej jednej wiadomości.
+      setWebMode(false);
       setTurn((t) => ({
         ...t,
         items: [...t.items, { kind: "message", role: "user", markdown: text }],
@@ -195,7 +198,7 @@ export function JarvisRoot() {
       );
       try {
         await streamJarvisChat(
-          { message: text, conversation_id: turn.conversationId, screen },
+          { message: text, conversation_id: turn.conversationId, screen, web: webMode },
           {
             signal: controller.signal,
             onUnauthorized: triggerSessionExpiredRedirect,
@@ -222,7 +225,7 @@ export function JarvisRoot() {
         queryClient.invalidateQueries({ queryKey: jarvisKeys.conversations });
       }
     },
-    [streaming, turn.conversationId, pathname, prefs.sound, queryClient],
+    [streaming, turn.conversationId, pathname, prefs.sound, queryClient, webMode],
   );
 
   const decide = useCallback(
@@ -385,6 +388,15 @@ export function JarvisRoot() {
       ? `Dziś to już ${status.used_today} pytań — to dużo. Asystent działa dalej, ale każde pytanie kosztuje.`
       : null;
   const showMascot = (available && prefs.enabled) || kidsMode;
+  const webRemaining =
+    status?.web_enabled && typeof status.web_limit === "number"
+      ? Math.max(0, status.web_limit - (status.web_used_today ?? 0))
+      : null;
+  const webUnavailableReason = !status?.web_enabled
+    ? "Wyszukiwanie w internecie jest wyłączone"
+    : webRemaining === 0
+      ? "Dzisiejszy limit wyszukiwań w internecie jest wyczerpany"
+      : null;
   const mood = kids.mood ?? turn.mood;
   const bubble = brief ?? kids.bubble;
 
@@ -432,6 +444,10 @@ export function JarvisRoot() {
           softLimitNote={softLimitNote}
           unavailableNote={statusQuery.isError ? "Nie udało się sprawdzić, czy asystent działa. Spróbuj za chwilę." : unavailableNote}
           busyActionId={busyActionId}
+          webMode={webMode}
+          webRemaining={webRemaining}
+          webUnavailableReason={webUnavailableReason}
+          onToggleWeb={() => setWebMode((v) => !v)}
           onDraftChange={setDraft}
           onSend={(m) => void send(m)}
           onNewChat={newChat}

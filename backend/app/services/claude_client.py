@@ -297,18 +297,29 @@ def _record_tokens(
         )
 
 
-def _has_server_tools(tools: Any) -> bool:
-    """Czy żądanie niesie narzędzia wykonywane PO STRONIE dostawcy.
+# Narzędzia serwerowe, których koszt `ai_metering` umie policzyć (tokeny +
+# osobna stawka za wyszukiwanie). Inne narzędzia serwerowe zostają „unpriced”.
+_PRICED_SERVER_TOOL_PREFIXES = ("web_search_",)
 
-    Narzędzia serwerowe (web search, code execution…) mają definicję z polem
-    ``type`` i własny cennik poza tokenami — tam koszt z samych tokenów byłby
-    zaniżony, więc zostaje ``None``. Narzędzia KLIENCKIE (``name`` +
-    ``input_schema``, np. Jarvis) kosztują zwykłe tokeny: bez tego rozróżnienia
-    każda tura Jarvisa lądowała w „unpriced”, a alarm wydatków był ślepy.
+
+def _has_server_tools(tools: Any) -> bool:
+    """Czy żądanie niesie narzędzia serwerowe BEZ znanej ceny.
+
+    Narzędzia serwerowe (code execution…) mają definicję z polem ``type`` i
+    własny cennik poza tokenami — tam koszt z samych tokenów byłby zaniżony,
+    więc zostaje ``None``. Narzędzia KLIENCKIE (``name`` + ``input_schema``,
+    np. Jarvis) kosztują zwykłe tokeny, a wyszukiwarkę (``web_search_*``)
+    `ai_metering` wycenia osobno z ``usage.server_tool_use``.
     """
     for tool in tools or ():
-        if isinstance(tool, dict) and tool.get("type") not in (None, "custom"):
-            return True
+        if not isinstance(tool, dict):
+            continue
+        kind = tool.get("type")
+        if kind in (None, "custom"):
+            continue
+        if isinstance(kind, str) and kind.startswith(_PRICED_SERVER_TOOL_PREFIXES):
+            continue
+        return True
     return False
 
 

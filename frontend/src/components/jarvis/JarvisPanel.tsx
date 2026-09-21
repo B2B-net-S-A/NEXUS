@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useRef } from "react";
-import { ArrowLeft, History, MessageSquarePlus, Palette, Send, Trash2, X } from "lucide-react";
+import { ArrowLeft, Globe, History, MessageSquarePlus, Palette, Send, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type {
   JarvisAccent,
@@ -55,6 +55,12 @@ export interface JarvisPanelProps {
   onNavigate?: () => void;
   /** Harness `/preview/jarvis`: panel w przepływie strony zamiast `fixed`. */
   inline?: boolean;
+  /** Przełącznik „Szukaj w internecie” — dotyczy tylko następnej wiadomości. */
+  webMode?: boolean;
+  /** `null` = internet dostępny; tekst = dlaczego nie (wyłączony, limit). */
+  webUnavailableReason?: string | null;
+  webRemaining?: number | null;
+  onToggleWeb?: () => void;
 }
 
 const FLOATING =
@@ -232,6 +238,26 @@ export function JarvisPanel(props: JarvisPanelProps) {
               <label htmlFor="jarvis-input" className="sr-only">
                 Wiadomość do asystenta
               </label>
+              {props.onToggleWeb && (
+                <Button
+                  type="button"
+                  size="icon"
+                  variant={props.webMode ? "primary" : "outline"}
+                  onClick={props.onToggleWeb}
+                  disabled={Boolean(props.webUnavailableReason) || streaming}
+                  aria-pressed={Boolean(props.webMode)}
+                  aria-label="Szukaj w internecie"
+                  title={
+                    props.webUnavailableReason ??
+                    (props.webMode
+                      ? "Internet włączony dla tej wiadomości — kliknij, żeby wyłączyć"
+                      : "Szukaj w internecie (tylko ta wiadomość, bez danych z NEXUSA)")
+                  }
+                  data-testid="jarvis-web-toggle"
+                >
+                  <Globe className="h-4 w-4" />
+                </Button>
+              )}
               <textarea
                 id="jarvis-input"
                 ref={inputRef}
@@ -246,15 +272,25 @@ export function JarvisPanel(props: JarvisPanelProps) {
                     submit();
                   }
                 }}
-                placeholder={streaming ? `${name} odpowiada…` : `Napisz do ${name}…`}
+                placeholder={
+                  streaming
+                    ? `${name} odpowiada…`
+                    : props.webMode
+                      ? "Zapytaj internet…"
+                      : `Napisz do ${name}…`
+                }
                 className="max-h-32 min-h-[40px] flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-ring/30 disabled:opacity-60"
               />
               <Button type="submit" size="icon" disabled={!canSend} aria-label="Wyślij">
                 <Send className="h-4 w-4" />
               </Button>
             </form>
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
-              {name} widzi tylko to, do czego masz dostęp. Usuwanie, umowy i stawki zostają w Twoich rękach.
+            <p className="mt-1.5 text-[11px] text-muted-foreground" data-testid="jarvis-footnote">
+              {props.webMode
+                ? `Szukam w internecie — w tej wiadomości nie widzę danych z NEXUSA ani wcześniejszej rozmowy.${
+                    typeof props.webRemaining === "number" ? ` Zostało dziś: ${props.webRemaining}.` : ""
+                  }`
+                : `${name} widzi tylko to, do czego masz dostęp. Usuwanie, umowy i stawki zostają w Twoich rękach.`}
             </p>
           </div>
         </>

@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
 from app.core.config import settings
-from app.core.database import get_db
+from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import client_ip_key, limiter, user_or_ip_key
 from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
@@ -37,6 +37,7 @@ from app.models.jarvis import JarvisAction, JarvisConversation, JarvisMessage
 from app.services.ai_models import model_for
 from app.services.jarvis import actions as jarvis_actions
 from app.services.jarvis import agent, store
+from app.services.jarvis import web as jarvis_web
 from app.services.jarvis.prefs import effective_prefs
 from app.services.jarvis.tools import build_screen_link, tools_for_user
 from app.services.jarvis.transport import CallerIdentity
@@ -70,6 +71,8 @@ class JarvisChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     conversation_id: Optional[uuid.UUID] = None
     screen: Optional[JarvisScreen] = None
+    # Przełącznik „Szukaj w internecie” — działa tylko w tej jednej turze.
+    web: bool = False
 
 
 class JarvisStatusResponse(BaseModel):
@@ -78,6 +81,9 @@ class JarvisStatusResponse(BaseModel):
     used_today: int = 0
     soft_limit: int
     busy: bool = False
+    web_enabled: bool = False
+    web_used_today: int = 0
+    web_limit: int = 0
 
 
 class JarvisConversationSummary(BaseModel):
@@ -143,8 +149,14 @@ def _today_start_utc() -> datetime:
     return datetime.combine(today, time.min).replace(tzinfo=timezone.utc)
 
 
-async def _used_today(db: AsyncSession, user_id: int) -> int:
-    marker = JarvisMessage.content[0]["text"].astext
+async def _used_today(db: AsyncSession, user_id: int, *, web: bool = False) -> int:
+    # Blok 0 to zawsze kontekst; tura z internetem ma notatkę trybu w bloku 1.
+    marker = (
+        JarvisMessage.content[1]["text"].astext
+        if web
+        else JarvisMessage.content[0]["text"].astext
+    )
+    pattern = f"{jarvis_web.WEB_MARKER}%" if web else "[Kontekst%"
     return int(
         await db.scalar(
             select(func.count())
@@ -157,7 +169,7 @@ async def _used_today(db: AsyncSession, user_id: int) -> int:
                 JarvisConversation.user_id == user_id,
                 JarvisMessage.role == "user",
                 JarvisMessage.created_at >= _today_start_utc(),
-                marker.like("[Kontekst%"),
+                marker.like(pattern),
             )
         )
         or 0
@@ -245,6 +257,9 @@ async def jarvis_status(
         used_today=await _used_today(db, current_user.id),
         soft_limit=soft_limit,
         busy=bool(busy),
+        web_enabled=settings.JARVIS_WEB_ENABLED,
+        web_used_today=await _used_today(db, current_user.id, web=True),
+        web_limit=settings.JARVIS_WEB_DAILY_LIMIT,
     )
 
 
@@ -256,6 +271,22 @@ async def jarvis_chat(
     current_user: CurrentUser,
 ):
     _require_available(request)
+    if payload.web:
+        if not settings.JARVIS_WEB_ENABLED:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Wyszukiwanie w internecie jest wyłączone.",
+            )
+        async with AsyncSessionLocal() as count_db:
+            used = await _used_today(count_db, current_user.id, web=True)
+        if used >= settings.JARVIS_WEB_DAILY_LIMIT:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"Dzisiejszy limit wyszukiwań w internecie ({settings.JARVIS_WEB_DAILY_LIMIT}) "
+                    "jest wyczerpany. Pytania o dane w NEXUSIE działają dalej."
+                ),
+            )
     prefs = effective_prefs(current_user.jarvis_prefs)
     turn = agent.TurnInput(
         user_id=current_user.id,
@@ -263,11 +294,15 @@ async def jarvis_chat(
         roles=_roles(current_user),
         message=payload.message.strip(),
         conversation_id=payload.conversation_id,
-        screen=payload.screen.model_dump() if payload.screen else None,
+        # W trybie internetu nie podajemy nawet ID rekordu z ekranu.
+        screen=None
+        if payload.web
+        else (payload.screen.model_dump() if payload.screen else None),
         assistant_name=prefs.name,
         allowed_tools=tools_for_user(_section_map(current_user)),
         identity=_identity(request),
         today=business_today(),
+        web=payload.web,
     )
     try:
         conversation_id = await agent.claim(turn)
@@ -328,11 +363,17 @@ def _conversation_items(
             if kind == "text":
                 text = str(block.get("text") or "")
                 if role == "user" and (
-                    text.startswith("[Kontekst") or text.startswith("[Wynik akcji]")
+                    text.startswith("[Kontekst")
+                    or text.startswith("[Wynik akcji]")
+                    or text.startswith(jarvis_web.WEB_MARKER)
                 ):
                     continue
                 if text.strip():
                     items.append({"kind": "message", "role": role, "markdown": text})
+            elif kind == jarvis_web.SOURCES_BLOCK and role == "assistant":
+                sources = [i for i in block.get("items") or [] if isinstance(i, dict)]
+                if sources:
+                    items.append({"kind": "sources", "items": sources})
             elif kind == "tool_use" and role == "assistant":
                 name = block.get("name")
                 if name == "open_screen":

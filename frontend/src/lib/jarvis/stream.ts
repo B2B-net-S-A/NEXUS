@@ -29,6 +29,8 @@ export interface JarvisChatBody {
   message: string;
   conversation_id?: string | null;
   screen?: JarvisScreen | null;
+  /** Przełącznik „Szukaj w internecie” — tylko ta jedna tura. */
+  web?: boolean;
 }
 
 export interface StreamOptions {

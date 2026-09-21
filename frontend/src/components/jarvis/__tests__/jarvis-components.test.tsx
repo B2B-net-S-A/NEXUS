@@ -170,3 +170,39 @@ describe("okno wyglądu (zgłoszenie 21.09: „Zapisz” ucięty na niskim ekran
     expect(screen.getByRole("button", { name: "Zapisz" })).toBeDisabled();
   });
 });
+
+describe("internet (21.09)", () => {
+  it("źródła to linki zewnętrzne w nowej karcie, bez javascript:", async () => {
+    const { JarvisSources } = await import("../JarvisSources");
+    render(
+      <JarvisSources
+        items={[
+          { url: "https://example.org/raport", title: "Raport płac IT" },
+          { url: "javascript:alert(1)", title: "zły" },
+        ]}
+      />,
+    );
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute("href", "https://example.org/raport");
+    expect(links[0]).toHaveAttribute("target", "_blank");
+    expect(links[0].getAttribute("rel")).toContain("noopener");
+  });
+
+  it("przełącznik internetu zmienia podpowiedź i stopkę; niedostępny jest wyłączony", () => {
+    const onToggleWeb = vi.fn();
+    const { rerender } = render(<JarvisPanel {...panelProps({ onToggleWeb, webMode: false })} />);
+    fireEvent.click(screen.getByTestId("jarvis-web-toggle"));
+    expect(onToggleWeb).toHaveBeenCalledOnce();
+
+    rerender(<JarvisPanel {...panelProps({ onToggleWeb, webMode: true, webRemaining: 7 })} />);
+    expect(screen.getByPlaceholderText("Zapytaj internet…")).toBeInTheDocument();
+    expect(screen.getByTestId("jarvis-footnote")).toHaveTextContent("nie widzę danych z NEXUSA");
+    expect(screen.getByTestId("jarvis-footnote")).toHaveTextContent("Zostało dziś: 7");
+
+    rerender(
+      <JarvisPanel {...panelProps({ onToggleWeb, webUnavailableReason: "Dzisiejszy limit wyczerpany" })} />,
+    );
+    expect(screen.getByTestId("jarvis-web-toggle")).toBeDisabled();
+  });
+});
