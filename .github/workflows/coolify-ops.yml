@@ -122,23 +122,6 @@ on:
         options: [A, B]
         default: A
       eval_jobs:
-  app-mail-config-audit:
-    name: Read system mail identities without credentials
-    if: inputs.action == 'app-mail-config-audit'
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: .github/scripts
-      - name: Verify diagnostic redaction
-        run: python3 -m unittest discover -s .github/scripts/tests -p test_app_mail_config_audit.py
-      - name: Read business sender and application ID only
-        env:
-          CO_URL: ${{ secrets.COOLIFY_URL }}
-          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
-        run: python3 .github/scripts/app_mail_config_audit.py
 
         description: "Liczba ofert (1-50). Mniej niż 50 = INNY zbiór, nieporównywalny z baselinem."
         required: false
@@ -195,6 +178,24 @@ permissions:
   contents: read
 
 jobs:
+  app-mail-config-audit:
+    name: Read system mail identities without credentials
+    if: inputs.action == 'app-mail-config-audit'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - name: Verify diagnostic redaction
+        run: python3 -m unittest discover -s .github/scripts/tests -p test_app_mail_config_audit.py
+      - name: Read business sender and application ID only
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: python3 .github/scripts/app_mail_config_audit.py
+
   release-config-audit:
     name: Read release build configuration without secrets
     if: inputs.action == 'release-config-audit'
