@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 20.09.2026
+> **Zgodność z systemem sprawdzona:** 21.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -188,6 +188,10 @@ Szkic awansuje na **Aktywne sam, w chwili zapisu**, gdy ma komplet czterech
 rzeczy: prawdziwy numer (nie „(bez numeru)"), datę rozpoczęcia, stawkę
 przychodową i stawkę kosztową.
 
+Jeżeli kompletny szkic okresowy dotyczy okresu, który już minął, zapisuje się
+jako **Zakończone**. Zamówienie z początkiem w przyszłości trafia do zamówień
+przyszłych.
+
 Jeżeli szkic ma typ **MD** albo **kosztowy**, dochodzi piąty warunek: musi mieć
 odpowiednio **liczbę MD** albo **kwotę zamówienia**. Bez tego zostaje w Drafcie,
 mimo kompletu pozostałych pól.
@@ -201,6 +205,30 @@ zamówienie ruszyło.
 > puste pole znaczy „nie ostrzegaj nigdy". Jeżeli dokument od klienta podaje datę
 > końca — wpisz ją. Zostaw puste pole tylko wtedy, gdy współpraca naprawdę jest
 > bezterminowa, i wtedy pilnuj terminu sam.
+
+### Zmiana okresu przelicza aktywność zamówienia
+
+W **samodzielnym zamówieniu okresowym** zmiana dat przez **Uzupełnij
+zamówienie** albo bezpośrednio na karcie od razu przelicza aktywność. Jeśli
+nowy okres obejmuje dzisiaj, zamówienie **Zakończone** wraca do **Aktywne** —
+również wtedy, gdy wcześniej zakończono je ręcznie. Po zapisie znika ostrzeżenie
+**„Brak aktywnego zamówienia”**, bez odświeżania strony.
+
+Obie daty graniczne liczą się do okresu; „dzisiaj” oznacza dzień w Polsce.
+Brak daty końca oznacza okres bezterminowy. Okres już miniony zapisuje się jako
+**Zakończone**, a okres zaczynający się później pokazuje się jako przyszły.
+Te same zasady obowiązują przy nowym zamówieniu, przedłużeniu i imporcie
+Nordea z CSV.
+
+Samo ponowne zapisanie tych samych dat albo zmiana numeru, notatki, pliku czy
+stawki **nie wznawia** zakończonego zamówienia. Zamówienia **Wstrzymane**
+i **Anulowane** nie wznawiają się od zmiany okresu. Jawnie wybrany status ma
+pierwszeństwo. Niekompletny szkic nadal wymaga uzupełnienia, a zamówienia MD,
+kosztowe i zbiorcze zachowują własne zasady aktywności.
+
+Jeśli dane zapiszą się poprawnie, ale wgranie PDF-a się nie powiedzie, karta
+pokazuje już zapisany okres i status, a formularz zgłasza błąd pliku. Ponów
+wgranie pliku przez **Uzupełnij zamówienie**.
 
 ### „Zakończ zamówienie" to co innego niż „Zakończ współpracę"
 
@@ -505,7 +533,8 @@ karcie osoby z czekającą decyzją.
 To jest celowe: na podstawie poprzedniego zamówienia wystawiono już faktury,
 więc jego treść musi zostać taka, jaka była. Nowe zamówienie ma **ten sam typ
 rozliczenia** co poprzednie i uruchamia się samo w dniu startu; jeżeli ta data już minęła,
-staje się aktywne od razu przy zapisie.
+staje się aktywne od razu przy zapisie. Jeżeli w samodzielnym zamówieniu
+okresowym minęła również data końca, zapisuje się ono jako zakończone.
 
 **Przy zamówieniach MD jest inaczej: przedłużenie czeka, aż poprzednikowi skończą
 się dni** — nawet gdy jego własna data startu dawno minęła. Dopóki w poprzednim
@@ -1399,7 +1428,10 @@ administrator**. Aktualizuje naraz wielu konsultantów z pliku od Finansów
 (średnik jako separator; numer zamówienia, kontraktor, line manager, start,
 koniec, stawka przychodowa, stawka z umowy ramowej). Przebieg jest dwuetapowy:
 **Sprawdź import** (podgląd, nic się nie zapisuje), potem **Zastosuj import**
-z potwierdzeniem. Import nadpisuje numer, obie daty, stawkę przychodową i status zamówienia,
+z potwierdzeniem. Import nadpisuje numer, obie daty i stawkę przychodową.
+Przy zmianie okresu przelicza status według zasad opisanych wyżej; nie wznawia
+zamówień wstrzymanych ani anulowanych. Samo ponowienie tego samego okresu
+nie wznawia zamówienia zakończonego. Import
 a dodatkowo **zapisuje stawkę z umowy ramowej** — w umowie konsultanta jako
 stawkę obowiązującą od podanej daty; jeśli wpis z tą samą datą już istnieje,
 nadpisuje go.

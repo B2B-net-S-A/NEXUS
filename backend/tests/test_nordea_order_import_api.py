@@ -428,3 +428,47 @@ async def test_admin_can_read_the_cross_client_repair_audit(
     assert "audited_stale_contracts" in body["value"]
     assert "analogous_contracts_not_mutated" in body["value"]
     assert "by_client" in body["value"]
+
+
+async def test_import_period_change_revives_completed_order_but_preserves_pause(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    client_id, _, order_id, name = await _seed_nordea()
+    today = date.today()
+    for previous_status, expected in [
+        (ClientOrderStatus.completed, ClientOrderStatus.active),
+        (ClientOrderStatus.paused, ClientOrderStatus.paused),
+    ]:
+        async with AsyncSessionLocal() as db:
+            item = await db.get(ClientOrder, order_id)
+            item.status = previous_status
+            item.order_type = "periodic"
+            item.start_date = today - timedelta(days=100)
+            item.end_date = today - timedelta(days=1)
+            await db.commit()
+        content = _csv(
+            name,
+            [
+                (
+                    "OLD-NUMBER",
+                    today - timedelta(days=6),
+                    today + timedelta(days=100),
+                    "178",
+                    "135",
+                )
+            ],
+        )
+        response = await app_client.post(
+            f"/api/admin/clients/{client_id}/nordea-orders/import",
+            params={"dry_run": "false"},
+            headers=app_auth_headers,
+            files={"file": ("Nordea.csv", content, "text/csv")},
+        )
+        assert response.status_code == 200, response.text
+        async with AsyncSessionLocal() as db:
+            saved = await db.get(ClientOrder, order_id)
+            assert saved.status == expected
+            assert saved.end_date == today + timedelta(days=100)

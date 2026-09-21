@@ -82,9 +82,9 @@ interface EditOrderDialogProps {
   /** Znaczenie trwałego `order_type=NULL` dla tego klienta. */
   legacyNullOrderType?: LegacyClientOrderType;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => void | Promise<void>;
   /** Odświeża kartę po zmianie samego pliku, bez zamykania formularza. */
-  onChanged?: () => void;
+  onChanged?: () => void | Promise<void>;
 }
 
 /**
@@ -366,7 +366,14 @@ export function EditOrderDialog({
       if (order) {
         await dlPortalApi.updateOrder(clientId, order.id, payload);
         if (file) {
-          await dlPortalApi.replaceOrderPo(clientId, order.id, file);
+          try {
+            await dlPortalApi.replaceOrderPo(clientId, order.id, file);
+          } catch (error) {
+            // PATCH committed independently of the upload. Keep the card in
+            // sync even when the dialog stays open to retry the document.
+            await onChanged?.();
+            throw error;
+          }
         }
         return;
       }
@@ -386,13 +393,13 @@ export function EditOrderDialog({
         file,
       });
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await onSaved();
       showToast("Zamówienie zaktualizowane", "success");
       // Bez tego ponowny wybór TEGO SAMEGO pliku nie odpali zdarzenia change.
       // Reset wybranego pliku po zapisie — `FileDropZone` sam czyści swój
       // input, gdy `file` wraca na `null`.
       setFile(null);
-      onSaved();
     },
     onError: (err: unknown) => {
       const status = (err as { response?: { status?: number } })?.response?.status;
