@@ -55,6 +55,7 @@ import { OwnerBadge } from "@/components/v2/jobs/OwnerBadge";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import {
   JobNeedsActionPill,
+  JobReviewCount,
   JobProposalsLink,
   JobStageCounts,
   STAGE_COUNTS_LEGEND,
@@ -630,6 +631,7 @@ function JobsTable({
               <TableCell>
                 <div className="flex flex-col items-start gap-1">
                   <JobNeedsActionPill count={job.needs_action_count} />
+                  <JobReviewCount count={job.review_count} />
                   <JobProposalsLink
                     jobId={job.id}
                     count={job.open_proposals_count}

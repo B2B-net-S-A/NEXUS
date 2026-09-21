@@ -83,6 +83,7 @@ const MINE = [
     headcount: 2,
     candidate_count: 17,
     needs_action_count: 7,
+    review_count: 431,
     open_proposals_count: 3,
     stage_columns: pipeline([4, 1, 3, 2, 2, 3, 1, 1, 0, 6]),
   },

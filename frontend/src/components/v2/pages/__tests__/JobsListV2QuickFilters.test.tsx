@@ -497,6 +497,19 @@ describe("JobsListV2 — „Wymaga ruchu” i propozycje", () => {
     expect(screen.queryByTestId("job-needs-action")).not.toBeInTheDocument();
   });
 
+  it("„do przejrzenia” (stos wejściowy) stoi osobno od „do ruchu” i znika przy zerze", async () => {
+    mockJobsResponse([
+      jobRow({ id: 1, title: "Stos", needs_action_count: 2, review_count: 431 }),
+      jobRow({ id: 2, title: "Pusto", needs_action_count: 1, review_count: 0 }),
+    ]);
+    renderJobs();
+    await screen.findByText("Stos");
+    const review = await screen.findAllByTestId("job-review-count");
+    expect(review).toHaveLength(1);
+    expect(review[0]).toHaveTextContent("431 do przejrzenia");
+    expect(screen.getAllByTestId("job-needs-action")[0]).toHaveTextContent("2 do ruchu");
+  });
+
   it("„+N propozycji” linkuje do segmentu propozycji i znika przy zerze", async () => {
     mockJobsResponse([
       jobRow({ id: 11, title: "Z propozycjami", open_proposals_count: 3 }),

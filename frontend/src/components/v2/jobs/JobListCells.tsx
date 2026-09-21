@@ -123,6 +123,24 @@ export function JobNeedsActionPill({
   );
 }
 
+/**
+ * Stos wejściowy (Ogłoszenia, Nowi) — zgłoszenia, których nikt nie ruszył.
+ * Osobno od „do ruchu" (decyzja 21.09.2026): na produkcji jedna rekrutacja
+ * miała 14 651 takich osób i zamieniała licznik ruchu w szum. Zero = nic.
+ */
+export function JobReviewCount({ count }: { count: number | null | undefined }) {
+  if (!count) return null;
+  return (
+    <span
+      data-testid="job-review-count"
+      title={`Zgłoszenia na etapach „Ogłoszenia” i „Nowi”, których nikt jeszcze nie przejrzał: ${count}`}
+      className="whitespace-nowrap text-[11px] tabular-nums text-muted-foreground"
+    >
+      {`${count.toLocaleString("pl-PL")} do przejrzenia`}
+    </span>
+  );
+}
+
 /** 1 propozycja · 2–4 propozycje · 5+ propozycji (12–14 też „propozycji"). */
 export function proposalsLabel(count: number): string {
   const mod10 = count % 10;
