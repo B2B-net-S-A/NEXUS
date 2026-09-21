@@ -81,8 +81,10 @@ from app.schemas.candidate_stage_cv import (
     CVBrandedSelectGenerated,
     CVOriginalSnapshotResponse,
     CVShareTokenJobListItem,
+    CVShareTokensForRecruitment,
     CVShareTokenListItem,
     CVShareTokenResponse,
+    RecruitmentBrandedCvSummary,
 )
 from app.services import storage_service
 from app.services.candidate_stage_cv_service import (
@@ -1085,17 +1087,75 @@ async def list_cv_share_tokens(
     return [_token_list_item(r) for r in rows]
 
 
+async def _branded_cv_summary_for_pair(
+    db: AsyncSession, candidate_id: int, job_id: int
+) -> RecruitmentBrandedCvSummary:
+    """CV firmowe pary (kandydat, rekrutacja): sfinalizowane wygrywa ze szkicem.
+
+    Samo „najnowszy etap z CV firmowym" nie wystarcza: ``GET …/cv/branded``
+    zakłada szkic przy pierwszym odczycie, więc obejrzenie CV na PÓŹNIEJSZYM
+    etapie przykrywałoby szkicem sfinalizowane CV wysłane klientowi. W obrębie
+    tego samego statusu wygrywa najnowszy etap. Wołający sprawdził już dostęp
+    do rekrutacji.
+    """
+    row = (
+        await db.execute(
+            select(
+                CandidateStageCV.branded_status,
+                CandidateStageCV.branded_finalized_at,
+                CandidateStage.id,
+                CandidateStage.stage,
+                PipelineStageDef.name,
+            )
+            .join(
+                CandidateStage,
+                CandidateStage.id == CandidateStageCV.candidate_stage_id,
+            )
+            .outerjoin(
+                PipelineStageDef,
+                PipelineStageDef.id == CandidateStage.stage_def_id,
+            )
+            .where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == job_id,
+                CandidateStageCV.branded_status.in_(("draft", "finalized")),
+            )
+            .order_by(
+                (CandidateStageCV.branded_status == "finalized").desc(),
+                CandidateStage.moved_at.desc(),
+                CandidateStage.id.desc(),
+            )
+            .limit(1)
+        )
+    ).first()
+    if row is None:
+        return RecruitmentBrandedCvSummary()
+    status, finalized_at, stage_id, stage_enum, stage_def_name = row
+    return RecruitmentBrandedCvSummary(
+        status=status,
+        stage_id=stage_id,
+        stage_name=stage_def_name
+        or getattr(stage_enum, "value", None)
+        or str(stage_enum),
+        finalized_at=finalized_at if status == "finalized" else None,
+    )
+
+
 @router.get(
     "/pipeline/candidates/{candidate_id}/jobs/{job_id}/cv-share-tokens",
-    response_model=list[CVShareTokenJobListItem],
+    response_model=CVShareTokensForRecruitment,
 )
 async def list_cv_share_tokens_for_recruitment(
     candidate_id: int,
     job_id: int,
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
-) -> list[CVShareTokenJobListItem]:
+) -> CVShareTokensForRecruitment:
     """Linki do CV ze WSZYSTKICH etapów pary (kandydat, rekrutacja) — bez sekretów.
+
+    Odpowiedź niesie też ``branded_cv``: stan CV firmowego PARY, nie bieżącego
+    etapu. Sfinalizowane CV leży na etapie sprzed ruchu, więc odznaka czytana
+    per etap mówiła po „CV Wysłane" „brak".
 
     Link dla klienta leży na etapie SPRZED ruchu na „CV Wysłane" (ruch tworzy
     nowy ``CandidateStage`` bez dokumentu), więc lista per etap jest dla osoby
@@ -1168,7 +1228,10 @@ async def list_cv_share_tokens_for_recruitment(
         items.append(
             CVShareTokenJobListItem(**base, stage_id=stage_id, stage_name=stage_name)
         )
-    return items
+    return CVShareTokensForRecruitment(
+        items=items,
+        branded_cv=await _branded_cv_summary_for_pair(db, candidate_id, job_id),
+    )
 
 
 @router.delete("/candidates/stages/cv/share-token/{token}")

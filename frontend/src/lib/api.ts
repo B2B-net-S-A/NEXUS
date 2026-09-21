@@ -5538,6 +5538,22 @@ export interface CVShareTokenJobListItem extends CVShareTokenListItem {
   stage_name: string;
 }
 
+/**
+ * Stan CV firmowego PARY (kandydat, rekrutacja), nie bieżącego etapu —
+ * sfinalizowane CV leży na etapie sprzed ruchu na „CV Wysłane".
+ */
+export interface RecruitmentBrandedCvSummary {
+  status: "none" | "draft" | "finalized";
+  stage_id: number | null;
+  stage_name: string | null;
+  finalized_at: string | null;
+}
+
+export interface CVShareTokensForRecruitment {
+  items: CVShareTokenJobListItem[];
+  branded_cv: RecruitmentBrandedCvSummary;
+}
+
 export const candidateStageCvApi = {
   original: {
     get: (stageId: number) =>
@@ -5594,11 +5610,11 @@ export const candidateStageCvApi = {
       ),
     /**
      * Linki ze WSZYSTKICH etapów pary (kandydat, rekrutacja) — tylko odczyt,
-     * bez sekretów. Link dla klienta leży na etapie SPRZED ruchu na
+     * bez sekretów — oraz stan CV firmowego tej pary (`branded_cv`). Link dla klienta leży na etapie SPRZED ruchu na
      * „CV Wysłane", więc lista per etap jest na późniejszym etapie pusta.
      */
     listForRecruitment: (candidateId: number, jobId: number) =>
-      api.get<CVShareTokenJobListItem[]>(
+      api.get<CVShareTokensForRecruitment>(
         `/api/pipeline/candidates/${candidateId}/jobs/${jobId}/cv-share-tokens`,
       ),
     revoke: (tokenOrKey: string, reason?: string) =>

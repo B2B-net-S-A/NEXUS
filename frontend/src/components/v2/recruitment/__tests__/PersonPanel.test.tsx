@@ -374,11 +374,44 @@ describe("sekcja „Umowa” — podpowiedź „Obsada kompletna”", () => {
 
   it.each([
     ["obsada niepełna", { headcount: 3, enabled: true }],
-    ["nieznana obsada", { headcount: null, enabled: true }],
     ["rola bez `job.update` / tryb odczytu / rekrutacja zamknięta", { headcount: 2, enabled: false }],
   ])("nie pokazuje się: %s", (_name, over) => {
     render(<HeadcountFilledHint columns={hiredColumns} onRequestCloseJob={vi.fn()} {...over} />);
-    expect(screen.queryByRole("button", { name: /Obsada kompletna/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /zamknij rekrutację/ })).toBeNull();
+  });
+
+  it.each([[null], [0]])(
+    "obsada nieznana (%s): każde zatrudnienie podpowiada zamknięcie, bez twierdzenia o komplecie",
+    async (headcount) => {
+      const onRequestCloseJob = vi.fn();
+      render(
+        <HeadcountFilledHint
+          columns={template({ 9: [item(11)] })}
+          headcount={headcount}
+          enabled
+          onRequestCloseJob={onRequestCloseJob}
+        />,
+      );
+      const button = screen.getByRole("button", {
+        name: "Jest zatrudnienie — zamknij rekrutację, jeśli obsada jest kompletna",
+      });
+      expect(button).not.toHaveTextContent(/ z /);
+      expect(screen.queryByText(/Obsada kompletna/)).toBeNull();
+      await userEvent.click(button);
+      expect(onRequestCloseJob).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("obsada nieznana i nikt nie jest zatrudniony: podpowiedzi nie ma", () => {
+    render(
+      <HeadcountFilledHint
+        columns={template({ 6: [item(11)] })}
+        headcount={null}
+        enabled
+        onRequestCloseJob={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /zamknij rekrutację/ })).toBeNull();
   });
 
   it("panel podaje podpowiedzi kontekst strony: obsadę, bramkę `job.update` i akcję", async () => {

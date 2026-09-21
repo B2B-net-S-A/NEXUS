@@ -115,7 +115,8 @@ async def test_lists_links_from_every_stage_row_without_secrets(
         headers=app_auth_headers,
     )
     assert res.status_code == 200, res.text
-    items = res.json()
+    body = res.json()
+    items = body["items"]
     assert len(items) == 2
     # Linki leżą na etapie SPRZED ruchu — nie na bieżącym „CV Wysłane".
     assert {i["stage_id"] for i in items} == {seeded["verified_stage_id"]}
@@ -128,6 +129,90 @@ async def test_lists_links_from_every_stage_row_without_secrets(
     # Nigdy sekret: także dla linku legacy, którego klucz główny JEST sekretem.
     assert str(seeded["legacy_secret"]) not in res.text
     assert all(i["share_url_suffix"] is None for i in items)
+    # Para bez CV firmowego: jawne „none", nie brak pola.
+    assert body["branded_cv"] == {
+        "status": "none",
+        "stage_id": None,
+        "stage_name": None,
+        "finalized_at": None,
+    }
+
+
+async def _set_branded(stage_id: int, status: str) -> None:
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(
+                CandidateStageCV.candidate_stage_id == stage_id
+            )
+        )
+        if csv is None:
+            # Etap po ruchu nie ma wiersza CV — zakłada go dopiero odczyt.
+            stage = await db.get(CandidateStage, stage_id)
+            assert stage is not None
+            csv = CandidateStageCV(
+                candidate_stage_id=stage_id,
+                candidate_id=stage.candidate_id,
+                job_id=stage.job_id,
+            )
+            db.add(csv)
+        csv.branded_status = status
+        csv.branded_draft_html = "<p>cv</p>"
+        csv.branded_finalized_at = (
+            datetime.now(timezone.utc) if status == "finalized" else None
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_branded_cv_summary_points_at_the_stage_that_holds_it(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Po „CV Wysłane" bieżący etap nie ma CV firmowego — sfinalizowane leży wcześniej."""
+    seeded = await _seed()
+    await _set_branded(int(seeded["verified_stage_id"]), "finalized")
+    res = await app_client.get(
+        _URL.format(c=seeded["candidate_id"], j=seeded["job_id"]),
+        headers=app_auth_headers,
+    )
+    assert res.status_code == 200, res.text
+    branded = res.json()["branded_cv"]
+    assert branded["status"] == "finalized"
+    assert branded["stage_id"] == seeded["verified_stage_id"]
+    assert branded["stage_name"]
+    assert branded["finalized_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_auto_draft_on_a_later_stage_does_not_hide_the_finalized_cv(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`GET …/cv/branded` zakłada szkic przy odczycie — nie może przykryć wysłanego CV."""
+    seeded = await _seed()
+    await _set_branded(int(seeded["verified_stage_id"]), "finalized")
+    await _set_branded(int(seeded["sent_stage_id"]), "draft")
+    res = await app_client.get(
+        _URL.format(c=seeded["candidate_id"], j=seeded["job_id"]),
+        headers=app_auth_headers,
+    )
+    branded = res.json()["branded_cv"]
+    assert branded["status"] == "finalized"
+    assert branded["stage_id"] == seeded["verified_stage_id"]
+
+
+@pytest.mark.asyncio
+async def test_draft_only_pair_reports_a_draft_without_a_finalized_date(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    seeded = await _seed()
+    await _set_branded(int(seeded["sent_stage_id"]), "draft")
+    res = await app_client.get(
+        _URL.format(c=seeded["candidate_id"], j=seeded["job_id"]),
+        headers=app_auth_headers,
+    )
+    branded = res.json()["branded_cv"]
+    assert branded["status"] == "draft"
+    assert branded["stage_id"] == seeded["sent_stage_id"]
+    assert branded["finalized_at"] is None
 
 
 @pytest.mark.asyncio

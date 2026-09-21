@@ -361,19 +361,15 @@ describe("strona rekrutacji — poprawki po integracji v3", () => {
     expect(window.location.search).toContain("wintab=close");
   });
 
-  it("na widoku „Zlecenie i Champion” przycisk „Zlecenie” przewija do treści zamiast otwierać okno obok", async () => {
-    const scrollIntoView = vi.fn();
-    const original = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = scrollIntoView;
+  it("na widoku „Zlecenie i Champion” przycisk „Zlecenie” otwiera okno jak na pozostałych widokach", async () => {
     renderPage("tab=champion");
     await screen.findByTestId("champion-editor");
     const button = screen.getByTestId("open-order");
-    expect(button).toHaveAttribute("aria-current", "page");
+    expect(button).not.toHaveAttribute("aria-current");
     await userEvent.click(button);
-    expect(scrollIntoView).toHaveBeenCalled();
-    expect(seen.order).toMatchObject({ open: false });
-    expect(window.location.search).not.toContain("win=order");
-    expect(document.getElementById("job-champion-view")).toHaveFocus();
-    Element.prototype.scrollIntoView = original;
+    await waitFor(() => expect(seen.order).toMatchObject({ open: true }));
+    expect(window.location.search).toContain("win=order");
+    // Widok pod oknem zostaje — okno nie przełącza strony.
+    expect(screen.getByTestId("champion-editor")).toBeInTheDocument();
   });
 });

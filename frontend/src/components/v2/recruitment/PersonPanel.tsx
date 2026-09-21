@@ -339,11 +339,15 @@ interface CandidateHeaderDetail {
 }
 
 /**
- * „Obsada kompletna — zamknij rekrutację": po zatrudnieniu, gdy liczba
- * zatrudnionych dobiła do zamówionej obsady. Dawny krok 08 podpowiadał w tym
- * miejscu „Obsadzone przez nas"; w v3 akcja mieszka w oknie „Zlecenie", więc
- * podpowiedź tylko je otwiera — domyślny powód liczy tam ta sama reguła
- * (`hiredCount > 0` → „Obsadzone przez nas").
+ * Podpowiedź zamknięcia rekrutacji po zatrudnieniu. Dawny krok 08 podpowiadał
+ * „Obsadzone przez nas" po KAŻDYM zatrudnieniu; w v3 akcja mieszka w oknie
+ * „Zlecenie", więc podpowiedź tylko je otwiera — domyślny powód liczy tam ta
+ * sama reguła (`hiredCount > 0` → „Obsadzone przez nas").
+ *
+ * - obsada znana: pokazuje się, gdy zatrudnionych jest co najmniej tylu, ilu
+ *   zamówiono („Obsada kompletna · N z M");
+ * - obsada NIEZNANA: każde zatrudnienie liczy się jak komplet, ale tekst tego
+ *   nie twierdzi — nie wiemy, ilu osób szuka klient.
  */
 export function HeadcountFilledHint({
   columns,
@@ -356,18 +360,25 @@ export function HeadcountFilledHint({
   enabled: boolean;
   onRequestCloseJob?: () => void;
 }) {
-  if (!enabled || !onRequestCloseJob || headcount == null || headcount <= 0) return null;
+  if (!enabled || !onRequestCloseJob) return null;
   const hired = countHired(columns);
-  if (hired < headcount) return null;
+  const target = headcount != null && headcount > 0 ? headcount : null;
+  if (hired < (target ?? 1)) return null;
   return (
     <button
       type="button"
       onClick={onRequestCloseJob}
-      title={`Zatrudnionych: ${hired} z ${headcount}. Otwiera okno „Zlecenie" na zamknięciu rekrutacji.`}
+      title={`Zatrudnionych: ${hired}${target != null ? ` z ${target}` : ""}. Otwiera okno „Zlecenie" na zamknięciu rekrutacji.`}
       className="mb-3 flex w-full items-center justify-between gap-2 rounded-md border border-success/20 bg-success-muted px-3 py-2 text-left text-xs font-medium text-success-muted-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <span>Obsada kompletna — zamknij rekrutację</span>
-      <span className="tabular-nums opacity-80">{hired} z {headcount}</span>
+      <span>
+        {target != null
+          ? "Obsada kompletna — zamknij rekrutację"
+          : "Jest zatrudnienie — zamknij rekrutację, jeśli obsada jest kompletna"}
+      </span>
+      {target != null ? (
+        <span className="tabular-nums opacity-80">{hired} z {target}</span>
+      ) : null}
     </button>
   );
 }

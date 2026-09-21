@@ -19,9 +19,8 @@ import { AlertTriangle, FileText, Loader2 } from "lucide-react";
 import {
   candidateStageCvApi,
   screeningApi,
-  type CVBrandedState,
   type CVOriginalSnapshot,
-  type CVShareTokenJobListItem,
+  type CVShareTokensForRecruitment,
   type CVShareTokenListItem,
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -149,21 +148,21 @@ export function SavedCvView({
     queryKey: ["cv-original", item.id],
     queryFn: () => candidateStageCvApi.original.get(item.id).then((r) => r.data),
   });
-  const branded = useQuery<CVBrandedState>({
-    queryKey: ["cv-branded", item.id],
-    queryFn: () => candidateStageCvApi.branded.get(item.id).then((r) => r.data),
-  });
-  // Linki z CAŁEJ pary (kandydat, rekrutacja), nie z bieżącego etapu: link dla
-  // klienta leży na etapie SPRZED ruchu na „CV Wysłane", więc lista per etap
-  // była tu niemal zawsze pusta, choć klient miał działający link.
-  const links = useQuery<CVShareTokenJobListItem[]>({
+  // Linki ORAZ stan CV firmowego z CAŁEJ pary (kandydat, rekrutacja), nie
+  // z bieżącego etapu: link i sfinalizowane CV leżą na etapie SPRZED ruchu na
+  // „CV Wysłane", więc odczyt per etap mówił tu „brak", choć klient miał
+  // działający link do gotowego CV. (Odczyt per etap dodatkowo ZAKŁADA szkic
+  // CV firmowego na bieżącym etapie — podgląd tylko do odczytu nie może pisać.)
+  const pair = useQuery<CVShareTokensForRecruitment>({
     queryKey: ["cv-share-tokens-recruitment", item.candidate_id, jobId],
     queryFn: () =>
       candidateStageCvApi.share
         .listForRecruitment(item.candidate_id, jobId)
         .then((r) => r.data),
   });
-  const brandedStatus = branded.data?.status ?? "none";
+  const links = pair.data?.items ?? [];
+  const brandedCv = pair.data?.branded_cv;
+  const brandedStage = brandedCv?.stage_name ? ` · etap: ${brandedCv.stage_name}` : "";
 
   return (
     <section aria-label="CV i linki" className="space-y-3 text-[13px]">
@@ -173,7 +172,7 @@ export function SavedCvView({
       </p>
 
       <div className="flex flex-wrap items-center gap-1.5">
-        {original.isLoading || branded.isLoading ? (
+        {original.isLoading || pair.isLoading ? (
           <Loader2 className="size-3 animate-spin text-muted-foreground" aria-hidden />
         ) : null}
         {original.data ? (
@@ -183,11 +182,21 @@ export function SavedCvView({
             <Badge size="sm" variant="warning">Brak CV w momencie zgłoszenia</Badge>
           )
         ) : null}
-        {branded.isSuccess ? (
-          brandedStatus === "finalized" ? (
-            <Badge size="sm" variant="success">CV firmowe: gotowe</Badge>
-          ) : brandedStatus === "draft" ? (
-            <Badge size="sm" variant="info">CV firmowe: szkic</Badge>
+        {brandedCv ? (
+          brandedCv.status === "finalized" ? (
+            <Badge
+              size="sm"
+              variant="success"
+              title={
+                brandedCv.finalized_at
+                  ? `Zatwierdzone ${formatDate(brandedCv.finalized_at)}`
+                  : undefined
+              }
+            >
+              {`CV firmowe: gotowe${brandedStage}`}
+            </Badge>
+          ) : brandedCv.status === "draft" ? (
+            <Badge size="sm" variant="info">{`CV firmowe: szkic${brandedStage}`}</Badge>
           ) : (
             <Badge size="sm" variant="neutral">CV firmowe: brak</Badge>
           )
@@ -196,9 +205,6 @@ export function SavedCvView({
       {original.isError ? (
         <LoadError what="CV oryginalne" onRetry={() => void original.refetch()} />
       ) : null}
-      {branded.isError ? (
-        <LoadError what="CV firmowe" onRetry={() => void branded.refetch()} />
-      ) : null}
 
       <Button size="sm" variant="outline" className="justify-start" onClick={() => setOpenOriginal(true)}>
         <FileText className="size-3.5" aria-hidden /> Pokaż CV oryginalne
@@ -206,19 +212,19 @@ export function SavedCvView({
 
       <div className="space-y-1.5">
         <h4 className="text-xs font-semibold text-muted-foreground">Linki dla klienta</h4>
-        {links.isLoading ? (
+        {pair.isLoading ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Loader2 className="size-3 animate-spin" aria-hidden /> Wczytywanie…
           </p>
-        ) : links.isError ? (
-          <LoadError what="linki dla klienta" onRetry={() => void links.refetch()} />
-        ) : links.isSuccess && links.data.length === 0 ? (
+        ) : pair.isError ? (
+          <LoadError what="CV firmowe i linki dla klienta" onRetry={() => void pair.refetch()} />
+        ) : pair.isSuccess && links.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             W tej rekrutacji nie utworzono jeszcze linku dla klienta do CV tej osoby.
           </p>
         ) : (
           <ul className="space-y-1.5">
-            {(links.data ?? []).map((link) => (
+            {links.map((link) => (
               <li
                 key={link.revoke_key}
                 className="rounded-md border border-border bg-muted/20 px-2.5 py-1.5 text-xs"

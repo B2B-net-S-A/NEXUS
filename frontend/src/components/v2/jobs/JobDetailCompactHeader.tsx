@@ -84,10 +84,9 @@ interface JobDetailCompactHeaderProps {
   activeView: JobDetailView;
   onViewChange: (view: JobDetailView) => void;
   /**
-   * Okno „Zlecenie" (fakty, zespół, priorytet, portale, zamknięcie). Na pełnym
-   * widoku „Zlecenie i Champion" przycisk jest oznaczony jako bieżący i strona
-   * podaje tu przewinięcie do treści zamiast okna — okno obok tej samej
-   * treści byłoby drugim „Zleceniem" na jednym ekranie.
+   * Okno „Zlecenie" (fakty, zespół, priorytet, portale, zamknięcie) — tak samo
+   * na każdym widoku, także na „Zlecenie i Champion": portale, zespół
+   * i „Zamknij rekrutację" mieszkają wyłącznie w tym oknie.
    */
   onOpenOrder: () => void;
   /**
@@ -422,8 +421,7 @@ export function JobDetailCompactHeader({
             <Button
               type="button"
               size="sm"
-              variant={activeView === "champion" ? "secondary" : "outline"}
-              aria-current={activeView === "champion" ? "page" : undefined}
+              variant="outline"
               onClick={onOpenOrder}
               data-testid="open-order"
             >

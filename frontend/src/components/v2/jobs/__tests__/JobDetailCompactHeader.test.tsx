@@ -147,11 +147,11 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.getByTestId("view-people")).toHaveTextContent("Tabela0");
   });
 
-  it("pełny widok „Zlecenie i Champion”: żaden widok tabeli nie jest wciśnięty, „Zlecenie” jest bieżącą stroną", () => {
+  it("pełny widok „Zlecenie i Champion”: żaden widok tabeli nie jest wciśnięty, „Zlecenie” to zwykły przycisk okna", () => {
     renderHeader({ activeView: "champion" });
     expect(screen.getByTestId("view-people")).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByTestId("view-board")).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByTestId("open-order")).toHaveAttribute("aria-current", "page");
+    expect(screen.getByTestId("open-order")).not.toHaveAttribute("aria-current");
   });
 
   it("zamyka menu przed odroczonym otwarciem modala akcji", async () => {

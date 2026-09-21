@@ -164,6 +164,28 @@ class CVShareTokenJobListItem(CVShareTokenListItem):
     stage_name: str
 
 
+class RecruitmentBrandedCvSummary(BaseModel):
+    """Stan CV firmowego w przekroju CAŁEJ pary (kandydat, rekrutacja).
+
+    Sfinalizowane CV firmowe leży na etapie SPRZED ruchu na „CV Wysłane" —
+    bieżący wiersz etapu go nie ma, więc odznaka czytana per etap mówiła
+    „brak". ``status == "none"`` = żaden etap pary nie ma CV firmowego;
+    pozostałe pola są wtedy puste.
+    """
+
+    status: BrandedStatusLiteral = "none"
+    stage_id: Optional[int] = None
+    stage_name: Optional[str] = None
+    finalized_at: Optional[datetime] = None
+
+
+class CVShareTokensForRecruitment(BaseModel):
+    """Linki do CV pary (kandydat, rekrutacja) + stan jej CV firmowego."""
+
+    items: list[CVShareTokenJobListItem]
+    branded_cv: RecruitmentBrandedCvSummary
+
+
 class PublicCVView(BaseModel):
     """Public view brandowanego CV — TYLKO non-PII fields.
 

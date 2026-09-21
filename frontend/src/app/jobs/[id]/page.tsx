@@ -705,18 +705,10 @@ export default function JobDetailPage() {
         }
         activeView={activeView}
         onViewChange={selectView}
-        // Na pełnym widoku „Zlecenie i Champion" przycisk „Zlecenie" jest już
-        // bieżącą stroną — przewijamy do treści zamiast otwierać obok okno
-        // z tym samym zleceniem.
-        onOpenOrder={
-          activeView === "champion"
-            ? () => {
-                const target = document.getElementById("job-champion-view");
-                target?.scrollIntoView?.({ block: "start" });
-                target?.focus?.({ preventScroll: true });
-              }
-            : () => openSlideOver("order")
-        }
+        // „Zlecenie" otwiera okno na KAŻDYM widoku — także na „Zlecenie
+        // i Champion": portale, zespół i „Zamknij rekrutację" mieszkają tylko
+        // w tym oknie, więc muszą być osiągalne zewsząd.
+        onOpenOrder={() => openSlideOver("order")}
         onOpenAiTools={
           isAdmin && canWritePipeline ? () => setShowAiTools(true) : undefined
         }
@@ -1018,10 +1010,8 @@ export default function JobDetailPage() {
         // interpoluje fragmentów w runtime) — stąd gałęzie zamiast
         // wstrzykiwanej szerokości.
         <div
-          id="job-champion-view"
-          tabIndex={-1}
           className={cn(
-            "grid grid-cols-1 gap-4 focus-visible:outline-none",
+            "grid grid-cols-1 gap-4",
             championDockCollapsed
               ? "xl:grid-cols-[minmax(0,1fr)_44px] 2xl:grid-cols-[230px_minmax(0,1fr)_44px]"
               : "xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[230px_minmax(0,1fr)_360px]",

@@ -23,6 +23,8 @@ import { SavedCvView } from "@/components/v2/recruitment/PanelSavedViews";
 
 import { item } from "./recruitment-fixtures";
 
+const noBranded = { status: "none", stage_id: null, stage_name: null, finalized_at: null };
+
 const person = item(7, { name: "Marek", lastname: "Zieliński", stage: "cv_sent" });
 
 function mount() {
@@ -37,20 +39,22 @@ function mount() {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.originalGet.mockResolvedValue({ data: { has_snapshot: true } });
-  mocks.brandedGet.mockResolvedValue({ data: { status: "none" } });
 });
 
 describe("SavedCvView — linki dla klienta po „CV Wysłane”", () => {
   it("pyta o linki CAŁEJ pary (kandydat, rekrutacja), nie bieżącego etapu, i pokazuje etap linku", async () => {
     mocks.listForRecruitment.mockResolvedValue({
-      data: [
-        {
-          revoke_key: "v2$abc", token_preview: "v2 · abc123…", is_v2: true, revoked: false,
-          created_at: "2026-09-10T10:00:00Z", created_by_name: "Anna Nowak",
-          expires_at: "2099-01-01T00:00:00Z", view_count: 3, max_views: null,
-          stage_id: 555, stage_name: "Zweryfikowany",
-        },
-      ],
+      data: {
+        items: [
+          {
+            revoke_key: "v2$abc", token_preview: "v2 · abc123…", is_v2: true, revoked: false,
+            created_at: "2026-09-10T10:00:00Z", created_by_name: "Anna Nowak",
+            expires_at: "2099-01-01T00:00:00Z", view_count: 3, max_views: null,
+            stage_id: 555, stage_name: "Zweryfikowany",
+          },
+        ],
+        branded_cv: noBranded,
+      },
     });
     mount();
     expect(await screen.findByText("v2 · abc123…")).toBeInTheDocument();
@@ -62,7 +66,7 @@ describe("SavedCvView — linki dla klienta po „CV Wysłane”", () => {
   });
 
   it("pusta lista mówi o rekrutacji, a awaria nie udaje pustki", async () => {
-    mocks.listForRecruitment.mockResolvedValue({ data: [] });
+    mocks.listForRecruitment.mockResolvedValue({ data: { items: [], branded_cv: noBranded } });
     mount();
     expect(await screen.findByText(/W tej rekrutacji nie utworzono jeszcze linku/)).toBeInTheDocument();
   });
@@ -70,7 +74,47 @@ describe("SavedCvView — linki dla klienta po „CV Wysłane”", () => {
   it("awaria odczytu linków to alert z „Ponów”", async () => {
     mocks.listForRecruitment.mockRejectedValue(new Error("boom"));
     mount();
-    expect(await screen.findByText(/Nie udało się wczytać: linki dla klienta/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Nie udało się wczytać: CV firmowe i linki dla klienta/),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/nie utworzono jeszcze linku/)).toBeNull();
+    // Awaria nie udaje „brak CV firmowego".
+    expect(screen.queryByText(/CV firmowe: brak/)).toBeNull();
+  });
+});
+
+describe("SavedCvView — odznaka „CV firmowe” czyta PARĘ, nie bieżący etap", () => {
+  it("po „CV Wysłane” pokazuje gotowe CV z etapu, na którym leży", async () => {
+    mocks.listForRecruitment.mockResolvedValue({
+      data: {
+        items: [],
+        branded_cv: {
+          status: "finalized", stage_id: 555, stage_name: "Zweryfikowany",
+          finalized_at: "2026-09-10T10:00:00Z",
+        },
+      },
+    });
+    mount();
+    expect(await screen.findByText("CV firmowe: gotowe · etap: Zweryfikowany")).toBeInTheDocument();
+    expect(screen.queryByText(/CV firmowe: brak/)).toBeNull();
+    // Odczyt per etap ZAKŁADA szkic na bieżącym etapie — podgląd go nie woła.
+    expect(mocks.brandedGet).not.toHaveBeenCalled();
+  });
+
+  it("szkic i brak mają własne odznaki", async () => {
+    mocks.listForRecruitment.mockResolvedValue({
+      data: {
+        items: [],
+        branded_cv: { status: "draft", stage_id: 556, stage_name: "CV Wysłane", finalized_at: null },
+      },
+    });
+    mount();
+    expect(await screen.findByText("CV firmowe: szkic · etap: CV Wysłane")).toBeInTheDocument();
+  });
+
+  it("para bez CV firmowego: „brak”", async () => {
+    mocks.listForRecruitment.mockResolvedValue({ data: { items: [], branded_cv: noBranded } });
+    mount();
+    expect(await screen.findByText("CV firmowe: brak")).toBeInTheDocument();
   });
 });
