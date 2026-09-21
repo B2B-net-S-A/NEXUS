@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildJobSearchPrefill,
   buildJobSearchQueryText,
+  buildJobSearchTitleQuery,
   cleanQueryFragment,
   extractSkillNames,
   parseJobLocationCities,
@@ -242,5 +243,32 @@ describe("buildJobSearchPrefill", () => {
       remote_policy: "remote",
     });
     expect(prefill.location_cities).toEqual([]);
+  });
+});
+
+describe("wypełnienie z rekrutacji — test manualny 21.09.2026", () => {
+  it("„lub okolice” i nawiasy nie są miastem", () => {
+    expect(parseJobLocationCities("Warszawa lub okolice")).toEqual(["Warszawa"]);
+    expect(parseJobLocationCities("Kraków i okolica (hybrydowo)")).toEqual(["Kraków"]);
+    expect(parseJobLocationCities("Gdańsk + okolice")).toEqual(["Gdańsk"]);
+  });
+
+  it("alternatywy zapisane słowami to kilka miast", () => {
+    expect(parseJobLocationCities("Warszawa lub Kraków")).toEqual(["Warszawa", "Kraków"]);
+    expect(parseJobLocationCities("Warszawa / Remote")).toEqual(["Warszawa"]);
+  });
+
+  it("tytuł bez prefiksu klienta przed dwukropkiem", () => {
+    expect(
+      buildJobSearchTitleQuery({ title: "PKO BP: Programista Java Senior ZOB-2530" } as never),
+    ).toBe("Programista Java Senior");
+    expect(
+      buildJobSearchTitleQuery({ title: "Nordea: BCCM RRP: SP1 Business Analyst" } as never),
+    ).toBe("BCCM RRP: SP1 Business Analyst");
+  });
+
+  it("długi początek przed dwukropkiem zostaje (to nie prefiks klienta)", () => {
+    const title = "Specjalista do spraw analizy danych: hurtownie";
+    expect(buildJobSearchTitleQuery({ title } as never)).toBe(title);
   });
 });
