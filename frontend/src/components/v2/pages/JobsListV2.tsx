@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -10,6 +10,7 @@ import {
   Building2,
   ChevronRight,
   DollarSign,
+  Eye,
   LayoutGrid,
   Link2,
   List,
@@ -20,6 +21,7 @@ import {
   Sparkles,
   UserSquare2,
   Users,
+  X,
 } from "lucide-react";
 import api, { jobsApi } from "@/lib/api";
 import { cn, formatDate, formatRelativeTime } from "@/lib/utils";
@@ -51,6 +53,12 @@ import {
 } from "@/components/ui/select";
 import { OwnerBadge } from "@/components/v2/jobs/OwnerBadge";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
+import {
+  JobNeedsActionPill,
+  JobProposalsLink,
+  JobStageCounts,
+  STAGE_COUNTS_LEGEND,
+} from "@/components/v2/jobs/JobListCells";
 import { UserMultiSelect } from "@/components/v2/filters/UserMultiSelect";
 import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
 import { CompetenceCategoryMultiSelect } from "@/components/v2/filters/CompetenceCategoryMultiSelect";
@@ -60,6 +68,7 @@ import {
 } from "@/lib/filter-options";
 import { useUiStore } from "@/store/ui";
 import {
+  defaultSortForScope,
   encodeJobsListUrl,
   initialDeadlineFromUrl,
   initialFlagFromUrl,
@@ -77,14 +86,7 @@ import {
 import { extractSkills } from "@/lib/job-skills";
 import { classifyJobDeadline, formatDateOnly } from "@/lib/job-deadline";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
-import {
-  buildStageFunnel,
-  funnelRejectedTotal,
-  funnelTooltip,
-  funnelTotal,
-  stageSummaryOf,
-  type FunnelGroupKey,
-} from "@/lib/job-pipeline-funnel";
+import { stageSummaryOf } from "@/lib/job-pipeline-funnel";
 import { RECRUITMENT_TYPE_LABEL } from "@/lib/recruitment-type";
 import type {
   PriorityChannel,
@@ -128,20 +130,39 @@ const STATUS_LABEL: Record<string, string> = {
   lost: "Utracona",
 };
 
-// Kolor paska mini-lejka per grupa — WYŁĄCZNIE tokeny (`primary`/`success`/
-// `muted-foreground`), rosnąca nieprzezroczystość = postęp w lejku, `hired`
-// dostaje osobny odcień sukcesu (nie jest "dalszym stopniem" tego samego
-// koloru — to inny fakt: proces się udał).
-const FUNNEL_BAR_COLOR: Record<FunnelGroupKey, string> = {
-  new: "bg-muted-foreground/30",
-  screening: "bg-primary/40",
-  verified: "bg-primary/60",
-  with_client: "bg-primary/80",
-  contract: "bg-primary",
-  hired: "bg-success",
+type DeadlinePreset = JobDeadlinePreset;
+
+/** Od tej szerokości kolumna filtrów jest domyślnie rozwinięta (Tailwind `2xl`). */
+const FILTERS_AUTO_EXPAND_QUERY = "(min-width: 1536px)";
+
+type FiltersMode = "auto" | "expanded" | "collapsed";
+
+/**
+ * Siatka strony dla 3 stanów filtrów × 2 stanów doku. Pełne literały klas
+ * (Tailwind nie widzi sklejanych) — `auto` przełącza się CSS-em na `2xl`.
+ */
+const LAYOUT_GRID: Record<FiltersMode, { closed: string; open: string }> = {
+  expanded: {
+    closed: "lg:grid-cols-[230px_minmax(0,1fr)]",
+    open: "lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]",
+  },
+  collapsed: {
+    closed: "",
+    open: "xl:grid-cols-[minmax(0,1fr)_360px]",
+  },
+  // Tryb `auto` z otwartym dokiem CHOWA filtry: trzy kolumny na 1400 px
+  // ucinały tabeli termin i akcje. Jawnie rozwinięte filtry zostają.
+  auto: {
+    closed: "2xl:grid-cols-[230px_minmax(0,1fr)]",
+    open: "xl:grid-cols-[minmax(0,1fr)_360px]",
+  },
 };
 
-type DeadlinePreset = JobDeadlinePreset;
+const FILTERS_ASIDE_VISIBILITY: Record<FiltersMode, string> = {
+  expanded: "",
+  collapsed: "hidden",
+  auto: "hidden 2xl:block",
+};
 
 const DEADLINE_OPTIONS: { value: DeadlinePreset; label: string }[] = [
   { value: "any", label: "Termin: dowolny" },
@@ -156,6 +177,9 @@ type JobSortValue = JobSortFilterValue;
 type PriorityWorkFilter = "any" | "assigned" | "carry_over" | "either";
 
 const SORT_OPTIONS: { value: JobSortValue; label: string }[] = [
+  // `sort=attention`: najpierw rekrutacje z największą liczbą kandydatów
+  // czekających na ruch rekrutera (backend: `needs_action_count` DESC).
+  { value: "attention", label: "Wymaga uwagi" },
   { value: "newest", label: "Od najnowszej" },
   { value: "oldest", label: "Od najstarszej" },
   { value: "deadline", label: "Wg terminu" },
@@ -255,6 +279,57 @@ function deadlineParams(preset: DeadlinePreset): {
   return { deadline_from: isoLocal(today), deadline_to: isoLocal(addDays(30)) };
 }
 
+/**
+ * Klucze react-query listy — eksportowane, żeby harness `/preview/jobs-list-v3`
+ * zasiewał cache TYM SAMYM kluczem, którego używa komponent. Ręcznie przepisany
+ * klucz rozjeżdża się przy pierwszym dołożonym filtrze, a niezasiany klucz
+ * uruchamia `queryFn` → 401 → przerzut na /login.
+ */
+export interface JobsListQueryState {
+  search: string;
+  status: readonly JobStatusValue[];
+  type: JobTypeFilterValue;
+  mine: boolean;
+  responsibleIds: readonly number[];
+  clientIds: readonly number[];
+  ccIds: readonly number[];
+  needsSourcing: boolean;
+  activeInSearch: boolean;
+  deadline: JobDeadlinePreset;
+  openOnly: boolean;
+  noOwnerOnly: boolean;
+  sort: JobSortFilterValue;
+  priorityWork: "any" | "assigned" | "carry_over" | "either";
+  page: number;
+}
+
+export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
+  return [
+    "jobs-v2",
+    state.search,
+    state.status,
+    state.type,
+    state.mine ? 1 : 0,
+    state.responsibleIds,
+    state.clientIds,
+    state.ccIds,
+    state.needsSourcing ? 1 : 0,
+    state.activeInSearch ? 1 : 0,
+    state.deadline,
+    state.openOnly ? 1 : 0,
+    state.noOwnerOnly ? 1 : 0,
+    state.sort,
+    state.priorityWork,
+    state.page,
+  ];
+}
+
+/** Okno „Deadline ≤ 7 dni" liczy przeglądarka — ta sama para dat co filtr. */
+export function jobsQuickCountsQueryKey(): unknown[] {
+  const next7 = deadlineParams("next7");
+  return ["jobs-quick-counts", next7.deadline_from, next7.deadline_to];
+}
+
 /** Pigułka filtra w lewej kolumnie (makieta `.fp`) — Typ i Status. */
 function FilterPill({
   active,
@@ -336,7 +411,7 @@ function QuickFilterRow({
         )}
       />
       {/* Etykieta ZAWIJA się zamiast ucinać: przy czterocyfrowym liczniku
-          („Brak ownera requestu 4236") `truncate` zostawiał „Brak ownera req…",
+          („Brak właściciela 4236") `truncate` zostawiał „Brak ownera req…",
           a to ta sama etykieta, po której użytkownik rozpoznaje filtr. */}
       <span className="min-w-0 flex-1 leading-snug">{label}</span>
       {count != null && (
@@ -396,13 +471,17 @@ function initialsOf(name: string | null | undefined): string {
 /** Compact table presentation of the jobs list (alternative to the tile grid). */
 function JobsTable({
   items,
-  selectedId,
-  onSelect,
+  previewId,
+  onOpen,
+  onPreview,
   onInvite,
 }: {
   items: any[];
-  selectedId: number | null;
-  onSelect: (id: number) => void;
+  /** Rekrutacja otwarta w doku podglądu — jej wiersz jest podświetlony. */
+  previewId: number | null;
+  /** Klik w wiersz OTWIERA rekrutację (rekrutacja v3); dok ma własną ikonę. */
+  onOpen: (id: number, newTab: boolean) => void;
+  onPreview: (id: number) => void;
   /** `undefined` = brak capability `invite_link.create` — nie renderujemy akcji. */
   onInvite?: (id: number) => void;
 }) {
@@ -415,11 +494,14 @@ function JobsTable({
               się listę. Nic nie znika: nazwa klienta jest w tej samej komórce,
               z tą samą ikoną. */}
           <TableHead>Rekrutacja</TableHead>
-          <TableHead className="w-[150px]">Pipeline</TableHead>
+          <TableHead className="w-[200px]" title={STAGE_COUNTS_LEGEND}>
+            Etapy
+          </TableHead>
+          <TableHead className="w-[120px]">Wymaga ruchu</TableHead>
           <TableHead className="w-[130px]">Właściciel</TableHead>
           <TableHead>Status</TableHead>
           <TableHead className="w-[112px]">Deadline</TableHead>
-          <TableHead className="w-[36px]" />
+          <TableHead className="w-[64px]" />
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -427,50 +509,13 @@ function JobsTable({
           const statusVariant = STATUS_VARIANT[job.status] ?? "neutral";
           const statusLabel = STATUS_LABEL[job.status] ?? job.status;
           const deadlineInfo = classifyJobDeadline(job.deadline);
-          // `stage_breakdown` przychodzi z `GET /api/jobs?include_stage_counts=true`
-          // — JEDNO zapytanie GROUP BY na całą stronę, zero zapytań per wiersz.
-          // Jego brak (np. odpowiedź spoza kontraktu) cofa wiersz do starego
-          // paska `filled/target`, zamiast udawać pełny lejek zerami.
-          // `stage_columns` (kolumny szablonu) grupuje ta sama funkcja co
-          // szyny w szczegółach — jedna liczba pod jedną nazwą (UAT B33).
+          // `stage_columns`/`stage_breakdown` przychodzą z
+          // `GET /api/jobs?include_stage_counts=true` — JEDNO zapytanie GROUP BY
+          // na całą stronę, zero zapytań per wiersz. Ich brak (odpowiedź spoza
+          // kontraktu) cofa wiersz do paska `filled/target`, zamiast udawać
+          // pełny lejek zerami. Grupuje ta sama funkcja co szyny w szczegółach
+          // — jedna liczba pod jedną nazwą (UAT B33).
           const stageSummary = stageSummaryOf(job);
-          const hasStageBreakdown = stageSummary != null;
-          const funnelGroups = hasStageBreakdown
-            ? buildStageFunnel(stageSummary)
-            : [];
-          const funnelCount = funnelTotal(funnelGroups);
-          // Odrzuceni/wycofani są POZA sześcioma grupami paska (pokazuje
-          // postęp, nie odpady) — ale w tooltipie ma być widać, że byli.
-          const rejectedTotal = hasStageBreakdown
-            ? funnelRejectedTotal(stageSummary)
-            : 0;
-          // Suma za ukośnikiem obejmuje ZATRUDNIONYCH, a KPI „w procesie"
-          // w rekrutacji — nie (kolumny terminalne). Tooltip nazywa ją wprost,
-          // żeby „27" tutaj i „26" w rekrutacji nie czytały się jako ta sama
-          // liczba pod dwiema wartościami (B-B05).
-          const funnelTitle = [
-            hasStageBreakdown
-              ? `W pipeline łącznie (z zatrudnionymi): ${funnelCount}`
-              : null,
-            funnelTooltip(funnelGroups),
-            rejectedTotal > 0 ? `Odrzuceni/wycofani: ${rejectedTotal}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · ");
-          // „13·2·0 / 15" — nowi · screening · zweryfikowani / w pipeline łącznie
-          // (makieta „01 Lista"). Sama suma nie mówiła, czy piętnastu ludzi
-          // stoi na wejściu, czy jest już u klienta — a to jest cała różnica
-          // między „trzeba dzwonić" a „trzeba czekać".
-          const funnelHeadline = hasStageBreakdown
-            ? `${funnelGroups
-                .filter((g) =>
-                  (["new", "screening", "verified"] as FunnelGroupKey[]).includes(
-                    g.key,
-                  ),
-                )
-                .map((g) => g.count)
-                .join("·")} / ${funnelCount}`
-            : "";
           const targetCount = job.headcount ?? 1;
           const filledCount = job.candidate_count ?? 0;
           const legacyProgress = Math.min(
@@ -484,8 +529,12 @@ function JobsTable({
             <TableRow
               key={job.id}
               interactive={!locked}
-              selected={selectedId === job.id}
-              onClick={locked ? undefined : () => onSelect(job.id)}
+              selected={previewId === job.id}
+              onClick={
+                locked
+                  ? undefined
+                  : (e) => onOpen(job.id, e.metaKey || e.ctrlKey)
+              }
               aria-disabled={locked || undefined}
               title={
                 locked
@@ -559,33 +608,8 @@ function JobsTable({
                 </div>
               </TableCell>
               <TableCell>
-                {hasStageBreakdown ? (
-                  <div
-                    className="flex items-center gap-1.5"
-                    title={funnelTitle}
-                  >
-                    {/* Sześć osobnych słupków, nie jeden pasek dzielony
-                        proporcjonalnie (makieta „01 Lista"): proporcje przy
-                        jednym–dwóch kandydatach zamieniają się w kreskę,
-                        z której nie da się odczytać, ILE etapów jest w ogóle
-                        zajętych. Stała szerokość mówi to od razu. */}
-                    <div className="flex items-center gap-[2px]" aria-hidden="true">
-                      {funnelGroups.map((g) => (
-                        <span
-                          key={g.key}
-                          className={cn(
-                            "block h-3.5 w-[7px] rounded-[2px]",
-                            g.count > 0
-                              ? FUNNEL_BAR_COLOR[g.key]
-                              : "bg-border/60",
-                          )}
-                        />
-                      ))}
-                    </div>
-                    <span className="whitespace-nowrap font-mono text-[10px] tabular-nums text-muted-foreground">
-                      {funnelHeadline}
-                    </span>
-                  </div>
+                {stageSummary ? (
+                  <JobStageCounts summary={stageSummary} />
                 ) : (
                   <div className="flex items-center gap-2">
                     <div className="h-1.5 min-w-[48px] flex-1 overflow-hidden rounded-full bg-border/60">
@@ -601,6 +625,16 @@ function JobsTable({
                 )}
               </TableCell>
               <TableCell>
+                <div className="flex flex-col items-start gap-1">
+                  <JobNeedsActionPill count={job.needs_action_count} />
+                  <JobProposalsLink
+                    jobId={job.id}
+                    count={job.open_proposals_count}
+                    disabled={locked}
+                  />
+                </div>
+              </TableCell>
+              <TableCell>
                 <JobOwnerCell user={job.primary_owner ?? null} />
               </TableCell>
               <TableCell>
@@ -609,9 +643,9 @@ function JobsTable({
                     {statusLabel}
                   </Badge>
                   {job.tac_id == null && (
-                    <span title="Request nie ma jawnie wybranego ownera TAC">
+                    <span title="Rekrutacja nie ma jawnie wybranego opiekuna TAC">
                       <Badge size="sm" variant="warning">
-                        Brak ownera
+                        Brak właściciela
                       </Badge>
                     </span>
                   )}
@@ -671,6 +705,29 @@ function JobsTable({
                       <Link2 className="h-3.5 w-3.5" />
                     </button>
                   )}
+                  {/* Podgląd (dok gotowości) — osobna, dostępna z klawiatury
+                      akcja; klik w wiersz otwiera rekrutację. Wiersz bez
+                      dostępu nie ma podglądu: dok pytałby o detal → 403. */}
+                  {!locked && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPreview(job.id);
+                      }}
+                      aria-pressed={previewId === job.id}
+                      className={cn(
+                        "rounded-md p-1 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                        previewId === job.id
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
+                      )}
+                      title="Podgląd"
+                      aria-label={`Podgląd: ${job.title}`}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                   <ChevronRight
                     className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60"
                     aria-hidden="true"
@@ -724,7 +781,7 @@ export function JobsListV2() {
   const [openOnly, setOpenOnly] = useState(() =>
     initialFlagFromUrl(searchParams, "open"),
   );
-  // "Brak ownera requestu" jako FILTR (nie tylko badge, makieta „01 Lista").
+  // "Brak właściciela" jako FILTR (nie tylko badge, makieta „01 Lista").
   // Od 09.2026 filtruje SERWER (`owner_missing` w `GET /api/jobs`, predykat
   // `tac_id IS NULL`). Wcześniej zawężał wyłącznie już wczytaną stronę, więc
   // „63" obok nazwy filtra opisywało dwadzieścia widocznych wierszy, a nie
@@ -740,15 +797,40 @@ export function JobsListV2() {
   const [page, setPage] = useState(1);
   const [showAdd, setShowAdd] = useState(false);
   const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
-  // Dok "Gotowość zlecenia" — zaznaczenie liczone WZGLĘDEM widocznej listy
-  // (patrz `effSelectedJobId` niżej), tak jak `effSelectedId` w warsztacie C2
-  // (review #1380): zaznaczona rekrutacja odfiltrowana/spoza strony nie może
-  // zostawić doku bez podświetlonego wiersza.
-  const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
+  // Dok podglądu (gotowość rekrutacji) otwiera ikona „Podgląd" w wierszu —
+  // klik w wiersz OTWIERA rekrutację (rekrutacja v3). `null` = dok zamknięty,
+  // lista ma pełną szerokość. Zaznaczenie liczone WZGLĘDEM widocznej listy
+  // (patrz `effPreviewJobId` niżej): rekrutacja odfiltrowana albo spoza strony
+  // zamyka dok, zamiast zostawić go bez podświetlonego wiersza.
+  const [previewJobId, setPreviewJobId] = useState<number | null>(null);
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { showSuccess } = useToast();
   const jobsView = useUiStore((s) => s.jobsView);
   const setJobsView = useUiStore((s) => s.setJobsView);
+  // Kolumna filtrów: `null` = brak wyboru → domyślne wg szerokości okna
+  // (rozwinięta od `2xl`), liczone CSS-em, więc bez migotania przy hydracji.
+  const filtersPref = useUiStore((s) => s.jobsFiltersCollapsed);
+  const setFiltersCollapsed = useUiStore((s) => s.setJobsFiltersCollapsed);
+  const [wideViewport, setWideViewport] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(FILTERS_AUTO_EXPAND_QUERY);
+    const sync = () => setWideViewport(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+  const filtersMode: FiltersMode =
+    filtersPref == null ? "auto" : filtersPref ? "collapsed" : "expanded";
+  // Zmiana zakresu przestawia sortowanie TYLKO wtedy, gdy stało na wartości
+  // domyślnej poprzedniego zakresu — świadomy wybór użytkownika zostaje.
+  const changeScope = (nextMine: boolean) => {
+    if (nextMine === mine) return;
+    if (sort === defaultSortForScope(mine)) setSort(defaultSortForScope(nextMine));
+    setMine(nextMine);
+    setPage(1);
+  };
 
   // Do zapytania idzie wartość zdebouncowana, do inputa surowa — inaczej każde
   // naciśnięcie klawisza wysyłało request i przerzucało tabelę w stan ładowania.
@@ -807,23 +889,23 @@ export function JobsListV2() {
   const canInvite = can["invite_link.create"];
 
   const { data, isLoading, isError, isSuccess, error, refetch } = useQuery({
-    queryKey: ["jobs-v2",
-      debouncedSearch,
-      statusFilter,
-      typeFilter,
-      mine ? 1 : 0,
+    queryKey: jobsListQueryKey({
+      search: debouncedSearch,
+      status: statusFilter,
+      type: typeFilter,
+      mine,
       responsibleIds,
       clientIds,
       ccIds,
-      needsSourcing ? 1 : 0,
-      activeInSearch ? 1 : 0,
-      deadlinePreset,
-      openOnly ? 1 : 0,
-      noOwnerOnly ? 1 : 0,
+      needsSourcing,
+      activeInSearch,
+      deadline: deadlinePreset,
+      openOnly,
+      noOwnerOnly,
       sort,
-      priorityWorkFilter,
+      priorityWork: priorityWorkFilter,
       page,
-    ],
+    }),
     queryFn: () =>
       api
         .get("/api/jobs", {
@@ -864,7 +946,7 @@ export function JobsListV2() {
   // potrafiłby wypaść o dzień inaczej.
   const next7 = deadlineParams("next7");
   const { data: quickCounts } = useQuery({
-    queryKey: ["jobs-quick-counts", next7.deadline_from, next7.deadline_to],
+    queryKey: jobsQuickCountsQueryKey(),
     queryFn: () =>
       jobsApi
         .quickCounts({
@@ -883,59 +965,77 @@ export function JobsListV2() {
   // Filtry są w całości serwerowe — lista pokazuje dokładnie to, co przyszło.
   const visibleItems = items;
 
-  // Zaznaczenie doku liczone względem WIDOCZNEJ listy — zaznaczona rekrutacja
-  // odfiltrowana przez "Brak ownera requestu" albo spoza tej strony nie może
-  // zostawić doku bez podświetlonego wiersza (lustro `effSelectedId` w C2,
-  // page.tsx, review #1380). Dok domyślnie pokazuje pierwszy widoczny wiersz.
-  const effSelectedJobId: number | null = useMemo(() => {
-    if (
-      selectedJobId != null &&
-      visibleItems.some((j: any) => j.id === selectedJobId)
-    ) {
-      return selectedJobId;
-    }
-    // Domyślnie pierwszy wiersz, który da się OTWORZYĆ (`can_open` liczone
-    // per wiersz w `jobs.py`): dok strzelałby inaczej w `GET /api/jobs/{id}`
-    // → 403 na każdym wejściu Delivery Leada bez przypisań, bez kliknięcia.
-    // Filtr „Brak ownera requestu" zwraca dla DL WYŁĄCZNIE takie wiersze
-    // (para `(client_id, None)` nigdy nie jest w jego przypisaniach).
-    const openable = visibleItems.find((j: any) => j.can_open !== false);
-    return openable?.id ?? visibleItems[0]?.id ?? null;
-  }, [selectedJobId, visibleItems]);
-  const selectedListItem = visibleItems.find(
-    (j: any) => j.id === effSelectedJobId,
+  // Podgląd liczony względem WIDOCZNEJ listy i tylko dla wierszy, które da
+  // się otworzyć (`can_open` per wiersz w `jobs.py`): dok strzela w
+  // `GET /api/jobs/{id}`, więc wiersz bez dostępu kończyłby się 403.
+  const effPreviewJobId: number | null = useMemo(() => {
+    if (previewJobId == null) return null;
+    const row = visibleItems.find((j: any) => j.id === previewJobId);
+    return row && row.can_open !== false ? row.id : null;
+  }, [previewJobId, visibleItems]);
+  const previewListItem = visibleItems.find(
+    (j: any) => j.id === effPreviewJobId,
   );
+  const dockOpen = effPreviewJobId != null;
+
+  // `undefined` = jeszcze nie wiemy (SSR / brak matchMedia) — nie zgadujemy
+  // `aria-expanded`, układ i tak rozstrzyga CSS. W trybie `auto` otwarty dok
+  // chowa filtry (patrz `LAYOUT_GRID`).
+  const autoExpanded = (wide: boolean) => wide && !dockOpen;
+  const filtersExpanded: boolean | undefined =
+    filtersMode === "auto"
+      ? wideViewport == null
+        ? undefined
+        : autoExpanded(wideViewport)
+      : filtersMode === "expanded";
+  const toggleFilters = () => {
+    const expandedNow =
+      filtersMode === "auto"
+        ? typeof window.matchMedia === "function" &&
+          autoExpanded(window.matchMedia(FILTERS_AUTO_EXPAND_QUERY).matches)
+        : filtersMode === "expanded";
+    setFiltersCollapsed(expandedNow);
+  };
+
 
   // Nawigacja „N z M" w doku — strzałki przesuwają wybór po wierszach BIEŻĄCEJ
   // strony (makieta „01 Lista"). Świadomie nie przeskakują na kolejną stronę:
   // dok czyta `stage_breakdown` i `can_open` z wiersza, więc wyjście poza
   // wczytany zbiór zostawiłoby go bez danych, które ma pokazywać.
-  const selectedIndex = visibleItems.findIndex(
-    (j: any) => j.id === effSelectedJobId,
+  const previewableItems = visibleItems.filter((j: any) => j.can_open !== false);
+  const selectedIndex = previewableItems.findIndex(
+    (j: any) => j.id === effPreviewJobId,
   );
   const listNav =
-    selectedIndex >= 0 && visibleItems.length > 1
+    selectedIndex >= 0 && previewableItems.length > 1
       ? {
           index: selectedIndex + 1,
-          total: visibleItems.length,
+          total: previewableItems.length,
           onPrev: () => {
-            const prev = visibleItems[selectedIndex - 1];
-            if (prev) setSelectedJobId(prev.id);
+            const prev = previewableItems[selectedIndex - 1];
+            if (prev) setPreviewJobId(prev.id);
           },
           onNext: () => {
-            const next = visibleItems[selectedIndex + 1];
-            if (next) setSelectedJobId(next.id);
+            const next = previewableItems[selectedIndex + 1];
+            if (next) setPreviewJobId(next.id);
           },
         }
       : undefined;
 
+  const openJob = (id: number, newTab: boolean) => {
+    const href = `/jobs/${id}`;
+    if (newTab) window.open(href, "_blank", "noopener");
+    else router.push(href);
+  };
+
   // „Wszystkie filtry N" (makieta `.allfilters`) — ile zawężeń jest czynnych.
   // Wyszukiwarka jest POZA tą liczbą: stoi we własnym wierszu narzędzi nad
-  // listą i widać ją bez otwierania kolumny filtrów.
+  // listą i widać ją bez otwierania kolumny filtrów. ZAKRES („Moje" /
+  // „Wszystkie") też: ma własny, zawsze widoczny przełącznik, a „Moje" jest
+  // stanem domyślnym — liczony jako filtr dawałby „Filtry (1)" na starcie.
   const activeFilterCount =
     (typeFilter !== "all" ? 1 : 0) +
     statusFilter.length +
-    (mine ? 1 : 0) +
     (openOnly ? 1 : 0) +
     (needsSourcing ? 1 : 0) +
     (activeInSearch ? 1 : 0) +
@@ -982,7 +1082,8 @@ export function JobsListV2() {
   const resetFilters = () => {
     setTypeFilter("all");
     setStatusFilter([]);
-    setMine(false);
+    // „Wyczyść" wraca do stanu DOMYŚLNEGO listy, a ten to „Moje".
+    changeScope(true);
     setResponsibleIds([]);
     setClientIds([]);
     setCcIds([]);
@@ -1023,9 +1124,23 @@ export function JobsListV2() {
       </div>
 
       {/* Grid jak C2: lewa kolumna filtrów, środek, dok gotowości */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
-        {/* ── Lewa kolumna: filtry ─────────────────────────────────── */}
-        <aside className="space-y-4 self-start rounded-xl border border-border bg-card p-4">
+      <div
+        className={cn(
+          "grid grid-cols-1 gap-4",
+          LAYOUT_GRID[filtersMode][dockOpen ? "open" : "closed"],
+        )}
+      >
+        {/* ── Lewa kolumna: filtry (zwijana, stan w `store/ui.ts`) ──── */}
+        <aside
+          id="jobs-filters-rail"
+          aria-label="Filtry listy rekrutacji"
+          className={cn(
+            "space-y-4 self-start rounded-xl border border-border bg-card p-4",
+            filtersMode === "auto" && dockOpen
+              ? "hidden"
+              : FILTERS_ASIDE_VISIBILITY[filtersMode],
+          )}
+        >
           <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
             <SlidersHorizontal className="h-4 w-4 text-primary" />
             Filtry
@@ -1070,11 +1185,8 @@ export function JobsListV2() {
             </div>
             <QuickFilterRow
               active={mine}
-              onClick={() => {
-                setMine((p) => !p);
-                setPage(1);
-              }}
-              label="Moje projekty"
+              onClick={() => changeScope(!mine)}
+              label="Moje rekrutacje"
               count={quickCounts?.mine}
             />
             <QuickFilterRow
@@ -1114,7 +1226,7 @@ export function JobsListV2() {
                 setNoOwnerOnly((p) => !p);
                 setPage(1);
               }}
-              label="Brak ownera requestu"
+              label="Brak właściciela"
               count={quickCounts?.owner_missing}
               tone="danger"
               title="Bez opiekuna TAC"
@@ -1297,6 +1409,54 @@ export function JobsListV2() {
         {/* ── Środek: wyszukiwarka, sortowanie, lista/kafelki ───────── */}
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={toggleFilters}
+              aria-expanded={filtersExpanded}
+              aria-controls="jobs-filters-rail"
+              className="h-9"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Filtry
+              {activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+            </Button>
+            {/* Zakres: „Moje" jest domyślne; jawne „Wszystkie" żyje w adresie
+                jako `mine=0`. Liczniki są GLOBALNE (`/api/jobs/quick-counts`),
+                a ich brak to brak liczby, nie zero. */}
+            <div
+              className="flex items-center overflow-hidden rounded-md border border-border"
+              role="group"
+              aria-label="Zakres rekrutacji"
+            >
+              {(
+                [
+                  { value: true, label: "Moje", count: quickCounts?.mine },
+                  { value: false, label: "Wszystkie", count: quickCounts?.all },
+                ] as const
+              ).map((scope) => (
+                <button
+                  key={scope.label}
+                  type="button"
+                  onClick={() => changeScope(scope.value)}
+                  aria-pressed={mine === scope.value}
+                  className={cn(
+                    "flex h-9 items-center gap-1.5 px-3 text-sm transition-colors",
+                    mine === scope.value
+                      ? "bg-primary font-medium text-primary-foreground"
+                      : "text-muted-foreground hover:bg-primary/10",
+                  )}
+                >
+                  {scope.label}
+                  {scope.count != null && (
+                    <span className="text-xs tabular-nums opacity-80">
+                      {scope.count.toLocaleString("pl-PL")}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
             <div className="min-w-[240px] max-w-lg flex-1">
               <Input
                 leadingIcon={<Search className="h-4 w-4" />}
@@ -1316,7 +1476,7 @@ export function JobsListV2() {
               }}
             >
               <SelectTrigger className="h-9 w-[170px] font-medium">
-                <SelectValue placeholder="Od najnowszej" />
+                <SelectValue placeholder="Sortowanie" />
               </SelectTrigger>
               <SelectContent>
                 {SORT_OPTIONS.map((o) => (
@@ -1402,7 +1562,22 @@ export function JobsListV2() {
               {/* Pustka POD filtrem to inna wiadomość niż pusta baza —
                   „Utwórz pierwszą" pod aktywnym zawężeniem sugeruje, że
                   w systemie nie ma żadnej rekrutacji. */}
-              {activeFilterCount > 0 || debouncedSearch ? (
+              {mine && activeFilterCount === 0 && !debouncedSearch ? (
+                // „Moje" jest domyślne — osoba bez własnych rekrutacji (admin,
+                // Finanse) nie może zobaczyć tu „Brak rekrutacji": baza nie
+                // jest pusta, pusty jest tylko jej zakres.
+                <p className="text-sm text-muted-foreground">
+                  Nie prowadzisz teraz żadnej rekrutacji.{" "}
+                  <button
+                    type="button"
+                    onClick={() => changeScope(false)}
+                    className="text-primary hover:underline"
+                  >
+                    Pokaż wszystkie
+                  </button>
+                  .
+                </p>
+              ) : activeFilterCount > 0 || debouncedSearch ? (
                 <p className="text-sm text-muted-foreground">
                   Żadna rekrutacja nie pasuje do filtrów.{" "}
                   <button
@@ -1437,8 +1612,11 @@ export function JobsListV2() {
           ) : jobsView === "list" ? (
             <JobsTable
               items={visibleItems}
-              selectedId={effSelectedJobId}
-              onSelect={setSelectedJobId}
+              previewId={effPreviewJobId}
+              onOpen={openJob}
+              onPreview={(id) =>
+                setPreviewJobId((current) => (current === id ? null : id))
+              }
               onInvite={canInvite ? (id) => setInviteModalForJob(id) : undefined}
             />
           ) : (
@@ -1534,13 +1712,36 @@ export function JobsListV2() {
                               <Link2 className="h-3.5 w-3.5" />
                             </button>
                           )}
+                          {job.can_open !== false && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setPreviewJobId((current) =>
+                                  current === job.id ? null : job.id,
+                                );
+                              }}
+                              aria-pressed={effPreviewJobId === job.id}
+                              className={cn(
+                                "rounded-md p-1 transition-colors",
+                                effPreviewJobId === job.id
+                                  ? "bg-primary/10 text-primary"
+                                  : "text-muted-foreground hover:bg-primary/10 hover:text-primary",
+                              )}
+                              title="Podgląd"
+                              aria-label={`Podgląd: ${job.title}`}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                           <Badge size="sm" variant={statusVariant}>
                             {statusLabel}
                           </Badge>
                           {job.tac_id == null && (
-                            <span title="Request nie ma jawnie wybranego ownera TAC">
+                            <span title="Rekrutacja nie ma jawnie wybranego opiekuna TAC">
                               <Badge size="sm" variant="warning">
-                                Brak ownera requestu
+                                Brak właściciela
                               </Badge>
                             </span>
                           )}
@@ -1659,15 +1860,37 @@ export function JobsListV2() {
           )}
         </div>
 
-        {/* ── Prawy dok: Gotowość zlecenia ───────────────────────────── */}
-        <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
-          <JobReadinessDock
-            jobId={effSelectedJobId}
-            stageBreakdown={stageSummaryOf(selectedListItem)}
-            canOpen={selectedListItem?.can_open !== false}
-            listNav={listNav}
-          />
-        </aside>
+        {/* ── Prawy dok: podgląd gotowości — otwiera go ikona „Podgląd" ── */}
+        {dockOpen && (
+          <aside
+            aria-label="Podgląd rekrutacji"
+            className={cn(
+              "space-y-2 xl:sticky xl:top-4 xl:self-start",
+              filtersMode === "expanded" && "lg:col-span-2 xl:col-span-1",
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-xs font-medium text-muted-foreground">
+                Podgląd: {previewListItem?.title}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPreviewJobId(null)}
+                aria-label="Zamknij podgląd"
+                title="Zamknij podgląd"
+                className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <JobReadinessDock
+              jobId={effPreviewJobId}
+              stageBreakdown={stageSummaryOf(previewListItem)}
+              canOpen={previewListItem?.can_open !== false}
+              listNav={listNav}
+            />
+          </aside>
+        )}
       </div>
 
       {showAdd && (

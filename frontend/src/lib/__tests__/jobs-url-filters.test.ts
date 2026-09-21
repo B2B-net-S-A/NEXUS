@@ -13,6 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  defaultSortForScope,
   encodeJobsListUrl,
   initialDeadlineFromUrl,
   initialMineFromUrl,
@@ -60,8 +61,44 @@ describe("initialMineFromUrl", () => {
     expect(initialMineFromUrl(new URLSearchParams("mine=0"))).toBe(false);
   });
 
-  it("brak parametru = wyłączony", () => {
-    expect(initialMineFromUrl(new URLSearchParams("status=published"))).toBe(false);
+  it("brak parametru = „Moje” (domyślny zakres rekrutacji v3)", () => {
+    expect(initialMineFromUrl(new URLSearchParams("status=published"))).toBe(true);
+    expect(initialMineFromUrl(new URLSearchParams(""))).toBe(true);
+  });
+
+  it("jawne „Wszystkie” przeżywa zapis → odczyt (F5, link dla kolegi)", () => {
+    const qs = encodeJobsListUrl({
+      status: [],
+      mine: false,
+      type: "all",
+      deadline: "any",
+      sort: "newest",
+    });
+    expect(qs).toBe("mine=0");
+    expect(initialMineFromUrl(new URLSearchParams(qs))).toBe(false);
+  });
+});
+
+describe("domyślne sortowanie zależy od zakresu", () => {
+  it("„Moje” → „Wymaga uwagi”, „Wszystkie” → od najnowszej", () => {
+    expect(defaultSortForScope(true)).toBe("attention");
+    expect(defaultSortForScope(false)).toBe("newest");
+    expect(initialSortFromUrl(new URLSearchParams(""))).toBe("attention");
+    expect(initialSortFromUrl(new URLSearchParams("mine=0"))).toBe("newest");
+  });
+
+  it("domyślne sortowanie zakresu nie trafia do adresu, inne — tak", () => {
+    const base = { status: [], type: "all", deadline: "any" } as const;
+    expect(encodeJobsListUrl({ ...base, mine: true, sort: "attention" })).toBe("");
+    expect(encodeJobsListUrl({ ...base, mine: true, sort: "newest" })).toBe(
+      "sort=newest",
+    );
+    expect(encodeJobsListUrl({ ...base, mine: false, sort: "attention" })).toBe(
+      "mine=0&sort=attention",
+    );
+    expect(
+      initialSortFromUrl(new URLSearchParams("mine=0&sort=attention")),
+    ).toBe("attention");
   });
 });
 
@@ -79,7 +116,8 @@ describe("typ, termin, sortowanie w URL-u", () => {
     const params = new URLSearchParams("type=sales&deadline=jutro&sort=");
     expect(initialTypeFromUrl(params)).toBe("all");
     expect(initialDeadlineFromUrl(params)).toBe("any");
-    expect(initialSortFromUrl(params)).toBe("newest");
+    // Domyślne sortowanie ZAKRESU z tego samego adresu (tu: „Moje").
+    expect(initialSortFromUrl(params)).toBe("attention");
   });
 
   it("zapis → odczyt daje ten sam stan (przeżywa F5)", () => {
@@ -102,10 +140,10 @@ describe("typ, termin, sortowanie w URL-u", () => {
     expect(
       encodeJobsListUrl({
         status: [],
-        mine: false,
+        mine: true,
         type: "all",
         deadline: "any",
-        sort: "newest",
+        sort: "attention",
       }),
     ).toBe("");
   });
@@ -117,7 +155,8 @@ describe("typ, termin, sortowanie w URL-u", () => {
     );
     const params = new URLSearchParams(qs);
     expect(params.getAll("status")).toEqual([]);
-    expect(params.get("mine")).toBeNull();
+    // Jawne „Wszystkie" ZOSTAJE w adresie (inaczej F5 wracałoby do „Moich").
+    expect(params.get("mine")).toBe("0");
     expect(params.get("type")).toBe("tender");
     expect(params.get("foo")).toBe("bar");
   });
@@ -164,10 +203,10 @@ describe("pozostałe filtry listy w URL-u (audyt 17.09.2026)", () => {
     const qs = mod.encodeJobsListUrl(
       {
         status: [],
-        mine: false,
+        mine: true,
         type: "all",
         deadline: "any",
-        sort: "newest",
+        sort: "attention",
         q: "",
         responsibleIds: [],
         clientIds: [],

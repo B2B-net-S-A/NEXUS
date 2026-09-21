@@ -33,13 +33,16 @@ export function initialStatusFromUrl(
 }
 
 /**
- * `?mine=1` → true. Wszystko inne → false.
+ * Zakres listy: „Moje" jest DOMYŚLNE (rekrutacja v3) — adres bez parametru
+ * `mine` otwiera rekrutacje zalogowanej osoby. `?mine=0` to jawne „Wszystkie"
+ * i musi dać się zapisać w adresie, inaczej F5 albo link wysłany koledze
+ * wracałby po cichu do „Moich". `?mine=1` (stare linki) nadal znaczy „Moje".
  *
- * Pulpit linkuje `mine=0` właśnie po to, żeby pokazać wszystkie oferty —
+ * Pulpit linkuje `mine=0` właśnie po to, żeby pokazać wszystkie rekrutacje —
  * potraktowanie samej obecności parametru jako `true` odwróciłoby sens linku.
  */
 export function initialMineFromUrl(params: URLSearchParams): boolean {
-  return params.get("mine") === "1";
+  return params.get("mine") !== "0";
 }
 
 // ── Typ, termin, sortowanie (M03-B01) ─────────────────────────────────────
@@ -70,8 +73,23 @@ export const JOB_DEADLINE_PRESETS = [
 ] as const;
 export type JobDeadlinePreset = (typeof JOB_DEADLINE_PRESETS)[number];
 
-export const JOB_SORT_VALUES = ["newest", "oldest", "deadline"] as const;
+export const JOB_SORT_VALUES = [
+  "attention",
+  "newest",
+  "oldest",
+  "deadline",
+] as const;
 export type JobSortFilterValue = (typeof JOB_SORT_VALUES)[number];
+
+/**
+ * Domyślne sortowanie zależy od zakresu: w „Moich" pierwsze są rekrutacje,
+ * w których ruch należy do rekrutera (`sort=attention`), w „Wszystkich" —
+ * najnowsze, jak dotąd. Wartość domyślna dla danego zakresu NIE trafia do
+ * adresu, więc `/jobs` i `/jobs?mine=0` zostają czyste.
+ */
+export function defaultSortForScope(mine: boolean): JobSortFilterValue {
+  return mine ? "attention" : "newest";
+}
 
 function pickFromUrl<T extends string>(
   params: URLSearchParams,
@@ -98,9 +116,17 @@ export function initialDeadlineFromUrl(
   return pickFromUrl(params, "deadline", JOB_DEADLINE_PRESETS, "any");
 }
 
-/** `?sort=oldest` → `"oldest"`; brak/nieznana wartość → `"newest"`. */
+/**
+ * `?sort=oldest` → `"oldest"`; brak/nieznana wartość → domyślne sortowanie
+ * zakresu odczytanego z TEGO SAMEGO adresu (`defaultSortForScope`).
+ */
 export function initialSortFromUrl(params: URLSearchParams): JobSortFilterValue {
-  return pickFromUrl(params, "sort", JOB_SORT_VALUES, "newest");
+  return pickFromUrl(
+    params,
+    "sort",
+    JOB_SORT_VALUES,
+    defaultSortForScope(initialMineFromUrl(params)),
+  );
 }
 
 // ── Pozostałe filtry (audyt 17.09.2026) ────────────────────────────────────
@@ -193,9 +219,9 @@ const MANAGED_KEYS = [
  * więc lista bez zawężeń ma czysty adres `/jobs`. Parametry, którymi ta lista
  * nie zarządza, zostają nietknięte.
  *
- * `mine=0` z linku pulpitu znika — znaczy to samo co brak parametru, a
- * zostawienie go obok stanu, który użytkownik mógł już zmienić, dałoby URL
- * mówiący co innego niż ekran.
+ * Zakres: „Moje" jest domyślne, więc w adresie zapisujemy wyłącznie jawne
+ * „Wszystkie" (`mine=0`). Sortowanie: tylko gdy różni się od domyślnego dla
+ * bieżącego zakresu.
  */
 export function encodeJobsListUrl(
   state: JobsListUrlState,
@@ -204,10 +230,10 @@ export function encodeJobsListUrl(
   const next = new URLSearchParams(current);
   for (const key of MANAGED_KEYS) next.delete(key);
   for (const status of state.status) next.append("status", status);
-  if (state.mine) next.set("mine", "1");
+  if (!state.mine) next.set("mine", "0");
   if (state.type !== "all") next.set("type", state.type);
   if (state.deadline !== "any") next.set("deadline", state.deadline);
-  if (state.sort !== "newest") next.set("sort", state.sort);
+  if (state.sort !== defaultSortForScope(state.mine)) next.set("sort", state.sort);
   const q = state.q?.trim();
   if (q) next.set("q", q);
   for (const id of state.responsibleIds ?? []) next.append("responsible", String(id));

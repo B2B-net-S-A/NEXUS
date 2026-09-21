@@ -1345,6 +1345,8 @@ export const marketplaceApi = {
  * filtr listy (`jobs_*_clause` w `backend/app/api/jobs.py`).
  */
 export interface JobQuickCounts {
+  /** Cały rejestr — licznik segmentu „Wszystkie" (rekrutacja v3). */
+  all?: number;
   mine: number;
   open: number;
   needs_sourcing: number;

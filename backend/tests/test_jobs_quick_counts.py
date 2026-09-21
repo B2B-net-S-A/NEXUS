@@ -245,6 +245,7 @@ async def test_quick_counts_route_is_not_swallowed_by_the_job_id_path(
     response = await app_client.get("/api/jobs/quick-counts", headers=app_auth_headers)
     assert response.status_code == 200, response.text
     assert set(response.json()) == {
+        "all",
         "mine",
         "open",
         "needs_sourcing",

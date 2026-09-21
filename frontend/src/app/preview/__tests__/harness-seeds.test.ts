@@ -144,3 +144,42 @@ describe("/preview/recruitment-v3 zasiewa każdy stały klucz i nie ma sieci", (
     expect(harness).not.toMatch(/<ProposalsSegment\b(?!View)/);
   });
 });
+
+describe("/preview/jobs-list-v3 zasiewa listę TYMI SAMYMI kluczami co komponent", () => {
+  const harness = withoutComments(read("app/preview/jobs-list-v3/page.tsx"));
+  const list = withoutComments(read("components/v2/pages/JobsListV2.tsx"));
+
+  it("klucze listy i liczników pochodzą z funkcji komponentu, nie z kopii", () => {
+    // Klucz listy ma 16 elementów zależnych od stanu — ręczna kopia rozjechałaby
+    // się przy pierwszym dołożonym filtrze. Harness MUSI wołać te same funkcje.
+    for (const fn of ["jobsListQueryKey", "jobsQuickCountsQueryKey"]) {
+      expect(list).toMatch(new RegExp(`export function ${fn}\\(`));
+      expect(list).toMatch(new RegExp(`queryKey: ${fn}\\(`));
+      expect(harness).toMatch(new RegExp(`setQueryData\\(\\s*${fn}\\(`));
+    }
+    expect(harness).not.toContain('"jobs-v2"');
+  });
+
+  it("zasiewa stałe klucze rozwijanych filtrów kolumny", () => {
+    const missing: string[] = [];
+    for (const file of [
+      "components/v2/filters/ClientMultiSelect.tsx",
+      "components/v2/filters/UserMultiSelect.tsx",
+      "components/v2/filters/CompetenceCategoryMultiSelect.tsx",
+    ]) {
+      const keys = literalQueryKeys(read(file));
+      expect(keys.length, file).toBeGreaterThan(0);
+      for (const key of keys) {
+        if (!harness.replace(/\s+/g, " ").includes(key)) {
+          missing.push(`${file}: ${key}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("ma bezpiecznik sieci na zapytania doku, których nie zasiewa", () => {
+    expect(harness).toContain("interceptors.request.use");
+    expect(harness).toContain("interceptors.request.eject");
+  });
+});

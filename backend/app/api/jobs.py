@@ -1170,6 +1170,8 @@ async def jobs_quick_counts(
     row = (
         await db.execute(
             select(
+                # Cały rejestr — licznik segmentu „Wszystkie" obok „Moje".
+                func.count().label("all_jobs"),
                 func.count().filter(jobs_mine_clause(current_user)).label("mine"),
                 func.count().filter(jobs_open_only_clause()).label("open"),
                 func.count()
@@ -1187,6 +1189,7 @@ async def jobs_quick_counts(
     ).one()
 
     return {
+        "all": row.all_jobs,
         "mine": row.mine,
         "open": row.open,
         "needs_sourcing": row.needs_sourcing,

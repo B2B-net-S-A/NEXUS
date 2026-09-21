@@ -171,7 +171,7 @@ describe("JobsListV2 Priority Work", () => {
     })
   })
 
-  it("opisuje brak TAC-a jako brak ownera requestu, nie primary klienta", async () => {
+  it("opisuje brak TAC-a jako brak właściciela rekrutacji, nie primary klienta", async () => {
     getMock.mockResolvedValue({
       data: {
         items: [
@@ -192,9 +192,10 @@ describe("JobsListV2 Priority Work", () => {
 
     renderJobs()
 
+    // Filtr w kolumnie „Szybkie" i plakietka w wierszu — ta sama etykieta.
     expect(
-      await screen.findByText("Brak ownera requestu"),
-    ).toBeInTheDocument()
+      (await screen.findAllByText("Brak właściciela")).length,
+    ).toBeGreaterThan(0)
     expect(screen.queryByText(/primary TAC/i)).not.toBeInTheDocument()
   })
 })

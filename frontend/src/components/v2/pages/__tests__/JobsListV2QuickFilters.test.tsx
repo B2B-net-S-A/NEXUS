@@ -4,7 +4,7 @@
  * Zakres tego pliku: NOWA logika tego PR-a — filtry „Szybkie" wysyłają te
  * SAME parametry zapytania co dziś (tylko przeniesione z rzędu pigułek do
  * pionowej listy w aside), `include_stage_counts` jest zawsze włączone, a
- * „Brak ownera requestu" zawęża WYŁĄCZNIE bieżącą, już wczytaną stronę (bez
+ * „Brak właściciela" zawęża WYŁĄCZNIE bieżącą, już wczytaną stronę (bez
  * dodatkowego zapytania). `JobReadinessDock` jest zamockowany — ma własny
  * plik testów i nie jest przedmiotem tego pliku.
  */
@@ -30,8 +30,10 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+const pushMock = vi.fn();
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: pushMock }),
   useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -119,6 +121,7 @@ function mockJobsResponse(items: ReturnType<typeof jobRow>[]) {
 function mockQuickCounts(overrides: Record<string, number> = {}) {
   quickCountsMock.mockResolvedValue({
     data: {
+      all: 4241,
       mine: 12,
       open: 318,
       needs_sourcing: 41,
@@ -284,7 +287,7 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
   });
 });
 
-describe("JobsListV2 — „Brak ownera requestu” filtruje SERWER", () => {
+describe("JobsListV2 — „Brak właściciela” filtruje SERWER", () => {
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
@@ -301,10 +304,10 @@ describe("JobsListV2 — „Brak ownera requestu” filtruje SERWER", () => {
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
 
-    // `getByRole("button", ...)`, NIE `getByText` — wiersz bez ownera ma
-    // WŁASNY badge „Brak ownera" (status), więc tekst wychodzi dwukrotnie.
+    // `getByRole("button", ...)`, NIE `getByText` — wiersz bez opiekuna TAC ma
+    // WŁASNY badge „Brak właściciela" (status), więc tekst wychodzi dwukrotnie.
     await user.click(
-      screen.getByRole("button", { name: /Brak ownera requestu/ }),
+      screen.getByRole("button", { name: /Brak właściciela/ }),
     );
 
     await waitFor(() => {
@@ -326,11 +329,11 @@ describe("JobsListV2 — liczniki filtrów „Szybkie”", () => {
     renderJobs();
 
     const expected: [RegExp, string][] = [
-      [/Moje projekty/, "12"],
+      [/Moje rekrutacje/, "12"],
       [/Niezamknięte/, "318"],
       [/Potrzebny search/, "41"],
       [/Aktywni w searchu/, "27"],
-      [/Brak ownera requestu/, "63"],
+      [/Brak właściciela/, "63"],
       [/Deadline ≤ 7 dni/, "9"],
     ];
     for (const [label, count] of expected) {
@@ -361,7 +364,7 @@ describe("JobsListV2 — liczniki filtrów „Szybkie”", () => {
     quickCountsMock.mockRejectedValue(new Error("boom"));
     renderJobs();
 
-    const row = await screen.findByRole("button", { name: /Moje projekty/ });
+    const row = await screen.findByRole("button", { name: /Moje rekrutacje/ });
     expect(within(row).queryByText("0")).not.toBeInTheDocument();
     // Sam filtr działa dalej — licznik jest dodatkiem, nie warunkiem.
     expect(row).toBeEnabled();
@@ -400,7 +403,7 @@ describe("JobsListV2 — status jako pigułki", () => {
   });
 });
 
-describe("JobsListV2 — mini-lejek pipeline'u w wierszu", () => {
+describe("JobsListV2 — liczby per grupa etapów w wierszu", () => {
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
@@ -408,23 +411,192 @@ describe("JobsListV2 — mini-lejek pipeline'u w wierszu", () => {
     useUiStore.setState({ jobsView: "list" });
   });
 
-  it("pokazuje „nowi·screening·zweryfikowani / w procesie”, bez rejected/withdrawn", async () => {
+  it("pokazuje sześć liczb w kolejności lejka, bez rejected/withdrawn", async () => {
     mockJobsResponse([
       jobRow({
         stage_breakdown: { new: 3, screening: 2, hired: 1, rejected: 5 },
       }),
     ]);
     renderJobs();
-    // 3 + 2 + 1 = 6 w procesie, `rejected` poza sześcioma grupami; przed
-    // makietą „01 Lista" wiersz pokazywał samą sumę, więc nie dawało się
-    // odczytać, czy ludzie stoją na wejściu, czy są już u klienta.
-    expect(await screen.findByText("3·2·0 / 6")).toBeInTheDocument();
+    const cell = await screen.findByTestId("job-stage-counts");
+    expect(cell).toHaveAccessibleName(
+      "Etapy: Nowi 3, Screening 2, Zweryfikowani 0, U klienta 0, Umowa 0, Zatrudnieni 1",
+    );
+    // `rejected` jest poza sześcioma grupami — nigdzie nie ma „5".
+    expect(within(cell).queryByText("5")).not.toBeInTheDocument();
+  });
+
+  it("tooltip grupy wymienia PEŁNE nazwy etapów szablonu z liczbami", async () => {
+    mockJobsResponse([
+      jobRow({
+        stage_columns: [
+          { stage: "new", name: "Nowy", count: 2, category: "internal", order: 0 },
+          { stage: "screening", name: "Screening", count: 1, category: "internal", order: 1 },
+          { stage: "new", name: "Przepuszczony przez DZ", count: 4, category: "internal", order: 2 },
+          { stage: "verified", name: "Zweryfikowany", count: 1, category: "internal", order: 3 },
+        ],
+      }),
+    ]);
+    renderJobs();
+    const cell = await screen.findByTestId("job-stage-counts");
+    const verified = cell.querySelector('[data-group="verified"]') as HTMLElement;
+    expect(verified).toHaveTextContent("5");
+    expect(verified.getAttribute("title")).toBe(
+      "Zweryfikowani: Przepuszczony przez DZ 4 · Zweryfikowany 1",
+    );
   });
 
   it("bez `stage_breakdown` cofa się do paska filled/target, nie chowa kolumny", async () => {
     mockJobsResponse([jobRow({ stage_breakdown: undefined, headcount: 3 })]);
     renderJobs();
     expect(await screen.findByText("0/3")).toBeInTheDocument();
+  });
+});
+
+describe("JobsListV2 — „Wymaga ruchu” i propozycje", () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    quickCountsMock.mockReset();
+    mockQuickCounts();
+    useUiStore.setState({ jobsView: "list" });
+  });
+
+  it("ton pigułki zależy od liczby, a zero to wyszarzone „na bieżąco”", async () => {
+    mockJobsResponse([
+      jobRow({ id: 1, title: "Zero", needs_action_count: 0 }),
+      jobRow({ id: 2, title: "Kilka", needs_action_count: 3 }),
+      jobRow({ id: 3, title: "Zaległość", needs_action_count: 7 }),
+    ]);
+    renderJobs();
+    await screen.findByText("Zero");
+    const pills = screen.getAllByTestId("job-needs-action");
+    expect(pills.map((p) => [p.textContent, p.dataset.tone])).toEqual([
+      ["na bieżąco", "muted"],
+      ["3 do ruchu", "warning"],
+      ["7 do ruchu", "danger"],
+    ]);
+  });
+
+  it("bez pola w odpowiedzi pokazuje kreskę, nie „na bieżąco” (brak wiedzy ≠ zero)", async () => {
+    mockJobsResponse([jobRow({ title: "Stary backend" })]);
+    renderJobs();
+    await screen.findByText("Stary backend");
+    expect(screen.queryByTestId("job-needs-action")).not.toBeInTheDocument();
+  });
+
+  it("„+N propozycji” linkuje do segmentu propozycji i znika przy zerze", async () => {
+    mockJobsResponse([
+      jobRow({ id: 11, title: "Z propozycjami", open_proposals_count: 3 }),
+      jobRow({ id: 12, title: "Bez propozycji", open_proposals_count: 0 }),
+    ]);
+    renderJobs();
+    const link = await screen.findByRole("link", { name: "+3 propozycje" });
+    expect(link).toHaveAttribute("href", "/jobs/11?tab=people&seg=proposals");
+    expect(screen.queryByText(/\+0 propozycj/)).not.toBeInTheDocument();
+  });
+});
+
+describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    quickCountsMock.mockReset();
+    mockQuickCounts();
+    useUiStore.setState({ jobsView: "list" });
+    mockJobsResponse([jobRow()]);
+    window.history.replaceState(null, "", "/jobs");
+  });
+
+  it("bez parametru w adresie startuje w „Moich”, posortowana wg „Wymaga uwagi”", async () => {
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(latestParams()).toMatchObject({ mine: true, sort: "attention" });
+    expect(window.location.search).toBe("");
+  });
+
+  it("segment pokazuje liczniki z quick-counts", async () => {
+    renderJobs();
+    const scope = within(
+      await screen.findByRole("group", { name: "Zakres rekrutacji" }),
+    );
+    await waitFor(() => {
+      expect(scope.getByRole("button", { name: /Moje\s*12/ })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
+    expect(
+      scope.getByRole("button", { name: /Wszystkie\s*4\s?241/ }),
+    ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("„Wszystkie” zdejmuje `mine`, wraca do „Od najnowszej” i zapisuje mine=0 w adresie", async () => {
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    const scope = within(screen.getByRole("group", { name: "Zakres rekrutacji" }));
+
+    await user.click(scope.getByRole("button", { name: /Wszystkie/ }));
+
+    await waitFor(() => {
+      expect(latestParams().mine).toBeUndefined();
+      expect(latestParams()).toMatchObject({ sort: "newest" });
+    });
+    await waitFor(() => expect(window.location.search).toBe("?mine=0"));
+  });
+
+  it("pusty zakres „Moje” nie udaje pustej bazy — proponuje „Pokaż wszystkie”", async () => {
+    mockJobsResponse([]);
+    const user = userEvent.setup();
+    renderJobs();
+    expect(
+      await screen.findByText(/Nie prowadzisz teraz żadnej rekrutacji/),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Pokaż wszystkie" }));
+    await waitFor(() => expect(latestParams().mine).toBeUndefined());
+  });
+});
+
+describe("JobsListV2 — zwijana kolumna filtrów", () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    quickCountsMock.mockReset();
+    mockQuickCounts();
+    useUiStore.setState({ jobsView: "list", jobsFiltersCollapsed: false });
+    mockJobsResponse([jobRow()]);
+    window.history.replaceState(null, "", "/jobs");
+  });
+
+  it("przycisk „Filtry (N)” liczy czynne zawężenia (bez zakresu) i zwija kolumnę", async () => {
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    const toggle = screen.getByRole("button", { name: "Filtry" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(screen.getByText("Niezamknięte"));
+    const counted = await screen.findByRole("button", { name: "Filtry (1)" });
+
+    await user.click(counted);
+    expect(useUiStore.getState().jobsFiltersCollapsed).toBe(true);
+    expect(counted).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.getByRole("complementary", {
+        name: "Filtry listy rekrutacji",
+        hidden: true,
+      }),
+    ).toHaveClass("hidden");
+  });
+
+  it("bez zapisanego wyboru kolumna idzie za szerokością okna (CSS `2xl`)", async () => {
+    useUiStore.setState({ jobsFiltersCollapsed: null });
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(
+      screen.getByRole("complementary", {
+        name: "Filtry listy rekrutacji",
+        hidden: true,
+      }),
+    ).toHaveClass("hidden", "2xl:block");
   });
 });
 
@@ -447,38 +619,58 @@ describe("JobsListV2 — widok kafelków (domyślny)", () => {
   });
 });
 
-describe("JobsListV2 — dok pokazuje pierwszy widoczny wiersz", () => {
+describe("JobsListV2 — klik w wiersz otwiera rekrutację, dok ma ikonę „Podgląd”", () => {
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
+    pushMock.mockReset();
     mockQuickCounts();
     useUiStore.setState({ jobsView: "list" });
   });
 
-  it("przekazuje id pierwszego wiersza do JobReadinessDock, gdy nic nie jest jawnie zaznaczone", async () => {
-    mockJobsResponse([jobRow({ id: 42, title: "Pierwszy w kolejności" })]);
+  it("klik w wiersz prowadzi do /jobs/{id}, a dok nie otwiera się sam", async () => {
+    mockJobsResponse([jobRow({ id: 42, title: "Pierwsza w kolejności" })]);
+    const user = userEvent.setup();
     renderJobs();
-    await screen.findByText("Pierwszy w kolejności");
-    expect(await screen.findByTestId("mock-dock")).toHaveTextContent("dock:42");
+    const title = await screen.findByText("Pierwsza w kolejności");
+    expect(screen.queryByTestId("mock-dock")).not.toBeInTheDocument();
+
+    await user.click(title.closest("tr") as HTMLElement);
+    expect(pushMock).toHaveBeenCalledWith("/jobs/42");
+    expect(screen.queryByTestId("mock-dock")).not.toBeInTheDocument();
   });
 
-  it("podaje dokowi nawigację „N z M” po wierszach bieżącej strony", async () => {
+  it("„Podgląd” otwiera dok z tą rekrutacją, nie nawiguje, i zamyka się z klawiatury", async () => {
     mockJobsResponse([
       jobRow({ id: 1, title: "Pierwsza" }),
       jobRow({ id: 2, title: "Druga" }),
       jobRow({ id: 3, title: "Trzecia" }),
     ]);
+    const user = userEvent.setup();
     renderJobs();
     await screen.findByText("Pierwsza");
 
-    expect(await screen.findByTestId("mock-nav")).toHaveTextContent("nav:1/3");
+    const preview = screen.getByRole("button", { name: "Podgląd: Druga" });
+    preview.focus();
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByTestId("mock-dock")).toHaveTextContent("dock:2");
+    expect(screen.getByTestId("mock-nav")).toHaveTextContent("nav:2/3");
+    expect(preview).toHaveAttribute("aria-pressed", "true");
+    expect(pushMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Zamknij podgląd" }));
+    expect(screen.queryByTestId("mock-dock")).not.toBeInTheDocument();
   });
 
   it("nie podaje nawigacji, gdy strona ma jeden wiersz — „1 z 1” to nie nawigacja", async () => {
     mockJobsResponse([jobRow({ id: 9, title: "Jedyna" })]);
+    const user = userEvent.setup();
     renderJobs();
     await screen.findByText("Jedyna");
+    await user.click(screen.getByRole("button", { name: "Podgląd: Jedyna" }));
 
+    expect(await screen.findByTestId("mock-dock")).toHaveTextContent("dock:9");
     expect(screen.queryByTestId("mock-nav")).not.toBeInTheDocument();
   });
 });
@@ -510,5 +702,13 @@ describe("JobsListV2 — wiersz bez dostępu (can_open === false)", () => {
 
     const openLink = screen.getByRole("link", { name: "Otwarta" });
     expect(openLink).not.toHaveAttribute("aria-disabled");
+
+    // Wiersz bez dostępu nie nawiguje po kliknięciu i nie ma „Podglądu”
+    // (dok pytałby o detal → 403).
+    const user = userEvent.setup();
+    await user.click(row);
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Podgląd: Cudza" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Podgląd: Otwarta" })).toBeEnabled();
   });
 });
