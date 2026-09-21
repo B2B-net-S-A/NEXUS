@@ -4684,7 +4684,7 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_jarvis_conversation_entities_entity "
     "ON jarvis_conversation_entities (entity_type, entity_id)",
-    # 0330: skrzynka „Propozycje" rekrutacji. `run_id` bez FK (przeglądy kasuje
+    # 0331: skrzynka „Propozycje" rekrutacji. `run_id` bez FK (przeglądy kasuje
     # retencja); kandydat i rekrutacja CASCADE (twarde usunięcie kandydata
     # zabiera jego propozycje). Lustro 1:1 z migracją — `test_job_proposals.py`.
     """CREATE TABLE IF NOT EXISTS job_proposals (

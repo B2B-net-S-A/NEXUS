@@ -1,4 +1,4 @@
-"""Propozycje kandydatów do rekrutacji (skrzynka „Propozycje", migracja 0330).
+"""Propozycje kandydatów do rekrutacji (skrzynka „Propozycje", migracja 0331).
 
 ``job_proposals`` — kandydat zaproponowany do rekrutacji przez JEDNO źródło
 (pełny przegląd bazy, nowe CV, podobne projekty, rekomendacje, targ).

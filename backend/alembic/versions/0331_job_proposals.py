@@ -1,7 +1,7 @@
 """Skrzynka „Propozycje" rekrutacji: job_proposals.
 
-Revision ID: 0330_job_proposals
-Revises: 0329_candidate_search_completed_notif
+Revision ID: 0331_job_proposals
+Revises: 0330_jarvis
 
 - ``job_proposals`` — kandydat zaproponowany do rekrutacji przez jedno źródło;
   UNIQUE (job_id, candidate_id, source). ``run_id`` bez FK — przeglądy kasuje
@@ -20,8 +20,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision = "0330_job_proposals"
-down_revision = "0329_candidate_search_completed_notif"
+revision = "0331_job_proposals"
+down_revision = "0330_jarvis"
 branch_labels = None
 depends_on = None
 
