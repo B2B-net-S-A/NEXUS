@@ -150,6 +150,49 @@ def test_contract_export_row_shape_and_values():
     assert by["Status przedłużenia"] == "tak"
 
 
+def test_contract_export_row_contact_matches_contract_card_rule():
+    """E-mail/Telefon = ta sama reguła co karta kontraktu: nadpisanie z umowy
+    wygrywa, pusty kontakt na umowie spada do profilu kandydata."""
+    c = _in_memory_contract()
+    c.candidate_email = "umowa@example.com"
+    c.candidate_phone = None
+    _stub_relations(
+        c,
+        candidate=SimpleNamespace(
+            name="Jan",
+            lastname="Kowalski",
+            email="profil@example.com",
+            phone="+48 600 100 200",
+        ),
+    )
+    row = _contract_export_row(c, None, date(2026, 3, 1))
+    by = dict(zip(_CONTRACT_EXPORT_COLUMNS, row))
+    assert by["E-mail"] == "umowa@example.com"
+    assert by["Telefon"] == "+48 600 100 200"
+
+
+@pytest.mark.parametrize("candidate", [None, "empty_profile"])
+def test_contract_export_row_contact_empty_without_data(candidate):
+    """Brak kontaktu na umowie i w profilu (także umowa bez kandydata) =
+    puste komórki, bez błędu eksportu."""
+    c = _in_memory_contract()
+    c.candidate_email = "   "
+    c.candidate_phone = None
+    _stub_relations(
+        c,
+        candidate=(
+            None
+            if candidate is None
+            else SimpleNamespace(name="Jan", lastname="K", email=None, phone="")
+        ),
+    )
+    row = _contract_export_row(c, None, date(2026, 3, 1))
+    assert len(row) == len(_CONTRACT_EXPORT_COLUMNS)
+    by = dict(zip(_CONTRACT_EXPORT_COLUMNS, row))
+    assert by["E-mail"] == ""
+    assert by["Telefon"] == ""
+
+
 def test_contract_export_row_effective_rate_uses_current_schedule_step():
     """A past rate step overrides the legacy column; a future step does not."""
     c = _in_memory_contract()
@@ -303,6 +346,10 @@ async def test_export_defaults_to_xlsx_with_client_rates_and_order_dates(
         assert by["Waluta stawki klienta"] == "PLN"
         assert by["Waluta stawki kandydata"] == "PLN"
         assert by["Numer projektu/zamówienia"] == "ZAM-77"
+        # Kontakt: e-mail z profilu kandydata (umowa bez nadpisania), telefon
+        # nieuzupełniony = pusta komórka.
+        assert by["E-mail"].startswith("exp-")
+        assert by["Telefon"] in (None, "")
         # Order dates: contract-level PO end + latest ClientOrder end.
         assert (
             by["Koniec zamówienia u klienta"]
