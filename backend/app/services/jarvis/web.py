@@ -133,3 +133,27 @@ def raw_blocks(content: Iterable[Any]) -> list[dict[str, Any]]:
         elif hasattr(block, "model_dump"):
             out.append(block.model_dump(exclude_none=True))
     return out
+
+
+_TIGHT_START = ",.;:)!?%»”"
+
+
+def join_text(parts: Iterable[str]) -> str:
+    """Skleja bloki tekstu jednej odpowiedzi modelu w jeden akapit.
+
+    Odpowiedź z cytatami przychodzi jako wiele bloków tekstu — jeden akapit
+    pocięty na granicach cytatów. Pusta linia między nimi (dawne ``"\\n\\n"``)
+    rozrywała zdania, a historia rozmowy pokazywała każdy kawałek jako osobny
+    dymek. Bloki niosą własne spacje; gdy ich brak, zdanie zamknięte kropką
+    zaczyna nowy akapit, a pozostałe łączy spacja.
+    """
+    out = ""
+    for part in parts:
+        if not part:
+            continue
+        if out and not (
+            out[-1].isspace() or part[0].isspace() or part[0] in _TIGHT_START
+        ):
+            out += "\n\n" if out.rstrip()[-1:] in (".", "!", "?", ":") else " "
+        out += part
+    return out.strip()
