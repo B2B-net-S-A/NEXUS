@@ -52,12 +52,14 @@ pozostaje wymagany niezależnie od sukcesu prywatnego kontaktu Grafany.
 
 - Uruchomić testy jednostkowe oraz CI testujące Postgres: przetrwanie restartu,
   wyłączność próby odzyskania, opóźnienie ponowienia i niepewny wynik.
-- Potwierdzić migrację 0331 i dokładny SHA API/FE, bez zmiany liveness.
+- Potwierdzić migrację 0332 i dokładny SHA API/FE, bez zmiany liveness.
 - W Chrome sprawdzić podgląd Championa na dokumencie wymagającym AI i pełne
   generowanie CV. Word parsowany bez AI nie potwierdza naprawy dostawcy.
-- Exchange: zweryfikować aktualnego nadawcę i zakres istniejącej polityki.
-  Nie poszerzać dostępu do całego tenantu ani nie tworzyć nowej skrzynki
-  bez osobnej decyzji. Kontrolna dostawa wymaga odbioru, nie tylko Graph 202.
+- Exchange: docelowym nadawcą jest dedykowana skrzynka współdzielona
+  `nexus-powiadomienia@b2bnetwork.pl`. Adres `nexus@b2bnetwork.pl` należy do
+  grupy Microsoft 365 i nie jest nadawcą dla `/users/{UPN}/sendMail`.
+  Uprawnienie aplikacji ma obejmować wyłącznie docelową skrzynkę. Kontrolna
+  dostawa wymaga odbioru, nie tylko Graph 202.
 - Nie usuwać zaległości. Rekordy z `email_delivery_uncertain=true` wymagają
   ustalenia w Exchange, czy wiadomość została przyjęta/dostarczona.
   Dopiero po tej decyzji operator może celowo oznaczyć wynik albo zaplanować
@@ -72,4 +74,4 @@ jest wspólny dla organizacji i wymaga najpierw przypisania zużycia do projekt�
 Pomiar `ready_candidates_upper_bound` obejmuje również niepodjęte wiadomości z tego samego zapytania SQL, którego używa worker. Jest górną granicą liczby wiadomości gotowych do próby: worker dodatkowo sprawdza uprawnienia sekcji. `pending_retry` obejmuje odroczone próby i może nakładać się na tę liczbę; nie sumować obu liczników. Odczytać oba przed odblokowaniem Exchange.
 
 
-Po zatwierdzeniu i propagacji uprawnień operator może jawnie uruchomić Coolify Ops `app-mail-send-probe`: jedna syntetyczna wiadomość wyłącznie do Artura, bez retry, bez sekretów w logach i bez zmiany konfiguracji. Sprawdza bezpośrednio Graph/Exchange, niezależnie od aplikacyjnego circuit; osobno należy potwierdzić naturalną wysyłkę NEXUS. HTTP 202 nie dowodzi dostawy. Wynik niepewny wymaga sprawdzenia skrzynki/trace przed kolejną próbą. Domyślny `app-mail-config-audit` niczego nie wysyła.
+Po zatwierdzeniu i propagacji uprawnień operator może jawnie uruchomić Coolify Ops `app-mail-send-probe`: jedna syntetyczna wiadomość z `nexus-powiadomienia@b2bnetwork.pl` wyłącznie do Artura, bez retry, bez sekretów w logach i bez zmiany konfiguracji. Sonda odmawia działania dla osobistej skrzynki nadawcy. Sprawdza bezpośrednio Graph/Exchange, niezależnie od aplikacyjnego circuit; osobno należy potwierdzić naturalną wysyłkę NEXUS. HTTP 202 nie dowodzi dostawy. Wynik niepewny wymaga sprawdzenia skrzynki/trace przed kolejną próbą. Domyślny `app-mail-config-audit` niczego nie wysyła.

@@ -9,6 +9,10 @@ import urllib.error
 import urllib.parse
 
 
+PROBE_SENDER = "nexus-powiadomienia@b2bnetwork.pl"
+PROBE_RECIPIENT = "artur.twardowski@b2bnetwork.pl"
+
+
 def summarize(envs):
     patterns = {
         "M365_CLIENT_ID": r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}",
@@ -43,7 +47,7 @@ def send_probe(envs, opener=urllib.request.urlopen):
         for row in envs
         if row.get("key") in allowed and row.get("is_preview") is not True
     }
-    sender = "artur.twardowski@b2bnetwork.pl"
+    sender = PROBE_SENDER
     tenant = values.get("M365_MAIL_TENANT_ID") or values.get("M365_TENANT_ID", "")
     uuid_pattern = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
     if (
@@ -78,7 +82,9 @@ def send_probe(envs, opener=urllib.request.urlopen):
                     "content": "Kontrolna wiadomosc Sentry/NEXUS. Dane syntetyczne. "
                     "Odbior tej wiadomosci potwierdza dostawe; nie podejmuj zadnych akcji.",
                 },
-                "toRecipients": [{"emailAddress": {"address": sender}}],
+                "toRecipients": [
+                    {"emailAddress": {"address": PROBE_RECIPIENT}}
+                ],
             },
             "saveToSentItems": False,
         }
