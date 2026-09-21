@@ -14,6 +14,7 @@ import {
 import { savedSearchesApi, type SavedSearchRow } from "@/lib/api";
 import { detectSavedSearchFormat } from "@/lib/saved-search-format";
 import { buildCandidateSavedSearchPayload } from "@/lib/candidate-saved-search";
+import { semanticsReapproval } from "@/lib/saved-search-reapproval";
 import { useAuthStore } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,8 @@ interface SavedSearchesMenuProps {
 export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps) {
  const [open, setOpen] = useState(false);
  const [newName, setNewName] = useState("");
+ // Zapis wstrzymany przez migrację semantyki filtrów — panel decyzji w menu.
+ const [reviewId, setReviewId] = useState<number | null>(null);
  const currentUser = useAuthStore((s) => s.user);
  const queryClient = useQueryClient();
 
@@ -104,6 +107,20 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  onSuccess: invalidate,
  });
 
+ // „Zatwierdź nowe wyniki" / „Zostaw po staremu" — istniejący mechanizm
+ // `confirm_reapproval`; backend wznawia alert, który był włączony.
+ const reapprovalMutation = useMutation({
+ mutationFn: ({ id, choice }: { id: number; choice: "accept" | "keep_legacy" }) =>
+ savedSearchesApi.update(id, {
+ confirm_reapproval: true,
+ reapproval_choice: choice,
+ }),
+ onSuccess: () => {
+ setReviewId(null);
+ invalidate();
+ },
+ });
+
  const mine = searches.filter((s) => s.user_id === currentUser?.id);
  const shared = searches.filter(
  (s) => s.shared && s.user_id !== currentUser?.id
@@ -144,11 +161,75 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  setOpen(false);
  };
 
- const renderRow = (ss: SavedSearchRow, isMine: boolean) => (
+ const renderReview = (ss: SavedSearchRow, isMine: boolean) => {
+ const review = semanticsReapproval(ss.filters);
+ if (!review || reviewId !== ss.id) return null;
+ const counted = review.legacyTotal !== null && review.unifiedTotal !== null;
+ return (
  <div
- key={ss.id}
- className="flex items-center gap-1 px-2 py-1.5 text-sm rounded-md hover:bg-accent"
+ role="group"
+ aria-label={`Zmiana zasad wyszukiwania: ${ss.name}`}
+ className="mx-2 mb-2 rounded-md border border-border bg-muted/40 p-2.5 text-xs"
  >
+ <p className="font-semibold text-foreground">
+ Zmieniły się zasady wyszukiwania
+ </p>
+ <p className="mt-1 text-muted-foreground">
+ Ujednoliciliśmy filtry listy i wyszukiwarki kandydatów. Wyniki tego
+ zapisu by się zmieniły
+ {counted
+ ? `: dotąd ${review.legacyTotal}, po zmianie ${review.unifiedTotal}.`
+ : "."}
+ </p>
+ <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-muted-foreground">
+ {review.ruleLabels.map((label) => (
+ <li key={label}>{label}</li>
+ ))}
+ </ul>
+ {review.alertWasOn && (
+ <p className="mt-1.5 text-muted-foreground">
+ Alert jest wstrzymany do Twojej decyzji.
+ </p>
+ )}
+ {isMine ? (
+ <div className="mt-2 flex flex-wrap gap-1.5">
+ <Button
+ size="sm"
+ disabled={reapprovalMutation.isPending}
+ onClick={() =>
+ reapprovalMutation.mutate({ id: ss.id, choice: "accept" })
+ }
+ >
+ Zatwierdź nowe wyniki
+ </Button>
+ <Button
+ size="sm"
+ variant="outline"
+ disabled={reapprovalMutation.isPending}
+ onClick={() =>
+ reapprovalMutation.mutate({ id: ss.id, choice: "keep_legacy" })
+ }
+ >
+ Zostaw po staremu
+ </Button>
+ </div>
+ ) : (
+ <p className="mt-1.5 text-muted-foreground">
+ Decyzję podejmuje właściciel zapisu.
+ </p>
+ )}
+ {reapprovalMutation.isError && (
+ <p role="alert" className="mt-1.5 text-destructive">
+ Nie udało się zapisać decyzji. Spróbuj ponownie.
+ </p>
+ )}
+ </div>
+ );
+ };
+
+ const renderRow = (ss: SavedSearchRow, isMine: boolean) => (
+ <div key={ss.id}>
+ <div className="flex items-center gap-1 px-2 py-1.5 text-sm rounded-md hover:bg-accent">
  <button
  type="button"
  onClick={() => void applyRow(ss, isMine)}
@@ -156,7 +237,7 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  title={ss.description ?? ss.name}
  >
  <span className="truncate">{ss.name}</span>
- {ss.requires_reapproval ? (
+ {ss.requires_reapproval && !semanticsReapproval(ss.filters) ? (
  <span
  className="inline-flex shrink-0 items-center gap-1 rounded bg-warning-muted px-1.5 py-0.5 text-[10px] font-medium text-warning-muted-foreground"
  title="Miesięczne kryteria stawki zostały usunięte bez konwersji. Sprawdź pozostałe filtry przed ponownym włączeniem alertu."
@@ -171,6 +252,20 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  </span>
  )}
  </button>
+ {ss.requires_reapproval && semanticsReapproval(ss.filters) ? (
+ <button
+ type="button"
+ onClick={(e) => {
+ e.stopPropagation();
+ setReviewId(reviewId === ss.id ? null : ss.id);
+ }}
+ aria-expanded={reviewId === ss.id}
+ className="inline-flex shrink-0 items-center gap-1 rounded bg-warning-muted px-1.5 py-0.5 text-[10px] font-medium text-warning-muted-foreground hover:opacity-80"
+ >
+ <AlertTriangle aria-hidden="true" className="h-3 w-3" />
+ Sprawdź zmianę
+ </button>
+ ) : null}
  {isMine && (
  <>
  <button
@@ -182,6 +277,11 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  // skaner alertów i tak czyta tylko format listy. Zablokuj.
  if (detectSavedSearchFormat(ss.filters) !== "candidates_list") {
  alert("Alerty są dostępne tylko dla zapisów z listy kandydatów.");
+ return;
+ }
+ if (ss.requires_reapproval && semanticsReapproval(ss.filters)) {
+ // Najpierw decyzja o nowych zasadach — dzwonek przebudowałby filtry.
+ setReviewId(ss.id);
  return;
  }
  alertMutation.mutate(ss);
@@ -219,6 +319,8 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  </button>
  </>
  )}
+ </div>
+ {renderReview(ss, isMine)}
  </div>
  );
 

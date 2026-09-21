@@ -84,3 +84,50 @@ def test_skaner_odtwarza_v3_sciezka_wspolna_a_legacy_bez_zmian() -> None:
     )
     assert alert_list_params({"qs": "q=python"}) is None
     assert alert_list_params(None) is None
+
+
+def test_neutralizacja_zapisu_z_listy() -> None:
+    request = p.list_api_to_unified({"min_rate": 100, "location": "Gdansk"})
+    neutral, applied = p.neutralise_list_request(request)
+    assert applied == ["hide_unknown", "location_scope"]
+    assert neutral["hide_unknown"] is True
+    assert neutral["location_scope"] == "location_only"
+    # bez filtrów, których dotyczy „brak danych", nic nie dopisujemy
+    plain, applied = p.neutralise_list_request(
+        p.list_api_to_unified({"skills": ["Go"]})
+    )
+    assert applied == [] and "hide_unknown" not in plain
+
+
+def test_kody_regul_bez_danych_osobowych() -> None:
+    assert p.possible_difference_rules(
+        "candidates_list", {"location_cities": ["A_B"]}
+    ) == ["location_wildcards"]
+    assert (
+        p.possible_difference_rules("candidates_list", {"location_cities": ["Gdansk"]})
+        == []
+    )
+    assert p.possible_difference_rules(
+        "search_request",
+        {
+            "tags": ["java"],
+            "competence_category_ids": [1],
+            "open_to": ["side_projects", "sales_support"],
+            "experience_years_min": 3,
+        },
+    ) == [
+        "tags_whole_match",
+        "category_secondary",
+        "open_to_any",
+        "experience_traffit_fallback",
+    ]
+
+
+def test_zostaw_po_staremu_przypina_oryginal() -> None:
+    legacy = {"version": 2, "qs": "q=x", "api": {"q": "xy"}}
+    _fmt, origin, request = p.read_saved_search(legacy)
+    migrated = p.build_unified_payload(legacy, origin=origin, request=request)
+    restored = p.restore_legacy_payload(migrated)
+    assert restored == {**legacy, "keep_legacy_semantics": True}
+    assert p.is_pinned_to_legacy(restored) and not p.is_pinned_to_legacy(legacy)
+    assert p.restore_legacy_payload({"version": 3, "request": {}}) is None

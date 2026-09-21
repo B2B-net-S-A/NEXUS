@@ -46,6 +46,7 @@ async def _seed_candidates(nonce: str) -> dict[str, int]:
                 skills=["Python"],
                 tags=["javascript"],
                 expected_rate_hourly=Decimal("150"),
+                location="Gdansk A_B",
             ),
             "norate": Candidate(
                 name="Bezstawki",
@@ -54,6 +55,7 @@ async def _seed_candidates(nonce: str) -> dict[str, int]:
                 status=CandidateStatus.active,
                 linkedin_current_company=nonce,
                 skills=["Python"],
+                location="Gdansk AXB",
             ),
         }
         db.add_all(rows.values())
@@ -84,7 +86,7 @@ async def _migrate(search_id: int) -> str:
         ) as client:
             ss = await db.get(SavedSearch, search_id)
             owner = await db.get(User, ss.user_id)
-            outcome = await migration.migrate_one(client, db, ss, owner)
+            outcome, _diff = await migration.migrate_one(client, db, ss, owner)
             await db.commit()
             return outcome
 
@@ -142,25 +144,24 @@ async def test_inny_wynik_wstrzymuje_alert_i_powiadamia_raz(
     nonce = _nonce()
     ids = await _seed_candidates(nonce)
     owner = await _owner_id(app_client, app_auth_headers)
-    # Lista v1 wycina osobę bez stawki; wspólna semantyka ją zostawia.
+    # `_` w lokalizacji działało w liście v1 jak wieloznacznik („A_B" trafiało
+    # też w „AXB"); we wspólnej semantyce jest dosłowne — tego nie wyraża żadna
+    # flaga, więc zapis idzie do akceptacji.
     search_id = await _seed_search(
         owner,
-        {
-            "version": 2,
-            "qs": "rate_min=100",
-            "api": {"q_all": [nonce], "min_rate": 100},
-        },
+        {"version": 2, "qs": "loc=A_B", "api": {"q_all": [nonce], "location": "A_B"}},
         alert=True,
     )
     assert await _migrate(search_id) == "different"
     ss = await _load(search_id)
     assert ss.requires_reapproval is True and ss.notify_new_matches is False
     diff = ss.filters["migration"]["diff"]
-    assert (diff["legacy_total"], diff["unified_total"]) == (1, 2)
-    assert (diff["only_legacy"], diff["only_unified"]) == (0, 1)
+    assert (diff["legacy_total"], diff["unified_total"]) == (2, 1)
+    assert (diff["only_legacy"], diff["only_unified"]) == (1, 0)
+    assert diff["rules"] == ["location_wildcards"]
     assert ss.filters["migration"]["alert_was_on"] is True
-    # tylko liczby — żadnych id ani nazwisk
-    assert all(isinstance(v, int) for v in diff.values())
+    # tylko liczby i kody reguł — żadnych id ani nazwisk
+    assert all(isinstance(v, int) for k, v in diff.items() if k != "rules")
     notes = await _reapproval_notifications(search_id)
     assert len(notes) == 1
     assert (
@@ -196,11 +197,7 @@ async def test_akceptacja_wznawia_alert_z_nowa_linia_bazowa(
     owner_id = await _owner_id(app_client, app_auth_headers)
     search_id = await _seed_search(
         owner_id,
-        {
-            "version": 2,
-            "qs": "rate_min=100",
-            "api": {"q_all": [nonce], "min_rate": 100},
-        },
+        {"version": 2, "qs": "loc=A_B", "api": {"q_all": [nonce], "location": "A_B"}},
         alert=True,
     )
     assert await _migrate(search_id) == "different"
@@ -224,7 +221,7 @@ async def test_akceptacja_wznawia_alert_z_nowa_linia_bazowa(
         ) as client:
             ss = await db.get(SavedSearch, search_id)
             owner = await db.get(User, owner_id)
-            # 1. przebieg: zasiewa OBIE osoby (także tę bez stawki) — bez alertu
+            # 1. przebieg: zasiewa aktualny (nowy) zbiór — bez alertu
             await alerts._baseline_one(client, db, ss, owner)
             await db.commit()
             # 2. przebieg: nic nowego → zero powiadomień (brak burzy)
@@ -239,6 +236,7 @@ async def test_akceptacja_wznawia_alert_z_nowa_linia_bazowa(
                     email=f"mig-new-{uuid.uuid4().hex[:8]}@example.com",
                     status=CandidateStatus.active,
                     linkedin_current_company=nonce,
+                    location="Sopot A_B",
                 )
             )
             await db.commit()
@@ -267,6 +265,9 @@ async def test_oba_formaty_legacy_sa_czytane(app_client, app_auth_headers):
     assert migrated.filters["origin"] == "search_request"
     assert migrated.filters["request"]["tags"] == ["java"]
     assert migrated.filters["migration"]["alert_was_on"] is False
+    assert migrated.filters["migration"]["diff"]["rules"] == ["tags_whole_match"]
+    # zapis z wyszukiwarki NIE dostaje `hide_unknown` — osoby bez danych widział zawsze
+    assert "hide_unknown" not in migrated.filters["request"]
     assert migrated.requires_reapproval is True
     assert len(await _reapproval_notifications(other)) == 1
 
@@ -290,11 +291,7 @@ async def test_endpoint_admina_dry_run_niczego_nie_zapisuje(
     owner = await _owner_id(app_client, app_auth_headers)
     search_id = await _seed_search(
         owner,
-        {
-            "version": 2,
-            "qs": "rate_min=100",
-            "api": {"q_all": [nonce], "min_rate": 100},
-        },
+        {"version": 2, "qs": "loc=A_B", "api": {"q_all": [nonce], "location": "A_B"}},
         alert=True,
     )
     resp = await app_client.post(
@@ -306,6 +303,77 @@ async def test_endpoint_admina_dry_run_niczego_nie_zapisuje(
     summary = resp.json()
     assert summary["dry_run"] is True
     assert search_id in summary["needs_reapproval_ids"]
+    assert summary["rules"].get("location_wildcards", 0) >= 1
+    assert "unreadable_ids" in summary and "pinned" in summary
     ss = await _load(search_id)
     assert ss.filters.get("version") == 2 and ss.notify_new_matches is True
     assert await _reapproval_notifications(search_id) == []
+
+
+@pytest.mark.asyncio
+async def test_zapis_z_listy_zostaje_przy_dotychczasowych_wynikach(
+    app_client, app_auth_headers
+):
+    """Decyzja 09.2026: zapis z LISTY migruje z flagami neutralizującymi —
+    lista v1 wycinała osoby bez stawki i czytała samą kolumnę `location`, więc
+    po migracji zbiór jest TEN SAM i nie ma czego zatwierdzać."""
+    nonce = _nonce()
+    await _seed_candidates(nonce)
+    owner = await _owner_id(app_client, app_auth_headers)
+    search_id = await _seed_search(
+        owner,
+        {
+            "version": 2,
+            "qs": "rate_min=100&loc=gdansk",
+            "api": {"q_all": [nonce], "min_rate": 100, "location": "gdansk"},
+        },
+        alert=True,
+    )
+    assert await _migrate(search_id) == "identical"
+    ss = await _load(search_id)
+    assert ss.filters["request"]["hide_unknown"] is True
+    assert ss.filters["request"]["location_scope"] == "location_only"
+    assert ss.filters["migration"]["neutralised"] == ["hide_unknown", "location_scope"]
+    assert ss.requires_reapproval is False and ss.notify_new_matches is True
+    assert await _reapproval_notifications(search_id) == []
+    # skaner odtwarza go ścieżką wspólną i nadal widzi tylko osobę ze stawką
+    params = alerts.alert_list_params(ss.filters)
+    assert params["semantics_version"] == 2 and params["hide_unknown"] is True
+
+
+@pytest.mark.asyncio
+async def test_zostaw_po_staremu_przywraca_oryginal_i_wznawia_alert(
+    app_client, app_auth_headers
+):
+    from datetime import datetime, timezone
+
+    nonce = _nonce()
+    await _seed_candidates(nonce)
+    owner = await _owner_id(app_client, app_auth_headers)
+    legacy = {
+        "version": 2,
+        "qs": "loc=A_B",
+        "api": {"q_all": [nonce], "location": "A_B"},
+    }
+    search_id = await _seed_search(owner, legacy, alert=True)
+    scanned = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    async with AsyncSessionLocal() as db:
+        ss = await db.get(SavedSearch, search_id)
+        ss.last_scanned_at = scanned
+        await db.commit()
+    assert await _migrate(search_id) == "different"
+
+    resp = await app_client.patch(
+        f"/api/saved-searches/{search_id}",
+        json={"confirm_reapproval": True, "reapproval_choice": "keep_legacy"},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    ss = await _load(search_id)
+    assert ss.filters == {**legacy, "keep_legacy_semantics": True}
+    assert ss.requires_reapproval is False and ss.notify_new_matches is True
+    assert ss.last_scanned_at == scanned  # ten sam zbiór → linia bazowa zostaje
+    assert alerts.alert_list_params(ss.filters)["location"] == "A_B"  # v1
+    # kolejny przebieg migracji nie rusza zapisu przypiętego do v1
+    assert await _migrate(search_id) == "pinned"
+    assert (await _load(search_id)).filters == {**legacy, "keep_legacy_semantics": True}

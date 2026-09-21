@@ -1,6 +1,6 @@
 """notificationtype: ``saved_search_reapproval`` — zapisane wyszukiwanie do akceptacji.
 
-Revision ID: 0332_saved_search_reapproval_notif
+Revision ID: saved_search_reapproval_notif
 Revises: 0330_jarvis
 
 Migracja zapisanych wyszukiwań na wspólną semantykę filtrów
@@ -14,7 +14,11 @@ wartości enuma, więc downgrade jest no-opem.
 
 from alembic import op
 
-revision = "0332_saved_search_reapproval_notif"
+# Identyfikator BEZ numeru — żeby migrację dało się przenumerować przy merge'u
+# bez szukania po repo. Przy zmianie kolejności zmień WYŁĄCZNIE: nazwę tego
+# pliku (`03xx_…` → właściwy numer) i `down_revision` poniżej. Nic innego w repo
+# nie odwołuje się do tego identyfikatora ani do numeru.
+revision = "saved_search_reapproval_notif"
 down_revision = "0330_jarvis"
 branch_labels = None
 depends_on = None

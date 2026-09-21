@@ -107,6 +107,9 @@ class CandidateSearchRequest(BaseModel):
     open_to: list[Literal["side_projects", "sales_support", "expert_consult"]] = Field(
         default_factory=list
     )
+    # v2: "location_only" zawęża dopasowanie miasta do samej kolumny `location`
+    # (dotychczasowy zakres listy; ustawia je migracja zapisów z listy).
+    location_scope: Optional[Literal["city_or_location", "location_only"]] = None
     # Ukryj osoby BEZ danych dla aktywnych filtrów lokalizacji / stażu / stawki.
     # Domyślnie (v2) takie osoby ZOSTAJĄ i są oznaczane w `unknown_fields`.
     hide_unknown: Optional[bool] = None

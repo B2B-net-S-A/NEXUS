@@ -47,6 +47,8 @@ export interface UnifiedCandidateSearchRequest {
   tags?: string[];
   location_cities?: string[];
   location_countries?: string[];
+  /** `location_only` = dotychczasowy zakres listy (sama kolumna `location`). */
+  location_scope?: "city_or_location" | "location_only";
   hide_unknown?: boolean;
   /** Filtry, które zna tylko lista (pule, etapy, zatrudnienie…). */
   list_only?: Dict;
@@ -122,6 +124,7 @@ const SHARED_KEYS = [
   "tags",
   "location_cities",
   "location_countries",
+  "location_scope",
   "hide_unknown",
 ] as const;
 
@@ -229,6 +232,7 @@ export function listApiToUnified(api: Dict): UnifiedCandidateSearchRequest {
     "location",
     "location_cities",
     "country",
+    "location_scope",
     "hide_unknown",
   ]);
   const listOnly: Dict = {};
@@ -257,6 +261,7 @@ export function listApiToUnified(api: Dict): UnifiedCandidateSearchRequest {
     tags: asList(api.tags),
     location_cities: [...asList(api.location), ...asList(api.location_cities)],
     location_countries: asList(api.country),
+    location_scope: api.location_scope,
     hide_unknown: api.hide_unknown,
     list_only: listOnly,
   });
@@ -315,6 +320,7 @@ export function searchRequestToUnified(body: Dict): UnifiedCandidateSearchReques
     "tags",
     "location_cities",
     "location_countries",
+    "location_scope",
     "hide_unknown",
     ...OPEN_TO_FLAGS.map(([flag]) => flag),
   ]);
@@ -343,6 +349,7 @@ export function searchRequestToUnified(body: Dict): UnifiedCandidateSearchReques
     tags: asList(body.tags),
     location_cities: asList(body.location_cities),
     location_countries: asList(body.location_countries),
+    location_scope: body.location_scope,
     hide_unknown: body.hide_unknown,
     search_only: searchOnly,
   });
@@ -401,6 +408,7 @@ const LIST_DIRECT: ReadonlyArray<readonly [string, string]> = [
   ["tags", "tags"],
   ["location_cities", "location_cities"],
   ["location_countries", "country"],
+  ["location_scope", "location_scope"],
   ["hide_unknown", "hide_unknown"],
 ];
 

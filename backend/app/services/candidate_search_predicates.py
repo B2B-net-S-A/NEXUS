@@ -681,8 +681,9 @@ _person_token_cache: dict[str, tuple[float, bool]] = {}
 
 
 async def person_token_exists(db: Any, token: str) -> bool:
-    """Czy w bazie jest kandydat, którego IMIĘ albo NAZWISKO to dokładnie
-    ``token`` (bez wielkości liter i polskich znaków).
+    """Czy w bazie jest kandydat, którego IMIĘ, NAZWISKO albo JEDEN CZŁON
+    nazwiska dwuczłonowego (rozdzielonego myślnikiem) to dokładnie ``token``
+    (bez wielkości liter i polskich znaków).
 
     Jedno zapytanie ``LIMIT 1``: indeks trigramowy na ``search_doc_unaccented``
     (migracja 0159) zawęża wiersze, a równość sprawdzamy już tylko na nich —
@@ -715,7 +716,13 @@ async def person_token_exists(db: Any, token: str) -> bool:
         select(Candidate.id)
         .where(
             _SEARCH_DOC_UNACCENT.ilike(f"%{_escape_like(folded)}%", escape="\\"),
-            or_(_fold(Candidate.name) == folded, _fold(Candidate.lastname) == folded),
+            or_(
+                _fold(Candidate.name) == folded,
+                _fold(Candidate.lastname) == folded,
+                # jeden człon nazwiska dwuczłonowego: „Kowalska" → „Nowak-Kowalska"
+                literal(folded)
+                == func.any(func.string_to_array(_fold(Candidate.lastname), "-")),
+            ),
         )
         .limit(1)
     )
@@ -1093,10 +1100,15 @@ def city_match_clauses(cities: Sequence[str]) -> list[ColumnElement]:
     ]
 
 
+LocationScope = Literal["city_or_location", "location_only"]
+
+
 def location_clauses(
     cities: Optional[Sequence[str]],
     countries: Optional[Sequence[str]],
     sem: Semantics,
+    *,
+    scope: Optional[str] = None,
 ) -> list[ColumnElement]:
     """Miasto (którekolwiek z podanych) i kraj (kod ISO, którykolwiek).
 
@@ -1111,6 +1123,20 @@ def location_clauses(
         clauses.append(
             or_(*[Candidate.location.ilike(f"%{c}%") for c in wanted_cities])
         )
+    elif wanted_cities and scope == "location_only":
+        # Zawężenie do dotychczasowego zakresu listy (zapisy zmigrowane z v1):
+        # sama kolumna `location`, bez foldu polskich znaków. Wieloznaczniki są
+        # już dosłowne — to poprawka, nie poszerzenie.
+        matched = or_(
+            *[
+                Candidate.location.ilike(contains_pattern(c), escape="\\")
+                for c in wanted_cities
+            ]
+        )
+        if sem.unknown == "include":
+            clauses.append(or_(Candidate.location.is_(None), matched))
+        else:
+            clauses.append(matched)
     elif wanted_cities:
         matched = or_(*city_match_clauses(wanted_cities))
         if sem.unknown == "include":

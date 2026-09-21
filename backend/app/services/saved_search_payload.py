@@ -100,6 +100,7 @@ _SHARED_KEYS = (
     "tags",
     "location_cities",
     "location_countries",
+    "location_scope",
     "hide_unknown",
 )
 
@@ -208,6 +209,7 @@ def list_api_to_unified(api: dict[str, Any]) -> dict[str, Any]:
         "location",
         "location_cities",
         "country",
+        "location_scope",
         "hide_unknown",
     }
     return _compact(
@@ -232,6 +234,7 @@ def list_api_to_unified(api: dict[str, Any]) -> dict[str, Any]:
             "tags": _as_list(api.get("tags")),
             "location_cities": cities,
             "location_countries": _as_list(api.get("country")),
+            "location_scope": api.get("location_scope"),
             "hide_unknown": api.get("hide_unknown"),
             "list_only": {
                 k: v
@@ -305,6 +308,7 @@ def search_request_to_unified(body: dict[str, Any]) -> dict[str, Any]:
         "tags",
         "location_cities",
         "location_countries",
+        "location_scope",
         "hide_unknown",
     } | {flag for flag, _ in _OPEN_TO_FLAGS}
     for key, value in body.items():
@@ -333,6 +337,7 @@ def search_request_to_unified(body: dict[str, Any]) -> dict[str, Any]:
             "tags": _as_list(body.get("tags")),
             "location_cities": _as_list(body.get("location_cities")),
             "location_countries": _as_list(body.get("location_countries")),
+            "location_scope": body.get("location_scope"),
             "hide_unknown": body.get("hide_unknown"),
             "search_only": search_only,
         }
@@ -388,6 +393,7 @@ def unified_to_list_params(request: dict[str, Any]) -> dict[str, Any]:
         "tags": "tags",
         "location_cities": "location_cities",
         "location_countries": "country",
+        "location_scope": "location_scope",
         "hide_unknown": "hide_unknown",
     }
     for source, target in direct.items():
@@ -451,3 +457,89 @@ def with_semantics_marker(qs: str) -> str:
     parts = [p for p in qs.split("&") if p and not p.startswith("sv=")]
     parts.append(f"sv={UNIFIED_SEMANTICS}")
     return "&".join(parts)
+
+
+# ── Migracja: zachowanie dotychczasowych wyników ────────────────────────────
+
+# Znacznik na ładunku LEGACY: właściciel wybrał „Zostaw po staremu" — zapis
+# zostaje przy v1 i kolejne przebiegi migracji go nie ruszają.
+KEEP_LEGACY_KEY = "keep_legacy_semantics"
+
+# Kody reguł, które mogą zmienić wynik zapisu po przejściu na wspólną semantykę.
+# Same kody (bez danych) — UI tłumaczy je na krótkie zdania po polsku
+# (`frontend/src/lib/saved-search-reapproval.ts`).
+RULE_LOCATION_WILDCARDS = "location_wildcards"
+RULE_TAGS_WHOLE_MATCH = "tags_whole_match"
+RULE_CATEGORY_SECONDARY = "category_secondary"
+RULE_OPEN_TO_ANY = "open_to_any"
+RULE_EXPERIENCE_TRAFFIT = "experience_traffit_fallback"
+RULE_TEXT_PERSON = "text_person_literal"
+RULE_OTHER = "other"
+
+
+def neutralise_list_request(
+    request: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Zapis z LISTY po migracji ma zwracać DOKŁADNIE to, co dotąd.
+
+    Lista v1 wycinała osoby bez stawki / lokalizacji / stażu i czytała samą
+    kolumnę ``location`` — oba zachowania da się wyrazić flagami żądania v2:
+    ``hide_unknown`` i ``location_scope="location_only"``. Zwraca żądanie
+    i listę zastosowanych flag. Zapisy z wyszukiwarki tego nie potrzebują
+    (osoby bez danych widziały od zawsze).
+    """
+    out = dict(request)
+    applied: list[str] = []
+    uses_unknown = any(
+        key in out
+        for key in (
+            "rate_hourly_min",
+            "rate_hourly_max",
+            "experience_years_min",
+            "experience_years_max",
+            "location_cities",
+            "location_countries",
+        )
+    )
+    if uses_unknown and out.get("hide_unknown") is None:
+        out["hide_unknown"] = True
+        applied.append("hide_unknown")
+    if out.get("location_cities") and not out.get("location_scope"):
+        out["location_scope"] = "location_only"
+        applied.append("location_scope")
+    return _compact(out), applied
+
+
+def possible_difference_rules(origin: str, request: dict[str, Any]) -> list[str]:
+    """Które reguły wspólnej semantyki DOTYCZĄ tego zapisu i nie dają się
+    zneutralizować flagą. Gdy wynik się różni, to one są przyczyną; pusta lista
+    przy różnicy = ``other``."""
+    rules: list[str] = []
+    if origin == "candidates_list":
+        if any(
+            "%" in str(c) or "_" in str(c) for c in request.get("location_cities") or []
+        ):
+            rules.append(RULE_LOCATION_WILDCARDS)
+        return rules
+    if request.get("tags"):
+        rules.append(RULE_TAGS_WHOLE_MATCH)
+    if request.get("competence_category_ids"):
+        rules.append(RULE_CATEGORY_SECONDARY)
+    if len(request.get("open_to") or []) > 1:
+        rules.append(RULE_OPEN_TO_ANY)
+    if "experience_years_min" in request or "experience_years_max" in request:
+        rules.append(RULE_EXPERIENCE_TRAFFIT)
+    return rules
+
+
+def is_pinned_to_legacy(filters: Any) -> bool:
+    return isinstance(filters, dict) and filters.get(KEEP_LEGACY_KEY) is True
+
+
+def restore_legacy_payload(filters: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """„Zostaw po staremu": oryginalny ładunek sprzed migracji + znacznik, że
+    zostaje przy v1. ``None``, gdy zapis nie niesie oryginału."""
+    legacy = filters.get("legacy")
+    if not isinstance(legacy, dict):
+        return None
+    return {**legacy, KEEP_LEGACY_KEY: True}

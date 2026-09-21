@@ -4943,7 +4943,7 @@ Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
 | Filtr | Reguła v2 |
 |---|---|
 | Umiejętności | trzy kubełki: „Musi mieć" = TWARDO · „Mile widziane" = tylko ranking (także na liście — prowadzi każde sortowanie) · „Wyklucz" = TWARDO; bez kubełka → „Musi mieć". Jawne pola: `skills_required[]`, `skills_required_any_groups` (S: lista list; L: powtarzany parametr `a\|b`), `skills_preferred[]`, `skills_excluded[]`. `a\|b` = grupa LUB w KAŻDYM polu. Tag „java" nadal spełnia umiejętność „Java" (tagi są częścią zrzutu). |
-| Tekst `q` | `text_mode: auto\|literal\|semantic`. Auto: e-mail, telefon, 2–3 wyrazy wyglądające na osobę → dopasowanie DOSŁOWNE (to samo w L i S: `literal_text_clause`); JEDNO słowo dosłownie TYLKO, gdy istnieje kandydat o takim imieniu/nazwisku (`person_token_exists`: jedno `LIMIT 1` po indeksie trigramowym `search_doc_unaccented`, pamięć 60 s); reszta → tryb wybrany przez rekrutera. `interpretation.rule` mówi, która reguła zadziałała. W v1 auto działa tylko przy jawnym `text_mode`. |
+| Tekst `q` | `text_mode: auto\|literal\|semantic`. Auto: e-mail, telefon, 2–3 wyrazy wyglądające na osobę → dopasowanie DOSŁOWNE (to samo w L i S: `literal_text_clause`); JEDNO słowo dosłownie TYLKO, gdy istnieje kandydat o takim imieniu, nazwisku albo członie nazwiska dwuczłonowego („Kowalska" → „Nowak-Kowalska") (`person_token_exists`: jedno `LIMIT 1` po indeksie trigramowym `search_doc_unaccented`, pamięć 60 s); reszta → tryb wybrany przez rekrutera. `interpretation.rule` mówi, która reguła zadziałała. W v1 auto działa tylko przy jawnym `text_mode`. |
 | Brak danych | osoba BEZ lokalizacji / stażu / stawki ZOSTAJE i jest oznaczona w `unknown_fields: ["location","experience","rate"]` (tylko dla AKTYWNYCH filtrów); `hide_unknown: true` ją ukrywa. Stawka w walucie innej niż PLN = nieznana. |
 | „Otwarty na" | LUB; `open_to_*: false` zostaje osobnym, twardym warunkiem |
 | Kategoria kompetencji | główna LUB poboczna (M2M) LUB legacy FK |
@@ -4978,18 +4978,34 @@ Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
   + `list_only` / `search_only` dla filtrów jednego silnika. Najstarszy format
   listy `{qs}` bez `api` jest nieczytelny po stronie Pythona — zostaje nietknięty.
 - **Migracja (`services/saved_search_migration.py`)** porównuje wynik v1 i v2
-  przez PRAWDZIWE endpointy (token właściciela, do 500 id + `total`): identyczny
-  → po cichu; inny → `requires_reapproval=true`, alert WSTRZYMANY
-  (`notify_new_matches=false`, `filters.migration.alert_was_on`), opis różnicy
-  z samych LICZB i JEDNO powiadomienie `saved_search_reapproval` (0332 + lustro
-  w `entrypoint.sh`). Idempotentna (v3 = pominięty). Tryb hybrydowy z `q` nie
-  jest odtwarzany (embeddingi): `q`-osoba = różnica z definicji, inaczej
-  porównujemy same filtry. Bez DDL na `saved_searches` — reużywa mechanizmu
-  akceptacji po wycofaniu stawek miesięcznych.
-- **Akceptacja = istniejące `confirm_reapproval`** (`PATCH /api/saved-searches/{id}`):
-  wznawia alert, który był włączony, i ZERUJE linię bazową (`last_scanned_at`),
-  więc pierwszy przebieg skanera zasiewa dziennik nowym zbiorem bez alertu —
-  zero burzy `saved_search_match`.
+  przez PRAWDZIWE endpointy (token właściciela, do 500 id + `total`).
+  **Zapis z LISTY migruje z flagami neutralizującymi** (`neutralise_list_request`:
+  `hide_unknown: true` + `location_scope: "location_only"`), więc zwraca
+  DOKŁADNIE to, co dotąd, i alerty się nie poszerzają; zapis z WYSZUKIWARKI
+  zostawia osoby bez danych widoczne (tak działał zawsze). Nowo tworzone zapisy
+  biorą zwykłe domyślne v2. Identyczny wynik → po cichu; inny (to, czego flaga
+  nie wyrazi: `%`/`_` w lokalizacji, cały tag, kategoria poboczna, „Otwarty na"
+  = LUB, koszyk Traffita, `q`-osoba) → `requires_reapproval=true`, alert
+  WSTRZYMANY (`filters.migration.alert_was_on`), `diff` z samych LICZB + kody
+  reguł `diff.rules` (`saved_search_payload.RULE_*`; statyczne „reguły, które
+  dotyczą tego zapisu", nie atrybucja per osoba) i JEDNO powiadomienie
+  `saved_search_reapproval` (migracja `…_saved_search_reapproval_notif` +
+  lustro w `entrypoint.sh`). Idempotentna (v3 i zapisy przypięte do v1 są
+  pomijane). Tryb hybrydowy z `q` nie jest odtwarzany (embeddingi). Nieaktywny
+  właściciel → do akceptacji bez powiadomienia. Najstarsze `{qs}` bez `api` są
+  tylko liczone (`unreadable_ids`).
+- **Decyzja właściciela zapisu = istniejące `confirm_reapproval`**
+  (`PATCH /api/saved-searches/{id}`) + `reapproval_choice`: `accept`
+  („Zatwierdź nowe wyniki") wznawia alert i ZERUJE linię bazową
+  (`last_scanned_at`) — pierwszy przebieg skanera zasiewa dziennik nowym zbiorem
+  bez alertu, zero burzy `saved_search_match`; `keep_legacy` („Zostaw po
+  staremu") przywraca ORYGINALNY ładunek z `filters.legacy` ze znacznikiem
+  `keep_legacy_semantics` — zapis zostaje przy v1 (jedyny sposób na te same
+  wyniki, gdy różnicy nie wyraża żadna flaga), linia bazowa zostaje, a kolejne
+  przebiegi migracji go omijają (`pinned`). UI: panel w `SavedSearchesMenu`
+  („Zmieniły się zasady wyszukiwania", liczby przed/po, kody przetłumaczone
+  w `lib/saved-search-reapproval.ts`) — osobny od plakietki po wycofaniu
+  stawek miesięcznych (tamten zapis nie ma `filters.migration`).
 - **Uruchomienie:** `POST /api/saved-searches/migrate-semantics[?dry_run=true]`
   (admin; odpowiedź = liczniki + id) albo przy starcie skanera alertów, gdy
   `SAVED_SEARCH_SEMANTICS_MIGRATION_AUTORUN=true` (domyślnie OFF — migracja

@@ -3093,6 +3093,8 @@ export const savedSearchesApi = {
       description: string;
       notify_new_matches: boolean;
       confirm_reapproval: boolean;
+      /** Zapis wstrzymany przez migrację semantyki: zatwierdź albo zostaw v1. */
+      reapproval_choice: "accept" | "keep_legacy";
     }>,
   ) => api.patch<SavedSearchRow>(`/api/saved-searches/${id}`, data),
   delete: (id: number) => api.delete(`/api/saved-searches/${id}`),

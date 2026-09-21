@@ -235,6 +235,9 @@ class CandidateFilterSpec(BaseModel):
     # Kilka miast naraz (którekolwiek) — kształt wyszukiwarki; `location` to
     # dotychczasowe pojedyncze pole i dokłada się do tej samej alternatywy.
     location_cities: Optional[list[str]] = None
+    # v2: "location_only" zawęża dopasowanie miasta do samej kolumny `location`
+    # (dotychczasowy zakres listy) — ustawia je migracja zapisów z v1.
+    location_scope: Optional[Literal["city_or_location", "location_only"]] = None
     text_mode: Optional[Literal["auto", "literal", "semantic"]] = None
     # Ukryj osoby BEZ danych dla aktywnych filtrów lokalizacji/stażu/stawki.
     hide_unknown: Optional[bool] = None
@@ -880,6 +883,7 @@ async def _build_candidate_filtered_query(
         ([f.location] if f.location else []) + list(f.location_cities or []),
         f.country,
         sem,
+        scope=f.location_scope,
     ):
         query = query.where(location_clause)
     cc_clause = predicates.competence_category_clause(f.competence_category_id, sem)
@@ -1344,6 +1348,14 @@ async def list_candidates(
             "on the search engine; combines (OR) with the single `location`."
         ),
     ),
+    location_scope: Optional[Literal["city_or_location", "location_only"]] = Query(
+        None,
+        description=(
+            "v2 only. `location_only` narrows city matching to the `location` "
+            "column without diacritics folding (the legacy list scope); set by "
+            "the saved-search migration so migrated searches keep their results."
+        ),
+    ),
     text_mode: Optional[Literal["auto", "literal", "semantic"]] = Query(
         None,
         description=(
@@ -1768,6 +1780,7 @@ async def list_candidates(
         tags=tags,
         country=country,
         location_cities=location_cities,
+        location_scope=location_scope,
         text_mode=text_mode,
         hide_unknown=hide_unknown,
         semantics_version=semantics_version,

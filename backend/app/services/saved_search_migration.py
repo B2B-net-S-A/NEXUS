@@ -115,7 +115,7 @@ async def _collect_search(
 def _diff_summary(
     legacy: tuple[list[int], int], unified: tuple[list[int], int], **extra: Any
 ) -> dict[str, Any]:
-    """Wyłącznie liczby — żadnych identyfikatorów ani nazwisk."""
+    """Wyłącznie liczby i kody reguł — żadnych identyfikatorów ani nazwisk."""
     legacy_ids, unified_ids = set(legacy[0]), set(unified[0])
     return {
         "legacy_total": legacy[1],
@@ -137,6 +137,7 @@ async def _compare(
 ) -> tuple[bool, dict[str, Any]]:
     """→ ``(identyczne, podsumowanie)``."""
     headers = _auth_headers(owner)
+    legacy_text_is_person = False
     if origin == "candidates_list":
         legacy = await _collect_list(client, headers, dict(filters.get("api") or {}))
         unified = await _collect_list(
@@ -159,17 +160,28 @@ async def _compare(
             interpretation = await predicates.interpret_text(db, q)
             if interpretation.mode == "literal":
                 return False, {
-                    "reason": "text_mode",
-                    "rule": interpretation.rule,
+                    "rules": [payloads.RULE_TEXT_PERSON],
                     "compared_ids": 0,
                 }
             legacy_body = {k: v for k, v in legacy_body.items() if k != "q"}
             unified_body = {k: v for k, v in unified_body.items() if k != "q"}
+        elif q and legacy_body.get("text_mode") is None:
+            from app.services import candidate_search_predicates as predicates
+
+            legacy_text_is_person = (
+                await predicates.interpret_text(db, q)
+            ).mode == "literal"
         legacy = await _collect_search(client, headers, legacy_body)
         unified = await _collect_search(client, headers, unified_body)
 
     identical = legacy[1] == unified[1] and set(legacy[0]) == set(unified[0])
-    return identical, _diff_summary(legacy, unified)
+    rules: list[str] = []
+    if not identical:
+        rules = payloads.possible_difference_rules(origin, request)
+        if origin == "search_request" and legacy_text_is_person:
+            rules.append(payloads.RULE_TEXT_PERSON)
+        rules = rules or [payloads.RULE_OTHER]
+    return identical, _diff_summary(legacy, unified, rules=rules)
 
 
 async def _notify_owner(db: Any, ss: Any, diff: dict[str, Any]) -> None:
@@ -182,7 +194,7 @@ async def _notify_owner(db: Any, ss: Any, diff: dict[str, Any]) -> None:
             f"Dotąd {diff['legacy_total']} osób, po zmianie {diff['unified_total']}."
         )
     else:
-        detail = "Tekst wyszukiwania jest teraz dopasowywany jako osoba."
+        detail = "Tekst wyszukiwania jest teraz dopasowywany jako nazwisko."
     paused = (
         " Alert jest wstrzymany do akceptacji."
         if (ss.filters or {}).get("migration", {}).get("alert_was_on")
@@ -205,15 +217,21 @@ async def _notify_owner(db: Any, ss: Any, diff: dict[str, Any]) -> None:
 
 async def migrate_one(
     client: Any, db: Any, ss: Any, owner: Optional[Any], *, dry_run: bool = False
-) -> str:
-    """Migruje jeden zapis. Zwraca: ``already`` | ``unreadable`` | ``identical``
-    | ``different`` | ``unverified``."""
+) -> tuple[str, dict[str, Any]]:
+    """Migruje jeden zapis → ``(wynik, diff)``. Zwraca: ``already`` | ``pinned`` | ``unreadable`` |
+    ``identical`` | ``different`` | ``unverified``."""
     filters = ss.filters or {}
+    if payloads.is_pinned_to_legacy(filters):
+        return "pinned", {}  # właściciel wybrał „Zostaw po staremu"
     fmt, origin, request = payloads.read_saved_search(filters)
     if fmt == "unified":
-        return "already"
+        return "already", {}
     if request is None or origin is None:
-        return "unreadable"
+        return "unreadable", {}
+    neutralised: list[str] = []
+    if origin == "candidates_list":
+        # Zapis z listy ma zwracać DOKŁADNIE to, co dotąd (decyzja 09.2026).
+        request, neutralised = payloads.neutralise_list_request(request)
 
     now = datetime.now(timezone.utc).isoformat()
     if owner is None or not getattr(owner, "is_active", False):
@@ -224,13 +242,14 @@ async def migrate_one(
         identical, diff = await _compare(client, db, owner, filters, origin, request)
         outcome = "identical" if identical else "different"
     if dry_run:
-        return outcome
+        return outcome, diff
 
     alert_was_on = bool(ss.notify_new_matches)
     migration = {
         "from": fmt,
         "migrated_at": now,
         "outcome": outcome,
+        "neutralised": neutralised,
         "diff": diff,
         "alert_was_on": alert_was_on and not identical,
     }
@@ -242,7 +261,7 @@ async def migrate_one(
         ss.notify_new_matches = False
         if outcome == "different":
             await _notify_owner(db, ss, diff)
-    return outcome
+    return outcome, diff
 
 
 async def migrate_saved_searches(*, dry_run: bool = False) -> dict[str, Any]:
@@ -258,12 +277,17 @@ async def migrate_saved_searches(*, dry_run: bool = False) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "dry_run": dry_run,
         "already": 0,
+        "pinned": 0,
         "unreadable": 0,
         "identical": 0,
         "different": 0,
         "unverified": 0,
         "failed": 0,
         "needs_reapproval_ids": [],
+        # Najstarszy format listy `{qs}` bez `api` — nie do odczytania bez
+        # przeglądarki; zostaje nietknięty, tu tylko policzony.
+        "unreadable_ids": [],
+        "rules": {},
     }
     async with AsyncSessionLocal() as db:
         ids = (
@@ -293,10 +317,16 @@ async def migrate_saved_searches(*, dry_run: bool = False) -> dict[str, Any]:
                     if row is None:
                         continue
                     ss, owner = row
-                    outcome = await migrate_one(client, db, ss, owner, dry_run=dry_run)
+                    outcome, diff = await migrate_one(
+                        client, db, ss, owner, dry_run=dry_run
+                    )
                     summary[outcome] += 1
                     if outcome in ("different", "unverified"):
                         summary["needs_reapproval_ids"].append(search_id)
+                        for rule in diff.get("rules") or []:
+                            summary["rules"][rule] = summary["rules"].get(rule, 0) + 1
+                    if outcome == "unreadable":
+                        summary["unreadable_ids"].append(search_id)
                     if dry_run:
                         await db.rollback()
                     else:

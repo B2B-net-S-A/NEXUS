@@ -8,7 +8,7 @@ Phase 4 endpoints:
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -52,6 +52,10 @@ class SavedSearchUpdate(BaseModel):
     pinned_to_job_id: Optional[int] = None
     notify_new_matches: Optional[bool] = None
     confirm_reapproval: bool = False
+    # Tylko z `confirm_reapproval` dla zapisu wstrzymanego przez migrację
+    # semantyki: "accept" (domyślnie) = zatwierdź nowe wyniki; "keep_legacy" =
+    # „Zostaw po staremu" — wraca oryginalny ładunek, zapis zostaje przy v1.
+    reapproval_choice: Optional[Literal["accept", "keep_legacy"]] = None
 
 
 class SavedSearchOut(BaseModel):
@@ -270,6 +274,7 @@ async def update_saved_search(
         raise HTTPException(status_code=404, detail="Search not found")
     payload = data.model_dump(exclude_unset=True)
     confirm_reapproval = bool(payload.pop("confirm_reapproval", False))
+    reapproval_choice = payload.pop("reapproval_choice", None) or "accept"
     if "filters" in payload and _is_candidate_entity(ss.entity):
         sanitized, retired_criteria_removed = sanitize_candidate_saved_search(
             payload["filters"]
@@ -299,13 +304,35 @@ async def update_saved_search(
         if migration:
             from datetime import datetime, timezone
 
-            if migration.get("alert_was_on") and "notify_new_matches" not in payload:
-                ss.notify_new_matches = True
-                ss.last_scanned_at = None
-                ss.unseen_count = 0
-            migration["alert_was_on"] = False
-            migration["reapproved_at"] = datetime.now(timezone.utc).isoformat()
-            ss.filters = {**(ss.filters or {}), "migration": migration}
+            from app.services.saved_search_payload import restore_legacy_payload
+
+            resume = bool(migration.get("alert_was_on")) and (
+                "notify_new_matches" not in payload
+            )
+            legacy = (
+                restore_legacy_payload(ss.filters or {})
+                if reapproval_choice == "keep_legacy"
+                else None
+            )
+            if reapproval_choice == "keep_legacy" and legacy is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="saved_search_has_no_legacy_payload",
+                )
+            if legacy is not None:
+                # „Zostaw po staremu": wraca oryginał, zapis zostaje przy v1 —
+                # zbiór się NIE zmienia, więc linia bazowa alertu zostaje.
+                ss.filters = legacy
+                if resume:
+                    ss.notify_new_matches = True
+            else:
+                if resume:
+                    ss.notify_new_matches = True
+                    ss.last_scanned_at = None
+                    ss.unseen_count = 0
+                migration["alert_was_on"] = False
+                migration["reapproved_at"] = datetime.now(timezone.utc).isoformat()
+                ss.filters = {**(ss.filters or {}), "migration": migration}
     if payload.get("notify_new_matches") is True and ss.requires_reapproval:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

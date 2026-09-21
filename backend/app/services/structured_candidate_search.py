@@ -340,7 +340,12 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
     add(
         "location",
         "Lokalizacja",
-        predicates.location_clauses(req.location_cities, req.location_countries, sem),
+        predicates.location_clauses(
+            req.location_cities,
+            req.location_countries,
+            sem,
+            scope=getattr(req, "location_scope", None),
+        ),
     )
 
     eligibility: list[ColumnElement] = []

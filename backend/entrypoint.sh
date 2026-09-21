@@ -630,7 +630,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_search_completed'",
     # 0334: „Moi ludzie" — nowa rekrutacja pasuje do osób z listy rekrutera.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'my_people_match'",
-    # 0332: zapisane wyszukiwanie wymaga ponownej akceptacji po migracji semantyki.
+    # saved_search_reapproval_notif: zapisane wyszukiwanie wymaga ponownej akceptacji po migracji semantyki.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'saved_search_reapproval'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.

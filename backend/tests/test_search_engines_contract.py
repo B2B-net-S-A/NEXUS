@@ -821,3 +821,32 @@ async def test_diagnostyka_wskazuje_kubelek_musi_miec(app_client, app_auth_heade
     assert data["first_zeroing_stage"] == "skills_required"
     stage = next(s for s in data["stages"] if s["key"] == "skills_required")
     assert stage["count"] == 0 and "Musi mieć" in stage["label"]
+
+
+@pytest.mark.asyncio
+async def test_czlon_nazwiska_dwuczlonowego_liczy_sie_jako_osoba(app_client):
+    """„Kowalska" → „Nowak-Kowalska": jedno słowo jest osobą także wtedy, gdy
+    jest jednym członem nazwiska z myślnikiem (bez polskich znaków, bez
+    wielkości liter). Fragment członu już nie."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.services import candidate_search_predicates as predicates
+
+    part = "Żół" + NONCE[:8]
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Candidate(
+                name="Ewa",
+                lastname=f"Nowak-{part}",
+                email=f"hyphen-{uuid.uuid4().hex[:10]}@example.com",
+                status=CandidateStatus.active,
+            )
+        )
+        await db.commit()
+        folded = "zol" + NONCE[:8]
+        predicates._person_token_cache.clear()
+        assert await predicates.person_token_exists(db, folded) is True
+        assert await predicates.person_token_exists(db, folded.upper()) is True
+        assert await predicates.person_token_exists(db, folded[:-2]) is False
+        found = await predicates.interpret_text(db, folded)
+        assert found.rule == "single_word_person_exists" and found.mode == "literal"
