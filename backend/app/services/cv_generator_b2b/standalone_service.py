@@ -218,6 +218,9 @@ class UploadGenerationInput:
     # tokenów {STANOWISKO} i {PROJEKT} we wzorze nazwy — podaje rekruter.
     position: str = ""
     project_ref: str = ""
+    # Server notices decided before generation (e.g. "tailored" fell back to
+    # polished for want of a Champion); appended to the document warnings.
+    source_warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -2705,7 +2708,7 @@ def generate_cv_from_uploads(
     # Ponowne nałożenie blokady TUTAJ cofałoby sufit: blokada „polished" przy
     # suficie „basic" wracałaby do „polished", a sufit to obietnica złożona
     # klientowi. Dlatego nic tu nie liczymy na nowo.
-    return _run_generation_pipeline(
+    result = _run_generation_pipeline(
         cv_bytes=payload.cv_bytes,
         cv_filename=payload.cv_filename,
         champion_dto=champion_dto,
@@ -2721,6 +2724,9 @@ def generate_cv_from_uploads(
         position_ref=payload.position or None,
         prepared_source_facts=prepared_source_facts,
     )
+    if payload.source_warnings:
+        result.warnings.extend(payload.source_warnings)
+    return result
 
 
 __all__ = [

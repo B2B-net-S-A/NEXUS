@@ -6,6 +6,9 @@ export type CvReviewState = {
   error_code: string | null;
   /** Ukończona kontrola doradcza też bywa "verified" — i mieć uwagi. */
   findings_count?: number | null;
+  /** Wynik ukończonej kontroli: "verified" | "reviewed" | "unverified"
+   * (tryb doradczy — recenzent niedostępny albo źródło nieczytelne). */
+  review_status?: string | null;
 };
 
 function abortCheck(signal?: AbortSignal) {

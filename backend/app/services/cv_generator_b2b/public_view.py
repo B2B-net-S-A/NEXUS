@@ -108,16 +108,19 @@ def build_public_payload(render_payload: dict[str, Any] | None) -> dict[str, Any
             }
         )
 
+    from app.services.cv_generator_b2b.presentation_title import considered_for_line
+
+    position = str(
+        payload.get("presentation_position") or payload.get("position") or ""
+    )
     return {
         "language": language if language in ("pl", "en") else "pl",
         "blind": blind,
         "candidate_name": str(payload.get("name") or ""),
-        "position": str(
-            payload.get("presentation_position") or payload.get("position") or ""
-        ),
+        "position": position,
         "considered_for": None
         if payload.get("presentation_position")
-        else str(payload.get("considered_for") or "") or None,
+        else considered_for_line(payload.get("considered_for"), position) or None,
         "why_points": _str_list(payload.get("why_points")),
         "education": education,
         "skills": skills,

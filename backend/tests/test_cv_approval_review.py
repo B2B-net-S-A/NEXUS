@@ -443,3 +443,155 @@ async def test_finalize_never_calls_model_without_completed_review(monkeypatch):
     assert error.value.status_code == 409
     assert error.value.detail["code"] == "cv_review_required"
     execute.assert_not_awaited()
+
+
+# ── Tryb doradczy z płatną kontrolą (produkcja: ENFORCED off, FINAL_REVIEW on) ──
+# Recenzja, która się nie wykonała (recenzent niedostępny, źródło nieczytelne),
+# kończy się uczciwym „unverified" — i to jest wynik pozwalający zatwierdzić CV,
+# nie blokada. W trybie ścisłym ten sam paragon nadal nie przechodzi.
+
+
+def _advisory_review(monkeypatch):
+    monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "false")
+    monkeypatch.setenv("CV_FINAL_REVIEW_ENABLED", "true")
+
+
+def _receipt_for(content, status, **extra):
+    import hashlib
+
+    return {
+        "status": status,
+        "method": "edited_source_review",
+        "generated_document_id": 11,
+        "html_sha256": hashlib.sha256(content.encode()).hexdigest(),
+        "source_snapshot_sha256": "snapshot",
+        "verifier_version": review.VERIFIER_VERSION,
+        "editor_review_version": review.EDITOR_REVIEW_VERSION,
+        "prompt_sha256": hashlib.sha256(
+            review.VERIFICATION_PROMPT.encode()
+        ).hexdigest(),
+        "response_schema_sha256": review.REVIEW_RESPONSE_SCHEMA_SHA256,
+        **extra,
+    }
+
+
+def _stub_source(monkeypatch):
+    source = SimpleNamespace(
+        snapshot_sha256="snapshot",
+        cv_bytes=b"source",
+        cv_filename="cv.docx",
+        screening_notes="",
+        identity="",
+    )
+    monkeypatch.setattr(review, "load_review_source", AsyncMock(return_value=source))
+    extract = Mock(return_value="Source")
+    monkeypatch.setattr(review, "extract_text_from_file", extract)
+    quota = Mock(side_effect=AssertionError("must not charge during preparation"))
+    monkeypatch.setattr(review, "ai_feature", quota)
+    return extract, quota
+
+
+@pytest.mark.parametrize("enforced", [False, True])
+async def test_unverified_background_receipt_allows_approval_only_in_advisory(
+    monkeypatch, enforced
+):
+    if enforced:
+        monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true")
+        monkeypatch.setenv("CV_FINAL_REVIEW_ENABLED", "true")
+    else:
+        _advisory_review(monkeypatch)
+    content = "<p>Edited claim</p>"
+    receipt = _receipt_for(content, "unverified", method_detail="review_unavailable")
+    extract, quota = _stub_source(monkeypatch)
+    db = AsyncMock()
+    db.scalar.return_value = receipt
+    draft = SimpleNamespace(
+        id=5, edit_revision=2, generated_document_id=11, branded_render_metadata={}
+    )
+    if enforced:
+        prepared = await review.prepare_approval_review(db, draft, content)
+        assert isinstance(prepared, review.PreparedApprovalReview)
+        with pytest.raises(HTTPException) as error:
+            await review.review_for_approval(db, draft, content, 7)
+        assert error.value.status_code == 409
+        assert error.value.detail["code"] == "cv_review_required"
+    else:
+        result = await review.review_for_approval(db, draft, content, 7)
+        # Zachowany dosłownie — nigdy przemianowany na „verified".
+        assert result["status"] == "unverified"
+        assert result["method_detail"] == "review_unavailable"
+        assert result["reused"] is True
+        extract.assert_not_called()
+    quota.assert_not_called()
+
+
+async def test_unverified_receipt_stored_on_draft_is_reused_in_advisory(monkeypatch):
+    _advisory_review(monkeypatch)
+    content = "<p>Edited claim</p>"
+    receipt = _receipt_for(content, "unverified", method_detail="source_unreadable")
+    _, quota = _stub_source(monkeypatch)
+    draft = SimpleNamespace(
+        id=5,
+        edit_revision=2,
+        generated_document_id=11,
+        branded_render_metadata={"content_review": receipt},
+    )
+    result = await review.review_for_approval(AsyncMock(), draft, content, 7)
+    assert result["status"] == "unverified"
+    assert result["reused"] is True
+    quota.assert_not_called()
+
+
+@pytest.mark.parametrize("enforced", [False, True])
+async def test_unreadable_source_degrades_to_unverified_only_in_advisory(
+    monkeypatch, enforced
+):
+    if enforced:
+        monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true")
+        monkeypatch.setenv("CV_FINAL_REVIEW_ENABLED", "true")
+    else:
+        _advisory_review(monkeypatch)
+    _stub_source(monkeypatch)
+    monkeypatch.setattr(
+        review,
+        "extract_text_from_file",
+        Mock(side_effect=review.CVTextExtractionError("unreadable")),
+    )
+    admission = Mock(side_effect=AssertionError("Must not charge unreadable source"))
+    monkeypatch.setattr(review, "ai_feature", admission)
+    db = AsyncMock()
+    db.scalar.return_value = None
+    draft = SimpleNamespace(
+        id=1, edit_revision=3, generated_document_id=11, branded_render_metadata={}
+    )
+    if enforced:
+        with pytest.raises(HTTPException) as error:
+            await review.prepare_approval_review(db, draft, "<p>Changed claim</p>")
+        assert error.value.status_code == 422
+    else:
+        result = await review.review_for_approval(db, draft, "<p>Changed claim</p>", 7)
+        assert result["status"] == "unverified"
+        assert result["method_detail"] == "source_unreadable"
+        assert result["reason"] == "source_unreadable"
+    admission.assert_not_called()
+
+
+async def test_reviewer_outage_yields_unverified_receipt_in_advisory(monkeypatch):
+    _advisory_review(monkeypatch)
+
+    @asynccontextmanager
+    async def quota(*_args, **_kwargs):
+        yield
+
+    monkeypatch.setattr(review, "ai_feature", quota)
+    monkeypatch.setattr(
+        review,
+        "verify_editor_content",
+        Mock(side_effect=review.CVGeneratorAIError("provider down")),
+    )
+    prepared = review.PreparedApprovalReview(
+        "<p>Claim</p>", "Source", "", "", 11, "snapshot", "review:1:1", "{}"
+    )
+    result = await review.execute_approval_review(AsyncMock(), prepared, 7)
+    assert result["status"] == "unverified"
+    assert result["method_detail"] == "review_unavailable"

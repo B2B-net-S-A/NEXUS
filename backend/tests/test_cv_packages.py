@@ -42,27 +42,37 @@ def package(monkeypatch):
     return db,rows,versions,owners,note
 
 
-async def test_generated_is_not_ready_and_confirmation_pins_both_versions(package):
+async def test_approved_package_is_ready_without_note_or_manual_confirmation(package):
     db,rows,versions,owners,note=package
     state,_=await packages.assess(db,rows[0])
-    assert not state['ready']
-    assert state['available_languages']==['pl','en']
-    state=await packages.confirm(db,rows[0],note_id=20,sources_checked=True,user_id=5,expected_fingerprint=(await packages.assess(db,rows[0],note_id=20))[0]['fingerprint'])
     assert state['ready']
+    assert state['reasons']==[]
+    assert any('notatk' in hint for hint in state['hints'])
+    assert state['available_languages']==['pl','en']
     assert await packages.require_ready(db,rows[1],11)=={'pl':11,'en':12}
+    state=await packages.confirm(db,rows[0],note_id=20,sources_checked=False,user_id=5,expected_fingerprint=(await packages.assess(db,rows[0],note_id=20))[0]['fingerprint'])
+    assert state['ready']
     assert rows[0].package_review['note_version']['hash']==sha256(note.content.encode()).hexdigest()
     assert (await packages.public_documents(db,{'pl':11,'en':12}))['package_documents'][1]['language']=='en'
 
 
-@pytest.mark.parametrize('change', ['note','draft','version','other_recruitment','deleted_note','missing_en','corrupt_docx','missing_project','wrong_query','bad_consent'])
+@pytest.mark.parametrize('change', ['other_recruitment','deleted_note'])
+async def test_stale_recommendation_note_is_only_a_hint(package,change):
+    db,rows,versions,owners,note=package
+    await packages.confirm(db,rows[0],note_id=20,sources_checked=False,user_id=5,expected_fingerprint=(await packages.assess(db,rows[0],note_id=20))[0]['fingerprint'])
+    if change=='other_recruitment': note.job_id=10
+    else: note.source_deleted_at=datetime.now(timezone.utc)
+    state,_=await packages.assess(db,rows[0])
+    assert state['ready']
+    assert any('notatka' in hint for hint in state['hints'])
+    assert await packages.require_ready(db,rows[0],11)=={'pl':11,'en':12}
+
+
+@pytest.mark.parametrize('change', ['draft','version','missing_en','corrupt_docx','missing_project','wrong_query','bad_consent'])
 async def test_changes_or_missing_requirements_block_confirmation_and_api_share(package,change):
     db,rows,versions,owners,note=package
-    await packages.confirm(db,rows[0],note_id=20,sources_checked=True,user_id=5,expected_fingerprint=(await packages.assess(db,rows[0],note_id=20))[0]['fingerprint'])
-    if change=='note': note.content+=' corrected'
-    elif change=='draft': owners[1].branded_status='draft'
+    if change=='draft': owners[1].branded_status='draft'
     elif change=='version': versions[1].id=99
-    elif change=='other_recruitment': note.job_id=10
-    elif change=='deleted_note': note.source_deleted_at=datetime.now(timezone.utc)
     elif change=='missing_en': rows[1].status='failed'
     elif change=='corrupt_docx': versions[1].docx_content=b'corrupt'
     elif change=='missing_project': rows[0].central_policy['require_project_ref']=True
@@ -74,12 +84,14 @@ async def test_changes_or_missing_requirements_block_confirmation_and_api_share(
     assert error.value.status_code==409
 
 
-async def test_no_implicit_note_or_unchecked_sources(package):
-    db,rows,*_=package
-    with pytest.raises(HTTPException):
-        await packages.confirm(db,rows[0],note_id=None,sources_checked=True,user_id=5,expected_fingerprint=(await packages.assess(db,rows[0],note_id=20))[0]['fingerprint'])
-    with pytest.raises(HTTPException):
-        await packages.confirm(db,rows[0],note_id=20,sources_checked=False,user_id=5,expected_fingerprint=(await packages.assess(db,rows[0],note_id=20))[0]['fingerprint'])
+async def test_invalid_note_cannot_be_saved(package):
+    db,rows,_,_,note=package
+    note.job_id=10
+    with pytest.raises(HTTPException) as error:
+        await packages.confirm(db,rows[0],note_id=20,sources_checked=True,user_id=5,expected_fingerprint=(await packages.assess(db,rows[0],note_id=20))[0]['fingerprint'])
+    assert error.value.status_code==409
+    state=await packages.confirm(db,rows[0],note_id=None,sources_checked=False,user_id=5,expected_fingerprint=(await packages.assess(db,rows[0]))[0]['fingerprint'])
+    assert state['ready']
 
 
 async def test_legacy_share_has_no_new_requirements():

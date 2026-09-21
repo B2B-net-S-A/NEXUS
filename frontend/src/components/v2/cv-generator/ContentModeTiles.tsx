@@ -12,6 +12,13 @@ interface ContentModeTilesProps {
   ariaLabel?: string;
   /** Tryb zablokowany regułą klienta — także dla klawiatury. */
   disabled?: boolean;
+  /**
+   * Wariant zwarty: jeden rząd przycisków-etykiet zamiast trzech dużych
+   * kafelków, opis wybranej opcji jedną linią pod spodem.
+   */
+  compact?: boolean;
+  /** Krótka uwaga przy opcji (np. „wymaga Championa"). Opcja zostaje wybieralna. */
+  hints?: Partial<Record<CvContentMode, string>>;
 }
 
 /**
@@ -29,7 +36,54 @@ export function ContentModeTiles({
   className,
   ariaLabel = "Obróbka treści",
   disabled = false,
+  compact = false,
+  hints,
 }: ContentModeTilesProps) {
+  if (compact) {
+    const selected = CV_CONTENT_MODES.find((option) => option.value === value);
+    return (
+      <div className={cn("space-y-1.5", className)}>
+        <RadioGroup
+          value={value}
+          disabled={disabled}
+          onValueChange={(next) => onChange(next as CvContentMode)}
+          aria-label={ariaLabel}
+          className="flex flex-wrap gap-2"
+        >
+          {CV_CONTENT_MODES.map((option) => (
+            <label
+              key={option.value}
+              title={option.description}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm transition-colors",
+                disabled ? "cursor-not-allowed" : "cursor-pointer",
+                option.value === value
+                  ? "border-primary bg-primary/5 font-medium text-foreground"
+                  : "border-border text-foreground hover:bg-muted/30",
+              )}
+            >
+              <RadioGroupItem value={option.value} className="shrink-0" />
+              <span>{option.label}</span>
+              {hints?.[option.value] ? (
+                <span className="text-xs font-normal text-warning-muted-foreground">
+                  · {hints[option.value]}
+                </span>
+              ) : null}
+            </label>
+          ))}
+        </RadioGroup>
+        {selected ? (
+          <p className="text-xs text-muted-foreground">{selected.description}</p>
+        ) : null}
+        {selected?.caution ? (
+          <p className="flex items-start gap-1.5 text-xs text-warning-muted-foreground">
+            <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+            <span>{selected.caution}</span>
+          </p>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <RadioGroup
       value={value}

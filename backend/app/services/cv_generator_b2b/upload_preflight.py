@@ -102,11 +102,11 @@ def validate_upload_inputs(payload: UploadGenerationInput) -> None:
             ) from error
 
     required = bool(payload.client_rule and payload.client_rule.require_champion)
-    manual = bool(
-        payload.must_requirements.strip() or payload.nice_requirements.strip()
-    )
-    if required and not manual and (champion is None or champion.is_empty()):
+    # Manual MUST/NICE fields only fed interactive-CV tiles; they are not a
+    # Champion. A reviewed preview profile counts as one.
+    has_profile = payload.champion_profile is not None
+    if required and not has_profile and (champion is None or champion.is_empty()):
         raise StandaloneGenerationError(
             "invalid_input",
-            "Ten klient wymaga Profilu Championa, ale nie rozpoznano jego treści. Uzupełnij MUST-HAVE / NICE-TO-HAVE lub wgraj poprawny profil.",
+            "Ten klient wymaga Profilu Championa, ale nie rozpoznano jego treści. Wgraj poprawny profil.",
         )

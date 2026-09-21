@@ -1168,6 +1168,39 @@ do modelu.
 - **Usuwanie bez `window.confirm`** — dwustopniowe potwierdzenie w edytorze
   i modal na liście. Natywny dialog zamraża automatyzację przeglądarki.
 
+### Centralne reguły CV (`CV_CENTRAL_POLICIES_ENABLED`, 21.09.2026)
+
+Katalog `backend/app/data/cv_policies.json` + `central_policies.py`, opis:
+`docs/delivery/central-cv-policies.md`. Reguły, które łatwo cofnąć:
+
+- **Tryb treści NIE jest blokowany.** Każdy klient (także Nordea) i polityka
+  standardowa mają domyślnie „Pod rekrutację" (`content_mode` w katalogu —
+  pole zostaje, żeby dało się przełączyć pojedynczego klienta). Rekruter może
+  zmienić tryb; serwer honoruje żądanie (`resolve_mode`) w `/generate`
+  i `/generate-upload`. `GET /api/cv-generator/policy` zwraca `default_mode`,
+  `content_mode_locked=false` i `content_mode_notice`.
+- **„Pod rekrutację" bez Championa = Redakcja + komunikat, nigdy 422.**
+  Champion to kompletny profil rekrutacji (`job_supports_tailored` — JEDEN
+  predykat dla domyślnego trybu i kontroli w ścieżce rekrutacji) albo
+  WGRANY plik/podgląd Championa w uploadzie. Komunikat trafia do ostrzeżeń
+  dokumentu (`source_warnings`). Sufit `cv_content_mode_cap` wygrywa zawsze.
+- **Upload znowu używa wgranego Championa.** Pierwsza wersja centralnych
+  reguł wyrzucała plik (`champion_bytes = None`) — udział CV „Pod rekrutację"
+  spadł z 49% do 12%. Ręczne pola MUST/NICE (zasilały tylko kafelki
+  interaktywnego CV) NIE są Championem.
+- **Recepta centralna nie ustawia `why_points_max`.** „Najwyżej cztery
+  punkty" jest w prompcie systemowym (`presentation_title.instructions`);
+  powtórzone jako instrukcja klienta dawało fałszywe „Pominięto instrukcję
+  klienta" w co trzecim CV.
+- **Zmiana treści katalogu = podbij `version` wpisu.** `synchronize()`
+  publikuje ponownie, gdy `managed_policy` (metadane wpisu) albo recepta się
+  różni; `resolve()` do tego czasu daje 503 dla klienta. Klient niezgodny
+  z katalogiem (inny `external_id`, ukryty, scalony) jest POMIJANY z logiem,
+  a błąd synchronizacji nie zatrzymuje startu backendu (`main.py`).
+- **Stary dokument drukuje „Rozważany na stanowisko" tylko, gdy różni się od
+  nagłówka** (`considered_for_line`, porównanie bez wielkości liter i białych
+  znaków) — DOCX, widok publiczny i eksport HTML.
+
 ## Profil Championa — sześć sekcji + karta klienta (przebudowa 09.2026)
 
 Szablon skrócony do sześciu sekcji: **1. Podstawowe informacje · 2. Co wpisać

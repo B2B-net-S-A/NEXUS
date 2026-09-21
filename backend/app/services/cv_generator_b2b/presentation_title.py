@@ -25,3 +25,20 @@ def instructions(language: str) -> str:
         "language. Do not write General CV, CV ogólne, Considered for or equivalent labels "
         "in any document content; workflow status is displayed only in the application."
     )
+
+
+def _norm(value) -> str:
+    return " ".join(str(value or "").split()).casefold()
+
+
+def considered_for_line(considered_for, header_position) -> str:
+    """Legacy "Considered for" text, or "" when it only repeats the header.
+
+    Payloads predating central policies carry both ``position`` and
+    ``considered_for``; in production most of them hold the same vacancy, so
+    the line printed the title twice. Compared case- and whitespace-blind.
+    """
+    text = str(considered_for or "").strip()
+    if not text or _norm(text) == _norm(header_position):
+        return ""
+    return text

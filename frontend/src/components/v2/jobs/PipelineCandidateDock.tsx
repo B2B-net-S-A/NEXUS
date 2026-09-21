@@ -74,6 +74,7 @@ import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreview
 import { CVShareLinkModal } from "@/components/v2/modals/CVShareLinkModal";
 import { SendEmailV2 } from "@/components/v2/modals/SendEmailV2";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
+import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 
 // Edytor brandowanego CV jest ciężki (rich text) — leniwy import jak w
 // CandidateDetailV2, żeby nie puchła zakładka Pipeline dla osób, które go
@@ -805,6 +806,7 @@ export function PipelineCandidateDock({
                     <FileText className="h-3.5 w-3.5" />{" "}
                     {brandedStatus === "none" ? "Stwórz brandowane" : "Edytuj brandowane"}
                   </Button>
+                  {CV_CLIENT_LINKS_UI_ENABLED && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -819,6 +821,7 @@ export function PipelineCandidateDock({
                   >
                     <Send className="h-3.5 w-3.5" /> Wyślij klientowi
                   </Button>
+                  )}
                 </>
               )}
             </div>

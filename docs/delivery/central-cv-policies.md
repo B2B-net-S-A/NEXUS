@@ -10,7 +10,7 @@ Synchronizacja jest idempotentna i serializowana blokadą klienta. Zachowuje pop
 
 ## Przepływ
 
-- Serwer ustala klienta z rekrutacji, wymusza język i automatyczny tryb. Kompletny Profil Championa pozwala na dopasowanie, niekompletny kontekst daje CV ogólne. Ograniczenie klienta pozostaje nadrzędne.
+- Serwer ustala klienta z rekrutacji i wymusza język. Tryb treści nie jest blokowany: domyślnie każdy klient ma „Pod rekrutację” (pole `content_mode` w katalogu), rekruter może go zmienić. „Pod rekrutację” wymaga kompletnego Profilu Championa rekrutacji albo wgranego pliku Championa (upload); bez niego powstaje CV w trybie Redakcja z komunikatem, nigdy błąd 422. Ograniczenie klienta pozostaje nadrzędne. Zmiana treści katalogu wymaga podbicia `version` wpisu — publikacja na starcie. Klient niezgodny z katalogiem jest pomijany, a błąd synchronizacji nie zatrzymuje startu.
 - Nazwa pliku i jedyny nagłówek dokumentu korzystają z jednej tłumaczonej wartości. Historyczne stanowiska kandydata są osobnymi faktami. Oznaczenie „CV ogólne” pozostaje w interfejsie; dokument nie zawiera etykiet „General CV” ani „Considered for”.
 - Obie wersje językowe korzystają z tych samych zapisanych źródeł. Ponowienie pomija gotowy dokument i wykorzystuje istniejący zapis nieudanej wersji. Prywatne fakty podlegają retencji źródeł zadania.
 - Wersje dokumentów zatwierdza istniejący edytor. Osobne potwierdzenie pakietu zapisuje wersje dokumentów, politykę, wersję wskazanej notatki i potwierdzenie sprawdzenia źródeł. Odcisk podglądu zapobiega zatwierdzeniu zmiany, której użytkownik nie widział.
