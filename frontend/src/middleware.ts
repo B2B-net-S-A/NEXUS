@@ -243,17 +243,18 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // backendowego `ContactCaller`); sama strona odbija resztę własnym
   // komunikatem „Brak dostępu".
   //
-  // Admin i Head of Recruitment mają WŁASNĄ powierzchnię: `<ContactOversightPanel />`
-  // w presetach `head-of-recruitment` / `admin-ops` na /dashboard (stoi za
+  // Admin i Head of Recruitment mają WŁASNĄ powierzchnię: kafelek „Nadzór
+  // kontaktów" (`<ContactOversightPanel />`) na własnym pulpicie /dashboard (stoi za
   // `GET /api/candidate-contact/oversight`, bramka `ContactOversight`).
-  // Panel przestał być montowany przy przepisaniu dashboardów na `RoleDashboard`
-  // (#1031) i przez 16 dni nikt tego nie zauważył — od tamtej pory jest z powrotem.
+  // Panel raz już przestał być montowany (#1031, przez 16 dni nikt tego nie
+  // zauważył); od 21.09.2026 link z alertu pokazuje go na pulpicie tymczasowo,
+  // jeśli ktoś nie ma tego kafelka.
   // NIE poszerzaj tej listy o admina/HoR: backend wpuszcza do `/queue` wyłącznie
   // role wykonawcze (`ContactCaller`), więc zamieniłbyś /403 na drugi ślepy
   // zaułek, tracąc przy okazji warstwę defense-in-depth.
   //
   // Alerty SLA z `dashboard_v2.py` celują już kotwicą w ten panel
-  // (`/dashboard?preset=head-of-recruitment#nadzor-kontaktu`), a nie tutaj —
+  // (`/dashboard#nadzor-kontaktu`, parametr `preset` jest ignorowany), a nie tutaj —
   // wcześniej odbiorca alertu, klikając własny alert, lądował na /403.
   // Zmieniając tę listę ról, przemieć też tamten `href`.
   {
@@ -389,6 +390,7 @@ const PUBLIC_PATHS = [
   "/preview/jarvis",
   "/preview/recruitment-v3",
   "/preview/my-people",
+  "/preview/custom-dashboard",
 ];
 
 function isPublicPath(pathname: string): boolean {

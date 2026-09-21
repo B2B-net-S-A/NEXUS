@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
 import { useAuthStore } from "@/store/auth"
 
-function warsawDay(): string {
+export function warsawDay(): string {
   const parts = new Intl.DateTimeFormat("en", {
     timeZone: "Europe/Warsaw",
     year: "numeric",
@@ -43,14 +43,14 @@ function warsawDay(): string {
   return `${values.year}-${values.month}-${values.day}`
 }
 
-function nextDate(value: string): string {
+export function nextDate(value: string): string {
   const [year, month, day] = value.split("-").map(Number)
   return new Date(Date.UTC(year, month - 1, day + 1, 12))
     .toISOString()
     .slice(0, 10)
 }
 
-function warsawMidnightIso(value: string): string {
+export function warsawMidnightIso(value: string): string {
   const utcGuess = new Date(`${value}T00:00:00Z`)
   const parts = new Intl.DateTimeFormat("en", {
     timeZone: "Europe/Warsaw",

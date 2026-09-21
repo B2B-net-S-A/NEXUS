@@ -185,3 +185,32 @@ describe("/preview/jobs-list-v3 zasiewa listę TYMI SAMYMI kluczami co komponent
     expect(harness).toContain("interceptors.request.eject");
   });
 });
+
+describe("/preview/custom-dashboard zasiewa każdy stały klucz", () => {
+  const harness = withoutComments(read("app/preview/custom-dashboard/page.tsx")).replace(
+    /\s+/g,
+    " ",
+  );
+  const components = [
+    "components/v2/dashboard/custom/CustomDashboard.tsx",
+    "components/v2/dashboard/custom/MetricBuilderForm.tsx",
+    "components/v2/dashboard/custom/SmallTiles.tsx",
+    "components/v2/filters/CompetenceCategoryMultiSelect.tsx",
+  ];
+
+  it("nie zostawia klucza, który uruchomiłby zapytanie i przerzucił na /login", () => {
+    const missing: string[] = [];
+    for (const file of components) {
+      for (const key of literalQueryKeys(read(file))) {
+        if (!harness.includes(key)) missing.push(`${file}: ${key}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("zasiewa klucze budowane funkcjami tymi samymi funkcjami", () => {
+    for (const fn of ["USER_DASHBOARD_QUERY_KEY", "METRIC_CATALOG_QUERY_KEY", "metricQueryKey(", "myPeopleSummaryQueryKey"]) {
+      expect(harness).toContain(fn);
+    }
+  });
+});

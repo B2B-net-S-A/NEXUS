@@ -49,6 +49,8 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/users/me/onboarding/jobs": "lista rekrutacji w kroku onboardingu, poprzedza sekcje",
     "GET /api/users/me/preferences": "własne preferencje interfejsu, bez danych domenowych",
     "PATCH /api/users/me/preferences": "zapis własnych preferencji interfejsu",
+    "GET /api/users/me/dashboard": "własny układ kafelków pulpitu; dane kafelków mają własne bramki sekcji",
+    "PUT /api/users/me/dashboard": "zapis własnego układu kafelków pulpitu, bez danych domenowych",
     "GET /api/settings/candidates-columns": "własny układ kolumn tabeli, bez danych domenowych",
     "GET /api/user-email-templates": "prywatne szablony maili autora, zakres = właściciel",
     "POST /api/user-email-templates": "prywatne szablony maili autora, zakres = właściciel",
