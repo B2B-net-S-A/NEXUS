@@ -933,7 +933,7 @@ const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
   "/order-mail": "nav.order_mail",
   "/my-relationships": "nav.my_relationships",
   "/contracts": "nav.contracts",
-  "/cortex": "nav.cortex",
+  // "/cortex": "nav.cortex" — Cortex ukryty w UI (21.09.2026); wróci razem z wpisem w nav-registry.
   "/finance": "nav.finance",
   // `nav.manager` (/manager) NIE ma dziś pozycji w sidebarze — „Panel Managera"
   // jest zakomentowany od 2026-05-28. Bramkę pilnuje middleware.
