@@ -31,6 +31,12 @@ describe("contracts list navigation state", () => {
         statusFilter: ["active", "ending"],
         typeFilter: [],
         endingSoon: false,
+        startFrom: "",
+        startTo: "",
+        orderEndFrom: "",
+        orderEndTo: "",
+        sortBy: null,
+        sortDir: "asc",
         page: 1,
       },
     });
@@ -51,6 +57,12 @@ describe("contracts list navigation state", () => {
       statusFilter: [],
       typeFilter: ["b2b", "uop"],
       endingSoon: true,
+      startFrom: "",
+      startTo: "",
+      orderEndFrom: "",
+      orderEndTo: "",
+      sortBy: null,
+      sortDir: "asc",
       page: 3,
     });
 
@@ -67,6 +79,43 @@ describe("contracts list navigation state", () => {
         page: 3,
       },
     });
+  });
+
+  it("round-trips sorting and both date ranges", () => {
+    const url = buildContractsListUrl({
+      search: "",
+      statusFilter: ["active"],
+      typeFilter: [],
+      endingSoon: false,
+      startFrom: "2026-01-01",
+      startTo: "2026-06-30",
+      orderEndFrom: "2026-09-01",
+      orderEndTo: "",
+      sortBy: "order_end_date",
+      sortDir: "desc",
+      page: 1,
+    });
+
+    expect(url).toBe(
+      "/contracts?status=active&start_from=2026-01-01&start_to=2026-06-30&order_end_from=2026-09-01&sort=order_end_date&dir=desc",
+    );
+    expect(parseContractsListState(url.split("?")[1] ?? "").state).toMatchObject({
+      startFrom: "2026-01-01",
+      startTo: "2026-06-30",
+      orderEndFrom: "2026-09-01",
+      orderEndTo: "",
+      sortBy: "order_end_date",
+      sortDir: "desc",
+    });
+  });
+
+  it("drops an unknown sort key and a malformed date instead of sending them", () => {
+    const state = parseContractsListState(
+      "sort=id;drop&dir=sideways&start_from=01.02.2026",
+    ).state;
+    expect(state.sortBy).toBeNull();
+    expect(state.sortDir).toBe("asc");
+    expect(state.startFrom).toBe("");
   });
 
   it("embeds a validated return target in contract links", () => {

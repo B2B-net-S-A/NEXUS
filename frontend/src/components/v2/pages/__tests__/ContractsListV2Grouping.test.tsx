@@ -217,7 +217,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(window.location.search).toBe("?status=active&status=ending");
   });
 
-  it("ma dokładnie 8 kolumn danych w kolejności priorytetu", async () => {
+  it("ma dokładnie 9 kolumn danych w kolejności priorytetu", async () => {
     const { container } = renderList();
     await screen.findByText("Paweł Małek");
 
@@ -230,7 +230,8 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     ).toEqual([
       "Kandydat",
       "Klient",
-      "Daty",
+      "Data rozpoczęcia",
+      "Data zakończenia zamówienia",
       "Stawka kosztowa",
       "Stawka przychodowa",
       "Marża",
@@ -326,9 +327,119 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
       container.querySelectorAll("[data-contract-group]"),
     ).find((group) => group.textContent?.includes("Paweł Małek"));
     expect(multiGroup).toBeDefined();
-    expect(multiGroup).toHaveTextContent(/01\.07\.26\s*→\s*30\.09\.26/);
-    expect(multiGroup).toHaveTextContent(/01\.07\.26\s*→\s*bezterminowo/);
+    const rows = multiGroup!.querySelectorAll("[data-contract-member]");
+    const startOf = (row: Element) =>
+      row.querySelector('[data-label="Data rozpoczęcia"]');
+    const orderEndOf = (row: Element) =>
+      row.querySelector('[data-label="Data zakończenia zamówienia"]');
+    // Data rozpoczęcia i koniec zamówienia to DWIE kolumny; koniec umowy
+    // zostaje jako podlinia, żeby wypowiedzenie nie zniknęło z listy.
+    expect(startOf(rows[0])).toHaveTextContent(/01\.07\.26/);
+    expect(startOf(rows[0])).toHaveTextContent(/umowa do 30\.09\.26/);
+    expect(startOf(rows[1])).not.toHaveTextContent(/umowa do/);
+    expect(orderEndOf(rows[0])).toHaveTextContent("—");
     expect(multiGroup).not.toHaveTextContent(/2026/);
+  });
+
+  it("koniec zamówienia ma własną kolumnę: data, bezterminowo albo brak", async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url === "/api/contracts") {
+        return Promise.resolve({
+          data: {
+            items: [
+              {
+                id: 700,
+                candidate_id: 70,
+                candidate_name: "Ola Zamówienie",
+                client_name: "Alior",
+                status: "active",
+                contract_type: "b2b",
+                start_date: "2026-01-10",
+                end_date: null,
+                client_order_start_date: "2026-09-15",
+                client_order_end_date: "2026-12-31",
+                currency: "PLN",
+              },
+              {
+                id: 701,
+                candidate_id: 71,
+                candidate_name: "Ewa Bezterminowa",
+                client_name: "Nordea",
+                status: "active",
+                contract_type: "b2b",
+                start_date: "2026-02-01",
+                end_date: null,
+                client_order_start_date: "2026-02-01",
+                client_order_end_date: null,
+                currency: "PLN",
+              },
+            ],
+            total: 2,
+            page: 1,
+            page_size: 20,
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    const { container } = renderList();
+    await screen.findByText("Ola Zamówienie");
+    const cells = container.querySelectorAll(
+      '[data-label="Data zakończenia zamówienia"]',
+    );
+    expect(cells[0]).toHaveTextContent(/31\.12\.26/);
+    expect(cells[0]).toHaveTextContent(/zam\. od 15\.09\.26/);
+    expect(cells[1]).toHaveTextContent("bezterminowo");
+  });
+
+  it("klik w nagłówek sortuje po stronie serwera i przełącza kierunek", async () => {
+    renderList();
+    await screen.findByText("Paweł Małek");
+
+    const lastParams = () =>
+      (getMock.mock.calls.filter(([url]) => url === "/api/contracts").at(-1)?.[1] as {
+        params: Record<string, unknown>;
+      }).params;
+    expect(lastParams().sort_by).toBeUndefined();
+
+    screen.getByRole("button", { name: "Sortuj: Klient" }).click();
+    await waitFor(() => expect(lastParams().sort_by).toBe("client"));
+    expect(lastParams().sort_dir).toBe("asc");
+    expect(window.location.search).toContain("sort=client");
+
+    screen.getByRole("button", { name: "Sortuj: Klient" }).click();
+    await waitFor(() => expect(lastParams().sort_dir).toBe("desc"));
+    expect(
+      screen.getByRole("button", { name: "Sortuj: Klient" }).closest("th"),
+    ).toHaveAttribute("aria-sort", "descending");
+
+    screen.getByRole("button", { name: "Sortuj: Marża" }).click();
+    await waitFor(() => expect(lastParams().sort_by).toBe("margin"));
+    expect(lastParams().sort_dir).toBe("asc");
+    // Status/typ zostają nietknięte — sort działa obok filtrów.
+    expect(lastParams().status).toEqual(["active", "ending"]);
+  });
+
+  it("filtr dat z adresu trafia do zapytania razem ze statusem", async () => {
+    const query =
+      "status=active&start_from=2026-01-01&order_end_to=2026-12-31&sort=start_date&dir=desc";
+    window.history.replaceState({}, "", `/contracts?${query}`);
+    renderList(query);
+    await screen.findByText("Paweł Małek");
+    const params = (getMock.mock.calls.filter(([url]) => url === "/api/contracts").at(-1)?.[1] as {
+      params: Record<string, unknown>;
+    }).params;
+    expect(params).toMatchObject({
+      status: ["active"],
+      start_from: "2026-01-01",
+      order_end_to: "2026-12-31",
+      sort_by: "start_date",
+      sort_dir: "desc",
+    });
+    expect(params.start_to).toBeUndefined();
+    expect(
+      screen.getByRole("button", { name: /Usuń filtr dat/ }),
+    ).toHaveTextContent("Start 01.01.26 – …");
   });
 
   it("jeden responsywny DOM zachowuje komplet pól każdego klienta", async () => {
@@ -348,7 +459,8 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     const memberRows = multiGroup!.querySelectorAll("[data-contract-member]");
     const expectedLabels = [
       "Klient",
-      "Daty",
+      "Data rozpoczęcia",
+      "Data zakończenia zamówienia",
       "Stawka kosztowa",
       "Stawka przychodowa",
       "Marża",

@@ -1,10 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from"react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from"react";
 import Link from"next/link";
 import { keepPreviousData, useQuery, useQueryClient } from"@tanstack/react-query";
 import {
  AlertTriangle,
+ ArrowDown,
+ ArrowUp,
+ CalendarRange,
+ ChevronsUpDown,
  Download,
  FileText,
  Plus,
@@ -52,6 +56,8 @@ import {
 } from"@/lib/filter-options";
 import {
  DEFAULT_CONTRACT_STATUS_FILTER,
+ type ContractSortDir,
+ type ContractSortKey,
  buildContractDetailHref,
  buildContractsListUrl,
  parseContractsListState,
@@ -291,6 +297,159 @@ function rowAsGroupMember(row: ContractRow): ContractGroupMemberRow {
  };
 }
 
+export interface ContractsDateRange {
+ startFrom: string;
+ startTo: string;
+ orderEndFrom: string;
+ orderEndTo: string;
+}
+
+export interface ContractsSort {
+ by: ContractSortKey | null;
+ dir: ContractSortDir;
+}
+
+const EMPTY_DATE_RANGE: ContractsDateRange = {
+ startFrom: "",
+ startTo: "",
+ orderEndFrom: "",
+ orderEndTo: "",
+};
+
+function rangeInverted(from: string, to: string): boolean {
+ return Boolean(from && to && from > to);
+}
+
+/**
+ * Zakres wysyłany do API. Odwrócona para (od > do) nie idzie wcale — pusty
+ * wynik czytałby się jak brak kontraktów, a to tylko pomyłka w trakcie
+ * wpisywania drugiej daty.
+ */
+export function effectiveDateRange(range: ContractsDateRange): ContractsDateRange {
+ const startOk = !rangeInverted(range.startFrom, range.startTo);
+ const orderOk = !rangeInverted(range.orderEndFrom, range.orderEndTo);
+ return {
+ startFrom: startOk ? range.startFrom : "",
+ startTo: startOk ? range.startTo : "",
+ orderEndFrom: orderOk ? range.orderEndFrom : "",
+ orderEndTo: orderOk ? range.orderEndTo : "",
+ };
+}
+
+/** Klik w nagłówek: nowa kolumna rosnąco, ta sama — odwraca kierunek. */
+export function nextContractsSort(
+ current: ContractsSort,
+ key: ContractSortKey,
+): ContractsSort {
+ if (current.by !== key) return { by: key, dir: "asc" };
+ return { by: key, dir: current.dir === "asc" ? "desc" : "asc" };
+}
+
+function dateRangeChipText(range: ContractsDateRange): string | null {
+ const part = (label: string, from: string, to: string) => {
+ if (!from && !to) return null;
+ const f = from ? formatContractListDate(from) : "…";
+ const t = to ? formatContractListDate(to) : "…";
+ return `${label} ${f} – ${t}`;
+ };
+ const parts = [
+ part("Start", range.startFrom, range.startTo),
+ part("Koniec zam.", range.orderEndFrom, range.orderEndTo),
+ ].filter(Boolean);
+ return parts.length ? parts.join(" · ") : null;
+}
+
+function SortableHead({
+ label,
+ sortKey,
+ sort,
+ onSort,
+ align = "left",
+ children,
+}: {
+ label: string;
+ sortKey: ContractSortKey;
+ sort: ContractsSort;
+ onSort: (key: ContractSortKey) => void;
+ align?: "left" | "right";
+ children?: ReactNode;
+}) {
+ const active = sort.by === sortKey;
+ const Icon = !active ? ChevronsUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
+ return (
+ <TableHead
+ className={cn("px-2", align === "right" && "text-right")}
+ aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+ >
+ <span
+ className={cn(
+ "flex items-center gap-2",
+ align === "right" && "justify-end",
+ )}
+ >
+ {children}
+ <button
+ type="button"
+ onClick={() => onSort(sortKey)}
+ aria-label={`Sortuj: ${label}`}
+ className={cn(
+ "inline-flex items-center gap-1 rounded-sm text-left uppercase hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+ align === "right" && "flex-row-reverse text-right",
+ active && "text-foreground",
+ )}
+ >
+ {label}
+ <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
+ </button>
+ </span>
+ </TableHead>
+ );
+}
+
+function DateRangeFields({
+ legend,
+ from,
+ to,
+ onChange,
+}: {
+ legend: string;
+ from: string;
+ to: string;
+ onChange: (from: string, to: string) => void;
+}) {
+ const inverted = rangeInverted(from, to);
+ return (
+ <fieldset className="space-y-1.5">
+ <legend className="text-xs font-semibold text-foreground">{legend}</legend>
+ <div className="grid grid-cols-2 gap-2">
+ <label className="space-y-1 text-[11px] text-muted-foreground">
+ <span>Od</span>
+ <Input
+ type="date"
+ value={from}
+ aria-label={`${legend} od`}
+ onChange={(e) => onChange(e.target.value, to)}
+ />
+ </label>
+ <label className="space-y-1 text-[11px] text-muted-foreground">
+ <span>Do</span>
+ <Input
+ type="date"
+ value={to}
+ aria-label={`${legend} do`}
+ onChange={(e) => onChange(from, e.target.value)}
+ />
+ </label>
+ </div>
+ {inverted && (
+ <p role="alert" className="text-[11px] text-destructive">
+ Data „od" jest późniejsza niż „do" — popraw zakres, żeby go zastosować.
+ </p>
+ )}
+ </fieldset>
+ );
+}
+
 function MobileFieldLabel({ children }: { children: string }) {
  return (
  <span className="mb-1 hidden text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground max-xl:block">
@@ -332,6 +491,16 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  // "Pokaż" button. Decoupled from the stored `ending` status (cron-maintained)
  // so it always matches the date-based /api/contracts/expiring banner.
  const [endingSoon, setEndingSoon] = useState(initialListState.state.endingSoon);
+ const [dateRange, setDateRange] = useState<ContractsDateRange>(() => ({
+ startFrom: initialListState.state.startFrom,
+ startTo: initialListState.state.startTo,
+ orderEndFrom: initialListState.state.orderEndFrom,
+ orderEndTo: initialListState.state.orderEndTo,
+ }));
+ const [sort, setSort] = useState<ContractsSort>(() => ({
+ by: initialListState.state.sortBy,
+ dir: initialListState.state.sortDir,
+ }));
  const [page, setPage] = useState(initialListState.state.page);
  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
  const [toast, setToast] = useState<string | null>(null);
@@ -342,16 +511,17 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
 
  const returnTarget = useMemo(
  () =>
- buildContractsListUrl(
- { search, statusFilter, typeFilter, endingSoon, page },
- ),
- [
+ buildContractsListUrl({
  search,
  statusFilter,
  typeFilter,
  endingSoon,
+ ...dateRange,
+ sortBy: sort.by,
+ sortDir: sort.dir,
  page,
- ],
+ }),
+ [search, statusFilter, typeFilter, endingSoon, dateRange, sort, page],
  );
 
  // Keep the current list entry self-contained. `replaceState` deliberately
@@ -382,6 +552,13 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  setStatusFilter(next.statusFilter);
  setTypeFilter(next.typeFilter);
  setEndingSoon(next.endingSoon);
+ setDateRange({
+ startFrom: next.startFrom,
+ startTo: next.startTo,
+ orderEndFrom: next.orderEndFrom,
+ orderEndTo: next.orderEndTo,
+ });
+ setSort({ by: next.sortBy, dir: next.sortDir });
  setPage(next.page);
  }, [navigationSearch]);
 
@@ -389,6 +566,17 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  // naciśnięcie klawisza wysyłało request (a zapytanie listy robi sześć
  // `selectinload`) i przerzucało tabelę w stan ładowania.
  const debouncedSearch = useDebouncedValue(search, 300);
+ // Zakres idzie do API dopiero, gdy jest spójny (od ≤ do).
+ const appliedDates = useMemo(() => effectiveDateRange(dateRange), [dateRange]);
+ const dateChip = dateRangeChipText(appliedDates);
+ const onSort = (key: ContractSortKey) => {
+ setSort((current) => nextContractsSort(current, key));
+ setPage(1);
+ };
+ const updateDateRange = (patch: Partial<ContractsDateRange>) => {
+ setDateRange((current) => ({ ...current, ...patch }));
+ setPage(1);
+ };
 
  // Zaznaczenie operuje na KOMPLECIE umów wiersza. Wiersz zgrupowany pokazuje
  // N umów (N klientów) — checkbox, który wnosiłby tylko umowę główną, robiłby
@@ -412,7 +600,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  // when nothing is selected.)
  useEffect(() => {
  setSelectedIds((prev) => (prev.size === 0 ? prev : new Set()));
- }, [search, statusFilter, typeFilter, endingSoon, page]);
+ }, [search, statusFilter, typeFilter, endingSoon, appliedDates, sort, page]);
 
  const flashToast = (msg: string) => {
  setToast(msg);
@@ -433,6 +621,12 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  statusFilter.forEach((s) => params.append("status", s));
  typeFilter.forEach((t) => params.append("contract_type", t));
  if (endingSoon) params.set("expiring_in_days", "30");
+ if (appliedDates.startFrom) params.set("start_from", appliedDates.startFrom);
+ if (appliedDates.startTo) params.set("start_to", appliedDates.startTo);
+ if (appliedDates.orderEndFrom) {
+ params.set("order_end_from", appliedDates.orderEndFrom);
+ }
+ if (appliedDates.orderEndTo) params.set("order_end_to", appliedDates.orderEndTo);
  params.set("format", format);
  const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
  const res = await fetch(`${apiBase}/api/contracts/export?${params}`, {
@@ -464,7 +658,16 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  const canCreateContract = useCapability("contract.create");
 
  const { data, isLoading, isError, error, refetch } = useQuery({
- queryKey: ["contracts-v2", debouncedSearch, statusFilter, typeFilter, endingSoon, page],
+ queryKey: [
+ "contracts-v2",
+ debouncedSearch,
+ statusFilter,
+ typeFilter,
+ endingSoon,
+ appliedDates,
+ sort,
+ page,
+ ],
  queryFn: () =>
  api
  .get("/api/contracts", {
@@ -473,6 +676,13 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  status: statusFilter.length ? statusFilter : undefined,
  contract_type: typeFilter.length ? typeFilter : undefined,
  expiring_in_days: endingSoon ? 30 : undefined,
+ start_from: appliedDates.startFrom || undefined,
+ start_to: appliedDates.startTo || undefined,
+ order_end_from: appliedDates.orderEndFrom || undefined,
+ order_end_to: appliedDates.orderEndTo || undefined,
+ // Sortuje SERWER — lista jest stronicowana i grupowana po osobie.
+ sort_by: sort.by ?? undefined,
+ sort_dir: sort.by ? sort.dir : undefined,
  // Jeden wiersz na OSOBĘ (konsolidacja kontraktorów wieloklientowych).
  // Grupuje SERWER — grupowanie strony wyników w FE rozdzielałoby osobę
  // między strony paginacji.
@@ -694,6 +904,59 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  : `Typ: ${n}`
  }
  />
+ <Popover>
+ <PopoverTrigger asChild>
+ <Button
+ size="sm"
+ variant="outline"
+ className="gap-1.5"
+ aria-label="Filtr dat"
+ >
+ <CalendarRange className="h-4 w-4" />
+ Daty
+ </Button>
+ </PopoverTrigger>
+ <PopoverContent align="start" className="w-80 space-y-3">
+ <DateRangeFields
+ legend="Data rozpoczęcia"
+ from={dateRange.startFrom}
+ to={dateRange.startTo}
+ onChange={(from, to) => updateDateRange({ startFrom: from, startTo: to })}
+ />
+ <DateRangeFields
+ legend="Data zakończenia zamówienia"
+ from={dateRange.orderEndFrom}
+ to={dateRange.orderEndTo}
+ onChange={(from, to) =>
+ updateDateRange({ orderEndFrom: from, orderEndTo: to })
+ }
+ />
+ <p className="text-[11px] leading-4 text-muted-foreground">
+ Zamówienia bezterminowe i kontrakty bez zamówienia nie mieszczą się
+ w zakresie końca zamówienia.
+ </p>
+ <Button
+ size="sm"
+ variant="ghost"
+ className="w-full"
+ onClick={() => updateDateRange(EMPTY_DATE_RANGE)}
+ >
+ Wyczyść daty
+ </Button>
+ </PopoverContent>
+ </Popover>
+ {dateChip && (
+ <Button
+ size="sm"
+ variant="outline"
+ className="gap-1"
+ aria-label={`Usuń filtr dat: ${dateChip}`}
+ onClick={() => updateDateRange(EMPTY_DATE_RANGE)}
+ >
+ {dateChip}
+ <X className="h-3.5 w-3.5" />
+ </Button>
+ )}
  {endingSoon && (
  <Button
  size="sm"
@@ -740,29 +1003,30 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  <colgroup className="max-xl:hidden">
  {canSeeFinance ? (
  <>
- <col className="w-[18%]" />
  <col className="w-[15%]" />
- <col className="w-[13%]" />
- <col className="w-[13.5%]" />
  <col className="w-[14%]" />
- <col className="w-[10%]" />
- <col className="w-[7.5%]" />
+ <col className="w-[9.5%]" />
+ <col className="w-[11%]" />
+ <col className="w-[12%]" />
+ <col className="w-[12.5%]" />
  <col className="w-[9%]" />
+ <col className="w-[7%]" />
+ <col className="w-[10%]" />
  </>
  ) : (
  <>
- <col className="w-[26%]" />
- <col className="w-[26%]" />
- <col className="w-[22%]" />
+ <col className="w-[24%]" />
+ <col className="w-[24%]" />
+ <col className="w-[14%]" />
+ <col className="w-[14%]" />
  <col className="w-[10%]" />
- <col className="w-[16%]" />
+ <col className="w-[14%]" />
  </>
  )}
  </colgroup>
  <TableHeader className="max-xl:hidden">
  <TableRow>
- <TableHead className="px-2">
- <span className="flex items-center gap-2">
+ <SortableHead label="Kandydat" sortKey="candidate" sort={sort} onSort={onSort}>
  {canCreateContract && (
  <Checkbox
  checked={
@@ -778,26 +1042,53 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  aria-label="Zaznacz wszystkie"
  />
  )}
- Kandydat
- </span>
- </TableHead>
- <TableHead className="px-2">Klient</TableHead>
- <TableHead className="px-2">Daty</TableHead>
+ </SortableHead>
+ <SortableHead label="Klient" sortKey="client" sort={sort} onSort={onSort} />
+ <SortableHead
+ label="Data rozpoczęcia"
+ sortKey="start_date"
+ sort={sort}
+ onSort={onSort}
+ />
+ <SortableHead
+ label="Data zakończenia zamówienia"
+ sortKey="order_end_date"
+ sort={sort}
+ onSort={onSort}
+ />
  {canSeeFinance && (
  <>
- <TableHead className="px-2 text-right">Stawka kosztowa</TableHead>
- <TableHead className="px-2 text-right">Stawka przychodowa</TableHead>
- <TableHead className="px-2 text-right">Marża</TableHead>
+ <SortableHead
+ label="Stawka kosztowa"
+ sortKey="rate_candidate"
+ sort={sort}
+ onSort={onSort}
+ align="right"
+ />
+ <SortableHead
+ label="Stawka przychodowa"
+ sortKey="rate_client"
+ sort={sort}
+ onSort={onSort}
+ align="right"
+ />
+ <SortableHead
+ label="Marża"
+ sortKey="margin"
+ sort={sort}
+ onSort={onSort}
+ align="right"
+ />
  </>
  )}
- <TableHead className="px-2">Typ</TableHead>
- <TableHead className="px-2">Status</TableHead>
+ <SortableHead label="Typ" sortKey="contract_type" sort={sort} onSort={onSort} />
+ <SortableHead label="Status" sortKey="status" sort={sort} onSort={onSort} />
  </TableRow>
  </TableHeader>
  {viewState === "loading" ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 8 : 5} className="text-center py-10 text-muted-foreground max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? 9 : 6} className="text-center py-10 text-muted-foreground max-xl:block max-xl:w-full">
  Ładowanie…
  </TableCell>
  </TableRow>
@@ -805,7 +1096,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  ) : failed ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 8 : 5} className="p-0 max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? 9 : 6} className="p-0 max-xl:block max-xl:w-full">
  <QueryStateNotice
  state={viewState as "forbidden" | "not_found" | "error"}
  className="border-0"
@@ -822,7 +1113,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  ) : viewState === "empty" ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 8 : 5} className="text-center py-10 max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? 9 : 6} className="text-center py-10 max-xl:block max-xl:w-full">
  <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
  Brak kontraktów spełniających kryteria.
@@ -942,42 +1233,53 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  </TableCell>
 
  <TableCell
- data-label="Daty"
+ data-label="Data rozpoczęcia"
  className="px-2 py-1.5 align-top max-xl:block max-xl:border-b max-xl:border-b-border/60"
  >
- <MobileFieldLabel>Daty</MobileFieldLabel>
- <div className="text-[12px] font-medium leading-4 text-foreground">
- <span className="block whitespace-nowrap">
+ <MobileFieldLabel>Data rozpoczęcia</MobileFieldLabel>
+ <div className="whitespace-nowrap text-[12px] font-medium leading-4 text-foreground">
  {m.start_date ? <CompactDate value={m.start_date} /> : "—"}
- </span>
- <span className="block whitespace-nowrap text-muted-foreground">
- <span className="mr-1" aria-hidden="true">→</span>
- {m.end_date ? <CompactDate value={m.end_date} /> : "bezterminowo"}
- </span>
  </div>
- {m.client_order_start_date ? (
+ {m.end_date && (
  <div
  className="whitespace-nowrap text-[10px] leading-4 text-muted-foreground"
+ title="Data zakończenia umowy"
+ >
+ umowa do <CompactDate value={m.end_date} />
+ </div>
+ )}
+ </TableCell>
+
+ <TableCell
+ data-label="Data zakończenia zamówienia"
+ className="px-2 py-1.5 align-top max-xl:block max-xl:border-b max-xl:border-b-border/60"
+ >
+ <MobileFieldLabel>Data zakończenia zamówienia</MobileFieldLabel>
+ {m.client_order_start_date ? (
+ <>
+ <div
+ className="whitespace-nowrap text-[12px] font-medium leading-4 text-foreground"
  title="Okres zamówienia — z najnowszego uzupełnionego zamówienia tej osoby. Nie zmienia okresu umowy."
  >
- zam. <CompactDate value={m.client_order_start_date} />
- <span className="mx-0.5" aria-hidden="true">→</span>
  {m.client_order_end_date ? (
  <CompactDate value={m.client_order_end_date} />
  ) : (
  "bezterminowo"
  )}
  </div>
- ) : (
- m.latest_order_end_date &&
- m.latest_order_end_date !== m.end_date && (
+ <div className="whitespace-nowrap text-[10px] leading-4 text-muted-foreground">
+ zam. od <CompactDate value={m.client_order_start_date} />
+ </div>
+ </>
+ ) : m.latest_order_end_date ? (
  <div
- className="whitespace-nowrap text-[10px] leading-4 text-warning-muted-foreground"
+ className="whitespace-nowrap text-[12px] font-medium leading-4 text-warning-muted-foreground"
  title="Aktualne zamówienie klienta kończy się tej daty"
  >
- zam. do <CompactDate value={m.latest_order_end_date} />
+ <CompactDate value={m.latest_order_end_date} />
  </div>
- )
+ ) : (
+ <span className="text-[12px] text-muted-foreground">—</span>
  )}
  </TableCell>
 

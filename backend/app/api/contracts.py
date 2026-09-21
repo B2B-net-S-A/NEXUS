@@ -5,7 +5,7 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from io import BytesIO
-from typing import Annotated, Any, List, Optional
+from typing import Annotated, Any, List, Literal, Optional
 
 from fastapi import (
     APIRouter,
@@ -20,7 +20,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from jinja2 import TemplateError
-from sqlalchemy import distinct, func, or_, select
+from sqlalchemy import String, case, cast, distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -151,7 +151,11 @@ from app.services.order_rate_snapshots import (
     inherited_order_rate_fields,
 )
 from app.services.order_types import suggested_order_type
-from app.services.polish_ilike import polish_folded_ilike
+from app.services.polish_ilike import (
+    fold_polish_query,
+    polish_folded,
+    polish_folded_ilike,
+)
 from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, TacPlus, get_current_user, require_roles
 from app.api.financial_access import (
@@ -1085,6 +1089,8 @@ def _apply_contract_list_filters(
     period_from: Optional[date] = None,
     period_to: Optional[date] = None,
     subcategory: Optional[list[str]] = None,
+    order_end_from: Optional[date] = None,
+    order_end_to: Optional[date] = None,
 ):
     """Apply the shared contract list/export filters to ``query`` and return it.
 
@@ -1153,6 +1159,14 @@ def _apply_contract_list_filters(
         query = query.where(
             or_(Contract.start_date.is_(None), Contract.start_date <= period_to)
         )
+    # Koniec zamówienia u klienta = `client_order_end_date` (okres najnowszego
+    # uzupełnionego zamówienia, prowadzony synchronizacją kontrakt ↔ zamówienia).
+    # Zamówienie bezterminowe albo jego brak (NULL) nie ma daty, która mogłaby
+    # zmieścić się w zakresie — przy aktywnym filtrze wypada z listy.
+    if order_end_from is not None:
+        query = query.where(Contract.client_order_end_date >= order_end_from)
+    if order_end_to is not None:
+        query = query.where(Contract.client_order_end_date <= order_end_to)
     if subcategory:
         # Podkategoria kompetencyjna kontraktu = `subcategory` powiązanej oferty
         # (Job leży pod jedną CC i niesie free-text podkategorię). Filtrujemy
@@ -1178,6 +1192,134 @@ def _apply_contract_list_filters(
             Contract.end_date >= today,
         )
     return query
+
+
+# Sortowanie listy kontraktów (klik w nagłówek kolumny). Klucze są lustrem
+# `CONTRACT_SORT_KEYS` we froncie (`lib/contracts-list-navigation.ts`).
+ContractSortKey = Literal[
+    "candidate",
+    "client",
+    "start_date",
+    "order_end_date",
+    "rate_candidate",
+    "rate_client",
+    "margin",
+    "contract_type",
+    "status",
+]
+# Kwoty: sortowanie po nich zdradzałoby ukryte stawki roli bez finansów
+# (kolejność jako wyrocznia — ta sama klasa co F-13 przy filtrach kwot).
+_FINANCE_SORT_KEYS = frozenset({"rate_candidate", "rate_client", "margin"})
+
+# Status sortujemy po polskiej etykiecie widocznej w UI, nie po kolejności enuma.
+_STATUS_SORT_LABEL = {
+    ContractStatus.void: "Anulowany",
+    ContractStatus.active: "Aktywny",
+    ContractStatus.ready_for_signature: "Do podpisu",
+    ContractStatus.ending: "Kończący się",
+    ContractStatus.draft: "Szkic",
+    ContractStatus.ended: "Zakończony",
+}
+
+
+def _contract_sort_expression(sort_by: str):
+    """Wyrażenie SQL dla klucza sortowania listy.
+
+    Nazwisko i klient idą skorelowanym podzapytaniem, nie JOIN-em — filtry
+    (`q`) już joinują Candidate/Client, a drugi JOIN tej samej tabeli by się
+    zderzył. Teksty foldujemy z polskich znaków i zmniejszamy litery: produkcja
+    (musl) nie ma kolacji, więc bez tego „Łukasz" lądowałby za „Zenon".
+    """
+    if sort_by == "candidate":
+        return (
+            select(
+                func.lower(
+                    polish_folded(func.concat(Candidate.name, " ", Candidate.lastname))
+                )
+            )
+            .where(Candidate.id == Contract.candidate_id)
+            .correlate(Contract)
+            .scalar_subquery()
+        )
+    if sort_by == "client":
+        return (
+            select(func.lower(polish_folded(client_display_name_expression())))
+            .where(Client.id == Contract.client_id)
+            .correlate(Contract)
+            .scalar_subquery()
+        )
+    if sort_by == "start_date":
+        return Contract.start_date
+    if sort_by == "order_end_date":
+        return Contract.client_order_end_date
+    if sort_by == "rate_candidate":
+        return Contract.rate_candidate
+    if sort_by == "rate_client":
+        return Contract.rate_client
+    if sort_by == "margin":
+        return Contract.rate_client - Contract.rate_candidate
+    if sort_by == "contract_type":
+        return func.lower(cast(Contract.contract_type, String))
+    if sort_by == "status":
+        return case(
+            *[
+                (Contract.status == value, label)
+                for value, label in _STATUS_SORT_LABEL.items()
+            ],
+            else_="~",
+        )
+    raise ValueError(f"unknown contract sort key: {sort_by}")
+
+
+def _contract_member_sort_value(c: Contract, sort_by: str):
+    """Ten sam klucz w Pythonie — kolejność umów WEWNĄTRZ grupy osoby."""
+    if sort_by == "candidate":
+        return (
+            fold_polish_query(f"{c.candidate.name} {c.candidate.lastname}").lower()
+            if c.candidate
+            else None
+        )
+    if sort_by == "client":
+        return (
+            fold_polish_query(client_display_name(c.client)).lower()
+            if c.client
+            else None
+        )
+    if sort_by == "start_date":
+        return c.start_date
+    if sort_by == "order_end_date":
+        return c.client_order_end_date
+    if sort_by == "rate_candidate":
+        return c.rate_candidate
+    if sort_by == "rate_client":
+        return c.rate_client
+    if sort_by == "margin":
+        if c.rate_client is None or c.rate_candidate is None:
+            return None
+        return c.rate_client - c.rate_candidate
+    if sort_by == "contract_type":
+        return (
+            str(getattr(c.contract_type, "value", c.contract_type) or "").lower()
+            or None
+        )
+    if sort_by == "status":
+        return _STATUS_SORT_LABEL.get(c.status)
+    return None
+
+
+def _sort_members(members: list[Contract], sort_by: str, sort_dir: str) -> None:
+    """Sortuje umowy grupy w miejscu: wartości puste zawsze na końcu."""
+    present = [
+        m for m in members if _contract_member_sort_value(m, sort_by) is not None
+    ]
+    missing = [m for m in members if _contract_member_sort_value(m, sort_by) is None]
+    present.sort(key=lambda m: -m.id)
+    present.sort(
+        key=lambda m: _contract_member_sort_value(m, sort_by),
+        reverse=sort_dir == "desc",
+    )
+    missing.sort(key=lambda m: -m.id)
+    members[:] = present + missing
 
 
 async def _latest_order_end_dates(
@@ -1516,6 +1658,25 @@ async def list_contracts(
     rate_client_max: Optional[int] = Query(None, ge=0),
     margin_min: Optional[int] = Query(None),
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
+    order_end_from: Optional[date] = Query(
+        None,
+        description=(
+            "Koniec zamówienia u klienta (`client_order_end_date`) — dolna granica. "
+            "Zamówienia bezterminowe i kontrakty bez zamówienia wypadają."
+        ),
+    ),
+    order_end_to: Optional[date] = Query(
+        None, description="Koniec zamówienia u klienta — górna granica."
+    ),
+    sort_by: Optional[ContractSortKey] = Query(
+        None,
+        description=(
+            "Kolumna sortowania. Brak = najnowsze kontrakty najpierw. Puste "
+            "wartości zawsze na końcu. Stawki i marża są ignorowane dla ról "
+            "bez VIEW_FINANCE (kolejność zdradzałaby ukryte kwoty)."
+        ),
+    ),
+    sort_dir: Literal["asc", "desc"] = Query("asc"),
     group_by_candidate: bool = Query(
         False,
         description=(
@@ -1549,6 +1710,10 @@ async def list_contracts(
         # caller can binary-search a hidden rate/margin by watching which rows
         # survive the filter (an oracle). Drop them before building the query.
         rate_client_min = rate_client_max = margin_min = None
+    if not global_finance and sort_by in _FINANCE_SORT_KEYS:
+        # Ta sama wyrocznia co przy filtrach kwot: kolejność wierszy po ukrytej
+        # stawce pozwala ją odtworzyć. Rola bez finansów dostaje kolejność domyślną.
+        sort_by = None
 
     filter_kwargs = dict(
         q=q,
@@ -1567,7 +1732,10 @@ async def list_contracts(
         rate_client_max=rate_client_max,
         margin_min=margin_min,
         expiring_in_days=expiring_in_days,
+        order_end_from=order_end_from,
+        order_end_to=order_end_to,
     )
+    sort_expr = _contract_sort_expression(sort_by) if sort_by else None
 
     def _scoped_filtered(base_query):
         """Scope DL + komplet filtrów — jedna reguła dla obu trybów listy."""
@@ -1639,8 +1807,18 @@ async def list_contracts(
         ).scalar()
         # Kolejność grup = najnowsza umowa najpierw (lustro trybu płaskiego);
         # max(id) jest unikalne między grupami, więc porządek jest deterministyczny.
+        if sort_expr is not None:
+            # Grupa = osoba z N umowami: rosnąco decyduje jej najmniejsza
+            # wartość, malejąco największa — tak, jak czyta się kolumnę.
+            aggregate = (
+                func.min(sort_expr) if sort_dir == "asc" else func.max(sort_expr)
+            )
+            ordered = aggregate.asc() if sort_dir == "asc" else aggregate.desc()
+            group_order = (ordered.nulls_last(), func.max(Contract.id).desc())
+        else:
+            group_order = (func.max(Contract.id).desc(),)
         key_rows = await db.execute(
-            key_query.order_by(func.max(Contract.id).desc())
+            key_query.order_by(*group_order)
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
@@ -1667,6 +1845,10 @@ async def list_contracts(
                 continue
             members.sort(key=lambda m: (_GROUP_STATUS_RANK.get(m.status, 9), -m.id))
             primary = members[0]
+            if sort_by:
+                # Wiersz główny (link osoby) zostaje przy umowie najżywszej;
+                # kolejność wierszy klientów idzie za sortowaną kolumną.
+                _sort_members(members, sort_by, sort_dir)
             item = _contract_list_item(primary, latest_order_dates, _today)
             item.group_members = [
                 _group_member_from_contract(m, latest_order_dates, _today)
@@ -1689,7 +1871,11 @@ async def list_contracts(
         # trafiać do podzapytania COUNT. `id` jest unikalne, więc wystarcza samo
         # za tie-breaker; lista nie ma parametru sortowania, a domyślną kolejnością
         # jest najnowsze najpierw.
-        query = query.order_by(Contract.id.desc())
+        if sort_expr is not None:
+            ordered = sort_expr.asc() if sort_dir == "asc" else sort_expr.desc()
+            query = query.order_by(ordered.nulls_last(), Contract.id.desc())
+        else:
+            query = query.order_by(Contract.id.desc())
         result = await db.execute(query.offset((page - 1) * page_size).limit(page_size))
         contracts = list(result.scalars().all())
         # Latest order end_date per Contract for the "Zamówienie do" column.
@@ -1852,6 +2038,8 @@ async def export_contracts(
     rate_client_max: Optional[int] = Query(None, ge=0),
     margin_min: Optional[int] = Query(None),
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
+    order_end_from: Optional[date] = Query(None),
+    order_end_to: Optional[date] = Query(None),
     limit: int = Query(10000, ge=1, le=50000),
 ):
     """Export contracts to CSV or Excel — client, rates, order dates and more.
@@ -1888,6 +2076,8 @@ async def export_contracts(
         rate_client_max=rate_client_max,
         margin_min=margin_min,
         expiring_in_days=expiring_in_days,
+        order_end_from=order_end_from,
+        order_end_to=order_end_to,
     )
     query = query.order_by(Contract.id).limit(limit)
     result = await db.execute(query)
