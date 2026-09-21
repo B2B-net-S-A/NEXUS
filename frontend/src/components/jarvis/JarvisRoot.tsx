@@ -18,7 +18,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api, triggerSessionExpiredRedirect } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -41,7 +40,7 @@ import { playPetSound } from "@/lib/kidsSound";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
-import { JarvisAppearanceForm } from "./JarvisAppearanceForm";
+import { JarvisAppearanceDialog } from "./JarvisAppearanceDialog";
 import { JarvisMascot } from "./JarvisMascot";
 import { JarvisPanel } from "./JarvisPanel";
 import { useKidsChatter } from "./useKidsChatter";
@@ -449,24 +448,14 @@ export function JarvisRoot() {
           }}
         />
       )}
-      <Dialog open={appearanceOpen} onOpenChange={setAppearanceOpen}>
-        <DialogContent size="lg" aria-describedby={undefined}>
-          <DialogHeader>
-            <DialogTitle>Wygląd asystenta</DialogTitle>
-          </DialogHeader>
-          <div className="overflow-y-auto px-6 py-5">
-            {appearanceOpen && (
-              <JarvisAppearanceForm
-                prefs={prefs}
-                saving={savePrefs.isPending}
-                error={savePrefs.isError ? apiErrorMessage(savePrefs.error, "Nie udało się zapisać wyglądu.") : null}
-                onSave={(next) => savePrefs.mutate(next)}
-                onCancel={() => setAppearanceOpen(false)}
-              />
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <JarvisAppearanceDialog
+        open={appearanceOpen}
+        onOpenChange={setAppearanceOpen}
+        prefs={prefs}
+        saving={savePrefs.isPending}
+        error={savePrefs.isError ? apiErrorMessage(savePrefs.error, "Nie udało się zapisać wyglądu.") : null}
+        onSave={(next) => savePrefs.mutate(next)}
+      />
     </>
   );
 }
