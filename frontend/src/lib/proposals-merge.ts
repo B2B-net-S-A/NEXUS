@@ -3,9 +3,10 @@
  *
  * Czyste funkcje, bez Reacta i bez sieci. Trzy reguły, których łatwo nie
  * dopilnować w komponencie:
- *  - wynik dopasowania NIGDY nie jest zmyślany: nieznany = `null`, a punktacja
- *    „z podobnych projektów" (`historical_score`) nie jest dopasowaniem 0–100
- *    i do kolumny „Dop." nie trafia;
+ *  - wynik dopasowania NIGDY nie jest zmyślany: nieznany = `null`. Kolumna
+ *    „Dop." niesie WYŁĄCZNIE kanoniczne dopasowanie (żywy przegląd bazy
+ *    i skrzynka propozycji); punktacja „z podobnych projektów"
+ *    (`historical_score`) ani `total_score` rekomendacji do niej nie trafiają;
  *  - osoba już w pipeline'ie znika z listy niezależnie od źródła;
  *  - kolejność jest stabilna (dopasowanie ↓, nowe, nazwisko, id), żeby
  *    odświeżenie w tle nie przetasowywało tabeli pod kursorem.
@@ -76,7 +77,10 @@ export interface MergeProposalsInput {
   /** Strona ŻYWEGO przeglądu użytkownika; tylko zakończonego i nieprzerwanego. */
   run?: { runId: string; rows: readonly CandidateSearchRow[] } | null;
   similar?: readonly HistoricalCandidate[];
-  /** `degraded` = ranking bez nogi semantycznej → liczby nie pokazujemy. */
+  /**
+   * `degraded` = ranking bez nogi semantycznej. Liczb rekomendacji i tak nie
+   * pokazujemy (patrz niżej); flaga zostaje dla notki przy liście.
+   */
   recommendations?: {
     items: readonly ProposalCandidateItem[];
     degraded: boolean;
@@ -260,6 +264,9 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     d.detail.availabilityDate ??= c.availability_date;
     d.detail.eligibility ??= item.eligibility;
     d.detail.firstSeenAt ??= item.first_seen_at;
+    // Przegląd, który tę osobę zaproponował — telemetria dodania (żywy
+    // przegląd użytkownika, jeśli jest, nadpisze go niżej).
+    d.runId ??= item.run_id ?? null;
     const reqs = inboxRequirements(item);
     if (d.detail.requirements.length === 0) d.detail.requirements = reqs;
     const reason = reasonFromRequirements(reqs);
@@ -324,7 +331,9 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     const d = draft(c.id, c.name, c.lastname);
     d.origins.add("recommendation");
     d.sources.add("recommendation");
-    if (!input.recommendations?.degraded) addScore(d, item.total_score);
+    // `total_score` migawki rekomendacji to INNA skala niż kanoniczne
+    // dopasowanie z przeglądu bazy — do kolumny „Dop." nie trafia nigdy
+    // (dwie liczby pod jedną nazwą to gorsze niż brak liczby).
     d.detail.city ??= c.location;
     d.detail.eligibility ??= item.eligibility ?? null;
   }
@@ -394,7 +403,7 @@ export type ProposalRateFilter = "all" | "in" | "over" | "unknown";
 export interface ProposalViewFilters {
   source: ProposalSourceFilter;
   onlyNew: boolean;
-  /** Skrót dla `rate: "in"` — osobny chip z makiety. */
+  /** Chip „W budżecie": odsiewa stawki PONAD budżet, nieznane zostają. */
   inBudget: boolean;
   availableNow: boolean;
   minScore: number;
@@ -446,7 +455,9 @@ export function filterProposals(
     // Próg NIE usuwa ocen niepełnych: „nie policzono" to nie „zero".
     if (filters.minScore > 0 && row.fitScore !== null && row.fitScore < filters.minScore) return false;
     const fit = proposalRateFit(detail, ctx.budgetHourly);
-    if (filters.inBudget && fit !== "in") return false;
+    // Chip „W budżecie" przepuszcza stawki NIEZNANE: brak stawki w profilu to
+    // nie „ponad budżet", a takich osób jest w bazie większość.
+    if (filters.inBudget && fit === "over") return false;
     if (filters.rate !== "all" && fit !== filters.rate) return false;
     if (filters.availableNow && !isAvailableNow(detail.availabilityStatus, detail.availabilityDate, ctx.now)) return false;
     if (location && !fold(detail.city ?? "").includes(location)) return false;

@@ -118,4 +118,11 @@ export interface PersonRowGroup {
 export interface WorkbenchPanelProps {
   layout?: "full" | "panel";
   focusCandidateId?: number | null;
+  /**
+   * Co pokazać w panelu, gdy osoba NIE stoi w kolejce warsztatu (np. jest już
+   * na późniejszym etapie). Panel osoby podaje tu podgląd tylko do odczytu
+   * (zapisany arkusz screeningu, wersje CV i linki) — bez tego warsztat
+   * pokazuje krótki pusty stan.
+   */
+  panelFallback?: ReactNode;
 }

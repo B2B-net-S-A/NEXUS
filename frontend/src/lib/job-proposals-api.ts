@@ -60,6 +60,8 @@ export interface ProposalInboxItem {
   last_seen_at: string | null;
   is_new: boolean;
   status: ProposalInboxStatus;
+  /** Przegląd bazy, który zaproponował tę osobę (telemetria dodania). */
+  run_id?: string | null;
   eligibility: MatchEligibility | null;
 }
 
@@ -95,6 +97,12 @@ export interface DismissProposalResponse {
   dismissed: boolean;
 }
 
+export interface RestoreProposalResponse {
+  job_id: number;
+  candidate_id: number;
+  restored: boolean;
+}
+
 /** Sufit `limit` po stronie serwera (`Query(20, le=100)`). */
 export const PROPOSAL_INBOX_MAX_LIMIT = 100;
 export const PROPOSAL_INBOX_PAGE = 20;
@@ -115,10 +123,26 @@ export const jobProposalsApi = {
         signal,
       })
       .then((r) => r.data),
-  dismiss: (jobId: number, candidateId: number): Promise<DismissProposalResponse> =>
+  /**
+   * „Pomiń" działa dla DOWOLNEJ osoby: spoza skrzynki serwer zakłada wiersz od
+   * razu jako pominięty — `source` mówi mu, skąd ta osoba przyszła.
+   */
+  dismiss: (
+    jobId: number,
+    candidateId: number,
+    source: ProposalSource = "full_base",
+  ): Promise<DismissProposalResponse> =>
     api
       .post<DismissProposalResponse>(
         `/api/jobs/${jobId}/proposal-inbox/${candidateId}/dismiss`,
+        { source },
+      )
+      .then((r) => r.data),
+  /** „Cofnij" po „Pomiń" — osoba wraca do skrzynki całego zespołu. */
+  restore: (jobId: number, candidateId: number): Promise<RestoreProposalResponse> =>
+    api
+      .post<RestoreProposalResponse>(
+        `/api/jobs/${jobId}/proposal-inbox/${candidateId}/restore`,
       )
       .then((r) => r.data),
   latestRun: (jobId: number, signal?: AbortSignal): Promise<LatestRunResponse> =>

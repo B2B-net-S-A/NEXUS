@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
     dialogs: null,
   },
   panelProps: null as Record<string, unknown> | null,
+  bulkCvOptions: null as Record<string, unknown> | null,
+  bulkCvStart: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -34,6 +36,14 @@ vi.mock("@/hooks/usePipelineMove", () => ({
   usePipelineMove: (options: Record<string, unknown>) => {
     mocks.moveOptions = options;
     return mocks.move;
+  },
+}));
+// Zbiorcza wysyłka CV ma własne testy (pętla i okno wyniku) — tu liczy się,
+// że workspace ją uruchamia dla ZAZNACZONYCH wierszy.
+vi.mock("@/components/v2/recruitment/useBulkCvHandoff", () => ({
+  useBulkCvHandoff: (options: Record<string, unknown>) => {
+    mocks.bulkCvOptions = options;
+    return { start: mocks.bulkCvStart, busy: false, dialogs: null };
   },
 }));
 // Panel ma własne testy — tu liczy się, KOGO i z czym workspace mu podaje.
@@ -249,7 +259,7 @@ describe("RecruitmentWorkspace — panel i akcje", () => {
     await waitFor(() => expect(mocks.panelProps).toMatchObject({ section: "notes", noteFocusSignal: 1 }));
   });
 
-  it("zaznaczenie pokazuje pasek zbiorczy; wysyłka CV = ruch zbiorczy na „CV Wysłane” przez usePipelineMove", async () => {
+  it("zaznaczenie pokazuje pasek zbiorczy; wysyłka CV = useBulkCvHandoff (ruch + linki), nie sam ruch zbiorczy", async () => {
     renderWorkspace();
     expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("checkbox", { name: "Zaznacz: Marek Zieliński" }));
@@ -257,9 +267,15 @@ describe("RecruitmentWorkspace — panel i akcje", () => {
     const bar = screen.getByRole("toolbar");
     expect(bar).toHaveTextContent("Zaznaczono 2");
     await userEvent.click(within(bar).getByRole("button", { name: "Wyślij CV do klienta" }));
-    const [items, target] = mocks.move.requestBulkMove.mock.calls[0];
-    expect(items.map((i: { candidate_id: number }) => i.candidate_id)).toEqual([2, 3]);
-    expect(target.stage).toBe("cv_sent");
+    expect(mocks.move.requestBulkMove).not.toHaveBeenCalled();
+    expect(mocks.bulkCvStart).toHaveBeenCalledTimes(1);
+    const [rows, opts] = mocks.bulkCvStart.mock.calls[0];
+    expect(rows.map((r: { candidateId: number }) => r.candidateId)).toEqual([2, 3]);
+    expect(rows.map((r: { item: { id: number } }) => typeof r.item.id)).toEqual(["number", "number"]);
+    expect(mocks.bulkCvOptions).toMatchObject({ jobId: 42, canWriteClientRate: true, columns });
+    // `onHandled` czyści zaznaczenie po pętli.
+    act(() => opts.onHandled());
+    expect(screen.queryByRole("toolbar")).not.toBeInTheDocument();
   });
 
   it("zmiana segmentu czyści zaznaczenie", async () => {

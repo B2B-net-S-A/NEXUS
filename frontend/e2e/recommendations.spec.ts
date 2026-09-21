@@ -17,32 +17,34 @@ async function login(page: Page) {
 test.describe("Recommendations flow", () => {
   test.skip(!PASSWORD, "Set E2E_USER_PASSWORD to run recommendations tests");
 
-  test("job detail AI Matching tab shows SuggestedCandidatesWidget", async ({
+  test("job detail „Propozycje z bazy” segment merges recommendations and admin AI tools", async ({
     page,
   }) => {
     await login(page);
-    // Go to first job (Senior Angular Developer from seed)
-    await page.goto("/jobs/1");
-    await page.getByRole("button", { name: /AI Matching/i }).click();
-    // Phase 7b.2 widget header
-    await expect(page.getByText(/Rekomendowani kandydaci/i)).toBeVisible();
-    // Sugeruj kandydatów button
+    // Go to first job (Senior Angular Developer from seed). Wersja 3: dawna
+    // zakładka „AI Matching" to segment „Propozycje z bazy" tabeli — stary
+    // adres `?tab=ai-matching` nadal do niego prowadzi.
+    await page.goto("/jobs/1?tab=ai-matching");
+    const segment = page.getByTestId("proposals-segment");
+    await expect(segment).toBeVisible();
+    await expect(page).toHaveURL(/seg=proposals/);
+    // Rekomendowani są jednym ze źródeł listy; odświeża je przycisk segmentu.
     await expect(
-      page.getByRole("button", { name: /Sugeruj kandydat/i })
+      segment.getByRole("button", { name: /Odśwież rekomendacje/i })
     ).toBeVisible();
-    // Phase 7b.2 CriteriaPreviewModal trigger
-    await expect(page.getByTestId("preview-criteria")).toBeVisible();
+    await expect(
+      segment.getByRole("group", { name: "Źródło propozycji" }).getByRole("button", { name: /Rekomendowani/ })
+    ).toBeVisible();
   });
 
-  test("suggestion widget returns results after click", async ({ page }) => {
+  test("refreshing recommendations brings proposals into the table", async ({ page }) => {
     await login(page);
-    await page.goto("/jobs/1");
-    await page.getByRole("button", { name: /AI Matching/i }).click();
-    const suggest = page.getByTestId("suggest-candidates-btn");
-    await suggest.click();
-    // Wait for at least one candidate card (Phase 7a real data = 30k+ candidates)
-    await expect(page.locator("text=/\\d+\\/100/").first()).toBeVisible({
-      timeout: 30_000,
-    });
+    await page.goto("/jobs/1?seg=proposals");
+    const segment = page.getByTestId("proposals-segment");
+    await segment.getByRole("button", { name: /Odśwież rekomendacje/i }).click();
+    // Rekomendacje liczą się w tle — wiersze pojawiają się w tabeli propozycji.
+    await expect(
+      segment.getByRole("grid", { name: "Propozycje z bazy" }).getByRole("row").nth(1)
+    ).toBeVisible({ timeout: 30_000 });
   });
 });

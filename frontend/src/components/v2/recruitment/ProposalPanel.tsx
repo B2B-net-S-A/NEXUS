@@ -44,6 +44,8 @@ export interface ProposalPanelProps {
   onVerified?: () => void;
   /** Narzędzia AI administratora — schowane za rozwinięciem. */
   adminTools?: ReactNode;
+  /** Pełne szczegóły dopasowania (np. uzasadnienie AI na żądanie) — pod „Kontekst". */
+  matchDetails?: ReactNode;
 }
 
 const OFFICE_FIT_LABEL: Record<string, string> = {
@@ -105,6 +107,7 @@ export function ProposalPanel({
   onWriteEmail,
   onVerified,
   adminTools,
+  matchDetails,
 }: ProposalPanelProps) {
   if (!entry) {
     return (
@@ -238,6 +241,8 @@ export function ProposalPanel({
           </ul>
         )}
       </Section>
+
+      {matchDetails ? <div className="border-t border-border pt-3">{matchDetails}</div> : null}
 
       {adminTools && (
         <details className="text-sm">

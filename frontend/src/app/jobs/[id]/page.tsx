@@ -1,52 +1,38 @@
 "use client";
 
-import { summarizeFullSearch, type FullSearchSummary } from "@/lib/full-search-summary";
-
-import { useFullCandidateSearch } from "@/hooks/useFullCandidateSearch";
-import { SavedRequestRequirements } from "@/components/talent-radar/SavedRequestRequirements";
-import { FullCandidateSearchStatus } from "@/components/talent-radar/FullCandidateSearchStatus";
-import { fullSearchJobMatches } from "@/lib/full-search-job-adapter";
-import { formatMatchingRate, matchingRateBand } from "@/lib/matching-rate";
-import { jobBudgetHourly } from "@/lib/job-budget";
-import { matchingRequirementsApi, requirementLabels } from "@/lib/matching-requirements";
-import { useEffect, useState, useCallback, useMemo } from "react";
-import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import api, { jobChatApi, matchingApi } from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
+import { useJobPipelineTemplate } from "@/hooks/useJobPipelineTemplate";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { getAvatarColor } from "@/lib/colors";
-import api, {
-  postingsApi,
-  matchingApi,
-  phase3Api,
-  recommendationsApi,
-  extractErrorMsg,
-  hiddenTotal as computeHiddenTotal,
-  HIDDEN_LABELS_PL,
-  type HiddenReason,
-} from "@/lib/api";
-import { apiErrorMessage } from "@/lib/api-error";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
 import { EditJobModal } from "@/components/AppShell";
-import { RequestHistorySection } from "@/components/RequestHistorySection";
 import { AIJobWriterModal } from "@/components/v2/jobs/AIJobWriterModal";
-import { SourcingHub } from "@/components/v2/jobs/SourcingHub";
-import {
-  countContractStages,
-  countHired,
-  countInProcess,
-  countInterviewStages,
-  selectScreeningQueue,
-  selectVerifiedQueue,
-} from "@/lib/pipeline-flow";
+import { countHired, countInProcess } from "@/lib/pipeline-flow";
 import { buildJobHeaderKpis } from "@/lib/job-header-kpis";
-import { useUrlTab } from "@/lib/url-tab";
+import { jobBudgetHourly } from "@/lib/job-budget";
 import { positiveIntParam } from "@/lib/client-tab";
+import { resolveUrlTab } from "@/lib/url-tab";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { buildJobHeaderSubtitle } from "@/lib/job-header-subtitle";
+import type { FullSearchSummary } from "@/lib/full-search-summary";
+import {
+  JOB_DETAIL_DEFAULT_VIEW,
+  readJobDetailUrlState,
+  resolveLegacyJobTab,
+  rewriteLegacyJobParams,
+  type JobDetailView,
+  type JobHistoryChatTab,
+  type JobOrderSection,
+} from "@/lib/job-detail-routing";
+import { jobProposalsApi, jobProposalsKeys } from "@/lib/job-proposals-api";
+import { shortlistApi } from "@/lib/candidate-search-api";
+import { useClientPlaybook } from "@/lib/client-playbooks";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
@@ -56,35 +42,17 @@ import {
   ManagedInNexusBanner,
   ManagedInNexusChip,
 } from "@/components/v2/jobs/ManagedInNexusSwitch";
-import { QuestionBankTab } from "@/components/prep/QuestionBankTab";
-import { CriteriaPreviewV2 as CriteriaPreviewModal } from "@/components/v2/modals/CriteriaPreviewV2";
-import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
-import JobChatTab from "@/components/v2/pages/JobChatTab";
-import { jobChatApi } from "@/lib/api";
-import { MapPin, Banknote, Calendar, Globe, ExternalLink, Plus, Radio, X, Copy, Check, Sparkles, UserCheck, AlertCircle, Mail, Target, ChevronRight, SlidersHorizontal } from "lucide-react";
-import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
-import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
-import { proposalsBulkApi, shortlistApi } from "@/lib/candidate-search-api";
 import {
   JobShortlist,
   jobShortlistQueryKey,
 } from "@/components/v2/jobs/JobShortlist";
-import { buildJobSearchPrefill } from "@/lib/job-search-prefill";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
-import { DeleteButton } from "@/components/ConfirmDialog";
-import { useToast } from "@/components/Toast";
-import Link from "next/link";
-import { cn, formatDate } from "@/lib/utils";
-import { encodeJobBackRef } from "@/lib/url-filters";
+import { cn } from "@/lib/utils";
 import { useTabsStore } from "@/store/tabs";
 import { hasRole, useAuthStore } from "@/store/auth";
-import { RequirementVerificationDialog, useCanVerifyRequirements } from "@/components/talent-radar/RequirementVerificationDialog";
 import { hasSectionAccess } from "@/lib/section-access";
 import { ActiveViewers } from "@/components/v2/presence/ActiveViewers";
-import { LocationInput } from "@/components/v2/filters/LocationInput";
-import { formatCandidateLocation } from "@/components/v2/pages/candidate-list-helpers";
-import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import { useLocalStorageFlag } from "@/lib/use-local-storage-flag";
 import {
   JOB_HEADER_COLLAPSED_DEFAULT,
@@ -94,1888 +62,25 @@ import {
   JOB_CHAMPION_DOCK_COLLAPSED_DEFAULT,
   JOB_CHAMPION_DOCK_COLLAPSED_STORAGE_KEY,
 } from "@/lib/job-dock-preferences";
-import { JobPriorityContext } from "@/components/v2/priority-work";
-import { assignErrorMessage } from "@/lib/assign-error";
 import {
   JobDetailCompactHeader,
   type JobDetailTab,
 } from "@/components/v2/jobs/JobDetailCompactHeader";
-import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
-import { JobContractTab } from "@/components/v2/jobs/JobContractTab";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type Portal = "pracuj_pl" | "justjoinit" | "linkedin" | "nofluffjobs" | "bulldogjob";
-type PostingStatus = "draft" | "published" | "expired" | "removed";
-
-interface JobPosting {
-  id: number;
-  job_id: number;
-  portal: Portal;
-  external_id: string | null;
-  status: PostingStatus;
-  published_at: string | null;
-  expires_at: string | null;
-  url: string | null;
-  views: number;
-  applications: number;
-}
-
-// ── Portal config ─────────────────────────────────────────────────────────────
-
-const PORTAL_CONFIG: Record<Portal, { label: string; color: string; dotColor: string }> = {
-  pracuj_pl:   { label: "Pracuj.pl",    color: "bg-orange-100 text-orange-700",  dotColor: "bg-orange-500" },
-  justjoinit:  { label: "JustJoinIT",   color: "bg-green-100 text-green-700",    dotColor: "bg-green-500" },
-  linkedin:    { label: "LinkedIn",     color: "bg-primary/15 text-primary",      dotColor: "bg-primary" },
-  nofluffjobs: { label: "NoFluffJobs",  color: "bg-destructive/15 text-destructive",        dotColor: "bg-destructive" },
-  bulldogjob:  { label: "BulldogJob",   color: "bg-yellow-100 text-yellow-700",  dotColor: "bg-yellow-500" },
-};
-
-const ALL_PORTALS: Portal[] = ["pracuj_pl", "justjoinit", "linkedin", "nofluffjobs", "bulldogjob"];
-
-const STATUS_CONFIG: Record<PostingStatus, { label: string; className: string }> = {
-  draft:     { label: "Szkic",       className: "bg-muted text-muted-foreground" },
-  published: { label: "Aktywne",     className: "bg-green-100 text-green-700" },
-  expired:   { label: "Wygasłe",     className: "bg-destructive/15 text-destructive" },
-  removed:   { label: "Usunięte",    className: "bg-muted text-muted-foreground" },
-};
-
-// ── Publish Modal ─────────────────────────────────────────────────────────────
-
-function PublishModal({
-  jobId,
-  onClose,
-  existingPortals,
-}: {
-  jobId: number;
-  onClose: () => void;
-  existingPortals: Portal[];
-}) {
-  const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<Portal[]>([]);
-  const [expiresDays, setExpiresDays] = useState(30);
-
-  const publishMutation = useMutation({
-    mutationFn: (portals: Portal[]) =>
-      postingsApi.publishAll(jobId, { portals, expires_days: expiresDays }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["postings", jobId] });
-      queryClient.invalidateQueries({ queryKey: ["postings-stats"] });
-      onClose();
-    },
-  });
-
-  const toggle = (p: Portal) =>
-    setSelected((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
-
-  const activePortals = existingPortals;
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="publish-posting-title"
-        className="bg-card rounded-xl shadow-xl w-full max-w-md p-6"
-      >
-        <h2 id="publish-posting-title" className="text-lg font-bold mb-1">
-          Opublikuj ogłoszenie
-        </h2>
-        <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-          ⚠️ Integracja z portalami w przygotowaniu — dane symulowane
-        </p>
-
-        <div className="space-y-2 mb-4">
-          {ALL_PORTALS.map((p) => {
-            const config = PORTAL_CONFIG[p];
-            const isActive = activePortals.includes(p);
-            const isSelected = selected.includes(p);
-            return (
-              <label
-                key={p}
-                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                  isActive
-                    ? "opacity-50 cursor-not-allowed border-border bg-muted"
-                    : isSelected
-                    ? "border-primary/30 bg-primary/10"
-                    : "border-border hover:border-border"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  disabled={isActive}
-                  onChange={() => !isActive && toggle(p)}
-                  className="accent-blue-600"
-                />
-                <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${config.dotColor}`} />
-                <span className="text-sm font-medium">{config.label}</span>
-                {isActive && (
-                  <span className="ml-auto text-xs text-green-600 font-medium">Już aktywne</span>
-                )}
-              </label>
-            );
-          })}
-        </div>
-
-        <div className="flex items-center gap-3 mb-5">
-          <label className="text-sm text-muted-foreground whitespace-nowrap">Czas trwania:</label>
-          <select
-            className="text-sm border border-border rounded-lg px-3 py-1.5"
-            value={expiresDays}
-            onChange={(e) => setExpiresDays(Number(e.target.value))}
-          >
-            <option value={14}>14 dni</option>
-            <option value={30}>30 dni</option>
-            <option value={60}>60 dni</option>
-            <option value={90}>90 dni</option>
-          </select>
-        </div>
-
-        <div className="flex gap-2">
-          <button
-            onClick={() => onClose()}
-            className="flex-1 px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted"
-          >
-            Anuluj
-          </button>
-          <button
-            onClick={() => selected.length > 0 && publishMutation.mutate(selected)}
-            disabled={selected.length === 0 || publishMutation.isPending}
-            className="flex-1 px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {publishMutation.isPending ? "Publikowanie..." : `Publikuj (${selected.length})`}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Postings Section ──────────────────────────────────────────────────────────
-
-function PostingsSection({
-  jobId,
-  readOnly = false,
-}: {
-  jobId: number;
-  readOnly?: boolean;
-}) {
-  const queryClient = useQueryClient();
-  const [showModal, setShowModal] = useState(false);
-
-  const { data: postings = [], isLoading } = useQuery<JobPosting[]>({
-    queryKey: ["postings", jobId],
-    queryFn: () => postingsApi.list(jobId).then((r) => r.data),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => postingsApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["postings", jobId] });
-      queryClient.invalidateQueries({ queryKey: ["postings-stats"] });
-    },
-  });
-
-  const publishAllMutation = useMutation({
-    mutationFn: () =>
-      postingsApi.publishAll(jobId, { portals: ALL_PORTALS, expires_days: 30 }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["postings", jobId] });
-      queryClient.invalidateQueries({ queryKey: ["postings-stats"] });
-    },
-  });
-
-  const activePortals = postings
-    .filter((p) => p.status === "published")
-    .map((p) => p.portal);
-
-  if (isLoading) return <div className="text-muted-foreground text-sm">Ładowanie publikacji...</div>;
-
-  return (
-    <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Globe className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-semibold">Portale ogłoszeniowe</h2>
-          <span className="text-xs text-muted-foreground ml-1">({postings.length})</span>
-        </div>
-        {!readOnly ? <div className="flex gap-2">
-          <button
-            onClick={() => publishAllMutation.mutate()}
-            disabled={publishAllMutation.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-lg hover:bg-muted text-muted-foreground disabled:opacity-50"
-          >
-            <Radio className="w-3.5 h-3.5" />
-            Publikuj na wszystkich
-          </button>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary text-white rounded-lg hover:bg-primary/90"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Opublikuj ogłoszenie
-          </button>
-        </div> : null}
-      </div>
-
-      {/* Simulation notice */}
-      <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-        ⚠️ Integracja z portalami w przygotowaniu — dane symulowane
-      </div>
-
-      {/* Table */}
-      {postings.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground">
-          <Globe className="w-10 h-10 mx-auto mb-2 opacity-30" />
-          <p className="text-sm">
-            {readOnly
-              ? "Brak publikacji."
-              : "Brak publikacji. Opublikuj ogłoszenie na portalach rekrutacyjnych."}
-          </p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border dark:border-border">
-                <th className="text-left py-2 px-3 text-muted-foreground font-medium">Portal</th>
-                <th className="text-left py-2 px-3 text-muted-foreground font-medium">Status</th>
-                <th className="text-left py-2 px-3 text-muted-foreground font-medium">Data publ.</th>
-                <th className="text-left py-2 px-3 text-muted-foreground font-medium">Wygaśnięcie</th>
-                <th className="text-right py-2 px-3 text-muted-foreground font-medium">Wyświetlenia</th>
-                <th className="text-right py-2 px-3 text-muted-foreground font-medium">Aplikacje</th>
-                <th className="text-center py-2 px-3 text-muted-foreground font-medium">Link</th>
-                {!readOnly ? (
-                  <th className="text-center py-2 px-3 text-muted-foreground font-medium">Akcje</th>
-                ) : null}
-              </tr>
-            </thead>
-            <tbody>
-              {postings.map((posting) => {
-                const portalCfg = PORTAL_CONFIG[posting.portal];
-                const statusCfg = STATUS_CONFIG[posting.status];
-                return (
-                  <tr key={posting.id} className="border-b border-gray-50 hover:bg-muted">
-                    <td className="py-2.5 px-3">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${portalCfg.dotColor}`} />
-                        <span className="font-medium">{portalCfg.label}</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusCfg.className}`}>
-                        {statusCfg.label}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 text-muted-foreground">
-                      {posting.published_at ? formatDate(posting.published_at) : "—"}
-                    </td>
-                    <td className="py-2.5 px-3 text-muted-foreground">
-                      {posting.expires_at ? formatDate(posting.expires_at) : "—"}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-medium">
-                      {posting.views.toLocaleString()}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-medium text-primary">
-                      {posting.applications}
-                    </td>
-                    <td className="py-2.5 px-3 text-center">
-                      {posting.url ? (
-                        <a
-                          href={posting.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          aria-label={`Otwórz ogłoszenie na ${portalCfg.label} w nowej karcie`}
-                          className="text-primary hover:text-primary/80 inline-flex items-center gap-1"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    {!readOnly ? (
-                      <td className="py-2.5 px-3 text-center">
-                        <DeleteButton onConfirm={() => deleteMutation.mutate(posting.id)} />
-                      </td>
-                    ) : null}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Publish modal */}
-      {!readOnly && showModal && (
-        <PublishModal
-          jobId={jobId}
-          existingPortals={activePortals}
-          onClose={() => setShowModal(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ── AI Job Writer Modal ───────────────────────────────────────────────────────
-
-// ── Phase 4: AI criteria / scoring actions ──────────────────────────────────
-
-function JobAIActions({
-  jobId,
-  onDone,
-  readOnly = false,
-}: {
-  jobId: number;
-  onDone: () => void;
-  readOnly?: boolean;
-}) {
-  const [busy, setBusy] = useState<null | "criteria" | "recompute" | "embed-all">(null);
-  const [last, setLast] = useState<string | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
-
-  const run = async (kind: "criteria" | "recompute" | "embed-all") => {
-    if (readOnly) return;
-    setBusy(kind);
-    setLast(null);
-    try {
-      if (kind === "criteria") {
-        const r = await recommendationsApi.refreshCriteria(jobId);
-        const d = r.data as { must_skills: unknown[]; nice_skills: unknown[] };
-        setLast(
-          `Kryteria odświeżone: must=${d.must_skills.length}, nice=${d.nice_skills.length}`
-        );
-      } else if (kind === "recompute") {
-        const r = await recommendationsApi.recomputeScores(jobId, 200);
-        const d = r.data as { evaluated: number };
-        setLast(`Przeliczono scoring dla ${d.evaluated} kandydatów`);
-      } else {
-        const r = await phase3Api.embedAllJobs(500);
-        const d = r.data as { requested: number; embedded: number; failed: number };
-        setLast(
-          `Embedding rekrutacji: requested=${d.requested}, embedded=${d.embedded}, failed=${d.failed}`
-        );
-      }
-      onDone();
-    } catch (e: unknown) {
-      const msg = apiErrorMessage(e, "Błąd");
-      setLast(`Błąd: ${msg}`);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  if (readOnly) return null;
-
-  return (
-    <div className="rounded-lg border border-dashed border-primary/30 dark:border-primary/90 bg-primary/10 dark:bg-primary/10 p-3">
-      <div className="flex flex-wrap gap-2 items-center">
-        <span className="text-xs font-semibold text-muted-foreground dark:text-muted-foreground mr-2">
-          AI / Scoring:
-        </span>
-        <button
-          onClick={() => setShowPreview(true)}
-          disabled={!!busy}
-          className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          data-testid="preview-criteria"
-        >
-          ✨ Podgląd kryteriów (edytowalne)
-        </button>
-        <button
-          onClick={() => run("criteria")}
-          disabled={!!busy}
-          className="text-xs px-3 py-1.5 rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
-          data-testid="refresh-criteria"
-        >
-          {busy === "criteria" ? "Generuję…" : "⚡ Szybkie odświeżenie"}
-        </button>
-        <button
-          onClick={() => run("recompute")}
-          disabled={!!busy}
-          className="text-xs px-3 py-1.5 rounded-md bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
-          data-testid="recompute-scores"
-        >
-          {busy === "recompute" ? "Liczę…" : "🧮 Przelicz scoring"}
-        </button>
-        <button
-          onClick={() => run("embed-all")}
-          disabled={!!busy}
-          className="text-xs px-3 py-1.5 rounded-md bg-slate-600 text-white hover:bg-slate-700 disabled:opacity-50"
-          data-testid="embed-all-jobs"
-          title="Jednorazowo: wylicza embeddingi dla wszystkich rekrutacji bez vector ID"
-        >
-          {busy === "embed-all" ? "Embedduję…" : "🗂 Embed all jobs"}
-        </button>
-      </div>
-      {last && (
-        <div className="mt-2 text-xs text-muted-foreground dark:text-muted-foreground">{last}</div>
-      )}
-
-      <CriteriaPreviewModal
-        open={showPreview}
-        onOpenChange={setShowPreview}
-        jobId={jobId}
-        onSaved={() => {
-          setLast("Kryteria zaktualizowane. Uruchom 'Przelicz scoring' aby odświeżyć wyniki.");
-          onDone();
-        }}
-      />
-    </div>
-  );
-}
-
-// ── AI Matching Section ───────────────────────────────────────────────────────
-
-function EmailTemplateModal({
-  candidate,
-  job,
-  onClose,
-}: {
-  candidate: any;
-  job: any;
-  onClose: () => void;
-}) {
-  const fullName = `${candidate.name} ${candidate.lastname}`.trim();
-  // Reference number (when present) is appended to the subject and quoted in
-  // the body so the candidate can cite it in replies — and so the recruiter's
-  // mailbox threads on a stable identifier.
-  const refSuffix = job.reference_number ? ` [${job.reference_number}]` : "";
-  const refLine = job.reference_number
-    ? `\n\nNumer referencyjny: ${job.reference_number}`
-    : "";
-  const subject = `Oferta pracy: ${job.title}${refSuffix}`;
-  const body = `Dzień dobry ${candidate.name},\n\nZwracam się do Pana/Pani w imieniu B2B.net S.A. z ofertą stanowiska:\n\n**${job.title}**${refLine}\n\nNa podstawie Pana/Pani profilu uważam, że ta rola idealnie odpowiada Pana/Pani kompetencjom.\n\nCzy byłby Pan/Pani zainteresowany/a rozmową wstępną?\n\nPozdrawiam,\nZespół Rekrutacji B2B.net`;
-
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(`Temat: ${subject}\n\n${body}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const mailtoLink = `mailto:${candidate.email || ""}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-card dark:bg-muted rounded-xl shadow-xl w-full max-w-lg p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-foreground dark:text-foreground">Wyślij wiadomość do {fullName}</h3>
-          <button onClick={onClose}><X className="w-5 h-5 text-muted-foreground" /></button>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase">Temat</label>
-            <p className="text-sm mt-1 p-2 bg-muted dark:bg-muted rounded">{subject}</p>
-          </div>
-          <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase">Treść</label>
-            <pre className="text-sm mt-1 p-3 bg-muted dark:bg-muted rounded whitespace-pre-wrap font-sans">{body}</pre>
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button
-              onClick={handleCopy}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm border border-border rounded-lg hover:bg-muted"
-            >
-              {copied ? <><Check className="w-4 h-4 text-green-500" /> Skopiowano</> : <><Copy className="w-4 h-4" /> Kopiuj</>}
-            </button>
-            {candidate.email && (
-              <a
-                href={mailtoLink}
-                className="flex items-center gap-1.5 px-3 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary/90"
-              >
-                <Mail className="w-4 h-4" />
-                Otwórz w kliencie email
-              </a>
-            )}
-            <button onClick={onClose} className="ml-auto px-3 py-2 text-sm text-muted-foreground hover:text-foreground">
-              Zamknij
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AIMatchingSection({
-  jobId,
-  job,
-  readOnly = false,
-  isAdmin = false,
-  inProcessCount,
-}: {
-  jobId: number;
-  job: any;
-  readOnly?: boolean;
-  isAdmin?: boolean;
-  /**
-   * Aktywni w pipeline — `countInProcess` z kanbana rodzica, ta sama liczba
-   * co na listwie kroków. `pipeline_candidate_ids` obejmuje też odrzuconych,
-   * więc nadaje się tylko do plakietki „już w procesie” (UAT B71).
-   */
-  inProcessCount?: number;
-}) {
-  const canEditRequirements = useCapability("job.update") && !readOnly;
-  const canVerify = useCanVerifyRequirements() && !readOnly;
-  const queryClient = useQueryClient();
-  const { showSuccess, showError } = useToast();
-  const [emailTarget, setEmailTarget] = useState<any>(null);
-  // Przełącznik dwóch stanów tego samego ekranu (makieta C2): „Ranking"
-  // (szukam) ↔ „Shortlista" (oceniam i prowadzę).
-  const [matchView, setMatchView] = useState<"ranking" | "shortlist">("ranking");
-  const [shortlistingId, setShortlistingId] = useState<number | null>(null);
-  // Wiersz zaznaczony do doku „Dopasowanie" (prawa kolumna warsztatu C2).
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  // Filtry wspólnego przeglądu: próg wyniku, skill, stawka i obecność w procesie.
-  // API filtruje zapisane wyniki przed stronicowaniem; nie uruchamia nowego skanu.
-  // Multi-select służy do akcji zbiorczej „Przypisz".
-  const [minScorePct, setMinScorePct] = useState<number | null>(null);
-  const [skillFilter, setSkillFilter] = useState<string | null>(null);
-  const [rateFilter, setRateFilter] = useState<"all" | "in" | "over" | "unknown">(
-    "all",
-  );
-  const [stageFilter, setStageFilter] = useState<"all" | "in" | "out">("all");
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  // Licznik do etykiety przełącznika — ten sam klucz co tablica shortlisty,
-  // więc react-query deduplikuje fetch.
-  const shortlistCountQuery = useQuery({
-    queryKey: jobShortlistQueryKey(jobId),
-    queryFn: () => shortlistApi.list(jobId),
-    staleTime: 30_000,
-  });
-  const shortlistCount = shortlistCountQuery.data?.length ?? 0;
-  // Optional result filter; job location remains a scoring input, not an implicit exclusion.
-  const [locationFilter, setLocationFilter] = useState("");
-  // Lista matchy nie odświeża się po dodaniu, więc trzymamy lokalny set już
-  // dodanych — wyszarza przycisk i blokuje przypadkowe duplikaty.
-  const [addedIds, setAddedIds] = useState<Set<number>>(new Set());
-  const [addingId, setAddingId] = useState<number | null>(null);
-
-  const actorId = useAuthStore(s => s.user?.id);
-  const fullSearch = useFullCandidateSearch({
-    includeCandidateDetails: true,
-    shareAcrossTabs: true,
-    storageKey: actorId ? `nexus-full-job:${actorId}:${jobId}` : undefined,
-    filters: { skill: skillFilter ?? undefined, rate: rateFilter, stage: stageFilter, location: locationFilter.trim() },
-  });
-  const data = useMemo(() => fullSearchJobMatches(fullSearch.data, jobId, locationFilter.trim(), minScorePct ?? 0), [fullSearch.data, jobId, locationFilter, minScorePct]);
-  const searchSummary = useMemo(() => summarizeFullSearch(fullSearch.data, Boolean(fullSearch.error)), [fullSearch.data, fullSearch.error]);
-  const isLoading = fullSearch.running;
-  const isError = Boolean(fullSearch.error);
-  // Explicit start: a new, minutes-long scan of the whole base.
-  const startNewSearch = () => fullSearch.start({ job_id: jobId });
-  // „Spróbuj ponownie” re-reads the current run; only a run that cannot be
-  // re-read (failed, expired, request changed) is replaced by a new one.
-  const retrySearch = () => {
-    if (fullSearch.runId && !fullSearch.needsNewRun) void fullSearch.refresh();
-    else void startNewSearch();
-  };
-  // Admin AI tools refresh derived data; they must not launch a scan.
-  const rereadSearch = () => {
-    if (fullSearch.runId) void fullSearch.refresh();
-  };
-  useEffect(() => { fullSearch.setMinScore(minScorePct ?? 0); }, [minScorePct, fullSearch.setMinScore]);
-  useEffect(() => {
-    queryClient.setQueryData(["full-search-summary", actorId, jobId], searchSummary);
-  }, [searchSummary, actorId, jobId, queryClient]);
-
-  // Telemetria dopasowań: ranking, z którego pochodzi dodanie. Trasa bulk jest
-  // wspólna z ekranami bez przeglądu, więc backend przypina outcome do tego
-  // runu tylko wtedy, gdy jest nasz, dla tej rekrutacji i pokazał kandydata.
-  const fullSearchOrigin = {
-    run_id: fullSearch.runId,
-    source: "full_search" as const,
-  };
-
-  // Wspólny kanon z sekcją „Kandydaci z podobnych projektów": bulk-proposals
-  // dedupuje (już-w-pipeline → total_added=0) i wybiera pierwszy nie-terminalny
-  // etap. Wcześniej legacy wysyłał `pipeline/move` ze `stage:"sourced"` (spoza
-  // enum PipelineStage) → 422 i cichy fail.
-  const addToPipelineMutation = useMutation({
-    mutationFn: ({ candidateId }: { candidateId: number; fullName: string }) => {
-      if (readOnly) {
-        throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
-      }
-      return proposalsBulkApi.add(jobId, {
-        candidate_ids: [candidateId],
-        ...fullSearchOrigin,
-      });
-    },
-    onMutate: ({ candidateId }) => setAddingId(candidateId),
-    onSuccess: (res, { candidateId, fullName }) => {
-      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-      // Newly-added candidate needs its AI score ring (prefix match → any id key).
-      queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
-      setAddedIds((prev) => new Set(prev).add(candidateId));
-      showSuccess(
-        res.total_added > 0
-          ? `${fullName} — dodano do pipeline`
-          : `${fullName} jest już w pipeline tej rekrutacji`,
-      );
-    },
-    onError: (error: unknown) => showError(assignErrorMessage(error)),
-    onSettled: () => setAddingId(null),
-  });
-
-  // Staged evaluation przed pipeline (kanon z SuggestedCandidatesWidget):
-  // dodanie na shortlistę, nie od razu do pipeline'u.
-  const shortlistMutation = useMutation({
-    mutationFn: ({ candidateId }: { candidateId: number; fullName: string }) => {
-      if (readOnly) {
-        throw new Error("Shortlista jest dostępna tylko do odczytu.");
-      }
-      return shortlistApi.add(jobId, [candidateId]);
-    },
-    onMutate: ({ candidateId }) => setShortlistingId(candidateId),
-    onSuccess: (res, { fullName }) => {
-      queryClient.invalidateQueries({ queryKey: jobShortlistQueryKey(jobId) });
-      showSuccess(
-        res.total_added > 0
-          ? `${fullName} — dodano na shortlistę`
-          : `${fullName} jest już na shortliście`,
-      );
-    },
-    onError: (error: unknown) => showError(assignErrorMessage(error)),
-    onSettled: () => setShortlistingId(null),
-  });
-
-  // Akcja zbiorcza „Przypisz zaznaczonych" (checkboxy w rankingu → pipeline).
-  const bulkAssignMutation = useMutation({
-    mutationFn: (ids: number[]) => {
-      if (readOnly) {
-        throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
-      }
-      return proposalsBulkApi.add(jobId, { candidate_ids: ids, ...fullSearchOrigin });
-    },
-    onSuccess: (res, ids) => {
-      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-      queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
-      setAddedIds((prev) => {
-        const next = new Set(prev);
-        ids.forEach((i) => next.add(i));
-        return next;
-      });
-      setSelectedIds(new Set());
-      showSuccess(
-        res.total_added > 0
-          ? `Dodano ${res.total_added} do pipeline`
-          : "Zaznaczeni są już w pipeline tej rekrutacji",
-      );
-    },
-    onError: (error: unknown) => showError(assignErrorMessage(error)),
-  });
-
-  // Członkostwo procesu nie zależy od dostępności pomiaru AI.
-  const pipelineScoresQuery = useQuery({
-    queryKey: ["pipeline-scores", jobId],
-    queryFn: () => matchingApi.pipelineScores(jobId).then((r) => r.data),
-    staleTime: 60_000,
-  });
-  const pipelineSet = useMemo(() => {
-    return new Set<number>(pipelineScoresQuery.data?.pipeline_candidate_ids ?? []);
-  }, [pipelineScoresQuery.data]);
-
-  const matches = useMemo(() => data?.matches ?? [], [data]);
-  const searchType = data?.search_type;
-  // Sygnałem degradacji jest koperta `meta` — `/api/jobs/{id}/ai-matches`
-  // wypełnia ją na OBU gałęziach (semantycznej i tag-fallback). Warunek na
-  // `search_type` jest awaryjny: odpowiedź bez `meta` (starszy backend, wpis
-  // z cache'u) nie może wyrenderować się jako zdrowy ranking, bo BRAK sygnału
-  // jest nieodróżnialny od sygnału „wszystko w porządku". Jedyne wartości
-  // uznane za zdrowe to rodzina „semantic*" (`semantic`, `semantic+rerank`).
-  const degraded =
-    data?.meta?.degraded === true ||
-    (searchType != null && !searchType.startsWith("semantic") && searchType !== "full_population");
-  // `semantic_unavailable` (padł Qdrant/Voyage) vs `no_semantic_hits`
-  // (rekrutacja nie ma jeszcze trafień w indeksie) — dla rekrutera to dwie
-  // różne instrukcje, więc nie zlewamy ich w jeden komunikat.
-  const degradedReason = data?.meta?.reason;
-  // Zanim przegląd zwróci stronę wyników, pasek pokazuje zapisany kontrakt
-  // wymagań — ten sam, który edytor „Wymagania wyszukiwania” wyżej ładuje tym
-  // samym kluczem. Bez tego rekrutacja z uzupełnionym Championem pokazywała
-  // „Musi mieć · 0” do pierwszego pełnego skanu (UAT B62).
-  const savedRequirementsQuery = useQuery({
-    queryKey: ["matching-requirements", jobId],
-    queryFn: () => matchingRequirementsApi.get(jobId),
-  });
-  // Przegląd w toku zwraca stronę bez `criteria` — wtedy adapter daje [],
-  // a to nie znaczy „brak wymagań”.
-  const requiredSkills = data?.required_skills?.length
-    ? data.required_skills
-    : requirementLabels(savedRequirementsQuery.data, "must");
-  // Server echoes the effective location filter it applied (param, or the
-  // job's own location). Non-empty → results are location-restricted.
-  const locationActive = Boolean(data?.location_filter);
-  // Dealbreaker-switche: liczniki ukrytych per powód. „Ukrywanie nigdy nie jest
-  // ciche" (dealbreaker_filters) — pokazujemy pasek z rozbiciem. Bramka
-  // dopuszczalności NIE trafia tu: konflikty z klientem i weto HM są widoczne
-  // z powodem na wierszu, a `hidden` (globalna blacklista) nie są tu liczeni.
-  const hiddenMeta = data?.meta?.hidden;
-  const hiddenTotal = computeHiddenTotal(hiddenMeta);
-  // Rozbicie „ukryto N" per powód (0278: pięć rubryk) — jedno zdanie,
-  // renderowane tylko z powodami, które faktycznie coś ukryły.
-  const hiddenBreakdown = (
-    Object.entries(HIDDEN_LABELS_PL) as [HiddenReason, string][]
-  )
-    .filter(([reason]) => (hiddenMeta?.[reason] ?? 0) > 0)
-    .map(([reason, label]) => `${label}: ${hiddenMeta?.[reason]}`)
-    .join(", ");
-  const niceSkills: string[] = data?.nice_skills?.length
-    ? data.nice_skills
-    : requirementLabels(savedRequirementsQuery.data, "nice");
-  const budgetHourly = data?.meta?.budget_hourly ?? jobBudgetHourly(job);
-
-  // Same default threshold as Radar; unknown measurements stay in the result.
-  const baseThresholdPct = 0;
-  const effThresholdPct = minScorePct ?? baseThresholdPct;
-
-  // All search filters run against the complete snapshot before LIMIT/OFFSET.
-  const filtered = matches;
-  const strongCount = searchSummary?.strong;
-
-  // Zaznaczenie do doku liczy się WZGLĘDEM widocznej listy: kandydat
-  // odfiltrowany nie może zostać w doku bez podświetlonego wiersza (review
-  // #1380). Gdy zaznaczony wypadł z filtra, dok pokazuje pierwszy widoczny.
-  const effSelectedId: number | null = useMemo(() => {
-    if (
-      selectedId != null &&
-      filtered.some((m: any) => m.candidate?.id === selectedId)
-    ) {
-      return selectedId;
-    }
-    return filtered[0]?.candidate?.id ?? null;
-  }, [selectedId, filtered]);
-  const selectedMatch =
-    effSelectedId != null
-      ? (filtered.find((m: any) => m.candidate?.id === effSelectedId) ?? null)
-      : null;
-  // Akcja zbiorcza działa TYLKO na zaznaczonych widocznych po filtrach —
-  // zaznaczony, a potem odfiltrowany kandydat nie może trafić do pipeline'u
-  // po cichu (review #1380). Samo zaznaczenie zostaje: cofnięcie filtra
-  // przywraca je bez ponownego klikania.
-  const visibleSelectedIds = useMemo(() => {
-    const visible = new Set(filtered.map((m: any) => m.candidate?.id));
-    return Array.from(selectedIds).filter((id) => visible.has(id));
-  }, [selectedIds, filtered]);
-  const ownerName: string | null =
-    job?.primary_owner?.full_name ??
-    job?.primary_owner?.name ??
-    job?.primary_owner?.email ??
-    null;
-
-  return (
-    <div className="space-y-4">
-      <SavedRequestRequirements jobId={jobId} canEdit={canEditRequirements} onSaved={fullSearch.clear} />
-      {/* Pasek kontekstu rekrutacji (makieta C2 „jobbar") — tytuł, klient,
-          budżet kandydacki, deadline, właściciel + KPI + przełącznik. */}
-      <div className="rounded-xl border border-border bg-card p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-2.5">
-            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Target className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                <span className="font-semibold text-foreground">
-                  {job?.title ?? "Rekrutacja"}
-                </span>
-                {job?.client_name && (
-                  <span className="text-sm text-muted-foreground">
-                    · {job.client_name}
-                  </span>
-                )}
-              </div>
-              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                {formatCandidateLocation(job?.location) && (
-                  <span className="inline-flex items-center gap-1">
-                    <MapPin className="h-3 w-3" />
-                    {formatCandidateLocation(job?.location)}
-                  </span>
-                )}
-                <span className="inline-flex items-center gap-1">
-                  <Banknote className="h-3 w-3" />
-                  {budgetHourly != null
-                    ? `budżet do ${Math.round(budgetHourly)} PLN/h`
-                    : job?.salary_min || job?.salary_max
-                      ? `${job?.salary_min?.toLocaleString() ?? "?"}–${job?.salary_max?.toLocaleString() ?? "?"} PLN`
-                      : "budżet nieokreślony"}
-                </span>
-                {job?.deadline && (
-                  <span className="inline-flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    {formatDate(job.deadline)}
-                  </span>
-                )}
-                {ownerName && (
-                  <span className="inline-flex items-center gap-1">
-                    <UserCheck className="h-3 w-3" />
-                    {ownerName}
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-4 text-center">
-              <div>
-                <div className="text-base font-bold tabular-nums text-foreground">
-                  {searchSummary?.total ?? "—"}
-                </div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  w rankingu
-                </div>
-              </div>
-              <div>
-                <div className="text-base font-bold tabular-nums text-success">
-                  {strongCount ?? "—"}
-                </div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  ≥ 75 pkt
-                </div>
-              </div>
-              <div>
-                <div className="text-base font-bold tabular-nums text-foreground">
-                  {inProcessCount ?? "—"}
-                </div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  w procesie
-                </div>
-              </div>
-            </div>
-
-            {/* Przełącznik Ranking / Shortlista (makieta C2) */}
-            <div className="inline-flex rounded-lg border border-border bg-background p-0.5 text-sm">
-              <button
-                type="button"
-                onClick={() => setMatchView("ranking")}
-                className={
-                  "px-3 py-1 rounded-md transition-colors " +
-                  (matchView === "ranking"
-                    ? "bg-primary text-primary-foreground font-medium"
-                    : "text-muted-foreground hover:bg-accent")
-                }
-              >
-                Ranking
-              </button>
-              <button
-                type="button"
-                onClick={() => setMatchView("shortlist")}
-                className={
-                  "px-3 py-1 rounded-md transition-colors inline-flex items-center gap-1.5 " +
-                  (matchView === "shortlist"
-                    ? "bg-primary text-primary-foreground font-medium"
-                    : "text-muted-foreground hover:bg-accent")
-                }
-              >
-                Shortlista
-                {shortlistCount > 0 && (
-                  <span
-                    className={
-                      "rounded-full px-1.5 text-[11px] tabular-nums " +
-                      (matchView === "shortlist"
-                        ? "bg-primary-foreground/20"
-                        : "bg-muted text-muted-foreground")
-                    }
-                  >
-                    {shortlistCount}
-                  </span>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {matchView === "shortlist" && (
-        <JobShortlist jobId={jobId} readOnly={readOnly} />
-      )}
-
-      {matchView === "ranking" && (
-        <>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
-        {/* ── Lewa kolumna: Wymagania requestu + filtry ─────────── */}
-        <aside className="space-y-4 self-start rounded-xl border border-border bg-card p-4">
-          <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            <Target className="h-4 w-4 text-primary" />
-            Wymagania
-            <span className="ml-auto text-[10px] font-normal uppercase tracking-wide text-muted-foreground">
-              z requestu
-            </span>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Musi mieć · {requiredSkills.length}
-            </div>
-            {requiredSkills.length > 0 ? (
-              <div className="flex flex-wrap gap-1">
-                {requiredSkills.map((s: string) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setSkillFilter(skillFilter === s ? null : s)}
-                    title={
-                      skillFilter === s
-                        ? "Kliknij, aby zdjąć filtr"
-                        : "Filtruj ranking po tym wymaganiu"
-                    }
-                    className={
-                      "rounded-full border px-2 py-0.5 text-[11px] transition-colors " +
-                      (skillFilter === s
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background text-foreground hover:bg-accent")
-                    }
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11px] text-muted-foreground">
-                Brak — uzupełnij profil Championa lub wymagania rekrutacji.
-              </p>
-            )}
-          </div>
-
-          {niceSkills.length > 0 && (
-            <div className="space-y-1.5">
-              <div className="text-[11px] font-medium text-muted-foreground">
-                Mile widziane · {niceSkills.length}
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {niceSkills.map((s) => (
-                  <span
-                    key={s}
-                    className="rounded-full border border-dashed border-border bg-background px-2 py-0.5 text-[11px] text-muted-foreground"
-                  >
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="border-t border-border" />
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
-              <span>Próg dopasowania</span>
-              <span className="tabular-nums text-foreground">≥ {effThresholdPct}</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={effThresholdPct}
-              onChange={(e) => setMinScorePct(Number(e.target.value))}
-              className="w-full accent-primary"
-              aria-label="Próg dopasowania"
-            />
-          </div>
-
-          <div className="border-t border-border" />
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Stawka wobec budżetu
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {(
-                [
-                  ["all", "Wszystkie"],
-                  ["in", "Mieści się"],
-                  ["over", "Powyżej"],
-                  ["unknown", "Brak danych"],
-                ] as const
-              ).map(([val, label]) => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => setRateFilter(val)}
-                  className={
-                    "rounded-full border px-2 py-0.5 text-[11px] transition-colors " +
-                    (rateFilter === val
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-background text-foreground hover:bg-accent")
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-medium text-muted-foreground">
-              Etap w tej rekrutacji
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {(
-                [
-                  ["all", "Wszyscy"],
-                  ["out", "Poza procesem"],
-                  ["in", "W procesie"],
-                ] as const
-              ).map(([val, label]) => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => setStageFilter(val)}
-                  className={
-                    "rounded-full border px-2 py-0.5 text-[11px] transition-colors " +
-                    (stageFilter === val
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-background text-foreground hover:bg-accent")
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {(skillFilter ||
-            rateFilter !== "all" ||
-            stageFilter !== "all" ||
-            minScorePct != null) && (
-            <button
-              type="button"
-              onClick={() => {
-                setSkillFilter(null);
-                setRateFilter("all");
-                setStageFilter("all");
-                setMinScorePct(null);
-              }}
-              className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-            >
-              <X className="h-3 w-3" /> Wyczyść filtry
-            </button>
-          )}
-        </aside>
-
-        {/* ── Środek: ranking ──────────────────────────────────────── */}
-        <div className="min-w-0 space-y-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="whitespace-nowrap text-sm text-muted-foreground">
-                {isLoading ? (
-                  "Wyszukiwanie..."
-                ) : (
-                  <>
-                    Ranking · <strong>{fullSearch.data?.total_after_threshold ?? "—"}</strong>
-                    {fullSearch.data && ` · na stronie: ${matches.length}`}
-                  </>
-                )}
-              </span>
-              {/* Licznik warstwy `hidden` — mirror Talent Radaru. Bramka pokazuje
-                  konflikty z klientem (czarna lista klienta / NDA / konkurent —
-                  od 17.09.2026 ostrzeżenie, przypisanie dozwolone) i weto HM
-                  (przypisanie zablokowane) jako wiersze z powodem, więc TU liczą
-                  się tylko realnie ukryci: globalna blacklista i duplikaty. */}
-              {!isLoading && (data?.meta?.eligibility_filtered ?? 0) > 0 && (
-                <span
-                  className="rounded-full border border-warning/25 bg-warning-muted px-2 py-0.5 text-[11px] font-medium text-warning-muted-foreground"
-                  title="Globalna blacklista lub kandydat już w tej rekrutacji"
-                  data-testid="ai-matches-eligibility-filtered"
-                >
-                  {data!.meta!.eligibility_filtered} pominięto (globalna blacklista
-                  / już w rekrutacji)
-                </span>
-              )}
-              {searchType?.startsWith("semantic") && (
-                <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary">
-                  AI
-                </span>
-              )}
-              {degraded && (
-                <span className="rounded-full border border-warning/25 bg-warning-muted px-2 py-0.5 text-[10px] font-medium text-warning-muted-foreground">
-                  Tryb awaryjny · bez rankingu AI
-                </span>
-              )}
-              {locationActive && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-success-muted px-2 py-0.5 text-[10px] font-medium text-success-muted-foreground">
-                  <MapPin className="h-3 w-3" /> {data?.location_filter}
-                </span>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <div className="w-48">
-                <LocationInput
-                  value={locationFilter}
-                  onChange={setLocationFilter}
-                  placeholder="Lokalizacja (np. Warszawa)"
-                />
-              </div>
-              {/* Start przeglądu to główna akcja tej zakładki — przycisk, nie
-                  link (przegląd UX 17.09.2026: rekruterka go nie zauważyła). */}
-              <Button
-                size="sm"
-                variant="primary"
-                loading={fullSearch.starting}
-                disabled={fullSearch.running}
-                onClick={() => void startNewSearch()}
-                className="whitespace-nowrap"
-              >
-                {fullSearch.runId ? "Uruchom ponownie" : "Przeszukaj całą bazę"}
-              </Button>
-            </div>
-          </div>
-
-          {!isError && fullSearch.data && <FullCandidateSearchStatus data={fullSearch.data} offset={fullSearch.offset} onPage={fullSearch.setOffset} fetching={fullSearch.fetching} onRestart={() => void startNewSearch()} restarting={fullSearch.running} />}
-
-          {degraded && (
-            <div
-              role="status"
-              className="rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
-            >
-              {degradedReason === "no_semantic_hits"
-                ? "Ta rekrutacja nie ma jeszcze trafień w indeksie semantycznym."
-                : "Wyszukiwanie semantyczne jest chwilowo niedostępne."}{" "}
-              Lista poniżej to ranking zastępczy po pokryciu wymaganych
-              umiejętności i kompletności profilu — to NIE jest wynik dopasowania
-              AI. Zweryfikuj profile przed wysłaniem do klienta.
-            </div>
-          )}
-
-          {!isLoading && !isError && hiddenTotal > 0 && (
-            <div
-              role="status"
-              className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground"
-            >
-              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-              <span>
-                Ukryto <strong>{hiddenTotal}</strong>
-                {hiddenBreakdown ? `: ${hiddenBreakdown}` : ""}.
-              </span>
-              <span className="text-muted-foreground">
-                Sufit budżetu jest twardy (decyzja produktowa) — nieznana stawka
-                zawsze przechodzi.
-              </span>
-            </div>
-          )}
-
-          {!readOnly && visibleSelectedIds.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-              <span>
-                Zaznaczono <strong>{visibleSelectedIds.length}</strong>
-                {selectedIds.size > visibleSelectedIds.length
-                  ? ` (+${selectedIds.size - visibleSelectedIds.length} poza filtrem)`
-                  : ""}
-              </span>
-              <button
-                onClick={() => bulkAssignMutation.mutate(visibleSelectedIds)}
-                disabled={bulkAssignMutation.isPending}
-                className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                <Plus className="h-3 w-3" />
-                {bulkAssignMutation.isPending
-                  ? "Dodaję…"
-                  : "Przypisz do rekrutacji"}
-              </button>
-              <button
-                onClick={() => setSelectedIds(new Set())}
-                className="text-xs text-muted-foreground hover:underline"
-              >
-                Wyczyść
-              </button>
-            </div>
-          )}
-
-          {isLoading ? (
-            <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              <p className="text-sm">Wyszukiwanie pasujących kandydatów...</p>
-            </div>
-          ) : isError ? (
-            <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-              <AlertCircle className="h-10 w-10 text-red-400" />
-              <p className="text-sm">
-                {/* 409/404: the server says why this run cannot be shown. */}
-                {fullSearch.needsNewRun ? extractErrorMsg(fullSearch.error) : "Błąd podczas wyszukiwania kandydatów"}
-              </p>
-              <button
-                onClick={retrySearch}
-                className="mt-1 text-sm text-primary hover:underline"
-              >
-                {fullSearch.needsNewRun ? "Uruchom ponownie" : "Spróbuj ponownie"}
-              </button>
-            </div>
-          ) : matches.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-              <UserCheck className="h-12 w-12 opacity-30" />
-              <p className="text-sm">
-                {locationActive
-                  ? `Brak pasujących kandydatów w lokalizacji „${data?.location_filter}"`
-                  : !fullSearch.runId ? "Uruchom wyszukiwanie w całej bazie"
-                  : fullSearch.data?.state === "failed" ? "Przegląd przerwany — uruchom go ponownie"
-                  : "Brak dostępnych wyników na tej stronie"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {locationActive
-                  ? "Zmień lub wyczyść filtr lokalizacji powyżej"
-                  : "Wyszukiwanie korzysta z tych samych kryteriów i punktacji co Talent Radar."}
-              </p>
-              {!locationActive && !fullSearch.runId && (
-                <Button
-                  variant="primary"
-                  loading={fullSearch.starting}
-                  disabled={fullSearch.running}
-                  onClick={() => void startNewSearch()}
-                  className="mt-2"
-                >
-                  Przeszukaj całą bazę (ok. 3 min)
-                </Button>
-              )}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-              <SlidersHorizontal className="h-10 w-10 opacity-30" />
-              <p className="text-sm">Filtry nie przepuściły żadnego kandydata</p>
-              <button
-                onClick={() => {
-                  setSkillFilter(null);
-                  setRateFilter("all");
-                  setStageFilter("all");
-                  setMinScorePct(null);
-                }}
-                className="mt-1 text-sm text-primary hover:underline"
-              >
-                Wyczyść filtry
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {filtered.map((match: any, idx: number) => {
-                const c = match.candidate;
-                const fullName = `${c.name} ${c.lastname}`.trim();
-                const initials = fullName
-                  .split(" ")
-                  .map((w: string) => w[0])
-                  .slice(0, 2)
-                  .join("")
-                  .toUpperCase();
-                const avatarColor = getAvatarColor(fullName);
-                const elig = match.eligibility as
-                  | { reason: string; assignment_allowed: boolean; severity: string }
-                  | null
-                  | undefined;
-                // Blokuje wyłącznie weto HM (`assignment_allowed: false`);
-                // konflikt z klientem to bursztynowe ostrzeżenie.
-                const assignBlocked = elig?.assignment_allowed === false;
-                const pct =
-                  match.match_score == null
-                    ? null
-                    : Math.round(match.match_score * 100);
-                const mustTotal = requiredSkills.length;
-                const mustHit = (match.matching_skills ?? []).length;
-                const rate = c.expected_rate_hourly as number | null | undefined;
-                const rateBand = matchingRateBand(match.rate_fit);
-                const officeFit = match.office_fit;
-                const officeFitLabel =
-                  officeFit === "days_exceeded"
-                    ? "za mało dni w biurze"
-                    : officeFit === "city_mismatch"
-                      ? "inne miasto niż biuro"
-                      : null;
-                const inPipe = pipelineSet.has(c.id);
-                const roleLine =
-                  [c.current_title, c.current_company]
-                    .filter(Boolean)
-                    .join(" · ") ||
-                  c.competence_category ||
-                  "—";
-                const city = formatCandidateLocation(c.location);
-                const checked = selectedIds.has(c.id);
-                const isSel = effSelectedId === c.id;
-                const scoreColor =
-                  pct == null
-                    ? "bg-muted text-muted-foreground"
-                    : pct >= 80
-                      ? "bg-success-muted text-success-muted-foreground"
-                      : pct >= 60
-                        ? "bg-warning-muted text-warning-muted-foreground"
-                        : "bg-muted text-muted-foreground";
-
-                return (
-                  <div
-                    key={c.id}
-                    onClick={() => setSelectedId(c.id)}
-                    className={
-                      "flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-shadow hover:shadow-xs " +
-                      (assignBlocked
-                        ? "border-destructive/30 bg-destructive/5 "
-                        : "border-border bg-card dark:bg-muted ") +
-                      (isSel ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : "")
-                    }
-                  >
-                    {!readOnly && (
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          e.stopPropagation();
-                          setSelectedIds((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(c.id)) next.delete(c.id);
-                            else next.add(c.id);
-                            return next;
-                          });
-                        }}
-                        disabled={assignBlocked}
-                        className="h-4 w-4 shrink-0 accent-primary disabled:opacity-40"
-                        aria-label={`Zaznacz ${fullName}`}
-                      />
-                    )}
-                    <span className="w-5 shrink-0 text-center text-xs font-bold tabular-nums text-muted-foreground">
-                      {idx + 1}
-                    </span>
-                    <div
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white ${avatarColor}`}
-                    >
-                      {initials || "?"}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-foreground">
-                            {fullName}
-                          </div>
-                          <div className="truncate text-xs text-muted-foreground">
-                            {roleLine}
-                            {city ? ` · ${city}` : ""}
-                          </div>
-                        </div>
-                        <span
-                          className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${scoreColor}`}
-                          title={pct == null ? "Ocena niepełna" : "Wynik dopasowania (0–100)"}
-                        >
-                          {pct == null ? "Ocena niepełna" : pct}
-                        </span>
-                      </div>
-
-                      {canVerify && <div className="mt-2"><RequirementVerificationDialog jobId={jobId} candidateId={c.id} candidateName={fullName} onSaved={() => { void fullSearch.refresh(); }} /></div>}
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-                        {mustTotal > 0 && (
-                          <span
-                            className="inline-flex items-center gap-1 text-muted-foreground"
-                            title={`Pokrycie wymagań must: ${mustHit} z ${mustTotal}`}
-                          >
-                            <span className="inline-flex gap-0.5">
-                              {Array.from({ length: Math.min(mustTotal, 6) }).map(
-                                (_, i) => (
-                                  <span
-                                    key={i}
-                                    className={
-                                      "h-1.5 w-2 rounded-sm " +
-                                      (i < mustHit
-                                        ? "bg-success"
-                                        : "bg-muted-foreground/25")
-                                    }
-                                  />
-                                ),
-                              )}
-                            </span>
-                            {mustHit}/{mustTotal} must
-                          </span>
-                        )}
-                        {rate != null && (
-                          <span
-                            className={
-                              "font-medium tabular-nums " +
-                              (rateBand === "over"
-                                ? "text-destructive"
-                                : rateBand === "in"
-                                  ? "text-success"
-                                  : "text-muted-foreground")
-                            }
-                            title={
-                              budgetHourly != null
-                                ? `Budżet do ${Math.round(budgetHourly)} PLN/h`
-                                : "Brak budżetu rekrutacji do porównania"
-                            }
-                          >
-                            {formatMatchingRate(c)}
-                          </span>
-                        )}
-                        {officeFitLabel && (
-                          <span
-                            className="font-medium text-destructive"
-                            title="Rubryka biura (0278): deklaracja kandydata nie pokrywa wymogu rekrutacji"
-                          >
-                            {officeFitLabel}
-                          </span>
-                        )}
-                        {inPipe && (
-                          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-primary">
-                            w procesie
-                          </span>
-                        )}
-                        {elig && (
-                          <span
-                            className={
-                              "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-medium " +
-                              (assignBlocked
-                                ? "border border-destructive/30 bg-destructive/10 text-destructive"
-                                : "border border-warning/25 bg-warning-muted text-warning-muted-foreground")
-                            }
-                            title={elig.reason}
-                          >
-                            <AlertCircle className="h-3 w-3 shrink-0" />
-                            {elig.reason}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Narzędzia diagnostyczne AI — tylko admin (dawna sekcja „legacy"). */}
-          {isAdmin && !readOnly && (
-            <details className="rounded-lg border border-dashed border-border bg-muted/30 p-2 text-xs">
-              <summary className="cursor-pointer select-none text-muted-foreground">
-                Narzędzia AI (admin) — kryteria, scoring, embedding
-              </summary>
-              <div className="pt-2">
-                <JobAIActions
-                  jobId={jobId}
-                  onDone={rereadSearch}
-                  readOnly={readOnly}
-                />
-              </div>
-            </details>
-          )}
-        </div>
-
-        {/* ── Prawy dok: Dopasowanie ───────────────────────────────── */}
-        <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
-          <JobMatchDock
-            match={selectedMatch}
-            jobId={jobId}
-            jobTitle={job?.title ?? null}
-            budgetHourly={budgetHourly}
-            requiredSkills={requiredSkills}
-            niceSkills={niceSkills}
-            inPipeline={
-              selectedMatch?.candidate
-                ? pipelineSet.has(selectedMatch.candidate.id)
-                : false
-            }
-            readOnly={readOnly}
-            added={addedIds}
-            addingId={addingId}
-            shortlistingId={shortlistingId}
-            onAddPipeline={(cid, name) =>
-              addToPipelineMutation.mutate({ candidateId: cid, fullName: name })
-            }
-            onShortlist={(cid, name) =>
-              shortlistMutation.mutate({ candidateId: cid, fullName: name })
-            }
-            onEmail={(cand) => setEmailTarget(cand)}
-            onClose={() => setSelectedId(null)}
-          />
-        </aside>
-      </div>
-        </>
-      )}
-
-      {/* Email modal */}
-      {!readOnly && emailTarget && (
-        <EmailTemplateModal
-          candidate={emailTarget}
-          job={job}
-          onClose={() => setEmailTarget(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ── Dok „Dopasowanie" (prawa kolumna warsztatu C2) ───────────────────────────
-
-// Wiersz pokrycia wymagania (✓/✗ + tag must/nice) w doku.
-function CoverageRow({
-  label,
-  tag,
-  hit = false,
-}: {
-  label: string;
-  tag: "must" | "nice";
-  hit?: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      <span
-        className={
-          "flex h-4 w-4 shrink-0 items-center justify-center rounded-full " +
-          (hit
-            ? "bg-success-muted text-success-muted-foreground"
-            : "bg-destructive/10 text-destructive")
-        }
-      >
-        {hit ? <Check className="h-2.5 w-2.5" /> : <X className="h-2.5 w-2.5" />}
-      </span>
-      <span className={hit ? "text-foreground" : "text-muted-foreground"}>
-        {label}
-      </span>
-      <span
-        className={
-          "ml-auto rounded px-1 py-0.5 text-[10px] " +
-          (tag === "must"
-            ? "bg-primary/10 text-primary"
-            : "bg-muted text-muted-foreground")
-        }
-      >
-        {tag}
-      </span>
-    </div>
-  );
-}
-
-function JobMatchDock({
-  match,
-  jobId,
-  jobTitle,
-  budgetHourly,
-  requiredSkills,
-  niceSkills,
-  inPipeline,
-  readOnly,
-  added,
-  addingId,
-  shortlistingId,
-  onAddPipeline,
-  onShortlist,
-  onEmail,
-  onClose,
-}: {
-  match: any | null;
-  jobId: number;
-  jobTitle: string | null;
-  budgetHourly: number | null;
-  requiredSkills: string[];
-  niceSkills: string[];
-  inPipeline: boolean;
-  readOnly: boolean;
-  added: Set<number>;
-  addingId: number | null;
-  shortlistingId: number | null;
-  onAddPipeline: (candidateId: number, fullName: string) => void;
-  onShortlist: (candidateId: number, fullName: string) => void;
-  onEmail: (candidate: any) => void;
-  onClose: () => void;
-}) {
-  const [showJustification, setShowJustification] = useState(false);
-  const candidateId: number | null = match?.candidate?.id ?? null;
-  // Zwiń pełne uzasadnienie AI przy zmianie zaznaczonego kandydata — drogi LLM
-  // liczy się dopiero po jawnym rozwinięciu.
-  useEffect(() => {
-    setShowJustification(false);
-  }, [candidateId]);
-
-  if (!match) {
-    return (
-      <div className="rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center text-sm text-muted-foreground">
-        <Sparkles className="mx-auto mb-2 h-6 w-6 opacity-40" />
-        Wybierz kandydata z rankingu, aby zobaczyć rozbiór dopasowania.
-      </div>
-    );
-  }
-
-  const c = match.candidate;
-  const fullName = `${c.name} ${c.lastname}`.trim();
-  const pct = match.match_score == null ? null : Math.round(match.match_score * 100);
-  const elig = match.eligibility as
-    | { reason: string; assignment_allowed: boolean }
-    | null
-    | undefined;
-  const assignBlocked = elig?.assignment_allowed === false;
-  const isAdded = added.has(c.id);
-  const rate = c.expected_rate_hourly as number | null | undefined;
-  const rateBand = matchingRateBand(match.rate_fit);
-  const officeFit = match.office_fit;
-  const officeFitLabel =
-    officeFit === "days_exceeded"
-      ? "za mało dni w biurze"
-      : officeFit === "city_mismatch"
-        ? "inne miasto niż biuro"
-        : officeFit === "ok"
-          ? "spełnia wymóg biura"
-          : null;
-  const mustMatching: string[] = match.matching_skills ?? [];
-  const mustGaps: string[] = match.gaps ?? [];
-  const niceMatching: string[] = match.nice_matching ?? [];
-  const niceGaps: string[] = match.nice_gaps ?? [];
-  const missingMust: string[] = match.missing_must ?? [];
-  const gaugeColor =
-    pct == null
-      ? "text-muted-foreground"
-      : pct >= 80
-        ? "text-success"
-        : pct >= 60
-          ? "text-warning"
-          : "text-muted-foreground";
-  const city = formatCandidateLocation(c.location);
-  const roleLine =
-    [c.current_title, c.current_company].filter(Boolean).join(" · ") ||
-    c.competence_category ||
-    "";
-
-  return (
-    <div className="space-y-4 rounded-xl border border-border bg-card p-4">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-primary">
-            Dopasowanie
-          </div>
-          <div className="truncate text-sm font-semibold text-foreground">
-            {fullName}
-          </div>
-          {(roleLine || city) && (
-            <div className="truncate text-xs text-muted-foreground">
-              {roleLine}
-              {roleLine && city ? " · " : ""}
-              {city}
-            </div>
-          )}
-        </div>
-        <button
-          onClick={onClose}
-          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent"
-          aria-label="Zamknij dok"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div>
-        <div className="flex items-end gap-2">
-          <span className={`text-3xl font-bold tabular-nums ${gaugeColor}`}>
-            {pct == null ? "Ocena niepełna" : pct}
-          </span>
-          <span className="pb-1 text-xs text-muted-foreground">
-            {pct == null ? "" : "/ 100 · dopasowanie do tej rekrutacji"}
-          </span>
-        </div>
-        <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
-          <div
-            className={
-              "h-2 rounded-full " +
-              (pct == null
-                ? "bg-muted-foreground/30"
-                : pct >= 80
-                  ? "bg-success"
-                  : pct >= 60
-                    ? "bg-warning"
-                    : "bg-muted-foreground/40")
-            }
-            style={{ width: `${pct ?? 0}%` }}
-          />
-        </div>
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
-          Wynik to głównie podobieństwo semantyczne CV do rekrutacji; pokrycie
-          wymagań must to jeden ze składników.
-        </p>
-      </div>
-
-      {elig && (
-        <div
-          className={
-            "flex items-start gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] " +
-            (assignBlocked
-              ? "border-destructive/30 bg-destructive/10 text-destructive"
-              : "border-warning/25 bg-warning-muted text-warning-muted-foreground")
-          }
-        >
-          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>{elig.reason}</span>
-        </div>
-      )}
-
-      {(requiredSkills.length > 0 || niceSkills.length > 0) && (
-        <div className="space-y-1.5">
-          <div className="text-xs font-semibold text-foreground">
-            Pokrycie wymagań · {mustMatching.length} z {requiredSkills.length} must
-          </div>
-          {missingMust.length > 0 && (
-            <div
-              className="rounded-md border border-destructive/25 bg-destructive/5 px-2 py-1 text-[11px] text-destructive"
-              title="Bramka dealbreakera (0278): bez tych technologii kandydat jest ukrywany na pozostałych powierzchniach rankingu — ta lista jest węższa niż pełne pokrycie wymagań poniżej."
-            >
-              Bramka must-have: brak {missingMust.join(", ")}
-            </div>
-          )}
-          <div className="space-y-1">
-            {mustMatching.map((s) => (
-              <CoverageRow key={`m-${s}`} label={s} tag="must" hit />
-            ))}
-            {mustGaps.map((s) => (
-              <CoverageRow key={`mg-${s}`} label={`${s} — brak potwierdzenia`} tag="must" />
-            ))}
-            {niceMatching.map((s) => (
-              <CoverageRow key={`n-${s}`} label={s} tag="nice" hit />
-            ))}
-            {niceGaps.map((s) => (
-              <CoverageRow key={`ng-${s}`} label={`${s} — brak potwierdzenia`} tag="nice" />
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-1.5">
-        <div className="text-xs font-semibold text-foreground">
-          Warunki wobec rekrutacji
-        </div>
-        <div className="grid grid-cols-[80px_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
-          <span className="text-muted-foreground">Stawka</span>
-          <span>
-            {rate != null ? (
-              <span
-                className={
-                  "font-medium tabular-nums " +
-                  (rateBand === "over"
-                    ? "text-destructive"
-                    : rateBand === "in"
-                      ? "text-success"
-                      : "text-foreground")
-                }
-              >
-                {formatMatchingRate(c)}
-                {budgetHourly != null && (
-                  <span className="ml-1 font-normal text-muted-foreground">
-                    {rateBand === "unknown"
-                      ? "· do weryfikacji"
-                      : rateBand === "over"
-                      ? `· powyżej budżetu ${Math.round(budgetHourly)}`
-                      : `· w budżecie do ${Math.round(budgetHourly)}`}
-                  </span>
-                )}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">brak danych</span>
-            )}
-          </span>
-          <span className="text-muted-foreground">Lokalizacja</span>
-          <span className="text-foreground">{city || "—"}</span>
-          {officeFitLabel && (
-            <>
-              <span className="text-muted-foreground">Biuro</span>
-              <span
-                className={
-                  "font-medium " +
-                  (officeFit === "ok" ? "text-success" : "text-destructive")
-                }
-              >
-                {officeFitLabel}
-              </span>
-            </>
-          )}
-          <span className="text-muted-foreground">Etap</span>
-          <span>
-            {inPipeline ? (
-              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">
-                w procesie
-              </span>
-            ) : (
-              <span className="text-muted-foreground">poza procesem</span>
-            )}
-          </span>
-        </div>
-      </div>
-
-      {c.ai_summary && (
-        <div className="space-y-1">
-          <div className="text-xs font-semibold text-foreground">Podsumowanie</div>
-          <p className="line-clamp-4 text-xs leading-relaxed text-muted-foreground">
-            {c.ai_summary}
-          </p>
-        </div>
-      )}
-
-      {!readOnly && (
-        <div className="flex flex-wrap gap-2 border-t border-border pt-3">
-          <button
-            onClick={() => onAddPipeline(c.id, fullName)}
-            disabled={addingId === c.id || isAdded || assignBlocked}
-            title={assignBlocked ? elig?.reason : undefined}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {assignBlocked ? (
-              <>
-                <AlertCircle className="h-3 w-3" /> Nie można dodać
-              </>
-            ) : isAdded ? (
-              <>
-                <Check className="h-3 w-3" /> W pipeline
-              </>
-            ) : (
-              <>
-                <Plus className="h-3 w-3" />
-                {addingId === c.id ? "Dodawanie…" : "Dodaj do pipeline"}
-              </>
-            )}
-          </button>
-          <button
-            onClick={() => onShortlist(c.id, fullName)}
-            disabled={shortlistingId === c.id || assignBlocked}
-            title={assignBlocked ? elig?.reason : "Ocena przed pipeline"}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <UserCheck className="h-3 w-3" />
-            {shortlistingId === c.id ? "Dodawanie…" : "Na shortlistę"}
-          </button>
-          <button
-            onClick={() => onEmail(c)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
-          >
-            <Mail className="h-3 w-3" /> Wyślij
-          </button>
-          <Link
-            href={`/candidates/${c.id}?${encodeJobBackRef(jobId).toString()}`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted"
-          >
-            <ExternalLink className="h-3 w-3" /> Profil
-          </Link>
-        </div>
-      )}
-
-      <div className="border-t border-border pt-3">
-        {showJustification ? (
-          <DopasowanieTab
-            candidateId={c.id}
-            recruitments={[{ job_id: jobId, job_title: jobTitle }]}
-            defaultJobId={jobId}
-            readOnly={readOnly}
-          />
-        ) : (
-          <button
-            onClick={() => setShowJustification(true)}
-            className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
-          >
-            <Sparkles className="h-3 w-3" /> Pełne uzasadnienie AI
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
+import { RecruitmentWorkspace } from "@/components/v2/recruitment/RecruitmentWorkspace";
+import { ProposalsSegment } from "@/components/v2/recruitment/ProposalsSegment";
+import { ProposalMatchDetails } from "@/components/v2/recruitment/ProposalMatchDetails";
+import { JobAIActions } from "@/components/v2/recruitment/JobAIActions";
+import { EmailTemplateModal } from "@/components/v2/recruitment/EmailTemplateModal";
+import { OrderSlideOver } from "@/components/v2/recruitment/slideovers/OrderSlideOver";
+import { QuestionBankSlideOver } from "@/components/v2/recruitment/slideovers/QuestionBankSlideOver";
+import { HistoryChatSlideOver } from "@/components/v2/recruitment/slideovers/HistoryChatSlideOver";
+import { ManualSearchSlideOver } from "@/components/v2/recruitment/slideovers/ManualSearchSlideOver";
+import type {
+  PersonPanelSection,
+  RecruitmentSegment,
+  RecruitmentSlideOver,
+} from "@/components/v2/recruitment/types";
 
 // ── Recruitment type config ───────────────────────────────────────────────────
 
@@ -1988,80 +93,93 @@ const RECRUITMENT_TYPE_CONFIG: Record<
   tender: { label: "Przetarg", variant: "warning" },
 };
 
-// ── Kroki 05 i 06 za granicą `next/dynamic` ──────────────────────────────────
-//
-// `/jobs/[id]` to gorąca trasa, a stanowisko „CV do klienta" wciąga cały
-// `CVGeneratorStandaloneV2` (1800 linii: combobox, dropzone, modale podglądu
-// i udostępniania). Bez tej granicy za jego wagę płaciłoby KAŻDE otwarcie
-// rekrutacji, także wtedy, gdy nikt nie zajrzy do kroku 06. Oba stanowiska
-// renderują się dopiero po kliknięciu kroku na listwie — dokładnie ten sam
-// wzorzec, którego pilnuje `heavy-bundle-boundaries.test.ts` dla TipTapa
-// i rechartsa.
-// `loading` jest obowiązkowy: bez niego zakładka jest pusta, dopóki chunk się
-// nie pobierze, a pustka czyta się jak „brak danych" (przegląd UX 17.09.2026).
-function WorkbenchChunkLoading() {
-  return <p className="p-6 text-sm text-muted-foreground">Ładowanie…</p>;
-}
-const ScreeningWorkbench = dynamic(
-  () =>
-    import("@/components/v2/jobs/ScreeningWorkbench").then(
-      (m) => m.ScreeningWorkbench,
-    ),
-  { ssr: false, loading: WorkbenchChunkLoading },
-);
-const CvHandoffWorkbench = dynamic(
-  () =>
-    import("@/components/v2/jobs/CvHandoffWorkbench").then(
-      (m) => m.CvHandoffWorkbench,
-    ),
-  { ssr: false, loading: WorkbenchChunkLoading },
-);
-
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-/** Wszystkie zakładki rekrutacji — każda może stać w `?tab=`. */
-const JOB_DETAIL_TABS: readonly JobDetailTab[] = [
-  "pipeline",
-  "history",
-  "ai-matching",
-  "manual-search",
-  "portals",
-  "champion",
-  "questions",
-  "chat",
-  "screening",
-  "cv",
-  "interviews",
-  "contract",
-];
+/**
+ * Widoki rekrutacji (wersja 3) — każdy może stać w `?tab=`: „Tabela"
+ * (`people`, domyślny), „Tablica" (`board`, kanban z przeciąganiem) i pełne
+ * „Zlecenie i Champion" (`champion`).
+ */
+const JOB_DETAIL_TABS: readonly JobDetailView[] = ["people", "board", "champion"];
 
 /**
- * Stare i obce identyfikatory zakładek w linkach, które już są w bazie
- * powiadomień: `champion-profile` (zapis Championa do 09.2026), `similar`
- * („Podobny request — gotowi kandydaci"), `notes` (wzmianka w notatce —
- * notatki żyją w doku kandydata na tablicy).
+ * Dawne identyfikatory zakładek (dwanaście kroków listwy do 09.2026) i obce
+ * aliasy z linków zapisanych w bazie powiadomień. Wartość to WIDOK, na którym
+ * link ląduje; segment tabeli, sekcję panelu albo okno wysuwane dopowiada
+ * `resolveLegacyJobTab` (`lib/job-detail-routing.ts`). Backendowy
+ * `test_client_tab_links.py` czyta klucze tego obiektu — każdy `?tab=`, do
+ * którego linkuje backend, musi tu być.
  */
-const JOB_DETAIL_TAB_ALIASES: Readonly<Record<string, JobDetailTab>> = {
+const JOB_DETAIL_TAB_ALIASES: Readonly<Record<string, JobDetailView>> = {
+  pipeline: "people",
+  history: "people",
+  "ai-matching": "people",
+  "manual-search": "people",
+  portals: "people",
+  questions: "people",
+  chat: "people",
+  screening: "people",
+  cv: "people",
+  interviews: "people",
+  contract: "people",
   "champion-profile": "champion",
-  similar: "ai-matching",
-  notes: "pipeline",
+  similar: "people",
+  notes: "people",
 };
+
+/** KPI nagłówka mówią dawnym słownikiem zakładek. */
+const KPI_TAB_FOR_VIEW: Record<JobDetailView, JobDetailTab> = {
+  people: "pipeline",
+  board: "pipeline",
+  champion: "champion",
+};
+
+const DEFAULT_SEGMENT: RecruitmentSegment = "in-process";
+
+/**
+ * Stan trzymany w adresie. Efekt zależy od WARTOŚCI wyczytanej z adresu, nie
+ * od tożsamości `searchParams`: miękka nawigacja App Routera (klik
+ * w powiadomienie na tej samej rekrutacji) zmienia adres bez odmontowania
+ * strony, a inicjalizator `useState` odpala się raz. `null` z adresu NIE
+ * cofa ręcznego wyboru — parametr, który zniknął, to nie polecenie.
+ */
+function useUrlSyncedState<T extends string>(fromUrl: T | null, fallback: T | null) {
+  const [value, setValue] = useState<T | null>(fromUrl ?? fallback);
+  useEffect(() => {
+    if (fromUrl !== null) setValue(fromUrl);
+  }, [fromUrl]);
+  return [value, setValue] as const;
+}
+
+/** Podmienia parametry bieżącego adresu bez dokładania wpisu w historii. */
+function writeUrlParams(patch: Record<string, string | null>) {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  for (const [name, value] of Object.entries(patch)) {
+    if (value == null) url.searchParams.delete(name);
+    else url.searchParams.set(name, value);
+  }
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next !== current) window.history.replaceState(window.history.state, "", next);
+}
 
 export default function JobDetailPage() {
   const { id } = useParams();
+  const jobId = Number(id);
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
-  // Legacy AI Matching (M3-UI-01): trzy równoległe rankingi na jednym ekranie
-  // dezorientują — sekcja legacy (+ operacyjne akcje "Przelicz scoring" /
-  // "Embed all jobs") zostaje wyłącznie dla admina jako widok diagnostyczny.
   const authUser = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
   const isAdmin = hasRole(authUser, "admin");
   // 0325: powrót rekrutacji do Traffita — tylko admin / Delivery Lead.
   const canRevertManaged = isAdmin || hasRole(authUser, "delivery_lead");
+  // Lustro `GATE_ROLES` doku gotowości: `GET /jobs/{id}/readiness` to
+  // `DeliveryLeadPlus` — dla innych ról zapytanie zawsze kończy się 403.
+  const canSeeReadinessGate = isAdmin || hasRole(authUser, "delivery_lead");
   const canWritePipeline =
     !impersonating && hasSectionAccess(authUser, "pipeline", "write");
   // PATCH /api/jobs/{id} to TacPlus — a TacPlus nie obejmuje HoR. Przez rejestr,
@@ -2071,43 +189,159 @@ export default function JobDetailPage() {
   // na liście ofert — bez niej read-only `user` widział tu przycisk wiodący
   // prosto w 403 (audyt F-19).
   const canCreateInviteLink = useCapability("invite_link.create");
+  const canOpenCandidateProfile = useCapability("nav.candidates");
   const [showAIWriter, setShowAIWriter] = useState(false);
   const [showEditJob, setShowEditJob] = useState(false);
   const [showInviteLink, setShowInviteLink] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
-  // Opis oferty potrafi mieć kilkaset linii — domyślnie zwinięty, żeby nagłówek
-  // nie spychał pipeline'u poza ekran.
+  const [emailCandidateId, setEmailCandidateId] = useState<number | null>(null);
+  // Opis oferty potrafi mieć kilkaset linii — domyślnie zwinięty.
   const [showFullDescription, setShowFullDescription] = useState(false);
-  // Zakładka żyje w `?tab=` (F5 i „Wstecz" wracają na nią; linki z powiadomień
-  // działają także przy miękkiej nawigacji na tej samej rekrutacji).
-  const [activeTab, selectTab, setActiveTab] = useUrlTab<JobDetailTab>({
-    requested: searchParams?.get("tab"),
-    validTabs: JOB_DETAIL_TABS,
-    defaultTab: "pipeline",
-    aliases: JOB_DETAIL_TAB_ALIASES,
-  });
+
+  // ── Stan w adresie: widok, segment, sekcja panelu, okno wysuwane ─────────
+  const searchKey = searchParams?.toString() ?? "";
+  const urlState = useMemo(
+    () => readJobDetailUrlState(new URLSearchParams(searchKey)),
+    [searchKey],
+  );
+  // Widok rozstrzygają stałe TEJ strony (te same, które czyta backendowy
+  // strażnik linków): nowy identyfikator albo alias dawnej zakładki.
+  const viewFromUrl =
+    resolveUrlTab(searchParams?.get("tab"), JOB_DETAIL_TABS, JOB_DETAIL_TAB_ALIASES) ??
+    (urlState.highlightProposals ? JOB_DETAIL_DEFAULT_VIEW : null);
+  const [viewState, setViewState] = useUrlSyncedState<JobDetailView>(
+    viewFromUrl,
+    JOB_DETAIL_DEFAULT_VIEW,
+  );
+  const activeView: JobDetailView = viewState ?? JOB_DETAIL_DEFAULT_VIEW;
+  const [segmentState, setSegmentState] = useUrlSyncedState<RecruitmentSegment>(
+    urlState.segment,
+    DEFAULT_SEGMENT,
+  );
+  const segment: RecruitmentSegment = segmentState ?? DEFAULT_SEGMENT;
+  const [panelSection, setPanelSectionState] = useUrlSyncedState<PersonPanelSection>(
+    urlState.panelSection,
+    null,
+  );
+  const [slideOver, setSlideOverState] = useUrlSyncedState<RecruitmentSlideOver>(
+    urlState.slideOver,
+    null,
+  );
+  const [historyTab, setHistoryTab] = useUrlSyncedState<JobHistoryChatTab>(
+    urlState.slideOverTab,
+    null,
+  );
+  const [orderSection, setOrderSection] = useUrlSyncedState<JobOrderSection>(
+    urlState.orderSection,
+    null,
+  );
+  const [activeCandidateId, setActiveCandidateId] = useState<number | null>(null);
+
+  const selectView = useCallback(
+    (view: JobDetailView) => {
+      setViewState(view);
+      writeUrlParams({ tab: view === JOB_DETAIL_DEFAULT_VIEW ? null : view });
+    },
+    [setViewState],
+  );
+  const selectSegment = useCallback(
+    (next: RecruitmentSegment) => {
+      setSegmentState(next);
+      writeUrlParams({ seg: next === DEFAULT_SEGMENT ? null : next });
+    },
+    [setSegmentState],
+  );
+  const selectPanelSection = useCallback(
+    (next: PersonPanelSection | null) => {
+      setPanelSectionState(next);
+      writeUrlParams({ panel: next });
+    },
+    [setPanelSectionState],
+  );
+  const openSlideOver = useCallback(
+    (
+      kind: RecruitmentSlideOver,
+      opts: { historyTab?: JobHistoryChatTab; orderSection?: JobOrderSection } = {},
+    ) => {
+      setSlideOverState(kind);
+      setHistoryTab(kind === "history-chat" ? (opts.historyTab ?? "all") : null);
+      setOrderSection(kind === "order" ? (opts.orderSection ?? null) : null);
+      writeUrlParams({
+        win: kind,
+        wintab: opts.historyTab ?? opts.orderSection ?? null,
+      });
+    },
+    [setSlideOverState, setHistoryTab, setOrderSection],
+  );
+  const closeSlideOver = useCallback(() => {
+    setSlideOverState(null);
+    setHistoryTab(null);
+    setOrderSection(null);
+    writeUrlParams({ win: null, wintab: null });
+  }, [setSlideOverState, setHistoryTab, setOrderSection]);
+  const slideOverOpenChange = (kind: RecruitmentSlideOver) => (open: boolean) => {
+    if (open) openSlideOver(kind);
+    else if (slideOver === kind) closeSlideOver();
+  };
+
+  // Stary adres (`?tab=chat`, `?tab=screening`, `?highlight=ai-proposals`…)
+  // przepisujemy na nowy kształt — `replace`, nie `push`: stary adres nie ma
+  // zostawać w historii. Stan strony jest już poprawny (czyta oba kształty).
+  useEffect(() => {
+    if (!pathname) return;
+    const rewritten = rewriteLegacyJobParams(new URLSearchParams(searchKey));
+    if (!rewritten) return;
+    const query = rewritten.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [searchKey, pathname, router]);
+
+  // `?highlight=ai-proposals` (nowa rekrutacja → „zobacz propozycje"): krótka
+  // obwódka wokół segmentu. Parametr znika z adresu przy przepisaniu wyżej.
+  const [highlightProposals, setHighlightProposals] = useState(false);
+  useEffect(() => {
+    if (!urlState.highlightProposals) return;
+    setHighlightProposals(true);
+    const timer = window.setTimeout(() => setHighlightProposals(false), 2500);
+    return () => window.clearTimeout(timer);
+  }, [urlState.highlightProposals]);
+
+  // Warsztaty i dok mówią dawnym słownikiem zakładek („otwórz Bazę pytań").
+  const handleLegacyTab = useCallback(
+    (tab: JobDetailTab) => {
+      const target = resolveLegacyJobTab(tab);
+      if (!target) return;
+      if (target.slideOver) {
+        openSlideOver(target.slideOver, {
+          historyTab: target.slideOverTab,
+          orderSection: target.orderSection,
+        });
+        return;
+      }
+      selectView(target.view);
+      if (target.segment) selectSegment(target.segment);
+      if (target.panelSection) selectPanelSection(target.panelSection);
+    },
+    [openSlideOver, selectView, selectSegment, selectPanelSection],
+  );
+
   // `?candidate=<id>` (powiadomienia, wzmianka w notatce, „Wróć do rekrutacji")
-  // — otwórz dok tego kandydata na tablicy, jeśli jest w pipelinie.
-  const dockCandidateId = positiveIntParam(searchParams?.get("candidate") ?? null);
-  // Zwijanie nagłówka oferty (przyciski + właściciele + opis) — daje pipeline'owi
-  // więcej miejsca. Preferencja globalna w localStorage, więc trzyma się między
-  // ofertami i sesjami.
+  // — otwórz tę osobę: panel w „Tabeli", dok na „Tablicy".
+  const linkedCandidateId = positiveIntParam(searchParams?.get("candidate") ?? null);
+  // Zwijanie panelu „Zespół i priorytet" (pełny widok „Zlecenie i Champion")
+  // oraz — na „Tablicy" — wysokość kolumn. Preferencja globalna w localStorage.
   const [headerCollapsed, setHeaderCollapsed] = useLocalStorageFlag(
     JOB_HEADER_COLLAPSED_STORAGE_KEY,
     JOB_HEADER_COLLAPSED_DEFAULT,
   );
-  // Zwijanie doku „Gotowość" na kroku 02 (zakładka Championa) — patrz
-  // `lib/job-dock-preferences.ts`. Kolumna doku w siatce niżej i przyciski
-  // zwiń/rozwiń w `JobReadinessDock` czytają ten sam stan.
+  // Zwijanie doku „Gotowość" na widoku Championa — patrz
+  // `lib/job-dock-preferences.ts`.
   const [championDockCollapsed, setChampionDockCollapsed] = useLocalStorageFlag(
     JOB_CHAMPION_DOCK_COLLAPSED_STORAGE_KEY,
     JOB_CHAMPION_DOCK_COLLAPSED_DEFAULT,
   );
 
-
-  // Parametr jest jednorazowy: po otwarciu doku znika z adresu, żeby odświeżenie
-  // strony albo zamknięcie doku nie otwierało go ponownie. Pozostałe parametry
-  // zostają nietknięte.
+  // Parametr jest jednorazowy: po otwarciu osoby znika z adresu, żeby
+  // odświeżenie strony albo zamknięcie panelu nie otwierało jej ponownie.
   const clearCandidateParam = useCallback(() => {
     if (!pathname) return;
     const next = new URLSearchParams(searchParams?.toString() ?? "");
@@ -2117,7 +351,7 @@ export default function JobDetailPage() {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }, [pathname, router, searchParams]);
 
-  // Unread badge dla taba Chat
+  // Odznaka nieprzeczytanych na przycisku „Historia i czat".
   const { data: chatUnread } = useQuery({
     queryKey: ["job-chat-unread", id],
     queryFn: async () => (await jobChatApi.getUnreadCount(Number(id))).data,
@@ -2127,16 +361,6 @@ export default function JobDetailPage() {
     refetchInterval: WS_BACKED_SAFETY_POLL_MS,
     refetchOnWindowFocus: true,
   });
-
-  // Phase 13: when redirected from AddJobModal with ?highlight=ai-proposals,
-  // switch to the AI matching tab. Scroll + glow + query-param cleanup for the
-  // "Rekomendowani" card now live in SourcingHub (krok 03, PR 2/7) — ono
-  // renderuje się dopiero po przełączeniu zakładki, więc to jest wszystko,
-  // czego strona sama musi dopilnować.
-  useEffect(() => {
-    if (searchParams?.get("highlight") !== "ai-proposals") return;
-    setActiveTab("ai-matching");
-  }, [searchParams, setActiveTab]);
 
   const {
     data: job,
@@ -2200,15 +424,26 @@ export default function JobDetailPage() {
     isSuccess: kanbanIsSuccess,
   });
 
-  // Tablica niedostępna (403) — dok się nie otworzy, więc nie zostawiamy
+
+  // Tablica niedostępna (403) — osoba się nie otworzy, więc nie zostawiamy
   // martwego `?candidate=` w adresie.
   useEffect(() => {
-    if (kanbanViewState === "forbidden" && dockCandidateId != null) clearCandidateParam();
-  }, [kanbanViewState, dockCandidateId, clearCandidateParam]);
+    if (kanbanViewState === "forbidden" && linkedCandidateId != null) clearCandidateParam();
+  }, [kanbanViewState, linkedCandidateId, clearCandidateParam]);
 
-  // Kroki 05–08 (Screening, CV do klienta, Rozmowy, Umowa) czytają TE SAME
-  // kolumny co listwa kroków — bez własnego zapytania (program „flow w języku
-  // C2", PR 6/7 i 7/7).
+  // „Tabela": link rozstrzygamy dopiero na ŚWIEŻEJ tablicy — z ciepłego cache
+  // osoba, która właśnie weszła do rekrutacji (powiadomienie), jeszcze nie
+  // istnieje, a parametr zostałby zużyty na próżno. „Tablica" robi to samo
+  // przez `initialDockCandidateId`.
+  useEffect(() => {
+    if (activeView !== "people" || linkedCandidateId == null) return;
+    if (kanbanIsFetching || !kanbanIsSuccess) return;
+    setActiveCandidateId(linkedCandidateId);
+    clearCandidateParam();
+  }, [activeView, linkedCandidateId, kanbanIsFetching, kanbanIsSuccess, clearCandidateParam]);
+
+  // Tabela, tablica i panel osoby czytają TE SAME kolumny — jedno zapytanie
+  // (`["kanban", id]`).
   const kanbanColumns = useMemo(
     () => (kanban?.columns ?? []) as KanbanColumn[],
     [kanban],
@@ -2218,13 +453,25 @@ export default function JobDetailPage() {
     queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
   }, [queryClient, id]);
 
-  // AI match scores (0-100) for pipeline candidates → score ring on kanban cards.
-  // Fetched in parallel with the kanban (cache-first server-side) so cards paint
-  // immediately and the rings fill in when scores resolve.
+  // Osoby już w rekrutacji (także odrzucone i „poza szablonem") — nie
+  // pojawiają się w propozycjach. `undefined` dopóki tablica się nie wczyta:
+  // segment propozycji pyta wtedy o nie sam.
+  const pipelineCandidateIds = useMemo(() => {
+    if (!kanban) return undefined;
+    const ids = new Set<number>();
+    for (const col of kanbanColumns) for (const item of col.items) ids.add(item.candidate_id);
+    for (const item of (kanban.off_template?.items ?? []) as Array<{ candidate_id: number }>) {
+      ids.add(item.candidate_id);
+    }
+    return Array.from(ids);
+  }, [kanban, kanbanColumns]);
+
+  // AI match scores (0-100) → pierścienie na kartach tablicy. Ten sam klucz
+  // czyta kolumna „Dop." tabeli (`RecruitmentWorkspace`).
   const { data: pipelineScores, isLoading: scoresLoading } = useQuery({
     queryKey: ["pipeline-scores", id],
     queryFn: () => matchingApi.pipelineScores(Number(id)).then((r) => r.data),
-    enabled: activeTab === "pipeline" && !!id,
+    enabled: activeView === "board" && !!id,
     staleTime: 5 * 60_000,
   });
   const scoreMap = useMemo(() => {
@@ -2236,31 +483,51 @@ export default function JobDetailPage() {
     return m;
   }, [pipelineScores]);
 
-  // Kroki 07 i 08 czytają `kanbanColumns` zadeklarowane wyżej — jedno źródło
-  // (`["kanban", id]`) karmi tablicę ORAZ cztery zakładki kroków 05–08.
-  //
-  // Liczenie przeniesione do `lib/pipeline-flow.ts`, bo klaster KPI w jobbarze
-  // pyta o TE SAME zbiory. Trzy idiomy „ile jest w kolumnie" (`col.count`,
-  // `items.length`, `items.length ?? count`) żyły dotąd obok siebie w jednym
-  // pliku — a listwa kroków i jobbar stoją na ekranie jeden pod drugim, więc
-  // rozjazd o jedną kartę byłby widoczny jako dwie różne liczby pod tą samą
-  // nazwą.
-  const flowCounts = useMemo(() => {
-    if (!kanban) return undefined;
-    return {
-      interviews: countInterviewStages(kanbanColumns),
-      contract: countContractStages(kanbanColumns),
-    };
-  }, [kanban, kanbanColumns]);
+  // Powody odrzucenia i etapy ze scorecardem z szablonu rekrutacji — ten sam
+  // hook co tablica. Tablica pyta sama (jak dotąd), więc tu tylko dla „Tabeli".
+  const pipelineTemplate = useJobPipelineTemplate(jobId, {
+    job: job ?? null,
+    enabled: activeView === "people",
+  });
+  // SLA klienta (karta klienta) — „dzień X z Y SLA" w kolumnie następnego kroku.
+  const playbookQuery = useClientPlaybook(job?.client_id ?? null);
 
-  // ── Jobbar: podtytuł i klaster KPI (makieta „flow w języku C2", k2–k8) ────
+  // Liczniki paska etapów, których tablica nie niesie.
+  const openProposalsQuery = useQuery({
+    queryKey: [...jobProposalsKeys.all(jobId), "open-count"],
+    queryFn: ({ signal }) =>
+      jobProposalsApi.inbox(jobId, { status: "proposed", limit: 1 }, signal),
+    enabled: activeView === "people" && Number.isFinite(jobId),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const shortlistCountQuery = useQuery({
+    queryKey: jobShortlistQueryKey(jobId),
+    queryFn: () => shortlistApi.list(jobId),
+    enabled: activeView === "people" && Number.isFinite(jobId),
+    staleTime: 30_000,
+  });
+
+  // „brakuje N" na przycisku „Zlecenie" — werdykt OFICJALNEJ bramki gotowości,
+  // ten sam klucz co okno „Zlecenie" i dok (jedna lista braków).
+  const readinessQuery = useQuery({
+    queryKey: ["job-readiness", jobId],
+    queryFn: () => api.get(`/api/jobs/${jobId}/readiness`).then((r) => r.data),
+    enabled: canSeeReadinessGate && Number.isFinite(jobId),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const orderMissingCount: number | null = useMemo(() => {
+    const data = readinessQuery.data;
+    if (!readinessQuery.isSuccess || !data) return null;
+    if (data.closed || data.ready || data.already_handed_off) return 0;
+    return Array.isArray(data.blockers) ? data.blockers.length : null;
+  }, [readinessQuery.data, readinessQuery.isSuccess]);
+
+  // ── Jobbar: podtytuł i klaster KPI ───────────────────────────────────────
   //
-  // Ranking C2 czytany WYŁĄCZNIE z cache'u (`enabled: false`). Własne zapytanie
-  // odpalałoby Qdranta przy każdym wejściu na dowolną zakładkę rekrutacji —
-  // także tam, gdzie rankingu nikt nie ogląda. Brak w cache'u = „—", nie zero.
-  //
-  // The full-search publisher shares actor-scoped population totals. Incomplete
-  // measurements keep the strong-match count unknown without hiding coverage.
+  // Ranking czytany WYŁĄCZNIE z cache'u (`enabled: false`) — publikuje go
+  // segment propozycji, gdy ma żywy przegląd bazy. Brak w cache'u = „—".
   const { data: ranking = null } = useQuery<FullSearchSummary | null>({
     queryKey: ["full-search-summary", authUser?.id, Number(id)],
     queryFn: async () => null,
@@ -2269,11 +536,11 @@ export default function JobDetailPage() {
   const headerKpis = useMemo(
     () =>
       buildJobHeaderKpis({
-        tab: activeTab,
+        tab: KPI_TAB_FOR_VIEW[activeView],
         columns: kanban ? kanbanColumns : null,
         ranking,
       }),
-    [activeTab, kanban, kanbanColumns, ranking],
+    [activeView, kanban, kanbanColumns, ranking],
   );
   const headerSubtitle = useMemo(() => {
     if (!job) return [];
@@ -2286,17 +553,13 @@ export default function JobDetailPage() {
       deadline: job.deadline,
       ownerName: job.primary_owner?.name,
       deliveryLeadName,
-      // Hiring manager tylko w kroku 07 — tam jest decydentem, a nie jedną
-      // z ośmiu rzeczy w linijce, którą trzeba przeczytać w całości.
-      hiringManagerName:
-        activeTab === "interviews" ? job.hiring_manager_name : null,
-      // Obsada tylko w kroku 08 — to jedyny krok, na którym pytanie „ilu
-      // z ilu" jest pytaniem o zakończenie rekrutacji.
-      hired:
-        activeTab === "contract" && kanban ? countHired(kanbanColumns) : null,
-      headcount: activeTab === "contract" ? job.headcount : null,
+      // Widok „jedna tabela" obejmuje wszystkie kroki naraz, więc decydent
+      // i obsada — dawniej tylko na krokach 07/08 — są w linijce zawsze.
+      hiringManagerName: job.hiring_manager_name,
+      hired: kanban ? countHired(kanbanColumns) : null,
+      headcount: job.headcount,
     });
-  }, [job, activeTab, kanban, kanbanColumns, deliveryLeadName]);
+  }, [job, kanban, kanbanColumns, deliveryLeadName]);
 
   // Auto-open tab when job data loads
   useEffect(() => {
@@ -2336,6 +599,21 @@ export default function JobDetailPage() {
         />
       </div>
     );
+
+  const canEditJob = canWritePipeline && canUpdateJob;
+  const onEdit = canEditJob ? () => setShowEditJob(true) : undefined;
+  const onWriteAnnouncement = canEditJob ? () => setShowAIWriter(true) : undefined;
+  const onGenerateInviteLink =
+    canWritePipeline && job.status === "published" && canCreateInviteLink
+      ? () => setShowInviteLink(true)
+      : undefined;
+  const kanbanQueryState = {
+    isLoading: kanbanLoading,
+    isError: kanbanIsError,
+    error: kanbanError,
+    isSuccess: kanbanIsSuccess,
+    refetch: () => void refetchKanban(),
+  };
 
   return (
     <div className="space-y-2">
@@ -2379,10 +657,9 @@ export default function JobDetailPage() {
             />
           </>
         }
-        // Jedna linia faktów zamiast rzędu odznak z ikonami (makieta k2–k8).
-        // Nic z dawnego rzędu nie znika: lokalizacja, widełki i deadline są
-        // w niej dalej — dochodzą tryb pracy, sufit budżetu kandydackiego
-        // i właściciel, którego nagłówek dotąd w ogóle nie pokazywał.
+        // Jedna linia faktów zamiast rzędu odznak z ikonami: lokalizacja, tryb
+        // pracy, budżet, widełki, deadline, właściciel, DL, hiring manager
+        // i obsada.
         subtitle={
           headerSubtitle.length > 0 ? (
             <span className="text-[12px]">{headerSubtitle.join(" · ")}</span>
@@ -2392,105 +669,56 @@ export default function JobDetailPage() {
         presence={
           <ActiveViewers
             resourceType="job"
-            resourceId={Number.isFinite(Number(id)) ? Number(id) : null}
+            resourceId={Number.isFinite(jobId) ? jobId : null}
           />
         }
-        activeTab={activeTab}
-        onTabChange={selectTab}
+        activeView={activeView}
+        onViewChange={selectView}
+        onOpenOrder={() => openSlideOver("order")}
+        orderMissingCount={orderMissingCount}
+        onOpenHistoryChat={() => openSlideOver("history-chat")}
+        onOpenQuestions={() => openSlideOver("questions")}
         onAddCandidate={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
-        onEdit={
-          canWritePipeline && canUpdateJob
-            ? () => setShowEditJob(true)
-            : undefined
-        }
-        onWriteAnnouncement={
-          canWritePipeline && canUpdateJob
-            ? () => setShowAIWriter(true)
-            : undefined
-        }
-        onGenerateInviteLink={
-          canWritePipeline &&
-          job.status === "published" &&
-          canCreateInviteLink
-            ? () => setShowInviteLink(true)
-            : undefined
-        }
+        onEdit={onEdit}
+        onWriteAnnouncement={onWriteAnnouncement}
+        onGenerateInviteLink={onGenerateInviteLink}
         chatUnreadCount={chatUnread?.unread_count ?? 0}
-        // Licznik „w procesie" na listwie kroków — ten sam wzór co
-        // StageFocusNavigator (suma kolumn nie-terminalnych). Kanban ładuje się
-        // dopiero na zakładce Pipeline; do tego czasu listwa nie pokazuje liczby.
-        // Liczy `countInProcess`, czyli TA SAMA funkcja, której używa KPI
-        // „w procesie" w jobbarze — te dwie liczby stoją na ekranie jedna pod
-        // drugą i muszą być tą samą liczbą.
+        // Licznik „w procesie" — `countInProcess`, TA SAMA funkcja co KPI
+        // „w procesie" obok. `undefined`, dopóki tablica się nie wczyta: zero
+        // znaczyłoby „nikogo tu nie ma", a to jeszcze nie wiadomo.
         pipelineCount={kanban ? countInProcess(kanbanColumns) : undefined}
-        // Kroki 05/06 — liczniki z tych samych kolumn co „Pipeline". Dopóki
-        // kanban się nie wczytał, listwa nie pokazuje liczby (zero znaczyłoby
-        // „nikogo tu nie ma", a to jeszcze nie wiadomo).
-        screeningCount={
-          kanban ? selectScreeningQueue(kanbanColumns).length : undefined
-        }
-        cvCount={kanban ? selectVerifiedQueue(kanbanColumns).length : undefined}
-        // Kroki 07 i 08 (flow C2, PR 7/7) — liczone z TEGO SAMEGO kanbana co
-        // Pipeline, więc listwa nie dokłada ani jednego zapytania. `undefined`
-        // dopóki kanban się nie wczyta: zero czytałoby się jako „nikt nie jest
-        // u klienta", a to inna wiadomość niż „jeszcze nie wiem".
-        interviewsCount={flowCounts?.interviews}
-        contractCount={flowCounts?.contract}
-        contextOpen={!headerCollapsed}
-        onContextOpenChange={(open) => setHeaderCollapsed(!open)}
-        contextContent={
-          <>
-            {/* Krok 02 „Zlecenie i Champion" (program „flow w języku C2",
-                PR 5/7) przeniósł Właściciela/Współpracowników, Hiring
-                Managera i Priority Work do zakładki doku „Zespół i
-                priorytet" — na TYM kroku ten panel byłby duplikatem tej
-                samej mutowalnej treści w dwóch miejscach na ekranie
-                jednocześnie. Na pozostałych krokach (Pipeline, Pozyskiwanie,
-                …) panel „Zespół i priorytet" w nagłówku zostaje bez zmian. */}
-            {activeTab === "champion" ? (
-              <p className="text-xs text-muted-foreground">
-                Właściciela, hiring managera i Priority Work znajdziesz teraz
-                w zakładce „Zespół i priorytet" doku obok Profilu Championa.
-              </p>
-            ) : (
-              <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
-                <JobOwnershipPanel
-                  jobId={Number(id)}
-                  jobTitle={job.title}
-                  primaryOwner={job.primary_owner ?? null}
-                  collaborators={job.collaborators ?? []}
-                />
-                <HiringManagerPicker
-                  jobId={Number(id)}
-                  clientId={job.client_id ?? null}
-                  value={job.hiring_manager_contact_id ?? null}
-                  valueName={job.hiring_manager_name ?? null}
-                  canEdit={canWritePipeline && canUpdateJob}
-                  onSaved={() =>
-                    queryClient.invalidateQueries({ queryKey: ["job", id] })
-                  }
-                />
-              </div>
-            )}
-            {job.description ? (
-              <div className="border-t border-border pt-3">
-                <button
-                  type="button"
-                  onClick={() => setShowFullDescription((value) => !value)}
-                  className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  {showFullDescription ? "Ukryj opis ▲" : "Pokaż opis ▼"}
-                </button>
-                {showFullDescription ? (
-                  <div className="mt-2 whitespace-pre-line text-sm text-muted-foreground">
-                    {job.description}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {activeTab !== "champion" && <JobPriorityContext jobId={Number(id)} />}
-          </>
-        }
+        // Panel „Zespół i priorytet" żyje teraz w oknie „Zlecenie". Zostaje
+        // w nagłówku wyłącznie na pełnym widoku „Zlecenie i Champion".
+        {...(activeView === "champion"
+          ? {
+              contextOpen: !headerCollapsed,
+              onContextOpenChange: (open: boolean) => setHeaderCollapsed(!open),
+              contextContent: (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Właściciela, hiring managera i Priority Work znajdziesz
+                    w zakładce „Zespół i priorytet" doku obok Profilu Championa.
+                  </p>
+                  {job.description ? (
+                    <div className="border-t border-border pt-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowFullDescription((value) => !value)}
+                        className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        {showFullDescription ? "Ukryj opis ▲" : "Pokaż opis ▼"}
+                      </button>
+                      {showFullDescription ? (
+                        <div className="mt-2 whitespace-pre-line text-sm text-muted-foreground">
+                          {job.description}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              ),
+            }
+          : {})}
       />
 
       {/* Edit Job Modal */}
@@ -2529,13 +757,143 @@ export default function JobDetailPage() {
         jobTitle={job.title}
       />
 
-      {/* Tab Content */}
-      {activeTab === "pipeline" && (
+      {emailCandidateId != null ? (
+        <EmailTemplateModal
+          candidateId={emailCandidateId}
+          job={job}
+          onClose={() => setEmailCandidateId(null)}
+        />
+      ) : null}
+
+      {/* ── Okna wysuwane: dawne zakładki obok tabeli ───────────────────── */}
+      <OrderSlideOver
+        open={slideOver === "order"}
+        onOpenChange={slideOverOpenChange("order")}
+        jobId={jobId}
+        canEdit={canEditJob}
+        readOnly={!canWritePipeline}
+        onNavigate={() => selectView("champion")}
+        onOpenSlideOver={openSlideOver}
+        onEdit={() => setShowEditJob(true)}
+        onOpenAiWriter={onWriteAnnouncement}
+        onOpenInviteLink={onGenerateInviteLink}
+        initialSection={orderSection}
+        hiredCount={kanban ? countHired(kanbanColumns) : 0}
+      />
+      <QuestionBankSlideOver
+        open={slideOver === "questions"}
+        onOpenChange={slideOverOpenChange("questions")}
+        jobId={jobId}
+        clientId={job.client_id ?? null}
+        readOnly={!canWritePipeline}
+      />
+      <HistoryChatSlideOver
+        open={slideOver === "history-chat"}
+        onOpenChange={slideOverOpenChange("history-chat")}
+        jobId={jobId}
+        clientId={job.client_id ?? null}
+        readOnly={!canWritePipeline}
+        initialTab={historyTab ?? "all"}
+        chatUnreadCount={chatUnread?.unread_count ?? 0}
+        columns={kanban ? kanbanColumns : undefined}
+      />
+      <ManualSearchSlideOver
+        open={slideOver === "manual-search"}
+        onOpenChange={slideOverOpenChange("manual-search")}
+        jobId={jobId}
+        job={job}
+        readOnly={!canWritePipeline}
+        onBulkAdded={invalidateKanban}
+      />
+
+      {/* ── Widok „Tabela": pasek etapów + tabela osób + panel osoby ─────── */}
+      {activeView === "people" && (
+        <RecruitmentWorkspace
+          jobId={jobId}
+          job={{
+            title: job.title,
+            budgetHourly: jobBudgetHourly(job),
+            rejectionReasons: pipelineTemplate.rejectionReasons,
+            slaDays: playbookQuery.data?.sla_business_days ?? null,
+            stagesWithScorecard: pipelineTemplate.stagesWithScorecard,
+          }}
+          kanban={kanban}
+          kanbanQueryState={kanbanQueryState}
+          canWritePipeline={canWritePipeline}
+          canWriteClientRate={job.can_write_client_rate === true}
+          openProposalsCount={
+            openProposalsQuery.isSuccess ? openProposalsQuery.data.total : null
+          }
+          shortlistCount={
+            shortlistCountQuery.isSuccess ? (shortlistCountQuery.data?.length ?? 0) : null
+          }
+          segment={segment}
+          onSegmentChange={selectSegment}
+          activeCandidateId={activeCandidateId}
+          onActiveCandidateChange={setActiveCandidateId}
+          panelSection={panelSection}
+          onPanelSectionChange={selectPanelSection}
+          workbenchContext={{
+            clientId: job.client_id ?? null,
+            clientName: job.client_name ?? null,
+            onMoved: invalidateKanban,
+            onTabChange: handleLegacyTab,
+            canCloseJob: canUpdateJob,
+          }}
+          onOpenSlideOver={openSlideOver}
+          headerSlot={
+            <ManagedInNexusBanner job={job} canSwitch={canEditJob} />
+          }
+          renderShortlist={() => (
+            <JobShortlist jobId={jobId} readOnly={!canWritePipeline} />
+          )}
+          renderProposals={() => (
+            <ProposalsSegment
+              jobId={jobId}
+              budgetHourly={jobBudgetHourly(job)}
+              pipelineCandidateIds={pipelineCandidateIds}
+              readOnly={!canWritePipeline}
+              canOpenProfile={canOpenCandidateProfile}
+              highlight={highlightProposals}
+              onOpenManualSearch={() => openSlideOver("manual-search")}
+              onOpenQuickAdd={() => setShowAddCandidates(true)}
+              onWriteEmail={setEmailCandidateId}
+              renderMatchDetails={(candidateId) => (
+                <ProposalMatchDetails
+                  candidateId={candidateId}
+                  jobId={jobId}
+                  jobTitle={job.title ?? null}
+                  readOnly={!canWritePipeline}
+                />
+              )}
+              // Narzędzia AI (kryteria, scoring, embedding) — tylko admin.
+              renderAdminTools={
+                isAdmin
+                  ? () => (
+                      <JobAIActions
+                        jobId={jobId}
+                        readOnly={!canWritePipeline}
+                        onDone={() => {
+                          void queryClient.invalidateQueries({
+                            queryKey: jobProposalsKeys.all(jobId),
+                          });
+                          void queryClient.invalidateQueries({
+                            queryKey: jobProposalsKeys.recommendations(jobId),
+                          });
+                        }}
+                      />
+                    )
+                  : undefined
+              }
+            />
+          )}
+        />
+      )}
+
+      {/* ── Widok „Tablica": kanban bez zmian (przeciąganie, filtry, dok) ── */}
+      {activeView === "board" && (
         <div>
-          <ManagedInNexusBanner
-            job={job}
-            canSwitch={canWritePipeline && canUpdateJob}
-          />
+          <ManagedInNexusBanner job={job} canSwitch={canEditJob} />
           <PipelineBoardGate
             state={kanbanViewState}
             hasData={Boolean(kanban)}
@@ -2544,85 +902,30 @@ export default function JobDetailPage() {
             <KanbanBoardV2
               columns={kanban?.columns ?? []}
               offTemplate={kanban?.off_template ?? null}
-              jobId={Number(id)}
+              jobId={jobId}
               jobTitle={job?.title}
               scoreMap={scoreMap}
               scoresLoading={scoresLoading}
-              headerCollapsed={headerCollapsed}
+              // Panel „Zespół i priorytet" nie stoi już nad tablicą — kolumny
+              // dostają pełną wysokość.
+              headerCollapsed
               readOnly={!canWritePipeline}
-              // Fala 3: SLA klienta na kolumnie Screening i w lewej kolumnie —
-              // ten sam klucz zapytania karty klienta co krok 06 (zero nowych
-              // requestów). Bez klienta tablica mówi „nie ustawiono".
+              // SLA klienta na kolumnie Screening i w lewej kolumnie — ten sam
+              // klucz zapytania karty klienta co panel osoby.
               clientId={job?.client_id ?? null}
-              // Deep link rozstrzygamy dopiero na ŚWIEŻEJ tablicy: z ciepłego cache
-              // karta osoby, która właśnie weszła do rekrutacji (powiadomienie),
-              // jeszcze nie istnieje, a parametr zostałby zużyty na próżno.
-              initialDockCandidateId={kanbanIsFetching ? null : dockCandidateId}
+              // Deep link rozstrzygamy dopiero na ŚWIEŻEJ tablicy: z ciepłego
+              // cache karta osoby, która właśnie weszła do rekrutacji
+              // (powiadomienie), jeszcze nie istnieje, a parametr zostałby
+              // zużyty na próżno.
+              initialDockCandidateId={kanbanIsFetching ? null : linkedCandidateId}
               onInitialDockHandled={clearCandidateParam}
             />
           </PipelineBoardGate>
         </div>
       )}
 
-      {activeTab === "history" && (
-        <RequestHistorySection
-          jobId={Number(id)}
-          clientId={job?.client_id ?? null}
-          readOnly={!canWritePipeline}
-        />
-      )}
-
-      {activeTab === "ai-matching" && (
-        // Krok 03 „Pozyskiwanie" (program „Flow w języku C2", PR 2/7): rama
-        // czterech kart-źródeł nad C2. „Kandydaci z podobnych projektów" i
-        // „Rekomendowani" — dotąd bloki NAD rankingiem — są teraz kartą/
-        // reveal-em wewnątrz SourcingHub; ono też dokłada kompaktową Historię
-        // requestu pod ramą. C2 (AIMatchingSection) jedzie jako `children`,
-        // dokładnie tak jak dziś — bez żadnych zmian.
-        <SourcingHub
-          jobId={Number(id)}
-          job={job}
-          readOnly={!canWritePipeline}
-          onTabChange={selectTab}
-          searchSummary={ranking}
-        >
-          {/* Warsztat dopasowań C2 — „kto pasuje do tej oferty". Widoczny dla
-              wszystkich ról; akcje respektują readOnly. Narzędzia AI (kryteria,
-              scoring, embedding) są wewnątrz, zwinięte, tylko dla admina. */}
-          <AIMatchingSection
-            jobId={Number(id)}
-            job={job}
-            readOnly={!canWritePipeline}
-            isAdmin={isAdmin}
-            inProcessCount={kanban ? countInProcess(kanbanColumns) : undefined}
-          />
-        </SourcingHub>
-      )}
-
-      {activeTab === "manual-search" && job && (
-        <ManualSearchTab
-          jobId={Number(id)}
-          job={job}
-          readOnly={!canWritePipeline}
-          onBulkAdded={() => {
-            queryClient.invalidateQueries({ queryKey: ["kanban", id] });
-            queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
-          }}
-        />
-      )}
-
-      {activeTab === "portals" && (
-        <PostingsSection jobId={Number(id)} readOnly={!canWritePipeline} />
-      )}
-
-      {activeTab === "champion" && (
-        // Krok 02 „Zlecenie i Champion" (program „flow w języku C2", PR 5/7):
-        // sam layout kroku, jak C2 — lewa kolumna nawiguje po sekcjach
-        // Championa, środek jest teraz pełną szerokością (bez `max-w`), a
-        // dok „Gotowość" (`variant="champion"`) niesie weryfikację/briefing/
-        // rekomendowane wyszukiwania/zespół i priorytet/handoff, które do tej
-        // pory siedziały nad formularzem i w panelu nagłówka.
-        //
+      {/* ── Widok „Zlecenie i Champion" — pełna strona, bez zmian ────────── */}
+      {activeView === "champion" && (
         // Szerokość edytora jest tu celem, nie efektem ubocznym: przy 1440 px
         // (sidebar 240 + zwinięta szyna kart) spis sekcji 230 i dok 360
         // zostawiały edytorowi 451 px. Dlatego spis sekcji pokazuje się
@@ -2681,164 +984,6 @@ export default function JobDetailPage() {
           </aside>
         </div>
       )}
-
-      {/* Krok 05 „Screening" (program „flow w języku C2", PR 6/7) — kolejka,
-          arkusz Championa inline i dok weryfikacji stawki. Arkusz jako modal
-          na tablicy Pipeline ZOSTAJE bez zmian. */}
-      {activeTab === "screening" && (
-        <ScreeningWorkbench
-          jobId={Number(id)}
-          jobBudgetHourly={
-            jobBudgetHourly(job)
-          }
-          columns={kanbanColumns}
-          isLoading={kanbanLoading}
-          isError={kanbanIsError}
-          error={kanbanError}
-          isSuccess={kanbanIsSuccess}
-          onRetry={() => void refetchKanban()}
-          onMoved={invalidateKanban}
-          readOnly={!canWritePipeline}
-          onTabChange={selectTab}
-          // Fala 3: „SLA <klient>: N d" w nagłówku kolejki i „dzień X z Y SLA"
-          // — z karty klienta (ten sam klucz zapytania co krok 06).
-          clientId={job?.client_id ?? null}
-          clientName={job?.client_name ?? null}
-        />
-      )}
-
-      {/* Krok 06 „CV do klienta" — reguły klienta przed generacją, generator
-          osadzony z prefillem i jedna akcja wysyłki. */}
-      {activeTab === "cv" && (
-        <CvHandoffWorkbench
-          jobId={Number(id)}
-          jobTitle={job?.title}
-          clientId={job?.client_id ?? null}
-          columns={kanbanColumns}
-          isLoading={kanbanLoading}
-          isError={kanbanIsError}
-          error={kanbanError}
-          isSuccess={kanbanIsSuccess}
-          onRetry={() => void refetchKanban()}
-          onMoved={invalidateKanban}
-          readOnly={!canWritePipeline}
-          canWriteClientRate={job?.can_write_client_rate === true}
-        />
-      )}
-
-      {activeTab === "questions" && (
-        <QuestionBankTab
-          jobId={Number(id)}
-          clientId={job?.client_id ?? null}
-          readOnly={!canWritePipeline}
-        />
-      )}
-
-      {/* Krok 07 „Rozmowy i decyzja" (flow C2, PR 7/7). Kolumny kanbana idą
-          propsem — zakładka nie pobiera pipeline'u drugi raz. */}
-      {activeTab === "interviews" && (
-        <JobInterviewsTab
-          jobId={Number(id)}
-          jobTitle={job?.title}
-          columns={kanbanColumns}
-          columnsLoading={kanbanLoading}
-          columnsError={kanbanIsError ? (kanbanError ?? true) : undefined}
-          columnsSuccess={kanbanIsSuccess}
-          onColumnsRetry={() => void refetchKanban()}
-          readOnly={!canWritePipeline}
-          budgetHourly={jobBudgetHourly(job)}
-        />
-      )}
-
-      {/* Krok 08 „Umowa". `canCloseJob` to `job.update` — lustro `TacPlus`,
-          tej samej bramki co `POST /api/jobs/{id}/close`. */}
-      {activeTab === "contract" && (
-        <JobContractTab
-          jobId={Number(id)}
-          jobTitle={job?.title ?? `Rekrutacja #${id}`}
-          clientId={job?.client_id ?? null}
-          columns={kanbanColumns}
-          columnsLoading={kanbanLoading}
-          columnsError={kanbanIsError ? (kanbanError ?? true) : undefined}
-          columnsSuccess={kanbanIsSuccess}
-          onColumnsRetry={() => void refetchKanban()}
-          readOnly={!canWritePipeline}
-          canCloseJob={canUpdateJob}
-        />
-      )}
-
-      {activeTab === "chat" && (
-        <JobChatTab jobId={Number(id)} readOnly={!canWritePipeline} />
-      )}
     </div>
-  );
-}
-
-// ── Manual search tab ────────────────────────────────────────────────────────
-
-interface JobLite {
-  id: number;
-  title: string;
-  description?: string | null;
-  requirements?: string | null;
-  seniority?: string | null;
-  must_skills?: unknown;
-  nice_skills?: unknown;
-  competence_category_id?: number | null;
-  salary_min?: number | null;
-  salary_max?: number | null;
-  location?: string | null;
-  remote_policy?: string | null;
-}
-
-interface ManualSearchTabProps {
-  jobId: number;
-  job: JobLite;
-  onBulkAdded?: () => void;
-  readOnly?: boolean;
-}
-
-/**
- * Embeds CandidateSearchView with the job's metadata pre-filled into the
- * filters. The user lands on a results list already scoped to the job and
- * can bulk-add hits straight into the pipeline. Already-added candidates
- * are excluded server-side via ``exclude_in_job_id``.
- */
-function ManualSearchTab({
-  jobId,
-  job,
-  onBulkAdded,
-  readOnly = false,
-}: ManualSearchTabProps) {
-  // Wymagania obowiązkowe z zapisanego kontraktu rekrutacji — ten sam, którego
-  // używa przegląd całej bazy. `CandidateSearchView` czyta `initial` tylko przy
-  // montowaniu (inicjalizator `useState`), więc montujemy go dopiero PO
-  // odpowiedzi, a `key` przemontowuje formularz, gdy wymagania się zmienią.
-  const savedReqs = useQuery({
-    queryKey: ["matching-requirements", jobId],
-    queryFn: () => matchingRequirementsApi.get(jobId),
-  });
-
-  if (!savedReqs.isSuccess && !savedReqs.isError) {
-    return <p className="p-6 text-sm text-muted-foreground">Ładowanie…</p>;
-  }
-
-  // Błąd odczytu wymagań nie blokuje wyszukiwania — prefill wraca wtedy do
-  // kolumny `must_skills` rekrutacji.
-  const mustLabels = savedReqs.isSuccess
-    ? requirementLabels(savedReqs.data, "must")
-    : null;
-  const initial = buildJobSearchPrefill(job, mustLabels);
-
-  return (
-    <CandidateSearchView
-      // Klucz z TREŚCI wymagań, nie z `dataUpdatedAt`: odświeżenie przy powrocie
-      // do karty z identycznymi danymi nie może kasować wpisanych filtrów.
-      key={mustLabels ? `must:${mustLabels.join("|")}` : "must:fallback"}
-      initial={initial}
-      addToJob={{ id: jobId, title: job.title }}
-      onBulkAdded={onBulkAdded}
-      readOnly={readOnly}
-    />
   );
 }

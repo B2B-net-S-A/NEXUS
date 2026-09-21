@@ -172,6 +172,7 @@ export function ScreeningWorkbench({
   clientName = null,
   layout = "full",
   focusCandidateId = null,
+  panelFallback,
 }: ScreeningWorkbenchProps) {
   const isPanel = layout === "panel";
   const { showSuccess, showError, showActionToast } = useToast();
@@ -843,6 +844,7 @@ export function ScreeningWorkbench({
 
   if (isPanel) {
     if (!selected) {
+      if (panelFallback != null) return <>{panelFallback}</>;
       return (
         <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
           Arkusz screeningu jest dostępny na etapie „Screening”. Ta osoba jest

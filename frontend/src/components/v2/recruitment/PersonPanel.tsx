@@ -44,20 +44,27 @@ import {
   SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { CvHandoffWorkbench } from "@/components/v2/jobs/CvHandoffWorkbench";
 import { JobContractTab } from "@/components/v2/jobs/JobContractTab";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
 import { JobInterviewsTab } from "@/components/v2/jobs/JobInterviewsTab";
-import { ScreeningWorkbench } from "@/components/v2/jobs/ScreeningWorkbench";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { colId, columnLabel, type KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import type { PipelineMoveControls } from "@/hooks/usePipelineMove";
 import { terminalOf } from "@/lib/kanban-terminal";
-import { moveBlockedReason, primaryForwardMove } from "@/lib/pipeline-flow";
+import {
+  SCREENING_STAGE,
+  VERIFIED_STAGE,
+  findStageColumn,
+  moveBlockedReason,
+  primaryForwardMove,
+} from "@/lib/pipeline-flow";
+import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { cn, formatDate } from "@/lib/utils";
 
+import { CvHandoffWorkbench, ScreeningWorkbench } from "./panel-workbenches";
+import { SavedCvView, SavedScreeningView } from "./PanelSavedViews";
 import { defaultPanelSectionFor, isOffTemplateRow } from "./person-rows";
 import type { PersonPanelSection, ProcessPersonRow } from "./types";
 
@@ -263,7 +270,7 @@ function NotesSection({
         ) : (
           <ul className="space-y-2">
             {notes.map((note) => (
-              <li key={note.id} className="grid grid-cols-[56px_minmax(0,1fr)] gap-x-2.5">
+              <li key={note.id} className="grid grid-cols-[76px_minmax(0,1fr)] gap-x-2.5">
                 <span className="text-xs text-muted-foreground">{formatDate(note.created_at)}</span>
                 <span className="min-w-0">
                   <span className="block whitespace-pre-line text-foreground">{note.content}</span>
@@ -283,20 +290,20 @@ function NotesSection({
         <h3 className="text-xs font-semibold text-muted-foreground">Historia w rekrutacji</h3>
         <ul className="space-y-2">
           {row.nextAction.label ? (
-            <li className="grid grid-cols-[56px_minmax(0,1fr)] gap-x-2.5">
+            <li className="grid grid-cols-[76px_minmax(0,1fr)] gap-x-2.5">
               <span className="text-xs font-medium text-primary">teraz</span>
               <span className="text-foreground">Następny krok: {row.nextAction.label}</span>
             </li>
           ) : null}
           {row.daysInStage != null ? (
-            <li className="grid grid-cols-[56px_minmax(0,1fr)] gap-x-2.5">
+            <li className="grid grid-cols-[76px_minmax(0,1fr)] gap-x-2.5">
               <span className="text-xs text-muted-foreground">etap</span>
               <span className="text-foreground">
                 {row.stageLabel} — {daysPhrase(row.daysInStage)}
               </span>
             </li>
           ) : null}
-          <li className="grid grid-cols-[56px_minmax(0,1fr)] gap-x-2.5">
+          <li className="grid grid-cols-[76px_minmax(0,1fr)] gap-x-2.5">
             <span className="text-xs text-muted-foreground">
               {item.added_to_job_at ? formatDate(item.added_to_job_at) : "—"}
             </span>
@@ -441,16 +448,11 @@ export function PersonPanel({
 
   // ── Ruch etapu ──────────────────────────────────────────────────────
   const currentColId = colId(column);
-  // „Odrzucony/Wycofany" mają własny przycisk z powodem; reszta szablonu
-  // (łącznie z „Zatrudniony" — hook pyta o potwierdzenie) jest celem selecta.
-  const stageTargets = useMemo(
-    () =>
-      columns.filter((col) => {
-        const terminal = terminalOf(col);
-        return terminal == null || terminal === "hired";
-      }),
-    [columns],
-  );
+  // Cały szablon jest celem selecta — także „Odrzucony"/„Wycofany": hook
+  // otwiera wtedy okno powodu (z odpowiedzią kandydata na ofertę), dokładnie
+  // jak upuszczenie karty na taką kolumnę tablicy. „Zatrudniony" pyta
+  // o potwierdzenie. Przycisk „Odrzuć" obok zostaje skrótem.
+  const stageTargets = columns;
   const writeBlocked = moveBlockedReason({ item, readOnly, targetStage: null });
   const forward = useMemo(
     () => primaryForwardMove({ item, columns, currentColId, readOnly }),
@@ -464,6 +466,22 @@ export function PersonPanel({
     : forward.target;
   const forwardBlockedReason = forward.blocked?.reason ?? writeBlocked;
   const isClosed = row.group === "closed";
+
+  // Warsztat „Screening" i „CV" prowadzi osobę ze SWOJEJ kolejki i ma własny
+  // przycisk ruchu („Zweryfikowany — zapisz stawkę…", „Oznacz CV Wysłane").
+  // Lustro wyboru z warsztatów: kolejka etapu, a w screeningu także karty
+  // „ponad budżet" i z wetem HM z innych etapów nie-terminalnych.
+  const inScreeningWorkbench =
+    column === findStageColumn(columns, SCREENING_STAGE) ||
+    (column.category !== "terminal" &&
+      !offTemplate &&
+      (Boolean(item.hm_veto) || isOverHourlyBudget(item, workbenchContext.budgetHourly)));
+  const inCvWorkbench = column === findStageColumn(columns, VERIFIED_STAGE);
+  // JEDNO wejście do ruchu: gdy widoczna sekcja ma własny przycisk, ogólny
+  // „Przenieś na etap…" znika (select etapu i „Odrzuć" zostają).
+  const sectionOwnsMove =
+    !readOnly &&
+    ((section === "screening" && inScreeningWorkbench) || (section === "cv" && inCvWorkbench));
 
   const handleStageSelect = (value: string) => {
     if (value === currentColId) return;
@@ -498,6 +516,7 @@ export function PersonPanel({
             onTabChange={ctx.onTabChange ?? (() => undefined)}
             clientId={ctx.clientId}
             clientName={ctx.clientName ?? null}
+            panelFallback={<SavedScreeningView item={item} stageLabel={row.stageLabel} />}
           />
         );
       case "cv":
@@ -518,6 +537,14 @@ export function PersonPanel({
             readOnly={readOnly}
             canWriteClientRate={canWriteClientRate}
             budgetHourly={ctx.budgetHourly}
+            panelFallback={
+              <SavedCvView
+                item={item}
+                stageLabel={row.stageLabel}
+                candidateName={row.fullName}
+                jobTitle={jobLabel}
+              />
+            }
           />
         );
       case "interviews":
@@ -551,6 +578,9 @@ export function PersonPanel({
             onColumnsRetry={kanban.refetch}
             readOnly={readOnly}
             canCloseJob={ctx.canCloseJob}
+            // „Zamknij rekrutację" mieszka w oknie „Zlecenie" — panel JEDNEJ
+            // osoby nie jest miejscem na akcję dotyczącą całej rekrutacji.
+            hideCloseJob
           />
         );
       case "match":
@@ -652,7 +682,7 @@ export function PersonPanel({
         ) : null}
       </div>
 
-      {forwardTarget ? (
+      {sectionOwnsMove ? null : forwardTarget ? (
         <Button
           className="h-10 w-full shrink-0 text-sm"
           disabled={move.isMoving}
@@ -667,7 +697,7 @@ export function PersonPanel({
             : "Przenieś na kolejny etap"}
         </Button>
       ) : null}
-      {forwardBlockedReason && !forwardTarget && !isClosed ? (
+      {!sectionOwnsMove && forwardBlockedReason && !forwardTarget && !isClosed ? (
         <p className="-mt-1.5 text-xs text-muted-foreground">{forwardBlockedReason}</p>
       ) : null}
 

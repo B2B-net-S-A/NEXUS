@@ -16,6 +16,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { resolveLegacyJobTab } from "@/lib/job-detail-routing";
 import inventory from "@/lib/recruitment-feature-inventory.json";
 
 interface Feature {
@@ -66,9 +67,32 @@ describe("stare adresy zakładek rekrutacji", () => {
   it.each([...inventory.old_tab_ids, ...inventory.old_tab_aliases])(
     "?tab=%s jest nadal rozpoznawane",
     (tab) => {
+      // 1) Strona zna identyfikator (klucz albo alias w `page.tsx` — te same
+      //    stałe czyta backendowy `test_client_tab_links.py`).
       const known =
         page.includes(`"${tab}"`) || new RegExp(`\\b${tab}:\\s*"`).test(page);
       expect(known).toBe(true);
+      // 2) …i wie, DOKĄD on prowadzi: widok + segment / sekcja panelu / okno.
+      const target = resolveLegacyJobTab(tab);
+      expect(target, `resolveLegacyJobTab("${tab}")`).not.toBeNull();
+      expect(["people", "board", "champion"]).toContain(target?.view);
     },
   );
+
+  it("alias widoku na stronie zgadza się z celem w `resolveLegacyJobTab`", () => {
+    // Dwie mapy (strona: alias → widok; biblioteka: alias → widok + reszta)
+    // nie mogą się rozjechać — inaczej link otwiera okno na złym widoku.
+    const block = page.slice(page.indexOf("const JOB_DETAIL_TAB_ALIASES"));
+    const body = block.slice(block.indexOf("{", block.indexOf("=")), block.indexOf("};"));
+    const pairs = [...body.matchAll(/^\s*"?([a-z][a-z-]*)"?\s*:\s*"([a-z]+)"/gm)];
+    expect(pairs.length).toBeGreaterThanOrEqual(inventory.old_tab_aliases.length);
+    for (const [, alias, view] of pairs) {
+      expect(resolveLegacyJobTab(alias)?.view, alias).toBe(view);
+    }
+  });
+
+  it("strona tłumaczy stare adresy tą samą funkcją", () => {
+    expect(page).toContain("resolveLegacyJobTab");
+    expect(page).toContain("rewriteLegacyJobParams");
+  });
 });

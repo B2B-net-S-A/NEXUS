@@ -4,6 +4,10 @@
  * Okno „Historia i czat" — dawne zakładki `?tab=history` i `?tab=chat`
  * w jednym miejscu obok tabeli (makieta V3Historia).
  *
+ * „Wszystko" NIE oznacza czatu jako przeczytanego: pokazuje podgląd ostatnich
+ * wiadomości tylko do odczytu, a pełny czat (który oznacza) jest na swojej
+ * zakładce. „Ruchy" czytają dziennik ruchów rekrutacji z serwera.
+ *
  * Czat i historia requestów to ISTNIEJĄCE komponenty, osadzone bez zmian:
  * przypinanie, reakcje, edycja i „przeczytane przez" czatu oraz bramkowanie
  * kwot fee w historii działają dokładnie jak w dawnych zakładkach.
@@ -11,8 +15,14 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cog } from "lucide-react";
+
+import api, { jobChatApi } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { httpStatusFromError } from "@/lib/view-state";
+import { Button } from "@/components/ui/button";
+import { formatDate } from "@/lib/utils";
 
 import { EmptyState, TabbedNav } from "@/components/ds";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
@@ -114,6 +124,221 @@ function MovesList({
   );
 }
 
+// ── Dziennik ruchów rekrutacji (`GET /api/pipeline/job/{id}/moves`) ─────────
+
+export interface JobMoveLogItem {
+  id: number;
+  candidate_id: number;
+  /** `null` = rola bez odczytu kandydatów (nazwiska zredagowane). */
+  candidate_name: string | null;
+  from_stage_name: string | null;
+  to_stage_name: string | null;
+  moved_by_name: string | null;
+  moved_at: string | null;
+  source: "traffit" | "nexus" | (string & {});
+}
+
+interface JobMoveLogPage {
+  items: JobMoveLogItem[];
+  total: number;
+  next_offset?: number | null;
+}
+
+const MOVES_PAGE = 50;
+
+export const jobMovesQueryKey = (jobId: number) => ["job-pipeline-moves", jobId] as const;
+
+function moveWhen(iso: string | null): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  const time = date.toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
+  return `${formatDate(iso)} ${time}`;
+}
+
+function MoveLogList({ items }: { items: readonly JobMoveLogItem[] }) {
+  return (
+    <ul className="space-y-2.5" aria-label="Ruchy w rekrutacji">
+      {items.map((move) => (
+        <li key={move.id} className="flex gap-3 text-[13px]">
+          <span className="w-[92px] shrink-0 text-xs text-muted-foreground">{moveWhen(move.moved_at)}</span>
+          <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+          <span className="min-w-0">
+            <Link
+              href={`/candidates/${move.candidate_id}`}
+              className="font-medium text-foreground hover:text-primary hover:underline"
+            >
+              {move.candidate_name ?? `Kandydat #${move.candidate_id}`}
+            </Link>
+            <span className="text-foreground">
+              {move.from_stage_name ? ` ${move.from_stage_name}` : ""} → {move.to_stage_name ?? "—"}
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              {move.moved_by_name ?? (move.source === "traffit" ? "import z Traffita" : "autor nieznany")}
+              {move.source === "traffit" && move.moved_by_name ? " · Traffit" : ""}
+            </span>
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Pełny dziennik ruchów z serwera; gdy trasy jeszcze nie ma (404 — starszy
+ * backend), wraca lista wyprowadzona z tablicy („ostatni ruch każdej osoby").
+ * Inny błąd renderuje się jako błąd, nigdy jako pusta rekrutacja.
+ */
+function MovesSection({
+  jobId,
+  fallbackMoves,
+  columnsLoaded,
+  limit,
+  onShowAll,
+}: {
+  jobId: number;
+  fallbackMoves: RecruitmentMoveEntry[];
+  columnsLoaded: boolean;
+  /** Skrót na zakładce „Wszystko" — bez stronicowania. */
+  limit?: number;
+  onShowAll?: () => void;
+}) {
+  const query = useInfiniteQuery({
+    queryKey: jobMovesQueryKey(jobId),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api
+        .get<JobMoveLogPage>(`/api/pipeline/job/${jobId}/moves`, {
+          params: { limit: MOVES_PAGE, offset: pageParam },
+        })
+        .then((r) => r.data),
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((n, p) => n + p.items.length, 0);
+      return loaded < last.total && last.items.length > 0 ? loaded : undefined;
+    },
+    retry: false,
+    staleTime: 30_000,
+  });
+
+  if (query.isError && httpStatusFromError(query.error) === 404) {
+    const moves = limit ? fallbackMoves.slice(0, limit) : fallbackMoves;
+    return (
+      <div className="space-y-3">
+        {!limit ? (
+          <p className="text-xs text-muted-foreground">
+            Ostatni ruch każdej osoby — od najświeższego. Pełną historię etapów
+            jednej osoby znajdziesz w jej panelu.
+          </p>
+        ) : null}
+        <MovesList moves={moves} columnsLoaded={columnsLoaded} />
+        {limit && fallbackMoves.length > limit && onShowAll ? (
+          <button type="button" onClick={onShowAll} className="text-xs font-medium text-primary hover:underline">
+            Pokaż wszystkie ruchy ({fallbackMoves.length})
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+  if (query.isLoading) {
+    return <p className="text-sm text-muted-foreground">Ładowanie ruchów…</p>;
+  }
+  if (query.isError) {
+    return (
+      <p role="alert" className="text-sm text-destructive-muted-foreground">
+        Nie udało się wczytać ruchów: {apiErrorMessage(query.error, "błąd serwera")}.{" "}
+        <button type="button" className="font-medium underline underline-offset-2" onClick={() => void query.refetch()}>
+          Ponów
+        </button>
+      </p>
+    );
+  }
+
+  const all = query.data?.pages.flatMap((p) => p.items) ?? [];
+  const total = query.data?.pages[0]?.total ?? all.length;
+  if (query.isSuccess && all.length === 0) {
+    return <p className="text-sm text-muted-foreground">W tej rekrutacji nie było jeszcze żadnego ruchu.</p>;
+  }
+  const items = limit ? all.slice(0, limit) : all;
+  return (
+    <div className="space-y-3">
+      {!limit ? (
+        <p className="text-xs text-muted-foreground">
+          Wszystkie ruchy etapów w tej rekrutacji — od najnowszego ({total}).
+        </p>
+      ) : null}
+      <MoveLogList items={items} />
+      {limit ? (
+        total > limit && onShowAll ? (
+          <button type="button" onClick={onShowAll} className="text-xs font-medium text-primary hover:underline">
+            Pokaż wszystkie ruchy ({total})
+          </button>
+        ) : null
+      ) : query.hasNextPage ? (
+        <Button variant="outline" size="sm" loading={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>
+          Pokaż więcej
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+// ── Podgląd czatu na zakładce „Wszystko" ────────────────────────────────────
+
+const CHAT_PREVIEW_LIMIT = 5;
+
+/**
+ * Ostatnie wiadomości TYLKO DO ODCZYTU. `JobChatTab` oznacza czat jako
+ * przeczytany już przy montażu, a „Wszystko" otwiera się domyślnie — samo
+ * zajrzenie do historii ruchów kasowałoby odznakę nieprzeczytanych, zanim
+ * ktokolwiek zobaczy wiadomości. Odczyt listy niczego nie oznacza.
+ */
+function ChatPreview({
+  jobId,
+  unreadCount,
+  onOpenChat,
+}: {
+  jobId: number;
+  unreadCount: number;
+  onOpenChat: () => void;
+}) {
+  const query = useQuery({
+    queryKey: ["job-chat-preview", jobId],
+    queryFn: () =>
+      jobChatApi.listMessages(jobId, { limit: CHAT_PREVIEW_LIMIT }).then((r) => r.data),
+    staleTime: 15_000,
+    retry: false,
+  });
+  // Serwer oddaje od najnowszej; czytamy jak rozmowę — od najstarszej.
+  const messages = [...(query.data?.items ?? [])].reverse();
+  return (
+    <div className="space-y-2.5">
+      {query.isLoading ? (
+        <p className="text-sm text-muted-foreground">Ładowanie wiadomości…</p>
+      ) : query.isError ? (
+        <p role="alert" className="text-sm text-destructive-muted-foreground">
+          Nie udało się wczytać wiadomości: {apiErrorMessage(query.error, "błąd serwera")}.
+        </p>
+      ) : query.isSuccess && messages.length === 0 ? (
+        <p className="text-sm text-muted-foreground">W czacie tej rekrutacji nie ma jeszcze wiadomości.</p>
+      ) : (
+        <ul className="space-y-2" aria-label="Ostatnie wiadomości czatu">
+          {messages.map((message) => (
+            <li key={message.id} className="text-[13px]">
+              <span className="text-xs text-muted-foreground">
+                {message.author?.name ?? "Nieznany autor"} · {moveWhen(message.created_at)}
+              </span>
+              <span className="block whitespace-pre-line text-foreground line-clamp-3">{message.content}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button type="button" onClick={onOpenChat} className="text-xs font-medium text-primary hover:underline">
+        {unreadCount > 0 ? `Otwórz czat (${unreadCount} nieprzeczytane)` : "Otwórz czat"}
+      </button>
+    </div>
+  );
+}
+
 function BackgroundList({
   events,
 }: {
@@ -203,7 +428,7 @@ export function HistoryChatSlideOver({
       count: chatUnreadCount > 0 ? chatUnreadCount : undefined,
     },
     { value: "moves", label: "Ruchy" },
-    { value: "request", label: "Zmiany zlecenia" },
+    { value: "request", label: "Historia requestów" },
     { value: "background", label: "Praca w tle" },
   ];
 
@@ -230,19 +455,13 @@ export function HistoryChatSlideOver({
         <div className="space-y-6">
           <section className="space-y-2.5">
             <SectionHeading>Ostatnie ruchy</SectionHeading>
-            <MovesList
-              moves={moves.slice(0, ALL_TAB_MOVES_LIMIT)}
+            <MovesSection
+              jobId={jobId}
+              fallbackMoves={moves}
               columnsLoaded={columnsLoaded}
+              limit={ALL_TAB_MOVES_LIMIT}
+              onShowAll={() => setTab("moves")}
             />
-            {moves.length > ALL_TAB_MOVES_LIMIT ? (
-              <button
-                type="button"
-                onClick={() => setTab("moves")}
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                Pokaż wszystkie ruchy ({moves.length})
-              </button>
-            ) : null}
           </section>
 
           {/* Praca w tle wchodzi do „Wszystko" dopiero, gdy coś się wydarzyło —
@@ -257,7 +476,7 @@ export function HistoryChatSlideOver({
           ) : null}
 
           <section className="space-y-2.5">
-            <SectionHeading>Zmiany zlecenia</SectionHeading>
+            <SectionHeading>Historia requestów</SectionHeading>
             <RequestHistorySection
               jobId={jobId}
               clientId={clientId}
@@ -269,7 +488,11 @@ export function HistoryChatSlideOver({
 
           <section className="space-y-2.5">
             <SectionHeading>Czat zespołu</SectionHeading>
-            <ChatSection jobId={jobId} readOnly={readOnly} />
+            <ChatPreview
+              jobId={jobId}
+              unreadCount={chatUnreadCount}
+              onOpenChat={() => setTab("chat")}
+            />
           </section>
         </div>
       )}
@@ -277,13 +500,7 @@ export function HistoryChatSlideOver({
       {tab === "chat" && <ChatSection jobId={jobId} readOnly={readOnly} />}
 
       {tab === "moves" && (
-        <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            Ostatni ruch każdej osoby — od najświeższego. Pełną historię etapów
-            jednej osoby znajdziesz w jej panelu.
-          </p>
-          <MovesList moves={moves} columnsLoaded={columnsLoaded} />
-        </div>
+        <MovesSection jobId={jobId} fallbackMoves={moves} columnsLoaded={columnsLoaded} />
       )}
 
       {tab === "request" && (

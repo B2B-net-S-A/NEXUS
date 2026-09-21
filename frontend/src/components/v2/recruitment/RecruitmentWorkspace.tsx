@@ -34,6 +34,7 @@ import {
 
 import { BulkBar } from "./BulkBar";
 import { PeopleTable } from "./PeopleTable";
+import { useBulkCvHandoff } from "./useBulkCvHandoff";
 import { PersonPanel, type KanbanQueryState, type WorkbenchContext } from "./PersonPanel";
 import { QuickChips } from "./QuickChips";
 import { StageStrip } from "./StageStrip";
@@ -98,8 +99,9 @@ export interface RecruitmentWorkspaceProps {
   renderShortlist?: () => ReactNode;
   onOpenSlideOver: (kind: RecruitmentSlideOver) => void;
   /**
-   * „Wyślij CV do klienta" dla zaznaczonych. Domyślnie: ruch zbiorczy na
-   * „CV Wysłane" przez `usePipelineMove` (z oknem stawki do klienta).
+   * „Wyślij CV do klienta" dla zaznaczonych. Domyślnie: `useBulkCvHandoff` —
+   * per osoba ruch na „CV Wysłane" → link dla klienta → stawka, a na końcu
+   * jedno okno z linkami.
    */
   onBulkSendCv?: (rows: ProcessPersonRow[]) => void;
   headerSlot?: ReactNode;
@@ -229,18 +231,21 @@ export function RecruitmentWorkspace({
 
   const clearSelection = useCallback(() => setSelectedKeys(new Set()), []);
 
+  const bulkCv = useBulkCvHandoff({
+    jobId,
+    jobTitle: job.title ?? null,
+    columns,
+    canWriteClientRate,
+  });
+  const startBulkCv = bulkCv.start;
   const cvSentColumn = useMemo(() => findStageColumn(columns, CV_SENT_STAGE), [columns]);
   const handleBulkSendCv = useMemo(() => {
     if (onBulkSendCv) return onBulkSendCv;
     // Szablon bez „CV Wysłane" nie ma dokąd wysłać — przycisk się nie pokazuje.
     if (!cvSentColumn) return undefined;
-    return (rows: ProcessPersonRow[]) =>
-      void move.requestBulkMove(
-        rows.map((row) => row.item),
-        cvSentColumn,
-        { onHandled: clearSelection },
-      );
-  }, [onBulkSendCv, cvSentColumn, move, clearSelection]);
+    // Sam ruch zbiorczy nie wystarcza: wysyłka CV to także link dla klienta.
+    return (rows: ProcessPersonRow[]) => startBulkCv(rows, { onHandled: clearSelection });
+  }, [onBulkSendCv, cvSentColumn, startBulkCv, clearSelection]);
 
   // ── Aktywna osoba ───────────────────────────────────────────────────
   const activate = useCallback(
@@ -496,6 +501,7 @@ export function RecruitmentWorkspace({
       )}
 
       {move.dialogs}
+      {bulkCv.dialogs}
     </div>
   );
 }

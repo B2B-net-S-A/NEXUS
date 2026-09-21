@@ -34,8 +34,12 @@ function workbenchMock(name: string) {
   }
   return WorkbenchMock;
 }
-vi.mock("@/components/v2/jobs/ScreeningWorkbench", () => ({ ScreeningWorkbench: workbenchMock("screening") }));
-vi.mock("@/components/v2/jobs/CvHandoffWorkbench", () => ({ CvHandoffWorkbench: workbenchMock("cv") }));
+// Ciężkie warsztaty stoją za `next/dynamic` (`panel-workbenches`) — atrapa
+// modułu-granicy, nie samych warsztatów, żeby sekcja renderowała się od razu.
+vi.mock("@/components/v2/recruitment/panel-workbenches", () => ({
+  ScreeningWorkbench: workbenchMock("screening"),
+  CvHandoffWorkbench: workbenchMock("cv"),
+}));
 vi.mock("@/components/v2/jobs/JobInterviewsTab", () => ({ JobInterviewsTab: workbenchMock("interviews") }));
 vi.mock("@/components/v2/jobs/JobContractTab", () => ({ JobContractTab: workbenchMock("contract") }));
 vi.mock("@/components/v2/pages/DopasowanieTab", () => ({ DopasowanieTab: workbenchMock("match") }));
@@ -181,17 +185,43 @@ describe("PersonPanel — nagłówek i ruch etapu", () => {
 
   it("główny przycisk prowadzi na pierwszy etap po bieżącym — przez usePipelineMove", async () => {
     const move = moveControls();
-    renderPanel({ candidateId: 3, move });
+    renderPanel({ candidateId: 3, move, section: "notes" });
     await userEvent.click(screen.getByRole("button", { name: "Przenieś na etap: Wysłać do Cpro" }));
     expect(move.requestMove).toHaveBeenCalledWith(rowOf(3).item, rowOf(3).column, columns[3]);
   });
 
-  it("wybór etapu i „Odrzuć” idą przez usePipelineMove; select nie oferuje „Odrzucony”", async () => {
+  it("sekcja z własnym przyciskiem ruchu (Screening, CV) chowa ogólny „Przenieś na etap”", async () => {
+    // Zweryfikowany + sekcja CV: warsztat ma „Oznacz CV Wysłane” — jedno wejście do ruchu.
+    const { rerenderPanel } = renderPanel({ candidateId: 3 });
+    expect(screen.queryByRole("button", { name: /Przenieś na etap/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Etap")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Odrzuć" })).toBeInTheDocument();
+    // Ta sama osoba, inna sekcja — ogólny przycisk wraca.
+    rerenderPanel({ candidateId: 3, section: "notes" });
+    expect(screen.getByRole("button", { name: /Przenieś na etap/ })).toBeInTheDocument();
+    // Screening na etapie „Screening” — tak samo.
+    rerenderPanel({ candidateId: 2 });
+    expect(screen.queryByRole("button", { name: /Przenieś na etap/ })).not.toBeInTheDocument();
+    // Osoba u klienta otwiera sekcję CV tylko do odczytu — warsztat nie ma tam ruchu.
+    rerenderPanel({ candidateId: 4, section: "cv" });
+    expect(screen.getByRole("button", { name: /Przenieś na etap/ })).toBeInTheDocument();
+  });
+
+  it("warsztaty Screening i CV dostają podgląd tylko do odczytu na osobę spoza kolejki", () => {
+    renderPanel({ candidateId: 4, section: "cv" });
+    expect(mocks.workbenchProps.cv.panelFallback).toBeTruthy();
+    renderPanel({ candidateId: 4, section: "screening" });
+    expect(mocks.workbenchProps.screening.panelFallback).toBeTruthy();
+  });
+
+  it("wybór etapu i „Odrzuć” idą przez usePipelineMove; select oferuje też etapy końcowe", async () => {
     const move = moveControls();
     renderPanel({ candidateId: 3, move });
     const select = screen.getByLabelText("Etap");
     expect(select).toHaveValue("def:3");
-    expect(within(select).queryByRole("option", { name: "Odrzucony" })).not.toBeInTheDocument();
+    // „Odrzucony” w selekcie = to samo okno powodu co upuszczenie karty na kolumnę.
+    await userEvent.selectOptions(select, "Odrzucony");
+    expect(move.requestMove).toHaveBeenLastCalledWith(rowOf(3).item, rowOf(3).column, columns[9]);
     await userEvent.selectOptions(select, "CV Wysłane");
     expect(move.requestMove).toHaveBeenCalledWith(rowOf(3).item, rowOf(3).column, columns[4]);
     // Kontrolowany etapem z wiersza: anulowane okno ruchu nie zostawia złej wartości.

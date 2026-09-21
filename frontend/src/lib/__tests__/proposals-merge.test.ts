@@ -94,10 +94,19 @@ describe("mergeProposals", () => {
     expect(entry.detail.sameClient).toBe(true);
   });
 
-  it("zdegradowane rekomendacje nie wnoszą liczby", () => {
-    const [entry] = mergeProposals({ recommendations: { items: [recommendation(3, 88)], degraded: true } });
-    expect(entry.row.fitScore).toBeNull();
-    expect(entry.row.sources).toEqual(["recommendation"]);
+  it("rekomendacje NIGDY nie wnoszą liczby do „Dop.” — to inna skala niż kanoniczne dopasowanie", () => {
+    for (const degraded of [true, false]) {
+      const [entry] = mergeProposals({ recommendations: { items: [recommendation(3, 88)], degraded } });
+      expect(entry.row.fitScore).toBeNull();
+      expect(entry.row.sources).toEqual(["recommendation"]);
+    }
+  });
+
+  it("run_id ze skrzynki jedzie na wiersz; żywy przegląd go nadpisuje", () => {
+    const [fromInbox] = mergeProposals({ inbox: [inboxItem(1, { run_id: "auto-3" })] });
+    expect(fromInbox.row.runId).toBe("auto-3");
+    const [both] = mergeProposals({ inbox: [inboxItem(1, { run_id: "auto-3" })], run: { runId: "run-9", rows: [runRow(1, 70)] } });
+    expect(both.row.runId).toBe("run-9");
   });
 
   it("osoby już w pipeline'ie znikają niezależnie od źródła", () => {
@@ -158,7 +167,9 @@ describe("filterProposals / countBySource", () => {
   it("źródło, nowe, budżet, dostępność i lokalizacja bez polskich znaków", () => {
     expect(filterProposals(entries, { ...DEFAULT_PROPOSAL_FILTERS, source: "marketplace" }, ctx).map((e) => e.row.candidateId)).toEqual([2]);
     expect(filterProposals(entries, { ...DEFAULT_PROPOSAL_FILTERS, onlyNew: true }, ctx).map((e) => e.row.candidateId)).toEqual([1]);
-    expect(filterProposals(entries, { ...DEFAULT_PROPOSAL_FILTERS, inBudget: true }, ctx).map((e) => e.row.candidateId)).toEqual([1, 2]);
+    // „W budżecie" przepuszcza stawkę NIEZNANĄ (3) — odsiewa tylko „ponad budżet".
+    expect(filterProposals(entries, { ...DEFAULT_PROPOSAL_FILTERS, inBudget: true }, ctx).map((e) => e.row.candidateId)).toEqual([1, 2, 3]);
+    expect(filterProposals(entries, { ...DEFAULT_PROPOSAL_FILTERS, inBudget: true }, { budgetHourly: 100 }).map((e) => e.row.candidateId)).toEqual([3]);
     expect(filterProposals(entries, { ...DEFAULT_PROPOSAL_FILTERS, rate: "unknown" }, ctx).map((e) => e.row.candidateId)).toEqual([3]);
     expect(filterProposals(entries, { ...DEFAULT_PROPOSAL_FILTERS, availableNow: true }, ctx).map((e) => e.row.candidateId)).toEqual([1, 2]);
     expect(filterProposals(entries, { ...DEFAULT_PROPOSAL_FILTERS, location: "lodz" }, ctx).map((e) => e.row.candidateId)).toEqual([3]);

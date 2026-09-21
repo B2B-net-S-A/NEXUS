@@ -23,9 +23,11 @@ export interface OneTimeLinkFieldProps {
   label: string;
   /** Zdanie pod polem — np. ile dni link jest ważny. */
   note?: string;
+  /** Wołane WYŁĄCZNIE po udanym zapisie do schowka. */
+  onCopied?: () => void;
 }
 
-export function OneTimeLinkField({ url, label, note }: OneTimeLinkFieldProps) {
+export function OneTimeLinkField({ url, label, note, onCopied }: OneTimeLinkFieldProps) {
   const inputId = useId();
   const { showSuccess, showError } = useToast();
 
@@ -49,6 +51,7 @@ export function OneTimeLinkField({ url, label, note }: OneTimeLinkFieldProps) {
           onClick={async () => {
             if (await copyTextToClipboard(url)) {
               showSuccess("Link skopiowany.");
+              onCopied?.();
             } else {
               showError(
                 "Nie udało się skopiować linku — zaznacz adres w polu i skopiuj go ręcznie.",

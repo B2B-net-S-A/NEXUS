@@ -201,6 +201,7 @@ export function CvHandoffWorkbench({
   budgetHourly = null,
   layout = "full",
   focusCandidateId = null,
+  panelFallback,
 }: CvHandoffWorkbenchProps) {
   const isPanel = layout === "panel";
   const { showSuccess, showError } = useToast();
@@ -1297,7 +1298,9 @@ export function CvHandoffWorkbench({
         {/* Link jednorazowy przeżywa ruch: po „CV Wysłane” osoba wypada
             z kolejki tego warsztatu, a adres musi zostać na ekranie. */}
         {resultsSection}
-        {!selected ? (
+        {!selected && panelFallback != null ? (
+          panelFallback
+        ) : !selected ? (
           <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
             Przekazanie CV klientowi jest dostępne na etapie „Zweryfikowany”.
             Ta osoba jest dziś na innym etapie tej rekrutacji.

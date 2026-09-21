@@ -1,6 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const api = vi.hoisted(() => ({ get: vi.fn(), listMessages: vi.fn(), markRead: vi.fn() }));
+vi.mock("@/lib/api", () => ({
+  default: { get: api.get },
+  jobChatApi: { listMessages: api.listMessages, markRead: api.markRead },
+}));
 
 vi.mock("@/components/v2/pages/JobChatTab", () => ({
   default: ({ jobId, readOnly }: { jobId: number; readOnly: boolean }) => (
@@ -52,6 +58,33 @@ function renderSheet(props: Partial<React.ComponentProps<typeof HistoryChatSlide
   );
 }
 
+const move = (id: number, name: string | null, to: string) => ({
+  id,
+  candidate_id: 100 + id,
+  candidate_name: name,
+  from_stage_name: "Screening",
+  to_stage_name: to,
+  moved_by_name: "Anna Rekruter",
+  moved_at: "2026-09-20T10:00:00Z",
+  source: "nexus",
+});
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Domyślnie: starszy backend bez dziennika ruchów → lista z tablicy.
+  api.get.mockRejectedValue({ response: { status: 404 } });
+  api.listMessages.mockResolvedValue({
+    data: {
+      items: [
+        { id: 2, content: "Klient prosi o 2 profile do piątku", author: { id: 1, name: "Ewa" }, created_at: "2026-09-20T12:00:00Z" },
+        { id: 1, content: "Startujemy", author: null, created_at: "2026-09-19T09:00:00Z" },
+      ],
+      has_more: false,
+      next_before_id: null,
+    },
+  });
+});
+
 describe("HistoryChatSlideOver", () => {
   it("zamknięte okno nie montuje czatu ani historii", () => {
     renderSheet({ open: false });
@@ -60,19 +93,54 @@ describe("HistoryChatSlideOver", () => {
     expect(screen.queryByTestId("request-history")).not.toBeInTheDocument();
   });
 
-  it("„Wszystko”: tytuł, pięć zakładek, ruchy + skrót historii + pełny czat", () => {
+  it("„Wszystko”: tytuł, pięć zakładek, ruchy + skrót historii + PODGLĄD czatu (bez oznaczania jako przeczytane)", async () => {
     renderSheet({ chatUnreadCount: 3 });
     const dialog = screen.getByRole("dialog", { name: "Historia i czat" });
-    for (const name of [/Wszystko/, /Czat zespołu/, /Ruchy/, /Zmiany zlecenia/, /Praca w tle/]) {
+    for (const name of [/Wszystko/, /Czat zespołu/, /Ruchy/, /Historia requestów/, /Praca w tle/]) {
       expect(within(dialog).getByRole("tab", { name })).toBeInTheDocument();
     }
+    expect(within(dialog).queryByRole("tab", { name: /Zmiany zlecenia/ })).not.toBeInTheDocument();
     expect(within(dialog).getByRole("tab", { name: /Czat zespołu/ })).toHaveTextContent("3");
-    expect(within(dialog).getByRole("link", { name: "Ola Kot" })).toHaveAttribute(
+    expect(await within(dialog).findByRole("link", { name: "Ola Kot" })).toHaveAttribute(
       "href",
       "/candidates/12",
     );
     expect(within(dialog).getByTestId("request-history")).toHaveAttribute("data-compact", "true");
+    // Pełny czat oznacza wiadomości jako przeczytane przy montażu — tu go NIE MA.
+    expect(within(dialog).queryByTestId("job-chat")).not.toBeInTheDocument();
+    expect(await within(dialog).findByText("Klient prosi o 2 profile do piątku")).toBeInTheDocument();
+    expect(api.listMessages).toHaveBeenCalledWith(7, { limit: 5 });
+    expect(api.markRead).not.toHaveBeenCalled();
+    // Skrót do czatu niesie liczbę nieprzeczytanych i przełącza zakładkę.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Otwórz czat (3 nieprzeczytane)" }));
     expect(within(dialog).getByTestId("job-chat")).toBeInTheDocument();
+  });
+
+  it("„Ruchy” czytają dziennik z serwera: autor, etapy, „Pokaż więcej”", async () => {
+    api.get.mockImplementation((_url: string, config: { params: { offset: number } }) =>
+      Promise.resolve({
+        data:
+          config.params.offset === 0
+            ? { items: [move(1, "Ola Kot", "Zweryfikowany")], total: 2 }
+            : { items: [move(2, null, "CV Wysłane")], total: 2 },
+      }),
+    );
+    renderSheet({ initialTab: "moves" });
+    expect(await screen.findByRole("link", { name: "Ola Kot" })).toHaveAttribute("href", "/candidates/101");
+    expect(screen.getByText(/Screening → Zweryfikowany/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Anna Rekruter/).length).toBeGreaterThan(0);
+    expect(api.get).toHaveBeenCalledWith("/api/pipeline/job/7/moves", { params: { limit: 50, offset: 0 } });
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż więcej" }));
+    // Nazwisko zredagowane dla roli bez odczytu kandydatów.
+    expect(await screen.findByRole("link", { name: "Kandydat #102" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Pokaż więcej" })).not.toBeInTheDocument());
+  });
+
+  it("awaria dziennika ruchów (nie 404) jest błędem, nie listą z tablicy", async () => {
+    api.get.mockRejectedValue({ response: { status: 500, data: { detail: "boom" } } });
+    renderSheet({ initialTab: "moves" });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Nie udało się wczytać ruchów");
+    expect(screen.queryByRole("link", { name: "Ola Kot" })).not.toBeInTheDocument();
   });
 
   it("initialTab=chat (stary ?tab=chat) pokazuje sam czat", () => {
@@ -127,17 +195,17 @@ describe("HistoryChatSlideOver", () => {
     expect(screen.getByText("Przegląd całej bazy: 52 propozycje")).toBeInTheDocument();
   });
 
-  it("„Ruchy” bez wczytanego kanbana mówi o ładowaniu, nie o pustej rekrutacji", () => {
+  it("„Ruchy” (tryb zastępczy) bez wczytanego kanbana mówi o ładowaniu, nie o pustej rekrutacji", async () => {
     renderSheet({ initialTab: "moves", columns: undefined });
-    expect(screen.getByText("Ładowanie osób w rekrutacji…")).toBeInTheDocument();
+    expect(await screen.findByText("Ładowanie osób w rekrutacji…")).toBeInTheDocument();
   });
 
-  it("przełączenie zakładki kliknięciem", () => {
+  it("przełączenie zakładki kliknięciem", async () => {
     renderSheet();
     const tab = screen.getByRole("tab", { name: /Ruchy/ });
     fireEvent.mouseDown(tab);
     fireEvent.click(tab);
-    expect(screen.getByText(/Ostatni ruch każdej osoby/)).toBeInTheDocument();
+    expect(await screen.findByText(/Ostatni ruch każdej osoby/)).toBeInTheDocument();
   });
 });
 

@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
@@ -480,6 +481,22 @@ function OrderBody({
           action="Otwórz"
           onClick={() => onOpenSlideOver("questions")}
         />
+
+        {/* Karta klienta: SLA, limity CV, zasady procesu. Link do Pomocy, nie do
+            `/clients/*` — tamta trasa jest bramkowana sekcją Delivery, a kartę
+            czyta każda rola operacyjna. */}
+        {job.client_id != null ? (
+          <div className="flex items-center justify-between gap-3 border-b border-border/70 py-2.5 text-[13px] last:border-b-0">
+            <span className="min-w-0 text-foreground">Karta klienta</span>
+            <Link
+              href={`/help?tab=clients&client=${job.client_id}`}
+              aria-label={`Karta klienta${job.client_name ? ` ${job.client_name}` : ""} — otwórz`}
+              className="shrink-0 font-medium text-primary hover:underline"
+            >
+              {job.client_name ? `${job.client_name} →` : "Otwórz →"}
+            </Link>
+          </div>
+        ) : null}
 
         {/* Pełna checklista kompletności (właściciel, Champion, budżet, must /
             nice, HM) to ISTNIEJĄCY dok — montowany dopiero po rozwinięciu, bo

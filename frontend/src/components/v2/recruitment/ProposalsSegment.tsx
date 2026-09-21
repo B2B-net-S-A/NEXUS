@@ -32,7 +32,7 @@ import { PeopleTable } from "./PeopleTable";
 import { ProposalPanel } from "./ProposalPanel";
 import { PROPOSAL_SOURCE_LABEL, type PersonRow, type ProposalSource } from "./types";
 import { useCanAddToRecruitment } from "./useCanAddToRecruitment";
-import { useJobProposals } from "./useJobProposals";
+import { useJobProposals, type JobProposalsState } from "./useJobProposals";
 
 export interface ProposalsSegmentProps {
   jobId: number;
@@ -46,6 +46,13 @@ export interface ProposalsSegmentProps {
   onWriteEmail?: (candidateId: number) => void;
   /** Narzędzia AI administratora dla aktywnej osoby (żyją w stronie rekrutacji). */
   renderAdminTools?: (candidateId: number) => ReactNode;
+  /**
+   * Pełne szczegóły dopasowania aktywnej osoby (uzasadnienie AI na żądanie) —
+   * żyją poza segmentem, bo odpalają płatne wywołanie modelu.
+   */
+  renderMatchDetails?: (candidateId: number) => ReactNode;
+  /** Wejście z `?highlight=ai-proposals` — krótka obwódka wokół segmentu. */
+  highlight?: boolean;
   /** `false`, gdy panel renderuje rodzic (wtedy słucha `onActiveCandidateChange`). */
   showPanel?: boolean;
   onActiveCandidateChange?: (candidateId: number | null) => void;
@@ -78,34 +85,58 @@ function formatWhen(iso: string | null): string {
   return date.toLocaleString("pl-PL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-export function ProposalsSegment({
+/** Segment z prawdziwymi danymi: filtry widoku + `useJobProposals`. */
+export function ProposalsSegment(props: ProposalsSegmentProps) {
+  const { jobId, budgetHourly, pipelineCandidateIds, readOnly = false } = props;
+  const [filters, setFilters] = useState<ProposalViewFilters>(DEFAULT_PROPOSAL_FILTERS);
+  const proposals = useJobProposals(jobId, { filters, budgetHourly, pipelineCandidateIds, readOnly });
+  return (
+    <ProposalsSegmentView {...props} proposals={proposals} filters={filters} onFiltersChange={setFilters} />
+  );
+}
+
+export interface ProposalsSegmentViewProps extends ProposalsSegmentProps {
+  proposals: JobProposalsState;
+  filters: ProposalViewFilters;
+  onFiltersChange: (next: ProposalViewFilters) => void;
+}
+
+/**
+ * Sam widok — bez sieci. Oddzielony od `useJobProposals`, żeby harness
+ * `/preview/recruitment-v3` mógł pokazać każdy stan (brak przeglądu, skan
+ * w toku, przegląd przerwany, lista) bez jednego zapytania.
+ */
+export function ProposalsSegmentView({
   jobId,
   budgetHourly,
-  pipelineCandidateIds,
   readOnly = false,
   canOpenProfile = true,
   onOpenManualSearch,
   onOpenQuickAdd,
   onWriteEmail,
   renderAdminTools,
+  renderMatchDetails,
+  highlight = false,
   showPanel = true,
   onActiveCandidateChange,
-}: ProposalsSegmentProps) {
+  proposals,
+  filters,
+  onFiltersChange,
+}: ProposalsSegmentViewProps) {
   const router = useRouter();
   const canAdd = useCanAddToRecruitment() && !readOnly;
   const canVerify = useCanVerifyRequirements() && !readOnly;
-  const [filters, setFilters] = useState<ProposalViewFilters>(DEFAULT_PROPOSAL_FILTERS);
+  const setFilters = onFiltersChange;
   const [criteriaOpen, setCriteriaOpen] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string | number>>(new Set());
   const [activeKey, setActiveKey] = useState<string | null>(null);
 
-  const proposals = useJobProposals(jobId, { filters, budgetHourly, pipelineCandidateIds, readOnly });
   const { rows, entries, status, sourceCounts } = proposals;
   const run = status.run;
   const runData = run.data;
   const patch = useCallback(
-    (next: Partial<ProposalViewFilters>) => setFilters((prev) => ({ ...prev, ...next })),
-    [],
+    (next: Partial<ProposalViewFilters>) => setFilters({ ...filters, ...next }),
+    [setFilters, filters],
   );
 
   // Aktywny wiersz liczy się WZGLĘDEM widocznej listy: odfiltrowana osoba nie
@@ -232,7 +263,15 @@ export function ProposalsSegment({
   );
 
   return (
-    <div className="flex min-w-0 flex-col gap-3" onKeyDown={onKeyDown}>
+    <div
+      className={cn(
+        "flex min-w-0 flex-col gap-3 rounded-lg transition-shadow duration-700",
+        highlight && "ring-2 ring-primary ring-offset-4 ring-offset-background",
+      )}
+      data-highlight={highlight ? "" : undefined}
+      data-testid="proposals-segment"
+      onKeyDown={onKeyDown}
+    >
       {/* ── Pasek stanu przeglądu bazy ───────────────────────────────────── */}
       <section aria-label="Przegląd bazy" className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -290,6 +329,14 @@ export function ProposalsSegment({
         {!runData && run.loading && <p role="status" className="text-sm text-muted-foreground">Wczytuję przegląd całej bazy…</p>}
         {status.recommendations.stale && (
           <p className="text-xs text-warning-muted-foreground">Wymagania rekrutacji zmieniły się od ostatnich rekomendacji — odśwież je.</p>
+        )}
+        {/* Migawka rekomendacji bywa sprzed tygodni — jej degradacja to nie
+            „silnik leży teraz", więc mała notka zamiast czerwonego banera. */}
+        {status.recommendations.degraded && (
+          <p className="text-xs text-muted-foreground">
+            Rekomendowani: ostatnia migawka powstała bez dopasowania semantycznego — osoby z niej nie mają liczby
+            w „Dop.”. Odśwież rekomendacje albo uruchom przegląd bazy.
+          </p>
         )}
         {status.similar.hiddenIneligible > 0 && (
           <p className="text-xs text-muted-foreground">Podobne projekty: ukryto {status.similar.hiddenIneligible} według reguł dopuszczalności.</p>
@@ -391,6 +438,7 @@ export function ProposalsSegment({
             onWriteEmail={onWriteEmail}
             onVerified={() => { if (run.runId) void run.refresh(); }}
             adminTools={activeEntry && renderAdminTools ? renderAdminTools(activeEntry.row.candidateId) : undefined}
+            matchDetails={activeEntry && renderMatchDetails ? renderMatchDetails(activeEntry.row.candidateId) : undefined}
           />
         )}
       </div>

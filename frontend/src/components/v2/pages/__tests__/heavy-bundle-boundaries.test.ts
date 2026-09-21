@@ -101,29 +101,48 @@ describe("ciężkie biblioteki zostają za granicą next/dynamic", () => {
   }
 });
 
-it("krok 06 „CV do klienta” nie wciąga generatora CV do chunku /jobs/[id]", () => {
+it("„CV do klienta” nie wciąga generatora CV do chunku /jobs/[id]", () => {
   // Ciężarem nie jest tu zewnętrzna biblioteka, tylko własny komponent:
   // `CVGeneratorStandaloneV2` to ~1800 linii z comboboxem, dropzone'em i
-  // trzema modalami. Statyczny import stanowiska w `page.tsx` przenosi ten
-  // koszt na KAŻDE otwarcie rekrutacji, także gdy nikt nie zajrzy do kroku 06.
-  // Regresja jest cicha jak przy TipTapie: ekran działa, rośnie tylko rachunek.
-  const page = fs.readFileSync(path.join(SRC, "app/jobs/[id]/page.tsx"), "utf8");
-  const offenders = staticSpecifiers(page).filter((spec) =>
-    /jobs\/(ScreeningWorkbench|CvHandoffWorkbench)$/.test(spec),
+  // trzema modalami. Od wersji 3 warsztaty żyją w PANELU OSOBY, a panel jest
+  // domyślnym widokiem rekrutacji — statyczny import warsztatu gdziekolwiek
+  // na ścieżce strona → tabela → panel przenosi ten koszt na KAŻDE otwarcie
+  // rekrutacji. Regresja jest cicha jak przy TipTapie: ekran działa, rośnie
+  // tylko rachunek.
+  const heavy = /jobs\/(ScreeningWorkbench|CvHandoffWorkbench)$/;
+  const recruitmentDir = path.join(SRC, "components/v2/recruitment");
+  const onPath = [
+    path.join(SRC, "app/jobs/[id]/page.tsx"),
+    ...fs
+      .readdirSync(recruitmentDir)
+      .filter((name) => /\.tsx?$/.test(name))
+      .map((name) => path.join(recruitmentDir, name)),
+  ];
+  const offenders = onPath.flatMap((file) =>
+    staticSpecifiers(fs.readFileSync(file, "utf8"))
+      .filter((spec) => heavy.test(spec))
+      .map((spec) => `${path.relative(SRC, file)} → ${spec}`),
   );
   expect(
     offenders,
-    "Stanowiska kroków 05/06 wróciły do statycznego importu w /jobs/[id].",
+    "Warsztaty Screening/CV wróciły do statycznego importu na ścieżce /jobs/[id].",
   ).toEqual([]);
 
+  const boundary = fs.readFileSync(
+    path.join(recruitmentDir, "panel-workbenches.tsx"),
+    "utf8",
+  );
   for (const mod of ["ScreeningWorkbench", "CvHandoffWorkbench"]) {
     // Bez tej połowy zieleń oznaczałaby „nie ma funkcji", a nie „lekki bundle".
-    expect(page).toMatch(
+    expect(boundary).toMatch(
       new RegExp(
         `dynamic\\(\\s*\\(\\)\\s*=>[\\s\\S]{0,200}?import\\(\\s*["']@/components/v2/jobs/${mod}["']`,
       ),
     );
   }
+  // …i panel osoby bierze warsztaty z TEJ granicy.
+  const panel = fs.readFileSync(path.join(recruitmentDir, "PersonPanel.tsx"), "utf8");
+  expect(staticSpecifiers(panel)).toContain("./panel-workbenches");
 
   const workbench = fs.readFileSync(
     path.join(SRC, "components/v2/jobs/CvHandoffWorkbench.tsx"),

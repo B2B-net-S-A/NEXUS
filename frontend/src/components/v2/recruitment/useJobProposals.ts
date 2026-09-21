@@ -38,6 +38,7 @@ import {
   type BulkProposalsResponse,
 } from "@/lib/candidate-search-api";
 import { searchFailed, searchIsRunning } from "@/lib/full-candidate-search-api";
+import { summarizeFullSearch } from "@/lib/full-search-summary";
 import {
   jobProposalsApi,
   jobProposalsKeys,
@@ -53,6 +54,8 @@ import {
 import { httpStatusFromError } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 import { jobShortlistQueryKey } from "@/components/v2/jobs/JobShortlist";
+
+import type { ProposalSource } from "./types";
 
 const INBOX_PAGE = 50;
 
@@ -83,24 +86,36 @@ interface AddGroup {
 
 /**
  * Telemetria dopasowań: `source` i `run_id` wynikają z POCHODZENIA wiersza,
- * nigdy z domysłu. Słownik `BulkAddSource` nie ma wartości dla skrzynki
- * propozycji ani rekomendacji — takie dodania idą bez `source` (backend
- * przyjmuje `null`), zamiast zawyżać statystyki cudzego ekranu.
+ * nigdy z domysłu. Pierwszeństwo: żywy przegląd użytkownika → skrzynka
+ * propozycji (z `run_id` przeglądu, który tę osobę zaproponował, jeśli serwer
+ * go podał) → podobne projekty → rekomendacje. Backend i tak przypina wynik do
+ * przeglądu tylko wtedy, gdy ten naprawdę pokazał kandydata.
  */
 export function groupAddsByOrigin(entries: readonly ProposalEntry[]): AddGroup[] {
   const groups = new Map<string, AddGroup>();
   for (const { row, detail } of entries) {
-    const group: Omit<AddGroup, "ids"> = row.runId
-      ? { source: "full_search", runId: row.runId }
-      : detail.origins.includes("similar")
-        ? { source: "historical", runId: null }
-        : { source: null, runId: null };
+    const origins = detail.origins;
+    const group: Omit<AddGroup, "ids"> =
+      origins.includes("run") && row.runId
+        ? { source: "full_search", runId: row.runId }
+        : origins.includes("inbox")
+          ? { source: "proposal_inbox", runId: row.runId }
+          : origins.includes("similar")
+            ? { source: "historical", runId: null }
+            : origins.includes("recommendation")
+              ? { source: "recommendation", runId: null }
+              : { source: null, runId: null };
     const key = `${group.source}:${group.runId}`;
     const existing = groups.get(key);
     if (existing) existing.ids.push(row.candidateId);
     else groups.set(key, { ...group, ids: [row.candidateId] });
   }
   return Array.from(groups.values());
+}
+
+/** Źródło dla „Pomiń" osoby, której skrzynka jeszcze nie zna. */
+export function dismissSourceFor(entry: ProposalEntry | undefined): ProposalSource {
+  return entry?.row.sources[0] ?? "full_base";
 }
 
 function mergeBulkResponses(parts: BulkProposalsResponse[]): BulkProposalsResponse {
@@ -125,7 +140,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     secondarySourcesEnabled = true,
   } = options;
   const queryClient = useQueryClient();
-  const { showSuccess, showError, showToast } = useToast();
+  const { showSuccess, showError, showToast, showActionToast } = useToast();
   const actorId = useAuthStore((s) => s.user?.id);
 
   // ── Żywy przegląd bazy (jak AI Matching) ─────────────────────────────────
@@ -137,7 +152,10 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     // serwer filtruje zapisane wyniki przed stronicowaniem, nie skanuje od nowa.
     filters: {
       skill: filters.skill ?? undefined,
-      rate: filters.inBudget ? "in" : filters.rate,
+      // Chip „W budżecie" NIE idzie do serwera jako `rate: "in"` — tamten
+      // filtr odsiewa też stawki nieznane, a chip ma je przepuszczać
+      // (odsiewa `filterProposals` po stronie widoku).
+      rate: filters.rate,
       stage: "out",
       location: filters.location.trim(),
     },
@@ -146,6 +164,16 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
   useEffect(() => {
     setMinScore(filters.minScore);
   }, [filters.minScore, setMinScore]);
+
+  // Klaster KPI w nagłówku („w rankingu", „≥ N pkt") czyta ten klucz WYŁĄCZNIE
+  // z cache'u — publikuje go ten, kto ma żywy przegląd (dawniej: AI Matching).
+  const runSummary = useMemo(
+    () => summarizeFullSearch(fullSearch.data, Boolean(fullSearch.error)),
+    [fullSearch.data, fullSearch.error],
+  );
+  useEffect(() => {
+    queryClient.setQueryData(["full-search-summary", actorId, jobId], runSummary);
+  }, [queryClient, actorId, jobId, runSummary]);
 
   const startRun = useCallback(() => {
     if (readOnly) return;
@@ -260,11 +288,13 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
   );
 
   // „Awaria silnika", nie „ktoś nie ma wektora": nic z widocznej strony
-  // przeglądu nie zostało zmierzone albo źródło samo zgłasza degradację.
+  // ŻYWEGO przeglądu nie zostało zmierzone albo podobne projekty zgłaszają
+  // degradację. Zdegradowana MIGAWKA rekomendacji czerwonego banera nie
+  // zapala — jest zapisem z przeszłości (bywa sprzed tygodni), a nie stanem
+  // silnika teraz; dostaje własną, małą notkę przy liście.
   const runUnmeasured =
     runUsable && !!runData && runData.results.length > 0 && runData.results.every((r) => r.measurement === "unavailable");
-  const engineDegraded =
-    runUnmeasured || recommendations.data?.degraded === true || similar.data?.tier_used === "degraded";
+  const engineDegraded = runUnmeasured || similar.data?.tier_used === "degraded";
 
   const invalidateAfterAdd = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
@@ -310,20 +340,43 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     onError: (error) => showError(assignErrorMessage(error)),
   });
 
+  const restoreMutation = useMutation({
+    mutationFn: async (candidateIds: number[]) => {
+      for (const id of candidateIds) await jobProposalsApi.restore(jobId, id);
+    },
+    onSuccess: (_data, ids) => {
+      const back = new Set(ids);
+      setHiddenIds((prev) => new Set([...prev].filter((id) => !back.has(id))));
+      showSuccess(ids.length === 1 ? "Przywrócono propozycję." : `Przywrócono propozycje: ${ids.length}.`);
+    },
+    onError: (error) => showError(apiErrorMessage(error, "Nie udało się cofnąć pominięcia.")),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: jobProposalsKeys.all(jobId) });
+      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+      void queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
+    },
+  });
+  const { mutate: restoreMutate } = restoreMutation;
+
   const dismissMutation = useMutation({
     mutationFn: async (candidateIds: number[]) => {
       if (readOnly) throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
-      // Trasa „Pomiń" zna wyłącznie osoby ze skrzynki (404 dla reszty). Wiersz
-      // tylko z żywego przeglądu / podobnych projektów chowamy do końca sesji.
-      const persisted = candidateIds.filter((id) => entryById.get(id)?.detail.origins.includes("inbox"));
-      for (const id of persisted) {
+      // „Pomiń" jest TRWAŁE dla każdej osoby — także spoza skrzynki (żywy
+      // przegląd, podobne projekty, rekomendacje): serwer zakłada wtedy wiersz
+      // od razu jako pominięty. Zwraca tych, których naprawdę pominięto.
+      const dismissed: number[] = [];
+      for (const id of candidateIds) {
         try {
-          await jobProposalsApi.dismiss(jobId, id);
+          await jobProposalsApi.dismiss(jobId, id, dismissSourceFor(entryById.get(id)));
+          dismissed.push(id);
         } catch (error) {
-          // 404 = propozycja zniknęła w międzyczasie (ktoś z zespołu dodał/pominął).
-          if (httpStatusFromError(error) !== 404) throw error;
+          // 404 = kandydat zniknął; 409 = ktoś z zespołu właśnie dodał tę osobę
+          // do rekrutacji. W obu przypadkach wiersz i tak ma zniknąć z listy.
+          const status = httpStatusFromError(error);
+          if (status !== 404 && status !== 409) throw error;
         }
       }
+      return dismissed;
     },
     onMutate: async (candidateIds) => {
       await queryClient.cancelQueries({ queryKey: inboxKey });
@@ -344,8 +397,15 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       if (context) setHiddenIds(context.previousHidden);
       showError(apiErrorMessage(error, "Nie udało się pominąć propozycji."));
     },
-    onSuccess: (_data, ids) => {
-      showSuccess(ids.length === 1 ? "Pominięto — wróci tylko z nową wersją CV." : `Pominięto: ${ids.length}. Wrócą tylko z nową wersją CV.`);
+    onSuccess: (dismissed, ids) => {
+      const message =
+        ids.length === 1 ? "Pominięto — wróci tylko z nową wersją CV." : `Pominięto: ${ids.length}. Wrócą tylko z nową wersją CV.`;
+      if (dismissed.length === 0) {
+        showSuccess(message);
+        return;
+      }
+      // Pomyłka o jeden wiersz jest tu najczęstszym błędem (skrót „P").
+      showActionToast(message, { actionLabel: "Cofnij", onAction: () => restoreMutate(dismissed) });
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: jobProposalsKeys.all(jobId) });

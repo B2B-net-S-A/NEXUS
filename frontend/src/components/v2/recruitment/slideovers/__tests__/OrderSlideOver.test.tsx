@@ -121,6 +121,11 @@ describe("OrderSlideOver", () => {
     expect(within(dialog).getByText("Warszawa / hybryda 2 dni")).toBeInTheDocument();
     expect(within(dialog).getByText("Java 17")).toBeInTheDocument();
     expect(within(dialog).getByText("AWS — mile widziane")).toBeInTheDocument();
+    // Karta klienta prowadzi do Pomocy (czyta ją każda rola), nie do /clients/*.
+    expect(within(dialog).getByRole("link", { name: /Karta klienta Bank Alfa/ })).toHaveAttribute(
+      "href",
+      "/help?tab=clients&client=3",
+    );
   });
 
   it("rola spoza bramki nie wysyła zapytania o gotowość i nie widzi bloku braków", async () => {

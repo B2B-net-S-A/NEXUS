@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   shortlistAdd: vi.fn(),
   inbox: vi.fn(),
   dismiss: vi.fn(),
+  restore: vi.fn(),
   latestRun: vi.fn(),
   similar: vi.fn(),
   latestSnapshot: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("@/lib/job-proposals-api", async (orig) => ({
   jobProposalsApi: {
     inbox: (...a: unknown[]) => mocks.inbox(...a),
     dismiss: (...a: unknown[]) => mocks.dismiss(...a),
+    restore: (...a: unknown[]) => mocks.restore(...a),
     latestRun: (...a: unknown[]) => mocks.latestRun(...a),
   },
 }));
@@ -105,8 +107,8 @@ describe("useJobProposals", () => {
     await waitFor(() => expect(mocks.add).toHaveBeenCalledTimes(3));
     expect(mocks.add).toHaveBeenCalledWith(JOB, { candidate_ids: [1], note: "z propozycji", source: "full_search", run_id: "run-7" });
     expect(mocks.add).toHaveBeenCalledWith(JOB, { candidate_ids: [4], note: "z propozycji", source: "historical" });
-    // Skrzynka/rekomendacje nie mają wartości w słowniku — bez `source`, nigdy zgadnięte.
-    expect(mocks.add).toHaveBeenCalledWith(JOB, { candidate_ids: [2], note: "z propozycji" });
+    // Skrzynka ma własne źródło; `run_id` tylko wtedy, gdy serwer go podał.
+    expect(mocks.add).toHaveBeenCalledWith(JOB, { candidate_ids: [2], note: "z propozycji", source: "proposal_inbox" });
     await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).toEqual([3]));
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify((arg as { queryKey: unknown }).queryKey));
     for (const key of [["kanban", "42"], ["kanban", 42], ["pipeline-scores"], ["job-proposals", 42], ["jobs"], ["jobs-v2"]]) {
@@ -123,16 +125,42 @@ describe("useJobProposals", () => {
     expect(mocks.toast.showToast).toHaveBeenCalledWith("Dodano do rekrutacji: 1 — uwaga: 1× konflikt: NDA z klientem", "success");
   });
 
-  it("Pomiń usuwa wiersz optymistycznie i woła API tylko dla osób ze skrzynki", async () => {
+  it("Pomiń usuwa wiersz optymistycznie i woła API dla KAŻDEJ osoby, ze źródłem wiersza", async () => {
     let release!: () => void;
     mocks.dismiss.mockReturnValue(new Promise((resolve) => { release = () => resolve({}); }));
     const { result } = setup();
     await waitFor(() => expect(result.current.rows).toHaveLength(4));
-    act(() => result.current.dismiss([2, 1]));
-    await waitFor(() => expect(result.current.rows.map((r) => r.candidateId).sort()).toEqual([3, 4]));
-    expect(mocks.dismiss).toHaveBeenCalledTimes(1);
-    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 2);
+    act(() => result.current.dismiss([2]));
+    await waitFor(() => expect(result.current.rows.map((r) => r.candidateId).sort()).toEqual([1, 3, 4]));
+    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 2, "new_cv");
     await act(async () => release());
+  });
+
+  it("Pomiń osoby spoza skrzynki jest trwałe, a „Cofnij” przywraca ją przez API", async () => {
+    mocks.dismiss.mockResolvedValue({ dismissed: true });
+    mocks.restore.mockResolvedValue({ restored: true });
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    act(() => result.current.dismiss([1, 4]));
+    await waitFor(() => expect(mocks.toast.showActionToast).toHaveBeenCalled());
+    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 1, "full_base");
+    expect(mocks.dismiss).toHaveBeenCalledWith(JOB, 4, "similar_projects");
+    const [, options] = mocks.toast.showActionToast.mock.calls[0];
+    expect(options.actionLabel).toBe("Cofnij");
+    await act(async () => { await options.onAction(); });
+    await waitFor(() => expect(mocks.restore).toHaveBeenCalledTimes(2));
+    expect(mocks.restore).toHaveBeenCalledWith(JOB, 1);
+    await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).toContain(1));
+  });
+
+  it("409 przy Pomiń (osoba właśnie trafiła do rekrutacji) nie jest błędem", async () => {
+    mocks.dismiss.mockRejectedValue({ response: { status: 409, data: { detail: "Ta osoba jest już w tej rekrutacji" } } });
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    act(() => result.current.dismiss([2]));
+    await waitFor(() => expect(mocks.toast.showSuccess).toHaveBeenCalled());
+    expect(mocks.toast.showError).not.toHaveBeenCalled();
+    expect(mocks.toast.showActionToast).not.toHaveBeenCalled();
   });
 
   it("nieudane Pomiń przywraca wiersz i pokazuje błąd", async () => {
@@ -159,15 +187,33 @@ describe("useJobProposals", () => {
     const { result } = setup();
     await waitFor(() => expect(result.current.status.engineDegraded).toBe(true));
   });
+
+  it("zdegradowana MIGAWKA rekomendacji nie zapala banera awarii silnika", async () => {
+    mocks.latestSnapshot.mockResolvedValue({ data: { status: "ready", degraded: true, stale: false, candidates: [] } });
+    const { result } = setup();
+    await waitFor(() => expect(result.current.status.recommendations.degraded).toBe(true));
+    expect(result.current.status.engineDegraded).toBe(false);
+  });
 });
 
 describe("groupAddsByOrigin", () => {
-  it("grupuje po (source, run_id)", () => {
+  it("grupuje po (source, run_id): żywy przegląd → skrzynka → podobne → rekomendacje", () => {
     const entry = (id: number, runId: string | null, origins: string[]) => ({ row: { candidateId: id, runId }, detail: { origins } }) as never;
-    expect(groupAddsByOrigin([entry(1, "a", ["run"]), entry(2, "a", ["run", "inbox"]), entry(3, null, ["similar"]), entry(4, null, ["recommendation"])])).toEqual([
+    expect(
+      groupAddsByOrigin([
+        entry(1, "a", ["run"]),
+        entry(2, "a", ["run", "inbox"]),
+        entry(3, null, ["similar"]),
+        entry(4, null, ["recommendation"]),
+        entry(5, "auto-9", ["inbox"]),
+        entry(6, null, ["inbox", "similar"]),
+      ]),
+    ).toEqual([
       { source: "full_search", runId: "a", ids: [1, 2] },
       { source: "historical", runId: null, ids: [3] },
-      { source: null, runId: null, ids: [4] },
+      { source: "recommendation", runId: null, ids: [4] },
+      { source: "proposal_inbox", runId: "auto-9", ids: [5] },
+      { source: "proposal_inbox", runId: null, ids: [6] },
     ]);
   });
 });
