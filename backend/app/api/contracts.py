@@ -1980,6 +1980,10 @@ _PROLONGATION_LABELS = {
 _CONTRACT_EXPORT_COLUMNS = [
     "ID",
     "Kandydat",
+    # Kontakt jak na karcie kontraktu: nadpisanie z umowy, potem profil
+    # kandydata, potem pusta komórka (resolve_for_contract).
+    "E-mail",
+    "Telefon",
     "Klient",
     "Stanowisko / Oferta",
     "Typ",
@@ -2035,9 +2039,12 @@ def _contract_export_row(
     """One export row. Rates/margin come from the effective-dated schedules
     (today's step), matching the list + detail views — not the raw columns."""
     eff = _effective_rate_fields(c, today)
+    contact = resolve_candidate_contact(c)
     return [
         c.id,
         f"{c.candidate.name} {c.candidate.lastname}".strip() if c.candidate else "",
+        contact.email or "",
+        contact.phone or "",
         client_display_name(c.client) if c.client else "",
         c.job.title if c.job else "",
         _enum_label(c.contract_type, _CONTRACT_TYPE_LABELS),
