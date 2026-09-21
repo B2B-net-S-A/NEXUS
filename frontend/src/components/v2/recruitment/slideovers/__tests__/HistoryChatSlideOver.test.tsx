@@ -179,20 +179,79 @@ describe("HistoryChatSlideOver", () => {
     expect(screen.queryByTestId("request-history")).not.toBeInTheDocument();
   });
 
-  it("„Praca w tle”: pusty stan z wyjaśnieniem albo przekazane zdarzenia", () => {
+  it("„Praca w tle”: pusty stan dopiero po UDANYM odczycie (i przy 404 starszego backendu)", async () => {
     const view = renderSheet({ initialTab: "background" });
-    expect(
-      screen.getByText(
-        "Tu pojawią się zdarzenia automatów (przegląd bazy, nowe CV, wygenerowane CV).",
-      ),
-    ).toBeInTheDocument();
+    const empty = "Tu pojawią się zdarzenia automatów (przegląd bazy, nowe CV, wygenerowane CV).";
+    expect(await screen.findByText(empty)).toBeInTheDocument();
     view.unmount();
 
-    renderSheet({
-      initialTab: "background",
-      backgroundEvents: [{ when: "dziś 7:00", label: "Przegląd całej bazy: 52 propozycje" }],
-    });
-    expect(screen.getByText("Przegląd całej bazy: 52 propozycje")).toBeInTheDocument();
+    let release: (value: unknown) => void = () => {};
+    api.get.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    renderSheet({ initialTab: "background" });
+    expect(screen.getByText("Ładowanie pracy w tle…")).toBeInTheDocument();
+    expect(screen.queryByText(empty)).not.toBeInTheDocument();
+    release({ data: { job_id: 7, items: [], limit: 30 } });
+    expect(await screen.findByText(empty)).toBeInTheDocument();
+  });
+
+  it("„Praca w tle”: błąd to błąd z „Ponów”, nigdy pusta lista", async () => {
+    api.get.mockRejectedValue({ response: { status: 500, data: { detail: "boom" } } });
+    renderSheet({ initialTab: "background" });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Nie udało się wczytać pracy w tle");
+    expect(screen.queryByText(/Tu pojawią się zdarzenia automatów/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ponów" })).toBeInTheDocument();
+  });
+
+  it("„Praca w tle”: zdania po polsku, tony awarii i pominięcia, „Pokaż więcej” podnosi limit", async () => {
+    const events = [
+      { id: 40, kind: "auto_full_review_failed", created_at: "2026-09-21T05:00:00Z", reason: "stalled", message: "Przegląd stanął bez postępu i został przerwany." },
+      { id: 39, kind: "cv_auto_generate_skipped", created_at: "2026-09-20T12:00:00Z", reason: "consent_screenshot_required", candidate: { id: 11, name: "Marek Zieliński" } },
+      { id: 38, kind: "auto_full_review", created_at: "2026-09-20T05:00:00Z", proposals: 52, eligible: 140 },
+    ];
+    const filler = Array.from({ length: 27 }, (_, i) => ({
+      id: 30 - i, kind: "new_cv_proposals", created_at: "2026-09-19T05:00:00Z", count: 2, trigger: "cv_ingest",
+    }));
+    api.get.mockImplementation((url: string, config: { params: { limit: number } }) =>
+      url.endsWith("/background-events")
+        ? Promise.resolve({ data: { job_id: 7, items: [...events, ...filler].slice(0, config.params.limit), limit: config.params.limit } })
+        : Promise.reject({ response: { status: 404 } }),
+    );
+    renderSheet({ initialTab: "background" });
+    const failed = (await screen.findByText(/Automatyczny przegląd bazy nie powiódł się\. Przegląd stanął/)).closest("li");
+    expect(failed).toHaveAttribute("data-tone", "failed");
+    expect(failed).toHaveTextContent("Awaria:");
+    const skipped = screen
+      .getByText(/Marek Zieliński: CV nie zostało wygenerowane automatycznie: reguła klienta wymaga zrzutu zgody RODO\./)
+      .closest("li");
+    expect(skipped).toHaveAttribute("data-tone", "skipped");
+    expect(screen.getByText("Automatyczny przegląd bazy: 52 nowe propozycje (wymagania spełnia 140 osób).")).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith("/api/jobs/7/background-events", { params: { limit: 30 } });
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż więcej" }));
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith("/api/jobs/7/background-events", { params: { limit: 60 } }),
+    );
+  });
+
+  it("„Wszystko” pokazuje najwyżej 5 ostatnich zdarzeń pracy w tle i skrót do zakładki", async () => {
+    api.get.mockImplementation((url: string) =>
+      url.endsWith("/background-events")
+        ? Promise.resolve({
+            data: {
+              job_id: 7,
+              limit: 30,
+              items: Array.from({ length: 7 }, (_, i) => ({
+                id: 70 - i, kind: "new_cv_proposals", created_at: "2026-09-19T05:00:00Z", count: i + 1, trigger: "cv_ingest",
+              })),
+            },
+          })
+        : Promise.reject({ response: { status: 404 } }),
+    );
+    renderSheet();
+    const list = await screen.findByRole("list", { name: "Praca w tle" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(list).getByText("Nowe CV w bazie: 1 propozycja.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż całą pracę w tle" }));
+    expect(screen.getByRole("tab", { name: /Praca w tle/ })).toHaveAttribute("aria-selected", "true");
   });
 
   it("„Ruchy” (tryb zastępczy) bez wczytanego kanbana mówi o ładowaniu, nie o pustej rekrutacji", async () => {

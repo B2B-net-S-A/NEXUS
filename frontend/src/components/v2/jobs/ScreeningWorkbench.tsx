@@ -60,6 +60,8 @@ import {
   useScreeningForm,
 } from "@/components/v2/screening/ScreeningForm";
 import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields";
+import { ScreeningSuggestionChips } from "@/components/v2/screening/ScreeningSuggestionChips";
+import { notesWithAvailability } from "@/lib/screening-suggestions";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import {
   RejectionV2,
@@ -590,6 +592,25 @@ export function ScreeningWorkbench({
                   gate={gate}
                   disabled={readOnly}
                   idPrefix="screening-dock-rate"
+                />
+                {/* Podpowiedzi z notatek: wypełniają pola, niczego nie zapisują. */}
+                <ScreeningSuggestionChips
+                  suggestions={screening.data?.suggestions}
+                  disabled={readOnly}
+                  onUseRate={(fill) => {
+                    setRate(fill.rate);
+                    setUnit(fill.unit);
+                  }}
+                  onUseAvailability={
+                    screening.questions.length > 0
+                      ? (text) =>
+                          screening.methods.setValue(
+                            "notes",
+                            notesWithAvailability(screening.methods.getValues("notes") ?? "", text),
+                            { shouldDirty: true, shouldTouch: true },
+                          )
+                      : undefined
+                  }
                 />
                 <p className="text-[10.5px] text-muted-foreground">
                   Stawka jest opcjonalna. Powyżej budżetu → ostrzeżenie tutaj

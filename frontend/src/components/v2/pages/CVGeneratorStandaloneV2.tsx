@@ -142,6 +142,10 @@ type GeneratedCvItem = {
   created_by_name?: string | null;
   can_download: boolean;
   can_delete: boolean;
+  /** `"auto"` = dokument zakolejkował system po ruchu na „Zweryfikowany". */
+  origin?: "auto" | "manual" | (string & {}) | null;
+  /** Auto-CV, którego człowiek jeszcze nie zatwierdził — serwer przypina je pierwsze. */
+  needs_review?: boolean;
 };
 
 type EnqueuedResponse = {
@@ -2122,6 +2126,17 @@ function GeneratedCvRow({
             </Badge>
             {item.blind && <Badge variant="outline">Blind</Badge>}
             {item.mode === "upload" && <Badge variant="outline">Upload</Badge>}
+            {item.origin === "auto" &&
+              (item.needs_review ? (
+                <Badge
+                  variant="warning"
+                  title="Dokument powstał bez udziału człowieka po ruchu na „Zweryfikowany”. Automat niczego nie zatwierdza — przejrzyj treść, zanim wyślesz CV klientowi."
+                >
+                  wygenerowane automatycznie — sprawdź przed wysyłką
+                </Badge>
+              ) : (
+                <Badge variant="outline">wygenerowane automatycznie</Badge>
+              ))}
             {item.status === "processing" && (
               <Badge variant="warning" className="flex items-center gap-1">
                 <Loader2 className="h-3 w-3 animate-spin" />

@@ -234,7 +234,7 @@ export function buildProcessRows(
 export type RowBadgeTone = "warning" | "danger" | "info";
 
 export interface RowBadge {
-  key: "over-budget" | "screening" | "scorecard" | "hm-veto";
+  key: "over-budget" | "screening" | "scorecard" | "hm-veto" | "auto-cv";
   label: string;
   tone: RowBadgeTone;
   title: string;
@@ -268,6 +268,16 @@ export function rowBadges(row: ProcessPersonRow, ctx: RowBadgeContext = {}): Row
       label: "ponad budżet",
       tone: "warning",
       title: "Stawka ponad budżet rekrutacji — informacja, nie blokada.",
+    });
+  }
+  // `=== true`: odznaka obiecuje gotowy dokument, więc brak pola jej nie daje.
+  if (item.auto_cv_ready === true) {
+    out.push({
+      key: "auto-cv",
+      label: "CV gotowe w tle",
+      tone: "info",
+      title:
+        "CV wygenerowane automatycznie po weryfikacji czeka w sekcji „CV do klienta” — sprawdź je przed wysyłką.",
     });
   }
   if (SCREENING_BADGE_STAGES.has(item.stage) && item.screening_done === false) {

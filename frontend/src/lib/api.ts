@@ -4761,6 +4761,8 @@ export interface StageScreeningResponse {
   job_id: number;
   champion_profile: ChampionProfile | Record<string, never>;
   screening_answers: ScreeningAnswers | null;
+  /** Podpowiedzi z notatek (automaty 21.09.2026); starszy backend ich nie niesie. */
+  suggestions?: import("@/lib/screening-suggestions").ScreeningSuggestions | null;
 }
 
 export const screeningApi = {

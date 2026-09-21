@@ -91,6 +91,23 @@ describe("buildProcessRows", () => {
     expect(rowBadges(byId(rows, 3), ctx)).toEqual([]);
   });
 
+  it("„CV gotowe w tle” tylko przy jawnym `auto_cv_ready: true` i nigdy na etapie zamkniętym", () => {
+    const rows = buildProcessRows(
+      template({
+        4: [item(1, { auto_cv_ready: true }), item(2, { auto_cv_ready: false }), item(3)],
+        10: [item(4, { auto_cv_ready: true })],
+      }),
+    );
+    const ready = byId(rows, 1);
+    expect(ready.nextAction.label).toBe("Wyślij CV do klienta");
+    expect(rowBadges(ready).map((b) => [b.key, b.label, b.tone])).toEqual([
+      ["auto-cv", "CV gotowe w tle", "info"],
+    ]);
+    expect(rowBadges(byId(rows, 2))).toEqual([]);
+    expect(rowBadges(byId(rows, 3))).toEqual([]);
+    expect(rowBadges(byId(rows, 4))).toEqual([]);
+  });
+
   it("weto HM: kod ostrzeżenia, odznaka i ruch po stronie rekrutera", () => {
     const veto = {
       hiring_manager_contact_id: 1,

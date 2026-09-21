@@ -22,7 +22,17 @@ import api, { jobChatApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { httpStatusFromError } from "@/lib/view-state";
 import { Button } from "@/components/ui/button";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
+import {
+  BACKGROUND_EVENTS_MAX,
+  BACKGROUND_EVENTS_STEP,
+  backgroundEventMessage,
+  backgroundEventTone,
+  jobBackgroundEventsApi,
+  jobBackgroundEventsQueryKey,
+  type BackgroundEventTone,
+  type JobBackgroundEvent,
+} from "@/lib/job-background-events";
 
 import { EmptyState, TabbedNav } from "@/components/ds";
 import { RequestHistorySection } from "@/components/RequestHistorySection";
@@ -37,13 +47,6 @@ import {
 import { RecruitmentSheet } from "./RecruitmentSheet";
 
 export type HistoryChatTab = "all" | "chat" | "moves" | "request" | "background";
-
-/** Zdarzenie automatu (przegląd bazy, nowe CV, wygenerowane CV). */
-export interface RecruitmentBackgroundEvent {
-  /** Gotowa etykieta czasu („dziś 7:00", „19.09") — formatuje źródło. */
-  when: string;
-  label: string;
-}
 
 export interface HistoryChatSlideOverProps {
   open: boolean;
@@ -64,8 +67,6 @@ export interface HistoryChatSlideOverProps {
    * (zakładka „Ruchy" mówi to wprost zamiast udawać pustą rekrutację).
    */
   columns?: readonly KanbanColumn[];
-  /** Zdarzenia pracy w tle; brak = pusty stan z wyjaśnieniem. */
-  backgroundEvents?: readonly RecruitmentBackgroundEvent[];
 }
 
 const ALL_TAB_MOVES_LIMIT = 5;
@@ -339,12 +340,83 @@ function ChatPreview({
   );
 }
 
-function BackgroundList({
-  events,
+// ── „Praca w tle" (`GET /api/jobs/{id}/background-events`) ──────────────────
+
+const BACKGROUND_DOT: Record<BackgroundEventTone, string> = {
+  neutral: "bg-muted-foreground/50",
+  skipped: "bg-warning",
+  failed: "bg-destructive",
+};
+
+const BACKGROUND_TEXT: Record<BackgroundEventTone, string> = {
+  neutral: "text-foreground",
+  skipped: "text-warning-muted-foreground",
+  failed: "text-destructive-muted-foreground",
+};
+
+const BACKGROUND_TONE_LABEL: Record<BackgroundEventTone, string | null> = {
+  neutral: null,
+  skipped: "Pominięto",
+  failed: "Awaria",
+};
+
+/**
+ * Zdarzenia automatów tej rekrutacji, od najnowszego. Serwer nie stronicuje —
+ * „Pokaż więcej" podnosi `limit` (najwyżej 100). Z `limit` (zakładka
+ * „Wszystko") sekcja renderuje się WYŁĄCZNIE, gdy coś się wydarzyło: pusty
+ * stan, ładowanie i błąd mają swoją zakładkę i nie zabierają tu miejsca.
+ */
+function BackgroundSection({
+  jobId,
+  limit,
+  onShowAll,
 }: {
-  events: readonly RecruitmentBackgroundEvent[];
+  jobId: number;
+  limit?: number;
+  onShowAll?: () => void;
 }) {
-  if (events.length === 0) {
+  const [fetchLimit, setFetchLimit] = useState(BACKGROUND_EVENTS_STEP);
+  const query = useQuery({
+    queryKey: jobBackgroundEventsQueryKey(jobId, fetchLimit),
+    queryFn: () => jobBackgroundEventsApi.list(jobId, fetchLimit),
+    // Podniesienie limitu nie może na chwilę opróżnić listy.
+    placeholderData: (previous) => previous,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const all = query.data?.items ?? [];
+  // 404 = backend sprzed automatów: nic się nie wydarzyło, nie „awaria".
+  const unavailable = query.isError && httpStatusFromError(query.error) === 404;
+
+  if (limit) {
+    if (all.length === 0) return null;
+    return (
+      <section className="space-y-2.5">
+        <SectionHeading>Praca w tle</SectionHeading>
+        <BackgroundList events={all.slice(0, limit)} />
+        {all.length > limit && onShowAll ? (
+          <button type="button" onClick={onShowAll} className="text-xs font-medium text-primary hover:underline">
+            Pokaż całą pracę w tle
+          </button>
+        ) : null}
+      </section>
+    );
+  }
+
+  if (query.isLoading) {
+    return <p className="text-sm text-muted-foreground">Ładowanie pracy w tle…</p>;
+  }
+  if (query.isError && !unavailable) {
+    return (
+      <p role="alert" className="text-sm text-destructive-muted-foreground">
+        Nie udało się wczytać pracy w tle: {apiErrorMessage(query.error, "błąd serwera")}.{" "}
+        <button type="button" className="font-medium underline underline-offset-2" onClick={() => void query.refetch()}>
+          Ponów
+        </button>
+      </p>
+    );
+  }
+  if ((query.isSuccess && all.length === 0) || unavailable) {
     return (
       <EmptyState
         icon={Cog}
@@ -354,22 +426,46 @@ function BackgroundList({
       />
     );
   }
+  if (all.length === 0) return null;
+  // Pełna strona = serwer może mieć więcej; sufit 100 kończy dokładanie.
+  const canLoadMore = all.length >= fetchLimit && fetchLimit < BACKGROUND_EVENTS_MAX;
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Co automaty zrobiły w tej rekrutacji bez udziału człowieka — od najnowszego.
+      </p>
+      <BackgroundList events={all} />
+      {canLoadMore ? (
+        <Button
+          variant="outline"
+          size="sm"
+          loading={query.isFetching}
+          onClick={() => setFetchLimit((n) => Math.min(n + BACKGROUND_EVENTS_STEP, BACKGROUND_EVENTS_MAX))}
+        >
+          Pokaż więcej
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function BackgroundList({ events }: { events: readonly JobBackgroundEvent[] }) {
   return (
     <ul className="space-y-2.5" aria-label="Praca w tle">
-      {events.map((event, index) => (
-        <li key={`${event.when}-${index}`} className="flex gap-3 text-[13px]">
-          <span className="w-[72px] shrink-0 text-muted-foreground">
-            {event.when}
-          </span>
-          <span
-            className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/50"
-            aria-hidden="true"
-          />
-          <span className="min-w-0 font-medium text-foreground">
-            {event.label}
-          </span>
-        </li>
-      ))}
+      {events.map((event) => {
+        const tone = backgroundEventTone(event);
+        const toneLabel = BACKGROUND_TONE_LABEL[tone];
+        return (
+          <li key={event.id} className="flex gap-3 text-[13px]" data-tone={tone}>
+            <span className="w-[92px] shrink-0 text-xs text-muted-foreground">{moveWhen(event.created_at)}</span>
+            <span className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", BACKGROUND_DOT[tone])} aria-hidden="true" />
+            <span className={cn("min-w-0", BACKGROUND_TEXT[tone])}>
+              {toneLabel ? <span className="font-semibold">{toneLabel}: </span> : null}
+              {backgroundEventMessage(event)}
+            </span>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -403,7 +499,6 @@ export function HistoryChatSlideOver({
   initialTab = "all",
   chatUnreadCount = 0,
   columns,
-  backgroundEvents = [],
 }: HistoryChatSlideOverProps) {
   const [tab, setTab] = useState<HistoryChatTab>(initialTab);
   // Okno jest zamontowane cały czas, a stary link (`?tab=chat`) otwiera je
@@ -466,14 +561,11 @@ export function HistoryChatSlideOver({
 
           {/* Praca w tle wchodzi do „Wszystko" dopiero, gdy coś się wydarzyło —
               pusty stan ma swoją zakładkę i nie zabiera tu miejsca czatowi. */}
-          {backgroundEvents.length > 0 ? (
-            <section className="space-y-2.5">
-              <SectionHeading>Praca w tle</SectionHeading>
-              <BackgroundList
-                events={backgroundEvents.slice(0, ALL_TAB_BACKGROUND_LIMIT)}
-              />
-            </section>
-          ) : null}
+          <BackgroundSection
+            jobId={jobId}
+            limit={ALL_TAB_BACKGROUND_LIMIT}
+            onShowAll={() => setTab("background")}
+          />
 
           <section className="space-y-2.5">
             <SectionHeading>Historia requestów</SectionHeading>
@@ -511,7 +603,7 @@ export function HistoryChatSlideOver({
         />
       )}
 
-      {tab === "background" && <BackgroundList events={backgroundEvents} />}
+      {tab === "background" && <BackgroundSection jobId={jobId} />}
     </RecruitmentSheet>
   );
 }

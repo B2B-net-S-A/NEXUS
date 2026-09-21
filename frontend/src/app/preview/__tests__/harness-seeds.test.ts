@@ -133,6 +133,8 @@ describe("/preview/recruitment-v3 zasiewa każdy stały klucz i nie ma sieci", (
     expect(harness).toContain("candidateContactQueryKeys.status()");
     expect(harness).toContain("candidateQueryKeys.detail(item.candidate_id)");
     expect(harness).toContain("candidateQueryKeys.notes(item.candidate_id)");
+    // Sekcja CV panelu pyta o „Pracę w tle" (powód pominięcia auto-CV).
+    expect(harness).toContain("jobBackgroundEventsQueryKey(JOB_ID, BACKGROUND_EVENTS_STEP)");
   });
 
   it("odcina sieć na czas życia harnessu (warsztaty panelu pytają o klucze nie do zasiania)", () => {

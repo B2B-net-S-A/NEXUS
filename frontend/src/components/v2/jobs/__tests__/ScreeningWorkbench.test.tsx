@@ -632,3 +632,105 @@ describe("ScreeningWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
     });
   });
 });
+
+describe("ScreeningWorkbench — podpowiedzi z notatek (automaty 21.09.2026)", () => {
+  const withSuggestions = (suggestions: unknown) =>
+    getForStage.mockImplementation(async () => ({
+      data: {
+        stage_id: 11,
+        candidate_id: 111,
+        job_id: 7,
+        champion_profile: {
+          screening_questions: [
+            { id: "q1", question: "Kafka w produkcji?", ideal_answer: "tak", deal_breaker: "nie" },
+          ],
+        },
+        screening_answers: null,
+        suggestions,
+      },
+    }));
+
+  const SUGGESTIONS = {
+    rate_redacted: false,
+    rate: { value: 175, unit: "hour", currency: "PLN", raw: "175 zł/h", source_note_id: 5, noted_at: "2026-09-12" },
+    availability: { raw: "dostępny od razu", notice_period: null, available_from: null, source_note_id: 5, noted_at: "2026-09-12T10:00:00Z" },
+  };
+
+  it.each([["full"], ["panel"]] as const)(
+    "układ %s: „Użyj” wypełnia pola i NICZEGO nie zapisuje",
+    async (layout) => {
+      withSuggestions(SUGGESTIONS);
+      renderWorkbench(layout === "panel" ? { layout, focusCandidateId: 111 } : {});
+      const chips = await screen.findByTestId("screening-suggestions");
+      expect(chips).toHaveTextContent("Z notatek: 175 zł/h · 12.09");
+      expect(chips).toHaveTextContent("Z notatek: dostępny od razu · 12.09");
+
+      await userEvent.click(within(chips).getByRole("button", { name: "Użyj stawki z notatek" }));
+      expect(screen.getByLabelText("Kwota")).toHaveValue(175);
+
+      await userEvent.click(
+        within(chips).getByRole("button", { name: /Dopisz dostępność z notatek/ }),
+      );
+      expect(screen.getByLabelText(/Notatki rekrutera/)).toHaveValue(
+        "Dostępność (z notatek): dostępny od razu",
+      );
+      // Pole notatek jest „brudne” jak po wpisaniu z klawiatury…
+      expect(screen.getAllByText(/Niezapisane zmiany/).length).toBeGreaterThan(0);
+      // …a do serwera nie poszło nic: ani arkusz, ani ruch.
+      expect(submitScreening).not.toHaveBeenCalled();
+      expect(move).not.toHaveBeenCalled();
+      // Drugie kliknięcie nie dubluje linii.
+      await userEvent.click(
+        within(chips).getByRole("button", { name: /Dopisz dostępność z notatek/ }),
+      );
+      expect(screen.getByLabelText(/Notatki rekrutera/)).toHaveValue(
+        "Dostępność (z notatek): dostępny od razu",
+      );
+    },
+  );
+
+  it("wypełniona stawka idzie dopiero zwykłym ruchem na „Zweryfikowany”", async () => {
+    withSuggestions(SUGGESTIONS);
+    renderWorkbench();
+    const chips = await screen.findByTestId("screening-suggestions");
+    await userEvent.click(within(chips).getByRole("button", { name: "Użyj stawki z notatek" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Zweryfikowany — zapisz stawkę i przenieś/ }),
+    );
+    await waitFor(() => expect(move).toHaveBeenCalledOnce());
+    expect(move.mock.calls[0][0]).toMatchObject({
+      expected_rate_value: 175,
+      expected_rate_unit: "hourly",
+      expected_rate_currency: "PLN",
+    });
+  });
+
+  it("`rate_redacted`: żadnego chipa stawki — nawet gdyby kwota przyszła", async () => {
+    withSuggestions({ ...SUGGESTIONS, rate_redacted: true });
+    renderWorkbench();
+    const chips = await screen.findByTestId("screening-suggestions");
+    expect(chips).not.toHaveTextContent("175");
+    expect(within(chips).queryByRole("button", { name: "Użyj stawki z notatek" })).not.toBeInTheDocument();
+    expect(chips).toHaveTextContent("dostępny od razu");
+  });
+
+  it("stawka w innej walucie jest pokazana, ale bez „Użyj” (formularz liczy w PLN)", async () => {
+    withSuggestions({ rate_redacted: false, rate: { ...SUGGESTIONS.rate, currency: "EUR", value: 45 } });
+    renderWorkbench();
+    const chips = await screen.findByTestId("screening-suggestions");
+    expect(chips).toHaveTextContent("45 EUR/h");
+    expect(within(chips).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("brak podpowiedzi (i starszy backend bez pola) nie rysuje nic; tylko do odczytu chowa „Użyj”", async () => {
+    const first = renderWorkbench();
+    await screen.findByRole("button", { name: /Zapisz screening/ });
+    expect(screen.queryByTestId("screening-suggestions")).not.toBeInTheDocument();
+    first.unmount();
+
+    withSuggestions(SUGGESTIONS);
+    renderWorkbench({ readOnly: true });
+    const chips = await screen.findByTestId("screening-suggestions");
+    expect(within(chips).queryByRole("button")).not.toBeInTheDocument();
+  });
+});

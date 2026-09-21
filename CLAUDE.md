@@ -4668,6 +4668,17 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   z `user_can_edit_rates`; pozostałe dostają `rate_redacted: true`.
   `source_note_id` jest dziś zawsze `null` — `_notes_insights` to agregat ze
   wszystkich notatek i nie pamięta źródła.
+- **Front automatów (21.09.2026):** zdania „Pracy w tle" składa JEDEN moduł
+  `frontend/src/lib/job-background-events.ts` (serwer daje polski `message`
+  tylko przy awariach; kody pominięcia auto-CV → `autoCvSkipReason`). Ten sam
+  klucz zapytania (`jobBackgroundEventsQueryKey(jobId, 30)`) czyta zakładka
+  w `HistoryChatSlideOver` i `AutoCvSkipNotice` w sekcji CV panelu — nowy kod
+  pominięcia dopisz do `SKIP_REASON_PL`, inaczej wyjdzie „powód: <kod>".
+  Endpoint nie stronicuje: „Pokaż więcej" podnosi `limit` (sufit 100).
+  Podpowiedzi screeningu (`ScreeningSuggestionChips`) WYŁĄCZNIE wypełniają
+  pola: stawka → stan doku (idzie przy ruchu na „Zweryfikowany"), dostępność →
+  dopisana linia w „Notatkach rekrutera" (arkusz nie ma pola dostępności);
+  waluta inna niż PLN albo nieznana jednostka = chip bez „Użyj".
 
 ## NEXUS bez limitów AI (decyzja Artura, 17.09.2026)
 
