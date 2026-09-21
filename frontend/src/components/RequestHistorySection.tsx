@@ -31,6 +31,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { countPl } from "@/lib/plural-pl";
+import { JOB_CLOSE_REASONS } from "@/types/client-profile";
 import { requestHistoryApi } from "@/lib/api";
 import { assignErrorMessage } from "@/lib/assign-error";
 import type {
@@ -97,6 +98,16 @@ const STATUS_LABEL_PL: Record<string, string> = {
   published: "W toku",
   closed: "Zamknięty",
 };
+
+/** Kod powodu zamknięcia z API → polska etykieta (nieznany kod zostaje). */
+const CLOSE_REASON_LABEL: Record<string, string> = Object.fromEntries(
+  JOB_CLOSE_REASONS.map((reason) => [reason.value, reason.label]),
+);
+
+function closeReasonLabel(reason: string | null | undefined): string {
+  if (!reason) return "Anulowana";
+  return CLOSE_REASON_LABEL[reason] ?? reason;
+}
 
 function statusLabel(s: string): string {
   return STATUS_LABEL_PL[s] ?? s;
@@ -599,15 +610,15 @@ function MetaRow({
         {statusLabel(entry.status)}
       </span>
       {entry.outcome === "filled" && (
-        <span className="inline-flex items-center gap-1 text-green-700">
+        <span className="inline-flex items-center gap-1 text-success">
           <CheckCircle2 className="w-3 h-3" />
-          Filled
+          Obsadzona
         </span>
       )}
       {entry.outcome === "cancelled" && (
-        <span className="inline-flex items-center gap-1 text-rose-700">
+        <span className="inline-flex items-center gap-1 text-destructive">
           <XCircle className="w-3 h-3" />
-          {entry.close_reason ?? "Cancelled"}
+          {closeReasonLabel(entry.close_reason)}
         </span>
       )}
       {entry.champion_name && (
