@@ -232,11 +232,12 @@ class CandidateFilterSpec(BaseModel):
     skills_excluded: Optional[list[str]] = None
     tags: Optional[list[str]] = None
     country: Optional[list[str]] = None
-    text_mode: Literal["auto", "literal", "semantic"] = "auto"
-    # Los kandydata BEZ danych dla filtrów stażu i lokalizacji. Lista domyślnie
-    # go WYCINA (dotychczasowe zachowanie, na którym stoją alerty zapisanych
-    # wyszukiwań); wyszukiwarka domyślnie zostawia. To samo pole w obu.
-    unknown_values: Optional[Literal["include", "exclude"]] = None
+    text_mode: Optional[Literal["auto", "literal", "semantic"]] = None
+    # Ukryj osoby BEZ danych dla aktywnych filtrów lokalizacji/stażu/stawki.
+    hide_unknown: Optional[bool] = None
+    # Brak (v1) = DOKŁADNIE dotychczasowe wyniki listy (na tym stoją alerty
+    # zapisanych wyszukiwań). 2 = semantyka wspólna z wyszukiwarką.
+    semantics_version: Optional[int] = Field(None, ge=1, le=2)
     remote_policy: Optional[list[Literal["remote", "hybrid", "onsite"]]] = None
     min_rate: Optional[Decimal] = Field(None, ge=0)
     max_rate: Optional[Decimal] = Field(None, ge=0)
@@ -844,7 +845,7 @@ async def _build_candidate_filtered_query(
     # Filtry wspólne z `POST /api/search/candidates` czytamy WYŁĄCZNIE przez
     # `candidate_search_predicates` — lokalna kopia któregokolwiek z nich to
     # powrót do 11 rozjazdów z 07.2026 (`test_search_engines_contract.py`).
-    unknown_values = f.unknown_values or "exclude"
+    sem = predicates.semantics_for("list", f.semantics_version, f.hide_unknown)
     status_clause = predicates.status_clause(f.status)
     if status_clause is not None:
         query = query.where(status_clause)
@@ -873,13 +874,13 @@ async def _build_candidate_filtered_query(
     if open_to_clause is not None:
         query = query.where(open_to_clause)
     for location_clause in predicates.location_clauses(
-        [f.location] if f.location else [], f.country, unknown=unknown_values
+        [f.location] if f.location else [], f.country, sem
     ):
         query = query.where(location_clause)
-    cc_clause = predicates.competence_category_clause(f.competence_category_id)
+    cc_clause = predicates.competence_category_clause(f.competence_category_id, sem)
     if cc_clause is not None:
         query = query.where(cc_clause)
-    for tag_clause in predicates.tags_clauses(f.tags):
+    for tag_clause in predicates.tags_clauses(f.tags, sem):
         query = query.where(tag_clause)
 
     # Tekst `q`: lista zna wyłącznie dopasowanie DOSŁOWNE (nie ma retrievalu
@@ -928,7 +929,7 @@ async def _build_candidate_filtered_query(
                 ]
             )
         )
-    rate_clause = predicates.hourly_rate_clause(f.min_rate, f.max_rate)
+    rate_clause = predicates.hourly_rate_clause(f.min_rate, f.max_rate, sem)
     if rate_clause is not None:
         query = query.where(rate_clause)
     if f.min_onsite_days is not None:
@@ -936,7 +937,7 @@ async def _build_candidate_filtered_query(
         query = query.where(Candidate.max_onsite_days_per_week >= f.min_onsite_days)
 
     experience_clause = predicates.experience_clause(
-        f.min_experience, f.max_experience, unknown=unknown_values
+        f.min_experience, f.max_experience, sem
     )
     if experience_clause is not None:
         query = query.where(experience_clause)
@@ -1331,20 +1332,30 @@ async def list_candidates(
         None,
         description="ISO country codes (`PL`, `DE`) — any of. Case-insensitive.",
     ),
-    text_mode: Literal["auto", "literal", "semantic"] = Query(
-        "auto",
+    text_mode: Optional[Literal["auto", "literal", "semantic"]] = Query(
+        None,
         description=(
             "How to read `q`. The list engine only supports LITERAL matching; the "
             "param is accepted for contract parity with the search engine and the "
             "response reports `text_mode_applied` + `interpretation`."
         ),
     ),
-    unknown_values: Optional[Literal["include", "exclude"]] = Query(
+    hide_unknown: Optional[bool] = Query(
         None,
         description=(
-            "What happens to candidates with NO data for the experience / "
-            "location / country filters. List default: `exclude` (legacy). The "
-            "search engine understands the same field with default `include`."
+            "Hide candidates with NO data for the active location / experience / "
+            "rate filters. Under `semantics_version=2` they stay by default and "
+            "each row lists them in `unknown_fields`."
+        ),
+    ),
+    semantics_version: Optional[int] = Query(
+        None,
+        ge=1,
+        le=2,
+        description=(
+            "Filter semantics. Absent / 1 = legacy list behaviour, EXACTLY as "
+            "before (saved-search alerts rely on it). 2 = semantics shared with "
+            "`POST /api/search/candidates`."
         ),
     ),
     remote_policy: Optional[list[Literal["remote", "hybrid", "onsite"]]] = Query(
@@ -1745,7 +1756,8 @@ async def list_candidates(
         tags=tags,
         country=country,
         text_mode=text_mode,
-        unknown_values=unknown_values,
+        hide_unknown=hide_unknown,
+        semantics_version=semantics_version,
         remote_policy=remote_policy,
         min_rate=min_rate,
         max_rate=max_rate,
@@ -1781,6 +1793,11 @@ async def list_candidates(
         sort=sort,
         id_after=id_after,
         updated_after=updated_after,
+    )
+    from app.services import candidate_search_predicates as search_predicates
+
+    list_semantics = search_predicates.semantics_for(
+        "list", semantics_version, hide_unknown
     )
     query, q_any_groups = await _build_candidate_filtered_query(
         db, filters, load_list_relations=True
@@ -2112,23 +2129,41 @@ async def list_candidates(
             )
             if snippet:
                 payload = payload.model_copy(update={"match_snippet": snippet})
+        if list_semantics.unified:
+            payload = payload.model_copy(
+                update={
+                    "unknown_fields": search_predicates.unknown_fields_for(
+                        cand,
+                        location_active=bool(location),
+                        country_active=bool(country),
+                        experience_active=(
+                            min_experience is not None or max_experience is not None
+                        ),
+                        rate_active=min_rate is not None or max_rate is not None,
+                    )
+                }
+            )
         response_items.append(payload)
 
     # „Rozumiem to jako…": lista dopasowuje `q` wyłącznie DOSŁOWNIE, więc
     # `text_mode_applied` mówi to wprost niezależnie od żądanego `text_mode`;
-    # `interpretation.mode` niesie to, co wynikałoby z samego tekstu.
-    from app.services import candidate_search_predicates as predicates
-
+    # `interpretation` niesie to, co wynikałoby z samego tekstu. Bazę pytamy
+    # (reguła pojedynczego słowa) tylko w v2 albo przy jawnym `text_mode`.
     q_stripped = (q or "").strip()
+    interpretation = None
+    if q_stripped and (list_semantics.unified or text_mode is not None):
+        interpretation = (
+            await search_predicates.interpret_text(db, q_stripped)
+        ).as_dict()
+    elif q_stripped:
+        interpretation = search_predicates.detect_text_mode(q_stripped).as_dict()
     return CandidateList(
         items=response_items,
         total=total,
         page=page,
         page_size=page_size,
         text_mode_applied="literal" if q_stripped else "none",
-        interpretation=(
-            predicates.detect_text_mode(q_stripped).as_dict() if q_stripped else None
-        ),
+        interpretation=interpretation,
     )
 
 

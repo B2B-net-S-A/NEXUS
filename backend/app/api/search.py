@@ -58,6 +58,7 @@ from app.services.structured_candidate_search import (
     build_structured_filter,
     experience_soft_rank,
     location_soft_rank,
+    request_semantics,
     skills_soft_rank,
 )
 
@@ -209,23 +210,29 @@ def _boolean_clause(body: CandidateSearchRequest) -> Any:
     ).clause()
 
 
-def _text_plan(body: CandidateSearchRequest) -> tuple[str, str, Optional[dict]]:
+async def _text_plan(
+    db: AsyncSession, body: CandidateSearchRequest
+) -> tuple[str, str, Optional[dict]]:
     """Jak potraktować `q`: ``(q_text, applied, interpretation)``.
 
     ``applied``: ``literal`` (osoba albo jawny przełącznik — to samo dopasowanie
     co `?q=` na liście), ``semantic`` (hybryda), ``keywords`` (FTS w trybie
     boolowskim), ``none`` (bez tekstu). Jedno miejsce dla wyszukiwania
     i diagnostyki, żeby wodospad zawsze opisywał TO zapytanie, które poszło.
+    W v1 bez `text_mode` nic się nie przełącza samo (i nie pytamy bazy).
     """
     q_text = (body.q or "").strip() if body.q else ""
     if not q_text:
         return "", "none", None
-    interpretation = predicates.detect_text_mode(q_text)
-    if body.text_mode == "literal" or (
-        body.text_mode == "auto" and interpretation.mode == "literal"
-    ):
-        applied = "literal"
-    elif body.text_mode == "semantic" or body.search_mode == "hybrid":
+    sem = request_semantics(body)
+    if sem.unified or body.text_mode is not None:
+        interpretation = await predicates.interpret_text(db, q_text)
+    else:
+        interpretation = predicates.detect_text_mode(q_text)
+    forced = predicates.text_mode_to_apply(sem, body.text_mode, interpretation)
+    if forced is not None:
+        applied = forced
+    elif body.search_mode == "hybrid":
         applied = "semantic"
     else:
         applied = "keywords"
@@ -257,7 +264,10 @@ def _fts_rank_order() -> Any:
 
 
 def _candidate_to_item(
-    c: Candidate, score: float, eligibility: Optional[dict[str, Any]] = None
+    c: Candidate,
+    score: float,
+    eligibility: Optional[dict[str, Any]] = None,
+    unknown_fields: Optional[list[str]] = None,
 ) -> CandidateSearchItem:
     profile_rate = canonical_profile_rate_amount(
         c.expected_rate_hourly,
@@ -294,6 +304,25 @@ def _candidate_to_item(
         created_at=c.created_at.isoformat() if c.created_at else None,
         updated_at=c.updated_at.isoformat() if c.updated_at else None,
         eligibility=eligibility,
+        unknown_fields=unknown_fields or [],
+    )
+
+
+def _unknown_fields(body: CandidateSearchRequest, c: Candidate) -> list[str]:
+    """v2: oznaczenie wiersza, który przeszedł filtr „na brak danych"."""
+    if not request_semantics(body).unified:
+        return []
+    return predicates.unknown_fields_for(
+        c,
+        location_active=bool(body.location_cities),
+        country_active=bool(body.location_countries),
+        experience_active=(
+            body.experience_years_min is not None
+            or body.experience_years_max is not None
+        ),
+        rate_active=(
+            body.rate_hourly_min is not None or body.rate_hourly_max is not None
+        ),
     )
 
 
@@ -482,7 +511,7 @@ async def candidate_search_diagnostics(
     if body.exclude_in_job_id is not None:
         body.exclude_blacklisted = True
 
-    q_text, text_applied, _interpretation = _text_plan(body)
+    q_text, text_applied, _interpretation = await _text_plan(db, body)
 
     base_count = await _diagnostics_count(db, [])
     applied: list[Any] = []
@@ -603,7 +632,7 @@ async def advanced_candidate_search(
     clauses.extend(build_structured_filter(body))
 
     # === Layer 3: free-text — FTS or hybrid (BM25+dense+RRF+rerank) ==========
-    q_text, text_applied, interpretation = _text_plan(body)
+    q_text, text_applied, interpretation = await _text_plan(db, body)
     hybrid_order: list[int] = []
     search_degraded = False
     use_hybrid = text_applied == "semantic"
@@ -781,7 +810,10 @@ async def advanced_candidate_search(
                 db, body.exclude_in_job_id, list(candidates)
             )
     items = [
-        _candidate_to_item(c, 0.0, eligibility_by_id.get(c.id)) for c in candidates
+        _candidate_to_item(
+            c, 0.0, eligibility_by_id.get(c.id), _unknown_fields(body, c)
+        )
+        for c in candidates
     ]
 
     facets_clause = where_clause  # facets reflect current filter set

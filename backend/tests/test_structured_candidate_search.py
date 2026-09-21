@@ -103,11 +103,7 @@ class TestExperienceRange:
         clauses = build_structured_filter(req)
         assert len(clauses) == 1
         sql = _compile(clauses)
-        # Od 09.2026 jedna reguła przedziału z zapasem Traffita, wspólna z listą
-        # (`candidate_search_predicates.experience_clause`): „brak sygnału" to
-        # brak liczby ORAZ brak koszyka, nie samo puste `years_it_experience`.
-        assert "traffit_experience" in sql
-        assert "IS NULL" in sql
+        assert "years_it_experience IS NULL" in sql
         assert ">= 5" in sql and "<= 10" in sql
 
 
@@ -478,15 +474,27 @@ def test_include_policy_groups_keep_rows_with_a_missing_value(group_key):
 def test_experience_bound_no_longer_excludes_unstated_experience():
     req = CandidateSearchRequest(experience_years_min=2, experience_years_max=6)
     sql = _compile(build_structured_filter(req))
-    assert "traffit_experience" in sql and "IS NULL" in sql
+    assert "years_it_experience IS NULL" in sql
     assert ">= 2" in sql and "<= 6" in sql
+    assert "traffit_experience" not in sql  # v1: DOKŁADNIE dotychczasowa reguła
 
 
-def test_experience_unknown_values_exclude_drops_the_null_arm():
-    """`unknown_values="exclude"` — zachowanie listy — nie zostawia osób bez
-    żadnego sygnału stażu."""
-    keep = CandidateSearchRequest(experience_years_min=2)
-    drop = CandidateSearchRequest(experience_years_min=2, unknown_values="exclude")
+def test_experience_v2_uses_the_traffit_fallback_shared_with_the_list():
+    """`semantics_version=2`: jedna reguła przedziału z zapasem Traffita
+    (`candidate_search_predicates.experience_clause`) — „brak sygnału" to brak
+    liczby ORAZ brak koszyka."""
+    req = CandidateSearchRequest(
+        experience_years_min=2, experience_years_max=6, semantics_version=2
+    )
+    sql = _compile(build_structured_filter(req))
+    assert "traffit_experience" in sql and "IS NULL" in sql
+
+
+def test_hide_unknown_drops_the_null_arm():
+    keep = CandidateSearchRequest(experience_years_min=2, semantics_version=2)
+    drop = CandidateSearchRequest(
+        experience_years_min=2, semantics_version=2, hide_unknown=True
+    )
     assert _compile(build_structured_filter(keep)).count("IS NULL") > _compile(
         build_structured_filter(drop)
     ).count("IS NULL")

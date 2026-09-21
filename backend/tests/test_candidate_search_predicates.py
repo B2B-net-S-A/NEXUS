@@ -147,11 +147,66 @@ def test_miasto_jest_opisywane_a_nie_brane_za_nazwisko() -> None:
     assert found.kind == "text" and found.locations == ("Kraków",)
 
 
-def test_jawny_tryb_wygrywa_z_detekcja() -> None:
+def test_jawny_tryb_wygrywa_a_auto_dziala_tylko_w_v2_lub_na_zyczenie() -> None:
+    v1 = p.semantics_for("search", None)
+    v2 = p.semantics_for("search", 2)
     name = p.detect_text_mode("Jan Kowalski")
-    assert p.resolve_text_mode("auto", name) == "literal"
-    assert p.resolve_text_mode("semantic", name) == "semantic"
-    assert p.resolve_text_mode("literal", p.detect_text_mode("java dev")) == "literal"
+    text = p.detect_text_mode("java dev")
+    # v1 bez pola: nic się nie przełącza — dotychczasowa ścieżka silnika
+    assert p.text_mode_to_apply(v1, None, name) is None
+    assert p.text_mode_to_apply(v1, "auto", name) == "literal"
+    assert p.text_mode_to_apply(v2, None, name) == "literal"
+    # opis nie wymusza hybrydy — zostaje tryb wybrany przez rekrutera
+    assert p.text_mode_to_apply(v2, None, text) is None
+    assert p.text_mode_to_apply(v1, "semantic", name) == "semantic"
+    assert p.text_mode_to_apply(v2, "literal", text) == "literal"
+
+
+def test_pojedyncze_slowo_czeka_na_sprawdzenie_w_bazie() -> None:
+    assert p.detect_text_mode("kowalski").rule == "single_word_unchecked"
+    assert p.detect_text_mode("Jan Kowalski").rule == "multi_token_name"
+    assert p.detect_text_mode("senior tester").rule == "role_word"
+
+
+def test_domyslne_traktowanie_brakow_danych_wg_wersji() -> None:
+    assert p.semantics_for("list", None).unknown == "exclude"
+    assert p.semantics_for("list", None).rate_unknown == "exclude"
+    assert p.semantics_for("search", None).unknown == "include"
+    assert p.semantics_for("search", None).rate_unknown == "include"
+    for engine in ("list", "search"):
+        assert p.semantics_for(engine, 2).unknown == "include"
+        assert p.semantics_for(engine, 2).rate_unknown == "include"
+        assert p.semantics_for(engine, 2, True).unknown == "exclude"
+        assert p.semantics_for(engine, 2, True).rate_unknown == "exclude"
+
+
+def test_unknown_fields_lustro_regul_sql() -> None:
+    class C:
+        city = None
+        location = None
+        country = None
+        years_it_experience = None
+        cv_extracted_data = {"traffit_experience": "2-5"}
+        expected_rate_hourly = 100
+        expected_rate_currency = "EUR"
+
+    flags = dict(
+        location_active=True,
+        country_active=False,
+        experience_active=True,
+        rate_active=True,
+    )
+    assert p.unknown_fields_for(C(), **flags) == ["location", "rate"]
+    assert (
+        p.unknown_fields_for(
+            C(),
+            location_active=False,
+            country_active=False,
+            experience_active=False,
+            rate_active=False,
+        )
+        == []
+    )
 
 
 # ── Jeden parser grup q_* ───────────────────────────────────────────────────
@@ -177,7 +232,7 @@ def test_endpointy_czytaja_filtry_tylko_ze_wspolnego_modulu() -> None:
     assert "candidate_search_predicates" in builder
     for forbidden in (
         "traffit_experience",  # własna reguła stażu
-        ".ilike(",  # własne dopasowanie lokalizacji
+        ".ilike(",  # własne dopasowanie lokalizacji (także legacy v1 mieszka w module)
         "expected_rate_hourly",  # własna reguła stawki
         "open_to_side_projects",  # własne „Otwarty na"
         "CandidateCompetenceCategory",  # własna reguła kategorii

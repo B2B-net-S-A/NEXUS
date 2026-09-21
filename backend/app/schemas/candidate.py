@@ -536,6 +536,10 @@ class CandidateIdentityRestoreRequest(BaseModel):
 
 
 class CandidateResponse(BaseModel):
+    # Lista, `semantics_version=2`: które AKTYWNE filtry („location",
+    # „experience", „rate") ta osoba przeszła wyłącznie dlatego, że nie mamy
+    # o niej danych. Poza listą zawsze puste.
+    unknown_fields: list[str] = Field(default_factory=list)
     id: int
     name: str
     lastname: str

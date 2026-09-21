@@ -107,11 +107,14 @@ class CandidateSearchRequest(BaseModel):
     open_to: list[Literal["side_projects", "sales_support", "expert_consult"]] = Field(
         default_factory=list
     )
-    # Los kandydata BEZ danych dla filtrów stażu i lokalizacji. Wyszukiwarka
-    # domyślnie go ZOSTAWIA (`include`), lista domyślnie WYCINA (`exclude`) —
-    # oba silniki rozumieją to samo pole, różni je tylko wartość domyślna
-    # (pytanie otwarte do właściciela produktu, przypięte testem kontraktowym).
-    unknown_values: Optional[Literal["include", "exclude"]] = None
+    # Ukryj osoby BEZ danych dla aktywnych filtrów lokalizacji / stażu / stawki.
+    # Domyślnie (v2) takie osoby ZOSTAJĄ i są oznaczane w `unknown_fields`.
+    hide_unknown: Optional[bool] = None
+    # Wersja semantyki filtrów. Brak pola (v1) = DOKŁADNIE dotychczasowe wyniki
+    # tego endpointu — zapisane wyszukiwania nie zmieniają się bez zgody
+    # właściciela. `2` = jedna semantyka wspólna z `GET /api/candidates`
+    # (`candidate_search_predicates.Semantics`).
+    semantics_version: Optional[Literal[1, 2]] = None
     cv_parsed_after: Optional[date] = None
 
     # === Job-context exclusion ================================================
@@ -138,13 +141,16 @@ class CandidateSearchRequest(BaseModel):
     search_mode: Literal["boolean", "hybrid"] = "boolean"
 
     # === Tryb tekstu `q` ======================================================
-    # "auto"     — `q` wyglądające na osobę (nazwisko / e-mail / telefon) jest
-    #              dopasowywane DOSŁOWNIE (tak samo jak `?q=` na liście); każdy
-    #              inny tekst idzie dotychczasową ścieżką wg `search_mode`.
+    # "auto"     — `q` wyglądające na osobę (dwa–trzy wyrazy, e-mail, telefon
+    #              albo JEDNO słowo będące czyimś imieniem/nazwiskiem w bazie)
+    #              jest dopasowywane DOSŁOWNIE, tak samo jak `?q=` na liście;
+    #              każdy inny tekst idzie ścieżką wg `search_mode`.
     # "literal"  — zawsze dosłownie, bez retrievalu wektorowego.
     # "semantic" — zawsze hybryda (BM25 + wektor), niezależnie od `search_mode`.
-    # Co faktycznie zrobiono, mówi `meta.text_mode_applied` + `interpretation`.
-    text_mode: Literal["auto", "literal", "semantic"] = "auto"
+    # Brak pola: v2 zachowuje się jak "auto"; v1 zostaje przy dotychczasowym
+    # `q` (bez automatycznego przełączania). Co faktycznie zrobiono, mówi
+    # `meta.text_mode_applied` + `meta.interpretation`.
+    text_mode: Optional[Literal["auto", "literal", "semantic"]] = None
 
     @model_validator(mode="after")
     def ranges_are_ordered(self) -> "CandidateSearchRequest":
@@ -215,6 +221,9 @@ class CandidateSearchItem(BaseModel):
     # hiring managera blokuje (``False``). ``None`` bez kontekstu rekrutacji
     # albo bez przeciwwskazań.
     eligibility: Optional[dict[str, Any]] = None
+    # v2: które AKTYWNE filtry („location", „experience", „rate") ta osoba
+    # przeszła wyłącznie dlatego, że nie mamy o niej danych — do plakietki w UI.
+    unknown_fields: list[str] = Field(default_factory=list)
 
 
 class CompetenceCategoryFacet(BaseModel):

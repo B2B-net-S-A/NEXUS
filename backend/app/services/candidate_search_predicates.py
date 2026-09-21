@@ -60,7 +60,72 @@ from app.services.advanced_candidate_search import (
 from app.services.candidate_profile_rate import (
     canonical_profile_rate_currency_clause,
 )
-from app.services.polish_ilike import polish_folded_ilike
+from app.services.polish_ilike import contains_pattern, polish_folded_ilike
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Wersja semantyki
+# ═══════════════════════════════════════════════════════════════════════════
+
+Engine = Literal["list", "search"]
+UnknownValues = Literal["include", "exclude"]
+
+SEMANTICS_LEGACY = 1
+SEMANTICS_UNIFIED = 2
+
+
+@dataclass(frozen=True)
+class Semantics:
+    """Którą semantyką odpowiada żądanie (pole / parametr ``semantics_version``).
+
+    * **v1** (brak pola) — KAŻDY silnik zwraca DOKŁADNIE to, co przed
+      ujednoliceniem: zapisane wyszukiwania i alerty nie zmieniają wyniku bez
+      zgody właściciela. Różnice między silnikami zostają (lista tnie osoby bez
+      stawki/lokalizacji/stażu, wyszukiwarka dopasowuje tagi podłańcuchem itd.).
+    * **v2** — jedna semantyka w obu: tabela decyzji z nagłówka modułu. Osoba
+      BEZ danych (lokalizacja, staż, stawka) zostaje w wynikach i jest oznaczana
+      w ``unknown_fields``; ``hide_unknown=true`` ją ukrywa.
+
+    Całe nowe zachowanie jest opt-in przez v2. Nowe POLA (np. jawne kubełki
+    umiejętności) działają w obu wersjach — nie mają znaczenia legacy.
+    """
+
+    version: int
+    engine: Engine
+    hide_unknown: Optional[bool] = None
+
+    @property
+    def unified(self) -> bool:
+        return self.version >= SEMANTICS_UNIFIED
+
+    @property
+    def unknown(self) -> UnknownValues:
+        """Los osoby bez danych dla filtrów lokalizacji i stażu."""
+        if self.hide_unknown is not None:
+            return "exclude" if self.hide_unknown else "include"
+        if self.unified:
+            return "include"
+        return "exclude" if self.engine == "list" else "include"
+
+    @property
+    def rate_unknown(self) -> UnknownValues:
+        """Los osoby bez (porównywalnej) stawki. Wyszukiwarka zostawiała ją od
+        zawsze; lista v1 wycina — na tym stoją dzisiejsze alerty."""
+        if self.hide_unknown is not None:
+            return "exclude" if self.hide_unknown else "include"
+        if self.unified or self.engine == "search":
+            return "include"
+        return "exclude"
+
+
+def semantics_for(
+    engine: Engine, version: Optional[int], hide_unknown: Optional[bool] = None
+) -> Semantics:
+    return Semantics(
+        version=SEMANTICS_UNIFIED if (version or 1) >= 2 else SEMANTICS_LEGACY,
+        engine=engine,
+        hide_unknown=hide_unknown,
+    )
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Umiejętności
@@ -492,6 +557,11 @@ class TextInterpretation:
 
     kind: str
     mode: Literal["literal", "semantic"]
+    # Która reguła zadecydowała: ``email`` | ``phone`` | ``multi_token_name`` |
+    # ``single_word_person_exists`` | ``single_word_no_person`` |
+    # ``single_word_unchecked`` (bez sprawdzenia w bazie) | ``known_skill`` |
+    # ``known_city`` | ``role_word`` | ``free_text`` | ``empty``.
+    rule: str = "free_text"
     name_tokens: tuple[str, ...] = ()
     email: Optional[str] = None
     phone_digits: Optional[str] = None
@@ -503,6 +573,7 @@ class TextInterpretation:
         return {
             "kind": self.kind,
             "mode": self.mode,
+            "rule": self.rule,
             "name": list(self.name_tokens),
             "email": self.email,
             "phone": self.phone_digits,
@@ -540,59 +611,164 @@ def _known_skill(token: str) -> bool:
 def detect_text_mode(q: Optional[str]) -> TextInterpretation:
     """Czy ``q`` wygląda na OSOBĘ (nazwisko / e-mail / telefon), czy na opis.
 
-    Reguła jest celowo ostrożna w stronę „opis": fałszywe „to osoba" zabiera
-    wyszukiwaniu semantykę, fałszywe „to opis" kosztuje najwyżej gorszą
-    kolejność. Osoba = 1–3 wyrazy z samych liter (myślnik/apostrof dozwolony),
-    z których żaden nie jest znaną umiejętnością, miastem ani słowem roli.
+    Czysta część reguły (bez bazy). Ostrożna w stronę „opis": fałszywe „to
+    osoba" zabiera wyszukiwaniu semantykę, fałszywe „to opis" kosztuje najwyżej
+    gorszą kolejność. Osoba = 1–3 wyrazy z samych liter (myślnik/apostrof
+    dozwolony), z których żaden nie jest znaną umiejętnością, miastem ani
+    słowem roli. POJEDYNCZE słowo dostaje tu regułę ``single_word_unchecked`` —
+    o tym, czy to naprawdę czyjeś imię/nazwisko, rozstrzyga ``interpret_text``.
     """
     raw = (q or "").strip()
     if not raw:
-        return TextInterpretation(kind="empty", mode="semantic")
+        return TextInterpretation(kind="empty", mode="semantic", rule="empty")
 
     if "@" in raw and len(raw) > 1 and _EMAIL_RE.match(raw):
-        return TextInterpretation(kind="email", mode="literal", email=raw.lower())
+        return TextInterpretation(
+            kind="email", mode="literal", rule="email", email=raw.lower()
+        )
 
     if _PHONE_QUERY_RE.match(raw):
         digits = re.sub(r"\D", "", raw)
         if len(digits) >= _PHONE_QUERY_MIN_DIGITS:
             return TextInterpretation(
-                kind="phone", mode="literal", phone_digits=digits[-9:]
+                kind="phone", mode="literal", rule="phone", phone_digits=digits[-9:]
             )
 
     tokens = raw.replace(",", " ").split()
     skills = tuple(t for t in tokens if _known_skill(t))
     locations = tuple(t for t in tokens if t.lower() in _KNOWN_CITIES)
+    role_words = [t for t in tokens if t.lower() in _ROLE_WORDS]
     looks_like_name = (
         1 <= len(tokens) <= _MAX_NAME_TOKENS
         and not skills
         and not locations
+        and not role_words
         and all(_NAME_TOKEN_RE.match(t) for t in tokens)
-        and not any(t.lower() in _ROLE_WORDS for t in tokens)
     )
     if looks_like_name:
         return TextInterpretation(
-            kind="name", mode="literal", name_tokens=tuple(tokens)
+            kind="name",
+            mode="literal",
+            rule="multi_token_name" if len(tokens) > 1 else "single_word_unchecked",
+            name_tokens=tuple(tokens),
         )
 
+    if skills:
+        rule = "known_skill"
+    elif locations:
+        rule = "known_city"
+    elif role_words:
+        rule = "role_word"
+    else:
+        rule = "free_text"
     other = tuple(t for t in tokens if t not in skills and t not in locations)
     return TextInterpretation(
         kind="text",
         mode="semantic",
+        rule=rule,
         skills=skills,
         locations=locations,
         other_tokens=other,
     )
 
 
-def resolve_text_mode(
-    requested: Optional[str], interpretation: TextInterpretation
-) -> Literal["literal", "semantic"]:
-    """``auto`` → z tekstu; jawne ``literal``/``semantic`` wygrywa."""
+# Krótka pamięć odpowiedzi „czy istnieje osoba o takim imieniu/nazwisku".
+# Jedno słowo wpisywane w ⌘K pyta o to przy każdym znaku; TTL jest krótki, bo
+# nowo dodany kandydat ma być znajdowany po nazwisku niemal od razu.
+_PERSON_TOKEN_TTL_SECONDS = 60.0
+_PERSON_TOKEN_CACHE_MAX = 2048
+_person_token_cache: dict[str, tuple[float, bool]] = {}
+
+
+async def person_token_exists(db: Any, token: str) -> bool:
+    """Czy w bazie jest kandydat, którego IMIĘ albo NAZWISKO to dokładnie
+    ``token`` (bez wielkości liter i polskich znaków).
+
+    Jedno zapytanie ``LIMIT 1``: indeks trigramowy na ``search_doc_unaccented``
+    (migracja 0159) zawęża wiersze, a równość sprawdzamy już tylko na nich —
+    bez skanu całej tabeli i bez nowego indeksu.
+    """
+    import time
+
+    from app.services.advanced_candidate_search import (
+        _POLISH_FOLD_DST,
+        _POLISH_FOLD_SRC,
+        _SEARCH_DOC_UNACCENT,
+        _escape_like,
+        fold_polish,
+    )
+
+    folded = fold_polish(token.strip())
+    if not folded:
+        return False
+    now = time.monotonic()
+    cached = _person_token_cache.get(folded)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+
+    def _fold(col: Any) -> ColumnElement:
+        return func.lower(
+            func.translate(func.coalesce(col, ""), _POLISH_FOLD_SRC, _POLISH_FOLD_DST)
+        )
+
+    stmt = (
+        select(Candidate.id)
+        .where(
+            _SEARCH_DOC_UNACCENT.ilike(f"%{_escape_like(folded)}%", escape="\\"),
+            or_(_fold(Candidate.name) == folded, _fold(Candidate.lastname) == folded),
+        )
+        .limit(1)
+    )
+    exists = (await db.execute(stmt)).first() is not None
+    if len(_person_token_cache) >= _PERSON_TOKEN_CACHE_MAX:
+        _person_token_cache.clear()
+    _person_token_cache[folded] = (now + _PERSON_TOKEN_TTL_SECONDS, exists)
+    return exists
+
+
+async def interpret_text(db: Any, q: Optional[str]) -> TextInterpretation:
+    """``detect_text_mode`` + rozstrzygnięcie POJEDYNCZEGO słowa w bazie.
+
+    Jedno nieznane słowo jest dopasowywane dosłownie TYLKO wtedy, gdy istnieje
+    kandydat o takim imieniu albo nazwisku; inaczej to opis („księgowa") i idzie
+    ścieżką semantyczną. Dwa–trzy wyrazy wyglądające na osobę, e-mail i telefon
+    nie pytają bazy.
+    """
+    from dataclasses import replace
+
+    found = detect_text_mode(q)
+    if found.rule != "single_word_unchecked":
+        return found
+    token = found.name_tokens[0]
+    if await person_token_exists(db, token):
+        return replace(found, rule="single_word_person_exists")
+    return TextInterpretation(
+        kind="text",
+        mode="semantic",
+        rule="single_word_no_person",
+        other_tokens=(token,),
+    )
+
+
+def text_mode_to_apply(
+    sem: Semantics, requested: Optional[str], interpretation: TextInterpretation
+) -> Optional[Literal["literal", "semantic"]]:
+    """Co zrobić z ``q``. ``None`` = dotychczasowa ścieżka silnika (lista:
+    dosłownie; wyszukiwarka: wg ``search_mode``).
+
+    * jawne ``literal`` / ``semantic`` wygrywa zawsze,
+    * auto-detekcja osoby działa w v2 albo przy jawnym ``text_mode="auto"``;
+      w v1 bez pola istniejące wyszukiwania zachowują dotychczasowe ``q``,
+    * tekst, który NIE jest osobą, nie wymusza hybrydy — zostaje przy trybie
+      wybranym przez rekrutera.
+    """
     if requested == "literal":
         return "literal"
     if requested == "semantic":
         return "semantic"
-    return interpretation.mode
+    if (requested == "auto" or sem.unified) and interpretation.mode == "literal":
+        return "literal"
+    return None
 
 
 def literal_text_threshold(q: str) -> Optional[float]:
@@ -727,11 +903,16 @@ def open_to_clause(values: Optional[Iterable[str]]) -> Optional[ColumnElement]:
 
 
 def competence_category_clause(
-    ids: Optional[Sequence[int]],
+    ids: Optional[Sequence[int]], sem: Semantics
 ) -> Optional[ColumnElement]:
-    """Kategoria GŁÓWNA lub POBOCZNA (M2M), albo legacy FK sprzed backfillu."""
+    """Kategoria GŁÓWNA lub POBOCZNA (M2M), albo legacy FK sprzed backfillu.
+
+    v1 wyszukiwarki: wyłącznie FK kategorii głównej (dotychczasowe zachowanie).
+    """
     if not ids:
         return None
+    if not sem.unified and sem.engine == "search":
+        return Candidate.competence_category_id.in_(list(ids))
     from app.models.competence_category import CandidateCompetenceCategory
 
     return or_(
@@ -756,15 +937,16 @@ def availability_clause(values: Optional[Sequence[Any]]) -> Optional[ColumnEleme
 # Stawka, doświadczenie, tagi, lokalizacja
 # ═══════════════════════════════════════════════════════════════════════════
 
-UnknownValues = Literal["include", "exclude"]
-
 
 def hourly_rate_clause(
-    rate_min: Optional[Decimal], rate_max: Optional[Decimal]
+    rate_min: Optional[Decimal], rate_max: Optional[Decimal], sem: Semantics
 ) -> Optional[ColumnElement]:
-    """Stawka B2B PLN netto/h. Kandydat BEZ stawki przechodzi (decyzja 09.2026);
-    stawka w walucie, której nie umiemy porównać, też — „nie wiemy" to nie
-    „za drogi".
+    """Stawka B2B PLN netto/h.
+
+    v2 (i wyszukiwarka od zawsze): kandydat BEZ stawki przechodzi, tak samo
+    stawka w walucie, której nie umiemy porównać — „nie wiemy" to nie „za
+    drogi"; ``hide_unknown`` ich ukrywa. v1 listy: brak stawki i obca waluta
+    odpadają (na tym stoją dzisiejsze alerty).
     """
     if rate_min is None and rate_max is None:
         return None
@@ -776,11 +958,10 @@ def hourly_rate_clause(
     comparable = canonical_profile_rate_currency_clause(
         Candidate.expected_rate_currency
     )
-    return (
-        Candidate.expected_rate_hourly.is_(None)
-        | ~comparable
-        | (comparable & and_(*bounds))
-    )
+    known_and_matching = comparable & and_(*bounds)
+    if sem.rate_unknown == "exclude":
+        return known_and_matching
+    return Candidate.expected_rate_hourly.is_(None) | ~comparable | known_and_matching
 
 
 def _experience_interval() -> tuple[ColumnElement, ColumnElement]:
@@ -820,36 +1001,60 @@ def _experience_overlap(
     return and_(*parts)
 
 
+def _legacy_search_experience_bounds(
+    years_min: Optional[int], years_max: Optional[int]
+) -> list[ColumnElement]:
+    bounds: list[ColumnElement] = []
+    if years_min is not None:
+        bounds.append(Candidate.years_it_experience >= years_min)
+    if years_max is not None:
+        bounds.append(Candidate.years_it_experience <= years_max)
+    return bounds
+
+
 def experience_clause(
-    years_min: Optional[int],
-    years_max: Optional[int],
-    *,
-    unknown: UnknownValues,
+    years_min: Optional[int], years_max: Optional[int], sem: Semantics
 ) -> Optional[ColumnElement]:
     """Lata doświadczenia — JEDNA reguła przedziału (z zapasem Traffita).
 
-    ``unknown`` rozstrzyga WYŁĄCZNIE los kandydata bez żadnego sygnału
-    (ani liczby, ani koszyka): ``include`` zostawia go w wynikach (domyślne
-    w S od 08.2026 — kolumna jest wypełniona dla ~1% bazy), ``exclude`` go
-    wycina (domyślne w L — dotychczasowe zachowanie listy i alertów).
+    ``sem.unknown`` rozstrzyga WYŁĄCZNIE los kandydata bez żadnego sygnału
+    (ani liczby, ani koszyka). v1 wyszukiwarki zostaje przy dotychczasowym
+    porównaniu samej kolumny ``years_it_experience`` (bez koszyka Traffita,
+    pusta kolumna przechodzi); lista miała regułę przedziału od zawsze.
     """
-    overlap = _experience_overlap(years_min, years_max)
-    if overlap is None:
+    if years_min is None and years_max is None:
         return None
-    if unknown == "include":
+    if not sem.unified and sem.engine == "search":
+        legacy = and_(*_legacy_search_experience_bounds(years_min, years_max))
+        if sem.unknown == "include":
+            return or_(Candidate.years_it_experience.is_(None), legacy)
+        return legacy
+    overlap = _experience_overlap(years_min, years_max)
+    assert overlap is not None
+    if sem.unknown == "include":
         _low, high = _experience_interval()
         return or_(high.is_(None), overlap)
     return overlap
 
 
 def experience_stated_rank(
-    years_min: Optional[int], years_max: Optional[int]
+    years_min: Optional[int], years_max: Optional[int], sem: Semantics
 ) -> Optional[ColumnElement]:
-    """ORDER BY / licznik: 1, gdy ZNANY przedział kandydata pasuje do żądania."""
-    overlap = _experience_overlap(years_min, years_max)
-    if overlap is None:
+    """ORDER BY / licznik: 1, gdy ZNANY staż kandydata pasuje do żądania."""
+    if years_min is None and years_max is None:
         return None
-    return case((overlap, 1), else_=0)
+    if not sem.unified and sem.engine == "search":
+        return case(
+            (
+                and_(
+                    Candidate.years_it_experience.is_not(None),
+                    *_legacy_search_experience_bounds(years_min, years_max),
+                ),
+                1,
+            ),
+            else_=0,
+        )
+    return case((_experience_overlap(years_min, years_max), 1), else_=0)
 
 
 def tag_match(tag: str) -> ColumnElement:
@@ -863,9 +1068,14 @@ def tag_match(tag: str) -> ColumnElement:
     return _json_token_match(blob, [tag.strip().lower()])
 
 
-def tags_clauses(tags: Optional[Iterable[str]]) -> list[ColumnElement]:
-    """Każdy z podanych tagów (AND)."""
-    return [tag_match(t) for t in (tags or []) if t and t.strip()]
+def tags_clauses(tags: Optional[Iterable[str]], sem: Semantics) -> list[ColumnElement]:
+    """Każdy z podanych tagów (AND). v1 wyszukiwarki: dotychczasowe dopasowanie
+    PODŁAŃCUCHEM (``java`` trafia w ``javascript``) — poprawka jest w v2."""
+    wanted = [t for t in (tags or []) if t and t.strip()]
+    if not sem.unified and sem.engine == "search":
+        blob = func.coalesce(cast(Candidate.tags, String), "")
+        return [blob.ilike(contains_pattern(t), escape="\\") for t in wanted]
+    return [tag_match(t) for t in wanted]
 
 
 def city_match_clauses(cities: Sequence[str]) -> list[ColumnElement]:
@@ -886,27 +1096,35 @@ def city_match_clauses(cities: Sequence[str]) -> list[ColumnElement]:
 def location_clauses(
     cities: Optional[Sequence[str]],
     countries: Optional[Sequence[str]],
-    *,
-    unknown: UnknownValues,
+    sem: Semantics,
 ) -> list[ColumnElement]:
     """Miasto (którekolwiek z podanych) i kraj (kod ISO, którykolwiek).
 
-    ``unknown`` jak przy doświadczeniu: los kandydata BEZ lokalizacji / kraju.
-    Znana-i-niepasująca odpada zawsze.
+    ``sem.unknown``: los kandydata BEZ lokalizacji / kraju. Znana-i-niepasująca
+    odpada zawsze. v1 listy zostaje przy dotychczasowym ``location ILIKE
+    '%fraza%'`` — sama kolumna ``location``, bez foldu polskich znaków i bez
+    escapowania (``%``/``_`` działają tam jak wieloznaczniki; poprawka jest w v2).
     """
     clauses: list[ColumnElement] = []
-    city_clauses = city_match_clauses(list(cities or []))
-    if city_clauses:
-        matched = or_(*city_clauses)
-        if unknown == "include":
+    wanted_cities = [c for c in (cities or []) if c and c.strip()]
+    if wanted_cities and not sem.unified and sem.engine == "list":
+        clauses.append(
+            or_(*[Candidate.location.ilike(f"%{c}%") for c in wanted_cities])
+        )
+    elif wanted_cities:
+        matched = or_(*city_match_clauses(wanted_cities))
+        if sem.unknown == "include":
             nowhere = and_(Candidate.city.is_(None), Candidate.location.is_(None))
             clauses.append(or_(nowhere, matched))
         else:
             clauses.append(matched)
     wanted = [c.strip().upper() for c in (countries or []) if c and c.strip()]
     if wanted:
-        in_country = func.upper(Candidate.country).in_(wanted)
-        if unknown == "include":
+        if not sem.unified and sem.engine == "search":
+            in_country = Candidate.country.in_(wanted)
+        else:
+            in_country = func.upper(Candidate.country).in_(wanted)
+        if sem.unknown == "include":
             clauses.append(or_(Candidate.country.is_(None), in_country))
         else:
             clauses.append(in_country)
@@ -921,3 +1139,52 @@ def location_rank(cities: Optional[Sequence[str]]) -> Optional[ColumnElement]:
     return reduce(
         lambda a, b: a + b, [case((clause, 1), else_=0) for clause in city_clauses]
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# `unknown_fields` — oznaczenie wierszy, które przeszły „na brak danych"
+# ═══════════════════════════════════════════════════════════════════════════
+
+_TRAFFIT_EXPERIENCE_BUCKETS = frozenset({"Poniżej 2", "2-5", "5+"})
+
+
+def unknown_fields_for(
+    candidate: Any,
+    *,
+    location_active: bool,
+    country_active: bool,
+    experience_active: bool,
+    rate_active: bool,
+) -> list[str]:
+    """Które AKTYWNE filtry kandydat przeszedł wyłącznie dlatego, że nie mamy
+    o nim danych. Lustro reguł SQL powyżej, liczone w Pythonie dla wierszy
+    jednej strony. Kolejność stała: ``location``, ``experience``, ``rate``.
+    """
+    from app.services.candidate_profile_rate import (
+        is_canonical_profile_rate_currency,
+    )
+
+    out: list[str] = []
+    no_place = (
+        location_active
+        and getattr(candidate, "city", None) is None
+        and getattr(candidate, "location", None) is None
+    )
+    no_country = country_active and getattr(candidate, "country", None) is None
+    if no_place or no_country:
+        out.append("location")
+    if experience_active and getattr(candidate, "years_it_experience", None) is None:
+        extracted = getattr(candidate, "cv_extracted_data", None)
+        bucket = (
+            extracted.get("traffit_experience") if isinstance(extracted, dict) else None
+        )
+        if bucket not in _TRAFFIT_EXPERIENCE_BUCKETS:
+            out.append("experience")
+    if rate_active and (
+        getattr(candidate, "expected_rate_hourly", None) is None
+        or not is_canonical_profile_rate_currency(
+            getattr(candidate, "expected_rate_currency", None)
+        )
+    ):
+        out.append("rate")
+    return out

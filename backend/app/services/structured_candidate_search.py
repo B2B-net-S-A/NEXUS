@@ -47,11 +47,14 @@ _skills_text = predicates.skills_text
 _skill_match = predicates.skill_match
 
 
-def _unknown_values(req: CandidateSearchRequest) -> predicates.UnknownValues:
-    """Los kandydata BEZ danych (staż, lokalizacja). Wyszukiwarka domyślnie go
-    zostawia (NULL_POLICY niżej); żądanie może to przestawić polem
-    ``unknown_values`` — tym samym, które rozumie lista."""
-    return getattr(req, "unknown_values", None) or "include"
+def request_semantics(req: CandidateSearchRequest) -> predicates.Semantics:
+    """Wersja semantyki żądania wyszukiwarki (`semantics_version`, `hide_unknown`).
+    Bez pola = v1: DOKŁADNIE dotychczasowe wyniki."""
+    return predicates.semantics_for(
+        "search",
+        getattr(req, "semantics_version", None),
+        getattr(req, "hide_unknown", None),
+    )
 
 
 def skills_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
@@ -71,7 +74,7 @@ def experience_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]
     bez niej osoby z podanym stażem ginęłyby wśród tysięcy bez niego.
     """
     return predicates.experience_stated_rank(
-        req.experience_years_min, req.experience_years_max
+        req.experience_years_min, req.experience_years_max, request_semantics(req)
     )
 
 
@@ -294,10 +297,10 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
         if clauses:
             groups.append(FilterGroup(key=key, label=label, clauses=clauses))
 
-    unknown = _unknown_values(req)
+    sem = request_semantics(req)
 
     cc: list[ColumnElement] = []
-    cc_clause = predicates.competence_category_clause(req.competence_category_ids)
+    cc_clause = predicates.competence_category_clause(req.competence_category_ids, sem)
     if cc_clause is not None:
         cc.append(cc_clause)
     add("competence_category", "Kategoria kompetencji", cc)
@@ -321,7 +324,7 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
 
     experience: list[ColumnElement] = []
     exp_clause = predicates.experience_clause(
-        req.experience_years_min, req.experience_years_max, unknown=unknown
+        req.experience_years_min, req.experience_years_max, sem
     )
     if exp_clause is not None:
         experience.append(exp_clause)
@@ -337,9 +340,7 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
     add(
         "location",
         "Lokalizacja",
-        predicates.location_clauses(
-            req.location_cities, req.location_countries, unknown=unknown
-        ),
+        predicates.location_clauses(req.location_cities, req.location_countries, sem),
     )
 
     eligibility: list[ColumnElement] = []
@@ -382,7 +383,7 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
 
     # Stawka profilu: B2B, PLN netto/h. Brak stawki = nie wiemy → zostaje.
     rate_clause = predicates.hourly_rate_clause(
-        req.rate_hourly_min, req.rate_hourly_max
+        req.rate_hourly_min, req.rate_hourly_max, sem
     )
     add(
         "rate_hourly",
@@ -395,7 +396,7 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
         sources.append(Candidate.source.in_(req.sources))
     add("sources", "Źródło", sources)
 
-    add("tags", "Tagi", predicates.tags_clauses(req.tags))
+    add("tags", "Tagi", predicates.tags_clauses(req.tags, sem))
 
     attributes: list[ColumnElement] = []
     has_cv_clause = _bool_clause_has_cv(req.has_cv)
@@ -412,23 +413,26 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
     ambassador_clause = _bool_eq(Candidate.is_ambassador, req.is_ambassador)
     if ambassador_clause is not None:
         attributes.append(ambassador_clause)
-    # „Otwarty na": którykolwiek z zaznaczonych (LUB). Pola legacy
+    # „Otwarty na". v2: którykolwiek z zaznaczonych (LUB) — pola legacy
     # `open_to_*: true` dokładają się do tej samej alternatywy co jawne
-    # `open_to`; `false` („NIE jest otwarty") zostaje osobnym, twardym warunkiem.
+    # `open_to`. v1: dotychczasowa KONIUNKCJA przełączników. `false` („NIE jest
+    # otwarty") jest w obu wersjach osobnym, twardym warunkiem.
     legacy_open_to = {
         "side_projects": req.open_to_side_projects,
         "sales_support": req.open_to_sales_support,
         "expert_consult": req.open_to_expert_consult,
     }
-    wanted_open_to = list(getattr(req, "open_to", None) or []) + [
-        key for key, value in legacy_open_to.items() if value is True
-    ]
-    open_to_clause = predicates.open_to_clause(wanted_open_to)
-    if open_to_clause is not None:
-        attributes.append(open_to_clause)
+    wanted_open_to = list(getattr(req, "open_to", None) or [])
     for key, value in legacy_open_to.items():
         if value is False:
             attributes.append(predicates.OPEN_TO_FIELDS[key].is_(False))
+        elif value is True and sem.unified:
+            wanted_open_to.append(key)
+        elif value is True:
+            attributes.append(predicates.OPEN_TO_FIELDS[key].is_(True))
+    open_to_clause = predicates.open_to_clause(wanted_open_to)
+    if open_to_clause is not None:
+        attributes.append(open_to_clause)
     if req.cv_parsed_after is not None:
         attributes.append(Candidate.cv_parsed_at >= req.cv_parsed_after)
     add("attributes", "Atrybuty", attributes)

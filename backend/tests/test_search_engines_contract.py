@@ -196,7 +196,10 @@ def _keys(ids: dict[str, int], found: set[int]) -> set[str]:
 async def _list(client, headers, **params: Any) -> set[str]:
     ids = await _seed()
     query: list[tuple[str, Any]] = [("q_all", NONCE), ("page_size", 100)]
+    params = {"semantics_version": 2, **params}
     for key, value in params.items():
+        if value is None:
+            continue
         if isinstance(value, (list, tuple)):
             query.extend((key, v) for v in value)
         else:
@@ -208,7 +211,14 @@ async def _list(client, headers, **params: Any) -> set[str]:
 
 async def _search_raw(client, headers, **body: Any) -> dict:
     await _seed()
-    payload = {"q_all": [NONCE], "page": 1, "page_size": 200, **body}
+    payload = {
+        "q_all": [NONCE],
+        "page": 1,
+        "page_size": 200,
+        "semantics_version": 2,
+        **body,
+    }
+    payload = {k: v for k, v in payload.items() if v is not None}
     resp = await client.post("/api/search/candidates", json=payload, headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -524,11 +534,11 @@ async def test_doswiadczenie_czyta_koszyk_traffita(app_client, app_auth_headers)
     await _both(
         app_client,
         app_auth_headers,
-        lst={"min_experience": 3, "max_experience": 8},
+        lst={"min_experience": 3, "max_experience": 8, "hide_unknown": True},
         srch={
             "experience_years_min": 3,
             "experience_years_max": 8,
-            "unknown_values": "exclude",
+            "hide_unknown": True,
         },
         expected={"a", "b", "c"},
     )
@@ -536,7 +546,7 @@ async def test_doswiadczenie_czyta_koszyk_traffita(app_client, app_auth_headers)
     await _both(
         app_client,
         app_auth_headers,
-        lst={"min_experience": 3, "max_experience": 8, "unknown_values": "include"},
+        lst={"min_experience": 3, "max_experience": 8},
         srch={"experience_years_min": 3, "experience_years_max": 8},
         expected=ALL - {"e", "f"},
     )
@@ -573,15 +583,15 @@ async def test_lokalizacja_traktuje_wieloznaczniki_doslownie(
     await _both(
         app_client,
         app_auth_headers,
-        lst={"location": "A_B"},
-        srch={"location_cities": ["A_B"], "unknown_values": "exclude"},
+        lst={"location": "A_B", "hide_unknown": True},
+        srch={"location_cities": ["A_B"], "hide_unknown": True},
         expected={"e"},
     )
     await _both(
         app_client,
         app_auth_headers,
-        lst={"location": "100%"},
-        srch={"location_cities": ["100%"], "unknown_values": "exclude"},
+        lst={"location": "100%", "hide_unknown": True},
+        srch={"location_cities": ["100%"], "hide_unknown": True},
         expected={"c"},
     )
 
@@ -591,15 +601,15 @@ async def test_lokalizacja_czyta_miasto_i_polskie_znaki(app_client, app_auth_hea
     await _both(
         app_client,
         app_auth_headers,
-        lst={"location": "warszawa"},
-        srch={"location_cities": ["warszawa"], "unknown_values": "exclude"},
+        lst={"location": "warszawa", "hide_unknown": True},
+        srch={"location_cities": ["warszawa"], "hide_unknown": True},
         expected={"a", "m"},
     )
     await _both(
         app_client,
         app_auth_headers,
-        lst={"location": "Krakow"},
-        srch={"location_cities": ["Krakow"], "unknown_values": "exclude"},
+        lst={"location": "Krakow", "hide_unknown": True},
+        srch={"location_cities": ["Krakow"], "hide_unknown": True},
         expected={"b"},
     )
 
@@ -609,40 +619,140 @@ async def test_kraj_jest_dostepny_w_obu(app_client, app_auth_headers):
     await _both(
         app_client,
         app_auth_headers,
-        lst={"country": ["pl"]},
-        srch={"location_countries": ["pl"], "unknown_values": "exclude"},
+        lst={"country": ["pl"], "hide_unknown": True},
+        srch={"location_countries": ["pl"], "hide_unknown": True},
         expected={"a", "b", "e", "f", "m"},
     )
 
 
 @pytest.mark.asyncio
-async def test_brak_lokalizacji_domyslne_zachowanie_kazdego_silnika_jest_przypiete(
-    app_client, app_auth_headers
-):
-    """PYTANIE OTWARTE do właściciela produktu, przypięte testem, nie
-    rozstrzygnięte po cichu: co z osobą BEZ lokalizacji / bez sygnału stażu?
-
-    Dziś lista ją wycina (i tak działają alerty zapisanych wyszukiwań),
-    wyszukiwarka zostawia (pomiar 08.2026: twarde cięcie zabierało 99,6% puli).
-    Oba silniki rozumieją ten sam przełącznik ``unknown_values`` — różni je
-    wyłącznie wartość DOMYŚLNA, a ten test pilnuje, żeby nie zmieniła się
-    przypadkiem."""
+async def test_brak_danych_zostaje_i_jest_oznaczony(app_client, app_auth_headers):
+    """Decyzja 09.2026: w semantyce v2 osoba BEZ lokalizacji / stażu / stawki
+    ZOSTAJE w wynikach obu silników i jest oznaczona w `unknown_fields`;
+    `hide_unknown` ją ukrywa."""
     with_location = {"a", "m"}
     nowhere = {"d", "h", "i", "j", "k", "l"}
-    assert await _list(app_client, app_auth_headers, location="warszawa") == (
-        with_location
-    )
-    assert (
-        await _search(app_client, app_auth_headers, location_cities=["warszawa"])
-        == with_location | nowhere
-    )
     await _both(
         app_client,
         app_auth_headers,
-        lst={"location": "warszawa", "unknown_values": "include"},
+        lst={"location": "warszawa"},
         srch={"location_cities": ["warszawa"]},
         expected=with_location | nowhere,
     )
+
+    ids = await _seed()
+    filters_l = [
+        ("q_all", NONCE),
+        ("page_size", 100),
+        ("semantics_version", 2),
+        ("location", "warszawa"),
+        ("min_experience", 3),
+        ("min_rate", 50),
+    ]
+    resp = await app_client.get(
+        "/api/candidates", params=filters_l, headers=app_auth_headers
+    )
+    from_list = {
+        i["id"]: i["unknown_fields"]
+        for i in resp.json()["items"]
+        if i["id"] in set(ids.values())
+    }
+    data = await _search_raw(
+        app_client,
+        app_auth_headers,
+        location_cities=["warszawa"],
+        experience_years_min=3,
+        rate_hourly_min=50,
+    )
+    from_search = {
+        i["id"]: i["unknown_fields"]
+        for i in data["items"]
+        if i["id"] in set(ids.values())
+    }
+    assert from_list == from_search
+    assert from_list[ids["a"]] == []
+    assert from_list[ids["m"]] == ["experience", "rate"]
+    assert from_list[ids["d"]] == ["location", "experience", "rate"]  # EUR = nieznana
+
+
+@pytest.mark.asyncio
+async def test_hide_unknown_ukrywa_takze_brak_stawki(app_client, app_auth_headers):
+    await _both(
+        app_client,
+        app_auth_headers,
+        lst={"min_rate": 90, "max_rate": 160, "hide_unknown": True},
+        srch={"rate_hourly_min": 90, "rate_hourly_max": 160, "hide_unknown": True},
+        expected={"a"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_v1_kazdy_silnik_zostaje_przy_swoim(app_client, app_auth_headers):
+    """Bez `semantics_version` NIC się nie zmienia — także rozjazdy. Pełny dowód
+    „przed = po" jest w `test_saved_search_legacy_replay.py`; tu przypinamy, że
+    przełącznikiem jest WYŁĄCZNIE wersja semantyki."""
+    v1 = {"semantics_version": None}
+    # lista v1: sama kolumna `location`, brak danych odpada
+    assert await _list(app_client, app_auth_headers, location="warszawa", **v1) == {"a"}
+    # wyszukiwarka v1: brak danych zostaje
+    assert await _search(
+        app_client, app_auth_headers, location_cities=["warszawa"], **v1
+    ) == {"a", "m", "d", "h", "i", "j", "k", "l"}
+    # lista v1: brak stawki odpada; wyszukiwarka v1: zostaje
+    assert await _list(
+        app_client, app_auth_headers, min_rate=90, max_rate=160, **v1
+    ) == {"a"}
+    assert await _search(
+        app_client, app_auth_headers, rate_hourly_min=90, rate_hourly_max=160, **v1
+    ) == ALL - {"c", "e"}
+    # wyszukiwarka v1: tag podłańcuchem, kategoria tylko główna, „Otwarty na" = I
+    assert await _search(app_client, app_auth_headers, tags=["java"], **v1) == {
+        "a",
+        "b",
+        "j",
+    }
+    await _seed()
+    assert await _search(
+        app_client, app_auth_headers, competence_category_ids=[_CC["one"]], **v1
+    ) == {"a", "d"}
+    assert await _search(
+        app_client,
+        app_auth_headers,
+        open_to_side_projects=True,
+        open_to_expert_consult=True,
+        **v1,
+    ) == {"d"}
+    # wyszukiwarka v1: `q` wyglądające na osobę NIE przełącza się samo
+    data = await _search_raw(app_client, app_auth_headers, q=f"zolc{NONCE}", **v1)
+    assert data["meta"]["text_mode_applied"] == "keywords"
+    # …chyba że `text_mode` przyszedł jawnie
+    data = await _search_raw(
+        app_client, app_auth_headers, q=f"zolc{NONCE}", text_mode="auto", **v1
+    )
+    assert data["meta"]["text_mode_applied"] == "literal"
+
+
+@pytest.mark.asyncio
+async def test_pojedyncze_slowo_jest_osoba_tylko_gdy_istnieje_w_bazie(
+    app_client, app_auth_headers, monkeypatch
+):
+    from app.services import hybrid_search
+    from app.services.hybrid_search import HybridResult
+
+    ids = await _seed()
+    data = await _search_raw(app_client, app_auth_headers, q=f"zolc{NONCE}")
+    assert data["meta"]["interpretation"]["rule"] == "single_word_person_exists"
+    assert data["meta"]["text_mode_applied"] == "literal"
+
+    async def _fake(db, query, **kwargs):
+        return HybridResult(pairs=[(ids["b"], 1.0)])
+
+    monkeypatch.setattr(hybrid_search, "hybrid_candidates", _fake)
+    word = f"ksiegowa{NONCE[:6]}"  # same litery, nikt się tak nie nazywa
+    data = await _search_raw(app_client, app_auth_headers, q=word, search_mode="hybrid")
+    assert data["meta"]["interpretation"]["rule"] == "single_word_no_person"
+    assert data["meta"]["text_mode_applied"] == "semantic"
+    assert [i["id"] for i in data["items"]] == [ids["b"]]
 
 
 # ── Grupy q_all / q_any / q_none: jeden parser ──────────────────────────────

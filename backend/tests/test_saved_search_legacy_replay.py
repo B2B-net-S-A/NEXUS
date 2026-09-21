@@ -12,9 +12,11 @@ i zbiór oczekiwany wyprowadzony z dotychczasowego znaczenia pól. Ten plik
 przechodzi bez zmian na kodzie SPRZED ujednolicenia (sprawdzone na
 ``origin/main`` @ adc2421d0) i po nim — to jest dowód „przed = po".
 
-Świadomie POZA tym plikiem są decyzje, które wynik zmieniają celowo (stawka
-bez danych przechodzi, „Otwarty na" = LUB w wyszukiwarce, kategoria poboczna,
-cały tag, zapas Traffita dla stażu, `q` wyglądające na osobę) — te przypina
+Żaden ładunek nie niesie ``semantics_version`` — to jest v1, czyli DOKŁADNIE
+dzisiejsze wyniki, łącznie z rozjazdami między silnikami (lista wycina osoby
+bez stawki i bez lokalizacji, wyszukiwarka dopasowuje tag podłańcuchem, liczy
+tylko kategorię główną, łączy „Otwarty na" koniunkcją i nie przełącza `q`
+wyglądającego na osobę). Nowa, wspólna semantyka jest opt-in (v2) i przypina ją
 ``test_search_engines_contract.py``.
 """
 
@@ -36,7 +38,12 @@ async def _seed() -> dict[str, int]:
         return _IDS
     from app.core.database import AsyncSessionLocal
     from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
-    from app.models.competence_category import CompetenceCategory
+    from decimal import Decimal
+
+    from app.models.competence_category import (
+        CandidateCompetenceCategory,
+        CompetenceCategory,
+    )
 
     def person(key: str, **kw: Any) -> Candidate:
         kw.setdefault("status", CandidateStatus.active)
@@ -87,11 +94,42 @@ async def _seed() -> dict[str, int]:
             "d": person(
                 "d", skills=["Kotlin", "Java"], location="Berlin", country="DE"
             ),
-            "e": person("e", skills=["Rust"], status=CandidateStatus.passive),
-            "f": person("f", skills=["Django", "MongoDB"], years_it_experience=4),
-            "g": person("g"),
+            "e": person(
+                "e",
+                skills=["Rust"],
+                status=CandidateStatus.passive,
+                tags=["javascript"],
+                expected_rate_hourly=Decimal("120"),
+                open_to_side_projects=True,
+                open_to_expert_consult=True,
+            ),
+            "f": person(
+                "f",
+                skills=["Django", "MongoDB"],
+                years_it_experience=4,
+                tags=["java"],
+                expected_rate_hourly=Decimal("300"),
+                cv_extracted_data={"traffit_experience": "5+"},
+            ),
+            # tylko `city` (lista v1 czyta samą kolumnę `location`), stawka w EUR,
+            # staż wyłącznie z koszyka Traffita
+            "g": person(
+                "g",
+                city="Gdansk",
+                expected_rate_hourly=Decimal("130"),
+                expected_rate_currency="EUR",
+                cv_extracted_data={"traffit_experience": "2-5"},
+            ),
         }
         db.add_all(rows.values())
+        await db.flush()
+        db.add(
+            CandidateCompetenceCategory(
+                candidate_id=rows["b"].id,
+                competence_category_id=cat.id,
+                is_primary=False,
+            )
+        )
         await db.commit()
         for key, row in rows.items():
             _IDS[key] = row.id
@@ -132,7 +170,8 @@ LIST_PAYLOADS: list[tuple[str, dict[str, Any], set[str]]] = [
         {"a"},
     ),
     ("sama negacja", {"skills_none": ["Go"]}, ALL - {"b"}),
-    ("grupa LUB", {"skills_any": ["java|go"]}, {"b", "c", "d"}),
+    # „f" ma TAG „java" — tagi są częścią przeszukiwanego zrzutu umiejętności
+    ("grupa LUB", {"skills_any": ["java|go"]}, {"b", "c", "d", "f"}),
     (
         "dwie grupy LUB",
         {"skills_any": ["java|go", "python|kotlin"]},
@@ -143,7 +182,7 @@ LIST_PAYLOADS: list[tuple[str, dict[str, Any], set[str]]] = [
         {"skills": ["Rust", "React"], "skill_combine": "or"},
         {"a", "e"},
     ),
-    ("negacja grupy", {"skills_none": ["java|python"]}, {"e", "f", "g"}),
+    ("negacja grupy", {"skills_none": ["java|python"]}, {"e", "g"}),
     (
         "status + dostępność",
         {"status": ["active"], "availability": ["actively_looking"]},
@@ -154,11 +193,23 @@ LIST_PAYLOADS: list[tuple[str, dict[str, Any], set[str]]] = [
         {"location": "Gdansk", "min_experience": 3, "max_experience": 10},
         {"a"},
     ),
-    ("staż: brak danych odpada", {"min_experience": 1}, {"a", "b", "c", "f"}),
-    ("otwarty na (LUB)", {"open_to": ["side_projects", "sales_support"]}, {"a", "b"}),
+    ("staż: brak danych odpada", {"min_experience": 1}, {"a", "b", "c", "f", "g"}),
+    (
+        "stawka: brak stawki i obca waluta odpadają",
+        {"min_rate": 100, "max_rate": 200},
+        {"e"},
+    ),
+    ("stawka: samo minimum", {"min_rate": 100}, {"e", "f"}),
+    ("lokalizacja: sama kolumna location", {"location": "gdansk"}, {"a", "b"}),
+    ("q wyglądające na osobę (lista = dosłownie)", {"q": "Legacyc"}, {"c"}),
+    (
+        "otwarty na (LUB)",
+        {"open_to": ["side_projects", "sales_support"]},
+        {"a", "b", "e"},
+    ),
     (
         "grupy boolowskie",
-        {"q_any_group": ["kotlin|rust"], "q_none": ["java"]},
+        {"q_any_group": ["kotlin|rust"], "q_none": ["kotlin"]},
         {"e"},
     ),
 ]
@@ -180,7 +231,7 @@ async def test_zapisane_wyszukiwanie_listy_z_kategoria(app_client, app_auth_head
     found = await _replay_list(
         app_client, app_auth_headers, {"competence_category_id": [_CC["one"]]}
     )
-    assert found == {"a"}
+    assert found == {"a", "b"}  # lista: główna LUB poboczna — od zawsze
 
 
 SEARCH_PAYLOADS: list[tuple[str, dict[str, Any], set[str]]] = [
@@ -201,7 +252,25 @@ SEARCH_PAYLOADS: list[tuple[str, dict[str, Any], set[str]]] = [
         {"location_cities": ["Gdansk"], "location_countries": ["PL"]},
         {"a", "b", "c", "e", "f", "g"},
     ),
-    ("jeden przełącznik otwarty-na", {"open_to_side_projects": True}, {"a"}),
+    ("jeden przełącznik otwarty-na", {"open_to_side_projects": True}, {"a", "e"}),
+    (
+        "dwa przełączniki otwarty-na = koniunkcja",
+        {"open_to_side_projects": True, "open_to_expert_consult": True},
+        {"e"},
+    ),
+    ("tag podłańcuchem", {"tags": ["java"]}, {"e", "f"}),
+    (
+        "stawka: brak stawki i obca waluta zostają",
+        {"rate_hourly_min": 100, "rate_hourly_max": 200},
+        ALL - {"f"},
+    ),
+    (
+        "staż: sama kolumna, bez koszyka Traffita",
+        {"experience_years_min": 5, "experience_years_max": 8},
+        {"a", "d", "e", "g"},
+    ),
+    ("q wyglądające na osobę idzie przez słowa kluczowe", {"q": "Legacy"}, set()),
+    ("q: pełne nazwisko jako słowo kluczowe", {"q": "legacyc"}, {"c"}),
     (
         "grupy boolowskie",
         {"q_any": ["kotlin", "rust"], "q_any_groups": [["java", "rust"]]},
@@ -219,3 +288,14 @@ async def test_zapisane_wyszukiwanie_wyszukiwarki(
     app_client, app_auth_headers, label, body, expected
 ):
     assert await _replay_search(app_client, app_auth_headers, body) == expected
+
+
+@pytest.mark.asyncio
+async def test_zapisane_wyszukiwanie_wyszukiwarki_z_kategoria(
+    app_client, app_auth_headers
+):
+    await _seed()
+    found = await _replay_search(
+        app_client, app_auth_headers, {"competence_category_ids": [_CC["one"]]}
+    )
+    assert found == {"a"}  # wyszukiwarka v1: tylko kategoria GŁÓWNA
