@@ -632,6 +632,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'my_people_match'",
     # 0332: dzienny digest propozycji z nowych CV (auto-match w trybie propose).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'auto_match_proposals'",
+    # 0332: seria 3 awarii tego samego automatu rekrutacji (tylko admini).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'automation_failing'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",

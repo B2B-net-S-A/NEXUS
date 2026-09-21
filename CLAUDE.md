@@ -4603,7 +4603,9 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   daje 409.
 - **A. Publikacja:** w transakcji kończącej przegląd, w savepoincie
   (`publish_on_finish`, nigdy nie rzuca): top `AUTO_FULL_REVIEW_TOP_K` (60)
-  wierszy `eligible ∧ measured ∧ fit_score ≥ AUTO_MATCH_MIN_SCORE`, które
+  wierszy `eligible ∧ measured ∧ fit_score ≥ AUTO_FULL_REVIEW_MIN_SCORE`
+  (osobny próg — przegląd punktuje kanonicznym fitem, auto-match starszym
+  scoringiem), które
   przechodzą `is_good_match` → `upsert_proposals(source="full_base")` z wersją
   CV i dowodami przez `sanitize_evidence` (same nazwy wymagań). Znacznik
   `metrics.auto_proposals`; `reconcile_unpublished` domyka przeglądy bez niego.
@@ -4636,6 +4638,31 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   ten sam etap z tym samym CV nie generuje drugi raz; nowe CV = nowy dokument.
   W testach automat jest WYŁĄCZONY autouse-fixturą w `conftest.py` (zadanie
   przeżywałoby test, który je odpalił).
+- **C. Auto-CV jest odnajdywalne tam, gdzie rekruter wysyła CV.** Istniejący
+  przepływ warsztatu: lista `GET /api/cv-generator/generated?candidate_id&job_id`
+  → „Zastąp szkic i otwórz edytor" (`select-generated` = SZKIC brandowanego CV
+  etapu) → `finalize` (zatwierdzenie, człowiek). Automat robi tylko pierwszy
+  krok i tylko bezpiecznie: `attach_as_stage_draft` podpina gotowy dokument
+  jako szkic WYŁĄCZNIE, gdy etap nie ma jeszcze żadnego (`branded_status ==
+  "none"`, pod blokadą wiersza; wspólna funkcja `apply_generated_to_stage_cv`)
+  — istniejącego szkicu nie nadpisuje i NIGDY nie zatwierdza. Niezależnie od
+  tego lista przypina na początku auto-CV z `needs_review: true` (`origin:
+  "auto"`, `stage_id`; także z parametrem `?stage_id=`), a karta tablicy niesie
+  `auto_cv_ready` (jedno zapytanie na tablicę). „Wymaga przeglądu" ma JEDNĄ
+  definicję (`services/cv_auto_review.py`): brak zatwierdzonej wersji z tej
+  generacji i brak etapu, który ma ją jako `finalized`.
+- **Awarie automatów: rekruter bez dzwonka, admin po serii**
+  (`services/automation_failures.py`). Awaria = wpis z polskim powodem w „Pracy
+  w tle" (`auto_full_review_failed`, `auto_match_failed`,
+  `cv_auto_generate_failed`) + `logger.error` (→ Sentry). TEN SAM automat 3 razy
+  z rzędu (licznik w `app_settings['automation_failure_streaks']`, pod `FOR
+  UPDATE`, zerowany pierwszym sukcesem) = JEDNO powiadomienie
+  `automation_failing` na serię, tylko dla adminów (`ADMIN_ONLY_NOTIFICATION_TYPES`).
+  Pominięcia (reguła klienta, brak CV) NIE są awariami. Sukces bez otwartej
+  serii nie dotyka bazy (`_known_clean`) — auto-match księguje go przy każdym CV.
+- **Obserwowalność dysku:** `GET /api/admin/index-coverage` → `candidate_search`
+  niesie `auto_runs`, `auto_runs_rows` i `auto_runs_estimated_bytes` (szacunek
+  proporcjonalny do migawek populacji — dokładny pomiar wymagałby skanu).
 - **D. `GET /api/pipeline/stages/{id}/screening` → `suggestions`** z gotowego
   `_notes_insights` (zero wywołań modelu, ZERO zapisów). `rate` tylko dla ról
   z `user_can_edit_rates`; pozostałe dostają `rate_redacted: true`.

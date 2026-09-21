@@ -240,6 +240,20 @@ async def _started_since(db, since: datetime) -> int:
     )
 
 
+async def _record_start_failure(db, job_id: int, code: str) -> None:
+    """Wpis w „Pracy w tle" + licznik serii awarii. Nigdy nie rzuca."""
+    from app.services import automation_failures as failures
+
+    try:
+        await failures.record_job_failure_event(
+            db, job_id=job_id, action="auto_full_review_failed", error_code=code
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001
+        await db.rollback()
+    await failures.record_failure(failures.KIND_FULL_REVIEW, code, job_id=job_id)
+
+
 # Rekrutacje pominięte tej nocy (np. `unchanged`) — żeby każdy tick nie liczył
 # ich odcisku od nowa. Pamięć procesu wystarcza: restart najwyżej powtórzy tanie
 # sprawdzenie.
@@ -277,12 +291,8 @@ async def tick(*, now: Optional[datetime] = None) -> dict:
                 run_id, reason = await start_for_job(db, job_id)
             except Exception as exc:  # noqa: BLE001 — jedna rekrutacja nie blokuje nocy
                 await db.rollback()
-                logger.warning(
-                    "[auto_full_review] job=%s start failed: %s",
-                    job_id,
-                    type(exc).__name__,
-                )
                 _skipped_tonight[job_id] = now
+                await _record_start_failure(db, job_id, type(exc).__name__)
                 continue
             if run_id is None:
                 await db.rollback()
@@ -320,7 +330,7 @@ async def publish_run_proposals(db, run: CandidateSearchRun) -> int:
     if run.job_id is None:
         return 0
     top_k = max(1, int(settings.AUTO_FULL_REVIEW_TOP_K))
-    min_score = float(settings.AUTO_MATCH_MIN_SCORE)
+    min_score = float(settings.AUTO_FULL_REVIEW_MIN_SCORE)
     rows = (
         (
             await db.execute(
@@ -429,9 +439,17 @@ async def publish_on_finish(db, run_id: str, *, eligible: Optional[int]) -> None
         async with db.begin_nested():
             await _publish(db, run, eligible=eligible)
     except Exception as exc:  # noqa: BLE001 — nigdy nie blokuje zakończenia
-        logger.warning(
-            "[auto_full_review] publish skipped run=%s: %s", run_id, type(exc).__name__
+        from app.services import automation_failures as failures
+
+        # Przegląd się udał, publikacja nie: `reconcile_unpublished` ponowi,
+        # ale seria takich awarii ma dotrzeć do admina.
+        await failures.record_failure(
+            failures.KIND_FULL_REVIEW, f"publish:{type(exc).__name__}"
         )
+        return
+    from app.services import automation_failures as failures
+
+    await failures.record_success(failures.KIND_FULL_REVIEW)
 
 
 async def reconcile_unpublished(db, *, now: datetime) -> int:

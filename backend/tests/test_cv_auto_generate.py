@@ -13,6 +13,7 @@ Kontrakty:
 - lustro DDL 0332 jest w ``entrypoint.sh``.
 """
 
+# ruff: noqa: F811  (fixture `pv_client` importowana z sąsiedniego pliku)
 from __future__ import annotations
 
 import uuid
@@ -158,8 +159,7 @@ async def _move(client: AsyncClient, headers, cand_id, job_id, stage="verified")
 
 @pytest.mark.asyncio
 async def test_move_spawns_only_for_verified_and_only_when_enabled(
-    pv_client: AsyncClient,
-    monkeypatch,  # noqa: F811
+    pv_client: AsyncClient, monkeypatch
 ):
     from app.api import pipeline
 
@@ -192,10 +192,7 @@ async def test_move_spawns_only_for_verified_and_only_when_enabled(
 
 
 @pytest.mark.asyncio
-async def test_move_survives_a_broken_automation(
-    pv_client: AsyncClient,
-    monkeypatch,  # noqa: F811
-):
+async def test_move_survives_a_broken_automation(pv_client: AsyncClient, monkeypatch):
     monkeypatch.setattr(settings, "CV_AUTO_GENERATE_ON_VERIFIED", True)
 
     def _boom(**kwargs):
@@ -337,7 +334,7 @@ async def test_second_move_with_the_same_cv_does_not_generate_again(monkeypatch)
         second = await auto._enqueue(
             db, stage_id=world["stage_id"], user_id=world["user_id"]
         )
-    assert first == 4242 and second is None
+    assert first is not None and first[0] == 4242 and second is None
     assert len(calls) == 1
     call = calls[0]
     assert call["origin"] == "auto" and call["user_id"] == world["user_id"]
@@ -400,6 +397,14 @@ async def test_any_failure_is_swallowed_and_recorded(monkeypatch):
     async def _boom(db, *, stage_id, user_id):
         raise RuntimeError("unexpected")
 
+    from app.services import automation_failures as failures
+
+    streak: list[tuple] = []
+
+    async def _streak(kind, code, *, job_id=None):
+        streak.append((kind, code))
+
+    monkeypatch.setattr(failures, "record_failure", _streak)
     monkeypatch.setattr(settings, "CV_AUTO_GENERATE_ON_VERIFIED", True)
     monkeypatch.setattr(auto, "_enqueue", _boom)
     await auto.generate_after_verified(
@@ -410,6 +415,8 @@ async def test_any_failure_is_swallowed_and_recorded(monkeypatch):
         auto.ACTION_FAILED,
         "RuntimeError",
     )
+    assert event.details["message"] == "Błąd wewnętrzny (RuntimeError)."
+    assert streak == [(failures.KIND_AUTO_CV, "RuntimeError")]
 
 
 async def test_successful_enqueue_runs_the_durable_job(monkeypatch):
@@ -418,16 +425,295 @@ async def test_successful_enqueue_runs_the_durable_job(monkeypatch):
     world = await _world()
     _fake_generator(monkeypatch)
     executed: list[int] = []
+    followed: list[dict] = []
 
     async def _execute(job_id):
         executed.append(job_id)
 
+    async def _after(**kwargs):
+        followed.append(kwargs)
+
     monkeypatch.setattr(durable_jobs, "execute_job", _execute)
+    monkeypatch.setattr(auto, "_after_generation", _after)
     monkeypatch.setattr(settings, "CV_AUTO_GENERATE_ON_VERIFIED", True)
     await auto.generate_after_verified(
         stage_id=world["stage_id"], user_id=world["user_id"]
     )
     assert executed == [4242]
+    assert followed and followed[0]["stage_id"] == world["stage_id"]
+
+
+# ── odnajdywalność tam, gdzie rekruter wysyła CV ────────────────────────────
+
+
+async def _auto_doc(world: dict, *, status: str = "ready") -> int:
+    async with AsyncSessionLocal() as db:
+        doc = CvGeneratedDocument(
+            candidate_id=world["candidate_id"],
+            job_id=world["job_id"],
+            client_id=world["client_id"],
+            candidate_name="Auto CV",
+            language="pl",
+            mode="new",
+            content_mode="polished",
+            filename="auto.docx",
+            status=status,
+            render_payload={"name": "Auto CV"} if status == "ready" else None,
+            created_by=world["user_id"],
+            origin="auto",
+            stage_id=world["stage_id"],
+            source_cv_revision=world["revision"],
+        )
+        db.add(doc)
+        await db.commit()
+        return doc.id
+
+
+async def _manual_doc(world: dict) -> int:
+    async with AsyncSessionLocal() as db:
+        doc = CvGeneratedDocument(
+            candidate_id=world["candidate_id"],
+            job_id=world["job_id"],
+            candidate_name="Manual CV",
+            language="pl",
+            mode="new",
+            content_mode="polished",
+            filename="manual.docx",
+            status="ready",
+            render_payload={"name": "Manual CV"},
+            created_by=world["user_id"],
+        )
+        db.add(doc)
+        await db.commit()
+        return doc.id
+
+
+async def _approve(doc_id: int, user_id: int) -> None:
+    import hashlib
+    from datetime import datetime, timezone
+
+    from app.models.cv_document_version import CvDocumentVersion
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CvDocumentVersion(
+                generated_owner_id=doc_id,
+                generated_document_id=doc_id,
+                version=1,
+                content_html="<p>ok</p>",
+                content_sha256=hashlib.sha256(b"<p>ok</p>").hexdigest(),
+                approved_at=datetime.now(timezone.utc),
+                approved_by=user_id,
+            )
+        )
+        await db.commit()
+
+
+def _headers(user_id: int) -> dict[str, str]:
+    from app.core.security import create_access_token
+
+    return {"Authorization": f"Bearer {create_access_token(user_id, 'recruiter')}"}
+
+
+@pytest.mark.asyncio
+async def test_auto_cv_is_first_in_the_select_generated_list_until_approved(
+    pv_client: AsyncClient,
+):
+    world = await _world()
+    auto_id = await _auto_doc(world)
+    manual_id = await _manual_doc(world)  # nowszy — bez przypięcia byłby pierwszy
+    headers = _headers(world["user_id"])
+    params = {"candidate_id": world["candidate_id"], "job_id": world["job_id"]}
+
+    listed = await pv_client.get(
+        "/api/cv-generator/generated", params=params, headers=headers
+    )
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()
+    assert [r["id"] for r in rows] == [auto_id, manual_id]
+    assert (rows[0]["origin"], rows[0]["needs_review"]) == ("auto", True)
+    assert rows[0]["stage_id"] == world["stage_id"]
+    assert (rows[1]["origin"], rows[1]["needs_review"]) == ("manual", False)
+
+    by_stage = await pv_client.get(
+        "/api/cv-generator/generated",
+        params={"stage_id": world["stage_id"], "candidate_id": world["candidate_id"]},
+        headers=headers,
+    )
+    assert by_stage.json()[0]["id"] == auto_id
+    # Kolejna strona (before_id) nie powtarza przypiętego wiersza.
+    page2 = await pv_client.get(
+        "/api/cv-generator/generated",
+        params={**params, "before_id": manual_id + 1},
+        headers=headers,
+    )
+    assert [r["id"] for r in page2.json()] == [manual_id]
+
+    # Zatwierdzenie istniejącą ścieżką (wersja dokumentu) kończy „needs_review".
+    await _approve(auto_id, world["user_id"])
+    after = (
+        await pv_client.get(
+            "/api/cv-generator/generated", params=params, headers=headers
+        )
+    ).json()
+    assert [r["id"] for r in after] == [manual_id, auto_id]
+    assert after[1]["origin"] == "auto" and after[1]["needs_review"] is False
+
+
+@pytest.mark.asyncio
+async def test_kanban_card_says_auto_cv_is_ready_until_someone_approves_it(
+    pv_client: AsyncClient,
+):
+    world = await _world()
+    headers = _headers(world["user_id"])
+
+    async def _flag() -> bool:
+        board = await pv_client.get(
+            f"/api/pipeline/kanban/{world['job_id']}", headers=headers
+        )
+        assert board.status_code == 200, board.text
+        [card] = [
+            item
+            for column in board.json()["columns"]
+            for item in column["items"]
+            if item["candidate_id"] == world["candidate_id"]
+        ]
+        return card["auto_cv_ready"]
+
+    assert await _flag() is False
+    doc_id = await _auto_doc(world, status="processing")
+    assert await _flag() is False  # jeszcze się generuje
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(CvGeneratedDocument, doc_id)
+        doc.status = "ready"
+        await db.commit()
+    assert await _flag() is True
+    await _approve(doc_id, world["user_id"])
+    assert await _flag() is False
+
+
+def test_kanban_flag_is_one_batched_query():
+    source = (_BACKEND / "app" / "api" / "pipeline.py").read_text("utf-8")
+    # Jedno zapytanie na tablicę, poza pętlą po kartach.
+    assert source.count("await job_stages_with_ready_auto_cv(db, job_id)") == 1
+    assert 'payload["auto_cv_ready"] = e.id in auto_cv_stage_ids' in source
+
+
+async def _stage_cv(world: dict, *, status: str = "none") -> int:
+    from app.models.candidate_stage_cv import CandidateStageCV
+
+    async with AsyncSessionLocal() as db:
+        csv = CandidateStageCV(
+            candidate_stage_id=world["stage_id"],
+            candidate_id=world["candidate_id"],
+            job_id=world["job_id"],
+            branded_status=status,
+        )
+        db.add(csv)
+        await db.commit()
+        return csv.id
+
+
+def _fake_attach(monkeypatch) -> list[dict]:
+    from app.api import candidate_stage_cv as stage_api
+
+    calls: list[dict] = []
+
+    async def _apply(db, csv, generated, *, user_id, approved=None, activity_action):
+        calls.append({"action": activity_action, "user_id": user_id})
+        csv.generated_document_id = generated.id
+        csv.branded_status = "draft"
+
+    monkeypatch.setattr(stage_api, "apply_generated_to_stage_cv", _apply)
+    return calls
+
+
+async def test_ready_auto_cv_becomes_the_stage_draft_never_an_approval(monkeypatch):
+    from app.models.candidate_stage_cv import CandidateStageCV
+
+    world = await _world()
+    csv_id = await _stage_cv(world)
+    doc_id = await _auto_doc(world)
+    calls = _fake_attach(monkeypatch)
+
+    attached = await auto.attach_as_stage_draft(
+        stage_id=world["stage_id"], user_id=world["user_id"], generated_id=doc_id
+    )
+    assert attached is True
+    assert calls == [
+        {"action": "branded_cv_attached_by_automation", "user_id": world["user_id"]}
+    ]
+    async with AsyncSessionLocal() as db:
+        csv = await db.get(CandidateStageCV, csv_id)
+        assert csv.generated_document_id == doc_id
+        # SZKIC — zatwierdza wyłącznie człowiek (`finalize`).
+        assert csv.branded_status == "draft"
+        assert csv.branded_finalized_at is None
+
+
+async def test_existing_draft_is_never_overwritten_by_the_automation(monkeypatch):
+    from app.models.candidate_stage_cv import CandidateStageCV
+
+    world = await _world()
+    csv_id = await _stage_cv(world, status="draft")
+    doc_id = await _auto_doc(world)
+    calls = _fake_attach(monkeypatch)
+    assert (
+        await auto.attach_as_stage_draft(
+            stage_id=world["stage_id"], user_id=world["user_id"], generated_id=doc_id
+        )
+        is False
+    )
+    assert calls == []
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(CandidateStageCV, csv_id)).generated_document_id is None
+
+
+async def test_attach_failure_is_swallowed(monkeypatch):
+    from app.api import candidate_stage_cv as stage_api
+
+    world = await _world()
+    await _stage_cv(world)
+    doc_id = await _auto_doc(world)
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("assets unavailable")
+
+    monkeypatch.setattr(stage_api, "apply_generated_to_stage_cv", _boom)
+    assert (
+        await auto.attach_as_stage_draft(
+            stage_id=world["stage_id"], user_id=world["user_id"], generated_id=doc_id
+        )
+        is False
+    )
+
+
+async def test_failed_generation_is_a_feed_entry_not_a_notification(monkeypatch):
+    from app.models.notification import Notification
+    from app.services import automation_failures as failures
+
+    recorded: list[tuple] = []
+
+    async def _streak(kind, code, *, job_id=None):
+        recorded.append((kind, code, job_id))
+
+    monkeypatch.setattr(failures, "record_failure", _streak)
+    world = await _world()
+    doc_id = await _auto_doc(world, status="failed")
+    await auto._after_generation(
+        stage_id=world["stage_id"], user_id=world["user_id"], generated_id=doc_id
+    )
+    [event] = await _events(world["job_id"])
+    assert event.action == auto.ACTION_FAILED
+    assert event.details["reason"] == "generation_failed"
+    assert event.details["message"] == "Generacja CV zakończyła się błędem."
+    assert recorded == [(failures.KIND_AUTO_CV, "generation_failed", world["job_id"])]
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.scalar(
+                select(Notification.id).where(Notification.user_id == world["user_id"])
+            )
+        ) is None
 
 
 # ── lustro DDL ──────────────────────────────────────────────────────────────
@@ -440,6 +726,7 @@ def test_entrypoint_mirrors_migration_0332():
     text = " ".join(re.sub(r'"\s*\n\s*"', "", raw).split())
     for needle in (
         "ADD VALUE IF NOT EXISTS 'auto_match_proposals'",
+        "ADD VALUE IF NOT EXISTS 'automation_failing'",
         "ADD COLUMN IF NOT EXISTS origin VARCHAR(16) NOT NULL DEFAULT 'manual'",
         "ADD COLUMN IF NOT EXISTS stage_id INTEGER",
         "ADD COLUMN IF NOT EXISTS source_cv_revision VARCHAR(64)",

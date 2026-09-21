@@ -56,6 +56,7 @@ async def _record(
     reason: Optional[str] = None,
     detail: Optional[str] = None,
     generated_id: Optional[int] = None,
+    message: Optional[str] = None,
 ) -> None:
     from app.models.activity import Activity
 
@@ -67,6 +68,8 @@ async def _record(
         details["detail"] = detail[:300]
     if generated_id is not None:
         details["generated_id"] = generated_id
+    if message:
+        details["message"] = message
     db.add(
         Activity(
             entity_type=ACTIVITY_ENTITY,
@@ -87,8 +90,8 @@ def _detail_text(detail) -> str:
     return ""
 
 
-async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[int]:
-    """Zwraca id trwałego zadania do wykonania albo None (pominięte/odmowa)."""
+async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, int]]:
+    """Zwraca ``(id trwałego zadania, id dokumentu)`` albo None (pominięte/odmowa)."""
     from fastapi import HTTPException
 
     from app.api.candidate_access import CANDIDATE_WRITE_ROLES
@@ -190,7 +193,7 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[int]:
         # Równoległy ruch tej samej karty wygrał wyścig o klucz idempotencji.
         await db.rollback()
         return None
-    return durable_id
+    return durable_id, generated_id
 
 
 async def generate_after_verified(*, stage_id: int, user_id: int) -> None:
@@ -198,49 +201,136 @@ async def generate_after_verified(*, stage_id: int, user_id: int) -> None:
     if not enabled():
         return
     from app.core.database import AsyncSessionLocal
+    from app.services import automation_failures as failures
 
-    durable_id: Optional[int] = None
+    queued: Optional[tuple[int, int]] = None
     try:
         async with AsyncSessionLocal() as db:
             try:
-                durable_id = await _enqueue(db, stage_id=stage_id, user_id=user_id)
+                queued = await _enqueue(db, stage_id=stage_id, user_id=user_id)
             except IntegrityError:
                 await db.rollback()
             except Exception as exc:  # noqa: BLE001
                 await db.rollback()
-                logger.warning(
-                    "[cv_auto] stage=%s enqueue failed: %s",
-                    stage_id,
-                    type(exc).__name__,
-                )
                 await _record_failure(stage_id, user_id, type(exc).__name__)
-        if durable_id is not None:
-            from app.services.cv_generator_b2b.durable_jobs import execute_job
+        if queued is None:
+            return
+        durable_id, generated_id = queued
+        from app.services.cv_generator_b2b.durable_jobs import execute_job
 
-            # Wynik (ready/failed) ląduje na wierszu dokumentu — jak po
-            # kliknięciu. Padnięty proces podejmie `recovery_loop` generatora.
-            await execute_job(durable_id)
+        # Wynik (ready/failed) ląduje na wierszu dokumentu — jak po kliknięciu.
+        # Padnięty proces podejmie `recovery_loop` generatora.
+        await execute_job(durable_id)
+        await _after_generation(
+            stage_id=stage_id, user_id=user_id, generated_id=generated_id
+        )
     except Exception as exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
         logger.warning("[cv_auto] stage=%s failed: %s", stage_id, type(exc).__name__)
+        await failures.record_failure(failures.KIND_AUTO_CV, type(exc).__name__)
 
 
-async def _record_failure(stage_id: int, user_id: int, code: str) -> None:
+async def _after_generation(*, stage_id: int, user_id: int, generated_id: int) -> None:
+    """Gotowy dokument → szkic brandowanego CV etapu; porażka → wpis i licznik."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.cv_generated_document import CvGeneratedDocument
+    from app.services import automation_failures as failures
+
+    async with AsyncSessionLocal() as db:
+        status = await db.scalar(
+            select(CvGeneratedDocument.status).where(
+                CvGeneratedDocument.id == generated_id
+            )
+        )
+    if status == "ready":
+        await failures.record_success(failures.KIND_AUTO_CV)
+        await attach_as_stage_draft(
+            stage_id=stage_id, user_id=user_id, generated_id=generated_id
+        )
+    elif status == "failed":
+        await _record_failure(
+            stage_id, user_id, "generation_failed", generated_id=generated_id
+        )
+    # `processing` = zadanie przejął inny worker / proces padł; dokończy je
+    # `recovery_loop`, a dokument i tak jest widoczny na liście z flagą auto.
+
+
+async def attach_as_stage_draft(
+    *, stage_id: int, user_id: int, generated_id: int
+) -> bool:
+    """Podepnij gotowe auto-CV jako SZKIC brandowanego CV etapu — tylko gdy etap
+    nie ma jeszcze żadnego szkicu (``branded_status == "none"``).
+
+    To ta sama operacja co „Zastąp szkic i otwórz edytor" w warsztacie wysyłki
+    CV (`apply_generated_to_stage_cv`): wynik to ``draft``, NIGDY zatwierdzenie —
+    zatwierdza człowiek przez `finalize`. Istniejącego szkicu (także domyślnego,
+    którego ktoś mógł już edytować) automat nie nadpisuje; dokument zostaje
+    wtedy pierwszy na liście „wybór z wygenerowanych" z ``needs_review``.
+    Nigdy nie rzuca.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate_stage_cv import CandidateStageCV
+    from app.models.cv_generated_document import CvGeneratedDocument
+
+    try:
+        from app.api.candidate_stage_cv import apply_generated_to_stage_cv
+
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV)
+                .where(CandidateStageCV.candidate_stage_id == stage_id)
+                .with_for_update()
+            )
+            generated = await db.get(CvGeneratedDocument, generated_id)
+            if (
+                csv is None
+                or generated is None
+                or csv.branded_status != "none"
+                or generated.status != "ready"
+                or not generated.render_payload
+                or generated.candidate_id != csv.candidate_id
+                or generated.job_id != csv.job_id
+            ):
+                return False
+            await apply_generated_to_stage_cv(
+                db,
+                csv,
+                generated,
+                user_id=user_id,
+                activity_action="branded_cv_attached_by_automation",
+            )
+            await db.commit()
+            return True
+    except Exception as exc:  # noqa: BLE001 — dokument i tak jest na liście
+        logger.warning(
+            "[cv_auto] stage=%s draft not attached: %s", stage_id, type(exc).__name__
+        )
+        return False
+
+
+async def _record_failure(
+    stage_id: int, user_id: int, code: str, *, generated_id: Optional[int] = None
+) -> None:
     from app.core.database import AsyncSessionLocal
     from app.models.recruitment_pipeline import CandidateStage
+    from app.services import automation_failures as failures
 
+    job_id = None
     try:
         async with AsyncSessionLocal() as db:
             stage = await db.get(CandidateStage, stage_id)
-            if stage is None:
-                return
-            await _record(
-                db,
-                action=ACTION_FAILED,
-                job_id=stage.job_id,
-                stage_id=stage.id,
-                candidate_id=stage.candidate_id,
-                user_id=user_id,
-                reason=code[:80],
-            )
+            if stage is not None:
+                job_id = stage.job_id
+                await _record(
+                    db,
+                    action=ACTION_FAILED,
+                    job_id=stage.job_id,
+                    stage_id=stage.id,
+                    candidate_id=stage.candidate_id,
+                    user_id=user_id,
+                    reason=code[:80],
+                    message=failures.reason_pl(code),
+                    generated_id=generated_id,
+                )
     except Exception:  # noqa: BLE001
         logger.warning("[cv_auto] stage=%s failure not recorded", stage_id)
+    await failures.record_failure(failures.KIND_AUTO_CV, code, job_id=job_id)

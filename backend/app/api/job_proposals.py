@@ -258,8 +258,19 @@ _BACKGROUND_KINDS = {
     "cv_auto_generate_started": "cv_auto_generate",
     "cv_auto_generate_skipped": "cv_auto_generate_skipped",
     "cv_auto_generate_failed": "cv_auto_generate_failed",
+    # Awarie: rekruter nie dostaje powiadomienia — wpis z polskim powodem.
+    "auto_full_review_failed": "auto_full_review_failed",
+    "auto_match_failed": "new_cv_proposals_failed",
 }
-_DETAIL_KEYS = ("run_id", "proposals", "eligible", "count", "trigger", "reason")
+_DETAIL_KEYS = (
+    "run_id",
+    "proposals",
+    "eligible",
+    "count",
+    "trigger",
+    "reason",
+    "message",
+)
 
 
 @router.get("/jobs/{job_id}/background-events")

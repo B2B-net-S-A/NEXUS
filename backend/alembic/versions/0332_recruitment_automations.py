@@ -6,6 +6,8 @@ Revises: 0331_job_proposals
 * ``notificationtype.auto_match_proposals`` — JEDEN dzienny digest na
   (rekrutacja, odbiorca): „N nowych propozycji z nowych CV” (auto-match
   w trybie ``propose`` — nic nie wchodzi do pipeline'u).
+* ``notificationtype.automation_failing`` — ten sam automat padł 3 razy z rzędu;
+  jedno powiadomienie na serię, tylko dla adminów.
 * ``cv_generated_documents.origin`` (``manual`` | ``auto``), ``stage_id``,
   ``source_cv_revision`` — auto-CV po ruchu na „Zweryfikowany”. Częściowy
   UNIQUE ``(stage_id, source_cv_revision) WHERE origin = 'auto'`` jest kluczem
@@ -31,6 +33,9 @@ def upgrade() -> None:
     with op.get_context().autocommit_block():
         op.execute(
             "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'auto_match_proposals'"
+        )
+        op.execute(
+            "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'automation_failing'"
         )
     op.add_column(
         "cv_generated_documents",

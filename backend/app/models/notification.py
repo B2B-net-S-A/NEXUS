@@ -145,6 +145,10 @@ class NotificationType(str, enum.Enum):
     # related_entity=(job, id); kolejne propozycje tego dnia podbijają licznik
     # w istniejącym wpisie (`auto_match_service._notify_proposals`).
     auto_match_proposals = "auto_match_proposals"
+    # 0332: TEN SAM automat rekrutacji padł 3 razy z rzędu — JEDNO powiadomienie
+    # na serię, wyłącznie dla adminów (`services/automation_failures.py`).
+    # Rekruterzy nie dostają nic: awaria jest wpisem w „Pracy w tle".
+    automation_failing = "automation_failing"
 
 
 class Notification(Base, TimestampMixin):

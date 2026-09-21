@@ -52,7 +52,7 @@ from app.core.terminal_failure import terminal_operation, capture_terminal_failu
 from app.core.http_headers import content_disposition_attachment
 from pydantic import BaseModel, Field
 from app.services.cv_generator_b2b import central_policies
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -233,6 +233,11 @@ class GeneratedCvItem(BaseModel):
     content_mode: str
     # 0332: `auto` = zakolejkował system po ruchu na „Zweryfikowany".
     origin: str = "manual"
+    # Etap, na którym system zakolejkował dokument (tylko `origin="auto"`).
+    stage_id: Optional[int] = None
+    # Auto-CV, którego nikt jeszcze nie zatwierdził istniejącą ścieżką — takie
+    # wiersze stoją NA POCZĄTKU listy osadzonej w warsztacie wysyłki CV.
+    needs_review: bool = False
     filename: str
     # Async generation lifecycle — the UI polls this list and renders a spinner
     # for "processing", the CV for "ready" and the reason for "failed".
@@ -2451,8 +2456,15 @@ async def list_generated_cvs(
     candidate_id: Annotated[Optional[int], Query(ge=1)] = None,
     job_id: Annotated[Optional[int], Query(ge=1)] = None,
     before_id: Annotated[Optional[int], Query(ge=1)] = None,
+    stage_id: Annotated[Optional[int], Query(ge=1)] = None,
 ):
     """Recently generated CVs for the panel list (newest first).
+
+    Auto-CV czekające na przegląd (``needs_review``) stoją PIERWSZE, gdy lista
+    jest zawężona do etapu (``stage_id``) albo do pary kandydat + rekrutacja
+    (tak pyta panel osadzony w warsztacie wysyłki CV). Przypięte wiersze są
+    tylko na pierwszej stronie — z ``before_id`` wypadają, żeby stronicowanie
+    po id ich nie powtarzało.
 
     ``status`` drives the row's look (spinner while „processing", the CV once
     „ready", the reason on „failed"); the UI polls this endpoint while any row
@@ -2479,8 +2491,18 @@ async def list_generated_cvs(
         # wtedy wyłącznie własne CV wołającego — dokładnie to, co wolno mu
         # zobaczyć w osadzonym panelu rekrutacji.
         filters.append(CvGeneratedDocument.job_id == job_id)
+    from app.services.cv_auto_review import needs_review_clause
+
+    needs_review = needs_review_clause()
+    pinned = None
+    if stage_id is not None:
+        pinned = and_(needs_review, CvGeneratedDocument.stage_id == stage_id)
+    elif candidate_id is not None and job_id is not None:
+        pinned = needs_review
     if before_id is not None:
         filters.append(CvGeneratedDocument.id < before_id)
+        if pinned is not None:
+            filters.append(~pinned)
     is_admin = current_user.has_role(UserRole.admin)
     # `display_name` przed `name`: to drugie nadpisuje sync Traffita, więc
     # etykieta w panelu rozjeżdżałaby się z tą z pickera klienta.
@@ -2502,6 +2524,7 @@ async def list_generated_cvs(
                 func.coalesce(
                     func.nullif(func.trim(Client.display_name), ""), Client.name
                 ),
+                needs_review.label("needs_review"),
             )
             .options(
                 defer(CvGeneratedDocument.docx_content),
@@ -2511,7 +2534,10 @@ async def list_generated_cvs(
             .outerjoin(User, User.id == CvGeneratedDocument.created_by)
             .outerjoin(Client, Client.id == CvGeneratedDocument.client_id)
             .where(*filters)
-            .order_by(CvGeneratedDocument.id.desc())
+            .order_by(
+                *([pinned.desc()] if pinned is not None and before_id is None else []),
+                CvGeneratedDocument.id.desc(),
+            )
             .limit(limit)
         )
     ).all()
@@ -2552,6 +2578,8 @@ async def list_generated_cvs(
             mode=r.mode,
             content_mode=r.content_mode,
             origin=getattr(r, "origin", None) or "manual",
+            stage_id=r.stage_id,
+            needs_review=bool(row_needs_review),
             filename=r.filename,
             status=r.status,
             job_status=job_status,
@@ -2567,7 +2595,7 @@ async def list_generated_cvs(
             and r.status != "processing"
             and job_status not in {"queued", "running"},
         )
-        for r, creator_name, job_status, client_name in rows
+        for r, creator_name, job_status, client_name, row_needs_review in rows
     ]
 
 

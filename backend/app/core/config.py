@@ -508,6 +508,9 @@ class Settings(BaseSettings):
     AUTO_FULL_REVIEW_ENABLED: bool = True
     AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 20
     AUTO_FULL_REVIEW_TOP_K: int = 60
+    # Osobny próg, bo pełny przegląd punktuje kanonicznym fitem, a auto-match
+    # nowych CV starszym scoringiem — wspólny próg stroiłby dwa różne pomiary.
+    AUTO_FULL_REVIEW_MIN_SCORE: float = 70.0
     AUTO_FULL_REVIEW_WINDOW_START_HOUR: int = 1
     AUTO_FULL_REVIEW_WINDOW_END_HOUR: int = 5
     AUTO_FULL_REVIEW_INTERVAL_SECONDS: int = 60

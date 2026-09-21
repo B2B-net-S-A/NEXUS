@@ -1646,6 +1646,12 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
         for uid, uname in orows.all():
             user_name_by_id[uid] = uname
 
+    # Auto-CV gotowe w tle i czekające na przegląd (21.09.2026) — JEDNO
+    # zapytanie na tablicę; flaga dotyczy wiersza etapu, na którym je zakolejkowano.
+    from app.services.cv_auto_review import job_stages_with_ready_auto_cv
+
+    auto_cv_stage_ids = await job_stages_with_ready_auto_cv(db, job_id)
+
     def _stage_resp_with_name(e: CandidateStage) -> dict:
         n, ln = name_by_id.get(e.candidate_id, (None, None))
         first = earliest.get(e.candidate_id)
@@ -1665,6 +1671,7 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
         )
         payload["contact_case"] = contact_case_by_candidate.get(e.candidate_id)
         payload["process_state_version"] = process_versions.get(e.candidate_id, 0)
+        payload["auto_cv_ready"] = e.id in auto_cv_stage_ids
         # Rekruter karty: właściciel procesu (Priority Work), a gdy proces go
         # nie ma — osoba, która dodała kandydata do rekrutacji.
         process_owner = process_cards.get(e.candidate_id, (0, None))[1]

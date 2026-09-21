@@ -515,7 +515,7 @@ async def _proposals(job_id: int) -> list[JobProposal]:
 
 
 async def test_finished_auto_run_publishes_only_good_matches(monkeypatch):
-    monkeypatch.setattr(settings, "AUTO_MATCH_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
     monkeypatch.setattr(settings, "AUTO_MATCH_REQUIRE_MUST", True)
     owner_id, _ = await _user()
     world = await _job(owner_id=owner_id, event=False, people=5)
@@ -560,7 +560,7 @@ async def test_finished_auto_run_publishes_only_good_matches(monkeypatch):
 
 async def test_top_k_caps_the_number_of_proposals(monkeypatch):
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_TOP_K", 2)
-    monkeypatch.setattr(settings, "AUTO_MATCH_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
     owner_id, _ = await _user()
     world = await _job(owner_id=owner_id, event=False, people=5)
     run_id = str(uuid.uuid4())
@@ -608,7 +608,7 @@ async def test_manual_run_publishes_nothing():
 
 
 async def test_publish_failure_never_raises_and_is_reconciled_later(monkeypatch):
-    monkeypatch.setattr(settings, "AUTO_MATCH_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
     owner_id, _ = await _user()
     world = await _job(owner_id=owner_id, event=False, people=5)
     run_id = await _finished_auto_run(world, owner_id)

@@ -38,7 +38,7 @@ ALWAYS_VISIBLE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
 )
 
 ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
-    {NotificationType.ai_spend_alert}
+    {NotificationType.ai_spend_alert, NotificationType.automation_failing}
 )
 
 # Context-sensitive types are handled separately below.  Every other enum

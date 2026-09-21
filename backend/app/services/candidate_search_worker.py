@@ -56,7 +56,24 @@ async def _notify_search_finished(
                 return
             if store.is_auto_run(run):
                 # Nocny automat: „autor" niczego nie uruchamiał. O wyniku mówi
-                # skrzynka „Propozycje" i zakładka „Praca w tle", nie dzwonek.
+                # skrzynka „Propozycje" i zakładka „Praca w tle", nie dzwonek —
+                # także o awarii (decyzja 21.09.2026: rekruter bez powiadomień;
+                # trzy awarie z rzędu alarmują adminów).
+                if failed and run.job_id is not None:
+                    from app.services import automation_failures as failures
+
+                    await failures.record_job_failure_event(
+                        db,
+                        job_id=run.job_id,
+                        action="auto_full_review_failed",
+                        error_code=run.error_code,
+                        run_id=run.id,
+                    )
+                    await failures.record_failure(
+                        failures.KIND_FULL_REVIEW,
+                        run.error_code or "failed",
+                        job_id=run.job_id,
+                    )
                 return
             link = f"/jobs/{run.job_id}?tab=similar" if run.job_id else "/talent-radar"
             ntype = NotificationType.candidate_search_completed
