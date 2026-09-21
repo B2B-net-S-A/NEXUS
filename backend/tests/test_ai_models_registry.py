@@ -104,7 +104,9 @@ DECISION_2026_09_16 = {
     AIFeatureKey.cv_generator: ("F4", "claude-sonnet-5"),
     AIFeatureKey.cv_interactive_chat: ("F5", "gpt-5.6-luna"),
     AIFeatureKey.job_description_generator: ("F6", "claude-sonnet-5"),
-    AIFeatureKey.order_parser: ("F7", "gpt-5.6-luna"),
+    # F7 — powrót na Sonneta 5 decyzją 21.09.2026 (GPT Luna flagowała
+    # poprawne odczyty jako niepewne).
+    AIFeatureKey.order_parser: ("F7", "claude-sonnet-5"),
     AIFeatureKey.uop_check: ("F8", "gpt-5.6-luna"),
     AIFeatureKey.cv_parser: ("F9", "claude-sonnet-5"),
     AIFeatureKey.cv_backfill: ("F10", "claude-sonnet-5"),
@@ -135,7 +137,7 @@ def _clear_model_overrides(monkeypatch):
     # Legacy pola settings: domyślne z config.py (Sonnet 5 od 16.09.2026).
     monkeypatch.setattr(settings, "CLAUDE_MODEL_CV", "claude-sonnet-5")
     monkeypatch.setattr(settings, "CLAUDE_MODEL_CV_BULK", "claude-sonnet-5")
-    monkeypatch.setattr(settings, "ORDER_PARSER_MODEL", "gpt-5.6-luna")
+    monkeypatch.setattr(settings, "ORDER_PARSER_MODEL", "claude-sonnet-5")
 
 
 def test_decision_table_covers_every_feature():
@@ -172,7 +174,6 @@ def test_legacy_settings_defaults_agree_with_the_registry():
     "feature",
     [
         AIFeatureKey.cv_interactive_chat,
-        AIFeatureKey.order_parser,
         AIFeatureKey.uop_check,
         AIFeatureKey.mindy_chat,
         AIFeatureKey.notes_extraction,
