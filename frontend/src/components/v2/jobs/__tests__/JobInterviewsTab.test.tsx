@@ -676,3 +676,72 @@ describe("feedback klienta zapisany z kalendarza (audyt 17.09.2026)", () => {
     );
   });
 });
+
+describe("JobInterviewsTab — layout=\"panel\" (rekrutacja v3)", () => {
+  const twoAtClient = () =>
+    columns([
+      {
+        count: 2,
+        items: [
+          item(),
+          item({ id: 901, candidate_id: 43, name: "Marcin", lastname: "Jóźwiak" }),
+        ],
+      },
+    ]);
+
+  it("pokazuje wyłącznie osobę z focusCandidateId — bez listy i nagłówka kroku", async () => {
+    renderTab({ layout: "panel", focusCandidateId: 43, columns: twoAtClient() });
+    await waitFor(() => expect(getForStage).toHaveBeenCalledWith(901));
+    expect(getForStage).not.toHaveBeenCalledWith(900);
+    expect(screen.queryByRole("list", { name: "Rozmowy u klienta" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Rozmowa u klienta ·/ })).toBeNull();
+    expect(screen.queryByText("Grzegorz Żebrowski")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Zamknij dok" })).toBeNull();
+  });
+
+  it("osoba spoza etapów klienta dostaje zdanie o etapie, nie pustkę ani błąd", () => {
+    renderTab({ layout: "panel", focusCandidateId: 777 });
+    expect(
+      screen.getByText(/Rozmowy i decyzja klienta są dostępne na etapach u klienta/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(getForStage).not.toHaveBeenCalled();
+  });
+
+  it("awaria pipeline'u w panelu to awaria, nie zdanie o etapie", () => {
+    renderTab({
+      layout: "panel",
+      focusCandidateId: 42,
+      columns: [],
+      columnsError: { response: { status: 500 } },
+      columnsSuccess: false,
+      onColumnsRetry: vi.fn(),
+    });
+    expect(screen.queryByText(/są dostępne na etapach u klienta/)).toBeNull();
+    expect(screen.getByRole("button", { name: /Spróbuj ponownie/ })).toBeTruthy();
+  });
+
+  it("kluczowe akcje zostają: werdykt HM, karta Championa, arkusz, prep, ruchy i odrzucenie", async () => {
+    renderTab({ layout: "panel", focusCandidateId: 42 });
+    expect(await screen.findByRole("button", { name: /Zapisz feedback/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Karta Championa dla klienta/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Otwórz arkusz" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Pokaż CV obok/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Zaproszenie prep/ })).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: /Prep-kit/ }).getAttribute("href"),
+    ).toBe("/jobs/10/prep/42");
+    expect(screen.getByRole("button", { name: "Akceptacja" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Odrzuć z powodem/ })).toBeTruthy();
+    for (const tab of ["Decyzja", "Oferta", "Notatki", "Historia"]) {
+      expect(screen.getByRole("tab", { name: tab })).toBeTruthy();
+    }
+  });
+
+  it("`can_record=false` blokuje werdykt także w panelu", async () => {
+    listFeedback.mockResolvedValue({ can_record: false, items: [] });
+    renderTab({ layout: "panel", focusCandidateId: 42 });
+    await screen.findByText(/masz tu podgląd|ma tu podgląd/);
+    expect(screen.queryByRole("button", { name: /Zapisz feedback/ })).toBeNull();
+  });
+});

@@ -95,3 +95,52 @@ describe("/preview/contracts-consolidation zasiewa każdy stały klucz", () => {
     ).toEqual([]);
   });
 });
+
+describe("/preview/recruitment-v3 zasiewa każdy stały klucz i nie ma sieci", () => {
+  const harness = withoutComments(read("app/preview/recruitment-v3/page.tsx")).replace(/\s+/g, " ");
+  // Wszystko, co harness montuje (bezpośrednio albo przez panel osoby),
+  // plus `JobShortlist` — segment shortlisty produkcyjnie renderuje właśnie jego.
+  const components = [
+    "components/v2/recruitment/RecruitmentWorkspace.tsx",
+    "components/v2/recruitment/StageStrip.tsx",
+    "components/v2/recruitment/QuickChips.tsx",
+    "components/v2/recruitment/PeopleTable.tsx",
+    "components/v2/recruitment/BulkBar.tsx",
+    "components/v2/recruitment/PersonPanel.tsx",
+    "components/v2/recruitment/ProposalsSegment.tsx",
+    "components/v2/recruitment/ProposalPanel.tsx",
+    "components/v2/recruitment/useBulkCvHandoff.tsx",
+    "components/v2/recruitment/BulkCvHandoffDialog.tsx",
+    "components/v2/jobs/JobShortlist.tsx",
+    "hooks/usePipelineMove.tsx",
+    "hooks/useCandidateContactFeature.ts",
+  ];
+
+  it("nie zostawia stałego klucza bez zasiewu", () => {
+    const missing: string[] = [];
+    for (const file of components) {
+      for (const key of literalQueryKeys(read(file))) {
+        if (!harness.includes(key)) missing.push(`${file}: ${key}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("zasiewa też klucze z parametrem, o które pyta widok domyślny", () => {
+    // Tych strażnik literałów nie widzi (zależą od `jobId`), a odpalają się
+    // przy samym wejściu: dopasowania tabeli i flaga modułu kontaktu.
+    expect(harness).toContain('["pipeline-scores", String(JOB_ID)]');
+    expect(harness).toContain("candidateContactQueryKeys.status()");
+    expect(harness).toContain("candidateQueryKeys.detail(item.candidate_id)");
+    expect(harness).toContain("candidateQueryKeys.notes(item.candidate_id)");
+  });
+
+  it("odcina sieć na czas życia harnessu (warsztaty panelu pytają o klucze nie do zasiania)", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    // Zdjęcie blokady przy odmontowaniu — harness nie psuje reszty aplikacji.
+    expect(harness).toContain("api.interceptors.request.eject(");
+    // Segment propozycji dostaje stan wprost, bez `useJobProposals`.
+    expect(harness).toContain("ProposalsSegmentView");
+    expect(harness).not.toMatch(/<ProposalsSegment\b(?!View)/);
+  });
+});

@@ -152,6 +152,40 @@ class CVShareTokenListItem(BaseModel):
     share_url_suffix: Optional[str] = None
 
 
+class CVShareTokenJobListItem(CVShareTokenListItem):
+    """Link do CV w przekroju CAŁEJ pary (kandydat, rekrutacja).
+
+    Link dla klienta powstaje na etapie SPRZED ruchu na „CV Wysłane", więc
+    widok osoby na późniejszym etapie nie znajdzie go pod swoim ``stage_id``.
+    Te same pola co lista per etap (bez sekretu) + etap, na którym link leży.
+    """
+
+    stage_id: int
+    stage_name: str
+
+
+class RecruitmentBrandedCvSummary(BaseModel):
+    """Stan CV firmowego w przekroju CAŁEJ pary (kandydat, rekrutacja).
+
+    Sfinalizowane CV firmowe leży na etapie SPRZED ruchu na „CV Wysłane" —
+    bieżący wiersz etapu go nie ma, więc odznaka czytana per etap mówiła
+    „brak". ``status == "none"`` = żaden etap pary nie ma CV firmowego;
+    pozostałe pola są wtedy puste.
+    """
+
+    status: BrandedStatusLiteral = "none"
+    stage_id: Optional[int] = None
+    stage_name: Optional[str] = None
+    finalized_at: Optional[datetime] = None
+
+
+class CVShareTokensForRecruitment(BaseModel):
+    """Linki do CV pary (kandydat, rekrutacja) + stan jej CV firmowego."""
+
+    items: list[CVShareTokenJobListItem]
+    branded_cv: RecruitmentBrandedCvSummary
+
+
 class PublicCVView(BaseModel):
     """Public view brandowanego CV — TYLKO non-PII fields.
 

@@ -35,10 +35,9 @@ import {
  UserX,
  XCircle,
 } from"lucide-react";
-import api, {
+import {
  candidatesApi,
  pipelineApi,
- pipelineTemplatesApi,
 } from"@/lib/api";
 import { candidatePipelinesQueryKey } from"@/components/CandidatePipelinesWidget";
 import {
@@ -112,7 +111,7 @@ import {
 } from "@/lib/pipeline-next-action";
 import { useClientPlaybook } from "@/lib/client-playbooks";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
-import { jobBudgetHourly as resolveJobBudgetHourly } from "@/lib/job-budget";
+import { useJobPipelineTemplate } from "@/hooks/useJobPipelineTemplate";
 import {
  kanbanViewToggleVisible,
  resolveKanbanViewMode,
@@ -162,7 +161,9 @@ interface KanbanBoardV2Props {
  initialDockCandidateId?: number | null;
  /** Woła się raz po obsłużeniu `initialDockCandidateId` — niezależnie od tego,
   *  czy karta była na tablicy — żeby strona zdjęła parametr z adresu. */
- onInitialDockHandled?: () => void;}
+ onInitialDockHandled?: () => void;
+ /** Kto jest teraz w doku — strona przenosi tę osobę do panelu „Tabeli". */
+ onDockCandidateChange?: (candidateId: number | null) => void;}
 
 const CATEGORY_COLOR: Record<string, string> = {
  internal: "bg-primary",
@@ -1264,7 +1265,7 @@ const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
@@ -1295,21 +1296,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setStatusMessage(msg);
  setTimeout(() => setStatusMessage(null), 4000);
  }, []);
- const [rejectionReasons, setRejectionReasons] = useState<
- { id: string; label: string; applies_to: ("rejected" |"withdrawn")[] }[]
- >([]);
- const [stagesWithScorecard, setStagesWithScorecard] = useState<Set<number>>(new Set());
- // Nazwa szablonu do nagłówka lewej kolumny — z odpowiedzi, którą board i tak
- // już pobiera przy rejection-reasons. Żadnego dodatkowego zapytania.
- const [templateName, setTemplateName] = useState<string | null>(null);
- // Budżet GODZINOWY rekrutacji — ta sama liczba co nagłówek i wyszukiwanie;
- // odznaka „ponad budżet" i okno „Zweryfikowany" porównują się z nim.
- const [jobBudgetHourlyValue, setJobBudgetHourlyValue] = useState<number | null>(null);
- // `GET /api/jobs/{id}` liczy to tą samą funkcją co `PATCH …/client-rate`
- // (admin, DL, TAC, TCM, HoR, Finanse albo właściciel/twórca rekrutacji).
- // Reszta przenosi kartę na „CV Wysłane" bez pytania o stawkę — okno
- // kończyłoby się 403 po wpisaniu kwoty.
- const [canWriteClientRate, setCanWriteClientRate] = useState(false);
+ // Powody odrzucenia, etapy ze scorecardem, nazwa szablonu, budżet PLN/h
+ // (ta sama liczba co nagłówek i wyszukiwanie) oraz prawo zapisu stawki do
+ // klienta (`GET /api/jobs/{id}` liczy je tą samą funkcją co
+ // `PATCH …/client-rate`) — wspólny hook z widokiem tabeli rekrutacji.
+ const {
+ rejectionReasons,
+ stagesWithScorecard,
+ templateName,
+ budgetHourly: jobBudgetHourlyValue,
+ canWriteClientRate,
+ } = useJobPipelineTemplate(jobId);
 
  // Krok 04 Pipeline (flow C2, PR 3/7): dok „Karta w procesie" — trzymany po
  // `candidate_id` (STABILNY), nie po id CandidateStage (`item.id` zmienia się
@@ -1321,6 +1318,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setDockCandidateId(item.candidate_id);
  }, []);
  const closeDock = useCallback(() => setDockCandidateId(null), []);
+ useEffect(() => {
+ onDockCandidateChange?.(dockCandidateId);
+ }, [dockCandidateId, onDockCandidateChange]);
 
  // Lewa kolumna: filtry NIE usuwają kart z `cols` (zepsułoby to indeksy
  // `@hello-pangea/dnd`, na których stoi `onDragEnd` — patrz `PipelineFiltersRail`).
@@ -1435,66 +1435,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  : defaultFocusColumnId(columns)
  );
  }, [columns, offTemplate]);
-
- useEffect(() => {
- (async () => {
- const mapReasons = (rrs: any[]) =>
- rrs.map((r: any) => ({
- id: r.id,
- label: r.name,
- applies_to: [r.category as"rejected" |"withdrawn"],
- }));
- try {
- const jobRes = await api.get(`/api/jobs/${jobId}`);
- setJobBudgetHourlyValue(resolveJobBudgetHourly(jobRes.data));
- setCanWriteClientRate(jobRes.data?.can_write_client_rate === true);
- const tid = jobRes.data?.pipeline_template_id;
-
- let reasons: {
- id: string;
- label: string;
- applies_to: ("rejected" |"withdrawn")[];
- }[] = [];
- if (tid) {
- const detail = await pipelineTemplatesApi.get(tid);
- reasons = mapReasons(detail.data.rejection_reasons ?? []);
- // Nazwa szablonu do nagłówka lewej kolumny — z odpowiedzi, która i tak
- // tu leci po rejection-reasons.
- const tname = (detail.data as { name?: string | null }).name;
- setTemplateName(typeof tname === "string" && tname.trim() ? tname : null);
- const withScorecard = new Set<number>();
- for (const s of detail.data.stages ?? []) {
- const sch = (s as any).scorecard_schema;
- if (sch && Array.isArray(sch.questions) && sch.questions.length > 0) {
- withScorecard.add((s as any).id);
- }
- }
- setStagesWithScorecard(withScorecard);
- }
-
- // Legacy joby (np. import z Traffit) nie mają pipeline_template_id, więc
- // ich szablon nie dostarcza powodów odrzucenia. Bez fallbacku dialog
- // "Odrzuć kandydata" miałby pustą listę powodów, a przycisk "Potwierdź"
- // byłby trwale zablokowany. Dociągamy powody z szablonu domyślnego, aby
- // zachować kontrolowany słownik (raporty lejka) zamiast wolnego tekstu.
- if (reasons.length === 0) {
- try {
- const templates = await pipelineTemplatesApi.list();
- const def = templates.data.find((t) => t.is_default);
- if (def) {
- const defDetail = await pipelineTemplatesApi.get(def.id);
- reasons = mapReasons(defDetail.data.rejection_reasons ?? []);
- }
- } catch (e) {
- console.error("Default rejection-reasons fallback failed", e);
- }
- }
- setRejectionReasons(reasons);
- } catch (e) {
- console.error("Pipeline template load failed", e);
- }
- })();
- }, [jobId]);
 
  // Navigator zmienia tylko poziomy viewport. Szukamy po dataset zamiast
  // składać selektor CSS, żeby custom stage IDs pozostały bezpieczne.

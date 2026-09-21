@@ -45,8 +45,16 @@ test.describe("Dostępność @stack", () => {
   test("tablica rekrutacji", async ({ admin, page }, testInfo) => {
     const client = await createClient(admin.api);
     const job = await createJob(admin.api, client.id);
-    await page.goto(`/jobs/${job.id}`);
+    await page.goto(`/jobs/${job.id}?tab=board`);
     await expect(page.getByTestId("pipeline-board")).toBeVisible();
     await expectNoCriticalViolations(page, testInfo, "job-board");
+  });
+
+  test("tabela rekrutacji (widok domyślny)", async ({ admin, page }, testInfo) => {
+    const client = await createClient(admin.api);
+    const job = await createJob(admin.api, client.id);
+    await page.goto(`/jobs/${job.id}`);
+    await expect(page.getByRole("navigation", { name: "Etapy rekrutacji" })).toBeVisible();
+    await expectNoCriticalViolations(page, testInfo, "job-table");
   });
 });

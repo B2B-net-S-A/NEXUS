@@ -75,17 +75,15 @@ test.describe("Manual CV search V2", () => {
     });
   });
 
-  test("job profile exposes 'Wyszukaj manualnie' tab", async ({ page }) => {
-    // Pick the first job in the list to exercise the tab.
+  test("job profile exposes 'Szukaj ręcznie' slide-over", async ({ page }) => {
+    // Pick the first job in the list to exercise the slide-over.
     await page.goto("/jobs");
     const firstJobLink = page.locator('a[href^="/jobs/"]').first();
     await firstJobLink.click();
-    await page
-      .getByRole("button", { name: "Pozyskaj kandydatów" })
-      .click();
-    const manualTab = page.getByTestId("tab-manual-search");
-    await expect(manualTab).toBeVisible({ timeout: 10_000 });
-    await manualTab.click();
+    // Wersja 3: dawna zakładka „Wyszukaj manualnie" to okno obok tabeli osób.
+    await page.getByRole("button", { name: /Szukaj ręcznie/ }).first().click();
+    const manualSearch = page.getByTestId("manual-search-slideover");
+    await expect(manualSearch).toBeVisible({ timeout: 10_000 });
     // The embedded view shares the heading with /candidates/search.
     await expect(
       page.getByRole("heading", { name: /Wyszukiwanie kandydatów/i }),

@@ -51,11 +51,19 @@ test.describe("Pipeline rekrutacji @stack", () => {
     );
     expect(stageOf(kanbanAfterMove, candidate.id)).toBe("screening");
 
-    // Karta jest w kolumnie także po przeładowaniu widoku rekrutacji.
+    // Osoba jest w tabeli (widok domyślny) także po przeładowaniu rekrutacji…
     await page.goto(`/jobs/${job.id}`);
     await page.reload();
+    const table = page.getByRole("grid", { name: "Osoby w rekrutacji" });
+    await expect(table.getByText(fullName)).toBeVisible();
+    // …i na tablicy (przełącznik „Tablica"). Stary adres `?tab=pipeline`
+    // nadal prowadzi do rekrutacji — ląduje na tabeli.
+    await page.getByTestId("view-board").click();
     const board = page.getByTestId("pipeline-board");
     await expect(board.getByRole("link", { name: fullName })).toBeVisible();
+    await page.goto(`/jobs/${job.id}?tab=pipeline`);
+    await expect(page.getByRole("grid", { name: "Osoby w rekrutacji" })).toBeVisible();
+    await expect(page).not.toHaveURL(/tab=pipeline/);
 
     // Ruch z nieaktualną wersją procesu jest odrzucany bez zapisu (F05).
     const stale = await admin.api.post("/api/pipeline/move", {
@@ -100,6 +108,93 @@ test.describe("Pipeline rekrutacji @stack", () => {
       "kanban po odrzuceniu"
     );
     expect(stageOf(kanbanAfterReject, candidate.id)).toBe("rejected");
+  });
+
+  test("ruch etapu z TABELI: panel osoby → wybór etapu", async ({ admin, page }) => {
+    const client = await createClient(admin.api);
+    const job = await createJob(admin.api, client.id);
+    const candidate = await createCandidate(admin.api);
+    const fullName = `${candidate.name} ${candidate.lastname}`;
+    await jsonOf<StageResponse>(
+      await admin.api.post("/api/pipeline/move", {
+        data: { candidate_id: candidate.id, job_id: job.id, stage: "new" },
+      }),
+      200,
+      "dodanie do rekrutacji",
+    );
+
+    await page.goto(`/jobs/${job.id}`);
+    const table = page.getByRole("grid", { name: "Osoby w rekrutacji" });
+    await table.getByText(fullName).click();
+    const panel = page.getByRole("complementary", { name: "Wybrana osoba" });
+    await expect(panel.getByText(fullName)).toBeVisible();
+
+    // Ten sam `usePipelineMove` co tablica — ruch na „Screening" nie otwiera okna.
+    await panel.getByLabel("Etap").selectOption({ label: "Screening" });
+    await expect
+      .poll(async () =>
+        stageOf(
+          await jsonOf<KanbanView>(
+            await admin.api.get(`/api/pipeline/kanban/${job.id}`),
+            200,
+            "kanban po ruchu z tabeli",
+          ),
+          candidate.id,
+        ),
+      )
+      .toBe("screening");
+    // Panel zostaje otwarty na tej samej osobie i pokazuje nowy etap.
+    await expect(panel.getByLabel("Etap")).toHaveValue(/.+/);
+    await expect(panel.getByText(fullName)).toBeVisible();
+  });
+
+  test("ruch etapu na TABLICY: przeciągnięcie karty (klawiatura)", async ({ admin, page }) => {
+    const client = await createClient(admin.api);
+    const job = await createJob(admin.api, client.id);
+    const candidate = await createCandidate(admin.api);
+    const fullName = `${candidate.name} ${candidate.lastname}`;
+    await jsonOf<StageResponse>(
+      await admin.api.post("/api/pipeline/move", {
+        data: { candidate_id: candidate.id, job_id: job.id, stage: "new" },
+      }),
+      200,
+      "dodanie do rekrutacji",
+    );
+    const before = stageOf(
+      await jsonOf<KanbanView>(
+        await admin.api.get(`/api/pipeline/kanban/${job.id}`),
+        200,
+        "kanban przed przeciągnięciem",
+      ),
+      candidate.id,
+    );
+
+    await page.goto(`/jobs/${job.id}?tab=board`);
+    const board = page.getByTestId("pipeline-board");
+    const card = board
+      .locator("[data-rfd-draggable-id]")
+      .filter({ has: page.getByRole("link", { name: fullName }) })
+      .first();
+    await expect(card).toBeVisible();
+    // Przeciąganie klawiaturą (@hello-pangea/dnd): Spacja podnosi kartę,
+    // strzałka przenosi ją do sąsiedniej kolumny, Spacja upuszcza.
+    await card.focus();
+    await page.keyboard.press("Space");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Space");
+
+    await expect
+      .poll(async () =>
+        stageOf(
+          await jsonOf<KanbanView>(
+            await admin.api.get(`/api/pipeline/kanban/${job.id}`),
+            200,
+            "kanban po przeciągnięciu",
+          ),
+          candidate.id,
+        ),
+      )
+      .not.toBe(before);
   });
 
   test("stawka ponad budżet nie tworzy „Pending” — karta jest aktywna z odznaką", async ({

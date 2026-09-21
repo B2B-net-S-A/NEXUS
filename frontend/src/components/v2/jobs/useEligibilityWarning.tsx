@@ -31,6 +31,7 @@ interface WarningState {
   reason: string;
   retry: () => void;
   onCancel?: () => void;
+  subject?: string;
 }
 
 export interface EligibilityWarningControls {
@@ -38,7 +39,13 @@ export interface EligibilityWarningControls {
    * `true` = błąd był ostrzeżeniem i okno zostało otwarte (wołający kończy
    * obsługę błędu); `false` = to inny błąd, obsłuż go jak dotąd.
    */
-  intercept: (error: unknown, retry: () => void, onCancel?: () => void) => boolean;
+  intercept: (
+    error: unknown,
+    retry: () => void,
+    onCancel?: () => void,
+    /** Kogo dotyczy ostrzeżenie — potrzebne w pętli zbiorczej (wiele osób, jedno okno). */
+    subject?: string,
+  ) => boolean;
   dialog: ReactNode;
 }
 
@@ -46,12 +53,13 @@ export function useEligibilityWarning(): EligibilityWarningControls {
   const [warning, setWarning] = useState<WarningState | null>(null);
 
   const intercept = useCallback(
-    (error: unknown, retry: () => void, onCancel?: () => void) => {
+    (error: unknown, retry: () => void, onCancel?: () => void, subject?: string) => {
       if (!isEligibilityWarning(error)) return false;
       setWarning({
         reason: eligibilityWarningReason(error) ?? "Serwer ostrzega przed tym ruchem.",
         retry,
         onCancel,
+        subject,
       });
       return true;
     },
@@ -73,7 +81,11 @@ export function useEligibilityWarning(): EligibilityWarningControls {
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Ostrzeżenie przed przeniesieniem</DialogTitle>
+          <DialogTitle>
+            {warning.subject
+              ? `Ostrzeżenie przed przeniesieniem: ${warning.subject}`
+              : "Ostrzeżenie przed przeniesieniem"}
+          </DialogTitle>
           <DialogDescription>{warning.reason}</DialogDescription>
         </DialogHeader>
         <DialogFooter>

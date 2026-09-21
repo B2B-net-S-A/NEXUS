@@ -1473,6 +1473,32 @@ describe("KanbanBoardV2 — wysuwany dok i deep link ?candidate=", () => {
     scrollIntoView.mockRestore();
   });
 
+  it("zgłasza stronie, kto jest w doku — „Tabela” otwiera potem tę osobę w panelu", async () => {
+    const onDockCandidateChange = vi.fn();
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {});
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2
+            columns={dockColumns()}
+            jobId={10}
+            initialDockCandidateId={90}
+            onDockCandidateChange={onDockCandidateChange}
+          />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("complementary", { name: "Karta kandydata" });
+    expect(onDockCandidateChange).toHaveBeenNthCalledWith(1, null);
+    expect(onDockCandidateChange).toHaveBeenLastCalledWith(90);
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(onDockCandidateChange).toHaveBeenLastCalledWith(null));
+    scrollIntoView.mockRestore();
+  });
+
   it("initialDockCandidateId spoza tablicy nie otwiera doku, ale i tak zdejmuje parametr", async () => {
     const onHandled = vi.fn();
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

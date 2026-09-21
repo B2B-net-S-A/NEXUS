@@ -29,6 +29,7 @@ import {
   Users,
 } from "lucide-react";
 
+import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 import api, {
   extractErrorMsg,
   hiringManagerFeedbackApi,
@@ -94,7 +95,11 @@ const DECISION_OPTIONS: { value: HiringManagerDecision; label: string }[] = [
   { value: "reject", label: "Odrzuca" },
 ];
 
-export interface JobInterviewsTabProps {
+/**
+ * `layout="panel"` (rekrutacja v3): bez listy „Rozmowy u klienta" — karta
+ * rozmowy i dok decyzji JEDNEJ osoby (`focusCandidateId`) w jednej kolumnie.
+ */
+export interface JobInterviewsTabProps extends WorkbenchPanelProps {
   jobId: number;
   jobTitle?: string;
   columns: KanbanColumn[];
@@ -129,7 +134,10 @@ export function JobInterviewsTab({
   columnsSuccess = true,
   onColumnsRetry,
   budgetHourly = null,
+  layout = "full",
+  focusCandidateId = null,
 }: JobInterviewsTabProps) {
+  const isPanel = layout === "panel";
   const { showSuccess, showError, showActionToast } = useToast();
   const queryClient = useQueryClient();
   const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(
@@ -178,14 +186,17 @@ export function JobInterviewsTab({
     );
   }, [columns, entries]);
 
+  // W panelu wybór jest STEROWANY z zewnątrz (`focusCandidateId`) — ten sam
+  // zbiór osób, które pełny układ pozwala kliknąć (etapy klienta + weta HM).
+  const activeCandidateId = isPanel ? focusCandidateId : selectedCandidateId;
   const selected = useMemo<SelectedEntry | null>(() => {
-    if (selectedCandidateId == null) return null;
+    if (activeCandidateId == null) return null;
     return (
       [...entries, ...vetoedEntries].find(
-        (e) => e.item.candidate_id === selectedCandidateId,
+        (e) => e.item.candidate_id === activeCandidateId,
       ) ?? null
     );
-  }, [entries, vetoedEntries, selectedCandidateId]);
+  }, [entries, vetoedEntries, activeCandidateId]);
 
   // Pierwszy kandydat wybiera się sam — pusty środek przy niepustej liście
   // czyta się jak awaria, a nie jak „nic nie kliknąłeś".
@@ -380,6 +391,195 @@ export function JobInterviewsTab({
       })
     : [];
 
+  const interviewCard = !selected ? null : (
+          <InterviewCard
+            // Werdykt dociąga się osobnym zapytaniem PO zamontowaniu karty.
+            // Bez `feedback?.id` w kluczu formularz zostałby z domyślnymi
+            // wartościami i pokazywał „do uzupełnienia" nad zapisanym już
+            // werdyktem — pola formularza czyta `useState` raz, przy montażu.
+            key={`${selected.item.candidate_id}:${feedbackByCandidate.get(selected.item.candidate_id)?.id ?? "none"}`}
+            jobId={jobId}
+            layout={layout}
+            jobTitle={jobTitle}
+            entry={selected}
+            readOnly={readOnly}
+            reasons={rejectionReasons}
+            reasonsLoading={reasonsQuery.isLoading}
+            feedback={feedbackByCandidate.get(selected.item.candidate_id) ?? null}
+            budgetHourly={budgetHourly}
+            canRecord={canRecordOnServer}
+            feedbackQueryState={resolveViewState({
+              isLoading: feedbackQuery.isLoading,
+              isError: feedbackQuery.isError,
+              error: feedbackQuery.error,
+              isSuccess: feedbackQuery.isSuccess,
+            })}
+            onFeedbackRetry={() => void feedbackQuery.refetch()}
+            onOpenScreening={(stageId, name) =>
+              setScreeningFor({ stageId, name })
+            }
+            championLinkUrl={championLinks[selected.item.candidate_id] ?? null}
+            onChampionLinkCreated={(url) => {
+              const candidateId = selected.item.candidate_id;
+              setChampionLinks((prev) => ({ ...prev, [candidateId]: url }));
+            }}
+          />
+  );
+  const decisionDock = !selected ? null : (
+          <InterviewDecisionDock
+            key={selected.item.candidate_id}
+            item={selected.item}
+            jobId={jobId}
+            layout={layout}
+            jobTitle={jobTitle}
+            budgetHourly={budgetHourly}
+            currentStageLabel={columnLabel(selected.col)}
+            moveTargets={moveTargets}
+            readOnly={readOnly}
+            onClose={() => setSelectedCandidateId(null)}
+            onMoveTo={(col) =>
+              moveMutation.mutate({ item: selected.item, col })
+            }
+            onTerminal={(col, terminal) =>
+              setPendingTerminal({ col, terminal, entry: selected })
+            }
+            rejectedColumn={rejectedColumn}
+            withdrawnColumn={withdrawnColumn}
+            stageLabel={stageLabel}
+          />
+  );
+  const modals = (
+    <>
+      {screeningFor && (
+        <ScreeningSheet
+          open
+          onOpenChange={(o) => !o && setScreeningFor(null)}
+          stageId={screeningFor.stageId}
+          candidateName={screeningFor.name}
+        />
+      )}
+
+      {selected && showOriginalCv && (
+        <CVOriginalPreviewModal
+          open
+          onOpenChange={setShowOriginalCv}
+          stageId={selected.item.id}
+          jobTitle={jobTitle?.trim() || `Rekrutacja #${jobId}`}
+          candidateName={
+            `${selected.item.name ?? ""} ${selected.item.lastname ?? ""}`.trim() ||
+            "Kandydat"
+          }
+        />
+      )}
+
+      {selected && prepInviteOpen && (
+        <PrepInviteModal
+          open
+          onOpenChange={setPrepInviteOpen}
+          candidateName={
+            `${selected.item.name ?? ""} ${selected.item.lastname ?? ""}`.trim() ||
+            "Kandydat"
+          }
+          onToast={(message, type) =>
+            type === "error" ? showError(message) : showSuccess(message)
+          }
+        />
+      )}
+
+      {pendingTerminal && (
+        <RejectionV2
+          open
+          onOpenChange={(o) => !o && setPendingTerminal(null)}
+          terminalType={pendingTerminal.terminal}
+          reasons={rejectionReasons}
+          previousStageCategory={
+            pendingTerminal.entry.col.category === "external"
+              ? "external"
+              : pendingTerminal.entry.col.category === "internal"
+                ? "internal"
+                : null
+          }
+          previousStage={pendingTerminal.entry.col.stage}
+          onConfirm={(
+            reasonId,
+            notes,
+            sendRejectionEmail,
+            offerResponse,
+            freeReason,
+          ) =>
+            terminalMutation.mutate({
+              item: pendingTerminal.entry.item,
+              col: pendingTerminal.col,
+              reasonId,
+              notes,
+              sendRejectionEmail,
+              offerResponse: offerResponse ?? null,
+              freeReason,
+            })
+          }
+        />
+      )}
+    </>
+  );
+
+  if (isPanel) {
+    if (listViewState === "loading") {
+      return (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
+        </div>
+      );
+    }
+    if (listBlocked) {
+      return (
+        <QueryStateNotice
+          state={listViewState as "forbidden" | "not_found" | "error"}
+          description={
+            listViewState === "error"
+              ? "Nie udało się wczytać pipeline'u tej rekrutacji. Kandydaci nie zniknęli — to nieudane pobranie."
+              : undefined
+          }
+          onRetry={listViewState === "error" ? onColumnsRetry : undefined}
+        />
+      );
+    }
+    if (!selected) {
+      return (
+        <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
+          Rozmowy i decyzja klienta są dostępne na etapach u klienta (Interview
+          Klient, Akceptacja, Negocjacje). Ta osoba jest dziś na innym etapie
+          tej rekrutacji.
+        </p>
+      );
+    }
+    return (
+      <div className="flex min-w-0 flex-col gap-3">
+        {eligibilityWarning.dialog}
+        <div className="flex flex-wrap gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            title="Podgląd CV oryginalnego z momentu zgłoszenia (snapshot etapu)"
+            onClick={() => setShowOriginalCv(true)}
+          >
+            <FileText className="h-3.5 w-3.5" /> Pokaż CV obok
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setPrepInviteOpen(true)}
+          >
+            <CalendarClock className="h-3.5 w-3.5" /> Zaproszenie prep (.ics +
+            CV)
+          </Button>
+        </div>
+        {interviewCard}
+        {decisionDock}
+        {modals}
+      </div>
+    );
+  }
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
       {eligibilityWarning.dialog}
@@ -531,137 +731,20 @@ export function JobInterviewsTab({
             description="Ten krok zbiera kandydatów na etapach zewnętrznych — Interview Klient, Akceptacja, Negocjacje. Przenieś kogoś na tablicy pipeline'u, żeby zobaczyć tu kartę rozmowy."
           />
         ) : selected ? (
-          <InterviewCard
-            // Werdykt dociąga się osobnym zapytaniem PO zamontowaniu karty.
-            // Bez `feedback?.id` w kluczu formularz zostałby z domyślnymi
-            // wartościami i pokazywał „do uzupełnienia" nad zapisanym już
-            // werdyktem — pola formularza czyta `useState` raz, przy montażu.
-            key={`${selected.item.candidate_id}:${feedbackByCandidate.get(selected.item.candidate_id)?.id ?? "none"}`}
-            jobId={jobId}
-            jobTitle={jobTitle}
-            entry={selected}
-            readOnly={readOnly}
-            reasons={rejectionReasons}
-            reasonsLoading={reasonsQuery.isLoading}
-            feedback={feedbackByCandidate.get(selected.item.candidate_id) ?? null}
-            budgetHourly={budgetHourly}
-            canRecord={canRecordOnServer}
-            feedbackQueryState={resolveViewState({
-              isLoading: feedbackQuery.isLoading,
-              isError: feedbackQuery.isError,
-              error: feedbackQuery.error,
-              isSuccess: feedbackQuery.isSuccess,
-            })}
-            onFeedbackRetry={() => void feedbackQuery.refetch()}
-            onOpenScreening={(stageId, name) =>
-              setScreeningFor({ stageId, name })
-            }
-            championLinkUrl={championLinks[selected.item.candidate_id] ?? null}
-            onChampionLinkCreated={(url) => {
-              const candidateId = selected.item.candidate_id;
-              setChampionLinks((prev) => ({ ...prev, [candidateId]: url }));
-            }}
-          />
+          interviewCard
         ) : null}
       </section>
 
       {/* ── Dok „Decyzja" ──────────────────────────────────────────── */}
       <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
         {listBlocked ? null : selected ? (
-          <InterviewDecisionDock
-            key={selected.item.candidate_id}
-            item={selected.item}
-            jobId={jobId}
-            jobTitle={jobTitle}
-            budgetHourly={budgetHourly}
-            currentStageLabel={columnLabel(selected.col)}
-            moveTargets={moveTargets}
-            readOnly={readOnly}
-            onClose={() => setSelectedCandidateId(null)}
-            onMoveTo={(col) =>
-              moveMutation.mutate({ item: selected.item, col })
-            }
-            onTerminal={(col, terminal) =>
-              setPendingTerminal({ col, terminal, entry: selected })
-            }
-            rejectedColumn={rejectedColumn}
-            withdrawnColumn={withdrawnColumn}
-            stageLabel={stageLabel}
-          />
+          decisionDock
         ) : (
           <InterviewDecisionDockEmpty />
         )}
       </aside>
 
-      {screeningFor && (
-        <ScreeningSheet
-          open
-          onOpenChange={(o) => !o && setScreeningFor(null)}
-          stageId={screeningFor.stageId}
-          candidateName={screeningFor.name}
-        />
-      )}
-
-      {selected && showOriginalCv && (
-        <CVOriginalPreviewModal
-          open
-          onOpenChange={setShowOriginalCv}
-          stageId={selected.item.id}
-          jobTitle={jobTitle?.trim() || `Rekrutacja #${jobId}`}
-          candidateName={
-            `${selected.item.name ?? ""} ${selected.item.lastname ?? ""}`.trim() ||
-            "Kandydat"
-          }
-        />
-      )}
-
-      {selected && prepInviteOpen && (
-        <PrepInviteModal
-          open
-          onOpenChange={setPrepInviteOpen}
-          candidateName={
-            `${selected.item.name ?? ""} ${selected.item.lastname ?? ""}`.trim() ||
-            "Kandydat"
-          }
-          onToast={(message, type) =>
-            type === "error" ? showError(message) : showSuccess(message)
-          }
-        />
-      )}
-
-      {pendingTerminal && (
-        <RejectionV2
-          open
-          onOpenChange={(o) => !o && setPendingTerminal(null)}
-          terminalType={pendingTerminal.terminal}
-          reasons={rejectionReasons}
-          previousStageCategory={
-            pendingTerminal.entry.col.category === "external"
-              ? "external"
-              : pendingTerminal.entry.col.category === "internal"
-                ? "internal"
-                : null
-          }
-          previousStage={pendingTerminal.entry.col.stage}
-          onConfirm={(
-            reasonId,
-            notes,
-            sendRejectionEmail,
-            offerResponse,
-            freeReason,
-          ) =>
-            terminalMutation.mutate({
-              item: pendingTerminal.entry.item,
-              col: pendingTerminal.col,
-              reasonId,
-              notes,
-              sendRejectionEmail,
-              offerResponse: offerResponse ?? null,
-              freeReason,
-            })
-          }
-        />
-      )}
+      {modals}
     </div>
   );
 }
@@ -689,6 +772,8 @@ interface InterviewCardProps {
   onChampionLinkCreated: (url: string) => void;
   /** Aktualny budżet PLN/h rekrutacji — pigułka „Stawka ponad budżet". */
   budgetHourly: number | null;
+  /** `"panel"` — bez nagłówka kroku; pigułki i akcja w zwartym pasku. */
+  layout?: "full" | "panel";
 }
 
 function InterviewCard({
@@ -706,6 +791,7 @@ function InterviewCard({
   championLinkUrl,
   onChampionLinkCreated,
   budgetHourly,
+  layout = "full",
 }: InterviewCardProps) {
   const { item, col } = entry;
   const { showSuccess, showError } = useToast();
@@ -791,25 +877,9 @@ function InterviewCard({
       showError(extractErrorMsg(e) || "Nie udało się utworzyć linku"),
   });
 
-  return (
-    <div className="space-y-4">
-      {/* Nagłówek kroku — układ z makiety: tytuł, podtytuł, akcje, pigułki. */}
-      <WorkbenchHeader
-        title={`Rozmowa u klienta · ${fullName}`}
-        subtitle={[
-          columnLabel(col),
-          item.days_in_stage != null
-            ? `${item.days_in_stage} ${item.days_in_stage === 1 ? "dzień" : "dni"} na etapie`
-            : null,
-          jobTitle ?? null,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
-        actions={
-          // Prep-kit ma teraz JEDNO wejście w tym kroku — sekcję
-          // „Przygotowanie" w szynie (makieta). Drugi link o tym samym adresie
-          // obok nagłówka kazałby zgadywać, czym się różnią.
-          !readOnly ? (
+  // Prep-kit ma JEDNO wejście w tym kroku (szyna / dok) — drugi link o tym
+  // samym adresie obok nagłówka kazałby zgadywać, czym się różnią.
+  const headerAction = !readOnly ? (
             <Button
               size="sm"
               variant="outline"
@@ -819,9 +889,8 @@ function InterviewCard({
             >
               <Link2 className="h-3.5 w-3.5" /> Karta Championa dla klienta
             </Button>
-          ) : undefined
-        }
-        tools={
+          ) : undefined;
+  const headerTools = (
           <>
             {item.hm_veto ? (
               <ToolPill tone="bad">
@@ -840,8 +909,35 @@ function InterviewCard({
               </ToolPill>
             )}
           </>
+  );
+
+  return (
+    <div className={layout === "panel" ? "space-y-3" : "space-y-4"}>
+      {layout === "panel" ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {headerTools}
+          {headerAction}
+        </div>
+      ) : (
+      <WorkbenchHeader
+        title={`Rozmowa u klienta · ${fullName}`}
+        subtitle={[
+          columnLabel(col),
+          item.days_in_stage != null
+            ? `${item.days_in_stage} ${item.days_in_stage === 1 ? "dzień" : "dni"} na etapie`
+            : null,
+          jobTitle ?? null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+        actions={
+          headerAction
+        }
+        tools={
+          headerTools
         }
       />
+      )}
 
       <WorkbenchCard
         title="Screening Championa dla klienta"

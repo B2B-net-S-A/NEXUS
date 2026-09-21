@@ -4,33 +4,38 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * C2 (the job page's full-search ranking) adds to the pipeline through the
- * bulk route it shares with manual search, the historical section and
- * quick-add. The backend can join the `add_to_pipeline` outcome to a ranking
- * only through the run the caller declares — so every add on this page must
- * carry the current full-search run. A dropped `run_id` breaks nothing on
- * screen; it silently turns every C2 add into an unattributed one.
+ * „Propozycje z bazy" (dawniej ranking C2 na stronie rekrutacji) dodają do
+ * pipeline'u przez trasę bulk, którą dzielą z ręczną wyszukiwarką, sekcją
+ * historyczną i szybkim dodawaniem. Backend przypina wynik `add_to_pipeline`
+ * do rankingu WYŁĄCZNIE przez przegląd zadeklarowany przez wołającego — więc
+ * każde dodanie z tego ekranu musi nieść pochodzenie wiersza (`source`)
+ * i bieżący przegląd (`run_id`). Zgubione `run_id` niczego nie psuje na
+ * ekranie; po cichu zamienia każde dodanie w nieprzypisane.
  *
- * Reads the SOURCE: the page is a large client component whose render needs
- * the whole app shell, and the property is about which arguments the calls
- * carry, not about rendering.
+ * Czyta ŹRÓDŁO: własność dotyczy tego, jakie argumenty niosą wywołania, a nie
+ * renderowania. Zachowanie (które źródło dostaje który wiersz) pilnuje
+ * `useJobProposals.test.tsx`.
  */
-const PAGE = path.resolve(process.cwd(), "src/app/jobs/[id]/page.tsx");
+const SRC = path.resolve(process.cwd(), "src");
+const read = (file: string) => fs.readFileSync(path.join(SRC, file), "utf-8");
 
-describe("job page full-search adds declare their run", () => {
-  const source = fs.readFileSync(PAGE, "utf-8");
+describe("dodania z propozycji deklarują swoje pochodzenie", () => {
+  const hook = read("components/v2/recruitment/useJobProposals.ts");
 
-  it("every bulk add on the page spreads the full-search origin", () => {
-    const calls = [...source.matchAll(/proposalsBulkApi\.add\(([\s\S]*?)\)\s*;/g)];
-    expect(calls.length).toBeGreaterThanOrEqual(2);
-    for (const [, args] of calls) {
-      expect(args).toContain("...fullSearchOrigin");
-    }
+  it("każde dodanie bulk w segmencie propozycji idzie przez grupowanie po pochodzeniu", () => {
+    const calls = [...hook.matchAll(/proposalsBulkApi\.add\(([\s\S]*?)\)\s*[;)]/g)];
+    expect(calls.length).toBe(1);
+    expect(hook).toContain("for (const group of groupAddsByOrigin(picked))");
+    expect(hook).toContain("if (group.source) body.source = group.source;");
+    expect(hook).toContain("if (group.runId) body.run_id = group.runId;");
   });
 
-  it("the origin is the current run of this page's full search", () => {
-    const origin = source.match(/const fullSearchOrigin = \{([\s\S]*?)\};/);
-    expect(origin?.[1]).toContain("run_id: fullSearch.runId");
-    expect(origin?.[1]).toContain('source: "full_search"');
+  it("wiersz z żywego przeglądu deklaruje `full_search` i run tego przeglądu", () => {
+    expect(hook).toMatch(/origins\.includes\("run"\) && row\.runId\s*\?\s*\{ source: "full_search", runId: row\.runId \}/);
+  });
+
+  it("strona rekrutacji nie dodaje do pipeline'u z pominięciem tego hooka", () => {
+    const page = read("app/jobs/[id]/page.tsx");
+    expect(page).not.toContain("proposalsBulkApi.add(");
   });
 });

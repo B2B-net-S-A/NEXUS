@@ -81,16 +81,25 @@ def test_frontend_type_mirrors_the_backend_literal():
 
 
 def test_section_renders_degraded_as_failure_not_as_empty():
-    """Pusty stan podczas awarii czyta się jako „nie ma historii"."""
+    """Pusty stan podczas awarii czyta się jako „nie ma historii".
+
+    Do 09.2026 pilnowało tego `HistoricalCandidatesSection.tsx`. Po przebudowie
+    rekrutacji („wersja 3") podobne projekty są jednym ze źródeł segmentu
+    „Propozycje z bazy", więc reguła przeniosła się razem z nimi: hook
+    rozpoznaje degradację, a segment renderuje ją jako awarię z wyjściem.
+    """
     import pathlib
 
-    tsx = (
+    recruitment = (
         pathlib.Path(__file__).resolve().parents[2]
-        / "frontend/src/components/HistoricalCandidatesSection.tsx"
-    ).read_text()
-    assert 'tierUsed === "degraded"' in tsx, "komponent nie rozpoznaje degradacji"
-    i = tsx.index("degraded ? (")
-    j = tsx.index('viewState === "empty"', i)
+        / "frontend/src/components/v2/recruitment"
+    )
+    hook = (recruitment / "useJobProposals.ts").read_text()
+    assert 'tier_used === "degraded"' in hook, "hook nie rozpoznaje degradacji"
+
+    tsx = (recruitment / "ProposalsSegment.tsx").read_text()
+    i = tsx.index("} else if (status.engineDegraded) {")
+    j = tsx.index("} else if (run.running) {", i)
     branch = tsx[i:j]
     assert "Ponów" in branch, "brak ponowienia — użytkownik zostaje bez wyjścia"
     assert "nie wiadomo" in branch, (

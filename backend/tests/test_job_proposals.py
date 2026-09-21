@@ -584,6 +584,196 @@ async def test_dismiss_flow(app_client: AsyncClient):
     assert "new_proposals_count" not in row_json
 
 
+async def test_dismiss_works_for_a_person_the_inbox_never_listed(
+    app_client: AsyncClient,
+):
+    recruiter_id, recruiter = await _user(UserRole.recruiter)
+    _, outsider = await _user(UserRole.recruiter)
+    world = await _world(people=3, recruiter_id=recruiter_id)
+    job_id = world["job_id"]
+    searched, recommended, in_pipeline = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=in_pipeline, job_id=job_id, stage=PipelineStage.new
+            )
+        )
+        await db.commit()
+
+    # Ta sama bramka co dotąd: członkostwo w zespole i sekcja rekrutacji.
+    refused = await app_client.post(
+        f"{_inbox(job_id)}/{searched}/dismiss", headers=outsider
+    )
+    assert refused.status_code == 403, refused.text
+    _, no_pipeline = await _user(UserRole.recruiter, pipeline="none")
+    assert (
+        await app_client.post(
+            f"{_inbox(job_id)}/{searched}/dismiss", headers=no_pipeline
+        )
+    ).status_code == 403
+    assert await _statuses(job_id) == {}
+
+    # Bez ciała → domyślne źródło; z ciałem → wskazane; spoza CHECK-a → 422.
+    plain = await app_client.post(
+        f"{_inbox(job_id)}/{searched}/dismiss", headers=recruiter
+    )
+    assert plain.status_code == 200 and plain.json()["dismissed"] == 1, plain.text
+    chosen = await app_client.post(
+        f"{_inbox(job_id)}/{recommended}/dismiss",
+        json={"source": "recommendation"},
+        headers=recruiter,
+    )
+    assert chosen.status_code == 200 and chosen.json()["dismissed"] == 1, chosen.text
+    bad = await app_client.post(
+        f"{_inbox(job_id)}/{recommended}/dismiss",
+        json={"source": "cokolwiek"},
+        headers=recruiter,
+    )
+    assert bad.status_code == 422, bad.text
+    assert await _statuses(job_id) == {
+        (searched, "full_base"): "dismissed",
+        (recommended, "recommendation"): "dismissed",
+    }
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(JobProposal).where(
+                JobProposal.job_id == job_id, JobProposal.candidate_id == searched
+            )
+        )
+    assert row.dismissed_by == recruiter_id and row.dismissed_at is not None
+    assert row.dismissed_cv_revision == "unparsed" == row.cv_revision
+
+    # Idempotentne: druga próba nie zakłada drugiego wiersza.
+    again = await app_client.post(
+        f"{_inbox(job_id)}/{searched}/dismiss", headers=recruiter
+    )
+    assert again.status_code == 200 and again.json()["dismissed"] == 0
+    assert len(await _statuses(job_id)) == 2
+
+    # Osoba już w rekrutacji → 409 po polsku, bez wiersza; brak kandydata → 404.
+    conflict = await app_client.post(
+        f"{_inbox(job_id)}/{in_pipeline}/dismiss", headers=recruiter
+    )
+    assert conflict.status_code == 409, conflict.text
+    assert "już w tej rekrutacji" in conflict.json()["detail"]
+    assert (
+        await app_client.post(f"{_inbox(job_id)}/2000000000/dismiss", headers=recruiter)
+    ).status_code == 404
+    assert len(await _statuses(job_id)) == 2
+
+    # Ta sama wersja CV nie wskrzesza osoby pominiętej „z zewnątrz", nowa — tak.
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": searched}],
+            "full_base",
+            cv_revision="unparsed",
+        )
+        await db.commit()
+    assert (await _statuses(job_id))[(searched, "full_base")] == "dismissed"
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": searched}], "full_base", cv_revision="v2"
+        )
+        await db.commit()
+    assert (await _statuses(job_id))[(searched, "full_base")] == "proposed"
+
+
+async def test_restore_undoes_a_dismiss(app_client: AsyncClient):
+    recruiter_id, recruiter = await _user(UserRole.recruiter)
+    _, outsider = await _user(UserRole.recruiter)
+    world = await _world(people=2, recruiter_id=recruiter_id)
+    await _seed_inbox(world)
+    job_id = world["job_id"]
+    first, second = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": first, "score": 50}], "new_cv"
+        )
+        await db.commit()
+
+    done = await app_client.post(f"{_inbox(job_id)}/{first}/dismiss", headers=recruiter)
+    assert done.json()["dismissed"] == 2
+
+    refused = await app_client.post(
+        f"{_inbox(job_id)}/{first}/restore", headers=outsider
+    )
+    assert refused.status_code == 403, refused.text
+    assert (await _statuses(job_id))[(first, "full_base")] == "dismissed"
+
+    restored = await app_client.post(
+        f"{_inbox(job_id)}/{first}/restore", headers=recruiter
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json() == {"job_id": job_id, "candidate_id": first, "restored": 2}
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(JobProposal).where(
+                    JobProposal.job_id == job_id, JobProposal.candidate_id == first
+                )
+            )
+        ).all()
+    assert {r.status for r in rows} == {"proposed"}
+    assert all(
+        r.dismissed_at is None
+        and r.dismissed_by is None
+        and r.dismissed_cv_revision is None
+        for r in rows
+    )
+    listed = await app_client.get(_inbox(job_id), headers=recruiter)
+    assert [i["candidate"]["id"] for i in listed.json()["items"]] == [first, second]
+
+    # Nic do cofnięcia = 0 (także dla osoby nigdy niepominiętej); brak osoby = 404.
+    again = await app_client.post(
+        f"{_inbox(job_id)}/{first}/restore", headers=recruiter
+    )
+    assert again.status_code == 200 and again.json()["restored"] == 0
+    assert (
+        await app_client.post(f"{_inbox(job_id)}/2000000000/restore", headers=recruiter)
+    ).status_code == 404
+
+    # `added` nigdy się nie cofa — także przez „Cofnij".
+    async with AsyncSessionLocal() as db:
+        await proposals.mark_added(db, job_id=job_id, candidate_ids=[second])
+        await db.commit()
+    await app_client.post(f"{_inbox(job_id)}/{second}/restore", headers=recruiter)
+    assert (await _statuses(job_id))[(second, "full_base")] == "added"
+
+
+async def test_inbox_rows_carry_the_run_of_the_best_scoring_source(
+    app_client: AsyncClient,
+):
+    recruiter_id, recruiter = await _user(UserRole.recruiter)
+    world = await _world(people=2, recruiter_id=recruiter_id)
+    job_id = world["job_id"]
+    with_run, without_run = world["candidate_ids"]
+    run_id = str(uuid.uuid4())
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": with_run, "score": 80}],
+            "full_base",
+            run_id=run_id,
+        )
+        # Wyższy wynik, ale źródło bez przeglądu — `run_id` i tak ma dojechać.
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": with_run, "score": 95}], "new_cv"
+        )
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": without_run, "score": 10}], "new_cv"
+        )
+        await db.commit()
+
+    listed = await app_client.get(_inbox(job_id), headers=recruiter)
+    assert listed.status_code == 200, listed.text
+    by_id = {i["candidate"]["id"]: i for i in listed.json()["items"]}
+    assert by_id[with_run]["run_id"] == run_id
+    assert "run_id" in by_id[without_run] and by_id[without_run]["run_id"] is None
+
+
 async def test_adding_to_the_recruitment_marks_the_proposal_added(
     app_client: AsyncClient,
 ):

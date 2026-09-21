@@ -256,6 +256,9 @@ export type BulkAddSource =
   | "talent_radar"
   | "candidate_list"
   | "jarvis"
+  // Rekrutacja v3: skrzynka „Propozycje z bazy" i karta rekomendacji.
+  | "proposal_inbox"
+  | "recommendation"
   | "my_people";
 
 export interface BulkProposalsRequest {

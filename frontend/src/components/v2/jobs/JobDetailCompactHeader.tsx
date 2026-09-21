@@ -3,20 +3,16 @@
 import type { ReactNode } from "react";
 import {
   BookOpen,
-  CalendarClock,
   ChevronDown,
   ChevronUp,
-  ClipboardCheck,
+  ClipboardList,
   Ellipsis,
-  FileSignature,
-  FileText,
-  History,
   LayoutGrid,
   Link2,
   MessageCircle,
   PencilLine,
-  Search,
   Sparkles,
+  Table2,
   Target,
   UserCheck,
   UserPlus,
@@ -27,6 +23,7 @@ import { EntityHeader } from "@/components/ds/EntityHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { JobHeaderKpi, JobHeaderKpiTone } from "@/lib/job-header-kpis";
+import type { JobDetailView } from "@/lib/job-detail-routing";
 import {
   Collapsible,
   CollapsibleContent,
@@ -42,6 +39,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
+/**
+ * DAWNE identyfikatory zakładek rekrutacji (do wersji 3 — dwanaście kroków na
+ * listwie). Widoków jest dziś trzy (`JobDetailView`), ale ten typ zostaje:
+ * warsztaty (`ScreeningWorkbench`, `SourcingHub`) i KPI nagłówka nadal mówią
+ * tym słownikiem, a strona tłumaczy go przez `resolveLegacyJobTab`.
+ */
 export type JobDetailTab =
   | "pipeline"
   | "history"
@@ -60,12 +63,6 @@ export type JobDetailTab =
   | "interviews"
   | "contract";
 
-const SOURCING_TABS = new Set<JobDetailTab>([
-  "ai-matching",
-  "manual-search",
-  "portals",
-]);
-
 interface JobDetailCompactHeaderProps {
   title: ReactNode;
   /**
@@ -83,75 +80,49 @@ interface JobDetailCompactHeaderProps {
   /** Trzy liczby właściwe dla aktywnego kroku (`lib/job-header-kpis.ts`). */
   kpis?: JobHeaderKpi[];
   presence?: ReactNode;
-  activeTab: JobDetailTab;
-  onTabChange: (tab: JobDetailTab) => void;
+  /** Aktywny widok: „Tabela" (`people`), „Tablica" (`board`) albo pełne „Zlecenie i Champion". */
+  activeView: JobDetailView;
+  onViewChange: (view: JobDetailView) => void;
+  /**
+   * Okno „Zlecenie" (fakty, zespół, priorytet, portale, zamknięcie) — tak samo
+   * na każdym widoku, także na „Zlecenie i Champion": portale, zespół
+   * i „Zamknij rekrutację" mieszkają wyłącznie w tym oknie.
+   */
+  onOpenOrder: () => void;
+  /**
+   * Ile rzeczy brakuje w zleceniu wg bramki gotowości. `undefined`/`null` =
+   * nie wiadomo (rola spoza bramki, zapytanie w toku) — odznaki nie ma;
+   * zero też jej nie pokazuje („brakuje 0" to szum).
+   */
+  orderMissingCount?: number | null;
+  onOpenHistoryChat: () => void;
+  onOpenQuestions: () => void;
   onAddCandidate?: () => void;
   onEdit?: () => void;
   onWriteAnnouncement?: () => void;
   onGenerateInviteLink?: () => void;
+  /**
+   * Narzędzia AI administratora (kryteria, scoring, embedding). Strona podaje
+   * je WYŁĄCZNIE adminowi — do 09.2026 były dostępne tylko przy zaznaczonej
+   * propozycji, więc rekrutacja bez propozycji nie miała do nich wejścia.
+   */
+  onOpenAiTools?: () => void;
   chatUnreadCount?: number;
-  /** Kandydaci w procesie (kolumny nie-terminalne kanbana). `undefined` = nie
-   *  policzono jeszcze (kanban ładuje się na zakładce Pipeline) — listwa nie
-   *  pokazuje wtedy liczby, zamiast pokazywać zero. */
+  /** Osoby w procesie — licznik przy przełączniku widoków. `undefined` = nie policzono. */
   pipelineCount?: number;
-  /** Krok 05 — kolejka screeningu (etap „Screening" + oczekujący na akceptację
-   *  stawki). `undefined` = jeszcze nie policzono; ta sama zasada co wyżej. */
-  screeningCount?: number;
-  /** Krok 06 — zweryfikowani czekający na wysyłkę CV do klienta. */
-  cvCount?: number;
-  /** Kandydaci na etapach zewnętrznych (krok 07). `undefined` = nie policzono. */
-  interviewsCount?: number;
-  /** Kandydaci na etapach umowy i zatrudnienia (krok 08). `undefined` = nie policzono. */
-  contractCount?: number;
-  contextOpen: boolean;
-  onContextOpenChange: (open: boolean) => void;
-  contextContent: ReactNode;
+  /**
+   * Panel „Zespół i priorytet". W widokach „Tabela"/„Tablica" żyje w oknie
+   * „Zlecenie", więc strona go tu nie podaje — wtedy nie ma ani przycisku,
+   * ani panelu. Zostaje na pełnym widoku „Zlecenie i Champion".
+   */
+  contextOpen?: boolean;
+  onContextOpenChange?: (open: boolean) => void;
+  contextContent?: ReactNode;
 }
 
 function deferMenuAction(action: () => void) {
   window.setTimeout(action, 0);
 }
-
-function WorkspaceButton({
-  active,
-  children,
-  className,
-  ...props
-}: React.ComponentProps<typeof Button> & { active?: boolean }) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
-      className={cn(
-        // `px-2` + `text-[13px]`, nie `px-3`/`text-sm`: przy 1440 px jedenaście
-        // kroków ze starym paddingiem nie mieściło się w pasku, a `nav` miał
-        // `overflow-x-auto`, więc ostatnia etykieta („Baza pytań") była UCIĘTA
-        // do samej ikony. Ucięta etykieta czyta się jak brak funkcji, nie jak
-        // brak miejsca — a przewijanego paska w poziomie nikt tam nie szukał.
-        "h-10 gap-1.5 rounded-none border-b-2 px-2 text-[13px] whitespace-nowrap",
-        active
-          ? "border-primary text-primary"
-          : "border-transparent text-muted-foreground",
-        className,
-      )}
-      aria-current={active ? "page" : undefined}
-      {...props}
-    >
-      {children}
-    </Button>
-  );
-}
-
-/**
- * Ikony w listwie kroków tylko na bardzo szerokich ekranach.
- *
- * Zmierzone na prodzie (okno 1615 px): listwa potrzebowała 1448 px, a miała
- * 1261 — osiem ikon po ~22 px i etykieta „Zespół i priorytet" (170 px)
- * łamały ją na dwa wiersze, choć makieta ma jeden. Poniżej 1800 px krok
- * rozpoznaje się po etykiecie; ikona wraca, gdy jest na nią miejsce.
- */
-const STRIP_ICON = "hidden min-[1800px]:block h-4 w-4";
 
 const KPI_TONE_CLASS: Record<JobHeaderKpiTone, string> = {
   neutral: "text-foreground",
@@ -206,16 +177,38 @@ function CountBadge({ value }: { value: number }) {
   );
 }
 
+/** Jedna pozycja przełącznika „Tabela | Tablica". */
+function ViewSwitchButton({
+  active,
+  children,
+  ...props
+}: React.ComponentProps<"button"> & { active: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      className={cn(
+        "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        active
+          ? "bg-card text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+}
+
 /**
- * Compact, two-row recruitment workspace header.
+ * Nagłówek rekrutacji (wersja 3: „rekrutacja = jedna tabela").
  *
- * The first row keeps identity and the primary action visible. The second row
- * is the **steps strip** (makieta C2 → „listwa kroków"): sections in the
- * order people actually work — Zlecenie i Champion → Pozyskiwanie → Pipeline
- * → Baza pytań → Rozmowy i decyzja → Umowa — with Historia and Chat on the
- * right and the operational context (team, hiring manager, Priority Work)
- * behind one disclosure. It replaces three earlier entry points (tabs +
- * „Narzędzia ▾" + „Pozyskaj ▾") without dropping a single destination.
+ * Pierwszy wiersz bez zmian: tożsamość, odznaki, obecni, „Dodaj kandydata"
+ * i menu „…". Drugi wiersz zastąpił dwunastopozycyjną listwę kroków:
+ * przełącznik widoku „Tabela | Tablica" oraz trzy przyciski otwierające okna
+ * OBOK tabeli — „Zlecenie" (z odznaką „brakuje N"), „Historia i czat"
+ * (z licznikiem nieprzeczytanych) i „Baza pytań". Kroki procesu są teraz
+ * paskiem etapów nad tabelą, a nie nawigacją strony.
  */
 export function JobDetailCompactHeader({
   title,
@@ -226,30 +219,35 @@ export function JobDetailCompactHeader({
   metadata,
   kpis,
   presence,
-  activeTab,
-  onTabChange,
+  activeView,
+  onViewChange,
+  onOpenOrder,
+  orderMissingCount,
+  onOpenHistoryChat,
+  onOpenQuestions,
   onAddCandidate,
   onEdit,
   onWriteAnnouncement,
   onGenerateInviteLink,
+  onOpenAiTools,
   chatUnreadCount = 0,
   pipelineCount,
-  screeningCount,
-  cvCount,
-  interviewsCount,
-  contractCount,
-  contextOpen,
+  contextOpen = false,
   onContextOpenChange,
   contextContent,
 }: JobDetailCompactHeaderProps) {
-  const sourcingActive = SOURCING_TABS.has(activeTab);
+  const hasContext = contextContent != null;
   const unreadLabel =
     chatUnreadCount > 0
-      ? `Chat, ${chatUnreadCount > 99 ? "ponad 99" : chatUnreadCount} nieprzeczytane`
-      : "Chat";
+      ? `Historia i czat, ${chatUnreadCount > 99 ? "ponad 99" : chatUnreadCount} nieprzeczytane`
+      : "Historia i czat";
+  const missing =
+    typeof orderMissingCount === "number" && orderMissingCount > 0
+      ? orderMissingCount
+      : null;
 
   return (
-    <Collapsible open={contextOpen} onOpenChange={onContextOpenChange}>
+    <Collapsible open={hasContext && contextOpen} onOpenChange={onContextOpenChange}>
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <div className="px-4 py-2.5">
           <EntityHeader
@@ -266,8 +264,8 @@ export function JobDetailCompactHeader({
               clientName ? (
                 // Tytuł i klient w JEDNEJ linii: pełna nazwa prawna klienta
                 // („Powszechna Kasa Oszczędności Bank Polski S.A") łamała
-                // nagłówek na dwa wiersze na każdej zakładce. Tytuł zostaje
-                // w całości, klient się ucina (pełna nazwa w `title`).
+                // nagłówek na dwa wiersze. Tytuł zostaje w całości, klient się
+                // ucina (pełna nazwa w `title`).
                 <span className="flex min-w-0 items-baseline gap-x-2">
                   <span className="shrink-0">{title}</span>
                   {/* Separator i nazwa klienta w JEDNYM węźle tekstowym —
@@ -322,7 +320,7 @@ export function JobDetailCompactHeader({
                   </Button>
                 ) : null}
 
-                {onEdit || onWriteAnnouncement || onGenerateInviteLink ? (
+                {onEdit || onWriteAnnouncement || onGenerateInviteLink || onOpenAiTools ? (
                   <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -366,6 +364,18 @@ export function JobDetailCompactHeader({
                           </DropdownMenuItem>
                         </>
                       ) : null}
+                      {onOpenAiTools ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() => deferMenuAction(onOpenAiTools)}
+                            data-testid="open-ai-tools"
+                          >
+                            <Sparkles className="h-4 w-4" />
+                            Narzędzia AI (administrator)
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 ) : null}
@@ -374,163 +384,65 @@ export function JobDetailCompactHeader({
           />
         </div>
 
-        {/* Listwa kroków — kolejność procesu, Historia i Chat po prawej.
-
-            `flex-wrap` zamiast `overflow-x-auto`: przy ciasnym oknie listwa ma
-            się ZŁAMAĆ na dwa wiersze, a nie schować końcówkę za niewidoczny
-            pasek przewijania. Krok, którego nie widać, nie istnieje dla
-            użytkownika — a to jedyna nawigacja tego ekranu. */}
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 border-t border-border px-1">
-          <nav
-            className="flex min-w-0 flex-wrap items-center"
-            aria-label="Sekcje rekrutacji"
+        {/* `flex-wrap` zamiast `overflow-x-auto`: przy ciasnym oknie pasek ma
+            się ZŁAMAĆ, a nie schować końcówkę za niewidoczny pasek przewijania.
+            Przycisk, którego nie widać, nie istnieje dla użytkownika. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border px-3 py-1.5">
+          <div
+            role="group"
+            aria-label="Widok rekrutacji"
+            className="inline-flex items-center gap-0.5 rounded-lg bg-muted p-0.5"
           >
-            <WorkspaceButton
-              active={activeTab === "champion"}
-              onClick={() => onTabChange("champion")}
-              data-testid="tab-champion"
-              title="Zlecenie i Champion"
+            <ViewSwitchButton
+              active={activeView === "people"}
+              onClick={() => onViewChange("people")}
+              data-testid="view-people"
             >
-              <PencilLine className={STRIP_ICON} />
-              {/* Spacja w tekście RODZICA („Zlecenie ”), nie w spanie: algorytm
-                  nazwy dostępnej ucina białe znaki na brzegach każdego elementu,
-                  więc `<span> i Champion</span>` dawał „Zleceniei Champion". */}
-              {"Zlecenie "}
-              <span className="hidden 2xl:inline">i Champion</span>
-            </WorkspaceButton>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <WorkspaceButton
-                  active={sourcingActive}
-                  aria-label="Pozyskaj kandydatów"
-                >
-                  <Target className={STRIP_ICON} />
-                  Pozyskiwanie
-                  <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-                </WorkspaceButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuLabel>Pozyskiwanie</DropdownMenuLabel>
-                <DropdownMenuItem
-                  aria-current={activeTab === "ai-matching" ? "page" : undefined}
-                  onSelect={() => onTabChange("ai-matching")}
-                >
-                  <Sparkles className="h-4 w-4" />
-                  AI Matching
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  data-testid="tab-manual-search"
-                  aria-current={activeTab === "manual-search" ? "page" : undefined}
-                  onSelect={() => onTabChange("manual-search")}
-                >
-                  <Search className="h-4 w-4" />
-                  Wyszukaj manualnie
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  aria-current={activeTab === "portals" ? "page" : undefined}
-                  onSelect={() => onTabChange("portals")}
-                >
-                  <Link2 className="h-4 w-4" />
-                  Portale ogłoszeniowe
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <WorkspaceButton
-              active={activeTab === "pipeline"}
-              onClick={() => onTabChange("pipeline")}
-            >
-              <LayoutGrid className={STRIP_ICON} />
-              Pipeline
+              <Table2 className="h-3.5 w-3.5" aria-hidden="true" />
+              Tabela
               {typeof pipelineCount === "number" ? (
                 <CountBadge value={pipelineCount} />
               ) : null}
-            </WorkspaceButton>
-
-            {/* Krok 05 — stanowisko screeningu (program „flow w języku C2"). */}
-            <WorkspaceButton
-              active={activeTab === "screening"}
-              onClick={() => onTabChange("screening")}
-              data-testid="tab-screening"
+            </ViewSwitchButton>
+            <ViewSwitchButton
+              active={activeView === "board"}
+              onClick={() => onViewChange("board")}
+              data-testid="view-board"
             >
-              <ClipboardCheck className={STRIP_ICON} />
-              Screening
-              {typeof screeningCount === "number" ? (
-                <CountBadge value={screeningCount} />
+              <LayoutGrid className="h-3.5 w-3.5" aria-hidden="true" />
+              Tablica
+            </ViewSwitchButton>
+          </div>
+
+          <nav
+            className="flex min-w-0 flex-wrap items-center gap-1.5"
+            aria-label="Sekcje rekrutacji"
+          >
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onOpenOrder}
+              data-testid="open-order"
+            >
+              <ClipboardList className="h-4 w-4" aria-hidden="true" />
+              Zlecenie
+              {missing != null ? (
+                <Badge variant="warning" size="sm" className="tabular-nums">
+                  brakuje {missing}
+                </Badge>
               ) : null}
-            </WorkspaceButton>
-
-            {/* Krok 06 — CV do klienta (program „flow w języku C2"). */}
-            <WorkspaceButton
-              active={activeTab === "cv"}
-              onClick={() => onTabChange("cv")}
-              data-testid="tab-cv"
-            >
-              <FileText className={STRIP_ICON} />
-              CV do klienta
-              {typeof cvCount === "number" ? <CountBadge value={cvCount} /> : null}
-            </WorkspaceButton>
-
-            {/* Kroki 07 i 08 (flow C2, PR 7/7). Liczniki liczy strona z tego
-                samego kanbana, którym karmi Pipeline — `undefined` znaczy
-                „jeszcze nie policzono", więc listwa nie pokazuje zera zamiast
-                niewiedzy (ta sama reguła co `pipelineCount`). */}
-            <WorkspaceButton
-              active={activeTab === "interviews"}
-              onClick={() => onTabChange("interviews")}
-              data-testid="tab-interviews"
-              title="Rozmowy i decyzja"
-            >
-              <CalendarClock className={STRIP_ICON} />
-              {"Rozmowy "}
-              <span className="hidden 2xl:inline">i decyzja</span>
-              {typeof interviewsCount === "number" ? (
-                <CountBadge value={interviewsCount} />
-              ) : null}
-            </WorkspaceButton>
-
-            <WorkspaceButton
-              active={activeTab === "contract"}
-              onClick={() => onTabChange("contract")}
-              data-testid="tab-contract"
-            >
-              <FileSignature className={STRIP_ICON} />
-              Umowa
-              {typeof contractCount === "number" ? (
-                <CountBadge value={contractCount} />
-              ) : null}
-            </WorkspaceButton>
-
-            {/* Baza pytań to materiał pomocniczy, nie krok procesu — stoi za
-                ostatnim krokiem (08 Umowa), jak w makietach programu. */}
-            <WorkspaceButton
-              active={activeTab === "questions"}
-              onClick={() => onTabChange("questions")}
-              data-testid="tab-questions"
-            >
-              <BookOpen className={STRIP_ICON} />
-              Baza pytań
-            </WorkspaceButton>
-          </nav>
-
-          <div className="ml-auto flex shrink-0 items-center">
-            <WorkspaceButton
-              active={activeTab === "history"}
-              onClick={() => onTabChange("history")}
-              data-testid="tab-history"
-            >
-              <History className={STRIP_ICON} />
-              Historia
-            </WorkspaceButton>
-            <WorkspaceButton
-              active={activeTab === "chat"}
-              onClick={() => onTabChange("chat")}
-              data-testid="tab-chat"
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onOpenHistoryChat}
               aria-label={unreadLabel}
+              data-testid="open-history-chat"
             >
-              <MessageCircle className={STRIP_ICON} />
-              Chat
+              <MessageCircle className="h-4 w-4" aria-hidden="true" />
+              Historia i czat
               {chatUnreadCount > 0 ? (
                 <Badge
                   variant="danger"
@@ -541,24 +453,33 @@ export function JobDetailCompactHeader({
                   {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
                 </Badge>
               ) : null}
-            </WorkspaceButton>
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onOpenQuestions}
+              data-testid="open-questions"
+            >
+              <BookOpen className="h-4 w-4" aria-hidden="true" />
+              Baza pytań
+            </Button>
+          </nav>
 
+          {hasContext ? (
             <CollapsibleTrigger asChild>
               <Button
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="shrink-0 text-muted-foreground"
+                className="ml-auto shrink-0 text-muted-foreground"
                 aria-expanded={contextOpen}
                 aria-controls="job-operational-context"
                 data-testid="toggle-job-header"
                 title={contextOpen ? "Ukryj zespół i priorytet" : "Pokaż zespół i priorytet"}
               >
                 <UserCheck className="h-4 w-4" />
-                {/* Etykieta dopiero od 2xl: przy 1440 px pełna listwa kroków
-                    + Historia + Chat + ta etykieta łamały pasek na dwa wiersze
-                    (makieta ma jeden). Ikona + `title` zostają zawsze. */}
-                <span className="hidden min-[1800px]:inline">Zespół i priorytet</span>
+                <span className="hidden xl:inline">Zespół i priorytet</span>
                 {contextOpen ? (
                   <ChevronUp className="h-4 w-4" />
                 ) : (
@@ -566,14 +487,16 @@ export function JobDetailCompactHeader({
                 )}
               </Button>
             </CollapsibleTrigger>
-          </div>
+          ) : null}
         </div>
 
-        <CollapsibleContent id="job-operational-context">
-          <div className="space-y-3 border-t border-border bg-muted/30 p-4">
-            {contextContent}
-          </div>
-        </CollapsibleContent>
+        {hasContext ? (
+          <CollapsibleContent id="job-operational-context">
+            <div className="space-y-3 border-t border-border bg-muted/30 p-4">
+              {contextContent}
+            </div>
+          </CollapsibleContent>
+        ) : null}
       </div>
     </Collapsible>
   );

@@ -49,6 +49,7 @@ import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { TabbedNav } from "@/components/ds";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Form } from "@/components/v2/forms";
 import {
@@ -122,8 +123,14 @@ import {
 } from "@/components/v2/jobs/workbench-chrome";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import type { JobDetailTab } from "@/components/v2/jobs/JobDetailCompactHeader";
+import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 
-export interface ScreeningWorkbenchProps {
+/**
+ * `layout="panel"` (rekrutacja v3): bez kolejki i nagłówka warsztatu — sam
+ * arkusz, stawka i decyzja dla osoby z `focusCandidateId`, w jednej kolumnie
+ * (340 px w panelu osoby, ~720 px w trybie szerokim).
+ */
+export interface ScreeningWorkbenchProps extends WorkbenchPanelProps {
   jobId: number;
   /** Budżet PLN/h rekrutacji (`effective_budget_hourly`) — porównanie stawki. */
   jobBudgetHourly: number | null;
@@ -163,7 +170,11 @@ export function ScreeningWorkbench({
   onTabChange,
   clientId = null,
   clientName = null,
+  layout = "full",
+  focusCandidateId = null,
+  panelFallback,
 }: ScreeningWorkbenchProps) {
+  const isPanel = layout === "panel";
   const { showSuccess, showError, showActionToast } = useToast();
   const queryClient = useQueryClient();
   const queue = useMemo(() => selectScreeningQueue(columns), [columns]);
@@ -215,8 +226,14 @@ export function ScreeningWorkbench({
     );
   }, [queue, allEntries]);
 
+  // W panelu wybór jest STEROWANY z zewnątrz (`focusCandidateId`) — ten sam
+  // zbiór osób, które pełny układ pozwala kliknąć; stan wewnętrzny nie gra.
+  const activeStageId = isPanel
+    ? (allEntries.find((e) => e.item.candidate_id === focusCandidateId)?.item
+        .id ?? null)
+    : selectedStageId;
   const selected: FlowQueueEntry | null =
-    allEntries.find((e) => e.item.id === selectedStageId) ?? null;
+    allEntries.find((e) => e.item.id === activeStageId) ?? null;
 
   // ── SLA klienta (karta klienta) — kontekst wieku na etapie ──────────────
   const playbookQuery = useClientPlaybook(clientId);
@@ -229,7 +246,7 @@ export function ScreeningWorkbench({
     setRate("");
     setUnit("hourly");
     setDockTab("decision");
-  }, [selectedStageId]);
+  }, [activeStageId]);
   const gate = evaluateRateGate({
     rawRate: rate,
     unit,
@@ -455,6 +472,7 @@ export function ScreeningWorkbench({
   });
 
   if (viewState === "loading") {
+    if (isPanel) return <Skeleton className="h-64 w-full rounded-xl" />;
     return (
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
         <Skeleton className="h-64 w-full rounded-xl" />
@@ -492,6 +510,408 @@ export function ScreeningWorkbench({
     slaDays != null
       ? `SLA ${clientName?.trim() || "klienta"}: ${slaDays} d`
       : null;
+
+  // Fragmenty wspólne dla obu układów — pełny nagłówek warsztatu i zwarty
+  // pasek panelu pokazują DOKŁADNIE te same pigułki.
+  const headBadges = selected ? (
+                <>
+                  {isOverHourlyBudget(selected.item, jobBudgetHourly) && (
+                    <Badge
+                      variant="warning"
+                      size="sm"
+                      title="Stawka kandydata przekracza budżet PLN/h rekrutacji — informacja, nic nie blokuje."
+                    >
+                      <HelpCircle className="h-2.5 w-2.5" /> Ponad budżet
+                    </Badge>
+                  )}
+                  {selected.item.hm_veto && (
+                    <Badge
+                      variant="danger"
+                      size="sm"
+                      title={`Powód: ${selected.item.hm_veto.rejection_reason_name}`}
+                    >
+                      <UserX className="h-2.5 w-2.5" /> Weto HM
+                    </Badge>
+                  )}
+                </>
+  ) : null;
+  const headTools = selected ? (
+                <>
+                  <ToolPill tone={overallFit === "fit" ? "ok" : "info"}>
+                    Ogólna ocena dopasowania:{" "}
+                    {screeningSaved || screeningDirty
+                      ? (FIT_OPTIONS.find((o) => o.value === overallFit)
+                          ?.label ?? "—")
+                      : "—"}
+                  </ToolPill>
+                  <ToolPill>
+                    {screening.questions.length > 0
+                      ? `${answeredCount} z ${countPl(screening.questions.length, "pytania", "pytań", "pytań")} odpowiedzianych`
+                      : "Brak pytań Championa"}
+                  </ToolPill>
+                  {dealBreakerHit && (
+                    <ToolPill tone="bad">
+                      <AlertTriangle className="h-3 w-3" /> deal-breaker
+                      zaznaczony
+                    </ToolPill>
+                  )}
+                </>
+  ) : null;
+  const headSaved = !selected ? null : screeningDirty ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-warning-muted-foreground">
+                    <Clock className="h-3 w-3" /> Niezapisane zmiany
+                  </span>
+                ) : screeningSaved?.answered_at ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <Clock className="h-3 w-3" /> Zapisano{" "}
+                    {formatDate(screeningSaved.answered_at)}
+                  </span>
+                ) : null;
+  const dockBody = !selected ? (
+            <p className="text-xs text-muted-foreground">
+              Wybierz kandydata z kolejki, żeby wpisać stawkę i zamknąć
+              weryfikację.
+            </p>
+          ) : dockTab === "notes" ? (
+            <DockNotesPanel
+              candidateId={selected.item.candidate_id}
+              jobId={jobId}
+              readOnly={readOnly}
+              enabled={dockTab === "notes"}
+            />
+          ) : (
+            <>
+              <DockSection title="Stawka oczekiwana" right='gate „Zweryfikowany"'>
+                <VerifiedRateFields
+                  rate={rate}
+                  onRateChange={setRate}
+                  unit={unit}
+                  onUnitChange={setUnit}
+                  gate={gate}
+                  disabled={readOnly}
+                  idPrefix="screening-dock-rate"
+                />
+                <p className="text-[10.5px] text-muted-foreground">
+                  Stawka jest opcjonalna. Powyżej budżetu → ostrzeżenie tutaj
+                  i odznaka „ponad budżet” na karcie; ruch nie jest blokowany.
+                  Przeliczenie: dzień ÷ 8, miesiąc ÷ 168.
+                </p>
+              </DockSection>
+
+              <DockSection title="Wynik screeningu">
+                {answers.length > 0 ? (
+                  <div>
+                    {answers.map((a) => (
+                      <ReqRow
+                        key={a.id}
+                        tone={
+                          a.dealBreakerHit ? "n" : a.response ? "y" : "w"
+                        }
+                        label={a.question}
+                        tag={
+                          a.dealBreakerHit
+                            ? "narusza"
+                            : a.response
+                              ? "ok"
+                              : "brak"
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Ta rekrutacja nie ma pytań Championa — wynik screeningu
+                    będzie sam z siebie pusty.
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {FIT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      disabled={readOnly || screening.questions.length === 0}
+                      aria-pressed={overallFit === opt.value}
+                      title={opt.description}
+                      onClick={() =>
+                        screening.methods.setValue("overall_fit", opt.value, {
+                          shouldDirty: true,
+                        })
+                      }
+                      className={cn(
+                        "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                        overallFit === opt.value
+                          ? "border-primary bg-primary/10 font-medium text-primary"
+                          : "border-border bg-background text-muted-foreground hover:bg-muted",
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10.5px] text-muted-foreground">
+                  Te same pigułki co „Ogólna ocena dopasowania” w arkuszu —
+                  jeden stan, dwa miejsca. Zapisuje je „Zapisz screening”.
+                </p>
+                {screeningDirty && (
+                  <p className="inline-flex items-start gap-1 text-[11px] text-warning-muted-foreground">
+                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                    Masz niezapisane odpowiedzi w arkuszu.
+                  </p>
+                )}
+              </DockSection>
+
+              {!readOnly && (
+                <DockActions>
+                  <Button
+                    className="col-span-2 w-full justify-start"
+                    size="sm"
+                    disabled={Boolean(moveBlocked) || moveMut.isPending}
+                    loading={moveMut.isPending}
+                    title={moveBlocked ?? undefined}
+                    onClick={() => moveMut.mutate(false)}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Zweryfikowany — zapisz stawkę i przenieś
+                  </Button>
+                  {!isPanel && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full justify-start"
+                    title="Zostaw kandydata w kolejce i wróć do niego później"
+                    onClick={() => setSelectedStageId(null)}
+                  >
+                    <Clock className="h-3.5 w-3.5" /> Wróć później
+                  </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className={cn(
+                      "w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive",
+                      isPanel && "col-span-2",
+                    )}
+                    disabled={!rejectedCol || Boolean(rejectBlocked)}
+                    title={
+                      !rejectedCol
+                        ? "Szablon tej rekrutacji nie ma kolumny „Odrzucony”."
+                        : (rejectBlocked ??
+                          "Ten sam modal powodu i ta sama reguła maila co na tablicy")
+                    }
+                    onClick={() => setRejectOpen(true)}
+                  >
+                    <Ban className="h-3.5 w-3.5" /> Odrzuć z powodem
+                  </Button>
+                </DockActions>
+              )}
+              {moveBlocked && !readOnly && (
+                <p className="text-[11px] text-muted-foreground">
+                  {moveBlocked}
+                </p>
+              )}
+            </>
+          );
+
+  const sheetArea = (
+    <>
+            <div className="rounded-xl border border-border bg-card p-4">
+              {screening.query.isLoading ? (
+                <div className="flex items-center gap-1.5 py-8 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Ładowanie pytań
+                  screeningowych…
+                </div>
+              ) : screening.query.isError ? (
+                <QueryStateNotice
+                  state={
+                    resolveViewState({
+                      isLoading: false,
+                      isError: true,
+                      error: screening.query.error,
+                      isSuccess: false,
+                    }) as "forbidden" | "not_found" | "error"
+                  }
+                  onRetry={() => void screening.query.refetch()}
+                />
+              ) : screening.questions.length === 0 ? (
+                <ScreeningNoQuestions
+                  onOpenChampion={() => onTabChange("champion")}
+                />
+              ) : (
+                <Form methods={screening.methods} onSubmit={screening.onSubmit}>
+                  <ScreeningFormFields
+                    questions={screening.questions}
+                    methods={screening.methods}
+                  />
+                  {screening.submitError && (
+                    <ScreeningSubmitError message={screening.submitError} />
+                  )}
+                  {!readOnly && (
+                    <div className="flex justify-end border-t border-border pt-3">
+                      <Button
+                        type="submit"
+                        loading={screening.submitMut.isPending}
+                      >
+                        <Save className="h-4 w-4" /> Zapisz screening
+                      </Button>
+                    </div>
+                  )}
+                </Form>
+              )}
+            </div>
+
+            {screening.questions.length > 0 && (
+              <ChromeBanner
+                tone="warn"
+                icon={<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+              >
+                Deal-breaker zaznaczony przy dowolnym pytaniu zeruje wynik
+                screeningu Championa (<code>match_percent = 0</code>) — tak jak
+                dziś.
+              </ChromeBanner>
+            )}
+    </>
+  );
+  const modals = (
+    <>
+      {selected && showOriginalCv && (
+        <CVOriginalPreviewModal
+          open
+          onOpenChange={setShowOriginalCv}
+          stageId={selected.item.id}
+          jobTitle={`Rekrutacja #${jobId}`}
+          candidateName={selectedName ?? "Kandydat"}
+        />
+      )}
+
+      {eligibilityReason && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setEligibilityReason(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Ostrzeżenie przed przeniesieniem</DialogTitle>
+              <DialogDescription>{eligibilityReason}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setEligibilityReason(null)}>
+                Anuluj
+              </Button>
+              <Button
+                onClick={() => {
+                  setEligibilityReason(null);
+                  moveMut.mutate(true);
+                }}
+              >
+                Przenieś mimo to
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {selected && rejectedCol && rejectOpen && (
+        <RejectionV2
+          open
+          onOpenChange={setRejectOpen}
+          terminalType="rejected"
+          reasons={reasonsQuery.data ?? []}
+          previousStageCategory={
+            selected.col.category === "external" ? "external" : "internal"
+          }
+          previousStage={selected.col.stage}
+          onConfirm={(
+            reasonId,
+            notes,
+            sendRejectionEmail,
+            offerResponse,
+            freeReason,
+          ) =>
+            rejectMut.mutate({
+              reasonId,
+              notes,
+              sendRejectionEmail,
+              offerResponse: offerResponse ?? null,
+              freeReason,
+            })
+          }
+        />
+      )}
+    </>
+  );
+
+  if (isPanel) {
+    if (!selected) {
+      if (panelFallback != null) return <>{panelFallback}</>;
+      return (
+        <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
+          Arkusz screeningu jest dostępny na etapie „Screening”. Ta osoba jest
+          dziś na innym etapie tej rekrutacji.
+        </p>
+      );
+    }
+    return (
+      <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {headBadges}
+          {headTools}
+          {headSaved}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            title="Podgląd CV oryginalnego z momentu zgłoszenia (snapshot etapu)"
+            onClick={() => setShowOriginalCv(true)}
+          >
+            <FileText className="h-3.5 w-3.5" /> Pokaż CV obok
+          </Button>
+          <Link
+            href={`/jobs/${jobId}/prep/${selected.item.candidate_id}`}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-primary" /> Prep-kit (AI, z
+            podobnych)
+          </Link>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => onTabChange("questions")}
+          >
+            <BookOpen className="h-3.5 w-3.5" /> Baza pytań
+            {pinnedQuery.isSuccess
+              ? ` · przypięte: ${pinnedQuery.data?.length ?? 0}`
+              : ""}
+          </Button>
+          <Link
+            href={`/candidates/${selected.item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
+          >
+            <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
+          </Link>
+        </div>
+
+        {sheetArea}
+
+        <section
+          aria-label="Weryfikacja"
+          className="space-y-3 rounded-xl border border-border bg-card p-3"
+        >
+          <TabbedNav
+            ariaLabel="Zakładki: Weryfikacja"
+            value={dockTab}
+            onValueChange={(v) => setDockTab(v as DockTab)}
+            tabs={dockTabs}
+            overflow="scroll"
+          />
+          {dockBody}
+        </section>
+        {modals}
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
@@ -669,28 +1089,7 @@ export function ScreeningWorkbench({
               ]
                 .filter(Boolean)
                 .join(" · ")}
-              badges={
-                <>
-                  {isOverHourlyBudget(selected.item, jobBudgetHourly) && (
-                    <Badge
-                      variant="warning"
-                      size="sm"
-                      title="Stawka kandydata przekracza budżet PLN/h rekrutacji — informacja, nic nie blokuje."
-                    >
-                      <HelpCircle className="h-2.5 w-2.5" /> Ponad budżet
-                    </Badge>
-                  )}
-                  {selected.item.hm_veto && (
-                    <Badge
-                      variant="danger"
-                      size="sm"
-                      title={`Powód: ${selected.item.hm_veto.rejection_reason_name}`}
-                    >
-                      <UserX className="h-2.5 w-2.5" /> Weto HM
-                    </Badge>
-                  )}
-                </>
-              }
+              badges={headBadges}
               actions={
                 <Link
                   href={`/candidates/${selected.item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
@@ -699,97 +1098,11 @@ export function ScreeningWorkbench({
                   <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
                 </Link>
               }
-              tools={
-                <>
-                  <ToolPill tone={overallFit === "fit" ? "ok" : "info"}>
-                    Ogólna ocena dopasowania:{" "}
-                    {screeningSaved || screeningDirty
-                      ? (FIT_OPTIONS.find((o) => o.value === overallFit)
-                          ?.label ?? "—")
-                      : "—"}
-                  </ToolPill>
-                  <ToolPill>
-                    {screening.questions.length > 0
-                      ? `${answeredCount} z ${countPl(screening.questions.length, "pytania", "pytań", "pytań")} odpowiedzianych`
-                      : "Brak pytań Championa"}
-                  </ToolPill>
-                  {dealBreakerHit && (
-                    <ToolPill tone="bad">
-                      <AlertTriangle className="h-3 w-3" /> deal-breaker
-                      zaznaczony
-                    </ToolPill>
-                  )}
-                </>
-              }
-              toolsRight={
-                screeningDirty ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] text-warning-muted-foreground">
-                    <Clock className="h-3 w-3" /> Niezapisane zmiany
-                  </span>
-                ) : screeningSaved?.answered_at ? (
-                  <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <Clock className="h-3 w-3" /> Zapisano{" "}
-                    {formatDate(screeningSaved.answered_at)}
-                  </span>
-                ) : null
-              }
+              tools={headTools}
+              toolsRight={headSaved}
             />
 
-            <div className="rounded-xl border border-border bg-card p-4">
-              {screening.query.isLoading ? (
-                <div className="flex items-center gap-1.5 py-8 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Ładowanie pytań
-                  screeningowych…
-                </div>
-              ) : screening.query.isError ? (
-                <QueryStateNotice
-                  state={
-                    resolveViewState({
-                      isLoading: false,
-                      isError: true,
-                      error: screening.query.error,
-                      isSuccess: false,
-                    }) as "forbidden" | "not_found" | "error"
-                  }
-                  onRetry={() => void screening.query.refetch()}
-                />
-              ) : screening.questions.length === 0 ? (
-                <ScreeningNoQuestions
-                  onOpenChampion={() => onTabChange("champion")}
-                />
-              ) : (
-                <Form methods={screening.methods} onSubmit={screening.onSubmit}>
-                  <ScreeningFormFields
-                    questions={screening.questions}
-                    methods={screening.methods}
-                  />
-                  {screening.submitError && (
-                    <ScreeningSubmitError message={screening.submitError} />
-                  )}
-                  {!readOnly && (
-                    <div className="flex justify-end border-t border-border pt-3">
-                      <Button
-                        type="submit"
-                        loading={screening.submitMut.isPending}
-                      >
-                        <Save className="h-4 w-4" /> Zapisz screening
-                      </Button>
-                    </div>
-                  )}
-                </Form>
-              )}
-            </div>
-
-            {screening.questions.length > 0 && (
-              <ChromeBanner
-                tone="warn"
-                icon={<AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
-              >
-                Deal-breaker zaznaczony przy dowolnym pytaniu zeruje wynik
-                screeningu Championa (<code>match_percent = 0</code>) — tak jak
-                dziś.
-              </ChromeBanner>
-            )}
+            {sheetArea}
           </>
         )}
       </div>
@@ -823,214 +1136,11 @@ export function ScreeningWorkbench({
             </>
           }
         >
-          {!selected ? (
-            <p className="text-xs text-muted-foreground">
-              Wybierz kandydata z kolejki, żeby wpisać stawkę i zamknąć
-              weryfikację.
-            </p>
-          ) : dockTab === "notes" ? (
-            <DockNotesPanel
-              candidateId={selected.item.candidate_id}
-              jobId={jobId}
-              readOnly={readOnly}
-              enabled={dockTab === "notes"}
-            />
-          ) : (
-            <>
-              <DockSection title="Stawka oczekiwana" right='gate „Zweryfikowany"'>
-                <VerifiedRateFields
-                  rate={rate}
-                  onRateChange={setRate}
-                  unit={unit}
-                  onUnitChange={setUnit}
-                  gate={gate}
-                  disabled={readOnly}
-                  idPrefix="screening-dock-rate"
-                />
-                <p className="text-[10.5px] text-muted-foreground">
-                  Stawka jest opcjonalna. Powyżej budżetu → ostrzeżenie tutaj
-                  i odznaka „ponad budżet” na karcie; ruch nie jest blokowany.
-                  Przeliczenie: dzień ÷ 8, miesiąc ÷ 168.
-                </p>
-              </DockSection>
-
-              <DockSection title="Wynik screeningu">
-                {answers.length > 0 ? (
-                  <div>
-                    {answers.map((a) => (
-                      <ReqRow
-                        key={a.id}
-                        tone={
-                          a.dealBreakerHit ? "n" : a.response ? "y" : "w"
-                        }
-                        label={a.question}
-                        tag={
-                          a.dealBreakerHit
-                            ? "narusza"
-                            : a.response
-                              ? "ok"
-                              : "brak"
-                        }
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Ta rekrutacja nie ma pytań Championa — wynik screeningu
-                    będzie sam z siebie pusty.
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-1 pt-1">
-                  {FIT_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      disabled={readOnly || screening.questions.length === 0}
-                      aria-pressed={overallFit === opt.value}
-                      title={opt.description}
-                      onClick={() =>
-                        screening.methods.setValue("overall_fit", opt.value, {
-                          shouldDirty: true,
-                        })
-                      }
-                      className={cn(
-                        "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                        overallFit === opt.value
-                          ? "border-primary bg-primary/10 font-medium text-primary"
-                          : "border-border bg-background text-muted-foreground hover:bg-muted",
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[10.5px] text-muted-foreground">
-                  Te same pigułki co „Ogólna ocena dopasowania” w arkuszu —
-                  jeden stan, dwa miejsca. Zapisuje je „Zapisz screening”.
-                </p>
-                {screeningDirty && (
-                  <p className="inline-flex items-start gap-1 text-[11px] text-warning-muted-foreground">
-                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-                    Masz niezapisane odpowiedzi w arkuszu.
-                  </p>
-                )}
-              </DockSection>
-
-              {!readOnly && (
-                <DockActions>
-                  <Button
-                    className="col-span-2 w-full justify-start"
-                    size="sm"
-                    disabled={Boolean(moveBlocked) || moveMut.isPending}
-                    loading={moveMut.isPending}
-                    title={moveBlocked ?? undefined}
-                    onClick={() => moveMut.mutate(false)}
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Zweryfikowany — zapisz stawkę i przenieś
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full justify-start"
-                    title="Zostaw kandydata w kolejce i wróć do niego później"
-                    onClick={() => setSelectedStageId(null)}
-                  >
-                    <Clock className="h-3.5 w-3.5" /> Wróć później
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    disabled={!rejectedCol || Boolean(rejectBlocked)}
-                    title={
-                      !rejectedCol
-                        ? "Szablon tej rekrutacji nie ma kolumny „Odrzucony”."
-                        : (rejectBlocked ??
-                          "Ten sam modal powodu i ta sama reguła maila co na tablicy")
-                    }
-                    onClick={() => setRejectOpen(true)}
-                  >
-                    <Ban className="h-3.5 w-3.5" /> Odrzuć z powodem
-                  </Button>
-                </DockActions>
-              )}
-              {moveBlocked && !readOnly && (
-                <p className="text-[11px] text-muted-foreground">
-                  {moveBlocked}
-                </p>
-              )}
-            </>
-          )}
+          {dockBody}
         </WorkbenchDock>
       </aside>
 
-      {selected && showOriginalCv && (
-        <CVOriginalPreviewModal
-          open
-          onOpenChange={setShowOriginalCv}
-          stageId={selected.item.id}
-          jobTitle={`Rekrutacja #${jobId}`}
-          candidateName={selectedName ?? "Kandydat"}
-        />
-      )}
-
-      {eligibilityReason && (
-        <Dialog
-          open
-          onOpenChange={(open) => {
-            if (!open) setEligibilityReason(null);
-          }}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Ostrzeżenie przed przeniesieniem</DialogTitle>
-              <DialogDescription>{eligibilityReason}</DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setEligibilityReason(null)}>
-                Anuluj
-              </Button>
-              <Button
-                onClick={() => {
-                  setEligibilityReason(null);
-                  moveMut.mutate(true);
-                }}
-              >
-                Przenieś mimo to
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
-
-      {selected && rejectedCol && rejectOpen && (
-        <RejectionV2
-          open
-          onOpenChange={setRejectOpen}
-          terminalType="rejected"
-          reasons={reasonsQuery.data ?? []}
-          previousStageCategory={
-            selected.col.category === "external" ? "external" : "internal"
-          }
-          previousStage={selected.col.stage}
-          onConfirm={(
-            reasonId,
-            notes,
-            sendRejectionEmail,
-            offerResponse,
-            freeReason,
-          ) =>
-            rejectMut.mutate({
-              reasonId,
-              notes,
-              sendRejectionEmail,
-              offerResponse: offerResponse ?? null,
-              freeReason,
-            })
-          }
-        />
-      )}
+      {modals}
     </div>
   );
 }

@@ -3,15 +3,16 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  JobDetailCompactHeader,
-  type JobDetailTab,
-} from "@/components/v2/jobs/JobDetailCompactHeader";
+import { JobDetailCompactHeader } from "@/components/v2/jobs/JobDetailCompactHeader";
+import type { JobDetailView } from "@/lib/job-detail-routing";
 
 function renderHeader(
   overrides: Partial<React.ComponentProps<typeof JobDetailCompactHeader>> = {},
 ) {
-  const onTabChange = vi.fn<(tab: JobDetailTab) => void>();
+  const onViewChange = vi.fn<(view: JobDetailView) => void>();
+  const onOpenOrder = vi.fn();
+  const onOpenHistoryChat = vi.fn();
+  const onOpenQuestions = vi.fn();
   const onAddCandidate = vi.fn();
   const onEdit = vi.fn();
 
@@ -21,19 +22,27 @@ function renderHeader(
       referenceNumber="REF-505734"
       badges={<span>Aktywna</span>}
       metadata={<span>Warszawa</span>}
-      activeTab="pipeline"
-      onTabChange={onTabChange}
+      activeView="people"
+      onViewChange={onViewChange}
+      onOpenOrder={onOpenOrder}
+      onOpenHistoryChat={onOpenHistoryChat}
+      onOpenQuestions={onOpenQuestions}
       onAddCandidate={onAddCandidate}
       onEdit={onEdit}
       chatUnreadCount={3}
-      contextOpen={false}
-      onContextOpenChange={vi.fn()}
-      contextContent={<div>Zespół operacyjny</div>}
       {...overrides}
     />,
   );
 
-  return { onTabChange, onAddCandidate, onEdit, unmount };
+  return {
+    onViewChange,
+    onOpenOrder,
+    onOpenHistoryChat,
+    onOpenQuestions,
+    onAddCandidate,
+    onEdit,
+    unmount,
+  };
 }
 
 describe("JobDetailCompactHeader", () => {
@@ -66,177 +75,83 @@ describe("JobDetailCompactHeader", () => {
     expect(
       screen.queryByRole("button", { name: "Więcej akcji rekrutacji" }),
     ).toBeNull();
-    // Nawigacja po krokach zostaje także w trybie tylko-do-odczytu.
-    expect(
-      screen.getByRole("button", { name: "Pozyskaj kandydatów" }),
-    ).toBeTruthy();
+    // Przełącznik widoku i okna zostają także w trybie tylko-do-odczytu.
+    expect(screen.getByRole("button", { name: /Tabela/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Zlecenie/ })).toBeTruthy();
   });
 
-  it("listwa kroków idzie w kolejności procesu i nie gubi żadnej sekcji", async () => {
-    const { onTabChange } = renderHeader();
+  it("przełącznik „Tabela | Tablica” zastąpił listwę dwunastu kroków", async () => {
+    const { onViewChange } = renderHeader();
 
-    // Bezpośrednie kroki (bez menu): Zlecenie i Champion · Pipeline · Screening ·
-    // CV do klienta · Baza pytań, po prawej Historia i Chat.
+    const group = screen.getByRole("group", { name: "Widok rekrutacji" });
+    const table = within(group).getByRole("button", { name: /Tabela/ });
+    const board = within(group).getByRole("button", { name: "Tablica" });
+    expect(within(group).getAllByRole("button")).toHaveLength(2);
+    expect(table).toHaveAttribute("aria-pressed", "true");
+    expect(board).toHaveAttribute("aria-pressed", "false");
+
+    await userEvent.click(board);
+    expect(onViewChange).toHaveBeenCalledWith("board");
+
+    // Dawne kroki nie są już nawigacją strony — żyją w pasku etapów tabeli.
+    for (const name of ["Pipeline", "Screening", "CV do klienta", "Umowa", "Pozyskaj kandydatów"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+  });
+
+  it("„Zlecenie”, „Historia i czat” i „Baza pytań” otwierają okna obok tabeli", async () => {
+    const { onOpenOrder, onOpenHistoryChat, onOpenQuestions } = renderHeader();
     const nav = screen.getByRole("navigation", { name: "Sekcje rekrutacji" });
-    const labels = Array.from(nav.querySelectorAll("button")).map((b) =>
-      (b.textContent ?? "").replace(/\d+$/, "").trim(),
-    );
-    expect(labels).toEqual([
-      "Zlecenie i Champion",
-      "Pozyskiwanie",
-      "Pipeline",
-      "Screening",
-      "CV do klienta",
-      "Rozmowy i decyzja",
-      "Umowa",
-      // Baza pytań to materiał pomocniczy, nie krok procesu — stoi za
-      // ostatnim krokiem (08 Umowa), jak w makietach programu.
-      "Baza pytań",
-    ]);
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "Zlecenie i Champion" }),
-    );
-    expect(onTabChange).toHaveBeenCalledWith("champion");
-    await userEvent.click(screen.getByRole("button", { name: "Screening" }));
-    expect(onTabChange).toHaveBeenCalledWith("screening");
-    await userEvent.click(
-      screen.getByRole("button", { name: "CV do klienta" }),
-    );
-    expect(onTabChange).toHaveBeenCalledWith("cv");
-    await userEvent.click(screen.getByRole("button", { name: "Baza pytań" }));
-    expect(onTabChange).toHaveBeenCalledWith("questions");
-    await userEvent.click(
-      screen.getByRole("button", { name: "Rozmowy i decyzja" }),
-    );
-    expect(onTabChange).toHaveBeenCalledWith("interviews");
-    await userEvent.click(screen.getByRole("button", { name: "Umowa" }));
-    expect(onTabChange).toHaveBeenCalledWith("contract");
-    await userEvent.click(screen.getByRole("button", { name: "Historia" }));
-    expect(onTabChange).toHaveBeenCalledWith("history");
-    await userEvent.click(
-      screen.getByRole("button", { name: "Chat, 3 nieprzeczytane" }),
-    );
-    expect(onTabChange).toHaveBeenCalledWith("chat");
-
-    // Pozyskiwanie zostaje menu (AI Matching / manualne / portale), dopóki rama
-    // źródeł nie zastąpi trzech osobnych zakładek jedną powierzchnią.
-    await userEvent.click(
-      screen.getByRole("button", { name: "Pozyskaj kandydatów" }),
-    );
-    expect(
-      await screen.findByRole("menuitem", { name: "AI Matching" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("menuitem", { name: "Portale ogłoszeniowe" }),
-    ).toBeTruthy();
-    await userEvent.click(
-      screen.getByRole("menuitem", { name: "Wyszukaj manualnie" }),
-    );
-    expect(onTabChange).toHaveBeenCalledWith("manual-search");
+    await userEvent.click(within(nav).getByRole("button", { name: /Zlecenie/ }));
+    expect(onOpenOrder).toHaveBeenCalledOnce();
+    await userEvent.click(within(nav).getByRole("button", { name: /Historia i czat/ }));
+    expect(onOpenHistoryChat).toHaveBeenCalledOnce();
+    await userEvent.click(within(nav).getByRole("button", { name: "Baza pytań" }));
+    expect(onOpenQuestions).toHaveBeenCalledOnce();
   });
 
-  it("nie ma już menu Narzędzia — Champion, Baza pytań i Chat są krokami", () => {
-    renderHeader();
-    expect(screen.queryByRole("button", { name: /Narzędzia/ })).toBeNull();
-    expect(screen.getByTestId("tab-champion")).toBeTruthy();
-    expect(screen.getByTestId("tab-questions")).toBeTruthy();
-    expect(screen.getByTestId("tab-chat")).toBeTruthy();
-    expect(screen.getByTestId("tab-history")).toBeTruthy();
-    expect(screen.getByTestId("tab-interviews")).toBeTruthy();
-    expect(screen.getByTestId("tab-contract")).toBeTruthy();
-  });
-
-  it("liczniki kroków 07 i 08 milczą, dopóki nie ma czego policzyć", () => {
-    // `undefined` = kanban jeszcze nie wczytany. Zero w tym miejscu czytałoby
-    // się jako „nikt nie jest u klienta", a to inna wiadomość niż „nie wiem".
-    renderHeader({ interviewsCount: undefined, contractCount: undefined });
-    expect(
-      screen.getByRole("button", { name: "Rozmowy i decyzja" }).textContent,
-    ).toBe("Rozmowy i decyzja");
-    expect(screen.getByRole("button", { name: "Umowa" }).textContent).toBe(
-      "Umowa",
-    );
-  });
-
-  it("policzone zero jest pokazywane — to inna wiadomość niż brak danych", () => {
-    renderHeader({ interviewsCount: 2, contractCount: 0 });
-    expect(
-      screen.getByRole("button", { name: "Rozmowy i decyzja" }).textContent,
-    ).toBe("Rozmowy i decyzja2");
-    expect(screen.getByRole("button", { name: "Umowa" }).textContent).toBe(
-      "Umowa0",
-    );
-  });
-
-  it("oznacza aktywną grupę i dokładną pozycję menu", async () => {
-    renderHeader({ activeTab: "manual-search" });
-
-    const sourcing = screen.getByRole("button", {
-      name: "Pozyskaj kandydatów",
-    });
-    expect(sourcing).toHaveAttribute("aria-current", "page");
-    await userEvent.click(sourcing);
-    expect(
-      await screen.findByRole("menuitem", { name: "Wyszukaj manualnie" }),
-    ).toHaveAttribute("aria-current", "page");
-  });
-
-  it("pokazuje licznik w procesie na Pipeline tylko, gdy jest policzony", () => {
-    const { unmount } = render(
-      <JobDetailCompactHeader
-        title="Senior Java Developer"
-        activeTab="pipeline"
-        onTabChange={vi.fn()}
-        contextOpen={false}
-        onContextOpenChange={vi.fn()}
-        contextContent={<div />}
-      />,
-    );
-    expect(screen.getByRole("button", { name: "Pipeline" })).toBeTruthy();
+  it("odznaka „brakuje N” tylko przy ZNANYCH brakach — niewiedza i zero milczą", () => {
+    const { unmount } = renderHeader({ orderMissingCount: 2 });
+    expect(screen.getByTestId("open-order")).toHaveTextContent("brakuje 2");
     unmount();
 
-    render(
-      <JobDetailCompactHeader
-        title="Senior Java Developer"
-        activeTab="pipeline"
-        onTabChange={vi.fn()}
-        pipelineCount={15}
-        contextOpen={false}
-        onContextOpenChange={vi.fn()}
-        contextContent={<div />}
-      />,
-    );
-    const pipeline = screen.getByRole("button", { name: /^Pipeline/ });
-    expect(pipeline.textContent).toContain("15");
+    const zero = renderHeader({ orderMissingCount: 0 });
+    expect(screen.getByTestId("open-order")).not.toHaveTextContent("brakuje");
+    zero.unmount();
+
+    renderHeader({ orderMissingCount: null });
+    expect(screen.getByTestId("open-order")).not.toHaveTextContent("brakuje");
   });
 
-  it("liczniki kroków 05 i 06 pokazują się dopiero policzone — zero to wynik, nie brak danych", () => {
+  it("licznik nieprzeczytanych czatu jest w nazwie przycisku i na odznace", () => {
+    const { unmount } = renderHeader({ chatUnreadCount: 3 });
+    const button = screen.getByRole("button", { name: "Historia i czat, 3 nieprzeczytane" });
+    expect(button).toHaveTextContent("3");
+    unmount();
+
+    renderHeader({ chatUnreadCount: 0 });
+    expect(screen.getByRole("button", { name: "Historia i czat" })).toBeTruthy();
+  });
+
+  it("licznik „w procesie” przy Tabeli tylko, gdy jest policzony — zero to wynik, nie brak danych", () => {
     const { unmount } = renderHeader();
-    // Bez `screeningCount`/`cvCount` listwa nie pokazuje żadnej liczby (kanban
-    // może się jeszcze ładować) — pokazane zero znaczyłoby „nikogo tu nie ma".
-    expect(
-      screen.getByTestId("tab-screening").textContent?.replace(/\D/g, ""),
-    ).toBe("");
-    expect(screen.getByTestId("tab-cv").textContent?.replace(/\D/g, "")).toBe("");
+    expect(screen.getByTestId("view-people")).toHaveTextContent(/^Tabela$/);
     unmount();
 
-    renderHeader({ screeningCount: 0, cvCount: 2 });
-    expect(screen.getByTestId("tab-screening").textContent).toContain("0");
-    expect(screen.getByTestId("tab-cv").textContent).toContain("2");
+    const counted = renderHeader({ pipelineCount: 26 });
+    expect(screen.getByTestId("view-people")).toHaveTextContent("Tabela26");
+    counted.unmount();
+
+    renderHeader({ pipelineCount: 0 });
+    expect(screen.getByTestId("view-people")).toHaveTextContent("Tabela0");
   });
 
-  it("oznacza aktywny krok 05 i 06", () => {
-    const { unmount } = renderHeader({ activeTab: "screening" });
-    expect(screen.getByTestId("tab-screening")).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-    expect(screen.getByTestId("tab-cv")).not.toHaveAttribute("aria-current");
-    unmount();
-
-    renderHeader({ activeTab: "cv" });
-    expect(screen.getByTestId("tab-cv")).toHaveAttribute("aria-current", "page");
+  it("pełny widok „Zlecenie i Champion”: żaden widok tabeli nie jest wciśnięty, „Zlecenie” to zwykły przycisk okna", () => {
+    renderHeader({ activeView: "champion" });
+    expect(screen.getByTestId("view-people")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("view-board")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("open-order")).not.toHaveAttribute("aria-current");
   });
 
   it("zamyka menu przed odroczonym otwarciem modala akcji", async () => {
@@ -251,15 +166,48 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.queryByRole("menuitem", { name: "Edytuj" })).toBeNull();
   });
 
-  it("trzyma zespół i Priority Work pod jednym disclosure", async () => {
+  it("menu „…” niesie Edytuj, Szkic ogłoszenia i Wygeneruj link", async () => {
+    renderHeader({ onWriteAnnouncement: vi.fn(), onGenerateInviteLink: vi.fn() });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Więcej akcji rekrutacji" }),
+    );
+    for (const name of ["Edytuj", "Szkic ogłoszenia", "Wygeneruj link"]) {
+      expect(await screen.findByRole("menuitem", { name })).toBeTruthy();
+    }
+  });
+
+  it("narzędzia AI w menu „…” tylko gdy strona je poda (admin) — także bez innych akcji menu", async () => {
+    const onOpenAiTools = vi.fn();
+    const first = renderHeader({ onEdit: undefined, onOpenAiTools });
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Narzędzia AI (administrator)" }),
+    );
+    await waitFor(() => expect(onOpenAiTools).toHaveBeenCalledOnce());
+    first.unmount();
+
+    renderHeader();
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    await screen.findByRole("menuitem", { name: "Edytuj" });
+    expect(screen.queryByRole("menuitem", { name: /Narzędzia AI/ })).toBeNull();
+  });
+
+  it("panel „Zespół i priorytet” istnieje tylko, gdy strona go poda (widok Championa)", async () => {
+    // W „Tabeli" i na „Tablicy" panel żyje w oknie „Zlecenie".
+    const { unmount } = renderHeader();
+    expect(screen.queryByRole("button", { name: /Zespół i priorytet/ })).toBeNull();
+    unmount();
+
     function Harness() {
       const [open, setOpen] = React.useState(false);
       return (
         <JobDetailCompactHeader
           title="Senior Java Developer"
-          activeTab="pipeline"
-          onTabChange={vi.fn()}
-          onAddCandidate={vi.fn()}
+          activeView="champion"
+          onViewChange={vi.fn()}
+          onOpenOrder={vi.fn()}
+          onOpenHistoryChat={vi.fn()}
+          onOpenQuestions={vi.fn()}
           contextOpen={open}
           onContextOpenChange={setOpen}
           contextContent={<div>Zespół operacyjny</div>}
@@ -318,9 +266,8 @@ describe("JobDetailCompactHeader — jobbar", () => {
     expect(within(cluster).queryByText("0")).toBeNull();
   });
 
-  it("KPI screeningu i pipeline'u to różne zestawy — klaster zależy od kroku", () => {
+  it("klaster pokazuje dokładnie te KPI, które dostał — policzone zero też", () => {
     const { unmount } = renderHeader({
-      activeTab: "screening",
       kpis: [
         { key: "screening", label: "w screeningu", value: 2, tone: "neutral" },
         {
@@ -340,7 +287,6 @@ describe("JobDetailCompactHeader — jobbar", () => {
     unmount();
 
     renderHeader({
-      activeTab: "pipeline",
       kpis: [
         { key: "in-process", label: "w procesie", value: 15, tone: "neutral" },
         { key: "stalled", label: "utknęli > 7 d", value: 0, tone: "neutral" },
@@ -366,19 +312,18 @@ describe("JobDetailCompactHeader — jobbar", () => {
   });
 
   it("„Baza pytań” ma PEŁNĄ etykietę, nie samą ikonę", () => {
-    // Regresja z produkcji: listwa miała `overflow-x-auto`, a jedenaście
-    // kroków nie mieściło się przy 1440 px — ostatnia etykieta była ucięta
-    // do znaczka książki i czytała się jak brak funkcji.
+    // Regresja z produkcji: ucięta etykieta czyta się jak brak funkcji.
     renderHeader();
-    const questions = screen.getByTestId("tab-questions");
+    const questions = screen.getByTestId("open-questions");
     expect(questions).toHaveTextContent("Baza pytań");
     expect(questions.className).not.toContain("sr-only");
   });
 
-  it("listwa kroków zawija się zamiast chować końcówkę za przewijaniem", () => {
+  it("pasek zawija się zamiast chować końcówkę za przewijaniem", () => {
     renderHeader();
     const nav = screen.getByRole("navigation", { name: "Sekcje rekrutacji" });
     expect(nav.className).toContain("flex-wrap");
     expect(nav.className).not.toContain("overflow-x-auto");
+    expect(nav.parentElement?.className).toContain("flex-wrap");
   });
 });

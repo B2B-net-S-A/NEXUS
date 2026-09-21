@@ -84,6 +84,9 @@ BulkAddSource = Literal[
     # Jarvis (0330): dodanie zaproponowane przez asystenta i potwierdzone
     # kliknięciem człowieka na karcie akcji.
     "jarvis",
+    # Rekrutacja v3: skrzynka „Propozycje z bazy" i karta rekomendacji.
+    "proposal_inbox",
+    "recommendation",
     # 21.09.2026: panel „Moi ludzie" (lista rekrutera, zakładka rekrutacji).
     "my_people",
 ]

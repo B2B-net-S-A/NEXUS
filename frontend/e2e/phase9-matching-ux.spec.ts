@@ -92,8 +92,8 @@ test.describe("Phase 9 — matching UX", () => {
   // ── Phase 10: Champion Profile + screening ───────────────────────────────
 
   test("job detail has Profil Championa tab with editor", async ({ page }) => {
-    await page.goto("/jobs/2");
-    await page.getByRole("button", { name: /Profil Championa/i }).click();
+    // Wersja 3: pełny widok „Zlecenie i Champion" — `?tab=champion`.
+    await page.goto("/jobs/2?tab=champion");
     await expect(
       page.getByRole("heading", { name: /Profil Championa/i })
     ).toBeVisible();
@@ -102,15 +102,15 @@ test.describe("Phase 9 — matching UX", () => {
     await expect(page.getByText(/3\.?\s*PYTANIA SCREENINGOWE/i)).toBeVisible();
   });
 
-  test("score breakdown tooltip includes Champion layer", async ({ page }) => {
+  test("person panel „Dopasowanie” shows the score breakdown with the Champion layer", async ({ page }) => {
+    // Wersja 3: rozbicie punktów żyje w panelu osoby (sekcja „Dopasowanie"),
+    // nie w osobnej zakładce „AI Matching".
     await page.goto("/jobs/2");
-    await page.getByRole("button", { name: /AI Matching/i }).click();
-    // Trigger scoring if needed
-    const suggestBtn = page.getByRole("button", { name: /Sugeruj kandydatów/i });
-    if (await suggestBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await suggestBtn.click();
-    }
-    const info = page.getByRole("button", { name: /Pokaż rozbicie punktów/i }).first();
+    const table = page.getByRole("grid", { name: "Osoby w rekrutacji" });
+    await table.getByRole("row").nth(1).click();
+    const panel = page.getByRole("complementary", { name: "Wybrana osoba" });
+    await panel.getByRole("tab", { name: "Dopasowanie" }).click();
+    const info = panel.getByRole("button", { name: /Pokaż rozbicie punktów/i }).first();
     await expect(info).toBeVisible({ timeout: 15_000 });
     await info.click();
     // Champion row appears only for jobs with a Champion Profile configured.

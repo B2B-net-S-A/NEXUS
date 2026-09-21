@@ -144,7 +144,7 @@
    "id": "header.hm-picker",
    "area": "naglowek",
    "opis": "Hiring manager klienta",
-   "file": "app/jobs/[id]/page.tsx",
+   "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
    "marker": "HiringManagerPicker",
    "v3_home": "Zlecenie (okno) → Zespół"
   },
@@ -168,7 +168,7 @@
    "id": "header.ownership",
    "area": "naglowek",
    "opis": "Przejmij / współpracownicy",
-   "file": "app/jobs/[id]/page.tsx",
+   "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
    "marker": "JobOwnershipPanel",
    "v3_home": "Zlecenie (okno) → Zespół"
   },
@@ -176,7 +176,7 @@
    "id": "header.priority",
    "area": "naglowek",
    "opis": "Kontekst Priority Work",
-   "file": "app/jobs/[id]/page.tsx",
+   "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
    "marker": "JobPriorityContext",
    "v3_home": "Zlecenie (okno) → Priorytet"
   },
@@ -264,7 +264,7 @@
    "id": "src.ai-admin",
    "area": "pozyskiwanie",
    "opis": "Narzędzia AI admina",
-   "file": "app/jobs/[id]/page.tsx",
+   "file": "components/v2/recruitment/JobAIActions.tsx",
    "marker": "JobAIActions",
    "v3_home": "menu … (admin)"
   },
@@ -272,7 +272,7 @@
    "id": "src.email-template",
    "area": "pozyskiwanie",
    "opis": "Szablon maila do kandydata",
-   "file": "app/jobs/[id]/page.tsx",
+   "file": "components/v2/recruitment/EmailTemplateModal.tsx",
    "marker": "EmailTemplateModal",
    "v3_home": "panel → Napisz"
   },
@@ -280,31 +280,31 @@
    "id": "src.full-run",
    "area": "pozyskiwanie",
    "opis": "Pełny przegląd bazy",
-   "file": "hooks/useFullCandidateSearch.ts",
-   "marker": "candidateSearchApi.start",
+   "file": "components/v2/recruitment/useJobProposals.ts",
+   "marker": "useFullCandidateSearch",
    "v3_home": "segment Propozycje z bazy"
   },
   {
    "id": "src.hub",
    "area": "pozyskiwanie",
    "opis": "Cztery źródła + Odśwież propozycje",
-   "file": "components/v2/jobs/SourcingHub.tsx",
-   "marker": "regenerate",
+   "file": "components/v2/recruitment/ProposalsSegment.tsx",
+   "marker": "Odśwież rekomendacje",
    "v3_home": "segment Propozycje z bazy"
   },
   {
    "id": "src.manual",
    "area": "pozyskiwanie",
    "opis": "Wyszukaj manualnie w rekrutacji",
-   "file": "app/jobs/[id]/page.tsx",
-   "marker": "ManualSearchTab",
+   "file": "components/v2/recruitment/ManualSearchPanel.tsx",
+   "marker": "ManualSearchPanel",
    "v3_home": "okno Szukaj ręcznie"
   },
   {
    "id": "src.portals",
    "area": "pozyskiwanie",
    "opis": "Portale ogłoszeniowe",
-   "file": "app/jobs/[id]/page.tsx",
+   "file": "components/v2/recruitment/PostingsSection.tsx",
    "marker": "PostingsSection",
    "v3_home": "Zlecenie (okno) → portale"
   },
@@ -312,15 +312,15 @@
    "id": "src.recommended",
    "area": "pozyskiwanie",
    "opis": "Rekomendowani",
-   "file": "components/SuggestedCandidatesWidget.tsx",
-   "marker": "recommendations",
+   "file": "components/v2/recruitment/useJobProposals.ts",
+   "marker": "proposalsApi.latest",
    "v3_home": "źródło w Propozycjach"
   },
   {
    "id": "src.req-verify",
    "area": "pozyskiwanie",
    "opis": "Weryfikacja wymagań kandydata",
-   "file": "components/talent-radar/FullCandidateSearchResults.tsx",
+   "file": "components/v2/recruitment/ProposalPanel.tsx",
    "marker": "RequirementVerificationDialog",
    "v3_home": "panel propozycji"
   },
@@ -328,8 +328,8 @@
    "id": "src.run-status",
    "area": "pozyskiwanie",
    "opis": "Status przeglądu: postęp / nieudany / zatrzymany",
-   "file": "components/talent-radar/FullCandidateSearchStatus.tsx",
-   "marker": "stalled",
+   "file": "components/v2/recruitment/ProposalsSegment.tsx",
+   "marker": "FullCandidateSearchStatus",
    "v3_home": "pasek nad propozycjami"
   },
   {
@@ -344,8 +344,8 @@
    "id": "src.similar",
    "area": "pozyskiwanie",
    "opis": "Kandydaci z podobnych projektów",
-   "file": "components/HistoricalCandidatesSection.tsx",
-   "marker": "similar_jobs",
+   "file": "components/v2/recruitment/useJobProposals.ts",
+   "marker": "historicalCandidatesApi.forJob",
    "v3_home": "źródło w Propozycjach"
   },
   {
@@ -499,6 +499,142 @@
    "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "JobSettingsPanel",
    "v3_home": "okno Zlecenie + strona Champion"
+  },
+  {
+   "id": "panel.saved-screening",
+   "area": "screening",
+   "opis": "Zapisany arkusz screeningu tylko do odczytu dla osoby na późniejszym etapie",
+   "file": "components/v2/recruitment/PanelSavedViews.tsx",
+   "marker": "SavedScreeningView",
+   "v3_home": "panel → Screening"
+  },
+  {
+   "id": "panel.saved-cv",
+   "area": "cv",
+   "opis": "CV oryginalne, stan CV firmowego i linki dla klienta tylko do odczytu dla osoby na późniejszym etapie",
+   "file": "components/v2/recruitment/PanelSavedViews.tsx",
+   "marker": "SavedCvView",
+   "v3_home": "panel → CV"
+  },
+  {
+   "id": "src.match-justification",
+   "area": "pozyskiwanie",
+   "opis": "Pełne uzasadnienie dopasowania AI na żądanie (dawny dok „Dopasowanie” w AI Matching)",
+   "file": "components/v2/recruitment/ProposalMatchDetails.tsx",
+   "marker": "DopasowanieTab",
+   "v3_home": "panel propozycji"
+  },
+  {
+   "id": "src.dismiss-undo",
+   "area": "pozyskiwanie",
+   "opis": "Trwałe „Pomiń” dowolnej propozycji + „Cofnij”",
+   "file": "components/v2/recruitment/useJobProposals.ts",
+   "marker": "jobProposalsApi.restore",
+   "v3_home": "segment Propozycje z bazy"
+  },
+  {
+   "id": "history.moves-log",
+   "area": "historia",
+   "opis": "Dziennik ruchów etapów całej rekrutacji",
+   "file": "components/v2/recruitment/slideovers/HistoryChatSlideOver.tsx",
+   "marker": "/moves",
+   "v3_home": "okno Historia i czat → Ruchy"
+  },
+  {
+   "id": "order.client-playbook-link",
+   "area": "zlecenie",
+   "opis": "Link do karty klienta (Pomoc → Klienci)",
+   "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
+   "marker": "/help?tab=clients",
+   "v3_home": "okno Zlecenie"
+  },
+  {
+   "id": "header.view-switch",
+   "area": "nagłówek",
+   "opis": "Przełącznik widoku Tabela | Tablica",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "Widok rekrutacji",
+   "v3_home": "nagłówek"
+  },
+  {
+   "id": "routing.legacy-tabs",
+   "area": "nagłówek",
+   "opis": "Stare adresy ?tab= przepisywane na widok/segment/panel/okno",
+   "file": "lib/job-detail-routing.ts",
+   "marker": "resolveLegacyJobTab",
+   "v3_home": "adres strony"
+  },
+  {
+   "id": "bulk.cv-handoff",
+   "area": "cv",
+   "opis": "Zbiorcze „Wyślij CV do klienta”: ruch → link jednorazowy → stawka dla każdej zaznaczonej osoby, jedno okno wyników z linkami",
+   "file": "components/v2/recruitment/useBulkCvHandoff.tsx",
+   "marker": "runBulkCvHandoff",
+   "v3_home": "pasek zbiorczy tabeli"
+  },
+  {
+   "id": "src.ai-summary",
+   "area": "pozyskiwanie",
+   "opis": "Podsumowanie AI osoby w doku dopasowania (dawny JobMatchDock → „Podsumowanie”)",
+   "file": "components/v2/recruitment/ProposalPanel.tsx",
+   "marker": "detail.aiSummary",
+   "v3_home": "panel propozycji → Podsumowanie"
+  },
+  {
+   "id": "src.must-gate-line",
+   "area": "pozyskiwanie",
+   "opis": "Linia „Bramka must-have: brak X” — wyjaśnienie bramki dealbreakera dla osoby (match.missing_must)",
+   "file": "components/v2/recruitment/ProposalPanel.tsx",
+   "marker": "Bramka must-have: brak",
+   "v3_home": "panel propozycji → Wymagania"
+  },
+  {
+   "id": "src.request-requirements",
+   "area": "pozyskiwanie",
+   "opis": "Lewa kolumna „Wymagania z requestu”: lista must/nice + edycja wymagań wyszukiwania (SavedRequestRequirements, bramka job.update)",
+   "file": "components/v2/recruitment/RequestRequirementsRail.tsx",
+   "marker": "SavedRequestRequirements",
+   "v3_home": "propozycje → Dopasuj kryteria"
+  },
+  {
+   "id": "src.ai-admin-menu",
+   "area": "pozyskiwanie",
+   "opis": "Narzędzia AI admina (w tym podgląd kryteriów) dostępne z menu „…” nagłówka, bez zaznaczonej propozycji",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "onOpenAiTools",
+   "v3_home": "menu … (admin)"
+  },
+  {
+   "id": "bulk.cv-move-without-link",
+   "area": "cv",
+   "opis": "Zbiorcza wysyłka CV: opcja „przenieś bez linku” dla osób bez sfinalizowanego CV firmowego (lustro pojedynczego przepływu)",
+   "file": "lib/bulk-cv-handoff.ts",
+   "marker": "moveWithoutBrandedCv",
+   "v3_home": "okno zbiorczej wysyłki CV"
+  },
+  {
+   "id": "panel.saved-cv-links-all-stages",
+   "area": "cv",
+   "opis": "Podgląd CV tylko do odczytu: linki dla klienta ze WSZYSTKICH etapów pary (link leży na etapie sprzed „CV Wysłane”)",
+   "file": "components/v2/recruitment/PanelSavedViews.tsx",
+   "marker": "listForRecruitment",
+   "v3_home": "panel → CV (tylko odczyt)"
+  },
+  {
+   "id": "views.carry-person",
+   "area": "nagłówek",
+   "opis": "Przełączenie „Tabela” ↔ „Tablica” zachowuje otwartą osobę (panel ↔ dok)",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "carryPersonAcrossViews",
+   "v3_home": "przełącznik widoku"
+  },
+  {
+   "id": "contract.headcount-filled-hint",
+   "area": "umowa",
+   "opis": "Podpowiedź „Obsada kompletna — zamknij rekrutację” po zatrudnieniu kompletu; otwiera „Zlecenie” na zamknięciu z powodem „Obsadzone przez nas”",
+   "file": "components/v2/recruitment/PersonPanel.tsx",
+   "marker": "Obsada kompletna — zamknij rekrutację",
+   "v3_home": "panel → Umowa"
   }
  ]
 }
