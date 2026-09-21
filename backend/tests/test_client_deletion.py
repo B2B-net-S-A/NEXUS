@@ -78,15 +78,29 @@ async def _client(
     category: PortfolioCategory | None = PortfolioCategory.active,
     external_id: str | None = None,
 ) -> int:
+    from app.services.inactive_client_cleanup_signals import code_configured_client_ids
+
+    # ID zaszyte w kodzie (e-Zdrowie, Polkomtel, kanoniczne ID polityk PDF…)
+    # robią z klienta „klienta z historią". Baza testowa nadaje ID po kolei,
+    # więc to, czy ten klient na takie trafi, zależało od tego, ile klientów
+    # założyły wcześniejsze testy w shardzie — test przechodził albo nie
+    # w zależności od przetasowania shardów. Zarezerwowane ID omijamy.
+    reserved = set(code_configured_client_ids())
     async with AsyncSessionLocal() as db:
-        client = Client(
-            name=f"Firma Testowa {tag} {uuid.uuid4().hex[:6]}",
-            status=status,
-            external_source="traffit" if external_id else "manual",
-            external_id=external_id,
-        )
-        db.add(client)
-        await db.flush()
+        while True:
+            client = Client(
+                name=f"Firma Testowa {tag} {uuid.uuid4().hex[:6]}",
+                status=status,
+                external_source="traffit" if external_id else "manual",
+                external_id=external_id,
+            )
+            db.add(client)
+            await db.flush()
+            if client.id not in reserved:
+                break
+            # Nie zostawiamy obcego wiersza pod zarezerwowanym ID we wspólnej bazie.
+            await db.delete(client)
+            await db.flush()
         if category is not None:
             db.add(ClientPortfolioScope(client_id=client.id, category=category))
         await db.commit()
