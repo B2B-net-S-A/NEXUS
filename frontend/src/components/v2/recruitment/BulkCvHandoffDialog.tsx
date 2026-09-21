@@ -29,6 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { OneTimeLinkField } from "@/components/v2/jobs/OneTimeLinkField";
+import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { BulkCvHandoffOutcome } from "@/lib/bulk-cv-handoff";
 import { copyTextToClipboard } from "@/lib/clipboard";
@@ -61,6 +62,20 @@ function peopleLabel(count: number): string {
 }
 
 function failureText(outcome: BulkCvHandoffOutcome): string {
+  // Linki dla klienta wyłączone: wynik mówi o etapie, nie o linku.
+  if (!CV_CLIENT_LINKS_UI_ENABLED) {
+    switch (outcome.kind) {
+      case "move_refused":
+        return `Nie przeniesiono: ${outcome.reason}`;
+      case "move_unknown":
+        return `${outcome.reason}.`;
+      case "moved_without_link":
+      case "moved_no_link":
+        return "Oznaczono „CV Wysłane”.";
+      default:
+        break;
+    }
+  }
   switch (outcome.kind) {
     case "skipped":
       return `Pominięto — ${outcome.reason}. Osoba nie została przeniesiona.`;
@@ -197,7 +212,8 @@ export function BulkCvHandoffDialog({
         <DialogHeader>
           <DialogTitle>Wyślij CV do klienta — wynik</DialogTitle>
           <DialogDescription>
-            Przeniesiono na „CV Wysłane”: {moved} z {outcomes.length}. Linki: {links.length}.
+            Przeniesiono na „CV Wysłane”: {moved} z {outcomes.length}.
+            {CV_CLIENT_LINKS_UI_ENABLED ? ` Linki: ${links.length}.` : ""}
           </DialogDescription>
         </DialogHeader>
 
@@ -252,9 +268,12 @@ export function BulkCvHandoffDialog({
           ) : null}
 
           {failures.length > 0 ? (
-            <section aria-label="Osoby bez linku" className="space-y-2">
+            <section
+              aria-label={CV_CLIENT_LINKS_UI_ENABLED ? "Osoby bez linku" : "Wynik per osoba"}
+              className="space-y-2"
+            >
               <h3 className="text-sm font-semibold text-foreground">
-                Bez linku ({failures.length})
+                {CV_CLIENT_LINKS_UI_ENABLED ? "Bez linku" : "Osoby"} ({failures.length})
               </h3>
               <ul className="divide-y divide-border rounded-lg border border-border">
                 {failures.map((outcome) => {

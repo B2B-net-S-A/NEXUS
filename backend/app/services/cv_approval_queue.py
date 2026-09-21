@@ -30,16 +30,19 @@ def state(job, draft):
         job.expected_revision != draft.edit_revision
         or job.generated_document_id != draft.generated_document_id
     )
-    findings = None
+    findings = review_status = None
     if not stale and job.status == "verified":
-        # A completed advisory review can still carry findings. Surfacing only
-        # "verified" would tell the recruiter the opposite of what it means.
+        # A completed advisory review can still carry findings or report that
+        # the reviewer could not run. Surfacing only "verified" would tell the
+        # recruiter the opposite of what it means.
         findings = ((job.result or {}).get("findings") or {}).get("count")
+        review_status = (job.result or {}).get("status")
     return {
         "review_id": job.id,
         "status": "stale" if stale else job.status,
         "error_code": "draft_changed" if stale else job.error_code,
         "findings_count": findings,
+        "review_status": review_status,
     }
 
 
@@ -115,6 +118,7 @@ async def enqueue_review(db, draft, payload, user_id):
             "status": "verified",
             "error_code": None,
             "findings_count": None,
+            "review_status": prepared.get("status"),
         }
     raw, digest = serialize_review(prepared)
     job = CvApprovalJob(

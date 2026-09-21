@@ -1443,7 +1443,11 @@ def render_cv_to_bytes(
 
     # Preserve the historical layout for payloads predating central policies.
     # New documents have one presentation heading; workflow labels stay in UI.
-    considered_for = str(candidate_data.get("considered_for") or "").strip()
+    from app.services.cv_generator_b2b.presentation_title import considered_for_line
+
+    considered_for = considered_for_line(
+        candidate_data.get("considered_for"), header_position
+    )
     if considered_for and not candidate_data.get("presentation_position"):
         sub_para = doc.add_paragraph()
         label_run = sub_para.add_run(t["considered_for"] + " ")

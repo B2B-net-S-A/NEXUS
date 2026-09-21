@@ -60,6 +60,12 @@ export interface BulkCvHandoffDeps<P extends BulkCvHandoffPerson = BulkCvHandoff
    * „CV Wysłane", bez tworzenia linku. Domyślnie `false` (pominięcie).
    */
   moveWithoutBrandedCv?: boolean;
+  /**
+   * Linki dla klienta wyłączone w UI (`CV_CLIENT_LINKS_UI_ENABLED=false`,
+   * 21.09.2026): akcja tylko oznacza „CV Wysłane" i zapisuje stawkę. Statusu
+   * CV firmowego nie sprawdzamy — nie ma linku, który by od niego zależał.
+   */
+  linksDisabled?: boolean;
   /** `true` = „Przenieś mimo to". */
   askEligibility: (person: P, error: unknown) => Promise<boolean>;
   isEligibilityWarning: (error: unknown) => boolean;
@@ -114,6 +120,7 @@ export type BulkCvHandoffOutcomeKind = BulkCvHandoffOutcome["kind"];
 export const BULK_CV_NO_BRANDED_REASON = "brak CV firmowego";
 export const BULK_CV_MOVED_WITHOUT_LINK_REASON =
   "brak sfinalizowanego CV firmowego — przeniesiono bez linku";
+export const BULK_CV_LINKS_DISABLED_REASON = "oznaczono „CV Wysłane”";
 export const BULK_CV_CANCELLED_REASON = "anulowano po ostrzeżeniu";
 export const BULK_CV_MOVE_UNKNOWN_REASON =
   "Nie wiadomo, czy ruch się zapisał — odśwież kartę kandydata, zanim spróbujesz ponownie";
@@ -150,7 +157,9 @@ async function handOffOne<P extends BulkCvHandoffPerson>(
 
   let status: string;
   try {
-    status = await deps.getBrandedStatus(person.sourceStageId);
+    status = deps.linksDisabled
+      ? "links_disabled"
+      : await deps.getBrandedStatus(person.sourceStageId);
   } catch (e) {
     return {
       ...base,
@@ -161,8 +170,8 @@ async function handOffOne<P extends BulkCvHandoffPerson>(
       ),
     };
   }
-  const createLink = status === "finalized";
-  if (!createLink && !deps.moveWithoutBrandedCv) {
+  const createLink = !deps.linksDisabled && status === "finalized";
+  if (!createLink && !deps.moveWithoutBrandedCv && !deps.linksDisabled) {
     return { ...base, kind: "skipped", reason: BULK_CV_NO_BRANDED_REASON };
   }
 
@@ -241,7 +250,9 @@ function describeMoved<P extends BulkCvHandoffPerson>(
     return {
       ...base,
       kind: "moved_without_link",
-      reason: BULK_CV_MOVED_WITHOUT_LINK_REASON,
+      reason: deps.linksDisabled
+        ? BULK_CV_LINKS_DISABLED_REASON
+        : BULK_CV_MOVED_WITHOUT_LINK_REASON,
       rateFailed,
     };
   }

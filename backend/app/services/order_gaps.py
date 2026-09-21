@@ -9,7 +9,10 @@ Reguła (ticket Finansów, decyzje Artura 14.09):
   taki wpis nie powstaje, a uzupełniony tego samego dnia nie trafia do raportu;
 * świadomy koniec nie jest brakiem: wypowiedziana umowa, zamiana kontraktora,
   decyzja offboardingu MD, „usuń z zamówienia" / „zostaw jako historię"
-  (``order_facts.load_ending_intents``);
+  (``order_facts.load_ending_intents``). Świadomy koniec zapisany PO wykryciu
+  (DL wypowiada umowę dopiero, gdy zobaczy brak) nie kasuje wpisu, ale zdejmuje
+  go z raportu Finansów i z przypomnień DL (``gap_orders_with_ending_intent``)
+  — osoba stoi wtedy w Zejściach, a nie w Brakach;
 * wpis NIGDY nie znika. Uzupełnienie po fakcie zmienia status na
   ``filled_late`` z numerem i datą uzupełnienia;
 * następca dodany PO dniu wykrycia, zanim detektor zdążył przebiec (np. deploy
@@ -252,6 +255,23 @@ async def detect_order_gaps(
     return opened, late
 
 
+async def gap_orders_with_ending_intent(
+    db: AsyncSession, order_ids: Iterable[Optional[int]]
+) -> set[int]:
+    """Zamówienia braków, których koniec jest DZIŚ świadomą decyzją.
+
+    Ta sama funkcja (``load_ending_intents``) stawia wiersz w Zejściach, więc
+    osoba nie może stać jednocześnie tam i w Brakach. Wpis braku zostaje
+    w bazie (nigdy nie znika) — reguła działa przy odczycie.
+    """
+
+    ids = sorted({order_id for order_id in order_ids if order_id is not None})
+    if not ids:
+        return set()
+    facts = await load_facts(db, ClientOrder.id.in_(ids))
+    return set(await load_ending_intents(db, facts))
+
+
 async def _scoped_open_gaps(
     db: AsyncSession, contract_ids: Optional[set[int]]
 ) -> list[OrderGap]:
@@ -277,6 +297,29 @@ async def _scoped_open_gaps(
             )
         )
     return list((await db.scalars(query)).all())
+
+
+async def _close_gap_alerts(
+    db: AsyncSession,
+    order_id: int,
+    moment: datetime,
+    *,
+    actor_id: Optional[int] = None,
+) -> None:
+    await db.execute(
+        update(DlAlert)
+        .where(
+            DlAlert.alert_type == ALERT_ORDER_MISSING_SUCCESSOR,
+            DlAlert.order_id == order_id,
+            DlAlert.status == DL_ALERT_STATUS_NEW,
+        )
+        .values(
+            status=DL_ALERT_STATUS_HANDLED,
+            handled_at=moment,
+            handled_by_user_id=actor_id,
+        )
+        .execution_options(synchronize_session=False)
+    )
 
 
 async def resolve_order_gaps(
@@ -319,20 +362,7 @@ async def resolve_order_gaps(
         gap.resolved_order_id = successor.order_id
         gap.resolved_order_number = successor.number[:255]
         gap.resolved_at = moment
-        await db.execute(
-            update(DlAlert)
-            .where(
-                DlAlert.alert_type == ALERT_ORDER_MISSING_SUCCESSOR,
-                DlAlert.order_id == gap.order_id,
-                DlAlert.status == DL_ALERT_STATUS_NEW,
-            )
-            .values(
-                status=DL_ALERT_STATUS_HANDLED,
-                handled_at=moment,
-                handled_by_user_id=actor_id,
-            )
-            .execution_options(synchronize_session=False)
-        )
+        await _close_gap_alerts(db, gap.order_id, moment, actor_id=actor_id)
         resolved += 1
     if resolved:
         await db.flush()
@@ -358,16 +388,18 @@ async def remind_open_gaps(
     )
     if not gaps:
         return 0
-    facts = {
-        fact.order_id: fact
-        for fact in await load_facts(
-            db, ClientOrder.id.in_([gap.order_id for gap in gaps])
-        )
-    }
+    fact_list = await load_facts(db, ClientOrder.id.in_([gap.order_id for gap in gaps]))
+    facts = {fact.order_id: fact for fact in fact_list}
+    ended = set(await load_ending_intents(db, fact_list))
     created = 0
     for gap in gaps:
         fact = facts.get(gap.order_id)
         if fact is None:
+            continue
+        if gap.order_id in ended:
+            # Współpraca zakończona po wykryciu braku: nie przypominamy DL
+            # o zamówieniu, którego świadomie nie będzie, i zdejmujemy kartę.
+            await _close_gap_alerts(db, gap.order_id, datetime.now(timezone.utc))
             continue
         user_ids = await dl_alerts.dl_user_ids_for_client(
             db, gap.client_id, scope=scope

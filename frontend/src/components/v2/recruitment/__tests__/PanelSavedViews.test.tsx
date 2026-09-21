@@ -1,6 +1,20 @@
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Linki dla klienta są na produkcji wyłączone stałą (#1647). Testy niżej
+// sprawdzają ścieżkę z linkami (stała = true); blok „linki wyłączone" sprawdza
+// stan produkcyjny.
+const linkFlags = vi.hoisted(() => ({ enabled: true }));
+vi.mock("@/lib/cv-generator", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/cv-generator")>();
+  return {
+    ...actual,
+    get CV_CLIENT_LINKS_UI_ENABLED() {
+      return linkFlags.enabled;
+    },
+  };
+});
 
 const mocks = vi.hoisted(() => ({
   originalGet: vi.fn(),
@@ -118,3 +132,18 @@ describe("SavedCvView — odznaka „CV firmowe” czyta PARĘ, nie bieżący et
     expect(await screen.findByText("CV firmowe: brak")).toBeInTheDocument();
   });
 });
+
+describe("SavedCvView — linki dla klienta wyłączone (stan produkcyjny)", () => {
+  beforeEach(() => { linkFlags.enabled = false; });
+  afterEach(() => { linkFlags.enabled = true; });
+
+  it("nie pokazuje listy linków, ale odznaka CV firmowego zostaje", async () => {
+    mocks.listForRecruitment.mockResolvedValue({
+      data: { items: [], branded_cv: noBranded },
+    });
+    mount();
+    expect(await screen.findByText("CV firmowe: brak")).toBeInTheDocument();
+    expect(screen.queryByText("Linki dla klienta")).toBeNull();
+  });
+});
+

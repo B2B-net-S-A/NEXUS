@@ -1168,6 +1168,39 @@ do modelu.
 - **Usuwanie bez `window.confirm`** — dwustopniowe potwierdzenie w edytorze
   i modal na liście. Natywny dialog zamraża automatyzację przeglądarki.
 
+### Centralne reguły CV (`CV_CENTRAL_POLICIES_ENABLED`, 21.09.2026)
+
+Katalog `backend/app/data/cv_policies.json` + `central_policies.py`, opis:
+`docs/delivery/central-cv-policies.md`. Reguły, które łatwo cofnąć:
+
+- **Tryb treści NIE jest blokowany.** Każdy klient (także Nordea) i polityka
+  standardowa mają domyślnie „Pod rekrutację" (`content_mode` w katalogu —
+  pole zostaje, żeby dało się przełączyć pojedynczego klienta). Rekruter może
+  zmienić tryb; serwer honoruje żądanie (`resolve_mode`) w `/generate`
+  i `/generate-upload`. `GET /api/cv-generator/policy` zwraca `default_mode`,
+  `content_mode_locked=false` i `content_mode_notice`.
+- **„Pod rekrutację" bez Championa = Redakcja + komunikat, nigdy 422.**
+  Champion to kompletny profil rekrutacji (`job_supports_tailored` — JEDEN
+  predykat dla domyślnego trybu i kontroli w ścieżce rekrutacji) albo
+  WGRANY plik/podgląd Championa w uploadzie. Komunikat trafia do ostrzeżeń
+  dokumentu (`source_warnings`). Sufit `cv_content_mode_cap` wygrywa zawsze.
+- **Upload znowu używa wgranego Championa.** Pierwsza wersja centralnych
+  reguł wyrzucała plik (`champion_bytes = None`) — udział CV „Pod rekrutację"
+  spadł z 49% do 12%. Ręczne pola MUST/NICE (zasilały tylko kafelki
+  interaktywnego CV) NIE są Championem.
+- **Recepta centralna nie ustawia `why_points_max`.** „Najwyżej cztery
+  punkty" jest w prompcie systemowym (`presentation_title.instructions`);
+  powtórzone jako instrukcja klienta dawało fałszywe „Pominięto instrukcję
+  klienta" w co trzecim CV.
+- **Zmiana treści katalogu = podbij `version` wpisu.** `synchronize()`
+  publikuje ponownie, gdy `managed_policy` (metadane wpisu) albo recepta się
+  różni; `resolve()` do tego czasu daje 503 dla klienta. Klient niezgodny
+  z katalogiem (inny `external_id`, ukryty, scalony) jest POMIJANY z logiem,
+  a błąd synchronizacji nie zatrzymuje startu backendu (`main.py`).
+- **Stary dokument drukuje „Rozważany na stanowisko" tylko, gdy różni się od
+  nagłówka** (`considered_for_line`, porównanie bez wielkości liter i białych
+  znaków) — DOCX, widok publiczny i eksport HTML.
+
 ## Profil Championa — sześć sekcji + karta klienta (przebudowa 09.2026)
 
 Szablon skrócony do sześciu sekcji: **1. Podstawowe informacje · 2. Co wpisać
@@ -3551,6 +3584,24 @@ powtarza reguły).
   nie czyści. Kontakt w podpisanym dokumencie jest zapisem tego, co strony
   podpisały.
 
+## Data rozpoczęcia umowy ≠ start zamówienia (korekta 21.09.2026)
+
+`contracts.start_date` to dzień, od którego obowiązuje UMOWA z konsultantem —
+nie początek bieżącego zamówienia (ten żyje w `client_order_start_date`).
+Import rejestrów 23–26.06.2026 wpisał w nią start zamówienia/zaślepkę (291
+z 475 kontraktów błędnych); korekta z arkusza działu:
+`services/contract_start_date_repair.py` + blok `repair-contract-start-dates`
+w `entrypoint.sh` (marker `0334_contract_start_date_correction`, przypięta do
+trójki ID i stanu z 21.09). Raport: `docs/contract-start-date-correction-completion-report.md`.
+
+- **Żaden import ani automat nie wypełnia `start_date` okresem zamówienia**
+  przy istniejącym kontrakcie. Zmierzone przed korektą: w 30 dziennych zrzutach
+  nic poza ludźmi tej daty nie zmieniało — tak ma zostać.
+- Formularz edycji odsyła datę przy KAŻDYM zapisie; dziennik „updated" niesie
+  `previous_start_date` tylko przy realnej zmianie — po nim szukaj, kto zmienił datę.
+- „Start date" w profilu klienta czyta `contracts.start_date` wprost; nie
+  dokładaj tam drugiego źródła.
+
 ## Synchronizacja kontrakt ↔ zamówienia (09.2026, migracja 0304)
 
 Zgłoszenie: kontrakt Bartosza Czapelki (Alior) stał jako „Szkic" (120 zł/h,
@@ -4012,6 +4063,13 @@ wypowiedziana umowa, szkic następnego zamówienia ani decyzja offboardingu MD /
   z datą końca ≤ końca zamówienia, `predecessor_order_id` (zamiana),
   offboarding MD `remove`/`transfer`, zdarzenie `zakonczenie_konsultanta`
   z `removed_from_order`/`keep_history`.
+- **Osoba z Zejść nie stoi w Brakach** (ticket 09.2026, filtr PRZY ODCZYCIE):
+  `_gaps` pomija brak, którego zamówienie ma DZIŚ intencję zakończenia
+  (`order_gaps.gap_orders_with_ending_intent` — ta sama `load_ending_intents`
+  co Zejścia; typowo DL wypowiada umowę dopiero PO wykryciu braku), oraz brak
+  współpracy (`sibling_key`) stojącej w Zejściach tego miesiąca. Wpis w bazie
+  zostaje; `open_gaps_total` liczy bez takich wpisów, a `remind_open_gaps`
+  zamyka ich karty DL (`handled_by_user_id` puste) zamiast przypominać.
 - **Braki (`order_gaps`) nigdy nie są kasowane.** Wykrycie: pętla `order_gaps`
   (00:30 Warszawa + start), `detected_on = koniec + 1`, od
   `ORDER_GAP_TRACKING_START` (domyślnie 2026-08-01) i najwyżej

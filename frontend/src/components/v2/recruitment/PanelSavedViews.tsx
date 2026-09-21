@@ -12,6 +12,7 @@
  * (`PipelineCandidateDock`): odpowiedź jest wspólna dla obu widoków.
  */
 
+import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, FileText, Loader2 } from "lucide-react";
@@ -167,7 +168,7 @@ export function SavedCvView({
   return (
     <section aria-label="CV i linki" className="space-y-3 text-[13px]">
       <p className="text-xs text-muted-foreground">
-        Ta osoba jest dziś na etapie „{stageLabel}” — CV i linki są tylko do odczytu. Nową wersję
+        Ta osoba jest dziś na etapie „{stageLabel}” — {CV_CLIENT_LINKS_UI_ENABLED ? "CV i linki są" : "CV jest"} tylko do odczytu. Nową wersję
         przygotujesz w generatorze CV na profilu kandydata.
       </p>
 
@@ -210,6 +211,7 @@ export function SavedCvView({
         <FileText className="size-3.5" aria-hidden /> Pokaż CV oryginalne
       </Button>
 
+      {CV_CLIENT_LINKS_UI_ENABLED ? (
       <div className="space-y-1.5">
         <h4 className="text-xs font-semibold text-muted-foreground">Linki dla klienta</h4>
         {pair.isLoading ? (
@@ -245,6 +247,7 @@ export function SavedCvView({
           </ul>
         )}
       </div>
+      ) : null}
 
       {openOriginal ? (
         <CVOriginalPreviewModal

@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from functools import lru_cache
 import json
+import logging
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -13,6 +14,8 @@ from app.models.client import Client
 from app.models.client_cv_rule import ClientCvRule
 from app.models.client_cv_rule_event import ClientCvRuleEvent
 from app.models.client_cv_rule_publication import ClientCvRulePublication
+
+logger = logging.getLogger(__name__)
 
 
 def enabled() -> bool:
@@ -32,7 +35,8 @@ def policy_for(client_id: int | None) -> dict:
         entry
         or {
             "key": "standard",
-            "version": 1,
+            "version": 2,
+            "content_mode": "tailored",
             "source_url": None,
             "filename_pattern": "B2B_{STANOWISKO}_{IMIE_NAZWISKO}",
             "spaces_to_underscores": False,
@@ -74,7 +78,10 @@ def recipe_for(policy: dict) -> dict:
         "max_roles": None,
         "max_bullets_per_role": None,
         "max_bullet_chars": None,
-        "why_points_max": 4,
+        # The "at most four summary points" standard lives in the central
+        # system prompt (presentation_title.instructions). Rendering it again
+        # as a client instruction made the model report it as "skipped".
+        "why_points_max": None,
         "date_format": None,
         "glossary": None,
         "highlight_policy": "technologies",
@@ -97,13 +104,18 @@ async def synchronize(db) -> int:
         )
         if client is None:
             continue  # Empty development database: never fabricate clients.
+        # A client that no longer matches the reviewed catalog is skipped, not
+        # fatal: the others still publish, and `resolve` answers 503 for this
+        # one until the catalog is corrected. Only IDs are logged.
         if (client.external_source, client.external_id) != (
             policy["external_source"],
             policy["external_id"],
         ):
-            raise RuntimeError(f"CV policy client identity mismatch: {client.id}")
+            logger.error("CV policy client identity mismatch: client_id=%s", client.id)
+            continue
         if client.hidden or client.merged_into_client_id:
-            raise RuntimeError(f"CV policy client is not canonical: {client.id}")
+            logger.error("CV policy client is not canonical: client_id=%s", client.id)
+            continue
         rule = await db.scalar(
             select(ClientCvRule).where(ClientCvRule.client_id == client.id)
         )
@@ -214,25 +226,77 @@ async def resolve(db, client_id: int | None):
     return row
 
 
-def automatic_mode(job, cap=None) -> str:
+def job_supports_tailored(job) -> bool:
+    """The one predicate for "this recruitment's Champion allows tailoring".
+
+    Automatic mode and every later check in the recruitment path use it, so
+    the mode chosen for the user can never be refused with a 422 the user
+    did not ask for.
+    """
     from app.services.champion_intake import enforce_operation
+    from app.services.cv_generator_b2b.standalone_service import champion_present
+
+    if job is None or not getattr(job, "champion_profile", None):
+        return False
+    if not champion_present(job):
+        return False
+    try:
+        enforce_operation(job, "cv", force=True)
+    except HTTPException:
+        return False
+    return True
+
+
+MISSING_CHAMPION_NOTICE = (
+    "Brak kompletnego Profilu Championa — tryb „Pod rekrutację” nie jest "
+    "możliwy, powstanie CV w trybie Redakcja. Uzupełnij Profil Championa "
+    "w rekrutacji albo wgraj plik Championa, aby dopasować CV."
+)
+
+
+def policy_content_mode(policy: dict | None) -> str:
+    """Mode the catalogue assigns. Decision 21.09.2026: every client, and the
+    standard policy, is "Pod rekrutację" (tailored); the per-entry field lets
+    a single client be switched later without code changes."""
+    mode = (policy or {}).get("content_mode")
+    return mode if mode in ("tailored", "polished", "basic") else "tailored"
+
+
+def resolve_mode(
+    requested: str, job, cap=None, *, uploaded_champion: bool = False
+) -> tuple[str, str | None]:
+    """``(mode, notice)`` for a mode the recruiter chose (decision 21.09.2026:
+    the mode is never locked by a central policy).
+
+    Tailored needs a Champion — uploaded with the CV (upload path) or complete
+    on the recruitment; without one the CV falls back to polished with a
+    notice, never a 422. The client cap always wins."""
     from app.services.cv_generator_b2b.standalone_service import (
         apply_content_mode_cap,
-        champion_present,
     )
 
-    mode = "polished"
-    if (
-        job is not None
-        and getattr(job, "champion_profile", None)
-        and champion_present(job)
-    ):
-        try:
-            enforce_operation(job, "cv", force=True)
-            mode = "tailored"
-        except HTTPException:
-            pass
-    return apply_content_mode_cap(mode, cap)[0]
+    mode, notice = requested, None
+    if mode == "tailored" and not (uploaded_champion or job_supports_tailored(job)):
+        mode, notice = "polished", MISSING_CHAMPION_NOTICE
+    return apply_content_mode_cap(mode, cap)[0], notice
+
+
+def automatic_mode_decision(
+    job, cap=None, *, uploaded_champion: bool = False, policy: dict | None = None
+) -> tuple[str, str | None]:
+    """Default mode the form preselects: the catalogue mode, adjusted for
+    Champion availability and the client cap. Editable by the recruiter."""
+    return resolve_mode(
+        policy_content_mode(policy), job, cap, uploaded_champion=uploaded_champion
+    )
+
+
+def automatic_mode(
+    job, cap=None, *, uploaded_champion: bool = False, policy: dict | None = None
+) -> str:
+    return automatic_mode_decision(
+        job, cap, uploaded_champion=uploaded_champion, policy=policy
+    )[0]
 
 
 def stamp(rule, *, language: str, project_ref: str, stage_id=None) -> dict | None:

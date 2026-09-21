@@ -48,6 +48,7 @@ import {
 } from "@/lib/bulk-cv-handoff";
 import { runCvHandoff } from "@/lib/cv-handoff";
 import { isEligibilityWarning } from "@/lib/pipeline-eligibility-warning";
+import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { CV_SENT_STAGE, findStageColumn } from "@/lib/pipeline-flow";
 import {
   candidateStageHistoryKey,
@@ -189,6 +190,7 @@ export function useBulkCvHandoff({
       outcomes = await runBulkCvHandoff<BulkPerson>(people, {
         expiresInDays,
         moveWithoutBrandedCv: moveWithoutLink,
+        linksDisabled: !CV_CLIENT_LINKS_UI_ENABLED,
         onProgress: (index, total, person) =>
           setProgress({ index, total, name: person.fullName }),
         getBrandedStatus: async (stageId) =>
@@ -310,13 +312,28 @@ export function useBulkCvHandoff({
             <DialogHeader>
               <DialogTitle>{title}</DialogTitle>
               <DialogDescription>
-                {jobTitle ? `${jobTitle}: ` : ""}każda osoba zostanie przeniesiona na „CV
-                Wysłane”, a do jej CV firmowego powstanie link dla klienta. Osoby bez
-                sfinalizowanego CV firmowego zostaną{" "}
-                {moveWithoutLink ? "przeniesione bez linku" : "pominięte (bez przeniesienia)"}.
+                {jobTitle ? `${jobTitle}: ` : ""}
+                {CV_CLIENT_LINKS_UI_ENABLED ? (
+                  <>
+                    każda osoba zostanie przeniesiona na „CV Wysłane”, a do jej CV
+                    firmowego powstanie link dla klienta. Osoby bez sfinalizowanego CV
+                    firmowego zostaną{" "}
+                    {moveWithoutLink
+                      ? "przeniesione bez linku"
+                      : "pominięte (bez przeniesienia)"}
+                    .
+                  </>
+                ) : (
+                  <>
+                    każda osoba zostanie oznaczona jako „CV Wysłane”. CV wysyłasz
+                    klientowi poza NEXUSEM — tu zapisujemy etap i stawkę.
+                  </>
+                )}
               </DialogDescription>
             </DialogHeader>
             <DialogBody className="space-y-4">
+              {CV_CLIENT_LINKS_UI_ENABLED ? (
+                <>
               <div className="space-y-1">
                 <Label htmlFor="bulk-cv-days">Ważność linków (dni)</Label>
                 <Input
@@ -350,6 +367,8 @@ export function useBulkCvHandoff({
                   </span>
                 </span>
               </label>
+                </>
+              ) : null}
 
               {canWriteClientRate ? (
                 <fieldset className="space-y-2">
@@ -418,7 +437,7 @@ export function useBulkCvHandoff({
                 disabled={!canSubmit}
                 onClick={() => void run(pending.rows, pending.onHandled)}
               >
-                Wyślij i utwórz linki
+                {CV_CLIENT_LINKS_UI_ENABLED ? "Wyślij i utwórz linki" : "Oznacz „CV Wysłane”"}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -437,7 +456,9 @@ export function useBulkCvHandoff({
             <DialogHeader>
               <DialogTitle>Wyślij CV do klienta</DialogTitle>
               <DialogDescription>
-                Nie zamykaj karty — linki pokażę po ostatniej osobie.
+                {CV_CLIENT_LINKS_UI_ENABLED
+                  ? "Nie zamykaj karty — linki pokażę po ostatniej osobie."
+                  : "Nie zamykaj karty — wynik pokażę po ostatniej osobie."}
               </DialogDescription>
             </DialogHeader>
             <DialogBody>

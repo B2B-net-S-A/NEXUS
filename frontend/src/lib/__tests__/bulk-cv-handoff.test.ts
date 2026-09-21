@@ -248,4 +248,19 @@ describe("runBulkCvHandoff", () => {
     });
     expect(handoff).not.toHaveBeenCalled();
   });
+
+  it("linki wyłączone: nie sprawdza CV firmowego, nie tworzy linku, tylko oznacza „CV Wysłane”", async () => {
+    const getBrandedStatus = vi.fn(async () => "none");
+    const handoff = vi.fn(async () => ({ shareUrlSuffix: null, failedAfterMove: [] }));
+    const [outcome] = await runBulkCvHandoff(
+      [ANNA],
+      makeDeps({ linksDisabled: true, getBrandedStatus, handoff: handoff as never }),
+    );
+    expect(getBrandedStatus).not.toHaveBeenCalled();
+    expect(handoff).toHaveBeenCalledWith(ANNA, false, { createLink: false });
+    expect(outcome).toMatchObject({
+      kind: "moved_without_link",
+      reason: "oznaczono „CV Wysłane”",
+    });
+  });
 });

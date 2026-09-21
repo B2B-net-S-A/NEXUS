@@ -64,6 +64,21 @@ async def heartbeat_review(db, job_id: int, token: str) -> bool:
     return renewed is not None
 
 
+def completed_receipt_statuses() -> frozenset[str]:
+    """Receipt statuses that describe a finished review of the captured input.
+
+    Advisory mode (``CV_SOURCE_EVIDENCE_ENFORCED`` off) also accepts
+    "unverified": the reviewer was unavailable or the source unreadable, and an
+    aid must not block approval. Enforced mode never produces that receipt, and
+    refusing it here keeps a flag flip from letting one through.
+    """
+    from app.services.cv_generator_b2b.source_facts import source_evidence_enforced
+
+    if source_evidence_enforced():
+        return frozenset({"verified", "reviewed"})
+    return frozenset({"verified", "reviewed", "unverified"})
+
+
 async def finish_review(
     db, job_id: int, token: str, *, status: str, result=None, error_code=None
 ) -> bool:
@@ -72,11 +87,12 @@ async def finish_review(
         raise ValueError("Invalid terminal review status")
     if status == "verified" and (
         not isinstance(result, dict)
-        or result.get("status") not in {"verified", "reviewed"}
+        or result.get("status") not in completed_receipt_statuses()
     ):
         raise ValueError("Verified review requires evidence")
     # The job's terminal state means the review finished. In advisory mode its
-    # receipt may contain findings ("reviewed"); preserve that verdict rather
+    # receipt may contain findings ("reviewed") or say the reviewer could not
+    # run ("unverified" + method_detail); preserve that verdict as stored rather
     # than turning it into a worker failure or claiming the content is verified.
     finished = await db.scalar(
         update(CvApprovalJob)

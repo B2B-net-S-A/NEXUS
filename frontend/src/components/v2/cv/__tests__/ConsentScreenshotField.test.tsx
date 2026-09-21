@@ -98,7 +98,7 @@ describe("ConsentScreenshotField", () => {
     const { rerender } = render(
       <ConsentScreenshotField context={{ candidateId: 1, stageId: 2, clientId: 3 }} value={null} onChange={vi.fn()} required={false} />,
     );
-    expect(screen.getByText(/Opcjonalnie/i)).toBeInTheDocument();
+    expect(screen.getByText(/\(opcjonalnie\)/)).toBeInTheDocument();
 
     rerender(
       <ConsentScreenshotField context={{ candidateId: 1, stageId: 2, clientId: 3 }} value={null} onChange={vi.fn()} required />,

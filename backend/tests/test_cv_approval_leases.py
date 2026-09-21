@@ -154,8 +154,36 @@ async def test_cancel_fences_worker_and_preserves_terminal_evidence(review_statu
     ],
 )
 async def test_invalid_completion_never_touches_database(status, result):
+    # conftest pins CV_SOURCE_EVIDENCE_ENFORCED=true: "unverified" is refused.
     db = AsyncMock()
     with pytest.raises(ValueError):
         await leases.finish_review(db, 1, "token", status=status, result=result)
     db.scalar.assert_not_awaited()
     db.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize("receipt_status", ["verified", "reviewed", "unverified"])
+async def test_advisory_completion_stores_receipt_as_is(monkeypatch, receipt_status):
+    """Advisory mode: a review that could not run is a finished result.
+
+    Production (2/2 attempts) failed approvals with invalid_or_stale_input
+    because the worker's "unverified" receipt was refused here.
+    """
+    monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "false")
+    db = AsyncMock()
+    db.scalar.return_value = 1
+    result = {"status": receipt_status, "method_detail": "review_unavailable"}
+    assert await leases.finish_review(db, 1, "token", status="verified", result=result)
+    stored = db.scalar.await_args.args[0].compile().params
+    assert stored["result"] == result
+    db.commit.assert_awaited_once()
+
+
+async def test_enforced_completion_refuses_unverified_receipt(monkeypatch):
+    monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true")
+    db = AsyncMock()
+    with pytest.raises(ValueError):
+        await leases.finish_review(
+            db, 1, "token", status="verified", result={"status": "unverified"}
+        )
+    db.scalar.assert_not_awaited()

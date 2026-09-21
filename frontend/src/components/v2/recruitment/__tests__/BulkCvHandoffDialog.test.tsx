@@ -2,6 +2,20 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Linki dla klienta są na produkcji wyłączone stałą (#1647). Testy niżej
+// sprawdzają ścieżkę z linkami (stała = true); blok „linki wyłączone" sprawdza
+// stan produkcyjny.
+const linkFlags = vi.hoisted(() => ({ enabled: true }));
+vi.mock("@/lib/cv-generator", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/cv-generator")>();
+  return {
+    ...actual,
+    get CV_CLIENT_LINKS_UI_ENABLED() {
+      return linkFlags.enabled;
+    },
+  };
+});
+
 const mocks = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showError: vi.fn(),

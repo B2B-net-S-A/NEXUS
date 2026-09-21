@@ -1980,6 +1980,10 @@ _PROLONGATION_LABELS = {
 _CONTRACT_EXPORT_COLUMNS = [
     "ID",
     "Kandydat",
+    # Kontakt jak na karcie kontraktu: nadpisanie z umowy, potem profil
+    # kandydata, potem pusta komórka (resolve_for_contract).
+    "E-mail",
+    "Telefon",
     "Klient",
     "Stanowisko / Oferta",
     "Typ",
@@ -2035,9 +2039,12 @@ def _contract_export_row(
     """One export row. Rates/margin come from the effective-dated schedules
     (today's step), matching the list + detail views — not the raw columns."""
     eff = _effective_rate_fields(c, today)
+    contact = resolve_candidate_contact(c)
     return [
         c.id,
         f"{c.candidate.name} {c.candidate.lastname}".strip() if c.candidate else "",
+        contact.email or "",
+        contact.phone or "",
         client_display_name(c.client) if c.client else "",
         c.job.title if c.job else "",
         _enum_label(c.contract_type, _CONTRACT_TYPE_LABELS),
@@ -3336,6 +3343,7 @@ async def update_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     previous_end_date = contract.end_date
+    previous_start_date = contract.start_date
     previous_rate_client = contract.rate_client
     was_incomplete_draft = contract.status == ContractStatus.draft and bool(
         validate_ready_for_activation(contract)
@@ -3594,6 +3602,20 @@ async def update_contract(
                 **(
                     {"order_sync": order_sync.as_details()}
                     if order_sync is not None and order_sync.changed
+                    else {}
+                ),
+                # Formularz odsyła datę rozpoczęcia przy KAŻDYM zapisie, więc
+                # sama nowa wartość nie mówi, czy ktoś ją zmienił. Poprzednia
+                # pojawia się tylko przy realnej zmianie (zgłoszenie 21.09.2026).
+                **(
+                    {
+                        "previous_start_date": (
+                            previous_start_date.isoformat()
+                            if previous_start_date
+                            else None
+                        )
+                    }
+                    if contract.start_date != previous_start_date
                     else {}
                 ),
             },

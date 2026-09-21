@@ -242,6 +242,7 @@ import {
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCapability } from "@/hooks/useCapability";
 import { useCloudTalkEnabled } from "@/hooks/useCloudTalkEnabled";
+import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 
 const STATUS_VARIANT: Record<string, "success" |"warning" |"danger" |"neutral"> = {
  active: "success",
@@ -3823,6 +3824,7 @@ function RekrutacjaCard({
  ?"Stwórz brandowane"
  :"Edytuj brandowane"}
  </Button>
+ {CV_CLIENT_LINKS_UI_ENABLED && (
  <Button
  size="sm"
  disabled={brandedStatus !== "finalized"}
@@ -3835,6 +3837,7 @@ function RekrutacjaCard({
  >
  Wyślij klientowi
  </Button>
+ )}
  <Button
  size="sm"
  variant="ghost"

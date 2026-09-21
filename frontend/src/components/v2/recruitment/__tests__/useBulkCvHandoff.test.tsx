@@ -1,7 +1,21 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Linki dla klienta są na produkcji wyłączone stałą (#1647). Testy niżej
+// sprawdzają ścieżkę z linkami (stała = true); blok „linki wyłączone" sprawdza
+// stan produkcyjny.
+const linkFlags = vi.hoisted(() => ({ enabled: true }));
+vi.mock("@/lib/cv-generator", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/cv-generator")>();
+  return {
+    ...actual,
+    get CV_CLIENT_LINKS_UI_ENABLED() {
+      return linkFlags.enabled;
+    },
+  };
+});
 
 const mocks = vi.hoisted(() => ({
   showError: vi.fn(),
@@ -265,3 +279,21 @@ describe("useBulkCvHandoff", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
+
+describe("useBulkCvHandoff — linki dla klienta wyłączone (stan produkcyjny)", () => {
+  beforeEach(() => { linkFlags.enabled = false; });
+  afterEach(() => { linkFlags.enabled = true; });
+
+  it("tylko oznacza „CV Wysłane”: bez pola ważności, bez sprawdzania CV firmowego i bez linku", async () => {
+    renderHarness();
+    await userEvent.click(screen.getByText("start"));
+    expect(screen.queryByLabelText("Ważność linków (dni)")).toBeNull();
+    expect(screen.queryByText(/przenieś bez linku/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Oznacz „CV Wysłane”" }));
+    await waitFor(() => expect(mocks.move).toHaveBeenCalledTimes(2));
+    expect(mocks.brandedGet).not.toHaveBeenCalled();
+    expect(mocks.shareCreate).not.toHaveBeenCalled();
+    expect(await screen.findAllByText("Oznaczono „CV Wysłane”.")).toHaveLength(2);
+  });
+});
+

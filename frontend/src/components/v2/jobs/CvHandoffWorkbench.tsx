@@ -69,6 +69,7 @@ import {
 import { useClientPlaybook } from "@/lib/client-playbooks";
 import { useCentralPolicy } from "@/components/cv-rules/CentralPolicyView";
 import { CVGeneratorStandaloneV2 } from "@/components/v2/pages/CVGeneratorStandaloneV2";
+import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { RATE_UNIT_LABELS } from "@/lib/verified-rate-gate";
 import {
@@ -377,7 +378,9 @@ export function CvHandoffWorkbench({
   const linkBlockedReason = brandedFinalized
     ? null
     : "Link dla klienta wymaga sfinalizowanego CV brandowanego — utwórz je poniżej albo oznacz etap bez tworzenia linku.";
-  const willCreateLink = createLink && brandedFinalized;
+  // Linki dla klienta wyłączone (CV_CLIENT_LINKS_UI_ENABLED): akcja tylko
+  // przesuwa kandydata na „CV Wysłane" i zapisuje stawkę — bez linku.
+  const willCreateLink = CV_CLIENT_LINKS_UI_ENABLED && createLink && brandedFinalized;
 
   // Linki tego etapu — lista i odwołanie. Zapytanie startuje dopiero na
   // zakładce „Linki": kolejka bywa długa, a to jest zapytanie per kandydat.
@@ -441,7 +444,7 @@ export function CvHandoffWorkbench({
       }) ??
       (!cvSentCol
         ? "Szablon tej rekrutacji nie ma kolumny „CV Wysłane”."
-        : brandedQuery.isLoading
+        : CV_CLIENT_LINKS_UI_ENABLED && brandedQuery.isLoading
           ? // Bez tego w oknie ładowania `brandedStatus` = "none", więc klik
             // wysłałby BEZ linku i zaraportował to jako świadomą decyzję.
             "Sprawdzam stan CV brandowanego…"
@@ -958,7 +961,7 @@ export function CvHandoffWorkbench({
             <p className="text-xs text-muted-foreground">
               Wybierz kandydata z kolejki, żeby przygotować wysyłkę.
             </p>
-          ) : dockTab === "links" ? (
+          ) : CV_CLIENT_LINKS_UI_ENABLED && dockTab === "links" ? (
             <>
               {linksQuery.isLoading ? (
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1123,6 +1126,7 @@ export function CvHandoffWorkbench({
                 </p>
               )}
 
+              {CV_CLIENT_LINKS_UI_ENABLED && (
               <DockSection title="Link dla klienta">
                 <KvList
                   rows={[
@@ -1210,6 +1214,7 @@ export function CvHandoffWorkbench({
                   </p>
                 )}
               </DockSection>
+              )}
 
               {!readOnly && (
                 <>
@@ -1223,8 +1228,12 @@ export function CvHandoffWorkbench({
                       onClick={() => sendMut.mutate(false)}
                     >
                       <Send className="h-3.5 w-3.5" />
-                      {willCreateLink ? "Utwórz link i oznacz „CV Wysłane”" : "Oznacz „CV Wysłane” bez tworzenia linku"}
+                      {!CV_CLIENT_LINKS_UI_ENABLED
+                        ? "Oznacz „CV Wysłane”"
+                        : willCreateLink ? "Utwórz link i oznacz „CV Wysłane”" : "Oznacz „CV Wysłane” bez tworzenia linku"}
                     </Button>
+                    {CV_CLIENT_LINKS_UI_ENABLED && (
+                    <>
                     <Button
                       size="sm"
                       variant="outline"
@@ -1257,11 +1266,13 @@ export function CvHandoffWorkbench({
                     >
                       <Mail className="h-3.5 w-3.5" /> Mail do klienta
                     </a>
+                    </>
+                    )}
                   </DockActions>
                   <p className="text-[11px] text-muted-foreground">
-                    Ta akcja zmienia status w pipeline. Wiadomość wyślij osobno,
-                    korzystając z przygotowanego linku. Przycisk „Mail do klienta”
-                    otwiera szkic wiadomości w Twoim programie pocztowym.
+                    {CV_CLIENT_LINKS_UI_ENABLED
+                      ? "Ta akcja zmienia status w pipeline. Wiadomość wyślij osobno, korzystając z przygotowanego linku. Przycisk „Mail do klienta” otwiera szkic wiadomości w Twoim programie pocztowym."
+                      : "Ta akcja zmienia status w pipeline (i zapisuje stawkę do klienta, jeśli ją podano). CV wysyłasz klientowi poza NEXUSem."}
                   </p>
                 </>
               )}
@@ -1324,13 +1335,15 @@ export function CvHandoffWorkbench({
               aria-label="Wysyłka do klienta"
               className="space-y-3 rounded-xl border border-border bg-card p-3"
             >
-              <TabbedNav
-                ariaLabel="Zakładki: Wysyłka do klienta"
-                value={dockTab}
-                onValueChange={(v) => setDockTab(v as DockTab)}
-                tabs={dockTabs}
-                overflow="scroll"
-              />
+              {CV_CLIENT_LINKS_UI_ENABLED && (
+                <TabbedNav
+                  ariaLabel="Zakładki: Wysyłka do klienta"
+                  value={dockTab}
+                  onValueChange={(v) => setDockTab(v as DockTab)}
+                  tabs={dockTabs}
+                  overflow="scroll"
+                />
+              )}
               {dockBody}
               <p className="flex items-start gap-1.5 border-t border-border pt-2 text-[11px] text-muted-foreground">
                 {dockFooter}
@@ -1498,7 +1511,7 @@ export function CvHandoffWorkbench({
               ? `→ CV Wysłane${clientLabel ? ` · ${clientLabel}` : ""}`
               : undefined
           }
-          tabs={selected ? dockTabs : undefined}
+          tabs={selected && CV_CLIENT_LINKS_UI_ENABLED ? dockTabs : undefined}
           activeTab={dockTab}
           onTabChange={(v) => setDockTab(v as DockTab)}
           footer={

@@ -44,6 +44,11 @@ interface Props {
   onChange: (consentToken: string | null, filename: string | null) => void;
   context: ConsentContext;
   required: boolean;
+  /**
+   * Zrzut nie blokuje generacji, ale bez niego pakietu nie da się wysłać
+   * klientowi (polityka centralna PKO BP).
+   */
+  requiredForSending?: boolean;
   disabled?: boolean;
 }
 
@@ -51,6 +56,7 @@ export function ConsentScreenshotField({
   value,
   onChange,
   required,
+  requiredForSending = false,
   context,
   disabled = false,
 }: Props) {
@@ -143,12 +149,20 @@ export function ConsentScreenshotField({
     <div className="space-y-1.5" data-testid="consent-screenshot-field">
       <label htmlFor={inputId} className="block text-xs font-medium text-foreground">
         Zrzut zgody kandydata (RODO)
-        {required && <span className="text-destructive"> *</span>}
+        {required ? (
+          <span className="font-normal text-destructive" data-field-mark="required"> * wymagane</span>
+        ) : requiredForSending ? (
+          <span className="font-normal text-warning-muted-foreground" data-field-mark="sending"> — wymagane do wysyłki klientowi</span>
+        ) : (
+          <span className="font-normal text-muted-foreground" data-field-mark="optional"> (opcjonalnie)</span>
+        )}
       </label>
       <p className="text-[11px] text-muted-foreground">
         {required
           ? "Ten klient wymaga zrzutu maila ze zgodą kandydata — trafi automatycznie na koniec CV."
-          : "Opcjonalnie — jeśli wgrasz, zrzut trafi automatycznie na koniec CV."}
+          : requiredForSending
+            ? "CV wygenerujesz bez zrzutu, ale pakietu nie wyślesz klientowi, dopóki go nie dołączysz — trafi automatycznie na koniec CV."
+            : "Jeśli wgrasz, zrzut trafi automatycznie na koniec CV."}
       </p>
       {!hasSubject && <p className="text-[11px] text-muted-foreground">Najpierw wybierz osobę i rekrutację albo wgraj plik CV.</p>}
 
