@@ -138,6 +138,10 @@ class CandidateStageResponse(BaseModel):
     # formularz po ruchu karta pokazuje „do uzupełnienia". Wypełnia tablica.
     screening_done: bool = False
     scorecard_done: bool = False
+    # Auto-CV (21.09.2026): na TYM wierszu etapu leży gotowe CV zakolejkowane
+    # przez system i nikt go jeszcze nie zatwierdził — „CV gotowe w tle —
+    # sprawdź i wyślij". Wypełnia tylko tablica.
+    auto_cv_ready: bool = False
     # Stawka z PROFILU kandydata (`Candidate.expected_rate_hourly`, PLN/h) —
     # podpowiedź w oknie „Zweryfikowany". Wypełnia tylko tablica.
     candidate_expected_rate_hourly: Optional[Decimal] = None

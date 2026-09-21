@@ -592,6 +592,36 @@ describe("plakietka niezależnej kontroli AI (0327)", () => {
 });
 
 
+describe("auto-CV na liście wygenerowanych (automaty 21.09.2026)", () => {
+  const row = (extra: Record<string, unknown>) => ({
+    id: 9, candidate_name: "Jan Kowalski", language: "pl", mode: "new",
+    status: "ready", filename: "cv.docx", warnings: [], can_download: true,
+    can_delete: false, ...extra,
+  });
+  const renderRow = (extra: Record<string, unknown>) => {
+    getMock.mockImplementation(async (url) =>
+      String(url) === "/api/cv-generator/generated" ? {data: [row(extra)]} : {data: []});
+    renderPage({embedded: true});
+  };
+
+  it("czekające na przegląd mówi wprost: sprawdź przed wysyłką", async () => {
+    renderRow({origin: "auto", needs_review: true});
+    expect(await screen.findByText("wygenerowane automatycznie — sprawdź przed wysyłką")).toBeInTheDocument();
+  });
+
+  it("po zatwierdzeniu zostaje samo pochodzenie, bez wezwania do przeglądu", async () => {
+    renderRow({origin: "auto", needs_review: false});
+    expect(await screen.findByText("wygenerowane automatycznie")).toBeInTheDocument();
+    expect(screen.queryByText(/sprawdź przed wysyłką/)).not.toBeInTheDocument();
+  });
+
+  it("dokument wygenerowany przez człowieka (i starsza odpowiedź bez pola) nie ma plakietki", async () => {
+    renderRow({});
+    expect(await screen.findByText("Jan Kowalski")).toBeInTheDocument();
+    expect(screen.queryByText(/wygenerowane automatycznie/)).not.toBeInTheDocument();
+  });
+});
+
 describe("CV readiness follows the selected content mode", () => {
   it("allows CV-only redaction and refetches requirements for tailored mode", async () => {
     setSourcingAccess("write");

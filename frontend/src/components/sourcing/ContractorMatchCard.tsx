@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CompetenceCategoryName } from "@/components/v2/CompetenceCategoryBadge";
 import { useState } from "react";
 import {
   AlertTriangle,
@@ -193,7 +194,7 @@ export function ContractorMatchCard({ row }: Props) {
           <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5 flex-wrap">
             {c.competence_category && (
               <span className="flex items-center gap-1">
-                <User className="w-3 h-3" /> {c.competence_category}
+                <User className="w-3 h-3" /> <CompetenceCategoryName slug={c.competence_category} />
               </span>
             )}
             {c.years_it_experience !== null && (

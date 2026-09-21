@@ -630,6 +630,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_search_completed'",
     # 0334: „Moi ludzie" — nowa rekrutacja pasuje do osób z listy rekrutera.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'my_people_match'",
+    # 0335: dzienny digest propozycji z nowych CV (auto-match w trybie propose).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'auto_match_proposals'",
+    # 0335: seria 3 awarii tego samego automatu rekrutacji (tylko admini).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'automation_failing'",
     # 0336: zapisane wyszukiwanie wymaga ponownej akceptacji po migracji semantyki.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'saved_search_reapproval'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
@@ -3371,6 +3375,23 @@ _COLUMN_STATEMENTS = [
     "client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL",
     "CREATE INDEX IF NOT EXISTS ix_cv_generated_documents_client_id "
     "ON cv_generated_documents (client_id)",
+    # 0335: pochodzenie wygenerowanego CV (auto-CV po ruchu na „Zweryfikowany").
+    # Bez kolumn KAŻDY odczyt/zapis cv_generated_documents => UndefinedColumn
+    # (ORM wybiera wszystkie kolumny), czyli generator CV pada w całości.
+    "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "
+    "origin VARCHAR(16) NOT NULL DEFAULT 'manual'",
+    "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS stage_id INTEGER",
+    "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "
+    "source_cv_revision VARCHAR(64)",
+    """DO $$ BEGIN
+        ALTER TABLE cv_generated_documents
+            ADD CONSTRAINT ck_cv_generated_documents_origin
+            CHECK (origin IN ('manual', 'auto'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # Klucz idempotencji auto-generacji: etap × wersja CV.
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_cv_generated_documents_auto_stage_revision "
+    "ON cv_generated_documents (stage_id, source_cv_revision) "
+    "WHERE origin = 'auto'",
     # 0206: typed candidate profile facts. Existing candidate rows need OCC
     # counters even when orphaned Alembic skipped the migration; create_all
     # cannot add columns to an existing table.

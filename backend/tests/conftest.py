@@ -200,6 +200,23 @@ def _open_the_order_mail_recheck_window(monkeypatch):
     monkeypatch.setattr(settings, "ORDER_MAIL_RECHECK_END_HOUR_LOCAL", 0)
 
 
+# ── Auto-CV po ruchu na „Zweryfikowany" ─────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _no_background_cv_generation_after_moves(monkeypatch):
+    """Dziesiątki testów przesuwają kartę na „Zweryfikowany".
+
+    Produkcyjnie taki ruch odpala w tle auto-generację CV (własna sesja bazy,
+    `asyncio.create_task`). W testach zadanie przeżywałoby test, który je
+    odpalił: pisałoby do wspólnej bazy po jego asercjach i kończyło się już po
+    zamknięciu pętli zdarzeń. Testy samego automatu
+    (`test_cv_auto_generate.py`) włączają go jawnie.
+    """
+
+    monkeypatch.setattr(settings, "CV_AUTO_GENERATE_ON_VERIFIED", False)
+
+
 # ── Polkomtel: klientowa normalizacja numerów Finansów ─────────────────────
 
 

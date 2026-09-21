@@ -7,12 +7,17 @@ import {
   type Capability,
 } from "@/lib/capabilities";
 import {
+  NAV_MORE_GROUPS,
+  NAV_PRIMARY_ORDER,
   NAV_REGISTRY,
   NAV_SECTION_META,
   resolveNavHref,
+  visibleMoreGroups,
   visibleNavEntries,
+  visibleNavHrefs,
   visibleNavSections,
   visiblePaletteEntries,
+  visiblePrimaryNav,
 } from "@/lib/nav-registry";
 import type { UserRole } from "@/store/auth";
 
@@ -57,12 +62,99 @@ describe("rejestr nawigacji — spójność wpisów", () => {
     }
   });
 
-  it("na razie każda pozycja jest `primary` — zero zmian wizualnych", () => {
+  it("każda pozycja „Więcej” ma grupę z rejestru grup, a `primary` jej nie ma", () => {
+    const groupKeys = new Set(NAV_MORE_GROUPS.map((group) => group.key));
+    for (const entry of NAV_REGISTRY) {
+      if (entry.placement === "more") {
+        expect(entry.moreGroup, entry.id).toBeDefined();
+        expect(groupKeys.has(entry.moreGroup!)).toBe(true);
+      } else {
+        expect(entry.moreGroup, entry.id).toBeUndefined();
+      }
+    }
+  });
+
+  it("NAV_PRIMARY_ORDER wymienia DOKŁADNIE pozycje szyny (bez tylko-paletowych)", () => {
+    const railIds = NAV_REGISTRY.filter(
+      (entry) => entry.placement === "primary" && entry.inSidebar !== false,
+    ).map((entry) => entry.id);
+    expect([...NAV_PRIMARY_ORDER].sort()).toEqual([...railIds].sort());
+    expect(new Set(NAV_PRIMARY_ORDER).size).toBe(NAV_PRIMARY_ORDER.length);
+  });
+});
+
+describe("szyna i „Więcej” (rekrutacja v3)", () => {
+  const opts = { contactQueueEnabled: true };
+  const primaryHrefs = (role: UserRole) =>
+    visiblePrimaryNav(userOf(role), opts).map((entry) => entry.href);
+
+  it("rekruter ma na szynie sześć pozycji codziennej pracy + Insights, w tej kolejności", () => {
+    expect(primaryHrefs("recruiter")).toEqual([
+      "/dashboard",
+      "/jobs",
+      "/candidates",
+      "/candidates/search",
+      "/talent-radar",
+      "/calendar",
+      "/insights",
+    ]);
+  });
+
+  it("persony Delivery / Finanse / admin zachowują swój rdzeń na szynie", () => {
+    expect(primaryHrefs("delivery_lead")).toEqual(
+      expect.arrayContaining(["/clients", "/contracts", "/order-mail", "/insights"]),
+    );
+    expect(primaryHrefs("finance")).toEqual(
+      expect.arrayContaining(["/clients", "/contracts", "/order-mail", "/finance"]),
+    );
+    expect(primaryHrefs("admin")).toEqual([
+      "/dashboard",
+      "/jobs",
+      "/candidates",
+      "/candidates/search",
+      "/talent-radar",
+      "/calendar",
+      "/clients",
+      "/contracts",
+      "/order-mail",
+      "/finance",
+      "/insights",
+    ]);
+    // Bramka jest ta sama co dotąd — szyna niczego nie odsłania.
+    expect(primaryHrefs("recruiter")).not.toContain("/clients");
+    expect(primaryHrefs("delivery_lead")).not.toContain("/finance");
+  });
+
+  it("„Więcej” grupuje resztę; puste grupy odpadają", () => {
+    const groups = visibleMoreGroups(userOf("recruiter"), opts);
+    expect(groups.map((group) => [group.title, group.items.map((i) => i.label)])).toEqual([
+      ["Codzienna praca", ["Do przedzwonienia", "Zgłoszenia"]],
+      ["Dokumenty", ["Generator CV", "Generator Umów B2B"]],
+      ["Baza i źródła", ["Talenty", "Targ / Dostępni"]],
+      ["Wiedza i raporty", ["Cortex"]],
+      ["System", ["Pomoc", "Ustawienia"]],
+    ]);
+    const admin = visibleMoreGroups(userOf("admin"), opts);
     expect(
-      NAV_REGISTRY.filter((entry) => entry.placement !== "primary").map(
-        (entry) => entry.id,
-      ),
-    ).toEqual([]);
+      admin.find((group) => group.key === "sources")?.items.map((i) => i.href),
+    ).toEqual(["/talents", "/sourcing/marketplace", "/my-clients", "/my-relationships"]);
+    for (const role of ALL_ROLES) {
+      for (const group of visibleMoreGroups(userOf(role), opts)) {
+        expect(group.items.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("szyna + „Więcej” = DOKŁADNIE to, co menu pokazywało przed podziałem", () => {
+    for (const role of ALL_ROLES) {
+      for (const contactQueueEnabled of [true, false]) {
+        const union = visibleNavHrefs(userOf(role), { contactQueueEnabled });
+        expect(new Set(union).size).toBe(union.length);
+        expect([...union].sort()).toEqual(
+          [...sidebarHrefs(role, contactQueueEnabled)].sort(),
+        );
+      }
+    }
   });
 });
 
@@ -94,7 +186,7 @@ describe("rejestr nawigacji ↔ CAPABILITY_ROLES", () => {
   }
 });
 
-describe("sidebar — pozycje per rola identyczne jak przed refaktorem", () => {
+describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne jak przed refaktorem", () => {
   // Zamrożone z ręcznie pisanego `NAV_SECTIONS` (stan sprzed rejestru),
   // w kolejności menu, przy WYŁĄCZONEJ fladze kolejki telefonów.
   const SOURCING_OPERATIONAL = [

@@ -1242,6 +1242,25 @@ async def move_candidate(
         except Exception:  # noqa: BLE001
             pass
 
+    # Auto-CV (21.09.2026): po trwałym ruchu na „Zweryfikowany" system w tle
+    # zakolejkowuje CV w szablonie firmowym. Własna sesja, fire-and-forget —
+    # nie wpływa na status ani czas tej odpowiedzi; reguły klienta (zrzut zgody
+    # RODO itd.) NIE są omijane. Tylko ten endpoint: `/bulk-move` nie przyjmuje
+    # etapu `verified`, importy nie przechodzą tędy.
+    if legacy_enum == PipelineStage.verified:
+        try:
+            from app.services import cv_auto_generate
+
+            if cv_auto_generate.enabled():
+                _spawn(
+                    cv_auto_generate.generate_after_verified(
+                        stage_id=stage.id, user_id=actor_id
+                    ),
+                    f"cv_auto_generate stage={stage.id}",
+                )
+        except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
+            logger.warning("cv_auto_generate spawn failed stage=%s: %s", stage.id, _exc)
+
     resp = _stage_response(stage)
     resp["scheduled_rejection_email_id"] = scheduled_rejection_email_id
     # F05: nowa wersja procesu po ruchu — karta podmienia ją od razu, żeby
@@ -1627,6 +1646,12 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
         for uid, uname in orows.all():
             user_name_by_id[uid] = uname
 
+    # Auto-CV gotowe w tle i czekające na przegląd (21.09.2026) — JEDNO
+    # zapytanie na tablicę; flaga dotyczy wiersza etapu, na którym je zakolejkowano.
+    from app.services.cv_auto_review import job_stages_with_ready_auto_cv
+
+    auto_cv_stage_ids = await job_stages_with_ready_auto_cv(db, job_id)
+
     def _stage_resp_with_name(e: CandidateStage) -> dict:
         n, ln = name_by_id.get(e.candidate_id, (None, None))
         first = earliest.get(e.candidate_id)
@@ -1646,6 +1671,7 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
         )
         payload["contact_case"] = contact_case_by_candidate.get(e.candidate_id)
         payload["process_state_version"] = process_versions.get(e.candidate_id, 0)
+        payload["auto_cv_ready"] = e.id in auto_cv_stage_ids
         # Rekruter karty: właściciel procesu (Priority Work), a gdy proces go
         # nie ma — osoba, która dodała kandydata do rekrutacji.
         process_owner = process_cards.get(e.candidate_id, (0, None))[1]
@@ -1999,10 +2025,20 @@ async def get_stage_screening(
     # zakres odczytu co tablica (`/kanban/{job_id}`), nie sama rola.
     await ensure_job_read_access(db, current_user, stage.job_id)
     job = await db.scalar(select(Job).where(Job.id == stage.job_id))
+    from app.services.screening_suggestions import suggestions_from_notes
+
+    candidate = await db.get(Candidate, stage.candidate_id)
     return {
         "stage_id": stage.id,
         "candidate_id": stage.candidate_id,
         "job_id": stage.job_id,
+        # Podpowiedzi stawki i dostępności z notatek (21.09.2026): odczyt
+        # gotowego `_notes_insights`, bez wywołania modelu i BEZ zapisu
+        # gdziekolwiek — arkusz tylko je pokazuje. Stawka wyłącznie dla ról,
+        # które mogą ją wpisać przy ruchu na „Zweryfikowany".
+        "suggestions": suggestions_from_notes(
+            candidate, include_rate=user_can_edit_rates(current_user)
+        ),
         # Ten sam kontrakt co `/jobs/{id}/champion-profile`: front zna wyłącznie
         # siedem sekcji, a surowy kształt sprzed 09.2026 pokazałby mu pustkę na
         # wypełnionym profilu.

@@ -38,7 +38,11 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.candidate_search_run import CandidateSearchResult, CandidateSearchRun
 from app.models.job import Job, JobStatus
-from app.services.candidate_search_store import FINISHED_STATES, RESULT_STATES
+from app.services.candidate_search_store import (
+    FINISHED_STATES,
+    RESULT_STATES,
+    manual_origin_clause,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +82,12 @@ def protected_run_ids(*, protect_after: datetime):
         .where(
             CandidateSearchRun.state.in_(RESULT_STATES),
             _finished_at() >= protect_after,
+            # Przeglądy automatyczne (nocny automat) NIE są chronione: powstają
+            # co noc, a ich wynik żyje dalej w skrzynce „Propozycje". Filtr stoi
+            # WEWNĄTRZ rankingu — inaczej nocny przegląd (autor = właściciel
+            # rekrutacji) zajmowałby miejsce nr 1 i zdejmował ochronę
+            # z ręcznego przeglądu tej samej osoby.
+            manual_origin_clause(),
         )
         .subquery()
     )

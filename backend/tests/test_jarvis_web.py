@@ -248,3 +248,39 @@ def test_domain_lists_shape_the_search_tool(monkeypatch):
         }
     ]
     assert collect_sources(blocks) == [{"url": "https://ok.pl", "title": "OK"}]
+
+
+def test_cited_fragments_join_into_one_paragraph():
+    from app.services.jarvis.web import join_text
+
+    parts = ["Mediana to ", "22 200 zł", " netto", ", a p75 ", "30 200 zł", "."]
+    assert join_text(parts) == "Mediana to 22 200 zł netto, a p75 30 200 zł."
+    # Zdanie zamknięte kropką bez spacji zaczyna nowy akapit, reszta — spację.
+    assert join_text(["Sprawdzę stawki.", "Wyniki:"]) == "Sprawdzę stawki.\n\nWyniki:"
+    assert join_text(["22 200", "zł"]) == "22 200 zł"
+    assert join_text(["", "  ", "tekst"]) == "tekst"
+
+
+def test_history_shows_a_cited_answer_as_one_bubble():
+    from app.api.jarvis import _conversation_items
+
+    items = _conversation_items(
+        [
+            ("user", [{"type": "text", "text": "Ile zarabia senior?"}]),
+            (
+                "assistant",
+                [
+                    {"type": "text", "text": "Mediana to "},
+                    {"type": "text", "text": "24 350 zł"},
+                    {"type": "text", "text": " netto."},
+                    {
+                        "type": "x_sources",
+                        "items": [{"url": "https://example.org", "title": "Raport"}],
+                    },
+                ],
+            ),
+        ],
+        [],
+    )
+    assert [i["kind"] for i in items] == ["message", "message", "sources"]
+    assert items[1]["markdown"] == "Mediana to 24 350 zł netto."

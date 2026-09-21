@@ -1055,7 +1055,7 @@ export function CvHandoffWorkbench({
               </ChromeBanner>
 
               {canWriteClientRate ? (
-                <DockSection title="Stawka do klienta" right="z ClientRateModal">
+                <DockSection title="Stawka do klienta">
                   <div className="grid grid-cols-[1.2fr_minmax(0,1fr)] gap-3">
                     <div className="flex flex-col gap-1.5">
                       <Label htmlFor="cv-client-rate">Kwota</Label>

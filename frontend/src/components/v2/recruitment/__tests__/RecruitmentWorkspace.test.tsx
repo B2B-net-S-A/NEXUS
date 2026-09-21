@@ -2,7 +2,7 @@ import { useState } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   pipelineScores: vi.fn(),
@@ -184,8 +184,9 @@ describe("RecruitmentWorkspace — stany zapytania", () => {
 describe("RecruitmentWorkspace — tabela", () => {
   it("domyślnie: w procesie, najpierw to, co wymaga mojego ruchu; dopasowanie z pipeline-scores", async () => {
     renderWorkspace();
-    // Ewa: 9 dni na wejściu → po terminie; zweryfikowani: zwykły ruch; Natalia czeka na klienta.
-    expect(names()).toEqual(["Ewa Pawlak", "Marek Zieliński", "Katarzyna Wójcik", "Natalia Krawczyk"]);
+    // Zweryfikowani: mój ruch. Ewa stoi na wejściu („Do przejrzenia"), Natalia
+    // czeka na klienta — obie po moich, po dniach malejąco.
+    expect(names()).toEqual(["Marek Zieliński", "Katarzyna Wójcik", "Ewa Pawlak", "Natalia Krawczyk"]);
     expect(await screen.findByLabelText("Dopasowanie: 91 na 100")).toBeInTheDocument();
     expect(mocks.pipelineScores).toHaveBeenCalledWith(42);
   });
@@ -215,7 +216,8 @@ describe("RecruitmentWorkspace — tabela", () => {
     ).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Grupuj: kto ma ruch" }));
     const grid = within(screen.getByRole("grid"));
-    expect(grid.getByRole("button", { name: /Wymaga mojego ruchu/ })).toHaveTextContent("3");
+    expect(grid.getByRole("button", { name: /Wymaga mojego ruchu/ })).toHaveTextContent("2");
+    expect(grid.getByRole("button", { name: /Do przejrzenia/ })).toHaveTextContent("1");
     expect(grid.getByRole("button", { name: /Czeka na klienta/ })).toHaveTextContent("1");
   });
 
@@ -229,6 +231,36 @@ describe("RecruitmentWorkspace — tabela", () => {
     expect(screen.queryByRole("grid")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Shortlista/ }));
     expect(screen.getByText("segment shortlisty")).toBeInTheDocument();
+  });
+});
+
+describe("RecruitmentWorkspace — pierwsza osoba w panelu (makieta v3)", () => {
+  function wideScreen(matches: boolean) {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({ matches: matches && query.includes("min-width"), media: query })),
+    );
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("na szerokim ekranie panel od razu pokazuje pierwszą osobę z listy", async () => {
+    wideScreen(true);
+    renderWorkspace();
+    await waitFor(() =>
+      expect(screen.getByTestId("person-panel")).toHaveTextContent("Marek Zieliński"),
+    );
+  });
+
+  it("na wąskim ekranie nie otwiera niczego sam", () => {
+    wideScreen(false);
+    renderWorkspace();
+    expect(screen.getByText("Wybierz osobę z listy")).toBeInTheDocument();
+  });
+
+  it("wskazana osoba (np. z adresu) wygrywa z pierwszą na liście", async () => {
+    wideScreen(true);
+    renderWorkspace({ activeCandidateId: 4 });
+    expect(screen.getByTestId("person-panel")).toHaveTextContent("Natalia Krawczyk");
   });
 });
 

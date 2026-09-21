@@ -247,3 +247,123 @@ async def restore_job_proposal(
     restored = await proposals.restore(db, job_id=job_id, candidate_id=candidate_id)
     await db.commit()
     return {"job_id": job_id, "candidate_id": candidate_id, "restored": restored}
+
+
+# ── „Praca w tle" — co automaty zrobiły dla tej rekrutacji (21.09.2026) ──────
+
+_BACKGROUND_ENTITY = "job_automation"
+_BACKGROUND_KINDS = {
+    "auto_full_review_finished": "auto_full_review",
+    "auto_match_proposed": "new_cv_proposals",
+    "cv_auto_generate_started": "cv_auto_generate",
+    "cv_auto_generate_skipped": "cv_auto_generate_skipped",
+    "cv_auto_generate_failed": "cv_auto_generate_failed",
+    # Awarie: rekruter nie dostaje powiadomienia — wpis z polskim powodem.
+    "auto_full_review_failed": "auto_full_review_failed",
+    "auto_match_failed": "new_cv_proposals_failed",
+}
+_DETAIL_KEYS = (
+    "run_id",
+    "proposals",
+    "eligible",
+    "count",
+    "trigger",
+    "reason",
+    "message",
+)
+
+
+@router.get("/jobs/{job_id}/background-events")
+async def list_job_background_events(
+    job_id: int,
+    user: CurrentUser,
+    limit: int = Query(30, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ostatnie zdarzenia automatów tej rekrutacji — ta sama bramka co skrzynka.
+
+    Źródłem jest ``Activity(entity_type="job_automation", entity_id=job_id)``:
+    zakończony automatyczny przegląd bazy (ile propozycji), propozycje z nowych
+    CV, auto-CV po „Zweryfikowany" (zakolejkowane / pominięte z powodem).
+    Wpisy niosą wyłącznie identyfikatory i kody; imię i nazwisko kandydata jest
+    dołączane przy odczycie i tylko dla ról z odczytem kandydatów. Stan auto-CV
+    czytamy na żywo z wiersza dokumentu, więc restart w trakcie generacji nie
+    zostawia wpisu, który wiecznie mówi „w toku".
+    """
+    from app.api.candidate_access import CANDIDATE_READ_ROLES  # noqa: PLC0415
+    from app.models.activity import Activity  # noqa: PLC0415
+    from app.models.cv_generated_document import CvGeneratedDocument  # noqa: PLC0415
+
+    await _job(db, user, job_id)
+    rows = (
+        (
+            await db.scalars(
+                select(Activity)
+                .where(
+                    Activity.entity_type == _BACKGROUND_ENTITY,
+                    Activity.entity_id == job_id,
+                    Activity.action.in_(list(_BACKGROUND_KINDS)),
+                )
+                .order_by(Activity.created_at.desc(), Activity.id.desc())
+                .limit(limit)
+            )
+        )
+        .unique()
+        .all()
+    )
+    can_read_candidates = user.has_any_role(*CANDIDATE_READ_ROLES)
+    candidate_ids = {
+        int(cid)
+        for row in rows
+        if isinstance(cid := (row.details or {}).get("candidate_id"), int)
+    }
+    names: dict[int, str] = {}
+    if candidate_ids and can_read_candidates:
+        for cid, name, lastname in (
+            await db.execute(
+                select(Candidate.id, Candidate.name, Candidate.lastname).where(
+                    Candidate.id.in_(candidate_ids)
+                )
+            )
+        ).all():
+            names[cid] = " ".join(x for x in (name, lastname) if x).strip()
+    generated_ids = {
+        int(gid)
+        for row in rows
+        if isinstance(gid := (row.details or {}).get("generated_id"), int)
+    }
+    doc_status: dict[int, str] = {}
+    if generated_ids:
+        doc_status = dict(
+            (
+                await db.execute(
+                    select(CvGeneratedDocument.id, CvGeneratedDocument.status).where(
+                        CvGeneratedDocument.id.in_(generated_ids)
+                    )
+                )
+            ).all()
+        )
+    items = []
+    for row in rows:
+        details = row.details if isinstance(row.details, dict) else {}
+        item = {
+            "id": row.id,
+            "kind": _BACKGROUND_KINDS[row.action],
+            "created_at": row.created_at,
+            **{k: details[k] for k in _DETAIL_KEYS if details.get(k) is not None},
+        }
+        candidate_id = details.get("candidate_id")
+        if isinstance(candidate_id, int):
+            item["candidate"] = {
+                "id": candidate_id,
+                "name": names.get(candidate_id) if can_read_candidates else None,
+            }
+        generated_id = details.get("generated_id")
+        if isinstance(generated_id, int):
+            item["generated_id"] = generated_id
+            # Brak wiersza = rekruter usunął dokument.
+            item["document_status"] = doc_status.get(generated_id, "deleted")
+        if row.action == "cv_auto_generate_skipped" and details.get("detail"):
+            item["detail"] = details["detail"]
+        items.append(item)
+    return {"job_id": job_id, "items": items, "limit": limit}

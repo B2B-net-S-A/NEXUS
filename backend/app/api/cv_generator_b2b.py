@@ -52,7 +52,7 @@ from app.core.terminal_failure import terminal_operation, capture_terminal_failu
 from app.core.http_headers import content_disposition_attachment
 from pydantic import BaseModel, Field
 from app.services.cv_generator_b2b import central_policies
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -231,6 +231,13 @@ class GeneratedCvItem(BaseModel):
     # dowolne — brak wartości ma być głośnym błędem serializacji, nie cichym
     # przekłamaniem w panelu.
     content_mode: str
+    # 0335: `auto` = zakolejkował system po ruchu na „Zweryfikowany".
+    origin: str = "manual"
+    # Etap, na którym system zakolejkował dokument (tylko `origin="auto"`).
+    stage_id: Optional[int] = None
+    # Auto-CV, którego nikt jeszcze nie zatwierdził istniejącą ścieżką — takie
+    # wiersze stoją NA POCZĄTKU listy osadzonej w warsztacie wysyłki CV.
+    needs_review: bool = False
     filename: str
     # Async generation lifecycle — the UI polls this list and renders a spinner
     # for "processing", the CV for "ready" and the reason for "failed".
@@ -365,6 +372,9 @@ async def _create_pending_row(
     client_id: int | None = None,
     job_id: int | None = None,
     central_policy: dict | None = None,
+    origin: str = "manual",
+    stage_id: int | None = None,
+    source_cv_revision: str | None = None,
 ) -> int:
     """Insert a „processing" placeholder so the CV shows on the list the moment
     generation is enqueued — the recruiter can then close the tab while the
@@ -389,6 +399,11 @@ async def _create_pending_row(
         status="processing",
         render_payload=None,
         created_by=user_id,
+        origin=origin,
+        # Klucz idempotencji (0335) dotyczy wyłącznie auto-generacji; ręczne
+        # wiersze go nie niosą, żeby nie wyglądały na „zajęte" przez automat.
+        stage_id=stage_id if origin == "auto" else None,
+        source_cv_revision=source_cv_revision if origin == "auto" else None,
     )
     db.add(row)
     await db.flush()  # assign row.id before commit so the caller can return it
@@ -726,8 +741,17 @@ async def _run_generate_new_job(
     client_id: int | None = None,
     project_ref: str = "",
     consent_screenshot: Optional[dict] = None,
+    languages: Literal["all", "primary_only"] = "all",
+    position_fallback: Optional[str] = None,
 ) -> None:
-    """Background worker for New-mode (DB-backed) generation."""
+    """Background worker for New-mode (DB-backed) generation.
+
+    ``languages="primary_only"`` (auto-CV): pierwszy przebieg robi WYŁĄCZNIE
+    wersję główną — bez drugiej kwoty AI. Drugą wersję dorabia człowiek jednym
+    kliknięciem: ponowienie pakietu wchodzi gałęzią „pierwszy dokument gotowy"
+    (``language_retry``) i wtedy druga wersja powstaje normalnie.
+    """
+    language_retry = False
     async with AsyncSessionLocal() as db:
         first_row = await db.get(CvGeneratedDocument, generated_id)
         if (
@@ -745,6 +769,7 @@ async def _run_generate_new_job(
             source_facts = _decode(active_job.prepared_source_facts)
             language = first_row.language
             finalized = True
+            language_retry = True
             result = SimpleNamespace(job_id=first_row.job_id)
             await db.commit()
         else:
@@ -773,6 +798,7 @@ async def _run_generate_new_job(
                         client_rule=rule_snapshot,
                         project_ref=project_ref or None,
                         prepared_source_facts=source_facts,
+                        position_fallback=position_fallback,
                     )
             except StandaloneGenerationError as err:
                 await _finalize_failure(
@@ -855,6 +881,8 @@ async def _run_generate_new_job(
         # Lead włączył automat. Osobny wiersz na liście, osobna kwota, osobna
         # awaria — porażka drugiej nie dotyka pierwszej.
         second = _second_language(rule_snapshot, language) if finalized else None
+        if languages == "primary_only" and not language_retry:
+            second = None
         if second is not None:
             from app.services.cv_generator_b2b.job_leases import lock_owned_job
 
@@ -918,6 +946,7 @@ async def _run_generate_new_job(
                         client_rule=rule_snapshot,
                         project_ref=project_ref or None,
                         prepared_source_facts=source_facts,
+                        position_fallback=position_fallback,
                     )
             except StandaloneGenerationError as err:
                 await _finalize_failure(
@@ -1764,6 +1793,218 @@ def _require_consent_screenshot(rule, storage_key: str) -> None:
     )
 
 
+async def enqueue_candidate_generation(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    candidate: Candidate,
+    stage: CandidateStage,
+    client_id: Optional[int],
+    cv_document_id: Optional[int],
+    language: str,
+    blind_cv: bool,
+    content_mode: str,
+    project_ref: str,
+    consent_token: str = "",
+    consent_key: str = "",
+    origin: str = "manual",
+    source_cv_revision: Optional[str] = None,
+    languages: Literal["all", "primary_only"] = "all",
+    position_fallback: Optional[str] = None,
+) -> tuple[int, int, str]:
+    """Walidacje reguły klienta → wiersz „processing" → trwałe zadanie generacji.
+
+    JEDNA ścieżka dla kliknięcia rekrutera (``POST /generate``) i dla auto-CV po
+    ruchu na „Zweryfikowany" (``services/cv_auto_generate.py``): automat nie ma
+    własnej, łagodniejszej kopii walidacji, więc nie może wygenerować dokumentu
+    łamiącego zatwierdzoną regułę klienta. Odmowy lecą jako ``HTTPException``
+    PRZED naliczeniem kwoty AI. Nie commituje — robi to wołający.
+    Zwraca ``(generated_id, durable_job_id, candidate_name)``.
+    """
+    rule = await resolve_client_rule(db, client_id)
+    rule_snapshot = snapshot_rule(rule)
+    if central_policies.enabled():
+        language = rule.cv_language or language
+    _enforce_client_language(rule_snapshot, language)
+
+    # Blokada trybu (0267): zablokowany tryb nadpisuje żądanie — kafelki w UI
+    # są wyłączone, ale kontrakt trzyma serwer. Sufit z karty klienta nakłada
+    # `generate_cv_for_candidate` już na tę wartość.
+    effective_mode, _forced = resolve_content_mode(rule_snapshot, content_mode)
+    client = await db.get(Client, client_id) if client_id else None
+    effective_mode, _capped = apply_content_mode_cap(
+        effective_mode, getattr(client, "cv_content_mode_cap", None)
+    )
+
+    mode_notice: str | None = None
+    if central_policies.enabled():
+        # Central policies no longer lock the mode: the recruiter's choice is
+        # honoured; "tailored" without a Champion falls back with a notice.
+        job = await db.get(Job, stage.job_id)
+        effective_mode, mode_notice = central_policies.resolve_mode(
+            content_mode, job, getattr(client, "cv_content_mode_cap", None)
+        )
+
+    consent = _verified_consent(
+        rule,
+        consent_token,
+        consent_key,
+        user_id,
+        consent_binding.subject(
+            candidate_id=candidate.id, stage_id=stage.id, client_id=client_id
+        ),
+        project_ref=project_ref,
+        stage_id=stage.id,
+    )
+
+    # Wymagane wejścia (0267) — 422 z listą braków PRZED naliczeniem kwoty.
+    if effective_mode == "tailored" or (
+        rule_snapshot is not None
+        and (
+            rule_snapshot.require_screening_notes_min_chars
+            or rule_snapshot.require_project_ref
+            or rule_snapshot.require_champion
+        )
+    ):
+        job = await db.get(Job, stage.job_id)
+        if job and effective_mode == "tailored":
+            from app.services.champion_intake import enforce_operation
+
+            enforce_operation(job, "cv")
+        notes_chars = await screening_notes_char_count(
+            db, candidate_id=candidate.id, stage_id=stage.id
+        )
+        if effective_mode == "tailored" and not champion_present(job):
+            _reject_missing_inputs(
+                [
+                    "Tryb dopasowany wymaga Profilu Championa. Uzupełnij go lub wybierz Przepisanie/Redakcję, jeśli reguła klienta na to pozwala."
+                ]
+            )
+        _reject_missing_inputs(
+            required_input_problems(
+                rule_snapshot,
+                mode="new",
+                screening_chars=notes_chars or 0,
+                has_project_ref=bool(project_ref.strip()),
+                has_position=True,
+                has_champion=champion_present(job),
+            )
+        )
+
+    # Freeze owned values before quota and enqueue, including the actual file.
+    # Both document languages must use the source and policy accepted here.
+    try:
+        source = await load_candidate_generation_source(
+            db,
+            candidate_id=candidate.id,
+            stage_id=stage.id,
+            language=language,
+            cv_document_id=cv_document_id,
+        )
+    except StandaloneGenerationError as err:
+        raise HTTPException(status_code=422, detail=err.message) from None
+    if (
+        source.candidate_id,
+        source.stage_id,
+        source.job_id,
+        source.client_id,
+        source.cv_document_id,
+    ) != (
+        candidate.id,
+        stage.id,
+        stage.job_id,
+        client_id,
+        cv_document_id,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Kontekst rekrutacji zmienił się podczas odczytu źródeł. Odśwież stronę i spróbuj ponownie.",
+        )
+    try:
+        await run_in_threadpool(validate_cv_file, source.cv_bytes, source.cv_filename)
+    except StandaloneGenerationError as err:
+        raise HTTPException(status_code=422, detail=err.message) from None
+    if effective_mode == "tailored" and not source.has_champion:
+        if central_policies.enabled():
+            # Never a 422 under central policies: fall back to a general CV
+            # and say so in the document warnings.
+            effective_mode = apply_content_mode_cap(
+                "polished", getattr(client, "cv_content_mode_cap", None)
+            )[0]
+            mode_notice = central_policies.MISSING_CHAMPION_NOTICE
+        else:
+            _reject_missing_inputs(["Tryb dopasowany wymaga Profilu Championa."])
+    if mode_notice:
+        source = dataclasses.replace(
+            source, source_warnings=(*source.source_warnings, mode_notice)
+        )
+    _reject_missing_inputs(
+        required_input_problems(
+            rule_snapshot,
+            mode="new",
+            screening_chars=len(source.screening_notes_text.strip()),
+            has_project_ref=bool(project_ref.strip()),
+            has_position=True,
+            has_champion=source.has_champion,
+        )
+    )
+
+    # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
+    # rekrutera limitu, którego nie zużyło.
+
+    candidate_name = f"{candidate.name} {candidate.lastname}".strip() or "Kandydat"
+    generated_id = await _create_pending_row(
+        db,
+        mode="new",
+        candidate_id=candidate.id,
+        candidate_name=candidate_name,
+        position=getattr(candidate, "current_position", None) or position_fallback,
+        language=language,
+        blind_cv=blind_cv,
+        user_id=user_id,
+        content_mode=effective_mode,
+        client_id=client_id,
+        job_id=stage.job_id,
+        origin=origin,
+        stage_id=stage.id,
+        source_cv_revision=source_cv_revision,
+        central_policy=central_policies.stamp(
+            rule,
+            language=language,
+            project_ref=project_ref,
+            stage_id=stage.id,
+        ),
+    )
+    from app.services.cv_generator_b2b.durable_jobs import persist_job
+
+    durable_id = await persist_job(
+        db,
+        generated_id=generated_id,
+        kind="new",
+        user_id=user_id,
+        charge=lambda: _charge_cv_generation_quota(db, user_id),
+        inputs=dict(
+            quota_user_id=user_id,
+            source=source,
+            rule_snapshot=rule_snapshot,
+            candidate_id=candidate.id,
+            stage_id=stage.id,
+            language=language,
+            blind_cv=blind_cv,
+            user_id=user_id,
+            content_mode=effective_mode,
+            client_id=client_id,
+            project_ref=project_ref or "",
+            consent_screenshot=consent,
+            # Tylko gdy różne od domyślnych: snapshot ręcznej generacji zostaje
+            # bajt w bajt taki sam (zadania w kolejce przeżywają deploy).
+            **({"languages": languages} if languages != "all" else {}),
+            **({"position_fallback": position_fallback} if position_fallback else {}),
+        ),
+    )
+    return generated_id, durable_id, candidate_name
+
+
 @router.post(
     "/generate",
     response_model=GenerateEnqueuedResponse,
@@ -1836,180 +2077,22 @@ async def generate(
             id=previous.id, status="processing", candidate_name=previous.candidate_name
         )
 
-    rule = await resolve_client_rule(db, client_id)
-    rule_snapshot = snapshot_rule(rule)
-    if central_policies.enabled():
-        payload.language = rule.cv_language or payload.language
-    _enforce_client_language(rule_snapshot, payload.language)
-
-    # Blokada trybu (0267): zablokowany tryb nadpisuje żądanie — kafelki w UI
-    # są wyłączone, ale kontrakt trzyma serwer. Sufit z karty klienta nakłada
-    # `generate_cv_for_candidate` już na tę wartość.
-    effective_mode, _forced = resolve_content_mode(rule_snapshot, payload.content_mode)
-    client = await db.get(Client, client_id) if client_id else None
-    effective_mode, _capped = apply_content_mode_cap(
-        effective_mode, getattr(client, "cv_content_mode_cap", None)
-    )
-
-    mode_notice: str | None = None
-    if central_policies.enabled():
-        # Central policies no longer lock the mode: the recruiter's choice is
-        # honoured; "tailored" without a Champion falls back with a notice.
-        job = await db.get(Job, stage.job_id)
-        effective_mode, mode_notice = central_policies.resolve_mode(
-            payload.content_mode, job, getattr(client, "cv_content_mode_cap", None)
-        )
-
-    consent = _verified_consent(
-        rule,
-        payload.consent_screenshot_token,
-        payload.consent_screenshot_key,
-        current_user.id,
-        consent_binding.subject(
-            candidate_id=candidate.id, stage_id=stage.id, client_id=client_id
-        ),
-        project_ref=payload.project_ref,
-        stage_id=stage.id,
-    )
-
-    # Wymagane wejścia (0267) — 422 z listą braków PRZED naliczeniem kwoty.
-    if effective_mode == "tailored" or (
-        rule_snapshot is not None
-        and (
-            rule_snapshot.require_screening_notes_min_chars
-            or rule_snapshot.require_project_ref
-            or rule_snapshot.require_champion
-        )
-    ):
-        job = await db.get(Job, stage.job_id)
-        if job and effective_mode == "tailored":
-            from app.services.champion_intake import enforce_operation
-
-            enforce_operation(job, "cv")
-        notes_chars = await screening_notes_char_count(
-            db, candidate_id=payload.candidate_id, stage_id=payload.stage_id
-        )
-        if effective_mode == "tailored" and not champion_present(job):
-            _reject_missing_inputs(
-                [
-                    "Tryb dopasowany wymaga Profilu Championa. Uzupełnij go lub wybierz Przepisanie/Redakcję, jeśli reguła klienta na to pozwala."
-                ]
-            )
-        _reject_missing_inputs(
-            required_input_problems(
-                rule_snapshot,
-                mode="new",
-                screening_chars=notes_chars or 0,
-                has_project_ref=bool(payload.project_ref.strip()),
-                has_position=True,
-                has_champion=champion_present(job),
-            )
-        )
-
-    # Freeze owned values before quota and enqueue, including the actual file.
-    # Both document languages must use the source and policy accepted here.
-    try:
-        source = await load_candidate_generation_source(
-            db,
-            candidate_id=payload.candidate_id,
-            stage_id=payload.stage_id,
-            language=payload.language,
-            cv_document_id=payload.cv_document_id,
-        )
-    except StandaloneGenerationError as err:
-        raise HTTPException(status_code=422, detail=err.message) from None
-    if (
-        source.candidate_id,
-        source.stage_id,
-        source.job_id,
-        source.client_id,
-        source.cv_document_id,
-    ) != (
-        payload.candidate_id,
-        payload.stage_id,
-        stage.job_id,
-        client_id,
-        payload.cv_document_id,
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="Kontekst rekrutacji zmienił się podczas odczytu źródeł. Odśwież stronę i spróbuj ponownie.",
-        )
-    try:
-        await run_in_threadpool(validate_cv_file, source.cv_bytes, source.cv_filename)
-    except StandaloneGenerationError as err:
-        raise HTTPException(status_code=422, detail=err.message) from None
-    if effective_mode == "tailored" and not source.has_champion:
-        if central_policies.enabled():
-            # Never a 422 under central policies: fall back to a general CV
-            # and say so in the document warnings.
-            effective_mode = apply_content_mode_cap(
-                "polished", getattr(client, "cv_content_mode_cap", None)
-            )[0]
-            mode_notice = central_policies.MISSING_CHAMPION_NOTICE
-        else:
-            _reject_missing_inputs(["Tryb dopasowany wymaga Profilu Championa."])
-    if mode_notice:
-        source = dataclasses.replace(
-            source, source_warnings=(*source.source_warnings, mode_notice)
-        )
-    _reject_missing_inputs(
-        required_input_problems(
-            rule_snapshot,
-            mode="new",
-            screening_chars=len(source.screening_notes_text.strip()),
-            has_project_ref=bool(payload.project_ref.strip()),
-            has_position=True,
-            has_champion=source.has_champion,
-        )
-    )
-
-    # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
-    # rekrutera limitu, którego nie zużyło.
-
-    candidate_name = f"{candidate.name} {candidate.lastname}".strip() or "Kandydat"
-    generated_id = await _create_pending_row(
+    generated_id, durable_id, candidate_name = await enqueue_candidate_generation(
         db,
-        mode="new",
-        candidate_id=payload.candidate_id,
-        candidate_name=candidate_name,
-        position=getattr(candidate, "current_position", None),
+        user_id=current_user.id,
+        candidate=candidate,
+        stage=stage,
+        client_id=client_id,
+        cv_document_id=payload.cv_document_id,
         language=payload.language,
         blind_cv=payload.blind_cv,
-        user_id=current_user.id,
-        content_mode=effective_mode,
-        client_id=client_id,
-        job_id=stage.job_id,
-        central_policy=central_policies.stamp(
-            rule,
-            language=payload.language,
-            project_ref=payload.project_ref,
-            stage_id=stage.id,
-        ),
+        content_mode=payload.content_mode,
+        project_ref=payload.project_ref,
+        consent_token=payload.consent_screenshot_token,
+        consent_key=payload.consent_screenshot_key,
     )
-    from app.services.cv_generator_b2b.durable_jobs import persist_job, execute_job
+    from app.services.cv_generator_b2b.durable_jobs import execute_job
 
-    durable_id = await persist_job(
-        db,
-        generated_id=generated_id,
-        kind="new",
-        user_id=current_user.id,
-        charge=lambda: _charge_cv_generation_quota(db, current_user.id),
-        inputs=dict(
-            quota_user_id=current_user.id,
-            source=source,
-            rule_snapshot=rule_snapshot,
-            candidate_id=payload.candidate_id,
-            stage_id=payload.stage_id,
-            language=payload.language,
-            blind_cv=payload.blind_cv,
-            user_id=current_user.id,
-            content_mode=effective_mode,
-            client_id=client_id,
-            project_ref=payload.project_ref or "",
-            consent_screenshot=consent,
-        ),
-    )
     if receipt is not None:
         receipt.generated_id = generated_id
     await db.commit()
@@ -2393,8 +2476,15 @@ async def list_generated_cvs(
     candidate_id: Annotated[Optional[int], Query(ge=1)] = None,
     job_id: Annotated[Optional[int], Query(ge=1)] = None,
     before_id: Annotated[Optional[int], Query(ge=1)] = None,
+    stage_id: Annotated[Optional[int], Query(ge=1)] = None,
 ):
     """Recently generated CVs for the panel list (newest first).
+
+    Auto-CV czekające na przegląd (``needs_review``) stoją PIERWSZE, gdy lista
+    jest zawężona do etapu (``stage_id``) albo do pary kandydat + rekrutacja
+    (tak pyta panel osadzony w warsztacie wysyłki CV). Przypięte wiersze są
+    tylko na pierwszej stronie — z ``before_id`` wypadają, żeby stronicowanie
+    po id ich nie powtarzało.
 
     ``status`` drives the row's look (spinner while „processing", the CV once
     „ready", the reason on „failed"); the UI polls this endpoint while any row
@@ -2421,8 +2511,18 @@ async def list_generated_cvs(
         # wtedy wyłącznie własne CV wołającego — dokładnie to, co wolno mu
         # zobaczyć w osadzonym panelu rekrutacji.
         filters.append(CvGeneratedDocument.job_id == job_id)
+    from app.services.cv_auto_review import needs_review_clause
+
+    needs_review = needs_review_clause()
+    pinned = None
+    if stage_id is not None:
+        pinned = and_(needs_review, CvGeneratedDocument.stage_id == stage_id)
+    elif candidate_id is not None and job_id is not None:
+        pinned = needs_review
     if before_id is not None:
         filters.append(CvGeneratedDocument.id < before_id)
+        if pinned is not None:
+            filters.append(~pinned)
     is_admin = current_user.has_role(UserRole.admin)
     # `display_name` przed `name`: to drugie nadpisuje sync Traffita, więc
     # etykieta w panelu rozjeżdżałaby się z tą z pickera klienta.
@@ -2444,6 +2544,7 @@ async def list_generated_cvs(
                 func.coalesce(
                     func.nullif(func.trim(Client.display_name), ""), Client.name
                 ),
+                needs_review.label("needs_review"),
             )
             .options(
                 defer(CvGeneratedDocument.docx_content),
@@ -2453,7 +2554,10 @@ async def list_generated_cvs(
             .outerjoin(User, User.id == CvGeneratedDocument.created_by)
             .outerjoin(Client, Client.id == CvGeneratedDocument.client_id)
             .where(*filters)
-            .order_by(CvGeneratedDocument.id.desc())
+            .order_by(
+                *([pinned.desc()] if pinned is not None and before_id is None else []),
+                CvGeneratedDocument.id.desc(),
+            )
             .limit(limit)
         )
     ).all()
@@ -2493,6 +2597,9 @@ async def list_generated_cvs(
             blind=r.blind,
             mode=r.mode,
             content_mode=r.content_mode,
+            origin=getattr(r, "origin", None) or "manual",
+            stage_id=r.stage_id,
+            needs_review=bool(row_needs_review),
             filename=r.filename,
             status=r.status,
             job_status=job_status,
@@ -2508,7 +2615,7 @@ async def list_generated_cvs(
             and r.status != "processing"
             and job_status not in {"queued", "running"},
         )
-        for r, creator_name, job_status, client_name in rows
+        for r, creator_name, job_status, client_name, row_needs_review in rows
     ]
 
 

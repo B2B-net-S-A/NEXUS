@@ -93,6 +93,7 @@ async def needs_action_subquery(
 
     always: list = []
     after_nudge: list = []
+    review: list = []
     for template_id, stage_defs in defs_by_template.items():
         metas = [template_column_meta(sd) for sd in stage_defs]
         modes = owner_modes_for_columns([StageColumn.from_meta(m) for m in metas])
@@ -104,7 +105,11 @@ async def needs_action_subquery(
         }
         def_ids = [sd.id for sd in stage_defs]
         in_template = _in(CandidateStage.stage_def_id, def_ids)
-        for mode, bucket in (("always", always), ("after_nudge", after_nudge)):
+        for mode, bucket in (
+            ("always", always),
+            ("after_nudge", after_nudge),
+            ("review", review),
+        ):
             own_ids = [i for i in def_ids if mode_by_def[i] == mode]
             enums = _enum_members(
                 [e for e, def_id in enum_to_def.items() if mode_by_def[def_id] == mode]
@@ -136,7 +141,11 @@ async def needs_action_subquery(
         effective_template.is_(None),
         ~_in(effective_template, templated),
     )
-    for mode, bucket in (("always", always), ("after_nudge", after_nudge)):
+    for mode, bucket in (
+        ("always", always),
+        ("after_nudge", after_nudge),
+        ("review", review),
+    ):
         stages = [
             stage
             for stage, stage_mode in zip(LEGACY_COLUMN_STAGES, legacy_modes)
@@ -149,11 +158,14 @@ async def needs_action_subquery(
         (and_(or_(*after_nudge), nudged), literal(1)),
         else_=literal(0),
     )
+    # Stos wejściowy (Ogłoszenia, Nowi) — „Do przejrzenia", poza „wymaga ruchu".
+    review_weight = case((or_(*review), literal(1)), else_=literal(0))
     latest = latest_stage_ids(job_ids=job_ids)
     return (
         select(
             CandidateStage.job_id.label("job_id"),
             func.coalesce(func.sum(weight), 0).label("needs_action_count"),
+            func.coalesce(func.sum(review_weight), 0).label("review_count"),
         )
         .join(Job, Job.id == CandidateStage.job_id)
         .where(CandidateStage.id.in_(select(latest.c.latest_id)))
@@ -178,3 +190,26 @@ async def needs_action_counts(
     )
     rows = await db.execute(select(sub.c.job_id, sub.c.needs_action_count))
     return {int(job_id): int(count or 0) for job_id, count in rows.all()}
+
+
+async def attention_counts(
+    db: AsyncSession,
+    *,
+    job_ids: Sequence[int],
+    default_template_id: Optional[int],
+    now: Optional[datetime] = None,
+) -> dict[int, tuple[int, int]]:
+    """``job_id → (wymaga ruchu, do przejrzenia)`` — jedno zapytanie."""
+    ids = sorted({int(j) for j in job_ids})
+    if not ids:
+        return {}
+    sub = await needs_action_subquery(
+        db, job_ids=ids, default_template_id=default_template_id, now=now
+    )
+    rows = await db.execute(
+        select(sub.c.job_id, sub.c.needs_action_count, sub.c.review_count)
+    )
+    return {
+        int(job_id): (int(needs or 0), int(review_n or 0))
+        for job_id, needs, review_n in rows.all()
+    }

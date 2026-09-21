@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 
 import api, {
+  candidatesApi,
   extractErrorMsg,
   interviewQuestionsApi,
   pipelineApi,
@@ -60,6 +61,10 @@ import {
   useScreeningForm,
 } from "@/components/v2/screening/ScreeningForm";
 import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields";
+import { ScreeningSuggestionChips } from "@/components/v2/screening/ScreeningSuggestionChips";
+import { useCapability } from "@/hooks/useCapability";
+import { apiErrorMessage } from "@/lib/api-error";
+import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import {
   RejectionV2,
@@ -252,6 +257,29 @@ export function ScreeningWorkbench({
     unit,
     currency: "PLN",
     jobBudgetHourly,
+  });
+
+  // ── Dostępność z notatek → PROFIL kandydata (jawny zapis) ───────────────
+  // Nigdy do „Notatek rekrutera": tamto pole widzi klient w share portalu.
+  // Bramka jak edycja profilu (`PATCH /api/candidates/{id}` = RecruiterPlus).
+  const canEditCandidate = useCapability("candidate.write") && !readOnly;
+  const saveAvailabilityMut = useMutation({
+    mutationFn: ({
+      candidateId,
+      patch,
+    }: {
+      candidateId: number;
+      patch: { availability_date: string };
+    }) => candidatesApi.update(candidateId, patch),
+    onSuccess: (_data, { candidateId }) => {
+      showSuccess("Zapisano dostępność w profilu kandydata");
+      queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+      queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+      // Prefiks `["candidate"]` obejmuje profil, notatki i oś czasu tej osoby.
+      queryClient.invalidateQueries({ queryKey: candidateQueryKeys.detail(candidateId) });
+    },
+    onError: (error) =>
+      showError(apiErrorMessage(error, "Nie udało się zapisać dostępności w profilu")),
   });
 
   // ── Arkusz Championa dla wybranego etapu ────────────────────────────────
@@ -590,6 +618,26 @@ export function ScreeningWorkbench({
                   gate={gate}
                   disabled={readOnly}
                   idPrefix="screening-dock-rate"
+                />
+                {/* Podpowiedzi z notatek: wypełniają pola, niczego nie zapisują. */}
+                <ScreeningSuggestionChips
+                  suggestions={screening.data?.suggestions}
+                  disabled={readOnly}
+                  onUseRate={(fill) => {
+                    setRate(fill.rate);
+                    setUnit(fill.unit);
+                  }}
+                  onSaveAvailability={
+                    canEditCandidate
+                      ? (patch) =>
+                          saveAvailabilityMut.mutate({
+                            candidateId: selected.item.candidate_id,
+                            patch,
+                          })
+                      : undefined
+                  }
+                  savingAvailability={saveAvailabilityMut.isPending}
+                  profileHref={`/candidates/${selected.item.candidate_id}`}
                 />
                 <p className="text-[10.5px] text-muted-foreground">
                   Stawka jest opcjonalna. Powyżej budżetu → ostrzeżenie tutaj

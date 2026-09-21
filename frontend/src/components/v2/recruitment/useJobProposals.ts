@@ -209,6 +209,14 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     staleTime: 60_000,
   });
 
+  // Przeglądarka nie zna żadnego przeglądu → podpinamy ostatni zakończony
+  // z serwera (własny albo nocny automat — tylko takie zwraca `latest-run`).
+  const { adopt: adoptRun, runId: currentRunId, starting: runStarting } = fullSearch;
+  const latestRunId = latestRun.data?.run?.run_id ?? null;
+  useEffect(() => {
+    if (latestRunId && currentRunId === null && !runStarting) adoptRun(latestRunId);
+  }, [latestRunId, currentRunId, runStarting, adoptRun]);
+
   // ── Źródła dodatkowe (klucze wspólne z dotychczasowymi sekcjami) ─────────
   const similar = useQuery({
     queryKey: jobProposalsKeys.similar(jobId),

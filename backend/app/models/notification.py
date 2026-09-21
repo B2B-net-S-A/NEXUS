@@ -140,6 +140,15 @@ class NotificationType(str, enum.Enum):
     # rekrutera. Emitowane przez `services/my_people_matching.py`; jeden dzwonek
     # na (odbiorca, rekrutacja) — `related_entity=(job, id)`.
     my_people_match = "my_people_match"
+    # 0335: tryb `propose` auto-matchu — JEDEN dzienny digest na (rekrutacja,
+    # odbiorca): „N nowych propozycji z nowych CV”. Dedup dobowy po
+    # related_entity=(job, id); kolejne propozycje tego dnia podbijają licznik
+    # w istniejącym wpisie (`auto_match_service._notify_proposals`).
+    auto_match_proposals = "auto_match_proposals"
+    # 0335: TEN SAM automat rekrutacji padł 3 razy z rzędu — JEDNO powiadomienie
+    # na serię, wyłącznie dla adminów (`services/automation_failures.py`).
+    # Rekruterzy nie dostają nic: awaria jest wpisem w „Pracy w tle".
+    automation_failing = "automation_failing"
     # 0336: zapisane wyszukiwanie po migracji na wspólną semantykę filtrów
     # zwraca inny zbiór osób — alert wstrzymany do akceptacji właściciela.
     saved_search_reapproval = "saved_search_reapproval"

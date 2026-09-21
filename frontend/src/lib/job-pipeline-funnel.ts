@@ -14,6 +14,7 @@
  */
 
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
+import { terminalOf } from "@/lib/kanban-terminal";
 import { countHired, groupKanbanColumns } from "@/lib/pipeline-flow";
 
 /**
@@ -224,4 +225,63 @@ export function funnelTooltip(groups: readonly FunnelGroup[]): string {
   const nonZero = groups.filter((g) => g.count > 0);
   if (nonZero.length === 0) return "Brak kandydatów w tej rekrutacji.";
   return nonZero.map((g) => `${g.label}: ${g.count}`).join(" · ");
+}
+
+/** Etap szablonu (pełna nazwa) z liczbą — treść tooltipa grupy na liście. */
+export interface FunnelStageDetail {
+  name: string;
+  count: number;
+}
+
+const PIPELINE_TO_FUNNEL_GROUP: Record<string, FunnelGroupKey | undefined> = {
+  intake: "new",
+  posting: "new",
+  screening: "screening",
+  verification: "verified",
+  client: "with_client",
+  contract: "contract",
+};
+
+/**
+ * Pełne nazwy etapów wchodzących w każdą z sześciu grup, z liczbami — żeby
+ * zwarta liczba w wierszu listy dała się rozwinąć tooltipem do tego, co widać
+ * na tablicy („Zweryfikowani: Przepuszczony przez DZ 2 · Wysłać do Cpro 1").
+ *
+ * Grupowanie idzie TĄ SAMĄ funkcją co `buildStageFunnel`, więc suma nazw
+ * w tooltipie równa się liczbie w komórce. Bez `stage_columns` (stara
+ * odpowiedź z samym `stage_breakdown`) nazw nie znamy — zwracamy puste listy,
+ * a konsument pokazuje samą nazwę grupy.
+ */
+export function funnelGroupStages(
+  input: PipelineStageSummary | Record<string, number> | null | undefined,
+): Record<FunnelGroupKey, FunnelStageDetail[]> {
+  const out: Record<FunnelGroupKey, FunnelStageDetail[]> = {
+    new: [],
+    screening: [],
+    verified: [],
+    with_client: [],
+    contract: [],
+    hired: [],
+  };
+  const columns = stageColumnsOf(input);
+  if (!columns) return out;
+  for (const group of groupKanbanColumns(columns)) {
+    const target = PIPELINE_TO_FUNNEL_GROUP[group.key];
+    if (!target) continue;
+    for (const col of group.columns) {
+      const key: FunnelGroupKey =
+        target === "contract" && terminalOf(col) === "hired" ? "hired" : target;
+      out[key].push({ name: col.name ?? col.stage, count: col.count ?? 0 });
+    }
+  }
+  return out;
+}
+
+/** `title` jednej grupy: „Nowi: Nowy 2 · Prep call 1" albo sama nazwa + suma. */
+export function funnelGroupTitle(
+  group: FunnelGroup,
+  stages: readonly FunnelStageDetail[],
+): string {
+  if (stages.length === 0) return `${group.label}: ${group.count}`;
+  return `${group.label}: ${stages.map((s) => `${s.name} ${s.count}`).join(" · ")}`;
 }

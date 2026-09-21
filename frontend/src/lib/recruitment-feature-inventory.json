@@ -635,6 +635,46 @@
    "file": "components/v2/recruitment/PersonPanel.tsx",
    "marker": "Obsada kompletna — zamknij rekrutację",
    "v3_home": "panel → Umowa"
+  },
+  {
+   "id": "history.background-events",
+   "area": "historia",
+   "opis": "Zakładka „Praca w tle”: zdarzenia automatów rekrutacji (przegląd bazy, propozycje z nowych CV, auto-CV, awarie i pominięcia z polskim powodem), „Pokaż więcej”; 5 ostatnich także we „Wszystko”",
+   "file": "components/v2/recruitment/slideovers/HistoryChatSlideOver.tsx",
+   "marker": "BackgroundSection",
+   "v3_home": "okno Historia i czat → Praca w tle"
+  },
+  {
+   "id": "list.auto-cv-ready-badge",
+   "area": "lista",
+   "opis": "Odznaka „CV gotowe w tle” w kolumnie „Następny krok”, gdy na etapie czeka gotowe auto-CV (`auto_cv_ready`)",
+   "file": "components/v2/recruitment/person-rows.ts",
+   "marker": "CV gotowe w tle",
+   "v3_home": "tabela → Następny krok"
+  },
+  {
+   "id": "cv.auto-generated-needs-review",
+   "area": "cv",
+   "opis": "Plakietka „wygenerowane automatycznie — sprawdź przed wysyłką” na liście wygenerowanych CV (auto-CV przypięte pierwsze przez serwer)",
+   "file": "components/v2/pages/CVGeneratorStandaloneV2.tsx",
+   "marker": "wygenerowane automatycznie — sprawdź przed wysyłką",
+   "v3_home": "panel → CV → Wygenerowane CV"
+  },
+  {
+   "id": "screening.note-suggestions",
+   "area": "screening",
+   "opis": "Podpowiedzi „Z notatek: … — Użyj” dla stawki i dostępności na stanowisku screeningu; stawka wypełnia pole (zapis przy ruchu), dostępność to jawny zapis w profilu kandydata (nigdy w notatkach widocznych dla klienta) albo link „uzupełnij w profilu”; bez chipa stawki przy `rate_redacted`",
+   "file": "components/v2/jobs/ScreeningWorkbench.tsx",
+   "marker": "ScreeningSuggestionChips",
+   "v3_home": "panel → Screening → Stawka oczekiwana"
+  },
+  {
+   "id": "cv.auto-generate-skip-reason",
+   "area": "cv",
+   "opis": "Informacja w sekcji CV, dlaczego automat nie wygenerował CV tej osoby (np. reguła klienta wymaga zrzutu zgody RODO) — z „Pracy w tle”",
+   "file": "components/v2/recruitment/PersonPanel.tsx",
+   "marker": "AutoCvSkipNotice",
+   "v3_home": "panel → CV"
   }
  ]
 }

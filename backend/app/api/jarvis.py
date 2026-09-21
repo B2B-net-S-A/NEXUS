@@ -356,6 +356,16 @@ def _conversation_items(
         by_tool_use.setdefault(action.tool_use_id, []).append(action)
     items: list[dict[str, Any]] = []
     for role, blocks in messages:
+        # Kolejne bloki tekstu jednej wiadomości asystenta to jeden akapit
+        # (odpowiedź z cytatami przychodzi pocięta) — jeden dymek, nie 24.
+        pending: list[str] = []
+
+        def flush() -> None:
+            text = jarvis_web.join_text(pending)
+            pending.clear()
+            if text:
+                items.append({"kind": "message", "role": role, "markdown": text})
+
         for block in blocks or []:
             if not isinstance(block, dict):
                 continue
@@ -369,8 +379,10 @@ def _conversation_items(
                 ):
                     continue
                 if text.strip():
-                    items.append({"kind": "message", "role": role, "markdown": text})
-            elif kind == jarvis_web.SOURCES_BLOCK and role == "assistant":
+                    pending.append(text)
+                continue
+            flush()
+            if kind == jarvis_web.SOURCES_BLOCK and role == "assistant":
                 sources = [i for i in block.get("items") or [] if isinstance(i, dict)]
                 if sources:
                     items.append({"kind": "sources", "items": sources})
@@ -393,6 +405,7 @@ def _conversation_items(
                             "action": jarvis_actions.serialize_action(action),
                         }
                     )
+        flush()
     return items
 
 

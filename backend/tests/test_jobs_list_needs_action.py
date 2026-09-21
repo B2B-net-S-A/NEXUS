@@ -166,11 +166,14 @@ async def test_list_count_equals_board_owner_count(
     assert owners["Umowa wysłana"] == ["recruiter"]
     assert owners["Zatrudniony"] == ["delivery"]
     assert owners["Odrzucony"] == ["none"]
-    assert count == 9
+    # Stos wejściowy to „Do przejrzenia", nie „wymaga ruchu" (21.09.2026).
+    assert owners["Nowy"] == ["review", "review"]
+    assert count == 7
 
     rows = await _rows(app_client, app_auth_headers, client_ids=[world["client_id"]])
     row = next(r for r in rows if r["id"] == world["job_id"])
     assert row["needs_action_count"] == count
+    assert row["review_count"] == 2
     assert row["open_proposals_count"] == 0
 
 
@@ -192,17 +195,25 @@ async def test_sort_attention_orders_and_paginates_stably(
 ):
     today = date.today()
     worlds = {
-        "three": await _seed(cards=[("Nowy", 0), ("Nowy", 1), ("Screening", 0)]),
+        # „Nowy" nie liczy się do „wymaga ruchu" — trzy karty dalej w procesie.
+        "three": await _seed(
+            cards=[
+                ("Nowy", 0),
+                ("Screening", 1),
+                ("Screening", 0),
+                ("Zweryfikowany", 0),
+            ]
+        ),
         "one_overdue": await _seed(
-            cards=[("Nowy", 0)], deadline=today - timedelta(days=10)
+            cards=[("Screening", 0)], deadline=today - timedelta(days=10)
         ),
         "one_soon": await _seed(
-            cards=[("Nowy", 0)], deadline=today + timedelta(days=5)
+            cards=[("Screening", 0)], deadline=today + timedelta(days=5)
         ),
         "one_later": await _seed(
-            cards=[("Nowy", 0)], deadline=today + timedelta(days=50)
+            cards=[("Screening", 0)], deadline=today + timedelta(days=50)
         ),
-        "one_no_deadline": await _seed(cards=[("Nowy", 0)]),
+        "one_no_deadline": await _seed(cards=[("Screening", 0)]),
         # Sami „u klienta" przed progiem i odrzuceni → zero po stronie rekrutera.
         "zero": await _seed(
             cards=[("CV Wysłane", 0), ("Odrzucony", 3)],
@@ -330,7 +341,9 @@ async def test_job_without_any_pipeline_template_counts_by_legacy_stages():
     from app.models.recruitment_pipeline import CandidateStage
     from app.services.job_needs_action import needs_action_counts
 
-    busy = await _seed(cards=[("Nowy", 0), ("CV Wysłane", 0), ("Odrzucony", 1)])
+    busy = await _seed(
+        cards=[("Nowy", 0), ("Screening", 0), ("CV Wysłane", 0), ("Odrzucony", 1)]
+    )
     empty = await _seed(cards=[])
     async with AsyncSessionLocal() as db:
         await db.execute(
@@ -352,7 +365,8 @@ async def test_job_without_any_pipeline_template_counts_by_legacy_stages():
             job_ids=[busy["job_id"], empty["job_id"]],
             default_template_id=None,
         )
-    # „Nowy" → rekruter; „CV Wysłane" < NUDGE_DAYS → klient; odrzucony → nikt.
+    # „Nowy" → do przejrzenia; „Screening" → rekruter; „CV Wysłane" <
+    # NUDGE_DAYS → klient; odrzucony → nikt.
     assert counts.get(busy["job_id"]) == 1
     # Rekrutacja bez kandydatów: brak wiersza = 0, żadnego wyjątku.
     assert counts.get(empty["job_id"], 0) == 0

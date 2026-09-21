@@ -71,7 +71,7 @@ function runPage(ids: number[]): CandidateSearchPage {
 }
 
 function idleSearch(data?: CandidateSearchPage) {
-  return { start: vi.fn(), clear: vi.fn(), refresh: vi.fn(), runId: data ? data.run_id : null, offset: 0, setOffset: vi.fn(), setMinScore: vi.fn(), minScore: 0, data, error: null, starting: false, running: false, loading: false, fetching: false, needsNewRun: false };
+  return { start: vi.fn(), clear: vi.fn(), adopt: vi.fn(), refresh: vi.fn(), runId: data ? data.run_id : null, offset: 0, setOffset: vi.fn(), setMinScore: vi.fn(), minScore: 0, data, error: null, starting: false, running: false, loading: false, fetching: false, needsNewRun: false };
 }
 
 function setup() {
@@ -171,6 +171,27 @@ describe("useJobProposals", () => {
     act(() => result.current.dismiss([2]));
     await waitFor(() => expect(mocks.toast.showError).toHaveBeenCalledWith("Brak członkostwa w zespole rekrutacji"));
     await waitFor(() => expect(result.current.rows.map((r) => r.candidateId)).toContain(2));
+  });
+
+  it("przeglądarka nie zna przeglądu → podpina ostatni zakończony z serwera", async () => {
+    const search = idleSearch();
+    mocks.fullSearch.current = search;
+    mocks.latestRun.mockResolvedValue({
+      job_id: JOB,
+      run: { run_id: "run-srv", state: "partial", completed_at: "2026-09-21T18:39:00Z", origin: "manual", own: true },
+    });
+    setup();
+    await waitFor(() => expect(search.adopt).toHaveBeenCalledWith("run-srv"));
+  });
+
+  it("znany przegląd nie jest podmieniany ostatnim z serwera", async () => {
+    mocks.latestRun.mockResolvedValue({
+      job_id: JOB,
+      run: { run_id: "run-srv", state: "complete", completed_at: null, origin: "auto", own: false },
+    });
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows.length).toBeGreaterThan(0));
+    expect((mocks.fullSearch.current as { adopt: ReturnType<typeof vi.fn> }).adopt).not.toHaveBeenCalled();
   });
 
   it("przegląd w toku albo przerwany nie wnosi wierszy", async () => {

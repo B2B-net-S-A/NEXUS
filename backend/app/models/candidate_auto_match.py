@@ -53,6 +53,8 @@ AUTO_MATCH_DECISIONS = (
     "already_in_pipeline",
     "dry_run",
     "penalized",
+    # Tryb `propose` (21.09.2026): dobry wynik trafił do skrzynki „Propozycje".
+    "proposed",
 )
 
 

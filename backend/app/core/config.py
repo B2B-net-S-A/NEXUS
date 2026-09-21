@@ -486,13 +486,51 @@ class Settings(BaseSettings):
     # Domyślnie True na pierwsze wdrożenie (plan: 48 h próby przed dodawaniem).
     # Przejście na żywo: `AUTO_MATCH_DRY_RUN=false` w Coolify (workflow
     # „Coolify set env") po przejrzeniu dziennika w Ustawieniach → AI.
-    AUTO_MATCH_DRY_RUN: bool = True
+    # ZASTĄPIONE przez `AUTO_MATCH_MODE` (21.09.2026). Zostaje jako alias
+    # czytany WYŁĄCZNIE, gdy `AUTO_MATCH_MODE` nie jest ustawione:
+    # true → `dry_run`, false → `add`. `None` = nikt go nie ustawił.
+    AUTO_MATCH_DRY_RUN: Optional[bool] = None
+    # Tryb automatu po odczycie CV / publikacji rekrutacji (rozstrzyga
+    # `auto_match_outbox.auto_match_mode`):
+    #   dry_run — pełna ocena i dziennik decyzji, nic więcej (stan sprzed 21.09);
+    #   propose — dobry wynik trafia do skrzynki „Propozycje" rekrutacji
+    #             (`job_proposals`, źródło `new_cv`); NIC nie wchodzi do pipeline'u;
+    #   add     — kandydat jest dodawany na etap „Ogłoszenia" (decyzja z 17.09).
+    # Puste = `propose`, chyba że ustawiono alias `AUTO_MATCH_DRY_RUN`.
+    AUTO_MATCH_MODE: Optional[str] = None
     AUTO_MATCH_MIN_SCORE: float = 70.0
     AUTO_MATCH_REQUIRE_MUST: bool = True
     AUTO_MATCH_MAX_JOBS_PER_CANDIDATE: int = 3
     AUTO_MATCH_MAX_CANDIDATES_PER_JOB: int = 10
     AUTO_MATCH_JOB_LOOKBACK_DAYS: int = 90
     AUTO_MATCH_INTERVAL_SECONDS: int = 15
+
+    # ── Automatyczny pełny przegląd bazy (21.09.2026) ────────────────────────
+    # Nocna pętla (okno w `BUSINESS_TZ`) uruchamia pełny przegląd bazy dla
+    # rekrutacji opublikowanych albo istotnie zmienionych od ostatniego
+    # przeglądu automatycznego. Wynik (top-K po regule `is_good_match`) trafia
+    # do skrzynki „Propozycje" (źródło `full_base`). False = pętla kończy się
+    # przed startem, nic się nie dzieje (stan sprzed 21.09).
+    AUTO_FULL_REVIEW_ENABLED: bool = True
+    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 20
+    AUTO_FULL_REVIEW_TOP_K: int = 60
+    # Osobny próg, bo pełny przegląd punktuje kanonicznym fitem, a auto-match
+    # nowych CV starszym scoringiem — wspólny próg stroiłby dwa różne pomiary.
+    AUTO_FULL_REVIEW_MIN_SCORE: float = 70.0
+    AUTO_FULL_REVIEW_WINDOW_START_HOUR: int = 1
+    AUTO_FULL_REVIEW_WINDOW_END_HOUR: int = 5
+    AUTO_FULL_REVIEW_INTERVAL_SECONDS: int = 60
+    # Zdarzenia rekrutacji starsze niż tyle dni nie uruchamiają przeglądu.
+    AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS: int = 14
+
+    # ── Auto-CV po ruchu na „Zweryfikowany" (21.09.2026) ─────────────────────
+    # Po commicie pojedynczego ruchu na etap „Zweryfikowany" system w tle
+    # zakolejkowuje generację CV w szablonie firmowym (ta sama ścieżka co
+    # POST /api/cv-generator/generate). Reguła klienta wymagająca wejść (zrzut
+    # zgody RODO, notatki, numer projektu, Champion) NIE jest omijana — brak
+    # wejścia = pominięcie z Activity `cv_auto_generate_skipped`. False = brak
+    # jakiegokolwiek efektu po ruchu (stan sprzed 21.09).
+    CV_AUTO_GENERATE_ON_VERIFIED: bool = True
 
     # ── Jarvis — asystent-agent w shellu (0330, zastępuje MINDY) ─────────────
     # Wyłącznik całej funkcji: false = maskotka mówi „nie działam teraz”, trasy

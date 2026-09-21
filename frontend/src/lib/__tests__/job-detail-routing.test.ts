@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { jobProposalsHref } from "@/components/v2/jobs/JobListCells";
 import inventory from "@/lib/recruitment-feature-inventory.json";
 import {
   carryPersonAcrossViews,
@@ -111,6 +112,18 @@ describe("readJobDetailUrlState", () => {
       segment: "proposals",
       highlightProposals: true,
     });
+  });
+
+  it("link „+N propozycji” z listy rekrutacji trafia w segment propozycji tabeli", () => {
+    // Adres budowany przez `jobProposalsHref` — ma trafić bez przepisywania.
+    const query = new URL(jobProposalsHref(7), "https://nexus.test").searchParams;
+    expect(query.toString()).toBe("tab=people&seg=proposals");
+    expect(readJobDetailUrlState(query)).toMatchObject({
+      view: "people",
+      segment: "proposals",
+      slideOver: null,
+    });
+    expect(rewriteLegacyJobParams(query)).toBeNull();
   });
 
   it("zakładka okna nie przecieka do innego okna", () => {
