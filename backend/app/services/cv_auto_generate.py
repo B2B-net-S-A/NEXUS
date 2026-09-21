@@ -21,6 +21,12 @@ Reguły, które łatwo cofnąć „przy okazji":
   klienta nie wychodzi nic bez zatwierdzenia i kliknięcia człowieka.
 * Tryb treści: domyślny tryb z reguły klienta, inaczej domyślny generatora;
   język: wymuszony regułą, inaczej polski; nigdy blind.
+* Centralne reguły CV (``CV_CENTRAL_POLICIES_ENABLED``, 0331): tryb i język
+  ustala wspólna ścieżka (``central_policies.automatic_mode``, język polityki),
+  a wiersz dostaje ten sam stempel ``central_policy`` co po kliknięciu. Wymogi,
+  które centralny przepływ sprawdza dopiero przy gotowości PAKIETU, a które
+  zapadają przy generacji (zrzut zgody, numer projektu), automat traktuje jak
+  brak wejścia: pominięcie z powodem, nie dokument nie do udostępnienia.
 """
 
 from __future__ import annotations
@@ -102,6 +108,7 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
     from app.models.user import User
     from app.services.auto_match_outbox import candidate_revision
+    from app.services.cv_generator_b2b import central_policies
     from app.services.cv_generator_b2b.client_rules import (
         resolve_client_rule,
         snapshot_rule,
@@ -146,11 +153,44 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
     if already is not None:
         return None
 
-    rule = snapshot_rule(await resolve_client_rule(db, job.client_id))
+    try:
+        resolved_rule = await resolve_client_rule(db, job.client_id)
+    except HTTPException as exc:
+        # Centralna polityka klienta czeka na synchronizację (503): to samo
+        # usłyszałby rekruter po kliknięciu — pominięcie, nie „awaria automatu".
+        await db.rollback()
+        await _record(
+            db,
+            action=ACTION_SKIPPED,
+            reason="generation_unavailable",
+            detail=_detail_text(exc.detail),
+            **base,
+        )
+        return None
+    rule = snapshot_rule(resolved_rule)
     if rule is not None and getattr(rule, "requires_rodo_consent_block", False):
         # Zrzut zgody wgrywa człowiek — automat nie ma skąd go wziąć.
         await _record(
             db, action=ACTION_SKIPPED, reason="consent_screenshot_required", **base
+        )
+        return None
+    managed = getattr(resolved_rule, "managed_policy", None)
+    if (
+        central_policies.enabled()
+        and isinstance(managed, dict)
+        and managed.get("require_project_ref")
+    ):
+        # Centralne reguły (0331) przenoszą wymóg numeru projektu z walidacji
+        # generacji do gotowości PAKIETU: numer jest stemplowany na dokumencie
+        # przy generacji i nie da się go potem uzupełnić. Automat numeru nie
+        # zna, więc dokument byłby na zawsze nieudostępnialnym szkicem
+        # („Brak numeru projektu / zapytania"), za który naliczono już AI.
+        await _record(
+            db,
+            action=ACTION_SKIPPED,
+            reason="client_rule_inputs_missing",
+            detail="Reguła klienta wymaga numeru projektu / zapytania.",
+            **base,
         )
         return None
     language = (rule.cv_language if rule is not None else None) or "pl"

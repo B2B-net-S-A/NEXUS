@@ -4629,6 +4629,16 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   z komunikatem. Pominięcie = `Activity(cv_auto_generate_skipped, reason)`,
   bez naliczenia kwoty. Tryb = domyślny z reguły klienta (inaczej `polished`),
   język = wymuszony regułą (inaczej `pl`), nigdy blind, `project_ref` puste.
+  **Pod centralnymi regułami CV (`CV_CENTRAL_POLICIES_ENABLED`, 0331)** tryb
+  i język ustala wspólna ścieżka (`central_policies.automatic_mode`, język
+  polityki), a wiersz dostaje ten sam stempel `central_policy` co po kliknięciu.
+  Centralny przepływ NIE odmawia przy generacji braku zgody ani numeru projektu
+  (sprawdza je gotowość pakietu), a obie rzeczy zapadają przy generacji — więc
+  automat sam pomija: zgoda = `consent_screenshot_required`, numer projektu z
+  `managed_policy.require_project_ref` (Energa, Orlen) =
+  `client_rule_inputs_missing`; polityka czekająca na synchronizację (503) =
+  `generation_unavailable`, nie „awaria". Testy:
+  `test_cv_auto_generate_central_policies.py` (prawdziwa wspólna ścieżka).
 - **C. Odpalenie:** wyłącznie `move_candidate`, PO commicie, przez `_spawn`
   (własna sesja; wyjątek przy odpalaniu jest połykany — ruch zawsze 200).
   `/bulk-move` nie przyjmuje `verified`, importy tędy nie idą. Kwota AI
