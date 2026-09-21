@@ -2420,6 +2420,8 @@ async def update_order(
     if (
         order.status == ClientOrderStatus.active
         and order.filled_at is None
+        # Reactivating history is not evidence of its FIRST activation date.
+        and previous_status != ClientOrderStatus.completed
         and "status" in data
     ):
         order.filled_at = datetime.now(timezone.utc)

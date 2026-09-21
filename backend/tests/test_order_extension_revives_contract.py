@@ -927,8 +927,9 @@ async def test_active_contract_horizon_is_left_alone(app_client, app_auth_header
 @pytest.mark.parametrize(
     "patch_mode", ["period", "metadata", "unchanged_period", "explicit_status"]
 )
+@pytest.mark.parametrize("has_filled_at", [False, True])
 async def test_completed_periodic_order_patch_status_persists(
-    app_client, app_auth_headers, monkeypatch, patch_mode
+    app_client, app_auth_headers, monkeypatch, patch_mode, has_filled_at
 ):
     from datetime import datetime, timezone
     from app.api import client_orders
@@ -941,7 +942,7 @@ async def test_completed_periodic_order_patch_status_persists(
     client_id, contract_id = await _seed_ended_contract(
         end_date=date(2026, 12, 31), status=ContractStatus.active
     )
-    filled_at = datetime(2026, 6, 15, tzinfo=timezone.utc)
+    filled_at = datetime(2026, 6, 15, tzinfo=timezone.utc) if has_filled_at else None
     async with AsyncSessionLocal() as db:
         item = ClientOrder(
             client_id=client_id,

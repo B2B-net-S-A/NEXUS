@@ -64,8 +64,8 @@ export function NordeaOrderImportPanel({ clientId, onApplied }: Props) {
       if (dryRun) {
         showToast("Podgląd importu Nordea jest gotowy", "success");
       } else {
-        showToast("Dane zamówień Nordea zostały zaimportowane", "success");
         await onApplied();
+        showToast("Dane zamówień Nordea zostały zaimportowane", "success");
       }
     } catch (caught) {
       setError(extractErrorMsg(caught));

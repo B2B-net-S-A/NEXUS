@@ -420,11 +420,11 @@ export function NewContractorOrderDialog({
           fileNote = " — PDF NIE został zapisany, wgraj go ponownie";
         }
       }
+      await onCreated();
       showToast(
         `Utworzono kontrakt #${res.data.contract_id} i zamówienie #${res.data.order_id}${marginSuffix}${fileNote}`,
         fileNote ? "error" : "success",
       );
-      await onCreated();
     },
     onError: (err: unknown) => {
       showError(extractErrorMsg(err));
