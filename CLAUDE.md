@@ -3994,6 +3994,13 @@ wypowiedziana umowa, szkic następnego zamówienia ani decyzja offboardingu MD /
   z datą końca ≤ końca zamówienia, `predecessor_order_id` (zamiana),
   offboarding MD `remove`/`transfer`, zdarzenie `zakonczenie_konsultanta`
   z `removed_from_order`/`keep_history`.
+- **Osoba z Zejść nie stoi w Brakach** (ticket 09.2026, filtr PRZY ODCZYCIE):
+  `_gaps` pomija brak, którego zamówienie ma DZIŚ intencję zakończenia
+  (`order_gaps.gap_orders_with_ending_intent` — ta sama `load_ending_intents`
+  co Zejścia; typowo DL wypowiada umowę dopiero PO wykryciu braku), oraz brak
+  współpracy (`sibling_key`) stojącej w Zejściach tego miesiąca. Wpis w bazie
+  zostaje; `open_gaps_total` liczy bez takich wpisów, a `remind_open_gaps`
+  zamyka ich karty DL (`handled_by_user_id` puste) zamiast przypominać.
 - **Braki (`order_gaps`) nigdy nie są kasowane.** Wykrycie: pętla `order_gaps`
   (00:30 Warszawa + start), `detected_on = koniec + 1`, od
   `ORDER_GAP_TRACKING_START` (domyślnie 2026-08-01) i najwyżej

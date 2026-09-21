@@ -21,7 +21,11 @@ zawsze zgadzały się z ich treścią.
   14.09) plus nowe zamówienia osób, które już z nami pracują — kontynuacja
   u tego samego klienta, zmiana klienta i dodatkowy projekt.
 * **Braki** — ``order_gaps`` z dniem wykrycia w miesiącu, także uzupełnione
-  z opóźnieniem (wpis historyczny). Kwalifikacja bez zmian.
+  z opóźnieniem (wpis historyczny). Osoba z zakończoną współpracą w Brakach
+  NIE stoi: pomijany jest brak, którego zamówienie ma dziś zapisaną intencję
+  zakończenia (wypowiedzenie zapisane PO wykryciu braku), oraz brak tej samej
+  współpracy (osoba × klient), która stoi w Zejściach tego miesiąca. Brak
+  nowego zamówienia po zakończonej współpracy jest oczekiwany, nie błędem.
 
 Zakładka ma nazywać się tak, jak to, co w niej jest — obie korekty (09.2026)
 wynikły z tej jednej zasady.
@@ -84,11 +88,14 @@ from app.services.order_facts import (
     load_ending_intents,
     load_facts,
     load_siblings,
+    SiblingKey,
     local_day_start,
     previous_of,
+    sibling_key,
     siblings_of,
     successor_of,
 )
+from app.services.order_gaps import gap_orders_with_ending_intent
 
 MONTH_LABELS_PL = (
     "Styczeń",
@@ -445,13 +452,16 @@ async def _entries(
 
 async def _exits(
     db: AsyncSession, window: MonthWindow, today: date
-) -> tuple[list[OrderExitItem], list[OrderExitItem]]:
+) -> tuple[list[OrderExitItem], list[OrderExitItem], set[SiblingKey]]:
     """Dwie listy z JEDNEGO przebiegu: zejścia i kończące się zamówienia.
 
     Rozdziela je werdykt: zapisana intencja zakończenia to zejście, jej brak —
     samo zamówienie dobiegające końca przy żywej współpracie. Dwa osobne
     przebiegi rozjechałyby się przy pierwszej poprawce drabinki, a wtedy ta
     sama osoba potrafiłaby stać w obu zakładkach albo w żadnej.
+
+    Trzeci element to klucze współprac (osoba × klient) z Zejść — Braki tego
+    miesiąca ich nie pokazują.
     """
     end = effective_end_expr()
     facts = await load_facts(
@@ -484,6 +494,7 @@ async def _exits(
     )
     exits: list[OrderExitItem] = []
     ending: list[OrderExitItem] = []
+    exit_keys: set[SiblingKey] = set()
     for fact in facts:
         if fact.end is None:
             continue
@@ -512,6 +523,8 @@ async def _exits(
             verdict = "no_successor"
             label = "Brak kolejnego zamówienia — do usunięcia z rozliczeń"
         bucket = exits if verdict == "ended_intent" else ending
+        if verdict == "ended_intent":
+            exit_keys.add(sibling_key(fact))
         bucket.append(
             OrderExitItem(
                 **_ref(fact),
@@ -527,7 +540,7 @@ async def _exits(
                 intent=intent,
             )
         )
-    return sorted(exits, key=_sort_key), sorted(ending, key=_sort_key)
+    return sorted(exits, key=_sort_key), sorted(ending, key=_sort_key), exit_keys
 
 
 # ── Zmiany ───────────────────────────────────────────────────────────────────
@@ -685,7 +698,18 @@ async def _changes(
 # ── Braki ────────────────────────────────────────────────────────────────────
 
 
-async def _gaps(db: AsyncSession, window: MonthWindow) -> list[OrderGapItem]:
+def _gap_key(gap: OrderGap, candidate_id: Optional[int]) -> SiblingKey:
+    # Lustro ``order_facts.sibling_key`` — bez ładowania faktu zamówienia.
+    if candidate_id is None:
+        return ("contract", gap.contract_id, gap.client_id)
+    return ("person", candidate_id, gap.client_id)
+
+
+async def _gaps(
+    db: AsyncSession,
+    window: MonthWindow,
+    exit_keys: frozenset[SiblingKey] | set[SiblingKey] = frozenset(),
+) -> list[OrderGapItem]:
     zone = ZoneInfo(DEFAULT_TZ)
     rows = (
         await db.execute(
@@ -694,6 +718,7 @@ async def _gaps(db: AsyncSession, window: MonthWindow) -> list[OrderGapItem]:
                 client_display_name_expression().label("client_name"),
                 Candidate.name,
                 Candidate.lastname,
+                Contract.candidate_id,
             )
             .outerjoin(Client, Client.id == OrderGap.client_id)
             .outerjoin(Contract, Contract.id == OrderGap.contract_id)
@@ -706,8 +731,12 @@ async def _gaps(db: AsyncSession, window: MonthWindow) -> list[OrderGapItem]:
             .order_by(OrderGap.status.desc(), OrderGap.detected_on.desc(), OrderGap.id)
         )
     ).all()
+    ended = await gap_orders_with_ending_intent(db, (row[0].order_id for row in rows))
     items: list[OrderGapItem] = []
-    for gap, client_name, first, last in rows:
+    for gap, client_name, first, last, candidate_id in rows:
+        # Zakończona współpraca nie jest brakiem — ta osoba stoi w Zejściach.
+        if gap.order_id in ended or _gap_key(gap, candidate_id) in exit_keys:
+            continue
         delay = None
         if gap.resolved_at is not None:
             delay = (gap.resolved_at.astimezone(zone).date() - gap.detected_on).days
@@ -858,13 +887,21 @@ async def build_order_changes(
     window = MonthWindow.of(year, month)
     day = today or business_today()
     entries, entry_facts, classes = await _entries(db, window)
-    exits, ending = await _exits(db, window, day)
+    exits, ending, exit_keys = await _exits(db, window, day)
     changes = await _changes(db, window, entry_facts, classes)
-    gaps = await _gaps(db, window)
+    gaps = await _gaps(db, window, exit_keys)
     tracked_since = await db.scalar(select(func.min(OrderChangeEvent.created_at)))
-    open_total = await db.scalar(
-        select(func.count(OrderGap.id)).where(OrderGap.status == GAP_STATUS_OPEN)
+    open_order_ids = list(
+        (
+            await db.scalars(
+                select(OrderGap.order_id).where(OrderGap.status == GAP_STATUS_OPEN)
+            )
+        ).all()
     )
+    # Baner nie liczy braków zakończonych współprac — te same, których lista
+    # nie pokazuje.
+    open_ended = await gap_orders_with_ending_intent(db, open_order_ids)
+    open_total = sum(1 for order_id in open_order_ids if order_id not in open_ended)
     response = OrderChangesResponse(
         period=OrderChangesPeriod(
             year=year, month=month, label=period_label(year, month)

@@ -1223,3 +1223,133 @@ async def test_old_endings_outside_the_lookback_window_are_not_backfilled(monkey
         today=end + timedelta(days=90),
     )
     assert await _gap_for(ids["order_id"]) is None
+
+
+# ── Zejścia nie wracają w Brakach ────────────────────────────────────────────
+
+
+async def _terminate(contract_id: int, end: date) -> None:
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        contract.end_date = end
+        contract.terminated_at = datetime.now(timezone.utc)
+        contract.termination_reason = "consultant_resigned"
+        await db.commit()
+
+
+def _gap_order_ids(body: dict, client_id: int) -> set[int]:
+    return {g["order_id"] for g in body["gaps"] if g["client_id"] == client_id}
+
+
+async def test_cooperation_ended_after_the_gap_leaves_braki_for_zejscia(
+    monkeypatch, app_client: AsyncClient, app_auth_headers: dict
+):
+    """DL wypowiada umowę dopiero, gdy zobaczy brak — osoba idzie do Zejść."""
+
+    first = _far_day(2040, 2043).replace(day=1)
+    end = first + timedelta(days=9)
+    ended = await _seed(
+        contract_rate_client=None, start=end - timedelta(days=60), end=end
+    )
+    # Kontrola: ta sama sytuacja bez wypowiedzenia zostaje brakiem.
+    kept = await _seed(
+        contract_rate_client=None, start=end - timedelta(days=60), end=end
+    )
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=1))
+    assert (await _gap_for(ended["order_id"])).status == "open"
+
+    await _terminate(ended["contract_id"], end)
+
+    body = await _month(app_client, app_auth_headers, first)
+    assert ended["order_id"] in {
+        e["order_id"] for e in body["exits"] if e["verdict"] == "ended_intent"
+    }
+    assert _gap_order_ids(body, ended["client_id"]) == set()
+    assert _gap_order_ids(body, kept["client_id"]) == {kept["order_id"]}
+
+    # Licznik liczy to samo co lista.
+    scoped = await _month(
+        app_client, app_auth_headers, first, client_id=ended["client_id"]
+    )
+    assert scoped["counts"]["gaps"] == 0 and scoped["gaps"] == []
+    assert scoped["counts"]["exits"] == 1
+
+    export = await app_client.get(
+        f"/api/finance/order-changes/export?year={first.year}&month={first.month}"
+        f"&tab=gaps&client_id={ended['client_id']}",
+        headers=app_auth_headers,
+    )
+    assert export.status_code == 200, export.text
+    assert "Braki (0)" in load_workbook(io.BytesIO(export.content)).sheetnames
+
+    # Wpis braku nie znika z bazy — znika z raportu.
+    assert await _gap_for(ended["order_id"]) is not None
+
+
+async def test_person_in_the_months_exits_is_hidden_even_on_another_order(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Wypowiedzenie przypięte do późniejszego zamówienia tej samej osoby."""
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.order_gap import GAP_STATUS_OPEN, OrderGap
+
+    first = _far_day(2044, 2047).replace(day=1)
+    early_end = first + timedelta(days=4)
+    ids = await _seed(
+        contract_rate_client=None, start=first - timedelta(days=60), end=early_end
+    )
+    late_end = first + timedelta(days=20)
+    late = await _add_order(ids, start=first + timedelta(days=8), end=late_end)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            OrderGap(
+                order_id=ids["order_id"],
+                contract_id=ids["contract_id"],
+                client_id=ids["client_id"],
+                order_number="NB-early",
+                ended_on=early_end,
+                detected_on=early_end + timedelta(days=1),
+                status=GAP_STATUS_OPEN,
+            )
+        )
+        await db.commit()
+    await _terminate(ids["contract_id"], late_end)
+
+    body = await _month(app_client, app_auth_headers, first, client_id=ids["client_id"])
+    assert [e["order_id"] for e in body["exits"]] == [late]
+    assert body["gaps"] == [] and body["counts"]["gaps"] == 0
+
+
+async def test_reminders_stop_and_card_closes_once_cooperation_ended(monkeypatch):
+    from app.core.database import AsyncSessionLocal
+    from app.models.dl_alert import (
+        ALERT_ORDER_MISSING_SUCCESSOR,
+        DL_ALERT_STATUS_HANDLED,
+        DlAlert,
+    )
+    from app.services.order_gaps import remind_open_gaps
+
+    end = _far_day(2048, 2051)
+    ids = await _seed(
+        contract_rate_client=None, start=end - timedelta(days=60), end=end
+    )
+    dl_id = await _seed_dl(ids["client_id"])
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=1))
+    await _terminate(ids["contract_id"], end)
+
+    async with AsyncSessionLocal() as db:
+        await remind_open_gaps(db)
+        await db.commit()
+        alerts = (
+            await db.scalars(
+                select(DlAlert).where(
+                    DlAlert.user_id == dl_id,
+                    DlAlert.alert_type == ALERT_ORDER_MISSING_SUCCESSOR,
+                )
+            )
+        ).all()
+    assert alerts and all(a.status == DL_ALERT_STATUS_HANDLED for a in alerts)
+    assert all(a.handled_by_user_id is None for a in alerts)
