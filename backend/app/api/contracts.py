@@ -1222,7 +1222,45 @@ _STATUS_SORT_LABEL = {
 }
 
 
-def _contract_sort_expression(sort_by: str):
+def _effective_rate_sql(schedule_model, fallback_column, on: date):
+    """Stawka obowiązująca dnia ``on`` — SQL-owe lustro ``_resolve_scheduled_rate``.
+
+    Ostatni krok z ``effective_from <= on`` (remis: późniejsze ``id``), a gdy
+    wszystkie są przyszłe — najwcześniejszy; bez harmonogramu kolumna legacy.
+    Sortowanie po kolumnie cache (``contracts.rate_*``) rozjeżdżało się z
+    wyświetlaną stawką: na produkcji 4–6 z 469 wierszy stało nie po kolei.
+    """
+
+    def step(*where, order):
+        return (
+            select(schedule_model.rate)
+            .where(schedule_model.contract_id == Contract.id, *where)
+            .order_by(*order)
+            .limit(1)
+            .correlate(Contract)
+            .scalar_subquery()
+        )
+
+    past = step(
+        schedule_model.effective_from <= on,
+        order=(schedule_model.effective_from.desc(), schedule_model.id.desc()),
+    )
+    upcoming = step(
+        order=(schedule_model.effective_from.asc(), schedule_model.id.desc())
+    )
+    return func.coalesce(past, upcoming, fallback_column)
+
+
+def _resolved_currency_sql(column):
+    """``Contract.resolved_rate_*_currency`` w SQL (fallback na ``currency``, PLN)."""
+    return func.coalesce(
+        func.nullif(func.upper(func.btrim(column)), ""),
+        func.nullif(func.upper(func.btrim(Contract.currency)), ""),
+        "PLN",
+    )
+
+
+def _contract_sort_expression(sort_by: str, on: date):
     """Wyrażenie SQL dla klucza sortowania listy.
 
     Nazwisko i klient idą skorelowanym podzapytaniem, nie JOIN-em — filtry
@@ -1253,11 +1291,23 @@ def _contract_sort_expression(sort_by: str):
     if sort_by == "order_end_date":
         return Contract.client_order_end_date
     if sort_by == "rate_candidate":
-        return Contract.rate_candidate
+        return _effective_rate_sql(ContractCandidateRate, Contract.rate_candidate, on)
     if sort_by == "rate_client":
-        return Contract.rate_client
+        return _effective_rate_sql(ContractClientRate, Contract.rate_client, on)
     if sort_by == "margin":
-        return Contract.rate_client - Contract.rate_candidate
+        # Jak w `effective_rate_fields`: marża tylko przy jednej walucie obu
+        # stawek — inaczej puste (i na końcu listy), jak w kolumnie.
+        return case(
+            (
+                _resolved_currency_sql(Contract.rate_client_currency)
+                == _resolved_currency_sql(Contract.rate_candidate_currency),
+                _effective_rate_sql(ContractClientRate, Contract.rate_client, on)
+                - _effective_rate_sql(
+                    ContractCandidateRate, Contract.rate_candidate, on
+                ),
+            ),
+            else_=None,
+        )
     if sort_by == "contract_type":
         return func.lower(cast(Contract.contract_type, String))
     if sort_by == "status":
@@ -1271,7 +1321,7 @@ def _contract_sort_expression(sort_by: str):
     raise ValueError(f"unknown contract sort key: {sort_by}")
 
 
-def _contract_member_sort_value(c: Contract, sort_by: str):
+def _contract_member_sort_value(c: Contract, sort_by: str, on: date):
     """Ten sam klucz w Pythonie — kolejność umów WEWNĄTRZ grupy osoby."""
     if sort_by == "candidate":
         return (
@@ -1289,14 +1339,9 @@ def _contract_member_sort_value(c: Contract, sort_by: str):
         return c.start_date
     if sort_by == "order_end_date":
         return c.client_order_end_date
-    if sort_by == "rate_candidate":
-        return c.rate_candidate
-    if sort_by == "rate_client":
-        return c.rate_client
-    if sort_by == "margin":
-        if c.rate_client is None or c.rate_candidate is None:
-            return None
-        return c.rate_client - c.rate_candidate
+    if sort_by in _FINANCE_SORT_KEYS:
+        # Ta sama wartość, którą pokazuje wiersz (harmonogram na dziś).
+        return _effective_rate_fields(c, on)[sort_by]
     if sort_by == "contract_type":
         return (
             str(getattr(c.contract_type, "value", c.contract_type) or "").lower()
@@ -1307,15 +1352,19 @@ def _contract_member_sort_value(c: Contract, sort_by: str):
     return None
 
 
-def _sort_members(members: list[Contract], sort_by: str, sort_dir: str) -> None:
+def _sort_members(
+    members: list[Contract], sort_by: str, sort_dir: str, on: date
+) -> None:
     """Sortuje umowy grupy w miejscu: wartości puste zawsze na końcu."""
     present = [
-        m for m in members if _contract_member_sort_value(m, sort_by) is not None
+        m for m in members if _contract_member_sort_value(m, sort_by, on) is not None
     ]
-    missing = [m for m in members if _contract_member_sort_value(m, sort_by) is None]
+    missing = [
+        m for m in members if _contract_member_sort_value(m, sort_by, on) is None
+    ]
     present.sort(key=lambda m: -m.id)
     present.sort(
-        key=lambda m: _contract_member_sort_value(m, sort_by),
+        key=lambda m: _contract_member_sort_value(m, sort_by, on),
         reverse=sort_dir == "desc",
     )
     missing.sort(key=lambda m: -m.id)
@@ -1735,7 +1784,7 @@ async def list_contracts(
         order_end_from=order_end_from,
         order_end_to=order_end_to,
     )
-    sort_expr = _contract_sort_expression(sort_by) if sort_by else None
+    sort_expr = _contract_sort_expression(sort_by, date.today()) if sort_by else None
 
     def _scoped_filtered(base_query):
         """Scope DL + komplet filtrów — jedna reguła dla obu trybów listy."""
@@ -1848,7 +1897,7 @@ async def list_contracts(
             if sort_by:
                 # Wiersz główny (link osoby) zostaje przy umowie najżywszej;
                 # kolejność wierszy klientów idzie za sortowaną kolumną.
-                _sort_members(members, sort_by, sort_dir)
+                _sort_members(members, sort_by, sort_dir, _today)
             item = _contract_list_item(primary, latest_order_dates, _today)
             item.group_members = [
                 _group_member_from_contract(m, latest_order_dates, _today)
