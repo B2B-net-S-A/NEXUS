@@ -469,8 +469,7 @@ export function CVGeneratorV2({
               </div>
               {lockedMode ? (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Tryb ustalony przez Delivery Leada dla tego klienta — wybór jest
-                  zablokowany.
+                  {centrallyManaged ? "Tryb ustalony automatycznie na podstawie kontekstu rekrutacji i centralnych zasad klienta." : "Tryb ustalony w regułach CV klienta — wybór jest zablokowany."}
                 </p>
               ) : null}
             </div>

@@ -1030,8 +1030,8 @@ export function CVGeneratorStandaloneV2({
                   allowClear
                 />
                 <p className="text-xs text-muted-foreground">
-                  Klient włącza jego reguły: nazwę pliku, język, blokady i
-                  instrukcje Delivery Leada. Wybrany kandydat i proces określają,
+                  Klient określa zasady nazwy pliku, języka i prezentacji CV.
+                  Wybrany kandydat i proces określają,
                   w której historii zapisze się wynik. Bez osoby plik pozostanie nieprzypisany.
                 </p>
                 </>}
@@ -1044,9 +1044,8 @@ export function CVGeneratorStandaloneV2({
                       onChange={(e) => setOutsideAssignment(e.target.checked)}
                     />
                     <span>
-                      Generuję CV poza zleceniem — bez klienta nie zadziała żadna
-                      reguła (nazwa pliku i język będą ogólne, bez blokad i
-                      instrukcji Delivery Leada).
+                      Generuję CV poza zleceniem — obowiązuje wspólny standard CV,
+                      a język wybieram samodzielnie.
                     </span>
                   </label>
                 ) : null}
@@ -1111,8 +1110,7 @@ export function CVGeneratorStandaloneV2({
             </div>
             {lockedMode ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                Tryb ustalony przez Delivery Leada dla tego klienta — wybór jest
-                zablokowany. Zmienisz to w regułach CV klienta.
+                {centrallyManaged ? "Tryb ustalony automatycznie na podstawie kontekstu rekrutacji i centralnych zasad klienta." : "Tryb ustalony w regułach CV klienta — wybór jest zablokowany."}
               </p>
             ) : null}
           </div>
