@@ -258,7 +258,8 @@ export type BulkAddSource =
   | "jarvis"
   // Rekrutacja v3: skrzynka „Propozycje z bazy" i karta rekomendacji.
   | "proposal_inbox"
-  | "recommendation";
+  | "recommendation"
+  | "my_people";
 
 export interface BulkProposalsRequest {
   candidate_ids: number[];

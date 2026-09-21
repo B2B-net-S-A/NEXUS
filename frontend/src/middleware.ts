@@ -332,6 +332,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/procedure-help`, `/preview/champion-profile`,
 //   `/preview/client-playbook`, `/preview/inactive-clients-cleanup`,
 //   `/preview/order-new-from-pdf`, `/preview/finance-order-changes`,
+//   `/preview/finance-order-pdfs`,
 //   `/preview/contract-candidate-contact`, `/preview/cv-search`,
 //   `/preview/recruitment-v3`
 //                — konkretne harnessy designu, po których może chodzić nightly
@@ -380,10 +381,12 @@ const PUBLIC_PATHS = [
   "/preview/inactive-clients-cleanup",
   "/preview/order-new-from-pdf",
   "/preview/finance-order-changes",
+  "/preview/finance-order-pdfs",
   "/preview/contract-candidate-contact",
   "/preview/cv-search",
   "/preview/jarvis",
   "/preview/recruitment-v3",
+  "/preview/my-people",
 ];
 
 function isPublicPath(pathname: string): boolean {

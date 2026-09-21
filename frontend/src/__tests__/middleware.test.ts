@@ -184,6 +184,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/inactive-clients-cleanup",
     "/preview/order-new-from-pdf",
     "/preview/finance-order-changes",
+    "/preview/finance-order-pdfs",
     "/preview/contract-candidate-contact",
     "/preview/cv-search",
     "/preview/jarvis",

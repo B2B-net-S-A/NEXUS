@@ -24,6 +24,7 @@ pilnuje ``tests/test_jarvis_tool_registry_contract.py``.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Callable, Literal, Optional
@@ -37,7 +38,7 @@ Tier = Literal["read", "write", "link"]
 # przycinany z jawnym dopiskiem, żeby model wiedział, że widzi fragment.
 MAX_RESULT_CHARS = 6000
 MAX_LIST_ITEMS = 20
-MAX_STRING_CHARS = 400
+MAX_STRING_CHARS = 1500
 
 
 @dataclass(frozen=True)
@@ -882,8 +883,21 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
     JarvisTool(
         name="get_help_article",
         label="Czytam procedurę",
-        description="Pełna treść procedury z modułu Pomoc (po ID albo slugu).",
-        input_schema=_schema({"id_or_slug": STR}, ("id_or_slug",)),
+        description=(
+            "Treść procedury z modułu Pomoc (po ID albo slugu). Procedury bywają długie — "
+            "ZAWSZE podaj `query` (np. 'PDF', 'przedłużenie'): dostaniesz sekcje, które go "
+            "zawierają, plus spis wszystkich nagłówków."
+        ),
+        input_schema=_schema(
+            {
+                "id_or_slug": STR,
+                "query": {
+                    **STR,
+                    "description": "Fraza, której szukasz w procedurze.",
+                },
+            },
+            ("id_or_slug",),
+        ),
         tier="read",
         method="GET",
         path="/api/procedures/{id_or_slug}",
@@ -891,13 +905,87 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         build=lambda a: _get(
             f"/api/procedures/{quote(str(a.get('id_or_slug') or ''), safe='')}"
         ),
-        shape=lambda data, _a: trim(
-            {**data, "content": (data.get("content") or "")[:5000]}
-            if isinstance(data, dict)
-            else data
-        ),
+        shape=lambda data, a: shape_procedure(data, a.get("query")),
     ),
 )
+
+
+def _fold(text: str) -> str:
+    """Małe litery bez polskich znaków — wyszukiwanie „pdf” trafia „PDF-a”."""
+    import unicodedata
+
+    text = text.lower().replace("ł", "l")
+    return "".join(
+        ch
+        for ch in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(ch)
+    )
+
+
+def _sections(content: str) -> list[tuple[str, str]]:
+    """Podział Markdownu na (nagłówek, treść) po nagłówkach ## i ###."""
+    sections: list[tuple[str, str]] = []
+    heading, lines = "(wstęp)", []
+    for line in content.splitlines():
+        if re.match(r"^#{2,3} ", line):
+            if lines:
+                sections.append((heading, "\n".join(lines).strip()))
+            heading, lines = line.lstrip("#").strip(), []
+        else:
+            lines.append(line)
+    if lines:
+        sections.append((heading, "\n".join(lines).strip()))
+    return sections
+
+
+# Budżet treści sekcji w odpowiedzi — resztę limitu zjada spis nagłówków.
+_PROCEDURE_BUDGET = 4500
+
+
+def shape_procedure(data: Any, query: Any = None) -> Any:
+    """Długa procedura NIE jest ucinana na ślepo: z `query` zwraca pasujące
+    sekcje (najwięcej trafień pierwsze), zawsze ze spisem nagłówków — model
+    wie, czego jeszcze może zapytać. Do 21.09 narzędzie oddawało pierwsze 5000
+    znaków 40-kilobajtowej instrukcji zamówień, więc na „jak dodać zamówienie
+    z PDF-a” Jarvis odpowiadał, że widzi tylko zajawkę (test na produkcji)."""
+    if not isinstance(data, dict):
+        return trim(data)
+    content = str(data.get("content") or "")
+    sections = _sections(content)
+    head = {
+        k: data.get(k) for k in ("id", "slug", "title", "updated_at") if data.get(k)
+    }
+    if len(content) <= _PROCEDURE_BUDGET:
+        return {**head, "content": content}
+    terms = [t for t in re.split(r"\W+", _fold(str(query or ""))) if len(t) >= 3]
+    ranked: list[tuple[int, int, str, str]] = []
+    for index, (title, body) in enumerate(sections):
+        haystack = _fold(title + "\n" + body)
+        score = sum(haystack.count(term) for term in terms) + sum(
+            3 for term in terms if term in _fold(title)
+        )
+        if score or not terms:
+            ranked.append((score, -index, title, body))
+    ranked.sort(reverse=True)
+    picked: list[dict[str, str]] = []
+    used = 0
+    for _score, _neg, title, body in ranked:
+        if used >= _PROCEDURE_BUDGET:
+            break
+        chunk = body[: _PROCEDURE_BUDGET - used]
+        picked.append({"heading": title, "content": chunk})
+        used += len(chunk)
+    return {
+        **head,
+        "matched_sections": picked,
+        "all_headings": [title for title, _ in sections][:60],
+        "note": (
+            "Procedura jest długa — pokazuję sekcje pasujące do zapytania. "
+            "Zapytaj ponownie z inną frazą, żeby zobaczyć inne sekcje."
+            if terms
+            else "Procedura jest długa — podaj `query`, żeby dostać właściwe sekcje."
+        ),
+    }
 
 
 # ── narzędzia zapisu (tylko propozycja; wykonuje kliknięcie człowieka) ──────

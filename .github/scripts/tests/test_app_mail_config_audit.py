@@ -54,7 +54,7 @@ class ProbeTests(unittest.TestCase):
                 "M365_CLIENT_ID": str(UUID(int=1)),
                 "M365_TENANT_ID": str(UUID(int=2)),
                 "M365_CLIENT_SECRET": "synthetic-secret",
-                "M365_MAIL_SENDER_UPN": "artur.twardowski@b2bnetwork.pl",
+                "M365_MAIL_SENDER_UPN": "nexus-powiadomienia@b2bnetwork.pl",
             }.items()
         ]
 
@@ -75,6 +75,24 @@ class ProbeTests(unittest.TestCase):
         )
         self.assertNotIn("synthetic-token", json.dumps(result))
         self.assertNotIn("synthetic-secret", json.dumps(result))
+        self.assertEqual(
+            request.full_url,
+            "https://graph.microsoft.com/v1.0/users/"
+            "nexus-powiadomienia@b2bnetwork.pl/sendMail",
+        )
+
+    def test_personal_mailbox_is_not_an_allowed_probe_sender(self):
+        rows = self.rows()
+        for row in rows:
+            if row["key"] == "M365_MAIL_SENDER_UPN":
+                row["value"] = "artur.twardowski@b2bnetwork.pl"
+        opener = Mock()
+
+        self.assertEqual(
+            audit.send_probe(rows, opener),
+            {"accepted": False, "result": "configuration_unavailable"},
+        )
+        opener.assert_not_called()
 
     def test_uncertain_post_is_not_retried(self):
         opener = Mock(

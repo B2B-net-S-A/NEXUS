@@ -92,6 +92,9 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     # 0324: system sam dodał kandydata do pipeline'u rekrutacji.
     NotificationType.auto_match: ProductSection.pipeline,
     NotificationType.candidate_search_completed: ProductSection.sourcing,
+    # 0334: nowa rekrutacja pasuje do „Moich ludzi" — akcją jest dodanie do
+    # pipeline'u tej rekrutacji.
+    NotificationType.my_people_match: ProductSection.pipeline,
 }
 
 CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(

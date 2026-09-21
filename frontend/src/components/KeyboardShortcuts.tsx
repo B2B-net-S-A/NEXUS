@@ -18,6 +18,7 @@ const SHORTCUTS: Array<{
 }> = [
   { keys: ["n"], description: "Nowy kandydat", capability: "candidate.create" },
   { keys: ["j"], description: "Nowa rekrutacja", capability: "job.create" },
+  { keys: ["m"], description: "Moi ludzie (panel)", capability: "nav.my_people" },
   { keys: ["/"], description: "Szukaj" },
   { keys: ["?"], description: "Pokaż skróty klawiszowe" },
   { keys: ["Esc"], description: "Zamknij modal / anuluj" },
@@ -97,12 +98,15 @@ interface UseKeyboardShortcutsOptions {
   onNewCandidate?: () => void;
   /** Jw. dla `job.create`. */
   onNewJob?: () => void;
+  /** Panel „Moi ludzie"; pominięty = brak `nav.my_people`. */
+  onToggleMyPeople?: () => void;
   onFocusSearch: () => void;
 }
 
 export function useKeyboardShortcuts({
   onNewCandidate,
   onNewJob,
+  onToggleMyPeople,
   onFocusSearch,
 }: UseKeyboardShortcutsOptions) {
   const [showHelp, setShowHelp] = useState(false);
@@ -140,6 +144,11 @@ export function useKeyboardShortcuts({
           e.preventDefault();
           onNewJob();
           break;
+        case "m":
+          if (!onToggleMyPeople) break;
+          e.preventDefault();
+          onToggleMyPeople();
+          break;
         case "/":
           e.preventDefault();
           onFocusSearch();
@@ -152,7 +161,7 @@ export function useKeyboardShortcuts({
           break;
       }
     },
-    [onNewCandidate, onNewJob, onFocusSearch],
+    [onNewCandidate, onNewJob, onToggleMyPeople, onFocusSearch],
   );
 
   useEffect(() => {

@@ -164,6 +164,12 @@ const TYPE_CONFIG: Record<
     color: "text-primary",
     bgColor: "bg-primary/10",
   },
+  // „Moi ludzie" — nowa rekrutacja pasuje do osób z listy rekrutera.
+  my_people_match: {
+    icon: <Users className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/10",
+  },
   // Targ kandydatów — nowy projekt dopasował się do kandydata w puli marketplace
   marketplace_match: {
     icon: <Store className="w-3.5 h-3.5" />,

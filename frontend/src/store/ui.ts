@@ -29,6 +29,9 @@ interface UiStoreState {
   hideEmptyKanbanColumns: boolean;
   /** Liczba wierszy na stronę listy kandydatów (20 / 50 / 100, domyślnie 50). */
   candidatesPageSize: CandidatesPageSize;
+  /** Ukryj postać „Moi ludzie" w rogu — wejście zostaje w topbarze. */
+  hideMyPeopleBuddy: boolean;
+  setHideMyPeopleBuddy: (v: boolean) => void;
   setDensity: (d: UiDensity) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (v: boolean) => void;
@@ -50,6 +53,8 @@ export const useUiStore = create<UiStoreState>()(
       columnPreferences: {},
       hideEmptyKanbanColumns: true,
       candidatesPageSize: 50,
+      hideMyPeopleBuddy: false,
+      setHideMyPeopleBuddy: (hideMyPeopleBuddy) => set({ hideMyPeopleBuddy }),
       setDensity: (density) => set({ density }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),

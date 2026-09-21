@@ -422,6 +422,7 @@ PIPELINE_ADD_SOURCES = frozenset(
         # Rekrutacja v3: skrzynka „Propozycje z bazy" i karta rekomendacji.
         "proposal_inbox",
         "recommendation",
+        "my_people",
     }
 )
 

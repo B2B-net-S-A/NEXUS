@@ -14,6 +14,8 @@ import { ImpersonationBanner } from "./ImpersonationBanner";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
 import { KidsBackdrop } from "./KidsBackdrop";
+import { MyPeopleRoot } from "@/components/v2/my-people/MyPeopleLauncher";
+import { useMyPeoplePanel } from "@/store/my-people";
 import type { QuickActionModal } from "./QuickActionsV2";
 
 /**
@@ -109,10 +111,12 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const can = useCapabilities();
   const openNewCandidate = useCallback(() => setPendingModal("candidate"), []);
   const openNewJob = useCallback(() => setPendingModal("job"), []);
+  const toggleMyPeople = useMyPeoplePanel((s) => s.toggle);
 
   const { showHelp, setShowHelp } = useKeyboardShortcuts({
     onNewCandidate: can["candidate.create"] ? openNewCandidate : undefined,
     onNewJob: can["job.create"] ? openNewJob : undefined,
+    onToggleMyPeople: can["nav.my_people"] ? toggleMyPeople : undefined,
     onFocusSearch: focusSearch,
   });
 
@@ -205,6 +209,9 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
 
       {/* Onboarding */}
       {showOnboarding && <OnboardingWalkthrough onDismiss={dismissOnboarding} />}
+
+      {/* „Moi ludzie" — panel rekrutera, postać w rogu, `?people=1` z dzwonka */}
+      <MyPeopleRoot />
 
       {/* Game-mode decorations — only in Kids mode (inert otherwise) */}
       <KidsBackdrop />

@@ -87,6 +87,8 @@ BulkAddSource = Literal[
     # Rekrutacja v3: skrzynka „Propozycje z bazy" i karta rekomendacji.
     "proposal_inbox",
     "recommendation",
+    # 21.09.2026: panel „Moi ludzie" (lista rekrutera, zakładka rekrutacji).
+    "my_people",
 ]
 
 # Eligibility reason → bulk-add skip reason. Reasons that block assignment.
