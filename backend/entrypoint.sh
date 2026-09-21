@@ -630,9 +630,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_search_completed'",
     # 0334: „Moi ludzie" — nowa rekrutacja pasuje do osób z listy rekrutera.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'my_people_match'",
-    # 0332: dzienny digest propozycji z nowych CV (auto-match w trybie propose).
+    # 0334: dzienny digest propozycji z nowych CV (auto-match w trybie propose).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'auto_match_proposals'",
-    # 0332: seria 3 awarii tego samego automatu rekrutacji (tylko admini).
+    # 0334: seria 3 awarii tego samego automatu rekrutacji (tylko admini).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'automation_failing'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
@@ -3373,7 +3373,7 @@ _COLUMN_STATEMENTS = [
     "client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL",
     "CREATE INDEX IF NOT EXISTS ix_cv_generated_documents_client_id "
     "ON cv_generated_documents (client_id)",
-    # 0332: pochodzenie wygenerowanego CV (auto-CV po ruchu na „Zweryfikowany").
+    # 0334: pochodzenie wygenerowanego CV (auto-CV po ruchu na „Zweryfikowany").
     # Bez kolumn KAŻDY odczyt/zapis cv_generated_documents => UndefinedColumn
     # (ORM wybiera wszystkie kolumny), czyli generator CV pada w całości.
     "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS "

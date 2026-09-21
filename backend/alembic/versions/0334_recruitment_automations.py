@@ -1,7 +1,7 @@
 """Automaty rekrutacji v3: digest propozycji + pochodzenie wygenerowanego CV.
 
-Revision ID: 0332_recruitment_automations
-Revises: 0331_job_proposals
+Revision ID: 0334_recruitment_automations
+Revises: 0333_job_proposals
 
 * ``notificationtype.auto_match_proposals`` — JEDEN dzienny digest na
   (rekrutacja, odbiorca): „N nowych propozycji z nowych CV” (auto-match
@@ -22,8 +22,8 @@ zostać stabilny. Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony).
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0332_recruitment_automations"
-down_revision = "0331_job_proposals"
+revision = "0334_recruitment_automations"
+down_revision = "0333_job_proposals"
 branch_labels = None
 depends_on = None
 

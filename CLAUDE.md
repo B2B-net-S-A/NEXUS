@@ -4552,7 +4552,7 @@ Raport: `docs/cv-autonomous-flow-completion-report.md`. Trzy reguły, które ła
   kontaktu → nic (`identity_insufficient`). Tylko poczta z ostatnich
   `M365_AUTO_CREATE_LOOKBACK_DAYS` (14). Wyłącznik `M365_AUTO_CREATE_CANDIDATE_FROM_CV`.
 
-## Automaty rekrutacji v3 (21.09.2026, migracja 0332)
+## Automaty rekrutacji v3 (21.09.2026, migracja 0334)
 
 Cztery automaty, wszystkie WŁĄCZONE domyślnie, każdy za wyłącznikiem env,
 którego stan OFF = zachowanie sprzed 21.09. **Nic zewnętrznego ani
@@ -4634,7 +4634,7 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `/bulk-move` nie przyjmuje `verified`, importy tędy nie idą. Kwota AI
   i autorstwo (`created_by`) idą na osobę, która przesunęła kartę.
   Idempotencja: `cv_generated_documents.origin='auto'` + `stage_id` +
-  `source_cv_revision` z częściowym UNIQUE (0332, lustro w `entrypoint.sh`) —
+  `source_cv_revision` z częściowym UNIQUE (0334, lustro w `entrypoint.sh`) —
   ten sam etap z tym samym CV nie generuje drugi raz; nowe CV = nowy dokument.
   W testach automat jest WYŁĄCZONY autouse-fixturą w `conftest.py` (zadanie
   przeżywałoby test, który je odpalił).

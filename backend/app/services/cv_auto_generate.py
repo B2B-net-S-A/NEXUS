@@ -13,7 +13,7 @@ Reguły, które łatwo cofnąć „przy okazji":
   ``Activity(cv_auto_generate_skipped, reason=…)`` — nigdy dokument łamiący
   regułę i nigdy naliczona kwota AI za coś, czego nie da się wysłać.
 * Idempotencja: (etap, wersja CV kandydata) — częściowy UNIQUE na
-  ``cv_generated_documents`` (0332). Ponowny ruch na ten sam etap z tym samym CV
+  ``cv_generated_documents`` (0334). Ponowny ruch na ten sam etap z tym samym CV
   nie generuje i nie nalicza drugi raz; nowe CV = nowy dokument.
 * Kwota AI i autorstwo dokumentu idą na osobę, która przesunęła kartę — to jej
   lista „Wygenerowane CV" i jej decyzja uruchomiła wydatek.

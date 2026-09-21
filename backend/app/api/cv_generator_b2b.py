@@ -231,7 +231,7 @@ class GeneratedCvItem(BaseModel):
     # dowolne — brak wartości ma być głośnym błędem serializacji, nie cichym
     # przekłamaniem w panelu.
     content_mode: str
-    # 0332: `auto` = zakolejkował system po ruchu na „Zweryfikowany".
+    # 0334: `auto` = zakolejkował system po ruchu na „Zweryfikowany".
     origin: str = "manual"
     # Etap, na którym system zakolejkował dokument (tylko `origin="auto"`).
     stage_id: Optional[int] = None
@@ -400,7 +400,7 @@ async def _create_pending_row(
         render_payload=None,
         created_by=user_id,
         origin=origin,
-        # Klucz idempotencji (0332) dotyczy wyłącznie auto-generacji; ręczne
+        # Klucz idempotencji (0334) dotyczy wyłącznie auto-generacji; ręczne
         # wiersze go nie niosą, żeby nie wyglądały na „zajęte" przez automat.
         stage_id=stage_id if origin == "auto" else None,
         source_cv_revision=source_cv_revision if origin == "auto" else None,
