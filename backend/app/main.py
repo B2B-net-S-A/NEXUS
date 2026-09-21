@@ -145,7 +145,6 @@ from app.api import dynareporter_competitions
 from app.api import dynareporter_przetargi
 from app.api import dynareporter_board
 from app.api import dynareporter_sales_mgmt
-from app.api import dynareporter_mindy
 from app.api import jarvis as jarvis_api
 from app.api import dynareporter_upload
 from app.api import dynareporter_redirect
@@ -471,9 +470,9 @@ def _legacy_stats_exempt(path: str) -> bool:
 _DYNAREPORTER_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # Ścieżki zwolnione z blokady read_only — nie tworzą DANYCH RAPORTOWYCH:
-# - mindy/*: POST generujące komentarz/czat LLM (stateless, nic nie zapisują),
-# - competitions notifications .../read: self-scoped read-marker powiadomień usera.
-_DYNAREPORTER_READONLY_EXEMPT_PREFIXES = ("/api/dynareporter/mindy/",)
+# competitions notifications .../read (self-scoped read-marker powiadomień usera).
+# Dawne zwolnienie `mindy/*` zniknęło razem z MINDY (zastąpiona przez Jarvisa,
+# `/api/jarvis/*`, który stoi poza prefiksem DynaReportera).
 
 
 def _dynareporter_write_exempt(path: str, method: str) -> bool:
@@ -481,8 +480,6 @@ def _dynareporter_write_exempt(path: str, method: str) -> bool:
     # upload/excel ma własny terminalny 410 GONE (R0) — mocniejszy niż read_only
     # 409; nie przykrywamy go (zachowuje kontrakt „trwale wycofane").
     if path == "/api/dynareporter/upload/excel":
-        return True
-    if path.startswith(_DYNAREPORTER_READONLY_EXEMPT_PREFIXES):
         return True
     if (
         method == "PATCH"
@@ -518,7 +515,7 @@ class LegacyStatsDeprecationMiddleware(BaseHTTPMiddleware):
             # Audyt M7 PR-02 (P0.3): read_only egzekwuje read-only CENTRALNIE.
             # Dotąd read_only nie przechwytywało zapisów (split-brain: „archiwum",
             # które nadal przyjmuje mutacje). Teraz każda mutacja DR daje 409 z
-            # kodem DYNAREPORTER_READ_ONLY, chyba że jest zwolniona (mindy/read-
+            # kodem DYNAREPORTER_READ_ONLY, chyba że jest zwolniona (read-
             # marker) albo operator włączył break-glass na czas edycji danych.
             if (
                 settings.DYNAREPORTER_MODE == "read_only"
@@ -1372,11 +1369,6 @@ app.include_router(
 app.include_router(
     dynareporter_sales_mgmt.router,
     prefix="/api/dynareporter/sales-mgmt",
-    tags=["dynareporter"],
-)
-app.include_router(
-    dynareporter_mindy.router,
-    prefix="/api/dynareporter/mindy",
     tags=["dynareporter"],
 )
 # Jarvis (0330) — asystent-agent w shellu; POZA prefiksem /api/dynareporter,

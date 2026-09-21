@@ -11,7 +11,7 @@ na cudzych uprawnieniach i pisałby do cudzej historii.
 
 BEZ ``from __future__ import annotations`` — moduł niesie ``@limiter.limit``,
 a PEP 563 + slowapi #579 zamieniają guardy ``Annotated`` w wymagane parametry
-QUERY (ten sam trap co w ``dynareporter_mindy``).
+QUERY (ten sam trap co w ``candidate_activity_summary``).
 """
 
 import asyncio
