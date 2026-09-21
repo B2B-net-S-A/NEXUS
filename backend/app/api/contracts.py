@@ -3336,6 +3336,7 @@ async def update_contract(
         raise HTTPException(status_code=404, detail="Contract not found")
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     previous_end_date = contract.end_date
+    previous_start_date = contract.start_date
     previous_rate_client = contract.rate_client
     was_incomplete_draft = contract.status == ContractStatus.draft and bool(
         validate_ready_for_activation(contract)
@@ -3594,6 +3595,20 @@ async def update_contract(
                 **(
                     {"order_sync": order_sync.as_details()}
                     if order_sync is not None and order_sync.changed
+                    else {}
+                ),
+                # Formularz odsyła datę rozpoczęcia przy KAŻDYM zapisie, więc
+                # sama nowa wartość nie mówi, czy ktoś ją zmienił. Poprzednia
+                # pojawia się tylko przy realnej zmianie (zgłoszenie 21.09.2026).
+                **(
+                    {
+                        "previous_start_date": (
+                            previous_start_date.isoformat()
+                            if previous_start_date
+                            else None
+                        )
+                    }
+                    if contract.start_date != previous_start_date
                     else {}
                 ),
             },
