@@ -18,10 +18,10 @@ from sqlalchemy import select
 import app.models  # noqa: F401  (zarejestruj wszystkie mappery)
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token, hash_password
-from app.models.candidate import Candidate
+from app.models.candidate import Candidate, CandidateStatus
 from app.models.client import Client
 from app.models.job import Job, JobStatus
-from app.models.job_proposal import JobProposal, JobProposalSeen
+from app.models.job_proposal import JobProposal
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.section_permission import UserSectionOverride
 from app.models.user import User, UserRole
@@ -168,12 +168,24 @@ async def test_unknown_source_is_refused():
             )
 
 
-async def test_dismissed_is_never_resurrected_and_added_never_downgraded():
+async def _pair_state(job_id: int, user_id: int) -> dict[str, list[int]]:
+    async with AsyncSessionLocal() as db:
+        out = {}
+        for status in ("proposed", "dismissed", "added"):
+            rows, _ = await proposals.list_for_job(db, job_id=job_id, status=status)
+            out[status] = [r.candidate_id for r in rows]
+        out["open"] = (await proposals.open_counts_for_jobs(db, [job_id])).get(
+            job_id, 0
+        )
+        return out
+
+
+async def test_same_cv_revision_never_resurrects_a_dismissed_person():
     user_id, _ = await _user(UserRole.recruiter)
-    world = await _world(people=2)
-    gone, hired = world["candidate_ids"]
+    world = await _world(people=1)
+    (gone,) = world["candidate_ids"]
     job_id = world["job_id"]
-    rows = [{"candidate_id": gone, "score": 60}, {"candidate_id": hired, "score": 70}]
+    rows = [{"candidate_id": gone, "score": 60, "cv_revision": "cv-v1"}]
     async with AsyncSessionLocal() as db:
         await proposals.upsert_proposals(db, job_id, rows, "full_base")
         assert (
@@ -182,50 +194,168 @@ async def test_dismissed_is_never_resurrected_and_added_never_downgraded():
             )
             == 1
         )
-        assert await proposals.mark_added(db, job_id=job_id, candidate_ids=[hired]) == 1
         await db.commit()
 
     async with AsyncSessionLocal() as db:
-        # Kolejny przegląd: to samo źródło ORAZ nowe źródło dla obu osób.
+        # Kolejny przegląd TEJ SAMEJ wersji CV: to samo źródło, nowe źródło,
+        # wiersz bez wersji i wersja podana argumentem — nic nie wskrzesza.
         await proposals.upsert_proposals(db, job_id, rows, "full_base")
         await proposals.upsert_proposals(db, job_id, rows, "new_cv")
-        # Odrzucenie osoby już dodanej niczego nie cofa.
-        assert (
-            await proposals.dismiss(
-                db, job_id=job_id, candidate_id=hired, user_id=user_id
-            )
-            == 1  # tylko świeży wiersz `new_cv`
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": gone, "score": 61}], "recommendation"
+        )
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": gone}], "marketplace", cv_revision="cv-v1"
         )
         await db.commit()
 
-    statuses = await _statuses(job_id)
-    assert statuses[(gone, "full_base")] == "dismissed"
-    assert statuses[(hired, "full_base")] == "added"
+    state = await _pair_state(job_id, user_id)
+    assert state == {"proposed": [], "dismissed": [gone], "added": [], "open": 0}
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(JobProposal).where(
+                JobProposal.job_id == job_id, JobProposal.source == "full_base"
+            )
+        )
+    assert row.status == "dismissed"
+    assert row.dismissed_by == user_id and row.dismissed_at is not None
+    # Bez wersji od wołającego stemplujemy tę, dla której policzono propozycję.
+    assert row.dismissed_cv_revision == "cv-v1"
+
+
+async def test_a_new_cv_revision_re_proposes_a_dismissed_person():
+    user_id, _ = await _user(UserRole.recruiter)
+    world = await _world(people=1)
+    (back,) = world["candidate_ids"]
+    job_id = world["job_id"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": back, "score": 60, "cv_revision": "cv-v1"}],
+            "full_base",
+        )
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": back, "score": 40, "cv_revision": "cv-v1"}],
+            "recommendation",
+        )
+        await proposals.dismiss(
+            db, job_id=job_id, candidate_id=back, user_id=user_id, cv_revision="cv-v1"
+        )
+        # „Dawno temu" — żeby było widać, że powrót stempluje `first_seen_at`.
+        await db.execute(
+            JobProposal.__table__.update()
+            .where(JobProposal.job_id == job_id)
+            .values(first_seen_at=datetime.now(timezone.utc) - timedelta(days=30))
+        )
+        await db.commit()
+    before = await _pair_state(job_id, user_id)
+    assert before["dismissed"] == [back] and before["open"] == 0
 
     async with AsyncSessionLocal() as db:
-        listed, total = await proposals.list_for_job(
-            db, job_id=job_id, user_id=user_id, status="proposed"
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [
+                {
+                    "candidate_id": back,
+                    "score": 77,
+                    "cv_revision": "cv-v2",
+                    # Producent nie może sam podrobić flagi…
+                    "evidence": {"missing_must": ["Kafka"]},
+                }
+            ],
+            "new_cv",
         )
-        counts = await proposals.new_count_for_jobs(db, user_id, [job_id])
-        dismissed, _ = await proposals.list_for_job(
-            db, job_id=job_id, user_id=user_id, status="dismissed"
+        await db.commit()
+
+    after = await _pair_state(job_id, user_id)
+    assert after == {"proposed": [back], "dismissed": [], "added": [], "open": 1}
+    async with AsyncSessionLocal() as db:
+        rows, _ = await proposals.list_for_job(db, job_id=job_id)
+        stored = (
+            (await db.execute(select(JobProposal).where(JobProposal.job_id == job_id)))
+            .scalars()
+            .all()
         )
-        added, _ = await proposals.list_for_job(
-            db, job_id=job_id, user_id=user_id, status="added"
+    (row,) = rows
+    assert row.is_new is True
+    assert row.score == 77.0
+    assert row.evidence == {"missing_must": ["Kafka"], "previously_dismissed": True}
+    by_source = {p.source: p for p in stored}
+    for source in ("full_base", "recommendation"):
+        revived = by_source[source]
+        assert revived.status == "proposed"
+        assert revived.dismissed_at is None and revived.dismissed_by is None
+        assert revived.dismissed_cv_revision is None
+        assert revived.evidence == {"previously_dismissed": True}
+        assert revived.first_seen_at > datetime.now(timezone.utc) - timedelta(hours=1)
+
+    # Flaga przeżywa kolejny przegląd tego samego źródła.
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": back, "score": 70, "cv_revision": "cv-v2"}],
+            "full_base",
         )
-    # Status liczy się per para: nowe źródło nie wskrzesza odrzuconej osoby.
-    assert (listed, total) == ([], 0)
-    assert counts.get(job_id, 0) == 0
-    assert [r.candidate_id for r in dismissed] == [gone]
-    assert [r.candidate_id for r in added] == [hired]
+        await db.commit()
+        kept = await db.scalar(
+            select(JobProposal.evidence).where(
+                JobProposal.job_id == job_id, JobProposal.source == "full_base"
+            )
+        )
+    assert kept == {"previously_dismissed": True}
+
+    # Ponowne „Pomiń" przy v2 znowu trzyma — aż do v3.
+    async with AsyncSessionLocal() as db:
+        await proposals.dismiss(
+            db, job_id=job_id, candidate_id=back, user_id=user_id, cv_revision="cv-v2"
+        )
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [{"candidate_id": back, "score": 70, "cv_revision": "cv-v2"}],
+            "full_base",
+        )
+        await db.commit()
+    assert (await _pair_state(job_id, user_id))["dismissed"] == [back]
 
 
-async def test_seen_watermark_and_pipeline_exclusion():
+async def test_added_is_never_downgraded_even_by_a_new_cv():
     user_id, _ = await _user(UserRole.recruiter)
-    other_id, _ = await _user(UserRole.recruiter)
-    world = await _world(people=3)
+    world = await _world(people=1)
+    (hired,) = world["candidate_ids"]
     job_id = world["job_id"]
-    first, second, in_pipeline = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": hired, "cv_revision": "cv-v1"}], "full_base"
+        )
+        assert await proposals.mark_added(db, job_id=job_id, candidate_ids=[hired]) == 1
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": hired, "cv_revision": "cv-v2"}], "full_base"
+        )
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": hired, "cv_revision": "cv-v2"}], "new_cv"
+        )
+        # „Pomiń" na osobie już dodanej rusza najwyżej świeży wiersz źródła.
+        await proposals.dismiss(db, job_id=job_id, candidate_id=hired, user_id=user_id)
+        await proposals.upsert_proposals(
+            db, job_id, [{"candidate_id": hired, "cv_revision": "cv-v3"}], "new_cv"
+        )
+        await db.commit()
+    assert (await _statuses(job_id))[(hired, "full_base")] == "added"
+    state = await _pair_state(job_id, user_id)
+    assert state["added"] == [hired]
+    assert state["proposed"] == [] and state["open"] == 0
+
+
+async def test_open_count_is_team_wide_and_matches_the_visible_list():
+    world = await _world(people=4)
+    job_id = world["job_id"]
+    first, second, in_pipeline, blacklisted = world["candidate_ids"]
     async with AsyncSessionLocal() as db:
         await proposals.upsert_proposals(
             db,
@@ -245,50 +375,30 @@ async def test_seen_watermark_and_pipeline_exclusion():
                 moved_at=datetime.now(timezone.utc),
             )
         )
+        (await db.get(Candidate, blacklisted)).status = CandidateStatus.blacklisted
         await db.commit()
 
     async with AsyncSessionLocal() as db:
-        assert (await proposals.new_count_for_jobs(db, user_id, [job_id])) == {
-            job_id: 2
-        }
-        rows, total = await proposals.list_for_job(db, job_id=job_id, user_id=user_id)
+        assert await proposals.open_counts_for_jobs(db, [job_id]) == {job_id: 2}
+        assert await proposals.open_counts_for_jobs(db, []) == {}
+        rows, total = await proposals.list_for_job(db, job_id=job_id)
+    # Plakietka nie obiecuje wierszy, których lista nie pokaże.
     assert total == 2
     assert [r.candidate_id for r in rows] == [first, second]
     assert rows[0].sources == ["full_base", "recommendation"]
     assert rows[0].score == 90.0
     assert all(r.is_new for r in rows)
 
+    # `is_new` to okno 24 h od pierwszego zaproponowania — nic per użytkownik.
     async with AsyncSessionLocal() as db:
-        await proposals.mark_seen(db, user_id=user_id, job_id=job_id)
-        await db.commit()
-    async with AsyncSessionLocal() as db:
-        assert await proposals.new_count_for_jobs(db, user_id, [job_id]) == {}
-        # Znacznik jest per osoba — kolega nadal ma dwie nowe.
-        assert await proposals.new_count_for_jobs(db, other_id, [job_id]) == {job_id: 2}
-        rows, _ = await proposals.list_for_job(db, job_id=job_id, user_id=user_id)
-    assert not any(r.is_new for r in rows)
-
-    # Znacznik nie cofa się, a propozycja późniejsza niż znacznik znów jest nowa.
-    async with AsyncSessionLocal() as db:
-        past = datetime.now(timezone.utc) - timedelta(days=3)
-        kept = await proposals.mark_seen(db, user_id=user_id, job_id=job_id, at=past)
-        assert kept > past
-        extra = Candidate(name="Późna", lastname=f"Propozycja-{uuid.uuid4().hex[:6]}")
-        db.add(extra)
-        await db.flush()
-        await proposals.upsert_proposals(
-            db, job_id, [{"candidate_id": extra.id, "score": 10}], "new_cv"
+        await db.execute(
+            JobProposal.__table__.update()
+            .where(JobProposal.job_id == job_id, JobProposal.candidate_id == second)
+            .values(first_seen_at=datetime.now(timezone.utc) - timedelta(hours=25))
         )
-        # `now()` transakcji bywa równe znacznikowi co do mikrosekundy.
-        row = await db.scalar(
-            select(JobProposal).where(
-                JobProposal.job_id == job_id, JobProposal.candidate_id == extra.id
-            )
-        )
-        row.first_seen_at = datetime.now(timezone.utc) + timedelta(minutes=1)
         await db.commit()
-    async with AsyncSessionLocal() as db:
-        assert await proposals.new_count_for_jobs(db, user_id, [job_id]) == {job_id: 1}
+        rows, _ = await proposals.list_for_job(db, job_id=job_id)
+    assert {r.candidate_id: r.is_new for r in rows} == {first: True, second: False}
 
 
 def test_evidence_keeps_requirement_names_and_drops_free_text():
@@ -309,6 +419,7 @@ def test_evidence_keeps_requirement_names_and_drops_free_text():
             "counts": {"must_met": 3, "note": "tekst"},
             "summary": "Jan Kowalski, 10 lat w bankowości",
             "breakdown": {"reason": "wolny tekst"},
+            "previously_dismissed": True,
         }
     )
     assert clean == {
@@ -317,7 +428,10 @@ def test_evidence_keeps_requirement_names_and_drops_free_text():
         ],
         "missing_must": ["Kafka"],
         "counts": {"must_met": 3},
+        "previously_dismissed": True,
     }
+    # Flaga to wyłącznie literalne `True` — nie dowolna „prawdziwa" wartość.
+    assert proposals.sanitize_evidence({"previously_dismissed": "tak"}) is None
     assert proposals.sanitize_evidence({"summary": "sam tekst"}) is None
     assert proposals.sanitize_evidence("tekst") is None
 
@@ -375,9 +489,9 @@ async def test_inbox_requires_login_and_an_existing_recruitment(
     assert (await app_client.get(_inbox(1))).status_code == 401
     missing = await app_client.get(_inbox(2_000_000_000), headers=headers)
     assert missing.status_code == 404, missing.text
-    assert (
-        await app_client.post(f"{_inbox(2_000_000_000)}/seen", headers=headers)
-    ).status_code == 404
+    # Licznik jest zespołowy — znacznika „widziane" per użytkownik nie ma.
+    gone = await app_client.post(f"{_inbox(1)}/seen", headers=headers)
+    assert gone.status_code in (404, 405), gone.text
 
 
 async def test_inbox_lists_narrow_identity_and_redacts_the_rate(
@@ -412,7 +526,7 @@ async def test_inbox_lists_narrow_identity_and_redacts_the_rate(
     assert admin_candidate["expected_rate_redacted"] is False
 
 
-async def test_seen_and_dismiss_flow(app_client: AsyncClient):
+async def test_dismiss_flow(app_client: AsyncClient):
     recruiter_id, recruiter = await _user(UserRole.recruiter)
     _, outsider = await _user(UserRole.recruiter)
     world = await _world(people=2, recruiter_id=recruiter_id)
@@ -420,10 +534,8 @@ async def test_seen_and_dismiss_flow(app_client: AsyncClient):
     job_id = world["job_id"]
     first, second = world["candidate_ids"]
 
-    seen = await app_client.post(f"{_inbox(job_id)}/seen", headers=recruiter)
-    assert seen.status_code == 200, seen.text
     listed = await app_client.get(_inbox(job_id), headers=recruiter)
-    assert [i["is_new"] for i in listed.json()["items"]] == [False, False]
+    assert [i["is_new"] for i in listed.json()["items"]] == [True, True]
 
     # Odrzucenie zmienia skrzynkę całego zespołu → wymaga członkostwa.
     refused = await app_client.post(
@@ -457,6 +569,19 @@ async def test_seen_and_dismiss_flow(app_client: AsyncClient):
             )
         )
     assert row.dismissed_by == recruiter_id
+    assert row.dismissed_at is not None
+    # Trasa stempluje BIEŻĄCĄ wersję profilu (ta sama funkcja co auto-match).
+    assert row.dismissed_cv_revision == "unparsed"
+
+    # „Pomiń" jest zespołowe: licznik listy spada dla każdego, nie tylko autora.
+    rows = await app_client.get(
+        "/api/jobs",
+        params={"include_stage_counts": "true", "client_id": world["client_id"]},
+        headers=outsider,
+    )
+    row_json = next(r for r in rows.json()["items"] if r["id"] == job_id)
+    assert row_json["open_proposals_count"] == 1
+    assert "new_proposals_count" not in row_json
 
 
 async def test_adding_to_the_recruitment_marks_the_proposal_added(
@@ -487,7 +612,7 @@ async def test_adding_to_the_recruitment_marks_the_proposal_added(
     )
     assert rows.status_code == 200, rows.text
     row = next(r for r in rows.json()["items"] if r["id"] == job_id)
-    assert row["new_proposals_count"] == 1
+    assert row["open_proposals_count"] == 1
 
 
 async def test_latest_run_shows_own_and_automatic_runs_only(app_client: AsyncClient):
@@ -551,13 +676,9 @@ async def test_latest_run_shows_own_and_automatic_runs_only(app_client: AsyncCli
 async def test_hard_delete_removes_the_candidates_proposals(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    user_id, _ = await _user(UserRole.recruiter)
     world = await _world(people=2)
     await _seed_inbox(world)
     erased, kept = world["candidate_ids"]
-    async with AsyncSessionLocal() as db:
-        await proposals.mark_seen(db, user_id=user_id, job_id=world["job_id"])
-        await db.commit()
 
     response = await app_client.delete(
         f"/api/candidates/{erased}", headers=app_auth_headers
@@ -572,15 +693,7 @@ async def test_hard_delete_removes_the_candidates_proposals(
                 )
             )
         ).all()
-        # Znacznik „widziane" nie niesie danych kandydata — zostaje.
-        seen = await db.scalar(
-            select(JobProposalSeen).where(
-                JobProposalSeen.job_id == world["job_id"],
-                JobProposalSeen.user_id == user_id,
-            )
-        )
     assert left == [kept]
-    assert seen is not None
 
 
 # ── Lustro DDL w entrypoint.sh ──────────────────────────────────────────────
@@ -618,7 +731,7 @@ def _entrypoint_column_statements() -> list[str]:
 def test_entrypoint_mirrors_the_0330_tables():
     """Prod alembic bywa osierocony — lustro w entrypoincie JEST wdrożeniem."""
     statements = _entrypoint_column_statements()
-    for model in (JobProposal, JobProposalSeen):
+    for model in (JobProposal,):
         table = model.__table__
         create = next(
             (

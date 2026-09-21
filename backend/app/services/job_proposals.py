@@ -1,34 +1,40 @@
-"""Skrzynka „Propozycje" rekrutacji — zapis, znacznik „widziane", licznik nowych.
+"""Skrzynka „Propozycje" rekrutacji — zapis, „Pomiń", licznik otwartych.
 
 Reguły, które łatwo cofnąć „przy okazji":
 
-* ``status`` jest zapadką. ``upsert_proposals`` NIGDY go nie dotyka przy
-  konflikcie: odrzucona propozycja nie wraca przy następnym przeglądzie,
-  a ``added`` się nie cofa.
+* ``added`` nigdy się nie cofa.
+* „Pomiń" (``dismissed``) obowiązuje CAŁY zespół i WSZYSTKIE źródła. Kolejny
+  przegląd tej samej wersji CV nie wskrzesza osoby; wraca ona wyłącznie wtedy,
+  gdy przychodzi z NOWĄ wersją CV (``cv_revision`` inne niż
+  ``dismissed_cv_revision``) — jako ``proposed``, z ``first_seen_at = now()``
+  i flagą ``previously_dismissed`` w ``evidence``.
 * Status liczy się PER PARA (kandydat, rekrutacja), nie per wiersz źródła:
-  ``added`` > ``dismissed`` > ``proposed``. Inaczej osoba odrzucona ze źródła
-  „pełna baza" wracałaby nazajutrz jako nowa ze źródła „nowe CV".
-* Osoba, która ma już JAKIKOLWIEK wiersz w pipeline'ie tej rekrutacji, nie jest
-  propozycją — ani na liście, ani w liczniku.
+  ``added`` > ``dismissed`` > ``proposed``.
+* Licznik listy rekrutacji jest ZESPOŁOWY (``open_counts_for_jobs``): propozycja
+  liczy się, dopóki ktoś jej nie obsłuży („Dodaj" albo „Pomiń"). Ta sama reguła
+  widoczności co lista skrzynki — bez osób już w pipeline'ie tej rekrutacji
+  i bez globalnej czarnej listy — więc plakietka nie obiecuje wierszy, których
+  lista nie pokaże.
 * ``evidence`` przechodzi przez :func:`sanitize_evidence` — wyłącznie
   nazwy/identyfikatory wymagań i liczby, nigdy wolny tekst z CV.
 * Żadna funkcja tutaj nie commituje — transakcja należy do wołającego.
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from sqlalchemy import and_, case, exists, func, literal, select, update
+from sqlalchemy import case, exists, func, literal, select, text, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.candidate import Candidate, CandidateStatus
 from app.models.job_proposal import (
     JOB_PROPOSAL_SOURCES,
     JOB_PROPOSAL_STATUSES,
     JobProposal,
-    JobProposalSeen,
 )
 from app.models.recruitment_pipeline import CandidateStage
 
@@ -37,6 +43,11 @@ _MAX_NAME_LEN = 120
 _MAX_REQUIREMENTS = 60
 _REQUIREMENT_KEYS = ("id", "key", "level", "status")
 _NAME_LIST_KEYS = ("matched_must", "matched_nice", "missing_must", "missing_nice")
+# Ustawiana WYŁĄCZNIE przez serwis, gdy nowa wersja CV wskrzesza pominiętą osobę.
+PREVIOUSLY_DISMISSED_KEY = "previously_dismissed"
+_MAX_REVISION_LEN = 64
+# Inbox: „nowa" = pierwszy raz zaproponowana w ostatniej dobie (kosmetyka).
+NEW_PROPOSAL_WINDOW = timedelta(hours=24)
 
 
 def _short(value: Any) -> Optional[str]:
@@ -96,7 +107,16 @@ def sanitize_evidence(raw: Any) -> Optional[dict]:
         }
         if numbers:
             out["counts"] = numbers
+    if raw.get(PREVIOUSLY_DISMISSED_KEY) is True:
+        out[PREVIOUSLY_DISMISSED_KEY] = True
     return out or None
+
+
+def _revision(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    text_value = value.strip()
+    return text_value[:_MAX_REVISION_LEN] if text_value else None
 
 
 def _score(value: Any) -> Optional[Decimal]:
@@ -122,15 +142,24 @@ async def upsert_proposals(
     rows: Iterable[Mapping[str, Any]],
     source: str,
     run_id: Optional[str] = None,
+    cv_revision: Optional[str] = None,
 ) -> int:
     """Zapisz propozycje jednego źródła. Zwraca liczbę przetworzonych par.
 
-    ``rows``: ``{"candidate_id": int, "score": number|None, "evidence": dict|None}``.
+    ``rows``: ``{"candidate_id": int, "score": number|None, "evidence":
+    dict|None, "cv_revision": str|None}``. Wersja CV to ta sama wartość co
+    ``candidate_auto_match_log.profile_revision``
+    (``auto_match_outbox.candidate_revision``); ``cv_revision`` z argumentu jest
+    domyślną dla wierszy, które własnej nie niosą.
+
     Konflikt ``(job_id, candidate_id, source)`` odświeża ``last_seen_at``,
-    ``score``, ``evidence`` (i ``run_id``, gdy podany). ``status``
-    i ``first_seen_at`` zostają — patrz docstring modułu.
+    ``score``, ``evidence``, ``cv_revision`` i ``run_id`` (gdy podane).
+    ``status`` i ``first_seen_at`` zostają — z JEDNYM wyjątkiem: osoba pominięta
+    wraca jako ``proposed``, gdy przychodzi z niepustą wersją CV inną niż ta,
+    przy której ją pominięto. Ta sama wersja (albo brak wersji) nie wskrzesza.
     """
     _validate_source(source)
+    default_revision = _revision(cv_revision)
     by_candidate: dict[int, dict] = {}
     for row in rows:
         candidate_id = row.get("candidate_id")
@@ -138,17 +167,23 @@ async def upsert_proposals(
             continue
         # Ostatni wiersz tej samej osoby wygrywa: dwa wiersze jednej pary
         # w jednym INSERT … ON CONFLICT to błąd Postgresa (cardinality violation).
+        evidence = sanitize_evidence(row.get("evidence"))
+        if evidence is not None:
+            # Flagę stawia wyłącznie serwis — producent nie może jej podrobić.
+            evidence.pop(PREVIOUSLY_DISMISSED_KEY, None)
         by_candidate[candidate_id] = {
             "job_id": job_id,
             "candidate_id": candidate_id,
             "source": source,
             "score": _score(row.get("score")),
-            "evidence": sanitize_evidence(row.get("evidence")),
+            "evidence": evidence or None,
             "run_id": run_id,
+            "cv_revision": _revision(row.get("cv_revision")) or default_revision,
         }
     # Rosnąco po kandydacie — stała kolejność blokad wierszy między
     # równoległymi zapisami tego samego źródła.
     values = [by_candidate[cid] for cid in sorted(by_candidate)]
+    flag = literal({PREVIOUSLY_DISMISSED_KEY: True}, type_=JSONB)
     for start in range(0, len(values), _UPSERT_CHUNK):
         chunk = values[start : start + _UPSERT_CHUNK]
         stmt = pg_insert(JobProposal).values(chunk)
@@ -157,35 +192,91 @@ async def upsert_proposals(
             set_={
                 "last_seen_at": func.now(),
                 "score": stmt.excluded.score,
-                "evidence": stmt.excluded.evidence,
+                # Flaga „wcześniej pominięty" przeżywa kolejne przeglądy.
+                "evidence": case(
+                    (
+                        JobProposal.evidence.has_key(PREVIOUSLY_DISMISSED_KEY),
+                        func.coalesce(stmt.excluded.evidence, text("'{}'::jsonb")).op(
+                            "||"
+                        )(flag),
+                    ),
+                    else_=stmt.excluded.evidence,
+                ),
                 "run_id": func.coalesce(stmt.excluded.run_id, JobProposal.run_id),
+                "cv_revision": func.coalesce(
+                    stmt.excluded.cv_revision, JobProposal.cv_revision
+                ),
             },
         )
         await db.execute(stmt)
+        await _resurrect_on_new_cv(
+            db,
+            job_id=job_id,
+            source=source,
+            candidate_ids=[v["candidate_id"] for v in chunk if v["cv_revision"]],
+        )
     return len(values)
 
 
-async def mark_seen(
-    db: AsyncSession, *, user_id: int, job_id: int, at: Optional[datetime] = None
-) -> datetime:
-    """Przesuń znacznik „widziane do" (nigdy wstecz). Zwraca zapisaną chwilę."""
-    moment = at or datetime.now(timezone.utc)
-    stmt = pg_insert(JobProposalSeen).values(
-        user_id=user_id, job_id=job_id, seen_at=moment
+async def _resurrect_on_new_cv(
+    db: AsyncSession, *, job_id: int, source: str, candidate_ids: Sequence[int]
+) -> int:
+    """Pominięta osoba z NOWĄ wersją CV wraca do skrzynki (wszystkie jej źródła).
+
+    Wersję „przychodzącą" czytamy z wiersza tego źródła, który INSERT wyżej
+    właśnie zapisał — dlatego tylko dla osób, które przyszły z niepustą wersją.
+    ``IS DISTINCT FROM``: pominięcie bez zapisanej wersji też ustępuje nowej.
+    """
+    if not candidate_ids:
+        return 0
+    result = await db.execute(
+        text(
+            """
+            UPDATE job_proposals AS p
+            SET status = 'proposed',
+                first_seen_at = now(),
+                dismissed_at = NULL,
+                dismissed_by = NULL,
+                dismissed_cv_revision = NULL,
+                evidence = (CASE WHEN jsonb_typeof(p.evidence) = 'object'
+                                 THEN p.evidence ELSE '{}'::jsonb END)
+                           || '{"previously_dismissed": true}'::jsonb
+            WHERE p.job_id = :job_id
+              AND p.candidate_id = ANY(:candidate_ids)
+              AND p.status = 'dismissed'
+              AND EXISTS (
+                  SELECT 1 FROM job_proposals AS cur
+                  WHERE cur.job_id = p.job_id
+                    AND cur.candidate_id = p.candidate_id
+                    AND cur.source = :source
+                    AND cur.cv_revision IS NOT NULL
+                    AND cur.cv_revision IS DISTINCT FROM p.dismissed_cv_revision
+              )
+            """
+        ),
+        {
+            "job_id": job_id,
+            "source": source,
+            "candidate_ids": sorted(set(candidate_ids)),
+        },
     )
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["user_id", "job_id"],
-        set_={"seen_at": func.greatest(JobProposalSeen.seen_at, stmt.excluded.seen_at)},
-    ).returning(JobProposalSeen.seen_at)
-    return (await db.execute(stmt)).scalar_one()
+    return int(result.rowcount or 0)
 
 
 async def dismiss(
-    db: AsyncSession, *, job_id: int, candidate_id: int, user_id: Optional[int]
+    db: AsyncSession,
+    *,
+    job_id: int,
+    candidate_id: int,
+    user_id: Optional[int],
+    cv_revision: Optional[str] = None,
 ) -> int:
-    """Odrzuć propozycję tej osoby ze WSZYSTKICH źródeł. Zwraca liczbę wierszy.
+    """„Pomiń" — dla całego zespołu i ze WSZYSTKICH źródeł. Zwraca liczbę wierszy.
 
-    ``added`` zostaje nietknięte; powtórne odrzucenie nic nie zmienia (0).
+    Stempluje ``dismissed_at`` i ``dismissed_cv_revision``: bieżącą wersję CV
+    (podaje ją wołający — ``candidate_revision``), a gdy jej nie zna, wersję,
+    dla której policzono propozycję. ``added`` zostaje nietknięte; powtórne
+    pominięcie nic nie zmienia (0).
     """
     result = await db.execute(
         update(JobProposal)
@@ -194,7 +285,14 @@ async def dismiss(
             JobProposal.candidate_id == candidate_id,
             JobProposal.status == "proposed",
         )
-        .values(status="dismissed", dismissed_by=user_id)
+        .values(
+            status="dismissed",
+            dismissed_by=user_id,
+            dismissed_at=func.now(),
+            dismissed_cv_revision=func.coalesce(
+                _revision(cv_revision), JobProposal.cv_revision
+            ),
+        )
     )
     return int(result.rowcount or 0)
 
@@ -246,6 +344,15 @@ def _in_pipeline(job_col, candidate_col):
     )
 
 
+def _globally_blacklisted(candidate_col):
+    return exists(
+        select(literal(1)).where(
+            Candidate.id == candidate_col,
+            Candidate.status == CandidateStatus.blacklisted,
+        )
+    )
+
+
 def _pair_status():
     """Status pary z wierszy źródeł: added > dismissed > proposed."""
     return case(
@@ -255,13 +362,14 @@ def _pair_status():
     )
 
 
-async def new_count_for_jobs(
-    db: AsyncSession, user_id: int, job_ids: Sequence[int]
+async def open_counts_for_jobs(
+    db: AsyncSession, job_ids: Sequence[int]
 ) -> dict[int, int]:
-    """Ile NOWYCH (od ostatniego spojrzenia tej osoby) propozycji ma rekrutacja.
+    """Ile osób czeka w skrzynce rekrutacji — ZESPOŁOWO, nie per użytkownik.
 
-    Jedno zapytanie dla całej strony listy. Rekrutacje bez nowych propozycji
-    nie trafiają do słownika (wołający czyta ``.get(job_id, 0)``).
+    Jedno zapytanie dla całej strony listy. Ta sama widoczność co
+    :func:`list_for_job` ze ``status="proposed"``. Rekrutacje bez otwartych
+    propozycji nie trafiają do słownika (wołający czyta ``.get(job_id, 0)``).
     """
     ids = sorted({int(j) for j in job_ids})
     if not ids:
@@ -271,27 +379,13 @@ async def new_count_for_jobs(
             JobProposal.job_id.label("job_id"),
             JobProposal.candidate_id.label("candidate_id"),
         )
-        .outerjoin(
-            JobProposalSeen,
-            and_(
-                JobProposalSeen.job_id == JobProposal.job_id,
-                JobProposalSeen.user_id == user_id,
-            ),
-        )
         .where(
             JobProposal.job_id.in_(ids),
             ~_in_pipeline(JobProposal.job_id, JobProposal.candidate_id),
+            ~_globally_blacklisted(JobProposal.candidate_id),
         )
         .group_by(JobProposal.job_id, JobProposal.candidate_id)
-        .having(
-            _pair_status() == "proposed",
-            # `seen_at` jest stałe w grupie (jedna para osoba–rekrutacja);
-            # brak znacznika = wszystko jest nowe.
-            func.bool_or(
-                (JobProposalSeen.seen_at.is_(None))
-                | (JobProposal.first_seen_at > JobProposalSeen.seen_at)
-            ),
-        )
+        .having(_pair_status() == "proposed")
         .subquery()
     )
     rows = await db.execute(
@@ -316,23 +410,20 @@ async def list_for_job(
     db: AsyncSession,
     *,
     job_id: int,
-    user_id: int,
     status: str = "proposed",
     limit: int = 20,
     offset: int = 0,
+    now: Optional[datetime] = None,
 ) -> tuple[list[ProposalRow], int]:
     """Strona propozycji — jedna pozycja na OSOBĘ, ze złożonymi źródłami.
 
     Kolejność: wynik malejąco (brak wyniku na końcu), potem najnowsze, potem id
-    — stabilna między stronami.
+    — stabilna między stronami. ``is_new`` = zaproponowana (albo przywrócona po
+    nowym CV) w ciągu ostatnich 24 h; czysto kosmetyczne.
     """
     if status not in JOB_PROPOSAL_STATUSES:
         raise ValueError(f"Unknown job proposal status: {status!r}")
-    seen_at = await db.scalar(
-        select(JobProposalSeen.seen_at).where(
-            JobProposalSeen.job_id == job_id, JobProposalSeen.user_id == user_id
-        )
-    )
+    new_since = (now or datetime.now(timezone.utc)) - NEW_PROPOSAL_WINDOW
     grouped = (
         select(
             JobProposal.candidate_id.label("candidate_id"),
@@ -348,7 +439,8 @@ async def list_for_job(
     )
     if status == "proposed":
         grouped = grouped.where(
-            ~_in_pipeline(JobProposal.job_id, JobProposal.candidate_id)
+            ~_in_pipeline(JobProposal.job_id, JobProposal.candidate_id),
+            ~_globally_blacklisted(JobProposal.candidate_id),
         )
     sub = grouped.subquery()
     total = int(await db.scalar(select(func.count()).select_from(sub)) or 0)
@@ -367,7 +459,8 @@ async def list_for_job(
     candidate_ids = [row.candidate_id for row in page]
     evidence_by_candidate: dict[int, Optional[dict]] = {}
     if candidate_ids:
-        # Dowody z wiersza o najwyższym wyniku (jedno zapytanie na stronę).
+        # Dowody z wiersza o najwyższym wyniku (jedno zapytanie na stronę);
+        # flaga „wcześniej pominięty" liczy się z KAŻDEGO wiersza pary.
         evidence_rows = await db.execute(
             select(JobProposal.candidate_id, JobProposal.evidence)
             .where(
@@ -379,9 +472,17 @@ async def list_for_job(
                 JobProposal.score.desc().nullslast(),
                 JobProposal.id,
             )
-            .distinct(JobProposal.candidate_id)
         )
-        evidence_by_candidate = {cid: ev for cid, ev in evidence_rows.all()}
+        flagged: set[int] = set()
+        for cid, evidence in evidence_rows.all():
+            evidence_by_candidate.setdefault(cid, evidence)
+            if isinstance(evidence, dict) and evidence.get(PREVIOUSLY_DISMISSED_KEY):
+                flagged.add(cid)
+        for cid in flagged:
+            evidence_by_candidate[cid] = {
+                **(evidence_by_candidate.get(cid) or {}),
+                PREVIOUSLY_DISMISSED_KEY: True,
+            }
     out = [
         ProposalRow(
             candidate_id=row.candidate_id,
@@ -390,7 +491,7 @@ async def list_for_job(
             evidence=evidence_by_candidate.get(row.candidate_id),
             first_seen_at=row.first_seen_at,
             last_seen_at=row.last_seen_at,
-            is_new=seen_at is None or row.newest_seen_at > seen_at,
+            is_new=row.newest_seen_at >= new_since,
             status=status,
         )
         for row in page

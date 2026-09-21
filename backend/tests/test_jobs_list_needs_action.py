@@ -171,7 +171,7 @@ async def test_list_count_equals_board_owner_count(
     rows = await _rows(app_client, app_auth_headers, client_ids=[world["client_id"]])
     row = next(r for r in rows if r["id"] == world["job_id"])
     assert row["needs_action_count"] == count
-    assert row["new_proposals_count"] == 0
+    assert row["open_proposals_count"] == 0
 
 
 async def test_counts_are_absent_without_stage_counts(
@@ -184,7 +184,7 @@ async def test_counts_are_absent_without_stage_counts(
     assert resp.status_code == 200, resp.text
     row = next(r for r in resp.json()["items"] if r["id"] == world["job_id"])
     assert "needs_action_count" not in row
-    assert "new_proposals_count" not in row
+    assert "open_proposals_count" not in row
 
 
 async def test_sort_attention_orders_and_paginates_stably(
@@ -315,3 +315,45 @@ async def test_board_card_carries_recruiter_availability_and_warning_codes(
     assert other["warnings"] == []
     assert other["recruiter_id"] is None
     assert other["availability_date"] is None
+
+
+async def test_job_without_any_pipeline_template_counts_by_legacy_stages():
+    """Brak szablonu (własnego i domyślnego) = gałąź legacy, bez wywrotki.
+
+    Wołane wprost na serwisie z ``default_template_id=None`` — w bazie testowej
+    szablon domyślny istnieje, więc przez API tej gałęzi nie da się dotknąć.
+    """
+    from sqlalchemy import select, update
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.services.job_needs_action import needs_action_counts
+
+    busy = await _seed(cards=[("Nowy", 0), ("CV Wysłane", 0), ("Odrzucony", 1)])
+    empty = await _seed(cards=[])
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Job)
+            .where(Job.id.in_([busy["job_id"], empty["job_id"]]))
+            .values(pipeline_template_id=None)
+        )
+        await db.commit()
+        rows = (
+            await db.execute(
+                select(CandidateStage.stage_def_id).where(
+                    CandidateStage.job_id == busy["job_id"]
+                )
+            )
+        ).all()
+        assert all(r[0] is None for r in rows)
+        counts = await needs_action_counts(
+            db,
+            job_ids=[busy["job_id"], empty["job_id"]],
+            default_template_id=None,
+        )
+    # „Nowy" → rekruter; „CV Wysłane" < NUDGE_DAYS → klient; odrzucony → nikt.
+    assert counts.get(busy["job_id"]) == 1
+    # Rekrutacja bez kandydatów: brak wiersza = 0, żadnego wyjątku.
+    assert counts.get(empty["job_id"], 0) == 0
+    assert await needs_action_counts(db, job_ids=[], default_template_id=None) == {}

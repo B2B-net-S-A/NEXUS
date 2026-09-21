@@ -5,11 +5,12 @@ adres od dawna zwraca historię migawek propozycji (``app/api/proposals.py``,
 konsument w ``frontend/src/lib/api.ts``), więc druga trasa GET pod tą samą
 ścieżką byłaby martwa albo zepsułaby tamten ekran.
 
-Dostęp: ta sama bramka co pełny przegląd bazy dla rekrutacji
+Dostęp: lista jest czytelna jak wyniki pełnego przeglądu bazy
 (``_authorized_job`` — odczyt sekcji Pipeline + zakres klient–TAC Delivery
-Leada). Odrzucenie propozycji zmienia skrzynkę CAŁEGO zespołu, więc wymaga
-tego, czego wymaga dodanie kandydata do rekrutacji: ``RecruiterPlus``
-+ członkostwo w zespole.
+Leada). „Pomiń" zmienia skrzynkę CAŁEGO zespołu (i licznik na liście
+rekrutacji), więc wymaga tego, czego wymaga dodanie kandydata do rekrutacji:
+``RecruiterPlus`` + członkostwo w zespole. Pominięta osoba wraca wyłącznie
+z nową wersją CV. Nie ma znacznika „widziane" per użytkownik.
 """
 
 from datetime import datetime, timezone
@@ -86,7 +87,7 @@ async def list_job_proposals(
 
     job = await _job(db, user, job_id)
     rows, total = await proposals.list_for_job(
-        db, job_id=job_id, user_id=user.id, status=status, limit=limit, offset=offset
+        db, job_id=job_id, status=status, limit=limit, offset=offset
     )
     ids = [row.candidate_id for row in rows]
     candidates = {
@@ -151,17 +152,6 @@ async def list_job_proposals(
     }
 
 
-@router.post("/jobs/{job_id}/proposal-inbox/seen")
-async def mark_job_proposals_seen(
-    job_id: int, user: CurrentUser, db: AsyncSession = Depends(get_db)
-):
-    """Przesuń własny znacznik „widziane do" — licznik nowych tej osoby spada do 0."""
-    await _job(db, user, job_id)
-    seen_at = await proposals.mark_seen(db, user_id=user.id, job_id=job_id)
-    await db.commit()
-    return {"job_id": job_id, "seen_at": seen_at}
-
-
 @router.post("/jobs/{job_id}/proposal-inbox/{candidate_id}/dismiss")
 async def dismiss_job_proposal(
     job_id: int,
@@ -171,8 +161,16 @@ async def dismiss_job_proposal(
 ):
     await _job(db, user, job_id)
     await ensure_job_membership(db, user, job_id)
+    # Wersja CV w chwili „Pomiń": nowa wersja zaproponuje tę osobę ponownie.
+    from app.services.auto_match_outbox import candidate_revision  # noqa: PLC0415
+
+    candidate = await db.get(Candidate, candidate_id)
     changed = await proposals.dismiss(
-        db, job_id=job_id, candidate_id=candidate_id, user_id=user.id
+        db,
+        job_id=job_id,
+        candidate_id=candidate_id,
+        user_id=user.id,
+        cv_revision=candidate_revision(candidate) if candidate is not None else None,
     )
     if not changed:
         # Idempotentne: druga próba albo osoba już dodana — nic do zrobienia,

@@ -2644,7 +2644,7 @@ async def api_health_deep_check():
         JarvisConversationEntity,
         JarvisMessage,
     )
-    from app.models.job_proposal import JobProposal, JobProposalSeen
+    from app.models.job_proposal import JobProposal
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2795,9 +2795,8 @@ async def api_health_deep_check():
         ("jarvis_actions", JarvisAction),
         ("jarvis_conversation_entities", JarvisConversationEntity),
         # 0330: skrzynka „Propozycje". Lista rekrutacji liczy z niej
-        # `new_proposals_count`, a dodanie kandydata do rekrutacji ją stempluje.
+        # `open_proposals_count`, a dodanie kandydata do rekrutacji ją stempluje.
         ("job_proposals", JobProposal),
-        ("job_proposal_seen", JobProposalSeen),
     ]
 
     checks: dict[str, str] = {}

@@ -1507,6 +1507,12 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
 
     The caller has already checked access (``ensure_job_read_access``); this
     function only reads.
+
+    ``recruiter_id`` / ``recruiter_name`` on a card = the explicit owner of the
+    pair's latest recruitment process, and when the process has no owner, the
+    person who ADDED the candidate to this job (mover on the earliest stage
+    row). Deliberately not ``moved_by`` — that is whoever moved the card last
+    (decision of the product owner, 21.09.2026).
     """
     job_id = job.id
     # All CandidateStage rows for this job, newest→oldest per candidate.

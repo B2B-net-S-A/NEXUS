@@ -722,8 +722,8 @@ async def list_jobs(
             "Include per-job `stage_breakdown: {<stage>: count}` aggregating "
             "distinct candidates per pipeline stage. Opt-in (extra GROUP BY query). "
             "Also adds `needs_action_count` (candidates whose next move belongs "
-            "to the recruiter) and `new_proposals_count` (proposals this user "
-            "has not seen yet)."
+            "to the recruiter) and `open_proposals_count` (team-wide: proposed "
+            "candidates nobody has added or dismissed yet)."
         ),
     ),
 ):
@@ -884,21 +884,21 @@ async def list_jobs(
     stage_columns: dict[int, list[dict]] = {}
     off_template_counts: dict[int, int] = {}
     needs_action: dict[int, int] = {}
-    new_proposals: dict[int, int] = {}
+    open_proposals: dict[int, int] = {}
     if include_stage_counts and job_ids:
         from app.services.job_needs_action import (  # noqa: PLC0415
             needs_action_counts,
         )
-        from app.services.job_proposals import new_count_for_jobs  # noqa: PLC0415
+        from app.services.job_proposals import open_counts_for_jobs  # noqa: PLC0415
 
         # Po jednym zapytaniu na stronę: „wymaga ruchu" (ta sama reguła i to
-        # samo wyrażenie co `sort=attention`) i nowe propozycje tej osoby.
+        # samo wyrażenie co `sort=attention`) i otwarte propozycje (zespołowo).
         needs_action = await needs_action_counts(
             db,
             job_ids=job_ids,
             default_template_id=default_template_id_for_counts,
         )
-        new_proposals = await new_count_for_jobs(db, current_user.id, job_ids)
+        open_proposals = await open_counts_for_jobs(db, job_ids)
         from app.api.pipeline import (  # noqa: PLC0415
             StageTally,
             legacy_stage_column_summaries,
@@ -1097,7 +1097,7 @@ async def list_jobs(
             d["stage_columns"] = stage_columns.get(j.id, [])
             d["off_template_count"] = off_template_counts.get(j.id, 0)
             d["needs_action_count"] = needs_action.get(j.id, 0)
-            d["new_proposals_count"] = new_proposals.get(j.id, 0)
+            d["open_proposals_count"] = open_proposals.get(j.id, 0)
         d["priority_assignment"] = priority_assignment_map.get(j.id)
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
         redact_job_for_viewer(d, current_user)

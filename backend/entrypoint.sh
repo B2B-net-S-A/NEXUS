@@ -4699,6 +4699,9 @@ _COLUMN_STATEMENTS = [
         first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         dismissed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        cv_revision VARCHAR(64) NULL,
+        dismissed_at TIMESTAMPTZ NULL,
+        dismissed_cv_revision VARCHAR(64) NULL,
         CONSTRAINT uq_job_proposals_pair_source
             UNIQUE (job_id, candidate_id, source),
         CONSTRAINT ck_job_proposals_source CHECK (
@@ -4711,12 +4714,6 @@ _COLUMN_STATEMENTS = [
     "ON job_proposals (job_id, status, first_seen_at)",
     "CREATE INDEX IF NOT EXISTS ix_job_proposals_candidate_id "
     "ON job_proposals (candidate_id)",
-    """CREATE TABLE IF NOT EXISTS job_proposal_seen (
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-        seen_at TIMESTAMPTZ NOT NULL,
-        PRIMARY KEY (user_id, job_id)
-    )""",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

@@ -1,23 +1,21 @@
 """Propozycje kandydatów do rekrutacji (skrzynka „Propozycje", migracja 0330).
 
-Dwie tabele:
+``job_proposals`` — kandydat zaproponowany do rekrutacji przez JEDNO źródło
+(pełny przegląd bazy, nowe CV, podobne projekty, rekomendacje, targ).
+UNIQUE ``(job_id, candidate_id, source)``: ta sama osoba z dwóch źródeł to dwa
+wiersze, a odczyt składa je w jedną pozycję z listą źródeł.
 
-- ``job_proposals`` — kandydat zaproponowany do rekrutacji przez JEDNO źródło
-  (pełny przegląd bazy, nowe CV, podobne projekty, rekomendacje, targ).
-  UNIQUE ``(job_id, candidate_id, source)``: ta sama osoba z dwóch źródeł to dwa
-  wiersze, a odczyt składa je w jedną pozycję z listą źródeł. ``status`` jest
-  zapadką: ``dismissed`` nie wraca na ``proposed`` przy kolejnym przeglądzie,
-  ``added`` nigdy się nie cofa.
-- ``job_proposal_seen`` — znacznik „widziałem do tej chwili" per (osoba,
-  rekrutacja). Licznik „nowe" to propozycje z ``first_seen_at`` późniejszym niż
-  ten znacznik.
+``status``: ``added`` nigdy się nie cofa. ``dismissed`` („Pomiń") obowiązuje
+CAŁY zespół i wszystkie źródła, dopóki osoba nie dostanie NOWEJ wersji CV
+(``cv_revision`` inne niż ``dismissed_cv_revision``) — wtedy wraca jako
+``proposed`` z flagą ``previously_dismissed`` w ``evidence``.
+
+Licznik na liście rekrutacji jest zespołowy (propozycja liczy się, dopóki ktoś
+jej nie obsłuży: „Dodaj" albo „Pomiń") — nie ma znacznika „widziane" per osoba.
 
 ``evidence`` niesie WYŁĄCZNIE nazwy/identyfikatory wymagań i liczby — nigdy
-wolny tekst z CV (wiersz przeżywa do kasowania kandydata, a CASCADE jest jedynym
-mechanizmem RODO tej tabeli). Pilnuje tego ``services/job_proposals``.
-
-``run_id`` celowo BEZ klucza obcego: przeglądy kasuje retencja
-(``candidate_search_retention``), a propozycja ma ją przeżyć.
+wolny tekst z CV. ``run_id`` celowo BEZ klucza obcego: przeglądy kasuje
+retencja, a propozycja ma ją przeżyć.
 """
 
 from datetime import datetime
@@ -79,7 +77,11 @@ class JobProposal(Base):
     )
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     score: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
-    evidence: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    # `none_as_null`: brak dowodów to SQL NULL, nie JSON-owe `null` (to drugie
+    # psułoby `evidence || {…}` przy powrocie pominiętej osoby).
+    evidence: Mapped[Optional[dict]] = mapped_column(
+        JSONB(none_as_null=True), nullable=True
+    )
     run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="proposed", server_default="proposed"
@@ -93,15 +95,13 @@ class JobProposal(Base):
     dismissed_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-
-
-class JobProposalSeen(Base):
-    __tablename__ = "job_proposal_seen"
-
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    # Wersja CV/profilu, dla której policzono propozycję — ta sama wartość co
+    # `candidate_auto_match_log.profile_revision` (`candidate_revision`).
+    cv_revision: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    dismissed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
-    job_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True
+    # Wersja CV w chwili pominięcia: INNA wersja proponuje osobę ponownie.
+    dismissed_cv_revision: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
     )
-    seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
