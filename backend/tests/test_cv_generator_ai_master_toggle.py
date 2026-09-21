@@ -25,7 +25,15 @@ from app.api import cv_generator_b2b
 from app.models.ai_feature import AIFeatureKey
 
 _GATE = "_charge_cv_generation_quota"
-_GUARDED_ENDPOINTS = {"generate", "generate_from_upload"}
+# Funkcje, w których stoi trwałe przyjęcie zadania (`persist_job`), i wyrażenie
+# użytkownika, na którego idzie kwota. Od 21.09.2026 przyjęcie ścieżki „new"
+# mieszka w `enqueue_candidate_generation` — wspólnej dla `POST /generate`
+# i auto-CV po ruchu na „Zweryfikowany" (kwota idzie na `user_id` wołającego).
+_GUARDED_ENDPOINTS = {"enqueue_candidate_generation", "generate_from_upload"}
+_QUOTA_USER = {
+    "enqueue_candidate_generation": "user_id",
+    "generate_from_upload": "current_user.id",
+}
 
 
 class _FakeSession:
@@ -134,9 +142,27 @@ def test_both_generation_endpoints_pass_through_the_gate():
         call = callback.body
         assert isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
         assert call.func.id == _GATE, f"{name}: wrong quota gate"
-        assert [ast.unparse(arg) for arg in call.args] == ["db", "current_user.id"], (
+        assert [ast.unparse(arg) for arg in call.args] == ["db", _QUOTA_USER[name]], (
             f"{name}: admission must use the authenticated user and request session"
         )
         assert not callback.args.args, (
             f"{name}: callback cannot require unsupplied arguments"
         )
+
+    # `POST /generate` przechodzi przez wspólną ścieżkę jako ZALOGOWANA osoba.
+    generate = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "generate"
+    )
+    calls = [
+        node.value
+        for node in ast.walk(generate)
+        if isinstance(node, ast.Await)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "enqueue_candidate_generation"
+    ]
+    assert len(calls) == 1, "generate: expected one shared admission call"
+    user = next(kw.value for kw in calls[0].keywords if kw.arg == "user_id")
+    assert ast.unparse(user) == "current_user.id"

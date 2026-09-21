@@ -152,6 +152,9 @@ async def start_search(
             # `failed` is terminal and never counts: a broken run must not
             # hold one of the author's two slots.
             CandidateSearchRun.state.in_(store.ACTIVE_STATES),
+            # Nocny automat tworzy przeglądy w imieniu właściciela rekrutacji;
+            # nie mogą zabrać mu żadnego z dwóch slotów.
+            store.manual_origin_clause(),
         )
     )
     if active >= 2:
@@ -246,10 +249,15 @@ async def search_results(
     _search_access(user)
     if include_candidate_details:
         await require_candidate_read(user)
+    # Własny przegląd albo automatyczny przegląd rekrutacji (21.09.2026):
+    # ten drugi czyta każdy, kto przejdzie bramkę rekrutacji niżej.
     run = await store.owned_run(db, run_id, user.id)
+    if run is None:
+        run = await store.shared_auto_run(db, run_id)
     if run is None:
         raise HTTPException(404, "Wyszukiwanie nie istnieje")
     saved_job = await _authorized_job(db, user, run.job_id) if run.job_id else None
+    shared = store.is_auto_run(run)
     if run.state == "failed":
         # Terminal, with no ranking to protect: readable even when the request
         # changed since (or its stored context is what broke the run), so the
@@ -268,7 +276,12 @@ async def search_results(
     # A deleted saved job must not silently become an ad-hoc request.
     if context.job_data.get("id") is not None and run.job_id is None:
         raise HTTPException(409, "Rekrutacja została usunięta")
-    profile = await resolve_active_profile(db, user_id=user.id, client_id=run.client_id)
+    # Przegląd automatyczny policzono profilem BEZ użytkownika (globalny albo
+    # klienta), więc wynik jest wspólny: osobisty profil punktacji oglądającego
+    # nie może go unieważnić. Zmiana samej rekrutacji nadal daje 409.
+    profile = await resolve_active_profile(
+        db, user_id=None if shared else user.id, client_id=run.client_id
+    )
     if build_request_context(job, profile).fingerprint != context.fingerprint:
         raise HTTPException(
             409,
@@ -467,4 +480,5 @@ async def search_results(
         "ranking_complete": run.state == "complete" and not data_changed,
         "data_changed": data_changed,
         "criteria": job_skill_requirements(context.as_job()),
+        "origin": store.ORIGIN_AUTO if shared else "manual",
     }

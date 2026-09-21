@@ -46,6 +46,33 @@ CLAIMS_KEY = "claims"
 _LIFECYCLE_KEYS = (CLAIMS_KEY,)
 
 
+# Przegląd uruchomiony przez system w imieniu rekrutacji (nocny automat,
+# `services/auto_full_review.py`). Znacznik żyje w `version_trace`, bo `metrics`
+# nadpisuje telemetria workera. Taki przegląd: jest czytelny dla każdego, kto
+# przechodzi bramkę rekrutacji; nie zajmuje autorowi żadnego z dwóch slotów;
+# nie jest chroniony przez retencję; nie dzwoni autorowi po zakończeniu.
+ORIGIN_KEY = "origin"
+ORIGIN_AUTO = "auto"
+
+
+def is_auto_run(run) -> bool:
+    trace = getattr(run, "version_trace", None)
+    return isinstance(trace, dict) and trace.get(ORIGIN_KEY) == ORIGIN_AUTO
+
+
+def auto_origin_clause():
+    """SQL: przegląd automatyczny (NULL-safe — brak klucza to przegląd ręczny)."""
+    return func.coalesce(
+        CandidateSearchRun.version_trace[ORIGIN_KEY].astext, literal("manual")
+    ) == literal(ORIGIN_AUTO)
+
+
+def manual_origin_clause():
+    return func.coalesce(
+        CandidateSearchRun.version_trace[ORIGIN_KEY].astext, literal("manual")
+    ) != literal(ORIGIN_AUTO)
+
+
 class SearchLeaseLost(RuntimeError):
     pass
 
@@ -452,6 +479,22 @@ async def owned_run(db, run_id: str, actor_id: int):
         select(CandidateSearchRun).where(
             CandidateSearchRun.id == run_id,
             CandidateSearchRun.created_by == actor_id,
+        )
+    )
+
+
+async def shared_auto_run(db, run_id: str):
+    """Automatyczny przegląd ZAPISANEJ rekrutacji — bez względu na „autora".
+
+    Cudzy RĘCZNY przegląd zostaje prywatny (`owned_run`). Przegląd automatyczny
+    nie ma właściciela w sensie produktu: dostęp do niego rozstrzyga bramka
+    rekrutacji, którą API sprawdza tuż po tym odczycie.
+    """
+    return await db.scalar(
+        select(CandidateSearchRun).where(
+            CandidateSearchRun.id == run_id,
+            CandidateSearchRun.job_id.is_not(None),
+            auto_origin_clause(),
         )
     )
 

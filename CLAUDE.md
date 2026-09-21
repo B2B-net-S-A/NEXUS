@@ -4537,9 +4537,10 @@ Raport: `docs/cv-autonomous-flow-completion-report.md`. Trzy reguły, które ła
   zawsze). Dziennik decyzji jest dedupem (kandydat × rekrutacja × wersja CV):
   `added` blokuje zawsze, `dry_run` nigdy, reszta do zmiany rekrutacji — i
   podglądem w Ustawieniach → AI. Reguła progu jest JEDNA z importerem JJIT
-  (`auto_match_rules.is_good_match`). **`AUTO_MATCH_DRY_RUN` domyślnie `True`** —
-  system ocenia i zapisuje decyzje, nikogo nie dodaje; przejście na żywo to
-  `AUTO_MATCH_DRY_RUN=false` w Coolify.
+  (`auto_match_rules.is_good_match`). **Tryb rozstrzyga `AUTO_MATCH_MODE`
+  (od 21.09.2026, domyślnie `propose`)** — patrz „Automaty rekrutacji v3";
+  `AUTO_MATCH_DRY_RUN` został aliasem (true → `dry_run`, false → `add`)
+  czytanym tylko, gdy `AUTO_MATCH_MODE` jest puste.
   **Konflikt z klientem (`active_conflict`) i wykluczenie klienta
   (`client_excluded`) BLOKUJĄ automat**, choć od #1589 rekruterowi tylko
   ostrzegają: ostrzeżenie czyta człowiek, a automat nie ma kogo ostrzec
@@ -4550,6 +4551,96 @@ Raport: `docs/cv-autonomous-flow-completion-report.md`. Trzy reguły, które ła
   i nazwisko → nic (`possible_duplicate_name`); CV bez imienia, nazwiska albo
   kontaktu → nic (`identity_insufficient`). Tylko poczta z ostatnich
   `M365_AUTO_CREATE_LOOKBACK_DAYS` (14). Wyłącznik `M365_AUTO_CREATE_CANDIDATE_FROM_CV`.
+
+## Automaty rekrutacji v3 (21.09.2026, migracja 0332)
+
+Cztery automaty, wszystkie WŁĄCZONE domyślnie, każdy za wyłącznikiem env,
+którego stan OFF = zachowanie sprzed 21.09. **Nic zewnętrznego ani
+nieodwracalnego nie dzieje się bez kliknięcia człowieka**: żaden automat nie
+wysyła nic do klienta, nie przesuwa karty i nie dodaje nikogo do pipeline'u
+(wyjątek: jawnie ustawione `AUTO_MATCH_MODE=add`). Zdarzenia automatów lądują
+w `Activity(entity_type="job_automation", entity_id=<job_id>)` — osobny typ
+encji, żeby nie mieszać się z historią rekrutacji — i czyta je
+`GET /api/jobs/{id}/background-events` (zakładka „Praca w tle", bramka jak
+skrzynka „Propozycje"; nazwisko kandydata tylko dla ról z odczytem kandydatów,
+stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
+
+| Automat | Wyłącznik | Kod |
+|---|---|---|
+| A. nocny pełny przegląd bazy → „Propozycje" (`full_base`) | `AUTO_FULL_REVIEW_ENABLED` | `services/auto_full_review.py`, `tasks/auto_full_review.py` |
+| B. nowe CV → „Propozycje" (`new_cv`) | `AUTO_MATCH_MODE=dry_run` | `services/auto_match_service.py` |
+| C. auto-CV po ruchu na „Zweryfikowany" | `CV_AUTO_GENERATE_ON_VERIFIED` | `services/cv_auto_generate.py` |
+| D. podpowiedź stawki/dostępności w arkuszu screeningu | brak (czysty odczyt) | `services/screening_suggestions.py` |
+
+- **A. Sygnałem jest ZDARZENIE rekrutacji, nie „każda opublikowana".** Nocna
+  pętla (okno `AUTO_FULL_REVIEW_WINDOW_START/END_HOUR` = 1–5 w `BUSINESS_TZ`,
+  tick co 60 s, heartbeat `auto_full_review`) bierze rekrutacje opublikowane,
+  które mają w `candidate_match_outbox` zdarzenie nowsze niż ich ostatni
+  przegląd automatyczny (okno `AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS` = 14).
+  Przegląd to ~100–130 MB wierszy — przemiatanie wszystkich otwartych
+  rekrutacji zapchałoby wolumen bazy. Zdarzenie zapisują: publikacja, PATCH
+  z `_SIGNIFICANT_FIELDS` **albo `_AUTO_REVIEW_EXTRA_FIELDS`** (budżet, tryb
+  pracy, dni w biurze — osobna lista, żeby nie wywoływać rescanów Targu) oraz
+  zapis Championa. `enqueue_job` pisze też przy `AUTO_MATCH_ENABLED=false`
+  (`job_events_enabled`) — wtedy od razu jako `skipped`, bo `pending` bez
+  workera wisiałby bez końca i częściowy UNIQUE połykałby kolejne zmiany.
+- **A. Limity:** najwyżej jeden przegląd na rekrutację na noc (także nieudany),
+  `AUTO_FULL_REVIEW_MAX_PER_NIGHT` (20) łącznie, jeden nowy przegląd na tick,
+  odcisk requestu równy ostatniemu nie-nieudanemu przeglądowi automatycznemu =
+  pominięcie. **Automat ustępuje ludziom**: nie startuje, gdy JAKIKOLWIEK
+  przegląd jest w kolejce/w toku, a worker i tak bierze ręczne pierwsze.
+  Wywrotka jednej rekrutacji nie blokuje następnej (`_skipped_tonight`).
+- **A. `version_trace.origin = "auto"`** (`candidate_search_store.is_auto_run`,
+  `auto_origin_clause`; w `version_trace`, bo `metrics` nadpisuje telemetria):
+  autor = `recruiter_id` albo `tac_id` (brak obu = pominięcie), ale taki
+  przegląd **nie zajmuje żadnego z dwóch slotów autora** (`start_search`),
+  **nie jest chroniony przez retencję** (filtr stoi WEWNĄTRZ rankingu
+  `protected_run_ids` — inaczej zdjąłby ochronę z ręcznego przeglądu tej samej
+  osoby), **nie dzwoni autorowi** i **czyta go każdy, kto przejdzie bramkę
+  rekrutacji** (`owned_run` → `shared_auto_run`; cudzy RĘCZNY przegląd zostaje
+  404). Policzony profilem punktacji BEZ użytkownika (globalny/klienta), więc
+  odczyt też porównuje odcisk tym profilem — osobisty profil oglądającego nie
+  daje 409.
+- **A. Publikacja:** w transakcji kończącej przegląd, w savepoincie
+  (`publish_on_finish`, nigdy nie rzuca): top `AUTO_FULL_REVIEW_TOP_K` (60)
+  wierszy `eligible ∧ measured ∧ fit_score ≥ AUTO_MATCH_MIN_SCORE`, które
+  przechodzą `is_good_match` → `upsert_proposals(source="full_base")` z wersją
+  CV i dowodami przez `sanitize_evidence` (same nazwy wymagań). Znacznik
+  `metrics.auto_proposals`; `reconcile_unpublished` domyka przeglądy bez niego.
+- **B. `AUTO_MATCH_MODE = dry_run | propose | add`** (`auto_match_outbox.auto_match_mode`
+  — JEDNO miejsce; puste = `propose`, literówka = `dry_run`). W `propose`
+  dobry wynik daje decyzję `proposed` w dzienniku i wiersz `job_proposals`
+  (`new_cv`, `cv_revision = profile_revision`) **w tej samej transakcji** —
+  do pipeline'u nie wchodzi nikt. `proposed` blokuje ponowną ocenę jak inne
+  decyzje (do zmiany rekrutacji), `_BLOCKING_WARNINGS` nadal dają `penalized`,
+  sufity `AUTO_MATCH_MAX_*` obowiązują. Powiadomienie:
+  `NotificationType.auto_match_proposals` — JEDEN dzienny digest na
+  (rekrutacja, odbiorca), link `/jobs/{id}?tab=similar`; kolejne propozycje
+  tego dnia PODBIJAJĄ licznik w tym samym wpisie i odznaczają „przeczytane".
+- **C. Jedna ścieżka walidacji z kliknięciem rekrutera:**
+  `api.cv_generator_b2b.enqueue_candidate_generation` (wyjęta z `POST /generate`;
+  kontrakt kwoty w `test_cv_generator_ai_master_toggle.py`). Automat nie ma
+  łagodniejszej kopii, więc **nie wygeneruje dokumentu łamiącego zatwierdzoną
+  regułę klienta**: wymagany zrzut zgody RODO (PKO BP) = pominięcie PRZED
+  wołaniem generatora (`consent_screenshot_required`), każde 422 ze wspólnej
+  ścieżki (notatki, numer projektu, Champion, język) = `client_rule_inputs_missing`
+  z komunikatem. Pominięcie = `Activity(cv_auto_generate_skipped, reason)`,
+  bez naliczenia kwoty. Tryb = domyślny z reguły klienta (inaczej `polished`),
+  język = wymuszony regułą (inaczej `pl`), nigdy blind, `project_ref` puste.
+- **C. Odpalenie:** wyłącznie `move_candidate`, PO commicie, przez `_spawn`
+  (własna sesja; wyjątek przy odpalaniu jest połykany — ruch zawsze 200).
+  `/bulk-move` nie przyjmuje `verified`, importy tędy nie idą. Kwota AI
+  i autorstwo (`created_by`) idą na osobę, która przesunęła kartę.
+  Idempotencja: `cv_generated_documents.origin='auto'` + `stage_id` +
+  `source_cv_revision` z częściowym UNIQUE (0332, lustro w `entrypoint.sh`) —
+  ten sam etap z tym samym CV nie generuje drugi raz; nowe CV = nowy dokument.
+  W testach automat jest WYŁĄCZONY autouse-fixturą w `conftest.py` (zadanie
+  przeżywałoby test, który je odpalił).
+- **D. `GET /api/pipeline/stages/{id}/screening` → `suggestions`** z gotowego
+  `_notes_insights` (zero wywołań modelu, ZERO zapisów). `rate` tylko dla ról
+  z `user_can_edit_rates`; pozostałe dostają `rate_redacted: true`.
+  `source_note_id` jest dziś zawsze `null` — `_notes_insights` to agregat ze
+  wszystkich notatek i nie pamięta źródła.
 
 ## NEXUS bez limitów AI (decyzja Artura, 17.09.2026)
 

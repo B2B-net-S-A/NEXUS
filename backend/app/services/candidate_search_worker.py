@@ -54,6 +54,10 @@ async def _notify_search_finished(
             run = await db.get(CandidateSearchRun, run_id)
             if run is None or run.created_by is None:
                 return
+            if store.is_auto_run(run):
+                # Nocny automat: „autor" niczego nie uruchamiał. O wyniku mówi
+                # skrzynka „Propozycje" i zakładka „Praca w tle", nie dzwonek.
+                return
             link = f"/jobs/{run.job_id}?tab=similar" if run.job_id else "/talent-radar"
             ntype = NotificationType.candidate_search_completed
             if not await notification_recipient_has_access(
@@ -273,6 +277,11 @@ async def _execute_claimed(run_id: str, token: str):
                 await _notify_search_finished(
                     db, run_id, eligible=counts["eligible"], failed=False
                 )
+                # Przegląd automatyczny: top-K → skrzynka „Propozycje", w tej
+                # samej transakcji co stan końcowy (savepoint, nigdy nie rzuca).
+                from app.services.auto_full_review import publish_on_finish
+
+                await publish_on_finish(db, run_id, eligible=counts["eligible"])
                 await db.commit()
                 return
             error_code = None

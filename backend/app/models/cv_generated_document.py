@@ -105,6 +105,18 @@ class CvGeneratedDocument(Base, TimestampMixin):
     # klient się skarży" — bez niej historia zmian reguły nic nie wyjaśnia.
     client_rule_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
+    # ── Pochodzenie (0332) ──────────────────────────────────────────────────
+    # `auto` = dokument zakolejkował system po ruchu na „Zweryfikowany"
+    # (`services/cv_auto_generate.py`), `manual` = kliknięcie rekrutera.
+    # `stage_id` + `source_cv_revision` są kluczem idempotencji auto-generacji
+    # (częściowy UNIQUE `WHERE origin = 'auto'`); `stage_id` bez FK — dokument
+    # przeżywa usunięcie etapu.
+    origin: Mapped[str] = mapped_column(
+        String(16), default="manual", server_default="manual", nullable=False
+    )
+    stage_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    source_cv_revision: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
     # ── Interaktywna wersja CV (kafelki wymagań na publicznym linku) ────────
     # Mapa „wymaganie → dowody z doświadczenia" generowana JEDNYM dodatkowym
     # wywołaniem Claude tuż po udanej generacji (tylko mode="new" — upload nie

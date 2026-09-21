@@ -15,6 +15,11 @@ Kolejność każdego zdarzenia:
    rekruter (blacklista, NDA i konflikty klienta, weto hiring managera);
 7. dziennik decyzji dla KAŻDEJ rozważonej pary + powiadomienie po commicie.
 
+Tryb (`auto_match_outbox.auto_match_mode`, 21.09.2026): `propose` (domyślny)
+kończy się na kroku 5 — dobry wynik trafia do skrzynki „Propozycje" rekrutacji
+(`job_proposals`, źródło `new_cv`) i do dziennego digestu; do pipeline'u nie
+wchodzi NIKT. `add` wykonuje kroki 6–7 jak 17.09, `dry_run` tylko dziennik.
+
 Dziennik (`candidate_auto_match_log`, UNIQUE na kandydat×rekrutacja×wersja CV)
 jest też dedupem: ta sama wersja profilu nie wraca do tej samej rekrutacji.
 """
@@ -27,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 from uuid import uuid4
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -35,7 +40,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_auto_match import CandidateMatchOutbox
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
-from app.services.auto_match_outbox import candidate_revision
+from app.services.auto_match_outbox import auto_match_mode, candidate_revision
 from app.services.auto_match_rules import is_good_match
 
 logger = logging.getLogger(__name__)
@@ -155,8 +160,8 @@ async def _logged_pairs(
     - `added` blokuje zawsze (kandydat jest w pipeline'ie);
     - `dry_run` nie blokuje nigdy — po przejściu na żywo system ma dodać tych,
       których tryb próbny zaakceptował;
-    - pozostałe decyzje blokują, chyba że są starsze niż `since` (zdarzenie
-      rekrutacji po zmianie wymagań ocenia wszystkich od nowa).
+    - pozostałe decyzje (w tym `proposed`) blokują, chyba że są starsze niż
+      `since` (zdarzenie rekrutacji po zmianie wymagań ocenia wszystkich od nowa).
     """
     if not pairs:
         return set()
@@ -250,8 +255,14 @@ async def _apply_decisions(
         if d.decision != "add":
             final.append(d)
             continue
-        if settings.AUTO_MATCH_DRY_RUN:
+        mode = auto_match_mode()
+        if mode == "dry_run":
             final.append(Decision(d.candidate_id, d.job_id, d.score, "dry_run"))
+            continue
+        if mode == "propose":
+            # Nic nie wchodzi do pipeline'u — decyzję podejmuje człowiek
+            # w skrzynce „Propozycje" (`_publish_proposals`).
+            final.append(Decision(d.candidate_id, d.job_id, d.score, "proposed"))
             continue
         job = jobs_by_id[d.job_id]
         scored = scored_by_pair[(d.candidate_id, d.job_id)]
@@ -354,6 +365,157 @@ async def _notify(
                 sent += int(created is not None)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[auto_match] notify failed user=%s: %s", user_id, exc)
+    await db.commit()
+    return sent
+
+
+PROPOSALS_ACTIVITY_ENTITY = "job_automation"
+
+
+async def _publish_proposals(
+    db: AsyncSession,
+    *,
+    decisions: list[Decision],
+    scored_by_pair: dict[tuple[int, int], Scored],
+    revisions: dict[int, str],
+    trigger: str,
+    run_id: str,
+) -> dict[int, int]:
+    """Decyzje `proposed` → skrzynka „Propozycje" (źródło `new_cv`).
+
+    W transakcji wołającego, razem z dziennikiem decyzji: propozycja istnieje
+    dokładnie wtedy, gdy dziennik mówi `proposed`. Zwraca {job_id: liczba}.
+    Dowody to WYŁĄCZNIE nazwy wymagań (allowlista `sanitize_evidence`).
+    """
+    from app.models.activity import Activity
+    from app.services.job_proposals import upsert_proposals
+
+    by_job: dict[int, list[dict]] = {}
+    for d in decisions:
+        if d.decision != "proposed":
+            continue
+        scored = scored_by_pair.get((d.candidate_id, d.job_id))
+        by_job.setdefault(d.job_id, []).append(
+            {
+                "candidate_id": d.candidate_id,
+                "score": d.score,
+                "cv_revision": revisions.get(d.candidate_id),
+                "evidence": {
+                    "matched_must": list(scored.matching_must) if scored else [],
+                    "missing_must": list(scored.gap_must) if scored else [],
+                },
+            }
+        )
+    counts: dict[int, int] = {}
+    for job_id, rows in by_job.items():
+        counts[job_id] = await upsert_proposals(
+            db, job_id, rows, source="new_cv", run_id=run_id
+        )
+        db.add(
+            Activity(
+                entity_type=PROPOSALS_ACTIVITY_ENTITY,
+                entity_id=job_id,
+                action="auto_match_proposed",
+                user_id=None,
+                details={
+                    "count": counts[job_id],
+                    "candidate_ids": [r["candidate_id"] for r in rows][:20],
+                    "trigger": trigger,
+                    "run_id": run_id,
+                },
+            )
+        )
+    return counts
+
+
+def _digest_text(count: int) -> str:
+    if count == 1:
+        return "1 nowa propozycja z nowych CV"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return f"{count} nowe propozycje z nowych CV"
+    return f"{count} nowych propozycji z nowych CV"
+
+
+async def _notify_proposals(
+    db: AsyncSession, *, proposed: dict[int, int], jobs_by_id: dict[int, Job]
+) -> int:
+    """JEDEN dzienny digest na (rekrutacja, odbiorca).
+
+    Pierwsza propozycja dnia tworzy wpis (`emit` — bramka odbiorcy + dobowy
+    dedup `ix_notif_dedup_daily`); kolejne tego samego dnia PODBIJAJĄ licznik
+    w istniejącym wpisie zamiast dokładać następne. Licznik = osoby, którym
+    dziennik decyzji dał dziś `proposed` w tej rekrutacji.
+    """
+    from app.core.scheduling import business_today
+    from app.models.notification import Notification, NotificationType
+    from app.services.notification_triggers import emit
+
+    sent = 0
+    ntype = NotificationType.auto_match_proposals
+    for job_id, fresh in proposed.items():
+        job = jobs_by_id.get(job_id)
+        if job is None or not fresh:
+            continue
+        try:
+            today_count = int(
+                await db.scalar(
+                    text(
+                        "SELECT count(DISTINCT candidate_id) "
+                        "FROM candidate_auto_match_log "
+                        "WHERE job_id = :job_id AND decision = 'proposed' "
+                        "AND (created_at AT TIME ZONE :tz)::date = :today"
+                    ),
+                    {
+                        "job_id": job_id,
+                        "tz": settings.BUSINESS_TZ,
+                        "today": business_today(settings.BUSINESS_TZ),
+                    },
+                )
+                or fresh
+            )
+            title = f"{_digest_text(today_count)} — {job.title}"[:255]
+            message = (
+                f"Rekrutacja „{job.title}”: sprawdź skrzynkę „Propozycje”. "
+                "Nikt nie został dodany do procesu."
+            )
+            link = f"/jobs/{job_id}?tab=similar"
+            for user_id in {uid for uid in (job.recruiter_id, job.tac_id) if uid}:
+                created = await emit(
+                    db,
+                    user_id=user_id,
+                    title=title,
+                    message=message,
+                    ntype=ntype,
+                    related_entity_type="job",
+                    related_entity_id=job_id,
+                    link=link,
+                )
+                if created is not None:
+                    sent += 1
+                    continue
+                # Dzisiejszy digest już jest (albo odbiorca nie ma dostępu —
+                # wtedy UPDATE nie znajdzie wiersza): podbij licznik.
+                existing = await db.scalar(
+                    select(Notification)
+                    .where(
+                        Notification.user_id == user_id,
+                        Notification.notification_type == ntype,
+                        Notification.related_entity_type == "job",
+                        Notification.related_entity_id == job_id,
+                        func.date(
+                            func.timezone(settings.BUSINESS_TZ, Notification.created_at)
+                        )
+                        == business_today(settings.BUSINESS_TZ),
+                    )
+                    .order_by(Notification.created_at.desc())
+                    .limit(1)
+                )
+                if existing is not None and existing.title != title:
+                    existing.title = title
+                    existing.is_read = False
+        except Exception as exc:  # noqa: BLE001 — digest nigdy nie psuje biegu
+            logger.warning("[auto_match] digest failed job=%s: %s", job_id, exc)
+            await db.rollback()
     await db.commit()
     return sent
 
@@ -520,6 +682,14 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
         run_id=run_id,
         stage_ids=stage_ids,
     )
+    proposed = await _publish_proposals(
+        db,
+        decisions=final,
+        scored_by_pair={(s.candidate_id, s.job_id): s for s in scored},
+        revisions=revisions,
+        trigger=event.trigger,
+        run_id=run_id,
+    )
     await db.commit()
     notified = await _notify(
         db,
@@ -528,6 +698,7 @@ async def run_candidate_event(db: AsyncSession, event: CandidateMatchOutbox) -> 
         jobs_by_id=jobs_by_id,
         candidates_by_id={candidate.id: candidate},
     )
+    notified += await _notify_proposals(db, proposed=proposed, jobs_by_id=jobs_by_id)
     return {**_summary(final, notified), "pool": len(similarity), "run_id": run_id}
 
 
@@ -613,6 +784,14 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
         run_id=run_id,
         stage_ids=stage_ids,
     )
+    proposed = await _publish_proposals(
+        db,
+        decisions=final,
+        scored_by_pair={(s.candidate_id, s.job_id): s for s in scored},
+        revisions=revisions,
+        trigger=event.trigger,
+        run_id=run_id,
+    )
     await db.commit()
     notified = await _notify(
         db,
@@ -621,4 +800,5 @@ async def run_job_event(db: AsyncSession, event: CandidateMatchOutbox) -> dict:
         jobs_by_id={job.id: job},
         candidates_by_id={c.id: c for c in candidates},
     )
+    notified += await _notify_proposals(db, proposed=proposed, jobs_by_id={job.id: job})
     return {**_summary(final, notified), "pool": len(similarity), "run_id": run_id}

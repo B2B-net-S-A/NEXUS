@@ -305,6 +305,17 @@ _EMBED_TRIGGER_FIELDS = {
 # (scoring_service `_score_location`); `deadline` drives availability. Salary is
 # intentionally omitted: candidate B2B PLN/h vs job PLN/month is always
 # not_comparable → neutral, so it never moves a score (see P0-B1).
+# Pola, których zmiana na OPUBLIKOWANEJ rekrutacji zgłasza ją do auto-matchu
+# i nocnego pełnego przeglądu bazy (21.09.2026) — poza `_SIGNIFICANT_FIELDS`
+# Targu: budżet i warunki pracy (dealbreakery przeglądu).
+_AUTO_REVIEW_EXTRA_FIELDS = (
+    "rate_budget_hourly",
+    "salary_min",
+    "salary_max",
+    "remote_policy",
+    "onsite_days_per_week",
+)
+
 _SCORING_INPUT_FIELDS = _EMBED_TRIGGER_FIELDS | {
     "location",
     "remote_policy",
@@ -1740,6 +1751,10 @@ async def update_job(
         "title",
     )
     _before = {f: getattr(job, f) for f in _marketplace_snapshot_fields}
+    # Budżet i warunki biura nie wpływają na Targ, ale zmieniają to, kogo
+    # pokaże pełny przegląd bazy i auto-match (dealbreakery) — osobna lista,
+    # żeby nie wywoływać nimi rescanów Targu.
+    _review_before = {f: getattr(job, f) for f in _AUTO_REVIEW_EXTRA_FIELDS}
     _status_before = job.status
     for k, v in updates.items():
         setattr(job, k, v)
@@ -1834,6 +1849,7 @@ async def update_job(
         or is_significant_job_update(
             _before, {f: getattr(job, f) for f in _before.keys()}
         )
+        or any(getattr(job, f) != old for f, old in _review_before.items())
     ):
         from app.services.auto_match_outbox import enqueue_job_safe
 
@@ -2357,6 +2373,14 @@ async def _save_champion_profile(
     # scores so the Delivery Lead's work actually reaches the recruiter's ranking
     # (previously this write bypassed the refresh update_job does).
     await refresh_job_matching(job.id, db)
+
+    # Zmiana Championa to istotna zmiana wymagań: opublikowana rekrutacja wraca
+    # do auto-matchu nowych CV i do nocnego pełnego przeglądu bazy (21.09.2026).
+    # Własna sesja, nigdy nie rzuca.
+    if job.status == JobStatus.published:
+        from app.services.auto_match_outbox import enqueue_job_safe
+
+        await enqueue_job_safe(job.id)
 
     now_iso = datetime.now(timezone.utc).isoformat()
     bell_event = {

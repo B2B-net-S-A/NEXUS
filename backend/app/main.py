@@ -720,6 +720,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.index_drift_reconciler_task import index_drift_reconciler_loop
     from app.tasks.index_outbox_worker import index_outbox_loop
     from app.tasks.candidate_auto_match import candidate_auto_match_loop
+    from app.tasks.auto_full_review import auto_full_review_loop
     from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
@@ -834,6 +835,8 @@ async def lifespan(app: FastAPI):
         "candidate_contact_traffit": asyncio.create_task(traffit_contact_intake_loop()),
         "index_outbox": asyncio.create_task(index_outbox_loop()),
         "candidate_auto_match": asyncio.create_task(candidate_auto_match_loop()),
+        # 21.09.2026: nocny automatyczny pełny przegląd bazy → „Propozycje".
+        "auto_full_review": asyncio.create_task(auto_full_review_loop()),
         "index_drift_reconciler": asyncio.create_task(index_drift_reconciler_loop()),
         "priority_work": asyncio.create_task(priority_work_loop()),
         "workforce_availability": asyncio.create_task(availability_loop()),

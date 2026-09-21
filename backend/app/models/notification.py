@@ -140,6 +140,11 @@ class NotificationType(str, enum.Enum):
     # rekrutera. Emitowane przez `services/my_people_matching.py`; jeden dzwonek
     # na (odbiorca, rekrutacja) — `related_entity=(job, id)`.
     my_people_match = "my_people_match"
+    # 0332: tryb `propose` auto-matchu — JEDEN dzienny digest na (rekrutacja,
+    # odbiorca): „N nowych propozycji z nowych CV”. Dedup dobowy po
+    # related_entity=(job, id); kolejne propozycje tego dnia podbijają licznik
+    # w istniejącym wpisie (`auto_match_service._notify_proposals`).
+    auto_match_proposals = "auto_match_proposals"
 
 
 class Notification(Base, TimestampMixin):
