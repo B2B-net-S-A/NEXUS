@@ -231,3 +231,30 @@ def test_invalidation_keys_exist_in_the_frontend():
             assert f'"{key[0]}"' in sources, (
                 f"{tool.name}: klucz {key[0]!r} nie występuje we froncie"
             )
+
+
+def test_long_procedure_returns_matching_sections_not_a_teaser():
+    """Test na produkcji 21.09: na „jak dodać zamówienie z PDF-a” Jarvis widział
+    tylko zajawkę 40-kilobajtowej instrukcji (ucięcie do 400 znaków)."""
+    from app.services.jarvis.tools import shape_procedure
+
+    filler = "\n".join(f"## Sekcja {i}\n" + ("lorem ipsum " * 80) for i in range(30))
+    content = (
+        filler
+        + "\n## Dodawanie zamówienia z PDF-a\nKrok 1: wgraj plik PDF.\nKrok 2: sprawdź pola.\n"
+    )
+    shaped = shape_procedure(
+        {"id": 1, "slug": "x", "title": "T", "content": content}, "pdf"
+    )
+    assert shaped["matched_sections"][0]["heading"] == "Dodawanie zamówienia z PDF-a"
+    assert "Krok 2: sprawdź pola." in shaped["matched_sections"][0]["content"]
+    assert "Sekcja 0" in shaped["all_headings"]
+
+    short = shape_procedure({"id": 1, "content": "krótka treść"}, None)
+    assert short["content"] == "krótka treść"
+
+
+def test_long_text_fields_are_not_cut_to_a_teaser():
+    from app.services.jarvis.tools import trim
+
+    assert len(trim({"summary": "a" * 1200})["summary"]) == 1200
