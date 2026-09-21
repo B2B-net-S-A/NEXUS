@@ -152,6 +152,7 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "backend/app/api/md_consumption.py",
     "backend/app/services/finance_order_matching.py",
     # ── Cykl życia zamówienia ───────────────────────────────────────────
+    "backend/app/services/periodic_order_lifecycle.py",
     "backend/app/services/order_group_lifecycle.py",
     "backend/app/services/order_group_materializer.py",
     # BIK: zamówienie kończy wyczerpanie limitów MD wszystkich osób.
