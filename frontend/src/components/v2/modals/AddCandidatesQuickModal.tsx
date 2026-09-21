@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CompetenceCategoryName } from "@/components/v2/CompetenceCategoryBadge";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, Loader2, UserPlus, X, AlertCircle, Check } from "lucide-react";
 import {
@@ -315,7 +316,7 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
                   <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap mt-0.5">
                     {c.competence_category && (
                       <span className="truncate max-w-[180px]">
-                        {c.competence_category}
+                        <CompetenceCategoryName slug={c.competence_category} />
                       </span>
                     )}
                     {candidateLocation && (

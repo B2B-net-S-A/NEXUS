@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CompetenceCategoryName } from "@/components/v2/CompetenceCategoryBadge";
 import type { ExecutiveContractBrief } from "@/lib/api/executiveContracts";
 import { projectPartLabel } from "@/lib/ezdrowie";
 import { cn } from "@/lib/utils";
@@ -152,7 +153,7 @@ export function ConsultantsTable({ rows, showEndDate, renderActions }: Props) {
                     </div>
                     {r.candidate.competence_category ? (
                       <p className="text-xs text-muted-foreground">
-                        {r.candidate.competence_category}
+                        <CompetenceCategoryName slug={r.candidate.competence_category} />
                       </p>
                     ) : null}
                     {/* Rekrutacja pod nazwiskiem. Brak powiązania = PUSTY
