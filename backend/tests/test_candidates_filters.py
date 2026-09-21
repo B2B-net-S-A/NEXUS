@@ -415,10 +415,11 @@ async def test_create_candidate_sets_created_by(
 async def test_filter_by_expected_rate_hourly_range(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """`min_rate`/`max_rate` band-filter on expected_rate_hourly, excluding nulls.
+    """`min_rate`/`max_rate` band-filter on expected_rate_hourly.
 
-    Mirrors the `min_salary`/`max_salary` "exclusive of nulls" contract: a
-    candidate with no expected rate never matches a bounded query.
+    Decyzja właściciela produktu (09.2026), wspólna dla listy i wyszukiwarki:
+    kandydat BEZ stawki przechodzi — „nie wiemy" to nie „za drogi". Do tej
+    zmiany lista wycinała osoby bez stawki, a wyszukiwarka je zostawiała.
     """
     low = await _seed_candidate(location="W", created_by=None, expected_rate_hourly=100)
     inside = await _seed_candidate(
@@ -440,7 +441,7 @@ async def test_filter_by_expected_rate_hourly_range(
         assert inside in ids  # 150 ∈ [120, 200]
         assert low not in ids  # 100 < 120
         assert high not in ids  # 250 > 200
-        assert none not in ids  # NULL excluded (exclusive of nulls)
+        assert none in ids  # brak stawki przechodzi (decyzja 09.2026)
     finally:
         await _cleanup([low, inside, high, none], None, [])
 
@@ -465,7 +466,7 @@ async def test_filter_by_expected_rate_hourly_min_only(
         ids = {item["id"] for item in r.json()["items"]}
         assert high in ids  # 200 >= 120
         assert low not in ids  # 90 < 120
-        assert none not in ids  # NULL excluded
+        assert none in ids  # brak stawki przechodzi (decyzja 09.2026)
     finally:
         await _cleanup([low, high, none], None, [])
 

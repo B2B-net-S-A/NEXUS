@@ -83,7 +83,9 @@ async def test_phone_query_matches_regardless_of_separators(
 
 
 def test_phone_clause_only_for_phone_shaped_queries():
-    from app.api.candidates import _phone_digits_clause
+    from app.services.candidate_search_predicates import (
+        phone_digits_clause as _phone_digits_clause,
+    )
 
     assert _phone_digits_clause("Python") is None
     assert _phone_digits_clause("123") is None  # za mało cyfr

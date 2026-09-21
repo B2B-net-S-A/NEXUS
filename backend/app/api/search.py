@@ -35,7 +35,7 @@ from app.schemas.candidate_search import (
     SearchMeta,
     WaterfallStage,
 )
-from app.services.advanced_candidate_search import build_advanced_filter
+from app.services import candidate_search_predicates as predicates
 from app.services.ai_health import ai_status
 from app.services.eligibility_annotation import eligibility_annotation
 from app.services.candidate_profile_rate import canonical_profile_rate_amount
@@ -197,6 +197,39 @@ async def _resort_hybrid_pool(
 
     ordered = sorted(rows, key=sort_key)
     return [row[0] for row in ordered]
+
+
+def _boolean_clause(body: CandidateSearchRequest) -> Any:
+    """Kubełki `q_all`/`q_any`/`q_none` — ten sam parser co na liście."""
+    return predicates.parse_q_groups(
+        q_all=body.q_all,
+        q_any=body.q_any,
+        q_none=body.q_none,
+        q_any_groups=body.q_any_groups,
+    ).clause()
+
+
+def _text_plan(body: CandidateSearchRequest) -> tuple[str, str, Optional[dict]]:
+    """Jak potraktować `q`: ``(q_text, applied, interpretation)``.
+
+    ``applied``: ``literal`` (osoba albo jawny przełącznik — to samo dopasowanie
+    co `?q=` na liście), ``semantic`` (hybryda), ``keywords`` (FTS w trybie
+    boolowskim), ``none`` (bez tekstu). Jedno miejsce dla wyszukiwania
+    i diagnostyki, żeby wodospad zawsze opisywał TO zapytanie, które poszło.
+    """
+    q_text = (body.q or "").strip() if body.q else ""
+    if not q_text:
+        return "", "none", None
+    interpretation = predicates.detect_text_mode(q_text)
+    if body.text_mode == "literal" or (
+        body.text_mode == "auto" and interpretation.mode == "literal"
+    ):
+        applied = "literal"
+    elif body.text_mode == "semantic" or body.search_mode == "hybrid":
+        applied = "semantic"
+    else:
+        applied = "keywords"
+    return q_text, applied, interpretation.as_dict()
 
 
 def _fts_clause(q: str) -> Any:
@@ -449,7 +482,7 @@ async def candidate_search_diagnostics(
     if body.exclude_in_job_id is not None:
         body.exclude_blacklisted = True
 
-    q_text = (body.q or "").strip() if body.q else ""
+    q_text, text_applied, _interpretation = _text_plan(body)
 
     base_count = await _diagnostics_count(db, [])
     applied: list[Any] = []
@@ -466,9 +499,7 @@ async def candidate_search_diagnostics(
 
     # Free-text / boolean buckets.
     query_clauses: list[Any] = []
-    boolean = build_advanced_filter(
-        body.q_all, body.q_any, body.q_none, body.q_any_groups
-    )
+    boolean = _boolean_clause(body)
     if boolean is not None:
         query_clauses.append(boolean)
 
@@ -481,7 +512,12 @@ async def candidate_search_diagnostics(
     # użyło. Panel otwiera się WYŁĄCZNIE przy zerze wyników, więc to jedyny
     # ekran, na którym rekruter szuka przyczyny — i był kierowany pod zły adres.
     query_label = "Zapytanie tekstowe"
-    if q_text and body.search_mode == "hybrid":
+    if text_applied == "literal":
+        literal_clause = await predicates.prepare_literal_text(db, q_text)
+        if literal_clause is not None:
+            query_clauses.append(literal_clause)
+        query_label = "Zapytanie (dopasowanie dosłowne)"
+    elif text_applied == "semantic":
         from app.services.hybrid_search import hybrid_candidates  # noqa: PLC0415
 
         pool_size = _hybrid_pool_size()
@@ -553,9 +589,7 @@ async def advanced_candidate_search(
     clauses: list[Any] = []
 
     # === Layer 1: boolean buckets (Traffit-style ILIKE) ======================
-    boolean_clause = build_advanced_filter(
-        body.q_all, body.q_any, body.q_none, body.q_any_groups
-    )
+    boolean_clause = _boolean_clause(body)
     if boolean_clause is not None:
         clauses.append(boolean_clause)
 
@@ -569,10 +603,10 @@ async def advanced_candidate_search(
     clauses.extend(build_structured_filter(body))
 
     # === Layer 3: free-text — FTS or hybrid (BM25+dense+RRF+rerank) ==========
-    q_text = (body.q or "").strip() if body.q else ""
+    q_text, text_applied, interpretation = _text_plan(body)
     hybrid_order: list[int] = []
     search_degraded = False
-    use_hybrid = body.search_mode == "hybrid" and bool(q_text)
+    use_hybrid = text_applied == "semantic"
     # Wiązane BEZWARUNKOWO, choć używane tylko w gałęzi hybrydowej: `meta`
     # niżej czyta je w wyrażeniu `use_hybrid and ... >= pool_size`, które przy
     # trybie boolowskim ratuje wyłącznie skrócone obliczanie `and`. Nazwa
@@ -609,6 +643,13 @@ async def advanced_candidate_search(
             # Empty hybrid result — short-circuit to no candidates so we don't
             # show the full base table when the user typed a specific query.
             clauses.append(text("false"))
+    elif text_applied == "literal":
+        # Osoba (nazwisko / e-mail / telefon) albo jawne `text_mode=literal`:
+        # TO SAMO dopasowanie co `?q=` na liście — fraza w dowolnym polu,
+        # literówki w tożsamości, telefon niezależny od zapisu.
+        literal_clause = await predicates.prepare_literal_text(db, q_text)
+        if literal_clause is not None:
+            clauses.append(literal_clause)
     elif q_text:
         clauses.append(_fts_clause(q_text))
 
@@ -766,6 +807,8 @@ async def advanced_candidate_search(
             # Pula wyczerpana ⇒ `total` jest sufitem retrievalu, nie liczbą
             # pasujących osób w bazie. UI ma to powiedzieć wprost.
             result_cap_reached=use_hybrid and len(hybrid_order) >= pool_size,
+            text_mode_applied=text_applied,
+            interpretation=interpretation,
         ),
     )
 

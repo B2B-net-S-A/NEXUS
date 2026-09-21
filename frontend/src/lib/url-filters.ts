@@ -565,6 +565,31 @@ export function filtersToApiParams(
 }
 
 /**
+ * Nowe, OPCJONALNE parametry `GET /api/candidates` wspólne z wyszukiwarką
+ * (`POST /api/search/candidates`) — jedna semantyka filtrów w obu silnikach
+ * (backend: `app/services/candidate_search_predicates.py`). UI jeszcze ich nie
+ * wysyła; `filtersToApiParams` nadal emituje pola legacy, które zachowują
+ * dotychczasowe (twarde) znaczenie, więc zapisane wyszukiwania się nie zmieniają.
+ */
+export interface CandidateListSharedFilterParams {
+  /** „Musi mieć" — twardo, każda; pozycja może być grupą `a|b`. */
+  skills_required?: string[];
+  /** Grupy „którakolwiek" — powtarzany parametr, każda wartość `a|b`. */
+  skills_required_any_groups?: string[];
+  /** „Mile widziane" — tylko ranking. */
+  skills_preferred?: string[];
+  /** „Wyklucz" — twardo. */
+  skills_excluded?: string[];
+  /** Tagi — cały tag, każdy wymagany. */
+  tags?: string[];
+  /** Kody ISO krajów — którykolwiek. */
+  country?: string[];
+  text_mode?: "auto" | "literal" | "semantic";
+  /** Kandydaci bez danych (staż, lokalizacja): lista domyślnie `exclude`. */
+  unknown_values?: "include" | "exclude";
+}
+
+/**
  * Canonical, pagination-free API filter spec used by saved searches and POST
  * export. Presentation flags are deliberately excluded so both consumers
  * describe the candidate set itself, not the current table workspace.

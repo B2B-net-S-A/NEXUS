@@ -40,6 +40,18 @@ export interface CandidateSearchRequest {
   skills_must?: string[];
   skills_any?: string[];
   skills_none?: string[];
+  /**
+   * Trzy JAWNE kubełki umiejętności (09.2026) — to samo znaczenie w
+   * `GET /api/candidates` i tutaj: „Musi mieć" (twardo), grupy „którakolwiek"
+   * (twardo), „Mile widziane" (tylko ranking), „Wyklucz" (twardo). Pozycja może
+   * być grupą LUB w formacie `a|b`. Pola legacy wyżej zachowują dotychczasowe
+   * znaczenie (`skills_must`/`skills_any` = ranking, `skills_none` = wyklucz).
+   * UI jeszcze ich nie wysyła.
+   */
+  skills_required?: string[];
+  skills_required_any_groups?: string[][];
+  skills_preferred?: string[];
+  skills_excluded?: string[];
   experience_years_min?: number | null;
   experience_years_max?: number | null;
   languages?: LanguageRequirement[];
@@ -65,6 +77,13 @@ export interface CandidateSearchRequest {
   open_to_side_projects?: boolean | null;
   open_to_sales_support?: boolean | null;
   open_to_expert_consult?: boolean | null;
+  /** „Otwarty na" — KTÓRYKOLWIEK z zaznaczonych (LUB), jak na liście. */
+  open_to?: Array<"side_projects" | "sales_support" | "expert_consult">;
+  /**
+   * Los kandydata BEZ danych dla filtrów stażu i lokalizacji. Wyszukiwarka
+   * domyślnie go zostawia (`include`), lista wycina (`exclude`).
+   */
+  unknown_values?: "include" | "exclude" | null;
   cv_parsed_after?: string | null; // ISO date
   exclude_in_job_id?: number | null;
   /**
@@ -80,6 +99,11 @@ export interface CandidateSearchRequest {
    * "hybrid"  — BM25 + Voyage dense + RRF + rerank-2.5. Higher recall, +rerank latency.
    */
   search_mode?: "boolean" | "hybrid";
+  /**
+   * Jak czytać `q`: `auto` (nazwisko / e-mail / telefon → dosłownie, reszta wg
+   * `search_mode`), `literal`, `semantic`. Wynik w `meta.text_mode_applied`.
+   */
+  text_mode?: "auto" | "literal" | "semantic";
 }
 
 export interface CandidateSearchItem {
@@ -126,6 +150,17 @@ export interface SearchFacets {
   competence_categories: CompetenceCategoryFacet[];
 }
 
+export interface SearchTextInterpretation {
+  kind: "email" | "phone" | "name" | "text" | "empty";
+  mode: "literal" | "semantic";
+  name: string[];
+  email: string | null;
+  phone: string | null;
+  skills: string[];
+  locations: string[];
+  other: string[];
+}
+
 export interface SearchMeta {
   ai_status: AiStatus;
   took_ms: number;
@@ -153,6 +188,10 @@ export interface SearchMeta {
    *  „200 najtrafniejszych”. Zawsze `false` w trybie boolowskim, gdzie `total`
    *  naprawdę zlicza całą bazę. */
   result_cap_reached?: boolean;
+  /** Jak faktycznie potraktowano `q`. */
+  text_mode_applied?: "literal" | "keywords" | "semantic" | "none";
+  /** „Rozumiem to jako…" — maszynowy opis odczytania `q`. */
+  interpretation?: SearchTextInterpretation | null;
 }
 
 export interface CandidateSearchResponse {

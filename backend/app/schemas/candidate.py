@@ -780,6 +780,11 @@ class CandidateList(BaseModel):
     total: int
     page: int
     page_size: int
+    # Jak potraktowano `q` — te same pola co `meta` wyszukiwarki
+    # (`candidate_search_predicates.TextInterpretation`). Lista zna wyłącznie
+    # dopasowanie dosłowne: "literal" albo "none" (bez `q`).
+    text_mode_applied: Optional[str] = None
+    interpretation: Optional[dict] = None
 
 
 class CandidateFromCVDuplicate(BaseModel):

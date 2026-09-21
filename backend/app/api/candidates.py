@@ -31,7 +31,6 @@ from sqlalchemy import (
     case,
     false,
     func,
-    literal,
     not_,
     or_,
     select,
@@ -172,7 +171,6 @@ from app.services.client_identity import (
 )
 from app.services.candidate_profile_rate import (
     canonical_profile_rate_amount,
-    canonical_profile_rate_currency_clause,
 )
 from app.services.candidate_location_writer import (
     apply_candidate_location_from_source,
@@ -224,6 +222,21 @@ class CandidateFilterSpec(BaseModel):
     skill_combine: str = "and"
     skills_any: Optional[list[str]] = None
     skills_none: Optional[list[str]] = None
+    # Trzy JAWNE kubełki umiejętności — to samo znaczenie co w
+    # `POST /api/search/candidates` (`candidate_search_predicates`). Pola legacy
+    # wyżej zachowują TWARDE znaczenie, więc zapisane wyszukiwania i alerty
+    # zwracają to samo co dotąd.
+    skills_required: Optional[list[str]] = None
+    skills_required_any_groups: Optional[list[str]] = None
+    skills_preferred: Optional[list[str]] = None
+    skills_excluded: Optional[list[str]] = None
+    tags: Optional[list[str]] = None
+    country: Optional[list[str]] = None
+    text_mode: Literal["auto", "literal", "semantic"] = "auto"
+    # Los kandydata BEZ danych dla filtrów stażu i lokalizacji. Lista domyślnie
+    # go WYCINA (dotychczasowe zachowanie, na którym stoją alerty zapisanych
+    # wyszukiwań); wyszukiwarka domyślnie zostawia. To samo pole w obu.
+    unknown_values: Optional[Literal["include", "exclude"]] = None
     remote_policy: Optional[list[Literal["remote", "hybrid", "onsite"]]] = None
     min_rate: Optional[Decimal] = Field(None, ge=0)
     max_rate: Optional[Decimal] = Field(None, ge=0)
@@ -488,33 +501,6 @@ _PAST_EXPERIENCE_SQL = (
     f"{_EXPERIENCE_END_SQL} NOT IN ({sql_current_end_literals(include_empty=False)}) "
     f"AND (idx > 1 OR {_EXPERIENCE_END_SQL} <> '')"
 )
-
-
-# Zapytanie, które wygląda jak numer telefonu: same cyfry i typowe separatory.
-_PHONE_QUERY_RE = re.compile(r"^\+?[\d\s().\-/]+$")
-_PHONE_QUERY_MIN_DIGITS = 6
-
-
-def _phone_digits_clause(q: str):
-    """Dopasowanie numeru telefonu niezależne od zapisu (spacje, myślniki, +48).
-
-    Wyszukiwanie tekstowe porównuje podciąg ZAPISANEGO tekstu, więc
-    „000 000 001” nie trafiało w numer zapisany jako „000000001” (i odwrotnie).
-    Dla zapytań w kształcie numeru porównujemy same cyfry po obu stronach;
-    przy 9+ cyfrach bierzemy ostatnie 9 — tak jak `dedup_service` — żeby
-    prefiks kraju po jednej stronie nie psuł trafienia. Zwraca None dla
-    zapytań, które numerem nie są (wtedy działa tylko zwykłe wyszukiwanie).
-    """
-    if not q or not _PHONE_QUERY_RE.match(q):
-        return None
-    digits = re.sub(r"\D", "", q)
-    if len(digits) < _PHONE_QUERY_MIN_DIGITS:
-        return None
-    if len(digits) >= 9:
-        digits = digits[-9:]
-    return func.regexp_replace(
-        func.coalesce(Candidate.phone, ""), r"[^0-9]", "", "g"
-    ).like(f"%{digits}%")
 
 
 def _current_company_predicate(values: list[str]):
@@ -853,8 +839,15 @@ async def _build_candidate_filtered_query(
         query = query.where(Candidate.id > f.id_after)
     if f.updated_after:
         query = query.where(Candidate.updated_at > f.updated_after)
-    if f.status:
-        query = query.where(Candidate.status.in_(f.status))
+    from app.services import candidate_search_predicates as predicates
+
+    # Filtry wspólne z `POST /api/search/candidates` czytamy WYŁĄCZNIE przez
+    # `candidate_search_predicates` — lokalna kopia któregokolwiek z nich to
+    # powrót do 11 rozjazdów z 07.2026 (`test_search_engines_contract.py`).
+    unknown_values = f.unknown_values or "exclude"
+    status_clause = predicates.status_clause(f.status)
+    if status_clause is not None:
+        query = query.where(status_clause)
     if f.employment:
         invalid = [e for e in f.employment if e not in {"at_client", "available"}]
         if invalid:
@@ -870,113 +863,57 @@ async def _build_candidate_filtered_query(
             query = query.where(_at_client_predicate())
         elif emp_set == {"available"}:
             query = query.where(not_(_at_client_predicate()))
-    if f.availability:
-        query = query.where(Candidate.availability_status.in_(f.availability))
-    if f.open_to:
-        open_to_fields = {
-            "side_projects": Candidate.open_to_side_projects,
-            "sales_support": Candidate.open_to_sales_support,
-            "expert_consult": Candidate.open_to_expert_consult,
-        }
-        invalid = [value for value in f.open_to if value not in open_to_fields]
-        if invalid:
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"Invalid open_to values: {invalid}. "
-                    f"Allowed: {sorted(open_to_fields)}."
-                ),
-            )
-        query = query.where(
-            or_(*[open_to_fields[value].is_(True) for value in set(f.open_to)])
-        )
-    if f.location:
-        query = query.where(Candidate.location.ilike(f"%{f.location}%"))
-    if f.competence_category_id:
-        # Match candidates carrying any of the selected competence categories —
-        # as PRIMARY or SECONDARY (the M2M), OR via the legacy single FK for
-        # profiles not yet backfilled into the M2M. The two stay in sync.
-        from app.models.competence_category import CandidateCompetenceCategory
+    availability_clause = predicates.availability_clause(f.availability)
+    if availability_clause is not None:
+        query = query.where(availability_clause)
+    try:
+        open_to_clause = predicates.open_to_clause(f.open_to)
+    except predicates.InvalidOpenTo as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if open_to_clause is not None:
+        query = query.where(open_to_clause)
+    for location_clause in predicates.location_clauses(
+        [f.location] if f.location else [], f.country, unknown=unknown_values
+    ):
+        query = query.where(location_clause)
+    cc_clause = predicates.competence_category_clause(f.competence_category_id)
+    if cc_clause is not None:
+        query = query.where(cc_clause)
+    for tag_clause in predicates.tags_clauses(f.tags):
+        query = query.where(tag_clause)
 
-        query = query.where(
-            or_(
-                Candidate.competence_category_id.in_(f.competence_category_id),
-                Candidate.id.in_(
-                    select(CandidateCompetenceCategory.candidate_id).where(
-                        CandidateCompetenceCategory.competence_category_id.in_(
-                            f.competence_category_id
-                        )
-                    )
-                ),
-            )
-        )
-
-    from app.services.advanced_candidate_search import (
-        build_advanced_filter,
-        single_phrase_filter,
-    )
-
+    # Tekst `q`: lista zna wyłącznie dopasowanie DOSŁOWNE (nie ma retrievalu
+    # wektorowego) — `text_mode` jest przyjmowany dla zgodności kontraktu,
+    # a odpowiedź mówi uczciwie, co zrobiono (`text_mode_applied`).
     if f.q:
-        q_stripped = f.q.strip()
-        use_fuzzy = len(q_stripped) >= 3
-        if use_fuzzy:
-            trigram_threshold = 0.5 if " " in q_stripped else 0.2
-            await db.execute(
-                text(f"SET LOCAL pg_trgm.similarity_threshold = {trigram_threshold}")
-            )
-        phrase_clause = single_phrase_filter(q_stripped, fuzzy=use_fuzzy)
-        phone_clause = _phone_digits_clause(q_stripped)
-        if phrase_clause is not None and phone_clause is not None:
-            query = query.where(or_(phrase_clause, phone_clause))
-        elif phrase_clause is not None:
-            query = query.where(phrase_clause)
+        literal_clause = await predicates.prepare_literal_text(db, f.q)
+        if literal_clause is not None:
+            query = query.where(literal_clause)
 
-    q_any_groups = (
-        [group.split("|") for group in f.q_any_group] if f.q_any_group else None
+    q_groups = predicates.parse_q_groups(
+        q_all=f.q_all, q_any=f.q_any, q_none=f.q_none, q_any_groups=f.q_any_group
     )
-    advanced = build_advanced_filter(f.q_all, f.q_any, f.q_none, q_any_groups)
+    q_any_groups = q_groups.as_lists()
+    advanced = q_groups.clause()
     if advanced is not None:
         query = query.where(advanced)
 
-    if f.skills or f.skills_any or f.skills_none:
-        from app.services.scoring_service import canonical_skill_names
-
-        # Jeden predykat dla OBU powierzchni filtrowania umiejętności.
-        #
-        # Ta lista i `POST /api/search/candidates` miały własne, rozjeżdżone
-        # implementacje tego samego filtra. #960 naprawił tamtą — a frontend
-        # wysyła „nie ma <X>" WŁAŚNIE TUTAJ (`skill-expression.ts` →
-        # `url-filters.ts`), więc naprawa nie dotknęła ścieżki, z której
-        # rekruterzy faktycznie korzystają.
-        #
-        # Stary wzorzec `%go%` na tej trasie wycinał 196 osób przy 15 realnie
-        # znających Go — 181 fałszywych wykluczeń na filtrze TWARDYM,
-        # niewidocznych dla rekrutera (brakujący kandydat wygląda jak
-        # nieistniejący). Zmierzone na produkcji 2026-07-28.
-        from app.services.structured_candidate_search import _skill_match
-
-        skill_predicate = _skill_match
-
-        def skill_group(names: list[str]):
-            wanted = [s for s in (canonical_skill_names(names) or []) if s]
-            return or_(*[skill_predicate(s) for s in wanted]) if wanted else None
-
-        if f.skills:
-            wanted = [s for s in (canonical_skill_names(f.skills) or []) if s]
-            if wanted:
-                clauses = [skill_predicate(s) for s in wanted]
-                combiner = or_ if f.skill_combine.strip().lower() == "or" else and_
-                query = query.where(combiner(*clauses))
-        if f.skills_any:
-            for raw_group in f.skills_any:
-                clause = skill_group(raw_group.split("|"))
-                if clause is not None:
-                    query = query.where(clause)
-        if f.skills_none:
-            for raw_group in f.skills_none:
-                clause = skill_group(raw_group.split("|"))
-                if clause is not None:
-                    query = query.where(not_(clause))
+    # Umiejętności: trzy kubełki. „Musi mieć" i „Wyklucz" tną, „Mile widziane"
+    # tylko szereguje (`_apply_candidate_sort`).
+    skill_buckets = predicates.skill_buckets_from_list(
+        skills=f.skills,
+        skill_combine=f.skill_combine,
+        skills_any=f.skills_any,
+        skills_none=f.skills_none,
+        skills_required=f.skills_required,
+        skills_required_any_groups=f.skills_required_any_groups,
+        skills_preferred=f.skills_preferred,
+        skills_excluded=f.skills_excluded,
+    )
+    for skill_clause in predicates.skills_required_clauses(skill_buckets):
+        query = query.where(skill_clause)
+    for skill_clause in predicates.skills_excluded_clauses(skill_buckets):
+        query = query.where(skill_clause)
 
     if f.remote_policy:
         query = query.where(
@@ -991,38 +928,18 @@ async def _build_candidate_filtered_query(
                 ]
             )
         )
-    if f.min_rate is not None or f.max_rate is not None:
-        query = query.where(
-            canonical_profile_rate_currency_clause(Candidate.expected_rate_currency)
-        )
-    if f.min_rate is not None:
-        query = query.where(Candidate.expected_rate_hourly >= f.min_rate)
-    if f.max_rate is not None:
-        query = query.where(Candidate.expected_rate_hourly <= f.max_rate)
+    rate_clause = predicates.hourly_rate_clause(f.min_rate, f.max_rate)
+    if rate_clause is not None:
+        query = query.where(rate_clause)
     if f.min_onsite_days is not None:
         # `NULL >= x` jest NULL (falsy) w SQL — wyklucza nieznanych, jak stawka.
         query = query.where(Candidate.max_onsite_days_per_week >= f.min_onsite_days)
 
-    if f.min_experience is not None or f.max_experience is not None:
-        traffit_exp = Candidate.cv_extracted_data.op("->>")("traffit_experience")
-        exp_lo = case(
-            (Candidate.years_it_experience.is_not(None), Candidate.years_it_experience),
-            (traffit_exp == "Poniżej 2", literal(0)),
-            (traffit_exp == "2-5", literal(2)),
-            (traffit_exp == "5+", literal(5)),
-            else_=None,
-        )
-        exp_hi = case(
-            (Candidate.years_it_experience.is_not(None), Candidate.years_it_experience),
-            (traffit_exp == "Poniżej 2", literal(1)),
-            (traffit_exp == "2-5", literal(5)),
-            (traffit_exp == "5+", literal(60)),
-            else_=None,
-        )
-        if f.min_experience is not None:
-            query = query.where(exp_hi >= f.min_experience)
-        if f.max_experience is not None:
-            query = query.where(exp_lo <= f.max_experience)
+    experience_clause = predicates.experience_clause(
+        f.min_experience, f.max_experience, unknown=unknown_values
+    )
+    if experience_clause is not None:
+        query = query.where(experience_clause)
 
     if f.added_by_user_id:
         real_ids = [uid for uid in f.added_by_user_id if uid != 0]
@@ -1251,6 +1168,21 @@ def _pl_sort_key(column):
 
 
 def _apply_candidate_sort(query, filters: CandidateFilterSpec, q_any_groups):
+    """Sortowanie listy. „Mile widziane" (`skills_preferred`) prowadzi KAŻDE
+    sortowanie — tak samo jak chipy podbijające ranking w wyszukiwarce
+    (decyzja 17.09.2026); żądany `sort` rozstrzyga w obrębie tej samej liczby
+    trafień. Bez `skills_preferred` kolejność jest dokładnie taka jak dotąd."""
+    from app.services import candidate_search_predicates as predicates
+
+    preferred_rank = predicates.skills_preferred_rank(
+        predicates.skill_buckets_from_list(skills_preferred=filters.skills_preferred)
+    )
+    if preferred_rank is not None:
+        query = query.order_by(preferred_rank.desc())
+    return _apply_requested_sort(query, filters, q_any_groups)
+
+
+def _apply_requested_sort(query, filters: CandidateFilterSpec, q_any_groups):
     if filters.sort == "oldest":
         return query.order_by(Candidate.created_at.asc(), Candidate.id.asc())
     if filters.sort == "name":
@@ -1360,6 +1292,59 @@ async def list_candidates(
         description=(
             "Skills to EXCLUDE (NOT). Repeat the param — a candidate is dropped if "
             "ANY listed skill is present. Skill-scoped, same fields as `skills`."
+        ),
+    ),
+    skills_required: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Musi mieć: — HARD filter, every listed skill required (AND). A value "
+            "may be a pipe-joined OR-group (`python|java`). Same meaning as the "
+            "field of the same name on `POST /api/search/candidates`."
+        ),
+    ),
+    skills_required_any_groups: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Musi mieć: OR-groups — repeat the param, each value a pipe-joined "
+            "group (`aws|gcp`); at least one skill of EVERY group is required."
+        ),
+    ),
+    skills_preferred: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Mile widziane: — ranking only, never filters. Matching candidates "
+            "are ordered first, ahead of the requested `sort`."
+        ),
+    ),
+    skills_excluded: Optional[list[str]] = Query(
+        None,
+        description="Wyklucz: — HARD filter, none of the listed skills may be present.",
+    ),
+    tags: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Candidate tags — repeat the param; every tag required (AND). "
+            "WHOLE-tag, case-insensitive match (`java` does not match `javascript`)."
+        ),
+    ),
+    country: Optional[list[str]] = Query(
+        None,
+        description="ISO country codes (`PL`, `DE`) — any of. Case-insensitive.",
+    ),
+    text_mode: Literal["auto", "literal", "semantic"] = Query(
+        "auto",
+        description=(
+            "How to read `q`. The list engine only supports LITERAL matching; the "
+            "param is accepted for contract parity with the search engine and the "
+            "response reports `text_mode_applied` + `interpretation`."
+        ),
+    ),
+    unknown_values: Optional[Literal["include", "exclude"]] = Query(
+        None,
+        description=(
+            "What happens to candidates with NO data for the experience / "
+            "location / country filters. List default: `exclude` (legacy). The "
+            "search engine understands the same field with default `include`."
         ),
     ),
     remote_policy: Optional[list[Literal["remote", "hybrid", "onsite"]]] = Query(
@@ -1753,6 +1738,14 @@ async def list_candidates(
         skill_combine=skill_combine,
         skills_any=skills_any,
         skills_none=skills_none,
+        skills_required=skills_required,
+        skills_required_any_groups=skills_required_any_groups,
+        skills_preferred=skills_preferred,
+        skills_excluded=skills_excluded,
+        tags=tags,
+        country=country,
+        text_mode=text_mode,
+        unknown_values=unknown_values,
         remote_policy=remote_policy,
         min_rate=min_rate,
         max_rate=max_rate,
@@ -2121,8 +2114,21 @@ async def list_candidates(
                 payload = payload.model_copy(update={"match_snippet": snippet})
         response_items.append(payload)
 
+    # „Rozumiem to jako…": lista dopasowuje `q` wyłącznie DOSŁOWNIE, więc
+    # `text_mode_applied` mówi to wprost niezależnie od żądanego `text_mode`;
+    # `interpretation.mode` niesie to, co wynikałoby z samego tekstu.
+    from app.services import candidate_search_predicates as predicates
+
+    q_stripped = (q or "").strip()
     return CandidateList(
-        items=response_items, total=total, page=page, page_size=page_size
+        items=response_items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        text_mode_applied="literal" if q_stripped else "none",
+        interpretation=(
+            predicates.detect_text_mode(q_stripped).as_dict() if q_stripped else None
+        ),
     )
 
 
