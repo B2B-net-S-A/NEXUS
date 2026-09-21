@@ -8,6 +8,7 @@ import type { JarvisAction, JarvisItem } from "@/lib/jarvis/types";
 import { JarvisActionCard } from "./JarvisActionCard";
 import { JarvisDeepLinkCard } from "./JarvisDeepLinkCard";
 import { JarvisMarkdown } from "./JarvisMarkdown";
+import { JarvisSources } from "./JarvisSources";
 import { JarvisStepTrace } from "./JarvisStepTrace";
 
 interface Props {
@@ -69,6 +70,8 @@ export function JarvisMessageList({
                 onReject={onReject}
               />
             );
+          case "sources":
+            return <JarvisSources key={index} items={item.items} />;
           case "link":
             return <JarvisDeepLinkCard key={index} link={item} onNavigate={onNavigate} />;
           case "error":

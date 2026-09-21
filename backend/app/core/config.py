@@ -507,6 +507,18 @@ class Settings(BaseSettings):
     JARVIS_RETENTION_DAYS: int = 30
     # Proponowana akcja bez decyzji dłużej niż tyle minut wygasa.
     JARVIS_ACTION_TTL_MINUTES: int = 15
+    # Internet (decyzja 21.09.2026): wyszukiwarka tylko w turze, w której
+    # użytkownik włączył przełącznik „Szukaj w internecie”. Taka tura NIE ma
+    # narzędzi z danymi NEXUSA ani wcześniejszej rozmowy — dane z bazy nie mają
+    # jak trafić do zapytania wysłanego na zewnątrz.
+    JARVIS_WEB_ENABLED: bool = True
+    # Twardy limit tur z internetem na osobę dziennie (koszt: 0,01 USD/wyszukiwanie).
+    JARVIS_WEB_DAILY_LIMIT: int = 20
+    JARVIS_WEB_MAX_SEARCHES_PER_TURN: int = 3
+    # CSV domen: pusta lista dozwolonych = cały internet. Zablokowane zawsze
+    # wygrywają. Obu naraz Anthropic nie przyjmuje — dozwolone mają pierwszeństwo.
+    JARVIS_WEB_ALLOWED_DOMAINS: str = ""
+    JARVIS_WEB_BLOCKED_DOMAINS: str = ""
     AUTO_MATCH_MAX_ATTEMPTS: int = 3
     AUTO_MATCH_STALE_HOURS: int = 48
     # ── „Moi ludzie" (21.09.2026) ────────────────────────────────────────────

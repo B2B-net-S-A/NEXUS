@@ -22,6 +22,8 @@ from app.models.jarvis import (
     JarvisMessage,
 )
 
+_MODEL_BLOCK_TYPES = frozenset({"text", "tool_use", "tool_result"})
+
 INTERRUPTED_RESULT = "Przerwane — ta operacja nie dokończyła się (np. restart serwera). Nie zakładaj jej wyniku."
 
 
@@ -164,7 +166,13 @@ def repair_history(
     """
     fixed: list[dict[str, Any]] = []
     for message in messages:
-        content = [b for b in message["content"] if isinstance(b, dict)]
+        # Tylko bloki, które API przyjmie — np. zapisane źródła (`x_sources`)
+        # są dla interfejsu, nie dla modelu.
+        content = [
+            b
+            for b in message["content"]
+            if isinstance(b, dict) and b.get("type") in _MODEL_BLOCK_TYPES
+        ]
         if not content:
             continue
         if fixed and fixed[-1]["role"] == message["role"]:

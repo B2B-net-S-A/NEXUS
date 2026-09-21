@@ -151,3 +151,17 @@ describe("lista postaci = lista w backendzie", () => {
     expect(unlockable).toEqual(["robot_gold", "trophy"]);
   });
 });
+
+describe("źródła w reduktorze", () => {
+  it("zdarzenie sources dokłada pozycję ze źródłami", () => {
+    const state = applyStreamEvent(EMPTY, { type: "sources", items: [{ url: "https://a.pl", title: "A" }] });
+    expect(state.items).toEqual([{ kind: "sources", items: [{ url: "https://a.pl", title: "A" }] }]);
+  });
+
+  it("strumień wysyła flagę web", async () => {
+    const fetchImpl = vi.fn(async () => streamResponse(['data: {"type":"done"}\n\n']));
+    await streamJarvisChat({ message: "hej", web: true }, { onEvent: () => undefined, fetchImpl });
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({ message: "hej", web: true });
+  });
+});

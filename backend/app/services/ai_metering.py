@@ -23,6 +23,9 @@ from app.models.ai_metering import AIOperation, AIProviderCall
 
 logger = logging.getLogger(__name__)
 PRICE_VERSION = "multi-provider-2026-09-16"
+
+# Cennik wyszukiwarki Anthropic (`web_search_*`): 10 USD / 1000 wyszukiwań.
+WEB_SEARCH_USD_PER_REQUEST = Decimal("0.01")
 # USD / million tokens, official sources:
 # * Anthropic (verified 2026-09-08): https://platform.claude.com/docs/en/about-claude/pricing
 #   dwójka (wejście, wyjście); odczyt cache = 10% wejścia, zapis 125% / 2×
@@ -131,6 +134,12 @@ def response_event(
             ) / 1_000_000
         if inference_geo == "us":
             cost *= Decimal("1.1")
+        # Wyszukiwanie w internecie (narzędzie serwerowe Anthropic, Jarvis 0330)
+        # jest płatne OSOBNO od tokenów: 10 USD za 1000 wyszukiwań.
+        server = getattr(usage, "server_tool_use", None)
+        searches = token_count(getattr(server, "web_search_requests", 0)) or 0
+        if searches:
+            cost += WEB_SEARCH_USD_PER_REQUEST * searches
         event["estimated_cost_usd"] = cost.quantize(Decimal("0.00000001"))
         event["price_version"] = PRICE_VERSION
     return event

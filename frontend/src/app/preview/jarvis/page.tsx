@@ -62,6 +62,23 @@ const CONVERSATION: JarvisItem[] = [
       preview: { text: "Dodam notatkę do **Jan Przykładowy**: „Klient czeka na propozycję terminu.”" },
     },
   },
+  { kind: "message", role: "user", markdown: "🌐 Jakie są dziś stawki senior Go w Warszawie?" },
+  {
+    kind: "steps",
+    steps: [{ tool: "web_search", label: "Szukam w internecie: „stawki senior Go Warszawa 2026”…", status: "done" }],
+  },
+  {
+    kind: "message",
+    role: "assistant",
+    markdown: "Według świeżych ogłoszeń widełki B2B to zwykle **180–230 zł/h**; górę zakresu płacą fintechy.",
+  },
+  {
+    kind: "sources",
+    items: [
+      { url: "https://example.org/raport-placowy-it", title: "Raport płacowy IT 2026 (przykład)" },
+      { url: "https://example.com/oferty/go", title: "Oferty Go — Warszawa (przykład)" },
+    ],
+  },
   { kind: "message", role: "user", markdown: "Zakończ współpracę na kontrakcie Ewy." },
   {
     kind: "link",
@@ -178,6 +195,9 @@ export default function JarvisPreviewPage() {
             thinking={false}
             streaming={false}
             draft=""
+            webMode
+            webRemaining={17}
+            onToggleWeb={noop}
             suggestions={["Co mam dziś do zrobienia?", "Jakie mam dziś spotkania?", "Jak dodać zamówienie z PDF-a?"]}
             softLimitNote={null}
             onDraftChange={noop}

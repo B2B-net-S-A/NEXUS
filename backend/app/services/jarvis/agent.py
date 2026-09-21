@@ -34,6 +34,7 @@ from app.models.ai_feature import AIFeatureKey
 from app.services import claude_client
 from app.services.ai_models import fallbacks_for, model_for
 from app.services.jarvis import store
+from app.services.jarvis import web as jarvis_web
 from app.services.jarvis.prompt import SYSTEM_PROMPT, context_block
 from app.services.jarvis.tools import (
     TOOLS_BY_NAME,
@@ -71,6 +72,8 @@ class TurnInput:
     # Wiadomość systemowa zamiast tekstu użytkownika (np. wynik akcji
     # zatwierdzonej kliknięciem) — trafia do modelu, nie do tytułu rozmowy.
     system_note: Optional[str] = None
+    # Tura z internetem: wyszukiwarka, bez danych NEXUSA i bez historii.
+    web: bool = False
 
 
 @dataclass
@@ -346,6 +349,8 @@ def _user_content(turn: TurnInput) -> list[dict[str, Any]]:
     ]
     if turn.system_note:
         blocks.append({"type": "text", "text": turn.system_note})
+    if turn.web:
+        blocks.append({"type": "text", "text": jarvis_web.WEB_NOTE})
     if turn.message:
         blocks.append({"type": "text", "text": turn.message})
     return blocks
@@ -362,8 +367,14 @@ async def _run_loop(
         yield {"type": "error", "message": UNAVAILABLE_MESSAGE, "code": "no_api_key"}
         return
 
-    history = await store.load_history(
-        state.conversation_id, settings.JARVIS_HISTORY_WINDOW
+    # Tura z internetem NIE dostaje wcześniejszej rozmowy: mogły w niej paść
+    # dane z NEXUSA, a stąd byłby krok do zapytania wysłanego na zewnątrz.
+    history = (
+        []
+        if turn.web
+        else await store.load_history(
+            state.conversation_id, settings.JARVIS_HISTORY_WINDOW
+        )
     )
     user_blocks = _user_content(turn)
     await store.append_message(state.conversation_id, "user", user_blocks)
@@ -372,8 +383,15 @@ async def _run_loop(
     else:
         history.append({"role": "user", "content": user_blocks})
 
-    tools_by_name = {tool.name: tool for tool in turn.allowed_tools}
-    definitions = _tool_definitions(turn.allowed_tools)
+    allowed = [
+        tool
+        for tool in turn.allowed_tools
+        if not turn.web or tool.name in jarvis_web.WEB_SAFE_TOOLS
+    ]
+    tools_by_name = {tool.name: tool for tool in allowed}
+    definitions = _tool_definitions(allowed)
+    if turn.web:
+        definitions = [jarvis_web.web_tool_definition(), *definitions]
     deadline = time.monotonic() + settings.JARVIS_TURN_TIMEOUT_SECONDS
     fallbacks = [m for m in fallbacks_for(AIFeatureKey.jarvis) if m != model]
 
@@ -440,16 +458,45 @@ async def _steps(
             }
             return
 
-        blocks = [b for b in (_block_to_dict(x) for x in (message.content or [])) if b]
-        if not blocks:
+        content = list(message.content or [])
+        for query in jarvis_web.search_queries(content):
+            yield {
+                "type": "step",
+                "tool": "web_search",
+                "label": f"Szukam w internecie: „{query}”…",
+                "status": "done",
+            }
+        sources = jarvis_web.collect_sources(content) if turn.web else []
+        paused = getattr(message, "stop_reason", None) == "pause_turn"
+
+        blocks = [b for b in (_block_to_dict(x) for x in content) if b]
+        if not blocks and not paused:
             blocks = [{"type": "text", "text": "…"}]
-        await store.append_message(state.conversation_id, "assistant", blocks)
+        stored = list(blocks)
+        if sources:
+            stored.append({"type": jarvis_web.SOURCES_BLOCK, "items": sources})
+        if stored:
+            await store.append_message(state.conversation_id, "assistant", stored)
+
+        if paused:
+            # Wyszukiwarka przerwała turę (długa praca po stronie dostawcy) —
+            # odsyłamy odpowiedź w oryginalnym kształcie i model kontynuuje.
+            history.append(
+                {"role": "assistant", "content": jarvis_web.raw_blocks(content)}
+            )
+            continue
         history.append({"role": "assistant", "content": blocks})
 
         text = "\n\n".join(b["text"] for b in blocks if b["type"] == "text").strip()
         tool_uses = [b for b in blocks if b["type"] == "tool_use"]
         if text:
-            yield {"type": "message", "markdown": text, "final": not tool_uses}
+            yield {
+                "type": "message",
+                "markdown": text,
+                "final": not tool_uses and not sources,
+            }
+        if sources:
+            yield {"type": "sources", "items": sources}
         if not tool_uses:
             return
 

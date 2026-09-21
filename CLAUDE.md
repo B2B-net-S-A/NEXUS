@@ -4824,6 +4824,21 @@ Backend: `app/api/jarvis.py` + `app/services/jarvis/`; front: `components/jarvis
   niesie), razem z wpisem w rejestrze modeli. Strona `/dynareporter/mindy`
   i przekierowania `/mindy`, `/chat` prowadzą do informacji o Jarvisie.
   Powrót routera łapie `test_mindy_endpoints_are_gone`.
+- **Internet = przełącznik 🌐 na JEDNĄ wiadomość** (`web: true`, 21.09.2026,
+  `services/jarvis/web.py`). Zasada: internet ALBO baza, nigdy oba. Tura z
+  internetem dostaje wyszukiwarkę Anthropic (`web_search_20250305`,
+  `JARVIS_WEB_MAX_SEARCHES_PER_TURN`) i WYŁĄCZNIE narzędzia z `WEB_SAFE_TOOLS`
+  (Pomoc + link); nie dostaje historii rozmowy ani ID rekordu z ekranu — dane
+  z NEXUSA nie mają jak trafić do zapytania na zewnątrz (RODO, wstrzyknięcie
+  z CV). Twardy limit `JARVIS_WEB_DAILY_LIMIT` (429), wyłącznik
+  `JARVIS_WEB_ENABLED`, domeny `JARVIS_WEB_ALLOWED_DOMAINS`/`_BLOCKED_DOMAINS`.
+  Źródła (tylko http(s), z wyników wyszukiwarki, nie z tekstu modelu) idą
+  zdarzeniem `sources` i blokiem `x_sources`, który `repair_history` odfiltrowuje
+  przed wysłaniem do API. `pause_turn` jest kontynuowany surowymi blokami.
+  Koszt: `ai_metering` dolicza 0,01 USD za wyszukiwanie
+  (`usage.server_tool_use.web_search_requests`); `web_search_*` NIE jest już
+  „unpriced”. Dokładając narzędzie do `WEB_SAFE_TOOLS` — tylko takie, które nie
+  czyta danych osobowych ani biznesowych.
 - **Dodając narzędzie:** wpis w `tools.py` (opis PL, `label`, `section`, `shape`
   przycinający wynik; zapis: `preview` + `done` + `invalidates`), test kontraktowy
   przechodzi sam, jeśli trasa istnieje i poziom się zgadza. Dokładając trasę
