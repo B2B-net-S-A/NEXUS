@@ -4637,7 +4637,18 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   automat sam pomija: zgoda = `consent_screenshot_required`, numer projektu z
   `managed_policy.require_project_ref` (Energa, Orlen) =
   `client_rule_inputs_missing`; polityka czekająca na synchronizację (503) =
-  `generation_unavailable`, nie „awaria". Testy:
+  `generation_unavailable`, nie „awaria".
+  **Klient dwujęzyczny (Alior, BIK, BNP, Santander): automat robi JEDNĄ wersję**
+  (decyzja właściciela 21.09.2026) — `enqueue_candidate_generation(languages=
+  "primary_only")`, worker pomija drugą wersję TYLKO w pierwszym przebiegu.
+  Drugą dorabia rekruter jednym kliknięciem: ponowienie pakietu odpala to samo
+  zadanie gałęzią „pierwszy dokument gotowy" i tam druga wersja powstaje.
+  Pakiet pokazuje „Brak wygenerowanej wersji EN." (brak wiersza, nie `failed`),
+  `can_retry = true`. Ręczna ścieżka bez zmian (pola nie ma w snapshotcie).
+  `position_fallback` = tytuł rekrutacji, tylko z automatu: potoki używają go,
+  gdy ani `presentation_position`, ani stanowisko z CV nic nie dają
+  (`Candidate` nie ma kolumny `current_position` — `getattr` w `/generate`
+  zawsze daje `None`, stanowisko wiersza ustala dopiero finalizacja). Testy:
   `test_cv_auto_generate_central_policies.py` (prawdziwa wspólna ścieżka).
 - **C. Odpalenie:** wyłącznie `move_candidate`, PO commicie, przez `_spawn`
   (własna sesja; wyjątek przy odpalaniu jest połykany — ruch zawsze 200).

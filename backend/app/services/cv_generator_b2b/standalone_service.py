@@ -1537,6 +1537,7 @@ def _run_generation_pipeline(
     project_ref: str | None = None,
     position_ref: str | None = None,
     prepared_source_facts: PreparedSourceFacts | None = None,
+    position_fallback: str | None = None,
 ) -> GenerationResult:
     """Extract CV text, call Claude and render the DOCX.
 
@@ -1575,6 +1576,7 @@ def _run_generation_pipeline(
             project_ref=project_ref,
             position_ref=position_ref,
             prepared_source_facts=prepared_source_facts,
+            position_fallback=position_fallback,
         )
     if content_mode == "tailored" and champion_dto and champion_dto.intake_profile:
         from types import SimpleNamespace
@@ -1768,6 +1770,7 @@ def _run_generation_pipeline(
         role_title = str(
             raw_data.get("presentation_position")
             or candidate_data.get("position")
+            or position_fallback
             or ""
         ).strip()
         candidate_data["generic_cv"] = mode != "tailored"
@@ -2526,6 +2529,7 @@ async def generate_cv_from_candidate_source(
     project_ref: str | None = None,
     client_policy_override: dict[str, Any] | None = None,
     prepared_source_facts: PreparedSourceFacts | None = None,
+    position_fallback: str | None = None,
 ) -> GenerationResult:
     """Apply one variant's policy to already captured source values, with no DB reads."""
     locked_mode, _ = resolve_content_mode(client_rule, content_mode)
@@ -2567,6 +2571,7 @@ async def generate_cv_from_candidate_source(
             client_rule=client_rule,
             project_ref=project_ref,
             prepared_source_facts=prepared_source_facts,
+            position_fallback=position_fallback,
         )
     )
     if source.source_warnings:

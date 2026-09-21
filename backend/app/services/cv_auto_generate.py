@@ -211,6 +211,16 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
             project_ref="",
             origin="auto",
             source_cv_revision=revision,
+            # Decyzja właściciela (21.09.2026): automat robi JEDNĄ wersję
+            # językową — główną wg reguły klienta; drugą dorabia rekruter
+            # jednym kliknięciem (ponowienie pakietu), więc jeden ruch karty
+            # to jedna kwota AI także u klientów dwujęzycznych.
+            languages="primary_only",
+            # Nazwa pliku wg centralnej polityki bierze stanowisko z treści CV;
+            # gdy CV go nie daje, automat (i tylko on) podstawia tytuł rekrutacji.
+            # (`Candidate` nie ma kolumny `current_position` — o tym, czy stanowisko
+            # jest, rozstrzyga dopiero potok generacji, więc fallback jedzie zawsze.)
+            position_fallback=(job.title or "").strip() or None,
         )
     except HTTPException as exc:
         await db.rollback()

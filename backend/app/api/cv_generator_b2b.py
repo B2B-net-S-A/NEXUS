@@ -741,8 +741,17 @@ async def _run_generate_new_job(
     client_id: int | None = None,
     project_ref: str = "",
     consent_screenshot: Optional[dict] = None,
+    languages: Literal["all", "primary_only"] = "all",
+    position_fallback: Optional[str] = None,
 ) -> None:
-    """Background worker for New-mode (DB-backed) generation."""
+    """Background worker for New-mode (DB-backed) generation.
+
+    ``languages="primary_only"`` (auto-CV): pierwszy przebieg robi WYŁĄCZNIE
+    wersję główną — bez drugiej kwoty AI. Drugą wersję dorabia człowiek jednym
+    kliknięciem: ponowienie pakietu wchodzi gałęzią „pierwszy dokument gotowy"
+    (``language_retry``) i wtedy druga wersja powstaje normalnie.
+    """
+    language_retry = False
     async with AsyncSessionLocal() as db:
         first_row = await db.get(CvGeneratedDocument, generated_id)
         if (
@@ -760,6 +769,7 @@ async def _run_generate_new_job(
             source_facts = _decode(active_job.prepared_source_facts)
             language = first_row.language
             finalized = True
+            language_retry = True
             result = SimpleNamespace(job_id=first_row.job_id)
             await db.commit()
         else:
@@ -788,6 +798,7 @@ async def _run_generate_new_job(
                         client_rule=rule_snapshot,
                         project_ref=project_ref or None,
                         prepared_source_facts=source_facts,
+                        position_fallback=position_fallback,
                     )
             except StandaloneGenerationError as err:
                 await _finalize_failure(
@@ -870,6 +881,8 @@ async def _run_generate_new_job(
         # Lead włączył automat. Osobny wiersz na liście, osobna kwota, osobna
         # awaria — porażka drugiej nie dotyka pierwszej.
         second = _second_language(rule_snapshot, language) if finalized else None
+        if languages == "primary_only" and not language_retry:
+            second = None
         if second is not None:
             from app.services.cv_generator_b2b.job_leases import lock_owned_job
 
@@ -933,6 +946,7 @@ async def _run_generate_new_job(
                         client_rule=rule_snapshot,
                         project_ref=project_ref or None,
                         prepared_source_facts=source_facts,
+                        position_fallback=position_fallback,
                     )
             except StandaloneGenerationError as err:
                 await _finalize_failure(
@@ -1795,6 +1809,8 @@ async def enqueue_candidate_generation(
     consent_key: str = "",
     origin: str = "manual",
     source_cv_revision: Optional[str] = None,
+    languages: Literal["all", "primary_only"] = "all",
+    position_fallback: Optional[str] = None,
 ) -> tuple[int, int, str]:
     """Walidacje reguły klienta → wiersz „processing" → trwałe zadanie generacji.
 
@@ -1942,7 +1958,7 @@ async def enqueue_candidate_generation(
         mode="new",
         candidate_id=candidate.id,
         candidate_name=candidate_name,
-        position=getattr(candidate, "current_position", None),
+        position=getattr(candidate, "current_position", None) or position_fallback,
         language=language,
         blind_cv=blind_cv,
         user_id=user_id,
@@ -1980,6 +1996,10 @@ async def enqueue_candidate_generation(
             client_id=client_id,
             project_ref=project_ref or "",
             consent_screenshot=consent,
+            # Tylko gdy różne od domyślnych: snapshot ręcznej generacji zostaje
+            # bajt w bajt taki sam (zadania w kolejce przeżywają deploy).
+            **({"languages": languages} if languages != "all" else {}),
+            **({"position_fallback": position_fallback} if position_fallback else {}),
         ),
     )
     return generated_id, durable_id, candidate_name

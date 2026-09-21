@@ -371,3 +371,261 @@ async def test_mode_is_decided_from_the_stage_recruitment(monkeypatch):
     monkeypatch.setattr(policies, "automatic_mode", _spy)
     assert await _run_automation(world) is not None
     assert seen_jobs == [world["job_id"]]
+
+
+# ── (4) klient dwujęzyczny: automat robi JEDNĄ wersję ───────────────────────
+
+_BILINGUAL = dict(cv_language=None, requires_en_copy=True, auto_second_language=True)
+
+
+async def test_bilingual_client_gets_one_charge_and_one_worker_job(monkeypatch):
+    monkeypatch.setattr(settings, "CV_CENTRAL_POLICIES_ENABLED", True)
+    world = await _world()
+    await _publish_policy(monkeypatch, world, **_BILINGUAL)
+    seen = _stub_generation(monkeypatch, world)
+
+    assert await _run_automation(world) is not None
+    assert seen["charges"] == [world["user_id"]]
+    [job] = seen["persisted"]
+    assert job["inputs"]["languages"] == "primary_only"
+    assert job["inputs"]["language"] == "pl"
+    # Polityka nadal mówi prawdę: pakiet wymaga OBU wersji.
+    [row] = await _documents(world)
+    assert row.central_policy["required_languages"] == ["pl", "en"]
+
+
+@pytest.mark.asyncio
+async def test_manual_path_keeps_generating_both_languages(
+    pv_client: AsyncClient, monkeypatch
+):
+    monkeypatch.setattr(settings, "CV_CENTRAL_POLICIES_ENABLED", True)
+    monkeypatch.setattr(api.limiter, "enabled", False)
+    world = await _world()
+    await _publish_policy(monkeypatch, world, **_BILINGUAL)
+    seen = _stub_generation(monkeypatch, world)
+
+    manual = await _generate_manually(pv_client, world)
+    assert manual.status_code == 202, manual.text
+    [job] = seen["persisted"]
+    # Snapshot ręcznej generacji bez nowych pól — bajt w bajt jak dotąd.
+    assert "languages" not in job["inputs"]
+    assert "position_fallback" not in job["inputs"]
+
+
+def _worker_harness(monkeypatch, *, first_ready: bool):
+    """Worker `_run_generate_new_job` bez bazy i modelu (wzór: test ponowień)."""
+    from datetime import date
+    from types import SimpleNamespace as NS
+    from unittest.mock import AsyncMock, Mock
+
+    from app.services.cv_generator_b2b import job_leases, requirement_map
+    from app.services.cv_generator_b2b.client_rules import CvRuleSnapshot
+    from app.services.cv_generator_b2b.job_snapshot import _encode
+    from app.services.cv_generator_b2b.standalone_service import (
+        GenerationResult,
+        PreparedSourceFacts,
+    )
+
+    facts = PreparedSourceFacts("original source", "{}", "sha", "notes")
+    primary = NS(
+        id=11,
+        language="pl",
+        status="ready" if first_ready else "processing",
+        central_policy={"required_languages": ["pl", "en"]},
+        job_id=4,
+        candidate_id=2,
+        client_id=5,
+        candidate_name="Synthetic Person",
+        position="Developer",
+    )
+    job = NS(second_generated_id=None, prepared_source_facts=_encode(facts))
+    db = AsyncMock()
+    db.add = Mock()
+    db.get.side_effect = lambda model, pk: primary if pk == 11 else None
+    manager = Mock(
+        __aenter__=AsyncMock(return_value=db), __aexit__=AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(api, "AsyncSessionLocal", lambda: manager)
+    monkeypatch.setattr(job_leases, "lock_owned_job", AsyncMock(return_value=job))
+    monkeypatch.setattr(job_leases, "register_second_document", AsyncMock())
+    monkeypatch.setattr(requirement_map, "ensure_requirement_map", AsyncMock())
+    monkeypatch.setattr(api, "prepare_source_facts", Mock(return_value=facts))
+    second_quota = AsyncMock(
+        return_value=api.QuotaState(1, 100, date(2026, 9, 1), str(uuid.uuid4()))
+    )
+    monkeypatch.setattr(api, "_charge_second_language_or_note", second_quota)
+    monkeypatch.setattr(api, "_charge_final_review", AsyncMock(return_value=None))
+    pending = AsyncMock(return_value=12)
+    monkeypatch.setattr(api, "_create_pending_row", pending)
+    monkeypatch.setattr(api, "_finalize_success", AsyncMock(return_value=True))
+    rendered: list[dict] = []
+    result = GenerationResult(
+        candidate_name="Synthetic Person",
+        filename="cv.docx",
+        docx_bytes=b"docx",
+        warnings=[],
+        processing_time_ms=1,
+        render_payload={},
+        job_id=4,
+    )
+
+    async def _render(captured, **kwargs):
+        rendered.append(kwargs)
+        return result
+
+    monkeypatch.setattr(api, "generate_cv_from_candidate_source", _render)
+    rule = CvRuleSnapshot(
+        filename_pattern=None,
+        spaces_to_underscores=False,
+        cv_language=None,
+        requires_en_copy=True,
+        requires_rodo_consent_block=False,
+        auto_second_language=True,
+    )
+    return rule, rendered, second_quota, pending
+
+
+async def _run_worker(rule, **extra):
+    from tests.test_cv_enqueue_sources import source
+
+    await api._run_generate_new_job(
+        11,
+        candidate_id=2,
+        stage_id=3,
+        language="pl",
+        blind_cv=False,
+        user_id=7,
+        source=source(),
+        rule_snapshot=rule,
+        **extra,
+    )
+
+
+async def test_worker_first_pass_renders_only_the_primary_language(monkeypatch):
+    rule, rendered, second_quota, pending = _worker_harness(
+        monkeypatch, first_ready=False
+    )
+    await _run_worker(rule, languages="primary_only", position_fallback="Java Dev")
+    assert [call["language"] for call in rendered] == ["pl"]
+    assert rendered[0]["position_fallback"] == "Java Dev"
+    # Druga wersja: ani kwoty, ani wiersza — więc pakiet pokaże „brak", nie „błąd".
+    second_quota.assert_not_awaited()
+    pending.assert_not_awaited()
+
+
+async def test_worker_default_still_renders_both_languages(monkeypatch):
+    rule, rendered, second_quota, pending = _worker_harness(
+        monkeypatch, first_ready=False
+    )
+    await _run_worker(rule)
+    assert [call["language"] for call in rendered] == ["pl", "en"]
+    assert second_quota.await_count == 1 and pending.await_count == 1
+
+
+async def test_one_click_retry_adds_the_second_language_to_an_auto_package(
+    monkeypatch,
+):
+    """Ponowienie pakietu odpala TO SAMO zadanie (te same wejścia, więc nadal
+    `primary_only`) — z gotowym pierwszym dokumentem druga wersja ma powstać."""
+    rule, rendered, second_quota, pending = _worker_harness(
+        monkeypatch, first_ready=True
+    )
+    await _run_worker(rule, languages="primary_only")
+    assert [call["language"] for call in rendered] == ["en"]
+    assert second_quota.await_count == 1 and pending.await_count == 1
+
+
+async def test_package_shows_the_second_language_as_missing_not_failed():
+    from app.models.cv_generation_job import CvGenerationJob
+    from app.services import cv_packages
+
+    world = await _world()
+    async with AsyncSessionLocal() as db:
+        doc = CvGeneratedDocument(
+            candidate_id=world["candidate_id"],
+            job_id=world["job_id"],
+            client_id=world["client_id"],
+            candidate_name="Auto CV",
+            position="Developer",
+            language="pl",
+            mode="new",
+            content_mode="polished",
+            filename="auto.docx",
+            status="ready",
+            render_payload={"name": "Auto CV"},
+            created_by=world["user_id"],
+            origin="auto",
+            stage_id=world["stage_id"],
+            source_cv_revision=world["revision"],
+            central_policy={
+                **policies.metadata(policies.policy_for(None)),
+                "requires_en_copy": True,
+                "required_languages": ["pl", "en"],
+                "project_ref": "",
+                "stage_id": world["stage_id"],
+                "publication_version": 1,
+            },
+        )
+        db.add(doc)
+        await db.flush()
+        db.add(
+            CvGenerationJob(
+                generated_id=doc.id,
+                created_by=world["user_id"],
+                kind="new",
+                status="complete",
+                input_storage_key=f"cv/job-input-{uuid.uuid4().hex}.json",
+                input_sha256="0" * 64,
+                prepared_source_facts={"facts": True},
+            )
+        )
+        await db.commit()
+        state, _data = await cv_packages.assess(db, doc)
+    assert state["managed"] is True and state["ready"] is False
+    assert state["required_languages"] == ["pl", "en"]
+    assert state["available_languages"] == ["pl"]
+    assert "Brak wygenerowanej wersji EN." in state["reasons"]
+    # Jedyny dokument pakietu jest gotowy; nie ma wiersza „failed" drugiej wersji.
+    assert [(d["language"], d["status"]) for d in state["documents"]] == [
+        ("pl", "ready")
+    ]
+    assert state["generation_status"] == "complete"
+    # „Jedno kliknięcie" rekrutera: ponowienie pakietu jest dostępne.
+    assert state["can_retry"] is True
+
+
+# ── (5) stanowisko do nazwy pliku: tytuł rekrutacji tylko w automacie ───────
+
+
+async def test_candidate_without_position_falls_back_to_the_job_title(monkeypatch):
+    monkeypatch.setattr(settings, "CV_CENTRAL_POLICIES_ENABLED", True)
+    world = await _world()
+    await _publish_policy(monkeypatch, world, require_position=True)
+    seen = _stub_generation(monkeypatch, world)
+    async with AsyncSessionLocal() as db:
+        from app.models.job import Job
+
+        title = (await db.get(Job, world["job_id"])).title
+
+    assert await _run_automation(world) is not None
+    [row] = await _documents(world)
+    assert row.position == title
+    assert seen["persisted"][0]["inputs"]["position_fallback"] == title
+
+
+@pytest.mark.parametrize("pipeline", ["legacy", "v10"])
+def test_pipelines_use_the_fallback_only_when_the_cv_gives_no_position(pipeline):
+    """Oba potoki: `presentation_position` → stanowisko z CV → fallback automatu."""
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    path = (
+        "app/services/cv_generator_b2b/legacy_v7/pipeline.py"
+        if pipeline == "legacy"
+        else "app/services/cv_generator_b2b/standalone_service.py"
+    )
+    source_text = " ".join((backend / path).read_text("utf-8").split())
+    assert (
+        'raw_data.get("presentation_position") or candidate_data.get("position") '
+        'or position_fallback or ""'
+    ) in source_text
