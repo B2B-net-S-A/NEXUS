@@ -1546,6 +1546,15 @@ w entrypoint.sh). Pełny opis: `docs/cv-interactive-share-completion-report.md`.
   (bez `warnings`, blind maskowany lustrem renderera DOCX). Ten sam payload
   renderuje widok classic, jest WEJŚCIEM generacji mapy wymagań i CAŁYM
   kontekstem chatu — model fizycznie nie widzi notatek/stawek/transkryptów.
+- **WYŁĄCZONE od 21.09.2026 (decyzja Artura): `CV_INTERACTIVE_ENABLED=false`**
+  (backend, sprawdzane w `interactive_client_enabled`, `ensure_requirement_map`
+  i `execute_map`) + `CV_INTERACTIVE_UI_ENABLED=false` (`lib/cv-generator.ts`).
+  Brak dodatkowego wywołania AI mapy wymagań (~28% kosztu generacji przy
+  2 linkach użytych w historii), link `/cv/i/` i plik HTML pokazują widok
+  klasyczny, czat zwraca 404, pola Must/Nice i checkbox klienta ukryte. Pola
+  Must/Nice zasilały WYŁĄCZNIE kafelki, a serwer liczył je jako „jest
+  Champion” — tryb dopasowany przechodził bez Championa w prompcie. Powrót =
+  obie flagi na `true`; reszta opisu poniżej dotyczy stanu włączonego.
 - **Kafelki = precompute**: 1 dodatkowy call Claude na końcu background-joba
   generacji. Źródło wymagań: mode="new" → Job (must/nice, fallback
   champion/JD); mode="upload" → ręczne pola `must_requirements`/

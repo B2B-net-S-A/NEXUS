@@ -12,6 +12,15 @@ from app.models.job import Job
 from app.services.cv_generator_b2b.document_policy import interactive_client_enabled
 
 
+@pytest.fixture(autouse=True)
+def _interactive_cv_on(monkeypatch):
+    """Te testy sprawdzają samą funkcję interaktywnego CV — od 21.09.2026
+    domyślnie wyłączonej flagą ``CV_INTERACTIVE_ENABLED``."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CV_INTERACTIVE_ENABLED", True)
+
+
 def document(**overrides):
     return SimpleNamespace(
         **dict(
@@ -84,3 +93,27 @@ async def test_html_download_excludes_requirement_tiles_for_opted_out_client():
     assert [c.args for c in db.get.call_args_list] == [
         (CvGeneratedDocument, 1), (Client, 26)
     ]
+
+
+async def test_global_kill_switch_forces_classic_view(monkeypatch):
+    """Wyłączona flaga = zero kafelków i czatu, bez pytania bazy o klienta."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CV_INTERACTIVE_ENABLED", False)
+    db = AsyncMock()
+    db.get.return_value = SimpleNamespace(cv_interactive_enabled=True)
+    doc = document()
+    assert await interactive_client_enabled(db, doc) is False
+    assert await _interactive_available(db, doc) is False
+    assert await _interactive_flags(db, doc) == (False, False)
+    db.get.assert_not_awaited()
+
+
+async def test_kill_switch_skips_requirement_map_ai_call(monkeypatch):
+    from app.core.config import settings
+    from app.services.cv_generator_b2b.requirement_map import ensure_requirement_map
+
+    monkeypatch.setattr(settings, "CV_INTERACTIVE_ENABLED", False)
+    db = AsyncMock()
+    await ensure_requirement_map(db, 1, user_id=None)
+    db.get.assert_not_awaited()

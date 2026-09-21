@@ -10,6 +10,14 @@ from app.services import cv_version_map_jobs as worker
 from app.services.cv_version_map_input import encode_map_input
 
 
+@pytest.fixture(autouse=True)
+def _interactive_cv_on(monkeypatch):
+    """Worker mapy działa tylko przy włączonym interaktywnym CV (21.09.2026)."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CV_INTERACTIVE_ENABLED", True)
+
+
 @pytest.mark.parametrize("case", ["valid", "inactive", "corrupt", "provider_failure"])
 async def test_worker_checks_snapshot_before_model_and_records_terminal_result(
     monkeypatch, case

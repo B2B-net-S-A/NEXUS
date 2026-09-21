@@ -8,6 +8,13 @@
 
 import { apiErrorMessage } from "@/lib/api-error";
 
+/**
+ * Interaktywne CV (kafelki wymagań, czat, przełącznik widoku) — wyłączone
+ * 21.09.2026 razem z backendowym `CV_INTERACTIVE_ENABLED`. Ukrywa kontrolki,
+ * których wynik i tak by nie powstał; powrót = `true` tu i flaga w Coolify.
+ */
+export const CV_INTERACTIVE_UI_ENABLED = false;
+
 export type RecruitmentOption = {
   stage_id: number;
   job_id: number;

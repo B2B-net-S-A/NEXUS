@@ -33,7 +33,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 
 import { extractErrorMsg } from "@/lib/api";
-import { CV_CONTENT_MODES } from "@/lib/cv-generator";
+import { CV_CONTENT_MODES, CV_INTERACTIVE_UI_ENABLED } from "@/lib/cv-generator";
 import type { CvContentMode } from "@/lib/cv-generator";
 import {
   CV_RULE_DATE_FORMATS,
@@ -579,6 +579,7 @@ export function CvRuleSettingsTab({
                   Wygrywa z każdym wyborem i z blokadą powyżej.
                 </p>
               </div>
+              {CV_INTERACTIVE_UI_ENABLED && (
               <label className="flex items-start gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -594,6 +595,7 @@ export function CvRuleSettingsTab({
                   </span>
                 </span>
               </label>
+              )}
             </div>
 
             {/* Wymagane wejścia */}

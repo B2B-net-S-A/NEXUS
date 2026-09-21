@@ -269,8 +269,7 @@ function CvGeneratedShareModalContent({
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Klient zobaczy klasyczny widok CV (wersja interaktywna
-                niedostępna dla tego CV).
+                Klient zobaczy klasyczny widok CV.
               </p>
             )}
             <Button
