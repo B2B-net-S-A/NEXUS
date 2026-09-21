@@ -112,3 +112,61 @@ describe("panel", () => {
     expect(screen.getByRole("button", { name: "Wyślij" })).toBeDisabled();
   });
 });
+
+describe("okno wyglądu (zgłoszenie 21.09: „Zapisz” ucięty na niskim ekranie)", () => {
+  it("przyciski są w stałej stopce poza przewijaną treścią i wysyłają formularz", async () => {
+    const { JarvisAppearanceDialog } = await import("../JarvisAppearanceDialog");
+    const onSave = vi.fn();
+    render(
+      <JarvisAppearanceDialog
+        open
+        onOpenChange={vi.fn()}
+        prefs={{
+          character: "robot",
+          name: "Jarvis",
+          accent: "primary",
+          enabled: true,
+          minimized: false,
+          sound: false,
+          daily_brief: true,
+          unlocked_characters: ["robot", "owl"],
+          locked_characters: {},
+        }}
+        onSave={onSave}
+      />,
+    );
+    const input = screen.getByLabelText("Imię asystenta");
+    const save = screen.getByRole("button", { name: "Zapisz" });
+    // „Zapisz” NIE siedzi w przewijanej treści — inaczej może się uciąć.
+    expect(input.closest(".overflow-y-auto")).not.toBeNull();
+    expect(input.closest(".overflow-y-auto")?.contains(save)).toBe(false);
+
+    fireEvent.change(input, { target: { value: "  Pan   Sowa " } });
+    fireEvent.click(save);
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: "Pan Sowa" }));
+  });
+
+  it("niepoprawne imię blokuje „Zapisz” w stopce", async () => {
+    const { JarvisAppearanceDialog } = await import("../JarvisAppearanceDialog");
+    render(
+      <JarvisAppearanceDialog
+        open
+        onOpenChange={vi.fn()}
+        prefs={{
+          character: "robot",
+          name: "Jarvis",
+          accent: "primary",
+          enabled: true,
+          minimized: false,
+          sound: false,
+          daily_brief: true,
+          unlocked_characters: ["robot"],
+          locked_characters: {},
+        }}
+        onSave={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Imię asystenta"), { target: { value: "   " } });
+    expect(screen.getByRole("button", { name: "Zapisz" })).toBeDisabled();
+  });
+});

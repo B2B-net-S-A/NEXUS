@@ -15,6 +15,7 @@
 import { useState } from "react";
 import { JARVIS_CHARACTERS, JarvisCharacter } from "@/components/jarvis/characters/JarvisCharacter";
 import { JarvisActionCard } from "@/components/jarvis/JarvisActionCard";
+import { JarvisAppearanceDialog } from "@/components/jarvis/JarvisAppearanceDialog";
 import { JarvisAppearanceForm } from "@/components/jarvis/JarvisAppearanceForm";
 import { JarvisMascot } from "@/components/jarvis/JarvisMascot";
 import { JarvisMessageList } from "@/components/jarvis/JarvisMessageList";
@@ -88,6 +89,7 @@ const PREFS: JarvisPrefsResponse = {
 
 export default function JarvisPreviewPage() {
   const [accent, setAccent] = useState<JarvisAccent>("primary");
+  const [dialogOpen, setDialogOpen] = useState(false);
   return (
     <main className="min-h-screen bg-background p-6 text-foreground">
       <h1 className="text-xl font-semibold">Jarvis — podgląd komponentów</h1>
@@ -273,6 +275,23 @@ export default function JarvisPreviewPage() {
                 }}
               />
             </div>
+          </div>
+          <div>
+            <h2 className="mb-3 text-sm font-semibold">Wygląd asystenta — okno (jak w aplikacji)</h2>
+            <button
+              type="button"
+              data-testid="open-appearance-dialog"
+              onClick={() => setDialogOpen(true)}
+              className="rounded-md border border-border bg-card px-3 py-1.5 text-sm"
+            >
+              Otwórz okno wyglądu
+            </button>
+            <JarvisAppearanceDialog
+              open={dialogOpen}
+              onOpenChange={setDialogOpen}
+              prefs={PREFS}
+              onSave={() => setDialogOpen(false)}
+            />
           </div>
           <div>
             <h2 className="mb-3 text-sm font-semibold">Wygląd asystenta</h2>

@@ -9,7 +9,7 @@
  * odblokować — ukrycie ich zabrałoby motywację, o którą w nich chodzi.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -22,11 +22,26 @@ interface Props {
   error?: string | null;
   onSave: (next: Partial<JarvisPrefs>) => void;
   onCancel: () => void;
+  /** Id formularza — przyciski mogą stać POZA nim (stopka okna) i wysyłać go przez `form=`. */
+  formId?: string;
+  /** W oknie przyciski są w stałej stopce, żeby nie dało się ich uciąć (zgłoszenie 21.09). */
+  hideActions?: boolean;
+  /** Informuje wołającego, czy imię jest poprawne (blokada „Zapisz” w stopce). */
+  onValidityChange?: (valid: boolean) => void;
 }
 
 const NAME_PATTERN = /^[^<>{}[\]`]{1,24}$/;
 
-export function JarvisAppearanceForm({ prefs, saving = false, error, onSave, onCancel }: Props) {
+export function JarvisAppearanceForm({
+  prefs,
+  saving = false,
+  error,
+  onSave,
+  onCancel,
+  formId,
+  hideActions = false,
+  onValidityChange,
+}: Props) {
   const [draft, setDraft] = useState<JarvisPrefs>({
     character: prefs.character,
     name: prefs.name,
@@ -44,8 +59,13 @@ export function JarvisAppearanceForm({ prefs, saving = false, error, onSave, onC
         ? "Imię może mieć do 24 znaków, bez znaków specjalnych."
         : null;
 
+  useEffect(() => {
+    onValidityChange?.(!nameError);
+  }, [nameError, onValidityChange]);
+
   return (
     <form
+      id={formId}
       className="space-y-5"
       onSubmit={(e) => {
         e.preventDefault();
@@ -152,14 +172,16 @@ export function JarvisAppearanceForm({ prefs, saving = false, error, onSave, onC
           {error}
         </p>
       )}
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={onCancel}>
-          Anuluj
-        </Button>
-        <Button type="submit" loading={saving} disabled={Boolean(nameError)}>
-          Zapisz
-        </Button>
-      </div>
+      {!hideActions && (
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onCancel}>
+            Anuluj
+          </Button>
+          <Button type="submit" loading={saving} disabled={Boolean(nameError)}>
+            Zapisz
+          </Button>
+        </div>
+      )}
     </form>
   );
 }
