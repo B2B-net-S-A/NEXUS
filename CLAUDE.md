@@ -5139,8 +5139,18 @@ w `entrypoint.sh`, sondy w `/api/health/deep`). Raport:
   przy otwartym panelu i po „Ukryj postać" (`useUiStore.hideMyPeopleBuddy`,
   przywracane checkboxem w stopce panelu). Główne, dostępne wejście to
   przycisk w topbarze.
-- **Poza zakresem świadomie:** czat AI o liście, widok HoR „czyja lista leży",
-  poranny digest, zmiana atrybucji wyścigów.
+- **Jarvis przypomina o przepinaniu** (21.09.2026): narzędzia odczytu
+  `my_people` i `my_people_for_job` (tylko osoby do przepięcia; brak wyniku =
+  `"niepoliczony"`, weto HM = `nie_mozna_dodac`), sekcja „PRZEPINANIE" w
+  prompcie, poranny skrót dnia dostaje `briefFragments` (nowe dopasowania,
+  czekający > 30 dni), a dzwonek `my_people_match` → zdarzenie okna
+  `nexus:my-people-match` (z `useNotifications`) → dymek Jarvisa, którego
+  kliknięcie wysyła `reassignPrompt(jobId)` i kończy się kartą
+  `add_candidates_to_job` do potwierdzenia. Świadomie tylko DWA momenty
+  (poranek + nowa rekrutacja) — częstsze przypomnienia uczą ignorowania.
+  Działa dopiero przy `JARVIS_ENABLED=true`.
+- **Poza zakresem świadomie:** widok HoR „czyja lista leży", zmiana atrybucji
+  wyścigów.
 
 ## Dwa silniki wyszukiwania — jedna semantyka filtrów (09.2026)
 

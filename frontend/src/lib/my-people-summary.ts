@@ -137,3 +137,48 @@ export function summarySentences(summary: MyPeopleSummary | undefined | null): s
 export function sentencesKey(sentences: string[]): string {
   return sentences.join("|");
 }
+
+// ── Jarvis ──────────────────────────────────────────────────────────────────
+
+/** Zdarzenie okna: przyszedł dzwonek `my_people_match` (z `useNotifications`). */
+export const MY_PEOPLE_MATCH_EVENT = "nexus:my-people-match";
+
+export interface MyPeopleMatchEventDetail {
+  title: string;
+  link?: string | null;
+}
+
+/** `/jobs/42?people=1` → 42. Link pochodzi z serwera, ale bywa pusty. */
+export function jobIdFromMatchLink(link: string | null | undefined): number | null {
+  const m = link?.match(/^\/jobs\/(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
+/** Pytanie, które Jarvis wysyła po kliknięciu dymka o nowej rekrutacji. */
+export function reassignPrompt(jobId: number | null): string {
+  return jobId != null
+    ? `Kogo z moich ludzi warto przepiąć na rekrutację #${jobId}? Pokaż najlepiej pasujących i przygotuj dodanie.`
+    : "Kogo z moich ludzi warto teraz przepiąć na otwarte rekrutacje?";
+}
+
+/**
+ * Fragmenty porannego skrótu Jarvisa („Na dziś: …"). Bez modelu, ta sama
+ * reguła co zdania postaci „Moi ludzie" — tylko konkret, pusta lista = cisza.
+ */
+export function briefFragments(summary: MyPeopleSummary | undefined | null): string[] {
+  if (!summary) return [];
+  const out: string[] = [];
+  if (summary.jobs_with_matches > 0) {
+    const n = summary.jobs_with_matches;
+    out.push(
+      `${n} ${plural(n, "nowa rekrutacja pasuje", "nowe rekrutacje pasują", "nowych rekrutacji pasuje")} do Twoich ludzi`,
+    );
+  }
+  if (summary.idle_count > 0) {
+    const n = summary.idle_count;
+    out.push(
+      `${n} ${plural(n, "osoba czeka", "osoby czekają", "osób czeka")} ponad ${summary.idle_days} dni bez wysyłki`,
+    );
+  }
+  return out;
+}
