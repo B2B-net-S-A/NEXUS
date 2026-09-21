@@ -14,7 +14,7 @@
  * (CLAUDE.md „Kanban bez bramek").
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Search } from "lucide-react";
 
@@ -261,6 +261,24 @@ export function RecruitmentWorkspace({
     },
     [activeCandidateId, onActiveCandidateChange, onPanelSectionChange],
   );
+
+  // Makieta „wersja 3": panel od razu pokazuje pierwszą osobę z listy, żeby
+  // rekruter zaczynał od pracy, nie od pustego „Wybierz osobę". Raz na
+  // wejście w rekrutację i tylko na szerokim ekranie (panel obok tabeli, nie
+  // nakładka). Zamknięcie panelu jest decyzją użytkownika — nie otwieramy go
+  // ponownie sami.
+  const autoOpenedFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (autoOpenedFor.current === jobId) return;
+    if (!isPeopleSegment || activeCandidateId != null) return;
+    if (visibleRows.length === 0) return;
+    autoOpenedFor.current = jobId;
+    if (typeof window === "undefined") return;
+    if (window.matchMedia?.("(min-width: 1280px)").matches !== true) return;
+    const firstKey = groups ? groups[0]?.rowKeys[0] : visibleRows[0].key;
+    const first = visibleRows.find((row) => row.key === firstKey) ?? visibleRows[0];
+    onActiveCandidateChange(first.candidateId);
+  }, [jobId, isPeopleSegment, activeCandidateId, visibleRows, groups, onActiveCandidateChange]);
 
   const requestNote = useCallback(
     (row: ProcessPersonRow) => {
