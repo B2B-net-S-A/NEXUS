@@ -20,8 +20,10 @@ import {
 } from "@/components/ui/tooltip";
 import { NavLink } from "./SidebarNavLink";
 import {
+  SIDEBAR_VERTICAL_LAYOUT,
   SidebarMoreFlyout,
   SidebarMoreInline,
+  SidebarNavGroup,
   type BadgeCounts,
 } from "./SidebarMore";
 import { DynamindsMark } from "@/components/brand/DynamindsMark";
@@ -33,14 +35,15 @@ import {
   resolveNavHref,
   visibleMoreGroups,
   visibleNavSections,
-  visiblePrimaryNav,
+  visiblePrimaryGroups,
   type NavEntry,
 } from "@/lib/nav-registry";
 
 /**
  * Czy pozycja menu świeci się dla bieżącej ścieżki. Podstrony modułu
- * kandydatów z własną pozycją w menu („Do przedzwonienia”, „Wyszukiwarka”)
- * nie zapalają jednocześnie „Kandydaci”.
+ * kandydatów z własną pozycją w menu („Do przedzwonienia”) nie zapalają
+ * jednocześnie „Kandydaci”. Wyszukiwarka od 21.09.2026 jest trybem ekranu
+ * „Kandydaci” i nie ma własnej pozycji — na niej świeci się „Kandydaci”.
  */
 export function isNavItemActive(pathname: string, href: string): boolean {
   const hrefPath = href.split("?")[0];
@@ -55,29 +58,16 @@ export function isNavItemActive(pathname: string, href: string): boolean {
   return pathname === hrefPath || pathname.startsWith(hrefPath + "/");
 }
 
-const CANDIDATES_SUBPAGES_WITH_OWN_ITEM = [
-  "/candidates/contact-queue",
-  "/candidates/search",
-];
+const CANDIDATES_SUBPAGES_WITH_OWN_ITEM = ["/candidates/contact-queue"];
 
 // Pozycje menu żyją w `lib/nav-registry.ts` — wspólnym źródle dla sidebara
 // i palety ⌘K. Re-eksport zostaje, bo testy i inne moduły importują
 // `visibleNavSections` z tej ścieżki.
 export { visibleNavSections };
 
-/**
- * Pionowe wymiary szyny są takie same w stanie zwiniętym i rozwiniętym (UAT B57).
- *
- * Rozwinięcie pod kursorem zamieniało kreskę sekcji (17 px) na nagłówek (29 px)
- * i `space-y-1` na `space-y-0.5`, więc ikony przesuwały się w dół w trakcie
- * kliknięcia i klik trafiał w sąsiedni link. Nagłówek sekcji ma teraz stały
- * slot, a odstępy nie zależą od stanu — zmienia się tylko szerokość.
- */
-export const SIDEBAR_VERTICAL_LAYOUT = {
-  navSpacing: "space-y-0.5",
-  itemSpacing: "space-y-0.5",
-  sectionSlot: "h-7 flex items-end",
-} as const;
+// Kontrakt pionowego układu szyny (UAT B57) żyje obok nagłówka grupy
+// w `SidebarMore.tsx`; re-eksport zostaje, bo testy czytają go stąd.
+export { SIDEBAR_VERTICAL_LAYOUT };
 
 export function SidebarV2({
   mobileOpen,
@@ -128,10 +118,10 @@ export function SidebarV2({
   const contactFeature = useCandidateContactFeature({
     queryEnabled: canUseContactQueue,
   });
-  // Szyna = rdzeń pracy (płaska lista), reszta pod „Więcej". Bramka widoczności
-  // jest w rejestrze jedna — obie listy to ten sam zbiór co dotąd, podzielony.
+  // Szyna = rdzeń pracy w grupach z nagłówkami, reszta pod „Więcej". Bramka
+  // widoczności jest w rejestrze jedna — obie listy to ten sam zbiór, podzielony.
   const navOptions = { contactQueueEnabled: contactFeature.enabled };
-  const primaryItems = visiblePrimaryNav(user, navOptions);
+  const primaryGroups = visiblePrimaryGroups(user, navOptions);
   const moreGroups = visibleMoreGroups(user, navOptions);
 
   const [hovered, setHovered] = useState(false);
@@ -334,24 +324,33 @@ export function SidebarV2({
         aria-label="Nawigacja główna"
         className={cn("flex-1 overflow-y-auto py-3 px-2", SIDEBAR_VERTICAL_LAYOUT.navSpacing)}
       >
-        <div className={cn("mb-3", SIDEBAR_VERTICAL_LAYOUT.itemSpacing)}>
-          {primaryItems.map((item) => {
-            const resolvedHref = resolveNavHref(item, user);
-            return (
-              <NavLink
-                key={item.id}
-                href={resolvedHref}
-                label={item.label}
-                icon={item.icon}
-                active={isActive(resolvedHref)}
-                collapsed={collapsed && !mobileOpen}
-                badgeCount={item.badgeKey ? badgeCounts[item.badgeKey] : undefined}
-                onClick={onClose}
-                external={item.external}
-              />
-            );
-          })}
-        </div>
+        {/* Nagłówek każdej grupy ma stały slot w OBU stanach (tekst / kreska),
+            więc rozwinięcie pod kursorem nie przesuwa ikon w pionie. */}
+        {primaryGroups.map((group) => (
+          <SidebarNavGroup
+            key={group.key}
+            id={group.key}
+            title={group.title}
+            collapsed={collapsed && !mobileOpen}
+          >
+            {group.items.map((item) => {
+              const resolvedHref = resolveNavHref(item, user);
+              return (
+                <NavLink
+                  key={item.id}
+                  href={resolvedHref}
+                  label={item.label}
+                  icon={item.icon}
+                  active={isActive(resolvedHref)}
+                  collapsed={collapsed && !mobileOpen}
+                  badgeCount={item.badgeKey ? badgeCounts[item.badgeKey] : undefined}
+                  onClick={onClose}
+                  external={item.external}
+                />
+              );
+            })}
+          </SidebarNavGroup>
+        ))}
         {mobileOpen ? (
           <SidebarMoreInline
             groups={moreGroups}
@@ -359,11 +358,9 @@ export function SidebarV2({
             badgeCounts={badgeCounts}
             isActive={isEntryActive}
             onNavigate={onClose}
-            sectionSlotClassName={SIDEBAR_VERTICAL_LAYOUT.sectionSlot}
-            itemSpacingClassName={SIDEBAR_VERTICAL_LAYOUT.itemSpacing}
           />
         ) : moreGroups.length > 0 ? (
-          <div className="mb-3">
+          <div className={SIDEBAR_VERTICAL_LAYOUT.groupSpacing}>
             {/* Stały slot z kreską w OBU stanach — zero przesunięć w pionie. */}
             <div className={SIDEBAR_VERTICAL_LAYOUT.sectionSlot}>
               <div className="mx-2 mb-3 w-full border-t border-sidebar-border" />

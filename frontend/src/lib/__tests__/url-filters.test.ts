@@ -36,6 +36,8 @@ describe("url-filters", () => {
       page: 3,
       remote: ["remote", "hybrid"],
       skillsExpr: "python OR aws",
+      skillsPreferred: ["Docker", "Spring|Quarkus"],
+      hideUnknown: true,
       location: "Warszawa",
       poolIds: [3, 5],
       addedByIds: [12, 0],
@@ -58,7 +60,7 @@ describe("url-filters", () => {
       stageCurrentOnly: true,
       openTo: ["side_projects", "expert_consult"],
       recentlyChangedJobs: 2,
-      semanticsVersion: 2,
+      semanticsVersion: 1,
       view: "tiles",
       savedSearchId: 7,
       qAll: ["react native", "typescript"],
@@ -384,15 +386,43 @@ describe("url-filters", () => {
     ).toBe("react");
   });
 
-  it("maps the skill expression to skill-scoped API params", () => {
+  it("maps the skill buckets to v2 API params by default", () => {
     const params = filtersToApiParams(
-      { ...DEFAULT_FILTERS, skillsExpr: "Python AND React OR Vue -PHP" },
+      {
+        ...DEFAULT_FILTERS,
+        skillsExpr: "Python AND React OR Vue -PHP",
+        skillsPreferred: ["Docker"],
+        hideUnknown: true,
+      },
       1,
     );
+    expect(params.semantics_version).toBe(2);
+    expect(params.skills_required).toEqual(["Python"]);
+    expect(params.skills_required_any_groups).toEqual(["React|Vue"]);
+    expect(params.skills_excluded).toEqual(["PHP"]);
+    expect(params.skills_preferred).toEqual(["Docker"]);
+    expect(params.hide_unknown).toBe(true);
+    // Pola legacy nie jadą obok kubełków.
+    expect(params.skills).toBeUndefined();
+    expect(params.skills_any).toBeUndefined();
+    expect(params.skills_none).toBeUndefined();
+  });
+
+  it("old bookmarks without sv run in v2; sv=1 keeps the legacy params", () => {
+    expect(decodeFilters(sp("skills_q=Java")).semanticsVersion).toBe(2);
+    expect(decodeFilters(sp("skills_q=Java&sv=2")).semanticsVersion).toBe(2);
+    const legacy = decodeFilters(sp("skills_q=Python%20AND%20React%20OR%20Vue%20-PHP&sv=1"));
+    expect(legacy.semanticsVersion).toBe(1);
+    const params = filtersToApiParams(legacy, 1);
+    expect(params.semantics_version).toBe(1);
     expect(params.skills).toEqual(["Python"]);
     expect(params.skill_combine).toBeUndefined(); // single must term
     expect(params.skills_any).toEqual(["React|Vue"]);
     expect(params.skills_none).toEqual(["PHP"]);
+    expect(params.skills_required).toBeUndefined();
+    // v2 jest domyślne, więc nie trafia do adresu; v1 tak.
+    expect(encodeFilters(DEFAULT_FILTERS).has("sv")).toBe(false);
+    expect(encodeFilters(legacy).get("sv")).toBe("1");
   });
 
   it("maps open-to and recently changed jobs to API params", () => {
@@ -413,8 +443,14 @@ describe("url-filters", () => {
       { ...DEFAULT_FILTERS, skillsExpr: "Python AND React AND AWS" },
       1,
     );
-    expect(params.skills).toEqual(["Python", "React", "AWS"]);
-    expect(params.skill_combine).toBe("and");
+    expect(params.skills_required).toEqual(["Python", "React", "AWS"]);
+    expect(params.skill_combine).toBeUndefined();
+    const legacy = filtersToApiParams(
+      { ...DEFAULT_FILTERS, skillsExpr: "Python AND React AND AWS", semanticsVersion: 1 },
+      1,
+    );
+    expect(legacy.skills).toEqual(["Python", "React", "AWS"]);
+    expect(legacy.skill_combine).toBe("and");
   });
 
   it("filtersEqual compares independent of field order", () => {

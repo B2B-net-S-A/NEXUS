@@ -14,8 +14,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const push = vi.fn();
 const showSuccess = vi.fn();
 let urlParams = new URLSearchParams();
-let listItems: Array<{ id: number; name: string; lastname: string }> = [];
+let listItems: Array<{
+  id: number;
+  name: string;
+  lastname: string;
+  unknown_fields?: string[];
+}> = [];
 let listTotal = 0;
+let listExtra: Record<string, unknown> = {};
 
 vi.mock("next/link", () => ({
   default: ({
@@ -39,7 +45,13 @@ vi.mock("@/lib/api", async (importOriginal) => {
   const get = vi.fn((url: string) => {
     if (url === "/api/candidates") {
       return Promise.resolve({
-        data: { items: listItems, total: listTotal, page: 1, page_size: 50 },
+        data: {
+          items: listItems,
+          total: listTotal,
+          page: 1,
+          page_size: 50,
+          ...listExtra,
+        },
       });
     }
     if (url === "/api/settings/candidates-columns") {
@@ -143,6 +155,7 @@ describe("CandidatesListV2", () => {
     urlParams = new URLSearchParams();
     listItems = [];
     listTotal = 0;
+    listExtra = {};
     window.history.replaceState(null, "", "/candidates");
     window.matchMedia =
       window.matchMedia ??
@@ -288,6 +301,56 @@ describe("CandidatesListV2", () => {
       renderList();
       expect(await screen.findByText("dodaj nowego kandydata")).toBeTruthy();
       expect(screen.queryByRole("button", { name: "Wyczyść filtry" })).toBeNull();
+    });
+  });
+
+  describe("semantyka v2 (21.09.2026)", () => {
+    const candidateCalls = async () => {
+      const api = (await import("@/lib/api")).default as unknown as {
+        get: ReturnType<typeof vi.fn>;
+      };
+      return api.get.mock.calls
+        .filter((call) => call[0] === "/api/candidates")
+        .map((call) => (call[1] as { params: Record<string, unknown> }).params);
+    };
+
+    it("stara zakładka bez sv idzie w v2 z jawnymi kubełkami", async () => {
+      urlParams = new URLSearchParams(
+        "skills_q=Java%20Spring%20-PHP&skills_pref=Docker&hu=1",
+      );
+      renderList();
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({
+          semantics_version: 2,
+          skills_required: ["Java", "Spring"],
+          skills_excluded: ["PHP"],
+          skills_preferred: ["Docker"],
+          hide_unknown: true,
+        });
+        expect(calls.at(-1)?.skills).toBeUndefined();
+      });
+    });
+
+    it("pod polem wyszukiwania widać „Rozumiem to jako…”", async () => {
+      urlParams = new URLSearchParams("q=Jan%20Kowalski");
+      listExtra = {
+        text_mode_applied: "literal",
+        interpretation: {
+          kind: "name",
+          mode: "literal",
+          rule: "multi_token_name",
+          name: ["Jan", "Kowalski"],
+          email: null,
+          phone: null,
+          skills: [],
+          locations: [],
+          other: [],
+        },
+      };
+      renderList();
+      const line = await screen.findByTestId("text-interpretation");
+      expect(line.textContent).toMatch(/Rozumiem to jako: osoba \(Jan Kowalski\)/);
     });
   });
 

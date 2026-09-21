@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,13 +11,21 @@ import {
   type AdvancedSearchValue,
 } from "@/components/v2/filters/AdvancedSearchPopover";
 import { CompetenceCategoryFilter } from "@/components/v2/filters/CompetenceCategoryFilter";
+import { SkillBucketsField } from "@/components/v2/candidates/SkillBucketsField";
+import { TextInterpretationLine } from "@/components/v2/candidates/TextInterpretationLine";
+import { HideUnknownToggle } from "@/components/v2/candidates/UnknownFieldBadges";
 import type {
   CandidateSearchRequest,
   LanguageRequirement,
   LanguageLevel,
   CandidateStatusValue,
+  SearchTextInterpretation,
 } from "@/lib/candidate-search-api";
 import { experienceRangeError } from "@/lib/candidate-search-request";
+import {
+  looksLikePastedRequest,
+  type TextModeApplied,
+} from "@/lib/candidate-search-semantics";
 import { SEARCH_AVAILABILITY_OPTIONS } from "@/lib/search-availability";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +35,19 @@ interface FiltersPanelProps {
   /** Optional CC counts from search response facets. */
   ccCounts?: Record<number, number>;
   className?: string;
+  /**
+   * Jak backend odczytał `q` w ostatnim wyszukiwaniu (`meta.text_mode_applied`
+   * + `meta.interpretation`) — linia „Rozumiem to jako…" pod polem.
+   */
+  textInterpretation?: {
+    applied: TextModeApplied | null | undefined;
+    interpretation: SearchTextInterpretation | null | undefined;
+  } | null;
+  /**
+   * Gdy tekst wygląda na wklejony request (≥ 300 znaków albo ≥ 3 nowe linie),
+   * pod polem pojawia się „Szukaj jak z requestu", które woła tę funkcję.
+   */
+  onUseAsRequest?: (text: string) => void;
 }
 
 const STATUS_OPTIONS: { value: CandidateStatusValue; label: string }[] = [
@@ -42,9 +63,6 @@ const STATUS_OPTIONS: { value: CandidateStatusValue; label: string }[] = [
  */
 export const SEARCH_QUERY_MAX_LENGTH = 500;
 export const SEARCH_LIST_LIMITS = {
-  skills_must: 20,
-  skills_any: 20,
-  skills_none: 20,
   tags: 20,
   location_cities: 10,
 } as const;
@@ -53,9 +71,6 @@ export const EXPERIENCE_YEARS_MAX = 60;
 type ChipListKey = keyof typeof SEARCH_LIST_LIMITS;
 
 const LIST_LABELS: Record<ChipListKey, string> = {
-  skills_must: "umiejętności preferowanych",
-  skills_any: "umiejętności dodatkowych",
-  skills_none: "umiejętności wykluczonych",
   tags: "tagów",
   location_cities: "miast",
 };
@@ -84,12 +99,12 @@ export function FiltersPanel({
   onChange,
   ccCounts,
   className,
+  textInterpretation,
+  onUseAsRequest,
 }: FiltersPanelProps) {
-  const [skillDraft, setSkillDraft] = useState<{
-    must: string;
-    any: string;
-    none: string;
-  }>({ must: "", any: "", none: "" });
+  // Zmiana klucza przemontowuje pole umiejętności — „Wyczyść" zdejmuje też
+  // niezatwierdzony tekst, który inaczej zamieniłby się w chip przy blurze.
+  const [skillFieldKey, setSkillFieldKey] = useState(0);
   const [tagDraft, setTagDraft] = useState("");
   const [cityDraft, setCityDraft] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
@@ -181,25 +196,9 @@ export function FiltersPanel({
     patch({ [key]: next } as Partial<CandidateSearchRequest>);
   };
 
-  const skillKey = (bucket: "must" | "any" | "none"): ChipListKey =>
-    bucket === "must" ? "skills_must" : bucket === "any" ? "skills_any" : "skills_none";
-
-  // Commit na Enter/przecinek ORAZ na blur (jak w `AdvancedSearchPopover`):
-  // tekst wpisany bez Enter nie może zginąć przy kliknięciu gdzie indziej.
-  const commitSkill = (bucket: "must" | "any" | "none") => {
-    if (addToList(skillKey(bucket), skillDraft[bucket])) {
-      setSkillDraft((d) => ({ ...d, [bucket]: "" }));
-    }
-  };
-
-  const onSkillKey =
-    (bucket: "must" | "any" | "none") =>
-    (e: KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter" || e.key === ",") {
-        e.preventDefault();
-        commitSkill(bucket);
-      }
-    };
+  const toggleOpenTo = (
+    item: "side_projects" | "sales_support" | "expert_consult",
+  ) => toggleMembership("open_to", item, value.open_to);
 
   const commitCity = () => {
     if (addToList("location_cities", cityDraft)) setCityDraft("");
@@ -229,7 +228,7 @@ export function FiltersPanel({
     // Tryb wyszukiwania NIE jest filtrem: „Wyczyść" gubiło `search_mode`, więc
     // kolejne zapytanie szło FTS, a po F5 wracała hybryda. Drafty chipów też
     // czyścimy — inaczej blur zamieniłby je w chipy po czyszczeniu.
-    setSkillDraft({ must: "", any: "", none: "" });
+    setSkillFieldKey((k) => k + 1);
     setTagDraft("");
     setCityDraft("");
     setListNotice(null);
@@ -239,6 +238,8 @@ export function FiltersPanel({
       page_size: value.page_size ?? 50,
       exclude_in_job_id: value.exclude_in_job_id ?? null,
       ...(value.search_mode ? { search_mode: value.search_mode } : {}),
+      // Semantyka filtrów to nie filtr — zostaje przy czyszczeniu.
+      ...(value.semantics_version ? { semantics_version: value.semantics_version } : {}),
     });
   };
 
@@ -262,11 +263,7 @@ export function FiltersPanel({
               onChange={(e) => patch({ q: e.target.value || null })}
               maxLength={SEARCH_QUERY_MAX_LENGTH}
               aria-describedby="candidate-search-q-counter"
-              placeholder={
-                value.search_mode === "hybrid"
-                  ? "Szukaj semantycznie (po znaczeniu)…"
-                  : "Szukaj w CV (full-text)…"
-              }
+              placeholder="Imię i nazwisko, e-mail, telefon albo opis, kogo szukasz…"
               className="w-full pr-16"
             />
             <span
@@ -281,28 +278,39 @@ export function FiltersPanel({
               {value.q?.length ?? 0}/{SEARCH_QUERY_MAX_LENGTH}
             </span>
           </div>
-          <Button
-            type="button"
-            variant={value.search_mode === "hybrid" ? "primary" : "outline"}
-            size="sm"
-            onClick={() =>
-              patch({
-                search_mode:
-                  value.search_mode === "hybrid" ? "boolean" : "hybrid",
-              })
-            }
-            title={
-              value.search_mode === "hybrid"
-                ? "Tryb hybrydowy: Postgres FTS + Voyage embeddings + RRF fusion + Voyage Rerank 2.5. Wyższa jakość, dłuższa latencja (~600ms rerank)."
-                : "Włącz wyszukiwanie po znaczeniu, nie tylko po słowach."
-            }
-          >
-            {value.search_mode === "hybrid" ? "Semantycznie ✓" : "Semantycznie"}
-          </Button>
           <Button variant="ghost" size="sm" onClick={clearAll}>
             Wyczyść
           </Button>
         </div>
+        {/* „Rozumiem to jako…" — tryb tekstu wybiera automat backendu
+            (osoba → dosłownie, opis → po znaczeniu); przełącznik go nadpisuje. */}
+        {textInterpretation && (value.q ?? "").trim() && (
+          <TextInterpretationLine
+            applied={textInterpretation.applied}
+            interpretation={textInterpretation.interpretation}
+            textMode={value.text_mode ?? "auto"}
+            onTextModeChange={(mode) =>
+              patch({ text_mode: mode === "auto" ? null : mode })
+            }
+          />
+        )}
+        {onUseAsRequest && looksLikePastedRequest(value.q) && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-xs text-foreground"
+          >
+            <span>Wygląda na treść requestu.</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => onUseAsRequest(value.q ?? "")}
+            >
+              Szukaj jak z requestu
+            </Button>
+          </div>
+        )}
         <AdvancedSearchPopover value={advanced} onChange={setAdvanced} />
       </div>
 
@@ -319,69 +327,31 @@ export function FiltersPanel({
         />
       </div>
 
-      {/* Skills — dwa sygnały rankingowe + jedno twarde wykluczenie.
-          Etykiety celowo NIE mówią "musi mieć": backend traktuje `skills_must`
-          i `skills_any` wyłącznie jako ranking (`skills_soft_rank` scala je
-          w JEDEN zbiór `must ∪ any`, patrz structured_candidate_search.py),
-          a twardym filtrem jest tylko `skills_none`. Poprzednie etykiety
-          obiecywały bramkę shortlisty, której nie ma — i sugerowały różnicę
-          siły między dwoma polami, które robią dokładnie to samo. */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        {(
-          [
-            ["must", "Skills (preferowane)", "success"],
-            ["any", "Skills (dodatkowe)", "info"],
-            ["none", "Skills (wyklucz)", "danger"],
-          ] as const
-        ).map(([bucket, label, tone]) => {
-          const key =
-            bucket === "must"
-              ? "skills_must"
-              : bucket === "any"
-                ? "skills_any"
-                : "skills_none";
-          const items = (value[key] as string[] | undefined) ?? [];
-          return (
-            <div key={bucket} className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">
-                {label}
-              </Label>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {items.map((s, i) => (
-                  <Badge key={`${s}-${i}`} variant={tone} className="gap-1">
-                    {s}
-                    <button
-                      type="button"
-                      onClick={() => removeFromList(key, i)}
-                      aria-label={`Usuń ${s}`}
-                      className="hover:opacity-70"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-                <Input
-                  value={skillDraft[bucket]}
-                  onChange={(e) =>
-                    setSkillDraft((d) => ({ ...d, [bucket]: e.target.value }))
-                  }
-                  onKeyDown={onSkillKey(bucket)}
-                  onBlur={() => commitSkill(bucket)}
-                  aria-label={label}
-                  placeholder="np. Python, React"
-                  className="h-8 w-28 text-xs"
-                />
-              </div>
-              {renderListNotice(key)}
-            </div>
-          );
-        })}
+      {/* Umiejętności: trzy jawne kubełki, ta sama semantyka co lista
+          kandydatów (v2, decyzja 21.09.2026). Do tej pory widok wysyłał
+          `skills_must`, które backend traktuje WYŁĄCZNIE jako ranking — „Java,
+          Spring" pokazywało ludzi bez Springa. */}
+      <div className="space-y-1.5">
+        <Label className="text-xs font-medium text-muted-foreground">
+          Umiejętności
+        </Label>
+        <SkillBucketsField
+          key={skillFieldKey}
+          value={{
+            required: value.skills_required ?? [],
+            preferred: value.skills_preferred ?? [],
+            excluded: value.skills_excluded ?? [],
+          }}
+          onChange={(next) =>
+            patch({
+              skills_required: next.required,
+              skills_required_any_groups: [],
+              skills_preferred: next.preferred,
+              skills_excluded: next.excluded,
+            })
+          }
+        />
       </div>
-      <p className="-mt-1 text-[11px] leading-snug text-muted-foreground">
-        „Preferowane" i „dodatkowe" <strong className="font-medium">podbijają ranking</strong>,
-        ale nikogo nie usuwają z wyników — kandydat bez wpisanej umiejętności nadal
-        się pokaże, tylko niżej. Twardo wyklucza wyłącznie pole „wyklucz".
-      </p>
 
       {/* Experience years range */}
       <div className="grid gap-3 sm:grid-cols-3">
@@ -459,6 +429,20 @@ export function FiltersPanel({
             />
           </div>
           {renderListNotice("location_cities")}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium text-muted-foreground">
+            Brak danych
+          </Label>
+          <HideUnknownToggle
+            checked={value.hide_unknown === true}
+            onChange={(next) => patch({ hide_unknown: next || null })}
+          />
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            Bez zaznaczenia osoby bez lokalizacji albo stażu zostają w wynikach
+            z plakietką „brak …”.
+          </p>
         </div>
       </div>
 
@@ -543,9 +527,6 @@ export function FiltersPanel({
                 [
                   ["is_champion", "Champion"],
                   ["is_ambassador", "Ambasador"],
-                  ["open_to_side_projects", "Side projects"],
-                  ["open_to_sales_support", "Sales support"],
-                  ["open_to_expert_consult", "Expert consult"],
                   ["has_cv", "Ma CV"],
                   ["has_linkedin", "Ma LinkedIn"],
                 ] as const
@@ -568,6 +549,35 @@ export function FiltersPanel({
                   </label>
                 );
               })}
+            </div>
+
+            {/* „Otwarty na" — KTÓRAKOLWIEK z zaznaczonych opcji (LUB). */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-muted-foreground">
+                Otwarty na (którekolwiek)
+              </Label>
+              <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs">
+                {(
+                  [
+                    ["side_projects", "Side projects"],
+                    ["sales_support", "Sales support"],
+                    ["expert_consult", "Expert consult"],
+                  ] as const
+                ).map(([item, label]) => (
+                  <label
+                    key={item}
+                    className="flex cursor-pointer select-none items-center gap-1.5"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={(value.open_to ?? []).includes(item)}
+                      onChange={() => toggleOpenTo(item)}
+                      className="h-3.5 w-3.5 rounded border-input text-primary focus:ring-ring"
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
             </div>
 
             {/* Languages picker */}

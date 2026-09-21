@@ -11,6 +11,7 @@ import { Badge } from"@/components/ui/badge";
 import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
 import { CompetenceCategoryBadge } from "@/components/v2/CompetenceCategoryBadge";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
+import { UnknownFieldBadges } from "@/components/v2/candidates/UnknownFieldBadges";
 import type { CandidateContactSummary } from "@/lib/candidate-contact";
 import {
  CANDIDATE_FOCUS_ATTR,
@@ -53,6 +54,8 @@ interface TileCandidate {
  competence_category?: string | null;
  competence_category_id?: number | null;
  contact_case?: CandidateContactSummary | null;
+ /** Semantyka v2: aktywne filtry przepuściły osobę tylko przez brak danych. */
+ unknown_fields?: string[];
 }
 
 interface CandidatesTilesProps {
@@ -241,6 +244,7 @@ export function CandidatesTiles({
  ) : null;
  })()}
  <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="sm" className="mt-1.5" />
+ <UnknownFieldBadges fields={candidate.unknown_fields} className="mt-1.5" />
  {contactFeatureEnabled ? (
  <ContactStatusBadge
  contactCase={candidate.contact_case}

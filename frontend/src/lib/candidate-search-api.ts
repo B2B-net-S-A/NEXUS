@@ -45,8 +45,8 @@ export interface CandidateSearchRequest {
    * `GET /api/candidates` i tutaj: „Musi mieć" (twardo), grupy „którakolwiek"
    * (twardo), „Mile widziane" (tylko ranking), „Wyklucz" (twardo). Pozycja może
    * być grupą LUB w formacie `a|b`. Pola legacy wyżej zachowują dotychczasowe
-   * znaczenie (`skills_must`/`skills_any` = ranking, `skills_none` = wyklucz).
-   * UI jeszcze ich nie wysyła.
+   * znaczenie (`skills_must`/`skills_any` = ranking, `skills_none` = wyklucz);
+   * wyszukiwarka wysyła już wyłącznie kubełki (`toSearchSemanticsV2`).
    */
   skills_required?: string[];
   skills_required_any_groups?: string[][];
@@ -143,6 +143,12 @@ export interface CandidateSearchItem {
    * conflict is a warning (`assignment_allowed: true`); only a veto blocks.
    */
   eligibility?: MatchEligibility | null;
+  /**
+   * Semantyka v2: aktywne filtry (lokalizacja / staż / stawka), które osoba
+   * przeszła WYŁĄCZNIE dlatego, że nie mamy jej danych — `location`,
+   * `experience`, `rate`. UI pokazuje je jako plakietki „brak …".
+   */
+  unknown_fields?: string[];
 }
 
 export interface CompetenceCategoryFacet {

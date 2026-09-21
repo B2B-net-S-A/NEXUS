@@ -229,8 +229,10 @@ async def migrate_one(
     if request is None or origin is None:
         return "unreadable", {}
     neutralised: list[str] = []
-    if origin == "candidates_list":
+    if origin == "candidates_list" and not payloads.list_payload_is_unified(filters):
         # Zapis z listy ma zwracać DOKŁADNIE to, co dotąd (decyzja 09.2026).
+        # Zapis, którego `api` już jest w v2 (lista od 21.09.2026), zostaje
+        # bez flag — dawnego zachowania listy nie ma czego odtwarzać.
         request, neutralised = payloads.neutralise_list_request(request)
 
     now = datetime.now(timezone.utc).isoformat()

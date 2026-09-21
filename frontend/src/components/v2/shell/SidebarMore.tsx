@@ -12,7 +12,7 @@
  */
 import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -34,6 +34,82 @@ import {
 import { CountBadge, NavItemInner, NavLink, navItemClassName } from "./SidebarNavLink";
 
 export type BadgeCounts = Partial<Record<NavBadgeKey, number>>;
+
+/**
+ * Pionowe wymiary szyny są takie same w stanie zwiniętym i rozwiniętym (UAT B57).
+ *
+ * Rozwinięcie pod kursorem zamieniało kreskę sekcji (17 px) na nagłówek (29 px)
+ * i `space-y-1` na `space-y-0.5`, więc ikony przesuwały się w dół w trakcie
+ * kliknięcia i klik trafiał w sąsiedni link. Nagłówek grupy ma stały slot
+ * (`sectionSlot`) w OBU stanach — rozwinięty: tekst, zwinięty: kreska tej samej
+ * wysokości — a odstępy nie zależą od stanu. Zmienia się tylko szerokość.
+ * Stałe żyją tu (nie w SidebarV2), bo czyta je też szuflada mobilna, a
+ * SidebarV2 importuje ten moduł — odwrotny import byłby cyklem.
+ */
+export const SIDEBAR_VERTICAL_LAYOUT = {
+  navSpacing: "space-y-0.5",
+  itemSpacing: "space-y-0.5",
+  sectionSlot: "h-7 flex items-end",
+  groupSpacing: "mb-3",
+} as const;
+
+/**
+ * Nagłówek grupy szyny. Slot ma tę samą wysokość w obu stanach; na zwiniętej
+ * szynie tekst zostaje w drzewie jako `sr-only` (grupa nie traci nazwy
+ * dostępnej), a widać tylko kreskę ukrytą przed czytnikami ekranu.
+ */
+export function SidebarGroupHeading({
+  id,
+  title,
+  collapsed,
+}: {
+  id: string;
+  title: string;
+  collapsed: boolean;
+}) {
+  return (
+    <div className={SIDEBAR_VERTICAL_LAYOUT.sectionSlot} data-nav-group-slot="">
+      <span
+        id={id}
+        className={
+          collapsed
+            ? "sr-only"
+            : "w-full truncate px-3 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-sidebar-muted select-none"
+        }
+      >
+        {title}
+      </span>
+      {collapsed ? (
+        <div aria-hidden="true" className="mx-2 mb-3 flex-1 border-t border-sidebar-border" />
+      ) : null}
+    </div>
+  );
+}
+
+/** Grupa szyny: nagłówek w stałym slocie + pozycje. `role="group"` z nazwą. */
+export function SidebarNavGroup({
+  id,
+  title,
+  collapsed,
+  children,
+}: {
+  id: string;
+  title: string;
+  collapsed: boolean;
+  children: ReactNode;
+}) {
+  const headingId = `nav-group-${id}`;
+  return (
+    <div
+      role="group"
+      aria-labelledby={headingId}
+      className={SIDEBAR_VERTICAL_LAYOUT.groupSpacing}
+    >
+      <SidebarGroupHeading id={headingId} title={title} collapsed={collapsed} />
+      <div className={SIDEBAR_VERTICAL_LAYOUT.itemSpacing}>{children}</div>
+    </div>
+  );
+}
 
 type ResolveUser = Parameters<typeof resolveNavHref>[1];
 
@@ -198,42 +274,36 @@ export function SidebarMoreInline({
   badgeCounts,
   isActive,
   onNavigate,
-  sectionSlotClassName,
-  itemSpacingClassName,
 }: {
   groups: readonly NavMoreGroup[];
   user: ResolveUser;
   badgeCounts: BadgeCounts;
   isActive: (entry: NavEntry) => boolean;
   onNavigate?: () => void;
-  sectionSlotClassName: string;
-  itemSpacingClassName: string;
 }) {
   return (
     <>
       {groups.map((group) => (
-        <div key={group.key} className="mb-3">
-          <div className={sectionSlotClassName}>
-            <p className="w-full truncate px-3 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-sidebar-muted select-none">
-              {group.title}
-            </p>
-          </div>
-          <div className={itemSpacingClassName}>
-            {group.items.map((item) => (
-              <NavLink
-                key={item.id}
-                href={resolveNavHref(item, user)}
-                label={item.label}
-                icon={item.icon}
-                active={isActive(item)}
-                collapsed={false}
-                badgeCount={item.badgeKey ? badgeCounts[item.badgeKey] : undefined}
-                onClick={onNavigate}
-                external={item.external}
-              />
-            ))}
-          </div>
-        </div>
+        <SidebarNavGroup
+          key={group.key}
+          id={`more-${group.key}`}
+          title={group.title}
+          collapsed={false}
+        >
+          {group.items.map((item) => (
+            <NavLink
+              key={item.id}
+              href={resolveNavHref(item, user)}
+              label={item.label}
+              icon={item.icon}
+              active={isActive(item)}
+              collapsed={false}
+              badgeCount={item.badgeKey ? badgeCounts[item.badgeKey] : undefined}
+              onClick={onNavigate}
+              external={item.external}
+            />
+          ))}
+        </SidebarNavGroup>
       ))}
     </>
   );

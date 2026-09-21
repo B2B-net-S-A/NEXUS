@@ -1,13 +1,18 @@
 import { act, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import TalentRadarPage from "@/app/talent-radar/page";
 import { useAuthStore, type User, type UserRole } from "@/store/auth";
 
 // Workspace ciągnie react-query, `api` i pół modułu radaru — przedmiotem tego
-// testu jest BRAMKA STRONY, nie zawartość, więc podmieniamy go zaślepką.
+// testu jest ROUTING STRONY, nie zawartość, więc podmieniamy go zaślepką.
 vi.mock("@/components/talent-radar/TalentRadarWorkspace", () => ({
   TalentRadarWorkspace: () => <div data-testid="radar-workspace" />,
+}));
+
+const replace = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace, push: vi.fn() }),
 }));
 
 function mkUser(role: UserRole): User {
@@ -24,19 +29,20 @@ function mkUser(role: UserRole): User {
   } as User;
 }
 
+beforeEach(() => replace.mockClear());
+
 afterEach(() => {
   act(() => {
     useAuthStore.setState({ user: null, hydrated: false });
   });
 });
 
-describe("TalentRadarPage — bramka roli", () => {
-  // Trzy role, które strona odcinała ręczną listą, mimo że backend
-  // (`CurrentUser`), middleware (brak wpisu) i `nav.talent_radar` = ALL_ROLES
-  // wszystkie je przepuszczają. HoR to ta osoba, której zrzut 403 uruchomił
-  // decyzję z 19.08.
-  it.each(["head_of_recruitment", "finance", "user"] as const)(
-    "renderuje radar dla roli %s (nav.talent_radar = każda zalogowana)",
+describe("TalentRadarPage — tryb ekranu Kandydaci", () => {
+  // Od 21.09.2026 radar jest trybem „Z treści requestu" ekranu Kandydaci.
+  // Każda rola z dostępem do kandydatów trafia tam (także z linków
+  // w powiadomieniach, które zapisały `/talent-radar`).
+  it.each(["recruiter", "head_of_recruitment", "finance", "admin"] as const)(
+    "rola %s jest przekierowywana do /candidates?mode=request",
     (role) => {
       act(() => {
         useAuthStore.setState({ user: mkUser(role), hydrated: true });
@@ -44,28 +50,29 @@ describe("TalentRadarPage — bramka roli", () => {
 
       render(<TalentRadarPage />);
 
-      expect(screen.getByTestId("radar-workspace")).toBeInTheDocument();
-      expect(
-        screen.queryByText(/Brak uprawnień|zgłoś to administratorowi/),
-      ).not.toBeInTheDocument();
+      expect(replace).toHaveBeenCalledWith("/candidates?mode=request");
+      expect(screen.queryByTestId("radar-workspace")).not.toBeInTheDocument();
     },
   );
 
-  it("renderuje radar dla rekrutera (brak regresji na rolach, które go miały)", () => {
+  // Decyzja z 19.08: radar dla KAŻDEJ zalogowanej roli. Rola bez dostępu do
+  // `/candidates` (middleware ją odbija) dostaje radar tutaj, bez odmowy.
+  it("rola bez dostępu do kandydatów dostaje radar na miejscu", () => {
     act(() => {
-      useAuthStore.setState({ user: mkUser("recruiter"), hydrated: true });
+      useAuthStore.setState({ user: mkUser("user"), hydrated: true });
     });
 
     render(<TalentRadarPage />);
 
     expect(screen.getByTestId("radar-workspace")).toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText(/Brak uprawnień|zgłoś to administratorowi/),
+    ).not.toBeInTheDocument();
   });
 
-  // Strona nie ma własnej bramki (#1215 zdjął piątą kopię listy ról): wejścia
-  // pilnuje middleware, a `nav.talent_radar = ALL_ROLES` znaczy, że każdy, kto
-  // się zalogował, ma tu wstęp. Dlatego stan przed hydracją NIE może renderować
-  // odmowy — „nie wiem jeszcze" ≠ „nie wolno", a bramka liczona wprost
-  // twierdziłaby adminowi przez kilka sekund, że nie ma uprawnień.
+  // „Nie wiem jeszcze" ≠ „nie wolno": przed hydracją nie ma ani odmowy, ani
+  // przekierowania w ciemno.
   it.each([
     ["przed hydracją", { user: null, hydrated: false }],
     ["po hydracji bez sesji", { user: null, hydrated: true }],
@@ -79,5 +86,6 @@ describe("TalentRadarPage — bramka roli", () => {
     expect(
       screen.queryByText(/Brak uprawnień|zgłoś to administratorowi/),
     ).not.toBeInTheDocument();
+    expect(replace).not.toHaveBeenCalled();
   });
 });

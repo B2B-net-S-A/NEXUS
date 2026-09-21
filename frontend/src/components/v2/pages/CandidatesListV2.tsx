@@ -43,7 +43,6 @@ import {
  Upload,
  Users,
  XCircle,
- X,
 } from"lucide-react";
 import api, { savedSearchesApi } from"@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -182,6 +181,14 @@ import { PinnedCandidatesBar } from"@/components/v2/filters/PinnedCandidatesBar"
 import { RequireRole } from"@/components/RequireRole";
 import { SavedSearchesMenu } from"@/components/v2/filters/SavedSearchesMenu";
 import { AdvancedSearchPopover } from"@/components/v2/filters/AdvancedSearchPopover";
+import { SkillBucketsField } from "@/components/v2/candidates/SkillBucketsField";
+import { TextInterpretationLine } from "@/components/v2/candidates/TextInterpretationLine";
+import {
+ HideUnknownToggle,
+ UnknownFieldBadges,
+} from "@/components/v2/candidates/UnknownFieldBadges";
+import type { SearchTextInterpretation } from "@/lib/candidate-search-api";
+import type { TextModeApplied } from "@/lib/candidate-search-semantics";
 import { ROLE_LABELS, type UserRole } from"@/store/auth";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -410,6 +417,11 @@ interface Candidate {
  expected_rate_hourly?: number | string | null;
  expected_rate_currency?: string | null;
  contact_case?: CandidateContactSummary | null;
+ /**
+ * Semantyka v2: aktywne filtry lokalizacji / stażu / stawki, które osoba
+ * przeszła wyłącznie przez brak danych (`location`, `experience`, `rate`).
+ */
+ unknown_fields?: string[];
 }
 
 interface CandidateListResponse {
@@ -417,6 +429,9 @@ interface CandidateListResponse {
  total: number;
  page: number;
  page_size: number;
+ /** Jak lista odczytała `q` — zawsze dosłownie („literal") albo „none". */
+ text_mode_applied?: TextModeApplied | null;
+ interpretation?: SearchTextInterpretation | null;
 }
 
 /** Polskie etykiety pipeline'u — używamy w kolumnie "Rekrutacje" tooltipach. */
@@ -863,6 +878,7 @@ function CandidateCell({
  </span>
  {isNew && <Badge size="sm" variant="success">Nowy</Badge>}
  <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="sm" className="shrink-0" />
+ <UnknownFieldBadges fields={candidate.unknown_fields} className="shrink-0 flex-nowrap" />
  {contactFeatureEnabled ? (
  <ContactStatusBadge
  contactCase={candidate.contact_case}
@@ -1411,14 +1427,12 @@ export function CandidatesListV2() {
  const [remoteFilter, setRemoteFilter] = useState<string[]>(
  searchParams.get("remote")?.split(",").filter(Boolean) ?? []
  );
- // Boolean skill expression (the "Umiejętności" box). `skillExpr` is the
- // COMMITTED expression that drives the query + URL; `skillInput` is the draft
- // text being typed (committed on Enter). Seed both from the URL (`skills_q`,
+ // Boolean skill expression behind the „Musi mieć"/„Wyklucz" buckets —
+ // drives the query + URL. Seeded from the URL (`skills_q`,
  // with legacy `skills`/`skill_combine` reconstruction).
  const [skillExpr, setSkillExpr] = useState<string>(() =>
  decodeSkillsExpr(new URLSearchParams(searchParams.toString())),
  );
- const [skillInput, setSkillInput] = useState<string>(skillExpr);
  const skillBuckets = useMemo(
  () => parseSkillExpression(skillExpr),
  [skillExpr],
@@ -1546,11 +1560,22 @@ export function CandidatesListV2() {
  const raw = Number.parseInt(searchParams.get("rcj") ?? "", 10);
  return raw === 1 || raw === 2 || raw === 3 ? raw : null;
  });
- // Wersja semantyki filtrów (`sv=2`): ustawia ją zapisane wyszukiwanie po
- // migracji (format v3), żeby lista pokazywała ten sam zbiór, który liczy alert.
- // Bez kontrolki w UI — ręczna zmiana filtrów jej nie dotyka, „Wyczyść" zeruje.
- const [semanticsVersion, setSemanticsVersion] = useState<2 | null>(
- searchParams.get("sv") === "2" ? 2 : null,
+ // Wersja semantyki filtrów: domyślnie 2 (jedna semantyka z wyszukiwarką,
+ // decyzja 21.09.2026), także dla starych zakładek bez `sv`. `sv=1` niesie
+ // tylko zapis przypięty do dawnych zasad. Bez kontrolki w UI — „Wyczyść"
+ // wraca do v2.
+ const [semanticsVersion, setSemanticsVersion] = useState<1 | 2>(
+ searchParams.get("sv") === "1" ? 1 : 2,
+ );
+ // „Mile widziane" (tylko kolejność) i „Ukryj osoby bez danych".
+ const [skillsPreferred, setSkillsPreferred] = useState<string[]>(() =>
+ searchParams
+ .getAll("skills_pref")
+ .map((x) => x.trim())
+ .filter(Boolean),
+ );
+ const [hideUnknown, setHideUnknown] = useState<boolean>(
+ searchParams.get("hu") === "1",
  );
  // Engagement openness — any of {side_projects, sales_support, expert_consult}, OR-combined.
  const [openToFilter, setOpenToFilter] = useState<OpenToValue[]>(
@@ -1663,6 +1688,8 @@ export function CandidatesListV2() {
  page,
  remote: remoteFilter as CandidateFilters["remote"],
  skillsExpr: skillExpr,
+ skillsPreferred,
+ hideUnknown,
  location: locationFilter,
  poolIds,
  competenceCategoryIds,
@@ -1703,6 +1730,8 @@ export function CandidatesListV2() {
  page,
  remoteFilter,
  skillExpr,
+ skillsPreferred,
+ hideUnknown,
  locationFilter,
  poolIds,
  competenceCategoryIds,
@@ -2040,28 +2069,29 @@ export function CandidatesListV2() {
  }
  };
 
- // Skill expression helpers. The box holds a boolean expression; committing
- // (Enter) parses it into must/any/none buckets that drive the query.
- const commitSkillExpr = (raw: string) => {
- const next = raw.trim();
- setSkillInput(next);
- setSkillExpr(next);
+ // Umiejętności w trzech kubełkach. „Musi mieć" i „Wyklucz" żyją w wyrażeniu
+ // (`skills_q` — stare zakładki otwierają się bez zmian), „Mile widziane"
+ // w osobnym parametrze. Pozycja `a|b` z „Musi mieć" to grupa „którakolwiek".
+ const applySkillBuckets = (next: {
+ required: string[];
+ preferred: string[];
+ excluded: string[];
+ }) => {
+ const must: string[] = [];
+ const anyGroups: string[][] = [];
+ for (const entry of next.required) {
+ const parts = entry
+ .split("|")
+ .map((part) => part.trim())
+ .filter(Boolean);
+ if (parts.length > 1) anyGroups.push(parts);
+ else if (parts.length === 1) must.push(parts[0]);
+ }
+ setSkillExpr(
+ serializeSkillBuckets({ must, anyGroups, none: next.excluded }),
+ );
+ setSkillsPreferred(next.preferred);
  setPage(1);
- };
- // Remove one parsed constraint by rebuilding the expression without it.
- const removeSkillConstraint = (
- kind: "must" | "any" | "none",
- index: number,
- ) => {
- const next = {
- must: kind === "must" ? skillBuckets.must.filter((_, i) => i !== index) : skillBuckets.must,
- anyGroups:
- kind === "any"
- ? skillBuckets.anyGroups.filter((_, i) => i !== index)
- : skillBuckets.anyGroups,
- none: kind === "none" ? skillBuckets.none.filter((_, i) => i !== index) : skillBuckets.none,
- };
- commitSkillExpr(serializeSkillBuckets(next));
  };
 
  // Łączna liczba aktywnych filtrów (bez prostego „q" i sortowania) —
@@ -2074,6 +2104,8 @@ export function CandidatesListV2() {
  openToFilter.length +
  remoteFilter.length +
  countSkillConstraints(skillBuckets) +
+ skillsPreferred.length +
+ (hideUnknown ? 1 : 0) +
  (locationFilter ? 1 : 0) +
  poolIds.length +
  competenceCategoryIds.length +
@@ -2109,8 +2141,9 @@ export function CandidatesListV2() {
  if (patch.remote !== undefined) setRemoteFilter(patch.remote);
  if (patch.skillsExpr !== undefined) {
  setSkillExpr(patch.skillsExpr);
- setSkillInput(patch.skillsExpr);
  }
+ if (patch.skillsPreferred !== undefined) setSkillsPreferred(patch.skillsPreferred);
+ if (patch.hideUnknown !== undefined) setHideUnknown(patch.hideUnknown);
  if (patch.location !== undefined) setLocationFilter(patch.location);
  if (patch.poolIds !== undefined) setPoolIds(patch.poolIds);
  if (patch.competenceCategoryIds !== undefined)
@@ -2215,7 +2248,8 @@ export function CandidatesListV2() {
  setOpenToFilter([]);
  setRemoteFilter([]);
  setSkillExpr("");
- setSkillInput("");
+ setSkillsPreferred([]);
+ setHideUnknown(false);
  setLocationFilter("");
  setPoolIds([]);
  setCompetenceCategoryIds([]);
@@ -2238,7 +2272,7 @@ export function CandidatesListV2() {
  setSentToClientTo("");
  setStageCurrentOnly(false);
  setRecentlyChangedJobs(null);
- setSemanticsVersion(null);
+ setSemanticsVersion(2);
  setQAll([]);
  setQAny([]);
  setQNone([]);
@@ -2426,6 +2460,20 @@ export function CandidatesListV2() {
                 if (event.key === "Enter") commitSearch();
               }}
             />
+            {/* „Rozumiem to jako…": lista dopasowuje tekst wyłącznie
+                dosłownie, więc bez przełącznika — mówimy to wprost. */}
+            {search.trim() && data && (
+              <TextInterpretationLine
+                className="mt-1"
+                applied={data.text_mode_applied}
+                interpretation={data.interpretation}
+                note={
+                  data.interpretation?.kind === "text"
+                    ? "Lista szuka tego tekstu dosłownie — po znaczeniu szuka wyszukiwarka."
+                    : undefined
+                }
+              />
+            )}
           </div>
 
           {/* Jedyny punkt wejścia do wszystkich filtrów — otwiera boczny panel. */}
@@ -2987,7 +3035,7 @@ export function CandidatesListV2() {
               </FilterField>
               <FilterField
                 label="Stawka godzinowa (PLN/h)"
-                hint="Oczekiwana stawka godzinowa B2B (np. od 120 do 200). Kandydaci bez podanej stawki nie są pokazywani."
+                hint="Oczekiwana stawka godzinowa B2B (np. od 120 do 200). Osoby bez podanej stawki zostają na liście z plakietką „brak stawki” — chyba że zaznaczysz „Ukryj osoby bez danych”."
               >
                 <div className="flex items-center gap-2">
                   <Input
@@ -3017,85 +3065,32 @@ export function CandidatesListV2() {
                 </div>
               </FilterField>
               <FilterField
-                label="Umiejętności (AND / OR / NOT)"
-                hint={'Enter, aby zastosować. Spacja/„AND" = wszystkie, „OR" = którekolwiek, „NOT" lub „-" = wyklucz. Np. „Python AND React OR Vue -PHP".'}
+                label="Brak danych"
+                hint="Filtry lokalizacji, lat doświadczenia i stawki nie usuwają osób, o których nie mamy tych danych — widzisz je z plakietką „brak …”."
               >
-                <Input
-                  placeholder='np. Python AND React OR Vue -PHP'
-                  value={skillInput}
-                  onChange={(e) => setSkillInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      commitSkillExpr(skillInput);
-                    }
-                  }}
-                  onBlur={() => {
-                    if (skillInput.trim() !== skillExpr.trim()) {
-                      commitSkillExpr(skillInput);
-                    }
+                <HideUnknownToggle
+                  checked={hideUnknown}
+                  onChange={(next) => {
+                    setHideUnknown(next);
+                    setPage(1);
                   }}
                 />
-                {countSkillConstraints(skillBuckets) > 0 && (
-                  <div className="flex gap-1.5 flex-wrap mt-2">
-                    {skillBuckets.must.map((s, i) => (
-                      <span
-                        key={`must-${s}-${i}`}
-                        className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary"
-                        title="Musi mieć (AND)"
-                      >
-                        {s}
-                        <button
-                          type="button"
-                          onClick={() => removeSkillConstraint("must", i)}
-                          aria-label={`Usuń ${s}`}
-                          className="hover:opacity-70"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    ))}
-                    {skillBuckets.anyGroups.map((group, i) => (
-                      <span
-                        key={`any-${i}`}
-                        className="inline-flex items-center gap-1 rounded-full bg-info-muted px-2 py-0.5 text-xs text-info-muted-foreground"
-                        title="Którekolwiek (OR)"
-                      >
-                        {group.join(" lub ")}
-                        <button
-                          type="button"
-                          onClick={() => removeSkillConstraint("any", i)}
-                          aria-label={`Usuń grupę ${group.join(" lub ")}`}
-                          className="hover:opacity-70"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    ))}
-                    {skillBuckets.none.map((s, i) => (
-                      <span
-                        key={`none-${s}-${i}`}
-                        className="inline-flex items-center gap-1 rounded-full bg-destructive-muted px-2 py-0.5 text-xs text-destructive-muted-foreground"
-                        title="Wyklucz (NOT)"
-                      >
-                        bez {s}
-                        <button
-                          type="button"
-                          onClick={() => removeSkillConstraint("none", i)}
-                          aria-label={`Usuń wykluczenie ${s}`}
-                          className="hover:opacity-70"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {skillInput.trim() !== skillExpr.trim() && (
-                  <p className="mt-1 text-xs text-warning-muted-foreground">
-                    Naciśnij Enter, aby zastosować zmiany.
-                  </p>
-                )}
+              </FilterField>
+              <FilterField
+                label="Umiejętności"
+                hint="Pozycja dodana bez wyboru trafia do „Musi mieć”. „Java|Kotlin” = którakolwiek z nich, „-PHP” = wyklucz."
+              >
+                <SkillBucketsField
+                  value={{
+                    required: [
+                      ...skillBuckets.must,
+                      ...skillBuckets.anyGroups.map((g) => g.join("|")),
+                    ],
+                    preferred: skillsPreferred,
+                    excluded: skillBuckets.none,
+                  }}
+                  onChange={applySkillBuckets}
+                />
               </FilterField>
               <FilterField label="Niedawno zmienił pracę (LinkedIn)">
                 <div className="flex flex-wrap gap-1.5">

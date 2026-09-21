@@ -2114,14 +2114,29 @@ miejsce, nie zbiór funkcji.
 - **Klucze react-query listy buduje `jobsListQueryKey` /
   `jobsQuickCountsQueryKey`** — harness `/preview/jobs-list-v3` zasiewa cache
   tymi samymi funkcjami, a zapytania doku odcina interceptorem (zero sieci).
-- **Pasek boczny = płaska szyna + „Więcej".** `placement` w
-  `lib/nav-registry.ts` jest PER WPIS, niezależne od roli (kto co widzi,
-  rozstrzyga wyłącznie bramka widoczności): na szynie rdzeń każdej persony
-  w kolejności `NAV_PRIMARY_ORDER` (Dashboard, Rekrutacje, Kandydaci,
-  Wyszukiwarka, Talent Radar, Kalendarz, Klienci, Kontrakty, Zamówienia
-  z maila, Finanse, Insights), reszta w grupach `NAV_MORE_GROUPS`. Nowy wpis
-  `more` MUSI mieć `moreGroup`, nowy `primary` — miejsce w `NAV_PRIMARY_ORDER`
-  (pilnuje `nav-registry.test.ts`). „Kto co widzi" testuj przez
+- **Pasek boczny = szyna w GRUPACH z nagłówkami + „Więcej" (21.09.2026).**
+  `placement` w `lib/nav-registry.ts` jest PER WPIS, niezależne od roli (kto
+  co widzi, rozstrzyga wyłącznie bramka widoczności). Szyna to
+  `NAV_PRIMARY_GROUPS`: **„Praca"** (Dashboard, Rekrutacje, Kandydaci,
+  Kalendarz) · **„Klienci i umowy"** (Klienci, Kontrakty, Zamówienia z maila)
+  · **„Firma"** (Finanse, Insights); `NAV_PRIMARY_ORDER` jest ich
+  spłaszczeniem, `visiblePrimaryGroups` zwraca grupy danej roli i odrzuca
+  PUSTE (rekruter nie widzi nagłówka „Klienci i umowy"). Reszta w grupach
+  `NAV_MORE_GROUPS`. Nowy wpis `more` MUSI mieć `moreGroup`, nowy `primary` —
+  miejsce w dokładnie jednej grupie szyny (pilnuje `nav-registry.test.ts`).
+  **Wyszukiwarka i Talent Radar NIE stoją w menu** — to tryby ekranu
+  „Kandydaci" (`/candidates?mode=search`, `?mode=request`); oba wpisy mają
+  `inSidebar: false` i żyją w palecie ⌘K („Wyszukiwarka kandydatów",
+  „Szukaj z treści requestu (Talent Radar)", słowa kluczowe „radar",
+  „wyszukiwarka"). Radar jest dla KAŻDEJ roli (19.08), a /candidates tylko dla
+  `nav.candidates`, więc `resolveHref` radaru daje `/talent-radar` (strona
+  samodzielna) roli bez `nav.candidates` (np. viewer `user`). Nagłówek grupy
+  (`SidebarNavGroup`/`SidebarGroupHeading` w `SidebarMore.tsx`) siedzi
+  w stałym slocie `SIDEBAR_VERTICAL_LAYOUT.sectionSlot` w OBU stanach:
+  rozwinięta szyna — tekst, zwinięta — kreska `aria-hidden` tej samej
+  wysokości, a tekst zostaje jako `sr-only`, bo `role="group"` jest nazwane
+  przez `aria-labelledby`. Stałe B57 żyją w `SidebarMore.tsx` (czyta je też
+  szuflada), `SidebarV2` je re-eksportuje. „Kto co widzi" testuj przez
   `visibleNavHrefs` (szyna + „Więcej"); `visibleNavSections` zostaje widokiem
   sekcjami całego menu. Paleta ⌘K nadal listuje wszystko.
 - **„Więcej"** (`v2/shell/SidebarMore.tsx`): Radix Popover w trybie modalnym
@@ -5380,3 +5395,33 @@ finanse w kreatorze od razu). Raport: `docs/custom-dashboard-completion-report.m
   pokazuje panel nadzoru tymczasowo, gdy ktoś nie ma tego kafelka, z „Dodaj na
   stałe”. `?preset=` jest ignorowane; `dashboardHref()` zawsze zwraca `/dashboard`.
 - Harness: `/preview/custom-dashboard` (pusty i pełny pulpit, zero zapytań).
+
+
+## Jeden ekran „Kandydaci" — trzy tryby zamiast trzech pozycji menu (21.09.2026)
+
+Decyzja Artura 21.09.2026: Wyszukiwarka i Talent Radar były osobnymi wejściami
+do tej samej bazy obok listy kandydatów. Teraz to TRYBY jednego ekranu
+`/candidates` (`components/v2/candidates/CandidatesWorkspace.tsx`, parametr
+`?mode=` — czysty moduł `lib/candidates-mode.ts`):
+
+| Tryb | Adres | Punkt startu | Komponent |
+|---|---|---|---|
+| Baza | `/candidates` | filtry | `CandidatesListV2` |
+| Wyszukiwanie | `/candidates?mode=search` | nazwisko / słowa / opis (auto-rozpoznanie) | `CandidateSearchView` (`hideHeader`, `persistUrlParams`) |
+| Z treści requestu | `/candidates?mode=request` | wklejony request albo profil Championa | `TalentRadarWorkspace` (`embedded`) |
+
+- **Stare adresy działają**: `/candidates/search` przekierowuje serwerowo
+  z zachowaniem `?s=` i `?job=`; `/talent-radar` przekierowuje role z
+  `nav.candidates`, a rola BEZ niej (middleware nie wpuszcza jej na
+  `/candidates`) dostaje radar na miejscu — decyzja z 19.08 („radar dla każdej
+  zalogowanej roli") zostaje. Linki `/talent-radar` zapisane w powiadomieniach
+  (`candidate_search_worker`, `notification_access`) nie wymagają migracji.
+- **Tryb czyta się z WARTOŚCI parametru przy każdym renderze** — miękka
+  nawigacja przełącza widok (reguła z `useClientTab`).
+- **„Szukaj jak z requestu"**: długi wpis w wyszukiwarce (≥ 300 znaków albo
+  ≥ 3 nowe linie) proponuje przejście do trybu requestu; tekst jedzie STANEM
+  (`requestSeed` + `key` remontujący radar), nigdy adresem — to bywa pełna
+  treść requestu klienta. Radar z `initialText` czyści kryteria poprzedniego
+  wyszukiwania i nie przełącza się na zapamiętaną „Zapisaną rekrutację".
+- **Wyszukiwanie w rekrutacji** („Propozycje z bazy", „Szukaj ręcznie") zostaje
+  w rekrutacji — to ten sam `CandidateSearchView` z `addToJob`.

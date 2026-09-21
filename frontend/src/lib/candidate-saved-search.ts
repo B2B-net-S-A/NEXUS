@@ -39,3 +39,28 @@ export function filtersFromCandidateSavedSearch(
     savedSearchId: null,
   };
 }
+
+/**
+ * Querystring listy dla zapisanego wyszukiwania — `filters.qs` plus to, czego
+ * sam `qs` nie niesie, a co zmienia zbiór wyników:
+ *
+ * - zapis przypięty do dawnych zasad („Zostaw po staremu",
+ *   `keep_legacy_semantics`) → `sv=1`, bo bez `sv` lista liczy w v2;
+ * - zapis v3 z `request.hide_unknown` (migracja zapisów z listy) → `hu=1`.
+ */
+export function listQsFromSavedSearch(filters: unknown): string {
+  if (!filters || typeof filters !== "object" || Array.isArray(filters)) return "";
+  const f = filters as Record<string, unknown>;
+  const params = new URLSearchParams(typeof f.qs === "string" ? f.qs : "");
+  if (f.keep_legacy_semantics === true) params.set("sv", "1");
+  const request = f.request;
+  if (
+    f.version === 3 &&
+    request &&
+    typeof request === "object" &&
+    (request as Record<string, unknown>).hide_unknown === true
+  ) {
+    params.set("hu", "1");
+  }
+  return params.toString();
+}

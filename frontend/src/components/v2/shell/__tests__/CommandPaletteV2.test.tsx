@@ -128,6 +128,9 @@ describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", (
     ["rekr", "Rekrutacje"],
     ["klien", "Klienci"],
     ["ustaw", "Ustawienia"],
+    ["talent radar", "Szukaj z treści requestu (Talent Radar)"],
+    ["radar", "Szukaj z treści requestu (Talent Radar)"],
+    ["wyszukiwarka", "Wyszukiwarka kandydatów"],
   ])("'%s' podpowiada pozycję %s", async (term, label) => {
     const { getByPlaceholderText, getByText } = render(
       <CommandPaletteV2 open onOpenChange={() => {}} />,
@@ -147,7 +150,8 @@ describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", (
     );
     // Pozycje, których stara, ręczna lista palety nie miała.
     for (const label of [
-      "Wyszukiwarka",
+      "Wyszukiwarka kandydatów",
+      "Szukaj z treści requestu (Talent Radar)",
       "Generator CV",
       "Generator Umów B2B",
       "Targ / Dostępni",

@@ -13,7 +13,10 @@ import {
 } from "lucide-react";
 import { savedSearchesApi, type SavedSearchRow } from "@/lib/api";
 import { detectSavedSearchFormat } from "@/lib/saved-search-format";
-import { buildCandidateSavedSearchPayload } from "@/lib/candidate-saved-search";
+import {
+ buildCandidateSavedSearchPayload,
+ listQsFromSavedSearch,
+} from "@/lib/candidate-saved-search";
 import { semanticsReapproval } from "@/lib/saved-search-reapproval";
 import { SemanticsReapprovalPanel } from "@/components/v2/filters/SemanticsReapprovalPanel";
 import { useAuthStore } from "@/store/auth";
@@ -93,7 +96,7 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  ) {
  return Promise.resolve(null);
  }
- const qs = typeof ss.filters.qs === "string" ? ss.filters.qs : "";
+ const qs = listQsFromSavedSearch(ss.filters);
  return savedSearchesApi.update(
  ss.id,
  enable
@@ -147,7 +150,8 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  );
  return;
  }
- const qs = typeof ss.filters.qs === "string" ? ss.filters.qs : "";
+ // `sv=1` (zapis przypięty do dawnych zasad) i `hu=1` (v3) nie żyją w `qs`.
+ const qs = listQsFromSavedSearch(ss.filters);
  let previousViewedAt: string | null = null;
  if (isMine) {
  try {

@@ -4,8 +4,10 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  SIDEBAR_VERTICAL_LAYOUT,
   SidebarMoreFlyout,
   SidebarMoreInline,
+  SidebarNavGroup,
   isMoreActive,
   moreBadgeTotal,
 } from "@/components/v2/shell/SidebarMore";
@@ -173,17 +175,60 @@ describe("„Więcej” — szuflada mobilna", () => {
           badgeCounts={{}}
           isActive={() => false}
           onNavigate={onNavigate}
-          sectionSlotClassName="h-7 flex items-end"
-          itemSpacingClassName="space-y-0.5"
         />
       </TooltipProvider>,
     );
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("button", { name: /Więcej/ })).toBeNull();
-    expect(screen.getByText("Dokumenty")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Dokumenty" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Generator CV" })).toHaveAttribute(
       "href",
       "/cv-generator",
     );
+  });
+});
+
+describe("grupa szyny — nagłówek w stałym slocie (UAT B57)", () => {
+  function renderGroup(collapsed: boolean) {
+    return render(
+      <SidebarNavGroup id="work" title="Praca" collapsed={collapsed}>
+        <span>Rekrutacje</span>
+      </SidebarNavGroup>,
+    );
+  }
+
+  it("rozwinięta: widoczny nagłówek, grupa ma nazwę dostępną", () => {
+    const { container } = renderGroup(false);
+    const group = screen.getByRole("group", { name: "Praca" });
+    expect(within(group).getByText("Praca").className).not.toContain("sr-only");
+    expect(within(group).getByText("Praca").className).toContain("uppercase");
+    expect(container.querySelector('[aria-hidden="true"]')).toBeNull();
+  });
+
+  it("zwinięta: kreska aria-hidden, tekst tylko dla czytnika — nazwa grupy zostaje", () => {
+    const { container } = renderGroup(true);
+    const group = screen.getByRole("group", { name: "Praca" });
+    expect(within(group).getByText("Praca").className).toBe("sr-only");
+    const divider = container.querySelector('[aria-hidden="true"]');
+    expect(divider).not.toBeNull();
+    expect(divider!.className).toContain("border-sidebar-border");
+  });
+
+  it("slot nagłówka i odstęp grupy mają TE SAME klasy w obu stanach", () => {
+    const slotClasses = (collapsed: boolean) => {
+      const { container, unmount } = renderGroup(collapsed);
+      const slot = container.querySelector("[data-nav-group-slot]")!;
+      const group = container.querySelector('[role="group"]')!;
+      const result = [slot.className, group.className, slot.nextElementSibling!.className];
+      unmount();
+      return result;
+    };
+    expect(slotClasses(true)).toEqual(slotClasses(false));
+    expect(slotClasses(false)).toEqual([
+      SIDEBAR_VERTICAL_LAYOUT.sectionSlot,
+      SIDEBAR_VERTICAL_LAYOUT.groupSpacing,
+      SIDEBAR_VERTICAL_LAYOUT.itemSpacing,
+    ]);
+    expect(SIDEBAR_VERTICAL_LAYOUT.sectionSlot).toMatch(/\bh-\d+\b/);
   });
 });

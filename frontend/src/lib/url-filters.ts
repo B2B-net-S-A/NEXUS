@@ -88,7 +88,15 @@ export interface CandidateFilters {
   // `Python AND React OR Vue -PHP`. Parsed into skill-scoped must/any/none
   // buckets at API time (see `filtersToApiParams` + `skill-expression.ts`).
   // Empty string = no skill filter. Round-trips in the URL as `skills_q`.
+  // Semantyka v2 (decyzja 21.09.2026): pozycje dodatnie = „Musi mieć" (twardo,
+  // `a|b`/`OR` = którakolwiek z grupy), NOT = „Wyklucz" (twardo).
   skillsExpr: string;
+  // „Mile widziane" — trzeci kubełek: tylko kolejność, nikogo nie usuwa.
+  // Pozycja może być grupą `a|b`. W URL powtarzany parametr `skills_pref`.
+  skillsPreferred: string[];
+  // „Ukryj osoby bez danych" (`hide_unknown`) — bez tego osoby bez lokalizacji,
+  // stażu albo stawki zostają z plakietką `unknown_fields`. W URL `hu=1`.
+  hideUnknown: boolean;
   location: string;
   poolIds: number[];
   addedByIds: number[];
@@ -148,12 +156,12 @@ export interface CandidateFilters {
   // Zmiana pracodawcy wykryta przez synchronizację LinkedIn: 1/2/3 miesiące.
   recentlyChangedJobs: RecentlyChangedJobs;
   /**
-   * Wersja semantyki filtrów (`sv=2` w URL → `semantics_version=2` w API).
-   * Ustawia ją WYŁĄCZNIE zapisane wyszukiwanie po migracji (format v3), żeby
-   * lista pokazywała ten sam zbiór, który liczy alert. `null` = dotychczasowe
-   * zachowanie listy (v1).
+   * Wersja semantyki filtrów → `semantics_version` w API. Domyślnie 2 (jedna
+   * semantyka z wyszukiwarką, decyzja 21.09.2026) — także dla starych zakładek
+   * bez `sv`. `1` (`sv=1`) niesie wyłącznie zapis przypięty do dawnych zasad
+   * („Zostaw po staremu" po migracji), żeby lista pokazała zbiór jego alertu.
    */
-  semanticsVersion: 2 | null;
+  semanticsVersion: 1 | 2;
   view: CandidatesView;
   savedSearchId: number | null;
   // Traffit-style advanced search buckets. Each phrase matches ILIKE
@@ -178,6 +186,8 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   page: 1,
   remote: [],
   skillsExpr: "",
+  skillsPreferred: [],
+  hideUnknown: false,
   location: "",
   poolIds: [],
   addedByIds: [],
@@ -200,7 +210,7 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   stageCurrentOnly: false,
   openTo: [],
   recentlyChangedJobs: null,
-  semanticsVersion: null,
+  semanticsVersion: 2,
   view: "list",
   savedSearchId: null,
   qAll: [],
@@ -275,6 +285,10 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.page > 1) p.set("page", String(f.page));
   if (f.remote.length) p.set("remote", CSV(f.remote));
   if (f.skillsExpr.trim()) p.set("skills_q", f.skillsExpr.trim());
+  for (const entry of f.skillsPreferred) {
+    if (entry.trim()) p.append("skills_pref", entry.trim());
+  }
+  if (f.hideUnknown) p.set("hu", "1");
   if (f.location) p.set("loc", f.location);
   if (f.poolIds.length) p.set("pool", CSV(f.poolIds));
   if (f.addedByIds.length) p.set("added_by", CSV(f.addedByIds));
@@ -301,7 +315,8 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.recentlyChangedJobs !== null) {
     p.set("rcj", String(f.recentlyChangedJobs));
   }
-  if (f.semanticsVersion === 2) p.set("sv", "2");
+  // v2 jest domyślne — `sv` w adresie tylko dla zapisu przypiętego do v1.
+  if (f.semanticsVersion === 1) p.set("sv", "1");
   if (f.qAll.length) p.set("q_all", PIPE(f.qAll));
   // One repeated `q_any` param per OR-group (each pipe-joined). Empty groups
   // are skipped. Legacy single-param `?q_any=a|b` decodes back to one group.
@@ -367,6 +382,11 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     page,
     remote,
     skillsExpr: decodeSkillsExpr(sp),
+    skillsPreferred: sp
+      .getAll("skills_pref")
+      .map((x) => x.trim())
+      .filter(Boolean),
+    hideUnknown: sp.get("hu") === "1",
     location: sp.get("loc") ?? "",
     poolIds: parseCsvInt(sp.get("pool")),
     addedByIds: parseCsvInt(sp.get("added_by")),
@@ -390,7 +410,8 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     stageCurrentOnly: sp.get("stage_current") === "1",
     openTo,
     recentlyChangedJobs,
-    semanticsVersion: sp.get("sv") === "2" ? 2 : null,
+    // Brak `sv` (stare zakładki, zapisy) = v2 — zamierzone (21.09.2026).
+    semanticsVersion: sp.get("sv") === "1" ? 1 : 2,
     view,
     savedSearchId,
     qAll: parsePipe(sp.get("q_all")),
@@ -498,11 +519,18 @@ export function filtersToApiParams(
   page: number,
   extras: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  // Parse the boolean skill expression into skill-scoped buckets. `must` →
-  // `skills` (AND), `anyGroups` → repeated pipe-joined `skills_any`, `none` →
-  // `skills_none`. `skill_combine` stays lowercase `"and"` — the backend's
-  // multi-skill MUST default (uppercase would 422).
+  // Parse the boolean skill expression into skill-scoped buckets.
+  // v2: jawne kubełki — `must` → `skills_required`, `anyGroups` → powtarzane
+  // `skills_required_any_groups` (`a|b`), `none` → `skills_excluded`,
+  // „Mile widziane" → `skills_preferred`.
+  // v1 (zapis przypięty do dawnych zasad): pola legacy jak dotąd — `must` →
+  // `skills` (AND, lowercase `skill_combine`), `anyGroups` → `skills_any`,
+  // `none` → `skills_none`.
   const skillBuckets = parseSkillExpression(filters.skillsExpr);
+  const v2 = filters.semanticsVersion !== 1;
+  const anyGroups = skillBuckets.anyGroups.length
+    ? skillBuckets.anyGroups.map((g) => g.join("|"))
+    : undefined;
   return {
     // Poniżej 2 znaków NIE wysyłamy `q` — backend odpowiada wtedy 422
     // (`min_length=2`, jak `/api/search/global`), a pole filtruje się przecież
@@ -514,12 +542,17 @@ export function filtersToApiParams(
     status: filters.status.length ? filters.status : undefined,
     page,
     sort: filters.sort || undefined,
-    skills: skillBuckets.must.length ? skillBuckets.must : undefined,
-    skill_combine: skillBuckets.must.length > 1 ? "and" : undefined,
-    skills_any: skillBuckets.anyGroups.length
-      ? skillBuckets.anyGroups.map((g) => g.join("|"))
+    skills: !v2 && skillBuckets.must.length ? skillBuckets.must : undefined,
+    skill_combine: !v2 && skillBuckets.must.length > 1 ? "and" : undefined,
+    skills_any: v2 ? undefined : anyGroups,
+    skills_none: !v2 && skillBuckets.none.length ? skillBuckets.none : undefined,
+    skills_required: v2 && skillBuckets.must.length ? skillBuckets.must : undefined,
+    skills_required_any_groups: v2 ? anyGroups : undefined,
+    skills_excluded: v2 && skillBuckets.none.length ? skillBuckets.none : undefined,
+    skills_preferred: filters.skillsPreferred.length
+      ? filters.skillsPreferred
       : undefined,
-    skills_none: skillBuckets.none.length ? skillBuckets.none : undefined,
+    hide_unknown: filters.hideUnknown ? true : undefined,
     remote_policy: filters.remote.length ? filters.remote : undefined,
     employment: filters.employment.length ? filters.employment : undefined,
     availability: filters.availability.length ? filters.availability : undefined,
@@ -564,7 +597,7 @@ export function filtersToApiParams(
     stage_current_only: filters.stageCurrentOnly ? true : undefined,
     open_to: filters.openTo.length ? filters.openTo : undefined,
     recently_changed_jobs: filters.recentlyChangedJobs ?? undefined,
-    semantics_version: filters.semanticsVersion ?? undefined,
+    semantics_version: filters.semanticsVersion,
     q_all: filters.qAll.length ? filters.qAll : undefined,
     // ANY OR-groups → one repeated `q_any_group` value per group (pipe-joined).
     q_any_group: filters.qAny.some((g) => g.length)
@@ -576,11 +609,11 @@ export function filtersToApiParams(
 }
 
 /**
- * Nowe, OPCJONALNE parametry `GET /api/candidates` wspólne z wyszukiwarką
+ * Parametry `GET /api/candidates` wspólne z wyszukiwarką
  * (`POST /api/search/candidates`) — jedna semantyka filtrów w obu silnikach
- * (backend: `app/services/candidate_search_predicates.py`). UI jeszcze ich nie
- * wysyła; `filtersToApiParams` nadal emituje pola legacy, które zachowują
- * dotychczasowe (twarde) znaczenie, więc zapisane wyszukiwania się nie zmieniają.
+ * (backend: `app/services/candidate_search_predicates.py`). `filtersToApiParams`
+ * wysyła kubełki umiejętności, `hide_unknown` i `semantics_version`; pola
+ * legacy tylko dla zapisu przypiętego do v1.
  */
 export interface CandidateListSharedFilterParams {
   /** „Musi mieć" — twardo, każda; pozycja może być grupą `a|b`. */

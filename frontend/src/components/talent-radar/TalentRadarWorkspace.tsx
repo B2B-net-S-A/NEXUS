@@ -46,14 +46,27 @@ import { useCanAddToRecruitment } from "@/components/v2/recruitment/useCanAddToR
 /** Poniżej tego progu opis roli nie niesie sygnału wartego embeddingu. */
 const MIN_QUERY_LENGTH = 30;
 
-export function TalentRadarWorkspace() {
+export interface TalentRadarWorkspaceProps {
+  /** W ekranie „Kandydaci" tytuł i opis daje rodzic (zakładki trybów). */
+  embedded?: boolean;
+  /**
+   * Treść przeniesiona z trybu „Wyszukiwanie" („Szukaj jak z requestu").
+   * Wygrywa ze snapshotem sesji: to nowy request, więc kryteria i podgląd
+   * wymagań poprzedniego wyszukiwania są czyszczone.
+   */
+  initialText?: string;
+}
+
+export function TalentRadarWorkspace({ embedded = false, initialText }: TalentRadarWorkspaceProps = {}) {
   const user = useAuthStore(s => s.user);
   const canReadJobs = hasSectionAccess(user, "pipeline", "read");
   const [mode, setMode] = useState<"adhoc" | "saved">("adhoc");
   useEffect(() => {
-    if (!user?.id) return;
+    // Tekst przeniesiony z wyszukiwarki to NOWY request — nie przełączaj na
+    // zapamiętaną „Zapisaną rekrutację", bo wklejona treść by zniknęła z oczu.
+    if (!user?.id || initialText?.trim()) return;
     try { if (sessionStorage.getItem(`nexus-radar-mode:${user.id}`) === "saved") setMode("saved"); } catch {}
-  }, [user?.id]);
+  }, [user?.id, initialText]);
   const choose = (value: "adhoc" | "saved") => {
     setMode(value);
     if (user?.id) { try { sessionStorage.setItem(`nexus-radar-mode:${user.id}`, value); } catch {} }
@@ -63,11 +76,11 @@ export function TalentRadarWorkspace() {
       <Button variant={mode === "adhoc" ? "primary" : "outline"} onClick={() => choose("adhoc")}>Nowy request</Button>
       <Button variant={mode === "saved" ? "primary" : "outline"} onClick={() => choose("saved")}>Zapisana rekrutacja</Button>
     </div>}
-    {mode === "saved" && canReadJobs ? <SavedRequestSearch /> : <AdHocTalentRadarWorkspace />}
+    {mode === "saved" && canReadJobs ? <SavedRequestSearch /> : <AdHocTalentRadarWorkspace embedded={embedded} initialText={initialText} />}
   </div>;
 }
 
-function AdHocTalentRadarWorkspace() {
+function AdHocTalentRadarWorkspace({ embedded = false, initialText }: TalentRadarWorkspaceProps) {
   const { showError, showSuccess } = useToast();
   const canAddToRecruitment = useCanAddToRecruitment();
   // Radar jest dla KAŻDEJ roli, ale pełny profil kandydata pozostaje za
@@ -239,7 +252,16 @@ function AdHocTalentRadarWorkspace() {
       setRunCriteria(saved.runCriteria ?? null);
       // Old capped-pool responses are not valid full-population results.
     }
+    if (initialText?.trim()) {
+      setText(initialText);
+      setRunCriteria(null);
+      setRequirementsPreview(null);
+      setChampionSkills(null);
+    }
     setHydrated(true);
+    // Tylko przy montowaniu: nowy tekst z wyszukiwarki montuje radar od nowa
+    // (`key` w CandidatesWorkspace), więc zmiana propsa nie musi tu wracać.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -381,12 +403,12 @@ function AdHocTalentRadarWorkspace() {
       <div className="flex gap-2"><ChampionTemplateDownload />{hasProfile && <><Button variant="outline" size="sm" onClick={() => { setIntakeFromDocument(false); setIntakePreview({ champion_profile: currentForImport()!, validation: intakeValidation }); }}>Popraw profil</Button><ChampionImportButton current={currentForImport()} onApply={applyIntake} /></>}</div>
       {intakePreview && <ChampionImportReview initial={intakePreview} current={currentForImport()} sourceIsDocument={intakeFromDocument} onApply={applyIntake} onClose={() => setIntakePreview(null)} />}
       <ChampionValidationPanel validation={intakeValidation} />
-      <PageHeader
+      {!embedded && <PageHeader
         eyebrow="Sourcing"
         title="Talent Radar"
         description="Wgraj profil Championa ALBO wklej treść requestu — jedno z dwóch. Przemielimy bazę kandydatów i pokażemy ranking, bez zakładania rekrutacji."
         density="compact"
-      />
+      />}
       <p className="text-sm text-muted-foreground">Nowy request — bez kontekstu zapisanej rekrutacji i jej hiring managera. Reguły klienta sprawdzamy dla wybranego klienta.</p>
 
       {formCollapsed ? (

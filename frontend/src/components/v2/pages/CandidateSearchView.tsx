@@ -53,7 +53,14 @@ import { JobShortlistPanel } from "@/components/v2/pages/JobShortlistPanel";
 import { CandidateCompareModal } from "@/components/v2/pages/CandidateCompareModal";
 import { shortlistApi } from "@/lib/candidate-search-api";
 import { detectSavedSearchFormat } from "@/lib/saved-search-format";
-import { savedSearchToSearchViewRequest } from "@/lib/saved-search-unified";
+import {
+  UNIFIED_SEMANTICS,
+  UNIFIED_VERSION,
+  savedSearchToSearchViewRequest,
+  searchRequestToUnified,
+} from "@/lib/saved-search-unified";
+import { toSearchSemanticsV2 } from "@/lib/candidate-search-semantics";
+import { UnknownFieldBadges } from "@/components/v2/candidates/UnknownFieldBadges";
 import { semanticsReapproval } from "@/lib/saved-search-reapproval";
 import {
   SemanticsReapprovalPanel,
@@ -103,6 +110,14 @@ const DEFAULT_REQUEST: CandidateSearchRequest = {
   skills_must: [],
   skills_any: [],
   skills_none: [],
+  // Trzy jawne kubełki (semantyka v2, decyzja 21.09.2026): „Musi mieć" tnie,
+  // „Mile widziane" tylko szereguje, „Wyklucz" tnie. Pola legacy wyżej
+  // zostają puste — stare stany przechodzą przez `toSearchSemanticsV2`.
+  skills_required: [],
+  skills_required_any_groups: [],
+  skills_preferred: [],
+  skills_excluded: [],
+  open_to: [],
   languages: [],
   location_cities: [],
   status: [],
@@ -118,6 +133,11 @@ const DEFAULT_REQUEST: CandidateSearchRequest = {
   // przy frazie tekstowej. Dotąd standalone /candidates/search nie dotykał
   // wektorów, dopóki użytkownik ręcznie nie kliknął „Semantycznie".
   search_mode: "hybrid",
+  // Każde wyszukiwanie idzie wspólną semantyką z listą kandydatów (v2).
+  // `text_mode` pusty = automat backendu („Rozumiem to jako…").
+  semantics_version: 2,
+  text_mode: null,
+  hide_unknown: null,
 };
 
 // Wyniesione do `lib/parse-tag-input.ts` (współdzielone z `CreateJobModal`);
@@ -182,6 +202,21 @@ interface CandidateSearchViewProps {
    * rekrutacji URL należy do strony rekrutacji (`?tab=`).
    */
   syncUrl?: boolean;
+  /**
+   * Nie renderuj nagłówka strony ani linku „Wstecz" — rodzic (ekran
+   * „Kandydaci") pokazuje własny tytuł.
+   */
+  hideHeader?: boolean;
+  /**
+   * Parametry dopisywane do adresu przy synchronizacji stanu (`replaceState`),
+   * żeby np. `mode=search` rodzica nie znikał z URL-a.
+   */
+  persistUrlParams?: Record<string, string>;
+  /**
+   * Tekst w polu wygląda na wklejony request (≥ 300 znaków albo ≥ 3 nowe
+   * linie) — pod polem pojawia się „Szukaj jak z requestu", które to woła.
+   */
+  onUseAsRequest?: (text: string) => void;
 }
 
 /**
@@ -199,6 +234,9 @@ export function CandidateSearchView({
   onBulkAdded,
   readOnly = false,
   syncUrl = false,
+  hideHeader = false,
+  persistUrlParams,
+  onUseAsRequest,
 }: CandidateSearchViewProps) {
   const searchParams = useSearchParams();
   // Samodzielna wyszukiwarka: rekruter może wskazać rekrutację („Szukasz do
@@ -223,12 +261,15 @@ export function CandidateSearchView({
   // Baza = domyślne + kontekst rekrutacji + prefill; URL niesie tylko różnicę
   // względem niej. `initial` na stronie rekrutacji bywa nowym obiektem co
   // render, ale tam `syncUrl` jest wyłączone, więc efekt niżej nic nie robi.
+  // Prefill rekrutacji niesie `skills_must` (sygnał rankingowy) — przechodzi
+  // przez ten sam adapter co stare zapisy i ląduje w „Mile widziane".
   const baseRequest = useMemo<CandidateSearchRequest>(
-    () => ({
-      ...DEFAULT_REQUEST,
-      ...(jobContext ? { exclude_in_job_id: jobContext.id } : {}),
-      ...initial,
-    }),
+    () =>
+      toSearchSemanticsV2({
+        ...DEFAULT_REQUEST,
+        ...(jobContext ? { exclude_in_job_id: jobContext.id } : {}),
+        ...initial,
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [jobContext?.id, initial],
   );
@@ -236,25 +277,36 @@ export function CandidateSearchView({
   // z profilu montuje stronę od nowa, więc inicjalizator wystarcza. Efekt na
   // wartości parametru ścigałby się z echem własnego `replaceState` niżej
   // (dwa szybkie wpisy → cofnięcie drugiego przez spóźnione echo pierwszego).
+  // Stary `?s=` (sprzed v2: `skills_must`, `open_to_*`…) otwiera się dalej —
+  // `toSearchSemanticsV2` przekłada pola legacy na kubełki tym samym
+  // adapterem, którym migrowane są zapisane wyszukiwania.
   const [request, setRequest] = useState<CandidateSearchRequest>(() =>
     syncUrl
-      ? decodeSearchRequest(
-          searchParams?.get(SEARCH_REQUEST_URL_PARAM) ?? null,
-          baseRequest,
+      ? toSearchSemanticsV2(
+          decodeSearchRequest(
+            searchParams?.get(SEARCH_REQUEST_URL_PARAM) ?? null,
+            baseRequest,
+          ),
         )
       : baseRequest,
   );
 
+  const persistParamsKey = JSON.stringify(persistUrlParams ?? {});
   // URL ← stan: replaceState, żeby każda zmiana filtra nie dokładała wpisu
   // w historii (Wstecz ma prowadzić do poprzedniej strony, nie po filtrach).
   useEffect(() => {
     if (!syncUrl) return;
     const params = encodeSearchRequest(request, baseRequest);
     if (!addToJob && pickedJob) params.set(JOB_URL_PARAM, String(pickedJob.id));
+    for (const [key, value] of Object.entries(persistUrlParams ?? {})) {
+      params.set(key, value);
+    }
     const qs = params.toString();
     const { pathname } = window.location;
     window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
-  }, [syncUrl, request, baseRequest, addToJob, pickedJob]);
+    // `persistUrlParams` bywa nowym obiektem co render — porównujemy treść.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncUrl, request, baseRequest, addToJob, pickedJob, persistParamsKey]);
   const [data, setData] = useState<CandidateSearchResponse | null>(null);
   // Request, który wyprodukował `data` — diagnostyka pyta o TO zapytanie,
   // nie o to, które użytkownik właśnie pisze.
@@ -434,12 +486,16 @@ export function CandidateSearchView({
     const filters = (savedSearchToSearchViewRequest(ss.filters) ??
       ss.filters) as Partial<CandidateSearchRequest>;
     clearSelection();
-    setRequest({
-      ...DEFAULT_REQUEST,
-      ...(jobContext ? { exclude_in_job_id: jobContext.id } : {}),
-      ...filters,
-      page: 1,
-    });
+    // Zapis legacy (surowe żądanie: `skills_must` = ranking) i v3 kończą w tym
+    // samym kształcie v2 — adapter zapisów decyduje o kubełkach.
+    setRequest(
+      toSearchSemanticsV2({
+        ...DEFAULT_REQUEST,
+        ...(jobContext ? { exclude_in_job_id: jobContext.id } : {}),
+        ...filters,
+        page: 1,
+      }),
+    );
   };
 
   const approveAndLoadSavedSearch = async (
@@ -492,10 +548,18 @@ export function CandidateSearchView({
       const { page: _page, exclude_in_job_id: _excl, ...rest } = request;
       void _page;
       void _excl;
+      // Nowe zapisy od razu w formacie v3 (jedna semantyka z listą) — ten
+      // sam kształt, który migracja nadaje starym zapisom.
+      const payload = {
+        version: UNIFIED_VERSION,
+        semantics_version: UNIFIED_SEMANTICS,
+        origin: "search_request" as const,
+        request: searchRequestToUnified(rest as unknown as Record<string, unknown>),
+      };
       await savedSearchesApi.create({
         name,
         entity: "candidates",
-        filters: rest as unknown as Record<string, unknown>,
+        filters: payload as unknown as Record<string, unknown>,
         pinned_to_job_id: savePinToJob ? addToJob?.id ?? null : null,
       });
       setSaveDraftOpen(false);
@@ -757,7 +821,14 @@ export function CandidateSearchView({
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4">
-      <header className="flex items-center justify-between">
+      <header
+        className={
+          hideHeader
+            ? "flex items-center justify-end"
+            : "flex items-center justify-between"
+        }
+      >
+        {!hideHeader && (
         <div className="flex items-center gap-3">
           {backHref && (
             <Link
@@ -773,6 +844,7 @@ export function CandidateSearchView({
             Wyszukiwanie kandydatów
           </h1>
         </div>
+        )}
         {data && (
           <div className="text-sm text-muted-foreground tabular-nums">
             {data.total} {data.total === 1 ? "wynik" : "wyniki"} ·{" "}
@@ -810,8 +882,8 @@ export function CandidateSearchView({
         >
           Tryb semantyczny pokazuje <strong>najtrafniejsze {data.total}</strong>{" "}
           osób, a nie wszystkie pasujące — to sufit tego trybu, nie rozmiar bazy.
-          Doprecyzuj zapytanie, albo wyłącz „Semantycznie”, żeby przeszukać całą
-          bazę filtrami.
+          Doprecyzuj zapytanie, albo przełącz tekst na „Dosłownie”, żeby
+          przeszukać całą bazę filtrami.
         </div>
       )}
 
@@ -896,7 +968,20 @@ export function CandidateSearchView({
         </section>
       )}
 
-      <FiltersPanel value={request} onChange={setRequestPatch} ccCounts={ccCounts} />
+      <FiltersPanel
+        value={request}
+        onChange={setRequestPatch}
+        ccCounts={ccCounts}
+        textInterpretation={
+          data && dataRequestRef.current?.q === request.q
+            ? {
+                applied: data.meta?.text_mode_applied,
+                interpretation: data.meta?.interpretation,
+              }
+            : null
+        }
+        onUseAsRequest={onUseAsRequest}
+      />
 
       {addToJob && (
         <JobShortlistPanel
@@ -1618,6 +1703,7 @@ function CandidateSearchRow({
               {formattedLocation}
             </span>
           )}
+          <UnknownFieldBadges fields={item.unknown_fields} />
         </div>
         {skillNames.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
