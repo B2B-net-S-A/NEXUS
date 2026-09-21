@@ -4989,7 +4989,7 @@ Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
   WSTRZYMANY (`filters.migration.alert_was_on`), `diff` z samych LICZB + kody
   reguł `diff.rules` (`saved_search_payload.RULE_*`; statyczne „reguły, które
   dotyczą tego zapisu", nie atrybucja per osoba) i JEDNO powiadomienie
-  `saved_search_reapproval` (migracja `…_saved_search_reapproval_notif` +
+  `saved_search_reapproval` (migracja `0336_saved_search_reapproval_notif` +
   lustro w `entrypoint.sh`). Idempotentna (v3 i zapisy przypięte do v1 są
   pomijane). Tryb hybrydowy z `q` nie jest odtwarzany (embeddingi). Nieaktywny
   właściciel → do akceptacji bez powiadomienia. Najstarsze `{qs}` bez `api` są
