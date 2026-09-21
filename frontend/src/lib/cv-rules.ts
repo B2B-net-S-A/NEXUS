@@ -468,6 +468,7 @@ export function countActiveAdvanced(form: CvRuleForm): number {
 
 /** Etykiety akcji historii — warstwa prezentacji, nie kontrakt API. */
 export const RULE_EVENT_LABELS: Record<string, string> = {
+  central_published: "Opublikowano centralne zasady CV",
   saved: "Zapisano jako propozycję",
   saved_and_confirmed: "Zapisano i zatwierdzono",
   confirmed: "Zatwierdzono",
@@ -477,6 +478,13 @@ export const RULE_EVENT_LABELS: Record<string, string> = {
 };
 
 export const RULE_FIELD_LABELS: Record<string, string> = {
+  previous_recipe: "Poprzednia konfiguracja (archiwum)",
+  managed_policy: "Centralna polityka",
+  policy_id: "Identyfikator polityki",
+  policy_version: "Wersja polityki",
+  source_url: "Dokument źródłowy",
+  source_document: "Dokument źródłowy",
+  require_recommendation_note: "Wymagana notatka rekomendacyjna",
   highlight_policy: "Zasada pogrubiania",
   highlight_terms: "Wyróżniane technologie",
   filename_pattern: "Wzór nazwy pliku",

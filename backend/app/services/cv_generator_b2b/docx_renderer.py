@@ -1426,10 +1426,13 @@ def render_cv_to_bytes(
 
     # === NAGŁÓWEK GŁÓWNY ===
     header_para = doc.add_paragraph()
+    header_position = (
+        candidate_data.get("presentation_position") or candidate_data["position"]
+    )
     if blind_cv:
-        header_text = candidate_data["position"]
+        header_text = header_position
     else:
-        header_text = f"{candidate_data['position']} – {candidate_data['name']}"
+        header_text = f"{header_position} – {candidate_data['name']}"
     header_run = header_para.add_run(header_text)
     header_run.font.name = "Montserrat SemiBold"
     header_run.font.color.rgb = COLOR_HEADER
@@ -1438,13 +1441,10 @@ def render_cv_to_bytes(
     header_para.paragraph_format.space_after = Pt(6)
     header_para.paragraph_format.space_before = Pt(2)
 
-    # The vacancy the candidate is being put forward for. Kept OUT of the main
-    # header on purpose: the header states the candidate's actual position, so
-    # the document never asserts a job title the source CV does not support.
-    if candidate_data.get("generic_cv"):
-        doc.add_paragraph("General CV" if language == "en" else "CV ogólne")
+    # Preserve the historical layout for payloads predating central policies.
+    # New documents have one presentation heading; workflow labels stay in UI.
     considered_for = str(candidate_data.get("considered_for") or "").strip()
-    if considered_for:
+    if considered_for and not candidate_data.get("presentation_position"):
         sub_para = doc.add_paragraph()
         label_run = sub_para.add_run(t["considered_for"] + " ")
         label_run.font.name = "Montserrat SemiBold"

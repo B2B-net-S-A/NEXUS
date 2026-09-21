@@ -296,6 +296,41 @@ def test_real_render_and_rerender_of_a_legacy_payload(defaults, monkeypatch):
     assert svc.rerender_docx_from_payload(result.render_payload)[:2] == b"PK"
 
 
+def test_central_document_has_one_translated_header_without_workflow_labels(
+    defaults, monkeypatch
+):
+    from io import BytesIO
+    from docx import Document
+    from app.services.cv_generator_b2b.docx_renderer import render_cv_to_bytes
+    from app.services.cv_generator_b2b.html_export import render_interactive_html
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    monkeypatch.setattr(legacy, "render_cv_to_bytes", render_cv_to_bytes)
+    defaults["response"]["presentation_position"] = "Programista zaplecza"
+    result = _run(rule=_rule(managed_policy={"key": "standard"}))
+    payload = result.render_payload
+    assert payload["generic_cv"] is True  # internal state, not document text
+    assert payload["position"] == "Backend Developer"
+    assert payload["experience"][0]["position"] == "Backend Developer"
+    assert payload["presentation_position"] == "Programista zaplecza"
+    assert "considered_for" not in payload
+    assert "Programista zaplecza" in result.filename
+    document = Document(BytesIO(result.docx_bytes))
+    text = "\n".join(p.text for p in document.paragraphs)
+    assert document.paragraphs[0].text == "Programista zaplecza – Jan Kowalski"
+    for label in ("General CV", "CV ogólne", "Considered for:"):
+        assert label not in text
+    public = build_public_payload(payload)
+    assert public["position"] == "Programista zaplecza"
+    assert public["considered_for"] is None
+    assert "generic_cv" not in public
+    html = render_interactive_html(public, [], document_only=True)
+    assert "Programista zaplecza – Jan Kowalski</h1>" in html
+    assert 'class="considered"' not in html
+    assert "CV ogólne" not in html
+    assert "Polish (pl)" in defaults["calls"][0]["system"]
+
+
 # ── Approval does not require an AI review while evidence is advisory ─────
 
 

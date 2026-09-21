@@ -454,6 +454,21 @@ describe("CV upload context and server history", () => {
     postMock.mockReset();
     postMock.mockResolvedValue({ data: {id: 500, status: "processing", candidate_name: "Synthetic"} });
   });
+  it("waits for the policy and language count before allowing generation", async () => {
+    let resolvePolicy!: (value: { data: unknown }) => void;
+    const pending = new Promise<{ data: unknown }>(resolve => { resolvePolicy = resolve; });
+    getMock.mockImplementation(url => String(url).endsWith("/policy") ? pending : Promise.resolve({ data: [] }));
+    renderPage();
+    await openUploadMode();
+    drop(cvInput(), new File(["synthetic"], "cv.pdf"));
+    confirmOutsideAssignment();
+    const submit = screen.getByRole("button", { name: /Generuj CV/i });
+    expect(submit).toBeDisabled();
+    expect(screen.getByText(/Wczytuję zasady CV i liczbę wersji/)).toBeInTheDocument();
+    resolvePolicy({ data: { managed: true, content_mode: "polished", effective_policy: { requires_en_copy: false, filename_pattern: "B2B_{STANOWISKO}_{IMIE_NAZWISKO}" } } });
+    await screen.findByText("Powstanie 1 wersja: PL.");
+    await waitFor(() => expect(submit).toBeEnabled());
+  });
   it("sends the pipeline candidate and exact recruitment with the uploaded CV", async () => {
     getMock.mockImplementation(async (url) => ({data: String(url).endsWith("/recruitments") ? [{stage_id: 30, job_id: 40, job_title: "Test job", client_id: 5, client_name: "Test client", ready: true}] : String(url).includes("cv-rule") ? null : []}) as never);
     renderPage({embedded: true, prefillCandidateId: 2, prefillCandidateName: "Test Person", prefillJobId: 40});
