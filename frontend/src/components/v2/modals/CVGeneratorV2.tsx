@@ -12,6 +12,7 @@ import {
 import api from "@/lib/api";
 import { CvSourcePicker, useCvSourceSelection } from "@/components/v2/cv-generator/CvSourcePicker";
 import { ConsentScreenshotField } from "@/components/v2/cv/ConsentScreenshotField";
+import { useCentralPolicy } from "@/components/cv-rules/CentralPolicyView";
 import { useClientCvRule } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { cn } from "@/lib/utils";
 import {
@@ -143,6 +144,8 @@ export function CVGeneratorV2({
   // `is_active`, bo propozycja z seeda (niezatwierdzona) nie obowiązuje i serwer
   // też jej nie stosuje (`resolve_client_rule`).
   const clientRuleQuery = useClientCvRule(selectedRecruitment?.client_id ?? null);
+  const centralPolicy = useCentralPolicy(selectedRecruitment?.client_id, selectedRecruitment?.stage_id);
+  const centrallyManaged = !!centralPolicy.data?.managed;
   const activeRule = clientRuleQuery.data?.is_active ? clientRuleQuery.data : undefined;
   const consentRequired = !!activeRule?.requires_rodo_consent_block;
   const [projectRef, setProjectRef] = useState("");
@@ -158,7 +161,7 @@ export function CVGeneratorV2({
   }, [forcedLanguage, language]);
 
   // Tryb obróbki: zablokowany = wymuszony; domyślny = zaznaczany RAZ na klienta.
-  const lockedMode = activeRule?.content_mode_locked ? activeRule.content_mode : null;
+  const lockedMode = centrallyManaged ? centralPolicy.data!.content_mode : activeRule?.content_mode_locked ? activeRule.content_mode : null;
   const defaultMode = activeRule?.content_mode ?? null;
   const ruleClientId = activeRule?.client_id ?? null;
   const lastDefaultedClient = useRef<number | null>(null);
@@ -188,7 +191,7 @@ export function CVGeneratorV2({
     !!selectedRecruitment &&
     !!sourceSelection.selected &&
     selectedRecruitment.ready &&
-    (!consentRequired || !!consentKey) &&
+    (centrallyManaged || !consentRequired || !!consentKey) &&
     requirementProblems.length === 0;
 
   const generateMut = useMutation({
@@ -501,7 +504,7 @@ export function CVGeneratorV2({
             </div>
 
             <ConsentScreenshotField
-              context={{ candidateId, stageId: selectedRecruitment?.stage_id, clientId: selectedRecruitment?.client_id }}
+              context={{ candidateId, stageId: selectedRecruitment?.stage_id, clientId: selectedRecruitment?.client_id, projectRef }}
               value={consentKey}
               onChange={(key: string | null) => setConsentKey(key)}
               required={consentRequired}
@@ -532,6 +535,7 @@ export function CVGeneratorV2({
               </div>
             )}
 
+            {centrallyManaged && <div className="rounded-md border border-border p-3 text-sm"><p>{centralPolicy.data?.content_mode === "tailored" ? "Automatyczne dopasowanie do Profilu Championa" : "CV ogólne — neutralna redakcja"}</p><p>{centralPolicy.data?.effective_policy?.requires_en_copy ? "Powstaną 2 wersje: PL i EN. Druga wersja oznacza dodatkowe zużycie AI." : `Powstanie 1 wersja: ${language.toUpperCase()}.`}</p><p>Po generacji sprawdź dokumenty i potwierdź gotowość pakietu w Generatorze CV.</p></div>}
             <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
               <p className="text-xs text-muted-foreground">
                 {generateMut.isPending

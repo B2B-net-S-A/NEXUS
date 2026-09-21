@@ -974,6 +974,17 @@ async def create_cv_share_token(
         )
 
     version = await freeze_approved_version(db, csv)
+    from app.models.cv_generated_document import CvGeneratedDocument
+    from app.services.cv_packages import require_ready
+
+    generated = (
+        await db.get(CvGeneratedDocument, csv.generated_document_id)
+        if csv.generated_document_id
+        else None
+    )
+    package_versions = (
+        await require_ready(db, generated, version.id) if generated else None
+    )
     raw_token = secrets.token_urlsafe(36)
     revoke_key = f"v2${secrets.token_hex(16)}"
     token_digest = hashlib.sha256(raw_token.encode()).hexdigest()
@@ -984,6 +995,7 @@ async def create_cv_share_token(
             token_sha256=token_digest,
             candidate_stage_cv_id=csv.id,
             document_version_id=version.id,
+            package_versions=package_versions,
             created_by=current_user.id,
             expires_at=expires_at,
             max_views=max_views,

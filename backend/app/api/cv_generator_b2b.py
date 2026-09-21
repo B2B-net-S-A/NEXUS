@@ -50,6 +50,7 @@ from fastapi.responses import Response
 from app.core.terminal_failure import terminal_operation, capture_terminal_failure
 from app.core.http_headers import content_disposition_attachment
 from pydantic import BaseModel, Field
+from app.services.cv_generator_b2b import central_policies
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -209,6 +210,8 @@ class FactualReviewSummary(BaseModel):
 
 
 class GeneratedCvItem(BaseModel):
+    central_policy: Optional[dict] = None
+    package_id: Optional[int] = None
     """A row in the „Wygenerowane CV" panel list."""
 
     id: int
@@ -360,6 +363,7 @@ async def _create_pending_row(
     content_mode: str,
     client_id: int | None = None,
     job_id: int | None = None,
+    central_policy: dict | None = None,
 ) -> int:
     """Insert a „processing" placeholder so the CV shows on the list the moment
     generation is enqueued — the recruiter can then close the tab while the
@@ -370,6 +374,7 @@ async def _create_pending_row(
     used, so the stored value always describes the delivered document.
     """
     row = CvGeneratedDocument(
+        central_policy=central_policy,
         candidate_id=candidate_id,
         job_id=job_id,
         client_id=client_id,
@@ -457,7 +462,11 @@ async def _finalize_success(
     # the real name captured in the payload so the INTERNAL list stays
     # identifiable (the DOCX itself remains anonymized on re-render).
     row.candidate_name = str(payload.get("name") or result.candidate_name)
-    row.position = payload.get("position")
+    row.position = (
+        (payload.get("considered_for") or payload.get("position"))
+        if getattr(row, "central_policy", None)
+        else payload.get("position")
+    )
     # Upload parsing has no recruitment context; retain the authorized enqueue binding.
     if result.job_id is not None:
         row.job_id = result.job_id
@@ -715,123 +724,173 @@ async def _run_generate_new_job(
 ) -> None:
     """Background worker for New-mode (DB-backed) generation."""
     async with AsyncSessionLocal() as db:
-        try:
-            source_facts = await run_in_threadpool(
-                prepare_source_facts,
-                cv_bytes=source.cv_bytes,
-                cv_filename=source.cv_filename,
-                screening_notes_text=source.screening_notes_text,
-                request_id=f"cvgen_source_{generated_id}",
-            )
-            review_quota = await _charge_final_review(db, user_id=user_id)
-            with _review_declaration_or_null(user_id, review_quota):
-                result = await generate_cv_from_candidate_source(
-                    source,
-                    language=language,
-                    blind_cv=blind_cv,
-                    content_mode=content_mode,
-                    client_rule=rule_snapshot,
-                    project_ref=project_ref or None,
-                    prepared_source_facts=source_facts,
-                )
-        except StandaloneGenerationError as err:
-            await _finalize_failure(
-                db, generated_id, err.message, diagnostic_code=err.diagnostic_code
-            )
+        first_row = await db.get(CvGeneratedDocument, generated_id)
+        if (
+            first_row is not None
+            and getattr(first_row, "status", None) == "ready"
+            and getattr(first_row, "central_policy", None)
+        ):
+            from app.services.cv_generator_b2b.job_leases import lock_owned_job
+            from app.services.cv_generator_b2b.job_snapshot import _decode
+            from types import SimpleNamespace
+
+            active_job = await lock_owned_job(db)
+            if active_job is None or not active_job.prepared_source_facts:
+                raise RuntimeError("Missing frozen source facts for language retry")
+            source_facts = _decode(active_job.prepared_source_facts)
+            language = first_row.language
+            finalized = True
+            result = SimpleNamespace(job_id=first_row.job_id)
             await db.commit()
-            capture_terminal_failure(
-                err,
-                operation="cv-generation",
-                failure_kind=getattr(err, "diagnostic_code", None)
-                or type(err).__name__,
-            )
-            return
-        except Exception as err:  # noqa: BLE001 — a job must never crash silently
-            logger.exception("[cv_b2b] New-mode job %s crashed: %s", generated_id, err)
-            await _finalize_failure(
-                db, generated_id, "Nieoczekiwany błąd generacji CV."
-            )
-            await db.commit()
-            capture_terminal_failure(
-                err,
-                operation="cv-generation",
-                failure_kind=getattr(err, "diagnostic_code", None)
-                or type(err).__name__,
-            )
-            return
-
-        finalized = await _finalize_success(
-            db,
-            generated_id,
-            result=result,
-            consent_screenshot=consent_screenshot,
-            rule_version=rule_snapshot.version if rule_snapshot else None,
-        )
-        if finalized:
-            db.add(
-                Activity(
-                    entity_type="candidate",
-                    entity_id=candidate_id,
-                    action="b2b_cv_generated",
-                    details={
-                        "stage_id": stage_id,
-                        "language": language,
-                        "blind_cv": blind_cv,
-                        "content_mode_requested": content_mode,
-                        "content_mode_used": (result.render_payload or {}).get(
-                            "content_mode"
-                        ),
-                        "filename": result.filename,
-                        "warnings_count": len(result.warnings),
-                        "processing_time_ms": result.processing_time_ms,
-                        "generated_id": generated_id,
-                    },
-                    user_id=user_id,
+        else:
+            try:
+                source_facts = await run_in_threadpool(
+                    prepare_source_facts,
+                    cv_bytes=source.cv_bytes,
+                    cv_filename=source.cv_filename,
+                    screening_notes_text=source.screening_notes_text,
+                    request_id=f"cvgen_source_{generated_id}",
                 )
-            )
-        await db.commit()
+                from app.services.cv_generator_b2b.job_leases import lock_owned_job
+                from app.services.cv_generator_b2b.job_snapshot import _encode
 
-        # Interaktywne CV: precompute mapy „wymaganie → dowody" (kafelki na
-        # publicznym linku). Fail-open — porażka/kwota nie psuje generacji,
-        # link działa wtedy w samym widoku classic.
-        if finalized:
-            from app.services.cv_generator_b2b.requirement_map import (
-                ensure_requirement_map,
-            )
+                active_job = await lock_owned_job(db)
+                if active_job is not None:
+                    active_job.prepared_source_facts = _encode(source_facts)
+                    await db.commit()
+                review_quota = await _charge_final_review(db, user_id=user_id)
+                with _review_declaration_or_null(user_id, review_quota):
+                    result = await generate_cv_from_candidate_source(
+                        source,
+                        language=language,
+                        blind_cv=blind_cv,
+                        content_mode=content_mode,
+                        client_rule=rule_snapshot,
+                        project_ref=project_ref or None,
+                        prepared_source_facts=source_facts,
+                    )
+            except StandaloneGenerationError as err:
+                await _finalize_failure(
+                    db, generated_id, err.message, diagnostic_code=err.diagnostic_code
+                )
+                await db.commit()
+                capture_terminal_failure(
+                    err,
+                    operation="cv-generation",
+                    failure_kind=getattr(err, "diagnostic_code", None)
+                    or type(err).__name__,
+                )
+                return
+            except Exception as err:  # noqa: BLE001 — a job must never crash silently
+                logger.exception(
+                    "[cv_b2b] New-mode job %s crashed: %s", generated_id, err
+                )
+                await _finalize_failure(
+                    db, generated_id, "Nieoczekiwany błąd generacji CV."
+                )
+                await db.commit()
+                capture_terminal_failure(
+                    err,
+                    operation="cv-generation",
+                    failure_kind=getattr(err, "diagnostic_code", None)
+                    or type(err).__name__,
+                )
+                return
 
-            await ensure_requirement_map(
+            finalized = await _finalize_success(
                 db,
                 generated_id,
-                user_id=user_id,
-                requirements=[
-                    {"name": name, "kind": kind} for name, kind in source.requirements
-                ],
+                result=result,
+                consent_screenshot=consent_screenshot,
+                rule_version=rule_snapshot.version if rule_snapshot else None,
             )
+            if finalized:
+                db.add(
+                    Activity(
+                        entity_type="candidate",
+                        entity_id=candidate_id,
+                        action="b2b_cv_generated",
+                        details={
+                            "stage_id": stage_id,
+                            "language": language,
+                            "blind_cv": blind_cv,
+                            "content_mode_requested": content_mode,
+                            "content_mode_used": (result.render_payload or {}).get(
+                                "content_mode"
+                            ),
+                            "filename": result.filename,
+                            "warnings_count": len(result.warnings),
+                            "processing_time_ms": result.processing_time_ms,
+                            "generated_id": generated_id,
+                        },
+                        user_id=user_id,
+                    )
+                )
+            await db.commit()
+
+            # Interaktywne CV: precompute mapy „wymaganie → dowody" (kafelki na
+            # publicznym linku). Fail-open — porażka/kwota nie psuje generacji,
+            # link działa wtedy w samym widoku classic.
+            if finalized:
+                from app.services.cv_generator_b2b.requirement_map import (
+                    ensure_requirement_map,
+                )
+
+                await ensure_requirement_map(
+                    db,
+                    generated_id,
+                    user_id=user_id,
+                    requirements=[
+                        {"name": name, "kind": kind}
+                        for name, kind in source.requirements
+                    ],
+                )
 
         # Druga wersja językowa (0267): klient oczekuje PL i EN, a Delivery
         # Lead włączył automat. Osobny wiersz na liście, osobna kwota, osobna
         # awaria — porażka drugiej nie dotyka pierwszej.
         second = _second_language(rule_snapshot, language) if finalized else None
         if second is not None:
+            from app.services.cv_generator_b2b.job_leases import lock_owned_job
+
+            active_job = await lock_owned_job(db)
+            existing_second = (
+                await db.get(CvGeneratedDocument, active_job.second_generated_id)
+                if active_job and active_job.second_generated_id
+                else None
+            )
+            if existing_second is not None and existing_second.status == "ready":
+                await db.commit()
+                return
             second_quota = await _charge_second_language_or_note(
                 db, first_generated_id=generated_id, user_id=user_id
             )
             if second_quota is None:
                 return
             first_row = await db.get(CvGeneratedDocument, generated_id)
-            second_id = await _create_pending_row(
-                db,
-                mode="new",
-                candidate_id=candidate_id,
-                candidate_name=first_row.candidate_name if first_row else "Kandydat",
-                position=first_row.position if first_row else None,
-                language=second,
-                blind_cv=blind_cv,
-                user_id=user_id,
-                content_mode=content_mode,
-                client_id=client_id,
-                job_id=result.job_id,
-            )
+            if existing_second is not None:
+                second_id = existing_second.id
+                existing_second.status = "processing"
+                existing_second.error_message = None
+            else:
+                second_id = await _create_pending_row(
+                    db,
+                    mode="new",
+                    candidate_id=candidate_id,
+                    candidate_name=first_row.candidate_name
+                    if first_row
+                    else "Kandydat",
+                    position=first_row.position if first_row else None,
+                    language=second,
+                    blind_cv=blind_cv,
+                    user_id=user_id,
+                    content_mode=content_mode,
+                    client_id=client_id,
+                    job_id=result.job_id,
+                    central_policy=getattr(first_row, "central_policy", None)
+                    if first_row
+                    else None,
+                )
             from app.services.cv_generator_b2b.job_leases import (
                 register_second_document,
             )
@@ -933,90 +992,122 @@ async def _run_generate_upload_job(
 ) -> None:
     """Background worker for Old-mode (manual upload) generation."""
     async with AsyncSessionLocal() as db:
-        try:
-            source_facts = await run_in_threadpool(
-                prepare_source_facts,
-                cv_bytes=payload.cv_bytes,
-                cv_filename=payload.cv_filename,
-                screening_notes_text=payload.screening_notes or "",
-                request_id=f"cvgen_upload_source_{generated_id}",
-            )
-            review_quota = await _charge_final_review(db, user_id=user_id)
-            with _review_declaration_or_null(user_id, review_quota):
-                result = await run_in_threadpool(
-                    generate_cv_from_uploads,
-                    payload,
-                    prepared_source_facts=source_facts,
-                )
-        except StandaloneGenerationError as err:
-            await _finalize_failure(
-                db, generated_id, err.message, diagnostic_code=err.diagnostic_code
-            )
+        first_row = await db.get(CvGeneratedDocument, generated_id)
+        if (
+            first_row is not None
+            and getattr(first_row, "status", None) == "ready"
+            and getattr(first_row, "central_policy", None)
+        ):
+            from app.services.cv_generator_b2b.job_leases import lock_owned_job
+            from app.services.cv_generator_b2b.job_snapshot import _decode
+            from types import SimpleNamespace
+
+            active_job = await lock_owned_job(db)
+            if active_job is None or not active_job.prepared_source_facts:
+                raise RuntimeError("Missing frozen source facts for language retry")
+            source_facts = _decode(active_job.prepared_source_facts)
+            from dataclasses import replace
+
+            payload = replace(payload, language=first_row.language)
+            finalized = True
+            result = SimpleNamespace(job_id=first_row.job_id)
             await db.commit()
-            capture_terminal_failure(
-                err,
-                operation="cv-generation",
-                failure_kind=getattr(err, "diagnostic_code", None)
-                or type(err).__name__,
+        else:
+            try:
+                source_facts = await run_in_threadpool(
+                    prepare_source_facts,
+                    cv_bytes=payload.cv_bytes,
+                    cv_filename=payload.cv_filename,
+                    screening_notes_text=payload.screening_notes or "",
+                    request_id=f"cvgen_upload_source_{generated_id}",
+                )
+                from app.services.cv_generator_b2b.job_leases import lock_owned_job
+                from app.services.cv_generator_b2b.job_snapshot import _encode
+
+                active_job = await lock_owned_job(db)
+                if active_job is not None:
+                    active_job.prepared_source_facts = _encode(source_facts)
+                    await db.commit()
+                review_quota = await _charge_final_review(db, user_id=user_id)
+                with _review_declaration_or_null(user_id, review_quota):
+                    result = await run_in_threadpool(
+                        generate_cv_from_uploads,
+                        payload,
+                        prepared_source_facts=source_facts,
+                    )
+            except StandaloneGenerationError as err:
+                await _finalize_failure(
+                    db, generated_id, err.message, diagnostic_code=err.diagnostic_code
+                )
+                await db.commit()
+                capture_terminal_failure(
+                    err,
+                    operation="cv-generation",
+                    failure_kind=getattr(err, "diagnostic_code", None)
+                    or type(err).__name__,
+                )
+                return
+            except Exception as err:  # noqa: BLE001 — a job must never crash silently
+                logger.exception(
+                    "[cv_b2b] Upload job %s crashed: %s", generated_id, err
+                )
+                await _finalize_failure(
+                    db, generated_id, "Nieoczekiwany błąd generacji CV."
+                )
+                await db.commit()
+                capture_terminal_failure(
+                    err,
+                    operation="cv-generation",
+                    failure_kind=getattr(err, "diagnostic_code", None)
+                    or type(err).__name__,
+                )
+                return
+
+            finalized = await _finalize_success(
+                db,
+                generated_id,
+                result=result,
+                consent_screenshot=consent_screenshot,
+                rule_version=payload.client_rule.version
+                if payload.client_rule
+                else None,
             )
-            return
-        except Exception as err:  # noqa: BLE001 — a job must never crash silently
-            logger.exception("[cv_b2b] Upload job %s crashed: %s", generated_id, err)
-            await _finalize_failure(
-                db, generated_id, "Nieoczekiwany błąd generacji CV."
-            )
+            if finalized:
+                # Upload mode has no candidate context — anchor the audit on the user.
+                db.add(
+                    Activity(
+                        entity_type="user",
+                        entity_id=user_id,
+                        action="b2b_cv_generated_upload",
+                        details={
+                            "cv_filename": payload.cv_filename,
+                            "language": payload.language,
+                            "blind_cv": payload.blind_cv,
+                            "content_mode": payload.content_mode,
+                            "filename": result.filename,
+                            "warnings_count": len(result.warnings),
+                            "processing_time_ms": result.processing_time_ms,
+                            "generated_id": generated_id,
+                        },
+                        user_id=user_id,
+                    )
+                )
             await db.commit()
-            capture_terminal_failure(
-                err,
-                operation="cv-generation",
-                failure_kind=getattr(err, "diagnostic_code", None)
-                or type(err).__name__,
-            )
-            return
 
-        finalized = await _finalize_success(
-            db,
-            generated_id,
-            result=result,
-            consent_screenshot=consent_screenshot,
-            rule_version=payload.client_rule.version if payload.client_rule else None,
-        )
-        if finalized:
-            # Upload mode has no candidate context — anchor the audit on the user.
-            db.add(
-                Activity(
-                    entity_type="user",
-                    entity_id=user_id,
-                    action="b2b_cv_generated_upload",
-                    details={
-                        "cv_filename": payload.cv_filename,
-                        "language": payload.language,
-                        "blind_cv": payload.blind_cv,
-                        "content_mode": payload.content_mode,
-                        "filename": result.filename,
-                        "warnings_count": len(result.warnings),
-                        "processing_time_ms": result.processing_time_ms,
-                        "generated_id": generated_id,
-                    },
-                    user_id=user_id,
+            # Interaktywne CV w trybie upload: kafelki powstają z RĘCZNYCH wymagań
+            # rekrutera, a gdy ich brak — z wgranego pliku championa (ma sekcje
+            # MUST-HAVE / NICE-TO-HAVE). Bez żadnego źródła = link classic-only.
+            # Fail-open jak w trybie "new" — mapa nigdy nie psuje generacji.
+            if finalized:
+                from app.services.cv_generator_b2b.requirement_map import (
+                    ensure_requirement_map,
                 )
-            )
-        await db.commit()
 
-        # Interaktywne CV w trybie upload: kafelki powstają z RĘCZNYCH wymagań
-        # rekrutera, a gdy ich brak — z wgranego pliku championa (ma sekcje
-        # MUST-HAVE / NICE-TO-HAVE). Bez żadnego źródła = link classic-only.
-        # Fail-open jak w trybie "new" — mapa nigdy nie psuje generacji.
-        if finalized:
-            from app.services.cv_generator_b2b.requirement_map import (
-                ensure_requirement_map,
-            )
-
-            requirements = _upload_requirements(payload)
-            if requirements:
-                await ensure_requirement_map(
-                    db, generated_id, user_id=user_id, requirements=requirements
-                )
+                requirements = _upload_requirements(payload)
+                if requirements:
+                    await ensure_requirement_map(
+                        db, generated_id, user_id=user_id, requirements=requirements
+                    )
 
         # Druga wersja językowa (0267) — patrz worker trybu „new".
         second = (
@@ -1027,6 +1118,17 @@ async def _run_generate_upload_job(
         if second is not None:
             import dataclasses
 
+            from app.services.cv_generator_b2b.job_leases import lock_owned_job
+
+            active_job = await lock_owned_job(db)
+            existing_second = (
+                await db.get(CvGeneratedDocument, active_job.second_generated_id)
+                if active_job and active_job.second_generated_id
+                else None
+            )
+            if existing_second is not None and existing_second.status == "ready":
+                await db.commit()
+                return
             second_quota = await _charge_second_language_or_note(
                 db, first_generated_id=generated_id, user_id=user_id
             )
@@ -1034,19 +1136,29 @@ async def _run_generate_upload_job(
                 return
             first_row = await db.get(CvGeneratedDocument, generated_id)
             second_payload = dataclasses.replace(payload, language=second)  # type: ignore[arg-type]
-            second_id = await _create_pending_row(
-                db,
-                mode="upload",
-                candidate_id=first_row.candidate_id if first_row else None,
-                job_id=first_row.job_id if first_row else None,
-                candidate_name=first_row.candidate_name if first_row else "Kandydat",
-                position=payload.position or None,
-                language=second,
-                blind_cv=payload.blind_cv,
-                user_id=user_id,
-                content_mode=payload.content_mode,
-                client_id=first_row.client_id if first_row else None,
-            )
+            if existing_second is not None:
+                second_id = existing_second.id
+                existing_second.status = "processing"
+                existing_second.error_message = None
+            else:
+                second_id = await _create_pending_row(
+                    db,
+                    mode="upload",
+                    candidate_id=first_row.candidate_id if first_row else None,
+                    job_id=first_row.job_id if first_row else None,
+                    candidate_name=first_row.candidate_name
+                    if first_row
+                    else "Kandydat",
+                    position=payload.position or None,
+                    language=second,
+                    blind_cv=payload.blind_cv,
+                    user_id=user_id,
+                    content_mode=payload.content_mode,
+                    client_id=first_row.client_id if first_row else None,
+                    central_policy=getattr(first_row, "central_policy", None)
+                    if first_row
+                    else None,
+                )
             from app.services.cv_generator_b2b.job_leases import (
                 register_second_document,
             )
@@ -1487,6 +1599,8 @@ async def upload_consent_screenshot(
     stage_id: Optional[int] = Form(None, ge=1),
     client_id: Optional[int] = Form(None, ge=1),
     cv_sha256: Optional[str] = Form(None, pattern=r"^[a-f0-9]{64}$"),
+    project_ref: str = Form("", max_length=120),
+    binding_stage_id: Optional[int] = Form(None, ge=1),
     db: AsyncSession = Depends(get_db),
 ) -> ConsentScreenshotResponse:
     """Wgraj zrzut zgody i podpisz przypisanie do źródła i klienta.
@@ -1525,6 +1639,17 @@ async def upload_consent_screenshot(
             )
         context = consent_binding.subject(
             candidate_id=candidate_id, stage_id=stage_id, client_id=job.client_id
+        )
+    if central_policies.enabled():
+        if cv_sha256 and binding_stage_id:
+            binding_stage = await db.get(CandidateStage, binding_stage_id)
+            binding_job = (
+                await db.get(Job, binding_stage.job_id) if binding_stage else None
+            )
+            if not binding_job or binding_job.client_id != client_id:
+                raise HTTPException(422, "Zgoda dotyczy innej rekrutacji lub klienta.")
+        context = _central_consent_context(
+            context, project_ref, binding_stage_id if cv_sha256 else stage_id
         )
     content = await file.read(CONSENT_SCREENSHOT_MAX_BYTES + 1)
     if not content:
@@ -1571,13 +1696,34 @@ async def upload_consent_screenshot(
     )
 
 
+def _central_consent_context(context, project_ref, stage_id):
+    if not central_policies.enabled():
+        return context
+    from app.services.cv_packages import project_number
+
+    return {
+        **context,
+        "project_ref": project_number(project_ref),
+        "recruitment_stage_id": stage_id,
+    }
+
+
 def _verified_consent(
-    rule, token: str, legacy_key: str, user_id: int, context: dict
+    rule,
+    token: str,
+    legacy_key: str,
+    user_id: int,
+    context: dict,
+    *,
+    project_ref: str = "",
+    stage_id: int | None = None,
 ) -> dict | None:
     if not token and not legacy_key:
-        _require_consent_screenshot(rule, "")
+        if not central_policies.enabled():
+            _require_consent_screenshot(rule, "")
         return None
     try:
+        context = _central_consent_context(context, project_ref, stage_id)
         receipt = consent_binding.verify(token, user_id, context)
         if legacy_key and receipt["storage_key"] != legacy_key:
             raise ValueError
@@ -1687,6 +1833,8 @@ async def generate(
 
     rule = await resolve_client_rule(db, client_id)
     rule_snapshot = snapshot_rule(rule)
+    if central_policies.enabled():
+        payload.language = rule.cv_language or payload.language
     _enforce_client_language(rule_snapshot, payload.language)
 
     # Blokada trybu (0267): zablokowany tryb nadpisuje żądanie — kafelki w UI
@@ -1698,6 +1846,12 @@ async def generate(
         effective_mode, getattr(client, "cv_content_mode_cap", None)
     )
 
+    if central_policies.enabled():
+        job = await db.get(Job, stage.job_id)
+        effective_mode = central_policies.automatic_mode(
+            job, getattr(client, "cv_content_mode_cap", None)
+        )
+
     consent = _verified_consent(
         rule,
         payload.consent_screenshot_token,
@@ -1706,6 +1860,8 @@ async def generate(
         consent_binding.subject(
             candidate_id=candidate.id, stage_id=stage.id, client_id=client_id
         ),
+        project_ref=payload.project_ref,
+        stage_id=stage.id,
     )
 
     # Wymagane wejścia (0267) — 422 z listą braków PRZED naliczeniem kwoty.
@@ -1804,6 +1960,12 @@ async def generate(
         content_mode=effective_mode,
         client_id=client_id,
         job_id=stage.job_id,
+        central_policy=central_policies.stamp(
+            rule,
+            language=payload.language,
+            project_ref=payload.project_ref,
+            stage_id=stage.id,
+        ),
     )
     from app.services.cv_generator_b2b.durable_jobs import persist_job, execute_job
 
@@ -1900,6 +2062,8 @@ async def generate_from_upload(
     # decision 2026-09-10). Never infer a job from the candidate's other
     # applications.
     job_id = None
+    job = None
+    client = None
     if stage_id is not None:
         if candidate_id is None:
             raise HTTPException(
@@ -1981,6 +2145,8 @@ async def generate_from_upload(
         )
         rule = await resolve_client_rule(db, client_id)
         rule_snapshot = snapshot_rule(rule)
+        if central_policies.enabled():
+            language = rule.cv_language or language
         _enforce_client_language(rule_snapshot, language)
         # Blokada trybu (0267) PRZED sufitem — zablokowany tryb nadpisuje
         # żądanie, sufit nadal wygrywa z blokadą.
@@ -2004,6 +2170,13 @@ async def generate_from_upload(
             )
         )
 
+    if central_policies.enabled():
+        rule = await resolve_client_rule(db, client_id)
+        language = rule.cv_language or language
+        effective_mode = central_policies.automatic_mode(
+            job, getattr(client, "cv_content_mode_cap", None)
+        )
+
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
     consent = _verified_consent(
@@ -2014,10 +2187,14 @@ async def generate_from_upload(
         consent_binding.subject(
             cv_sha256=hashlib.sha256(cv_bytes).hexdigest(), client_id=client_id
         ),
+        project_ref=project_ref,
+        stage_id=stage_id,
     )
 
     imported_profile = None
-    if champion_profile_json or (champion_bytes and effective_mode == "tailored"):
+    if not central_policies.enabled() and (
+        champion_profile_json or (champion_bytes and effective_mode == "tailored")
+    ):
         from app.services.champion_intake import prepare_profile, enforce_operation
         from types import SimpleNamespace
 
@@ -2058,6 +2235,17 @@ async def generate_from_upload(
                 SimpleNamespace(champion_profile=imported_profile), "cv", force=True
             )
 
+    if central_policies.enabled():
+        imported_profile = (
+            getattr(job, "champion_profile", None)
+            if effective_mode == "tailored"
+            else None
+        )
+        champion_bytes = None
+        champion_filename = None
+        if job is not None:
+            position = job.title or position
+
     gen_payload = UploadGenerationInput(
         cv_bytes=cv_bytes,
         cv_filename=cv_file.filename or "cv.pdf",
@@ -2094,6 +2282,9 @@ async def generate_from_upload(
         user_id=current_user.id,
         content_mode=effective_mode,
         client_id=client_id,
+        central_policy=central_policies.stamp(
+            rule, language=language, project_ref=project_ref, stage_id=stage_id
+        ),
     )
     from app.services.cv_generator_b2b.durable_jobs import persist_job, execute_job
 
@@ -2224,8 +2415,31 @@ async def list_generated_cvs(
             .limit(limit)
         )
     ).all()
+    document_ids = [r.id for r, *_ in rows]
+    packages = (
+        (
+            await db.scalars(
+                select(CvGenerationJob).where(
+                    or_(
+                        CvGenerationJob.generated_id.in_(document_ids),
+                        CvGenerationJob.second_generated_id.in_(document_ids),
+                    )
+                )
+            )
+        ).all()
+        if document_ids
+        else []
+    )
+    package_ids = {
+        document_id: job.generated_id
+        for job in packages
+        for document_id in (job.generated_id, job.second_generated_id)
+        if document_id
+    }
     return [
         GeneratedCvItem(
+            central_policy=r.central_policy,
+            package_id=package_ids.get(r.id),
             id=r.id,
             candidate_id=r.candidate_id,
             job_id=r.job_id,
@@ -2609,6 +2823,9 @@ async def create_generated_cv_share_token(
     from app.services.cv_generated_approval import approved_version_for_generation
 
     approved = await approved_version_for_generation(db, row, document_version_id)
+    from app.services.cv_packages import require_ready
+
+    package_versions = await require_ready(db, row, document_version_id)
     # Ta sama decyzja co w publicznym widoku linku (M12-B02): okno nie może
     # obiecywać widoku klasycznego, gdy klient zobaczy kafelki i czat.
     from app.api.public_share import (
@@ -2631,6 +2848,7 @@ async def create_generated_cv_share_token(
             token_sha256=token_digest,
             generated_document_id=row.id,
             document_version_id=document_version_id,
+            package_versions=package_versions,
             created_by=current_user.id,
             expires_at=expires_at,
             max_views=max_views,
@@ -2965,3 +3183,142 @@ async def cancel_generated_cv_review(
     result = await review_state(db, draft, review_id, current_user.id, cancel=True)
     await db.commit()
     return result
+
+
+class PackageConfirmation(BaseModel):
+    note_id: Optional[int] = Field(default=None, ge=1)
+    sources_checked: bool
+    expected_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+@router.get("/policy")
+async def effective_central_policy(
+    current_user: CandidateDocumentAccess,
+    client_id: Optional[int] = None,
+    stage_id: Optional[int] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    if not central_policies.enabled():
+        return {"managed": False}
+    job = None
+    if stage_id is not None:
+        stage = await db.get(CandidateStage, stage_id)
+        if stage is None:
+            raise HTTPException(404, "Rekrutacja nie istnieje.")
+        job = await db.get(Job, stage.job_id)
+        if client_id is not None and client_id != job.client_id:
+            raise HTTPException(422, "Klient nie zgadza się z rekrutacją.")
+        client_id = job.client_id
+    client = await db.get(Client, client_id) if client_id else None
+    if client_id and client is None:
+        raise HTTPException(404, "Klient nie istnieje.")
+    rule = await resolve_client_rule(db, client_id)
+    return {
+        "managed": True,
+        "effective_policy": rule.managed_policy,
+        "publication_version": rule.version,
+        "content_mode": central_policies.automatic_mode(
+            job, getattr(client, "cv_content_mode_cap", None)
+        ),
+    }
+
+
+@router.get("/generated/{generated_id}/package")
+async def get_cv_package(
+    generated_id: int,
+    current_user: CandidateDocumentAccess,
+    note_id: Optional[int] = Query(None, ge=1),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_packages import assess
+    from app.models.note import Note
+
+    row = await _load_generated_document(db, generated_id, current_user)
+    state, _ = await assess(db, row, note_id=note_id)
+    notes = []
+    if row.candidate_id and row.job_id:
+        notes = (
+            await db.scalars(
+                select(Note)
+                .where(
+                    Note.candidate_id == row.candidate_id,
+                    Note.job_id == row.job_id,
+                    Note.source_deleted_at.is_(None),
+                )
+                .order_by(Note.updated_at.desc())
+                .limit(100)
+            )
+        ).all()
+    state["notes"] = [
+        {"id": n.id, "content": n.content, "updated_at": n.updated_at} for n in notes
+    ]
+    return state
+
+
+@router.post("/generated/{generated_id}/package/confirm")
+async def confirm_cv_package(
+    generated_id: int,
+    payload: PackageConfirmation,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_packages import confirm
+
+    row = await _load_generated_document(db, generated_id, current_user)
+    state = await confirm(
+        db,
+        row,
+        note_id=payload.note_id,
+        sources_checked=payload.sources_checked,
+        user_id=current_user.id,
+        expected_fingerprint=payload.expected_fingerprint,
+    )
+    db.add(
+        Activity(
+            entity_type="cv_generated_document",
+            entity_id=generated_id,
+            action="cv_package_confirmed",
+            user_id=current_user.id,
+            details={
+                "package_id": state["package_id"],
+                "review": (
+                    await db.get(CvGeneratedDocument, state["package_id"])
+                ).package_review,
+            },
+        )
+    )
+    await db.commit()
+    return state
+
+
+@router.post("/generated/{generated_id}/package/retry", status_code=202)
+async def retry_cv_package(
+    generated_id: int,
+    current_user: CandidateWriteAccess,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_packages import members
+    from app.services.cv_generator_b2b.durable_jobs import execute_job
+    from app.services.cv_source_cleanup import is_purged_key
+
+    row = await _load_generated_document(db, generated_id, current_user)
+    job, primary, rows = await members(db, row, lock=True)
+    if not primary.central_policy or not job or primary.status != "ready":
+        raise HTTPException(
+            409, "Ponowienie dotyczy brakującej wersji językowej gotowego CV."
+        )
+    if job.status in ("queued", "running"):
+        return {"id": primary.id, "status": job.status}
+    if not set(primary.central_policy["required_languages"]) - {
+        d.language for d in rows if d.status == "ready"
+    }:
+        return {"id": primary.id, "status": "complete"}
+    if not job.prepared_source_facts or is_purged_key(job.input_storage_key):
+        raise HTTPException(409, "Źródła tego zadania wygasły. Utwórz nowy pakiet.")
+    job.status = "queued"
+    job.finished_at = None
+    job.error_code = None
+    await db.commit()
+    background_tasks.add_task(execute_job, job.id)
+    return {"id": primary.id, "status": "queued"}

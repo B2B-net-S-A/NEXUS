@@ -109,6 +109,7 @@ def build_public_payload(render_payload: dict[str, Any] | None) -> dict[str, Any
         )
 
     return {
+        **({"generic_cv": True} if payload.get("generic_cv") else {}),
         "language": language if language in ("pl", "en") else "pl",
         "blind": blind,
         "candidate_name": str(payload.get("name") or ""),

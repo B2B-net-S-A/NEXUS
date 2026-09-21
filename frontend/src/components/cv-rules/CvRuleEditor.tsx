@@ -23,6 +23,8 @@
  * — natywny dialog zamraża automatyzację przeglądarki, którą weryfikujemy UI.
  */
 
+import { CentralPolicyView, useCentralPolicy } from "./CentralPolicyView";
+import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -121,6 +123,7 @@ export function CvRuleEditor({
   allowDelete = false,
   initialTab,
 }: Props) {
+  const central = useCentralPolicy(clientId);
   const queryClient = useQueryClient();
   const [tab, setTab] = useState(() => resolveInitialTab(initialTab));
   const [rule, setRule] = useState<ClientCvRule | null>(null);
@@ -289,6 +292,10 @@ export function CvRuleEditor({
       setBusy(false);
     }
   };
+
+  if (central.data?.managed) return <div className="space-y-4"><div className="flex gap-2"><Button variant="outline" onClick={() => setTab("settings")}>Zasady i historia CV</Button><Button variant="outline" onClick={() => setTab("playbook")}>Karta klienta</Button></div>{tab === "playbook" ? <CvRulePlaybookTab clientId={clientId} /> : <CentralPolicyView clientId={clientId} />}</div>;
+  if (central.isLoading) return <p>Ładowanie zasad CV…</p>;
+  if (central.isError) return <p>Nie udało się odczytać zasad CV.</p>;
 
   if (loadFailed) {
     return (

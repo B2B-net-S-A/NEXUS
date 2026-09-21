@@ -25,6 +25,13 @@ from app.models.base import TimestampMixin
 class CvGeneratedDocument(Base, TimestampMixin):
     __tablename__ = "cv_generated_documents"
 
+    central_policy: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
+    package_review: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql")
+    )
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     # New mode → realny kandydat/rekrutacja; Old mode (upload) → NULL.
     candidate_id: Mapped[Optional[int]] = mapped_column(

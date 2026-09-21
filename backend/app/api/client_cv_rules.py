@@ -656,6 +656,10 @@ async def _require_client_rule_access(
 ) -> None:
     """Enforce the authoritative client graph below the section ceiling."""
 
+    from app.services.cv_generator_b2b import central_policies
+
+    if write and central_policies.enabled():
+        raise HTTPException(403, "Reguły CV są zarządzane centralnie w backendzie.")
     access = await resolve_client_access(db, user, client_id)
     allowed = access.can_edit_knowledge if write else access.can_view_knowledge
     if not allowed:

@@ -271,6 +271,11 @@ def render_interactive_html(
         else ""
     )
 
+    if p.get("generic_cv"):
+        considered = (
+            "<p>General CV</p>" if p.get("language") == "en" else "<p>CV ogólne</p>"
+        ) + considered
+
     # Editor import uses exactly the document body, without scripts, controls,
     # matching tiles or their diagnostic text. The same body is used by export.
     document = (
