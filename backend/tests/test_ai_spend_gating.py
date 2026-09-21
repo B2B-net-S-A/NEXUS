@@ -133,85 +133,13 @@ async def test_missing_key_still_yields_a_labelled_template(
 # ── MINDY: własny kubełek kwoty (`mindy_chat`) ───────────────────────────────
 
 
-@pytest.mark.asyncio
-async def test_mindy_charges_its_own_quota_bucket(monkeypatch) -> None:
-    """MINDY nie miała żadnego `AIFeatureKey`, więc zaseedowanie limitów dla
-    pozostałych kluczy dowodliwie by jej nie tknęło — nie było czego ograniczyć.
+def test_mindy_endpoints_are_gone() -> None:
+    """MINDY zastąpił Jarvis (0330). Jej dwa płatne endpointy nie mogą wrócić
+    cichym przywróceniem routera — asystent AI ma jedną powierzchnię,
+    `/api/jarvis/*`, za kwotą `jarvis`."""
+    from app.main import app
+    from tests._route_introspection import iter_api_routes
 
-    Kubełek musi być WŁASNY i nieść id użytkownika: doklejenie MINDY do cudzego
-    klucza schowałoby jej wydatek w cudzym raporcie zużycia."""
-    from app.api import dynareporter_mindy
-    from app.models.ai_feature import AIFeatureKey
-    from app.services import ai_quota
-
-    seen: dict[str, object] = {}
-
-    async def _accept(_db, feature, user_id=None, *, units=1):
-        seen["feature"] = feature
-        seen["user_id"] = user_id
-        return None
-
-    monkeypatch.setattr(ai_quota, "check_and_increment", _accept)
-
-    async with dynareporter_mindy._mindy_quota(object(), 11):
-        # Wewnątrz bloku wywołanie jest ZADEKLAROWANE — inaczej `call_claude`
-        # loguje je na granicy dostawcy jako „UNGATED" mimo poprawnego licznika.
-        assert ai_quota.current_ai_call() is not None
-
-    assert seen == {"feature": AIFeatureKey.mindy_chat, "user_id": 11}
-
-
-@pytest.mark.asyncio
-async def test_mindy_quota_propagates_refusal(monkeypatch) -> None:
-    """Master toggle, wyłączona funkcja i wyczerpany sufit lecą tą samą drogą."""
-    from app.api import dynareporter_mindy
-    from app.services import ai_quota
-
-    async def _refuse(_db, feature, user_id=None, *, units=1):
-        raise ai_quota.AIQuotaExceeded(feature, "Funkcje AI są wyłączone globalnie")
-
-    monkeypatch.setattr(ai_quota, "check_and_increment", _refuse)
-
-    with pytest.raises(ai_quota.AIQuotaExceeded):
-        async with dynareporter_mindy._mindy_quota(object(), 11):
-            pytest.fail("blok nie może się wykonać po odmowie kwoty")
-
-
-def test_mindy_refusal_becomes_503_with_a_reason() -> None:
-    """Wyczerpany limit czytany jako gołe 500 kończy zgłoszeniem do supportu."""
-    from app.api import dynareporter_mindy
-    from app.models.ai_feature import AIFeatureKey
-    from app.services.ai_quota import AIQuotaExceeded
-
-    exc = dynareporter_mindy._quota_exceeded_response(
-        AIQuotaExceeded(AIFeatureKey.mindy_chat, "Miesięczny limit wyczerpany", 20, 20)
-    )
-    assert exc.status_code == 503
-    assert exc.detail["feature"] == "mindy_chat"
-    assert exc.detail["limit"] == 20
-
-
-def test_mindy_message_content_has_a_ceiling() -> None:
-    """Bez sufitu uwierzytelniony użytkownik kontrolował cały, płatny prompt."""
-    from pydantic import ValidationError
-
-    from app.api.dynareporter_mindy import MindyChatRequest
-
-    with pytest.raises(ValidationError):
-        MindyChatRequest(messages=[{"role": "user", "content": "x" * 4001}])
-
-    ok = MindyChatRequest(messages=[{"role": "user", "content": "x" * 4000}])
-    assert len(ok.messages) == 1
-
-
-def test_both_mindy_handlers_are_behind_the_quota() -> None:
-    """Bramka musi stać przy KAŻDYM handlerze — nowy endpoint w tym module
-    domyślnie znowu stałby poza systemem kwot."""
-    import inspect
-
-    from app.api import dynareporter_mindy
-
-    for name in ("commentary", "chat"):
-        src = inspect.getsource(getattr(dynareporter_mindy, name))
-        assert "_mindy_quota(" in src, name
-        assert "limiter.limit" in src, name
+    paths = {path for path, _route in iter_api_routes(app)}
+    assert not any(path.startswith("/api/dynareporter/mindy") for path in paths)
+    assert "/api/jarvis/chat" in paths

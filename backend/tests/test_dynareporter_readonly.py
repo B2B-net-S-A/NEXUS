@@ -3,7 +3,7 @@
 Dotąd read_only nie przechwytywało mutacji — tylko ``off`` dawało 410, a
 read_only puszczało POST/PUT/PATCH/DELETE (split-brain: „archiwum", które nadal
 przyjmuje zapisy). Teraz każda metoda mutująca na ``/api/dynareporter`` daje 409
-``DYNAREPORTER_READ_ONLY``, chyba że ścieżka jest zwolniona (mindy / read-marker /
+``DYNAREPORTER_READ_ONLY``, chyba że ścieżka jest zwolniona (read-marker /
 upload) albo operator włączył break-glass.
 
 Middleware ``LegacyStatsDeprecationMiddleware`` odpala PRZED auth, więc testujemy
@@ -101,15 +101,6 @@ async def test_breakglass_lets_writes_through(client, monkeypatch):
     assert resp.status_code != 409, (
         f"break-glass powinien przepuścić do auth, dostał {resp.status_code}"
     )
-
-
-@pytest.mark.asyncio
-async def test_mindy_exempt_from_read_only(client, monkeypatch):
-    """mindy/* (LLM, stateless — nie tworzy danych raportowych) nie jest 409."""
-    monkeypatch.setattr(settings, "DYNAREPORTER_MODE", "read_only")
-    monkeypatch.setattr(settings, "DYNAREPORTER_WRITE_BREAKGLASS", False)
-    resp = await client.post("/api/dynareporter/mindy/commentary", json={})
-    assert resp.status_code != 409
 
 
 @pytest.mark.asyncio

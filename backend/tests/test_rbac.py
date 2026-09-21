@@ -1063,31 +1063,6 @@ async def test_dyna_section_gated_routers_fail_closed_without_section(
 
 
 @pytest.mark.asyncio
-async def test_mindy_commentary_requires_section_non_admin(
-    rbac_client: AsyncClient,
-    role_headers: tuple[UserRole, dict[str, str]],
-):
-    """P0.2: mindy commentary (POST, wywołuje LLM) egzekwuje sekcję `mindy`.
-
-    Testujemy tylko role non-admin bez sekcji → 403 z router-level guardu, który
-    odpala PRZED handlerem (żaden token LLM nie jest palony). Admina pomijamy
-    świadomie — przeszedłby guard i trafił w realne wywołanie LLM (niedostępne/
-    kosztowne w CI). Wcześniej endpoint był na gołym CurrentUser (każdy zalogowany
-    mógł palić tokeny).
-    """
-    role, headers = role_headers
-    if role in {UserRole.admin, UserRole.finance}:
-        pytest.skip("rola przechodzi guard → realne wywołanie LLM (poza zakresem)")
-    resp = await rbac_client.post(
-        "/api/dynareporter/mindy/commentary", headers=headers, json={}
-    )
-    assert resp.status_code == 403, (
-        f"[{role.value}] mindy/commentary expected 403 (fail-closed bez sekcji), "
-        f"got {resp.status_code}"
-    )
-
-
-@pytest.mark.asyncio
 async def test_viewer_with_sections_still_blocked_from_recruitment_ranking(
     rbac_client: AsyncClient,
 ):

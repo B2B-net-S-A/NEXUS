@@ -4818,6 +4818,12 @@ Backend: `app/api/jarvis.py` + `app/services/jarvis/`; front: `components/jarvis
   `prefs.py` `JarvisCharacter` (test w `jarvis-lib.test.ts`); `robot_gold`/`trophy`
   odblokowuje `competition_winners` (rank 1 / ≤3), PATCH odrzuca zablokowaną 403.
 - **⌘J = Jarvis, ⌘⇧J = nowa rekrutacja** (goły `j` bez zmian).
+- **Endpointy MINDY (`/api/dynareporter/mindy/*`) usunięte** (21.09.2026) —
+  wraz z ich zwolnieniem z blokady `DYNAREPORTER_MODE=read_only`. Wartość enuma
+  `mindy_chat` ZOSTAJE (Postgres nie ma `DROP VALUE`, historia kosztów ją
+  niesie), razem z wpisem w rejestrze modeli. Strona `/dynareporter/mindy`
+  i przekierowania `/mindy`, `/chat` prowadzą do informacji o Jarvisie.
+  Powrót routera łapie `test_mindy_endpoints_are_gone`.
 - **Dodając narzędzie:** wpis w `tools.py` (opis PL, `label`, `section`, `shape`
   przycinający wynik; zapis: `preview` + `done` + `invalidates`), test kontraktowy
   przechodzi sam, jeśli trasa istnieje i poziom się zgadza. Dokładając trasę
