@@ -2,8 +2,8 @@
 
 from alembic import op
 
-revision = "0331_mail_delivery_recovery"
-down_revision = "0330_jarvis"
+revision = "0332_mail_delivery_recovery"
+down_revision = "0331_central_cv_policies"
 branch_labels = None
 depends_on = None
 
