@@ -172,8 +172,10 @@ async def test_automation_matches_the_manual_path_under_central_policies(
     monkeypatch.setattr(settings, "CV_CENTRAL_POLICIES_ENABLED", True)
     monkeypatch.setattr(api.limiter, "enabled", False)
     world = await _world()
-    # Sufit klienta „basic": tryb MUSI wyjść z `central_policies.automatic_mode`
-    # (polished → przycięty do basic), a nie z domyślnego trybu automatu.
+    # Sufit klienta „basic": tryb MUSI przejść przez `central_policies.resolve_mode`
+    # (od #1647 serwer honoruje tryb z żądania, ale sufit klienta zawsze wygrywa).
+    # Automat prosi o tryb z katalogu („Pod rekrutację"); bez Championa schodzi
+    # do Redakcji, a sufit przycina ją do „basic" — jak wybór rekrutera.
     async with AsyncSessionLocal() as db:
         (await db.get(Client, world["client_id"])).cv_content_mode_cap = "basic"
         await db.commit()
@@ -182,7 +184,7 @@ async def test_automation_matches_the_manual_path_under_central_policies(
 
     queued = await _run_automation(world)
     assert queued is not None
-    # Rekruter prosi o „polished" — centralna polityka i tak wygrywa.
+    # Rekruter prosi o „polished" — sufit klienta przycina do „basic".
     manual = await _generate_manually(pv_client, world, content_mode="polished")
     assert manual.status_code == 202, manual.text
 
@@ -356,19 +358,19 @@ async def test_disabled_central_policies_keep_the_previous_behaviour(
 
 
 async def test_mode_is_decided_from_the_stage_recruitment(monkeypatch):
-    """`automatic_mode` dostaje rekrutację ETAPU — nie dowolną kandydata."""
+    """`resolve_mode` dostaje rekrutację ETAPU — nie dowolną kandydata."""
     monkeypatch.setattr(settings, "CV_CENTRAL_POLICIES_ENABLED", True)
     world = await _world()
     monkeypatch.setattr(policies, "catalog", lambda: ())
     _stub_generation(monkeypatch, world)
     seen_jobs: list[int | None] = []
-    real = policies.automatic_mode
+    real = policies.resolve_mode
 
-    def _spy(job, cap=None):
+    def _spy(requested, job, cap=None, **kwargs):
         seen_jobs.append(getattr(job, "id", None))
-        return real(job, cap)
+        return real(requested, job, cap, **kwargs)
 
-    monkeypatch.setattr(policies, "automatic_mode", _spy)
+    monkeypatch.setattr(policies, "resolve_mode", _spy)
     assert await _run_automation(world) is not None
     assert seen_jobs == [world["job_id"]]
 

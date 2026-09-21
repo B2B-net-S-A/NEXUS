@@ -4552,7 +4552,7 @@ Raport: `docs/cv-autonomous-flow-completion-report.md`. Trzy reguły, które ła
   kontaktu → nic (`identity_insufficient`). Tylko poczta z ostatnich
   `M365_AUTO_CREATE_LOOKBACK_DAYS` (14). Wyłącznik `M365_AUTO_CREATE_CANDIDATE_FROM_CV`.
 
-## Automaty rekrutacji v3 (21.09.2026, migracja 0334)
+## Automaty rekrutacji v3 (21.09.2026, migracja 0335)
 
 Cztery automaty, wszystkie WŁĄCZONE domyślnie, każdy za wyłącznikiem env,
 którego stan OFF = zachowanie sprzed 21.09. **Nic zewnętrznego ani
@@ -4629,9 +4629,14 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   z komunikatem. Pominięcie = `Activity(cv_auto_generate_skipped, reason)`,
   bez naliczenia kwoty. Tryb = domyślny z reguły klienta (inaczej `polished`),
   język = wymuszony regułą (inaczej `pl`), nigdy blind, `project_ref` puste.
-  **Pod centralnymi regułami CV (`CV_CENTRAL_POLICIES_ENABLED`, 0331)** tryb
-  i język ustala wspólna ścieżka (`central_policies.automatic_mode`, język
-  polityki), a wiersz dostaje ten sam stempel `central_policy` co po kliknięciu.
+  **Pod centralnymi regułami CV (`CV_CENTRAL_POLICIES_ENABLED`, 0331)** język
+  ustala wspólna ścieżka (język polityki), a tryb — od #1647 — serwer bierze
+  z żądania (`central_policies.resolve_mode`: bez kompletnego Championa
+  „Pod rekrutację" schodzi do Redakcji z komunikatem w ostrzeżeniach dokumentu,
+  nigdy 422; sufit klienta wygrywa). Automat prosi więc o tryb z katalogu
+  polityk (`policy_content_mode`, domyślnie „Pod rekrutację") — ten sam, który
+  formularz zaznacza domyślnie. Wiersz dostaje ten sam stempel `central_policy`
+  co po kliknięciu.
   Centralny przepływ NIE odmawia przy generacji braku zgody ani numeru projektu
   (sprawdza je gotowość pakietu), a obie rzeczy zapadają przy generacji — więc
   automat sam pomija: zgoda = `consent_screenshot_required`, numer projektu z
@@ -4655,7 +4660,7 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `/bulk-move` nie przyjmuje `verified`, importy tędy nie idą. Kwota AI
   i autorstwo (`created_by`) idą na osobę, która przesunęła kartę.
   Idempotencja: `cv_generated_documents.origin='auto'` + `stage_id` +
-  `source_cv_revision` z częściowym UNIQUE (0334, lustro w `entrypoint.sh`) —
+  `source_cv_revision` z częściowym UNIQUE (0335, lustro w `entrypoint.sh`) —
   ten sam etap z tym samym CV nie generuje drugi raz; nowe CV = nowy dokument.
   W testach automat jest WYŁĄCZONY autouse-fixturą w `conftest.py` (zadanie
   przeżywałoby test, który je odpalił).

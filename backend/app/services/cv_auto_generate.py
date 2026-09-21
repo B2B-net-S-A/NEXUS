@@ -13,7 +13,7 @@ Reguły, które łatwo cofnąć „przy okazji":
   ``Activity(cv_auto_generate_skipped, reason=…)`` — nigdy dokument łamiący
   regułę i nigdy naliczona kwota AI za coś, czego nie da się wysłać.
 * Idempotencja: (etap, wersja CV kandydata) — częściowy UNIQUE na
-  ``cv_generated_documents`` (0334). Ponowny ruch na ten sam etap z tym samym CV
+  ``cv_generated_documents`` (0335). Ponowny ruch na ten sam etap z tym samym CV
   nie generuje i nie nalicza drugi raz; nowe CV = nowy dokument.
 * Kwota AI i autorstwo dokumentu idą na osobę, która przesunęła kartę — to jej
   lista „Wygenerowane CV" i jej decyzja uruchomiła wydatek.
@@ -21,9 +21,11 @@ Reguły, które łatwo cofnąć „przy okazji":
   klienta nie wychodzi nic bez zatwierdzenia i kliknięcia człowieka.
 * Tryb treści: domyślny tryb z reguły klienta, inaczej domyślny generatora;
   język: wymuszony regułą, inaczej polski; nigdy blind.
-* Centralne reguły CV (``CV_CENTRAL_POLICIES_ENABLED``, 0331): tryb i język
-  ustala wspólna ścieżka (``central_policies.automatic_mode``, język polityki),
-  a wiersz dostaje ten sam stempel ``central_policy`` co po kliknięciu. Wymogi,
+* Centralne reguły CV (``CV_CENTRAL_POLICIES_ENABLED``, 0331): język ustala
+  wspólna ścieżka (język polityki); tryb od #1647 serwer bierze z żądania, więc
+  automat prosi o tryb z katalogu polityk („Pod rekrutację"), a bez Championa
+  ``central_policies.resolve_mode`` schodzi do Redakcji z komunikatem. Wiersz
+  dostaje ten sam stempel ``central_policy`` co po kliknięciu. Wymogi,
   które centralny przepływ sprawdza dopiero przy gotowości PAKIETU, a które
   zapadają przy generacji (zrzut zgody, numer projektu), automat traktuje jak
   brak wejścia: pominięcie z powodem, nie dokument nie do udostępnienia.
@@ -197,6 +199,14 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
     content_mode = (
         rule.content_mode if rule is not None else None
     ) or DEFAULT_CONTENT_MODE
+    if central_policies.enabled():
+        # Od #1647 serwer honoruje tryb z żądania zamiast liczyć go sam, więc
+        # automat prosi o ten sam tryb, który formularz zaznacza domyślnie
+        # (katalog polityk: „Pod rekrutację"). Bez kompletnego Championa
+        # wspólna ścieżka i tak schodzi do Redakcji z komunikatem.
+        content_mode = central_policies.policy_content_mode(
+            managed if isinstance(managed, dict) else None
+        )
     try:
         generated_id, durable_id, _name = await enqueue_candidate_generation(
             db,

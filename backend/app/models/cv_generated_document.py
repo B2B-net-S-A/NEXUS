@@ -105,7 +105,7 @@ class CvGeneratedDocument(Base, TimestampMixin):
     # klient się skarży" — bez niej historia zmian reguły nic nie wyjaśnia.
     client_rule_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    # ── Pochodzenie (0334) ──────────────────────────────────────────────────
+    # ── Pochodzenie (0335) ──────────────────────────────────────────────────
     # `auto` = dokument zakolejkował system po ruchu na „Zweryfikowany"
     # (`services/cv_auto_generate.py`), `manual` = kliknięcie rekrutera.
     # `stage_id` + `source_cv_revision` są kluczem idempotencji auto-generacji

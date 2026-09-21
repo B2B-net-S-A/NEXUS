@@ -10,7 +10,7 @@ Kontrakty:
 - idempotencja (etap × wersja CV): drugi ruch nie generuje drugi raz, a baza
   pilnuje tego częściowym UNIQUE-em (ręczne wiersze nietknięte);
 - każda awaria kończy się logiem i Activity, nigdy wyjątkiem u wołającego;
-- lustro DDL 0334 jest w ``entrypoint.sh``.
+- lustro DDL 0335 jest w ``entrypoint.sh``.
 """
 
 # ruff: noqa: F811  (fixture `pv_client` importowana z sąsiedniego pliku)
@@ -719,7 +719,7 @@ async def test_failed_generation_is_a_feed_entry_not_a_notification(monkeypatch)
 # ── lustro DDL ──────────────────────────────────────────────────────────────
 
 
-def test_entrypoint_mirrors_migration_0334():
+def test_entrypoint_mirrors_migration_0335():
     import re
 
     raw = (_BACKEND / "entrypoint.sh").read_text("utf-8")
@@ -735,6 +735,6 @@ def test_entrypoint_mirrors_migration_0334():
     ):
         assert needle in text, needle
     migration = (
-        _BACKEND / "alembic" / "versions" / "0334_recruitment_automations.py"
+        _BACKEND / "alembic" / "versions" / "0335_recruitment_automations.py"
     ).read_text("utf-8")
     assert 'down_revision = "0333_job_proposals"' in migration

@@ -91,7 +91,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.order_missing_successor: ProductSection.delivery,
     # 0324: system sam dodał kandydata do pipeline'u rekrutacji.
     NotificationType.auto_match: ProductSection.pipeline,
-    # 0334: dzienny digest propozycji z nowych CV (nic nie weszło do pipeline'u).
+    # 0335: dzienny digest propozycji z nowych CV (nic nie weszło do pipeline'u).
     NotificationType.auto_match_proposals: ProductSection.pipeline,
     NotificationType.candidate_search_completed: ProductSection.sourcing,
     # 0334: nowa rekrutacja pasuje do „Moich ludzi" — akcją jest dodanie do
