@@ -48,7 +48,11 @@ describe("kontekst ekranu", () => {
   });
 
   it("podpowiedzi zależą od ekranu", () => {
-    expect(suggestionsFor({ path: "/jobs/1", entity: { type: "job", id: 1 } })[0]).toContain("tablicy");
+    // Na rekrutacji pierwsza podpowiedź to przepięcie „Moich ludzi".
+    expect(suggestionsFor({ path: "/jobs/1", entity: { type: "job", id: 1 } })[0]).toContain("moich ludzi");
+    expect(suggestionsFor({ path: "/jobs/1", entity: { type: "job", id: 1 } })).toContain(
+      "Kto stoi najdłużej na tablicy tej rekrutacji?",
+    );
     expect(suggestionsFor({ path: "/" })[0]).toBe("Co mam dziś do zrobienia?");
   });
 });

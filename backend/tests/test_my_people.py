@@ -397,3 +397,67 @@ def test_router_is_mounted():
         "/api/my-people/matches/seen",
     ):
         assert path in paths, path
+
+
+def test_jarvis_my_people_tools_hide_working_and_mark_unscored():
+    """Jarvis widzi tylko osoby do przepięcia, a brak wyniku to NIE zero."""
+    from app.services.jarvis.tools import TOOLS_BY_NAME
+
+    listed = TOOLS_BY_NAME["my_people"].shape(
+        {
+            "active_count": 1,
+            "working_count": 1,
+            "snoozed_count": 1,
+            "rows": [
+                {
+                    "candidate_id": 1,
+                    "full_name": "A",
+                    "working": False,
+                    "snoozed": False,
+                },
+                {
+                    "candidate_id": 2,
+                    "full_name": "B",
+                    "working": True,
+                    "snoozed": False,
+                },
+                {
+                    "candidate_id": 3,
+                    "full_name": "C",
+                    "working": False,
+                    "snoozed": True,
+                },
+            ],
+        },
+        {},
+    )
+    assert [p["candidate_id"] for p in listed["people"]] == [1]
+
+    for_job = TOOLS_BY_NAME["my_people_for_job"].shape(
+        {
+            "job_id": 9,
+            "job_title": "Java",
+            "in_job_count": 0,
+            "degraded": False,
+            "rows": [
+                {
+                    "candidate_id": 1,
+                    "full_name": "A",
+                    "score": None,
+                    "eligibility": None,
+                },
+                {
+                    "candidate_id": 2,
+                    "full_name": "B",
+                    "score": 80,
+                    "eligibility": {"reason": "Weto HM", "assignment_allowed": False},
+                },
+            ],
+        },
+        {"job_id": 9},
+    )
+    rows = {p["candidate_id"]: p for p in for_job["people"]}
+    assert rows[1]["score"] == "niepoliczony"
+    assert rows[2]["nie_mozna_dodac"] is True
+    assert TOOLS_BY_NAME["my_people"].tier == "read"
+    assert TOOLS_BY_NAME["my_people_for_job"].tier == "read"

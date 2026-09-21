@@ -41,8 +41,8 @@ export function suggestionsFor(screen: JarvisScreen): string[] {
       ];
     case "job":
       return [
+        "Kogo z moich ludzi przepiąć na tę rekrutację?",
         "Kto stoi najdłużej na tablicy tej rekrutacji?",
-        "Czego brakuje tej rekrutacji do searchu?",
         "Znajdź w bazie kandydatów pasujących do tej rekrutacji",
       ];
     case "client":
@@ -56,7 +56,7 @@ export function suggestionsFor(screen: JarvisScreen): string[] {
     default:
       return [
         "Co mam dziś do zrobienia?",
-        "Jakie mam dziś spotkania?",
+        "Kto z moich ludzi czeka najdłużej na nowy projekt?",
         "Jak dodać zamówienie z PDF-a?",
       ];
   }

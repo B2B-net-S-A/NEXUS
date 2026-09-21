@@ -135,3 +135,31 @@ describe("helpers", () => {
     expect(matchesQuery(r, "  ")).toBe(true);
   });
 });
+
+describe("Jarvis — przypomnienia o przepinaniu", () => {
+  it("jobIdFromMatchLink reads the job from the bell link", async () => {
+    const { jobIdFromMatchLink } = await import("@/lib/my-people-summary");
+    expect(jobIdFromMatchLink("/jobs/42?people=1")).toBe(42);
+    expect(jobIdFromMatchLink("/candidates/3")).toBeNull();
+    expect(jobIdFromMatchLink(null)).toBeNull();
+  });
+
+  it("reassignPrompt names the job when known", async () => {
+    const { reassignPrompt } = await import("@/lib/my-people-summary");
+    expect(reassignPrompt(42)).toContain("#42");
+    expect(reassignPrompt(null)).toContain("otwarte rekrutacje");
+  });
+
+  it("briefFragments says only concrete things, with Polish plurals", async () => {
+    const { briefFragments } = await import("@/lib/my-people-summary");
+    expect(briefFragments(summary({}))).toEqual([]);
+    expect(briefFragments(summary({ jobs_with_matches: 2, idle_count: 5 }))).toEqual([
+      "2 nowe rekrutacje pasują do Twoich ludzi",
+      "5 osób czeka ponad 30 dni bez wysyłki",
+    ]);
+    expect(briefFragments(summary({ jobs_with_matches: 1, idle_count: 1 }))).toEqual([
+      "1 nowa rekrutacja pasuje do Twoich ludzi",
+      "1 osoba czeka ponad 30 dni bez wysyłki",
+    ]);
+  });
+});

@@ -258,6 +258,83 @@ def _shape_next_steps(data: Any, _args: dict[str, Any]) -> Any:
     return trim({**{k: v for k, v in data.items() if k != "jobs"}, "jobs": jobs})
 
 
+_MY_PEOPLE_KEYS = (
+    "candidate_id",
+    "full_name",
+    "category_id",
+    "furthest_stage",
+    "last_sent_client_name",
+    "last_sent_job_title",
+    "days_since_last_send",
+    "sent_count",
+    "active_processes",
+    "expected_rate_hourly",
+    "availability_status",
+    "new_matches",
+)
+
+
+def _shape_my_people(data: Any, _args: dict[str, Any]) -> Any:
+    """Tylko osoby do przepięcia — bez „Pracują" i „Uśpieni".
+
+    Kolejność z serwera (najdalszy etap, potem najświeższa wysyłka) zostaje;
+    liczniki mówią modelowi, ilu osób nie widzi.
+    """
+    if not isinstance(data, dict):
+        return trim(data)
+    rows = [
+        pick(r, _MY_PEOPLE_KEYS)
+        for r in data.get("rows") or []
+        if isinstance(r, dict) and not r.get("working") and not r.get("snoozed")
+    ]
+    return trim(
+        {
+            "active_count": data.get("active_count"),
+            "working_count": data.get("working_count"),
+            "snoozed_count": data.get("snoozed_count"),
+            "people": rows,
+        }
+    )
+
+
+def _shape_my_people_for_job(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    rows = []
+    for r in data.get("rows") or []:
+        if not isinstance(r, dict):
+            continue
+        row = pick(
+            r,
+            (
+                "candidate_id",
+                "full_name",
+                "score",
+                "sent_to_client_at",
+                "active_processes",
+                "expected_rate_hourly",
+            ),
+        )
+        # `None` to „nie policzono", nie „zero" — model musi to widzieć wprost.
+        if r.get("score") is None:
+            row["score"] = "niepoliczony"
+        elig = r.get("eligibility")
+        if isinstance(elig, dict):
+            row["ostrzezenie"] = elig.get("reason")
+            if elig.get("assignment_allowed") is False:
+                row["nie_mozna_dodac"] = True
+        rows.append(row)
+    return trim(
+        {
+            "job_id": data.get("job_id"),
+            "job_title": data.get("job_title"),
+            "already_in_job": data.get("in_job_count"),
+            "degraded": data.get("degraded"),
+            "people": rows,
+        }
+    )
+
+
 def _shape_client_profile(data: Any, _args: dict[str, Any]) -> Any:
     if not isinstance(data, dict):
         return trim(data)
@@ -482,6 +559,45 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         entity_type="candidate",
         build=lambda a: _get("/api/pipeline/my-next-steps"),
         shape=_shape_next_steps,
+    ),
+    JarvisTool(
+        name="my_people",
+        label="Przeglądam Twoich ludzi",
+        description=(
+            "Lista „Moi ludzie” użytkownika: kandydaci, których zweryfikował jako "
+            "pierwszy i których CV poszło do klienta — ludzie do ponownego "
+            "polecenia. Zwraca tylko osoby do przepięcia (bez pracujących "
+            "i uśpionych); `days_since_last_send` = dni od ostatniej wysyłki, "
+            "`new_matches` = nowe rekrutacje, do których pasują."
+        ),
+        input_schema=_schema({}),
+        tier="read",
+        method="GET",
+        path="/api/my-people",
+        section=ProductSection.sourcing,
+        entity_type="candidate",
+        build=lambda a: _get("/api/my-people"),
+        shape=_shape_my_people,
+    ),
+    JarvisTool(
+        name="my_people_for_job",
+        label="Sprawdzam, kto z Twoich ludzi pasuje",
+        description=(
+            "Kto z listy „Moi ludzie” pasuje do wskazanej rekrutacji: kanoniczny "
+            'wynik dopasowania 0-100 ("niepoliczony" to brak danych, NIE zero), '
+            "ostrzeżenia i czy osoba była już wysłana do tego klienta. Osoby już "
+            "w tej rekrutacji są pominięte. Użyj przed zaproponowaniem "
+            "`add_candidates_to_job`; `degraded: true` znaczy, że wyniki są "
+            "chwilowo niedostępne — powiedz to, nie twierdź, że nikt nie pasuje."
+        ),
+        input_schema=_schema({"job_id": INT}, ("job_id",)),
+        tier="read",
+        method="GET",
+        path="/api/my-people/for-job/{job_id}",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        build=lambda a: _get(f"/api/my-people/for-job/{_int(a, 'job_id')}"),
+        shape=_shape_my_people_for_job,
     ),
     JarvisTool(
         name="list_notifications",
