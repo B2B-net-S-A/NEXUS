@@ -51,7 +51,7 @@ import {
 import type { PipelineGroupKey } from "@/lib/pipeline-flow";
 
 import {
-  DEFAULT_COLLAPSED_GROUPS,
+  defaultCollapsedFor,
   isOffTemplateRow,
   rowBadges,
   type PersonSort,
@@ -311,8 +311,12 @@ export function PeopleTable({
   const { showSuccess, showError } = useToast();
   const [pendingRemoval, setPendingRemoval] = useState<ProcessPersonRow | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
-  const [collapsed, setCollapsed] = useState<Set<string>>(
-    () => new Set<string>(DEFAULT_COLLAPSED_GROUPS),
+  // `null` = użytkownik nic nie klikał → domyślne zwinięcie liczone z grup
+  // (nigdy nie chowa wszystkiego). Po pierwszym kliknięciu decyduje on.
+  const [userCollapsed, setUserCollapsed] = useState<Set<string> | null>(null);
+  const collapsed = useMemo(
+    () => userCollapsed ?? defaultCollapsedFor(groups ?? []),
+    [userCollapsed, groups],
   );
 
   const profileHref = useCallback(
@@ -508,14 +512,14 @@ export function PeopleTable({
   }, [groups, collapsed]);
 
   const handleToggleGroup = useCallback((key: VirtualTableKey) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
+    setUserCollapsed(() => {
+      const next = new Set(collapsed);
       const id = String(key);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  }, []);
+  }, [collapsed]);
 
   const handleSortChange = useCallback(
     (next: VirtualTableSort | null) => {

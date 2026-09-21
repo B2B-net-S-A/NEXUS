@@ -7,7 +7,9 @@ import {
   availabilityLabelFor,
   buildProcessRows,
   chipCounts,
+  defaultCollapsedFor,
   defaultPanelSectionFor,
+  firstVisibleRowKey,
   filterRows,
   groupRowsByOwner,
   ownerGroupOf,
@@ -347,3 +349,31 @@ describe("defaultPanelSectionFor", () => {
     expect(defaultPanelSectionFor("client", interview)).toBe("interviews");
   });
 });
+
+describe("defaultCollapsedFor / firstVisibleRowKey", () => {
+  const g = (key: string, n: number) => ({ key, label: key, rowKeys: Array.from({ length: n }, (_, i) => `${key}:${i}`) });
+
+  it("zwija przegląd i „bez ruchu”, gdy jest co pokazać obok", () => {
+    const collapsed = defaultCollapsedFor([g("mine", 2), g("review", 400), g("stale", 5)]);
+    expect([...collapsed].sort()).toEqual(["review", "stale"]);
+  });
+
+  it("nigdy nie chowa wszystkiego — rozwija „bez ruchu” przed stosem wejściowym", () => {
+    const groups = [g("review", 461), g("stale", 6)];
+    const collapsed = defaultCollapsedFor(groups);
+    expect(collapsed.has("stale")).toBe(false);
+    expect(collapsed.has("review")).toBe(true);
+    expect(firstVisibleRowKey(groups, collapsed)).toBe("stale:0");
+  });
+
+  it("sam stos wejściowy zostaje rozwinięty", () => {
+    const groups = [g("review", 12)];
+    expect(defaultCollapsedFor(groups).has("review")).toBe(false);
+  });
+
+  it("pierwsza widoczna osoba pochodzi z rozwiniętej grupy", () => {
+    const groups = [g("review", 3), g("client", 2)];
+    expect(firstVisibleRowKey(groups, defaultCollapsedFor(groups))).toBe("client:0");
+  });
+});
+

@@ -334,6 +334,7 @@ export function ProposalsSegmentView({
             fetching={run.fetching}
             onRestart={readOnly ? undefined : status.startRun}
             restarting={run.running}
+            compact
           />
         )}
         {!runData && run.loading && <p role="status" className="text-sm text-muted-foreground">Wczytuję przegląd całej bazy…</p>}

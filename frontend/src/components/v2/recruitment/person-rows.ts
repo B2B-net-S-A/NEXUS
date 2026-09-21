@@ -577,6 +577,34 @@ const OWNER_GROUP_ORDER: readonly OwnerGroupKey[] = [
 /** Grupy zwinięte na starcie — osoby bez ruchu od dwóch tygodni to przegląd, nie praca na dziś. */
 export const DEFAULT_COLLAPSED_GROUPS: readonly OwnerGroupKey[] = ["review", "stale"];
 
+/**
+ * Które grupy zwinąć na starcie. Zwijamy przegląd („Do przejrzenia") i osoby
+ * bez ruchu, ale NIGDY wszystkiego: rekrutacja z samym stosem wejściowym
+ * i kilkoma starymi kartami (produkcja 21.09.2026: 461 + 6) wyglądała jak
+ * pusta tabela. Gdy każda niepusta grupa jest „domyślnie zwinięta", rozwijamy
+ * „Bez ruchu" (osoby już w procesie, czekające na nas) przed stosem wejściowym.
+ */
+export function defaultCollapsedFor(groups: readonly PersonRowGroup[]): Set<string> {
+  const collapsed = new Set<string>(DEFAULT_COLLAPSED_GROUPS);
+  const nonEmpty = groups.filter((g) => g.rowKeys.length > 0);
+  if (nonEmpty.length > 0 && nonEmpty.every((g) => collapsed.has(g.key))) {
+    const preferred = nonEmpty.find((g) => g.key === "stale") ?? nonEmpty[0];
+    collapsed.delete(preferred.key);
+  }
+  return collapsed;
+}
+
+/** Pierwszy wiersz z pierwszej ROZWINIĘTEJ grupy — to widzi rekruter. */
+export function firstVisibleRowKey(
+  groups: readonly PersonRowGroup[],
+  collapsed: ReadonlySet<string>,
+): string | null {
+  for (const group of groups) {
+    if (!collapsed.has(group.key) && group.rowKeys.length > 0) return group.rowKeys[0];
+  }
+  return null;
+}
+
 export function ownerGroupOf(row: ProcessPersonRow): OwnerGroupKey {
   if (row.nextAction.owner === "none") return "closed";
   if (row.nextAction.owner === "delivery") return "delivery";
