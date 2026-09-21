@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
+from uuid import UUID
 
 spec = importlib.util.spec_from_file_location(
     "audit", Path(__file__).parents[1] / "app_mail_config_audit.py"
@@ -12,7 +13,7 @@ spec.loader.exec_module(audit)
 
 class MailConfigAuditTests(unittest.TestCase):
     def test_only_valid_non_secret_identities(self):
-        app_id = "00000000-0000-0000-0000-000000000001"
+        app_id = str(UUID(int=1))
         secret = "token-private-content"
         result = audit.summarize([
             {"key": "M365_CLIENT_ID", "value": app_id},
