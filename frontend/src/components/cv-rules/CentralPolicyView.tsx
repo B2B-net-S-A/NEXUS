@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { CvRuleHistoryTab } from "./CvRuleHistoryTab";
 export function useCentralPolicy(clientId?: number | null, stageId?: number | null) {
-  return useQuery<{ managed: boolean; content_mode: "basic" | "polished" | "tailored"; publication_version?: number; effective_policy?: { key: string; version: number; source_url?: string; filename_pattern: string; cv_language: "pl" | "en" | null; requires_en_copy: boolean; require_recommendation_note: boolean; requires_rodo_consent_block: boolean; require_project_ref: boolean } }>({ queryKey: ["central-cv-policy", clientId ?? null, stageId ?? null], queryFn: async () => (await api.get("/api/cv-generator/policy", { params: { client_id: clientId || undefined, stage_id: stageId || undefined } })).data, staleTime: 30000 });
+  return useQuery<{ managed: boolean; project_ref?: string | null; content_mode: "basic" | "polished" | "tailored"; publication_version?: number; effective_policy?: { key: string; version: number; source_url?: string; filename_pattern: string; cv_language: "pl" | "en" | null; requires_en_copy: boolean; require_recommendation_note: boolean; requires_rodo_consent_block: boolean; require_project_ref: boolean } }>({ queryKey: ["central-cv-policy", clientId ?? null, stageId ?? null], queryFn: async () => (await api.get("/api/cv-generator/policy", { params: { client_id: clientId || undefined, stage_id: stageId || undefined } })).data, staleTime: 30000 });
 }
 export function CentralPolicyView({ clientId }: { clientId: number }) {
   const query = useCentralPolicy(clientId);

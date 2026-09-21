@@ -108,6 +108,7 @@ type CandidateOption = {
 type Mode = "new" | "old";
 
 type GeneratedCvItem = {
+  approved_version_id?: number | null;
   central_policy?: Record<string, unknown> | null;
   package_id?: number | null;
   id: number;
@@ -459,6 +460,7 @@ export function CVGeneratorStandaloneV2({
     mode === "new" ? (selectedRecruitment?.client_id ?? null) : (uploadRecruitment ? (uploadRecruitment.client_id ?? null) : (uploadClient?.id ?? null));
   const centralPolicy = useCentralPolicy(effectiveClientId, mode === "new" ? selectedRecruitment?.stage_id : uploadRecruitment?.stage_id);
   const centrallyManaged = !!centralPolicy.data?.managed;
+  useEffect(() => { if (centralPolicy.data?.project_ref) setProjectRef(centralPolicy.data.project_ref); }, [centralPolicy.data?.project_ref]);
   const cvRuleQuery = useClientCvRule(effectiveClientId);
   const activeRule = cvRuleQuery.data?.is_active ? cvRuleQuery.data : undefined;
   const forcedLanguage = centralPolicy.data?.effective_policy?.cv_language ?? activeRule?.cv_language ?? null;
@@ -741,7 +743,7 @@ export function CVGeneratorStandaloneV2({
 
   async function handleDownloadGenerated(item: GeneratedCvItem) {
     try {
-      const res = await api.get(`/api/cv-generator/generated/${item.id}/docx`, {
+      const res = await api.get(item.approved_version_id ? `/api/cv-generator/generated/${item.id}/approved/${item.approved_version_id}/docx` : `/api/cv-generator/generated/${item.id}/docx`, {
         responseType: "blob",
       });
       downloadBlob(res.data as Blob, item.filename);
@@ -753,7 +755,7 @@ export function CVGeneratorStandaloneV2({
   async function handleDownloadHtml(item: GeneratedCvItem) {
     // Interaktywne CV jako JEDEN plik HTML — do wysyłki mailem jak DOCX.
     try {
-      const res = await api.get(`/api/cv-generator/generated/${item.id}/html`, {
+      const res = await api.get(item.approved_version_id ? `/api/cv-generator/generated/${item.id}/approved/${item.approved_version_id}/html` : `/api/cv-generator/generated/${item.id}/html`, {
         responseType: "blob",
       });
       downloadBlob(
@@ -2134,7 +2136,7 @@ function GeneratedCvRow({
         </ul>
       )}
       {item.central_policy && <Button className="mt-2" size="sm" variant="outline" aria-expanded={showPackage} onClick={() => setShowPackage(value => !value)}>Pakiet CV · wersje i gotowość do wysłania</Button>}
-      {item.central_policy && showPackage && <CvPackagePanel id={item.package_id || item.id} canWrite={canWrite} onEdit={doc => onEdit({ ...item, ...doc, status: "ready" })} onDownload={doc => onDownload({ ...item, ...doc, status: "ready" })} />}
+      {item.central_policy && showPackage && <CvPackagePanel id={item.package_id || item.id} canWrite={canWrite} onDownloadHtml={doc => onDownloadHtml({ ...item, ...doc, status: "ready" })} onEdit={doc => onEdit({ ...item, ...doc, status: "ready" })} onDownload={doc => onDownload({ ...item, ...doc, status: "ready" })} />}
     </li>
   );
 }

@@ -149,6 +149,7 @@ export function CVGeneratorV2({
   const activeRule = clientRuleQuery.data?.is_active ? clientRuleQuery.data : undefined;
   const consentRequired = !!activeRule?.requires_rodo_consent_block;
   const [projectRef, setProjectRef] = useState("");
+  useEffect(() => { if (centralPolicy.data?.project_ref) setProjectRef(centralPolicy.data.project_ref); }, [centralPolicy.data?.project_ref]);
 
   // Te same blokady co na stronie generatora — do 09.2026 okno z profilu
   // ignorowało je i kończyło na 422 o polach, których tu nie było.

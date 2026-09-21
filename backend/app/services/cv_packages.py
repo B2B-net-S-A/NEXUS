@@ -32,6 +32,18 @@ def project_number(value):
     return re.sub(r"^(?:ZOB[\s_-]*)+", "", (value or "").strip(), flags=re.I).strip()
 
 
+def pko_job_reference(job):
+    """PKO request ID is the explicit ZOB token, never the ATS internal reference."""
+    if job is None:
+        return None
+    values = set()
+    for value in (getattr(job, "reference_number", None), getattr(job, "title", None)):
+        values.update(
+            re.findall(r"\bZOB[\s_-]*(\d+)\b", value or "", flags=re.IGNORECASE)
+        )
+    return next(iter(values)) if len(values) == 1 else None
+
+
 async def members(db, generated, *, lock=False):
     query = select(CvGenerationJob).where(
         or_(
@@ -169,7 +181,7 @@ async def assess(db, generated, *, note_id=None, lock=False):
         reasons.append("Brak numeru projektu / zapytania.")
     if policy.get("requires_rodo_consent_block"):
         recruitment = await db.get(Job, primary.job_id) if primary.job_id else None
-        reference = getattr(recruitment, "reference_number", None)
+        reference = pko_job_reference(recruitment)
         if not reference or project_number(reference) != project_number(
             policy.get("project_ref")
         ):

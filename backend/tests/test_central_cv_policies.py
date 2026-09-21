@@ -70,3 +70,10 @@ def test_migration_is_additive_and_mirrored():
     spec.loader.exec_module(module)
     entrypoint = (Path(__file__).parents[1] / 'entrypoint.sh').read_text()
     assert all(ddl in entrypoint and 'ADD COLUMN IF NOT EXISTS' in ddl for ddl in module.DDL)
+
+
+def test_pko_request_number_is_not_internal_ats_reference():
+    from app.services.cv_packages import pko_job_reference
+    assert pko_job_reference(SimpleNamespace(title="Programista Java (ZOB-2976)", reference_number="74/9/2026/MW/4961")) == "2976"
+    assert pko_job_reference(SimpleNamespace(title="Programista Java", reference_number="74/9/2026/MW/4961")) is None
+    assert pko_job_reference(SimpleNamespace(title="ZOB-2976", reference_number="ZOB-2900")) is None

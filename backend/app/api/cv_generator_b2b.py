@@ -3213,7 +3213,12 @@ async def effective_central_policy(
     if client_id and client is None:
         raise HTTPException(404, "Klient nie istnieje.")
     rule = await resolve_client_rule(db, client_id)
+    from app.services.cv_packages import pko_job_reference
+
     return {
+        "project_ref": pko_job_reference(job)
+        if rule.requires_rodo_consent_block
+        else None,
         "managed": True,
         "effective_policy": rule.managed_policy,
         "publication_version": rule.version,
@@ -3322,3 +3327,30 @@ async def retry_cv_package(
     await db.commit()
     background_tasks.add_task(execute_job, job.id)
     return {"id": primary.id, "status": "queued"}
+
+
+@router.get("/generated/{generated_id}/approved/{version_id}/{file_format}")
+async def download_package_document(
+    generated_id: int,
+    version_id: int,
+    file_format: Literal["docx", "html"],
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.cv_generated_approval import approved_version_for_generation
+
+    row = await _load_generated_document(db, generated_id, current_user)
+    version = await approved_version_for_generation(db, row, version_id)
+    filename = version.docx_filename or "CV.docx"
+    if file_format == "docx":
+        return _build_docx_response(
+            version.docx_content, filename, row.candidate_name, [], 0, row.id
+        )
+    filename = str(Path(filename).with_suffix(".html"))
+    return Response(
+        content=version.content_html.encode(),
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
+        },
+    )

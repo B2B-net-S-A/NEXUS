@@ -15,7 +15,7 @@ Synchronizacja jest idempotentna i serializowana blokadą klienta. Zachowuje pop
 - Obie wersje językowe korzystają z tych samych zapisanych źródeł. Ponowienie pomija gotowy dokument i wykorzystuje istniejący zapis nieudanej wersji. Prywatne fakty podlegają retencji źródeł zadania.
 - Wersje dokumentów zatwierdza istniejący edytor. Osobne potwierdzenie pakietu zapisuje wersje dokumentów, politykę, wersję wskazanej notatki i potwierdzenie sprawdzenia źródeł. Odcisk podglądu zapobiega zatwierdzeniu zmiany, której użytkownik nie widział.
 - Nowe linki wymagają gotowego pakietu. Publiczny widok otrzymuje wyłącznie zatwierdzone wersje zamrożone w linku. Notatka nie jest automatycznie publikowana.
-- Zgoda PKO jest związana ze źródłem CV, klientem, rekrutacją i numerem zapytania. Numer musi odpowiadać `Job.reference_number`; prefiks ZOB jest normalizowany. Czytelność treści zgody potwierdza użytkownik; backend weryfikuje przypisanie oraz poprawność obrazu.
+- Zgoda PKO jest związana ze źródłem CV, klientem, rekrutacją i numerem zapytania. Numer musi odpowiadać jednoznacznemu identyfikatorowi ZOB rekrutacji (w tytule lub polu referencji); wewnętrzny numer ATS nie jest numerem zapytania PKO. Prefiks ZOB jest normalizowany. Czytelność treści zgody potwierdza użytkownik; backend weryfikuje przypisanie oraz poprawność obrazu.
 
 ## Odbiór
 

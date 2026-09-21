@@ -608,7 +608,9 @@ def build_filename(
     sep = bool(rule.spaces_to_underscores)
 
     if pattern.startswith("ZOB-{PROJEKT}"):
-        project = re.sub(r"^(?:ZOB[\s_-]*)+", "", project or "", flags=re.IGNORECASE)
+        project = re.sub(
+            r"^(?:ZOB[\s_-]*)+", "", (project or "").strip(), flags=re.IGNORECASE
+        )
 
     values: dict[str, str] = {
         TOKEN_POSITION: _apply_word_separator(position or "", sep),
