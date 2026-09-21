@@ -54,6 +54,11 @@ export function isPipelineVersionConflict(error: unknown): boolean {
   );
 }
 
+/** Klucz historii etapów osoby w rekrutacji (dok kandydata, panel osoby). */
+export function candidateStageHistoryKey(candidateId: number, jobId: number) {
+  return ["candidate-stage-history", candidateId, jobId] as const;
+}
+
 /**
  * Po konflikcie: tablica (oba klucze) i historia etapów doku kandydata.
  * Bez automatycznego ponowienia ruchu.
@@ -67,7 +72,7 @@ export function invalidateAfterPipelineVersionConflict(
   void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
   if (candidateId !== undefined) {
     void queryClient.invalidateQueries({
-      queryKey: ["candidate-stage-history", candidateId, jobId],
+      queryKey: candidateStageHistoryKey(candidateId, jobId),
     });
   }
 }

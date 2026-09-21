@@ -176,6 +176,22 @@ describe("JobDetailCompactHeader", () => {
     }
   });
 
+  it("narzędzia AI w menu „…” tylko gdy strona je poda (admin) — także bez innych akcji menu", async () => {
+    const onOpenAiTools = vi.fn();
+    const first = renderHeader({ onEdit: undefined, onOpenAiTools });
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Narzędzia AI (administrator)" }),
+    );
+    await waitFor(() => expect(onOpenAiTools).toHaveBeenCalledOnce());
+    first.unmount();
+
+    renderHeader();
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    await screen.findByRole("menuitem", { name: "Edytuj" });
+    expect(screen.queryByRole("menuitem", { name: /Narzędzia AI/ })).toBeNull();
+  });
+
   it("panel „Zespół i priorytet” istnieje tylko, gdy strona go poda (widok Championa)", async () => {
     // W „Tabeli" i na „Tablicy" panel żyje w oknie „Zlecenie".
     const { unmount } = renderHeader();

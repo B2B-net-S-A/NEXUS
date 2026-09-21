@@ -204,6 +204,17 @@ describe("OrderSlideOver", () => {
     expect(screen.getByTestId("close-dialog")).toHaveAttribute("data-reason", "filled_by_us");
   });
 
+  it("initialSection=close (podpowiedź „Obsada kompletna”) otwiera od razu dialog zamknięcia z „Obsadzone przez nas”", async () => {
+    setup({ initialSection: "close", hiredCount: 2 });
+    expect(await screen.findByTestId("close-dialog")).toHaveAttribute("data-reason", "filled_by_us");
+  });
+
+  it("initialSection=close bez prawa edycji niczego nie otwiera (bramka zostaje w oknie)", async () => {
+    setup({ initialSection: "close", hiredCount: 2, canEdit: false });
+    await screen.findByText("Java 17");
+    expect(screen.queryByTestId("close-dialog")).not.toBeInTheDocument();
+  });
+
   it("zamknięta rekrutacja nie pokazuje przycisku zamknięcia", async () => {
     setup({}, { job: { ...JOB, status: "closed" }, readiness: { closed: true } });
     await screen.findByText("Java 17");

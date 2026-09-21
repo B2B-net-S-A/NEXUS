@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   BULK_CV_CANCELLED_REASON,
   BULK_CV_MOVE_UNKNOWN_REASON,
+  BULK_CV_MOVED_WITHOUT_LINK_REASON,
   BULK_CV_NO_BRANDED_REASON,
   runBulkCvHandoff,
   type BulkCvHandoffDeps,
@@ -72,7 +73,7 @@ describe("runBulkCvHandoff", () => {
     ]);
     // Status CV sprawdzany na etapie SPRZED ruchu; osoba 2 startuje po osobie 1.
     expect(order).toEqual(["status:100", "handoff:1", "status:200", "handoff:2"]);
-    expect(deps.handoff).toHaveBeenNthCalledWith(1, ANNA, false);
+    expect(deps.handoff).toHaveBeenNthCalledWith(1, ANNA, false, { createLink: true });
     expect(deps.onProgress).toHaveBeenNthCalledWith(2, 1, 2, JAN);
   });
 
@@ -93,7 +94,12 @@ describe("runBulkCvHandoff", () => {
       throw new CvHandoffError("move", [], CONFLICT);
     });
     const [outcome] = await runBulkCvHandoff([ANNA], makeDeps({ handoff }));
-    expect(outcome).toMatchObject({ kind: "move_refused", reason: PIPELINE_VERSION_CONFLICT_MESSAGE });
+    expect(outcome).toMatchObject({
+      kind: "move_refused",
+      reason: PIPELINE_VERSION_CONFLICT_MESSAGE,
+      // Wołający odświeża po tym historię etapów TEJ osoby (jak pojedynczy przepływ).
+      versionConflict: true,
+    });
     expect(handoff).toHaveBeenCalledTimes(1);
   });
 
@@ -184,6 +190,44 @@ describe("runBulkCvHandoff", () => {
       makeDeps({ handoff, getBrandedStatus: vi.fn(async () => "draft") }),
     );
     expect(outcome).toMatchObject({ kind: "skipped", reason: BULK_CV_NO_BRANDED_REASON });
+    expect(handoff).not.toHaveBeenCalled();
+  });
+
+  it("„przenieś bez linku”: brak sfinalizowanego CV → ruch z planem BEZ linku, wynik moved_without_link", async () => {
+    const handoff = vi.fn(async (): Promise<CvHandoffResult> => ({
+      completed: ["move"], skipped: ["share_link", "client_rate"], failedAfterMove: [], shareUrlSuffix: null,
+    }));
+    const outcomes = await runBulkCvHandoff(
+      [ANNA, JAN],
+      makeDeps({
+        handoff,
+        moveWithoutBrandedCv: true,
+        getBrandedStatus: vi.fn(async (stageId: number) => (stageId === 100 ? "draft" : "finalized")),
+      }),
+    );
+    expect(handoff).toHaveBeenNthCalledWith(1, ANNA, false, { createLink: false });
+    expect(handoff).toHaveBeenNthCalledWith(2, JAN, false, { createLink: true });
+    expect(outcomes[0]).toEqual({
+      kind: "moved_without_link", candidateId: 1, fullName: "Anna Nowak", sourceStageId: 100,
+      reason: BULK_CV_MOVED_WITHOUT_LINK_REASON, rateFailed: null,
+    });
+    // Osoba ZE sfinalizowanym CV, której link nie wrócił, to nadal porażka do ponowienia.
+    expect(outcomes[1]).toMatchObject({ kind: "moved_no_link", candidateId: 2 });
+  });
+
+  it("„przenieś bez linku” nie obejmuje osoby, której CV nie dało się SPRAWDZIĆ", async () => {
+    const handoff = vi.fn(async () => linked("/x"));
+    const [outcome] = await runBulkCvHandoff(
+      [ANNA],
+      makeDeps({
+        handoff,
+        moveWithoutBrandedCv: true,
+        getBrandedStatus: vi.fn(async () => {
+          throw httpError(500, "Błąd serwera");
+        }),
+      }),
+    );
+    expect(outcome.kind).toBe("skipped");
     expect(handoff).not.toHaveBeenCalled();
   });
 

@@ -155,6 +155,20 @@ describe("ProposalsSegment — stany", () => {
     expect(s.dismiss).not.toHaveBeenCalled();
   });
 
+  it("„Dopasuj kryteria” niesie „Wymagania z requestu”; zapis wymagań kasuje zapisany przegląd (jak AI Matching)", () => {
+    const clear = vi.fn();
+    mocks.state.current = state({ run: { clear } });
+    const renderRequirements = vi.fn(({ onSaved }: { onSaved: () => void }) => (
+      <button type="button" onClick={onSaved}>zapisz wymagania (mock)</button>
+    ));
+    render(<ProposalsSegment {...props} renderRequirements={renderRequirements} />);
+    // Zwinięte = niezamontowane: zapytanie o wymagania nie leci bez potrzeby.
+    expect(renderRequirements).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Dopasuj kryteria" }));
+    fireEvent.click(screen.getByRole("button", { name: "zapisz wymagania (mock)" }));
+    expect(clear).toHaveBeenCalledTimes(1);
+  });
+
   it("przyciski wyszukiwania ręcznego i dodania po nazwisku wołają rodzica", () => {
     mocks.state.current = state();
     render(<ProposalsSegment {...props} />);

@@ -1067,6 +1067,8 @@ export const matchingApi = {
           expected_rate_unit?: "hour" | null;
           current_title?: string | null;
           current_company?: string | null;
+          /** Podsumowanie AI profilu — dok dopasowania / panel propozycji. */
+          ai_summary?: string | null;
         };
         match_score: number | null;
         matching_skills: string[];
@@ -5530,6 +5532,12 @@ export interface CVShareTokenListItem {
   share_url_suffix?: string | null;
 }
 
+/** Link do CV w przekroju całej pary (kandydat, rekrutacja) — z etapem, na którym leży. */
+export interface CVShareTokenJobListItem extends CVShareTokenListItem {
+  stage_id: number;
+  stage_name: string;
+}
+
 export const candidateStageCvApi = {
   original: {
     get: (stageId: number) =>
@@ -5583,6 +5591,15 @@ export const candidateStageCvApi = {
     list: (stageId: number) =>
       api.get<CVShareTokenListItem[]>(
         `/api/candidates/stages/${stageId}/cv/share-tokens`,
+      ),
+    /**
+     * Linki ze WSZYSTKICH etapów pary (kandydat, rekrutacja) — tylko odczyt,
+     * bez sekretów. Link dla klienta leży na etapie SPRZED ruchu na
+     * „CV Wysłane", więc lista per etap jest na późniejszym etapie pusta.
+     */
+    listForRecruitment: (candidateId: number, jobId: number) =>
+      api.get<CVShareTokenJobListItem[]>(
+        `/api/pipeline/candidates/${candidateId}/jobs/${jobId}/cv-share-tokens`,
       ),
     revoke: (tokenOrKey: string, reason?: string) =>
       api.delete<{ status: string; token: string }>(

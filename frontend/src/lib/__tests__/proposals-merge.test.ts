@@ -143,6 +143,25 @@ describe("mergeProposals", () => {
     expect(byId.get(2)).toEqual(["client_nda", "over_budget"]);
   });
 
+  it("podsumowanie AI i bramka must-have jadą WYŁĄCZNIE z wiersza żywego przeglądu (jak dawny dok dopasowania)", () => {
+    const match = {
+      candidate: { id: 1, name: "Anna", lastname: "Nowak1", ai_summary: "  Senior Java, 8 lat w bankowości.  " },
+      match_score: 0.8, matching_skills: ["Java"], gaps: ["AWS"],
+      missing_must: ["AWS", ""],
+    } as unknown as CandidateSearchRow["match"];
+    const entries = mergeProposals({
+      // Starszy kształt dowodu skrzynki ma `missing_must`, ale to lista braków
+      // wymagań, nie bramka dealbreakera — do linii „Bramka must-have" nie trafia.
+      inbox: [inboxItem(2, { evidence: { missing_must: ["Kafka"] } })],
+      run: { runId: "run-1", rows: [runRow(1, 80, { match })] },
+    });
+    const byId = new Map(entries.map((e) => [e.row.candidateId, e.detail]));
+    expect(byId.get(1)?.aiSummary).toBe("Senior Java, 8 lat w bankowości.");
+    expect(byId.get(1)?.missingMustGate).toEqual(["AWS"]);
+    expect(byId.get(2)?.aiSummary).toBeNull();
+    expect(byId.get(2)?.missingMustGate).toEqual([]);
+  });
+
   it("nieznane źródło z backendu nie wywraca scalenia", () => {
     const [entry] = mergeProposals({ inbox: [inboxItem(1, { sources: ["jarvis_pick"] })] });
     expect(entry.row.sources).toEqual(["full_base"]);

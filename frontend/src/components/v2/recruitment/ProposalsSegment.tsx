@@ -51,6 +51,12 @@ export interface ProposalsSegmentProps {
    * żyją poza segmentem, bo odpalają płatne wywołanie modelu.
    */
   renderMatchDetails?: (candidateId: number) => ReactNode;
+  /**
+   * „Wymagania z requestu" (lista + edycja) — renderowane w rozwinięciu
+   * „Dopasuj kryteria". Żyją poza widokiem, bo czytają API; `onSaved` kasuje
+   * zapisany przegląd bazy (wymagania się zmieniły), jak w dawnym AI Matching.
+   */
+  renderRequirements?: (ctx: { onSaved: () => void }) => ReactNode;
   /** Wejście z `?highlight=ai-proposals` — krótka obwódka wokół segmentu. */
   highlight?: boolean;
   /** `false`, gdy panel renderuje rodzic (wtedy słucha `onActiveCandidateChange`). */
@@ -116,6 +122,7 @@ export function ProposalsSegmentView({
   onWriteEmail,
   renderAdminTools,
   renderMatchDetails,
+  renderRequirements,
   highlight = false,
   showPanel = true,
   onActiveCandidateChange,
@@ -394,6 +401,7 @@ export function ProposalsSegmentView({
               </div>
             )}
           </div>
+          {renderRequirements?.({ onSaved: () => run.clear() })}
           {filtersActive && (
             <button type="button" className="justify-self-start text-xs text-primary hover:underline" onClick={() => setFilters(DEFAULT_PROPOSAL_FILTERS)}>Wyczyść filtry</button>
           )}

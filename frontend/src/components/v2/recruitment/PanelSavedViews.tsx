@@ -21,6 +21,7 @@ import {
   screeningApi,
   type CVBrandedState,
   type CVOriginalSnapshot,
+  type CVShareTokenJobListItem,
   type CVShareTokenListItem,
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -135,11 +136,13 @@ export function SavedCvView({
   stageLabel,
   candidateName,
   jobTitle,
+  jobId,
 }: {
   item: KanbanItem;
   stageLabel: string;
   candidateName: string;
   jobTitle: string;
+  jobId: number;
 }) {
   const [openOriginal, setOpenOriginal] = useState(false);
   const original = useQuery<CVOriginalSnapshot>({
@@ -150,9 +153,15 @@ export function SavedCvView({
     queryKey: ["cv-branded", item.id],
     queryFn: () => candidateStageCvApi.branded.get(item.id).then((r) => r.data),
   });
-  const links = useQuery<CVShareTokenListItem[]>({
-    queryKey: ["cv-share-tokens", item.id],
-    queryFn: () => candidateStageCvApi.share.list(item.id).then((r) => r.data),
+  // Linki z CAŁEJ pary (kandydat, rekrutacja), nie z bieżącego etapu: link dla
+  // klienta leży na etapie SPRZED ruchu na „CV Wysłane", więc lista per etap
+  // była tu niemal zawsze pusta, choć klient miał działający link.
+  const links = useQuery<CVShareTokenJobListItem[]>({
+    queryKey: ["cv-share-tokens-recruitment", item.candidate_id, jobId],
+    queryFn: () =>
+      candidateStageCvApi.share
+        .listForRecruitment(item.candidate_id, jobId)
+        .then((r) => r.data),
   });
   const brandedStatus = branded.data?.status ?? "none";
 
@@ -205,8 +214,7 @@ export function SavedCvView({
           <LoadError what="linki dla klienta" onRetry={() => void links.refetch()} />
         ) : links.isSuccess && links.data.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            Na tym etapie nie utworzono linku. Linki z wcześniejszych etapów są w historii CV na
-            profilu kandydata.
+            W tej rekrutacji nie utworzono jeszcze linku dla klienta do CV tej osoby.
           </p>
         ) : (
           <ul className="space-y-1.5">
@@ -220,6 +228,7 @@ export function SavedCvView({
                   <span className="text-muted-foreground">{linkState(link)}</span>
                 </div>
                 <div className="text-muted-foreground">
+                  {`etap: ${link.stage_name} · `}
                   {link.created_at ? `utworzony ${formatDate(link.created_at)}` : "data nieznana"}
                   {link.created_by_name ? ` · ${link.created_by_name}` : ""}
                   {` · wyświetlenia: ${link.view_count}`}

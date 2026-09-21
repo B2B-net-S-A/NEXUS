@@ -180,6 +180,16 @@ export function ProposalPanel({
       </div>
 
       <Section title="Wymagania">
+        {/* Bramka dealbreakera (0278): węższa niż lista wymagań — bez tych
+            technologii osoba jest ukrywana na pozostałych powierzchniach. */}
+        {detail.missingMustGate.length > 0 && (
+          <p
+            className="rounded-md border border-destructive/25 bg-destructive/5 px-2 py-1 text-[11px] text-destructive"
+            title="Bramka dealbreakera: bez tych technologii kandydat jest ukrywany na pozostałych powierzchniach rankingu — ta lista jest węższa niż pełne pokrycie wymagań poniżej."
+          >
+            Bramka must-have: brak {detail.missingMustGate.join(", ")}
+          </p>
+        )}
         {detail.requirements.length === 0 ? (
           <p className="text-muted-foreground">
             Brak oceny wymagań dla tej osoby — uruchom przegląd bazy, żeby ją policzyć.
@@ -241,6 +251,12 @@ export function ProposalPanel({
           </ul>
         )}
       </Section>
+
+      {detail.aiSummary && (
+        <Section title="Podsumowanie">
+          <p className="line-clamp-4 text-xs leading-relaxed text-muted-foreground">{detail.aiSummary}</p>
+        </Section>
+      )}
 
       {matchDetails ? <div className="border-t border-border pt-3">{matchDetails}</div> : null}
 

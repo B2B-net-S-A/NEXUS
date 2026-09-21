@@ -199,6 +199,65 @@ describe("useBulkCvHandoff", () => {
     expect(screen.getByTestId("bulk-cv-failure-3")).toHaveTextContent("anulowano po ostrzeżeniu");
   });
 
+  it("„przenieś bez linku”: domyślnie osoba bez sfinalizowanego CV jest pomijana; po zaznaczeniu idzie na „CV Wysłane” bez linku", async () => {
+    mocks.brandedGet.mockImplementation(async (stageId: number) => ({
+      data: { status: stageId === stageIdOf(3) ? "draft" : "finalized" },
+    }));
+    renderHarness({ canWriteClientRate: false });
+    await userEvent.click(screen.getByRole("button", { name: "start" }));
+    const toggle = screen.getByRole("checkbox", {
+      name: /Osoby bez sfinalizowanego CV firmowego przenieś bez linku/,
+    });
+    // Domyślnie wyłączone — akcja zbiorcza istnieje po to, żeby powstały linki.
+    expect(toggle).not.toBeChecked();
+    await userEvent.click(toggle);
+    await userEvent.click(screen.getByRole("button", { name: "Wyślij i utwórz linki" }));
+    await waitFor(() =>
+      expect(screen.getByText("Wyślij CV do klienta — wynik")).toBeInTheDocument(),
+    );
+    expect(mocks.move.mock.calls.map((c) => c[0].candidate_id)).toEqual([2, 3]);
+    // Link TYLKO dla osoby ze sfinalizowanym CV (plan `shareLink: null` dla drugiej).
+    expect(mocks.shareCreate.mock.calls).toEqual([[stageIdOf(2), 14]]);
+    expect(screen.getByTestId("bulk-cv-failure-3")).toHaveTextContent(/bez linku/);
+    expect(screen.getByText(/Przeniesiono na „CV Wysłane”: 2 z 2/)).toBeInTheDocument();
+  });
+
+  it("bez zaznaczenia „przenieś bez linku” osoba bez sfinalizowanego CV nie jest ruszana", async () => {
+    mocks.brandedGet.mockImplementation(async (stageId: number) => ({
+      data: { status: stageId === stageIdOf(3) ? "draft" : "finalized" },
+    }));
+    renderHarness({ canWriteClientRate: false });
+    await userEvent.click(screen.getByRole("button", { name: "start" }));
+    await userEvent.click(screen.getByRole("button", { name: "Wyślij i utwórz linki" }));
+    await waitFor(() =>
+      expect(screen.getByText("Wyślij CV do klienta — wynik")).toBeInTheDocument(),
+    );
+    expect(mocks.move.mock.calls.map((c) => c[0].candidate_id)).toEqual([2]);
+    expect(screen.getByTestId("bulk-cv-failure-3")).toHaveTextContent("brak CV firmowego");
+  });
+
+  it("konflikt wersji odświeża historię etapów TEJ osoby (klucz pojedynczego przepływu), a tablicę nadal RAZ", async () => {
+    const conflict = {
+      response: { status: 409, data: { detail: { code: "PIPELINE_VERSION_CONFLICT" } } },
+    };
+    mocks.move.mockImplementation(async (payload: { candidate_id: number }) => {
+      if (payload.candidate_id === 2) throw conflict;
+      return { data: {} };
+    });
+    const { invalidate } = renderHarness({ canWriteClientRate: false });
+    await userEvent.click(screen.getByRole("button", { name: "start" }));
+    await userEvent.click(screen.getByRole("button", { name: "Wyślij i utwórz linki" }));
+    await waitFor(() =>
+      expect(screen.getByText("Wyślij CV do klienta — wynik")).toBeInTheDocument(),
+    );
+    const keys = invalidate.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey));
+    expect(keys).toContain('["candidate-stage-history",2,42]');
+    expect(keys).not.toContain('["candidate-stage-history",3,42]');
+    expect(keys.filter((k) => k === '["kanban","42"]')).toHaveLength(1);
+    // Bez ponowienia ruchu po konflikcie.
+    expect(mocks.move.mock.calls.filter((c) => c[0].candidate_id === 2)).toHaveLength(1);
+  });
+
   it("szablon bez „CV Wysłane”: toast błędu, żadnego okna", async () => {
     renderHarness({ cols: columns.filter((c) => c.stage !== "cv_sent") });
     await userEvent.click(screen.getByRole("button", { name: "start" }));

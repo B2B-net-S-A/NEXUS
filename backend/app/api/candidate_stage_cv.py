@@ -14,6 +14,8 @@ Faza 3 (PR2) — `branded` draft + finalize (mirror Contract Draft):
 Faza 4 (PR2) — public share:
   POST   /api/candidates/stages/{stage_id}/cv/share-token
   DELETE /api/candidates/stages/cv/share-token/{token}
+  GET    /api/pipeline/candidates/{candidate_id}/jobs/{job_id}/cv-share-tokens
+         (linki ze WSZYSTKICH etapów pary, tylko odczyt, bez sekretów)
   GET    /api/public/cv/{token}                          (osobny router public_share)
 """
 
@@ -66,6 +68,7 @@ from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_share_token import CVShareToken
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.job import Job
+from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
 from app.schemas.candidate_stage_cv import (
@@ -77,6 +80,7 @@ from app.schemas.candidate_stage_cv import (
     CVBrandedUpdate,
     CVBrandedSelectGenerated,
     CVOriginalSnapshotResponse,
+    CVShareTokenJobListItem,
     CVShareTokenListItem,
     CVShareTokenResponse,
 )
@@ -1079,6 +1083,92 @@ async def list_cv_share_tokens(
         .all()
     )
     return [_token_list_item(r) for r in rows]
+
+
+@router.get(
+    "/pipeline/candidates/{candidate_id}/jobs/{job_id}/cv-share-tokens",
+    response_model=list[CVShareTokenJobListItem],
+)
+async def list_cv_share_tokens_for_recruitment(
+    candidate_id: int,
+    job_id: int,
+    current_user: CandidateDocumentAccess,
+    db: AsyncSession = Depends(get_db),
+) -> list[CVShareTokenJobListItem]:
+    """Linki do CV ze WSZYSTKICH etapów pary (kandydat, rekrutacja) — bez sekretów.
+
+    Link dla klienta leży na etapie SPRZED ruchu na „CV Wysłane" (ruch tworzy
+    nowy ``CandidateStage`` bez dokumentu), więc lista per etap jest dla osoby
+    na późniejszym etapie zwykle pusta, choć klient ma działający link.
+
+    Bramka jest TA SAMA co w ``list_cv_share_tokens``: rola
+    ``CandidateDocumentAccess`` + odczyt TEJ rekrutacji
+    (``ensure_job_read_access``). Sprawdzana PRZED zapytaniem o etapy, żeby
+    osoba spoza zespołu nie odróżniała „nie ma takiej pary" od „nie wolno".
+    """
+    await ensure_job_read_access(db, current_user, job_id)
+
+    has_stage = await db.scalar(
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+        )
+        .limit(1)
+    )
+    if has_stage is None:
+        raise HTTPException(
+            status_code=404, detail="Kandydat nie jest w tej rekrutacji"
+        )
+
+    rows = (
+        await db.execute(
+            select(
+                CVShareToken,
+                CandidateStage.id,
+                CandidateStage.stage,
+                PipelineStageDef.name,
+            )
+            .join(
+                CandidateStageCV,
+                CandidateStageCV.id == CVShareToken.candidate_stage_cv_id,
+            )
+            .join(
+                CandidateStage,
+                CandidateStage.id == CandidateStageCV.candidate_stage_id,
+            )
+            .outerjoin(
+                PipelineStageDef,
+                PipelineStageDef.id == CandidateStage.stage_def_id,
+            )
+            .options(selectinload(CVShareToken.creator))
+            .where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == job_id,
+            )
+            .order_by(CVShareToken.created_at.desc(), CVShareToken.token)
+        )
+    ).all()
+
+    items: list[CVShareTokenJobListItem] = []
+    for token_row, stage_id, stage_enum, stage_def_name in rows:
+        stage_name = (
+            stage_def_name or getattr(stage_enum, "value", None) or str(stage_enum)
+        )
+        base = _token_list_item(token_row).model_dump()
+        if not base["is_v2"]:
+            # Link legacy trzyma SEKRET w kluczu głównym — lista per etap
+            # oddaje go jako `revoke_key`/`share_url_suffix`, bo tam służy do
+            # odwołania. Ten widok jest tylko do odczytu, więc sekretu nie
+            # niesie wcale: identyfikator to skrót, adresu nie ma.
+            digest = hashlib.sha256(token_row.token.encode()).hexdigest()
+            base["revoke_key"] = f"legacy${digest[:16]}"
+            base["token_preview"] = f"legacy · {digest[:6]}…"
+            base["share_url_suffix"] = None
+        items.append(
+            CVShareTokenJobListItem(**base, stage_id=stage_id, stage_name=stage_name)
+        )
+    return items
 
 
 @router.delete("/candidates/stages/cv/share-token/{token}")

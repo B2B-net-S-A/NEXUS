@@ -44,7 +44,11 @@ vi.mock("@/components/v2/jobs/JobInterviewsTab", () => ({ JobInterviewsTab: work
 vi.mock("@/components/v2/jobs/JobContractTab", () => ({ JobContractTab: workbenchMock("contract") }));
 vi.mock("@/components/v2/pages/DopasowanieTab", () => ({ DopasowanieTab: workbenchMock("match") }));
 
-import { PersonPanel, type PersonPanelProps } from "@/components/v2/recruitment/PersonPanel";
+import {
+  HeadcountFilledHint,
+  PersonPanel,
+  type PersonPanelProps,
+} from "@/components/v2/recruitment/PersonPanel";
 import { buildProcessRows } from "@/components/v2/recruitment/person-rows";
 import type { PipelineMoveControls } from "@/hooks/usePipelineMove";
 
@@ -352,5 +356,53 @@ describe("PersonPanel — skróty z tabeli", () => {
     const { rerenderPanel } = renderPanel({ candidateId: 3, stageFocusSignal: 0 });
     rerenderPanel({ candidateId: 3, stageFocusSignal: 1 });
     await waitFor(() => expect(screen.getByLabelText("Etap")).toHaveFocus());
+  });
+});
+
+describe("sekcja „Umowa” — podpowiedź „Obsada kompletna”", () => {
+  const hiredColumns = template({ 9: [item(11), item(12)] });
+
+  it("komplet obsady po zatrudnieniu: podpowiedź otwiera okno „Zlecenie” na zamknięciu rekrutacji", async () => {
+    const onRequestCloseJob = vi.fn();
+    render(
+      <HeadcountFilledHint columns={hiredColumns} headcount={2} enabled onRequestCloseJob={onRequestCloseJob} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Obsada kompletna — zamknij rekrutację/ }));
+    expect(onRequestCloseJob).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("2 z 2")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["obsada niepełna", { headcount: 3, enabled: true }],
+    ["nieznana obsada", { headcount: null, enabled: true }],
+    ["rola bez `job.update` / tryb odczytu / rekrutacja zamknięta", { headcount: 2, enabled: false }],
+  ])("nie pokazuje się: %s", (_name, over) => {
+    render(<HeadcountFilledHint columns={hiredColumns} onRequestCloseJob={vi.fn()} {...over} />);
+    expect(screen.queryByRole("button", { name: /Obsada kompletna/ })).toBeNull();
+  });
+
+  it("panel podaje podpowiedzi kontekst strony: obsadę, bramkę `job.update` i akcję", async () => {
+    const onRequestCloseJob = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const cols = template({ 9: [item(21, { name: "Hanna", lastname: "Zatrudniona" })] });
+    const row = buildProcessRows(cols).find((r) => r.candidateId === 21)!;
+    render(
+      <QueryClientProvider client={client}>
+        <PersonPanel
+          row={row}
+          jobId={42}
+          columns={cols}
+          move={moveControls()}
+          readOnly={false}
+          canWriteClientRate
+          section="contract"
+          workbenchContext={{ ...workbenchContext, canCloseJob: true, headcount: 1, onRequestCloseJob }}
+        />
+      </QueryClientProvider>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: /Obsada kompletna — zamknij rekrutację/ }));
+    expect(onRequestCloseJob).toHaveBeenCalledTimes(1);
+    // Sama akcja zamknięcia nadal NIE mieszka w panelu jednej osoby.
+    expect(mocks.workbenchProps.contract.hideCloseJob).toBe(true);
   });
 });

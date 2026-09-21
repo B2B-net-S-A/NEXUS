@@ -11,6 +11,7 @@ import {
   Link2,
   MessageCircle,
   PencilLine,
+  Sparkles,
   Table2,
   Target,
   UserCheck,
@@ -82,7 +83,12 @@ interface JobDetailCompactHeaderProps {
   /** Aktywny widok: „Tabela" (`people`), „Tablica" (`board`) albo pełne „Zlecenie i Champion". */
   activeView: JobDetailView;
   onViewChange: (view: JobDetailView) => void;
-  /** Okno „Zlecenie" (fakty, zespół, priorytet, portale, zamknięcie). */
+  /**
+   * Okno „Zlecenie" (fakty, zespół, priorytet, portale, zamknięcie). Na pełnym
+   * widoku „Zlecenie i Champion" przycisk jest oznaczony jako bieżący i strona
+   * podaje tu przewinięcie do treści zamiast okna — okno obok tej samej
+   * treści byłoby drugim „Zleceniem" na jednym ekranie.
+   */
   onOpenOrder: () => void;
   /**
    * Ile rzeczy brakuje w zleceniu wg bramki gotowości. `undefined`/`null` =
@@ -96,6 +102,12 @@ interface JobDetailCompactHeaderProps {
   onEdit?: () => void;
   onWriteAnnouncement?: () => void;
   onGenerateInviteLink?: () => void;
+  /**
+   * Narzędzia AI administratora (kryteria, scoring, embedding). Strona podaje
+   * je WYŁĄCZNIE adminowi — do 09.2026 były dostępne tylko przy zaznaczonej
+   * propozycji, więc rekrutacja bez propozycji nie miała do nich wejścia.
+   */
+  onOpenAiTools?: () => void;
   chatUnreadCount?: number;
   /** Osoby w procesie — licznik przy przełączniku widoków. `undefined` = nie policzono. */
   pipelineCount?: number;
@@ -218,6 +230,7 @@ export function JobDetailCompactHeader({
   onEdit,
   onWriteAnnouncement,
   onGenerateInviteLink,
+  onOpenAiTools,
   chatUnreadCount = 0,
   pipelineCount,
   contextOpen = false,
@@ -308,7 +321,7 @@ export function JobDetailCompactHeader({
                   </Button>
                 ) : null}
 
-                {onEdit || onWriteAnnouncement || onGenerateInviteLink ? (
+                {onEdit || onWriteAnnouncement || onGenerateInviteLink || onOpenAiTools ? (
                   <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -349,6 +362,18 @@ export function JobDetailCompactHeader({
                           >
                             <Link2 className="h-4 w-4" />
                             Wygeneruj link
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
+                      {onOpenAiTools ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onSelect={() => deferMenuAction(onOpenAiTools)}
+                            data-testid="open-ai-tools"
+                          >
+                            <Sparkles className="h-4 w-4" />
+                            Narzędzia AI (administrator)
                           </DropdownMenuItem>
                         </>
                       ) : null}

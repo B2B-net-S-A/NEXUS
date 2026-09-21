@@ -50,6 +50,7 @@ import { runCvHandoff } from "@/lib/cv-handoff";
 import { isEligibilityWarning } from "@/lib/pipeline-eligibility-warning";
 import { CV_SENT_STAGE, findStageColumn } from "@/lib/pipeline-flow";
 import {
+  candidateStageHistoryKey,
   expectedStateVersionOf,
   isPipelineVersionConflict,
 } from "@/lib/pipeline-version-conflict";
@@ -120,6 +121,10 @@ export function useBulkCvHandoff({
   const [days, setDays] = useState(String(BULK_CV_DEFAULT_LINK_DAYS));
   const [unit, setUnit] = useState<RateUnit>("monthly");
   const [rates, setRates] = useState<Record<number, string>>({});
+  // „Przenieś bez linku" — lustro pojedynczego przepływu (brak sfinalizowanego
+  // CV firmowego = ruch z `shareLink: null`). Domyślnie wyłączone: akcja
+  // zbiorcza istnieje po to, żeby powstały linki.
+  const [moveWithoutLink, setMoveWithoutLink] = useState(false);
   const [progress, setProgress] = useState<{
     index: number;
     total: number;
@@ -144,6 +149,7 @@ export function useBulkCvHandoff({
       setDays(String(BULK_CV_DEFAULT_LINK_DAYS));
       setUnit("monthly");
       setRates({});
+      setMoveWithoutLink(false);
       setPending({ rows, onHandled: opts?.onHandled });
     },
     [cvSentColumn, showError],
@@ -182,13 +188,17 @@ export function useBulkCvHandoff({
     try {
       outcomes = await runBulkCvHandoff<BulkPerson>(people, {
         expiresInDays,
+        moveWithoutBrandedCv: moveWithoutLink,
         onProgress: (index, total, person) =>
           setProgress({ index, total, name: person.fullName }),
         getBrandedStatus: async (stageId) =>
           (await candidateStageCvApi.branded.get(stageId)).data?.status ?? "none",
-        handoff: (person, acknowledgeEligibility) =>
+        handoff: (person, acknowledgeEligibility, { createLink }) =>
           runCvHandoff(
-            { clientRate: person.clientRate, shareLink: { expiresInDays } },
+            {
+              clientRate: person.clientRate,
+              shareLink: createLink ? { expiresInDays } : null,
+            },
             {
               move: async () => {
                 await pipelineApi.move({
@@ -251,6 +261,16 @@ export function useBulkCvHandoff({
       void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
       void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
       void queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
+      // Konflikt wersji: historia etapów TEJ osoby — ten sam klucz, który
+      // odświeża pojedynczy przepływ (`invalidateAfterPipelineVersionConflict`).
+      // Tablica jest już unieważniona wyżej, RAZ.
+      for (const outcome of outcomes) {
+        if (outcome.kind === "move_refused" && outcome.versionConflict) {
+          void queryClient.invalidateQueries({
+            queryKey: candidateStageHistoryKey(outcome.candidateId, jobId),
+          });
+        }
+      }
       busyRef.current = false;
       setProgress(null);
       setAsking(false);
@@ -292,7 +312,8 @@ export function useBulkCvHandoff({
               <DialogDescription>
                 {jobTitle ? `${jobTitle}: ` : ""}każda osoba zostanie przeniesiona na „CV
                 Wysłane”, a do jej CV firmowego powstanie link dla klienta. Osoby bez
-                sfinalizowanego CV firmowego zostaną pominięte (bez przeniesienia).
+                sfinalizowanego CV firmowego zostaną{" "}
+                {moveWithoutLink ? "przeniesione bez linku" : "pominięte (bez przeniesienia)"}.
               </DialogDescription>
             </DialogHeader>
             <DialogBody className="space-y-4">
@@ -312,6 +333,23 @@ export function useBulkCvHandoff({
                   </p>
                 ) : null}
               </div>
+
+              <label className="flex cursor-pointer items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={moveWithoutLink}
+                  onChange={(e) => setMoveWithoutLink(e.target.checked)}
+                  className="mt-0.5 h-3.5 w-3.5 rounded border-border accent-primary"
+                />
+                <span>
+                  Osoby bez sfinalizowanego CV firmowego przenieś bez linku
+                  <span className="block text-xs text-muted-foreground">
+                    Domyślnie takie osoby są pomijane. Po zaznaczeniu trafią na „CV
+                    Wysłane” bez linku dla klienta — jak „Oznacz „CV Wysłane” bez
+                    tworzenia linku” w panelu osoby.
+                  </span>
+                </span>
+              </label>
 
               {canWriteClientRate ? (
                 <fieldset className="space-y-2">

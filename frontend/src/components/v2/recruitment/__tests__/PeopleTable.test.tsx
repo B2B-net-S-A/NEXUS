@@ -88,6 +88,10 @@ function renderTable(props: Partial<PeopleTableProps> & Pick<PeopleTableProps, "
   return { invalidate };
 }
 
+/** To, co WIDAĆ w nagłówku (skrót), bez pełnej nazwy dla czytników ekranu. */
+const visibleHeader = (h: HTMLElement) =>
+  h.querySelector("span[aria-hidden='true']")?.textContent ?? h.textContent;
+
 const rowOf = (name: string) => screen.getByText(name).closest("[role='row']") as HTMLElement;
 
 beforeEach(() => vi.clearAllMocks());
@@ -95,9 +99,15 @@ beforeEach(() => vi.clearAllMocks());
 describe("PeopleTable — osoby w procesie", () => {
   it("kolumny procesu: etap, następny krok z odznakami, dni, stawka, dostępność, dopasowanie", () => {
     renderTable({ variant: "process", rows: processRows, onSelectionChange: vi.fn(), selectedKeys: new Set() });
-    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
-      "", "Kandydat", "Etap", "Następny krok", "W etapie", "Stawka", "Dostępność", "Dop.", "Akcje",
+    expect(screen.getAllByRole("columnheader").map(visibleHeader)).toEqual([
+      "", "Kandydat", "Etap", "Następny krok", "Dni", "Stawka", "Dostępność", "Dop.", "Akcje",
     ]);
+    // Skrót mieści się w kolumnie przy 1440 px; pełna nazwa zostaje w `title`
+    // i w nazwie dostępnej (nagłówki „W ET…" / „D…" były nieczytelne).
+    expect(screen.getByRole("columnheader", { name: /W etapie \(dni\)/ })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /Dopasowanie/ })).toBeInTheDocument();
+    expect(screen.getByTitle("W etapie (dni)")).toHaveTextContent("Dni");
+    expect(screen.getByTitle("Dopasowanie")).toHaveTextContent("Dop.");
     const marek = within(rowOf("Marek Zieliński"));
     expect(marek.getByText("Zweryfikowany")).toBeInTheDocument();
     expect(marek.getByText("Wyślij CV do klienta")).toBeInTheDocument();
@@ -209,7 +219,7 @@ describe("PeopleTable — osoby w procesie", () => {
     renderTable({ variant: "process", rows: processRows, sort: { key: "fit", dir: "desc" }, onSortChange });
     await userEvent.click(screen.getByRole("button", { name: /Kandydat/ }));
     expect(onSortChange).toHaveBeenLastCalledWith({ key: "name", dir: "asc" });
-    await userEvent.click(screen.getByRole("button", { name: /Dop\./ }));
+    await userEvent.click(screen.getByRole("button", { name: /Dopasowanie/ }));
     expect(onSortChange).toHaveBeenLastCalledWith(null);
   });
 });
@@ -217,7 +227,7 @@ describe("PeopleTable — osoby w procesie", () => {
 describe("PeopleTable — propozycje", () => {
   it("kolumny propozycji: kilka źródeł naraz, „dlaczego pasuje”, znaczniki", () => {
     renderTable({ variant: "proposal", rows: proposalRows });
-    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+    expect(screen.getAllByRole("columnheader").map(visibleHeader)).toEqual([
       "Kandydat", "Źródło", "Dlaczego pasuje", "Stawka", "Dostępność", "Dop.",
     ]);
     const lukasz = within(rowOf("Łukasz Pietrzak"));

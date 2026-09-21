@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import inventory from "@/lib/recruitment-feature-inventory.json";
 import {
+  carryPersonAcrossViews,
   parseRecruitmentSegment,
   readJobDetailUrlState,
   resolveLegacyJobTab,
@@ -156,5 +157,39 @@ describe("rewriteLegacyJobParams", () => {
 
   it("nieznana zakładka jest zdejmowana (ląduje na widoku domyślnym)", () => {
     expect(rewrite("tab=nie-ma-takiej&candidate=4")).toBe("candidate=4");
+  });
+});
+
+describe("carryPersonAcrossViews", () => {
+  it("„Tabela” → „Tablica”: osoba z panelu otwiera się w doku", () => {
+    expect(
+      carryPersonAcrossViews({ from: "people", to: "board", panelCandidateId: 7, boardDockCandidateId: null }),
+    ).toEqual({ panelCandidateId: 7, boardDockRequest: 7 });
+  });
+
+  it("„Tablica” → „Tabela”: osoba z doku otwiera się w panelu; zamknięty dok nie zamyka panelu", () => {
+    expect(
+      carryPersonAcrossViews({ from: "board", to: "people", panelCandidateId: 7, boardDockCandidateId: 9 }),
+    ).toEqual({ panelCandidateId: 9, boardDockRequest: null });
+    expect(
+      carryPersonAcrossViews({ from: "board", to: "people", panelCandidateId: 7, boardDockCandidateId: null }),
+    ).toEqual({ panelCandidateId: 7, boardDockRequest: null });
+  });
+
+  it("bez osoby i przy innych przejściach nic nie otwiera", () => {
+    expect(
+      carryPersonAcrossViews({ from: "people", to: "board", panelCandidateId: null, boardDockCandidateId: null }),
+    ).toEqual({ panelCandidateId: null, boardDockRequest: null });
+    expect(
+      carryPersonAcrossViews({ from: "people", to: "champion", panelCandidateId: 7, boardDockCandidateId: null }),
+    ).toEqual({ panelCandidateId: 7, boardDockRequest: null });
+  });
+});
+
+describe("okno „Zlecenie” na akcji zamknięcia", () => {
+  it("`?win=order&wintab=close` jest rozpoznawane (podpowiedź „Obsada kompletna”)", () => {
+    const state = readJobDetailUrlState(new URLSearchParams("win=order&wintab=close"));
+    expect(state.slideOver).toBe("order");
+    expect(state.orderSection).toBe("close");
   });
 });

@@ -72,6 +72,23 @@ describe("ProposalPanel", () => {
     expect(screen.queryByRole("button", { name: "Pomiń" })).toBeNull();
   });
 
+  it("niesie to, co dawny dok AI Matching: podsumowanie AI i linię „Bramka must-have: brak …”", () => {
+    const base = entry();
+    const withRun = {
+      ...base,
+      detail: { ...base.detail, aiSummary: "Senior Java, 8 lat w bankowości.", missingMustGate: ["AWS", "Kafka"] },
+    };
+    const { unmount } = render(<ProposalPanel jobId={42} entry={withRun} budgetHourly={150} onAdd={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} />);
+    expect(screen.getByText("Podsumowanie")).toBeInTheDocument();
+    expect(screen.getByText("Senior Java, 8 lat w bankowości.")).toBeInTheDocument();
+    expect(screen.getByText("Bramka must-have: brak AWS, Kafka")).toBeInTheDocument();
+    unmount();
+    // Bez danych z przeglądu nie ma ani pustego nagłówka, ani pustej bramki.
+    render(<ProposalPanel jobId={42} entry={base} budgetHourly={150} onAdd={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} />);
+    expect(screen.queryByText("Podsumowanie")).toBeNull();
+    expect(screen.queryByText(/Bramka must-have/)).toBeNull();
+  });
+
   it("bez aktywnej osoby pokazuje podpowiedź", () => {
     render(<ProposalPanel jobId={42} entry={null} budgetHourly={null} onAdd={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} />);
     expect(screen.getByText(/Wybierz osobę z listy/)).toBeInTheDocument();

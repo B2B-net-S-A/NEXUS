@@ -217,6 +217,19 @@ function fitClass(score: number): string {
 }
 
 /** `null` = „nie policzono". NIGDY zero zastępcze — zero to realny wynik. */
+/**
+ * Krótka etykieta nagłówka, która MIEŚCI się w wąskiej kolumnie przy 1440 px
+ * („W ET…", „D…" były nieczytelne), z pełną nazwą w `title` i dla czytników.
+ */
+export function ShortHeader({ short, full }: { short: string; full: string }) {
+  return (
+    <span title={full}>
+      <span aria-hidden="true">{short}</span>
+      <span className="sr-only">{full}</span>
+    </span>
+  );
+}
+
 function FitCell({ score }: { score: number | null }) {
   if (score == null) {
     return (
@@ -333,12 +346,14 @@ export function PeopleTable({
   }, [pendingRemoval, jobId, queryClient, showSuccess, showError, onRemoved]);
 
   const columns = useMemo<Array<VirtualTableColumn<PersonRow>>>(() => {
+    // (nagłówki skrócone: patrz `ShortHeader`)
     const tail: Array<VirtualTableColumn<PersonRow>> = [
       { key: "rate", header: "Stawka", width: "92px", render: (row) => dash(row.rateLabel) },
       {
         key: "availability",
         header: "Dostępność",
-        width: "104px",
+        // 10 wersalików 11 px z `tracking-wide` nie mieściło się w 104 px.
+        width: "116px",
         render: (row) => (
           <span className="text-muted-foreground" title={row.availabilityLabel ?? undefined}>
             {dash(row.availabilityLabel)}
@@ -347,8 +362,9 @@ export function PeopleTable({
       },
       {
         key: "fit",
-        header: "Dop.",
-        width: "52px",
+        header: <ShortHeader short="Dop." full="Dopasowanie" />,
+        // Skrót + ikona sortowania: w 52 px zostawało „D…".
+        width: "70px",
         sortKey: "fit",
         render: (row) => <FitCell score={row.fitScore} />,
       },
@@ -430,8 +446,8 @@ export function PeopleTable({
       },
       {
         key: "days",
-        header: "W etapie",
-        width: "72px",
+        header: <ShortHeader short="Dni" full="W etapie (dni)" />,
+        width: "64px",
         sortKey: "days",
         render: (row) =>
           row.kind === "process" ? (

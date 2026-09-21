@@ -30,7 +30,7 @@ export const JOB_DETAIL_DEFAULT_VIEW: JobDetailView = "people";
 /** Zakładka startowa okna „Historia i czat" (lustro `HistoryChatTab`). */
 export type JobHistoryChatTab = "all" | "chat" | "moves" | "request" | "background";
 /** Sekcja startowa okna „Zlecenie" (lustro `OrderSlideOverSection`). */
-export type JobOrderSection = "portals" | "team";
+export type JobOrderSection = "portals" | "team" | "close";
 
 export interface LegacyJobTabTarget {
   view: JobDetailView;
@@ -108,7 +108,7 @@ const HISTORY_TABS: readonly JobHistoryChatTab[] = [
   "request",
   "background",
 ];
-const ORDER_SECTIONS: readonly JobOrderSection[] = ["portals", "team"];
+const ORDER_SECTIONS: readonly JobOrderSection[] = ["portals", "team", "close"];
 
 function oneOf<T extends string>(raw: string | null | undefined, allowed: readonly T[]): T | null {
   if (raw == null) return null;
@@ -224,4 +224,37 @@ export function rewriteLegacyJobParams(
   const winTab = state.slideOverTab ?? state.orderSection;
   if (winTab) next.set("wintab", winTab);
   return next;
+}
+
+// ── Osoba przenoszona między „Tabelą" a „Tablicą" ───────────────────────────
+
+export interface CarryPersonInput {
+  from: JobDetailView;
+  to: JobDetailView;
+  /** Osoba otwarta w panelu „Tabeli". */
+  panelCandidateId: number | null;
+  /** Osoba otwarta w doku „Tablicy". */
+  boardDockCandidateId: number | null;
+}
+
+export interface CarryPersonResult {
+  panelCandidateId: number | null;
+  /** Kogo „Tablica" ma otworzyć w doku po przełączeniu (`null` = nikogo). */
+  boardDockRequest: number | null;
+}
+
+/**
+ * Przełączenie widoku nie gubi osoby, z którą właśnie pracuję: panel „Tabeli"
+ * staje się dokiem „Tablicy" i odwrotnie. Zamknięty dok NIE zamyka panelu —
+ * brak osoby na tablicy to nie polecenie.
+ */
+export function carryPersonAcrossViews(input: CarryPersonInput): CarryPersonResult {
+  const { from, to, panelCandidateId, boardDockCandidateId } = input;
+  if (from === "people" && to === "board") {
+    return { panelCandidateId, boardDockRequest: panelCandidateId };
+  }
+  if (from === "board" && to === "people") {
+    return { panelCandidateId: boardDockCandidateId ?? panelCandidateId, boardDockRequest: null };
+  }
+  return { panelCandidateId, boardDockRequest: null };
 }

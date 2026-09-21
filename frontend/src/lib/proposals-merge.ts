@@ -65,6 +65,14 @@ export interface ProposalDetail {
   rejectedBySameClient: boolean;
   origins: ProposalOrigin[];
   firstSeenAt: string | null;
+  /** Podsumowanie AI osoby — niesie je wyłącznie wiersz żywego przeglądu bazy. */
+  aiSummary: string | null;
+  /**
+   * Must-have BRAMKI dealbreakera (`match.missing_must`), których tej osobie
+   * brakuje — węższe niż lista wymagań: bez nich osoba jest ukrywana na
+   * pozostałych powierzchniach rankingu. Tylko z żywego przeglądu.
+   */
+  missingMustGate: string[];
 }
 
 export interface ProposalEntry {
@@ -179,6 +187,8 @@ function emptyDetail(candidateId: number): ProposalDetail {
     rejectedBySameClient: false,
     origins: [],
     firstSeenAt: null,
+    aiSummary: null,
+    missingMustGate: [],
   };
 }
 
@@ -292,6 +302,9 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
       if (row.eligibility) d.detail.eligibility = row.eligibility;
       d.detail.rateFit = row.match?.rate_fit ?? d.detail.rateFit;
       d.detail.officeFit = row.match?.office_fit ?? d.detail.officeFit;
+      const summary = row.match?.candidate.ai_summary?.trim();
+      if (summary) d.detail.aiSummary = summary;
+      d.detail.missingMustGate = (row.match?.missing_must ?? []).filter(Boolean);
       const reqs: ProposalRequirement[] = row.requirements
         .filter((r) => r.level === "must" || r.level === "nice")
         .map((r) => ({

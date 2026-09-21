@@ -8,9 +8,14 @@
  * i wynik, który da się pokazać na jednej liście.
  *
  * Reguły, które łatwo cofnąć „przy okazji":
- * - Osoba BEZ sfinalizowanego CV firmowego nie jest ruszana. Akcja zbiorcza
- *   istnieje po to, żeby powstały linki; ruch bez linku zostawiłby kandydata
- *   na „CV Wysłane", a CV firmowe na etapie, do którego nic już nie prowadzi.
+ * - Osoba BEZ sfinalizowanego CV firmowego DOMYŚLNIE nie jest ruszana. Akcja
+ *   zbiorcza istnieje po to, żeby powstały linki; ruch bez linku zostawiłby
+ *   kandydata na „CV Wysłane", a CV firmowe na etapie, do którego nic już nie
+ *   prowadzi. Przeniesienie takiej osoby BEZ linku jest jawną decyzją
+ *   (`moveWithoutBrandedCv`) — lustro pojedynczego przepływu, w którym brak
+ *   sfinalizowanego CV daje „Oznacz „CV Wysłane" bez tworzenia linku"
+ *   (`shareLink: null`). Gdy statusu CV nie dało się SPRAWDZIĆ, osoba zostaje
+ *   pominięta zawsze: nie wiemy, czy link by powstał.
  * - Ruch z nieznanym wynikiem (brak odpowiedzi, 5xx) NIGDY nie jest ponawiany:
  *   mógł się zapisać, a drugie podejście dopisałoby drugi etap „CV Wysłane".
  * - Ostrzeżenie dopuszczalności pyta człowieka RAZ na osobę; „tak" powtarza
@@ -40,8 +45,21 @@ export interface BulkCvHandoffPerson {
 export interface BulkCvHandoffDeps<P extends BulkCvHandoffPerson = BulkCvHandoffPerson> {
   /** Status CV firmowego etapu (`finalized` = można utworzyć link). */
   getBrandedStatus: (stageId: number) => Promise<string>;
-  /** Owija `runCvHandoff` dla jednej osoby. */
-  handoff: (person: P, acknowledgeEligibility: boolean) => Promise<CvHandoffResult>;
+  /**
+   * Owija `runCvHandoff` dla jednej osoby. `createLink: false` = plan bez
+   * linku (`shareLink: null`) — wyłącznie dla osób bez sfinalizowanego CV
+   * przy włączonym `moveWithoutBrandedCv`.
+   */
+  handoff: (
+    person: P,
+    acknowledgeEligibility: boolean,
+    opts: { createLink: boolean },
+  ) => Promise<CvHandoffResult>;
+  /**
+   * „Przenieś bez linku": osoby bez sfinalizowanego CV firmowego też idą na
+   * „CV Wysłane", bez tworzenia linku. Domyślnie `false` (pominięcie).
+   */
+  moveWithoutBrandedCv?: boolean;
   /** `true` = „Przenieś mimo to". */
   askEligibility: (person: P, error: unknown) => Promise<boolean>;
   isEligibilityWarning: (error: unknown) => boolean;
@@ -73,18 +91,29 @@ export type BulkCvHandoffOutcome =
       expiresInDays: number;
       rateFailed: string | null;
     })
+  /**
+   * Świadomie przeniesiono BEZ linku (brak sfinalizowanego CV firmowego przy
+   * `moveWithoutBrandedCv`). To nie porażka i nie ma czego ponawiać.
+   */
+  | (OutcomeBase & { kind: "moved_without_link"; reason: string; rateFailed: string | null })
   /** Nic nie ruszone: brak CV firmowego albo nie dało się go sprawdzić. */
   | (OutcomeBase & { kind: "skipped"; reason: string })
   /** Użytkownik zrezygnował po ostrzeżeniu — nic nie ruszone. */
   | (OutcomeBase & { kind: "cancelled"; reason: string })
-  /** Serwer jednoznacznie odmówił ruchu (4xx) — nic nie ruszone, bez linku. */
-  | (OutcomeBase & { kind: "move_refused"; reason: string })
+  /**
+   * Serwer jednoznacznie odmówił ruchu (4xx) — nic nie ruszone, bez linku.
+   * `versionConflict` = 409 wersji procesu: wołający odświeża historię etapów
+   * tej osoby, jak pojedynczy przepływ.
+   */
+  | (OutcomeBase & { kind: "move_refused"; reason: string; versionConflict?: boolean })
   /** Nie wiadomo, czy ruch się zapisał — bez ponowienia, bez linku. */
   | (OutcomeBase & { kind: "move_unknown"; reason: string });
 
 export type BulkCvHandoffOutcomeKind = BulkCvHandoffOutcome["kind"];
 
 export const BULK_CV_NO_BRANDED_REASON = "brak CV firmowego";
+export const BULK_CV_MOVED_WITHOUT_LINK_REASON =
+  "brak sfinalizowanego CV firmowego — przeniesiono bez linku";
 export const BULK_CV_CANCELLED_REASON = "anulowano po ostrzeżeniu";
 export const BULK_CV_MOVE_UNKNOWN_REASON =
   "Nie wiadomo, czy ruch się zapisał — odśwież kartę kandydata, zanim spróbujesz ponownie";
@@ -132,13 +161,14 @@ async function handOffOne<P extends BulkCvHandoffPerson>(
       ),
     };
   }
-  if (status !== "finalized") {
+  const createLink = status === "finalized";
+  if (!createLink && !deps.moveWithoutBrandedCv) {
     return { ...base, kind: "skipped", reason: BULK_CV_NO_BRANDED_REASON };
   }
 
   let result: CvHandoffResult;
   try {
-    result = await deps.handoff(person, false);
+    result = await deps.handoff(person, false, { createLink });
   } catch (first) {
     let failure: unknown = first;
     if (
@@ -152,15 +182,15 @@ async function handOffOne<P extends BulkCvHandoffPerson>(
         return { ...base, kind: "cancelled", reason: BULK_CV_CANCELLED_REASON };
       }
       try {
-        result = await deps.handoff(person, true);
-        return describeMoved(base, result, deps);
+        result = await deps.handoff(person, true, { createLink });
+        return describeMoved(base, result, deps, createLink);
       } catch (second) {
         failure = second;
       }
     }
     return describeMoveFailure(base, failure, deps);
   }
-  return describeMoved(base, result, deps);
+  return describeMoved(base, result, deps, createLink);
 }
 
 function describeMoveFailure<P extends BulkCvHandoffPerson>(
@@ -179,7 +209,12 @@ function describeMoveFailure<P extends BulkCvHandoffPerson>(
   }
   const reason = failure.reason;
   if (deps.isVersionConflict(reason)) {
-    return { ...base, kind: "move_refused", reason: PIPELINE_VERSION_CONFLICT_MESSAGE };
+    return {
+      ...base,
+      kind: "move_refused",
+      reason: PIPELINE_VERSION_CONFLICT_MESSAGE,
+      versionConflict: true,
+    };
   }
   if (isDefiniteRefusal(reason)) {
     return {
@@ -195,12 +230,21 @@ function describeMoved<P extends BulkCvHandoffPerson>(
   base: OutcomeBase,
   result: CvHandoffResult,
   deps: BulkCvHandoffDeps<P>,
+  createLink: boolean,
 ): BulkCvHandoffOutcome {
   const rateFailure = result.failedAfterMove.find((f) => f.step === "client_rate");
   const rateFailed = rateFailure
     ? deps.describeError(rateFailure.reason) || "nie udało się zapisać stawki do klienta"
     : null;
 
+  if (!createLink) {
+    return {
+      ...base,
+      kind: "moved_without_link",
+      reason: BULK_CV_MOVED_WITHOUT_LINK_REASON,
+      rateFailed,
+    };
+  }
   if (result.shareUrlSuffix) {
     return {
       ...base,

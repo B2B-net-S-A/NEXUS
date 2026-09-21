@@ -39,7 +39,7 @@ import { hasRole, useAuthStore } from "@/store/auth";
 
 import { RecruitmentSheet } from "./RecruitmentSheet";
 
-export type OrderSlideOverSection = "portals" | "team";
+export type OrderSlideOverSection = "portals" | "team" | "close";
 
 export interface OrderSlideOverProps {
   open: boolean;
@@ -61,7 +61,9 @@ export interface OrderSlideOverProps {
   onOpenInviteLink?: () => void;
   /**
    * Sekcja rozwinięta i przewinięta przy otwarciu — stary link `?tab=portals`
-   * ląduje na portalach, a nie na górze okna.
+   * ląduje na portalach, a nie na górze okna. `close` = wejście z podpowiedzi
+   * „Obsada kompletna" w panelu osoby: od razu okno zamknięcia z powodem
+   * (dawny krok 08 otwierał je jednym kliknięciem).
    */
   initialSection?: OrderSlideOverSection | null;
   /**
@@ -247,9 +249,11 @@ function OrderBody({
   const [portalsOpen, setPortalsOpen] = useState(initialSection === "portals");
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const closeRequestHandled = useRef(false);
 
   const teamRef = useRef<HTMLDivElement | null>(null);
   const portalsRef = useRef<HTMLDivElement | null>(null);
+  const closeRef = useRef<HTMLDivElement | null>(null);
 
   // Ten sam klucz co strona rekrutacji i dok gotowości (`["job", "<id>"]`) —
   // jedna kopia zlecenia; zapis HM albo ustawień odświeża okno i nagłówek naraz.
@@ -263,6 +267,17 @@ function OrderBody({
   // Przewijamy dopiero PO wczytaniu zlecenia: wcześniej sekcji nie ma w DOM.
   useEffect(() => {
     if (!jobLoaded || !initialSection) return;
+    if (initialSection === "close") {
+      closeRef.current?.scrollIntoView?.({ block: "end" });
+      // Raz: zamknięcie okna dialogu nie może otwierać go ponownie przy
+      // odświeżeniu zlecenia w tle. Bramka (`canEdit`, status) stoi niżej —
+      // bez niej dialogu po prostu nie ma w drzewie.
+      if (!closeRequestHandled.current) {
+        closeRequestHandled.current = true;
+        setCloseDialogOpen(true);
+      }
+      return;
+    }
     const target = initialSection === "team" ? teamRef.current : portalsRef.current;
     target?.scrollIntoView?.({ block: "start" });
   }, [jobLoaded, initialSection]);
@@ -516,7 +531,7 @@ function OrderBody({
       </p>
 
       {canEdit && !isClosed ? (
-        <div className="border-t border-border pt-4">
+        <div ref={closeRef} className="border-t border-border pt-4">
           <Button
             type="button"
             variant="outline"

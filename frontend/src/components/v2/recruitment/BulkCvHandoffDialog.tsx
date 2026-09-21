@@ -72,6 +72,8 @@ function failureText(outcome: BulkCvHandoffOutcome): string {
       return `${outcome.reason}. Link nie powstał.`;
     case "moved_no_link":
       return `Przeniesiono na „CV Wysłane”, ale link nie powstał: ${outcome.reason}`;
+    case "moved_without_link":
+      return `Przeniesiono na „CV Wysłane” bez linku — ${outcome.reason}. Link utworzysz po sfinalizowaniu CV firmowego.`;
     case "linked":
       return "";
   }
@@ -180,7 +182,8 @@ export function BulkCvHandoffDialog({
   };
 
   const moved = outcomes.filter(
-    (o) => o.kind === "linked" || o.kind === "moved_no_link",
+    (o) =>
+      o.kind === "linked" || o.kind === "moved_no_link" || o.kind === "moved_without_link",
   ).length;
 
   return (
@@ -268,7 +271,9 @@ export function BulkCvHandoffDialog({
                           {outcome.fullName}
                         </p>
                         <p className="text-xs text-muted-foreground">{failureText(outcome)}</p>
-                        {outcome.kind === "moved_no_link" && outcome.rateFailed ? (
+                        {(outcome.kind === "moved_no_link" ||
+                          outcome.kind === "moved_without_link") &&
+                        outcome.rateFailed ? (
                           <p className="text-xs text-destructive-muted-foreground">
                             Stawki do klienta nie udało się zapisać ({outcome.rateFailed}) —
                             uzupełnij ją z profilu kandydata.

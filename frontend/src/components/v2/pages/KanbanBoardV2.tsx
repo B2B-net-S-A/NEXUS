@@ -161,7 +161,9 @@ interface KanbanBoardV2Props {
  initialDockCandidateId?: number | null;
  /** Woła się raz po obsłużeniu `initialDockCandidateId` — niezależnie od tego,
   *  czy karta była na tablicy — żeby strona zdjęła parametr z adresu. */
- onInitialDockHandled?: () => void;}
+ onInitialDockHandled?: () => void;
+ /** Kto jest teraz w doku — strona przenosi tę osobę do panelu „Tabeli". */
+ onDockCandidateChange?: (candidateId: number | null) => void;}
 
 const CATEGORY_COLOR: Record<string, string> = {
  internal: "bg-primary",
@@ -1263,7 +1265,7 @@ const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
@@ -1316,6 +1318,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setDockCandidateId(item.candidate_id);
  }, []);
  const closeDock = useCallback(() => setDockCandidateId(null), []);
+ useEffect(() => {
+ onDockCandidateChange?.(dockCandidateId);
+ }, [dockCandidateId, onDockCandidateChange]);
 
  // Lewa kolumna: filtry NIE usuwają kart z `cols` (zepsułoby to indeksy
  // `@hello-pangea/dnd`, na których stoi `onDragEnd` — patrz `PipelineFiltersRail`).

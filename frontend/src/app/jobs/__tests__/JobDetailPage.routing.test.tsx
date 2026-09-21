@@ -101,7 +101,9 @@ vi.mock("@/components/v2/recruitment/slideovers/ManualSearchSlideOver", () => ({
 }));
 vi.mock("@/components/v2/recruitment/ProposalsSegment", () => ({ ProposalsSegment: () => null }));
 vi.mock("@/components/v2/recruitment/ProposalMatchDetails", () => ({ ProposalMatchDetails: () => null }));
-vi.mock("@/components/v2/recruitment/JobAIActions", () => ({ JobAIActions: () => null }));
+vi.mock("@/components/v2/recruitment/JobAIActions", () => ({
+  JobAIActions: () => <div data-testid="job-ai-actions" />,
+}));
 vi.mock("@/components/v2/recruitment/EmailTemplateModal", () => ({ EmailTemplateModal: () => null }));
 vi.mock("@/components/ChampionProfileEditor", () => ({
   ChampionProfileEditor: stub("champion", "champion-editor"),
@@ -309,5 +311,69 @@ describe("strona rekrutacji — okna z nagłówka i z warsztatów", () => {
     act(() => (seen.order?.onNavigate as (target: string) => void)("champion"));
     expect(await screen.findByTestId("champion-editor")).toBeInTheDocument();
     expect(window.location.search).toContain("tab=champion");
+  });
+});
+
+describe("strona rekrutacji — poprawki po integracji v3", () => {
+  it("narzędzia AI administratora otwierają się z menu „…”, bez zaznaczonej propozycji", async () => {
+    renderPage();
+    await screen.findByTestId("workspace");
+    expect(screen.queryByTestId("job-ai-actions")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Narzędzia AI \(administrator\)/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Narzędzia AI (administrator)" });
+    expect(dialog).toContainElement(screen.getByTestId("job-ai-actions"));
+  });
+
+  it("„Tabela” → „Tablica” otwiera dok osoby z panelu; powrót otwiera w panelu osobę z doku", async () => {
+    renderPage();
+    await screen.findByTestId("workspace");
+    act(() => (seen.workspace?.onActiveCandidateChange as (id: number | null) => void)(7));
+    await userEvent.click(screen.getByTestId("view-board"));
+    await waitFor(() => expect(seen.kanban?.initialDockCandidateId).toBe(7));
+    // Prośba jest jednorazowa — po obsłużeniu znika, jak `?candidate=`.
+    act(() => (seen.kanban?.onInitialDockHandled as () => void)());
+    await waitFor(() => expect(seen.kanban?.initialDockCandidateId).toBeNull());
+    // Na tablicy użytkownik otworzył kogoś innego.
+    act(() => (seen.kanban?.onDockCandidateChange as (id: number | null) => void)(9));
+    await userEvent.click(screen.getByTestId("view-people"));
+    await waitFor(() => expect(seen.workspace?.activeCandidateId).toBe(9));
+  });
+
+  it("zamknięty dok na „Tablicy” nie zamyka panelu po powrocie do „Tabeli”", async () => {
+    renderPage();
+    await screen.findByTestId("workspace");
+    act(() => (seen.workspace?.onActiveCandidateChange as (id: number | null) => void)(7));
+    await userEvent.click(screen.getByTestId("view-board"));
+    await waitFor(() => expect(seen.kanban).not.toBeNull());
+    act(() => (seen.kanban?.onDockCandidateChange as (id: number | null) => void)(null));
+    await userEvent.click(screen.getByTestId("view-people"));
+    await waitFor(() => expect(seen.workspace?.activeCandidateId).toBe(7));
+  });
+
+  it("podpowiedź „Obsada kompletna” otwiera okno „Zlecenie” na akcji zamknięcia", async () => {
+    renderPage();
+    await screen.findByTestId("workspace");
+    const ctx = seen.workspace?.workbenchContext as { onRequestCloseJob: () => void };
+    act(() => ctx.onRequestCloseJob());
+    await waitFor(() => expect(seen.order).toMatchObject({ open: true, initialSection: "close" }));
+    expect(window.location.search).toContain("win=order");
+    expect(window.location.search).toContain("wintab=close");
+  });
+
+  it("na widoku „Zlecenie i Champion” przycisk „Zlecenie” przewija do treści zamiast otwierać okno obok", async () => {
+    const scrollIntoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    renderPage("tab=champion");
+    await screen.findByTestId("champion-editor");
+    const button = screen.getByTestId("open-order");
+    expect(button).toHaveAttribute("aria-current", "page");
+    await userEvent.click(button);
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(seen.order).toMatchObject({ open: false });
+    expect(window.location.search).not.toContain("win=order");
+    expect(document.getElementById("job-champion-view")).toHaveFocus();
+    Element.prototype.scrollIntoView = original;
   });
 });

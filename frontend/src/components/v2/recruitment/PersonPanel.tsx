@@ -57,6 +57,7 @@ import {
   VERIFIED_STAGE,
   findStageColumn,
   moveBlockedReason,
+  countHired,
   primaryForwardMove,
 } from "@/lib/pipeline-flow";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
@@ -96,6 +97,15 @@ export interface WorkbenchContext {
   onTabChange?: (tab: JobDetailTab) => void;
   /** `job.update` — domknięcie rekrutacji z sekcji „Umowa". */
   canCloseJob: boolean;
+  /** Ile osób klient zamówił (`job.headcount`); `null` = nie wiadomo. */
+  headcount?: number | null;
+  /** Rekrutacja już zamknięta — podpowiedź domknięcia nie ma sensu. */
+  jobClosed?: boolean;
+  /**
+   * Otwiera okno „Zlecenie" na akcji zamknięcia (tam żyje „Zamknij
+   * rekrutację" z domyślnym powodem „Obsadzone przez nas").
+   */
+  onRequestCloseJob?: () => void;
 }
 
 export const PERSON_PANEL_SECTIONS: ReadonlyArray<{
@@ -328,6 +338,40 @@ interface CandidateHeaderDetail {
   linkedin_current_title?: string | null;
 }
 
+/**
+ * „Obsada kompletna — zamknij rekrutację": po zatrudnieniu, gdy liczba
+ * zatrudnionych dobiła do zamówionej obsady. Dawny krok 08 podpowiadał w tym
+ * miejscu „Obsadzone przez nas"; w v3 akcja mieszka w oknie „Zlecenie", więc
+ * podpowiedź tylko je otwiera — domyślny powód liczy tam ta sama reguła
+ * (`hiredCount > 0` → „Obsadzone przez nas").
+ */
+export function HeadcountFilledHint({
+  columns,
+  headcount,
+  enabled,
+  onRequestCloseJob,
+}: {
+  columns: KanbanColumn[];
+  headcount: number | null;
+  enabled: boolean;
+  onRequestCloseJob?: () => void;
+}) {
+  if (!enabled || !onRequestCloseJob || headcount == null || headcount <= 0) return null;
+  const hired = countHired(columns);
+  if (hired < headcount) return null;
+  return (
+    <button
+      type="button"
+      onClick={onRequestCloseJob}
+      title={`Zatrudnionych: ${hired} z ${headcount}. Otwiera okno „Zlecenie" na zamknięciu rekrutacji.`}
+      className="mb-3 flex w-full items-center justify-between gap-2 rounded-md border border-success/20 bg-success-muted px-3 py-2 text-left text-xs font-medium text-success-muted-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span>Obsada kompletna — zamknij rekrutację</span>
+      <span className="tabular-nums opacity-80">{hired} z {headcount}</span>
+    </button>
+  );
+}
+
 function initialsOf(fullName: string): string {
   return fullName
     .split(/\s+/)
@@ -543,6 +587,7 @@ export function PersonPanel({
                 stageLabel={row.stageLabel}
                 candidateName={row.fullName}
                 jobTitle={jobLabel}
+                jobId={jobId}
               />
             }
           />
@@ -565,6 +610,13 @@ export function PersonPanel({
         );
       case "contract":
         return (
+          <>
+          <HeadcountFilledHint
+            columns={columns}
+            headcount={ctx.headcount ?? null}
+            enabled={ctx.canCloseJob && !readOnly && ctx.jobClosed !== true}
+            onRequestCloseJob={ctx.onRequestCloseJob}
+          />
           <JobContractTab
             layout="panel"
             focusCandidateId={candidateId}
@@ -582,6 +634,7 @@ export function PersonPanel({
             // osoby nie jest miejscem na akcję dotyczącą całej rekrutacji.
             hideCloseJob
           />
+          </>
         );
       case "match":
         return (

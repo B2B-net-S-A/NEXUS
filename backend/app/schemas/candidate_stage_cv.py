@@ -152,6 +152,18 @@ class CVShareTokenListItem(BaseModel):
     share_url_suffix: Optional[str] = None
 
 
+class CVShareTokenJobListItem(CVShareTokenListItem):
+    """Link do CV w przekroju CAŁEJ pary (kandydat, rekrutacja).
+
+    Link dla klienta powstaje na etapie SPRZED ruchu na „CV Wysłane", więc
+    widok osoby na późniejszym etapie nie znajdzie go pod swoim ``stage_id``.
+    Te same pola co lista per etap (bez sekretu) + etap, na którym link leży.
+    """
+
+    stage_id: int
+    stage_name: str
+
+
 class PublicCVView(BaseModel):
     """Public view brandowanego CV — TYLKO non-PII fields.
 

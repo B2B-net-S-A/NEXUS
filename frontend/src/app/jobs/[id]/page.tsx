@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -23,6 +23,7 @@ import { buildJobHeaderSubtitle } from "@/lib/job-header-subtitle";
 import type { FullSearchSummary } from "@/lib/full-search-summary";
 import {
   JOB_DETAIL_DEFAULT_VIEW,
+  carryPersonAcrossViews,
   readJobDetailUrlState,
   resolveLegacyJobTab,
   rewriteLegacyJobParams,
@@ -67,9 +68,18 @@ import {
   type JobDetailTab,
 } from "@/components/v2/jobs/JobDetailCompactHeader";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { RecruitmentWorkspace } from "@/components/v2/recruitment/RecruitmentWorkspace";
 import { ProposalsSegment } from "@/components/v2/recruitment/ProposalsSegment";
 import { ProposalMatchDetails } from "@/components/v2/recruitment/ProposalMatchDetails";
+import { RequestRequirementsRail } from "@/components/v2/recruitment/RequestRequirementsRail";
 import { JobAIActions } from "@/components/v2/recruitment/JobAIActions";
 import { EmailTemplateModal } from "@/components/v2/recruitment/EmailTemplateModal";
 import { OrderSlideOver } from "@/components/v2/recruitment/slideovers/OrderSlideOver";
@@ -195,6 +205,9 @@ export default function JobDetailPage() {
   const [showInviteLink, setShowInviteLink] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
   const [emailCandidateId, setEmailCandidateId] = useState<number | null>(null);
+  // Narzędzia AI administratora z menu „…" — niezależnie od tego, czy
+  // jakakolwiek propozycja jest zaznaczona.
+  const [showAiTools, setShowAiTools] = useState(false);
   // Opis oferty potrafi mieć kilkaset linii — domyślnie zwinięty.
   const [showFullDescription, setShowFullDescription] = useState(false);
 
@@ -236,13 +249,30 @@ export default function JobDetailPage() {
     null,
   );
   const [activeCandidateId, setActiveCandidateId] = useState<number | null>(null);
+  // Osoba przenoszona między „Tabelą" a „Tablicą": panel ↔ dok. Dok tablicy
+  // zgłasza bieżącą osobę (ref — nie potrzeba renderu), a prośba o otwarcie
+  // doku jest jednorazowa, jak `?candidate=`.
+  const boardDockCandidateRef = useRef<number | null>(null);
+  const [boardDockRequest, setBoardDockRequest] = useState<number | null>(null);
+  const handleBoardDockChange = useCallback((candidateId: number | null) => {
+    boardDockCandidateRef.current = candidateId;
+  }, []);
 
   const selectView = useCallback(
     (view: JobDetailView) => {
+      const carried = carryPersonAcrossViews({
+        from: viewState ?? JOB_DETAIL_DEFAULT_VIEW,
+        to: view,
+        panelCandidateId: activeCandidateId,
+        boardDockCandidateId: boardDockCandidateRef.current,
+      });
+      setActiveCandidateId(carried.panelCandidateId);
+      setBoardDockRequest(carried.boardDockRequest);
+      if (view !== "board") boardDockCandidateRef.current = null;
       setViewState(view);
       writeUrlParams({ tab: view === JOB_DETAIL_DEFAULT_VIEW ? null : view });
     },
-    [setViewState],
+    [setViewState, viewState, activeCandidateId],
   );
   const selectSegment = useCallback(
     (next: RecruitmentSegment) => {
@@ -343,6 +373,7 @@ export default function JobDetailPage() {
   // Parametr jest jednorazowy: po otwarciu osoby znika z adresu, żeby
   // odświeżenie strony albo zamknięcie panelu nie otwierało jej ponownie.
   const clearCandidateParam = useCallback(() => {
+    setBoardDockRequest(null);
     if (!pathname) return;
     const next = new URLSearchParams(searchParams?.toString() ?? "");
     if (!next.has("candidate")) return;
@@ -674,7 +705,21 @@ export default function JobDetailPage() {
         }
         activeView={activeView}
         onViewChange={selectView}
-        onOpenOrder={() => openSlideOver("order")}
+        // Na pełnym widoku „Zlecenie i Champion" przycisk „Zlecenie" jest już
+        // bieżącą stroną — przewijamy do treści zamiast otwierać obok okno
+        // z tym samym zleceniem.
+        onOpenOrder={
+          activeView === "champion"
+            ? () => {
+                const target = document.getElementById("job-champion-view");
+                target?.scrollIntoView?.({ block: "start" });
+                target?.focus?.({ preventScroll: true });
+              }
+            : () => openSlideOver("order")
+        }
+        onOpenAiTools={
+          isAdmin && canWritePipeline ? () => setShowAiTools(true) : undefined
+        }
         orderMissingCount={orderMissingCount}
         onOpenHistoryChat={() => openSlideOver("history-chat")}
         onOpenQuestions={() => openSlideOver("questions")}
@@ -756,6 +801,29 @@ export default function JobDetailPage() {
         jobId={Number(id)}
         jobTitle={job.title}
       />
+
+      {/* Narzędzia AI administratora (kryteria, scoring, embedding) — wejście
+          z menu „…"; te same akcje co w panelu propozycji. */}
+      <Dialog open={isAdmin && canWritePipeline && showAiTools} onOpenChange={setShowAiTools}>
+        <DialogContent size="lg" data-testid="ai-tools-dialog">
+          <DialogHeader>
+            <DialogTitle>Narzędzia AI (administrator)</DialogTitle>
+            <DialogDescription>
+              Podgląd i odświeżenie kryteriów, przeliczenie scoringu, embedding rekrutacji.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <JobAIActions
+              jobId={jobId}
+              readOnly={!canWritePipeline}
+              onDone={() => {
+                void queryClient.invalidateQueries({ queryKey: jobProposalsKeys.all(jobId) });
+                void queryClient.invalidateQueries({ queryKey: ["pipeline-scores"] });
+              }}
+            />
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
 
       {emailCandidateId != null ? (
         <EmailTemplateModal
@@ -839,6 +907,9 @@ export default function JobDetailPage() {
             onMoved: invalidateKanban,
             onTabChange: handleLegacyTab,
             canCloseJob: canUpdateJob,
+            headcount: typeof job.headcount === "number" ? job.headcount : null,
+            jobClosed: job.status === "closed",
+            onRequestCloseJob: () => openSlideOver("order", { orderSection: "close" }),
           }}
           onOpenSlideOver={openSlideOver}
           headerSlot={
@@ -858,6 +929,14 @@ export default function JobDetailPage() {
               onOpenManualSearch={() => openSlideOver("manual-search")}
               onOpenQuickAdd={() => setShowAddCandidates(true)}
               onWriteEmail={setEmailCandidateId}
+              // Dawna lewa kolumna AI Matching: lista wymagań + ich edycja.
+              renderRequirements={({ onSaved }) => (
+                <RequestRequirementsRail
+                  jobId={jobId}
+                  readOnly={!canWritePipeline}
+                  onSaved={onSaved}
+                />
+              )}
               renderMatchDetails={(candidateId) => (
                 <ProposalMatchDetails
                   candidateId={candidateId}
@@ -917,8 +996,11 @@ export default function JobDetailPage() {
               // cache karta osoby, która właśnie weszła do rekrutacji
               // (powiadomienie), jeszcze nie istnieje, a parametr zostałby
               // zużyty na próżno.
-              initialDockCandidateId={kanbanIsFetching ? null : linkedCandidateId}
+              initialDockCandidateId={
+                kanbanIsFetching ? null : (linkedCandidateId ?? boardDockRequest)
+              }
               onInitialDockHandled={clearCandidateParam}
+              onDockCandidateChange={handleBoardDockChange}
             />
           </PipelineBoardGate>
         </div>
@@ -936,8 +1018,10 @@ export default function JobDetailPage() {
         // interpoluje fragmentów w runtime) — stąd gałęzie zamiast
         // wstrzykiwanej szerokości.
         <div
+          id="job-champion-view"
+          tabIndex={-1}
           className={cn(
-            "grid grid-cols-1 gap-4",
+            "grid grid-cols-1 gap-4 focus-visible:outline-none",
             championDockCollapsed
               ? "xl:grid-cols-[minmax(0,1fr)_44px] 2xl:grid-cols-[230px_minmax(0,1fr)_44px]"
               : "xl:grid-cols-[minmax(0,1fr)_360px] 2xl:grid-cols-[230px_minmax(0,1fr)_360px]",
