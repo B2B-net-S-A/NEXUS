@@ -56,12 +56,12 @@ describe("CVGeneratorV2 — reguły klienta", () => {
 
   it("forces the language, locks the mode and requires the project number", async () => {
     renderModal();
-    expect(await screen.findByText(/Tryb ustalony przez Delivery Leada/, {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByText(/Tryb ustalony w regułach CV klienta/, {}, { timeout: 4000 })).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByRole("radio", { name: /English/ })).toHaveAttribute("aria-checked", "true"),
     );
     await waitFor(() => expect(screen.getByRole("radio", { name: /Polski/ })).toBeDisabled());
-    expect(screen.getByText(/Tryb ustalony przez Delivery Leada/)).toBeInTheDocument();
+    expect(screen.getByText(/Tryb ustalony w regułach CV klienta/)).toBeInTheDocument();
     expect(screen.getByText("Klient wymaga uzupełnienia danych przed generacją")).toBeInTheDocument();
 
     await screen.findByRole("option", { name: /cv\.pdf/ });
