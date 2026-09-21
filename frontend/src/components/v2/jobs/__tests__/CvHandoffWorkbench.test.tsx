@@ -124,7 +124,8 @@ vi.mock("@/components/v2/pages/CVGeneratorStandaloneV2", () => ({
 }));
 // Reguła CV klienta — szyna makiety wypisuje ją klockami, więc test musi móc
 // podać ZATWIERDZONĄ regułę (bez `is_active` obowiązuje baner „brak reguł").
-vi.mock("@/components/cv-rules/CentralPolicyView", () => ({ useCentralPolicy: () => ({data: {managed: false}}) }));
+let centralPolicy: Record<string, unknown> = { managed: false };
+vi.mock("@/components/cv-rules/CentralPolicyView", () => ({ useCentralPolicy: () => ({data: centralPolicy}) }));
 let cvRule: Record<string, unknown> | undefined = undefined;
 vi.mock("@/components/v2/cv-generator/ClientCvRuleBanner", () => ({
   ClientCvRuleBanner: () => <div data-testid="cv-rule-banner" />,
@@ -226,6 +227,7 @@ beforeEach(() => {
   authState.user = { role: "admin", roles: ["admin"] };
   canManageCvRules = true;
   cvRule = undefined;
+  centralPolicy = { managed: false };
   originalGet.mockResolvedValue({ data: { has_snapshot: true } });
   brandedGet.mockResolvedValue({ data: { status: "finalized" } });
   shareList.mockResolvedValue({ data: [] });
@@ -844,5 +846,23 @@ describe("linki dla klienta wyłączone (stan produkcyjny)", () => {
     expect(screen.queryByText(/Mail do klienta/)).toBeNull();
     expect(screen.queryByText(/Utwórz link \(30 dni\)/)).toBeNull();
     expect(screen.queryByText("Linki i historia")).toBeNull();
+  });
+
+  it("stopka doku nie odsyła do zarządzania linkami, których nie ma", async () => {
+    renderWorkbench();
+    await screen.findByRole("button", { name: "Oznacz „CV Wysłane”" });
+    expect(screen.queryByText(/Zarządzanie linkami zostaje też/)).toBeNull();
+  });
+});
+
+describe("centralne reguły CV — tryb obróbki", () => {
+  it("opisuje tryb jako domyślny i zmienialny, nie „automatyczny”", async () => {
+    centralPolicy = { managed: true, content_mode: "tailored", default_mode: "tailored", content_mode_locked: false, effective_policy: { cv_language: "pl", requires_en_copy: false, filename_pattern: "X" } };
+    cvRule = { is_active: true, client_name: "Credit Agricole", cv_language: "pl" };
+    renderWorkbench();
+    expect(await screen.findByText("Tryb: domyślnie „Pod rekrutację”")).toBeTruthy();
+    expect(screen.getByText(/można zmienić w generatorze/)).toBeTruthy();
+    expect(screen.queryByText(/Tryb: automatyczny/)).toBeNull();
+    expect(screen.queryByText(/ustalony z kontekstu rekrutacji/)).toBeNull();
   });
 });

@@ -340,6 +340,10 @@ export function CVGeneratorStandaloneV2({
       return res.data;
     },
     enabled: !!candidate && mode === "new",
+    // Zmiana trybu obróbki (ten sam kandydat) nie może na chwilę „odznaczać”
+    // wybranej rekrutacji — trzymamy poprzednią listę do czasu nowej.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === candidate?.id ? previous : undefined,
   });
 
   const selectedRecruitment = useMemo(() => {
@@ -500,13 +504,26 @@ export function CVGeneratorStandaloneV2({
   // tryb domyślny („Pod rekrutację”, a bez Championa — Redakcja z
   // komunikatem); zaznaczamy go RAZ na każdą zmianę tej wartości, potem
   // rekruter może go zmienić.
+  //
+  // Zaznaczamy RAZ NA KONTEKST (rekrutacja / klient / Champion), nie „raz na
+  // wartość". Lista rekrutacji ma tryb w kluczu zapytania, więc zmiana trybu
+  // na chwilę gubi wybraną rekrutację, a /policy bez rekrutacji podaje inny
+  // tryb domyślny (Redakcja — brak Championa). Strażnik „raz na wartość"
+  // przepuszczał wtedy naprzemiennie oba tryby i generator wpadał w pętlę
+  // renderów (React #185, 21.09.2026). W trybie „new" bez wybranej rekrutacji
+  // nie ma kontekstu, więc nic nie zaznaczamy.
   const centralDefaultMode = centrallyManaged ? (centralPolicy.data?.default_mode ?? centralPolicy.data?.content_mode ?? null) : null;
-  const lastCentralDefault = useRef<string | null>(null);
+  const centralDefaultContext =
+    mode === "new"
+      ? (selectedRecruitment ? `new:${selectedRecruitment.stage_id}` : null)
+      : `old:${effectiveClientId ?? ""}:${uploadRecruitment?.stage_id ?? ""}:${championFile ? 1 : 0}`;
+  const lastCentralDefaultContext = useRef<string | null>(null);
   useEffect(() => {
-    if (!centralDefaultMode || lastCentralDefault.current === centralDefaultMode) return;
-    lastCentralDefault.current = centralDefaultMode;
+    if (!centralDefaultMode || !centralDefaultContext) return;
+    if (lastCentralDefaultContext.current === centralDefaultContext) return;
+    lastCentralDefaultContext.current = centralDefaultContext;
     setContentMode(centralDefaultMode);
-  }, [centralDefaultMode]);
+  }, [centralDefaultMode, centralDefaultContext]);
   // Blokada tylko wtedy, gdy serwer JAWNIE ją zgłosi (content_mode_locked=true)
   // albo gdy tryb blokuje reguła klienta spoza polityki centralnej.
   const lockedMode = centrallyManaged
@@ -1184,7 +1201,7 @@ export function CVGeneratorStandaloneV2({
                   ) : null}
                   {centralPolicy.data?.effective_policy?.require_recommendation_note && <p className="text-muted-foreground">Przed udostępnieniem wskaż istniejącą notatkę rekomendacyjną dla kandydata i rekrutacji.</p>}
                   {centralPolicy.data?.effective_policy?.requires_rodo_consent_block && <p className="text-muted-foreground">Pakiet wymaga czytelnej zgody oraz numeru zapytania zgodnego z rekrutacją PKO BP.</p>}
-                  <p className="text-muted-foreground">Każdą wersję należy sprawdzić i zatwierdzić. Niekompletny pakiet pozostaje szkicem.</p>
+                  <p className="text-muted-foreground">Przed wysłaniem sprawdź CV i w razie potrzeby popraw je w edytorze.</p>
                 </>
               ) : null}
             </div>
