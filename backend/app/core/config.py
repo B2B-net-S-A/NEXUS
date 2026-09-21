@@ -898,7 +898,8 @@ class Settings(BaseSettings):
     # admin consent, oraz realnego tenanta (client_credentials nie działa z
     # "common"). Zawężenie do jednej skrzynki: Application Access Policy.
     M365_APP_MAIL_ENABLED: bool = False
-    # UPN/adres skrzynki, z której wychodzą maile systemowe (np. "nexus@b2bnetwork.pl").
+    # UPN/adres skrzynki, z której wychodzą maile systemowe
+    # (prod: "nexus-powiadomienia@b2bnetwork.pl").
     M365_MAIL_SENDER_UPN: str = ""
     # Tenant dla client_credentials. Pusty → fallback na M365_TENANT_ID; musi
     # być realnym tenantem (GUID lub domena), NIE "common".
