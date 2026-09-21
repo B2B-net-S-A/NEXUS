@@ -1,4 +1,4 @@
-"""Skrzynka „Propozycje" rekrutacji (migracja 0331) — serwis, API, RODO, lustro DDL.
+"""Skrzynka „Propozycje" rekrutacji (migracja 0333) — serwis, API, RODO, lustro DDL.
 
 Prawdziwy Postgres i prawdziwa autoryzacja. Baza testowa jest wspólna
 i nieczyszczona, więc każdy test zakłada własnego klienta, rekrutację i osoby,
@@ -728,7 +728,7 @@ def _entrypoint_column_statements() -> list[str]:
     raise AssertionError("entrypoint.sh: brak listy _COLUMN_STATEMENTS")
 
 
-def test_entrypoint_mirrors_the_0331_tables():
+def test_entrypoint_mirrors_the_0333_tables():
     """Prod alembic bywa osierocony — lustro w entrypoincie JEST wdrożeniem."""
     statements = _entrypoint_column_statements()
     for model in (JobProposal,):

@@ -528,7 +528,7 @@ async def add_candidates_to_job(
             stage_ids[candidate_id] = stage.id
 
     if added:
-        # Skrzynka „Propozycje" (0331): osoba faktycznie dodana przestaje być
+        # Skrzynka „Propozycje" (0333): osoba faktycznie dodana przestaje być
         # propozycją — z każdego źródła. W savepoincie i fail-soft: awaria tego
         # stempla nie może cofnąć dodania do rekrutacji (trasa i automat).
         from app.services.job_proposals import mark_added_fail_soft  # noqa: PLC0415

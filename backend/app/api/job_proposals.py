@@ -1,4 +1,4 @@
-"""Skrzynka „Propozycje" rekrutacji (migracja 0331).
+"""Skrzynka „Propozycje" rekrutacji (migracja 0333).
 
 Ścieżka to ``/api/jobs/{job_id}/proposal-inbox`` — NIE ``…/proposals``: tamten
 adres od dawna zwraca historię migawek propozycji (``app/api/proposals.py``,

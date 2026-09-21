@@ -4864,7 +4864,7 @@ async def delete_candidate(
     from app.services.jarvis.erasure import erase_candidate as erase_jarvis_candidate
 
     jarvis_erasure = await erase_jarvis_candidate(db, candidate_id)
-    # Skrzynka „Propozycje" (0331): FK ma ON DELETE CASCADE, więc wiersze i tak
+    # Skrzynka „Propozycje" (0333): FK ma ON DELETE CASCADE, więc wiersze i tak
     # znikną razem z kandydatem — kasujemy je JAWNIE, żeby liczba trafiła do
     # dowodu wykonania żądania z art. 17 (kaskada nie zostawia śladu).
     from sqlalchemy import delete as sa_delete
