@@ -80,10 +80,15 @@ export interface CandidateSearchRequest {
   /** „Otwarty na" — KTÓRYKOLWIEK z zaznaczonych (LUB), jak na liście. */
   open_to?: Array<"side_projects" | "sales_support" | "expert_consult">;
   /**
-   * Los kandydata BEZ danych dla filtrów stażu i lokalizacji. Wyszukiwarka
-   * domyślnie go zostawia (`include`), lista wycina (`exclude`).
+   * Ukryj osoby BEZ danych dla aktywnych filtrów lokalizacji / stażu / stawki.
+   * W semantyce v2 domyślnie zostają i są oznaczane w `unknown_fields`.
    */
-  unknown_values?: "include" | "exclude" | null;
+  hide_unknown?: boolean | null;
+  /**
+   * Wersja semantyki filtrów. Brak = dotychczasowe wyniki (v1); `2` = semantyka
+   * wspólna z `GET /api/candidates`. Ustawia ją zapisane wyszukiwanie v3.
+   */
+  semantics_version?: 1 | 2 | null;
   cv_parsed_after?: string | null; // ISO date
   exclude_in_job_id?: number | null;
   /**
@@ -103,7 +108,7 @@ export interface CandidateSearchRequest {
    * Jak czytać `q`: `auto` (nazwisko / e-mail / telefon → dosłownie, reszta wg
    * `search_mode`), `literal`, `semantic`. Wynik w `meta.text_mode_applied`.
    */
-  text_mode?: "auto" | "literal" | "semantic";
+  text_mode?: "auto" | "literal" | "semantic" | null;
 }
 
 export interface CandidateSearchItem {
@@ -153,6 +158,8 @@ export interface SearchFacets {
 export interface SearchTextInterpretation {
   kind: "email" | "phone" | "name" | "text" | "empty";
   mode: "literal" | "semantic";
+  /** Która reguła zadecydowała (np. `single_word_person_exists`). */
+  rule: string;
   name: string[];
   email: string | null;
   phone: string | null;

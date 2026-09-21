@@ -1,0 +1,1101 @@
+{
+  "_comment": "Wspólne przypadki adaptera zapisanych wyszukiwań: backend (app/services/saved_search_payload.py, pytest) i frontend (lib/saved-search-unified.ts, vitest). Zmiana mapowania = ten plik + oba adaptery.",
+  "cases": [
+    {
+      "name": "lista v2: umiejętności twarde + grupy + negacja",
+      "filters": {
+        "version": 2,
+        "qs": "skills_q=Python+AND+React+NOT+PHP&loc=Gdansk",
+        "api": {
+          "skills": [
+            "Python",
+            "React"
+          ],
+          "skill_combine": "and",
+          "skills_any": [
+            "java|kotlin",
+            "aws|gcp"
+          ],
+          "skills_none": [
+            "PHP",
+            "perl|cobol"
+          ],
+          "location": "Gdansk",
+          "sort": "newest"
+        }
+      },
+      "format": "candidates_list",
+      "origin": "candidates_list",
+      "request": {
+        "semantics_version": 2,
+        "skills_required": [
+          "Python",
+          "React"
+        ],
+        "skills_required_any_groups": [
+          [
+            "java",
+            "kotlin"
+          ],
+          [
+            "aws",
+            "gcp"
+          ]
+        ],
+        "skills_excluded": [
+          "PHP",
+          "perl",
+          "cobol"
+        ],
+        "location_cities": [
+          "Gdansk"
+        ],
+        "list_only": {
+          "sort": "newest"
+        }
+      },
+      "list_params": {
+        "sort": "newest",
+        "semantics_version": 2,
+        "skills_required": [
+          "Python",
+          "React"
+        ],
+        "skills_excluded": [
+          "PHP",
+          "perl",
+          "cobol"
+        ],
+        "location_cities": [
+          "Gdansk"
+        ],
+        "skills_required_any_groups": [
+          "java|kotlin",
+          "aws|gcp"
+        ]
+      },
+      "search_body": {
+        "semantics_version": 2,
+        "skills_required": [
+          "Python",
+          "React"
+        ],
+        "skills_required_any_groups": [
+          [
+            "java",
+            "kotlin"
+          ],
+          [
+            "aws",
+            "gcp"
+          ]
+        ],
+        "skills_excluded": [
+          "PHP",
+          "perl",
+          "cobol"
+        ],
+        "location_cities": [
+          "Gdansk"
+        ]
+      },
+      "list_engine_gaps": [],
+      "payload": {
+        "version": 3,
+        "semantics_version": 2,
+        "origin": "candidates_list",
+        "request": {
+          "semantics_version": 2,
+          "skills_required": [
+            "Python",
+            "React"
+          ],
+          "skills_required_any_groups": [
+            [
+              "java",
+              "kotlin"
+            ],
+            [
+              "aws",
+              "gcp"
+            ]
+          ],
+          "skills_excluded": [
+            "PHP",
+            "perl",
+            "cobol"
+          ],
+          "location_cities": [
+            "Gdansk"
+          ],
+          "list_only": {
+            "sort": "newest"
+          }
+        },
+        "qs": "skills_q=Python+AND+React+NOT+PHP&loc=Gdansk&sv=2",
+        "legacy": {
+          "version": 2,
+          "qs": "skills_q=Python+AND+React+NOT+PHP&loc=Gdansk",
+          "api": {
+            "skills": [
+              "Python",
+              "React"
+            ],
+            "skill_combine": "and",
+            "skills_any": [
+              "java|kotlin",
+              "aws|gcp"
+            ],
+            "skills_none": [
+              "PHP",
+              "perl|cobol"
+            ],
+            "location": "Gdansk",
+            "sort": "newest"
+          }
+        }
+      }
+    },
+    {
+      "name": "lista v2: legacy skill_combine=or",
+      "filters": {
+        "version": 2,
+        "qs": "skills=Java,Go",
+        "api": {
+          "skills": [
+            "Java",
+            "Go"
+          ],
+          "skill_combine": "or"
+        }
+      },
+      "format": "candidates_list",
+      "origin": "candidates_list",
+      "request": {
+        "semantics_version": 2,
+        "skills_required_any_groups": [
+          [
+            "Java",
+            "Go"
+          ]
+        ]
+      },
+      "list_params": {
+        "semantics_version": 2,
+        "skills_required_any_groups": [
+          "Java|Go"
+        ]
+      },
+      "search_body": {
+        "semantics_version": 2,
+        "skills_required_any_groups": [
+          [
+            "Java",
+            "Go"
+          ]
+        ]
+      },
+      "list_engine_gaps": [],
+      "payload": {
+        "version": 3,
+        "semantics_version": 2,
+        "origin": "candidates_list",
+        "request": {
+          "semantics_version": 2,
+          "skills_required_any_groups": [
+            [
+              "Java",
+              "Go"
+            ]
+          ]
+        },
+        "qs": "skills=Java,Go&sv=2",
+        "legacy": {
+          "version": 2,
+          "qs": "skills=Java,Go",
+          "api": {
+            "skills": [
+              "Java",
+              "Go"
+            ],
+            "skill_combine": "or"
+          }
+        }
+      }
+    },
+    {
+      "name": "lista v2: stawka, staż, status, dostępność, otwarty na, kategoria",
+      "filters": {
+        "version": 2,
+        "qs": "rate_min=100",
+        "api": {
+          "min_rate": 100,
+          "max_rate": 200,
+          "min_experience": 3,
+          "max_experience": 8,
+          "status": [
+            "active",
+            "passive"
+          ],
+          "availability": [
+            "actively_looking"
+          ],
+          "open_to": [
+            "side_projects",
+            "sales_support"
+          ],
+          "competence_category_id": [
+            3,
+            5
+          ]
+        }
+      },
+      "format": "candidates_list",
+      "origin": "candidates_list",
+      "request": {
+        "semantics_version": 2,
+        "status": [
+          "active",
+          "passive"
+        ],
+        "availability_status": [
+          "actively_looking"
+        ],
+        "open_to": [
+          "side_projects",
+          "sales_support"
+        ],
+        "competence_category_ids": [
+          3,
+          5
+        ],
+        "rate_hourly_min": 100,
+        "rate_hourly_max": 200,
+        "experience_years_min": 3,
+        "experience_years_max": 8
+      },
+      "list_params": {
+        "semantics_version": 2,
+        "status": [
+          "active",
+          "passive"
+        ],
+        "availability": [
+          "actively_looking"
+        ],
+        "open_to": [
+          "side_projects",
+          "sales_support"
+        ],
+        "competence_category_id": [
+          3,
+          5
+        ],
+        "min_rate": 100,
+        "max_rate": 200,
+        "min_experience": 3,
+        "max_experience": 8
+      },
+      "search_body": {
+        "semantics_version": 2,
+        "status": [
+          "active",
+          "passive"
+        ],
+        "availability_status": [
+          "actively_looking"
+        ],
+        "open_to": [
+          "side_projects",
+          "sales_support"
+        ],
+        "competence_category_ids": [
+          3,
+          5
+        ],
+        "rate_hourly_min": 100,
+        "rate_hourly_max": 200,
+        "experience_years_min": 3,
+        "experience_years_max": 8
+      },
+      "list_engine_gaps": [],
+      "payload": {
+        "version": 3,
+        "semantics_version": 2,
+        "origin": "candidates_list",
+        "request": {
+          "semantics_version": 2,
+          "status": [
+            "active",
+            "passive"
+          ],
+          "availability_status": [
+            "actively_looking"
+          ],
+          "open_to": [
+            "side_projects",
+            "sales_support"
+          ],
+          "competence_category_ids": [
+            3,
+            5
+          ],
+          "rate_hourly_min": 100,
+          "rate_hourly_max": 200,
+          "experience_years_min": 3,
+          "experience_years_max": 8
+        },
+        "qs": "rate_min=100&sv=2",
+        "legacy": {
+          "version": 2,
+          "qs": "rate_min=100",
+          "api": {
+            "min_rate": 100,
+            "max_rate": 200,
+            "min_experience": 3,
+            "max_experience": 8,
+            "status": [
+              "active",
+              "passive"
+            ],
+            "availability": [
+              "actively_looking"
+            ],
+            "open_to": [
+              "side_projects",
+              "sales_support"
+            ],
+            "competence_category_id": [
+              3,
+              5
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "lista v2: tekst i grupy boolowskie",
+      "filters": {
+        "version": 2,
+        "qs": "q=kowalski",
+        "api": {
+          "q": "kowalski",
+          "q_all": [
+            "bank"
+          ],
+          "q_any_group": [
+            "react|vue",
+            "java|kotlin"
+          ],
+          "q_none": [
+            "junior"
+          ]
+        }
+      },
+      "format": "candidates_list",
+      "origin": "candidates_list",
+      "request": {
+        "semantics_version": 2,
+        "q": "kowalski",
+        "q_all": [
+          "bank"
+        ],
+        "q_any_groups": [
+          [
+            "react",
+            "vue"
+          ],
+          [
+            "java",
+            "kotlin"
+          ]
+        ],
+        "q_none": [
+          "junior"
+        ]
+      },
+      "list_params": {
+        "semantics_version": 2,
+        "q": "kowalski",
+        "q_all": [
+          "bank"
+        ],
+        "q_none": [
+          "junior"
+        ],
+        "q_any_group": [
+          "react|vue",
+          "java|kotlin"
+        ]
+      },
+      "search_body": {
+        "semantics_version": 2,
+        "q": "kowalski",
+        "q_all": [
+          "bank"
+        ],
+        "q_any_groups": [
+          [
+            "react",
+            "vue"
+          ],
+          [
+            "java",
+            "kotlin"
+          ]
+        ],
+        "q_none": [
+          "junior"
+        ]
+      },
+      "list_engine_gaps": [],
+      "payload": {
+        "version": 3,
+        "semantics_version": 2,
+        "origin": "candidates_list",
+        "request": {
+          "semantics_version": 2,
+          "q": "kowalski",
+          "q_all": [
+            "bank"
+          ],
+          "q_any_groups": [
+            [
+              "react",
+              "vue"
+            ],
+            [
+              "java",
+              "kotlin"
+            ]
+          ],
+          "q_none": [
+            "junior"
+          ]
+        },
+        "qs": "q=kowalski&sv=2",
+        "legacy": {
+          "version": 2,
+          "qs": "q=kowalski",
+          "api": {
+            "q": "kowalski",
+            "q_all": [
+              "bank"
+            ],
+            "q_any_group": [
+              "react|vue",
+              "java|kotlin"
+            ],
+            "q_none": [
+              "junior"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "lista v2: filtry tylko-listowe zostają w list_only",
+      "filters": {
+        "version": 2,
+        "qs": "pool=4",
+        "api": {
+          "talent_pool_id": [
+            4
+          ],
+          "employment": [
+            "available"
+          ],
+          "remote_policy": [
+            "remote"
+          ],
+          "recruitment_id": [
+            12
+          ],
+          "recruitment_match": "not_assigned",
+          "stage_current_only": true,
+          "page": 3,
+          "include_match_stats": true
+        }
+      },
+      "format": "candidates_list",
+      "origin": "candidates_list",
+      "request": {
+        "semantics_version": 2,
+        "list_only": {
+          "talent_pool_id": [
+            4
+          ],
+          "employment": [
+            "available"
+          ],
+          "remote_policy": [
+            "remote"
+          ],
+          "recruitment_id": [
+            12
+          ],
+          "recruitment_match": "not_assigned",
+          "stage_current_only": true
+        }
+      },
+      "list_params": {
+        "talent_pool_id": [
+          4
+        ],
+        "employment": [
+          "available"
+        ],
+        "remote_policy": [
+          "remote"
+        ],
+        "recruitment_id": [
+          12
+        ],
+        "recruitment_match": "not_assigned",
+        "stage_current_only": true,
+        "semantics_version": 2
+      },
+      "search_body": {
+        "semantics_version": 2
+      },
+      "list_engine_gaps": [],
+      "payload": {
+        "version": 3,
+        "semantics_version": 2,
+        "origin": "candidates_list",
+        "request": {
+          "semantics_version": 2,
+          "list_only": {
+            "talent_pool_id": [
+              4
+            ],
+            "employment": [
+              "available"
+            ],
+            "remote_policy": [
+              "remote"
+            ],
+            "recruitment_id": [
+              12
+            ],
+            "recruitment_match": "not_assigned",
+            "stage_current_only": true
+          }
+        },
+        "qs": "pool=4&sv=2",
+        "legacy": {
+          "version": 2,
+          "qs": "pool=4",
+          "api": {
+            "talent_pool_id": [
+              4
+            ],
+            "employment": [
+              "available"
+            ],
+            "remote_policy": [
+              "remote"
+            ],
+            "recruitment_id": [
+              12
+            ],
+            "recruitment_match": "not_assigned",
+            "stage_current_only": true,
+            "page": 3,
+            "include_match_stats": true
+          }
+        }
+      }
+    },
+    {
+      "name": "lista: najstarszy format bez api",
+      "filters": {
+        "qs": "q=python"
+      },
+      "format": "candidates_list",
+      "origin": "candidates_list",
+      "request": null
+    },
+    {
+      "name": "wyszukiwarka: chipy miękkie, wykluczenie, miasta",
+      "filters": {
+        "q": "python fintech",
+        "search_mode": "hybrid",
+        "skills_must": [
+          "Python"
+        ],
+        "skills_any": [
+          "Django",
+          "FastAPI"
+        ],
+        "skills_none": [
+          "PHP"
+        ],
+        "location_cities": [
+          "Warszawa",
+          "Kraków"
+        ],
+        "location_countries": [
+          "PL"
+        ],
+        "sort": "relevance",
+        "page": 2,
+        "page_size": 50
+      },
+      "format": "search_request",
+      "origin": "search_request",
+      "request": {
+        "semantics_version": 2,
+        "q": "python fintech",
+        "skills_preferred": [
+          "Python",
+          "Django",
+          "FastAPI"
+        ],
+        "skills_excluded": [
+          "PHP"
+        ],
+        "location_cities": [
+          "Warszawa",
+          "Kraków"
+        ],
+        "location_countries": [
+          "PL"
+        ],
+        "search_only": {
+          "search_mode": "hybrid",
+          "sort": "relevance"
+        }
+      },
+      "list_params": {
+        "semantics_version": 2,
+        "q": "python fintech",
+        "skills_preferred": [
+          "Python",
+          "Django",
+          "FastAPI"
+        ],
+        "skills_excluded": [
+          "PHP"
+        ],
+        "location_cities": [
+          "Warszawa",
+          "Kraków"
+        ],
+        "country": [
+          "PL"
+        ]
+      },
+      "search_body": {
+        "search_mode": "hybrid",
+        "sort": "relevance",
+        "semantics_version": 2,
+        "q": "python fintech",
+        "skills_preferred": [
+          "Python",
+          "Django",
+          "FastAPI"
+        ],
+        "skills_excluded": [
+          "PHP"
+        ],
+        "location_cities": [
+          "Warszawa",
+          "Kraków"
+        ],
+        "location_countries": [
+          "PL"
+        ]
+      },
+      "list_engine_gaps": [],
+      "payload": {
+        "version": 3,
+        "semantics_version": 2,
+        "origin": "search_request",
+        "request": {
+          "semantics_version": 2,
+          "q": "python fintech",
+          "skills_preferred": [
+            "Python",
+            "Django",
+            "FastAPI"
+          ],
+          "skills_excluded": [
+            "PHP"
+          ],
+          "location_cities": [
+            "Warszawa",
+            "Kraków"
+          ],
+          "location_countries": [
+            "PL"
+          ],
+          "search_only": {
+            "search_mode": "hybrid",
+            "sort": "relevance"
+          }
+        },
+        "legacy": {
+          "q": "python fintech",
+          "search_mode": "hybrid",
+          "skills_must": [
+            "Python"
+          ],
+          "skills_any": [
+            "Django",
+            "FastAPI"
+          ],
+          "skills_none": [
+            "PHP"
+          ],
+          "location_cities": [
+            "Warszawa",
+            "Kraków"
+          ],
+          "location_countries": [
+            "PL"
+          ],
+          "sort": "relevance",
+          "page": 2,
+          "page_size": 50
+        }
+      }
+    },
+    {
+      "name": "wyszukiwarka: przełączniki otwarty-na i pola tylko-wyszukiwarkowe",
+      "filters": {
+        "open_to_side_projects": true,
+        "open_to_sales_support": false,
+        "open_to_expert_consult": true,
+        "languages": [
+          {
+            "code": "EN",
+            "min_level": "B2"
+          }
+        ],
+        "sources": [
+          "traffit"
+        ],
+        "has_cv": true,
+        "tags": [
+          "vip"
+        ],
+        "rate_hourly_min": 90,
+        "rate_hourly_max": 160,
+        "experience_years_min": 2,
+        "competence_category_ids": [
+          7
+        ],
+        "status": [
+          "active"
+        ],
+        "availability_status": [
+          "open_to_offers"
+        ]
+      },
+      "format": "search_request",
+      "origin": "search_request",
+      "request": {
+        "semantics_version": 2,
+        "status": [
+          "active"
+        ],
+        "availability_status": [
+          "open_to_offers"
+        ],
+        "open_to": [
+          "side_projects",
+          "expert_consult"
+        ],
+        "competence_category_ids": [
+          7
+        ],
+        "rate_hourly_min": 90,
+        "rate_hourly_max": 160,
+        "experience_years_min": 2,
+        "tags": [
+          "vip"
+        ],
+        "search_only": {
+          "open_to_sales_support": false,
+          "languages": [
+            {
+              "code": "EN",
+              "min_level": "B2"
+            }
+          ],
+          "sources": [
+            "traffit"
+          ],
+          "has_cv": true
+        }
+      },
+      "list_params": {
+        "semantics_version": 2,
+        "status": [
+          "active"
+        ],
+        "availability": [
+          "open_to_offers"
+        ],
+        "open_to": [
+          "side_projects",
+          "expert_consult"
+        ],
+        "competence_category_id": [
+          7
+        ],
+        "min_rate": 90,
+        "max_rate": 160,
+        "min_experience": 2,
+        "tags": [
+          "vip"
+        ]
+      },
+      "search_body": {
+        "open_to_sales_support": false,
+        "languages": [
+          {
+            "code": "EN",
+            "min_level": "B2"
+          }
+        ],
+        "sources": [
+          "traffit"
+        ],
+        "has_cv": true,
+        "semantics_version": 2,
+        "status": [
+          "active"
+        ],
+        "availability_status": [
+          "open_to_offers"
+        ],
+        "open_to": [
+          "side_projects",
+          "expert_consult"
+        ],
+        "competence_category_ids": [
+          7
+        ],
+        "rate_hourly_min": 90,
+        "rate_hourly_max": 160,
+        "experience_years_min": 2,
+        "tags": [
+          "vip"
+        ]
+      },
+      "list_engine_gaps": [
+        "has_cv",
+        "languages",
+        "open_to_sales_support",
+        "sources"
+      ],
+      "payload": {
+        "version": 3,
+        "semantics_version": 2,
+        "origin": "search_request",
+        "request": {
+          "semantics_version": 2,
+          "status": [
+            "active"
+          ],
+          "availability_status": [
+            "open_to_offers"
+          ],
+          "open_to": [
+            "side_projects",
+            "expert_consult"
+          ],
+          "competence_category_ids": [
+            7
+          ],
+          "rate_hourly_min": 90,
+          "rate_hourly_max": 160,
+          "experience_years_min": 2,
+          "tags": [
+            "vip"
+          ],
+          "search_only": {
+            "open_to_sales_support": false,
+            "languages": [
+              {
+                "code": "EN",
+                "min_level": "B2"
+              }
+            ],
+            "sources": [
+              "traffit"
+            ],
+            "has_cv": true
+          }
+        },
+        "legacy": {
+          "open_to_side_projects": true,
+          "open_to_sales_support": false,
+          "open_to_expert_consult": true,
+          "languages": [
+            {
+              "code": "EN",
+              "min_level": "B2"
+            }
+          ],
+          "sources": [
+            "traffit"
+          ],
+          "has_cv": true,
+          "tags": [
+            "vip"
+          ],
+          "rate_hourly_min": 90,
+          "rate_hourly_max": 160,
+          "experience_years_min": 2,
+          "competence_category_ids": [
+            7
+          ],
+          "status": [
+            "active"
+          ],
+          "availability_status": [
+            "open_to_offers"
+          ]
+        }
+      }
+    },
+    {
+      "name": "wyszukiwarka: grupy boolowskie",
+      "filters": {
+        "q_all": [
+          "bank"
+        ],
+        "q_any": [
+          "react",
+          "vue"
+        ],
+        "q_any_groups": [
+          [
+            "java",
+            "kotlin"
+          ]
+        ],
+        "q_none": [
+          "junior"
+        ],
+        "search_mode": "boolean"
+      },
+      "format": "search_request",
+      "origin": "search_request",
+      "request": {
+        "semantics_version": 2,
+        "q_all": [
+          "bank"
+        ],
+        "q_any_groups": [
+          [
+            "react",
+            "vue"
+          ],
+          [
+            "java",
+            "kotlin"
+          ]
+        ],
+        "q_none": [
+          "junior"
+        ],
+        "search_only": {
+          "search_mode": "boolean"
+        }
+      },
+      "list_params": {
+        "semantics_version": 2,
+        "q_all": [
+          "bank"
+        ],
+        "q_none": [
+          "junior"
+        ],
+        "q_any_group": [
+          "react|vue",
+          "java|kotlin"
+        ]
+      },
+      "search_body": {
+        "search_mode": "boolean",
+        "semantics_version": 2,
+        "q_all": [
+          "bank"
+        ],
+        "q_any_groups": [
+          [
+            "react",
+            "vue"
+          ],
+          [
+            "java",
+            "kotlin"
+          ]
+        ],
+        "q_none": [
+          "junior"
+        ]
+      },
+      "list_engine_gaps": [],
+      "payload": {
+        "version": 3,
+        "semantics_version": 2,
+        "origin": "search_request",
+        "request": {
+          "semantics_version": 2,
+          "q_all": [
+            "bank"
+          ],
+          "q_any_groups": [
+            [
+              "react",
+              "vue"
+            ],
+            [
+              "java",
+              "kotlin"
+            ]
+          ],
+          "q_none": [
+            "junior"
+          ],
+          "search_only": {
+            "search_mode": "boolean"
+          }
+        },
+        "legacy": {
+          "q_all": [
+            "bank"
+          ],
+          "q_any": [
+            "react",
+            "vue"
+          ],
+          "q_any_groups": [
+            [
+              "java",
+              "kotlin"
+            ]
+          ],
+          "q_none": [
+            "junior"
+          ],
+          "search_mode": "boolean"
+        }
+      }
+    },
+    {
+      "name": "nieznany format",
+      "filters": {
+        "foo": "bar"
+      },
+      "format": "unknown",
+      "origin": null,
+      "request": null
+    }
+  ]
+}

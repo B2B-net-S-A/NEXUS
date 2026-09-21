@@ -147,6 +147,13 @@ export interface CandidateFilters {
   openTo: OpenToValue[];
   // Zmiana pracodawcy wykryta przez synchronizację LinkedIn: 1/2/3 miesiące.
   recentlyChangedJobs: RecentlyChangedJobs;
+  /**
+   * Wersja semantyki filtrów (`sv=2` w URL → `semantics_version=2` w API).
+   * Ustawia ją WYŁĄCZNIE zapisane wyszukiwanie po migracji (format v3), żeby
+   * lista pokazywała ten sam zbiór, który liczy alert. `null` = dotychczasowe
+   * zachowanie listy (v1).
+   */
+  semanticsVersion: 2 | null;
   view: CandidatesView;
   savedSearchId: number | null;
   // Traffit-style advanced search buckets. Each phrase matches ILIKE
@@ -193,6 +200,7 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   stageCurrentOnly: false,
   openTo: [],
   recentlyChangedJobs: null,
+  semanticsVersion: null,
   view: "list",
   savedSearchId: null,
   qAll: [],
@@ -293,6 +301,7 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.recentlyChangedJobs !== null) {
     p.set("rcj", String(f.recentlyChangedJobs));
   }
+  if (f.semanticsVersion === 2) p.set("sv", "2");
   if (f.qAll.length) p.set("q_all", PIPE(f.qAll));
   // One repeated `q_any` param per OR-group (each pipe-joined). Empty groups
   // are skipped. Legacy single-param `?q_any=a|b` decodes back to one group.
@@ -381,6 +390,7 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     stageCurrentOnly: sp.get("stage_current") === "1",
     openTo,
     recentlyChangedJobs,
+    semanticsVersion: sp.get("sv") === "2" ? 2 : null,
     view,
     savedSearchId,
     qAll: parsePipe(sp.get("q_all")),
@@ -554,6 +564,7 @@ export function filtersToApiParams(
     stage_current_only: filters.stageCurrentOnly ? true : undefined,
     open_to: filters.openTo.length ? filters.openTo : undefined,
     recently_changed_jobs: filters.recentlyChangedJobs ?? undefined,
+    semantics_version: filters.semanticsVersion ?? undefined,
     q_all: filters.qAll.length ? filters.qAll : undefined,
     // ANY OR-groups → one repeated `q_any_group` value per group (pipe-joined).
     q_any_group: filters.qAny.some((g) => g.length)
@@ -584,9 +595,13 @@ export interface CandidateListSharedFilterParams {
   tags?: string[];
   /** Kody ISO krajów — którykolwiek. */
   country?: string[];
+  /** Kilka miast naraz (którekolwiek) — kształt wyszukiwarki. */
+  location_cities?: string[];
   text_mode?: "auto" | "literal" | "semantic";
-  /** Kandydaci bez danych (staż, lokalizacja): lista domyślnie `exclude`. */
-  unknown_values?: "include" | "exclude";
+  /** Ukryj osoby bez danych dla aktywnych filtrów lokalizacji/stażu/stawki. */
+  hide_unknown?: boolean;
+  /** Brak = dotychczasowe wyniki listy (v1); 2 = semantyka wspólna. */
+  semantics_version?: 1 | 2;
 }
 
 /**

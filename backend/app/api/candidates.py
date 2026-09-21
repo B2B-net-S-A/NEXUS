@@ -232,6 +232,9 @@ class CandidateFilterSpec(BaseModel):
     skills_excluded: Optional[list[str]] = None
     tags: Optional[list[str]] = None
     country: Optional[list[str]] = None
+    # Kilka miast naraz (którekolwiek) — kształt wyszukiwarki; `location` to
+    # dotychczasowe pojedyncze pole i dokłada się do tej samej alternatywy.
+    location_cities: Optional[list[str]] = None
     text_mode: Optional[Literal["auto", "literal", "semantic"]] = None
     # Ukryj osoby BEZ danych dla aktywnych filtrów lokalizacji/stażu/stawki.
     hide_unknown: Optional[bool] = None
@@ -874,7 +877,9 @@ async def _build_candidate_filtered_query(
     if open_to_clause is not None:
         query = query.where(open_to_clause)
     for location_clause in predicates.location_clauses(
-        [f.location] if f.location else [], f.country, sem
+        ([f.location] if f.location else []) + list(f.location_cities or []),
+        f.country,
+        sem,
     ):
         query = query.where(location_clause)
     cc_clause = predicates.competence_category_clause(f.competence_category_id, sem)
@@ -1332,6 +1337,13 @@ async def list_candidates(
         None,
         description="ISO country codes (`PL`, `DE`) — any of. Case-insensitive.",
     ),
+    location_cities: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Cities — repeat the param; any of. Same meaning as `location_cities` "
+            "on the search engine; combines (OR) with the single `location`."
+        ),
+    ),
     text_mode: Optional[Literal["auto", "literal", "semantic"]] = Query(
         None,
         description=(
@@ -1755,6 +1767,7 @@ async def list_candidates(
         skills_excluded=skills_excluded,
         tags=tags,
         country=country,
+        location_cities=location_cities,
         text_mode=text_mode,
         hide_unknown=hide_unknown,
         semantics_version=semantics_version,
@@ -2134,7 +2147,7 @@ async def list_candidates(
                 update={
                     "unknown_fields": search_predicates.unknown_fields_for(
                         cand,
-                        location_active=bool(location),
+                        location_active=bool(location or location_cities),
                         country_active=bool(country),
                         experience_active=(
                             min_experience is not None or max_experience is not None

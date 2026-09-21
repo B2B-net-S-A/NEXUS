@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidateSearchAccess, CandidateWriteAccess
+from app.api.deps import AdminUser
 from app.core.database import get_db
 from app.models.saved_search import MatchHistory, SavedSearch
 from app.services.candidate_monthly_rate_retirement import (
@@ -89,7 +90,11 @@ def _ss_to_dict(s: SavedSearch) -> dict:
 
 
 def _has_api_params(filters: Optional[dict]) -> bool:
-    return isinstance((filters or {}).get("api"), dict)
+    """Czy skaner alertów umie odtworzyć ten zapis przez listę kandydatów:
+    legacy `filters.api` albo format v3 bez filtrów, których lista nie zna."""
+    from app.tasks.saved_search_alerts import alert_list_params
+
+    return alert_list_params(filters) is not None
 
 
 def _is_candidate_entity(entity: str) -> bool:
@@ -285,6 +290,22 @@ async def update_saved_search(
                 detail=RETIRED_MONTHLY_RATE_CODE,
             )
         ss.requires_reapproval = False
+        # Zapis wstrzymany przez migrację na wspólną semantykę filtrów
+        # (`saved_search_migration`): akceptacja WZNAWIA alert, który był
+        # włączony, i zeruje linię bazową — pierwszy przebieg skanera zasieje
+        # dziennik aktualnym (nowym) zbiorem bez powiadomienia, więc zmiana
+        # semantyki nie kończy się burzą „nowych" kandydatów.
+        migration = dict((ss.filters or {}).get("migration") or {})
+        if migration:
+            from datetime import datetime, timezone
+
+            if migration.get("alert_was_on") and "notify_new_matches" not in payload:
+                ss.notify_new_matches = True
+                ss.last_scanned_at = None
+                ss.unseen_count = 0
+            migration["alert_was_on"] = False
+            migration["reapproved_at"] = datetime.now(timezone.utc).isoformat()
+            ss.filters = {**(ss.filters or {}), "migration": migration}
     if payload.get("notify_new_matches") is True and ss.requires_reapproval:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -419,3 +440,28 @@ async def log_match(
         "id": mh.id,
         "created_at": mh.created_at.isoformat() if mh.created_at else None,
     }
+
+
+@router.post("/saved-searches/migrate-semantics")
+async def migrate_saved_search_semantics(
+    current_user: AdminUser,
+    dry_run: bool = Query(
+        False,
+        description="Policz, ile zapisów zmieniłoby wynik — bez żadnego zapisu.",
+    ),
+):
+    """Migracja zapisanych wyszukiwań kandydatów na wspólną semantykę filtrów.
+
+    Idempotentna (zapis w formacie v3 jest pomijany). Zapisy, których wynik się
+    zmienia, dostają `requires_reapproval`, wstrzymany alert i jedno
+    powiadomienie dla właściciela. Odpowiedź niesie wyłącznie liczniki i id.
+    """
+    from app.services.saved_search_migration import (
+        migrate_saved_searches,
+        write_receipt,
+    )
+
+    summary = await migrate_saved_searches(dry_run=dry_run)
+    if not dry_run:
+        await write_receipt({**summary, "triggered_by": current_user.id})
+    return summary

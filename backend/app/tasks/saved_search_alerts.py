@@ -76,6 +76,28 @@ def build_base_params(api_params: dict) -> dict[str, Any]:
     return params
 
 
+def alert_list_params(filters: Optional[dict]) -> Optional[dict]:
+    """Parametry `GET /api/candidates`, którymi skaner odtwarza zapis.
+
+    * format v3 (po migracji semantyki) → ścieżka WSPÓLNA: żądanie wspólne
+      przełożone na parametry listy z `semantics_version=2`,
+    * format legacy listy → `filters.api` bez zmian (v1, dotychczasowe wyniki).
+
+    `None` = zapisu nie da się odtworzyć przez listę: brak `api`, surowe żądanie
+    wyszukiwarki albo zapis v3 z filtrami, których lista nie zna (języki,
+    źródła…) — alert bez nich byłby SZERSZY niż zapis.
+    """
+    from app.services import saved_search_payload as payloads
+
+    fmt, _origin, request = payloads.read_saved_search(filters or {})
+    if fmt == "unified" and request is not None:
+        if payloads.list_engine_gaps(request):
+            return None
+        return payloads.unified_to_list_params(request)
+    api_params = (filters or {}).get("api")
+    return api_params if isinstance(api_params, dict) else None
+
+
 def polish_candidates(n: int) -> str:
     """`1 nowy kandydat` / `3 nowi kandydaci` / `7 nowych kandydatów`."""
     if n == 1:
@@ -171,10 +193,10 @@ async def _log_candidates(
 
 async def _baseline_one(client, db, ss, owner) -> None:
     """First run after enable: seed the log with current matchers, NO alert."""
-    api_params = (ss.filters or {}).get("api")
-    if not isinstance(api_params, dict):
+    api_params = alert_list_params(ss.filters)
+    if api_params is None:
         logger.warning(
-            "saved_search_alerts: search %s alerts on but no filters.api — skipping",
+            "saved_search_alerts: search %s alerts on but not replayable — skipping",
             ss.id,
         )
         return
@@ -207,10 +229,10 @@ async def _incremental_one(client, db, ss, owner) -> bool:
     from app.core.security import create_access_token
     from app.models.notification import NotificationType
 
-    api_params = (ss.filters or {}).get("api")
-    if not isinstance(api_params, dict):
+    api_params = alert_list_params(ss.filters)
+    if api_params is None:
         logger.warning(
-            "saved_search_alerts: search %s alerts on but no filters.api — skipping",
+            "saved_search_alerts: search %s alerts on but not replayable — skipping",
             ss.id,
         )
         return False
@@ -371,6 +393,19 @@ async def saved_search_alerts_loop(
     """Long-running task: scan alert-enabled saved searches every N seconds."""
     logger.info("saved_search_alerts: started (interval=%ss)", interval_seconds)
     await asyncio.sleep(90)  # let the app warm up first
+    try:
+        # Jednorazowa migracja zapisów na wspólną semantykę (marker + flaga,
+        # domyślnie OFF) — PRZED pierwszym skanem, żeby wstrzymane alerty nie
+        # zdążyły wystrzelić na nowej semantyce.
+        from app.services.saved_search_migration import run_once_at_startup
+
+        migrated = await run_once_at_startup()
+        if migrated is not None:
+            logger.info("saved_search_alerts: semantics migration %s", migrated)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001 — migracja nie może zatrzymać skanera
+        logger.warning("saved_search_alerts: semantics migration failed: %s", e)
     while True:
         try:
             sent = await scan_once()

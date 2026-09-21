@@ -140,6 +140,9 @@ class NotificationType(str, enum.Enum):
     # rekrutera. Emitowane przez `services/my_people_matching.py`; jeden dzwonek
     # na (odbiorca, rekrutacja) — `related_entity=(job, id)`.
     my_people_match = "my_people_match"
+    # 0332: zapisane wyszukiwanie po migracji na wspólną semantykę filtrów
+    # zwraca inny zbiór osób — alert wstrzymany do akceptacji właściciela.
+    saved_search_reapproval = "saved_search_reapproval"
 
 
 class Notification(Base, TimestampMixin):

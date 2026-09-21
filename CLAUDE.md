@@ -4918,54 +4918,88 @@ w `entrypoint.sh`, sondy w `/api/health/deep`). Raport:
 
 NEXUS ma DWA silniki wyszukiwania kandydatów, które UI połączy w jeden ekran
 „Kandydaci": **L** = `GET /api/candidates` (lista, ⌘K, eksport, alerty
-zapisanych wyszukiwań — skaner odtwarza `filters.api` przez tę trasę) i **S** =
-`POST /api/search/candidates` (+ `/diagnostics`; `/candidates/search` i ręczne
-szukanie w rekrutacji). Do 09.2026 rozjeżdżały się w 11 miejscach
-(`docs/sesja-2026-07-28-completion-report.md`). Filtry wspólne buduje WYŁĄCZNIE
-`app/services/candidate_search_predicates.py` — oba endpointy czytają je
-stamtąd, a prywatne kopie są zakazane (`test_candidate_search_predicates.py`
-czyta źródła). Sortowanie, stronicowanie, retrieval hybrydowy i diagnostyka
-zostają przy endpointach.
+zapisanych wyszukiwań) i **S** = `POST /api/search/candidates` (+ `/diagnostics`;
+`/candidates/search` i ręczne szukanie w rekrutacji). Do 09.2026 rozjeżdżały się
+w 11 miejscach (`docs/sesja-2026-07-28-completion-report.md`). Filtry wspólne
+buduje WYŁĄCZNIE `app/services/candidate_search_predicates.py` — oba endpointy
+czytają je stamtąd (także warianty legacy), prywatne kopie są zakazane
+(`test_candidate_search_predicates.py` czyta źródła). Sortowanie, stronicowanie,
+retrieval hybrydowy i diagnostyka zostają przy endpointach.
 
-Decyzje właściciela produktu (wiążące dla OBU endpointów):
+- **`semantics_version` rozstrzyga WSZYSTKO. Brak pola = v1 = DOKŁADNIE
+  dotychczasowe wyniki każdego endpointu, łącznie z rozjazdami** (lista wycina
+  osoby bez stawki/lokalizacji/stażu i czyta samą kolumnę `location`;
+  wyszukiwarka dopasowuje tag podłańcuchem, liczy tylko kategorię główną, łączy
+  „Otwarty na" koniunkcją, nie czyta koszyka Traffita i nie przełącza `q`
+  wyglądającego na osobę). Całe nowe zachowanie jest opt-in: `semantics_version: 2`
+  (pole w S, parametr w L) — wtedy oba silniki odpowiadają identycznie.
+  Dowody: `test_saved_search_legacy_replay.py` (31 ładunków legacy; ten sam plik
+  przechodzi na `origin/main` sprzed zmiany i po niej) oraz
+  `test_search_engines_contract.py` (każda decyzja w v2: ten sam zbiór id z L i S).
+  **Nie zmieniaj zachowania v1 „przy okazji" — na nim stoją alerty.**
 
-| Filtr | Reguła |
+Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
+
+| Filtr | Reguła v2 |
 |---|---|
-| Umiejętności | trzy kubełki: „Musi mieć" = TWARDO · „Mile widziane" = tylko ranking · „Wyklucz" = TWARDO; bez kubełka → „Musi mieć". Jawne pola w obu: `skills_required[]`, `skills_required_any_groups` (S: lista list; L: powtarzany parametr `a\|b`), `skills_preferred[]`, `skills_excluded[]`. `a\|b` = grupa LUB w KAŻDYM polu. |
-| Tekst `q` | `text_mode: auto\|literal\|semantic` (domyślnie auto): nazwisko / e-mail / telefon → dopasowanie DOSŁOWNE (to samo w L i S: `literal_text_clause`), reszta → dotychczasowa ścieżka silnika. Odpowiedź niesie `text_mode_applied` + `interpretation` (S: w `meta`; L: na poziomie listy). |
-| „Otwarty na" | LUB |
+| Umiejętności | trzy kubełki: „Musi mieć" = TWARDO · „Mile widziane" = tylko ranking (także na liście — prowadzi każde sortowanie) · „Wyklucz" = TWARDO; bez kubełka → „Musi mieć". Jawne pola: `skills_required[]`, `skills_required_any_groups` (S: lista list; L: powtarzany parametr `a\|b`), `skills_preferred[]`, `skills_excluded[]`. `a\|b` = grupa LUB w KAŻDYM polu. Tag „java" nadal spełnia umiejętność „Java" (tagi są częścią zrzutu). |
+| Tekst `q` | `text_mode: auto\|literal\|semantic`. Auto: e-mail, telefon, 2–3 wyrazy wyglądające na osobę → dopasowanie DOSŁOWNE (to samo w L i S: `literal_text_clause`); JEDNO słowo dosłownie TYLKO, gdy istnieje kandydat o takim imieniu/nazwisku (`person_token_exists`: jedno `LIMIT 1` po indeksie trigramowym `search_doc_unaccented`, pamięć 60 s); reszta → tryb wybrany przez rekrutera. `interpretation.rule` mówi, która reguła zadziałała. W v1 auto działa tylko przy jawnym `text_mode`. |
+| Brak danych | osoba BEZ lokalizacji / stażu / stawki ZOSTAJE i jest oznaczona w `unknown_fields: ["location","experience","rate"]` (tylko dla AKTYWNYCH filtrów); `hide_unknown: true` ją ukrywa. Stawka w walucie innej niż PLN = nieznana. |
+| „Otwarty na" | LUB; `open_to_*: false` zostaje osobnym, twardym warunkiem |
 | Kategoria kompetencji | główna LUB poboczna (M2M) LUB legacy FK |
-| Stawka godzinowa | kandydat BEZ stawki przechodzi (także stawka w walucie innej niż PLN) |
-| Lata doświadczenia | jedna reguła przedziału: dokładna liczba, a gdy jej brak — koszyk Traffita (`Poniżej 2`/`2-5`/`5+`) |
+| Lata doświadczenia | jedna reguła przedziału: dokładna liczba, a gdy jej brak — koszyk Traffita |
 | Tagi | cały tag (token JSON, bez wielkości liter), nie podłańcuch |
-| Lokalizacja | `city` LUB `location`, `%`/`_` dosłownie, bez polskich znaków; kraj w obu (`country` / `location_countries`) |
+| Lokalizacja | `city` LUB `location`, `%`/`_` dosłownie, bez polskich znaków; kilka miast (`location_cities`) i kraj w obu |
 | `q_all`/`q_any`/`q_none` | jeden parser (`parse_q_groups`; grupa jako lista albo `a\|b`) |
-| status / dostępność | zgodne — przypięte testem kontraktowym |
+| status / dostępność | zgodne w obu wersjach — przypięte testem |
 
-- **Pola legacy zachowują DOTYCHCZASOWE znaczenie — i dlatego te same nazwy
-  znaczą w L i S co innego.** L: `skills` (+`skill_combine`), `skills_any`
-  (`a|b`), `skills_none` są TWARDE. S: `skills_must` + `skills_any` to „Mile
-  widziane" (SEARCH-P0-03), twarde jest tylko `skills_none`. Zgodne są dopiero
-  pola jawne. Nie „ujednolicaj" pól legacy: zapisane wyszukiwania i alerty
-  zmieniłyby wynik (`test_saved_search_legacy_replay.py` — ten sam plik
-  przechodzi na kodzie sprzed zmiany i po niej).
-- **`unknown_values: include|exclude` — los kandydata BEZ danych dla stażu
-  i lokalizacji.** To samo pole w obu silnikach, RÓŻNA wartość domyślna: L
-  `exclude` (na tym stoją alerty — `include` dałoby burzę powiadomień o każdym
-  imporcie bez lokalizacji), S `include` (pomiar 08.2026: twarde cięcie
-  zabierało 99,6% puli). Wspólną wartość domyślną wybiera właściciel produktu
-  przy łączeniu UI; do tego czasu test kontraktowy przypina obie.
-- **Lista nie ma retrievalu wektorowego**: przyjmuje `text_mode`, ale zawsze
-  dopasowuje dosłownie i mówi to w `text_mode_applied`.
-- **Detekcja osoby (`detect_text_mode`) jest ostrożna w stronę „opis"**: 1–3
-  wyrazy z samych liter, bez znanej umiejętności (`ALIAS_MAP` + krótka lista
-  zapasowa — taksonomia ładuje się z bazy i bywa pusta), miasta ani słowa roli.
-- **Diagnostyka zna twarde kubełki**: grupa `skills_required` („Musi mieć")
-  stoi obok `skills` („Wyklucz"); nowa grupa filtrów = wpis w `NULL_POLICY`.
+- **Pola legacy umiejętności znaczą w L i S co innego — w OBU wersjach.** L:
+  `skills` (+`skill_combine`), `skills_any`, `skills_none` są TWARDE. S:
+  `skills_must` + `skills_any` to „Mile widziane" (SEARCH-P0-03), twarde jest
+  tylko `skills_none`. Zgodne są dopiero pola jawne.
+- **Lista nie ma retrievalu wektorowego** (do połączenia ekranów): przyjmuje
+  `text_mode`, ale zawsze dopasowuje dosłownie i mówi to w `text_mode_applied`.
+- **Diagnostyka zna twarde kubełki**: grupa `skills_required` („Musi mieć") obok
+  `skills` („Wyklucz"); nowa grupa filtrów = wpis w `NULL_POLICY`.
 - **Parser wyrażenia umiejętności ma port w Pythonie** (`parse_skill_expression`)
-  i WSPÓLNY plik przypadków `frontend/src/lib/__fixtures__/skill-expression-cases.json`
-  (czyta go vitest i pytest). Zmiana gramatyki = ten plik + oba parsery.
-- **Nowy wspólny filtr:** builder w `candidate_search_predicates`, wpięcie
-  w OBU endpointach, przypadek w `test_search_engines_contract.py` (populacja
-  wspólna, własne wiersze zawężane `q_all=[NONCE]`). Kanoniczny fit
-  (`canonical_fit`, `scoring_service`) NIE jest tą zmianą dotykany.
+  i WSPÓLNY plik przypadków `frontend/src/lib/__fixtures__/skill-expression-cases.json`.
+- **Nowy wspólny filtr:** builder w `candidate_search_predicates` (z wariantem
+  v1, jeśli filtr już istniał), wpięcie w OBU endpointach, przypadek w obu
+  plikach testów. Kanoniczny fit (`canonical_fit`, `scoring_service`) NIE jest
+  tą zmianą dotykany.
+
+### Zapisane wyszukiwania: format v3 i migracja na wspólną semantykę
+
+- **Jeden format zapisu** (`version: 3`, `semantics_version: 2`, `origin`,
+  `request`, `qs` z `sv=2`, `legacy`, `migration`) i adapter czytający OBA
+  formaty legacy: `app/services/saved_search_payload.py` ↔
+  `frontend/src/lib/saved-search-unified.ts`, wspólny plik przypadków
+  `__fixtures__/saved-search-unified-cases.json`. `request` ma kształt wspólny
+  + `list_only` / `search_only` dla filtrów jednego silnika. Najstarszy format
+  listy `{qs}` bez `api` jest nieczytelny po stronie Pythona — zostaje nietknięty.
+- **Migracja (`services/saved_search_migration.py`)** porównuje wynik v1 i v2
+  przez PRAWDZIWE endpointy (token właściciela, do 500 id + `total`): identyczny
+  → po cichu; inny → `requires_reapproval=true`, alert WSTRZYMANY
+  (`notify_new_matches=false`, `filters.migration.alert_was_on`), opis różnicy
+  z samych LICZB i JEDNO powiadomienie `saved_search_reapproval` (0332 + lustro
+  w `entrypoint.sh`). Idempotentna (v3 = pominięty). Tryb hybrydowy z `q` nie
+  jest odtwarzany (embeddingi): `q`-osoba = różnica z definicji, inaczej
+  porównujemy same filtry. Bez DDL na `saved_searches` — reużywa mechanizmu
+  akceptacji po wycofaniu stawek miesięcznych.
+- **Akceptacja = istniejące `confirm_reapproval`** (`PATCH /api/saved-searches/{id}`):
+  wznawia alert, który był włączony, i ZERUJE linię bazową (`last_scanned_at`),
+  więc pierwszy przebieg skanera zasiewa dziennik nowym zbiorem bez alertu —
+  zero burzy `saved_search_match`.
+- **Uruchomienie:** `POST /api/saved-searches/migrate-semantics[?dry_run=true]`
+  (admin; odpowiedź = liczniki + id) albo przy starcie skanera alertów, gdy
+  `SAVED_SEARCH_SEMANTICS_MIGRATION_AUTORUN=true` (domyślnie OFF — migracja
+  wstrzymuje alerty i powiadamia ludzi, moment wybiera człowiek). Paragon:
+  `app_settings['saved_search_semantics_migration_v3']`.
+- **Skaner alertów** (`alert_list_params`): v3 → ścieżka wspólna
+  (`unified_to_list_params`, `semantics_version=2`), legacy → `filters.api` bez
+  zmian. Zapis v3 z filtrami, których lista nie zna (`list_engine_gaps`: języki,
+  źródła…), NIE jest odtwarzany — alert byłby szerszy niż zapis.
+- **UI do połączenia ekranów:** lista czyta `sv=2` z querystringu zapisu
+  (`CandidateFilters.semanticsVersion` → `semantics_version=2`), widok
+  wyszukiwarki otwiera v3 przez `savedSearchToSearchViewRequest`. Stary ekran
+  nadal ZAPISUJE formaty legacy (v1) — kolejny przebieg migracji je podniesie.

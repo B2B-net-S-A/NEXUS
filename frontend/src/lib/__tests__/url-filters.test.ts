@@ -58,6 +58,7 @@ describe("url-filters", () => {
       stageCurrentOnly: true,
       openTo: ["side_projects", "expert_consult"],
       recentlyChangedJobs: 2,
+      semanticsVersion: 2,
       view: "tiles",
       savedSearchId: 7,
       qAll: ["react native", "typescript"],

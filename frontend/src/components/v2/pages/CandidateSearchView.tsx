@@ -52,6 +52,7 @@ import { JobShortlistPanel } from "@/components/v2/pages/JobShortlistPanel";
 import { CandidateCompareModal } from "@/components/v2/pages/CandidateCompareModal";
 import { shortlistApi } from "@/lib/candidate-search-api";
 import { detectSavedSearchFormat } from "@/lib/saved-search-format";
+import { savedSearchToSearchViewRequest } from "@/lib/saved-search-unified";
 import { parseTagInput } from "@/lib/parse-tag-input";
 import {
   formatReasonCounts,
@@ -422,7 +423,10 @@ export function CandidateSearchView({
     // Filters were stored as a CandidateSearchRequest dump — restore but
     // never carry over paging or job-context exclusion (those are owned by
     // the current view).
-    const filters = ss.filters as Partial<CandidateSearchRequest>;
+    // Format v3 (po migracji semantyki) i surowe żądanie legacy czyta ten sam
+    // adapter — v3 niesie `semantics_version: 2`, legacy wraca bez zmian.
+    const filters = (savedSearchToSearchViewRequest(ss.filters) ??
+      ss.filters) as Partial<CandidateSearchRequest>;
     clearSelection();
     setRequest({
       ...DEFAULT_REQUEST,
