@@ -49,6 +49,15 @@ from app.schemas.finance import (
     FinanceTotals,
 )
 from app.schemas.finance_order_changes import OrderChangesResponse
+from app.schemas.finance_order_pdfs import (
+    OrderPdfClient,
+    OrderPdfFile,
+    OrderPdfMonth,
+    OrderPdfMonthsResponse,
+    OrderPdfsResponse,
+)
+from app.core.http_headers import content_disposition_attachment
+from app.services import finance_order_pdfs
 from app.services import storage_service
 from app.services.finance_order_changes import (
     OrderChangesFilters,
@@ -844,4 +853,108 @@ async def export_order_changes(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ── Zamówienia PDF ──────────────────────────────────────────────────────────
+
+
+def _order_pdf_file(entry: finance_order_pdfs.OrderPdfEntry) -> OrderPdfFile:
+    return OrderPdfFile(
+        kind=entry.kind,
+        id=entry.id,
+        download_name=entry.download_name,
+        original_name=entry.original_name,
+        consultant_name=entry.consultant_name,
+        start=entry.start,
+        end=entry.end,
+        entry_type=entry.entry_type,
+        status=entry.status,
+        order_number=entry.order_number,
+        uploaded_at=entry.uploaded_at,
+    )
+
+
+@router.get("/order-pdfs/months", response_model=OrderPdfMonthsResponse)
+async def get_order_pdf_months(
+    _user: FinanceSectionUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Miesiące startu zamówień z PDF-em — z liczbą klientów i plików.
+
+    Liczone przy odczycie z całej historii, więc obejmuje też zamówienia
+    wgrane przed powstaniem tego widoku.
+    """
+
+    entries = await finance_order_pdfs.collect_entries(db)
+    return OrderPdfMonthsResponse(
+        items=[
+            OrderPdfMonth(**item)
+            for item in finance_order_pdfs.summarize_months(entries)
+        ]
+    )
+
+
+@router.get("/order-pdfs", response_model=OrderPdfsResponse)
+async def get_order_pdfs(
+    _user: FinanceSectionUser,
+    year: Optional[int] = Query(None),
+    month: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Klienci z PDF-ami zamówień, które ZACZYNAJĄ się w danym miesiącu."""
+
+    resolved_year, resolved_month = _order_changes_period(year, month)
+    entries = await finance_order_pdfs.collect_entries(
+        db, window=finance_order_pdfs.month_bounds(resolved_year, resolved_month)
+    )
+    clients = [
+        OrderPdfClient(
+            client_id=bucket["client_id"],
+            client_name=bucket["client_name"],
+            files=[_order_pdf_file(entry) for entry in bucket["files"]],
+        )
+        for bucket in finance_order_pdfs.group_by_client(entries)
+    ]
+    return OrderPdfsResponse(year=resolved_year, month=resolved_month, clients=clients)
+
+
+_ORDER_PDF_PATH_GETTERS = {
+    "order": storage_service.get_client_order_po_path,
+    "group": storage_service.get_client_order_group_po_path,
+    "amendment": storage_service.get_contract_document_path,
+}
+
+
+@router.get("/order-pdfs/{kind}/{entry_id}/file")
+async def download_order_pdf(
+    kind: finance_order_pdfs.PdfKind,
+    entry_id: int,
+    _user: FinanceSectionUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """PDF zamówienia pod nazwą z nazwiskiem konsultanta i okresem.
+
+    Nazwa liczona jest tą samą funkcją co lista, więc plik zapisuje się
+    dokładnie tak, jak widać go w widoku.
+    """
+
+    entry = await finance_order_pdfs.find_entry(db, kind, entry_id)
+    if entry is None:
+        raise HTTPException(404, detail="Nie znaleziono pliku zamówienia.")
+    try:
+        abs_path = _ORDER_PDF_PATH_GETTERS[kind](entry.file_path)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, detail="Plik nie jest już dostępny na dysku.") from exc
+    if not abs_path.is_file():
+        raise HTTPException(404, detail="Plik nie jest już dostępny na dysku.")
+    download_name = entry.download_name
+    return FileResponse(
+        path=str(abs_path),
+        media_type=entry.content_type or "application/pdf",
+        headers={
+            "Content-Disposition": content_disposition_attachment(
+                download_name, fallback="zamowienie.pdf"
+            )
+        },
     )
