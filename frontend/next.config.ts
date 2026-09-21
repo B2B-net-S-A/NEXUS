@@ -24,7 +24,8 @@ const nextConfig: NextConfig = {
   // i deep-linki zaczęłyby zwracać 404 zamiast trafiać do następcy.
   // Podniesione z 307 na 308 (permanent), bo źródło już nie istnieje.
   async redirects() {
-    const insights = (tab: string) => `/insights?tab=${tab}`;
+    const insights = (tab: string, ch?: string) =>
+      ch ? `/insights?tab=${tab}&ch=${ch}` : `/insights?tab=${tab}`;
     // 308 — strona źródłowa usunięta, przekierowanie jest trwałe.
     const gone = (source: string, destination: string) => ({
       source,
@@ -44,24 +45,24 @@ const nextConfig: NextConfig = {
       // powiadomienia `pending_verification` zapisane w bazie nadal do niej
       // linkują. Bez tego klik w stare powiadomienie kończył się 404.
       gone("/pending-verifications", "/jobs"),
-      gone("/dynareporter/rekrutacja", insights("rekrutacja")),
-      gone("/dynareporter/body-leasing", insights("rekrutacja")),
-      gone("/dynareporter/placements", insights("rekrutacja")),
-      gone("/dynareporter/competitions", insights("rekrutacja")),
-      // Kanoniczne identyfikatory zakładek (`delivery-lead`, `rada`), nie
-      // aliasy `klienci`/`zarzad` — ranking klientów i MRR mieszkają w Radzie,
+      gone("/dynareporter/rekrutacja", insights("body-leasing", "wyniki")),
+      gone("/dynareporter/body-leasing", insights("body-leasing", "wyniki")),
+      gone("/dynareporter/placements", insights("body-leasing", "wyniki")),
+      gone("/dynareporter/competitions", insights("body-leasing", "rywalizacja")),
+      // Kanoniczne identyfikatory zakładek (`body-leasing` + rozdział, `rada`),
+      // nie aliasy `rekrutacja`/`delivery-lead`/`klienci`/`zarzad` — ranking klientów i MRR mieszkają w Radzie,
       // więc `clients-mrr` celuje wprost w tę sekcję (UAT M10-B03).
-      gone("/dynareporter/delivery-lead", insights("delivery-lead")),
-      gone("/dynareporter/delivery-lead-dashboard", insights("delivery-lead")),
+      gone("/dynareporter/delivery-lead", insights("body-leasing", "klienci")),
+      gone("/dynareporter/delivery-lead-dashboard", insights("body-leasing", "klienci")),
       gone("/dynareporter/clients-mrr", `${insights("rada")}#klienci`),
-      gone("/dynareporter/sales", insights("delivery-lead")),
-      gone("/dynareporter/sales-mgmt", insights("delivery-lead")),
+      gone("/dynareporter/sales", insights("body-leasing", "klienci")),
+      gone("/dynareporter/sales-mgmt", insights("body-leasing", "klienci")),
       gone("/dynareporter/board", insights("rada")),
       gone("/dynareporter/board-dashboard", insights("rada")),
       gone("/dynareporter/przetargi", insights("rada")),
       // MINDY to czat AI komentujący KPI, nie strona raportowa — i Insights
       // NIE MA dla niego następcy. Kod zostaje, decyzja produktowa otwarta.
-      parked("/dynareporter/mindy", insights("rekrutacja")),
+      parked("/dynareporter/mindy", insights("body-leasing")),
     ];
   },
   async headers() {

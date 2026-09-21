@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Info, TriangleAlert } from "lucide-react";
 import {
@@ -86,33 +86,199 @@ export function InsightsBoardYoY() {
       {data.degraded ? (
         <Degraded reason={data.degraded.message} status="partial" />
       ) : null}
-      {YOY_GROUPS.map((group) => {
-        const metrics = data.metrics.filter((m) => m.group === group.id);
-        if (metrics.length === 0) return null;
-        // Ostrzeżenie o pokryciu stoi PRZY tabelach, których dotyczy, a nie
-        // jednym banerem na górze strony: grupy „Dywersyfikacja" i część
-        // „Wskaźników" liczą się z historii pipeline'u i są porównywalne
-        // między latami. Baner zbiorczy podważałby także je, a ostrzeżenie
-        // podważające wszystko uczy ignorować ostrzeżenia.
-        const contractBased = metrics.some((m) => m.basis === "contracts");
-        return (
-          <div key={group.id} className="space-y-4">
-            <h3 className="text-base font-semibold text-foreground">
-              {group.label}
-            </h3>
-            {contractBased && !data.coverage.money_comparable_across_years ? (
-              <CoverageWarning data={data} />
-            ) : null}
-            <div className="grid gap-4 xl:grid-cols-2">
-              {metrics.map((metric) => (
-                <MetricTable key={metric.key} metric={metric} data={data} />
-              ))}
-            </div>
-          </div>
-        );
-      })}
+      <YoYGroups data={data} />
       <ClientBreakdown data={data} />
     </div>
+  );
+}
+
+type YoYGroupId = (typeof YOY_GROUPS)[number]["id"];
+
+/**
+ * Grupy metryk jako przełącznik + karta na metrykę (wariant 2 z makiet
+ * 21.09.2026). Karta pokazuje mini-wykres trzech lat, ostatnią wartość roku
+ * i ocenę; kliknięcie rozwija pod spodem dotychczasową tabelę miesięcy.
+ *
+ * Cała arytmetyka z `buildYoYTable` — karta czyta WIERSZ PODSUMOWANIA tej
+ * samej tabeli, więc nie może pokazać innej liczby niż tabela pod nią.
+ */
+function YoYGroups({ data }: { data: InsightsYoYResponse }) {
+  const groups = YOY_GROUPS.filter((g) =>
+    data.metrics.some((m) => m.group === g.id),
+  );
+  const [groupId, setGroupId] = useState<YoYGroupId>(
+    groups[0]?.id ?? "finanse",
+  );
+  const metrics = data.metrics.filter((m) => m.group === groupId);
+  const [metricKey, setMetricKey] = useState<string | null>(null);
+  const selected =
+    metrics.find((m) => m.key === metricKey) ?? metrics[0] ?? null;
+  // Ostrzeżenie o pokryciu stoi PRZY grupie, której dotyczy: Dywersyfikacja
+  // i część Wskaźników liczą się z pipeline'u i są porównywalne między latami.
+  const contractBased = metrics.some((m) => m.basis === "contracts");
+
+  return (
+    <div className="space-y-4">
+      <div
+        role="tablist"
+        aria-label="Grupy metryk"
+        className="inline-flex flex-wrap gap-0.5 rounded-lg bg-muted p-1"
+      >
+        {groups.map((g) => (
+          <button
+            key={g.id}
+            type="button"
+            role="tab"
+            aria-selected={g.id === groupId}
+            onClick={() => {
+              setGroupId(g.id);
+              setMetricKey(null);
+            }}
+            className={cn(
+              "min-h-8 rounded-md px-3 text-sm font-semibold transition-colors",
+              g.id === groupId
+                ? "bg-card text-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {g.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Linie na kartach: {data.years.slice(-3).join(" · ")} — im ciemniejsza,
+        tym nowszy rok. Kliknij kartę, żeby zobaczyć miesiące.
+      </p>
+      {contractBased && !data.coverage.money_comparable_across_years ? (
+        <CoverageWarning data={data} />
+      ) : null}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {metrics.map((metric) => (
+          <MetricCard
+            key={metric.key}
+            metric={metric}
+            data={data}
+            active={selected?.key === metric.key}
+            onSelect={() => setMetricKey(metric.key)}
+          />
+        ))}
+      </div>
+      {selected ? <MetricTable metric={selected} data={data} /> : null}
+    </div>
+  );
+}
+
+const SPARK_STROKE = [
+  "stroke-primary/25",
+  "stroke-primary/55",
+  "stroke-primary",
+] as const;
+
+function MetricCard({
+  metric,
+  data,
+  active,
+  onSelect,
+}: {
+  metric: InsightsYoYMetric;
+  data: InsightsYoYResponse;
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const table = useMemo(
+    () =>
+      buildYoYTable(
+        metric,
+        data.years,
+        data.month_labels,
+        data.partial_month,
+        data.component_series,
+      ),
+    [
+      metric,
+      data.years,
+      data.month_labels,
+      data.partial_month,
+      data.component_series,
+    ],
+  );
+  const lastIndex = data.years.length - 1;
+  const lastValue = table.summary.values[lastIndex] ?? null;
+  const lastDelta = table.summary.deltas[lastIndex - 1];
+  const all = data.years.flatMap((y) =>
+    (metric.series[String(y)] ?? []).filter(
+      (v): v is number => v !== null && v !== undefined,
+    ),
+  );
+  const max = Math.max(1, ...all);
+  const min = Math.min(0, ...all);
+  const W = 220;
+  const H = 64;
+  const point = (v: number, i: number) =>
+    `${((i / 11) * W).toFixed(1)},${(H - 4 - ((v - min) / (max - min || 1)) * (H - 8)).toFixed(1)}`;
+  const paths = data.years.slice(-3).map((y) => {
+    const series = metric.series[String(y)] ?? [];
+    const pts: string[] = [];
+    series.forEach((v, i) => {
+      if (v !== null && v !== undefined) pts.push(point(v, i));
+    });
+    return pts.join(" ");
+  });
+  const strokes = SPARK_STROKE.slice(3 - paths.length);
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={active}
+      className={cn(
+        "flex flex-col gap-2 rounded-xl border bg-card p-4 text-left shadow-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+        active ? "border-primary ring-1 ring-primary/30" : "border-border hover:border-primary/40",
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-foreground">
+            {metric.label}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {AGGREGATE_LABEL[metric.aggregate]}
+            {metric.lower_is_better ? " · niżej = lepiej" : ""}
+          </div>
+        </div>
+        {lastDelta ? <VerdictCell delta={lastDelta} /> : null}
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="h-16 w-full"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        {paths.map((pts, i) =>
+          pts ? (
+            <polyline
+              key={i}
+              points={pts}
+              fill="none"
+              strokeWidth={i === paths.length - 1 ? 2.5 : 2}
+              vectorEffect="non-scaling-stroke"
+              className={strokes[i]}
+            />
+          ) : null,
+        )}
+      </svg>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-lg font-bold tabular-nums text-foreground">
+          {formatValue(lastValue, metric.unit)}
+        </span>
+        <span className="text-xs">
+          {lastDelta ? <DeltaCell delta={lastDelta} /> : null}
+          <span className="ml-1 text-muted-foreground">
+            {table.summary.ytd ? "YTD r/r" : "r/r"}
+          </span>
+        </span>
+      </div>
+    </button>
   );
 }
 

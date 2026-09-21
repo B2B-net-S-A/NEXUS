@@ -800,6 +800,85 @@ export interface InsightsYoYParams {
   years?: number;
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Portfele Delivery Leadów — `/api/insights/delivery-leads/portfolio`
+// (rozdział Klienci, 21.09.2026). Nagłówek DL i wiersze klientów liczone TĄ
+// SAMĄ definicją co `/delivery-leads` (tylko body_leasing, DL rozstrzygany per
+// rekrutacja), więc suma wierszy zgadza się z nagłówkiem. Hit ratio w procentach.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface InsightsDlPortfolioClient {
+  client_id: number | null;
+  client_name: string;
+  requests: number;
+  vacancies: number;
+  placements: number;
+  hit_ratio: number | null;
+  fill_rate: number | null;
+  /** Opublikowane rekrutacje — stan na teraz, nie w oknie. */
+  open_jobs: number;
+  /** Sześć miesięcy kończących się na końcu okna. */
+  monthly_placements: { month: string; placements: number }[];
+  top_hiring_manager: {
+    contact_id: number;
+    name: string;
+    title: string | null;
+    jobs: number;
+  } | null;
+  prev_hit_ratio: number | null;
+  delta_pp: number | null;
+  alert: "hit_ratio_drop" | null;
+}
+
+export interface InsightsDlPortfolioLead {
+  dl_id: number;
+  dl_name: string;
+  is_active: boolean;
+  requests: number;
+  vacancies: number;
+  placements: number;
+  hit_ratio: number | null;
+  fill_rate: number | null;
+  open_requests: number;
+  target_achieved: boolean | null;
+  clients: InsightsDlPortfolioClient[];
+}
+
+export interface InsightsDlPortfolioResponse {
+  period: InsightsPeriod;
+  hit_ratio_target_pct: number;
+  leads: InsightsDlPortfolioLead[];
+  unattributed: { requests: number; placements: number };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kompetencje × etapy — `/api/insights/recruitment/competence-matrix`
+// (rozdział Wyniki, część „Praca w toku"). Stan na dziś, bez okresu.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CompetenceStageKey =
+  | "new"
+  | "screening"
+  | "cv_sent"
+  | "client_interview"
+  | "acceptance";
+
+export interface InsightsCompetenceMatrixResponse {
+  as_of: string;
+  stages: { key: CompetenceStageKey; label: string }[];
+  categories: {
+    category_id: number | null;
+    name: string;
+    open_jobs: number;
+    stage_counts: Record<CompetenceStageKey, number>;
+  }[];
+  totals: {
+    open_jobs: number;
+    stage_counts: Record<CompetenceStageKey, number>;
+  };
+}
+
 export const insightsQueryKeys = {
   board: (p: InsightsPeriodParams) => ["insights", "board", p] as const,
   clientsRanking: (p: InsightsPeriodParams) =>
@@ -821,6 +900,10 @@ export const insightsQueryKeys = {
   // Siatka rok-do-roku NIE zależy od paska okresu — patrzy na pełne lata
   // kalendarzowe, więc klucz nie może nieść `period`.
   boardYoY: (p: InsightsYoYParams) => ["insights", "board", "yoy", p] as const,
+  dlPortfolio: (p: InsightsPeriodParams) =>
+    ["insights", "delivery-leads", "portfolio", p] as const,
+  competenceMatrix: () =>
+    ["insights", "recruitment", "competence-matrix"] as const,
 };
 
 export const insightsBoardApi = {
@@ -878,6 +961,21 @@ export const insightsBoardApi = {
    * stoi na trzech rolach (admin / HoR / finance) i nie zna okresu w ogóle.
    * Guard tamtego routera ZOSTAJE nietknięty.
    */
+  dlPortfolio: (p: InsightsPeriodParams) =>
+    api
+      .get<InsightsDlPortfolioResponse>(
+        "/api/insights/delivery-leads/portfolio",
+        { params: periodQuery(p) },
+      )
+      .then((r) => r.data),
+
+  competenceMatrix: () =>
+    api
+      .get<InsightsCompetenceMatrixResponse>(
+        "/api/insights/recruitment/competence-matrix",
+      )
+      .then((r) => r.data),
+
   hiringManagers: (p: InsightsPeriodParams) =>
     api
       .get<InsightsHiringManagersResponse>(

@@ -43,7 +43,6 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import { InsightsHiringManagers } from "@/components/insights/sections/InsightsHiringManagers";
 import { InsightsInviteLinks } from "@/components/insights/sections/InsightsInviteLinks";
 import { InsightsTeamActivity } from "@/components/insights/sections/InsightsTeamActivity";
 import type { InsightsPeriodParams } from "@/lib/insights-api";
@@ -312,117 +311,5 @@ describe("InsightsInviteLinks", () => {
     expect(
       screen.queryByText(/Nie wygenerowano żadnych linków/),
     ).not.toBeInTheDocument();
-  });
-});
-
-describe("InsightsHiringManagers", () => {
-  const MANAGERS = {
-    period: WINDOW,
-    limit: 50,
-    managers: [
-      {
-        contact_id: 11,
-        contact_name: "Jan Nowak",
-        position: "CTO",
-        client_id: 5,
-        client_name: "Bank Testowy",
-        jobs_total: 4,
-        jobs_open: 2,
-        contracts_total: 3,
-        contracts_active: 1,
-        contract_rate_pct: 75.0,
-      },
-      {
-        contact_id: 12,
-        contact_name: "Ewa Bez Rekrutacji",
-        position: null,
-        client_id: 6,
-        client_name: "Klient Drugi",
-        jobs_total: 1,
-        jobs_open: 0,
-        contracts_total: 0,
-        contracts_active: 0,
-        contract_rate_pct: null,
-      },
-    ],
-    totals: {
-      managers: 2,
-      jobs_total: 5,
-      jobs_open: 2,
-      contracts_total: 3,
-      contracts_active: 1,
-      open_rate_pct: 40.0,
-    },
-    truncated: 3,
-    scope: {
-      jobs: "job_created_at_in_window",
-      contracts: "contracts_of_jobs_in_window",
-      contracts_active_is_snapshot_now: true,
-      note: "„Aktywni” to stan NA DZIŚ — statusy kontraktów nie mają historii.",
-    },
-  };
-
-  it("czyta `/api/insights/*`, nie router legacy z trzema rolami", async () => {
-    respond({ [HIRING_MANAGERS]: MANAGERS });
-
-    renderSection(<InsightsHiringManagers period={PERIOD} />);
-
-    expect(await screen.findByText("Jan Nowak")).toBeInTheDocument();
-    expect(mocks.get).toHaveBeenCalledWith(HIRING_MANAGERS, expect.anything());
-  });
-
-  it("`contract_rate_pct === null` renderuje „—”, nie „0%”", async () => {
-    respond({ [HIRING_MANAGERS]: MANAGERS });
-
-    renderSection(<InsightsHiringManagers period={PERIOD} />);
-
-    const row = (await screen.findByText("Ewa Bez Rekrutacji")).closest("tr")!;
-    expect(row.textContent).toContain("—");
-  });
-
-  it("mówi, ilu HM odsiał limit — przycięta lista czyta się jako komplet", async () => {
-    respond({ [HIRING_MANAGERS]: MANAGERS });
-
-    renderSection(<InsightsHiringManagers period={PERIOD} />);
-
-    expect(await screen.findByText(/Pokazano 2 z 5/)).toBeInTheDocument();
-  });
-
-  it("mówi, że „Aktywni” to migawka na dziś, nie stan z końca okna", async () => {
-    respond({ [HIRING_MANAGERS]: MANAGERS });
-
-    renderSection(<InsightsHiringManagers period={PERIOD} />);
-
-    expect(await screen.findByText(/stan NA DZIŚ/)).toBeInTheDocument();
-  });
-
-  it("przy 403 nie renderuje zachęty do uzupełnienia danych", async () => {
-    respond({ [HIRING_MANAGERS]: httpError(403) });
-
-    renderSection(<InsightsHiringManagers period={PERIOD} />);
-
-    expect(
-      await screen.findByText(/nie ma dostępu do sekcji/),
-    ).toBeInTheDocument();
-    // Pusty stan namawia do wypełnienia pola „Hiring manager”. Przy braku
-    // uprawnień to rada, której odbiorca nie może wykonać, i sugeruje, że
-    // danych nie ma — a są.
-    expect(
-      screen.queryByText(/nie ma przypisanego hiring managera/),
-    ).not.toBeInTheDocument();
-  });
-
-  it("przy 500 pokazuje awarię zamiast dawnego zdania o rolach", async () => {
-    respond({ [HIRING_MANAGERS]: httpError(500) });
-
-    renderSection(<InsightsHiringManagers period={PERIOD} />);
-
-    // Dawna sekcja pisała przy KAŻDYM błędzie „Wymaga roli admin /
-    // head_of_recruitment.” — także przy 500, czyli myliła awarię serwera
-    // z brakiem uprawnień.
-    expect(
-      await screen.findByText(/Nie udało się pobrać danych sekcji/),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/Wymaga roli admin/)).not.toBeInTheDocument();
   });
 });

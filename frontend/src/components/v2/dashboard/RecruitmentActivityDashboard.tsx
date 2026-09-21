@@ -410,7 +410,15 @@ function ComparisonCard({
   )
 }
 
-export function RecruitmentActivityDashboard() {
+export function RecruitmentActivityDashboard({
+  showNextSteps = true,
+}: {
+  /**
+   * „Moje następne kroki" należą do pulpitu. Insights montuje tę sekcję jako
+   * statystykę, więc lista zadań nad nią byłaby tam obcym ciałem.
+   */
+  showNextSteps?: boolean
+} = {}) {
   const authUser = useAuthStore((state) => state.user)
   const scopeCacheKey = `${authUser?.id ?? "anonymous"}:${authUser?.authorization_version ?? "none"}`
   const initialDay = useMemo(() => warsawToday(), [])
@@ -506,7 +514,7 @@ export function RecruitmentActivityDashboard() {
 
   return (
     <>
-    {canReadPipeline ? <MyNextStepsSection /> : null}
+    {canReadPipeline && showNextSteps ? <MyNextStepsSection /> : null}
     <section
       aria-labelledby="recruitment-activity-heading"
       data-testid="recruitment-activity-dashboard"
