@@ -34,9 +34,14 @@ function renderValue(value: unknown): string {
       .map((v) =>
         v && typeof v === "object" && "from" in (v as object)
           ? `${(v as { from: string }).from} → ${(v as { to: string }).to}`
-          : String(v),
+          : renderValue(v),
       )
       .join(", ") || "—";
+  }
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .map(([key, item]) => `${RULE_FIELD_LABELS[key] ?? key}: ${renderValue(item)}`)
+      .join("; ") || "—";
   }
   return String(value);
 }

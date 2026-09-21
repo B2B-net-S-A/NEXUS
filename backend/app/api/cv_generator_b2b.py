@@ -463,7 +463,11 @@ async def _finalize_success(
     # identifiable (the DOCX itself remains anonymized on re-render).
     row.candidate_name = str(payload.get("name") or result.candidate_name)
     row.position = (
-        (payload.get("considered_for") or payload.get("position"))
+        (
+            payload.get("presentation_position")
+            or payload.get("considered_for")
+            or payload.get("position")
+        )
         if getattr(row, "central_policy", None)
         else payload.get("position")
     )

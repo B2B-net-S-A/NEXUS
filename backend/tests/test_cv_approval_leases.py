@@ -117,7 +117,8 @@ async def test_review_capacity_is_shared_between_concurrent_claims():
             assert await leases.claim_review(db, queued[0]) is not None
 
 
-async def test_cancel_fences_worker_and_preserves_terminal_evidence():
+@pytest.mark.parametrize("review_status", ["verified", "reviewed"])
+async def test_cancel_fences_worker_and_preserves_terminal_evidence(review_status):
     async with review_jobs(2) as (cancelled, completed):
         async with AsyncSessionLocal() as db:
             token = await leases.claim_review(db, cancelled)
@@ -130,7 +131,9 @@ async def test_cancel_fences_worker_and_preserves_terminal_evidence():
             assert await leases.claim_review(db, cancelled) is None
             other = await leases.claim_review(db, completed)
             assert other
-            evidence = {"status": "verified", "html_sha256": "c" * 64}
+            evidence = {"status": review_status, "html_sha256": "c" * 64}
+            if review_status == "reviewed":
+                evidence["findings"] = {"count": 1, "paths": ["/why_points/0"]}
             assert await leases.finish_review(
                 db, completed, other, status="verified", result=evidence
             )
@@ -143,7 +146,12 @@ async def test_cancel_fences_worker_and_preserves_terminal_evidence():
 
 @pytest.mark.parametrize(
     "status,result",
-    [("queued", None), ("verified", None), ("verified", {"status": "failed"})],
+    [
+        ("queued", None),
+        ("verified", None),
+        ("verified", {"status": "failed"}),
+        ("verified", {"status": "unverified"}),
+    ],
 )
 async def test_invalid_completion_never_touches_database(status, result):
     db = AsyncMock()

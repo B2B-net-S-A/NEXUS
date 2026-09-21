@@ -529,6 +529,7 @@ export function CVGeneratorStandaloneV2({
     (embedded ? !!uploadRecruitment : (!uploadStageId || !!uploadRecruitment)) &&
     (!!effectiveClientId || outsideAssignment);
   const canSubmit =
+    !centralPolicy.isPending && !centralPolicy.isError &&
     (mode === "new" ? canSubmitNew : canSubmitOld) &&
     (centrallyManaged || !consentRequired || !!consentKey) &&
     requirementProblems.length === 0;
@@ -1203,6 +1204,8 @@ export function CVGeneratorStandaloneV2({
           bottom-0` w kontenerze przewijania (main z overflow-y-auto) trzyma
           przycisk przy dolnej krawędzi widoku przez cały formularz i zwalnia go
           dopiero przy liście „Wygenerowane CV" poniżej. */}
+      {centralPolicy.isPending && <p role="status">Wczytuję zasady CV i liczbę wersji językowych…</p>}
+      {centralPolicy.isError && <p role="alert">Nie udało się odczytać zasad CV. Odśwież stronę przed generacją.</p>}
       {centrallyManaged && <div className="mt-4 rounded-md border border-border bg-muted/30 p-3 text-sm">
         <p className="font-medium">{centralPolicy.data?.content_mode === "tailored" ? "Automatyczne dopasowanie do kompletnego Profilu Championa" : "CV ogólne — neutralna redakcja z zachowaniem faktów"}</p>
         <p>{centralPolicy.data?.effective_policy?.requires_en_copy ? "Powstaną 2 wersje: PL i EN. Druga wersja oznacza dodatkowe zużycie AI." : `Powstanie 1 wersja: ${(forcedLanguage || language).toUpperCase()}.`}</p>

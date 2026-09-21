@@ -378,14 +378,15 @@ async def test_missing_source_returns_recovery_code_without_charging(
 
 
 @pytest.mark.parametrize("changed", [None, "source_snapshot_sha256", "prompt_sha256"])
+@pytest.mark.parametrize("review_status", ["verified", "reviewed"])
 async def test_completed_background_review_reused_only_for_current_source(
-    monkeypatch, changed
+    monkeypatch, changed, review_status
 ):
     import hashlib
 
     content = "<p>Verified claim</p>"
     receipt = {
-        "status": "verified",
+        "status": review_status,
         "method": "edited_source_review",
         "generated_document_id": 11,
         "html_sha256": hashlib.sha256(content.encode()).hexdigest(),

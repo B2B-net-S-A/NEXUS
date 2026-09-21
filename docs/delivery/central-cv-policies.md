@@ -11,7 +11,7 @@ Synchronizacja jest idempotentna i serializowana blokadą klienta. Zachowuje pop
 ## Przepływ
 
 - Serwer ustala klienta z rekrutacji, wymusza język i automatyczny tryb. Kompletny Profil Championa pozwala na dopasowanie, niekompletny kontekst daje CV ogólne. Ograniczenie klienta pozostaje nadrzędne.
-- Nazwa i linia roli w nagłówku korzystają z jednej tłumaczonej wartości. Historyczne stanowiska kandydata są osobnymi faktami.
+- Nazwa pliku i jedyny nagłówek dokumentu korzystają z jednej tłumaczonej wartości. Historyczne stanowiska kandydata są osobnymi faktami. Oznaczenie „CV ogólne” pozostaje w interfejsie; dokument nie zawiera etykiet „General CV” ani „Considered for”.
 - Obie wersje językowe korzystają z tych samych zapisanych źródeł. Ponowienie pomija gotowy dokument i wykorzystuje istniejący zapis nieudanej wersji. Prywatne fakty podlegają retencji źródeł zadania.
 - Wersje dokumentów zatwierdza istniejący edytor. Osobne potwierdzenie pakietu zapisuje wersje dokumentów, politykę, wersję wskazanej notatki i potwierdzenie sprawdzenia źródeł. Odcisk podglądu zapobiega zatwierdzeniu zmiany, której użytkownik nie widział.
 - Nowe linki wymagają gotowego pakietu. Publiczny widok otrzymuje wyłącznie zatwierdzone wersje zamrożone w linku. Notatka nie jest automatycznie publikowana.
