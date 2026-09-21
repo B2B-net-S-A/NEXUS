@@ -922,3 +922,100 @@ async def test_active_contract_horizon_is_left_alone(app_client, app_auth_header
     status, end_date = await _contract_state(contract_id)
     assert status == ContractStatus.active
     assert end_date == contract_end
+
+
+@pytest.mark.parametrize(
+    "patch_mode", ["period", "metadata", "unchanged_period", "explicit_status"]
+)
+async def test_completed_periodic_order_patch_status_persists(
+    app_client, app_auth_headers, monkeypatch, patch_mode
+):
+    from datetime import datetime, timezone
+    from app.api import client_orders
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.services import periodic_order_lifecycle
+
+    today = date(2026, 9, 21)
+    monkeypatch.setattr(client_orders, "business_today", lambda: today)
+    monkeypatch.setattr(periodic_order_lifecycle, "business_today", lambda: today)
+    client_id, contract_id = await _seed_ended_contract(
+        end_date=date(2026, 12, 31), status=ContractStatus.active
+    )
+    filled_at = datetime(2026, 6, 15, tzinfo=timezone.utc)
+    async with AsyncSessionLocal() as db:
+        item = ClientOrder(
+            client_id=client_id,
+            contract_id=contract_id,
+            title="286139",
+            status=ClientOrderStatus.completed,
+            order_type="periodic",
+            start_date=date(2026, 6, 15),
+            end_date=date(2026, 9, 14),
+            rate_client=178,
+            filled_at=filled_at,
+        )
+        db.add(item)
+        await db.commit()
+        order_id = item.id
+    payload = {"start_date": "2026-09-15", "end_date": "2026-12-31"}
+    if patch_mode == "metadata":
+        payload = {"notes": "No period change"}
+    elif patch_mode == "unchanged_period":
+        payload = {"start_date": "2026-06-15", "end_date": "2026-09-14"}
+    elif patch_mode == "explicit_status":
+        payload["status"] = "completed"
+    expected = "active" if patch_mode == "period" else "completed"
+    response = await app_client.patch(
+        f"/api/clients/{client_id}/orders/{order_id}",
+        json=payload,
+        headers=app_auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == expected
+    async with AsyncSessionLocal() as db:
+        saved = await db.get(ClientOrder, order_id)
+        assert saved.status.value == expected
+        assert saved.filled_at == filled_at
+    response = await app_client.get(
+        f"/api/clients/{client_id}/orders", headers=app_auth_headers
+    )
+    assert response.status_code == 200, response.text
+    person = next(
+        c for c in response.json()["contractors"] if c["contract_id"] == contract_id
+    )
+    assert (
+        next(o for o in person["orders"] if o["id"] == order_id)["status"] == expected
+    )
+
+
+@pytest.mark.parametrize(
+    "offset, expected", [(-1, "completed"), (0, "active"), (100, "active")]
+)
+async def test_new_periodic_order_normalizes_end_date(
+    app_client, app_auth_headers, offset, expected
+):
+    from app.core.scheduling import business_today
+    from app.models.client_order import ClientOrder
+
+    today = business_today()
+    client_id, contract_id = await _seed_ended_contract(
+        end_date=today + timedelta(days=200), status=ContractStatus.active
+    )
+    response = await app_client.post(
+        f"/api/clients/{client_id}/orders",
+        data={
+            "contract_id": str(contract_id),
+            "title": "PERIOD-TEST",
+            "order_type": "periodic",
+            "order_status": "active",
+            "start_date": (today - timedelta(days=30)).isoformat(),
+            "end_date": (today + timedelta(days=offset)).isoformat(),
+            "rate_client": "178",
+        },
+        headers=app_auth_headers,
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["status"] == expected
+    async with AsyncSessionLocal() as db:
+        saved = await db.get(ClientOrder, response.json()["id"])
+        assert saved.status.value == expected

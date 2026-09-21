@@ -62,6 +62,7 @@ vi.mock("@/lib/api/dlPortal", () => ({
     closeOrder: vi.fn(),
     createOrderExtension: vi.fn(),
     extractOrderPdf: vi.fn(),
+    replaceOrderPo: vi.fn(),
     // Domyślna jednostka klienta (nigdy `monthly`) — formularze inicjują nią
     // pole „jednostka stawki" zamiast twardego `monthly`.
     getDefaultRateUnit: vi.fn().mockResolvedValue({ data: { rate_unit: "hourly" } }),
@@ -1721,4 +1722,56 @@ describe("ContractorOrderCards — deep link z panelu „Moi klienci”", () => 
     await screen.findByRole("heading", { name: /Tomasz Sadowski/ });
     expect(screen.queryByRole("dialog", { name: "Uzupełnij zamówienie" })).toBeNull();
   });
+});
+
+
+describe("reactivation after completing an order", () => {
+  it.each(["success", "save_failure", "upload_failure"])(
+    "keeps the existing card synchronized: %s",
+    async (outcome) => {
+      const user = userEvent.setup();
+      let saved = false;
+      const updated = { ...HISTORY, status: "active", start_date: localISO(-6), end_date: localISO(100) };
+      vi.mocked(dlPortalApi.listContractorsWithOrders).mockImplementation(async () => ({
+        data: {
+          contractors: [{ ...structuredClone(CONTRACTOR), orders: [saved ? updated : HISTORY] }],
+          total_contractors: 1,
+          can_manage_finance: true,
+        },
+      }) as never);
+      vi.mocked(dlPortalApi.updateOrder).mockImplementation(async () => {
+        if (outcome === "save_failure") throw new Error("Zapis odrzucony");
+        saved = true;
+        return { data: updated } as never;
+      });
+      vi.mocked(dlPortalApi.replaceOrderPo).mockRejectedValue(new Error("Upload odrzucony"));
+      renderTab();
+      expect(await screen.findByTestId("no-active-order-note")).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Uzupełnij zamówienie" }));
+      fireEvent.change(screen.getByLabelText("Data od"), { target: { value: updated.start_date } });
+      fireEvent.change(screen.getByLabelText("Data do"), { target: { value: updated.end_date } });
+      if (outcome === "upload_failure") {
+        fireEvent.change(screen.getByLabelText(/Zamień plik PDF/i), {
+          target: { files: [new File(["pdf"], "order.pdf", { type: "application/pdf" })] },
+        });
+      }
+      await user.click(screen.getByRole("button", { name: "Zapisz" }));
+      await waitFor(() => expect(dlPortalApi.updateOrder).toHaveBeenCalledTimes(1));
+      if (outcome === "save_failure") {
+        expect(await screen.findByText("Zapis odrzucony")).toBeInTheDocument();
+        expect(screen.getByTestId("no-active-order-note")).toBeInTheDocument();
+        expect(dlPortalApi.listContractorsWithOrders).toHaveBeenCalledTimes(1);
+      } else {
+        await waitFor(() => expect(screen.queryByTestId("no-active-order-note")).toBeNull());
+        expect(dlPortalApi.listContractorsWithOrders).toHaveBeenCalledTimes(2);
+        if (outcome === "upload_failure") {
+          expect(await screen.findByText("Upload odrzucony")).toBeInTheDocument();
+          expect(screen.getByRole("dialog", { name: "Uzupełnij zamówienie" })).toBeInTheDocument();
+        } else {
+          await waitFor(() => expect(screen.queryByRole("dialog", { name: "Uzupełnij zamówienie" })).toBeNull());
+          expect(screen.getByText("Zamówienie zaktualizowane")).toBeInTheDocument();
+        }
+      }
+    },
+  );
 });

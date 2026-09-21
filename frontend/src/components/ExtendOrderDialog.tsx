@@ -43,7 +43,7 @@ interface ExtendOrderDialogProps {
   contract: ContractWithOrdersRead;
   canManageFinance?: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: () => void | Promise<void>;
 }
 
 /** Flow A — "Dodaj przedłużenie": tworzy Order pod istniejącym Contract. */
@@ -270,9 +270,9 @@ export function ExtendOrderDialog({
       if (file) fd.append("file", file);
       return dlPortalApi.createOrderExtension(clientId, fd);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await onCreated();
       showToast("Przedłużenie dodane", "success");
-      onCreated();
     },
     onError: (err: unknown) => {
       showToast(err instanceof Error ? err.message : "Błąd zapisu", "error");

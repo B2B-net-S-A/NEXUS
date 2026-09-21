@@ -55,7 +55,7 @@ interface NewContractorOrderDialogProps {
    */
   defaultRateUnit?: OrderRateUnit | null;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: () => void | Promise<void>;
 }
 
 interface CandidateSearchItem {
@@ -424,7 +424,7 @@ export function NewContractorOrderDialog({
         `Utworzono kontrakt #${res.data.contract_id} i zamówienie #${res.data.order_id}${marginSuffix}${fileNote}`,
         fileNote ? "error" : "success",
       );
-      onCreated();
+      await onCreated();
     },
     onError: (err: unknown) => {
       showError(extractErrorMsg(err));

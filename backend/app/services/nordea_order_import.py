@@ -356,6 +356,7 @@ async def import_nordea_orders(
     from app.models.contract_framework_rate import ContractFrameworkRate
     from app.services.contract_lifecycle import sync_contract_to_live_order
     from app.services.order_rate_snapshots import inherited_order_rate_fields
+    from app.services.periodic_order_lifecycle import refresh_periodic_order_status
 
     client_label = client.display_name or client.legal_name or client.name
     if "nordea" not in _normalize_name_part(client_label):
@@ -456,11 +457,7 @@ async def import_nordea_orders(
                     contract_id=contract.id,
                     title=row.order_number,
                     order_type="periodic",
-                    status=(
-                        ClientOrderStatus.completed
-                        if row.end_date < today
-                        else ClientOrderStatus.active
-                    ),
+                    status=ClientOrderStatus.active,
                     start_date=row.start_date,
                     end_date=row.end_date,
                     **inherited_order_rate_fields(
@@ -470,6 +467,7 @@ async def import_nordea_orders(
                     created_by_user_id=user_id,
                     notes=f"Import Nordea z pliku {filename}",
                 )
+                refresh_periodic_order_status(order, today=today)
                 db.add(order)
                 contract.client_orders.append(order)
                 counters["orders_created"] += 1
@@ -480,15 +478,18 @@ async def import_nordea_orders(
                     counters["fuzzy_matched"] += 1
                 # Intentionally do not mutate Contract.rate_candidate or
                 # ClientOrder.md_rate_cost: the ticket explicitly preserves cost.
+                period_changed = (
+                    order.start_date != row.start_date or order.end_date != row.end_date
+                )
+                was_draft = order.status == ClientOrderStatus.draft
                 order.title = row.order_number
                 order.start_date = row.start_date
                 order.end_date = row.end_date
                 order.rate_client = row.revenue_rate
-                order.status = (
-                    ClientOrderStatus.completed
-                    if row.end_date < today
-                    else ClientOrderStatus.active
-                )
+                if was_draft:
+                    order.status = ClientOrderStatus.active
+                if period_changed or was_draft:
+                    refresh_periodic_order_status(order, today=today)
                 changed = before != _order_state(order)
                 counters["orders_unchanged" if not changed else "orders_updated"] += 1
                 if changed:

@@ -35,7 +35,7 @@ interface NordeaImportReport {
 
 interface Props {
   clientId: number;
-  onApplied: () => void;
+  onApplied: () => void | Promise<void>;
 }
 
 export function NordeaOrderImportPanel({ clientId, onApplied }: Props) {
@@ -65,7 +65,7 @@ export function NordeaOrderImportPanel({ clientId, onApplied }: Props) {
         showToast("Podgląd importu Nordea jest gotowy", "success");
       } else {
         showToast("Dane zamówień Nordea zostały zaimportowane", "success");
-        onApplied();
+        await onApplied();
       }
     } catch (caught) {
       setError(extractErrorMsg(caught));
