@@ -57,6 +57,7 @@ export type Capability =
   | "dashboard.recruitment_stats.view"
   // ── Wejścia nawigacyjne ────────────────────────────────────────────────────
   | "nav.candidates"
+  | "nav.my_people"
   | "nav.talents"
   | "nav.talent_radar"
   | "nav.sourcing"
@@ -200,6 +201,9 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // sidebara. Trzymane tutaj, żeby Command Palette nie utrzymywała drugiej,
   // rozjeżdżającej się kopii.
   "nav.candidates": OPERATIONAL,
+  // Panel „Moi ludzie" — GET /api/my-people → CandidateSearchAccess
+  // (backend/app/api/my_people.py), ten sam guard co lista kandydatów.
+  "nav.my_people": OPERATIONAL,
   "nav.talents": OPERATIONAL,
   // Radar dla KAŻDEJ roli (decyzja produktowa 19.08) — backend lustrzanie
   // na CurrentUser, middleware bez wpisu (= brak zawężenia).
@@ -252,6 +256,7 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "candidate.requirement.verify": { section: "sourcing", required: "write" },
   "client.portfolio.manage": { section: "delivery", required: "write" },
   "nav.candidates": { section: "sourcing", required: "read" },
+  "nav.my_people": { section: "sourcing", required: "read" },
   "nav.talents": { section: "sourcing", required: "read" },
   "nav.talent_radar": { section: "sourcing", required: "read" },
   "nav.sourcing": { section: "sourcing", required: "read" },

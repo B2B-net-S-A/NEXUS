@@ -509,6 +509,20 @@ class Settings(BaseSettings):
     JARVIS_ACTION_TTL_MINUTES: int = 15
     AUTO_MATCH_MAX_ATTEMPTS: int = 3
     AUTO_MATCH_STALE_HOURS: int = 48
+    # ── „Moi ludzie" (21.09.2026) ────────────────────────────────────────────
+    # Publikacja rekrutacji sprawdza listy „Moi ludzie" wszystkich rekruterów
+    # i wysyła jeden dzwonek na (rekruter, rekrutacja) z osobami, które pasują.
+    # Działa niezależnie od AUTO_MATCH_DRY_RUN (niczego nie dodaje do pipeline'u),
+    # ale jedzie na kolejce auto-matcha — przy AUTO_MATCH_ENABLED=false stoi.
+    MY_PEOPLE_MATCH_ENABLED: bool = True
+    # Próg kanonicznego fitu (0-100), ten sam rząd co AUTO_MATCH_MIN_SCORE.
+    MY_PEOPLE_MATCH_MIN_SCORE: int = 70
+    # Najwięcej osób na jeden dzwonek jednego rekrutera.
+    MY_PEOPLE_MATCH_MAX_PER_USER: int = 10
+    # Ile najbliższych wektorowo osób dostaje pełną ocenę (≤ 300, sufit Qdranta).
+    MY_PEOPLE_MATCH_POOL: int = 200
+    # To samo dla zakładki „Do tej rekrutacji" liczonej na żądanie.
+    MY_PEOPLE_PANEL_POOL: int = 60
     # CV z maila od nadawcy spoza bazy zakłada kandydata (z dedupem po treści CV).
     M365_AUTO_CREATE_CANDIDATE_FROM_CV: bool = True
     # Tylko poczta z ostatnich N dni — bez tego pierwszy bieg po wdrożeniu

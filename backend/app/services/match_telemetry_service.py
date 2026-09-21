@@ -419,6 +419,7 @@ PIPELINE_ADD_SOURCES = frozenset(
         "talent_radar",
         "candidate_list",
         "jarvis",
+        "my_people",
     }
 )
 

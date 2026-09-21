@@ -98,6 +98,31 @@ async def _claim(db) -> list[int]:
     return rows
 
 
+async def _run_my_people(db, event: CandidateMatchOutbox) -> dict:
+    """Dzwonek „Moi ludzie" dla tej samej publikacji rekrutacji.
+
+    Brak Qdranta (``AutoMatchUnavailable``) przechodzi dalej: zdarzenie się
+    powtórzy, a obie strony są idempotentne (dziennik auto-matcha, UNIQUE
+    dopasowań). Każdy inny błąd zostaje w savepoincie — nie może cofnąć
+    auto-matcha, który właśnie się udał.
+    """
+    from app.models.job import Job
+    from app.services.auto_match_service import AutoMatchUnavailable
+    from app.services.my_people_matching import run_for_job
+
+    job = await db.get(Job, event.job_id)
+    if job is None:
+        return {"skipped": "job_missing"}
+    try:
+        async with db.begin_nested():
+            return await run_for_job(db, job)
+    except AutoMatchUnavailable:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[my_people] job=%s failed: %s", event.job_id, exc)
+        return {"error": type(exc).__name__}
+
+
 async def _process(event_id: int) -> str:
     from app.services.auto_match_service import (
         AutoMatchUnavailable,
@@ -123,6 +148,7 @@ async def _process(event_id: int) -> str:
                 result = await run_candidate_event(db, event)
             else:
                 result = await run_job_event(db, event)
+                result = {**result, "my_people": await _run_my_people(db, event)}
         except Exception as exc:  # noqa: BLE001 — jedno zdarzenie nie zabija pętli
             await db.rollback()
             final = attempts >= max(1, settings.AUTO_MATCH_MAX_ATTEMPTS)

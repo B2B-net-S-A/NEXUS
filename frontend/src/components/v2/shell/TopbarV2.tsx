@@ -11,6 +11,7 @@ import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { NotificationsDropdown } from "@/components/NotificationsDropdown";
 import { MyKpiWidget } from "@/components/v2/kpi/MyKpiWidget";
 import { PaletteSwitcher } from "./PaletteSwitcher";
+import { MyPeopleTopbarButton } from "@/components/v2/my-people/MyPeopleLauncher";
 import { useThemeStore } from "@/store/theme";
 import { celebrate } from "@/lib/celebrate";
 
@@ -140,6 +141,7 @@ export function TopbarV2({
         <PaletteSwitcher />
         <KidsModeToggleButton />
         <ThemeToggleButton />
+        <MyPeopleTopbarButton />
         <NotificationsDropdown />
         <QuickActionsV2
           externalModal={pendingModal}

@@ -628,6 +628,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'rejection_email_skipped'",
     # 0329: koniec pełnego przeglądu bazy kandydatów (dzwonek autora).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_search_completed'",
+    # 0334: „Moi ludzie" — nowa rekrutacja pasuje do osób z listy rekrutera.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'my_people_match'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -4714,6 +4716,41 @@ _COLUMN_STATEMENTS = [
     "ON job_proposals (job_id, status, first_seen_at)",
     "CREATE INDEX IF NOT EXISTS ix_job_proposals_candidate_id "
     "ON job_proposals (candidate_id)",
+    # 0334: „Moi ludzie" — ręczne decyzje rekrutera (uśpij/przypnij) i dopasowania
+    # do nowych rekrutacji. Lustro 1:1 z migracją — pilnuje
+    # `test_my_people_migration_mirror.py`.
+    """CREATE TABLE IF NOT EXISTS my_people_overrides (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        kind VARCHAR(16) NOT NULL,
+        reason VARCHAR(32) NULL,
+        note VARCHAR(500) NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_my_people_overrides_user_candidate UNIQUE (user_id, candidate_id),
+        CONSTRAINT ck_my_people_overrides_kind CHECK (kind IN ('snoozed', 'pinned')),
+        CONSTRAINT ck_my_people_overrides_snooze_reason
+            CHECK (kind <> 'snoozed' OR reason IS NOT NULL)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_my_people_overrides_user_id "
+    "ON my_people_overrides (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_my_people_overrides_candidate_id "
+    "ON my_people_overrides (candidate_id)",
+    """CREATE TABLE IF NOT EXISTS my_people_job_matches (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        score NUMERIC(5, 2) NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        seen_at TIMESTAMPTZ NULL,
+        CONSTRAINT uq_my_people_job_matches_user_job_candidate
+            UNIQUE (user_id, job_id, candidate_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_my_people_job_matches_user_seen "
+    "ON my_people_job_matches (user_id, seen_at)",
+    "CREATE INDEX IF NOT EXISTS ix_my_people_job_matches_job "
+    "ON my_people_job_matches (job_id)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -7281,6 +7318,8 @@ _INDEX_STATEMENTS = [
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_calls_contract_id ON calls (contract_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_stages_external_id ON candidate_stages (external_id)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_stages_rejection_reason_id ON candidate_stages (rejection_reason_id)",
+    # 0334: lista „Moi ludzie" szuka etapów po osobie, która je przesunęła.
+    "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_stages_moved_by_stage ON candidate_stages (moved_by, stage)",
     "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_candidate_documents_document_kind ON candidate_documents (document_kind)",
     "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_candidate_documents_active_primary_cv "
     "ON candidate_documents (candidate_id) WHERE is_primary IS TRUE "

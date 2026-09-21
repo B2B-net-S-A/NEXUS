@@ -100,6 +100,7 @@ from app.api import dl_alerts as dl_alerts_api
 from app.api import md_consumption as md_consumption_api
 from app.api import my_clients as my_clients_api
 from app.api import my_relationships as my_relationships_api
+from app.api import my_people as my_people_api
 from app.api import hiring_managers_analytics as hiring_managers_api
 from app.api import admin_client_mixups
 from app.api import admin_clients_overview as admin_clients_overview_api
@@ -1079,6 +1080,11 @@ app.include_router(
     my_relationships_api.router,
     prefix="/api/my-relationships",
     tags=["my-relationships"],
+)
+app.include_router(
+    my_people_api.router,
+    prefix="/api/my-people",
+    tags=["my-people"],
 )
 app.include_router(
     hiring_managers_api.router,
@@ -2645,6 +2651,7 @@ async def api_health_deep_check():
         JarvisMessage,
     )
     from app.models.job_proposal import JobProposal
+    from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2797,6 +2804,9 @@ async def api_health_deep_check():
         # 0333: skrzynka „Propozycje". Lista rekrutacji liczy z niej
         # `open_proposals_count`, a dodanie kandydata do rekrutacji ją stempluje.
         ("job_proposals", JobProposal),
+        # 0334: „Moi ludzie" — panel rekrutera i dzwonek po publikacji rekrutacji.
+        ("my_people_overrides", MyPeopleOverride),
+        ("my_people_job_matches", MyPeopleJobMatch),
     ]
 
     checks: dict[str, str] = {}

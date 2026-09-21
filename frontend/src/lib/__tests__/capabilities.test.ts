@@ -232,6 +232,15 @@ const EXPECTED: Record<
     sourcer: true,
     user: false,
   },
+  "nav.my_people": {
+    admin: true,
+    head_of_recruitment: true,
+    delivery_lead: true,
+    tac: true,
+    recruiter: true,
+    sourcer: true,
+    user: false,
+  },
   "nav.talents": {
     admin: true,
     head_of_recruitment: true,
@@ -374,6 +383,7 @@ function talentCommunityManagerExpected(capability: Capability): boolean {
     "candidate.requirement.verify",
     "dashboard.recruitment_stats.view",
     "nav.candidates",
+    "nav.my_people",
     "nav.talents",
     "nav.talent_radar",
     "nav.sourcing",
@@ -834,6 +844,7 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   "client.portfolio.manage": { guards: [["deps", "AdminUser"]] },
   "dashboard.recruitment_stats.view": { guards: [["deps", "OperationalUser"]] },
   "nav.candidates": { guards: [["candidateAccess", "CandidateSearchAccess"]] },
+  "nav.my_people": { guards: [["candidateAccess", "CandidateSearchAccess"]] },
   "nav.talents": { guards: [["candidateAccess", "CandidateSearchAccess"]] },
   "nav.talent_radar": {
     productDecision:

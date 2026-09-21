@@ -255,7 +255,8 @@ export type BulkAddSource =
   | "quick_add"
   | "talent_radar"
   | "candidate_list"
-  | "jarvis";
+  | "jarvis"
+  | "my_people";
 
 export interface BulkProposalsRequest {
   candidate_ids: number[];
