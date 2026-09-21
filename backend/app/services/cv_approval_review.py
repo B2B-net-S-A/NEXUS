@@ -160,13 +160,20 @@ async def prepare_approval_review(
         "response_schema_sha256": REVIEW_RESPONSE_SCHEMA_SHA256,
     }
 
+    from app.services.cv_approval_leases import completed_receipt_statuses
+
+    accepted_statuses = completed_receipt_statuses()
+
     def matches(receipt):
         # Status is checked separately: an advisory review that FOUND problems
         # is still a completed review of exactly this content ("reviewed"), and
-        # re-running it would charge the same model for the same verdict.
+        # re-running it would charge the same model for the same verdict. In
+        # advisory mode an "unverified" receipt (reviewer unavailable, source
+        # unreadable) is a finished result too — without accepting it the
+        # recruiter loops between "run the review" and a 409 forever.
         return (
             isinstance(receipt, dict)
-            and receipt.get("status") in {"verified", "reviewed"}
+            and receipt.get("status") in accepted_statuses
             and all(
                 receipt.get(key) == value for key, value in expected_receipt.items()
             )
@@ -205,6 +212,14 @@ async def prepare_approval_review(
             extract_text_from_file, source.cv_bytes, source.cv_filename
         )
     except CVTextExtractionError as exc:
+        if not enforced:
+            # Advisory: an unreadable source means the review cannot run, not
+            # that the recruiter may not approve. Recorded honestly as
+            # "unverified", never as "verified".
+            return {
+                **degraded("source_unreadable"),
+                "method_detail": "source_unreadable",
+            }
         raise HTTPException(422, "Nie można odczytać źródła do kontroli CV.") from exc
     return PreparedApprovalReview(
         content_html=content_html,

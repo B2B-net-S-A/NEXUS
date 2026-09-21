@@ -42,6 +42,7 @@ async def test_enqueue_receipt_reuses_same_attempt_and_rejects_changed_content(
         "status": "queued",
         "error_code": None,
         "findings_count": None,
+        "review_status": None,
     }
     job = db.add.call_args.args[0]
     assert (job.generated_draft_id == 12) is standalone

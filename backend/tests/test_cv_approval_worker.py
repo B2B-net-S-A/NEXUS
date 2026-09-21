@@ -108,3 +108,77 @@ async def test_unclaimed_job_never_reads_private_input(monkeypatch):
     await worker.execute_review_job(1)
     db.get.assert_not_awaited()
     verification.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "enforced,receipt_status,expected",
+    [
+        (False, "reviewed", ("verified", None)),
+        (False, "unverified", ("verified", None)),
+        (True, "reviewed", ("verified", None)),
+        (True, "unverified", ("failed", "invalid_or_stale_input")),
+    ],
+)
+async def test_worker_terminal_state_for_advisory_receipts(
+    monkeypatch, enforced, receipt_status, expected
+):
+    """Real `finish_review`: an advisory "unverified" receipt completes the job.
+
+    Production regression: a reviewer outage returned "unverified", the lease
+    refused it and the job ended failed/invalid_or_stale_input — approval
+    became impossible.
+    """
+    monkeypatch.setenv("CV_SOURCE_EVIDENCE_ENFORCED", "true" if enforced else "false")
+    prepared = PreparedApprovalReview(
+        "<p>Claim</p>", "Source", "Notes", "Person", 11, "a" * 64, "review:1:2", "{}"
+    )
+    raw, digest = serialize_review(prepared)
+    job = SimpleNamespace(
+        status="running",
+        lease_token="owner",
+        input_content=raw,
+        input_sha256=digest,
+        generated_draft_id=12,
+        candidate_stage_cv_id=None,
+        expected_revision=2,
+        generated_document_id=11,
+        user_id=7,
+    )
+    draft = SimpleNamespace(
+        edit_revision=2, branded_status="draft", generated_document_id=11
+    )
+    db = AsyncMock()
+
+    async def get(model, object_id):
+        if model is worker.CvApprovalJob:
+            return job
+        if model is worker.CvGeneratedDraft:
+            return draft
+        return SimpleNamespace(id=7, is_active=True)
+
+    db.get.side_effect = get
+
+    @asynccontextmanager
+    async def session():
+        yield db
+
+    monkeypatch.setattr(worker, "AsyncSessionLocal", session)
+    monkeypatch.setattr(worker.leases, "claim_review", AsyncMock(return_value="owner"))
+    real_finish = worker.leases.finish_review
+    finish = AsyncMock(side_effect=real_finish)
+    monkeypatch.setattr(worker.leases, "finish_review", finish)
+
+    async def renew(*args):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(worker, "renew", renew)
+    receipt = {"status": receipt_status, "method_detail": "review_unavailable"}
+    monkeypatch.setattr(
+        worker, "execute_approval_review", AsyncMock(return_value=receipt)
+    )
+    await worker.execute_review_job(1)
+    last = finish.await_args_list[-1].kwargs
+    assert (last["status"], last.get("error_code")) == expected
+    if expected[0] == "verified":
+        assert finish.await_count == 1
+        assert last["result"] == receipt
