@@ -1,4 +1,4 @@
-"""Kształt układu własnego pulpitu (0336) — jedno źródło prawdy po stronie API.
+"""Kształt układu własnego pulpitu (0337) — jedno źródło prawdy po stronie API.
 
 Lista ``TILE_TYPES`` MUSI zgadzać się z rejestrem kafelków na froncie
 (``frontend/src/lib/api/userDashboard.ts`` i katalog

@@ -31,7 +31,7 @@ READ_ONLY_POST_ROUTE_TEMPLATES: tuple[str, ...] = (
     "/api/candidates/check-duplicates",
     "/api/candidates/export",
     "/api/candidates/bulk-cv-download",
-    # Własna metryka pulpitu: definicja w ciele, bez zapisu (0336).
+    # Własna metryka pulpitu: definicja w ciele, bez zapisu (0337).
     "/api/dashboard-metrics/evaluate",
 )
 

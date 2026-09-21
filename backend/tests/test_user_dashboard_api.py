@@ -1,4 +1,4 @@
-"""Własny pulpit (0336): zapis układu kafelków, konflikt wersji, walidacja.
+"""Własny pulpit (0337): zapis układu kafelków, konflikt wersji, walidacja.
 
 Kontrakty (decyzje Artura 21.09.2026):
 

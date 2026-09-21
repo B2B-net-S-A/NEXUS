@@ -1,7 +1,7 @@
 """Własny pulpit startowy: jeden układ kafelków na osobę.
 
-Revision ID: 0336_user_dashboards
-Revises: 0335_recruitment_automations
+Revision ID: 0337_user_dashboards
+Revises: 0336_saved_search_reapproval_notif
 
 Decyzja Artura 21.09.2026: każdy ustawia swój pulpit sam (kafelki z katalogu
 i własne metryki na siatce 12 kolumn), jeden pulpit na osobę. Układ to JSON
@@ -19,8 +19,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0336_user_dashboards"
-down_revision = "0335_recruitment_automations"
+revision = "0337_user_dashboards"
+down_revision = "0336_saved_search_reapproval_notif"
 branch_labels = None
 depends_on = None
 

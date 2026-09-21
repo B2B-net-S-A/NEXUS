@@ -5257,7 +5257,7 @@ Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
   (`CandidateFilters.semanticsVersion` → `semantics_version=2`), widok
   wyszukiwarki otwiera v3 przez `savedSearchToSearchViewRequest`. Stary ekran
   nadal ZAPISUJE formaty legacy (v1) — kolejny przebieg migracji je podniesie.
-## Własny pulpit startowy (0336, 21.09.2026)
+## Własny pulpit startowy (0337, 21.09.2026)
 
 `/dashboard` to od 21.09.2026 pulpit, który każdy układa sam z kafelków
 (decyzje Artura: start od PUSTEGO pulpitu z poleceniami dla roli, katalog
@@ -5265,7 +5265,7 @@ gotowych kafelków + kreator własnej metryki, siatka 12 kolumn z przeciąganiem
 i zmianą rozmiaru, JEDEN pulpit na osobę, stare presety ról usunięte od razu,
 finanse w kreatorze od razu). Raport: `docs/custom-dashboard-completion-report.md`.
 
-- **Układ = `user_dashboards` (0336)**, jeden wiersz na osobę, `layout` JSONB +
+- **Układ = `user_dashboards` (0337)**, jeden wiersz na osobę, `layout` JSONB +
   `version`. `GET/PUT /api/users/me/dashboard`; PUT wymaga `expected_version`
   (409 `DASHBOARD_VERSION_CONFLICT` = inna karta zapisała wcześniej). Kształt
   pilnuje `services/dashboard_tiles.py` — ściśle przy zapisie (422 po polsku),

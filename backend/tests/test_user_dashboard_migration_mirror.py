@@ -1,4 +1,4 @@
-"""0336: tabela własnego pulpitu ma lustro w entrypoincie.
+"""0337: tabela własnego pulpitu ma lustro w entrypoincie.
 
 Prod alembic bywa osierocony — `entrypoint.sh` JEST wdrożeniem. Model deklaruje
 tabelę, a `/api/health/deep` ją sonduje, więc brak lustra = 503 na prodzie
@@ -12,7 +12,7 @@ from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
 ENTRYPOINT = (BACKEND / "entrypoint.sh").read_text()
-MIGRATION = (BACKEND / "alembic" / "versions" / "0336_user_dashboards.py").read_text()
+MIGRATION = (BACKEND / "alembic" / "versions" / "0337_user_dashboards.py").read_text()
 
 
 def _collapse(sql: str) -> str:
@@ -38,6 +38,6 @@ def test_every_named_object_in_the_migration_exists_in_the_entrypoint():
         assert name in ENTRYPOINT, name
 
 
-def test_migration_chains_after_0335():
-    assert 'revision = "0336_user_dashboards"' in MIGRATION
-    assert 'down_revision = "0335_recruitment_automations"' in MIGRATION
+def test_migration_chains_after_0336():
+    assert 'revision = "0337_user_dashboards"' in MIGRATION
+    assert 'down_revision = "0336_saved_search_reapproval_notif"' in MIGRATION

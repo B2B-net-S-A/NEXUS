@@ -4774,7 +4774,7 @@ _COLUMN_STATEMENTS = [
     "ON my_people_job_matches (user_id, seen_at)",
     "CREATE INDEX IF NOT EXISTS ix_my_people_job_matches_job "
     "ON my_people_job_matches (job_id)",
-    # 0336: własny pulpit startowy — jeden układ kafelków na osobę. Sonda
+    # 0337: własny pulpit startowy — jeden układ kafelków na osobę. Sonda
     # `/api/health/deep` ją czyta; lustro pilnuje
     # `test_user_dashboard_migration_mirror.py`.
     """CREATE TABLE IF NOT EXISTS user_dashboards (

@@ -1,4 +1,4 @@
-// Własny pulpit startowy (0336) — typy i hooki.
+// Własny pulpit startowy (0337) — typy i hooki.
 //
 // Typy są lustrem `backend/app/services/dashboard_tiles.py` i
 // `backend/app/services/custom_metrics/definition.py`. Lista `TILE_TYPES`

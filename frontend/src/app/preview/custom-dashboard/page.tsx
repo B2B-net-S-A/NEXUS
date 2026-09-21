@@ -1,6 +1,6 @@
 "use client";
 
-// Publiczny harness własnego pulpitu (0336): pusty start i pulpit z kafelkami.
+// Publiczny harness własnego pulpitu (0337): pusty start i pulpit z kafelkami.
 // ZERO zapytań — każdy klucz jest zasiany, a interceptor odcina sieć, więc
 // strona nie przerzuca na /login (pilnuje `harness-seeds.test.ts`).
 // Zapis układu w podglądzie kończy się komunikatem o błędzie — to zamierzone.

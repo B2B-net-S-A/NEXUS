@@ -1,4 +1,4 @@
-"""Własny pulpit startowy — odczyt i zapis układu kafelków (0336).
+"""Własny pulpit startowy — odczyt i zapis układu kafelków (0337).
 
 Jeden pulpit na osobę, widoczny tylko dla właściciela. Trasa niesie wyłącznie
 układ (typy kafelków, pozycje, ustawienia) — dane kafelków pobierają ich

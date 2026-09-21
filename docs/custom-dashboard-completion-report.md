@@ -15,7 +15,7 @@ Makiety zaakceptowane przez Artura: https://claude.ai/artifact/P5Dx5ZdPNmMd1rNAJ
 
 ## Backend
 
-- Migracja `0336_user_dashboards` (+ lustro w `entrypoint.sh`, sonda w `/api/health/deep`).
+- Migracja `0337_user_dashboards` (+ lustro w `entrypoint.sh`, sonda w `/api/health/deep`).
 - `app/models/user_dashboard.py`, `app/services/dashboard_tiles.py` (walidacja układu).
 - `app/api/user_dashboard.py` — `GET/PUT /api/users/me/dashboard` (kontrola wersji, 409).
 - `app/services/custom_metrics/` — `definition.py`, `windows.py`, `engine.py`.

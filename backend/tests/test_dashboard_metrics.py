@@ -1,4 +1,4 @@
-"""Własna metryka pulpitu — liczenie i uprawnienia (0336).
+"""Własna metryka pulpitu — liczenie i uprawnienia (0337).
 
 Kontrakty:
 

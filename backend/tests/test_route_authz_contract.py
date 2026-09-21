@@ -236,7 +236,7 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/user-email-templates"),
     ("GET", "/api/user-email-templates/{template_id}"),
     ("GET", "/api/users/me/preferences"),
-    # Własny pulpit (0336): sam układ kafelków właściciela; dane kafelków
+    # Własny pulpit (0337): sam układ kafelków właściciela; dane kafelków
     # pobierają ich własne endpointy za bramkami sekcji.
     ("GET", "/api/users/me/dashboard"),
     ("PUT", "/api/users/me/dashboard"),

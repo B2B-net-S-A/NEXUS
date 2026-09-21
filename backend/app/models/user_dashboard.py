@@ -1,4 +1,4 @@
-"""Własny pulpit startowy — jeden układ kafelków na osobę (0336).
+"""Własny pulpit startowy — jeden układ kafelków na osobę (0337).
 
 Kształt ``layout`` pilnuje ``app/services/dashboard_tiles.py``; ta klasa jest
 wyłącznie przechowalnią. Wiersz powstaje przy pierwszym zapisie — brak wiersza

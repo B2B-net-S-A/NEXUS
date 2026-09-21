@@ -1528,7 +1528,7 @@ app.include_router(
 # Moduł „Finanse" — import miesięcznych wyników kontraktorów (admin + finance).
 app.include_router(finance_api.router, prefix="/api/finance", tags=["finance"])
 app.include_router(onboarding_api.router, prefix="/api/users", tags=["onboarding"])
-# Własny pulpit (0336) PRZED routerem `/api/users`, żeby `/me/dashboard`
+# Własny pulpit (0337) PRZED routerem `/api/users`, żeby `/me/dashboard`
 # nigdy nie trafił w trasę z parametrem ścieżki.
 app.include_router(
     user_dashboard_api.router, prefix="/api/users/me/dashboard", tags=["dashboard"]
@@ -2822,7 +2822,7 @@ async def api_health_deep_check():
         # 0334: „Moi ludzie" — panel rekrutera i dzwonek po publikacji rekrutacji.
         ("my_people_overrides", MyPeopleOverride),
         ("my_people_job_matches", MyPeopleJobMatch),
-        # 0336: własny pulpit startowy — /dashboard czyta go przy każdym wejściu.
+        # 0337: własny pulpit startowy — /dashboard czyta go przy każdym wejściu.
         ("user_dashboards", UserDashboard),
     ]
 
