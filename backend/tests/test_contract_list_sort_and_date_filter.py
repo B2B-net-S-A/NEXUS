@@ -234,3 +234,46 @@ async def test_date_filters_combine_with_status_and_search(
         start_from="2026-01-01",
     )
     assert [row["id"] for row in active_only["items"]] == [ids["Marek"]]
+
+
+async def test_rate_sort_follows_the_displayed_schedule_rate_not_the_cache(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Produkcja 21.09: kolumna cache ``rate_client`` różniła się od stawki
+    z harmonogramu, więc wiersze stały nie po kolei względem tego, co widać."""
+    from datetime import timedelta
+
+    from app.models.contract_client_rate import ContractClientRate
+
+    marker = f"Srs{uuid.uuid4().hex[:6]}"
+    ids = await _seed_three(marker)
+    today = date.today()
+    async with AsyncSessionLocal() as db:
+        # Zenon: cache 200, ale od wczoraj obowiązuje 90 (najniższa ze wszystkich),
+        # a przyszły krok 500 nie może jeszcze liczyć się do sortowania.
+        db.add(
+            ContractClientRate(
+                contract_id=ids["Zenon"],
+                rate=90,
+                effective_from=today - timedelta(days=1),
+            )
+        )
+        db.add(
+            ContractClientRate(
+                contract_id=ids["Zenon"],
+                rate=500,
+                effective_from=today + timedelta(days=30),
+            )
+        )
+        await db.commit()
+
+    body = await _list(
+        app_client,
+        app_auth_headers,
+        q=marker,
+        group_by_candidate="true",
+        sort_by="rate_client",
+    )
+    assert _first_names(body) == ["Zenon", "Marek", "Adam"]
+    shown = [row["rate_client"] for row in body["items"]]
+    assert shown == sorted(shown)
