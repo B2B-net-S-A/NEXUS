@@ -84,6 +84,9 @@ BulkAddSource = Literal[
     # Jarvis (0330): dodanie zaproponowane przez asystenta i potwierdzone
     # kliknięciem człowieka na karcie akcji.
     "jarvis",
+    # Rekrutacja v3: skrzynka „Propozycje z bazy" i karta rekomendacji.
+    "proposal_inbox",
+    "recommendation",
 ]
 
 # Eligibility reason → bulk-add skip reason. Reasons that block assignment.

@@ -419,11 +419,20 @@ PIPELINE_ADD_SOURCES = frozenset(
         "talent_radar",
         "candidate_list",
         "jarvis",
+        # Rekrutacja v3: skrzynka „Propozycje z bazy" i karta rekomendacji.
+        "proposal_inbox",
+        "recommendation",
     }
 )
 
+# Surfaces that show the TEAM a run nobody on it started (the automatic
+# proposals run). Only they may pin an add to a run owned by someone else.
+AUTO_RUN_SOURCES = frozenset({"proposal_inbox", "recommendation"})
+
 # The run the caller declared, accepted only when it verifiably preceded the
-# add: a durable full-search run owned by this user, for this job, that served
+# add: a durable full-search run owned by this user — or an AUTOMATIC run
+# (``origin == "auto"`` in ``version_trace``/``metrics``), and then only for an
+# add declared from a surface that shows such runs — for this job, that served
 # this candidate (its impression). `= ANY(:ids)`, not an expanding `IN :ids`:
 # the statement stays one plain, preparable text
 # (tests/test_raw_sql_prepares.py plans every literal).
@@ -433,7 +442,16 @@ _VERIFIED_RUN_CANDIDATES = text(
     FROM match_impressions i
     JOIN candidate_search_runs r ON r.id = i.run_id
     WHERE i.run_id = :run_id
-      AND r.created_by = :user_id
+      AND (
+            r.created_by = :user_id
+            OR (
+                CAST(:allow_auto AS boolean)
+                AND (
+                    r.version_trace ->> 'origin' = 'auto'
+                    OR r.metrics ->> 'origin' = 'auto'
+                )
+            )
+          )
       AND r.job_id = :job_id
       AND i.candidate_id = ANY(:ids)
     """
@@ -446,9 +464,12 @@ async def _verified_run_candidates(
     job_id: int,
     user_id: Optional[int],
     candidate_ids: Sequence[int],
+    source: Optional[str] = None,
 ) -> set[int]:
     """Candidates of ``candidate_ids`` that ``run_id`` showed THIS user for THIS
-    job. Own session, never raises: an unverifiable run is ``set()``."""
+    job — the user's own run, or the job's automatic run when the add was
+    declared from a surface that shows it (``AUTO_RUN_SOURCES``). Own session,
+    never raises: an unverifiable run is ``set()``."""
     if not run_id or user_id is None or not candidate_ids:
         return set()
     try:
@@ -460,6 +481,7 @@ async def _verified_run_candidates(
                     "user_id": user_id,
                     "job_id": job_id,
                     "ids": list(candidate_ids),
+                    "allow_auto": source in AUTO_RUN_SOURCES,
                 },
             )
             return {int(cid) for (cid,) in rows.all()}
@@ -496,7 +518,11 @@ async def emit_pipeline_additions(
         return 0
     try:
         shown = await _verified_run_candidates(
-            run_id=run_id, job_id=job_id, user_id=user_id, candidate_ids=ids
+            run_id=run_id,
+            job_id=job_id,
+            user_id=user_id,
+            candidate_ids=ids,
+            source=source,
         )
         reason_code = source if source in PIPELINE_ADD_SOURCES else None
         params = []

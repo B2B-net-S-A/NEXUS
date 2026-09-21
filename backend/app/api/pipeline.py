@@ -57,7 +57,7 @@ from app.schemas.pipeline import (
     StageInfo,
     STAGE_LABELS,
 )
-from app.api.candidate_access import CandidatePIIAccess
+from app.api.candidate_access import CandidatePIIAccess, user_has_candidate_read
 from app.api.deps import CurrentUser, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import (
     ensure_job_read_access,
@@ -1857,6 +1857,129 @@ async def get_stage_history(
     )
     stages = result.scalars().all()
     return [CandidateStageResponse(**_stage_response(s)) for s in stages]
+
+
+# Dziennik ruchów CAŁEJ rekrutacji. Poprzedni etap liczy LAG po WSZYSTKICH
+# wierszach pary (kandydat, rekrutacja) — dlatego okno stoi w CTE, a stronicowanie
+# dopiero na zewnątrz: LIMIT w tym samym SELECT-cie ucinałby historię, z której
+# LAG czyta. `COUNT(*) OVER ()` = `total` bez drugiego zapytania.
+_JOB_MOVES_SQL = text(
+    """
+    WITH moves AS (
+        SELECT cs.id,
+               cs.candidate_id,
+               cs.stage::text AS stage,
+               sd.name AS stage_name,
+               cs.moved_by,
+               cs.moved_at,
+               cs.external_source,
+               LAG(cs.stage::text) OVER w AS prev_stage,
+               LAG(sd.name) OVER w AS prev_stage_name
+        FROM candidate_stages cs
+        LEFT JOIN pipeline_stage_defs sd ON sd.id = cs.stage_def_id
+        WHERE cs.job_id = :job_id
+        WINDOW w AS (PARTITION BY cs.candidate_id ORDER BY cs.moved_at, cs.id)
+    )
+    SELECT m.id,
+           m.candidate_id,
+           c.name AS candidate_first_name,
+           c.lastname AS candidate_lastname,
+           m.stage,
+           m.stage_name,
+           m.prev_stage,
+           m.prev_stage_name,
+           m.moved_by,
+           u.name AS moved_by_name,
+           m.moved_at,
+           m.external_source,
+           COUNT(*) OVER () AS total
+    FROM moves m
+    JOIN candidates c ON c.id = m.candidate_id
+    LEFT JOIN users u ON u.id = m.moved_by
+    ORDER BY m.moved_at DESC, m.id DESC
+    LIMIT :limit OFFSET :offset
+    """
+)
+
+_JOB_MOVES_COUNT_SQL = text(
+    "SELECT COUNT(*) FROM candidate_stages cs WHERE cs.job_id = :job_id"
+)
+
+
+def _move_stage_label(stage_name: Optional[str], stage: Optional[str]) -> Optional[str]:
+    """Nazwa kolumny szablonu, a dla wierszy bez `stage_def_id` — etykieta enuma."""
+    if stage_name:
+        return stage_name
+    if not stage:
+        return None
+    try:
+        return STAGE_LABELS.get(PipelineStage(stage), stage)
+    except ValueError:
+        return stage
+
+
+@router.get("/job/{job_id}/moves")
+async def list_job_moves(
+    job_id: int,
+    current_user: OperationalUser,
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ruchy etapów całej rekrutacji, od najnowszych.
+
+    Ta sama bramka co tablica: odczyt sekcji Pipeline (router) + zakres
+    rekrutacji. Imię i nazwisko kandydata tylko dla ról z odczytem kandydatów;
+    pozostali dostają `candidate_id` i `candidate_names_redacted`.
+    """
+    job_exists = await db.scalar(select(Job.id).where(Job.id == job_id))
+    if job_exists is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await ensure_job_read_access(db, current_user, job_id)
+
+    show_names = user_has_candidate_read(current_user)
+    rows = (
+        await db.execute(
+            _JOB_MOVES_SQL, {"job_id": job_id, "limit": limit, "offset": offset}
+        )
+    ).all()
+    if rows:
+        total = int(rows[0].total)
+    elif offset:
+        # Strona za końcem listy nie niesie wiersza z `total`.
+        total = int(await db.scalar(_JOB_MOVES_COUNT_SQL, {"job_id": job_id}) or 0)
+    else:
+        total = 0
+    items = [
+        {
+            "id": row.id,
+            "candidate_id": row.candidate_id,
+            "candidate_name": (
+                f"{row.candidate_first_name or ''} {row.candidate_lastname or ''}".strip()
+                or None
+            )
+            if show_names
+            else None,
+            "from_stage_name": _move_stage_label(row.prev_stage_name, row.prev_stage),
+            "to_stage_name": _move_stage_label(row.stage_name, row.stage),
+            "moved_by_id": row.moved_by,
+            "moved_by_name": row.moved_by_name,
+            "moved_at": row.moved_at,
+            # Wiersze z importu niosą `external_source='traffit'`; ruch zrobiony
+            # w NEXUSIE ma 'manual' albo NULL.
+            "source": "traffit" if row.external_source == "traffit" else "nexus",
+        }
+        for row in rows
+    ]
+    return {
+        "job_id": job_id,
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "next_offset": offset + limit if offset + limit < total else None,
+        "candidate_names_redacted": not show_names,
+    }
 
 
 # ── Champion-profile screening answers (Phase 10) ───────────────────────────

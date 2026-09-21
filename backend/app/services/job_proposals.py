@@ -297,6 +297,78 @@ async def dismiss(
     return int(result.rowcount or 0)
 
 
+async def is_in_pipeline(db: AsyncSession, *, job_id: int, candidate_id: int) -> bool:
+    """Czy osoba ma już jakikolwiek etap w TEJ rekrutacji."""
+    return bool(
+        await db.scalar(
+            select(
+                exists().where(
+                    CandidateStage.job_id == job_id,
+                    CandidateStage.candidate_id == candidate_id,
+                )
+            )
+        )
+    )
+
+
+async def dismiss_unlisted(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    candidate_id: int,
+    user_id: Optional[int],
+    source: str = "full_base",
+    cv_revision: Optional[str] = None,
+) -> int:
+    """„Pomiń" osoby, której skrzynka jeszcze nie zna (np. z wyszukiwarki).
+
+    Zakłada wiersz od razu jako ``dismissed`` — dzięki temu kolejny przegląd tej
+    samej wersji CV jej nie zaproponuje, a nowa wersja przywróci (jak zwykłe
+    „Pomiń"). Konflikt pary+źródła (równoległy zapis przeglądu) = 0; wołający
+    ponawia wtedy :func:`dismiss`.
+    """
+    _validate_source(source)
+    revision = _revision(cv_revision)
+    result = await db.execute(
+        pg_insert(JobProposal)
+        .values(
+            job_id=job_id,
+            candidate_id=candidate_id,
+            source=source,
+            status="dismissed",
+            cv_revision=revision,
+            dismissed_by=user_id,
+            dismissed_at=func.now(),
+            dismissed_cv_revision=revision,
+        )
+        .on_conflict_do_nothing(constraint="uq_job_proposals_pair_source")
+    )
+    return int(result.rowcount or 0)
+
+
+async def restore(db: AsyncSession, *, job_id: int, candidate_id: int) -> int:
+    """„Cofnij" pominięcie — wiersze ``dismissed`` wracają jako ``proposed``.
+
+    ``added`` zostaje nietknięte; ``first_seen_at`` też (to cofnięcie, nie nowa
+    propozycja — osoba nie dostaje plakietki „nowa"). Zwraca liczbę wierszy.
+    """
+    result = await db.execute(
+        update(JobProposal)
+        .where(
+            JobProposal.job_id == job_id,
+            JobProposal.candidate_id == candidate_id,
+            JobProposal.status == "dismissed",
+        )
+        .values(
+            status="proposed",
+            dismissed_by=None,
+            dismissed_at=None,
+            dismissed_cv_revision=None,
+        )
+    )
+    return int(result.rowcount or 0)
+
+
 async def mark_added(
     db: AsyncSession, *, job_id: int, candidate_ids: Sequence[int]
 ) -> int:
@@ -404,6 +476,9 @@ class ProposalRow:
     last_seen_at: datetime
     is_new: bool
     status: str
+    # Przegląd, z którego pochodzi propozycja (wiersz o najwyższym wyniku, który
+    # go niesie). Bez FK — retencja kasuje przeglądy, więc bywa już nieaktualny.
+    run_id: Optional[str] = None
 
 
 async def list_for_job(
@@ -458,11 +533,12 @@ async def list_for_job(
     ).all()
     candidate_ids = [row.candidate_id for row in page]
     evidence_by_candidate: dict[int, Optional[dict]] = {}
+    run_by_candidate: dict[int, str] = {}
     if candidate_ids:
         # Dowody z wiersza o najwyższym wyniku (jedno zapytanie na stronę);
         # flaga „wcześniej pominięty" liczy się z KAŻDEGO wiersza pary.
         evidence_rows = await db.execute(
-            select(JobProposal.candidate_id, JobProposal.evidence)
+            select(JobProposal.candidate_id, JobProposal.evidence, JobProposal.run_id)
             .where(
                 JobProposal.job_id == job_id,
                 JobProposal.candidate_id.in_(candidate_ids),
@@ -474,8 +550,10 @@ async def list_for_job(
             )
         )
         flagged: set[int] = set()
-        for cid, evidence in evidence_rows.all():
+        for cid, evidence, run_id in evidence_rows.all():
             evidence_by_candidate.setdefault(cid, evidence)
+            if run_id and cid not in run_by_candidate:
+                run_by_candidate[cid] = run_id
             if isinstance(evidence, dict) and evidence.get(PREVIOUSLY_DISMISSED_KEY):
                 flagged.add(cid)
         for cid in flagged:
@@ -493,6 +571,7 @@ async def list_for_job(
             last_seen_at=row.last_seen_at,
             is_new=row.newest_seen_at >= new_since,
             status=status,
+            run_id=run_by_candidate.get(row.candidate_id),
         )
         for row in page
     ]

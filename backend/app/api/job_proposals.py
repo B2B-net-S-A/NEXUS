@@ -9,14 +9,17 @@ Dostęp: lista jest czytelna jak wyniki pełnego przeglądu bazy
 (``_authorized_job`` — odczyt sekcji Pipeline + zakres klient–TAC Delivery
 Leada). „Pomiń" zmienia skrzynkę CAŁEGO zespołu (i licznik na liście
 rekrutacji), więc wymaga tego, czego wymaga dodanie kandydata do rekrutacji:
-``RecruiterPlus`` + członkostwo w zespole. Pominięta osoba wraca wyłącznie
-z nową wersją CV. Nie ma znacznika „widziane" per użytkownik.
+``RecruiterPlus`` + członkostwo w zespole. „Pomiń" działa też dla osoby, której
+skrzynka nie zna (wyszukiwarka, rekomendacja) — wiersz powstaje od razu jako
+pominięty. Pominięta osoba wraca z nową wersją CV albo przez „Cofnij"
+(``…/restore``, ta sama bramka). Nie ma znacznika „widziane" per użytkownik.
 """
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +30,11 @@ from app.models.candidate import Candidate
 from app.services import job_proposals as proposals
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
+
+# Lustro CHECK-a `ck_job_proposals_source` (`JOB_PROPOSAL_SOURCES`).
+ProposalSource = Literal[
+    "full_base", "new_cv", "similar_projects", "recommendation", "marketplace"
+]
 
 
 async def _job(db, user, job_id: int):
@@ -135,6 +143,7 @@ async def list_job_proposals(
                 "last_seen_at": row.last_seen_at,
                 "is_new": row.is_new,
                 "status": row.status,
+                "run_id": row.run_id,
                 "eligibility": (
                     eligibility_annotation(decision) if decision is not None else None
                 ),
@@ -152,29 +161,47 @@ async def list_job_proposals(
     }
 
 
+class DismissProposalBody(BaseModel):
+    """Skąd przyszło „Pomiń" osoby, której skrzynka jeszcze nie zna."""
+
+    source: ProposalSource = "full_base"
+
+
+async def _writable_pair(db, user, job_id: int, candidate_id: int) -> Candidate:
+    """Bramka zapisu skrzynki + istnienie kandydata (404)."""
+    await _job(db, user, job_id)
+    await ensure_job_membership(db, user, job_id)
+    candidate = await db.get(Candidate, candidate_id)
+    if candidate is None:
+        raise HTTPException(404, "Kandydat nie istnieje")
+    return candidate
+
+
 @router.post("/jobs/{job_id}/proposal-inbox/{candidate_id}/dismiss")
 async def dismiss_job_proposal(
     job_id: int,
     candidate_id: int,
     user: RecruiterPlus,
+    body: Optional[DismissProposalBody] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    await _job(db, user, job_id)
-    await ensure_job_membership(db, user, job_id)
-    # Wersja CV w chwili „Pomiń": nowa wersja zaproponuje tę osobę ponownie.
     from app.services.auto_match_outbox import candidate_revision  # noqa: PLC0415
 
-    candidate = await db.get(Candidate, candidate_id)
+    candidate = await _writable_pair(db, user, job_id, candidate_id)
+    if await proposals.is_in_pipeline(db, job_id=job_id, candidate_id=candidate_id):
+        raise HTTPException(
+            409, "Ta osoba jest już w tej rekrutacji — nie można jej pominąć."
+        )
+    # Wersja CV w chwili „Pomiń": nowa wersja zaproponuje tę osobę ponownie.
+    revision = candidate_revision(candidate)
     changed = await proposals.dismiss(
         db,
         job_id=job_id,
         candidate_id=candidate_id,
         user_id=user.id,
-        cv_revision=candidate_revision(candidate) if candidate is not None else None,
+        cv_revision=revision,
     )
     if not changed:
-        # Idempotentne: druga próba albo osoba już dodana — nic do zrobienia,
-        # ale nieistniejąca propozycja to 404, nie ciche 200.
         from app.models.job_proposal import JobProposal  # noqa: PLC0415
 
         known = await db.scalar(
@@ -186,6 +213,37 @@ async def dismiss_job_proposal(
             .limit(1)
         )
         if known is None:
-            raise HTTPException(404, "Propozycja nie istnieje")
+            # Osoba spoza skrzynki (wyszukiwarka, rekomendacja): wiersz powstaje
+            # od razu jako pominięty. Przegrany wyścig z zapisem przeglądu
+            # (konflikt pary+źródła) domyka zwykłe „Pomiń".
+            changed = await proposals.dismiss_unlisted(
+                db,
+                job_id=job_id,
+                candidate_id=candidate_id,
+                user_id=user.id,
+                source=(body or DismissProposalBody()).source,
+                cv_revision=revision,
+            ) or await proposals.dismiss(
+                db,
+                job_id=job_id,
+                candidate_id=candidate_id,
+                user_id=user.id,
+                cv_revision=revision,
+            )
+        # Inaczej idempotentne: druga próba albo wiersze `added` — nic do zrobienia.
     await db.commit()
     return {"job_id": job_id, "candidate_id": candidate_id, "dismissed": changed}
+
+
+@router.post("/jobs/{job_id}/proposal-inbox/{candidate_id}/restore")
+async def restore_job_proposal(
+    job_id: int,
+    candidate_id: int,
+    user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Cofnij" po „Pomiń" — osoba wraca do skrzynki całego zespołu."""
+    await _writable_pair(db, user, job_id, candidate_id)
+    restored = await proposals.restore(db, job_id=job_id, candidate_id=candidate_id)
+    await db.commit()
+    return {"job_id": job_id, "candidate_id": candidate_id, "restored": restored}

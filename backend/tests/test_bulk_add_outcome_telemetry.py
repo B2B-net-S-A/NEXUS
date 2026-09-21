@@ -186,7 +186,9 @@ async def test_adds_join_only_the_run_that_verifiably_showed_them(
         admin_id,
         [world["shown"], world["blocked"], world["manual"], world["foreign_candidate"]],
     )
-    await page(world["foreign_run"], world["colleague_id"], [world["foreign_candidate"]])
+    await page(
+        world["foreign_run"], world["colleague_id"], [world["foreign_candidate"]]
+    )
 
     async def add(candidate_ids: list[int], **telemetry) -> dict:
         resp = await app_client.post(
@@ -255,3 +257,130 @@ def test_new_add_surfaces_are_accepted_by_the_request_model(source: str):
     body = BulkProposalsRequest(candidate_ids=[1], source=source)
     assert body.source == source
     assert source in PIPELINE_ADD_SOURCES
+
+
+@pytest.mark.parametrize("source", ["proposal_inbox", "recommendation"])
+def test_recruitment_v3_add_surfaces_are_in_both_vocabularies(source: str):
+    from typing import get_args
+
+    from app.api.proposals_bulk import BulkAddSource, BulkProposalsRequest
+    from app.services.match_telemetry_service import (
+        AUTO_RUN_SOURCES,
+        PIPELINE_ADD_SOURCES,
+    )
+
+    assert BulkProposalsRequest(candidate_ids=[1], source=source).source == source
+    assert source in PIPELINE_ADD_SOURCES and source in AUTO_RUN_SOURCES
+    # Dwa słowniki (granica API i tabela analityczna) muszą być tym samym zbiorem.
+    assert set(get_args(BulkAddSource)) == set(PIPELINE_ADD_SOURCES)
+
+
+@pytest.mark.asyncio
+async def test_an_automatic_run_pins_only_adds_declared_from_the_inbox(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Przegląd automatyczny nie ma autora w zespole — dodanie ze skrzynki
+    „Propozycje" przypina się do niego, ale tylko dla TEJ rekrutacji, z impresją
+    i z deklaracją powierzchni, która takie przeglądy pokazuje."""
+    from app.models.candidate_search_run import CandidateSearchRun
+
+    monkeypatch.setattr(settings, "AI_MATCH_TELEMETRY_ENABLED", True)
+    admin_id = await _admin_id(app_client)
+    world = await _seed(admin_id)
+    other = await _seed(admin_id)  # inna rekrutacja — jej auto-run nie może przypiąć
+    job_id = world["job_id"]
+    from app.models.job import Job
+
+    async with AsyncSessionLocal() as db:
+        client_of = {
+            jid: await db.scalar(select(Job.client_id).where(Job.id == jid))
+            for jid in (job_id, other["job_id"])
+        }
+
+    def auto_run(for_job: int, *, in_metrics: bool = False) -> CandidateSearchRun:
+        return CandidateSearchRun(
+            id=str(uuid.uuid4()),
+            created_by=world["colleague_id"],
+            client_id=client_of[for_job],
+            job_id=for_job,
+            state="complete",
+            request_fingerprint="a" * 64,
+            request_context={},
+            version_trace={} if in_metrics else {"origin": "auto"},
+            population_size=0,
+            metrics={"origin": "auto"} if in_metrics else {},
+        )
+
+    auto = auto_run(job_id)
+    auto_metrics = auto_run(job_id, in_metrics=True)
+    auto_other_job = auto_run(other["job_id"])
+    async with AsyncSessionLocal() as db:
+        db.add_all([auto, auto_metrics, auto_other_job])
+        await db.commit()
+
+    async def page(run_id: str, run_job: int, candidate_ids: list[int]) -> None:
+        await tel.record_full_search_page(
+            None,
+            run_id=run_id,
+            job_id=run_job,
+            client_id=None,
+            user_id=world["colleague_id"],
+            version_trace=None,
+            entries=[
+                ImpressionEntry(candidate_id=cid, rank=i)
+                for i, cid in enumerate(candidate_ids)
+            ],
+            degraded=False,
+        )
+
+    await page(auto.id, job_id, [world["shown"], world["foreign_candidate"]])
+    await page(auto_metrics.id, job_id, [world["manual"]])
+    # Impresja w cudzej rekrutacji, ten sam kandydat.
+    await page(auto_other_job.id, other["job_id"], [world["blocked"]])
+
+    async def add(candidate_id: int, **telemetry) -> None:
+        resp = await app_client.post(
+            f"/api/jobs/{job_id}/proposals/bulk",
+            headers=app_auth_headers,
+            json={"candidate_ids": [candidate_id], **telemetry},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["added"] == [candidate_id], resp.text
+
+    try:
+        await add(world["shown"], run_id=auto.id, source="proposal_inbox")
+        await add(world["manual"], run_id=auto_metrics.id, source="recommendation")
+        # Ten sam auto-run, ale powierzchnia, która go nie pokazuje → bez przypięcia.
+        await add(world["foreign_candidate"], run_id=auto.id, source="full_search")
+
+        assert await _outcomes(job_id) == sorted(
+            [
+                (world["shown"], auto.id, "add_to_pipeline", "proposal_inbox"),
+                (world["manual"], auto_metrics.id, "add_to_pipeline", "recommendation"),
+                (world["foreign_candidate"], None, "add_to_pipeline", "full_search"),
+            ]
+        )
+        # Auto-run INNEJ rekrutacji i kandydat bez impresji w tym przeglądzie.
+        assert (
+            await tel._verified_run_candidates(
+                run_id=auto_other_job.id,
+                job_id=job_id,
+                user_id=admin_id,
+                candidate_ids=[world["blocked"]],
+                source="proposal_inbox",
+            )
+            == set()
+        )
+        assert (
+            await tel._verified_run_candidates(
+                run_id=auto.id,
+                job_id=job_id,
+                user_id=admin_id,
+                candidate_ids=[world["manual"]],
+                source="proposal_inbox",
+            )
+            == set()
+        )
+    finally:
+        await _cleanup(world)
+        await _cleanup(other)
