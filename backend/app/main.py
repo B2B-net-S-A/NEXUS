@@ -671,6 +671,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.kpi_coach_nudger import kpi_coach_nudger_loop
     from app.tasks.triggers_loop import notification_triggers_loop
     from app.tasks.notification_volume_monitor import notification_volume_monitor_loop
+    from app.tasks.app_mail_monitor import app_mail_monitor_loop
     from app.tasks.runtime_metrics_monitor import runtime_metrics_monitor_loop
     from app.tasks.rejection_email_loop import rejection_email_loop
     from app.tasks.linkedin_sync import linkedin_sync_loop
@@ -774,6 +775,7 @@ async def lifespan(app: FastAPI):
         # Opóźnienie pętli zdarzeń + obciążenie puli połączeń co minutę
         # (`runtime_metrics` w Loki) — pomiar przed zmianą puli/procesów (F06).
         "runtime_metrics": asyncio.create_task(runtime_metrics_monitor_loop()),
+        "app_mail_monitor": asyncio.create_task(app_mail_monitor_loop()),
         "rejection_email": asyncio.create_task(rejection_email_loop()),
         "linkedin_sync": asyncio.create_task(linkedin_sync_loop()),
         "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
@@ -1894,12 +1896,12 @@ async def api_health_check():
     # patrzy na połączenia skrzynek rekruterów. Audyt 18.09.2026: 471 kolejnych
     # `ErrorAccessDenied` z tego kanału przy `m365 = healthy`, bo zły nadawca
     # nie dotyka żadnego połączenia. `unknown` = nic jeszcze nie wysyłaliśmy
-    # w tym procesie. Informacyjna — nie wpływa na bramkę 503.
+    # tym nadawcą. Stan trwały; informacyjna — nie wpływa na bramkę 503.
     if settings.M365_APP_MAIL_ENABLED:
         try:
             from app.services.m365.app_mail import send_health_status
 
-            checks["m365_mail"] = send_health_status()
+            checks["m365_mail"] = await asyncio.to_thread(send_health_status)
         except Exception:
             checks["m365_mail"] = "degraded"
 

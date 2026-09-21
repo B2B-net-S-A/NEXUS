@@ -184,10 +184,18 @@ class Notification(Base, TimestampMixin):
     # Rezerwacja wiersza przez background task ZANIM poleci SMTP. Rozdzielona
     # od `email_sent_at`, bo stemplowanie „wysłane" przed faktyczną wysyłką
     # znaczy, że crash w tym oknie gubi maila na zawsze. Tutaj crash zostawia
-    # tylko wiszącą rezerwację — po `CLAIM_STALE_MIN` przejmuje ją kolejny
-    # przebieg i wysyła. NULL = wolny, wartość = wysyłka w toku.
+    # rezerwację. Po rozpoczęciu wywołania zewnętrznego dodatkowa flaga
+    # email_delivery_uncertain chroni przed ponowieniem po awarii procesu.
     email_send_started_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+    # Retry scheduling and quarantine for a possibly accepted delivery.
+    email_next_attempt_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    email_delivery_uncertain: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
 
     # Relationships

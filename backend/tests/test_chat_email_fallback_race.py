@@ -133,3 +133,66 @@ async def test_release_on_smtp_off_keeps_row_retryable(monkeypatch) -> None:
             assert row.email_sent_at is None  # released → retryable next pass
     finally:
         await _cleanup(user_id, notif_id)
+
+
+async def test_definite_rejection_is_not_retried_next_minute(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "app.tasks.chat_email_fallback.send_chat_fallback_email",
+        lambda **kw: calls.append(1) and False,
+    )
+    user_id, notif_id = await _seed_offline_chat_notification()
+    try:
+        async with AsyncSessionLocal() as db:
+            assert await _process_one_pass(db) == 0
+            assert await _process_one_pass(db) == 0
+            row = await db.get(Notification, notif_id)
+            assert row.email_sent_at is None and row.email_next_attempt_at is not None
+            assert row.email_delivery_uncertain is False
+        assert len(calls) == 1
+    finally:
+        await _cleanup(user_id, notif_id)
+
+
+async def test_ambiguous_post_is_quarantined_across_passes(monkeypatch):
+    from app.tasks.chat_email_fallback import DeliveryUncertain
+
+    async def ambiguous(*args):
+        raise DeliveryUncertain()
+
+    monkeypatch.setattr("app.tasks.chat_email_fallback._send_chat_email", ambiguous)
+    user_id, notif_id = await _seed_offline_chat_notification()
+    try:
+        async with AsyncSessionLocal() as db:
+            assert await _process_one_pass(db) == 0
+            row = await db.get(Notification, notif_id)
+            assert row.email_delivery_uncertain and row.email_sent_at is None
+            assert not await _claim_notification(db, notif_id)
+            assert await _process_one_pass(db) == 0
+    finally:
+        await _cleanup(user_id, notif_id)
+
+
+async def test_monitor_includes_unattempted_rows_before_recovery(caplog, monkeypatch):
+    import logging
+    from app.tasks import app_mail_monitor as monitor
+
+    monkeypatch.setattr(monitor.settings, "M365_APP_MAIL_ENABLED", False)
+    with caplog.at_level(logging.INFO):
+        await monitor.sample_app_mail()
+        before = [
+            r for r in caplog.records if getattr(r, "monitor_status", None) == "ok"
+        ][-1]
+        user_id, notif_id = await _seed_offline_chat_notification()
+        try:
+            await monitor.sample_app_mail()
+            after = [
+                r for r in caplog.records if getattr(r, "monitor_status", None) == "ok"
+            ][-1]
+            assert (
+                after.ready_candidates_upper_bound
+                == before.ready_candidates_upper_bound + 1
+            )
+            assert after.pending_retry == before.pending_retry
+        finally:
+            await _cleanup(user_id, notif_id)

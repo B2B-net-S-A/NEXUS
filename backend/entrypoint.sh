@@ -8384,6 +8384,9 @@ asyncio.run(reset())
 PY
 
 # Run seed (idempotent - skips if already seeded)
+startup_phase "mail-delivery-schema"
+python -m app.services.m365.mail_delivery_schema
+
 startup_phase "seed"
 echo "Running seed data..."
 python seed.py || echo "seed.py failed (likely pre-existing schema drift from unmerged branches); continuing"

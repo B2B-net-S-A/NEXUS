@@ -387,3 +387,19 @@ def test_env_number_survives_an_operator_slip(monkeypatch, raw):
 def test_env_number_reads_a_real_value(monkeypatch):
     monkeypatch.setenv("NEXUS_TEST_NUM", "7")
     assert env_number("NEXUS_TEST_NUM", 3, int) == 7
+
+
+def test_sampling_is_normalized_after_fallback_selection(monkeypatch):
+    seen = _install(monkeypatch, [_FakeErr(529), _FakeMessage()])
+    call_claude(
+        messages=[{"role": "user", "content": "synthetic"}],
+        model="claude-haiku-4-5",
+        fallback_models=["claude-sonnet-5"],
+        max_tokens=64,
+        api_key="synthetic",
+        max_retries=0,
+        temperature=0,
+        extra_body={"top_p": 0.4},
+    )
+    assert seen[0]["extra_body"]["temperature"] == 0
+    assert "extra_body" not in seen[1]

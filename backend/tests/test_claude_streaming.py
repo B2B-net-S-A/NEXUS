@@ -121,7 +121,17 @@ def test_cv_stream_accumulates_complete_message_and_usage(monkeypatch):
     sdk.close()
 
 
-def test_sampling_params_reach_the_wire_through_extra_body(monkeypatch):
+@pytest.mark.parametrize(
+    "model,supports_sampling",
+    [
+        ("claude-sonnet-4-6", True),
+        ("claude-sonnet-5", False),
+        ("claude-opus-4-8", False),
+    ],
+)
+def test_sampling_params_reach_the_wire_through_extra_body(
+    monkeypatch, model, supports_sampling
+):
     """anthropic 1.x removed ``temperature``/``top_p``/``top_k`` from the
     ``messages.create()``/``stream()`` signatures (TypeError), while the API
     still honours them. The champion parser and the notes extractor pin
@@ -179,7 +189,7 @@ def test_sampling_params_reach_the_wire_through_extra_body(monkeypatch):
     monkeypatch.setattr(client, "_record_tokens", lambda message, **kw: None)
     common = dict(
         messages=[{"role": "user", "content": "test"}],
-        model="claude-sonnet-4-6",
+        model=model,
         max_tokens=100,
         api_key="synthetic",
         temperature=0,
@@ -191,7 +201,10 @@ def test_sampling_params_reach_the_wire_through_extra_body(monkeypatch):
     for body in requests:
         # caller's explicit extra_body wins on a colliding key; the rest is
         # merged into the request JSON exactly as the SDK migration guide says
-        assert body["temperature"] == 0 and body["top_k"] == 7
+        if supports_sampling:
+            assert body["temperature"] == 0 and body["top_k"] == 7
+        else:
+            assert not {"temperature", "top_p", "top_k"} & body.keys()
         assert body["metadata"] == {"user_id": "u"}
         assert body["thinking"] == {"type": "disabled"}
     assert [b.get("stream") for b in requests] == [True, None]

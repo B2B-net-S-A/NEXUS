@@ -19,20 +19,16 @@ licznika i bez podniesienia gdziekolwiek. ``checks.m365`` sonduje stan
 ``ErrorAccessDenied`` z tego kanału: konfiguracja nadawcy była zła, a health
 o tym nie wiedział, bo nigdy nie pytał o zdolność do WYSYŁKI.
 
-Stan wyniku ostatnich prób żyje w pamięci procesu (wzorem
-``services/loop_heartbeat.py`` — backend to jeden uvicorn, a ``/api/health``
-pyta ten sam proces, który wysyła). Restart zeruje licznik razem z procesem,
-więc po deployu nie ma fałszywego „padało”; pierwsza nieudana próba zapali
-sondę z powrotem. Nie zapisujemy tego do bazy: ``send_via_graph_app`` jest
-synchroniczne i nie ma sesji, a dodanie jej zmusiłoby do przepisania wszystkich
-dotychczasowych callerów.
+Stan prób i blokada ponowień są trwałe, wspólne dla workerów i izolowane
+hashem tenanta, aplikacji oraz nadawcy. Treści i adresy nie trafiają do logów.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from dataclasses import dataclass
 from typing import Optional
 
@@ -40,6 +36,7 @@ import httpx
 import msal
 
 from app.core.config import settings
+from app.services.m365 import mail_circuit
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +51,7 @@ _msal_app: Optional[msal.ConfidentialClientApplication] = None
 _msal_key: Optional[tuple[str, str, str]] = None
 
 
-# --- Stan wysyłki (pamięć procesu) -----------------------------------------
+# --- Stan wysyłki (trwały, współdzielony) -----------------------------------------
 # Próg streaku, po którym sonda degraduje mimo wcześniejszych sukcesów. Graph
 # potrafi oddać 429/503 przy przeciążeniu i następna próba przechodzi, więc
 # pojedyncza porażka kanału, który DZIAŁA, nie zapala sondy. Kanał, z którego
@@ -76,54 +73,30 @@ class AppMailSendState:
     last_success_at: Optional[float] = None
 
 
-_send_lock = threading.Lock()
-_send_state = AppMailSendState()
+_delivery_local = threading.local()
 
 
-def _record_send_success() -> None:
-    global _send_state
-    with _send_lock:
-        _send_state = AppMailSendState(
-            attempts=_send_state.attempts + 1,
-            failures=_send_state.failures,
-            consecutive_failures=0,
-            last_failure_code=_send_state.last_failure_code,
-            last_failure_at=_send_state.last_failure_at,
-            last_success_at=time.time(),
-        )
-
-
-def _record_send_failure(code: str) -> None:
-    global _send_state
-    now = time.time()
-    with _send_lock:
-        _send_state = AppMailSendState(
-            attempts=_send_state.attempts + 1,
-            failures=_send_state.failures + 1,
-            consecutive_failures=_send_state.consecutive_failures + 1,
-            last_failure_code=code,
-            last_failure_at=now,
-            last_success_at=_send_state.last_success_at,
-        )
+def last_delivery_uncertain() -> bool:
+    """Read only immediately after sending, in the same worker thread."""
+    return bool(getattr(_delivery_local, "uncertain", False))
 
 
 def send_state() -> AppMailSendState:
-    """Migawka do sondy zdrowia i diagnostyki."""
-    with _send_lock:
-        return _send_state
+    state = mail_circuit.snapshot()
+    return AppMailSendState(
+        **{k: state[k] for k in AppMailSendState.__dataclass_fields__ if k in state}
+    )
 
 
 def reset_send_state() -> None:
-    """Wyłącznie dla testów — produkcja zeruje stan restartem procesu."""
-    global _send_state
-    with _send_lock:
-        _send_state = AppMailSendState()
+    """Test helper: reset only the injected test store, never production state."""
+    mail_circuit.transition(lambda state, now: state.clear())
 
 
 def app_mail_send_verdict(state: AppMailSendState, *, configured: bool) -> str:
     """``unconfigured`` / ``unknown`` / ``degraded`` / ``healthy``.
 
-    ``unknown`` znaczy „skonfigurowane, ale w tym procesie nic jeszcze nie
+    ``unknown`` znaczy „skonfigurowane, ale ten nadawca nic jeszcze nie
     wysyłaliśmy” — to NIE jest ``healthy``: zdolności do wysyłki nie sprawdza
     się inaczej niż wysyłką, a sondowanie jej pustym mailem wysyłałoby maile.
     """
@@ -134,6 +107,13 @@ def app_mail_send_verdict(state: AppMailSendState, *, configured: bool) -> str:
     if state.consecutive_failures == 0:
         return "healthy"
     if state.last_success_at is None:
+        return "degraded"
+    if state.last_failure_code in {
+        "http_401",
+        "http_403",
+        "token",
+        "delivery_uncertain",
+    }:
         return "degraded"
     if state.consecutive_failures >= SEND_FAILURE_STREAK_DEGRADED:
         return "degraded"
@@ -226,6 +206,56 @@ def _acquire_token() -> Optional[str]:
     return token
 
 
+def _retry_after(resp) -> float:
+    value = getattr(resp, "headers", {}).get("Retry-After", "")
+    try:
+        return max(0, float(value))
+    except (ValueError, TypeError):
+        try:
+            return max(
+                0,
+                (
+                    parsedate_to_datetime(value) - datetime.now(timezone.utc)
+                ).total_seconds(),
+            )
+        except (ValueError, TypeError, OverflowError):
+            return 0
+
+
+def _finish(ticket: int, code: str | None, retry_after: float = 0) -> None:
+    changed = mail_circuit.finish(ticket, code=code, retry_after=retry_after)
+    logger.info(
+        "app_mail_outcome",
+        extra={
+            "event_kind": "app_mail_outcome",
+            "outcome": "accepted" if code is None else "failure",
+            "failure_kind": code or "none",
+        },
+    )
+    if changed:
+        logger.warning(
+            "app_mail_state",
+            extra={
+                "event_kind": "app_mail_state",
+                "failure_kind": code or "recovered",
+                "operation": "m365.app_mail",
+            },
+        )
+        if code:
+            import sentry_sdk
+
+            with sentry_sdk.new_scope() as scope:
+                scope.set_tag("operation", "m365.app_mail")
+                scope.set_tag("failure_kind", code)
+                scope.set_tag("terminal", "true")
+                scope.set_tag("sampling_policy", "integration-state-transition")
+                incident_id = mail_circuit.snapshot().get("incident_id")
+                if incident_id:
+                    scope.set_context("correlation", {"operation_id": incident_id})
+                scope.fingerprint = ["m365.app_mail", code]
+                sentry_sdk.capture_message("System mail delivery failed", level="error")
+
+
 def send_via_graph_app(
     *,
     to: str,
@@ -233,73 +263,91 @@ def send_via_graph_app(
     text_body: str,
     html_body: Optional[str] = None,
 ) -> bool:
-    """Wyślij mail przez Graph app-only. Zwraca True gdy Graph przyjął (202).
+    """True means Graph accepted, not delivered. No raw Graph text is logged.
 
-    No-op (False) gdy nieskonfigurowane lub błąd — nie rzuca, żeby ścieżki
-    fallback/notyfikacji mogły zignorować wynik i wznowić w kolejnym przebiegu.
-    HTML gdy podany, inaczej plaintext.
+    The bool contract stays intact. The chat worker also reads the thread-local
+    uncertainty flag so a POST with an unknown outcome is never blindly retried.
+    Failure of the durable gate fails closed before any network call.
     """
+    _delivery_local.uncertain = False
     if not is_configured():
-        logger.debug("app_mail: not configured — skip send to=%s", to)
         return False
-
-    token = _acquire_token()
-    if not token:
-        _record_send_failure("token")
+    try:
+        ticket = mail_circuit.acquire()
+    except Exception:
+        logger.warning(
+            "app_mail state unavailable",
+            extra={"event_kind": "app_mail_state", "failure_kind": "state_unavailable"},
+        )
         return False
-
-    if html_body:
-        body = {"contentType": "HTML", "content": html_body}
-    else:
-        body = {"contentType": "Text", "content": text_body}
-
+    if ticket is None:
+        return False
     payload = {
         "message": {
             "subject": subject,
-            "body": body,
+            "body": {
+                "contentType": "HTML" if html_body else "Text",
+                "content": html_body or text_body,
+            },
             "toRecipients": [{"emailAddress": {"address": to}}],
         },
-        # Powiadomienia systemowe — nie zaśmiecamy Sent Items skrzynki serwisowej.
         "saveToSentItems": False,
     }
     url = f"{_GRAPH_BASE}/users/{settings.M365_MAIL_SENDER_UPN}/sendMail"
-
+    posted = False
     try:
+        token = _acquire_token()
+        if not token:
+            _finish(ticket, "token")
+            return False
+        posted = True
         resp = httpx.post(
             url,
             json=payload,
             headers={"Authorization": f"Bearer {token}"},
             timeout=15.0,
         )
-    except Exception as exc:  # noqa: BLE001
-        _record_send_failure(f"transport_{type(exc).__name__}")
-        logger.warning(
-            "app_mail send failed to=%s subject=%r error=%s streak=%s",
-            to,
-            subject,
-            type(exc).__name__,
-            send_state().consecutive_failures,
-        )
+        if resp.status_code == 401:
+            # Only a definite rejection is safe to retry after a token refresh.
+            posted = False
+            token = acquire_app_token(force_refresh=True)
+            if not token:
+                _finish(ticket, "token")
+                return False
+            posted = True
+            resp = httpx.post(
+                url,
+                json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=15.0,
+            )
+        if resp.status_code == 202:
+            # From this point, a failed state write must not turn acceptance
+            # into a retryable rejection.
+            try:
+                _finish(ticket, None)
+            except Exception:
+                logger.warning(
+                    "app_mail accepted; state unavailable",
+                    extra={
+                        "event_kind": "app_mail_state",
+                        "failure_kind": "state_unavailable",
+                    },
+                )
+            return True
+        posted = False  # an explicit response, not a lost response
+        _finish(ticket, f"http_{resp.status_code}", _retry_after(resp))
         return False
-
-    if resp.status_code == 202:
-        _record_send_success()
-        logger.info("app_mail sent to=%s subject=%r", to, subject)
-        return True
-
-    _record_send_failure(f"http_{resp.status_code}")
-    streak = send_state().consecutive_failures
-    # 401/403 to konfiguracja (zły nadawca, brak zgody administratora, skrzynka
-    # poza polityką dostępu aplikacji) — nie naprawi się ponowieniem, więc
-    # zgłaszamy je `logger.error` (→ Sentry), a nie kolejnym `warning` w logu,
-    # który znika przy deployu. Redakcja treści do 200 znaków: Graph zwraca kod
-    # błędu, nasze sekrety w nim nie występują.
-    log = logger.error if resp.status_code in (401, 403) else logger.warning
-    log(
-        "app_mail send to=%s got HTTP %s (streak=%s): %s",
-        to,
-        resp.status_code,
-        streak,
-        resp.text[:200],
-    )
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout):
+        code = "transport_connect"
+    except Exception:
+        _delivery_local.uncertain = posted
+        code = "delivery_uncertain" if posted else "token_or_state"
+    try:
+        _finish(ticket, code)
+    except Exception:
+        logger.warning(
+            "app_mail state unavailable",
+            extra={"event_kind": "app_mail_state", "failure_kind": "state_unavailable"},
+        )
     return False

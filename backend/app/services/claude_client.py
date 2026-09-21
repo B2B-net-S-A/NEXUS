@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 import traceback
 from collections.abc import Sequence
@@ -200,31 +201,36 @@ def _apply_system_cache(kwargs: dict[str, Any]) -> None:
         ]
 
 
-# Parametry próbkowania, które SDK Anthropic 1.x usunęło z sygnatur
-# `messages.create()` / `messages.stream()` (TypeError przy wywołaniu). API
-# nadal je honoruje dla modeli, które ich słuchają — oficjalna droga to
-# `extra_body`, scalane w JSON żądania bez zmian (MIGRATION.md SDK).
+# SDK 1.x accepts sampling only through extra_body; newer models reject it
+# there too. Normalize AFTER selecting each model, including a fallback.
 _SAMPLING_PARAMS = ("temperature", "top_p", "top_k")
 
 
-def _sdk_request_kwargs(call_kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Kwargi dla SDK Anthropic: próbkowanie przeniesione do ``extra_body``.
+def _supports_sampling(model: str) -> bool:
+    match = re.match(r"^claude-(opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-|$)", model)
+    if not match:
+        return True
+    family, major, minor = match.groups()
+    version = (int(major), int(minor or 0))
+    return version < (5, 0) and not (family == "opus" and version >= (4, 7))
 
-    Wołający (parser Championa, ekstraktor notatek) pinują ``temperature=0``
-    i nie muszą wiedzieć, że SDK zmienił sygnaturę — granica dostawcy tłumaczy
-    to raz. Tylko dla Anthropic: `llm_providers.build_request` czyta
-    ``temperature`` wprost z kwargów dla DeepSeek. Jawne ``extra_body``
-    wołającego wygrywa przy kolizji klucza.
-    """
-    sampling = {k: call_kwargs[k] for k in _SAMPLING_PARAMS if k in call_kwargs}
-    if not sampling:
-        return call_kwargs
-    sdk_kwargs = {k: v for k, v in call_kwargs.items() if k not in sampling}
-    extra_body = call_kwargs.get("extra_body")
-    sdk_kwargs["extra_body"] = {
-        **sampling,
-        **(extra_body if isinstance(extra_body, dict) else {}),
-    }
+
+def _sdk_request_kwargs(call_kwargs: dict[str, Any], *, model: str) -> dict[str, Any]:
+    """Copy caller arguments; preserve supported settings and unrelated body keys."""
+    sdk_kwargs = {k: v for k, v in call_kwargs.items() if k not in _SAMPLING_PARAMS}
+    extra_body = dict(call_kwargs.get("extra_body") or {})
+    if _supports_sampling(model):
+        extra_body = {
+            **{k: call_kwargs[k] for k in _SAMPLING_PARAMS if k in call_kwargs},
+            **extra_body,
+        }
+    else:
+        for key in _SAMPLING_PARAMS:
+            extra_body.pop(key, None)
+    if extra_body:
+        sdk_kwargs["extra_body"] = extra_body
+    else:
+        sdk_kwargs.pop("extra_body", None)
     return sdk_kwargs
 
 
@@ -412,7 +418,7 @@ def _call_one_model(
                     model=model,
                     max_tokens=max_tokens,
                     messages=messages,
-                    **_sdk_request_kwargs(call_kwargs),
+                    **_sdk_request_kwargs(call_kwargs, model=model),
                 ) as stream:
                     for _event in stream:
                         if deadline is not None and time.monotonic() >= deadline:
@@ -425,7 +431,7 @@ def _call_one_model(
                     model=model,
                     max_tokens=max_tokens,
                     messages=messages,
-                    **_sdk_request_kwargs(call_kwargs),
+                    **_sdk_request_kwargs(call_kwargs, model=model),
                 )
             # Ucięcie to NIE awaria dostawcy: wywołanie WRÓCIŁO i zostało
             # opłacone. Zaliczenie go jako porażki otwierałoby circuit breaker
@@ -467,11 +473,11 @@ def _call_one_model(
             last_err = err
             last_retryable = is_retryable_anthropic_error(err)
             logger.warning(
-                "[claude_client] próba %d/%d model=%s nieudana: %s (ponawialny=%s)",
+                "[claude_client] próba %d/%d model=%s failure_kind=%s (ponawialny=%s)",
                 attempt + 1,
                 retries + 1,
                 model,
-                err,
+                type(err).__name__,
                 last_retryable,
             )
             if attempt >= retries or not last_retryable:
