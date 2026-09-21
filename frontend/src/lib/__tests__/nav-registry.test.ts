@@ -179,13 +179,12 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
     expect(groups.map((group) => [group.title, group.items.map((i) => i.label)])).toEqual([
       ["Codzienna praca", ["Do przedzwonienia", "Zgłoszenia"]],
       ["Dokumenty", ["Generator CV", "Generator Umów B2B"]],
-      ["Baza i źródła", ["Talenty", "Targ / Dostępni"]],
       ["System", ["Pomoc", "Ustawienia"]],
     ]);
     const admin = visibleMoreGroups(userOf("admin"), opts);
     expect(
       admin.find((group) => group.key === "sources")?.items.map((i) => i.href),
-    ).toEqual(["/talents", "/sourcing/marketplace", "/my-clients", "/my-relationships"]);
+    ).toEqual(["/my-clients", "/my-relationships"]);
     for (const role of ALL_ROLES) {
       for (const group of visibleMoreGroups(userOf(role), opts)) {
         expect(group.items.length).toBeGreaterThan(0);
@@ -244,8 +243,7 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     "/candidates",
     "/cv-generator",
     "/contracts/b2b-generator",
-    "/talents",
-    "/sourcing/marketplace",
+    // „/talents" i „/sourcing/marketplace" zdjęte z menu 21.09.2026.
   ];
   const PIPELINE = ["/jobs", "/calendar"];
   const DELIVERY = [
@@ -445,5 +443,20 @@ describe("paleta ⌘K ⊆ sidebar", () => {
     const href = resolveNavHref(dashboard!, userOf("recruiter") as never);
     expect(href).not.toBe("/");
     expect(href.startsWith("/dashboard")).toBe(true);
+  });
+});
+
+describe("Talenty i Targ zdjęte z nawigacji (21.09.2026)", () => {
+  const opts = { contactQueueEnabled: true };
+  it("nie ma ich w menu ani w palecie dla żadnej roli, strony dalej istnieją", () => {
+    for (const role of ALL_ROLES) {
+      const user = userOf(role);
+      const hrefs = [
+        ...visibleNavHrefs(user, opts),
+        ...visiblePaletteEntries(user, opts, () => true).map((e) => e.href),
+      ];
+      expect(hrefs).not.toContain("/talents");
+      expect(hrefs).not.toContain("/sourcing/marketplace");
+    }
   });
 });

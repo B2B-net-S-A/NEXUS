@@ -285,7 +285,11 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     capability: "nav.talents",
     placement: "more",
     moreGroup: "sources",
-    inPalette: true,
+    // Ukryte z menu i palety 21.09.2026 (decyzja Artura): nieużywane,
+    // funkcję przejęli „Moi ludzie", Talent Radar i nocny przegląd bazy.
+    // Strona i API działają dalej — to tylko zdjęcie wejścia z nawigacji.
+    inSidebar: false,
+    inPalette: false,
   },
   {
     // BEZ `roles`: radar i powiązane funkcje są dostępne dla KAŻDEJ
@@ -332,7 +336,11 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     capability: "nav.sourcing",
     placement: "more",
     moreGroup: "sources",
-    inPalette: true,
+    // Ukryte z menu i palety 21.09.2026 (decyzja Artura): nieużywane,
+    // funkcję przejęli „Moi ludzie", Talent Radar i nocny przegląd bazy.
+    // Strona i API działają dalej — to tylko zdjęcie wejścia z nawigacji.
+    inSidebar: false,
+    inPalette: false,
   },
   {
     id: "applications",
