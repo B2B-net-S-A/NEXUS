@@ -71,9 +71,13 @@ async def finish_review(
     if status not in {"verified", "rejected", "failed"}:
         raise ValueError("Invalid terminal review status")
     if status == "verified" and (
-        not isinstance(result, dict) or result.get("status") != "verified"
+        not isinstance(result, dict)
+        or result.get("status") not in {"verified", "reviewed"}
     ):
         raise ValueError("Verified review requires evidence")
+    # The job's terminal state means the review finished. In advisory mode its
+    # receipt may contain findings ("reviewed"); preserve that verdict rather
+    # than turning it into a worker failure or claiming the content is verified.
     finished = await db.scalar(
         update(CvApprovalJob)
         .where(*owned(job_id, token))
