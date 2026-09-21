@@ -31,9 +31,11 @@ def test_lista_kandydatow_uzywa_wspolnego_predykatu() -> None:
     from app.api import candidates as modul
 
     zrodlo = inspect.getsource(modul)
-    assert "_skill_match" in zrodlo, (
-        "candidates.py nie importuje `_skill_match` — główna lista znów ma "
-        "własną implementację filtra umiejętności i rozjedzie się z "
+    # Od 09.2026 wspólny predykat mieszka w `candidate_search_predicates`
+    # (kubełki „Musi mieć" / „Wyklucz"), a lista czyta go wyłącznie stamtąd.
+    assert "predicates.skills_required_clauses" in zrodlo, (
+        "candidates.py nie czyta filtra umiejętności ze wspólnego modułu — "
+        "główna lista znów ma własną implementację i rozjedzie się z "
         "/api/search/candidates, tak jak przed #960"
     )
     assert 'pattern = f"%{skill.lower()}%"' not in zrodlo, (
@@ -85,9 +87,9 @@ def test_predykat_nie_uzywa_like() -> None:
     przy pisaniu tej poprawki — dlatego predykat używa `strpos`, które nie ma
     znaków ucieczki ani wieloznaczników.
     """
-    from app.services import structured_candidate_search as m
+    from app.services import candidate_search_predicates as m
 
-    zrodlo = inspect.getsource(m._skill_match)
+    zrodlo = inspect.getsource(m.skill_match) + inspect.getsource(m._json_token_match)
     assert "strpos" in zrodlo, "predykat przestał używać strpos"
     assert ".ilike(" not in zrodlo and ".like(" not in zrodlo, (
         "predykat wrócił do LIKE — wzorzec na podwójne kodowanie zdegeneruje "
@@ -102,8 +104,8 @@ def test_zrodlo_tekstu_obejmuje_trzy_kolumny() -> None:
     wyszukiwarka strukturalna pomijała `verified_tech`. Ten sam filtr dawał więc
     różne wyniki zależnie od ekranu.
     """
-    from app.services import structured_candidate_search as m
+    from app.services import candidate_search_predicates as m
 
-    zrodlo = inspect.getsource(m._skills_text)
+    zrodlo = inspect.getsource(m.skills_text)
     for kolumna in ("skills", "verified_tech", "tags"):
         assert kolumna in zrodlo, f"_skills_text() pomija kolumnę {kolumna}"

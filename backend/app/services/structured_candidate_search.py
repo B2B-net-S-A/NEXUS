@@ -20,10 +20,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from functools import reduce
 from typing import Optional
 
-from sqlalchemy import String, and_, case, cast, func, not_, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import (
@@ -35,192 +34,53 @@ from app.schemas.candidate_search import (
     CandidateSearchRequest,
     LanguageRequirement,
 )
-from app.services.candidate_profile_rate import (
-    canonical_profile_rate_currency_clause,
-)
-from app.services.polish_ilike import polish_folded_ilike
+from app.services import candidate_search_predicates as predicates
 
 # CEFR ordering — monotonic in ASCII so plain ``>=`` on the JSON value works.
 _LEVEL_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2", "native"]
 
 
-def _coalesce_empty(col: ColumnElement) -> ColumnElement:
-    """Coalesce NULL → '' so ILIKE yields FALSE instead of NULL.
-
-    NOT a safety helper, despite what the old name (``_safe``) suggested. The
-    coalesce makes the comparison return a boolean rather than NULL — which
-    means a row with no value evaluates to FALSE and is **excluded**. That
-    reads as protection and is the opposite: it is how the location filter
-    silently dropped 85% of the database while looking careful.
-
-    Any caller that must keep unknown-valued rows has to add the NULL arm
-    itself (see the `location` group in ``build_filter_groups``), or use
-    ``nullable()``.
-    """
-    return func.coalesce(col, "")
+# Dopasowanie umiejętności mieszka w `candidate_search_predicates` — JEDNYM
+# module wspólnym dla listy i wyszukiwarki. Aliasy zostają wyłącznie dla
+# istniejących importów; nie dopisuj tu logiki.
+_skills_text = predicates.skills_text
+_skill_match = predicates.skill_match
 
 
-def _escape_like(value: str) -> str:
-    return value.replace("\\", r"\\").replace("%", r"\%").replace("_", r"\_")
-
-
-def _skills_text() -> ColumnElement:
-    """Zrzut JSONB ``skills`` + ``verified_tech`` + ``tags`` jako tekst.
-
-    Umiejętności bywają listą stringów albo listą słowników
-    (``{name, level, years}``); rzutowanie na ``text`` daje surowy JSON, który
-    pokrywa oba kształty.
-
-    ``verified_tech`` dołączone dla parzystości z listą kandydatów
-    (``candidates.py::_build_candidate_filtered_query``), która zawsze
-    przeszukiwała trzy kolumny. Dopóki te dwie powierzchnie brały różne zbiory
-    kolumn, ten sam filtr dawał różne wyniki zależnie od tego, który ekran go
-    wysłał — i nikt tego nie widział, bo obie odpowiadały 200.
-    """
-    return (
-        func.coalesce(cast(Candidate.skills, String), "")
-        + " "
-        + func.coalesce(cast(Candidate.verified_tech, String), "")
-        + " "
-        + func.coalesce(cast(Candidate.tags, String), "")
+def request_semantics(req: CandidateSearchRequest) -> predicates.Semantics:
+    """Wersja semantyki żądania wyszukiwarki (`semantics_version`, `hide_unknown`).
+    Bez pola = v1: DOKŁADNIE dotychczasowe wyniki."""
+    return predicates.semantics_for(
+        "search",
+        getattr(req, "semantics_version", None),
+        getattr(req, "hide_unknown", None),
     )
 
 
-def _skill_match(skill: str) -> ColumnElement:
-    """Dopasuj umiejętność jako CAŁY token JSON, w obu spotykanych kodowaniach.
-
-    Zrzut ``_skills_text()`` to JSON, więc każda wartość stoi w cudzysłowach —
-    ``["Python", "Go"]`` i ``[{"name": "Go"}]`` tak samo zawierają ``"Go"``.
-    Wymaganie tych cudzysłowów zamienia nieprecyzyjny test podłańcuchowy na test
-    całego tokenu.
-
-    DLACZEGO TO WAŻNE: ``skills_none`` jest filtrem TWARDYM. Przy gołym ``%Go%``
-    zapytanie „nie ma Go" wycinało z wyników **196 osób, z których tylko 15 zna
-    Go** — resztę stanowili deweloperzy Django, MongoDB i Golang. Rekruter nie
-    miał jak tego zauważyć: brakujący kandydat wygląda identycznie jak kandydat,
-    którego nie ma w bazie.
-
-    DWA KODOWANIA, nie jedno. Część wierszy trzyma JSON **podwójnie zakodowany**
-    — wartość jest stringiem JSON wewnątrz JSONB, więc w zrzucie granicą tokenu
-    jest ``\\"`` zamiast ``"``. Zmierzone na produkcji 28.07: token ``"Go"``
-    trafia w 5 kandydatów, token ``\\"Go\\"`` w kolejnych 10 — łącznie 15.
-    Wzorzec sprawdzający tylko pierwszy kształt gubił dwie trzecie prawdziwych
-    trafień. Wierszy z podwójnym kodowaniem jest w bazie 303.
-
-    ``strpos`` zamiast ``ILIKE`` **świadomie**: LIKE traktuje ``\\`` jako znak
-    ucieczki, więc wzorzec na podwójne kodowanie wymagałby podwajania ukośników
-    i degenerował się po cichu do wariantu bez nich (ta sama pułapka przewróciła
-    pomiar przy pisaniu tej poprawki). ``strpos`` szuka dosłownego podłańcucha —
-    bez znaków ucieczki, bez wieloznaczników, więc nazwa umiejętności zawierająca
-    ``%`` lub ``_`` też przestaje być wzorcem.
-
-    Ograniczenie świadome: w kształcie słownikowym zrzut zawiera też klucze
-    ``"name"``, ``"level"``, ``"years"`` — chip nazwany dokładnie jak klucz trafi
-    sam w siebie. Nieszkodliwe i wciąż ściśle lepsze od stanu poprzedniego;
-    właściwym rozwiązaniem jest złączenie z ``cortex_skill_facts``, które wymaga
-    pokrycia Cortexa powyżej ~60% (zmierzone 56,8% na 2026-07-27).
-
-    RODZINA ALIASÓW, nie jedna pisownia. Dane kandydatów nie są kanonizowane —
-    w bazie leży dosłownie to, co przyszło z CV albo z importu — a semantyka
-    całego tokenu (powyżej) sprawia, że ``"golang"`` NIE zawiera ``"go"``.
-    Zbiory wariantów są więc rozłączne. Zmierzone na produkcji 2026-07-28 dla
-    rodziny „Microsoft SQL Server”::
-
-        mssql=21, ms sql=18, sql server=18, microsoft sql server=9, microsoft sql=3
-
-    Wcześniej lista kandydatów zwijała zapytanie do nazwy kanonicznej i szukała
-    wyłącznie jej dosłownego brzmienia (9 z ponad 60 osób, te same 9 niezależnie
-    od wpisanego wariantu), a wyszukiwarka nie normalizowała nic (tylko dosłowne
-    trafienia wpisanej pisowni). Żadna z powierzchni nie była nadzbiorem drugiej:
-    przy „REST” wyszukiwarka znajdowała 35, lista 31. Poza MSSQL gubione było
-    m.in. 35 z 76 przy HTML, 34 z 69 przy REST API, 27 ze 152 przy Javie.
-
-    Rozwinięcie siedzi TUTAJ, a nie w miejscach wywołania, bo to jedyny punkt
-    wspólny obu powierzchni — poprawkę w wywołaniach da się pominąć przy
-    dopisywaniu kolejnego endpointu i dokładnie tak powstał poprzedni rozjazd.
-    Efekt uboczny jest korzystny: skoro alternatywa siedzi wewnątrz predykatu,
-    koniunkcja przy ``skill_combine="and"`` nadal działa MIĘDZY umiejętnościami,
-    a nie między pisowniami tej samej (co nie zwróciłoby nikogo).
-    """  # noqa: D301
-    blob = func.lower(_skills_text())
-
-    # Import lokalny: `scoring_service` importuje modele i schematy, a ten moduł
-    # jest ładowany z `candidates.py` — import na górze pliku domyka cykl.
-    from app.services.scoring_service import skill_name_variants
-
-    # Zabezpieczenie na końcu jest jedynym działającym: `skill_name_variants`
-    # zwraca listę (nigdy None), ale przy pustej mapie aliasów i pustej nazwie
-    # może zwrócić [] — wtedy predykat musi mieć w co trafiać.
-    igly = [w for w in skill_name_variants([skill]) if w] or [skill.lower()]
-
-    warunki: list[ColumnElement] = []
-    for igla in igly:
-        warunki.append(func.strpos(blob, f'"{igla}"') > 0)
-        warunki.append(func.strpos(blob, f'\\"{igla}\\"') > 0)
-    return or_(*warunki)
-
-
 def skills_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
-    """ORDER BY expression: how many of the requested (must ∪ any) skills the
-    candidate's structured text matches. Higher = more relevant.
+    """ORDER BY: ile pozycji „Mile widziane" kandydat spełnia. Higher = better.
 
-    SEARCH-P0-03: skill chips are a SOFT signal — they rank, they never cut.
-    Returns ``None`` when no inclusion chips were sent (nothing to rank by).
-    A candidate the substring misses simply scores 0 here and sinks, rather
-    than being excluded from the result set entirely.
+    SEARCH-P0-03: legacy `skills_must` / `skills_any` są sygnałem MIĘKKIM —
+    szeregują, nigdy nie tną; razem z jawnym `skills_preferred` tworzą kubełek
+    „Mile widziane" (`predicates.skill_buckets_from_search`). ``None``, gdy
+    nie ma czym szeregować.
     """
-    wanted = list(req.skills_must) + list(req.skills_any or [])
-    if not wanted:
-        return None
-    matches = [case((_skill_match(s), 1), else_=0) for s in wanted]
-    return reduce(lambda a, b: a + b, matches)
-
-
-def _city_match_clauses(cities: list[str]) -> list[ColumnElement]:
-    """One ILIKE-pair predicate per requested city.
-
-    Shared by the WHERE clause and ``location_soft_rank`` so the two can never
-    disagree about what "matches this city" means.
-    """
-    # Bez wrażliwości na polskie znaki: „Krakow" musi znaleźć „Kraków" (UAT M02-B03).
-    return [
-        or_(
-            polish_folded_ilike(_coalesce_empty(Candidate.city), c),
-            polish_folded_ilike(_coalesce_empty(Candidate.location), c),
-        )
-        for c in cities
-    ]
+    return predicates.skills_preferred_rank(predicates.skill_buckets_from_search(req))
 
 
 def experience_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
-    """ORDER BY expression: 1 when the stated experience is inside the request.
-
-    The second half of making the experience filter NULL-tolerant. Dropping the
-    hard cut alone would be a regression: on the measured example the 45 people
-    who actually state 2-6 years would be scattered among 11 046 whose field is
-    blank. This lifts the ones who said so; the rest keep their place below.
-
-    Returns ``None`` when no bound was requested (nothing to rank by).
+    """ORDER BY / licznik: 1, gdy ZNANY staż kandydata (liczba albo koszyk
+    Traffita) mieści się w żądaniu. Druga połowa tolerancji na brak danych:
+    bez niej osoby z podanym stażem ginęłyby wśród tysięcy bez niego.
     """
-    bounds: list[ColumnElement] = []
-    if req.experience_years_min is not None:
-        bounds.append(Candidate.years_it_experience >= req.experience_years_min)
-    if req.experience_years_max is not None:
-        bounds.append(Candidate.years_it_experience <= req.experience_years_max)
-    if not bounds:
-        return None
-    return case((and_(Candidate.years_it_experience.is_not(None), *bounds), 1), else_=0)
+    return predicates.experience_stated_rank(
+        req.experience_years_min, req.experience_years_max, request_semantics(req)
+    )
 
 
 def location_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
-    """ORDER BY expression: how many of the requested cities the candidate matches."""
-    if not req.location_cities:
-        return None
-    matches = [
-        case((clause, 1), else_=0)
-        for clause in _city_match_clauses(req.location_cities)
-    ]
-    return reduce(lambda a, b: a + b, matches)
+    """ORDER BY / licznik: ile z żądanych miast kandydat faktycznie podaje."""
+    return predicates.location_rank(req.location_cities)
 
 
 def _language_clause(req: LanguageRequirement) -> Optional[ColumnElement]:
@@ -327,6 +187,18 @@ NULL_POLICY: dict[str, GroupPolicy] = {
             "soft ranking signal in SEARCH-P0-03 (`skills_soft_rank`)."
         ),
     ),
+    "skills_required": GroupPolicy(
+        NullPolicy.exclude,
+        0.5,
+        "2026-09-21",
+        justification=(
+            "„Musi mieć” is the HARD bucket by product decision (09.2026): the "
+            "recruiter explicitly asked for people who have the skill, so a "
+            "profile with no skills data does not satisfy it. Only the explicit "
+            "`skills_required*` fields land here — the legacy `skills_must` / "
+            "`skills_any` chips stay a soft ranking signal („Mile widziane”)."
+        ),
+    ),
     "experience": GroupPolicy(NullPolicy.include, 1.2, "2026-08-07"),
     "location": GroupPolicy(NullPolicy.include, 14.9, "2026-08-07"),
     "languages": GroupPolicy(
@@ -425,35 +297,37 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
         if clauses:
             groups.append(FilterGroup(key=key, label=label, clauses=clauses))
 
+    sem = request_semantics(req)
+
     cc: list[ColumnElement] = []
-    if req.competence_category_ids:
-        cc.append(Candidate.competence_category_id.in_(req.competence_category_ids))
+    cc_clause = predicates.competence_category_clause(req.competence_category_ids, sem)
+    if cc_clause is not None:
+        cc.append(cc_clause)
     add("competence_category", "Kategoria kompetencji", cc)
 
-    skills: list[ColumnElement] = []
-    # SEARCH-P0-03: skills_must / skills_any are a SOFT ranking signal now
-    # (see ``skills_soft_rank``), NOT a hard filter. A candidate the scorer
-    # rates highly must never be cut from the list before ranking just because
-    # a substring ILIKE over the structured `skills`+`tags` column missed (that
-    # column is empty for ~99% of imported candidates, and 'Go' spuriously
-    # matches 'Django'). Only skills_none stays a hard filter — "must NOT have
-    # X" is a real exclusion the recruiter explicitly asked for.
-    for skill in req.skills_none:
-        skills.append(not_(_skill_match(skill)))
-    add("skills", "Umiejętności (wykluczenia)", skills)
+    # Trzy kubełki (decyzja 09.2026): „Musi mieć" i „Wyklucz" tną, „Mile
+    # widziane" tylko szereguje (`skills_soft_rank`). Pola legacy
+    # `skills_must`/`skills_any` zostają MIĘKKIE (SEARCH-P0-03) — twarde „Musi
+    # mieć" przychodzi wyłącznie jawnym `skills_required*`. Osobne grupy, żeby
+    # wodospad diagnostyki umiał powiedzieć, KTÓRY kubełek wyzerował wynik.
+    buckets = predicates.skill_buckets_from_search(req)
+    add(
+        "skills_required",
+        'Umiejętności — „Musi mieć"',
+        predicates.skills_required_clauses(buckets),
+    )
+    add(
+        "skills",
+        'Umiejętności — „Wyklucz"',
+        predicates.skills_excluded_clauses(buckets),
+    )
 
     experience: list[ColumnElement] = []
-    exp_bounds: list[ColumnElement] = []
-    if req.experience_years_min is not None:
-        exp_bounds.append(Candidate.years_it_experience >= req.experience_years_min)
-    if req.experience_years_max is not None:
-        exp_bounds.append(Candidate.years_it_experience <= req.experience_years_max)
-    if exp_bounds:
-        # NULL-tolerant per NULL_POLICY["experience"]: `years_it_experience` is
-        # filled for 1.2% of the base, so a hard bound selects on bookkeeping
-        # rather than on seniority. Candidates who DO state a matching range are
-        # lifted by `experience_soft_rank`.
-        experience.append(nullable(Candidate.years_it_experience, *exp_bounds))
+    exp_clause = predicates.experience_clause(
+        req.experience_years_min, req.experience_years_max, sem
+    )
+    if exp_clause is not None:
+        experience.append(exp_clause)
     add("experience", "Doświadczenie", experience)
 
     languages: list[ColumnElement] = []
@@ -463,27 +337,16 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
             languages.append(lang_clause)
     add("languages", "Języki", languages)
 
-    location: list[ColumnElement] = []
-    if req.location_cities:
-        # NULL-tolerant per NULL_POLICY["location"]: city/location are filled for
-        # ~15% of the base. `_safe` coalesces NULL → '' so ILIKE returns a
-        # boolean rather than NULL — which reads as "safe" but *guarantees* the
-        # unknown-location rows are excluded. Known-and-not-matching still drops;
-        # unknown stays and sinks via `location_soft_rank`.
-        location.append(
-            or_(
-                and_(Candidate.city.is_(None), Candidate.location.is_(None)),
-                or_(*_city_match_clauses(req.location_cities)),
-            )
-        )
-    if req.location_countries:
-        location.append(
-            nullable(
-                Candidate.country,
-                Candidate.country.in_([c.upper() for c in req.location_countries]),
-            )
-        )
-    add("location", "Lokalizacja", location)
+    add(
+        "location",
+        "Lokalizacja",
+        predicates.location_clauses(
+            req.location_cities,
+            req.location_countries,
+            sem,
+            scope=getattr(req, "location_scope", None),
+        ),
+    )
 
     eligibility: list[ColumnElement] = []
     if req.exclude_blacklisted:
@@ -492,14 +355,17 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
         eligibility.append(Candidate.status != CandidateStatus.blacklisted)
     add("eligibility", "Dostępność do przypisania", eligibility)
 
-    status: list[ColumnElement] = []
-    if req.status:
-        status.append(Candidate.status.in_(req.status))
-    add("status", "Status kandydata", status)
+    status_clause = predicates.status_clause(req.status)
+    add(
+        "status",
+        "Status kandydata",
+        [status_clause] if status_clause is not None else [],
+    )
 
     availability: list[ColumnElement] = []
-    if req.availability_status:
-        availability.append(Candidate.availability_status.in_(req.availability_status))
+    availability_clause = predicates.availability_clause(req.availability_status)
+    if availability_clause is not None:
+        availability.append(availability_clause)
     if req.availability_date_before is not None:
         availability.append(
             Candidate.availability_date.is_(None)
@@ -520,37 +386,22 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
         )
     add("availability", "Dyspozycyjność", availability)
 
-    # Global candidate rate has fixed semantics: B2B, PLN net/hour. Missing rate
-    # is unknown → included (never a hard exclusion), matching the
-    # availability/notice-period NULL policy above.
-    rate: list[ColumnElement] = []
-    if req.rate_hourly_min is not None or req.rate_hourly_max is not None:
-        bounds: list[ColumnElement] = []
-        if req.rate_hourly_min is not None:
-            bounds.append(Candidate.expected_rate_hourly >= req.rate_hourly_min)
-        if req.rate_hourly_max is not None:
-            bounds.append(Candidate.expected_rate_hourly <= req.rate_hourly_max)
-        comparable = canonical_profile_rate_currency_clause(
-            Candidate.expected_rate_currency
-        )
-        rate.append(
-            Candidate.expected_rate_hourly.is_(None)
-            | ~comparable
-            | (comparable & and_(*bounds))
-        )
-    add("rate_hourly", "Stawka godzinowa", rate)
+    # Stawka profilu: B2B, PLN netto/h. Brak stawki = nie wiemy → zostaje.
+    rate_clause = predicates.hourly_rate_clause(
+        req.rate_hourly_min, req.rate_hourly_max, sem
+    )
+    add(
+        "rate_hourly",
+        "Stawka godzinowa",
+        [rate_clause] if rate_clause is not None else [],
+    )
 
     sources: list[ColumnElement] = []
     if req.sources:
         sources.append(Candidate.source.in_(req.sources))
     add("sources", "Źródło", sources)
 
-    tags: list[ColumnElement] = []
-    if req.tags:
-        tags_text = func.coalesce(cast(Candidate.tags, String), "")
-        for tag in req.tags:
-            tags.append(tags_text.ilike(f"%{_escape_like(tag)}%", escape="\\"))
-    add("tags", "Tagi", tags)
+    add("tags", "Tagi", predicates.tags_clauses(req.tags, sem))
 
     attributes: list[ColumnElement] = []
     has_cv_clause = _bool_clause_has_cv(req.has_cv)
@@ -567,19 +418,26 @@ def build_filter_groups(req: CandidateSearchRequest) -> list[FilterGroup]:
     ambassador_clause = _bool_eq(Candidate.is_ambassador, req.is_ambassador)
     if ambassador_clause is not None:
         attributes.append(ambassador_clause)
-    side_proj_clause = _bool_eq(
-        Candidate.open_to_side_projects, req.open_to_side_projects
-    )
-    if side_proj_clause is not None:
-        attributes.append(side_proj_clause)
-    sales_clause = _bool_eq(Candidate.open_to_sales_support, req.open_to_sales_support)
-    if sales_clause is not None:
-        attributes.append(sales_clause)
-    expert_clause = _bool_eq(
-        Candidate.open_to_expert_consult, req.open_to_expert_consult
-    )
-    if expert_clause is not None:
-        attributes.append(expert_clause)
+    # „Otwarty na". v2: którykolwiek z zaznaczonych (LUB) — pola legacy
+    # `open_to_*: true` dokładają się do tej samej alternatywy co jawne
+    # `open_to`. v1: dotychczasowa KONIUNKCJA przełączników. `false` („NIE jest
+    # otwarty") jest w obu wersjach osobnym, twardym warunkiem.
+    legacy_open_to = {
+        "side_projects": req.open_to_side_projects,
+        "sales_support": req.open_to_sales_support,
+        "expert_consult": req.open_to_expert_consult,
+    }
+    wanted_open_to = list(getattr(req, "open_to", None) or [])
+    for key, value in legacy_open_to.items():
+        if value is False:
+            attributes.append(predicates.OPEN_TO_FIELDS[key].is_(False))
+        elif value is True and sem.unified:
+            wanted_open_to.append(key)
+        elif value is True:
+            attributes.append(predicates.OPEN_TO_FIELDS[key].is_(True))
+    open_to_clause = predicates.open_to_clause(wanted_open_to)
+    if open_to_clause is not None:
+        attributes.append(open_to_clause)
     if req.cv_parsed_after is not None:
         attributes.append(Candidate.cv_parsed_at >= req.cv_parsed_after)
     add("attributes", "Atrybuty", attributes)

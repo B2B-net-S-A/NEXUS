@@ -195,4 +195,111 @@ describe("CandidateSearchView saved-search reapproval", () => {
     expect(update).not.toHaveBeenCalled();
     expect(remove).not.toHaveBeenCalled();
   });
+
+  // ── Zapis wstrzymany przez migrację na wspólną semantykę filtrów ──────────
+  // Ten sam panel co w `SavedSearchesMenu` (`SemanticsReapprovalPanel`);
+  // komunikat o stawkach miesięcznych zostaje WYŁĄCZNIE dla swojego przypadku.
+  const semanticsSearch: Omit<typeof savedSearch, "filters"> & {
+    filters: Record<string, unknown>;
+  } = {
+    ...savedSearch,
+    id: 42,
+    name: "Java z tagiem",
+    filters: {
+      version: 3,
+      semantics_version: 2,
+      origin: "search_request",
+      request: { semantics_version: 2, q: "python", tags: ["java"] },
+      legacy: { q: "python", tags: ["java"], search_mode: "boolean" },
+      migration: {
+        outcome: "different",
+        alert_was_on: false,
+        diff: {
+          legacy_total: 14,
+          unified_total: 6,
+          only_legacy: 8,
+          only_unified: 0,
+          rules: ["tags_whole_match"],
+        },
+      },
+    },
+  };
+
+  it("shows the semantics panel (own copy, counts, reason) instead of the monthly-rate prompt", async () => {
+    list.mockResolvedValue([semanticsSearch]);
+    renderView();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: semanticsSearch.name }),
+    );
+
+    const panel = screen.getByRole("group", {
+      name: `Zmiana zasad wyszukiwania: ${semanticsSearch.name}`,
+    });
+    expect(panel).toHaveTextContent("Zmieniły się zasady wyszukiwania");
+    expect(panel).toHaveTextContent("dotąd 14, po zmianie 6");
+    expect(panel).toHaveTextContent("tag musi pasować w całości");
+    expect(screen.queryByText(/miesięczne kryteria stawki/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Zatwierdź i zastosuj" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("active-query")).toHaveTextContent("brak");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("„Zatwierdź nowe wyniki” sends accept and applies the migrated (v2) request", async () => {
+    list.mockResolvedValue([semanticsSearch]);
+    update.mockResolvedValue({ ...semanticsSearch, requires_reapproval: false });
+    renderView();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: semanticsSearch.name }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Zatwierdź nowe wyniki" }),
+    );
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(semanticsSearch.id, {
+        confirm_reapproval: true,
+        reapproval_choice: "accept",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("active-query")).toHaveTextContent("python"),
+    );
+    expect(
+      screen.queryByText("Zmieniły się zasady wyszukiwania"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("„Zostaw po staremu” sends keep_legacy and applies the restored legacy request", async () => {
+    list.mockResolvedValue([semanticsSearch]);
+    update.mockResolvedValue({
+      ...semanticsSearch,
+      requires_reapproval: false,
+      filters: {
+        q: "python",
+        tags: ["java"],
+        search_mode: "boolean",
+        keep_legacy_semantics: true,
+      },
+    });
+    renderView();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: semanticsSearch.name }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Zostaw po staremu" }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(semanticsSearch.id, {
+        confirm_reapproval: true,
+        reapproval_choice: "keep_legacy",
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("active-query")).toHaveTextContent("python"),
+    );
+  });
 });

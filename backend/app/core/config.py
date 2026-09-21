@@ -441,6 +441,12 @@ class Settings(BaseSettings):
     # (endpoint jest bezstanowy). Pokrętło istnieje, żeby dało się zmierzyć
     # 200 vs 100 evalem bez deployu — patrz `_hybrid_pool_size` w api/search.py.
     SEARCH_HYBRID_POOL_SIZE: int = 200
+    # Jednorazowa migracja zapisanych wyszukiwań kandydatów na wspólną semantykę
+    # filtrów (`services/saved_search_migration.py`) przy starcie skanera alertów.
+    # Domyślnie OFF: migracja wstrzymuje alerty zapisów, których wynik się
+    # zmienia, i powiadamia właścicieli — moment wybiera człowiek (albo admin
+    # woła `POST /api/saved-searches/migrate-semantics`). Marker w `app_settings`.
+    SAVED_SEARCH_SEMANTICS_MIGRATION_AUTORUN: bool = False
     # Talent Radar: wymagania MUST/NICE podane WPROST (z `parse-champion`)
     # zamiast wywodzonych regexem z prozy. Flip zmienia CZTERY rzeczy naraz,
     # nie jedną warstwę punktową:

@@ -149,6 +149,9 @@ class NotificationType(str, enum.Enum):
     # na serię, wyłącznie dla adminów (`services/automation_failures.py`).
     # Rekruterzy nie dostają nic: awaria jest wpisem w „Pracy w tle".
     automation_failing = "automation_failing"
+    # 0336: zapisane wyszukiwanie po migracji na wspólną semantykę filtrów
+    # zwraca inny zbiór osób — alert wstrzymany do akceptacji właściciela.
+    saved_search_reapproval = "saved_search_reapproval"
 
 
 class Notification(Base, TimestampMixin):

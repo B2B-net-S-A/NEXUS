@@ -43,6 +43,11 @@ export function detectSavedSearchFormat(filters: unknown): SavedSearchFormat {
     return "unknown";
   }
   const f = filters as Record<string, unknown>;
+  // Format v3 (po migracji na wspólną semantykę, `saved-search-unified.ts`)
+  // pamięta, z której powierzchni pochodzi — otwiera się tam, gdzie powstał.
+  if (f.version === 3 && f.request && typeof f.request === "object") {
+    return f.origin === "search_request" ? "search_request" : "candidates_list";
+  }
   // The global-list payload is unambiguously marked by its `qs` querystring.
   if (typeof f.qs === "string") return "candidates_list";
   if (REQUEST_KEYS.some((k) => k in f)) return "search_request";

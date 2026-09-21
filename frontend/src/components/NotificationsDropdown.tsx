@@ -371,6 +371,13 @@ const TYPE_CONFIG: Record<
   },
   // Koniec przeglądu całej bazy (Talent Radar / AI Matching w rekrutacji).
   // Link → /jobs/{id}?tab=similar albo /talent-radar.
+  // Zapisane wyszukiwanie po migracji na wspólną semantykę filtrów zwraca inny
+  // zbiór osób — alert czeka na akceptację właściciela.
+  saved_search_reapproval: {
+    icon: <Sparkles className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
   candidate_search_completed: {
     icon: <Sparkles className="w-3.5 h-3.5" />,
     color: "text-primary",
