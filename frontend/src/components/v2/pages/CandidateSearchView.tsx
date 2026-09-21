@@ -53,6 +53,11 @@ import { CandidateCompareModal } from "@/components/v2/pages/CandidateCompareMod
 import { shortlistApi } from "@/lib/candidate-search-api";
 import { detectSavedSearchFormat } from "@/lib/saved-search-format";
 import { savedSearchToSearchViewRequest } from "@/lib/saved-search-unified";
+import { semanticsReapproval } from "@/lib/saved-search-reapproval";
+import {
+  SemanticsReapprovalPanel,
+  type SemanticsReapprovalChoice,
+} from "@/components/v2/filters/SemanticsReapprovalPanel";
 import { parseTagInput } from "@/lib/parse-tag-input";
 import {
   formatReasonCounts,
@@ -436,7 +441,9 @@ export function CandidateSearchView({
     });
   };
 
-  const approveAndLoadSavedSearch = async () => {
+  const approveAndLoadSavedSearch = async (
+    choice?: SemanticsReapprovalChoice,
+  ) => {
     if (readOnly) return;
     const savedSearch = savedSearches.find(
       (search) => search.id === reapprovalSearchId,
@@ -450,6 +457,9 @@ export function CandidateSearchView({
     try {
       const approved = await savedSearchesApi.update(savedSearch.id, {
         confirm_reapproval: true,
+        // Tylko zapis wstrzymany przez migrację semantyki niesie wybór;
+        // po wycofaniu stawek miesięcznych wysyłamy to samo co dotąd.
+        ...(choice ? { reapproval_choice: choice } : {}),
       });
       if (approved.requires_reapproval) {
         throw new Error("Backend nie potwierdził ponownej akceptacji zapisu.");
@@ -1022,7 +1032,22 @@ export function CandidateSearchView({
           Zapisz to wyszukiwanie
         </Button>
       )}
-      {!readOnly && savedSearchAwaitingReapproval && (
+      {!readOnly &&
+        savedSearchAwaitingReapproval &&
+        semanticsReapproval(savedSearchAwaitingReapproval.filters) && (
+          <SemanticsReapprovalPanel
+            name={savedSearchAwaitingReapproval.name}
+            filters={savedSearchAwaitingReapproval.filters}
+            canDecide
+            pending={reapprovalPending}
+            error={reapprovalError}
+            onChoose={(choice) => void approveAndLoadSavedSearch(choice)}
+            className="text-sm"
+          />
+        )}
+      {!readOnly &&
+        savedSearchAwaitingReapproval &&
+        !semanticsReapproval(savedSearchAwaitingReapproval.filters) && (
         <div
           role="alert"
           className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning-muted p-3 text-sm text-warning-muted-foreground sm:flex-row sm:items-center sm:justify-between"

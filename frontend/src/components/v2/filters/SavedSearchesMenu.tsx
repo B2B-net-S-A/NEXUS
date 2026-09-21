@@ -15,6 +15,7 @@ import { savedSearchesApi, type SavedSearchRow } from "@/lib/api";
 import { detectSavedSearchFormat } from "@/lib/saved-search-format";
 import { buildCandidateSavedSearchPayload } from "@/lib/candidate-saved-search";
 import { semanticsReapproval } from "@/lib/saved-search-reapproval";
+import { SemanticsReapprovalPanel } from "@/components/v2/filters/SemanticsReapprovalPanel";
 import { useAuthStore } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -161,71 +162,22 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  setOpen(false);
  };
 
- const renderReview = (ss: SavedSearchRow, isMine: boolean) => {
- const review = semanticsReapproval(ss.filters);
- if (!review || reviewId !== ss.id) return null;
- const counted = review.legacyTotal !== null && review.unifiedTotal !== null;
- return (
- <div
- role="group"
- aria-label={`Zmiana zasad wyszukiwania: ${ss.name}`}
- className="mx-2 mb-2 rounded-md border border-border bg-muted/40 p-2.5 text-xs"
- >
- <p className="font-semibold text-foreground">
- Zmieniły się zasady wyszukiwania
- </p>
- <p className="mt-1 text-muted-foreground">
- Ujednoliciliśmy filtry listy i wyszukiwarki kandydatów. Wyniki tego
- zapisu by się zmieniły
- {counted
- ? `: dotąd ${review.legacyTotal}, po zmianie ${review.unifiedTotal}.`
- : "."}
- </p>
- <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-muted-foreground">
- {review.ruleLabels.map((label) => (
- <li key={label}>{label}</li>
- ))}
- </ul>
- {review.alertWasOn && (
- <p className="mt-1.5 text-muted-foreground">
- Alert jest wstrzymany do Twojej decyzji.
- </p>
- )}
- {isMine ? (
- <div className="mt-2 flex flex-wrap gap-1.5">
- <Button
- size="sm"
- disabled={reapprovalMutation.isPending}
- onClick={() =>
- reapprovalMutation.mutate({ id: ss.id, choice: "accept" })
+ const renderReview = (ss: SavedSearchRow, isMine: boolean) =>
+ reviewId === ss.id ? (
+ <SemanticsReapprovalPanel
+ name={ss.name}
+ filters={ss.filters}
+ canDecide={isMine}
+ pending={reapprovalMutation.isPending}
+ error={
+ reapprovalMutation.isError
+ ? "Nie udało się zapisać decyzji. Spróbuj ponownie."
+ : null
  }
- >
- Zatwierdź nowe wyniki
- </Button>
- <Button
- size="sm"
- variant="outline"
- disabled={reapprovalMutation.isPending}
- onClick={() =>
- reapprovalMutation.mutate({ id: ss.id, choice: "keep_legacy" })
- }
- >
- Zostaw po staremu
- </Button>
- </div>
- ) : (
- <p className="mt-1.5 text-muted-foreground">
- Decyzję podejmuje właściciel zapisu.
- </p>
- )}
- {reapprovalMutation.isError && (
- <p role="alert" className="mt-1.5 text-destructive">
- Nie udało się zapisać decyzji. Spróbuj ponownie.
- </p>
- )}
- </div>
- );
- };
+ onChoose={(choice) => reapprovalMutation.mutate({ id: ss.id, choice })}
+ className="mx-2 mb-2"
+ />
+ ) : null;
 
  const renderRow = (ss: SavedSearchRow, isMine: boolean) => (
  <div key={ss.id}>

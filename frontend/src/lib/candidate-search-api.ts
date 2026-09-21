@@ -388,6 +388,8 @@ export interface SavedSearchCreate {
 
 export interface SavedSearchUpdate {
   confirm_reapproval?: boolean;
+  /** Zapis wstrzymany przez migrację semantyki: zatwierdź albo zostaw v1. */
+  reapproval_choice?: "accept" | "keep_legacy";
 }
 
 export const savedSearchesApi = {
