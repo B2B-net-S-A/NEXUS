@@ -3,11 +3,40 @@ import type {
   ContractTypeValue,
 } from "@/lib/filter-options";
 
+/**
+ * Kolumny sortowalne listy kontraktów — lustro `ContractSortKey`
+ * w `backend/app/api/contracts.py`. Sortuje SERWER: lista jest stronicowana
+ * i grupowana po osobie, więc posortowanie jednej strony kłamałoby.
+ */
+export const CONTRACT_SORT_KEYS = [
+  "candidate",
+  "client",
+  "start_date",
+  "order_end_date",
+  "rate_candidate",
+  "rate_client",
+  "margin",
+  "contract_type",
+  "status",
+] as const;
+
+export type ContractSortKey = (typeof CONTRACT_SORT_KEYS)[number];
+export type ContractSortDir = "asc" | "desc";
+
 export interface ContractsListState {
   search: string;
   statusFilter: ContractStatusValue[];
   typeFilter: ContractTypeValue[];
   endingSoon: boolean;
+  /** Zakres daty rozpoczęcia umowy (ISO `YYYY-MM-DD`, pusty = bez granicy). */
+  startFrom: string;
+  startTo: string;
+  /** Zakres daty zakończenia zamówienia u klienta. */
+  orderEndFrom: string;
+  orderEndTo: string;
+  /** `null` = domyślna kolejność serwera (najnowsze kontrakty najpierw). */
+  sortBy: ContractSortKey | null;
+  sortDir: ContractSortDir;
   page: number;
 }
 
@@ -47,8 +76,16 @@ const LIST_PARAM_NAMES = [
   "status",
   "contract_type",
   "ending",
+  "start_from",
+  "start_to",
+  "order_end_from",
+  "order_end_to",
+  "sort",
+  "dir",
   "page",
 ] as const;
+
+const CONTRACT_SORT_KEY_SET: ReadonlySet<string> = new Set(CONTRACT_SORT_KEYS);
 
 const CONTRACT_STATUS_VALUES = new Set<ContractStatusValue>([
   "draft",
@@ -113,6 +150,7 @@ export function parseContractsListState(
     ),
   );
   const endingSoon = params.get("ending") === "30";
+  const rawSort = params.get("sort");
 
   return {
     explicit,
@@ -133,6 +171,14 @@ export function parseContractsListState(
           ),
       ),
       endingSoon,
+      startFrom: validIsoDate(params.get("start_from")),
+      startTo: validIsoDate(params.get("start_to")),
+      orderEndFrom: validIsoDate(params.get("order_end_from")),
+      orderEndTo: validIsoDate(params.get("order_end_to")),
+      sortBy: CONTRACT_SORT_KEY_SET.has(rawSort ?? "")
+        ? (rawSort as ContractSortKey)
+        : null,
+      sortDir: params.get("dir") === "desc" ? "desc" : "asc",
       page: positivePage(params.get("page")),
     },
   };
@@ -156,6 +202,14 @@ export function buildContractsListUrl(
   state.typeFilter.forEach((type) => params.append("contract_type", type));
   if (state.search) params.set("q", state.search);
   if (state.endingSoon) params.set("ending", "30");
+  if (state.startFrom) params.set("start_from", state.startFrom);
+  if (state.startTo) params.set("start_to", state.startTo);
+  if (state.orderEndFrom) params.set("order_end_from", state.orderEndFrom);
+  if (state.orderEndTo) params.set("order_end_to", state.orderEndTo);
+  if (state.sortBy) {
+    params.set("sort", state.sortBy);
+    if (state.sortDir === "desc") params.set("dir", "desc");
+  }
   if (state.page > 1) params.set("page", String(state.page));
 
   const query = params.toString();
