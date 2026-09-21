@@ -86,6 +86,7 @@ interface RequirementItem {
 }
 
 interface PublicCvIView {
+  package_documents?: { language: string; filename: string; cv_html: string }[];
   cv_html?: string | null;
   document_version_id?: number | null;
   cv: PublicCvPayload;
@@ -658,6 +659,7 @@ export default function PublicInteractiveCvPage() {
   const params = useParams();
   const token = String(params?.token ?? "");
 
+  const [selectedLanguage, setSelectedLanguage] = useState("");
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<PublicCvIView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -869,7 +871,8 @@ export default function PublicInteractiveCvPage() {
           )}
           {/* allow-modals: tylko po to, by strona mogła wywołać print() ramki;
               bez allow-scripts treść CV nie wykona żadnego skryptu. */}
-          <iframe ref={cvFrameRef} title="CV" srcDoc={view.cv_html}
+          {view.package_documents && <div className="mb-3 flex gap-2 print:hidden" aria-label="Wersje językowe CV">{view.package_documents.map(doc => <button key={doc.language} type="button" className="rounded border px-3 py-2 text-sm" aria-pressed={selectedLanguage === doc.language} onClick={() => setSelectedLanguage(doc.language)}>{doc.language.toUpperCase()}</button>)}</div>}
+          <iframe ref={cvFrameRef} title="CV" srcDoc={view.package_documents?.find(doc => doc.language === selectedLanguage)?.cv_html || view.cv_html}
             sandbox="allow-same-origin allow-modals" onLoad={fitCvFrame}
             className="w-full rounded-lg border border-border bg-white"
             style={{ height: cvFrameHeight ?? "calc(100vh - 220px)", minHeight: 600 }} />

@@ -24,6 +24,7 @@ type Props = {
   value: string;
   onChange: (stageId: string) => void;
   loading?: boolean;
+  disabled?: boolean;
   placeholder?: string;
   /** Shown inside the dropdown when the candidate has no recruitments. */
   emptyText?: string;
@@ -42,6 +43,7 @@ export function RecruitmentCombobox({
   value,
   onChange,
   loading = false,
+  disabled = false,
   placeholder = "Wybierz rekrutację…",
   emptyText = "Brak procesów rekrutacyjnych dla tego konsultanta.",
 }: Props) {
@@ -70,7 +72,7 @@ export function RecruitmentCombobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          disabled={loading}
+          disabled={loading || disabled}
           className="w-full justify-between font-normal"
         >
           {selected ? (

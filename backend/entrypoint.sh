@@ -4622,6 +4622,15 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS managed_in_nexus BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS managed_in_nexus_at TIMESTAMPTZ NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS managed_in_nexus_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    # 0331: central CV policies and package approvals.
+
+    "ALTER TABLE cv_generation_jobs ADD COLUMN IF NOT EXISTS prepared_source_facts JSONB",
+    "ALTER TABLE client_cv_rules ADD COLUMN IF NOT EXISTS managed_policy JSONB",
+    "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS central_policy JSONB",
+    "ALTER TABLE cv_generated_documents ADD COLUMN IF NOT EXISTS package_review JSONB",
+    "ALTER TABLE cv_generated_share_tokens ADD COLUMN IF NOT EXISTS package_versions JSONB",
+    "ALTER TABLE cv_share_tokens ADD COLUMN IF NOT EXISTS package_versions JSONB",
+
     # 0330: Jarvis. Model `User` deklaruje `jarvis_prefs` — bez kolumny KAŻDY
     # odczyt użytkownika (w tym logowanie) pada na UndefinedColumnError.
     # Lustro 1:1 z migracją — pilnuje `test_jarvis_migration_mirror.py`.

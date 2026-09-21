@@ -23,6 +23,7 @@ const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "https://api.nexus.dynaminds.pl";
 
 interface PublicCVView {
+  package_documents?: { language: string; filename: string; cv_html: string }[];
   candidate_first_name: string | null;
   job_title: string | null;
   cv_html: string;
@@ -37,6 +38,7 @@ export default function PublicCvPage() {
   const params = useParams();
   const token = String(params?.token ?? "");
 
+  const [selectedLanguage, setSelectedLanguage] = useState("");
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<PublicCVView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -128,9 +130,10 @@ export default function PublicCvPage() {
 
       {/* CV iframe — sandboxed, srcDoc-rendered */}
       <div className="rounded-lg border border-border dark:border-border bg-card shadow-xs overflow-hidden">
-        <iframe
+        {view.package_documents && <div className="mb-3 flex gap-2 print:hidden" aria-label="Wersje językowe CV">{view.package_documents.map(doc => <button key={doc.language} type="button" className="rounded border px-3 py-2 text-sm" aria-pressed={selectedLanguage === doc.language} onClick={() => setSelectedLanguage(doc.language)}>{doc.language.toUpperCase()}</button>)}</div>}
+          <iframe
           title="CV"
-          srcDoc={view.cv_html}
+          srcDoc={view.package_documents?.find(doc => doc.language === selectedLanguage)?.cv_html || view.cv_html}
           sandbox="allow-same-origin"
           className="w-full"
           style={{ height: "calc(100vh - 220px)", minHeight: 600 }}

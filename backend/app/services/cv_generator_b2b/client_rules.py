@@ -108,6 +108,7 @@ class CvRuleSnapshot:
     highlight_terms: tuple[str, ...] = ()
     # Wersja reguły — stemplowana na wygenerowanym CV.
     version: int | None = None
+    managed_policy: dict | None = None
 
 
 # Sekcje, które reguła klienta może wyłączyć. `why_points` i `experience`
@@ -168,6 +169,7 @@ def snapshot_rule(rule: Optional[ClientCvRule]) -> Optional[CvRuleSnapshot]:
     if rule is None:
         return None
     return CvRuleSnapshot(
+        managed_policy=getattr(rule, "managed_policy", None),
         highlight_policy=getattr(rule, "highlight_policy", None) or "technologies",
         highlight_terms=tuple(getattr(rule, "highlight_terms", None) or []),
         filename_pattern=rule.filename_pattern,
@@ -605,6 +607,11 @@ def build_filename(
     pattern = rule.filename_pattern.strip()
     sep = bool(rule.spaces_to_underscores)
 
+    if pattern.startswith("ZOB-{PROJEKT}"):
+        project = re.sub(
+            r"^(?:ZOB[\s_-]*)+", "", (project or "").strip(), flags=re.IGNORECASE
+        )
+
     values: dict[str, str] = {
         TOKEN_POSITION: _apply_word_separator(position or "", sep),
         TOKEN_FULL_NAME: _apply_word_separator(candidate_name or "", sep),
@@ -655,6 +662,10 @@ async def resolve_client_rule(
 
     Propozycje z seeda (``confirmed_at IS NULL``) są tu celowo niewidoczne.
     """
+    from app.services.cv_generator_b2b import central_policies
+
+    if central_policies.enabled():
+        return await central_policies.resolve(db, client_id)
     if not client_id:
         return None
     stmt = select(ClientCvRule).where(

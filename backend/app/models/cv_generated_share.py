@@ -23,7 +23,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -36,6 +45,8 @@ if TYPE_CHECKING:  # pragma: no cover
 
 class CvGeneratedShareToken(Base):
     __tablename__ = "cv_generated_share_tokens"
+
+    package_versions: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     token: Mapped[str] = mapped_column(String(64), primary_key=True)
     token_sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

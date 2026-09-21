@@ -1441,6 +1441,8 @@ def render_cv_to_bytes(
     # The vacancy the candidate is being put forward for. Kept OUT of the main
     # header on purpose: the header states the candidate's actual position, so
     # the document never asserts a job title the source CV does not support.
+    if candidate_data.get("generic_cv"):
+        doc.add_paragraph("General CV" if language == "en" else "CV ogólne")
     considered_for = str(candidate_data.get("considered_for") or "").strip()
     if considered_for:
         sub_para = doc.add_paragraph()

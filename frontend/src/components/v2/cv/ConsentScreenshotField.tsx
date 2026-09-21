@@ -29,11 +29,13 @@ export interface ConsentContext {
   stageId?: number;
   clientId?: number | null;
   cvFile?: File | null;
+  projectRef?: string;
+  bindingStageId?: number;
 }
 
 function sameContext(a: ConsentContext, b: ConsentContext) {
   return a.candidateId === b.candidateId && a.stageId === b.stageId &&
-    a.clientId === b.clientId && a.cvFile === b.cvFile;
+    a.clientId === b.clientId && a.cvFile === b.cvFile && a.projectRef === b.projectRef && a.bindingStageId === b.bindingStageId;
 }
 
 interface Props {
@@ -71,7 +73,7 @@ export function ConsentScreenshotField({
     setBusy(false);
     onChangeRef.current(null, null);
     return () => { requestVersion.current += 1; };
-  }, [context.candidateId, context.stageId, context.clientId, context.cvFile]);
+  }, [context.candidateId, context.stageId, context.clientId, context.cvFile, context.projectRef, context.bindingStageId]);
 
   // Wyczyszczenie klucza przez rodzica (np. reset formularza) musi zabrać także
   // nazwę pliku — inaczej pole twierdzi, że coś jest wgrane, choć klucza nie ma.
@@ -100,6 +102,8 @@ export function ConsentScreenshotField({
         fd.append("candidate_id", String(context.candidateId));
         fd.append("stage_id", String(context.stageId));
       }
+      if (context.projectRef !== undefined) fd.append("project_ref", context.projectRef);
+      if (context.bindingStageId) fd.append("binding_stage_id", String(context.bindingStageId));
       if (context.clientId != null) fd.append("client_id", String(context.clientId));
       if (!stillCurrent()) return;
       const res = await api.post<{ consent_token: string; filename: string }>(

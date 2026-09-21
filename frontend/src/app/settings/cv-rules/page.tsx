@@ -28,6 +28,7 @@
  * z `isSuccess`, więc przerwa między ponowieniami też nie udaje pustki.
  */
 
+import { useCentralPolicy } from "@/components/cv-rules/CentralPolicyView";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -143,7 +144,10 @@ function formatDate(iso: string | null): string {
 export default function CvRulesSettingsPage() {
   const user = useAuthStore((s) => s.user);
   const hydrated = useAuthStore((s) => s.hydrated);
-  const canEdit = useCapability("cv_rule.manage");
+  const central = useCentralPolicy();
+  const canManage = useCapability("cv_rule.manage");
+  const canEdit = canManage || central.data?.managed === true;
+  const canCreate = canManage && central.data?.managed === false;
   const queryClient = useQueryClient();
   // `?client=<id>` — link z okna „Edytuj firmę" otwiera edytor tego klienta
   // od razu. Czytane przez efekt, nie w inicjalizatorze stanu: miękka
@@ -298,7 +302,7 @@ export default function CvRulesSettingsPage() {
         title="Reguły CV per klient"
         description="Jak ma się nazywać plik CV, w jakim ma być języku, czego jeszcze wymaga klient i jakie instrukcje ma dostać generator. Reguła działa od chwili zatwierdzenia — każdy Delivery Lead zakłada i zatwierdza reguły dla swoich klientów sam."
         actions={
-          canEdit ? (
+          canCreate ? (
             <Button type="button" onClick={openAdd}>
               <Plus className="h-4 w-4" />
               Dodaj regułę
@@ -337,7 +341,7 @@ export default function CvRulesSettingsPage() {
           title="Żaden klient nie ma jeszcze reguł CV"
           description="Generator używa ogólnej nazwy pliku i języka wybranego przez rekrutera. Dodaj regułę dla klienta, który ma własne wymagania."
           action={
-            canEdit ? (
+            canCreate ? (
               <Button type="button" onClick={openAdd}>
                 <Plus className="h-4 w-4" />
                 Dodaj regułę
@@ -575,7 +579,7 @@ export default function CvRulesSettingsPage() {
                         {canEdit ? (
                           <td className="sticky right-0 border-l bg-background p-3">
                             <div className="flex justify-end gap-1">
-                              {!row.is_active ? (
+                              {canCreate && !row.is_active ? (
                                 <Button
                                   type="button"
                                   size="sm"
@@ -595,8 +599,8 @@ export default function CvRulesSettingsPage() {
                                 type="button"
                                 size="sm"
                                 variant="ghost"
-                                aria-label={`Edytuj regułę: ${name}`}
-                                title="Edytuj"
+                                aria-label={`${central.data?.managed ? "Zasady i historia" : "Edytuj regułę"}: ${name}`}
+                                title={central.data?.managed ? "Zasady i historia" : "Edytuj"}
                                 onClick={() =>
                                   setEditor({
                                     clientId: row.client_id,
@@ -606,7 +610,7 @@ export default function CvRulesSettingsPage() {
                               >
                                 <Pencil className="h-3.5 w-3.5" />
                               </Button>
-                              <Button
+                              {canCreate && <Button
                                 type="button"
                                 size="sm"
                                 variant="ghost"
@@ -616,7 +620,7 @@ export default function CvRulesSettingsPage() {
                                 onClick={() => setPendingDelete(row)}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
+                              </Button>}
                             </div>
                           </td>
                         ) : null}
@@ -659,7 +663,7 @@ export default function CvRulesSettingsPage() {
                 ) : (
                   <span>{t.label}</span>
                 )}
-                {canEdit ? (
+                {canCreate ? (
                   <Button
                     type="button"
                     size="sm"

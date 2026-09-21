@@ -355,6 +355,7 @@ class Settings(BaseSettings):
     # są kasowane po tylu dniach; do 09.2026 zostawały bezterminowo. Wejścia
     # gotowych CV zostają — czyta je kontrola przy zatwierdzaniu i mapa wersji.
     # Kill-switch (env, bez zmiany kodu): CV_JOB_INPUT_RETENTION_ENABLED=false.
+    CV_CENTRAL_POLICIES_ENABLED: bool = False
     CV_JOB_INPUT_RETENTION_ENABLED: bool = True
     CV_JOB_INPUT_RETENTION_DAYS: int = 7
 
