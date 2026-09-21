@@ -4807,8 +4807,10 @@ w `entrypoint.sh`, sondy w `/api/health/deep`). Raport:
   `my_people_match` unieważnia wszystko.
 - **Postać w rogu** mówi wyłącznie zdaniami z szablonów
   (`lib/my-people-summary.summarySentences`, zero AI), raz na sesję dla tej
-  samej treści (`sessionStorage`), pulsuje tylko licznik. Chowa się w trybie
-  Kids (róg zajmuje `KidsMascot`), na `/jobs/{id}` (róg zajmuje dok kanbanu),
+  samej treści (`sessionStorage`), pulsuje tylko licznik. **Ustępuje maskotce
+  Jarvisa** (ten sam róg; `useJarvisOwnsCorner` = lustro `showMascot`
+  z `JarvisRoot`, te same klucze zapytań — także w trybie Kids), chowa się na
+  `/jobs/{id}` (róg zajmuje dok kanbanu),
   przy otwartym panelu i po „Ukryj postać" (`useUiStore.hideMyPeopleBuddy`,
   przywracane checkboxem w stopce panelu). Główne, dostępne wejście to
   przycisk w topbarze.
