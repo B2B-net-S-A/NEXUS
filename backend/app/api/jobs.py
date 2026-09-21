@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import (
     and_,
+    case,
     func,
     nulls_last,
     or_,
@@ -22,6 +23,7 @@ from sqlalchemy.orm import aliased
 
 from app.core.cache import cache_invalidate
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.contract import Contract, ContractStatus
@@ -470,6 +472,8 @@ class JobSort(str, enum.Enum):
     newest = "newest"  # created_at DESC — most recently created first
     oldest = "oldest"  # created_at ASC — legacy implicit order (oldest first)
     deadline = "deadline"  # deadline ASC, NULLs last — soonest due first
+    # „Wymaga ruchu" malejąco, potem przeterminowane, potem najbliższy termin.
+    attention = "attention"
 
 
 class PriorityWorkJobFilter(str, enum.Enum):
@@ -615,7 +619,9 @@ async def list_jobs(
         JobSort.newest,
         description=(
             "Result ordering. `newest` (default) → created_at DESC; `oldest` → "
-            "created_at ASC; `deadline` → deadline ASC with NULLs last."
+            "created_at ASC; `deadline` → deadline ASC with NULLs last; "
+            "`attention` → most candidates waiting for the recruiter first "
+            "(`needs_action_count` DESC), then overdue deadlines, then deadline."
         ),
     ),
     recruitment_type: Optional[RecruitmentType] = None,
@@ -714,7 +720,10 @@ async def list_jobs(
         False,
         description=(
             "Include per-job `stage_breakdown: {<stage>: count}` aggregating "
-            "distinct candidates per pipeline stage. Opt-in (extra GROUP BY query)."
+            "distinct candidates per pipeline stage. Opt-in (extra GROUP BY query). "
+            "Also adds `needs_action_count` (candidates whose next move belongs "
+            "to the recruiter) and `open_proposals_count` (team-wide: proposed "
+            "candidates nobody has added or dismissed yet)."
         ),
     ),
 ):
@@ -815,7 +824,31 @@ async def list_jobs(
     ).scalar()
     # Deterministic ordering (newest-first by default). Applied after the count
     # so it never leaks into the COUNT subquery. `id` is the stable tiebreaker.
-    if sort == JobSort.oldest:
+    default_template_id_for_counts: Optional[int] = None
+    if sort == JobSort.attention or include_stage_counts:
+        from app.api.pipeline import _default_template_id  # noqa: PLC0415
+
+        default_template_id_for_counts = await _default_template_id(db)
+    if sort == JobSort.attention:
+        # Klucz sortowania liczy się nad CAŁYM przefiltrowanym zbiorem (nie nad
+        # stroną), więc paginacja jest poprawna; `Job.id` domyka kolejność.
+        from app.services.job_needs_action import (  # noqa: PLC0415
+            needs_action_subquery,
+        )
+
+        attention = await needs_action_subquery(
+            db,
+            job_ids=query.with_only_columns(Job.id),
+            default_template_id=default_template_id_for_counts,
+        )
+        query = query.outerjoin(attention, attention.c.job_id == Job.id).order_by(
+            func.coalesce(attention.c.needs_action_count, 0).desc(),
+            # Przeterminowane przed resztą; brak terminu nie jest zaległością.
+            case((Job.deadline < business_today(), 0), else_=1),
+            nulls_last(Job.deadline.asc()),
+            Job.id.desc(),
+        )
+    elif sort == JobSort.oldest:
         query = query.order_by(Job.created_at.asc(), Job.id.asc())
     elif sort == JobSort.deadline:
         query = query.order_by(nulls_last(Job.deadline.asc()), Job.id.desc())
@@ -850,10 +883,24 @@ async def list_jobs(
     # odróżnia własnego etapu szablonu od „Nowi" (UAT B33).
     stage_columns: dict[int, list[dict]] = {}
     off_template_counts: dict[int, int] = {}
+    needs_action: dict[int, int] = {}
+    open_proposals: dict[int, int] = {}
     if include_stage_counts and job_ids:
+        from app.services.job_needs_action import (  # noqa: PLC0415
+            needs_action_counts,
+        )
+        from app.services.job_proposals import open_counts_for_jobs  # noqa: PLC0415
+
+        # Po jednym zapytaniu na stronę: „wymaga ruchu" (ta sama reguła i to
+        # samo wyrażenie co `sort=attention`) i otwarte propozycje (zespołowo).
+        needs_action = await needs_action_counts(
+            db,
+            job_ids=job_ids,
+            default_template_id=default_template_id_for_counts,
+        )
+        open_proposals = await open_counts_for_jobs(db, job_ids)
         from app.api.pipeline import (  # noqa: PLC0415
             StageTally,
-            _default_template_id,
             legacy_stage_column_summaries,
             stage_column_summaries,
         )
@@ -884,11 +931,9 @@ async def list_jobs(
                 StageTally(stage_def_id=stage_def_id, stage=stage_enum, count=int(n))
             )
 
-        default_template_id = (
-            await _default_template_id(db)
-            if any(j.pipeline_template_id is None for j in jobs)
-            else None
-        )
+        # Policzony wyżej (raz na żądanie) — ten sam szablon domyślny zasila
+        # kolumny i licznik „wymaga ruchu".
+        default_template_id = default_template_id_for_counts
         template_ids = {
             tid
             for tid in (j.pipeline_template_id or default_template_id for j in jobs)
@@ -1051,6 +1096,8 @@ async def list_jobs(
             d["stage_breakdown"] = stage_breakdown.get(j.id, {})
             d["stage_columns"] = stage_columns.get(j.id, [])
             d["off_template_count"] = off_template_counts.get(j.id, 0)
+            d["needs_action_count"] = needs_action.get(j.id, 0)
+            d["open_proposals_count"] = open_proposals.get(j.id, 0)
         d["priority_assignment"] = priority_assignment_map.get(j.id)
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
         redact_job_for_viewer(d, current_user)

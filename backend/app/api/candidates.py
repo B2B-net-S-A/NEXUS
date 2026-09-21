@@ -4864,6 +4864,18 @@ async def delete_candidate(
     from app.services.jarvis.erasure import erase_candidate as erase_jarvis_candidate
 
     jarvis_erasure = await erase_jarvis_candidate(db, candidate_id)
+    # Skrzynka „Propozycje" (0333): FK ma ON DELETE CASCADE, więc wiersze i tak
+    # znikną razem z kandydatem — kasujemy je JAWNIE, żeby liczba trafiła do
+    # dowodu wykonania żądania z art. 17 (kaskada nie zostawia śladu).
+    from sqlalchemy import delete as sa_delete
+
+    from app.models.job_proposal import JobProposal
+
+    search_erasure["job_proposals_deleted"] = (
+        await db.execute(
+            sa_delete(JobProposal).where(JobProposal.candidate_id == candidate_id)
+        )
+    ).rowcount or 0
 
     # Audyt PRZED usunięciem, żeby ślad przetrwał operację. `Activity` nie ma
     # FK na kandydata z CASCADE dla tej ścieżki — patrz test kontraktowy.

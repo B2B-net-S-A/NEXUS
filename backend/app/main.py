@@ -188,6 +188,7 @@ from app.api import proposals as proposals_api
 from app.api import job_shortlist as job_shortlist_api
 from app.api import hiring_manager_feedback as hiring_manager_feedback_api
 from app.api import proposals_bulk as proposals_bulk_api
+from app.api import job_proposals as job_proposals_api
 from app.api import invite_links as invite_links_api
 from app.api import application_submissions as application_submissions_api
 from app.api import users as users_api
@@ -1520,6 +1521,7 @@ app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
 app.include_router(help_materials_api.router, prefix="/api", tags=["help-materials"])
 app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
+app.include_router(job_proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(job_shortlist_api.router, prefix="/api", tags=["shortlist"])
 app.include_router(
     hiring_manager_feedback_api.router,
@@ -2642,6 +2644,7 @@ async def api_health_deep_check():
         JarvisConversationEntity,
         JarvisMessage,
     )
+    from app.models.job_proposal import JobProposal
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2791,6 +2794,9 @@ async def api_health_deep_check():
         ("jarvis_messages", JarvisMessage),
         ("jarvis_actions", JarvisAction),
         ("jarvis_conversation_entities", JarvisConversationEntity),
+        # 0333: skrzynka „Propozycje". Lista rekrutacji liczy z niej
+        # `open_proposals_count`, a dodanie kandydata do rekrutacji ją stempluje.
+        ("job_proposals", JobProposal),
     ]
 
     checks: dict[str, str] = {}

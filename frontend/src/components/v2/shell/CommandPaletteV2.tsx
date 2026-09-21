@@ -5,19 +5,10 @@ import { useRouter } from "next/navigation";
 import {
   Briefcase,
   Building2,
-  Calendar,
-  FileText,
-  GitBranch,
-  LayoutDashboard,
-  Lightbulb,
   Mail,
   Plus,
   Search,
-  Settings,
   Sparkles,
-  Star,
-  Radar,
-  Wallet,
   Users,
 } from "lucide-react";
 import {
@@ -31,8 +22,13 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import api from "@/lib/api";
-import type { Capability } from "@/lib/capabilities";
-import { hasSectionAccess, type ProductSection } from "@/lib/section-access";
+import {
+  canSeeFeatureFlaggedEntry,
+  resolveNavHref,
+  visiblePaletteEntries,
+} from "@/lib/nav-registry";
+import { hasSectionAccess } from "@/lib/section-access";
+import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCapabilities } from "@/hooks/useCapability";
 import { useAuthStore } from "@/store/auth";
 import { openJarvis } from "@/lib/jarvis/events";
@@ -229,91 +225,29 @@ export function CommandPaletteV2({
     openJarvis({ prompt: prompt.trim() || undefined });
   };
 
-  // Bramki nawigacji pochodzą z tego samego rejestru co sidebar i middleware
-  // (audyt F-19). Wcześniej paleta miała własną, uboższą listę — pokazywała
-  // „Kandydaci"/„Klienci"/„Kontrakty"/„Talenty" rolom, które middleware
-  // odbijał na /403.
-  const navItems: Array<{
-    href: string;
-    label: string;
-    icon: typeof LayoutDashboard;
-    capability?: Capability;
-    section?: ProductSection;
-  }> = useMemo(
-    () => [
-      { href: "/", label: "Dashboard", icon: LayoutDashboard },
-      {
-        href: "/candidates",
-        label: "Kandydaci",
-        icon: Users,
-        capability: "nav.candidates",
-        section: "sourcing",
-      },
-      {
-        href: "/jobs",
-        label: "Rekrutacje",
-        icon: Briefcase,
-        section: "pipeline",
-      },
-      {
-        href: "/clients",
-        label: "Klienci",
-        icon: Building2,
-        section: "delivery",
-      },
-      {
-        href: "/contracts",
-        label: "Kontrakty",
-        icon: FileText,
-        section: "delivery",
-      },
-      {
-        href: "/talents",
-        label: "Talenty",
-        icon: Star,
-        capability: "nav.talents",
-        section: "sourcing",
-      },
-      {
-        href: "/talent-radar",
-        label: "Talent Radar",
-        icon: Radar,
-        capability: "nav.talent_radar",
-        section: "sourcing",
-      },
-      {
-        href: "/calendar",
-        label: "Kalendarz",
-        icon: Calendar,
-        section: "pipeline",
-      },
-      {
-        href: "/insights",
-        label: "Insights",
-        icon: Lightbulb,
-        section: "insights",
-      },
-      { href: "/settings", label: "Ustawienia", icon: Settings },
-      {
-        href: "/manager",
-        label: "Panel managera",
-        icon: GitBranch,
-        capability: "nav.manager",
-      },
-      {
-        href: "/finance",
-        label: "Finanse",
-        icon: Wallet,
-        section: "finance",
-      },
-    ],
-    [],
-  );
-
-  const visibleNav = navItems.filter(
-    (item) =>
-      (!item.section || hasSectionAccess(user, item.section)) &&
-      (!item.capability || can[item.capability]),
+  // Pozycje pochodzą z tego samego rejestru co sidebar (`lib/nav-registry`),
+  // z tymi samymi bramkami: sekcja + role + akcja + flaga kolejki telefonów
+  // (audyt F-19). Wcześniej paleta miała własną, uboższą listę — z adresem `/`
+  // zamiast dashboardu roli i pozycją `/manager`, której w menu nie ma — więc
+  // każda zmiana menu rozjeżdżała obie powierzchnie. Capability jest tu
+  // DODATKOWYM filtrem: paleta nigdy nie pokaże więcej niż sidebar.
+  const contactFeature = useCandidateContactFeature({
+    queryEnabled: canSeeFeatureFlaggedEntry(user, "contactQueue"),
+  });
+  const visibleNav = useMemo(
+    () =>
+      visiblePaletteEntries(
+        user,
+        { contactQueueEnabled: contactFeature.enabled },
+        (capability) => can[capability],
+      ).map((entry) => ({
+        id: entry.id,
+        href: resolveNavHref(entry, user),
+        label: entry.label,
+        icon: entry.icon,
+        keywords: entry.paletteKeywords ?? [],
+      })),
+    [user, contactFeature.enabled, can],
   );
 
   // Po wpisaniu ≥2 znaków pozycje nawigacji pasujące do zapytania zostają
@@ -324,7 +258,11 @@ export function CommandPaletteV2({
   const matchedNav =
     searchTerm.length < 2
       ? []
-      : visibleNav.filter((item) => navMatches(item.label, searchTerm));
+      : visibleNav.filter((item) =>
+          [item.label, ...item.keywords].some((text) =>
+            navMatches(text, searchTerm),
+          ),
+        );
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} shouldFilter={false}>
@@ -360,7 +298,7 @@ export function CommandPaletteV2({
               const Icon = item.icon;
               return (
                 <CommandItem
-                  key={item.href}
+                  key={item.id}
                   value={`go ${item.label}`}
                   onSelect={() => go(item.href)}
                 >
@@ -455,7 +393,7 @@ export function CommandPaletteV2({
                 const Icon = item.icon;
                 return (
                   <CommandItem
-                    key={item.href}
+                    key={item.id}
                     value={`go ${item.label}`}
                     onSelect={() => go(item.href)}
                   >

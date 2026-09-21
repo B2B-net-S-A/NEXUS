@@ -39,12 +39,8 @@ import api, {
  candidatesApi,
  pipelineApi,
  pipelineTemplatesApi,
- type RateUnit,
 } from"@/lib/api";
 import { candidatePipelinesQueryKey } from"@/components/CandidatePipelinesWidget";
-import { getUserRoles, useAuthStore } from"@/store/auth";
-import { VerifiedRateModal } from"@/components/v2/modals/VerifiedRateModal";
-import { ClientRateModal } from"@/components/v2/modals/ClientRateModal";
 import {
  Dialog,
  DialogBody,
@@ -61,7 +57,6 @@ import {
 import { cn, formatDate } from"@/lib/utils";
 import { countPl } from"@/lib/plural-pl";
 import { encodeJobBackRef } from"@/lib/url-filters";
-import { celebrate } from "@/lib/celebrate";
 import { useUiStore } from"@/store/ui";
 import { Badge } from"@/components/ui/badge";
 import { Button } from"@/components/ui/button";
@@ -75,15 +70,16 @@ import {
  SelectValue,
 } from"@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from"@/components/ui/tooltip";
-import { RejectionV2 } from"@/components/v2/modals/RejectionV2";
 import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
 import { terminalOf } from"@/lib/kanban-terminal";
-import { moveDialogFor } from "@/lib/pipeline-move-dialog";
-import { assignErrorMessage } from "@/lib/assign-error";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
+import {
+ usePipelineMove,
+ type PipelineMoveConfirmedPatch,
+} from "@/hooks/usePipelineMove";
 import { PipelineFiltersRail } from "@/components/v2/jobs/PipelineFiltersRail";
 import {
  PipelineCandidateDock,
@@ -98,10 +94,8 @@ import {
 } from "@/components/v2/pages/kanban-shared";
 import {
  PIPELINE_GROUP_SHORT_LABEL,
- bulkMoveSkipReason,
  formatExpectedRate,
  groupKanbanColumns,
- itemFullName,
  moveBlockedReason,
  primaryForwardMove,
  type PipelineColumnGroup,
@@ -117,16 +111,6 @@ import {
  type NextActionKind,
 } from "@/lib/pipeline-next-action";
 import { useClientPlaybook } from "@/lib/client-playbooks";
-import {
-  PIPELINE_VERSION_CONFLICT_MESSAGE,
-  expectedStateVersionOf,
-  invalidateAfterPipelineVersionConflict,
-  isPipelineVersionConflict,
-} from "@/lib/pipeline-version-conflict";
-import {
-  eligibilityWarningReason,
-  isEligibilityWarning,
-} from "@/lib/pipeline-eligibility-warning";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { jobBudgetHourly as resolveJobBudgetHourly } from "@/lib/job-budget";
 import {
@@ -145,15 +129,6 @@ export type { KanbanColumn, KanbanItem };
 export { colId, columnLabel, ScoreRing };
 
 // ── Types ─────────────────────────────────────────────────────────────
-
-// Lustro `RECRUITMENT_RATE_EDIT_ROLES` (backend/app/api/recruitment_access.py):
-// ruch na „Zweryfikowany" może zapisać stawkę kandydata i poza tymi rolami
-// serwer odpowiada 403. Okno stawki dla innej roli kończyłoby się odmową PO
-// wpisaniu kwoty, więc tablica mówi o tym przed. (Head of Recruitment ma
-// parytet z rekruterem od 17.09.2026.)
-const RATE_EDIT_ROLES = new Set(["admin","head_of_recruitment","delivery_lead","tac","recruiter","finance"]);
-const RATE_EDIT_DENIED_MESSAGE =
- "Ruch na „Zweryfikowany” może zapisać stawkę kandydata — mogą go wykonać: rekruter, TAC, Delivery Lead, Head of Recruitment, Finanse lub administrator.";
 
 interface KanbanBoardV2Props {
  columns: KanbanColumn[];
@@ -1302,11 +1277,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const [viewPreference, setViewPreference] = useKanbanViewPreference();
  const queryClient = useQueryClient();
  const contactFeature = useCandidateContactFeature();
- const { showActionToast, showSuccess, showError } = useToast();
- // Pełny zbiór ról (primary + secondary), nie tylko primary — hybryda ról
- // widzi to, na co pozwala jej którakolwiek z nich (parity z backendem).
- const authUser = useAuthStore((s) => s.user);
- const canEditRates = getUserRoles(authUser).some((r) => RATE_EDIT_ROLES.has(r));
+ const { showSuccess, showError } = useToast();
  const [cols, setCols] = useState(() => composeColumns(columns, offTemplate));
  // Kolumny SZABLONU — wszystko, co wybiera cel ruchu albo mierzy pipeline,
  // musi iść po tej liście, nie po `cols` (w `cols` siedzi też kubełek).
@@ -1318,7 +1289,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // `CandidateStage`, więc id etapu zaznaczonej karty po ruchu przestawało
  // istnieć, a „Zaznaczono N" liczyło martwe wpisy.
  const [selected, setSelected] = useState<Set<number>>(new Set());
- const [bulkBusy, setBulkBusy] = useState(false);
  const [bulkDownloadBusy, setBulkDownloadBusy] = useState(false);
  const [statusMessage, setStatusMessage] = useState<string | null>(null);
  const showStatus = useCallback((msg: string) => {
@@ -1332,13 +1302,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Nazwa szablonu do nagłówka lewej kolumny — z odpowiedzi, którą board i tak
  // już pobiera przy rejection-reasons. Żadnego dodatkowego zapytania.
  const [templateName, setTemplateName] = useState<string | null>(null);
- // M4 PR-03 (audyt P1.6): potwierdzenie przed hired — ruch tworzy draft
- // kontraktu + zamówienia, nie powinien być skutkiem samego puszczenia myszy.
- const [hiredConfirm, setHiredConfirm] = useState<{
- item: KanbanItem;
- destCol: KanbanColumn;
- srcColId: string;
- } | null>(null);
  // Budżet GODZINOWY rekrutacji — ta sama liczba co nagłówek i wyszukiwanie;
  // odznaka „ponad budżet" i okno „Zweryfikowany" porównują się z nim.
  const [jobBudgetHourlyValue, setJobBudgetHourlyValue] = useState<number | null>(null);
@@ -1350,7 +1313,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  // Krok 04 Pipeline (flow C2, PR 3/7): dok „Karta w procesie" — trzymany po
  // `candidate_id` (STABILNY), nie po id CandidateStage (`item.id` zmienia się
- // przy KAŻDYM ruchu — `sendMove`/`submitVerifiedMove` podmieniają je na nowy
+ // przy KAŻDYM ruchu — `usePipelineMove` podmienia je przez `confirmMoved` na nowy
  // wiersz). Po candidate_id dok „podąża" za kandydatem przez ruchy bez żadnej
  // dodatkowej synchronizacji.
  const [dockCandidateId, setDockCandidateId] = useState<number | null>(null);
@@ -1449,45 +1412,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  selected.size,
  ]);
 
- // Terminal-move modal — pojedynczy drag LUB bulk (wspólny powód odrzucenia
- // dla wszystkich zaznaczonych kandydatów).
- const [pendingRejection, setPendingRejection] = useState<{
- entries: { item: KanbanItem; srcColId: string }[];
- destCol: KanbanColumn;
- terminalType: "rejected" |"withdrawn";
- } | null>(null);
- // Pending verification flow (migracja 0056)
- const [verifiedRatePrompt, setVerifiedRatePrompt] = useState<{
- item: KanbanItem;
- destCol: KanbanColumn;
- srcColId: string;
- } | null>(null);
- // Bulk → "Zweryfikowany": stawka jest per kandydat, więc kolejka modali
- // (jeden po drugim) zamiast jednego wspólnego formularza.
- const [verifiedQueue, setVerifiedQueue] = useState<
- { item: KanbanItem; srcColId: string }[]
- >([]);
- const [verifiedBulkTotal, setVerifiedBulkTotal] = useState(0);
- // „CV Wysłane" → zapytaj o stawkę do klienta (sell rate). Analogiczne do
- // verified, ale stawka jest opcjonalna i zapisywana osobnym PATCH-em po ruchu
- // (kolumny client_rate_* na najnowszym CandidateStage). Bulk = kolejka modali.
- const [clientRatePrompt, setClientRatePrompt] = useState<{
- item: KanbanItem;
- destCol: KanbanColumn;
- srcColId: string;
- } | null>(null);
- const [clientRateQueue, setClientRateQueue] = useState<
- { item: KanbanItem; srcColId: string }[]
- >([]);
- const [clientRateBulkTotal, setClientRateBulkTotal] = useState(0);
- // 409 ELIGIBILITY_WARNING (17.09.2026) — jedno okno na tablicę. `retry`
- // powtarza ruch, który je wywołał, z `acknowledge_eligibility: true`;
- // `onDismiss` pozwala kolejce zbiorczej pójść dalej po „Anuluj".
- const [eligibilityWarning, setEligibilityWarning] = useState<{
- reason: string;
- retry: () => Promise<void>;
- onDismiss?: () => void;
- } | null>(null);
  const [scorecardPrompt, setScorecardPrompt] = useState<{
  candidateStageId: number;
  stageId: number;
@@ -1637,21 +1561,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  []
  );
 
- // Strona trzyma pipeline pod `["kanban", id]` (`id` to string z `useParams`)
- // i karmi nim listwę kroków, klaster KPI w jobbarze oraz kolejki kroków
- // 05–08. Tablica ma WŁASNY stan `cols` (ruch optymistyczny), więc bez
- // unieważnienia tamtego zapytania po ruchu KPI i kolejki pokazywały stan
- // sprzed ruchu aż do przeładowania strony. Oba klucze — jak w
- // `confirmRemoveFromRecruitment` (część konsumentów trzyma liczbę).
- const syncKanbanCache = useCallback(() => {
- void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
- void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
- }, [queryClient, jobId]);
-
  // M4 PR-03: po błędzie ruchu NIE zostawiamy karty w niepotwierdzonej
  // kolumnie — dociągamy prawdę z serwera (a nie lokalny snapshot, bo 409
- // oznacza, że stan pary i tak się zmienił pod nami).
- const refreshBoardAfterMove = useCallback(async () => {
+ // oznacza, że stan pary i tak się zmienił pod nami). Zapytanie strony
+ // (`["kanban", …]`, oba klucze) unieważnia po tym sam `usePipelineMove`.
+ const refreshBoardFromServer = useCallback(async () => {
  try {
  const fresh = await pipelineApi.kanban(jobId);
  if (Array.isArray(fresh.data?.columns)) {
@@ -1665,295 +1579,63 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  } catch (e) {
  console.error("Kanban refresh failed", e);
  }
- // Częściowy sukces (bulk) i 409 „stan zmienił się pod nami" dotyczą też
- // reszty strony — ta sama prawda ma trafić do KPI i kolejek kroków.
- syncKanbanCache();
- }, [jobId, syncKanbanCache]);
+ }, [jobId]);
 
- // „Anuluj" w oknie ostrzeżenia: optymistyczna karta wraca na miejsce
- // (prawda serwera), a kolejka zbiorcza — jeśli to ona pytała — idzie dalej.
- const dismissEligibilityWarning = useCallback(async () => {
- const onDismiss = eligibilityWarning?.onDismiss;
- setEligibilityWarning(null);
- onDismiss?.();
- await refreshBoardAfterMove();
- }, [eligibilityWarning, refreshBoardAfterMove]);
-
- const sendMove = useCallback(
- async (
- item: KanbanItem,
- dst: KanbanColumn,
- reason?: {
- id: string;
- notes: string;
- sendRejectionEmail?: boolean | null;
- candidateOfferResponse?:"pending" |"accepted" |"declined" | null;
- // Wolny tekst powodu — tylko gdy szablon nie miał zdefiniowanych powodów.
- freeReason?: string;
- },
- opts?: {
- silent?: boolean;
- // Pętle zbiorcze (i ruch + PATCH stawki) unieważniają zapytanie strony
- // RAZ, po całej operacji — odświeżenie w środku pętli nadpisywało
- // optymistyczne ruchy kolejnych kart stanem sprzed nich.
- deferCacheSync?: boolean;
- // F05: pojedynczy ruch z karty odsyła wersję procesu
- // (`expected_state_version`). Ruchy zbiorcze przekazują `false` — bez
- // sprawdzenia, jak dotąd.
- checkVersion?: boolean;
- // 17.09.2026: powtórka po 409 ELIGIBILITY_WARNING („Przenieś mimo to").
- acknowledgeEligibility?: boolean;
- }
- ): Promise<boolean> => {
- try {
- const response = await api.post<{
- id?: number;
- verification_status?:"active" |"pending" |"rejected";
- scheduled_rejection_email_id?: number | null;
- process_state_version?: number | null;
- }>("/api/pipeline/move", {
- candidate_id: item.candidate_id,
- job_id: jobId,
- stage: dst.stage,
- stage_def_id: dst.stage_def_id ?? undefined,
- rejection_reason_id: reason?.id || undefined,
- rejection_reason: reason?.freeReason || undefined,
- notes: reason?.notes,
- send_rejection_email: reason?.sendRejectionEmail ?? undefined,
- candidate_offer_response:
- reason?.candidateOfferResponse ?? undefined,
- expected_state_version:
- opts?.checkVersion === false ? undefined : expectedStateVersionOf(item),
- acknowledge_eligibility: opts?.acknowledgeEligibility ? true : undefined,
- });
-
- // M4 PR-03 (audyt P1.3): backend tworzy NOWY CandidateStage — karta w
- // cache dostaje jego id + status z serwera. Bez tego kolejne akcje
- // (screening, scorecard, accept/reject) celowały w historyczny rekord.
- const newStageId = response?.data?.id;
- const serverVerifStatus = response?.data?.verification_status;
- // F05: nowa wersja procesu — kolejny ruch z tej karty przed odświeżeniem
- // tablicy nie może wysłać wersji sprzed własnego ruchu.
- const serverVersion = response?.data?.process_state_version;
- if (typeof newStageId === "number" && newStageId !== item.id) {
+ // Serwer potwierdził ruch. `fromColId === null` = karta stoi już w kolumnie
+ // docelowej (ruch optymistyczny) i dostaje pola nowego `CandidateStage`;
+ // inaczej („Zweryfikowany" — bez ruchu optymistycznego, bo okno stawki można
+ // anulować) zdejmujemy ją ze źródła i dokładamy do celu.
+ const confirmMoved = useCallback(
+ ({
+ item,
+ fromColId,
+ toColumn,
+ patch,
+ }: {
+ item: KanbanItem;
+ fromColId: string | null;
+ toColumn: KanbanColumn;
+ patch: PipelineMoveConfirmedPatch;
+ }) => {
  setCols((prev) =>
  prev.map((c) => {
- if (colId(c) !== colId(dst)) return c;
+ if (fromColId !== null && colId(c) === fromColId) {
+ const items = c.items.filter((i) => i.id !== item.id);
+ return { ...c, items, count: items.length };
+ }
+ if (colId(c) !== colId(toColumn)) return c;
+ if (fromColId === null) {
  return {
  ...c,
- items: c.items.map((i) =>
- i.id === item.id
- ? {
- ...i,
- id: newStageId,
- verification_status:
- serverVerifStatus ?? i.verification_status,
- process_state_version:
- typeof serverVersion === "number"
- ? serverVersion
- : i.process_state_version,
- }
- : i
- ),
+ items: c.items.map((i) => (i.id === item.id ? { ...i, ...patch } : i)),
  };
+ }
+ const items = [...c.items, { ...item, ...patch }];
+ return { ...c, items, count: items.length };
  })
  );
- }
- const currentStageId =
- typeof newStageId === "number" ? newStageId : item.id;
-
- // Kids mode: confetti + mascot pop on a win. No-op outside game mode.
- if (dst.stage === "hired") {
- celebrate({ variant: "hired", message: "Zatrudniony! 🎉" });
- } else if (reason?.candidateOfferResponse === "accepted") {
- celebrate({ variant: "offer", message: "Oferta przyjęta! 💖" });
- }
-
- // 0045_rejection_emails — if the backend scheduled an auto-email,
- // offer a 10-second"Cofnij wysyłkę" toast so the recruiter can
- // abort before the 15-minute countdown elapses.
- const scheduledId = response?.data?.scheduled_rejection_email_id;
- if (scheduledId) {
- showActionToast("Email odrzucenia zostanie wysłany za 15 minut.",
- {
- actionLabel: "Cofnij wysyłkę",
- onAction: async () => {
- try {
- await api.post(`/api/rejection-emails/${scheduledId}/cancel`);
- showSuccess("Anulowano wysyłkę emaila.");
- } catch (err) {
- console.error("rejection email cancel failed", err);
- showError("Nie udało się anulować wysyłki.");
- }
  },
- durationMs: 10_000,
- }
+ []
  );
- }
 
- // Od 17.09.2026 po ruchu NIE otwieramy arkuszy screeningu ani scorecardu —
- // nowy wiersz etapu ma je puste, więc karta pokazuje odznaki
- // „do uzupełnienia" (screening_done/scorecard_done), a arkusz otwiera się
- // z karty albo doku, kiedy rekruter ma na to czas.
- if (currentStageId !== item.id) {
- setCols((prev) =>
- prev.map((c) =>
- colId(c) !== colId(dst)
- ? c
- : {
- ...c,
- items: c.items.map((i) =>
- i.id === currentStageId
- ? { ...i, screening_done: false, scorecard_done: false }
- : i
- ),
- }
- )
- );
- }
- if (!opts?.deferCacheSync) syncKanbanCache();
- return true;
- } catch (e) {
- console.error("Move failed", e);
- if (
- !opts?.silent &&
- !opts?.acknowledgeEligibility &&
- isEligibilityWarning(e)
- ) {
- // Czarna lista / NDA / konkurent / weto HM: jedno pytanie, potem TEN
- // SAM ruch z potwierdzeniem. Optymistyczna karta czeka na decyzję;
- // „Anuluj" cofa ją prawdą serwera.
- setEligibilityWarning({
- reason: eligibilityWarningReason(e) ?? "Serwer ostrzega przed tym ruchem.",
- retry: async () => {
- setEligibilityWarning(null);
- await sendMoveRef.current?.(item, dst, reason, {
- ...opts,
- acknowledgeEligibility: true,
- });
- },
- });
- return false;
- }
- if (!opts?.silent && isPipelineVersionConflict(e)) {
- // Ktoś przesunął tę parę po odczycie tablicy: bez ponowienia —
- // pokazujemy prawdę serwera i dajemy zdecydować jeszcze raz.
- showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
- invalidateAfterPipelineVersionConflict(
- queryClient,
+ // Krok 04 Pipeline: cała orkiestracja ruchu (bramka `moveBlockedReason`,
+ // okna stawek, potwierdzenie zatrudnienia, powód odrzucenia, ostrzeżenie
+ // dopuszczalności, konflikt wersji, unieważnienie zapytań) mieszka w
+ // `usePipelineMove` — dok, przeciąganie i akcje zbiorcze wołają TĘ SAMĄ
+ // decyzję. Tablica dokłada wyłącznie swój stan optymistyczny `cols`.
+ const move = usePipelineMove({
  jobId,
- item.candidate_id
- );
- await refreshBoardAfterMove();
- return false;
- }
- if (!opts?.silent) {
- // Wspólny parser zachowuje dotychczasowe szczegóły błędu i dodatkowo
- // rozpoznaje strukturalny PRIORITY_WORK_LOCKED.
- showError(assignErrorMessage(e));
- // M4 PR-03 (audyt P1.4): rollback optimistic — plansza wraca do
- // prawdy serwera zamiast kłamać kolumną, której DB nie potwierdziła.
- await refreshBoardAfterMove();
- }
- return false;
- }
- },
- [
- jobId,
- queryClient,
- refreshBoardAfterMove,
- syncKanbanCache,
- showActionToast,
- showSuccess,
- showError,
- ]
- );
- // Ref, nie zależność: `retry` w oknie ostrzeżenia woła NAJNOWSZĄ wersję
- // `sendMove`, a sam `sendMove` nie może zależeć od siebie.
- const sendMoveRef = useRef<typeof sendMove | null>(null);
- sendMoveRef.current = sendMove;
-
- // Krok 04 Pipeline (flow C2, PR 3/7): wyodrębnione z `onDragEnd`, żeby dok
- // „Karta w procesie" mogło wołać DOKŁADNIE tę samą decyzję co przeciągnięcie
- // karty — bez kopiowania gałęzi „Zweryfikowany"/„CV Wysłane"/„Zatrudniony"/
- // terminal. Zachowanie drag&drop jest bit w bit takie samo jak przed tym
- // refaktorem (czysta ekstrakcja, zero zmiany logiki).
- const requestMove = useCallback(
- (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
- if (readOnly) return;
- if (srcColId === colId(dst)) return;
-
- // Ta sama bramka co pigułki doku i warsztaty 05–07. Bez niej przeciągnięcie
- // karty „Pending" (albo z wetem na „CV Wysłane") otwierało modal stawki,
- // a dopiero po jego wypełnieniu serwer odpowiadał 409.
- const dstTerminal = terminalOf(dst);
- const blocked = moveBlockedReason({
- item,
+ job: { budgetHourly: jobBudgetHourlyValue, rejectionReasons },
+ columns: cols,
  readOnly,
- terminal: dstTerminal === "rejected" || dstTerminal === "withdrawn",
- targetStage: dst.stage,
- });
- if (blocked) {
- showError(blocked);
- return;
- }
-
- // Która gałąź — decyduje `lib/pipeline-move-dialog`, wspólne z dokiem
- // „Decyzja" kroku 07. Zachowanie bit w bit takie samo jak przed
- // wyniesieniem warunków (czysta ekstrakcja, zero zmiany logiki).
- const dialog = moveDialogFor(dst);
-
- // Pending verification (migracja 0056) — najpierw zapytaj o rate,
- // dopiero potem optimistic + sendMove. NIE applyOptimistic tu, bo
- // recruiter może anulować w modalu.
- if (dialog === "verified_rate") {
- if (!canEditRates) {
- showError(RATE_EDIT_DENIED_MESSAGE);
- return;
- }
- setVerifiedQueue([]);
- setVerifiedBulkTotal(1);
- setVerifiedRatePrompt({
- item,
- destCol: dst,
- srcColId,
- });
- return;
- }
-
- // „CV Wysłane" — zapytaj o stawkę do klienta przed ruchem (recruiter może
- // pominąć lub anulować w modalu, dlatego NIE applyOptimistic tutaj).
- if (dialog === "client_rate" && canWriteClientRate) {
- setClientRateQueue([]);
- setClientRateBulkTotal(1);
- setClientRatePrompt({ item, destCol: dst, srcColId });
- return;
- }
-
- // M4 PR-03 (audyt P1.6): hired = artefakty (draft kontraktu i zamówienia)
- // — wymaga jawnego potwierdzenia zamiast samego drop-u.
- if (dialog === "hired_confirm") {
- setHiredConfirm({ item, destCol: dst, srcColId });
- return;
- }
-
- // Terminal — najpierw modal powodu; optimistic dopiero po potwierdzeniu,
- // żeby anulowanie nie zostawiało karty w złej kolumnie.
- if (dialog === "rejection") {
- const dropTerminal = terminalOf(dst);
- setPendingRejection({
- entries: [{ item, srcColId }],
- destCol: dst,
- terminalType: dropTerminal === "withdrawn" ? "withdrawn" : "rejected",
- });
- return;
- }
-
- applyOptimistic(item, srcColId, dst);
- sendMove(item, dst);
+ canWriteClientRate,
+ optimistic: {
+ apply: applyOptimistic,
+ confirm: confirmMoved,
+ sync: refreshBoardFromServer,
  },
- [readOnly, applyOptimistic, sendMove, showError, canEditRates, canWriteClientRate]
- );
+ });
+ const { requestMove, requestReject } = move;
 
  const onDragEnd = useCallback(
  (res: DropResult) => {
@@ -1970,120 +1652,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  },
  [cols, stageCols, requestMove, readOnly]
  );
-
- // Submit z okna „Zweryfikowany". `payload === null` = „Pomiń stawkę" (stawka
- // opcjonalna od 17.09.2026). `acknowledge` = powtórka po 409
- // ELIGIBILITY_WARNING; kolejka zbiorcza przesuwa się DOPIERO po decyzji.
- const submitVerifiedMove = useCallback(
- async (
- payload: { rate: number; unit: RateUnit; currency: string } | null,
- acknowledge = false
- ) => {
- if (!verifiedRatePrompt) return;
- const { item, destCol, srcColId } = verifiedRatePrompt;
- const isSingleMove = verifiedBulkTotal <= 1;
- const advanceQueue = () => {
- const [next, ...rest] = verifiedQueue;
- setVerifiedQueue(rest);
- setVerifiedRatePrompt(
- next ? { item: next.item, destCol, srcColId: next.srcColId } : null
- );
- };
- try {
- const res = await pipelineApi.move({
- candidate_id: item.candidate_id,
- job_id: jobId,
- stage: "verified",
- stage_def_id: destCol.stage_def_id ?? undefined,
- ...(payload
- ? {
- expected_rate_value: payload.rate,
- expected_rate_unit: payload.unit,
- expected_rate_currency: payload.currency,
- }
- : {}),
- // F05: tylko ruch pojedynczy — kolejka zbiorcza bez sprawdzenia.
- expected_state_version: isSingleMove
- ? expectedStateVersionOf(item)
- : undefined,
- acknowledge_eligibility: acknowledge ? true : undefined,
- });
- // Backend tworzy NOWY CandidateStage — bierzemy jego id (nie stare
- // item.id), żeby screening zapisał się na świeżym etapie „verified".
- const newStageId = (res?.data as { id?: number } | undefined)?.id ?? null;
- setCols((prev) =>
- prev.map((c) => {
- if (colId(c) === srcColId) {
- const items = c.items.filter((i) => i.id !== item.id);
- return { ...c, items, count: items.length };
- }
- if (colId(c) === colId(destCol)) {
- const enriched: KanbanItem = {
- ...item,
- id: newStageId ?? item.id,
- stage: destCol.stage,
- days_in_stage: 0,
- verification_status: "active",
- expected_rate_value: payload?.rate ?? item.expected_rate_value ?? null,
- expected_rate_unit: payload?.unit ?? item.expected_rate_unit ?? null,
- expected_rate_currency:
- payload?.currency ?? item.expected_rate_currency ?? null,
- // Nowy wiersz etapu — arkusze trzeba uzupełnić od nowa (odznaki).
- screening_done: false,
- scorecard_done: false,
- process_state_version:
- typeof res?.data?.process_state_version === "number"
- ? res.data.process_state_version
- : item.process_state_version,
- };
- const items = [...c.items, enriched];
- return { ...c, items, count: items.length };
- }
- return c;
- })
- );
- syncKanbanCache();
- advanceQueue();
- } catch (e) {
- console.error("Move to verified failed", e);
- if (!acknowledge && isEligibilityWarning(e)) {
- setEligibilityWarning({
- reason: eligibilityWarningReason(e) ?? "Serwer ostrzega przed tym ruchem.",
- retry: async () => {
- setEligibilityWarning(null);
- await submitVerifiedMoveRef.current?.(payload, true);
- },
- onDismiss: advanceQueue,
- });
- return;
- }
- if (isPipelineVersionConflict(e)) {
- showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
- invalidateAfterPipelineVersionConflict(
- queryClient,
- jobId,
- item.candidate_id
- );
- await refreshBoardAfterMove();
- } else {
- showError(assignErrorMessage(e));
- }
- advanceQueue();
- }
- },
- [
- verifiedRatePrompt,
- verifiedQueue,
- verifiedBulkTotal,
- jobId,
- queryClient,
- refreshBoardAfterMove,
- syncKanbanCache,
- showError,
- ]
- );
- const submitVerifiedMoveRef = useRef<typeof submitVerifiedMove | null>(null);
- submitVerifiedMoveRef.current = submitVerifiedMove;
 
  // Potwierdzone usunięcie kandydata z tej rekrutacji. Optymistycznie zdejmuje
  // kartę z kolumny, kasuje go z zaznaczenia bulk i odświeża powiązane widoki
@@ -2328,12 +1896,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  const handleDockReject = useCallback(() => {
  if (!dockItem || !dockItemColId || !rejectedTemplateCol) return;
- setPendingRejection({
- entries: [{ item: dockItem, srcColId: dockItemColId }],
- destCol: rejectedTemplateCol,
- terminalType: "rejected",
- });
- }, [dockItem, dockItemColId, rejectedTemplateCol]);
+ requestReject(dockItem, rejectedTemplateCol);
+ }, [dockItem, dockItemColId, rejectedTemplateCol, requestReject]);
 
  // Filtry lewej kolumny — liczone raz nad WSZYSTKIMI kartami (łącznie z
  // kubełkiem „Poza szablonem": to nadal realni kandydaci w procesie).
@@ -2449,190 +2013,18 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return entries;
  }, [visibleCols, groupByColId, collapsedGroupKeys, stageGroups]);
 
- // Submit z modala „CV Wysłane — stawka do klienta". `payload === null` =
- // recruiter pominął stawkę (ruch i tak następuje). Najpierw ruch (tworzy
- // nowy CandidateStage), potem PATCH stawki na ten najnowszy etap. Obsługuje
- // też kolejkę bulk (jeden modal na kandydata).
- const submitClientRateMove = useCallback(
- async (
- payload: { rate: number; unit: RateUnit; currency: string } | null
- ) => {
- if (!clientRatePrompt) return;
- const { item, destCol, srcColId } = clientRatePrompt;
- const isBulk = clientRateBulkTotal > 1;
-
- applyOptimistic(item, srcColId, destCol);
- // Zapytanie strony odświeżamy PO zapisie stawki — inaczej kolejki kroków
- // dostałyby „CV Wysłane" bez stawki, którą zaraz zapiszemy.
- const ok = await sendMove(item, destCol, undefined, {
- silent: isBulk,
- deferCacheSync: true,
- checkVersion: !isBulk,
- });
- if (ok && payload) {
- try {
- await candidatesApi.setRecruitmentClientRate(item.candidate_id, jobId, {
- rate_value: payload.rate,
- rate_unit: payload.unit,
- rate_currency: payload.currency,
- });
- if (!isBulk) {
- showSuccess("Przeniesiono na „CV Wysłane” i zapisano stawkę do klienta.");
- }
- } catch (e) {
- console.error("Set client rate failed", e);
- showError("Przeniesiono, ale nie udało się zapisać stawki do klienta — uzupełnij ją z profilu kandydata."
- );
- }
- } else if (!ok && isBulk) {
- // `sendMove` w trybie zbiorczym jest cichy — bez tego toastu karta
- // wracała na miejsce bez słowa wyjaśnienia.
- const failedName =
- `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
- showError(`${failedName}: nie udało się przenieść na „CV Wysłane”.`);
- await refreshBoardAfterMove();
- }
- if (ok) syncKanbanCache();
-
- // Bulk: pokaż modal stawki dla kolejnego kandydata z kolejki (lub zamknij).
- const [next, ...rest] = clientRateQueue;
- setClientRateQueue(rest);
- setClientRatePrompt(
- next ? { item: next.item, destCol, srcColId: next.srcColId } : null
- );
- },
- [
- clientRatePrompt,
- clientRateQueue,
- clientRateBulkTotal,
- jobId,
- applyOptimistic,
- sendMove,
- refreshBoardAfterMove,
- syncKanbanCache,
- showSuccess,
- showError,
- ]
- );
-
- const bulkMove = async (destColId: string) => {
+ const bulkMove = (destColId: string) => {
  const dst = stageCols.find((c) => colId(c) === destColId);
  if (!dst || selected.size === 0) return;
- // Zaznaczone karty wraz z kolumną źródłową; karty już w celu pomijamy.
- const entries: { item: KanbanItem; srcColId: string }[] = [];
- const skippedEntries: { name: string; reason: string }[] = [];
- const dstTerminal = terminalOf(dst);
+ const allCards = cols.flatMap((c) => c.items);
+ const items: KanbanItem[] = [];
  for (const cid of Array.from(selected)) {
- const src = cols.find((c) => c.items.some((i) => i.candidate_id === cid));
- if (!src || colId(src) === colId(dst)) continue;
- const item = src.items.find((i) => i.candidate_id === cid)!;
- // Ruch zbiorczy nie ma okna „Przenieś mimo to" (serwer odrzuca paczkę
- // z ostrzeżeniem), więc karty z ostrzeżeniem widocznym na karcie (weto HM
- // na etapie klienta) POMIJAMY z wyjaśnieniem — nie liczymy ich jako
- // nieudanych. Taką kartę przenosi się pojedynczo, z potwierdzeniem.
- const reason = bulkMoveSkipReason({
- item,
- readOnly,
- terminal: dstTerminal === "rejected" || dstTerminal === "withdrawn",
- targetStage: dst.stage,
+ const found = allCards.find((i) => i.candidate_id === cid);
+ if (found) items.push(found);
+ }
+ void move.requestBulkMove(items, dst, {
+ onHandled: () => setSelected(new Set()),
  });
- if (reason) {
- skippedEntries.push({ name: itemFullName(item), reason });
- continue;
- }
- entries.push({ item, srcColId: colId(src) });
- }
- if (skippedEntries.length > 0) {
- showError(
- `Pominięto ${skippedEntries.length}: ` +
- skippedEntries.map((b) => `${b.name} — ${b.reason}`).join("; ")
- );
- }
- if (entries.length === 0) {
- setSelected(new Set());
- return;
- }
-
- // „Zweryfikowany" pyta o stawkę per kandydat (opcjonalnie — „Pomiń stawkę")
- // → kolejka okien, jedno po drugim.
- if (dst.stage === "verified") {
- if (!canEditRates) {
- showError(RATE_EDIT_DENIED_MESSAGE);
- return;
- }
- setVerifiedBulkTotal(entries.length);
- setVerifiedQueue(entries.slice(1));
- setVerifiedRatePrompt({
- item: entries[0].item,
- destCol: dst,
- srcColId: entries[0].srcColId,
- });
- setSelected(new Set());
- return;
- }
-
- // „CV Wysłane" — stawka do klienta per kandydat → kolejka modali (analogicznie
- // do verified). Pominięcie/anulowanie obsłużone w submitClientRateMove.
- if (dst.stage === "cv_sent" && canWriteClientRate) {
- setClientRateBulkTotal(entries.length);
- setClientRateQueue(entries.slice(1));
- setClientRatePrompt({
- item: entries[0].item,
- destCol: dst,
- srcColId: entries[0].srcColId,
- });
- setSelected(new Set());
- return;
- }
-
- // M4 PR-03 (audyt P1.6): zbiorcze zatrudnianie bez wizardu = N draftów
- // kontraktów jednym kliknięciem — wykonuj pojedynczo (drag z potwierdzeniem).
- if (terminalOf(dst) === "hired") {
- showError("Zatrudnienie oznaczaj pojedynczo — przeciągnij kartę kandydata.");
- return;
- }
-
- // Etapy terminalne wymagają powodu — jeden modal, wspólny powód dla
- // całego zaznaczenia.
- const bulkTerminal = terminalOf(dst);
- if (bulkTerminal === "rejected" || bulkTerminal === "withdrawn") {
- setPendingRejection({
- entries,
- destCol: dst,
- terminalType: bulkTerminal,
- });
- setSelected(new Set());
- return;
- }
-
- setBulkBusy(true);
- try {
- let failures = 0;
- for (const { item, srcColId } of entries) {
- applyOptimistic(item, srcColId, dst);
- const ok = await sendMove(item, dst, undefined, {
- silent: true,
- deferCacheSync: true,
- checkVersion: false,
- });
- if (!ok) failures += 1;
- }
- if (failures > 0) {
- showError(
- `Nie udało się przenieść ${failures} z ${entries.length} kandydatów.`
- );
- // `refreshBoardAfterMove` odświeża też zapytanie strony.
- await refreshBoardAfterMove();
- } else {
- syncKanbanCache();
- if (entries.length > 1) {
- showSuccess(`Przeniesiono ${entries.length} kandydatów.`);
- }
- }
- setSelected(new Set());
- } finally {
- setBulkBusy(false);
- }
  };
 
  const bulkDownloadCvs = async () => {
@@ -2797,7 +2189,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  size="sm"
  variant="secondary"
  onClick={bulkDownloadCvs}
- disabled={bulkDownloadBusy || bulkBusy}
+ disabled={bulkDownloadBusy || move.isMoving}
  >
  {bulkDownloadBusy ? (
  <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -2815,7 +2207,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  size="sm"
  variant="ghost"
  onClick={() => bulkMove(colId(rejectedTemplateCol))}
- disabled={bulkBusy || bulkDownloadBusy}
+ disabled={move.isMoving || bulkDownloadBusy}
  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
  >
  <XCircle className="h-3.5 w-3.5" />
@@ -2824,7 +2216,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}
  <button
  onClick={() => setSelected(new Set())}
- disabled={bulkBusy || bulkDownloadBusy}
+ disabled={move.isMoving || bulkDownloadBusy}
  className="ml-auto text-xs text-foreground/70 hover:text-foreground"
  >
  Wyczyść
@@ -2957,70 +2349,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}
 
  {/* Modals */}
- <RejectionV2
- open={pendingRejection !== null}
- onOpenChange={(v) => !v && setPendingRejection(null)}
- terminalType={pendingRejection?.terminalType ??"rejected"}
- reasons={rejectionReasons}
- previousStageCategory={(() => {
- const firstSrc = pendingRejection?.entries[0]?.srcColId;
- if (!firstSrc) return null;
- const cat = cols.find((c) => colId(c) === firstSrc)?.category;
- return cat === "external" ?"external" : cat === "internal" ?"internal" : null;
- })()}
- previousStage={
- pendingRejection
- ? cols.find(
- (c) => colId(c) === pendingRejection.entries[0]?.srcColId
- )?.stage ?? null
- : null
- }
- onConfirm={(
- reasonId,
- notes,
- sendRejectionEmail,
- candidateOfferResponse,
- freeReason
- ) => {
- if (!pendingRejection) return;
- const { entries, destCol } = pendingRejection;
- setPendingRejection(null);
- void (async () => {
- let failures = 0;
- for (const { item, srcColId } of entries) {
- applyOptimistic(item, srcColId, destCol);
- const ok = await sendMove(
- item,
- destCol,
- {
- id: reasonId,
- notes,
- sendRejectionEmail,
- candidateOfferResponse: candidateOfferResponse ?? null,
- freeReason,
- },
- {
- silent: entries.length > 1,
- deferCacheSync: entries.length > 1,
- checkVersion: entries.length === 1,
- }
- );
- if (!ok) failures += 1;
- }
- if (failures > 0) {
- if (entries.length > 1) {
- showError(
- `Nie udało się przenieść ${failures} z ${entries.length} kandydatów.`
- );
- }
- await refreshBoardAfterMove();
- } else if (entries.length > 1) {
- syncKanbanCache();
- showSuccess(`Przeniesiono ${entries.length} kandydatów.`);
- }
- })();
- }}
- />
+ {/* Okna ruchu (powód odrzucenia, stawki, zatrudnienie, ostrzeżenie) —
+  `usePipelineMove`, wspólne z przyszłym widokiem tabeli i panelem osoby. */}
+ {move.dialogs}
 
  {scorecardPrompt && (
  <ScorecardV2
@@ -3044,118 +2375,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  />
  )}
 
- {/* „Zweryfikowany" — stawka opcjonalna, podpowiedź z profilu kandydata */}
- {verifiedRatePrompt && (
- <VerifiedRateModal
- key={verifiedRatePrompt.item.id}
- open={true}
- onOpenChange={(v) => {
- if (!v) {
- // Anulowanie przerywa też resztę bulk-kolejki.
- setVerifiedRatePrompt(null);
- setVerifiedQueue([]);
- setVerifiedBulkTotal(0);
- }
- }}
- candidateName={
- (`${verifiedRatePrompt.item.name ??""} ${verifiedRatePrompt.item.lastname ??""}`.trim() ||"Kandydat") +
- (verifiedBulkTotal > 1
- ? ` (${verifiedBulkTotal - verifiedQueue.length}/${verifiedBulkTotal})`
- : "")
- }
- jobBudgetHourly={jobBudgetHourlyValue}
- initialRateHourly={verifiedRatePrompt.item.candidate_expected_rate_hourly ?? null}
- onConfirm={(payload) => void submitVerifiedMove(payload)}
- onSkip={() => void submitVerifiedMove(null)}
- />
- )}
-
- {/* „CV Wysłane" — recruiter podaje stawkę do klienta (lub pomija) */}
- {clientRatePrompt && (
- <ClientRateModal
- key={clientRatePrompt.item.id}
- open={true}
- onOpenChange={(v) => {
- if (!v) {
- // Anulowanie (X/Escape) przerywa też resztę bulk-kolejki.
- setClientRatePrompt(null);
- setClientRateQueue([]);
- setClientRateBulkTotal(0);
- }
- }}
- candidateName={
- (`${clientRatePrompt.item.name ??""} ${clientRatePrompt.item.lastname ??""}`.trim() ||"Kandydat") +
- (clientRateBulkTotal > 1
- ? ` (${clientRateBulkTotal - clientRateQueue.length}/${clientRateBulkTotal})`
- : "")
- }
- onConfirm={(payload) => submitClientRateMove(payload)}
- onSkip={() => submitClientRateMove(null)}
- />
- )}
-
- {/* M4 PR-03 (audyt P1.6): potwierdzenie przed hired — powstają artefakty */}
- {hiredConfirm && (
- <Dialog open onOpenChange={(o) => !o && setHiredConfirm(null)}>
- <DialogContent>
- <DialogHeader>
- <DialogTitle>Potwierdź zatrudnienie</DialogTitle>
- <DialogDescription>
- {`${hiredConfirm.item.name ??""} ${hiredConfirm.item.lastname ??""}`.trim() ||"Kandydat"}{" "}
- trafi na etap „Zatrudniony”. System spróbuje założyć szkic kontraktu
- i zamówienia; jeśli się nie uda, zatrudnienie i tak zostanie zapisane,
- a Delivery dostanie powiadomienie z powodem.
- </DialogDescription>
- </DialogHeader>
- <DialogFooter>
- <Button variant="outline" onClick={() => setHiredConfirm(null)}>
- Anuluj
- </Button>
- <Button
- onClick={() => {
- const { item, destCol, srcColId } = hiredConfirm;
- setHiredConfirm(null);
- applyOptimistic(item, srcColId, destCol);
- void sendMove(item, destCol);
- }}
- >
- Potwierdź zatrudnienie
- </Button>
- </DialogFooter>
- </DialogContent>
- </Dialog>
- )}
-
- {/* 409 ELIGIBILITY_WARNING (17.09.2026) — jedno pytanie, potem ten sam ruch
- z potwierdzeniem. Czarna lista / NDA / konkurent / weto HM nie blokują. */}
- {eligibilityWarning && (
- <Dialog
- open={true}
- onOpenChange={(v: boolean) => {
- if (!v) void dismissEligibilityWarning();
- }}
- >
- <DialogContent>
- <DialogHeader>
- <DialogTitle>Ostrzeżenie przed przeniesieniem</DialogTitle>
- <DialogDescription>{eligibilityWarning.reason}</DialogDescription>
- </DialogHeader>
- <DialogBody>
- <p className="text-sm text-muted-foreground">
- Ruch jest możliwy — zapiszemy w historii, kto go potwierdził.
- </p>
- </DialogBody>
- <DialogFooter>
- <Button variant="ghost" onClick={() => void dismissEligibilityWarning()}>
- Anuluj
- </Button>
- <Button onClick={() => void eligibilityWarning.retry()}>
- Przenieś mimo to
- </Button>
- </DialogFooter>
- </DialogContent>
- </Dialog>
- )}
 
  {/* Usuń z rekrutacji — potwierdzenie (operacja nieodwracalna) */}
  {pendingRemoval && (

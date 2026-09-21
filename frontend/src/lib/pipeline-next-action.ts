@@ -37,10 +37,25 @@ export type NextActionKind =
   | "contract"
   | "none";
 
+/**
+ * Po czyjej stronie jest ruch. Tabela rekrutacji („wersja 3") sortuje i
+ * grupuje po tym polu, a licznik „wymaga ruchu" na liście rekrutacji liczy
+ * wyłącznie `recruiter`. Lustro w Pythonie: `services/pipeline_next_action.py`
+ * — obie strony czytają te same przypadki z
+ * `lib/__fixtures__/next-action-cases.json`.
+ */
+export type NextActionOwner =
+  | "recruiter"
+  | "client"
+  | "candidate"
+  | "delivery"
+  | "none";
+
 export interface NextAction {
   label: string;
   tone: NextActionTone;
   kind: NextActionKind;
+  owner: NextActionOwner;
 }
 
 /**
@@ -51,6 +66,12 @@ export const NO_NEXT_ACTION_LABEL = "Brak następnej akcji";
 
 /** Powyżej tylu dni na etapie karta jest „zaległa" (próg z `CandidateKanbanCard`). */
 export const STUCK_DAYS = 7;
+
+/**
+ * Tyle dni czekamy na drugą stronę (klienta albo kandydata), zanim ruch wraca
+ * do rekrutera: po tym czasie „czeka na klienta" znaczy „przypomnij klientowi".
+ */
+export const NUDGE_DAYS = 5;
 
 /** Do tylu dni świeża karta wejściowa jest jeszcze „do analizy dziś". */
 const FRESH_INTAKE_DAYS = 1;
@@ -99,6 +120,40 @@ export function nextActionFor(
   ctx: NextActionContext = {},
 ): NextAction {
   const group = ctx.group ?? groupKeyForColumn(column);
+  const base = baseActionFor(item, column, group, ctx);
+  return { ...base, owner: ownerFor(item, column, group, base) };
+}
+
+/**
+ * Kto ma ruch — z tych samych faktów co etykieta.
+ *
+ * Etapy po stronie klienta i kandydata oddają ruch rekruterowi po
+ * {@link NUDGE_DAYS}: karta, na którą nikt nie odpowiada od tygodnia, nie
+ * „czeka na klienta", tylko na przypomnienie.
+ */
+function ownerFor(
+  item: KanbanItem,
+  column: KanbanColumn,
+  group: PipelineGroupKey,
+  base: Omit<NextAction, "owner">,
+): NextActionOwner {
+  if (group === "closed" || base.kind === "none") return "none";
+  if (terminalOf(column) === "hired" || column.stage === "onboarding") {
+    return "delivery";
+  }
+  if (item.hm_veto) return "recruiter";
+  if (group !== "client") return "recruiter";
+  const days = item.days_in_stage ?? 0;
+  if (days >= NUDGE_DAYS) return "recruiter";
+  return base.kind === "offer" ? "candidate" : "client";
+}
+
+function baseActionFor(
+  item: KanbanItem,
+  column: KanbanColumn,
+  group: PipelineGroupKey,
+  ctx: NextActionContext,
+): Omit<NextAction, "owner"> {
 
   if (group === "closed") {
     return { label: "", tone: "normal", kind: "none" };

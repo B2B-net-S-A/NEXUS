@@ -1,0 +1,504 @@
+{
+ "_comment": "Spis funkcji widoku rekrutacji i listy rekrutacji (wersja 3, plan 21.09.2026). `file` + `marker` wskazują, gdzie funkcja żyje DZIŚ; przy przenosinach zmienia się `file`, wpis zostaje. Usunięcie wpisu wymaga `removed_reason` i decyzji Artura. Pilnuje tego lib/__tests__/recruitment-feature-parity.test.ts.",
+ "old_tab_ids": [
+  "pipeline",
+  "history",
+  "ai-matching",
+  "manual-search",
+  "portals",
+  "champion",
+  "screening",
+  "cv",
+  "interviews",
+  "contract",
+  "questions",
+  "chat"
+ ],
+ "old_tab_aliases": [
+  "champion-profile",
+  "similar",
+  "notes"
+ ],
+ "features": [
+  {
+   "id": "cv.branded",
+   "area": "cv",
+   "opis": "CV firmowe: edytor / wybór / wersje",
+   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "marker": "branded",
+   "v3_home": "panel szeroki → CV"
+  },
+  {
+   "id": "cv.client-rate",
+   "area": "cv",
+   "opis": "Stawka do klienta",
+   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "marker": "canWriteClientRate",
+   "v3_home": "panel → CV"
+  },
+  {
+   "id": "cv.one-time-link",
+   "area": "cv",
+   "opis": "Link jednorazowy dla klienta",
+   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "marker": "OneTimeLinkField",
+   "v3_home": "panel → CV"
+  },
+  {
+   "id": "cv.share-revoke",
+   "area": "cv",
+   "opis": "Lista i odwołanie linków",
+   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "marker": "revoke",
+   "v3_home": "panel szeroki → CV"
+  },
+  {
+   "id": "chat.full",
+   "area": "historia",
+   "opis": "Czat: przypięcia, reakcje, edycja",
+   "file": "components/v2/pages/JobChatTab.tsx",
+   "marker": "JobChatTab",
+   "v3_home": "okno Historia i czat"
+  },
+  {
+   "id": "history.request",
+   "area": "historia",
+   "opis": "Historia requestu",
+   "file": "components/RequestHistorySection.tsx",
+   "marker": "RequestHistorySection",
+   "v3_home": "okno Historia i czat"
+  },
+  {
+   "id": "list.dock",
+   "area": "lista",
+   "opis": "Dock podglądu rekrutacji",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "JobReadinessDock",
+   "v3_home": "ikona podglądu w wierszu"
+  },
+  {
+   "id": "list.priority-badges",
+   "area": "lista",
+   "opis": "Odznaki Priority Work",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "JobPriorityWorkBadges",
+   "v3_home": "bez zmian"
+  },
+  {
+   "id": "list.quick-filters",
+   "area": "lista",
+   "opis": "Szybkie filtry z licznikami",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "quick-counts",
+   "v3_home": "panel filtrów (zwijany)"
+  },
+  {
+   "id": "list.tiles",
+   "area": "lista",
+   "opis": "Widok kafelków",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "jobsView",
+   "v3_home": "bez zmian"
+  },
+  {
+   "id": "list.unopenable",
+   "area": "lista",
+   "opis": "Wiersz bez dostępu wyszarzony",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "can_open === false",
+   "v3_home": "bez zmian"
+  },
+  {
+   "id": "header.add-candidate",
+   "area": "naglowek",
+   "opis": "Dodaj kandydata (szybko po nazwisku)",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "AddCandidatesQuickModal",
+   "v3_home": "+ Dodaj kandydatów"
+  },
+  {
+   "id": "header.ai-writer",
+   "area": "naglowek",
+   "opis": "Szkic ogłoszenia (AI)",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "AIJobWriterModal",
+   "v3_home": "Zlecenie (okno) → Ogłoszenie i link"
+  },
+  {
+   "id": "header.chat-unread",
+   "area": "naglowek",
+   "opis": "Licznik nieprzeczytanych czatu",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "unread",
+   "v3_home": "przycisk Historia i czat"
+  },
+  {
+   "id": "header.edit",
+   "area": "naglowek",
+   "opis": "Edytuj rekrutację",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "EditJobModal",
+   "v3_home": "Zlecenie (okno) / menu …"
+  },
+  {
+   "id": "header.hm-picker",
+   "area": "naglowek",
+   "opis": "Hiring manager klienta",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "HiringManagerPicker",
+   "v3_home": "Zlecenie (okno) → Zespół"
+  },
+  {
+   "id": "header.invite-link",
+   "area": "naglowek",
+   "opis": "Wygeneruj link aplikacyjny",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "GenerateInviteLinkV2",
+   "v3_home": "Zlecenie (okno) → Ogłoszenie i link"
+  },
+  {
+   "id": "header.managed",
+   "area": "naglowek",
+   "opis": "Prowadzona w NEXUSIE (baner+chip)",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "ManagedInNexus",
+   "v3_home": "nagłówek + baner nad tabelą"
+  },
+  {
+   "id": "header.ownership",
+   "area": "naglowek",
+   "opis": "Przejmij / współpracownicy",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "JobOwnershipPanel",
+   "v3_home": "Zlecenie (okno) → Zespół"
+  },
+  {
+   "id": "header.priority",
+   "area": "naglowek",
+   "opis": "Kontekst Priority Work",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "JobPriorityContext",
+   "v3_home": "Zlecenie (okno) → Priorytet"
+  },
+  {
+   "id": "header.tabs-rail",
+   "area": "naglowek",
+   "opis": "Otwarte karty",
+   "file": "app/jobs/layout.tsx",
+   "marker": "JobTabsRail",
+   "v3_home": "bez zmian"
+  },
+  {
+   "id": "header.viewers",
+   "area": "naglowek",
+   "opis": "Kto teraz ogląda",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "ActiveViewers",
+   "v3_home": "nagłówek"
+  },
+  {
+   "id": "dock.match",
+   "area": "panel",
+   "opis": "Dopasowanie — uzasadnienie AI",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "DopasowanieTab",
+   "v3_home": "panel → Dopasowanie"
+  },
+  {
+   "id": "dock.notes",
+   "area": "panel",
+   "opis": "Notatki kandydata w rekrutacji",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "/api/notes",
+   "v3_home": "panel → Notatki i historia"
+  },
+  {
+   "id": "kanban.bulk-zip",
+   "area": "pipeline",
+   "opis": "Pobierz CV (ZIP)",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "bulk-cv-download",
+   "v3_home": "pasek zbiorczy"
+  },
+  {
+   "id": "kanban.dnd",
+   "area": "pipeline",
+   "opis": "Przeciąganie kart",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "onDragEnd",
+   "v3_home": "widok Tablica (przełącznik)"
+  },
+  {
+   "id": "kanban.filters",
+   "area": "pipeline",
+   "opis": "Filtry: utknęli / bez akcji / ostrzeżenia / rekruter / SLA",
+   "file": "components/v2/jobs/PipelineFiltersRail.tsx",
+   "marker": "Bez następnej akcji",
+   "v3_home": "chipy nad tabelą"
+  },
+  {
+   "id": "kanban.off-template",
+   "area": "pipeline",
+   "opis": "Etapy poza szablonem",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "off_template",
+   "v3_home": "segment Poza szablonem"
+  },
+  {
+   "id": "kanban.remove",
+   "area": "pipeline",
+   "opis": "Usuń z rekrutacji",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "removeFromRecruitment",
+   "v3_home": "menu wiersza"
+  },
+  {
+   "id": "kanban.view-toggle",
+   "area": "pipeline",
+   "opis": "Widok przeglądowy / kolumnowy",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "kanban-view",
+   "v3_home": "widok Tablica"
+  },
+  {
+   "id": "src.ai-admin",
+   "area": "pozyskiwanie",
+   "opis": "Narzędzia AI admina",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "JobAIActions",
+   "v3_home": "menu … (admin)"
+  },
+  {
+   "id": "src.email-template",
+   "area": "pozyskiwanie",
+   "opis": "Szablon maila do kandydata",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "EmailTemplateModal",
+   "v3_home": "panel → Napisz"
+  },
+  {
+   "id": "src.full-run",
+   "area": "pozyskiwanie",
+   "opis": "Pełny przegląd bazy",
+   "file": "hooks/useFullCandidateSearch.ts",
+   "marker": "candidateSearchApi.start",
+   "v3_home": "segment Propozycje z bazy"
+  },
+  {
+   "id": "src.hub",
+   "area": "pozyskiwanie",
+   "opis": "Cztery źródła + Odśwież propozycje",
+   "file": "components/v2/jobs/SourcingHub.tsx",
+   "marker": "regenerate",
+   "v3_home": "segment Propozycje z bazy"
+  },
+  {
+   "id": "src.manual",
+   "area": "pozyskiwanie",
+   "opis": "Wyszukaj manualnie w rekrutacji",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "ManualSearchTab",
+   "v3_home": "okno Szukaj ręcznie"
+  },
+  {
+   "id": "src.portals",
+   "area": "pozyskiwanie",
+   "opis": "Portale ogłoszeniowe",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "PostingsSection",
+   "v3_home": "Zlecenie (okno) → portale"
+  },
+  {
+   "id": "src.recommended",
+   "area": "pozyskiwanie",
+   "opis": "Rekomendowani",
+   "file": "components/SuggestedCandidatesWidget.tsx",
+   "marker": "recommendations",
+   "v3_home": "źródło w Propozycjach"
+  },
+  {
+   "id": "src.req-verify",
+   "area": "pozyskiwanie",
+   "opis": "Weryfikacja wymagań kandydata",
+   "file": "components/talent-radar/FullCandidateSearchResults.tsx",
+   "marker": "RequirementVerificationDialog",
+   "v3_home": "panel propozycji"
+  },
+  {
+   "id": "src.run-status",
+   "area": "pozyskiwanie",
+   "opis": "Status przeglądu: postęp / nieudany / zatrzymany",
+   "file": "components/talent-radar/FullCandidateSearchStatus.tsx",
+   "marker": "stalled",
+   "v3_home": "pasek nad propozycjami"
+  },
+  {
+   "id": "src.shortlist",
+   "area": "pozyskiwanie",
+   "opis": "Shortlista: edycja, promocja",
+   "file": "components/v2/jobs/JobShortlist.tsx",
+   "marker": "promote",
+   "v3_home": "segment Shortlista"
+  },
+  {
+   "id": "src.similar",
+   "area": "pozyskiwanie",
+   "opis": "Kandydaci z podobnych projektów",
+   "file": "components/HistoricalCandidatesSection.tsx",
+   "marker": "similar_jobs",
+   "v3_home": "źródło w Propozycjach"
+  },
+  {
+   "id": "questions.bank",
+   "area": "pytania",
+   "opis": "Baza pytań: przypinanie, kolejność, oceny",
+   "file": "components/prep/QuestionBankTab.tsx",
+   "marker": "QuestionBankTab",
+   "v3_home": "okno Baza pytań"
+  },
+  {
+   "id": "int.decision-dock",
+   "area": "rozmowy",
+   "opis": "Decyzja po rozmowie",
+   "file": "components/v2/jobs/InterviewDecisionDock.tsx",
+   "marker": "pipeline/history",
+   "v3_home": "panel → Rozmowy"
+  },
+  {
+   "id": "int.hm-feedback",
+   "area": "rozmowy",
+   "opis": "Werdykt hiring managera",
+   "file": "components/v2/jobs/JobInterviewsTab.tsx",
+   "marker": "hiring-manager-feedback",
+   "v3_home": "panel → Rozmowy"
+  },
+  {
+   "id": "move.client-rate",
+   "area": "ruch",
+   "opis": "Stawka do klienta",
+   "file": "hooks/usePipelineMove.tsx",
+   "marker": "ClientRateModal",
+   "v3_home": "usePipelineMove"
+  },
+  {
+   "id": "move.eligibility",
+   "area": "ruch",
+   "opis": "Ostrzeżenie „Przenieś mimo to”",
+   "file": "hooks/usePipelineMove.tsx",
+   "marker": "acknowledge_eligibility",
+   "v3_home": "usePipelineMove"
+  },
+  {
+   "id": "move.rejection",
+   "area": "ruch",
+   "opis": "Odrzuć z powodem + mail opt-in",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "RejectionV2",
+   "v3_home": "usePipelineMove"
+  },
+  {
+   "id": "move.rejection-undo",
+   "area": "ruch",
+   "opis": "Cofnij wysyłkę maila 15 min",
+   "file": "hooks/usePipelineMove.tsx",
+   "marker": "rejection-emails",
+   "v3_home": "usePipelineMove"
+  },
+  {
+   "id": "move.verified-rate",
+   "area": "ruch",
+   "opis": "Stawka przy „Zweryfikowany” + Pomiń",
+   "file": "hooks/usePipelineMove.tsx",
+   "marker": "VerifiedRateModal",
+   "v3_home": "usePipelineMove"
+  },
+  {
+   "id": "move.version-conflict",
+   "area": "ruch",
+   "opis": "Konflikt wersji 409",
+   "file": "hooks/usePipelineMove.tsx",
+   "marker": "expected_state_version",
+   "v3_home": "usePipelineMove"
+  },
+  {
+   "id": "screening.prep",
+   "area": "screening",
+   "opis": "Prep-kit",
+   "file": "components/v2/jobs/ScreeningWorkbench.tsx",
+   "marker": "prep",
+   "v3_home": "panel → Screening"
+  },
+  {
+   "id": "screening.sheet",
+   "area": "screening",
+   "opis": "Arkusz screeningu Championa",
+   "file": "components/v2/jobs/ScreeningWorkbench.tsx",
+   "marker": "screening",
+   "v3_home": "panel → Screening"
+  },
+  {
+   "id": "contract.close-job",
+   "area": "umowa",
+   "opis": "Zamknij rekrutację z powodem",
+   "file": "components/v2/jobs/JobContractTab.tsx",
+   "marker": "JobCloseWithReasonDialog",
+   "v3_home": "Zlecenie (okno)"
+  },
+  {
+   "id": "contract.confirm",
+   "area": "umowa",
+   "opis": "Potwierdź w pełni podpisaną / Generator B2B",
+   "file": "components/v2/jobs/JobContractTab.tsx",
+   "marker": "b2b-generator",
+   "v3_home": "panel → Umowa"
+  },
+  {
+   "id": "champ.editor",
+   "area": "zlecenie",
+   "opis": "Edytor profilu Championa",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "ChampionProfileEditor",
+   "v3_home": "strona Champion (bez zmian)"
+  },
+  {
+   "id": "champ.handoff",
+   "area": "zlecenie",
+   "opis": "Przekaż do searchu",
+   "file": "components/v2/jobs/JobReadinessDock.tsx",
+   "marker": "JobHandoffButton",
+   "v3_home": "strona Champion"
+  },
+  {
+   "id": "champ.intake",
+   "area": "zlecenie",
+   "opis": "Import Championa z dokumentu",
+   "file": "components/ChampionProfileEditor.tsx",
+   "marker": "ChampionIntake",
+   "v3_home": "strona Champion"
+  },
+  {
+   "id": "champ.readiness",
+   "area": "zlecenie",
+   "opis": "Lista gotowości",
+   "file": "components/v2/jobs/JobReadinessDock.tsx",
+   "marker": "readiness",
+   "v3_home": "okno Zlecenie + strona Champion"
+  },
+  {
+   "id": "champ.rec-searches",
+   "area": "zlecenie",
+   "opis": "Rekomendowane wyszukiwania (AI)",
+   "file": "components/v2/jobs/JobReadinessDock.tsx",
+   "marker": "ChampionRecommendedSearches",
+   "v3_home": "strona Champion"
+  },
+  {
+   "id": "champ.settings",
+   "area": "zlecenie",
+   "opis": "TAC / DL / szablon / kategoria / priorytet / termin",
+   "file": "components/v2/jobs/JobReadinessDock.tsx",
+   "marker": "JobSettingsPanel",
+   "v3_home": "okno Zlecenie + strona Champion"
+  }
+ ]
+}

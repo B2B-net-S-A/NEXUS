@@ -180,6 +180,55 @@ async def start_search(
     }
 
 
+@router.get("/candidate-search/jobs/{job_id}/latest-run")
+async def latest_run_for_job(
+    job_id: int, user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
+    """Najnowszy ZAKOŃCZONY przegląd bazy tej rekrutacji widoczny dla tej osoby.
+
+    Widoczne są przeglądy własne oraz automatyczne (``origin == "auto"``
+    w ``version_trace`` albo ``metrics`` — uruchomione przez system w imieniu
+    rekrutacji, nie przez konkretnego rekrutera). Cudzy ręczny przegląd
+    zostaje prywatny, jak w ``owned_run``. ``run`` = ``null``, gdy nie ma
+    żadnego — to poprawna odpowiedź, nie 404 (ekran pyta przy każdym wejściu).
+    """
+    from sqlalchemy import or_
+
+    _search_access(user)
+    await _authorized_job(db, user, job_id)
+    run = await db.scalar(
+        select(CandidateSearchRun)
+        .where(
+            CandidateSearchRun.job_id == job_id,
+            CandidateSearchRun.state.in_(store.FINISHED_STATES),
+            or_(
+                CandidateSearchRun.created_by == user.id,
+                CandidateSearchRun.version_trace["origin"].astext == "auto",
+                CandidateSearchRun.metrics["origin"].astext == "auto",
+            ),
+        )
+        .order_by(
+            CandidateSearchRun.completed_at.desc().nullslast(),
+            CandidateSearchRun.created_at.desc(),
+        )
+        .limit(1)
+    )
+    if run is None:
+        return {"job_id": job_id, "run": None}
+    return {
+        "job_id": job_id,
+        "run": {
+            "run_id": run.id,
+            "state": run.state,
+            "completed_at": run.completed_at,
+            "origin": (run.version_trace or {}).get("origin")
+            or (run.metrics or {}).get("origin")
+            or "manual",
+            "own": run.created_by == user.id,
+        },
+    }
+
+
 @router.get("/candidate-search/runs/{run_id}")
 async def search_results(
     run_id: str,

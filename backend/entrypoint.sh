@@ -4684,6 +4684,36 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_jarvis_conversation_entities_entity "
     "ON jarvis_conversation_entities (entity_type, entity_id)",
+    # 0333: skrzynka „Propozycje" rekrutacji. `run_id` bez FK (przeglądy kasuje
+    # retencja); kandydat i rekrutacja CASCADE (twarde usunięcie kandydata
+    # zabiera jego propozycje). Lustro 1:1 z migracją — `test_job_proposals.py`.
+    """CREATE TABLE IF NOT EXISTS job_proposals (
+        id BIGSERIAL PRIMARY KEY,
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        source VARCHAR(32) NOT NULL,
+        score NUMERIC(5, 2) NULL,
+        evidence JSONB NULL,
+        run_id VARCHAR(36) NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'proposed',
+        first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        dismissed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        cv_revision VARCHAR(64) NULL,
+        dismissed_at TIMESTAMPTZ NULL,
+        dismissed_cv_revision VARCHAR(64) NULL,
+        CONSTRAINT uq_job_proposals_pair_source
+            UNIQUE (job_id, candidate_id, source),
+        CONSTRAINT ck_job_proposals_source CHECK (
+            source IN ('full_base', 'new_cv', 'similar_projects',
+                       'recommendation', 'marketplace')),
+        CONSTRAINT ck_job_proposals_status CHECK (
+            status IN ('proposed', 'dismissed', 'added'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_job_proposals_job_status_seen "
+    "ON job_proposals (job_id, status, first_seen_at)",
+    "CREATE INDEX IF NOT EXISTS ix_job_proposals_candidate_id "
+    "ON job_proposals (candidate_id)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
