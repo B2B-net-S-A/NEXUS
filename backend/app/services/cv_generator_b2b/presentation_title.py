@@ -3,14 +3,21 @@
 
 def instructions(language: str) -> str:
     target = "English (en)" if language == "en" else "Polish (pl)"
+    examples = (
+        "For example, 'Programistka Python' becomes 'Python Developer'. "
+        if language == "en"
+        else "Translate occupational nouns into Polish even when English IT titles are "
+        "common in Poland: 'Python Developer' becomes 'Programista Python', "
+        "'Business Analyst' becomes 'Analityk biznesowy', 'Data Platform Developer' "
+        "becomes 'Programista platformy danych', 'QA Engineer' becomes 'Inżynier QA'. "
+    )
     return (
         "\nCentral CV standard: preserve all employment history, facts and seniority. "
         "Use at most four evidence-backed summary points, fewer if warranted; never pad. "
         f"The output document language is {target}. Extend the output JSON object with "
         f"the REQUIRED string field presentation_position, written in {target}. "
         "Translate the provided presentation role; do not merely copy it in its input "
-        "language. For example, in English 'Programistka Python' becomes 'Python Developer'; "
-        "in Polish 'Business Analyst' becomes 'Analityk biznesowy'. Preserve technology "
+        f"language. {examples}Preserve technology "
         "names and seniority exactly; never add qualifications. This field is the document "
         "heading and filename role, not an employment-history entry. Keep the source-backed "
         "candidate position and historical roles separate and unchanged. If no presentation "
