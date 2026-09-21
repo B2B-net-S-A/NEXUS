@@ -162,7 +162,7 @@ export function ConsentScreenshotField({
           ? "Ten klient wymaga zrzutu maila ze zgodą kandydata — trafi automatycznie na koniec CV."
           : requiredForSending
             ? "CV wygenerujesz bez zrzutu, ale pakietu nie wyślesz klientowi, dopóki go nie dołączysz — trafi automatycznie na koniec CV."
-            : "Opcjonalnie — jeśli wgrasz, zrzut trafi automatycznie na koniec CV."}
+            : "Jeśli wgrasz, zrzut trafi automatycznie na koniec CV."}
       </p>
       {!hasSubject && <p className="text-[11px] text-muted-foreground">Najpierw wybierz osobę i rekrutację albo wgraj plik CV.</p>}
 
