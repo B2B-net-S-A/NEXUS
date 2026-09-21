@@ -51,7 +51,7 @@ _msal_app: Optional[msal.ConfidentialClientApplication] = None
 _msal_key: Optional[tuple[str, str, str]] = None
 
 
-# --- Stan wysyłki (pamięć procesu) -----------------------------------------
+# --- Stan wysyłki (trwały, współdzielony) -----------------------------------------
 # Próg streaku, po którym sonda degraduje mimo wcześniejszych sukcesów. Graph
 # potrafi oddać 429/503 przy przeciążeniu i następna próba przechodzi, więc
 # pojedyncza porażka kanału, który DZIAŁA, nie zapala sondy. Kanał, z którego

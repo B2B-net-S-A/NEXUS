@@ -40,8 +40,8 @@ LOOP_SLEEP_SEC = 60
 BATCH_SIZE = 100
 MAX_SENDS_PER_PASS = 10
 RETRY_DELAY_MIN = 5
-# Po ilu minutach rezerwacja bez rozstrzygnięcia (crash w trakcie wysyłki)
-# uznawana jest za porzuconą i może ją przejąć kolejny przebieg. Musi być
+# Po ilu minutach rezerwacja porzucona PRZED granicą rozpoczęcia wysyłki
+# może być przejęta. Niepewna dostawa nie podlega temu odzyskaniu. Musi być
 # wyraźnie dłuższa niż najdłuższa realna wysyłka SMTP, żeby nie odebrać
 # rezerwacji procesowi, który wciąż wysyła.
 CLAIM_STALE_MIN = 15
@@ -99,9 +99,9 @@ async def _claim_notification(db: AsyncSession, notif_id: int) -> bool:
     visible to the other pass.
 
     Crucially this stamps the *reservation* field, not ``email_sent_at``. A hard
-    crash between this commit and the actual SMTP send therefore leaves the row
-    recoverable: ``email_sent_at`` is still NULL, and once the reservation goes
-    stale the next pass re-claims and sends it.
+    crash after this commit but BEFORE ``_mark_delivery_started`` leaves the row
+    recoverable once its reservation goes stale. Once delivery may have started,
+    the separate durable uncertainty flag blocks automatic replay.
     """
     stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=CLAIM_STALE_MIN)
     result = await db.execute(

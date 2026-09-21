@@ -21,8 +21,10 @@ for a moment.
 
 Note that 1 and 4 are fixed in OPPOSITE directions, on purpose. A remote,
 non-idempotent side effect cannot be made atomic with a local commit, so each
-path only gets to choose which side of the window it fails on. Email must never
-be lost, so it retries an unconfirmed attempt and tolerates a duplicate. An SLA
+path only gets to choose which side of the window it fails on. Email keeps an
+uncertain attempt for reconciliation and alerts through its monitor; it must not
+blindly resend after a crash once delivery may have started. A reservation that
+never reached that boundary remains recoverable. An SLA
 alert is a nudge for a breach that ``api/phase3.py::sla_alerts`` keeps
 permanently visible on its own, so it records first and tolerates a lost push
 rather than spamming the channel.
@@ -149,16 +151,17 @@ async def test_crash_mid_send_does_not_mark_the_mail_as_sent(monkeypatch) -> Non
                 "row claims the email was sent, but SMTP never confirmed it"
             )
             assert row.email_send_started_at is not None, (
-                "the reservation should survive the crash so it can go stale"
+                "the reservation must survive the crash"
             )
+            assert row.email_delivery_uncertain is True
     finally:
         await _cleanup_notification(user_id, notif_id)
 
 
-async def test_mail_is_still_delivered_after_the_stale_claim_expires(
+async def test_ambiguous_mail_is_not_retried_after_the_stale_claim_expires(
     monkeypatch,
 ) -> None:
-    """Work is not lost: once the abandoned claim ages out, the mail goes out."""
+    """Aged claims cannot replay a send whose acceptance is unknown."""
     user_id, notif_id = await _seed_offline_chat_notification()
     try:
         await _crash_one_pass(monkeypatch, notif_id)
@@ -174,13 +177,14 @@ async def test_mail_is_still_delivered_after_the_stale_claim_expires(
         async with AsyncSessionLocal() as db:
             fired = await fallback_mod._process_one_pass(db)
 
-        assert fired == 1, "the recovery pass should pick the abandoned row back up"
-        assert len(calls) == 1
+        assert fired == 0, "unknown acceptance requires reconciliation, not replay"
+        assert calls == []
 
         async with AsyncSessionLocal() as db:
             row = await db.get(Notification, notif_id)
             assert row is not None
-            assert row.email_sent_at is not None  # stamped only now, after SMTP
+            assert row.email_sent_at is None
+            assert row.email_delivery_uncertain is True
     finally:
         await _cleanup_notification(user_id, notif_id)
 
@@ -189,7 +193,8 @@ async def test_a_live_claim_still_blocks_a_second_pass(monkeypatch) -> None:
     """Recovery must not become a double send while the first pass may be alive."""
     user_id, notif_id = await _seed_offline_chat_notification()
     try:
-        await _crash_one_pass(monkeypatch, notif_id)  # claim taken, still fresh
+        async with AsyncSessionLocal() as db:
+            assert await fallback_mod._claim_notification(db, notif_id)
 
         calls: list[dict] = []
 
@@ -203,6 +208,29 @@ async def test_a_live_claim_still_blocks_a_second_pass(monkeypatch) -> None:
 
         assert fired == 0
         assert calls == [], "fresh reservation must not be stolen — that is a re-send"
+    finally:
+        await _cleanup_notification(user_id, notif_id)
+
+
+async def test_abandoned_claim_before_delivery_started_remains_recoverable(monkeypatch):
+    user_id, notif_id = await _seed_offline_chat_notification()
+    calls = []
+    try:
+        async with AsyncSessionLocal() as db:
+            assert await fallback_mod._claim_notification(db, notif_id)
+        await _age_the_claim(notif_id, fallback_mod.CLAIM_STALE_MIN + 5)
+
+        def working_send(**kwargs):
+            calls.append(kwargs)
+            return True
+
+        monkeypatch.setattr(fallback_mod, "send_chat_fallback_email", working_send)
+        async with AsyncSessionLocal() as db:
+            assert await fallback_mod._process_one_pass(db) == 1
+            row = await db.get(Notification, notif_id)
+            assert row.email_sent_at is not None
+            assert row.email_delivery_uncertain is False
+        assert len(calls) == 1
     finally:
         await _cleanup_notification(user_id, notif_id)
 

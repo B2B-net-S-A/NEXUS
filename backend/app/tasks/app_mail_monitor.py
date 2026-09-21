@@ -8,6 +8,7 @@ from sqlalchemy import func, select, text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.services import loop_heartbeat
 from app.services.m365 import app_mail, mail_circuit
 from app.tasks.chat_email_fallback import pending_candidate_query
 
@@ -106,6 +107,10 @@ async def sample_app_mail() -> None:
 
 
 async def app_mail_monitor_loop() -> None:
+    beat = loop_heartbeat.register(
+        "app_mail_monitor", max_silence_seconds=INTERVAL_SECONDS * 3
+    )
     while True:
+        beat.tick()
         await sample_app_mail()
         await asyncio.sleep(INTERVAL_SECONDS)
