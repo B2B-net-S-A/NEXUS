@@ -113,6 +113,8 @@ export type NavEntry = {
   placement: "primary" | "more";
   /** Wymagane dla `placement: "more"` (pilnuje test) — grupa w panelu. */
   moreGroup?: NavMoreGroupKey;
+  /** Jedna linia pod nazwą w panelu „Więcej" (makieta v3) — po co tam wejść. */
+  moreHint?: string;
   paletteKeywords?: string[];
   inPalette: boolean;
   /**
@@ -238,6 +240,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   },
   {
     id: "cv-generator",
+    moreHint: "CV firmowe kandydata pod rekrutację",
     href: "/cv-generator",
     label: "Generator CV",
     icon: Sparkles,
@@ -250,6 +253,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   // Sourcing. Edycja katalogu ról umownych nadal pozostaje admin-only.
   {
     id: "b2b-generator",
+    moreHint: "Umowy B2B do podpisu i rejestr",
     href: "/contracts/b2b-generator",
     label: "Generator Umów B2B",
     icon: FileSignature,
@@ -261,6 +265,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   },
   {
     id: "talents",
+    moreHint: "Pule talentów i listy osób",
     href: "/talents",
     label: "Talenty",
     icon: Star,
@@ -296,6 +301,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   },
   {
     id: "marketplace",
+    moreHint: "Kontraktorzy wolni teraz lub wkrótce",
     href: "/sourcing/marketplace",
     label: "Targ / Dostępni",
     icon: Store,
@@ -317,6 +323,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   },
   {
     id: "applications",
+    moreHint: "Zgłoszenia z formularzy i portali",
     href: "/applications",
     label: "Zgłoszenia",
     icon: Inbox,
@@ -368,6 +375,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   },
   {
     id: "my-clients",
+    moreHint: "Klienci z mojego portfela",
     href: "/my-clients",
     label: "Panel klientów",
     icon: Briefcase,
@@ -391,6 +399,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   },
   {
     id: "my-relationships",
+    moreHint: "Kontakty i relacje z klientami",
     href: "/my-relationships",
     label: "Moje relacje",
     icon: Heart,
@@ -427,6 +436,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   },
   {
     id: "cortex",
+    moreHint: "Wiedza o klientach i rynku",
     href: "/cortex",
     label: "Cortex",
     icon: Brain,
@@ -449,6 +459,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   },
   {
     id: "help",
+    moreHint: "Procedury, instrukcje, karty klientów",
     href: "/help",
     label: "Pomoc",
     icon: HelpCircle,
@@ -459,6 +470,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   },
   {
     id: "settings",
+    moreHint: "Konto, integracje, administracja",
     href: "/settings",
     label: "Ustawienia",
     icon: Settings,

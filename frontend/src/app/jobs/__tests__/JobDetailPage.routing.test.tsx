@@ -53,6 +53,7 @@ vi.mock("@/lib/job-proposals-api", () => ({
   jobProposalsKeys: {
     all: (id: number) => ["job-proposals", id],
     recommendations: (id: number) => ["proposal-latest", id],
+    visibleCount: (id: number) => ["job-proposals", id, "visible-count"],
   },
 }));
 vi.mock("@/lib/candidate-search-api", () => ({

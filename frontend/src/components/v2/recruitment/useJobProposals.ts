@@ -285,6 +285,11 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     () => countBySource(filterProposals(allEntries, { ...filters, source: "all" }, { budgetHourly })),
     [allEntries, filters, budgetHourly],
   );
+  // Pasek etapów pokazuje łączną liczbę ze wszystkich źródeł, nie samą skrzynkę.
+  const totalProposals = sourceCounts.all;
+  useEffect(() => {
+    if (totalProposals != null) queryClient.setQueryData(jobProposalsKeys.visibleCount(jobId), totalProposals);
+  }, [queryClient, jobId, totalProposals]);
   const entries = useMemo(
     () => filterProposals(allEntries, filters, { budgetHourly }),
     [allEntries, filters, budgetHourly],

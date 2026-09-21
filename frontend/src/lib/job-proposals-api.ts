@@ -156,6 +156,12 @@ export const jobProposalsApi = {
 /** Jeden prefiks = jedno unieważnienie po dodaniu/pominięciu. */
 export const jobProposalsKeys = {
   all: (jobId: number) => ["job-proposals", jobId] as const,
+  /**
+   * Łączna liczba propozycji ze WSZYSTKICH źródeł (skrzynka, przegląd bazy,
+   * podobne projekty, rekomendacje) — publikuje ją segment propozycji, czyta
+   * pasek etapów. Sama skrzynka mówiła „0", gdy lista miała 35 osób.
+   */
+  visibleCount: (jobId: number) => ["job-proposals", jobId, "visible-count"] as const,
   inbox: (jobId: number, limit: number) =>
     ["job-proposals", jobId, "inbox", limit] as const,
   latestRun: (jobId: number) => ["job-proposals", jobId, "latest-run"] as const,

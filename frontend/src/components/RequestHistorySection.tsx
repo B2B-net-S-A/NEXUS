@@ -87,6 +87,9 @@ interface Props {
    *  kartę „Podobne projekty" — pokazuje wszystkich kandydatów ze
    *  WSZYSTKICH bliźniaczych projektów, nie tylko z tego requestu. */
   onCandidatesToSource?: (entry: RequestHistoryEntry) => void;
+  /** Wąski kontener (okno wysuwane): karty jedna pod drugą. `sm:grid-cols-3`
+   *  patrzy na szerokość EKRANU, więc w oknie ~330 px ściskało trzy karty. */
+  narrow?: boolean;
 }
 
 const STATUS_LABEL_PL: Record<string, string> = {
@@ -146,6 +149,7 @@ export function RequestHistorySection({
   compact = false,
   maxItems = 3,
   onCandidatesToSource,
+  narrow = false,
 }: Props) {
   const authUser = useAuthStore((st) => st.user);
   const orgReader = hasRole(authUser, ...HISTORY_ORG_READER_ROLES);
@@ -288,7 +292,7 @@ export function RequestHistorySection({
         )}
 
         {hasRows && compactVisible.length > 0 && (
-          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <ul className={narrow ? "grid grid-cols-1 gap-2" : "grid grid-cols-1 gap-2 sm:grid-cols-3"}>
             {compactVisible.map((entry) => (
               <RequestHistoryRow
                 key={entry.job_id}

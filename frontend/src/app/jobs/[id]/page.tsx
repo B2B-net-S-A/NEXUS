@@ -532,6 +532,13 @@ export default function JobDetailPage() {
     staleTime: 30_000,
     retry: false,
   });
+  // Łączna liczba z segmentu propozycji (wszystkie źródła), gdy był otwarty;
+  // inaczej sama skrzynka. Tylko odczyt cache'u — nic nie pobiera.
+  const visibleProposalsQuery = useQuery<number | null>({
+    queryKey: jobProposalsKeys.visibleCount(jobId),
+    queryFn: () => null,
+    enabled: false,
+  });
   const shortlistCountQuery = useQuery({
     queryKey: jobShortlistQueryKey(jobId),
     queryFn: () => shortlistApi.list(jobId),
@@ -882,7 +889,8 @@ export default function JobDetailPage() {
           canWritePipeline={canWritePipeline}
           canWriteClientRate={job.can_write_client_rate === true}
           openProposalsCount={
-            openProposalsQuery.isSuccess ? openProposalsQuery.data.total : null
+            visibleProposalsQuery.data ??
+            (openProposalsQuery.isSuccess ? openProposalsQuery.data.total : null)
           }
           shortlistCount={
             shortlistCountQuery.isSuccess ? (shortlistCountQuery.data?.length ?? 0) : null

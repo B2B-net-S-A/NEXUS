@@ -574,6 +574,7 @@ export function HistoryChatSlideOver({
               clientId={clientId}
               readOnly={readOnly}
               compact
+              narrow
               maxItems={3}
             />
           </section>

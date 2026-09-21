@@ -14,6 +14,7 @@
  * (CLAUDE.md „Kanban bez bramek").
  */
 
+import { pluralPl } from "@/lib/plural-pl";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Search } from "lucide-react";
@@ -44,7 +45,9 @@ import {
   PERSON_SORT_PRESET,
   buildProcessRows,
   chipCounts,
+  defaultCollapsedFor,
   filterRows,
+  firstVisibleRowKey,
   groupRowsByOwner,
   recruiterOptions,
   shouldGroupRows,
@@ -275,7 +278,11 @@ export function RecruitmentWorkspace({
     autoOpenedFor.current = jobId;
     if (typeof window === "undefined") return;
     if (window.matchMedia?.("(min-width: 1280px)").matches !== true) return;
-    const firstKey = groups ? groups[0]?.rowKeys[0] : visibleRows[0].key;
+    // Pierwsza osoba, którą rekruter WIDZI — nie z grupy zwiniętej na starcie.
+    const firstKey = groups
+      ? firstVisibleRowKey(groups, defaultCollapsedFor(groups))
+      : visibleRows[0].key;
+    if (!firstKey) return;
     const first = visibleRows.find((row) => row.key === firstKey) ?? visibleRows[0];
     onActiveCandidateChange(first.candidateId);
   }, [jobId, isPeopleSegment, activeCandidateId, visibleRows, groups, onActiveCandidateChange]);
@@ -372,7 +379,7 @@ export function RecruitmentWorkspace({
 
   const summary =
     visibleRows.length === segmentRows.length
-      ? `${visibleRows.length} ${visibleRows.length === 1 ? "osoba" : "osób"}`
+      ? `${visibleRows.length} ${pluralPl(visibleRows.length, "osoba", "osoby", "osób")}`
       : `${visibleRows.length} z ${segmentRows.length}`;
 
   const fullWorkbenchContext: WorkbenchContext = {

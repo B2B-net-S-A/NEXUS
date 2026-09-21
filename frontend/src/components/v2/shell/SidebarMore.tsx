@@ -152,8 +152,10 @@ export function SidebarMoreFlyout({
                         href={resolveNavHref(item, user)}
                         onClick={() => onOpenChange(false)}
                         aria-current={itemActive ? "page" : undefined}
+                        aria-label={item.moreHint ? item.label : undefined}
+                        aria-describedby={item.moreHint ? `nav-more-hint-${item.id}` : undefined}
                         className={cn(
-                          "flex h-9 items-center gap-3 rounded-md px-2 text-sm transition-colors",
+                          "flex min-h-9 items-center gap-3 rounded-md px-2 py-1.5 text-sm transition-colors",
                           "focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                           itemActive
                             ? "bg-primary/10 font-medium text-primary"
@@ -161,7 +163,17 @@ export function SidebarMoreFlyout({
                         )}
                       >
                         <Icon className="h-4 w-4 shrink-0" />
-                        <span className="flex-1 truncate">{item.label}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{item.label}</span>
+                          {item.moreHint ? (
+                            <span
+                              id={`nav-more-hint-${item.id}`}
+                              className="block truncate text-xs font-normal text-muted-foreground"
+                            >
+                              {item.moreHint}
+                            </span>
+                          ) : null}
+                        </span>
                         {count !== undefined && <CountBadge count={count} />}
                       </Link>
                     </li>
@@ -171,6 +183,9 @@ export function SidebarMoreFlyout({
             </section>
           ))}
         </nav>
+        <p className="border-t border-border px-2 pb-1 pt-2 text-[11px] text-muted-foreground">
+          Wszystko jest też pod ⌘K.
+        </p>
       </PopoverContent>
     </Popover>
   );
