@@ -291,6 +291,21 @@ def _record_tokens(
         )
 
 
+def _has_server_tools(tools: Any) -> bool:
+    """Czy żądanie niesie narzędzia wykonywane PO STRONIE dostawcy.
+
+    Narzędzia serwerowe (web search, code execution…) mają definicję z polem
+    ``type`` i własny cennik poza tokenami — tam koszt z samych tokenów byłby
+    zaniżony, więc zostaje ``None``. Narzędzia KLIENCKIE (``name`` +
+    ``input_schema``, np. Jarvis) kosztują zwykłe tokeny: bez tego rozróżnienia
+    każda tura Jarvisa lądowała w „unpriced”, a alarm wydatków był ślepy.
+    """
+    for tool in tools or ():
+        if isinstance(tool, dict) and tool.get("type") not in (None, "custom"):
+            return True
+    return False
+
+
 def _assert_declared(model: str) -> None:
     """Refuse (or at least log) an LLM call nobody charged a quota for.
 
@@ -422,7 +437,8 @@ def _call_one_model(
                 model=model,
                 latency_ms=int((time.monotonic() - attempt_started) * 1000),
                 inference_geo=kwargs.get("inference_geo", "global"),
-                standard_pricing=not kwargs.get("speed") and not kwargs.get("tools"),
+                standard_pricing=not kwargs.get("speed")
+                and not _has_server_tools(kwargs.get("tools")),
             )
 
             if getattr(message, "stop_reason", None) == "max_tokens":

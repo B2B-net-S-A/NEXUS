@@ -23,7 +23,8 @@ const SHORTCUTS: Array<{
   { keys: ["Esc"], description: "Zamknij modal / anuluj" },
   { keys: ["⌘", "K"], description: "Globalne wyszukiwanie" },
   { keys: ["⌘", "N"], description: "Szybki nowy kandydat", capability: "candidate.create" },
-  { keys: ["⌘", "J"], description: "Szybka nowa rekrutacja", capability: "job.create" },
+  { keys: ["⌘", "J"], description: "Asystent Jarvis — otwórz / zamknij" },
+  { keys: ["⌘", "⇧", "J"], description: "Szybka nowa rekrutacja", capability: "job.create" },
   { keys: ["↑ / ↓"], description: "Nawigacja w wynikach wyszukiwania" },
   { keys: ["Enter"], description: "Wybierz wynik wyszukiwania" },
 ];
@@ -115,8 +116,10 @@ export function useKeyboardShortcuts({
         onNewCandidate();
         return;
       }
-      // Cmd+J → new job
-      if ((e.metaKey || e.ctrlKey) && e.key === "j") {
+      // Cmd+Shift+J → new job. Samo ⌘J należy od 0330 do Jarvisa
+      // (`JarvisRoot`). Z Shiftem `e.key` bywa wielką literą — porównujemy
+      // bez rozróżniania wielkości.
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "j") {
         if (!onNewJob) return;
         e.preventDefault();
         onNewJob();

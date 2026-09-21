@@ -91,13 +91,6 @@ const MODULES: ModuleCard[] = [
     enabled: true, // B.2.9 deployed
   },
   {
-    section: "mindy",
-    label: "MINDY AI",
-    description: "Asystent AI z kontekstem KPI",
-    href: "/dynareporter/mindy",
-    enabled: true, // B.2.10 deployed
-  },
-  {
     section: "admin",
     label: "Admin — Upload XLSX",
     description: "Wgrywanie Excel z KPI/MRR/finansów + historia uploadów",

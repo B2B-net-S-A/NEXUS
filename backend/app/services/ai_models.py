@@ -39,6 +39,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F14 | cv_rule_lint                     | claude-sonnet-5 (z Haiku)|
 | F15 | mindy_chat                       | gpt-5.6-luna             |
 | F18 | cv_factual_verification          | gpt-5.6-luna (z Sonnet 5)|
+| F19 | jarvis                           | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -218,6 +219,17 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "LLM faworyzuje własne wyjście (~+30 pkt), więc kontrola własnej pracy jest "
         "systematycznie za łagodna. Luna wygrała F7/F8 — zadania „znajdź i zacytuj”, czyli "
         "dokładnie to, co robi weryfikator.",
+    ),
+    AIFeatureKey.jarvis: ModelChoice(
+        default=SONNET_5,
+        env_vars=("JARVIS_MODEL",),
+        # WYŁĄCZNIE Anthropic: pętla agenta wysyła `tools`, a
+        # `llm_providers._UNSUPPORTED_KWARGS` odrzuca je dla GPT/DeepSeek
+        # nieponawialnym ValueError — fallback na innego dostawcę zabiłby łańcuch.
+        fallbacks=("claude-haiku-4-5",),
+        rationale="F19 (decyzja 21.09.2026, POZA badaniem 16.09). Jarvis wymaga tool-use, "
+        "który w NEXUSIE obsługuje tylko dostawca Anthropic; Sonnet 5 jak reszta funkcji "
+        "rozumujących, Haiku jako tańszy fallback przy przeciążeniu.",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
         default=SONNET_5,

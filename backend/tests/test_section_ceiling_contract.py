@@ -85,6 +85,14 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/search/": "wyszukiwarka globalna filtruje każdy kubełek po sekcji w handlerze",
     "GET /api/search/global": "wyszukiwarka globalna filtruje każdy kubełek po sekcji w handlerze",
     "GET /api/dynareporter/board-dashboard/monthly": "_require_board_access sprawdza capability zarządu w handlerze",
+    # ── Jarvis (0330) — asystent dostępny dla każdej roli ──────────────────
+    "GET /api/jarvis/status": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
+    "POST /api/jarvis/chat": "Jarvis: narzędzia wracają do aplikacji przez trasy z własną bramką sekcji",
+    "GET /api/jarvis/conversations": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
+    "GET /api/jarvis/conversations/{conversation_id}": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
+    "DELETE /api/jarvis/conversations/{conversation_id}": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
+    "POST /api/jarvis/actions/{action_id}/confirm": "Jarvis: narzędzia wracają do aplikacji przez trasy z własną bramką sekcji",
+    "POST /api/jarvis/actions/{action_id}/reject": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
     # ── Sondy integracji bez danych ─────────────────────────────────────────
     "GET /api/autenti/health": "stan konfiguracji integracji podpisów, bez danych domenowych",
     "GET /api/signing/health": "stan konfiguracji podpisu kwalifikowanego, bez danych domenowych",

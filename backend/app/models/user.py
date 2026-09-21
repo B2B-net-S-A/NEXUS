@@ -119,6 +119,13 @@ class User(Base, TimestampMixin):
         Boolean, default=True, server_default="true", nullable=False
     )
 
+    # Jarvis (0330): wygląd i zachowanie maskotki-asystenta — postać, własne
+    # imię, akcent, dźwięk, zwinięcie. Walidowane w `/api/users/me/preferences`
+    # (`JarvisPrefs`); pusty słownik = ustawienia domyślne.
+    jarvis_prefs: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+
     # Ręczne usuwanie klientów z profilu (0307). Uprawnienie IMIENNE: nie
     # wynika z żadnej roli — także administrator go nie ma, dopóki ktoś mu go
     # jawnie nie nada w edycji użytkownika. Każda zmiana ląduje w Historii

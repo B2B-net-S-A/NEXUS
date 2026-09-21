@@ -209,6 +209,19 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     # odcinane po stronie serwera, niezależnie od parametru klienta. Zapisy
     # (POST/PUT/DELETE) mają pełną bramkę AdminUser.
     ("GET", "/api/help-materials"),
+    # Jarvis (0330) dla KAŻDEJ zalogowanej roli — decyzja Artura 21.09.2026.
+    # Trasy nie niosą danych domenowych same z siebie: rozmowy i akcje są
+    # zawężone do właściciela (cudze = 404), a każde narzędzie wraca do
+    # aplikacji in-process przez trasę z JEJ bramką, tokenem pytającego
+    # (`app/services/jarvis/transport.py`). Pilnuje tego
+    # `test_jarvis_tool_registry_contract.py`.
+    ("GET", "/api/jarvis/status"),
+    ("GET", "/api/jarvis/conversations"),
+    ("GET", "/api/jarvis/conversations/{conversation_id}"),
+    ("DELETE", "/api/jarvis/conversations/{conversation_id}"),
+    ("POST", "/api/jarvis/chat"),
+    ("POST", "/api/jarvis/actions/{action_id}/confirm"),
+    ("POST", "/api/jarvis/actions/{action_id}/reject"),
     ("GET", "/api/notifications"),
     ("GET", "/api/notifications/count"),
     # /api/pipeline/overview gained an OperationalUser gate (F-07) — no longer bare.

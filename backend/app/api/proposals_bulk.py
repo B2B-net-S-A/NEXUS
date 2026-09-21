@@ -81,6 +81,9 @@ BulkAddSource = Literal[
     "quick_add",
     "talent_radar",
     "candidate_list",
+    # Jarvis (0330): dodanie zaproponowane przez asystenta i potwierdzone
+    # kliknięciem człowieka na karcie akcji.
+    "jarvis",
 ]
 
 # Eligibility reason → bulk-add skip reason. Reasons that block assignment.

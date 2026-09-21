@@ -14,6 +14,7 @@ import {
   Plus,
   Search,
   Settings,
+  Sparkles,
   Star,
   Radar,
   Wallet,
@@ -34,6 +35,7 @@ import type { Capability } from "@/lib/capabilities";
 import { hasSectionAccess, type ProductSection } from "@/lib/section-access";
 import { useCapabilities } from "@/hooks/useCapability";
 import { useAuthStore } from "@/store/auth";
+import { openJarvis } from "@/lib/jarvis/events";
 
 interface Props {
   /** `undefined` = user nie ma capability `candidate.create` (patrz AppShellV2). */
@@ -220,6 +222,13 @@ export function CommandPaletteV2({
     router.push(href);
   };
 
+  // Jarvis słucha zdarzenia `nexus:jarvis-open` (JarvisRoot). Wpisana fraza
+  // trafia do pola wiadomości — wysyła ją człowiek, nie paleta.
+  const askJarvis = (prompt: string) => {
+    onOpenChange(false);
+    openJarvis({ prompt: prompt.trim() || undefined });
+  };
+
   // Bramki nawigacji pochodzą z tego samego rejestru co sidebar i middleware
   // (audyt F-19). Wcześniej paleta miała własną, uboższą listę — pokazywała
   // „Kandydaci"/„Klienci"/„Kontrakty"/„Talenty" rolom, które middleware
@@ -333,6 +342,16 @@ export function CommandPaletteV2({
               : searchFailed
                 ? "Nie udało się wyszukać — spróbuj ponownie za chwilę."
                 : "Brak wyników."}
+          {query.trim().length >= 2 && !searching && (
+            <button
+              type="button"
+              className="mx-auto mt-3 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-primary hover:bg-muted"
+              onClick={() => askJarvis(query)}
+            >
+              <Sparkles className="h-4 w-4" />
+              Zapytaj Jarvisa
+            </button>
+          )}
         </CommandEmpty>
 
         {matchedNav.length > 0 && (
@@ -350,6 +369,15 @@ export function CommandPaletteV2({
                 </CommandItem>
               );
             })}
+          </CommandGroup>
+        )}
+
+        {query.trim().length >= 2 && (results.length > 0 || matchedNav.length > 0) && (
+          <CommandGroup heading="Asystent">
+            <CommandItem value={`jarvis ${query}`} onSelect={() => askJarvis(query)}>
+              <Sparkles className="h-4 w-4" />
+              <span className="truncate">Zapytaj Jarvisa: „{query.trim()}”</span>
+            </CommandItem>
           </CommandGroup>
         )}
 
@@ -409,6 +437,11 @@ export function CommandPaletteV2({
                   <CommandShortcut>J</CommandShortcut>
                 </CommandItem>
               )}
+              <CommandItem onSelect={() => askJarvis("")}>
+                <Sparkles className="h-4 w-4" />
+                Zapytaj Jarvisa
+                <CommandShortcut>⌘J</CommandShortcut>
+              </CommandItem>
               <CommandItem onSelect={() => go("/settings?tab=szablony")}>
                 <Mail className="h-4 w-4" />
                 Szablony email

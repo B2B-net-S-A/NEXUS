@@ -12,7 +12,7 @@ import { SidebarV2 } from "./SidebarV2";
 import { TopbarV2 } from "./TopbarV2";
 import { ImpersonationBanner } from "./ImpersonationBanner";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
-import { KidsMascot } from "./KidsMascot";
+import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
 import { KidsBackdrop } from "./KidsBackdrop";
 import type { QuickActionModal } from "./QuickActionsV2";
 
@@ -208,7 +208,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
 
       {/* Game-mode decorations — only in Kids mode (inert otherwise) */}
       <KidsBackdrop />
-      <KidsMascot />
+      <JarvisRoot />
     </div>
   );
 }
