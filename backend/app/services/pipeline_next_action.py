@@ -34,10 +34,10 @@ NO_NEXT_ACTION_LABEL = "Brak następnej akcji"
 GroupKey = Literal[
     "posting", "intake", "screening", "verification", "client", "contract", "closed"
 ]
-Owner = Literal["recruiter", "client", "candidate", "delivery", "none"]
+Owner = Literal["recruiter", "review", "client", "candidate", "delivery", "none"]
 # Kiedy ruch jest po stronie rekrutera — BEZ wiedzy o karcie (patrz
 # ``recruiter_owner_mode``): zawsze / dopiero po NUDGE_DAYS / nigdy.
-OwnerMode = Literal["always", "after_nudge", "never"]
+OwnerMode = Literal["always", "after_nudge", "review", "never"]
 
 GROUP_ORDER: tuple[GroupKey, ...] = (
     "posting",
@@ -247,6 +247,9 @@ def _owner(
         return "delivery"
     if hm_veto:
         return "recruiter"
+    # Stos wejściowy to przegląd, nie „wymaga ruchu" (decyzja 21.09.2026).
+    if group in ("posting", "intake"):
+        return "review"
     if group != "client":
         return "recruiter"
     if days >= NUDGE_DAYS:
@@ -303,6 +306,8 @@ def recruiter_owner_mode(col: StageColumn, group: str) -> OwnerMode:
     probe = next_action_for(col, days_in_stage=0, group=group)
     if probe.owner == "recruiter":
         return "always"
+    if probe.owner == "review":
+        return "review"
     if probe.owner in ("client", "candidate"):
         return "after_nudge"
     return "never"

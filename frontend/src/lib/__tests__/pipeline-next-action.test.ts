@@ -136,7 +136,8 @@ describe("nextActionFor — etapy wejściowe", () => {
       label: "Analiza CV · dziś",
       tone: "normal",
       kind: "analysis",
-      owner: "recruiter",
+      // Stos wejściowy to „Do przejrzenia", nie „wymaga mojego ruchu".
+      owner: "review",
     });
     expect(nextActionFor(item({ days_in_stage: 1 }), intakeCol).label).toBe(
       "Analiza CV · dziś",

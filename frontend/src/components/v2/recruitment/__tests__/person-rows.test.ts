@@ -183,8 +183,10 @@ describe("sortRows", () => {
 
   it("domyślnie: najpierw MÓJ ruch (bramka > po terminie > zwykły), potem reszta po dniach malejąco", () => {
     const order = sortRows(rows, DEFAULT_PERSON_SORT).map((r) => r.candidateId);
-    // 6 = bramka; 2 i 3 = po terminie (9 d, 8 d); 1 = zwykły; potem klient: 5 (4 d), 4 (2 d).
-    expect(order).toEqual([6, 2, 3, 1, 5, 4]);
+    // 6 = bramka; 3 = po terminie (screening, 8 d). Reszta po dniach malejąco:
+    // stos wejściowy (2: 9 d, 1: 3 d) to „Do przejrzenia", nie mój ruch —
+    // stoi w jednym szeregu z osobami po stronie klienta (5: 4 d, 4: 2 d).
+    expect(order).toEqual([6, 3, 2, 5, 1, 4]);
   });
 
   it("nie mutuje wejścia", () => {
@@ -224,7 +226,8 @@ describe("filterRows i chipy", () => {
   it("liczniki chipów", () => {
     const counts = chipCounts(filterRows(rows, { segment: "in-process" }));
     expect(counts).toMatchObject({
-      mine: 3, // 1, 2 i 4 (klient milczy ≥ 5 dni → ruch wraca do rekrutera)
+      mine: 1, // 4 (klient milczy ≥ 5 dni → ruch wraca do rekrutera)
+      review: 2, // 1 i 2 — stos wejściowy
       overdue: 1,
       "waiting-client": 1,
       stuck: 1,
@@ -239,7 +242,7 @@ describe("filterRows i chipy", () => {
   });
 
   it("chipy zawężają łącznie", () => {
-    const hit = filterRows(rows, { segment: "in-process", chips: new Set(["mine", "no-action"] as const) });
+    const hit = filterRows(rows, { segment: "in-process", chips: new Set(["review", "no-action"] as const) });
     expect(hit.map((r) => r.candidateId)).toEqual([1]);
     expect(hit[0].nextAction.label).toBe(NO_NEXT_ACTION_LABEL);
   });
@@ -271,7 +274,7 @@ describe("groupRowsByOwner", () => {
       5: [item(2, { days_in_stage: 1 })],
       7: [item(3, { days_in_stage: 1 })],
       9: [item(4, { days_in_stage: 30 })],
-      2: [item(5, { days_in_stage: 20 })],
+      2: [item(5, { days_in_stage: 20 }), item(7, { days_in_stage: 1 })],
       10: [item(6, { days_in_stage: 3 })],
     }),
   );
@@ -283,10 +286,11 @@ describe("groupRowsByOwner", () => {
       "Czeka na klienta",
       "Czeka na kandydata",
       "Delivery",
+      "Do przejrzenia",
       "Bez ruchu ponad 14 dni",
       "Zamknięci",
     ]);
-    expect(groups.map((g) => g.rowKeys)).toEqual([["c:1"], ["c:2"], ["c:3"], ["c:4"], ["c:5"], ["c:6"]]);
+    expect(groups.map((g) => g.rowKeys)).toEqual([["c:7"], ["c:2"], ["c:3"], ["c:4"], ["c:1"], ["c:5"], ["c:6"]]);
   });
 
   it("zatrudniony od miesiąca to Delivery, nie „bez ruchu”", () => {
@@ -334,5 +338,12 @@ describe("defaultPanelSectionFor", () => {
     expect(defaultPanelSectionFor("contract")).toBe("contract");
     expect(defaultPanelSectionFor("intake")).toBe("notes");
     expect(defaultPanelSectionFor("closed")).toBe("notes");
+  });
+
+  it("„CV Wysłane” i etap przed rozmową otwierają CV, nie pustą sekcję rozmów", () => {
+    const cvSent = { stage: "cv_sent", category: "internal", name: "CV Wysłane" } as never;
+    const interview = { stage: "client_interview", category: "external", name: "Interview Klient" } as never;
+    expect(defaultPanelSectionFor("client", cvSent)).toBe("cv");
+    expect(defaultPanelSectionFor("client", interview)).toBe("interviews");
   });
 });

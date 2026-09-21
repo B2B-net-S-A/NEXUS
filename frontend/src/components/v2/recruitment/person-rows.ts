@@ -28,6 +28,7 @@ import {
   nextActionFor,
   type NextAction,
 } from "@/lib/pipeline-next-action";
+import { isInterviewStage, type FlowColumn } from "@/lib/job-flow-stages";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { formatDate } from "@/lib/utils";
 
@@ -307,6 +308,7 @@ export function rowBadges(row: ProcessPersonRow, ctx: RowBadgeContext = {}): Row
 
 export type QuickChipKey =
   | "mine"
+  | "review"
   | "overdue"
   | "waiting-client"
   | "stuck"
@@ -315,6 +317,7 @@ export type QuickChipKey =
 
 export const QUICK_CHIP_ORDER: readonly QuickChipKey[] = [
   "mine",
+  "review",
   "overdue",
   "waiting-client",
   "stuck",
@@ -324,6 +327,8 @@ export const QUICK_CHIP_ORDER: readonly QuickChipKey[] = [
 
 export const QUICK_CHIP_LABEL: Record<QuickChipKey, string> = {
   mine: "Wymaga mojego ruchu",
+  // Stos wejściowy (Ogłoszenia, Nowi) — przegląd, nie sprawa do załatwienia.
+  review: "Do przejrzenia",
   overdue: "Po terminie",
   "waiting-client": "Czeka na klienta",
   stuck: `Utknęli > ${STUCK_DAYS} d`,
@@ -338,6 +343,7 @@ export const QUICK_CHIP_LABEL: Record<QuickChipKey, string> = {
  */
 const CHIP_PREDICATE: Record<QuickChipKey, (row: ProcessPersonRow) => boolean> = {
   mine: (row) => row.nextAction.owner === "recruiter",
+  review: (row) => row.nextAction.owner === "review",
   overdue: (row) => row.nextAction.tone === "due",
   "waiting-client": (row) => row.nextAction.owner === "client",
   stuck: (row) =>
@@ -541,6 +547,7 @@ export function sortRows<Row extends PersonRow>(
 
 export type OwnerGroupKey =
   | "mine"
+  | "review"
   | "client"
   | "candidate"
   | "delivery"
@@ -549,6 +556,7 @@ export type OwnerGroupKey =
 
 export const OWNER_GROUP_LABEL: Record<OwnerGroupKey, string> = {
   mine: "Wymaga mojego ruchu",
+  review: "Do przejrzenia",
   client: "Czeka na klienta",
   candidate: "Czeka na kandydata",
   delivery: "Delivery",
@@ -561,16 +569,21 @@ const OWNER_GROUP_ORDER: readonly OwnerGroupKey[] = [
   "client",
   "candidate",
   "delivery",
+  "review",
   "stale",
   "closed",
 ];
 
 /** Grupy zwinięte na starcie — osoby bez ruchu od dwóch tygodni to przegląd, nie praca na dziś. */
-export const DEFAULT_COLLAPSED_GROUPS: readonly OwnerGroupKey[] = ["stale"];
+export const DEFAULT_COLLAPSED_GROUPS: readonly OwnerGroupKey[] = ["review", "stale"];
 
 export function ownerGroupOf(row: ProcessPersonRow): OwnerGroupKey {
   if (row.nextAction.owner === "none") return "closed";
   if (row.nextAction.owner === "delivery") return "delivery";
+  // Stos wejściowy jest przeglądem niezależnie od wieku — inaczej zgłoszenia
+  // sprzed miesięcy mieszałyby się w „Bez ruchu" z osobami, z którymi ktoś
+  // już pracował.
+  if (row.nextAction.owner === "review") return "review";
   // „Bez ruchu" wygrywa z właścicielem: po `NUDGE_DAYS` ruch i tak wraca do
   // rekrutera, więc bez tej gałęzi grupa byłaby zawsze pusta, a „Wymaga mojego
   // ruchu" puchłaby od osób, których nikt nie dotknął od tygodni.
@@ -650,7 +663,13 @@ export function segmentCounts(
 /** Sekcja panelu otwierana domyślnie dla etapu, na którym stoi osoba. */
 export function defaultPanelSectionFor(
   group: PipelineGroupKey,
+  column?: FlowColumn,
 ): "cv" | "screening" | "interviews" | "contract" | "notes" {
+  // Grupa „u klienta" obejmuje też „CV Wysłane" i własne etapy przed rozmową
+  // (np. „Preparation Meeting"). Warsztat rozmów obsługuje wyłącznie etapy
+  // rozmów — dla reszty panel otwierał pustą sekcję „Rozmowy" (produkcja,
+  // 21.09.2026). Tam właściwa jest sekcja CV (co i kiedy poszło do klienta).
+  if (group === "client" && column && !isInterviewStage(column)) return "cv";
   switch (group) {
     case "screening":
       return "screening";
