@@ -901,6 +901,7 @@ export function CVGeneratorStandaloneV2({
 
       {mode === "new" ? (
         <NewModeForm
+          contextLocked={embedded}
           candidate={candidate}
           candidateOpen={candidateOpen}
           candidateQuery={candidateQuery}
@@ -1129,7 +1130,7 @@ export function CVGeneratorStandaloneV2({
               <p className="mt-1 text-xs text-muted-foreground">
                 Ten klient wymaga CV w języku{" "}
                 {forcedLanguage === "en" ? "angielskim" : "polskim"} — wybór
-                jest zablokowany. Zmienisz to w regułach CV klienta.
+                jest zablokowany przez zasady klienta.
               </p>
             ) : null}
           </div>
@@ -1334,6 +1335,7 @@ export function CVGeneratorStandaloneV2({
 // ── New mode form ──────────────────────────────────────────────────────────
 
 type NewModeFormProps = {
+  contextLocked?: boolean;
   candidate: CandidateOption | null;
   candidateOpen: boolean;
   candidateQuery: string;
@@ -1355,6 +1357,7 @@ type NewModeFormProps = {
 };
 
 function NewModeForm({
+  contextLocked = false,
   candidate,
   candidateOpen,
   candidateQuery,
@@ -1384,6 +1387,7 @@ function NewModeForm({
                 variant="outline"
                 role="combobox"
                 aria-expanded={candidateOpen}
+                disabled={contextLocked}
                 className="w-full justify-between"
               >
                 <span className="flex items-center gap-2 truncate">
@@ -1474,6 +1478,7 @@ function NewModeForm({
               value={stageId}
               onChange={setStageId}
               loading={recruitmentsQuery.isLoading}
+              disabled={contextLocked}
             />
 
             {selectedRecruitment && (
