@@ -487,7 +487,7 @@ async def _steps(
             continue
         history.append({"role": "assistant", "content": blocks})
 
-        text = "\n\n".join(b["text"] for b in blocks if b["type"] == "text").strip()
+        text = jarvis_web.join_text(b["text"] for b in blocks if b["type"] == "text")
         tool_uses = [b for b in blocks if b["type"] == "tool_use"]
         if text:
             yield {
