@@ -189,6 +189,7 @@ export function CVGeneratorV2({
   );
 
   const canSubmit =
+    !centralPolicy.isPending && !centralPolicy.isError &&
     !!selectedRecruitment &&
     !!sourceSelection.selected &&
     selectedRecruitment.ready &&
@@ -535,6 +536,8 @@ export function CVGeneratorV2({
               </div>
             )}
 
+            {centralPolicy.isPending && <p role="status">Wczytuję zasady CV i liczbę wersji językowych…</p>}
+            {centralPolicy.isError && <p role="alert">Nie udało się odczytać zasad CV. Odśwież stronę przed generacją.</p>}
             {centrallyManaged && <div className="rounded-md border border-border p-3 text-sm"><p>{centralPolicy.data?.content_mode === "tailored" ? "Automatyczne dopasowanie do Profilu Championa" : "CV ogólne — neutralna redakcja"}</p><p>{centralPolicy.data?.effective_policy?.requires_en_copy ? "Powstaną 2 wersje: PL i EN. Druga wersja oznacza dodatkowe zużycie AI." : `Powstanie 1 wersja: ${language.toUpperCase()}.`}</p><p>Po generacji sprawdź dokumenty i potwierdź gotowość pakietu w Generatorze CV.</p></div>}
             <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
               <p className="text-xs text-muted-foreground">
@@ -585,4 +588,3 @@ function ReadyBadge({ label, ok, optional = false }: { label: string; ok: boolea
     </Badge>
   );
 }
-
