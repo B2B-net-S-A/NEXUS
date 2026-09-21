@@ -334,7 +334,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/order-new-from-pdf`, `/preview/finance-order-changes`,
 //   `/preview/finance-order-pdfs`,
 //   `/preview/contract-candidate-contact`, `/preview/cv-search`,
-//   `/preview/recruitment-v3`
+//   `/preview/recruitment-v3`,
 //   `/preview/jobs-list-v3`
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
