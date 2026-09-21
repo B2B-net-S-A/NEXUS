@@ -396,6 +396,16 @@ DeliveryLeadPlus = Annotated[
     Depends(require_roles(UserRole.admin, UserRole.delivery_lead)),
 ]
 
+# Zakładka „Rada" w /insights (kokpit, tabele rok-do-roku, ranking klientów
+# z MRR): admin (niejawnie przez `require_roles`) · finance · Head of
+# Recruitment. Decyzja Artura 21.09.2026 — zawęża D7 wyłącznie dla tych trzech
+# tras. Świadomie NIE `VIEW_FINANCE`: ta capability steruje 40+ innymi
+# powierzchniami, a HoR konsekwentnie jej nie ma.
+BoardReader = Annotated[
+    User,
+    Depends(require_roles(UserRole.finance, UserRole.head_of_recruitment)),
+]
+
 # Head of Recruitment + admin — zarządzanie strukturą zespołu rekrutacji
 # (macierze sourcer×kategoria, TAC→DL, DL→klienci), edycja targetów KPI,
 # zamykanie kwartałów Liga Mistrzów.

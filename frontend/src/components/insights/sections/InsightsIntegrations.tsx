@@ -211,7 +211,7 @@ export function InsightsIntegrations() {
           <h2 className="text-lg font-semibold text-foreground">Integracje</h2>
           <p className="text-sm text-muted-foreground">
             Scrapery pracuj.pl i JJIT: czy chodzą, co dały, co się wysypało.{" "}
-            <Link href="/insights?tab=rekrutacja#zrodla" className="underline underline-offset-2">
+            <Link href="/insights?tab=body-leasing&ch=wyniki#doplyw" className="underline underline-offset-2">
               Lejek per źródło
             </Link>
           </p>

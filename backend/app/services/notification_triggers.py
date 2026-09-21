@@ -535,7 +535,9 @@ async def check_powercalling_kpi(db: AsyncSession, now: datetime) -> int:
                 user_id=hr_id,
                 title="Raport PowerCalling 11:45",
                 message=message,
-                link="/insights?tab=rekrutacja",
+                # Sekcja Power Calling zniknęła z Insights (21.09.2026) — raport
+                # prowadzi do zespołu w rozdziale Wyniki.
+                link="/insights?tab=body-leasing&ch=wyniki#zespol",
                 ntype=NotificationType.powercalling_kpi,
                 related_entity_type="daily_kpi_report",
                 related_entity_id=day_id,

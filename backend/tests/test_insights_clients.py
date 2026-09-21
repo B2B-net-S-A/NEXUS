@@ -56,6 +56,7 @@ async def _seed_user(role: UserRole, label: str) -> tuple[int, str, str]:
             password_hash=hash_password(password),
             role=role,
             is_active=True,
+            profile_completed=True,
         )
         db.add(u)
         await db.commit()
@@ -258,30 +259,49 @@ async def closed_job_hired_twice() -> AsyncIterator[dict]:
                     await db.commit()
 
 
-# ── D7: każdy zalogowany ────────────────────────────────────────────────────
+# ── Dostęp: /ranking tylko Rada, /hit-ratio każdy zalogowany ───────────────
+
+BOARD_ROLES = (UserRole.admin, UserRole.finance, UserRole.head_of_recruitment)
+NON_BOARD_ROLES = (
+    UserRole.delivery_lead,
+    UserRole.tac,
+    UserRole.recruiter,
+    UserRole.sourcer,
+    UserRole.user,
+)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "role",
-    [
-        UserRole.admin,
-        UserRole.head_of_recruitment,
-        UserRole.delivery_lead,
-        UserRole.finance,
-        UserRole.tac,
-        UserRole.recruiter,
-        UserRole.sourcer,
-    ],
-)
-async def test_every_role_reaches_both_endpoints(fx_client: AsyncClient, role):
-    """Decyzja D7: /insights widzi KAŻDA zalogowana rola — bez redakcji kwot."""
+@pytest.mark.parametrize("role", [*BOARD_ROLES, *NON_BOARD_ROLES])
+async def test_every_role_reaches_hit_ratio(fx_client: AsyncClient, role):
+    """D7 zostaje dla skuteczności per klient: widzi ją KAŻDA zalogowana rola."""
     _, email, password = await _seed_user(role, "rbac")
     headers = await _login(fx_client, email, password)
 
-    for url in (RANKING, HIT_RATIO):
-        resp = await fx_client.get(url, headers=headers)
-        assert resp.status_code == 200, f"{role.value} @ {url}: {resp.text}"
+    resp = await fx_client.get(HIT_RATIO, headers=headers)
+    assert resp.status_code == 200, f"{role.value}: {resp.text}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", BOARD_ROLES)
+async def test_board_roles_reach_ranking(fx_client: AsyncClient, role):
+    """Ranking klientów (MRR, przychody) należy do zakładki Rada (21.09.2026)."""
+    _, email, password = await _seed_user(role, "rbac-rank")
+    headers = await _login(fx_client, email, password)
+
+    resp = await fx_client.get(RANKING, headers=headers)
+    assert resp.status_code == 200, f"{role.value}: {resp.text}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", NON_BOARD_ROLES)
+async def test_other_roles_are_refused_the_ranking(fx_client: AsyncClient, role):
+    """Poza admin · finance · HoR ranking to 403 — nie pusta lista."""
+    _, email, password = await _seed_user(role, "rbac-rank-denied")
+    headers = await _login(fx_client, email, password)
+
+    resp = await fx_client.get(RANKING, headers=headers)
+    assert resp.status_code == 403, f"{role.value}: {resp.text}"
 
 
 @pytest.mark.asyncio
@@ -297,13 +317,14 @@ async def test_money_is_not_redacted_for_a_role_without_view_finance(
     fx_client: AsyncClient,
     stale_rate_column_contract: dict,
 ):
-    """Rola `sourcer` widzi kwoty — inaczej D7 nie jest zrealizowane.
+    """Head of Recruitment widzi kwoty rankingu, choć nie ma `VIEW_FINANCE`.
 
-    Redakcja na /insights jest zdjęta świadomie; jeśli ktoś ją tu doda, ten
-    test padnie zanim wersja trafi na produkcję.
+    Redakcja na /insights jest zdjęta świadomie — bramką jest dostęp do
+    zakładki Rada (``BoardReader``), nie capability. Jeśli ktoś doda tu
+    redakcję po `VIEW_FINANCE`, HoR zobaczy puste kwoty i ten test padnie.
     """
     await cache_invalidate("insights:clients:")
-    _, email, password = await _seed_user(UserRole.sourcer, "money")
+    _, email, password = await _seed_user(UserRole.head_of_recruitment, "money")
     headers = await _login(fx_client, email, password)
 
     body = (await fx_client.get(RANKING, headers=headers)).json()

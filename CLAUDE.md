@@ -4339,14 +4339,25 @@ zakresem świadomie:** Sales, AI Analytics, Przetargi, Premie (moduł sprzedaży
 Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-plan.md`
 §0 oraz `docs/insights-etap0-specs.md`.
 
-- **TRZY zakładki, nazwane jak w DynaReporterze: `rekrutacja` ·
-  `delivery-lead` · `rada`** (dawniej `rekrutacja` · `klienci` · `zarzad`).
-  Podział jest treściowy, nie kosmetyczny: **ranking klientów i MRR mieszkają
-  w RADZIE** (pytanie o pieniądze firmy), a Delivery Lead odpowiada za obsadę
-  i hit ratio; **Liga Mistrzów i linki aplikacyjne przeniesione do
-  REKRUTACJI** (gamifikacja i źródła kandydatów to rozmowa o zespole, nie
-  o kokpicie Rady). Dokładając sekcję, zacznij od pytania, na czyje pytanie
-  odpowiada — nie od tego, gdzie jest wolne miejsce.
+- **DWIE zakładki od 21.09.2026: `body-leasing` (3 rozdziały w `?ch=`) i
+  `rada`** (makiety: https://claude.ai/artifact/3JijNAob8Vc1d53NgBGMJb, runda F).
+  Dawne Rekrutacja i Delivery Lead zlane w **Body Leasing** — jeden rozdział
+  widać naraz (`BodyLeasingPanel.tsx`, pliki w `components/insights/chapters/`):
+  **Rywalizacja** (domyślny; kampania, Liga, wyścigi, ścieżka rozwoju jako
+  tablica Junior / Senior / Expert, Hall of Fame — BEZ paska okresu),
+  **Wyniki** (Wynik · Dziś i w miesiącu · Zespół · Praca w toku · Dopływ
+  kandydatów; miesiąc) i **Klienci** (portfele DL — jedna tabela, DL jako
+  nagłówek grupy; rok). **Rada** (rok do roku NA GÓRZE jako karty metryk, pod
+  nimi kokpit i ranking klientów) widzą WYŁĄCZNIE admin, Finanse i HoR —
+  `RADA_ROLES` we froncie i `BoardReader` na `/api/insights/board`,
+  `/board/yoy`, `/clients/ranking`. **Usunięte z UI:** Power Calling, LinkedIn
+  (endpointy zostają bez konsumenta) oraz cztery sekcje DL zastąpione
+  portfelami. Z pulpitu przeszły: aktywność dnia/miesiąca
+  (`RecruitmentActivityDashboard showNextSteps={false}`, tylko z dostępem do
+  sekcji Rekrutacje), obłożenie (`AllocationWorkloadBoard`, tylko admin/HoR —
+  endpoint `HeadOfRecruitmentOnly`) i kompetencje jako agregat
+  (`/api/insights/recruitment/competence-matrix`). Dokładając sekcję, zacznij
+  od pytania, na czyje pytanie odpowiada — nie od tego, gdzie jest wolne miejsce.
 - **Tabele rok-do-roku Rady (`GET /api/insights/board/yoy`)** — dwanaście
   miesięcy × trzy lata, z deltą i kolumną „Ocena". Endpoint świadomie NIE
   przyjmuje paska okresu: patrzy na pełne lata kalendarzowe, a wpuszczenie tam
@@ -4425,18 +4436,23 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
     wszystkich 36 miesiącach. Tabela rok-do-roku NIE wchodzi też do eksportu
     CSV zakładki: tamten jest przycinany oknem z paska, a ta siatka jest
     latami — jeden plik pod jedną nazwą oznaczałby dwa różne zakresy.
-- **Stare identyfikatory zakładek ŻYJĄ jako aliasy** (`LEGACY_TAB_ALIASES`
-  w `InsightsView.tsx`): `?tab=klienci` → `delivery-lead`, `?tab=zarzad` →
-  `rada`. Nie kasuj ich: te linki są w zakładkach przeglądarki i na stronie
-  `/dynareporter`, a bez mapy wpadałyby w gałąź „nieznany tab" i po cichu
-  lądowały na Rekrutacji — link do kokpitu Rady otwierałby co innego bez
-  słowa wyjaśnienia. Rozstrzyga czysta `resolveInsightsTab` (testowalna bez
-  montowania widoku), a nie warunek zaszyty w efekcie.
-- **Domyślne okno Delivery Leada to ROK, nie miesiąc.** Ranking stoi na
-  rekrutacjach ZAMKNIĘTYCH w oknie, a tych w miesiącu jest kilkanaście na cały
-  zespół — hit ratio z takiej próbki skacze o dziesiątki punktów i czyta się
-  jak awaria. Trzy zakładki mają trzy różne domyślne okna (Rekrutacja:
-  poprzedni miesiąc, Delivery Lead: rok, Rada: kwartał) i to NIE jest dług.
+- **Stare identyfikatory zakładek i kotwic ŻYJĄ jako aliasy**
+  (`LEGACY_TAB_ALIASES`, `LEGACY_ANCHOR_CHAPTER` w `InsightsView.tsx`):
+  `rekrutacja` → Body Leasing / Wyniki, `delivery-lead` i `klienci` → Body
+  Leasing / Klienci, `zarzad` → Rada; stara kotwica (`#liga`, `#zrodla`…)
+  wybiera rozdział dokładniej niż alias. Nie kasuj ich: te linki są
+  w zakładkach przeglądarki, w zapisanych powiadomieniach i w przekierowaniach
+  `/dynareporter/*`. Rozstrzygają czyste `resolveInsightsTab`
+  i `resolveChapter` (testowalne bez montowania widoku).
+- **Każdy rozdział ma własny domyślny okres i zmiana rozdziału go zeruje**
+  (Wyniki: poprzedni miesiąc, Klienci: rok, Rada: kwartał). Klienci stoją na
+  roku, bo hit ratio stoi na rekrutacjach ZAMKNIĘTYCH w oknie, a tych
+  w miesiącu jest kilkanaście na cały zespół — wskaźnik z takiej próbki
+  skacze o dziesiątki punktów i czyta się jak awaria.
+- **Portfele DL (`/api/insights/delivery-leads/portfolio`) liczą nagłówek DL
+  i wiersze klientów TĄ SAMĄ definicją co `/delivery-leads`** — suma wierszy
+  zgadza się z nagłówkiem. Nie mieszaj z `/clients/hit-ratio` (inna definicja
+  hit ratio, bez filtra body_leasing).
 - **Sekcje mają kotwice** (`InsightsSection` + `InsightsSectionNav`): tablica
   `SECTIONS` w panelu jest jednocześnie spisem treści i kontraktem `id`.
   Dokładając sekcję, dopisz ją do tablicy — inaczej pasek sekcji obiecuje
@@ -4468,7 +4484,8 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   z `isSuccess`). Bez tego przerwa między ponowieniami react-query pokazuje
   awarię jako „brak danych". Dotyczy też 403: pustka czyta się jak utrata
   danych, nie jak brak uprawnień.
-- **D7: `/insights` widzi KAŻDA zalogowana rola.** Guard rolowy zdjęty
+- **D7: `/insights` widzi KAŻDA zalogowana rola — poza zakładką Rada
+  (21.09.2026, patrz wyżej).** Guard rolowy zdjęty
   z sześciu luster; `ROLE_CAPABILITIES` i middleware nietknięte. Poszerzone do
   `CurrentUser`: `/api/competitions/current`, `/monthly-races` oraz `/history`
   (ta ostatnia dopiero wtedy, gdy zyskała konsumenta — sekcję „Hall of Fame").

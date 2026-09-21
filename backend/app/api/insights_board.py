@@ -3,7 +3,9 @@
 Następca `GET /api/reports/board`, usuniętego 15.09.2026 (liczył powtórne
 zatrudnienia z surowych wierszy etapów i nie miał już konsumenta — audyt
 statystyk 14.09). Numery linii `reports.py` niżej opisują kod sprzed usunięcia.
-Tutaj obowiązuje D7: KAŻDA zalogowana rola, bez redakcji kwot.
+Dostęp: admin · finance · Head of Recruitment (``BoardReader``, decyzja
+Artura 21.09.2026 — zakładka Rada nie jest już otwarta dla każdej roli, D7
+zawężone), bez redakcji kwot.
 
 Sześć defektów oryginału, których ten moduł NIE portuje:
 
@@ -95,7 +97,7 @@ from app.services.metric_definitions import (
     CLOSED_JOBS_WITH_PLACEMENT,
     FIRST_HIRED_PER_CANDIDATE_JOB,
 )
-from app.api.deps import CurrentUser
+from app.api.deps import BoardReader
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
@@ -225,12 +227,12 @@ def _delta(current, previous) -> dict:
 #
 # Cache (5 min) jest per OKNO, więc nie broni: rotowanie `offset=-1,-2,-3…`
 # albo dowolnego `date_from`/`date_to` generuje nowy klucz przy każdym żądaniu
-# i omija go w całości. Po D7 endpoint jest otwarty dla każdej zalogowanej roli,
-# więc próg musi stać na poziomie żądania, nie cache'u.
+# i omija go w całości. Próg stoi na poziomie żądania, nie cache'u — także
+# po zawężeniu dostępu do Rady (21.09.2026) konto z dostępem może go ominąć.
 @limiter.limit("30/minute")
 async def insights_board(
     request: Request,
-    current_user: CurrentUser,
+    current_user: BoardReader,
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", pattern="^(day|week|month|quarter|year|custom)$"),
     offset: int = Query(0, description="0 = bieżący okres, -1 = poprzedni zamknięty"),
@@ -240,11 +242,11 @@ async def insights_board(
 ):
     """Kokpit zarządu dla okna [start, end).
 
-    D7: /insights jest jawnie otwarte dla KAŻDEJ zalogowanej roli (decyzja
-    Artura 2026-08-31, plan §0 D7). Kwoty NIE są redagowane. Nie zastępuj tego
-    guardu capability — `VIEW_FINANCE` steruje 40+ innymi powierzchniami
-    (`app/analytics/capabilities.py:64-115`) i jego poszerzenie wyciekłoby
-    stawki konsultantów daleko poza Insights.
+    Zakładka Rada: tylko admin · finance · Head of Recruitment (``BoardReader``,
+    decyzja Artura 21.09.2026 — zawęża D7 dla kokpitu, tabel rok-do-roku
+    i rankingu klientów). Kwoty NIE są redagowane. Nie zastępuj tego guardu
+    capability — `VIEW_FINANCE` steruje 40+ innymi powierzchniami
+    (`app/analytics/capabilities.py:64-115`), a HoR go nie ma.
     """
     resolved = _resolve(period, offset, anchor, date_from, date_to)
     previous = _previous_period(resolved)
@@ -584,7 +586,7 @@ async def insights_board(
 @limiter.limit("10/minute")
 async def insights_board_yoy(
     request: Request,
-    current_user: CurrentUser,
+    current_user: BoardReader,
     db: AsyncSession = Depends(get_db),
     end_year: Optional[int] = Query(
         None, ge=2000, le=2100, description="ostatni rok siatki (domyślnie bieżący)"
@@ -603,7 +605,8 @@ async def insights_board_yoy(
     „ostatnie 12 miesięcy" podpisaną nazwami miesięcy, czyli dwie różne rzeczy
     pod jedną etykietą. Okno wybiera się latami.
 
-    D7: KAŻDA zalogowana rola, bez redakcji kwot — jak reszta /insights.
+    Tylko admin · finance · Head of Recruitment (``BoardReader``, decyzja
+    Artura 21.09.2026), bez redakcji kwot.
     """
     resolved_years = resolve_years(end_year, years, _today_warsaw())
     # Klucz niesie LATA i dzień — bez daty siatka z wczoraj wisiałaby przez TTL

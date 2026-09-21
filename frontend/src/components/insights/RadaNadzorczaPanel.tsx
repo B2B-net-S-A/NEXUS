@@ -28,14 +28,16 @@ import {
 // w miejsce, od którego nigdy nie zaczyna.
 const DEFAULT_PERIOD: InsightsPeriodParams = { period: "quarter", offset: 0 };
 
+// Rok do roku NA GÓRZE (decyzja z makiet 21.09.2026), kokpit i ranking
+// klientów niżej.
 const SECTIONS = [
-  { id: "kpi", label: "KPI i finanse" },
   { id: "rok-do-roku", label: "Rok do roku" },
+  { id: "kpi", label: "KPI i finanse" },
   { id: "klienci", label: "Klienci (MRR)" },
 ];
 
 export function RadaNadzorczaPanel() {
-  // URL jest jedynym źródłem prawdy okresu — jak w `RekrutacjaPanel`. Dawny
+  // URL jest jedynym źródłem prawdy okresu — jak w rozdziałach Body Leasing. Dawny
   // `useState` gubił wybór przy odświeżeniu i nie dawał się udostępnić linkiem.
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -73,8 +75,8 @@ export function RadaNadzorczaPanel() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          Kokpit Rady Nadzorczej — KPI, pieniądze i trendy firmy oraz ranking
-          klientów z MRR.
+          Rok do roku, kokpit KPI i ranking klientów z MRR. Pasek okresu
+          steruje kokpitem i rankingiem — rok do roku patrzy na pełne lata.
         </p>
         <PeriodPicker
           value={period}
@@ -87,18 +89,18 @@ export function RadaNadzorczaPanel() {
 
       <InsightsSectionNav items={SECTIONS} ariaLabel="Sekcje Rady Nadzorczej" />
 
-      <InsightsSection id="kpi">
-        <InsightsBoardKPI period={period} />
-      </InsightsSection>
-
       {/* Tabele rok-do-roku — sedno układu DynaReportera dla Rady: dwanaście
           miesięcy × trzy lata, z deltą i kolumną „Ocena". Sekcja NIE przyjmuje
           okna z paska: z definicji patrzy na pełne lata kalendarzowe, a
           wpuszczenie tu `period` dałoby siatkę „ostatnie 12 miesięcy" podpisaną
           nazwami miesięcy, czyli dwie różne rzeczy pod jedną etykietą. */}
       <InsightsSection id="rok-do-roku">
+        <InsightsBoardYoY />
+      </InsightsSection>
+
+      <InsightsSection id="kpi">
         <DeferUntilVisible minHeight={240}>
-          <InsightsBoardYoY />
+          <InsightsBoardKPI period={period} />
         </DeferUntilVisible>
       </InsightsSection>
 
