@@ -682,3 +682,4 @@ from app.models.jarvis import (  # noqa: F401
     JarvisMessage,
 )
 from app.models.mail_delivery import MailDeliveryState  # noqa: F401
+from app.models.job_proposal import JobProposal, JobProposalSeen  # noqa: F401

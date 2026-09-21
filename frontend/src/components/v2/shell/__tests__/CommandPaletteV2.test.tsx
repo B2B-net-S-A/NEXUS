@@ -9,10 +9,21 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/hooks/useCapability", () => ({
   useCapabilities: () => new Proxy({}, { get: () => true }),
 }));
-vi.mock("@/lib/section-access", () => ({ hasSectionAccess: () => true }));
-vi.mock("@/store/auth", () => ({
+// Mocki są CZĘŚCIOWE: grupa „Nawigacja" powstaje z `lib/nav-registry`, który
+// czyta też `rolesWithSectionAccess` i `hasRole` — pełna podmiana modułu
+// wywracałaby import rejestru.
+vi.mock("@/lib/section-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/section-access")>()),
+  hasSectionAccess: () => true,
+}));
+vi.mock("@/store/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/store/auth")>()),
   useAuthStore: (selector: (state: { user: unknown }) => unknown) =>
-    selector({ user: { id: 1, role: "admin" } }),
+    selector({ user: { id: 1, role: "admin", roles: ["admin"] } }),
+}));
+// Flaga kolejki telefonów idzie z react-query; test nie montuje providera.
+vi.mock("@/hooks/useCandidateContactFeature", () => ({
+  useCandidateContactFeature: () => ({ enabled: false }),
 }));
 // cmdk w jsdom wymaga ResizeObserver/scrollIntoView — test dotyczy wyłącznie
 // zapytań palety, więc prymitywy renderujemy jako zwykłe elementy.
@@ -128,6 +139,29 @@ describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", (
       vi.advanceTimersByTime(300);
     });
     expect(getByText(label)).toBeTruthy();
+  });
+
+  it("grupa Nawigacja pochodzi z rejestru sidebara, nie z własnej listy", () => {
+    const { getByText, queryByText } = render(
+      <CommandPaletteV2 open onOpenChange={() => {}} />,
+    );
+    // Pozycje, których stara, ręczna lista palety nie miała.
+    for (const label of [
+      "Wyszukiwarka",
+      "Generator CV",
+      "Generator Umów B2B",
+      "Targ / Dostępni",
+      "Zgłoszenia",
+      "Cortex",
+      "Pomoc",
+    ]) {
+      expect(getByText(label)).toBeTruthy();
+    }
+    // `/manager` nie ma pozycji w sidebarze, ale paleta prowadziła tam od
+    // zawsze — przebudowa nawigacji nie może zabrać tego wejścia.
+    expect(getByText("Panel managera")).toBeTruthy();
+    // Flaga kolejki telefonów wyłączona (i admin nie jest w jej rolach).
+    expect(queryByText("Do przedzwonienia")).toBeNull();
   });
 
   it("dopasowanie ignoruje polskie znaki i wielkość liter", async () => {

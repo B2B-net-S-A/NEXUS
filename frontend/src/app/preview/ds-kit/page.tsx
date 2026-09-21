@@ -20,7 +20,11 @@ import {
   StatCard,
   StatCardGrid,
   TabbedNav,
+  VirtualTable,
   type DataTableColumn,
+  type VirtualTableColumn,
+  type VirtualTableKey,
+  type VirtualTableSort,
 } from "@/components/ds"
 
 interface Candidate {
@@ -43,6 +47,82 @@ const COLUMNS: DataTableColumn<Candidate>[] = [
   { key: "role", header: "Stanowisko", render: (r) => <span className="text-muted-foreground">{r.role}</span> },
   { key: "stage", header: "Etap", render: (r) => <Badge variant="soft" size="sm">{r.stage}</Badge> },
 ]
+
+interface VtRow {
+  id: number
+  name: string
+  stage: string
+  rate: number
+}
+
+const VT_STAGES = ["Nowi", "Screening", "CV wysłane", "Rozmowa"]
+const VT_ROWS: VtRow[] = Array.from({ length: 1000 }, (_, i) => ({
+  id: i + 1,
+  name: `Kandydat ${String(i + 1).padStart(4, "0")}`,
+  stage: VT_STAGES[i % VT_STAGES.length],
+  rate: 90 + ((i * 7) % 110),
+}))
+
+const VT_COLUMNS: VirtualTableColumn<VtRow>[] = [
+  { key: "name", header: "Kandydat", width: "minmax(0,1.2fr)", sortKey: "name", render: (r) => <span className="font-medium">{r.name}</span> },
+  { key: "stage", header: "Etap", width: "160px", render: (r) => <span className="text-muted-foreground">{r.stage}</span> },
+  { key: "rate", header: "Stawka", width: "124px", align: "right", sortKey: "rate", render: (r) => <span className="tabular-nums">{r.rate} zł/h</span> },
+]
+
+function VirtualTableDemo() {
+  const [selected, setSelected] = useState<Set<VirtualTableKey>>(new Set())
+  const [active, setActive] = useState<VirtualTableKey | null>(null)
+  const [sort, setSort] = useState<VirtualTableSort | null>(null)
+  const [collapsed, setCollapsed] = useState<Set<VirtualTableKey>>(new Set(["Rozmowa"]))
+  const [lastCommand, setLastCommand] = useState("")
+
+  const sorted = [...VT_ROWS]
+  if (sort) {
+    const dir = sort.dir === "asc" ? 1 : -1
+    sorted.sort((a, b) => (sort.key === "rate" ? (a.rate - b.rate) * dir : a.name.localeCompare(b.name) * dir))
+  }
+  const groups = VT_STAGES.map((stage) => ({
+    key: stage,
+    label: stage,
+    collapsed: collapsed.has(stage),
+    rowKeys: sorted.filter((r) => r.stage === stage).map((r) => r.id),
+  }))
+
+  return (
+    <div className="h-[420px]">
+      <VirtualTable<VtRow>
+        aria-label="Demo VirtualTable"
+        columns={VT_COLUMNS}
+        rows={sorted}
+        getRowKey={(r) => r.id}
+        getRowLabel={(r) => r.name}
+        groups={groups}
+        onToggleGroup={(key) =>
+          setCollapsed((prev) => {
+            const next = new Set(prev)
+            if (next.has(key)) next.delete(key)
+            else next.add(key)
+            return next
+          })
+        }
+        selectedKeys={selected}
+        onSelectionChange={setSelected}
+        activeKey={active}
+        onActiveChange={(key) => setActive(key)}
+        sort={sort}
+        onSortChange={setSort}
+        keyCommands={["e", "n"]}
+        onKeyCommand={(key, row) => setLastCommand(`${key} → ${row.name}`)}
+        footer={
+          <div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground">
+            <span>Zaznaczono: {selected.size} z {VT_ROWS.length}</span>
+            <span>↑/↓ aktywny wiersz · spacja zaznacza · e/n: {lastCommand || "—"}</span>
+          </div>
+        }
+      />
+    </div>
+  )
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -167,6 +247,10 @@ export default function DsKitPreview() {
             getRowKey={(r) => r.id}
             rowHighlighted={(r) => r.me}
           />
+        </Section>
+
+        <Section title="VirtualTable (1000 wierszy, grupy, klawiatura)">
+          <VirtualTableDemo />
         </Section>
 
         <Section title="MatchList + MatchCard">

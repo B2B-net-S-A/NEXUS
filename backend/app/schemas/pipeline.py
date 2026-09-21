@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Literal, Optional
 
@@ -141,6 +141,24 @@ class CandidateStageResponse(BaseModel):
     # Stawka z PROFILU kandydata (`Candidate.expected_rate_hourly`, PLN/h) —
     # podpowiedź w oknie „Zweryfikowany". Wypełnia tylko tablica.
     candidate_expected_rate_hourly: Optional[Decimal] = None
+    # ── Tabela rekrutacji „wersja 3" (09.2026) — wypełnia tylko tablica ────
+    # Rekruter karty: właściciel procesu, a bez niego osoba, która dodała
+    # kandydata do rekrutacji. `moved_by` to mover BIEŻĄCEGO etapu — co innego.
+    recruiter_id: Optional[int] = None
+    recruiter_name: Optional[str] = None
+    # Dostępność z profilu kandydata — te same nazwy pól co w wynikach
+    # wyszukiwania (`availability_status` / `availability_date`).
+    availability_status: Optional[str] = None
+    availability_date: Optional[date] = None
+    # Kody ostrzeżeń karty: `hm_veto`, `budget_exceeded` + miękkie ostrzeżenia
+    # polityki dopuszczalności (`client_nda`, `client_blacklist`,
+    # `client_competitor`, `client_current_employment`,
+    # `client_excluded_by_candidate`, `blacklisted`). Informacja, nie blokada.
+    warnings: list[str] = Field(default_factory=list)
+    # Po czyjej stronie jest ruch (`services/pipeline_next_action.py`):
+    # recruiter | client | candidate | delivery | none. `None` = endpoint jej
+    # nie liczy (historia, odpowiedź ruchu, karta poza szablonem).
+    next_action_owner: Optional[str] = None
 
     # ── Stawka z ruchu na „Zweryfikowany" (0056) ─────────────────────────
     # `verification_status` zostaje w odpowiedzi, ale od 17.09.2026 ruch

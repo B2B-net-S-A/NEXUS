@@ -2,34 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard,
-  Users,
-  Briefcase,
-  Building2,
-  FileText,
-  FileSignature,
-  Star,
-  Calendar,
-  Brain,
-  GitBranch,
-  Handshake,
-  Heart,
-  HelpCircle,
-  Inbox,
-  Lightbulb,
-  PhoneCall,
-  Settings,
-  Sparkles,
-  Store,
-  Radar,
-  Search,
-  Wallet,
-  X,
-  ChevronLeft,
-  ChevronRight,
-  LogOut,
-} from "lucide-react";
+import { X, ChevronLeft, ChevronRight, LogOut } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
@@ -37,8 +10,6 @@ import api from "@/lib/api";
 import {
   hasRole,
   ROLE_LABELS,
-  type User,
-  UserRole,
   useAuthStore,
 } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
@@ -51,59 +22,14 @@ import { DynamindsMark } from "@/components/brand/DynamindsMark";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { dashboardHref } from "@/lib/dashboard-presets";
 import { useSidebarPinned } from "./useSidebarPinned";
+import { hasSectionAccess } from "@/lib/section-access";
 import {
-  hasActionAccess,
-  type ProductAction,
-} from "@/lib/action-access";
-import {
-  hasSectionAccess,
-  rolesWithSectionAccess,
-  type ProductSection,
-} from "@/lib/section-access";
+  resolveNavHref,
+  visibleNavSections,
+  type NavBadgeKey,
+} from "@/lib/nav-registry";
 
-type BadgeCounts = {
-  candidates?: number;
-  jobs?: number;
-  applicationSubmissions?: number;
-};
-
-type NavItem = {
-  href: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  badgeKey?: keyof BadgeCounts;
-  roles?: UserRole[];
-  action?: ProductAction;
-  /**
-   * Renderuje pozycję jako `<a href target="_blank" rel="noopener noreferrer">`
-   * zamiast Next.js `<Link>`. Używane dla zewnętrznych dashboardów
-   * (np. DynaReporter standalone — patrz sekcja "Raporty KPI").
-   */
-  external?: boolean;
-};
-
-type NavSection = {
-  title: string;
-  icon: React.ComponentType<{ className?: string }>;
-  items: NavItem[];
-  section?: ProductSection;
-};
-
-const CORTEX_ROLES = rolesWithSectionAccess("insights").filter(
-  (role) => role !== "user",
-);
-
-/** Moduł kandydatów — rola `user` (viewer/klient) nie ma dostępu. */
-const CANDIDATES_NAV_ROLES: UserRole[] = [
-  "admin",
-  "head_of_recruitment",
-  "delivery_lead",
-  "talent_community_manager",
-  "tac",
-  "recruiter",
-  "finance",
-  "sourcer",
-];
+type BadgeCounts = Partial<Record<NavBadgeKey, number>>;
 
 /**
  * Czy pozycja menu świeci się dla bieżącej ścieżki. Podstrony modułu
@@ -128,294 +54,10 @@ const CANDIDATES_SUBPAGES_WITH_OWN_ITEM = [
   "/candidates/search",
 ];
 
-const NAV_SECTIONS: NavSection[] = [
-  {
-    title: "Sourcing",
-    icon: Users,
-    section: "sourcing",
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-      // Moduł kandydatów (audyt M2 PR1): rola `user` (viewer/klient) nie ma
-      // dostępu — backend 403 + middleware /403; chowamy linki żeby nie
-      // prowadzić w ślepy zaułek.
-      {
-        href: "/candidates",
-        label: "Kandydaci",
-        icon: Users,
-        badgeKey: "candidates",
-        roles: CANDIDATES_NAV_ROLES,
-      },
-      // Wyszukiwarka CV istniała tylko jako link z listy kandydatów — rekruter
-      // jej nie znajdował. Te same role co „Kandydaci": to ten sam moduł.
-      {
-        href: "/candidates/search",
-        label: "Wyszukiwarka",
-        icon: Search,
-        roles: CANDIDATES_NAV_ROLES,
-      },
-      {
-        href: "/candidates/contact-queue",
-        label: "Do przedzwonienia",
-        icon: PhoneCall,
-        roles: ["talent_community_manager", "tac", "recruiter", "sourcer"],
-      },
-      { href: "/cv-generator", label: "Generator CV", icon: Sparkles },
-      // Dostęp do Generatora Umów B2B jest konfigurowany osobno od sekcji
-      // Sourcing. Edycja katalogu ról umownych nadal pozostaje admin-only.
-      {
-        href: "/contracts/b2b-generator",
-        label: "Generator Umów B2B",
-        icon: FileSignature,
-        action: "b2b_contract_generator",
-      },
-      {
-        href: "/talents",
-        label: "Talenty",
-        icon: Star,
-        roles: [
-          "admin",
-          "head_of_recruitment",
-          "delivery_lead",
-          "talent_community_manager",
-          "tac",
-          "recruiter",
-          "finance",
-          "sourcer",
-        ],
-      },
-      {
-        // BEZ `roles`: radar i powiązane funkcje są dostępne dla KAŻDEJ
-        // zalogowanej roli (decyzja produktowa Artura 19.08). Lustrzane
-        // z backendem (CurrentUser), middleware (brak wpisu = brak
-        // zawężenia) i `nav.talent_radar` w lib/capabilities.ts.
-        href: "/talent-radar",
-        label: "Talent Radar",
-        icon: Radar,
-      },
-      {
-        href: "/sourcing/marketplace",
-        label: "Targ / Dostępni",
-        icon: Store,
-        roles: [
-          "admin",
-          "head_of_recruitment",
-          "delivery_lead",
-          "talent_community_manager",
-          "tac",
-          "recruiter",
-          "finance",
-          "sourcer",
-        ],
-      },
-      {
-        href: "/applications",
-        label: "Zgłoszenia",
-        icon: Inbox,
-        badgeKey: "applicationSubmissions",
-        // Te same role co `canReviewApplications` niżej i backendowe
-        // CandidateWriteAccess — HoR nie rozpatruje zgłoszeń (UAT A-B02).
-        roles: [
-          "admin",
-          "delivery_lead",
-          "talent_community_manager",
-          "tac",
-          "recruiter",
-          "finance",
-          "sourcer",
-        ],
-      },
-    ],
-  },
-  {
-    title: "Pipeline",
-    icon: GitBranch,
-    section: "pipeline",
-    items: [
-      { href: "/jobs", label: "Rekrutacje", icon: Briefcase, badgeKey: "jobs" },
-      { href: "/calendar", label: "Kalendarz", icon: Calendar },
-    ],
-  },
-  {
-    title: "Delivery",
-    icon: Handshake,
-    section: "delivery",
-    items: [
-      {
-        href: "/clients",
-        label: "Klienci",
-        icon: Building2,
-      },
-      {
-        href: "/my-clients",
-        label: "Panel klientów",
-        icon: Briefcase,
-      },
-      {
-        // Zamówienia z maila są częścią Delivery. Backend daje TCM wyłącznie
-        // bezpieczny odczyt, a DL widzi wszystkich klientów bez obcych kwot.
-        href: "/order-mail",
-        label: "Zamówienia z maila",
-        icon: Inbox,
-      },
-      {
-        href: "/my-relationships",
-        label: "Moje relacje",
-        icon: Heart,
-      },
-      // "Kontrakty" is now a single workspace with two modes (Obsługa
-      // kontraktorów / Rejestr kontraktów). The former standalone
-      // "Kontraktorzy" item was folded in — /contractors redirects to
-      // /contracts?view=operations. Operations mode is role-gated inside
-      // the page (same roles the old nav item used).
-      // Backend zwraca TCM bezpieczny rejestr bez stawek; DL widzi wszystkich
-      // klientów, a stawki tylko dla przypisanych. Dokumenty mają osobny gate.
-      {
-        href: "/contracts",
-        label: "Kontrakty",
-        icon: FileText,
-      },
-      // ── HIDDEN 2026-05-28: Panel Managera (DL Hub) schowany z sidebara
-      //    na prośbę usera ("wylacz z UI na razie"). Route
-      //    `/dashboard/delivery-lead` nadal działa — tylko link w nawigacji
-      //    ukryty. Żeby przywrócić, odkomentuj poniższy obiekt.
-      //
-      //    UWAGA przy przywracaniu: bramka „Oczekuje" (akceptacja stawki
-      //    ponad budżet) jest USUNIĘTA od 17.09.2026 — strona
-      //    `/pending-verifications`, widget weryfikacji i trasy kolejki
-      //    akceptacji nie istnieją już ani we froncie, ani w backendzie.
-      //    Nie przywracaj `badgeKey: "pendingVerifications"`.
-      /*
-      {
-        // DL Hub (PR #225/#229) — KPI + 3 taby (klienci/zespół/aktywne joby).
-        href: "/dashboard/delivery-lead",
-        label: "Panel Managera",
-        icon: BarChart3,
-        roles: ["admin", "delivery_lead", "head_of_recruitment"],
-      },
-      */
-    ],
-  },
-  {
-    title: "Insights",
-    icon: Lightbulb,
-    section: "insights",
-    items: [
-      { href: "/insights", label: "Insights", icon: Lightbulb },
-      {
-        href: "/cortex",
-        label: "Cortex",
-        icon: Brain,
-        roles: CORTEX_ROLES,
-      },
-    ],
-  },
-  // ── HIDDEN 2026-05-22: cała sekcja "Raporty KPI" schowana z sidebara
-  //    na prośbę usera ("zajmiemy się tym później").
-  //
-  // ── NIEAKTUALNE 2026-07-20: NIE ODKOMENTOWUJ tego bloku. Strony
-  //    /dynareporter/{rekrutacja,delivery-lead-dashboard,board-dashboard,...}
-  //    zostały USUNIĘTE — te ścieżki tylko przekierowują (308) do /insights.
-  //    Odkomentowanie dałoby pozycje w nawigacji, które odbijają użytkownika
-  //    gdzie indziej. Następcą jest moduł Insights; przy przywracaniu grupy
-  //    linkuj wprost do /insights?tab=…, a nie do /dynareporter/*.
-  //    Nadal istnieją (i nie przekierowują): /dynareporter/admin-dashboard,
-  //    /dynareporter/profile, /dynareporter/mindy.
-  /*
-  {
-    title: "Raporty KPI",
-    icon: BarChart3,
-    items: [
-      {
-        href: "/dynareporter/rekrutacja",
-        label: "Rekrutacja",
-        icon: Users,
-      },
-      {
-        href: "/dynareporter/delivery-lead-dashboard",
-        label: "Delivery Lead",
-        icon: Handshake,
-      },
-      {
-        href: "/dynareporter/board-dashboard",
-        label: "Rada Nadzorcza",
-        icon: BarChart3,
-        roles: ["admin", "delivery_lead", "head_of_recruitment"],
-      },
-      {
-        href: "/dynareporter/admin-dashboard",
-        label: "Admin DR",
-        icon: Settings,
-        roles: ["admin"],
-      },
-    ],
-  },
-  */
-  // Moduł „Finanse". Jedna pozycja, bo `/finance` to jedna strona z trzema
-  // zakładkami (wyniki miesięczne · archiwum · import zużycia MD) — osobny
-  // link „Import MD" prowadziłby do tej samej trasy i otwierał ją na innej
-  // zakładce niż podpowiada etykieta.
-  {
-    title: "Finanse",
-    icon: Wallet,
-    section: "finance",
-    items: [
-      {
-        href: "/finance",
-        label: "Finanse",
-        icon: Wallet,
-      },
-    ],
-  },
-  {
-    title: "System",
-    icon: Settings,
-    items: [
-      { href: "/help", label: "Pomoc", icon: HelpCircle },
-      { href: "/settings", label: "Ustawienia", icon: Settings },
-    ],
-  },
-];
-
-/**
- * Pozycje menu widoczne dla danego użytkownika — czysta funkcja, żeby dało się
- * to udowodnić testem bez montowania sidebara (a więc bez mocków `next/
- * navigation`, react-query, `api` i `useUiStore`).
- *
- * Zastępuje drugie, równoległe drzewo `FINANCE_NAV_SECTIONS`: rola `finance`
- * dostawała cztery pozycje (Dashboard · Finanse · Pomoc · Ustawienia), mimo że
- * KAŻDA lista `roles` w `NAV_SECTIONS` już ją wymienia — backend przepuszcza ją
- * wszędzie tam, gdzie recruitera (decyzja 19.08), więc menu było jedyną
- * warstwą, która ją odcinała. Własny moduł „Finanse" jest filtrowany przez
- * autorytatywny `section: "finance"`, dzięki czemu działa też indywidualny
- * wyjątek nadany w panelu uprawnień.
- */
-export function visibleNavSections(
-  user:
-    | Pick<
-        User,
-        | "role"
-        | "roles"
-        | "effective_section_access"
-        | "effective_action_access"
-      >
-    | null
-    | undefined,
-  opts: { contactQueueEnabled: boolean },
-): NavSection[] {
-  return NAV_SECTIONS.filter(
-    (section) => !section.section || hasSectionAccess(user, section.section),
-  )
-    .map((section) => ({
-      ...section,
-      items: section.items.filter(
-        (item) =>
-          (!item.roles || hasRole(user, ...item.roles)) &&
-          (!item.action || hasActionAccess(user, item.action)) &&
-          (item.href !== "/candidates/contact-queue" || opts.contactQueueEnabled),
-      ),
-    }))
-    .filter((section) => section.items.length > 0);
-}
+// Pozycje menu żyją w `lib/nav-registry.ts` — wspólnym źródle dla sidebara
+// i palety ⌘K. Re-eksport zostaje, bo testy i inne moduły importują
+// `visibleNavSections` z tej ścieżki.
+export { visibleNavSections };
 
 function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null;
@@ -781,9 +423,9 @@ export function SidebarV2({
               </div>
               <div className={SIDEBAR_VERTICAL_LAYOUT.itemSpacing}>
                 {visibleItems.map(
-                  ({ href, label, icon, badgeKey, external }) => {
-                    const resolvedHref =
-                      href === "/dashboard" ? defaultDashboardHref : href;
+                  (item) => {
+                    const { href, label, icon, badgeKey, external } = item;
+                    const resolvedHref = resolveNavHref(item, user);
                     return (
                       <NavLink
                         key={href}

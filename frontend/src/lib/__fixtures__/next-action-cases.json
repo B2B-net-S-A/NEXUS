@@ -1,0 +1,557 @@
+{
+ "_comment": "Wspólne przypadki reguły następnej akcji. Czytają je: frontend lib/__tests__/pipeline-next-action.fixtures.test.ts i backend tests/test_next_action_parity.py. Zmiana reguły = zmiana tego pliku i OBU implementacji.",
+ "nudge_days": 5,
+ "stuck_days": 7,
+ "cases": [
+  {
+   "name": "odrzucony nie ma akcji",
+   "group": "closed",
+   "column": {
+    "stage": "rejected",
+    "category": "terminal",
+    "terminal_type": "rejected",
+    "name": "rejected"
+   },
+   "item": {
+    "days_in_stage": 3,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "",
+    "tone": "normal",
+    "kind": "none",
+    "owner": "none"
+   }
+  },
+  {
+   "name": "odrzucony z wetem HM nadal bez akcji",
+   "group": "closed",
+   "column": {
+    "stage": "rejected",
+    "category": "terminal",
+    "terminal_type": "rejected",
+    "name": "rejected"
+   },
+   "item": {
+    "days_in_stage": 3,
+    "screening_done": null,
+    "hm_veto": true
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "",
+    "tone": "normal",
+    "kind": "none",
+    "owner": "none"
+   }
+  },
+  {
+   "name": "zatrudniony -> Delivery",
+   "group": "contract",
+   "column": {
+    "stage": "hired",
+    "category": "terminal",
+    "terminal_type": "hired",
+    "name": "hired"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Przekaż do Delivery",
+    "tone": "normal",
+    "kind": "contract",
+    "owner": "delivery"
+   }
+  },
+  {
+   "name": "zatrudniony ze starym wetem -> Delivery",
+   "group": "contract",
+   "column": {
+    "stage": "hired",
+    "category": "terminal",
+    "terminal_type": "hired",
+    "name": "hired"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": null,
+    "hm_veto": true
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Przekaż do Delivery",
+    "tone": "normal",
+    "kind": "contract",
+    "owner": "delivery"
+   }
+  },
+  {
+   "name": "weto HM w screeningu",
+   "group": "screening",
+   "column": {
+    "stage": "screening",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "screening"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": null,
+    "hm_veto": true
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Ostrzeżenie: weto HM",
+    "tone": "gate",
+    "kind": "screening",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "weto HM u klienta wraca do rekrutera",
+   "group": "client",
+   "column": {
+    "stage": "cv_sent",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "cv_sent"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": true
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Ostrzeżenie: weto HM",
+    "tone": "gate",
+    "kind": "client",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "ogłoszenie świeże",
+   "group": "posting",
+   "column": {
+    "stage": "posting",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "posting"
+   },
+   "item": {
+    "days_in_stage": 0,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Analiza CV · dziś",
+    "tone": "normal",
+    "kind": "analysis",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "nowy dzień 1",
+   "group": "intake",
+   "column": {
+    "stage": "new",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "new"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Analiza CV · dziś",
+    "tone": "normal",
+    "kind": "analysis",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "nowy dzień 3",
+   "group": "intake",
+   "column": {
+    "stage": "new",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "new"
+   },
+   "item": {
+    "days_in_stage": 3,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Umów screening",
+    "tone": "normal",
+    "kind": "screening",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "nowy dzień 7 utknął",
+   "group": "intake",
+   "column": {
+    "stage": "new",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "new"
+   },
+   "item": {
+    "days_in_stage": 7,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Brak następnej akcji",
+    "tone": "due",
+    "kind": "analysis",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "screening bez arkusza",
+   "group": "screening",
+   "column": {
+    "stage": "screening",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "screening"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": false,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Uzupełnij arkusz screeningu",
+    "tone": "normal",
+    "kind": "screening",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "screening z arkuszem",
+   "group": "screening",
+   "column": {
+    "stage": "screening",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "screening"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": true,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Zweryfikuj i przenieś dalej",
+    "tone": "normal",
+    "kind": "verification",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "screening po SLA klienta",
+   "group": "screening",
+   "column": {
+    "stage": "screening",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "screening"
+   },
+   "item": {
+    "days_in_stage": 3,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": 3,
+   "expected": {
+    "label": "Uzupełnij arkusz screeningu",
+    "tone": "due",
+    "kind": "screening",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "screening po 7 dniach z arkuszem",
+   "group": "screening",
+   "column": {
+    "stage": "screening",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "screening"
+   },
+   "item": {
+    "days_in_stage": 8,
+    "screening_done": true,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Zweryfikuj i przenieś dalej",
+    "tone": "due",
+    "kind": "verification",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "zweryfikowany",
+   "group": "verification",
+   "column": {
+    "stage": "verified",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "verified"
+   },
+   "item": {
+    "days_in_stage": 4,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Wyślij CV do klienta",
+    "tone": "normal",
+    "kind": "cv",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "własny etap po screeningu",
+   "group": "verification",
+   "column": {
+    "stage": "new",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "Przepuszczony przez DZ"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Wyślij CV do klienta",
+    "tone": "normal",
+    "kind": "cv",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "CV wysłane świeże czeka na klienta",
+   "group": "client",
+   "column": {
+    "stage": "cv_sent",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "cv_sent"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Umów interview / feedback klienta",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "client"
+   }
+  },
+  {
+   "name": "CV wysłane 5 dni -> przypomnij",
+   "group": "client",
+   "column": {
+    "stage": "cv_sent",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "cv_sent"
+   },
+   "item": {
+    "days_in_stage": 5,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Umów interview / feedback klienta",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "interview klient",
+   "group": "client",
+   "column": {
+    "stage": "client_interview",
+    "category": "external",
+    "terminal_type": null,
+    "name": "client_interview"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Zbierz feedback HM",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "client"
+   }
+  },
+  {
+   "name": "akceptacja czeka na kandydata",
+   "group": "client",
+   "column": {
+    "stage": "acceptance",
+    "category": "external",
+    "terminal_type": null,
+    "name": "acceptance"
+   },
+   "item": {
+    "days_in_stage": 2,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Reakcja kandydata na ofertę",
+    "tone": "normal",
+    "kind": "offer",
+    "owner": "candidate"
+   }
+  },
+  {
+   "name": "negocjacje 6 dni wracają do rekrutera",
+   "group": "client",
+   "column": {
+    "stage": "negotiation",
+    "category": "external",
+    "terminal_type": null,
+    "name": "negotiation"
+   },
+   "item": {
+    "days_in_stage": 6,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Reakcja kandydata na ofertę",
+    "tone": "normal",
+    "kind": "offer",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "własny etap u klienta",
+   "group": "client",
+   "column": {
+    "stage": "new",
+    "category": "external",
+    "terminal_type": null,
+    "name": "Preparation Meeting"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Feedback klienta",
+    "tone": "normal",
+    "kind": "client",
+    "owner": "client"
+   }
+  },
+  {
+   "name": "umowa wysłana",
+   "group": "contract",
+   "column": {
+    "stage": "new",
+    "category": "external",
+    "terminal_type": null,
+    "name": "Umowa wysłana"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Podpis umowy",
+    "tone": "normal",
+    "kind": "contract",
+    "owner": "recruiter"
+   }
+  },
+  {
+   "name": "onboarding",
+   "group": "contract",
+   "column": {
+    "stage": "onboarding",
+    "category": "external",
+    "terminal_type": null,
+    "name": "onboarding"
+   },
+   "item": {
+    "days_in_stage": 1,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Przekaż do Delivery",
+    "tone": "normal",
+    "kind": "contract",
+    "owner": "delivery"
+   }
+  },
+  {
+   "name": "brak days_in_stage liczy się jak 0",
+   "group": "intake",
+   "column": {
+    "stage": "new",
+    "category": "internal",
+    "terminal_type": null,
+    "name": "new"
+   },
+   "item": {
+    "days_in_stage": null,
+    "screening_done": null,
+    "hm_veto": false
+   },
+   "sla_days": null,
+   "expected": {
+    "label": "Analiza CV · dziś",
+    "tone": "normal",
+    "kind": "analysis",
+    "owner": "recruiter"
+   }
+  }
+ ]
+}

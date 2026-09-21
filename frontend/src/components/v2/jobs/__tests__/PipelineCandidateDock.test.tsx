@@ -366,7 +366,12 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
         added_to_job_by_name: "Katarzyna Nowak",
         added_to_job_at: "2026-09-03T14:20:00Z",
       }),
-      nextAction: { label: "Umów screening", tone: "normal", kind: "screening" },
+      nextAction: {
+        label: "Umów screening",
+        tone: "normal",
+        kind: "screening",
+        owner: "recruiter",
+      },
     });
 
     expect(screen.getByText("Dodany do rekrutacji")).toBeTruthy();
@@ -380,6 +385,7 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
         label: "Brak następnej akcji",
         tone: "due",
         kind: "analysis",
+        owner: "recruiter",
       },
     });
     expect(

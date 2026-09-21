@@ -3,6 +3,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 from pydantic import BaseModel
 from collections.abc import Iterable, Sequence
 from typing import List, Literal, Optional
@@ -66,13 +67,18 @@ from app.api.recruitment_access import (
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.services.hiring_manager_verdicts import (
-    load_manager_rejections,
     puts_candidate_before_client,
     veto_for_candidate_stage,
 )
 from app.services.pipeline_eligibility import (
     assert_candidates_move_eligible,
     check_candidate_move_eligibility,
+    evaluate_candidates_for_job_with_verdicts,
+)
+from app.services.pipeline_next_action import (
+    StageColumn,
+    group_keys_for_columns,
+    next_action_for,
 )
 from app.services.rate_normalization import (
     POLICY_VERSION as RATE_POLICY_VERSION,
@@ -324,6 +330,37 @@ async def _process_state_versions(
         .distinct(RecruitmentProcess.candidate_id)
     )
     return {cid: int(version or 0) for cid, version in rows.all()}
+
+
+async def _process_cards(
+    db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
+) -> dict[int, tuple[int, Optional[int]]]:
+    """``(state_version, owner_user_id)`` najnowszego procesu każdej pary.
+
+    Ten sam porządek co :func:`_process_state_versions` (jedno zapytanie dla
+    całej tablicy); dokłada właściciela procesu dla pola ``recruiter_id`` karty.
+    """
+    ids = sorted(set(candidate_ids))
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(
+            RecruitmentProcess.candidate_id,
+            RecruitmentProcess.state_version,
+            RecruitmentProcess.owner_user_id,
+        )
+        .where(
+            RecruitmentProcess.job_id == job_id,
+            RecruitmentProcess.candidate_id.in_(ids),
+        )
+        .order_by(
+            RecruitmentProcess.candidate_id,
+            RecruitmentProcess.attempt_no.desc(),
+            RecruitmentProcess.id.desc(),
+        )
+        .distinct(RecruitmentProcess.candidate_id)
+    )
+    return {cid: (int(version or 0), owner) for cid, version, owner in rows.all()}
 
 
 @router.get("/stages", response_model=List[StageInfo])
@@ -1430,6 +1467,41 @@ async def get_kanban(
     return await build_kanban_view(db, job)
 
 
+# Ostrzeżenia miękkie polityki dopuszczalności, które karta pokazuje jako kody.
+# `already_in_job` nie ma tu sensu (karta JEST w rekrutacji), a weto HM ma
+# własny, stały kod `hm_veto` (front zna go z pola `hm_veto`).
+_CARD_WARNING_SKIP = frozenset(
+    {"eligible", "already_in_job", "rejected_by_hiring_manager"}
+)
+
+
+def _card_warnings(stage: CandidateStage, *, decision, has_veto: bool) -> list[str]:
+    """Kody ostrzeżeń karty — stała kolejność, bez duplikatów."""
+    codes: list[str] = []
+    if has_veto:
+        codes.append("hm_veto")
+    if _budget_exceeded(stage):
+        codes.append("budget_exceeded")
+    if decision is not None:
+        for reason in (decision.reason_code, *decision.secondary_reasons):
+            code = getattr(reason, "value", str(reason))
+            if code not in _CARD_WARNING_SKIP and code not in codes:
+                codes.append(code)
+    return codes
+
+
+def _with_next_action_owner(payload: dict, column: StageColumn, group: str) -> dict:
+    """Dopisz `next_action_owner` — ta sama reguła co karta na froncie."""
+    payload["next_action_owner"] = next_action_for(
+        column,
+        days_in_stage=payload.get("days_in_stage"),
+        screening_done=payload.get("screening_done"),
+        hm_veto=payload.get("hm_veto") is not None,
+        group=group,
+    ).owner
+    return payload
+
+
 async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
     """The board of ``job`` — shared by ``/kanban/{job_id}`` and ``/my-next-steps``.
 
@@ -1465,6 +1537,10 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
     name_by_id: dict[int, tuple[Optional[str], Optional[str]]] = {}
     # Stawka z profilu (PLN/h) — podpowiedź w oknie „Zweryfikowany" (17.09.2026).
     profile_rate_by_id: dict[int, Optional[Decimal]] = {}
+    # Dostępność z profilu (tabela rekrutacji „wersja 3") i lekkie wiersze dla
+    # polityki dopuszczalności — TO SAMO zapytanie, bez ładowania całej encji.
+    availability_by_id: dict[int, tuple[Optional[str], Optional[date]]] = {}
+    eligibility_rows: dict[int, SimpleNamespace] = {}
     if candidate_ids:
         rows = await db.execute(
             select(
@@ -1472,11 +1548,31 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
                 Candidate.name,
                 Candidate.lastname,
                 Candidate.expected_rate_hourly,
+                Candidate.availability_status,
+                Candidate.availability_date,
+                Candidate.status,
+                Candidate.preferences,
             ).where(Candidate.id.in_(candidate_ids))
         )
-        for cid, cname, clastname, rate_hourly in rows.all():
+        for (
+            cid,
+            cname,
+            clastname,
+            rate_hourly,
+            availability_status,
+            availability_date,
+            candidate_status,
+            preferences,
+        ) in rows.all():
             name_by_id[cid] = (cname, clastname)
             profile_rate_by_id[cid] = rate_hourly
+            availability_by_id[cid] = (
+                availability_status.value if availability_status else None,
+                availability_date,
+            )
+            eligibility_rows[cid] = SimpleNamespace(
+                id=cid, status=candidate_status, preferences=preferences
+            )
 
     # Bulk-load names of the recruiters who first assigned each candidate to the
     # job (mover on the earliest stage). One query, no per-card N+1.
@@ -1495,14 +1591,35 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
     # the whole board (none at all when the job has no manager set). Lets the
     # recruiter see the block before dragging a card into it, instead of
     # discovering it as a 409 halfway through the move.
-    manager_verdicts = await load_manager_rejections(
-        db, job=job, candidate_ids=candidate_ids
+    #
+    # Od 09.2026 werdykty przychodzą razem z decyzjami dopuszczalności (ta sama
+    # wsadowa polityka co przy ruchu): karta niesie `warnings` — kody ostrzeżeń
+    # miękkich (konflikt z klientem, NDA, obecne zatrudnienie…) — bez N+1.
+    # `candidates=` podaje lekkie wiersze z zapytania wyżej, więc polityka nie
+    # ładuje drugi raz pełnych encji kandydatów.
+    (
+        eligibility_decisions,
+        manager_verdicts,
+    ) = await evaluate_candidates_for_job_with_verdicts(
+        db,
+        job=job,
+        candidate_ids=candidate_ids,
+        now=datetime.now(timezone.utc),
+        candidates=eligibility_rows,
     )
     # F05: wersja procesu na karcie — front odsyła ją przy ruchu
-    # (`expected_state_version`). Jedno zapytanie dla całej tablicy.
-    process_versions = await _process_state_versions(
-        db, job_id=job_id, candidate_ids=candidate_ids
-    )
+    # (`expected_state_version`). Jedno zapytanie dla całej tablicy; to samo
+    # zapytanie niesie właściciela procesu (`recruiter_id` karty).
+    process_cards = await _process_cards(db, job_id=job_id, candidate_ids=candidate_ids)
+    process_versions = {cid: card[0] for cid, card in process_cards.items()}
+    owner_ids = {card[1] for card in process_cards.values() if card[1] is not None}
+    missing_owner_names = owner_ids - set(user_name_by_id)
+    if missing_owner_names:
+        orows = await db.execute(
+            select(User.id, User.name).where(User.id.in_(missing_owner_names))
+        )
+        for uid, uname in orows.all():
+            user_name_by_id[uid] = uname
 
     def _stage_resp_with_name(e: CandidateStage) -> dict:
         n, ln = name_by_id.get(e.candidate_id, (None, None))
@@ -1523,6 +1640,26 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
         )
         payload["contact_case"] = contact_case_by_candidate.get(e.candidate_id)
         payload["process_state_version"] = process_versions.get(e.candidate_id, 0)
+        # Rekruter karty: właściciel procesu (Priority Work), a gdy proces go
+        # nie ma — osoba, która dodała kandydata do rekrutacji.
+        process_owner = process_cards.get(e.candidate_id, (0, None))[1]
+        recruiter_id = (
+            process_owner
+            if process_owner is not None
+            else (first.moved_by if first is not None else None)
+        )
+        payload["recruiter_id"] = recruiter_id
+        payload["recruiter_name"] = (
+            user_name_by_id.get(recruiter_id) if recruiter_id is not None else None
+        )
+        availability = availability_by_id.get(e.candidate_id, (None, None))
+        payload["availability_status"] = availability[0]
+        payload["availability_date"] = availability[1]
+        payload["warnings"] = _card_warnings(
+            e,
+            decision=eligibility_decisions.get(e.candidate_id),
+            has_veto=e.candidate_id in manager_verdicts,
+        )
         verdict = manager_verdicts.get(e.candidate_id)
         if verdict is not None:
             payload["hm_veto"] = HiringManagerVetoBrief(
@@ -1558,16 +1695,23 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
         )
 
         columns = []
-        for sd in stage_defs:
+        metas = [template_column_meta(sd) for sd in stage_defs]
+        rule_columns = [StageColumn.from_meta(m) for m in metas]
+        groups = group_keys_for_columns(rule_columns)
+        for sd, meta, rule_col, group in zip(stage_defs, metas, rule_columns, groups):
             entries = columns_map.get(sd.id, [])
             # Te same pola co `stage_columns` na liście rekrutacji
             # (`template_column_meta`) — jedna definicja kolumny.
             columns.append(
                 KanbanColumn(
-                    **template_column_meta(sd),
+                    **meta,
                     count=len(entries),
                     items=[
-                        CandidateStageResponse(**_stage_resp_with_name(e))
+                        CandidateStageResponse(
+                            **_with_next_action_owner(
+                                _stage_resp_with_name(e), rule_col, group
+                            )
+                        )
                         for e in entries
                     ],
                 )
@@ -1600,17 +1744,27 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
         off_template_entries.append(stage_entry)
 
     columns = []
-    for stage in LEGACY_COLUMN_STAGES:
+    legacy_metas = [legacy_column_meta(stage) for stage in LEGACY_COLUMN_STAGES]
+    legacy_rule_columns = [StageColumn.from_meta(m) for m in legacy_metas]
+    legacy_groups = group_keys_for_columns(legacy_rule_columns)
+    for stage, meta, rule_col, group in zip(
+        LEGACY_COLUMN_STAGES, legacy_metas, legacy_rule_columns, legacy_groups
+    ):
         entries = columns_map_legacy.get(stage, [])
         # W tej gałęzi (brak szablonu) kolumny SĄ legacy enumami, więc terminal
         # wynika wprost z nazwy etapu (`legacy_column_meta`) — te same pola co
         # wyżej i co `stage_columns` na liście rekrutacji.
         columns.append(
             KanbanColumn(
-                **legacy_column_meta(stage),
+                **meta,
                 count=len(entries),
                 items=[
-                    CandidateStageResponse(**_stage_resp_with_name(e)) for e in entries
+                    CandidateStageResponse(
+                        **_with_next_action_owner(
+                            _stage_resp_with_name(e), rule_col, group
+                        )
+                    )
+                    for e in entries
                 ],
             )
         )

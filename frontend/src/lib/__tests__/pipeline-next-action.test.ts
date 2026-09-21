@@ -136,6 +136,7 @@ describe("nextActionFor — etapy wejściowe", () => {
       label: "Analiza CV · dziś",
       tone: "normal",
       kind: "analysis",
+      owner: "recruiter",
     });
     expect(nextActionFor(item({ days_in_stage: 1 }), intakeCol).label).toBe(
       "Analiza CV · dziś",
@@ -198,6 +199,7 @@ describe("nextActionFor — dalsze etapy", () => {
       label: "Wyślij CV do klienta",
       tone: "normal",
       kind: "cv",
+      owner: "recruiter",
     });
   });
 
@@ -327,6 +329,7 @@ describe("nextActionFor — zatrudniony z zaległą bramką (follow-up fali 3)",
       label: "Przekaż do Delivery",
       tone: "normal",
       kind: "contract",
+      owner: "delivery",
     });
   });
 
