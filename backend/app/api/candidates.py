@@ -4858,6 +4858,13 @@ async def delete_candidate(
 
     search_erasure = await erase_candidate(db, candidate_id)
 
+    # Rozmowy Jarvisa, w których padły dane tej osoby (0330) — treść to JSON,
+    # więc kaskada FK jej nie sięga; powiązanie trzyma
+    # `jarvis_conversation_entities`.
+    from app.services.jarvis.erasure import erase_candidate as erase_jarvis_candidate
+
+    jarvis_erasure = await erase_jarvis_candidate(db, candidate_id)
+
     # Audyt PRZED usunięciem, żeby ślad przetrwał operację. `Activity` nie ma
     # FK na kandydata z CASCADE dla tej ścieżki — patrz test kontraktowy.
     # `share_tokens_revoked` jest tu, bo inaczej odwołanie publicznych linków
@@ -4876,6 +4883,7 @@ async def delete_candidate(
             "share_tokens_revoked": tokens_revoked,
             "subject_ref": subject_ref,
             **search_erasure,
+            **jarvis_erasure,
         },
     )
     # Historia zdarzeń (Ustawienia). Wpis przeżywa usunięcie, więc NIE niesie

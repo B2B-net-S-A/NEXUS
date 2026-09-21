@@ -675,3 +675,9 @@ from app.models.candidate_auto_match import (  # noqa: F401
     CandidateAutoMatchLog,
     CandidateMatchOutbox,
 )
+from app.models.jarvis import (  # noqa: F401
+    JarvisAction,
+    JarvisConversation,
+    JarvisConversationEntity,
+    JarvisMessage,
+)

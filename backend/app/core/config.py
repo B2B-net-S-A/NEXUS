@@ -480,6 +480,26 @@ class Settings(BaseSettings):
     AUTO_MATCH_MAX_CANDIDATES_PER_JOB: int = 10
     AUTO_MATCH_JOB_LOOKBACK_DAYS: int = 90
     AUTO_MATCH_INTERVAL_SECONDS: int = 15
+
+    # ── Jarvis — asystent-agent w shellu (0330, zastępuje MINDY) ─────────────
+    # Wyłącznik całej funkcji: false = maskotka mówi „nie działam teraz”, trasy
+    # czatu zwracają 503, reszta aplikacji nietknięta. Domyślnie false do
+    # pierwszego testu na produkcji; włączenie przez workflow „Coolify set env”.
+    JARVIS_ENABLED: bool = False
+    # Najwięcej wywołań modelu w jednej turze (każde może wołać narzędzia).
+    JARVIS_MAX_STEPS: int = 8
+    # Budżet czasu całej tury (sekundy) — pętla nie zacznie kroku po terminie.
+    JARVIS_TURN_TIMEOUT_SECONDS: float = 90.0
+    JARVIS_MAX_TOKENS_PER_STEP: int = 1500
+    # Ile ostatnich wiadomości rozmowy idzie do modelu (koszt tokenów).
+    JARVIS_HISTORY_WINDOW: int = 20
+    # Miękki dzienny licznik tur na osobę: INFORMUJE, nie blokuje (NEXUS nie ma
+    # limitów AI — decyzja 17.09.2026). Twardą ochroną budżetu jest alarm wydatków.
+    JARVIS_DAILY_SOFT_LIMIT: int = 50
+    # Rozmowy starsze niż tyle dni są kasowane (dane osobowe w treści).
+    JARVIS_RETENTION_DAYS: int = 30
+    # Proponowana akcja bez decyzji dłużej niż tyle minut wygasa.
+    JARVIS_ACTION_TTL_MINUTES: int = 15
     AUTO_MATCH_MAX_ATTEMPTS: int = 3
     AUTO_MATCH_STALE_HOURS: int = 48
     # CV z maila od nadawcy spoza bazy zakłada kandydata (z dedupem po treści CV).

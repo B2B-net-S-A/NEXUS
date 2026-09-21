@@ -75,6 +75,8 @@ class TestFeatureKeyEnum:
             # dostawca — inaczej koszt sprawdzania schowałby się w koszcie
             # generacji i nie dałoby się go zgasić osobno.
             "cv_factual_verification",
+            # 0330: Jarvis — asystent-agent w shellu (zastępuje MINDY).
+            "jarvis",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

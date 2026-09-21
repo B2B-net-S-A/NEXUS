@@ -69,6 +69,15 @@ ORDERS_PROCEDURE = SeededProcedure(
 )
 
 
+JARVIS_PROCEDURE = SeededProcedure(
+    slug="jarvis-asystent",
+    title="Jarvis — asystent w NEXUSIE",
+    # Tuż pod instrukcją zamówień: dotyczy wszystkich ról, ale nie wypycha jej.
+    sort_order=95,
+    filename="jarvis-asystent.md",
+)
+
+
 #: Pliki, w których mieszka logika procesu zamówień. Zmiana KTÓREGOKOLWIEK
 #: z nich każe przejrzeć instrukcję, zanim zmiana trafi na produkcję.
 #:

@@ -186,6 +186,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/finance-order-changes",
     "/preview/contract-candidate-contact",
     "/preview/cv-search",
+    "/preview/jarvis",
   ])("%s przechodzi", (route) => {
     expect(destination(route)).toBe("pass")
   })

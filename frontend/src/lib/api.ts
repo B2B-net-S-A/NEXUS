@@ -260,7 +260,12 @@ api.interceptors.response.use(
 // 403s are now surfaced to the caller and handled in place by the component.
 let sessionRedirectInFlight = false;
 
-function triggerSessionExpiredRedirect(): void {
+/**
+ * Wyloguj po martwej sesji. Eksportowane dla wywołań spoza axiosa (strumień
+ * Jarvisa to natywny `fetch`) — bez tego 401 w strumieniu zostawiałoby
+ * użytkownika w aplikacji z martwym tokenem.
+ */
+export function triggerSessionExpiredRedirect(): void {
   if (typeof window === "undefined") return;
   if (sessionRedirectInFlight) return;
   // Already on the login flow (or any /login/* sub-route) — nothing to do.
@@ -5688,7 +5693,8 @@ export type AIFeatureKey =
   | "uop_check"
   | "cv_name_backfill"
   | "experience_dates_on_demand"
-  | "cv_factual_verification";
+  | "cv_factual_verification"
+  | "jarvis";
 
 export interface AIFeatureConfigDto {
   feature: AIFeatureKey;

@@ -8,7 +8,7 @@ read-only (`user` role) viewers — neither is a legitimate job owner.
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,14 @@ from app.core.database import get_db
 from app.models.user import User, UserRole
 from app.api.deps import OperationalUser, CurrentUser
 from app.schemas.job import UserBrief
+from app.services.jarvis.prefs import (
+    UNLOCKABLE_CHARACTERS,
+    JarvisPrefs,
+    JarvisPrefsUpdate,
+    apply_update,
+    effective_prefs,
+    unlocked_characters,
+)
 
 router = APIRouter()
 
@@ -32,10 +40,44 @@ class UserPreferencesUpdate(BaseModel):
         default=None,
         description="Włącza/wyłącza in-app coaching KPI (praise + remind + EOD).",
     )
+    jarvis: Optional[JarvisPrefsUpdate] = Field(
+        default=None,
+        description="Wygląd i zachowanie maskotki Jarvisa (tylko zmieniane pola).",
+    )
+
+
+class JarvisPrefsResponse(JarvisPrefs):
+    unlocked_characters: list[str]
+    # postać → jak ją odblokować (tylko te, których ta osoba jeszcze nie ma)
+    locked_characters: dict[str, str]
 
 
 class UserPreferencesResponse(BaseModel):
     kpi_coach_enabled: bool
+    jarvis: JarvisPrefsResponse
+
+
+async def _preferences_response(
+    db: AsyncSession, user: User
+) -> UserPreferencesResponse:
+    prefs = effective_prefs(user.jarvis_prefs)
+    unlocked = await unlocked_characters(db, user.id)
+    if prefs.character not in unlocked:
+        # Odblokowanie mogło zniknąć (ranking przeliczony) — pokazujemy
+        # domyślną postać, zapis zostaje nietknięty.
+        prefs = prefs.model_copy(update={"character": "robot"})
+    return UserPreferencesResponse(
+        kpi_coach_enabled=user.kpi_coach_enabled,
+        jarvis=JarvisPrefsResponse(
+            **prefs.model_dump(),
+            unlocked_characters=unlocked,
+            locked_characters={
+                key: hint
+                for key, hint in UNLOCKABLE_CHARACTERS.items()
+                if key not in unlocked
+            },
+        ),
+    )
 
 
 # Roles that can meaningfully own or collaborate on a job. `user` (viewer)
@@ -176,9 +218,11 @@ async def list_mentionable_users(
 
 
 @router.get("/me/preferences", response_model=UserPreferencesResponse)
-async def get_my_preferences(current_user: CurrentUser):
+async def get_my_preferences(
+    current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+):
     """Zwraca aktualne preferencje bieżącego użytkownika."""
-    return UserPreferencesResponse(kpi_coach_enabled=current_user.kpi_coach_enabled)
+    return await _preferences_response(db, current_user)
 
 
 @router.patch("/me/preferences", response_model=UserPreferencesResponse)
@@ -197,8 +241,26 @@ async def update_my_preferences(
         current_user.kpi_coach_enabled = payload.kpi_coach_enabled
         changed = True
 
+    if payload.jarvis is not None:
+        update = payload.jarvis
+        if update.character is not None:
+            unlocked = await unlocked_characters(db, current_user.id)
+            if update.character not in unlocked:
+                raise HTTPException(
+                    status_code=403,
+                    detail=UNLOCKABLE_CHARACTERS.get(
+                        update.character, "Ta postać nie jest jeszcze odblokowana."
+                    ),
+                )
+        try:
+            merged = apply_update(effective_prefs(current_user.jarvis_prefs), update)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        current_user.jarvis_prefs = merged.model_dump()
+        changed = True
+
     if changed:
         await db.commit()
         await db.refresh(current_user)
 
-    return UserPreferencesResponse(kpi_coach_enabled=current_user.kpi_coach_enabled)
+    return await _preferences_response(db, current_user)

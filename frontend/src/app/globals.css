@@ -761,3 +761,61 @@
   [data-kids="true"] .kids-levelup-flash { animation: none !important; }
   [data-kids="true"] .bg-card:hover { transform: none; }
 }
+
+/* ---- Jarvis — asystent-maskotka (0330) -------------------------------------
+ * Kolory postaci biorą akcent z `--jarvis-accent` (ustawiany na opakowaniu
+ * przez JarvisCharacter), więc ilustracje chodzą za paletą, trybem ciemnym
+ * i akcentem wybranym przez użytkownika. Stałe odcienie (atrament oczu,
+ * złoto, rumieńce) to celowy wyjątek grafiki — nie są kolorem interfejsu.
+ */
+.jarvis-art { --ja: var(--jarvis-accent, hsl(var(--primary))); line-height: 0; }
+.jarvis-art .j-accent { fill: var(--ja); }
+.jarvis-art .j-soft { fill: color-mix(in oklab, var(--ja) 38%, white); }
+.jarvis-art .j-deep { fill: color-mix(in oklab, var(--ja) 70%, black); }
+.jarvis-art .j-screen { fill: color-mix(in oklab, var(--ja) 18%, white); }
+.jarvis-art .j-ink { fill: hsl(232 32% 14%); }
+.jarvis-art .j-white { fill: hsl(0 0% 100%); }
+.jarvis-art .j-white-soft { fill: hsl(220 30% 96%); }
+.jarvis-art .j-warm { fill: hsl(42 96% 58%); }
+.jarvis-art .j-blush { fill: hsl(346 80% 76% / 0.75); }
+.jarvis-art .j-blush-deep { fill: hsl(346 70% 60%); }
+.jarvis-art .j-gold { fill: hsl(45 93% 56%); }
+.jarvis-art .j-gold-light { fill: hsl(50 100% 80% / 0.8); }
+.jarvis-art .j-gold-deep { fill: hsl(36 88% 42%); }
+.jarvis-art .j-stroke-ink { stroke: hsl(232 32% 14%); }
+.jarvis-art .j-stroke-deep { stroke: color-mix(in oklab, var(--ja) 70%, black); }
+.jarvis-art .j-stroke-accent { stroke: var(--ja); }
+.jarvis-art .j-stroke-warm { stroke: hsl(42 96% 50%); }
+.jarvis-art .j-stroke-gold { stroke: hsl(40 90% 48%); }
+.jarvis-art .j-stroke-white { stroke: hsl(0 0% 100% / 0.8); }
+.jarvis-art svg { overflow: visible; filter: drop-shadow(0 6px 10px color-mix(in oklab, var(--ja) 35%, transparent)); }
+
+@keyframes jarvis-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes jarvis-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+@keyframes jarvis-wave { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-22deg); } }
+@keyframes jarvis-glow { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes jarvis-think { 0%, 100% { transform: rotate(-4deg) translateY(0); } 50% { transform: rotate(4deg) translateY(-3px); } }
+@keyframes jarvis-work { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+@keyframes jarvis-pop { 0% { transform: scale(1); } 40% { transform: scale(1.18) rotate(-4deg); } 100% { transform: scale(1); } }
+@keyframes jarvis-shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-4px); } 40%, 80% { transform: translateX(4px); } }
+
+.jarvis-art .j-eye { transform-box: fill-box; transform-origin: center; animation: jarvis-blink 4.5s infinite; }
+.jarvis-art .j-glow { animation: jarvis-glow 2.4s ease-in-out infinite; }
+.jarvis-art .j-arm { transform-box: fill-box; transform-origin: 80% 50%; }
+.jarvis-mood-idle svg { animation: jarvis-float 3.2s ease-in-out infinite; }
+.jarvis-mood-listening svg { animation: jarvis-float 1.6s ease-in-out infinite; }
+.jarvis-mood-listening .j-arm { animation: jarvis-wave 0.9s ease-in-out 2; }
+.jarvis-mood-thinking svg { animation: jarvis-think 1.2s ease-in-out infinite; transform-origin: 50% 90%; }
+.jarvis-mood-thinking .j-glow { animation-duration: 0.7s; }
+.jarvis-mood-working svg { animation: jarvis-work 0.35s linear infinite; }
+.jarvis-mood-working .j-arm { animation: jarvis-wave 0.5s ease-in-out infinite; }
+.jarvis-mood-success svg { animation: jarvis-pop 0.7s ease-out; }
+.jarvis-mood-success .j-arm { animation: jarvis-wave 0.45s ease-in-out 3; }
+.jarvis-mood-error svg { animation: jarvis-shake 0.5s ease-in-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-art svg,
+  .jarvis-art .j-eye,
+  .jarvis-art .j-glow,
+  .jarvis-art .j-arm { animation: none !important; }
+}

@@ -145,6 +145,7 @@ from app.api import dynareporter_przetargi
 from app.api import dynareporter_board
 from app.api import dynareporter_sales_mgmt
 from app.api import dynareporter_mindy
+from app.api import jarvis as jarvis_api
 from app.api import dynareporter_upload
 from app.api import dynareporter_redirect
 from app.api import dynareporter_rekrutacja
@@ -705,6 +706,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_auto_match import candidate_auto_match_loop
     from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
+    from app.tasks.jarvis_retention import jarvis_retention_loop
     from app.tasks.priority_work import priority_work_loop
     from app.tasks.recruitment_allocation import (
         availability_loop,
@@ -747,6 +749,8 @@ async def lifespan(app: FastAPI):
         "candidate_search_retention": asyncio.create_task(
             candidate_search_retention_loop()
         ),
+        # Jarvis (0330): retencja rozmów (dane osobowe) i wygaszanie propozycji.
+        "jarvis_retention": asyncio.create_task(jarvis_retention_loop()),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
         "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
         "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
@@ -1359,6 +1363,9 @@ app.include_router(
     prefix="/api/dynareporter/mindy",
     tags=["dynareporter"],
 )
+# Jarvis (0330) — asystent-agent w shellu; POZA prefiksem /api/dynareporter,
+# bo `LegacyStatsDeprecationMiddleware` gasi tamten prefiks (409/410).
+app.include_router(jarvis_api.router, prefix="/api/jarvis", tags=["jarvis"])
 app.include_router(
     dynareporter_upload.router,
     prefix="/api/dynareporter/upload",
@@ -2620,6 +2627,12 @@ async def api_health_deep_check():
         CandidateAutoMatchLog,
         CandidateMatchOutbox,
     )
+    from app.models.jarvis import (
+        JarvisAction,
+        JarvisConversation,
+        JarvisConversationEntity,
+        JarvisMessage,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2763,6 +2776,12 @@ async def api_health_deep_check():
         # dokłada zdarzenie do kolejki, więc brak tabeli psułby wgranie CV.
         ("candidate_match_outbox", CandidateMatchOutbox),
         ("candidate_auto_match_log", CandidateAutoMatchLog),
+        # 0330: Jarvis. Brak tabel = każda tura asystenta 500, a usunięcie
+        # kandydata (kasuje powiązane rozmowy) padałoby w całości.
+        ("jarvis_conversations", JarvisConversation),
+        ("jarvis_messages", JarvisMessage),
+        ("jarvis_actions", JarvisAction),
+        ("jarvis_conversation_entities", JarvisConversationEntity),
     ]
 
     checks: dict[str, str] = {}

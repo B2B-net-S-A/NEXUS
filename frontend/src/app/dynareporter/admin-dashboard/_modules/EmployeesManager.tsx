@@ -55,7 +55,6 @@ const DR_SECTIONS = [
   { value: "competitions", label: "Liga Mistrzów" },
   { value: "clients-mrr", label: "Klienci + MRR" },
   { value: "placements", label: "Placements" },
-  { value: "mindy", label: "MINDY AI" },
   { value: "sales-mgmt", label: "Sales Mgmt" },
   { value: "sales", label: "Sales" },
   { value: "przetargi", label: "Przetargi" },

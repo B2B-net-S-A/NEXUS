@@ -121,6 +121,8 @@ DECISION_2026_09_16 = {
     # musi być INNYM modelem niż generator (F4), bo sędzia LLM faworyzuje
     # własne wyjście. Zmiana tego wpisu na model generatora cofa sens funkcji.
     AIFeatureKey.cv_factual_verification: ("F18", "gpt-5.6-luna"),
+    # F19 — decyzja 21.09.2026: Jarvis woła `tools`, więc tylko Anthropic.
+    AIFeatureKey.jarvis: ("F19", "claude-sonnet-5"),
 }
 
 
@@ -185,6 +187,17 @@ def test_non_anthropic_functions_fall_back_to_sonnet_5(monkeypatch, feature):
     chain = ai_models.model_chain_for(feature)
     assert len(chain) == 2
     assert chain[1] == "claude-sonnet-5"
+
+
+def test_jarvis_chain_stays_on_anthropic(monkeypatch):
+    """Jarvis wysyła `tools` — GPT/DeepSeek je odrzucają nieponawialnym
+    ValueError, więc KAŻDY model w łańcuchu (także fallback) musi być Claude."""
+    from app.services.llm_providers import ANTHROPIC, provider_of
+
+    _clear_model_overrides(monkeypatch)
+    chain = ai_models.model_chain_for(AIFeatureKey.jarvis)
+    assert chain[0] == "claude-sonnet-5"
+    assert all(provider_of(model) == ANTHROPIC for model in chain)
 
 
 def test_providers_in_use_lists_openai_and_deepseek(monkeypatch):

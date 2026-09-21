@@ -247,6 +247,10 @@ _ENUM_STATEMENTS = [
     # wydatku; bez wartości enuma `check_and_increment` przy każdej generacji
     # CV wywala się na InvalidTextRepresentationError.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'cv_factual_verification'",
+    # 0330: Jarvis — asystent-agent w shellu (zastępuje MINDY). Bez wartości
+    # enuma `check_and_increment` wywala każdą turę na
+    # InvalidTextRepresentationError.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'jarvis'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -4618,6 +4622,59 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS managed_in_nexus BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS managed_in_nexus_at TIMESTAMPTZ NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS managed_in_nexus_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    # 0330: Jarvis. Model `User` deklaruje `jarvis_prefs` — bez kolumny KAŻDY
+    # odczyt użytkownika (w tym logowanie) pada na UndefinedColumnError.
+    # Lustro 1:1 z migracją — pilnuje `test_jarvis_migration_mirror.py`.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS jarvis_prefs JSONB NOT NULL DEFAULT '{}'::jsonb",
+    """CREATE TABLE IF NOT EXISTS jarvis_conversations (
+        id UUID PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title VARCHAR(200) NOT NULL DEFAULT 'Nowa rozmowa',
+        last_context JSONB NULL,
+        busy_until TIMESTAMPTZ NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_jarvis_conversations_user_updated "
+    "ON jarvis_conversations (user_id, updated_at)",
+    """CREATE TABLE IF NOT EXISTS jarvis_messages (
+        id BIGSERIAL PRIMARY KEY,
+        conversation_id UUID NOT NULL REFERENCES jarvis_conversations(id) ON DELETE CASCADE,
+        role VARCHAR(16) NOT NULL,
+        content JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_jarvis_messages_role CHECK (role IN ('user', 'assistant'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_jarvis_messages_conversation "
+    "ON jarvis_messages (conversation_id, id)",
+    """CREATE TABLE IF NOT EXISTS jarvis_actions (
+        id UUID PRIMARY KEY,
+        conversation_id UUID NOT NULL REFERENCES jarvis_conversations(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        tool_use_id VARCHAR(100) NOT NULL,
+        tool_name VARCHAR(64) NOT NULL,
+        args JSONB NOT NULL,
+        preview JSONB NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'proposed',
+        result JSONB NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        decided_at TIMESTAMPTZ NULL,
+        CONSTRAINT ck_jarvis_actions_status CHECK (
+            status IN ('proposed', 'confirmed', 'rejected', 'executed', 'failed', 'expired')
+        )
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_jarvis_actions_conversation "
+    "ON jarvis_actions (conversation_id)",
+    "CREATE INDEX IF NOT EXISTS ix_jarvis_actions_status_created "
+    "ON jarvis_actions (status, created_at)",
+    """CREATE TABLE IF NOT EXISTS jarvis_conversation_entities (
+        conversation_id UUID NOT NULL REFERENCES jarvis_conversations(id) ON DELETE CASCADE,
+        entity_type VARCHAR(32) NOT NULL,
+        entity_id INTEGER NOT NULL,
+        PRIMARY KEY (conversation_id, entity_type, entity_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_jarvis_conversation_entities_entity "
+    "ON jarvis_conversation_entities (entity_type, entity_id)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -5211,6 +5268,12 @@ _DATA_STATEMENTS = [
     "SELECT 'cv_factual_verification', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'cv_factual_verification')",
+    # 0330: seed feature'a AI `jarvis`. Sam wiersz NIE włącza wydatku —
+    # bramką jest JARVIS_ENABLED.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'jarvis', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'jarvis')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.
@@ -7317,6 +7380,13 @@ _REPO_PROCEDURES = [
         "title": "Zamówienia — instrukcja dla Delivery Leada",
         "sort_order": 100,
         "filename": "zamowienia-instrukcja-delivery-lead.md",
+    },
+    {
+        # 0330: co Jarvis umie i czego nie zrobi — dla każdej roli.
+        "slug": "jarvis-asystent",
+        "title": "Jarvis — asystent w NEXUSIE",
+        "sort_order": 95,
+        "filename": "jarvis-asystent.md",
     },
 ]
 

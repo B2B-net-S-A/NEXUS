@@ -22,6 +22,8 @@ from app.models.user import User, UserRole
 from app.services.action_permissions import resolve_effective_action_access
 from app.services.onboarding_access import onboarding_persona_for_user
 from app.services.order_change_audit import stamp_actor
+from app.services.jarvis.via_tag import INTERNAL_HEADER as JARVIS_INTERNAL_HEADER
+from app.services.jarvis.via_tag import stamp_via
 from app.services.request_semantics import is_read_only_http_request
 from app.services.section_permissions import resolve_effective_section_access
 from app.services.service_account_auth import (
@@ -253,6 +255,9 @@ async def get_authenticated_user(
     # Sesja żądania jest współdzielona przez zależności, więc handler zapisuje
     # zamówienie tą samą sesją. Zawsze prawdziwe konto, nie podglądane.
     stamp_actor(db.info, user.id)
+    # Zapis zlecony przez Jarvisa (wywołanie in-process z sekretem procesu):
+    # listener dopisze `via: jarvis` do nowych `Activity` tej sesji.
+    stamp_via(db.info, request.headers.get(JARVIS_INTERNAL_HEADER))
 
     # Klient OAuth nie może „podglądać jako" — nagłówek jest ignorowany.
     impersonate_raw = (

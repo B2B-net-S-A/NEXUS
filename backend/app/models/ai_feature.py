@@ -108,6 +108,11 @@ class AIFeatureKey(str, enum.Enum):
     # widoczny obok generacji, a `CV_FINAL_REVIEW_ENABLED` ma go dać zgasić
     # bez dotykania generatora.
     cv_factual_verification = "cv_factual_verification"
+    # Jarvis — asystent-agent w shellu aplikacji (0330, zastępuje MINDY).
+    # Jedna tura = pętla modelu z narzędziami, więc wiele wywołań dostawcy na
+    # jedną operację. Osobny kubełek, bo to inny strumień wydatku niż MINDY
+    # (każda rola, każdy ekran) i musi dać się policzyć i zgasić osobno.
+    jarvis = "jarvis"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -131,6 +136,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.cv_name_backfill: "Uzupełnianie imion z CV (sync Traffita)",
     AIFeatureKey.cv_factual_verification: "Generator CV B2B — niezależna kontrola AI treści CV (drugi model)",
     AIFeatureKey.experience_dates_on_demand: "Daty zatrudnienia z CV (kartoteka firmy w ATLAS-ie)",
+    AIFeatureKey.jarvis: "Jarvis — asystent i wykonawca zadań w aplikacji",
 }
 
 
@@ -217,6 +223,12 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Notatki ze screeningu",
         "Imię i nazwisko kandydata",
         "Twierdzenia z wygenerowanego / edytowanego CV",
+    ],
+    AIFeatureKey.jarvis: [
+        "Treść pytań i poleceń użytkownika",
+        "Wyniki narzędzi — dokładnie to, co użytkownik widzi w NEXUSIE przez API "
+        "(kandydaci, rekrutacje, klienci, kontrakty; kwoty tylko przy uprawnieniu)",
+        "Ekran, na którym użytkownik jest (ścieżka i ID rekordu)",
     ],
 }
 
