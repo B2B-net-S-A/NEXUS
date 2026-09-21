@@ -216,8 +216,11 @@ describe("useNotifications — pipeline_changed (live kanban)", () => {
       JSON.stringify(["pipeline-scores", "42"]),
       JSON.stringify(["pipeline-scores", 42]),
       JSON.stringify(["my-next-steps"]),
+      // „Moi ludzie": lista i zakładka rekrutacji (bez podsumowania awatara).
+      JSON.stringify(["my-people", "list"]),
+      JSON.stringify(["my-people", "for-job"]),
     ]);
-    expect(invalidate).toHaveBeenCalledTimes(5);
+    expect(invalidate).toHaveBeenCalledTimes(7);
     hook.unmount();
   });
 

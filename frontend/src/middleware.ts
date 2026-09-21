@@ -382,6 +382,7 @@ const PUBLIC_PATHS = [
   "/preview/contract-candidate-contact",
   "/preview/cv-search",
   "/preview/jarvis",
+  "/preview/my-people",
 ];
 
 function isPublicPath(pathname: string): boolean {

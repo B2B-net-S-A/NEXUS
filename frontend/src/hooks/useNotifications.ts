@@ -22,6 +22,8 @@ export interface WsNotification {
   title: string;
   message: string;
   link?: string;
+  /** Typ z serwera (`notification_triggers.emit`) — steruje unieważnianiem cache. */
+  notification_type?: string;
   created_at: string;
 }
 
@@ -127,6 +129,11 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           queryClient.invalidateQueries({ queryKey: ["pipeline-scores", String(jobId)] });
           queryClient.invalidateQueries({ queryKey: ["pipeline-scores", jobId] });
           queryClient.invalidateQueries({ queryKey: ["my-next-steps"] });
+          // „Moi ludzie": lista i zakładka rekrutacji zależą od ruchów na
+          // tablicy (kto jest w procesie, kto już w tej rekrutacji). Podsumowania
+          // awatara NIE ruszamy — liczy całą listę, a ruchy go nie zmieniają.
+          queryClient.invalidateQueries({ queryKey: ["my-people", "list"] });
+          queryClient.invalidateQueries({ queryKey: ["my-people", "for-job"] });
         }, PIPELINE_CHANGED_DEBOUNCE_MS),
       );
     },
@@ -232,6 +239,10 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           const notif: WsNotification = msg.data;
           // Update react-query cache
           queryClient.invalidateQueries({ queryKey: ["notifications"] });
+          if (notif.notification_type === "my_people_match") {
+            // Nowa rekrutacja pasuje do „Moich ludzi" — licznik awatara od razu.
+            queryClient.invalidateQueries({ queryKey: ["my-people"] });
+          }
           setUnreadCount((c) => c + 1);
           // Call external handler (for toast)
           onNotification?.(notif);

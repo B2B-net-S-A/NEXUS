@@ -136,6 +136,10 @@ class NotificationType(str, enum.Enum):
     # `services/candidate_search_worker.py`; `related_entity_id` puste (id
     # przeglądu to UUID), exactly-once daje przejście stanu runu.
     candidate_search_completed = "candidate_search_completed"
+    # 0334: opublikowana rekrutacja pasuje do osób z listy „Moi ludzie"
+    # rekrutera. Emitowane przez `services/my_people_matching.py`; jeden dzwonek
+    # na (odbiorca, rekrutacja) — `related_entity=(job, id)`.
+    my_people_match = "my_people_match"
 
 
 class Notification(Base, TimestampMixin):
