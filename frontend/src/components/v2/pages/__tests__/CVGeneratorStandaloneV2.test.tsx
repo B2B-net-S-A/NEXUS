@@ -71,7 +71,7 @@ function renderPage(props: import("../CVGeneratorStandaloneV2").CVGeneratorStand
 
 /** Switch to "Old" mode (manual upload), where the champion dropzone lives. */
 async function openUploadMode() {
-  fireEvent.click(await screen.findByText("Old (upload plików)"));
+  fireEvent.click(await screen.findByRole("button", { name: "Mam tylko plik CV (bez procesu)" }));
 }
 
 function fileInput(accept: string): HTMLInputElement {
@@ -118,7 +118,7 @@ it("recovers uploaded history without reusing the current source or losing its c
     fireEvent.click(await screen.findByTitle("Edytuj i zatwierdź CV"));
     fireEvent.click(screen.getByText("Recover saved draft"));
     expect(assign).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("Stanowisko")).toHaveValue("Source role");
+    expect(screen.getByLabelText(/^Stanowisko/)).toHaveValue("Source role");
     expect(screen.getByText("Original Client")).toBeInTheDocument();
     expect(screen.getByRole("button", {name: /Generuj CV/i})).toBeDisabled();
     expect(screen.queryByText("unrelated.pdf")).not.toBeInTheDocument();
@@ -344,6 +344,7 @@ describe("CVGeneratorStandaloneV2 — tryb obróbki treści", () => {
 
   it("spells out the unprofiled-client caution instead of hiding it in a tooltip", async () => {
     renderPage();
+    fireEvent.click(await screen.findByRole("radio", { name: /Pod rekrutację/ }));
 
     expect(
       await screen.findByText(
@@ -416,7 +417,10 @@ it("does not send person A's consent when generating the next uploaded CV", asyn
   vi.stubGlobal("crypto", webcrypto);
   try {
     setSourcingAccess("write");
-    getMock.mockReset().mockResolvedValue({ data: [] });
+    // Zrzut zgody pokazuje się tylko klientowi, który go wymaga (PKO BP).
+    getMock.mockReset().mockImplementation(async (url) => ({ data: String(url).endsWith("/policy")
+      ? { managed: true, content_mode: "polished", effective_policy: { requires_en_copy: false, requires_rodo_consent_block: true, filename_pattern: "X" } }
+      : [] }) as never);
     postMock.mockReset().mockImplementation((url) => Promise.resolve(
       String(url).endsWith("consent-screenshot")
         ? { data: { consent_token: "person-a-token", filename: "a-consent.png" } }
@@ -503,9 +507,10 @@ describe("CV upload context and server history", () => {
     await screen.findByText("Klient rekrutacji: Test client");
     drop(cvInput(), new File(["synthetic"], "cv.pdf"));
     expect(await screen.findByText("Klient wymaga uzupełnienia danych przed generacją")).toBeInTheDocument();
-    expect(screen.getByText(/Ten klient wymaga stanowiska/)).toBeInTheDocument();
+    // Ten sam brak w alercie i w liście braków przy przycisku.
+    expect(screen.getAllByText(/Ten klient wymaga stanowiska/)).toHaveLength(2);
     expect(screen.getByRole("button", {name: /Generuj CV/i})).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Stanowisko"), {target: {value: "Analityk"}});
+    fireEvent.change(screen.getByLabelText(/^Stanowisko/), {target: {value: "Analityk"}});
     await waitFor(() => expect(screen.getByRole("button", {name: /Generuj CV/i})).toBeEnabled());
     expect(screen.queryByText("Klient wymaga uzupełnienia danych przed generacją")).not.toBeInTheDocument();
   });
@@ -607,7 +612,7 @@ describe("CV readiness follows the selected content mode", () => {
     fireEvent.change(screen.getByLabelText("Plik do generacji"), {target: {value: "71"}});
     expect(screen.getByRole("button", {name: /Generuj CV/})).toBeEnabled();
     fireEvent.click(screen.getByRole("radio", {name: /Pod rekrutację/}));
-    expect(await screen.findByText("Tryb dopasowany wymaga Profilu Championa.")).toBeInTheDocument();
+    expect((await screen.findAllByText("Tryb dopasowany wymaga Profilu Championa.")).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", {name: /Generuj CV/})).toBeDisabled();
   });
 });
@@ -683,7 +688,156 @@ it("keeps candidate and recruitment fixed in the embedded generator", async () =
   }] : []}));
   try {
     renderPage({embedded: true, prefillCandidateId: 77, prefillCandidateName: "Test Person", prefillJobId: 88});
-    expect((await screen.findByText("Test Person")).closest("button")).toBeDisabled();
-    expect((await screen.findByText("Data Engineer")).closest("button")).toBeDisabled();
+    const context = await screen.findByTestId("cvgen-context");
+    await waitFor(() => expect(context).toHaveTextContent("Kandydat: Test Person · Rekrutacja: Data Engineer"));
+    // Bez wyłączonych comboboxów i bez dużego przełącznika trybu.
+    expect(screen.queryAllByRole("combobox").filter((el) => el.tagName === "BUTTON")).toHaveLength(0);
+    expect(screen.queryByText("Old (upload plików)")).not.toBeInTheDocument();
+    expect(screen.queryByText("New (z procesu)")).not.toBeInTheDocument();
+    expect(screen.queryByText("Krok 1 — Konsultant")).not.toBeInTheDocument();
   } finally { getMock.mockImplementation(async () => ({data: []})); }
+});
+
+describe("simplified options", () => {
+  const managedPolicy = { managed: true, content_mode: "polished", effective_policy: { requires_en_copy: false, cv_language: "pl", filename_pattern: "B2B_{IMIE_NAZWISKO}" } };
+  afterEach(() => { getMock.mockImplementation(async () => ({data: []})); });
+
+  it("renders a centrally locked content mode and language as text, not tiles", async () => {
+    setSourcingAccess("write");
+    getMock.mockImplementation(async (url) => ({data: String(url).endsWith("/policy") ? managedPolicy : []}) as never);
+    renderPage();
+    await openUploadMode();
+    const summary = await screen.findByTestId("cvgen-policy-summary");
+    expect(summary).toHaveTextContent("Obróbka treści: automatyczna — CV ogólne");
+    expect(summary).toHaveTextContent("Język CV: PL (wymóg klienta) — powstanie 1 wersja.");
+    expect(screen.queryByRole("radio", { name: /^Redakcja/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: /English/ })).not.toBeInTheDocument();
+  });
+
+  it("announces two language versions in the summary", async () => {
+    setSourcingAccess("write");
+    getMock.mockImplementation(async (url) => ({data: String(url).endsWith("/policy") ? {
+      ...managedPolicy, effective_policy: { requires_en_copy: true, filename_pattern: "X" },
+    } : []}) as never);
+    renderPage();
+    await openUploadMode();
+    expect(await screen.findByTestId("cvgen-policy-summary")).toHaveTextContent("PL + EN — powstaną dwie wersje");
+  });
+
+  it("shows the tiles when nothing is locked", async () => {
+    setSourcingAccess("write");
+    renderPage();
+    await openUploadMode();
+    expect(await screen.findByRole("radio", { name: /^Redakcja/ })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /English/ })).toBeInTheDocument();
+    expect(screen.queryByTestId("cvgen-policy-summary")).not.toBeInTheDocument();
+  });
+
+  it("hides the consent screenshot for a client that does not require it", async () => {
+    setSourcingAccess("write");
+    renderPage();
+    await openUploadMode();
+    await screen.findByRole("radio", { name: /^Redakcja/ });
+    expect(screen.queryByText(/Zrzut zgody/)).not.toBeInTheDocument();
+  });
+
+  it("keeps Blind CV and auto-download behind „Więcej opcji”", async () => {
+    setSourcingAccess("write");
+    renderPage();
+    const trigger = await screen.findByRole("button", { name: /Więcej opcji/ });
+    expect(screen.queryByText("Blind CV")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pobierz automatycznie po wygenerowaniu")).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(await screen.findByText("Blind CV")).toBeInTheDocument();
+    expect(screen.getByText("Pobierz automatycznie po wygenerowaniu")).toBeInTheDocument();
+  });
+
+  it("switches back from upload to the process path with the small link", async () => {
+    setSourcingAccess("write");
+    renderPage();
+    await openUploadMode();
+    fireEvent.click(screen.getByRole("button", { name: "Wróć do generowania z procesu" }));
+    expect(await screen.findByText("Krok 1 — Konsultant")).toBeInTheDocument();
+  });
+});
+
+describe("required vs optional and the readiness checklist", () => {
+  afterEach(() => { getMock.mockImplementation(async () => ({data: []})); });
+
+  it("marks required and optional inputs in the upload path", async () => {
+    setSourcingAccess("write");
+    getMock.mockImplementation(async () => ({data: []}));
+    renderPage();
+    await openUploadMode();
+    const cvStep = screen.getByText(/Krok 1 — Plik CV/);
+    expect(cvStep.querySelector('[data-field-mark="required"]')).not.toBeNull();
+    const champion = screen.getByText(/Krok 2 — Profil Championa/);
+    expect(champion.querySelector('[data-field-mark="optional"]')).not.toBeNull();
+    expect(screen.getByText(/Champion \(opcjonalnie\) — z nim CV powstaje pod rekrutację/)).toBeInTheDocument();
+    const position = screen.getByText(/^Stanowisko/, { selector: "label" });
+    expect(position.querySelector('[data-field-mark="optional"]')).not.toBeNull();
+  });
+
+  it("marks the consultant and recruitment as required in the process path", async () => {
+    setSourcingAccess("write");
+    renderPage();
+    const step1 = await screen.findByText(/Krok 1 — Konsultant/);
+    expect(step1.querySelector('[data-field-mark="required"]')).not.toBeNull();
+  });
+
+  it("lists what is missing and explains the disabled button, then says ready", async () => {
+    setSourcingAccess("write");
+    getMock.mockImplementation(async () => ({data: []}));
+    renderPage();
+    await openUploadMode();
+    const checklist = await screen.findByTestId("cvgen-checklist");
+    await waitFor(() => expect(checklist).toHaveTextContent("Do wygenerowania CV brakuje:"));
+    expect(checklist).toHaveTextContent("Plik CV (PDF / DOCX)");
+    expect(checklist).toHaveTextContent("Klient albo zaznaczenie „Generuję CV poza zleceniem”");
+    const submit = screen.getByRole("button", { name: /Generuj CV/i });
+    expect(submit).toBeDisabled();
+    expect(submit.getAttribute("title")).toMatch(/Do wygenerowania CV brakuje: .*Plik CV/);
+
+    drop(cvInput(), new File(["synthetic"], "cv.pdf"));
+    expect(screen.getByTestId("cvgen-checklist")).not.toHaveTextContent("Plik CV (PDF / DOCX)");
+    confirmOutsideAssignment();
+    await waitFor(() => expect(screen.getByTestId("cvgen-checklist")).toHaveTextContent("Wszystko gotowe"));
+    expect(submit).toBeEnabled();
+    expect(submit).not.toHaveAttribute("title");
+  });
+
+  it("asks for a consultant first in the process path", async () => {
+    setSourcingAccess("write");
+    renderPage();
+    const checklist = await screen.findByTestId("cvgen-checklist");
+    await waitFor(() => expect(checklist).toHaveTextContent("Konsultant"));
+    expect(screen.getByRole("button", { name: /Generuj CV/i })).toBeDisabled();
+  });
+
+  it("labels the PKO consent as needed for sending, without blocking generation", async () => {
+    setSourcingAccess("write");
+    getMock.mockImplementation(async (url) => ({ data: String(url).endsWith("/policy")
+      ? { managed: true, content_mode: "polished", effective_policy: { requires_en_copy: false, requires_rodo_consent_block: true, filename_pattern: "X" } }
+      : [] }) as never);
+    renderPage();
+    await openUploadMode();
+    expect(await screen.findByText(/wymagane do wysyłki klientowi/)).toBeInTheDocument();
+    drop(cvInput(), new File(["synthetic"], "cv.pdf"));
+    confirmOutsideAssignment();
+    await waitFor(() => expect(screen.getByRole("button", { name: /Generuj CV/i })).toBeEnabled());
+  });
+
+  it("keeps the content mode editable when the server does not lock it and hints the Champion", async () => {
+    setSourcingAccess("write");
+    getMock.mockImplementation(async (url) => ({ data: String(url).endsWith("/policy")
+      ? { managed: true, content_mode: "tailored", content_mode_locked: false, effective_policy: { requires_en_copy: false, filename_pattern: "X" } }
+      : [] }) as never);
+    renderPage();
+    await openUploadMode();
+    const tailored = await screen.findByRole("radio", { name: /Pod rekrutację/ });
+    expect(tailored).toBeEnabled();
+    expect(screen.getByText(/wymaga Championa — bez niego powstanie Redakcja/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /^Przepisanie/ }));
+    expect(screen.getByRole("radio", { name: /^Przepisanie/ })).toHaveAttribute("aria-checked", "true");
+  });
 });

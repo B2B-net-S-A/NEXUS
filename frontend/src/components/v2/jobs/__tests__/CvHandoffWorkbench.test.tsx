@@ -17,7 +17,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls: string[] = [];
 const setRecruitmentClientRate = vi.fn(async (...a: unknown[]) => {
@@ -47,6 +47,20 @@ vi.mock("@/lib/clipboard", () => ({
 }));
 
 vi.mock("next/dynamic", () => ({ default: () => () => null }));
+
+// Linki dla klienta są dziś wyłączone stałą. Dotychczasowe testy sprawdzają
+// przepływ z linkami (stała = true); blok „linki wyłączone” na końcu pliku
+// sprawdza domyślny stan produkcyjny.
+const linkFlags = vi.hoisted(() => ({ enabled: true }));
+vi.mock("@/lib/cv-generator", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/cv-generator")>();
+  return {
+    ...actual,
+    get CV_CLIENT_LINKS_UI_ENABLED() {
+      return linkFlags.enabled;
+    },
+  };
+});
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
@@ -711,4 +725,31 @@ it("przy braku zasobów wraca do generatora bez ponownego zastępowania szkicu",
   expect(screen.queryByText(/Wczytać „Wybrane.docx”/)).toBeNull();
   expect(screen.queryByText(/Wybrany wynik generatora #42/)).toBeNull();
   expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+});
+
+describe("linki dla klienta wyłączone (stan produkcyjny)", () => {
+  beforeEach(() => { linkFlags.enabled = false; });
+  afterEach(() => { linkFlags.enabled = true; });
+
+  it("przycisk tylko oznacza „CV Wysłane” i zapisuje stawkę — bez linku", async () => {
+    renderWorkbench();
+    const button = await screen.findByRole("button", { name: "Oznacz „CV Wysłane”" });
+    await waitFor(() => expect(button).not.toBeDisabled());
+    await userEvent.type(screen.getByLabelText("Kwota"), "25000");
+    await userEvent.click(button);
+    await waitFor(() => expect(setRecruitmentClientRate).toHaveBeenCalledOnce());
+    expect(calls).toEqual(["move", "client_rate"]);
+    expect(shareCreate).not.toHaveBeenCalled();
+  });
+
+  it("nie pokazuje linku, ważności, kopiowania, maila ani zakładki linków", async () => {
+    renderWorkbench();
+    await screen.findByRole("button", { name: "Oznacz „CV Wysłane”" });
+    expect(screen.queryByText("Utwórz link do brandowanego CV")).toBeNull();
+    expect(screen.queryByLabelText("Ważność linku")).toBeNull();
+    expect(screen.queryByText(/Kopiuj link/)).toBeNull();
+    expect(screen.queryByText(/Mail do klienta/)).toBeNull();
+    expect(screen.queryByText(/Utwórz link \(30 dni\)/)).toBeNull();
+    expect(screen.queryByText("Linki i historia")).toBeNull();
+  });
 });

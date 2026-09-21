@@ -6,6 +6,7 @@ import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   Loader2,
   Sparkles,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import { cn } from "@/lib/utils";
 import {
   type CvContentMode,
   type RecruitmentOption,
+  CV_CONTENT_MODES,
   DEFAULT_CV_CONTENT_MODE,
   clientRuleRequirementProblems,
   extractErrorDetail,
@@ -35,6 +37,8 @@ import { useToast } from "@/components/Toast";
 import { ContentModeTiles } from "@/components/v2/cv-generator/ContentModeTiles";
 import { RecruitmentCombobox } from "@/components/v2/cv-generator/RecruitmentCombobox";
 import { LanguageTiles } from "@/components/v2/LanguageTiles";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { CHAMPION_HINT, GenerationChecklist, OptionalMark, RequiredMark } from "@/components/v2/cv-generator/FieldMarks";
 
 interface Props {
   open: boolean;
@@ -162,9 +166,13 @@ export function CVGeneratorV2({
   }, [forcedLanguage, language]);
 
   // Tryb obróbki: zablokowany = wymuszony; domyślny = zaznaczany RAZ na klienta.
-  const lockedMode = centrallyManaged ? centralPolicy.data!.content_mode : activeRule?.content_mode_locked ? activeRule.content_mode : null;
-  const defaultMode = activeRule?.content_mode ?? null;
-  const ruleClientId = activeRule?.client_id ?? null;
+  // Polityka centralna: tryb domyślny i edytowalny, chyba że serwer jawnie
+  // zgłosi blokadę (brak pola = blokada, jak w starszym backendzie).
+  const lockedMode = centrallyManaged
+    ? (centralPolicy.data!.content_mode_locked === false ? null : centralPolicy.data!.content_mode)
+    : activeRule?.content_mode_locked ? activeRule.content_mode : null;
+  const defaultMode = centrallyManaged ? centralPolicy.data!.content_mode : activeRule?.content_mode ?? null;
+  const ruleClientId = centrallyManaged ? (selectedRecruitment?.client_id ?? null) : activeRule?.client_id ?? null;
   const lastDefaultedClient = useRef<number | null>(null);
   useEffect(() => {
     if (lockedMode && lockedMode !== contentMode) setContentMode(lockedMode);
@@ -188,13 +196,43 @@ export function CVGeneratorV2({
     [activeRule, selectedRecruitment, projectRef],
   );
 
-  const canSubmit =
-    !centralPolicy.isPending && !centralPolicy.isError &&
-    !!selectedRecruitment &&
-    !!sourceSelection.selected &&
-    selectedRecruitment.ready &&
-    (centrallyManaged || !consentRequired || !!consentKey) &&
-    requirementProblems.length === 0;
+  const consentBlocksGeneration = !centrallyManaged && consentRequired;
+  const consentNeededForSending =
+    !consentBlocksGeneration &&
+    (consentRequired || !!centralPolicy.data?.effective_policy?.requires_rodo_consent_block);
+  const showConsentField = consentBlocksGeneration || consentNeededForSending || !!consentKey;
+  const [moreOptionsOpen, setMoreOptionsOpen] = useState(false);
+  useEffect(() => { if (blindCv) setMoreOptionsOpen(true); }, [blindCv]);
+  const requiresEnCopy = centrallyManaged && !!centralPolicy.data?.effective_policy?.requires_en_copy;
+  const contentModeSummary = !lockedMode
+    ? null
+    : centrallyManaged
+      ? `automatyczna — ${lockedMode === "tailored" ? "dopasowanie do Profilu Championa" : "CV ogólne, neutralna redakcja"}, ustala reguła klienta.`
+      : `${CV_CONTENT_MODES.find((option) => option.value === lockedMode)?.label ?? lockedMode} — ustala reguła klienta.`;
+  const languageSummary = requiresEnCopy
+    ? "PL + EN — powstaną dwie wersje. Druga wersja oznacza dodatkowe zużycie AI."
+    : forcedLanguage
+      ? `${forcedLanguage.toUpperCase()} (wymóg klienta).`
+      : null;
+
+  // Braki — jedno źródło dla przycisku i listy przy nim (te same warunki co
+  // dotychczasowe `canSubmit`).
+  const missingItems = useMemo(() => {
+    const items: string[] = [];
+    if (centralPolicy.isPending) items.push("Zasady CV klienta — wczytuję…");
+    if (centralPolicy.isError) items.push("Zasady CV klienta — nie udało się ich odczytać, odśwież stronę.");
+    if (!selectedRecruitment) items.push("Proces rekrutacyjny");
+    else if (!selectedRecruitment.ready) {
+      items.push(...(selectedRecruitment.missing_inputs?.length
+        ? selectedRecruitment.missing_inputs
+        : ["Komplet źródeł w rekrutacji (szczegóły wyżej)"]));
+    }
+    if (!sourceSelection.selected) items.push("Źródłowe CV — wybierz plik do generacji");
+    if (consentBlocksGeneration && !consentKey) items.push("Zrzut zgody kandydata (RODO)");
+    items.push(...requirementProblems);
+    return items;
+  }, [centralPolicy.isPending, centralPolicy.isError, selectedRecruitment, sourceSelection.selected, consentBlocksGeneration, consentKey, requirementProblems]);
+  const canSubmit = missingItems.length === 0;
 
   const generateMut = useMutation({
     mutationFn: async () => {
@@ -364,7 +402,7 @@ export function CVGeneratorV2({
         ) : (
           <div className="flex-1 min-h-0 space-y-5 p-6 overflow-y-auto">
             <div>
-              <Label className="mb-2 block">Proces rekrutacyjny</Label>
+              <Label className="mb-2 block">Proces rekrutacyjny<RequiredMark /></Label>
               {recruitmentsQuery.isLoading ? (
                 <div className="text-xs text-muted-foreground">
                   Ładowanie rekrutacji…
@@ -403,6 +441,9 @@ export function CVGeneratorV2({
                         ok={selectedRecruitment.has_notes}
                       />
                     </div>
+                  )}
+                  {selectedRecruitment && selectedRecruitment.required_champion !== true && (
+                    <p className="mt-1 text-xs text-muted-foreground">{CHAMPION_HINT}</p>
                   )}
                   {selectedRecruitment && !selectedRecruitment.ready && (
                     <div
@@ -443,7 +484,7 @@ export function CVGeneratorV2({
             {needsProjectRef && (
               <div>
                 <Label className="mb-2 block" htmlFor="cvgen-modal-project">
-                  Numer / nazwa projektu
+                  Numer / nazwa projektu{activeRule?.require_project_ref ? <RequiredMark /> : <OptionalMark />}
                 </Label>
                 <Input
                   id="cvgen-modal-project"
@@ -459,58 +500,73 @@ export function CVGeneratorV2({
               </div>
             )}
 
-            <div>
-              <Label className="mb-2 block">Obróbka treści</Label>
-              <div className={lockedMode ? "opacity-60" : undefined}>
+            {lockedMode || languageSummary || centrallyManaged ? (
+              <div className="space-y-1 rounded-md border border-border bg-muted/30 p-3 text-sm" data-testid="cvgen-modal-policy-summary">
+                {contentModeSummary ? <p><span className="font-medium">Obróbka treści:</span> {contentModeSummary}</p> : null}
+                {languageSummary ? (
+                  <p><span className="font-medium">Język CV:</span> {languageSummary}</p>
+                ) : centrallyManaged ? (
+                  <p>{`Powstanie 1 wersja: ${language.toUpperCase()}.`}</p>
+                ) : null}
+                {centrallyManaged ? <p className="text-muted-foreground">Po generacji sprawdź dokumenty i potwierdź gotowość pakietu w Generatorze CV.</p> : null}
+              </div>
+            ) : null}
+
+            {!lockedMode ? (
+              <div>
+                <Label className="mb-2 block">Obróbka treści</Label>
                 <ContentModeTiles
+                  compact
                   value={contentMode}
                   onChange={setContentMode}
-                  disabled={!!lockedMode}
+                  hints={selectedRecruitment && !selectedRecruitment.has_champion ? { tailored: "wymaga Championa — bez niego powstanie Redakcja" } : undefined}
                 />
               </div>
-              {lockedMode ? (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {centrallyManaged ? "Tryb ustalony automatycznie na podstawie kontekstu rekrutacji i centralnych zasad klienta." : "Tryb ustalony w regułach CV klienta — wybór jest zablokowany."}
-                </p>
-              ) : null}
-            </div>
+            ) : null}
 
-            <div className="grid grid-cols-2 gap-4">
+            {!forcedLanguage ? (
               <div>
                 <Label className="mb-2 block">Język</Label>
-                <div className={forcedLanguage ? "opacity-60" : undefined}>
-                  <LanguageTiles
-                    value={language}
-                    onChange={setLanguage}
-                    ariaLabel="Język"
-                    disabled={!!forcedLanguage}
-                  />
-                </div>
-                {forcedLanguage ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Ten klient wymaga CV w języku{" "}
-                    {forcedLanguage === "en" ? "angielskim" : "polskim"}.
-                  </p>
-                ) : null}
+                <LanguageTiles
+                  value={language}
+                  onChange={setLanguage}
+                  ariaLabel="Język"
+                />
               </div>
-              <div>
-                <Label className="mb-2 block">Blind CV</Label>
-                <div className="flex items-center justify-between gap-2 rounded-md border border-border p-2">
-                  <span className="text-xs text-muted-foreground">
-                    Anonimizuj imię, nazwisko i nazwy firm
-                  </span>
-                  <Switch checked={blindCv} onCheckedChange={setBlindCv} />
-                </div>
-              </div>
-            </div>
+            ) : null}
 
-            <ConsentScreenshotField
-              context={{ candidateId, stageId: selectedRecruitment?.stage_id, clientId: selectedRecruitment?.client_id, projectRef }}
-              value={consentKey}
-              onChange={(key: string | null) => setConsentKey(key)}
-              required={consentRequired}
-              disabled={generateMut.isPending}
-            />
+            {showConsentField ? (
+              <ConsentScreenshotField
+                context={{ candidateId, stageId: selectedRecruitment?.stage_id, clientId: selectedRecruitment?.client_id, projectRef }}
+                value={consentKey}
+                onChange={(key: string | null) => setConsentKey(key)}
+                required={consentBlocksGeneration}
+                requiredForSending={consentNeededForSending}
+                disabled={generateMut.isPending}
+              />
+            ) : null}
+
+            <Collapsible open={moreOptionsOpen} onOpenChange={setMoreOptionsOpen}>
+              <CollapsibleTrigger asChild>
+                <button type="button" className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground">
+                  <ChevronDown className={cn("h-4 w-4 transition-transform", moreOptionsOpen && "rotate-180")} aria-hidden />
+                  Więcej opcji
+                  <OptionalMark />
+                  {blindCv ? <span className="ml-1 text-xs font-normal">(Blind CV włączone)</span> : null}
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-3">
+                <div className="flex items-center justify-between gap-2 rounded-md border border-border p-2">
+                  <div>
+                    <Label className="block" htmlFor="cvgen-modal-blind">Blind CV</Label>
+                    <span className="text-xs text-muted-foreground">
+                      Anonimizuj imię, nazwisko i nazwy firm
+                    </span>
+                  </div>
+                  <Switch id="cvgen-modal-blind" checked={blindCv} onCheckedChange={setBlindCv} />
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
 
             {requirementProblems.length > 0 && (
               <Alert
@@ -538,15 +594,19 @@ export function CVGeneratorV2({
 
             {centralPolicy.isPending && <p role="status">Wczytuję zasady CV i liczbę wersji językowych…</p>}
             {centralPolicy.isError && <p role="alert">Nie udało się odczytać zasad CV. Odśwież stronę przed generacją.</p>}
-            {centrallyManaged && <div className="rounded-md border border-border p-3 text-sm"><p>{centralPolicy.data?.content_mode === "tailored" ? "Automatyczne dopasowanie do Profilu Championa" : "CV ogólne — neutralna redakcja"}</p><p>{centralPolicy.data?.effective_policy?.requires_en_copy ? "Powstaną 2 wersje: PL i EN. Druga wersja oznacza dodatkowe zużycie AI." : `Powstanie 1 wersja: ${language.toUpperCase()}.`}</p><p>Po generacji sprawdź dokumenty i potwierdź gotowość pakietu w Generatorze CV.</p></div>}
             <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
-              <p className="text-xs text-muted-foreground">
-                {generateMut.isPending
-                  ? "Uruchamiam generację…"
-                  : "Generacja leci w tle (60–90 s) — CV trafi na listę „Wygenerowane CV”. Możesz zamknąć okno."}
-              </p>
+              <div className="min-w-0 space-y-1">
+                <GenerationChecklist id="cvgen-modal-checklist" missing={missingItems} />
+                <p className="text-xs text-muted-foreground">
+                  {generateMut.isPending
+                    ? "Uruchamiam generację…"
+                    : "Generacja leci w tle (60–90 s) — CV trafi na listę „Wygenerowane CV”. Możesz zamknąć okno."}
+                </p>
+              </div>
               <Button
                 size="md"
+                aria-describedby="cvgen-modal-checklist"
+                title={canSubmit ? undefined : `Do wygenerowania CV brakuje: ${missingItems.join("; ")}`}
                 disabled={!canSubmit || generateMut.isPending}
                 onClick={() => {
                   setError(null);

@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { Label } from "@/components/ui/label";
+import { RequiredMark } from "@/components/v2/cv-generator/FieldMarks";
 
 type CvSource = { id: number; filename: string; is_primary: boolean; uploaded_at: string | null };
 
@@ -32,7 +33,10 @@ export function CvSourcePicker({ selection }: { selection: ReturnType<typeof use
   const { query, selected, choose } = selection;
   return (
     <div className="space-y-2">
-      <Label htmlFor={id}>Plik do generacji</Label>
+      <div className="flex items-baseline">
+        <Label htmlFor={id}>Plik do generacji</Label>
+        <RequiredMark />
+      </div>
       <select id={id} className="w-full rounded-md border bg-background px-3 py-2 text-sm"
         value={selected?.id ?? ""} onChange={(event) => choose(event.target.value)}
         disabled={query.isLoading || query.isError}>

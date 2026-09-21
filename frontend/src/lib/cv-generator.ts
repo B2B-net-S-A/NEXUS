@@ -15,6 +15,13 @@ import { apiErrorMessage } from "@/lib/api-error";
  */
 export const CV_INTERACTIVE_UI_ENABLED = false;
 
+/**
+ * Linki do CV dla klienta (udostępnianie wygenerowanego / brandowanego CV,
+ * link do karty Championa w wysyłce, mail do klienta) — wyłączone 21.09.2026:
+ * CV nie są dziś wysyłane klientom przez NEXUS. Kod zostaje; powrót = `true`.
+ */
+export const CV_CLIENT_LINKS_UI_ENABLED = false;
+
 export type RecruitmentOption = {
   stage_id: number;
   job_id: number;
