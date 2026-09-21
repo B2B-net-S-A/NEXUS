@@ -22,6 +22,7 @@ request time. Real (non-stringized) annotations sidestep it. Same reason as
 ``cv_match_preview``.
 """
 
+import dataclasses
 import hashlib
 import json
 import logging
@@ -1850,10 +1851,13 @@ async def generate(
         effective_mode, getattr(client, "cv_content_mode_cap", None)
     )
 
+    mode_notice: str | None = None
     if central_policies.enabled():
+        # Central policies no longer lock the mode: the recruiter's choice is
+        # honoured; "tailored" without a Champion falls back with a notice.
         job = await db.get(Job, stage.job_id)
-        effective_mode = central_policies.automatic_mode(
-            job, getattr(client, "cv_content_mode_cap", None)
+        effective_mode, mode_notice = central_policies.resolve_mode(
+            payload.content_mode, job, getattr(client, "cv_content_mode_cap", None)
         )
 
     consent = _verified_consent(
@@ -1936,7 +1940,19 @@ async def generate(
     except StandaloneGenerationError as err:
         raise HTTPException(status_code=422, detail=err.message) from None
     if effective_mode == "tailored" and not source.has_champion:
-        _reject_missing_inputs(["Tryb dopasowany wymaga Profilu Championa."])
+        if central_policies.enabled():
+            # Never a 422 under central policies: fall back to a general CV
+            # and say so in the document warnings.
+            effective_mode = apply_content_mode_cap(
+                "polished", getattr(client, "cv_content_mode_cap", None)
+            )[0]
+            mode_notice = central_policies.MISSING_CHAMPION_NOTICE
+        else:
+            _reject_missing_inputs(["Tryb dopasowany wymaga Profilu Championa."])
+    if mode_notice:
+        source = dataclasses.replace(
+            source, source_warnings=(*source.source_warnings, mode_notice)
+        )
     _reject_missing_inputs(
         required_input_problems(
             rule_snapshot,
@@ -2098,6 +2114,9 @@ async def generate_from_upload(
     if champion_file is not None and champion_file.filename:
         champion_bytes = await champion_file.read(MAX_UPLOAD_BYTES + 1)
         champion_filename = champion_file.filename
+    uploaded_champion = champion_bytes is not None or bool(
+        (champion_profile_json or "").strip()
+    )
     from app.services.cv_generator_b2b.request_receipts import reserve_request
 
     receipt, previous = await reserve_request(
@@ -2135,6 +2154,7 @@ async def generate_from_upload(
             id=previous.id, status="processing", candidate_name=previous.candidate_name
         )
 
+    mode_notice: str | None = None
     # Sufit trybu treści obowiązuje teraz TAKŻE w uploadzie — o ile rekruter
     # wskazał klienta. Do tej pory ta ścieżka (99,9% ruchu) omijała go zawsze,
     # więc obietnica złożona klientowi działała dla 0,1% generacji.
@@ -2158,11 +2178,9 @@ async def generate_from_upload(
         effective_mode, _capped = apply_content_mode_cap(
             locked_mode, client.cv_content_mode_cap
         )
-        has_champion = bool(
-            champion_file is not None and champion_file.filename
-        ) or bool(
-            (must_requirements or "").strip() or (nice_requirements or "").strip()
-        )
+        # Manual MUST/NICE fields only fed interactive-CV tiles; they are not
+        # a Champion and do not satisfy "requires Champion".
+        has_champion = uploaded_champion
         _reject_missing_inputs(
             required_input_problems(
                 rule_snapshot,
@@ -2177,8 +2195,15 @@ async def generate_from_upload(
     if central_policies.enabled():
         rule = await resolve_client_rule(db, client_id)
         language = rule.cv_language or language
-        effective_mode = central_policies.automatic_mode(
-            job, getattr(client, "cv_content_mode_cap", None)
+        # The recruiter's mode is honoured (never locked). "Tailored" uses
+        # an uploaded Champion (as before central policies, when 49% of CVs
+        # were tailored) or the recruitment's complete Champion; without one
+        # it falls back to polished with a notice. The cap still wins.
+        effective_mode, mode_notice = central_policies.resolve_mode(
+            content_mode,
+            job,
+            getattr(client, "cv_content_mode_cap", None),
+            uploaded_champion=uploaded_champion,
         )
 
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
@@ -2196,9 +2221,7 @@ async def generate_from_upload(
     )
 
     imported_profile = None
-    if not central_policies.enabled() and (
-        champion_profile_json or (champion_bytes and effective_mode == "tailored")
-    ):
+    if champion_profile_json or (champion_bytes and effective_mode == "tailored"):
         from app.services.champion_intake import prepare_profile, enforce_operation
         from types import SimpleNamespace
 
@@ -2235,18 +2258,32 @@ async def generate_from_upload(
                 imported_profile = None
             await champion_file.seek(0)
         if effective_mode == "tailored" and imported_profile is not None:
-            enforce_operation(
-                SimpleNamespace(champion_profile=imported_profile), "cv", force=True
-            )
+            try:
+                enforce_operation(
+                    SimpleNamespace(champion_profile=imported_profile),
+                    "cv",
+                    force=True,
+                )
+            except HTTPException:
+                if not central_policies.enabled():
+                    raise
+                # Central policies never refuse the upload: an incomplete
+                # uploaded Champion yields a general CV and a notice, not a 422.
+                effective_mode = apply_content_mode_cap(
+                    "polished", getattr(client, "cv_content_mode_cap", None)
+                )[0]
+                imported_profile = None
+                champion_bytes = None
+                champion_filename = None
+                mode_notice = central_policies.MISSING_CHAMPION_NOTICE
 
     if central_policies.enabled():
-        imported_profile = (
-            getattr(job, "champion_profile", None)
-            if effective_mode == "tailored"
-            else None
-        )
-        champion_bytes = None
-        champion_filename = None
+        if not uploaded_champion:
+            imported_profile = (
+                getattr(job, "champion_profile", None)
+                if effective_mode == "tailored"
+                else None
+            )
         if job is not None:
             position = job.title or position
 
@@ -2265,6 +2302,7 @@ async def generate_from_upload(
         client_rule=snapshot_rule(rule),
         position=position or "",
         project_ref=project_ref or "",
+        source_warnings=(mode_notice,) if mode_notice else (),
     )
 
     try:
@@ -3200,6 +3238,9 @@ async def effective_central_policy(
     current_user: CandidateDocumentAccess,
     client_id: Optional[int] = None,
     stage_id: Optional[int] = None,
+    # Upload path: a Champion DOCX attached to the form makes the upload
+    # tailored, exactly as `generate-upload` will decide.
+    uploaded_champion: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
     if not central_policies.enabled():
@@ -3219,6 +3260,13 @@ async def effective_central_policy(
     rule = await resolve_client_rule(db, client_id)
     from app.services.cv_packages import pko_job_reference
 
+    content_mode, content_mode_notice = central_policies.automatic_mode_decision(
+        job,
+        getattr(client, "cv_content_mode_cap", None),
+        uploaded_champion=uploaded_champion,
+        policy=rule.managed_policy,
+    )
+
     return {
         "project_ref": pko_job_reference(job)
         if rule.requires_rodo_consent_block
@@ -3226,9 +3274,12 @@ async def effective_central_policy(
         "managed": True,
         "effective_policy": rule.managed_policy,
         "publication_version": rule.version,
-        "content_mode": central_policies.automatic_mode(
-            job, getattr(client, "cv_content_mode_cap", None)
-        ),
+        # Default the form preselects; the recruiter may change it (never
+        # locked since 21.09.2026). `content_mode` kept for older clients.
+        "content_mode": content_mode,
+        "default_mode": content_mode,
+        "content_mode_locked": False,
+        "content_mode_notice": content_mode_notice,
     }
 
 

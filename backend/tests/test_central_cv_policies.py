@@ -24,7 +24,7 @@ def test_catalog_contract(client_id, language, bilingual):
     assert snapshot.auto_second_language == bilingual
     assert snapshot.requires_en_copy == bilingual
     assert snapshot.max_roles is None
-    assert snapshot.why_points_max == 4
+    assert snapshot.why_points_max is None
     assert snapshot.notes is None
     assert snapshot.generator_instructions is None
 

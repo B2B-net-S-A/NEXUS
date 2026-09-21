@@ -617,9 +617,18 @@ async def lifespan(app: FastAPI):
     from app.services.cv_generator_b2b import central_policies
 
     if central_policies.enabled():
-        async with AsyncSessionLocal() as _cv_policy_db:
-            published = await central_policies.synchronize(_cv_policy_db)
-        logger.info("Central CV policies: published=%d", published)
+        # Never block startup: affected clients get 503 "oczekuje na
+        # synchronizację" from `resolve` until the next successful start.
+        try:
+            async with AsyncSessionLocal() as _cv_policy_db:
+                published = await central_policies.synchronize(_cv_policy_db)
+            logger.info("Central CV policies: published=%d", published)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Central CV policies synchronization failed: %s",
+                type(exc).__name__,
+                exc_info=True,
+            )
 
     # Startup: ensure Qdrant collection exists
     import asyncio

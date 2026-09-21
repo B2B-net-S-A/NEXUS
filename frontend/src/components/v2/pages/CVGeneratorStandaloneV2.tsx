@@ -458,7 +458,7 @@ export function CVGeneratorStandaloneV2({
   // rekrutacji (serwer i tak liczy go sam), w uploadzie — z pickera.
   const effectiveClientId =
     mode === "new" ? (selectedRecruitment?.client_id ?? null) : (uploadRecruitment ? (uploadRecruitment.client_id ?? null) : (uploadClient?.id ?? null));
-  const centralPolicy = useCentralPolicy(effectiveClientId, mode === "new" ? selectedRecruitment?.stage_id : uploadRecruitment?.stage_id);
+  const centralPolicy = useCentralPolicy(effectiveClientId, mode === "new" ? selectedRecruitment?.stage_id : uploadRecruitment?.stage_id, mode === "old" && !!championFile);
   const centrallyManaged = !!centralPolicy.data?.managed;
   useEffect(() => { if (centralPolicy.data?.project_ref) setProjectRef(centralPolicy.data.project_ref); }, [centralPolicy.data?.project_ref]);
   const cvRuleQuery = useClientCvRule(effectiveClientId);
@@ -483,7 +483,18 @@ export function CVGeneratorStandaloneV2({
   // Zablokowany tryb: kafelki wyłączone, wartość wymuszona (serwer i tak
   // nadpisuje). Domyślny tryb: zaznaczany RAZ przy zmianie klienta — potem
   // rekruter może go zmienić.
-  const lockedMode = centrallyManaged ? centralPolicy.data!.content_mode : activeRule?.content_mode_locked
+  // Centralne reguły (21.09.2026): tryb NIE jest blokowany. Serwer podaje
+  // tryb domyślny („Pod rekrutację”, a bez Championa — Redakcja z
+  // komunikatem); zaznaczamy go RAZ na każdą zmianę tej wartości, potem
+  // rekruter może go zmienić.
+  const centralDefaultMode = centrallyManaged ? (centralPolicy.data?.default_mode ?? centralPolicy.data?.content_mode ?? null) : null;
+  const lastCentralDefault = useRef<string | null>(null);
+  useEffect(() => {
+    if (!centralDefaultMode || lastCentralDefault.current === centralDefaultMode) return;
+    lastCentralDefault.current = centralDefaultMode;
+    setContentMode(centralDefaultMode);
+  }, [centralDefaultMode]);
+  const lockedMode = centrallyManaged ? null : activeRule?.content_mode_locked
     ? activeRule.content_mode
     : null;
   const defaultMode = activeRule?.content_mode ?? null;
@@ -1206,7 +1217,8 @@ export function CVGeneratorStandaloneV2({
       {centralPolicy.isPending && <p role="status">Wczytuję zasady CV i liczbę wersji językowych…</p>}
       {centralPolicy.isError && <p role="alert">Nie udało się odczytać zasad CV. Odśwież stronę przed generacją.</p>}
       {centrallyManaged && <div className="mt-4 rounded-md border border-border bg-muted/30 p-3 text-sm">
-        <p className="font-medium">{centralPolicy.data?.content_mode === "tailored" ? "Automatyczne dopasowanie do kompletnego Profilu Championa" : "CV ogólne — neutralna redakcja z zachowaniem faktów"}</p>
+        <p className="font-medium">{contentMode === "tailored" ? "Pod rekrutację — dopasowanie do Profilu Championa" : "CV bez dopasowania do rekrutacji — neutralna redakcja z zachowaniem faktów"}</p>
+        {centralPolicy.data?.content_mode_notice && <p role="note" className="text-warning">{centralPolicy.data.content_mode_notice}</p>}
         <p>{centralPolicy.data?.effective_policy?.requires_en_copy ? "Powstaną 2 wersje: PL i EN. Druga wersja oznacza dodatkowe zużycie AI." : `Powstanie 1 wersja: ${(forcedLanguage || language).toUpperCase()}.`}</p>
         <p>Nazwa: {centralPolicy.data?.effective_policy?.filename_pattern}</p>
         {centralPolicy.data?.effective_policy?.require_recommendation_note && <p>Przed udostępnieniem wskaż istniejącą notatkę rekomendacyjną dla kandydata i rekrutacji.</p>}

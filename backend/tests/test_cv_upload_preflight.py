@@ -122,7 +122,8 @@ def test_image_pdf_is_left_for_ocr_in_the_worker(monkeypatch):
     extractor.assert_not_called()
 
 
-def test_required_unrecognized_champion_blocks_but_manual_requirements_satisfy():
+def test_required_unrecognized_champion_blocks_and_manual_requirements_do_not_satisfy():
+    # Manual MUST/NICE only fed interactive tiles; they are not a Champion.
     args = dict(
         cv_bytes=docx(),
         cv_filename="CV.docx",
@@ -132,8 +133,12 @@ def test_required_unrecognized_champion_blocks_but_manual_requirements_satisfy()
     )
     with pytest.raises(StandaloneGenerationError, match="nie rozpoznano"):
         preflight.validate_upload_inputs(UploadGenerationInput(**args))
+    with pytest.raises(StandaloneGenerationError, match="nie rozpoznano"):
+        preflight.validate_upload_inputs(
+            UploadGenerationInput(**args, must_requirements="Python")
+        )
     preflight.validate_upload_inputs(
-        UploadGenerationInput(**args, must_requirements="Python")
+        UploadGenerationInput(**args, champion_profile={"stack": {"must": ["Python"]}})
     )
     args["client_rule"] = None
     preflight.validate_upload_inputs(UploadGenerationInput(**args))
