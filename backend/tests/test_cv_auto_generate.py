@@ -737,4 +737,4 @@ def test_entrypoint_mirrors_migration_0335():
     migration = (
         _BACKEND / "alembic" / "versions" / "0335_recruitment_automations.py"
     ).read_text("utf-8")
-    assert 'down_revision = "0333_job_proposals"' in migration
+    assert 'down_revision = "0334_my_people"' in migration
