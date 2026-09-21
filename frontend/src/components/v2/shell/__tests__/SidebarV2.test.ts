@@ -1,18 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import { isNavItemActive, visibleNavSections } from "@/components/v2/shell/SidebarV2";
+import { visibleNavHrefs, visiblePrimaryNav } from "@/lib/nav-registry";
 import type { UserRole } from "@/store/auth";
 
 // Czysta funkcja zamiast renderu — sidebar ciągnie `next/navigation`,
 // react-query, `api` i `useUiStore`, a przedmiotem testu jest wyłącznie zbiór
-// pozycji, które dana rola w ogóle dostaje.
+// pozycji, które dana rola w ogóle dostaje. Od rekrutacji v3 menu to szyna
+// + panel „Więcej": „kto co widzi" pytamy o SUMĘ (`visibleNavHrefs`), a to,
+// co stoi na szynie, ma osobną asercję niżej.
 function hrefs(role: UserRole): string[] {
-  return visibleNavSections(
+  return visibleNavHrefs(
     { role, roles: [role] },
     { contactQueueEnabled: false },
-  )
-    .flatMap((section) => section.items.map((item) => item.href))
-    .sort();
+  ).sort();
 }
 
 describe("visibleNavSections", () => {
@@ -200,6 +201,39 @@ describe("visibleNavSections", () => {
     ).flatMap((s) => s.items.map((i) => i.href));
     expect(tcmWithQueue).toContain("/candidates/contact-queue");
     expect(hrefs("recruiter")).not.toContain("/candidates/contact-queue");
+  });
+});
+
+describe("szyna vs „Więcej”", () => {
+  const primary = (role: UserRole) =>
+    visiblePrimaryNav({ role, roles: [role] }, { contactQueueEnabled: true }).map(
+      (item) => item.href,
+    );
+
+  it("rzadziej używane moduły NIE stoją na szynie, ale nadal są w menu", () => {
+    for (const href of [
+      "/cv-generator",
+      "/contracts/b2b-generator",
+      "/talents",
+      "/sourcing/marketplace",
+      "/applications",
+      "/cortex",
+      "/help",
+      "/settings",
+    ]) {
+      expect(primary("recruiter")).not.toContain(href);
+      expect(hrefs("recruiter")).toContain(href);
+    }
+  });
+
+  it("viewer `user` ma na szynie tylko to, do czego ma dostęp", () => {
+    expect(primary("user")).toEqual([
+      "/dashboard",
+      "/jobs",
+      "/talent-radar",
+      "/calendar",
+      "/insights",
+    ]);
   });
 });
 

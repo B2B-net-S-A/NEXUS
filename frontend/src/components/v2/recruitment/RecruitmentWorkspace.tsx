@@ -27,6 +27,7 @@ import type { VirtualTableKey } from "@/components/ds/VirtualTable";
 import { Button } from "@/components/ui/button";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
+import { useFillAvailableHeight } from "@/hooks/useFillAvailableHeight";
 import {
   usePipelineMove,
   type PipelineRejectionReasonOption,
@@ -160,6 +161,9 @@ export function RecruitmentWorkspace({
 
   // ── Dane ────────────────────────────────────────────────────────────
   const contactFeature = useCandidateContactFeature();
+  // Podłoga 320 px: przy niskim oknie (ok. 690 px) z banerem zostaje ~440 px —
+  // wyższa podłoga dokładałaby drugi pasek przewijania strony.
+  const fill = useFillAvailableHeight(320);
   // Ten sam klucz co strona rekrutacji (`id` z adresu jest stringiem) — jedno
   // zapytanie karmi pierścienie tablicy i kolumnę „Dop." tabeli.
   const scoresQuery = useQuery({
@@ -430,7 +434,13 @@ export function RecruitmentWorkspace({
             }
           />
 
-          <div className="flex h-[max(460px,calc(100vh_-_300px))] min-h-0 flex-col gap-3.5 lg:flex-row">
+          <div
+            ref={fill.ref}
+            // Wysokość z pomiaru (do dolnej krawędzi okna); klasa `h-[…]` to
+            // wyłącznie wartość sprzed pierwszego pomiaru.
+            style={fill.height != null ? { height: fill.height } : undefined}
+            className="flex h-[max(460px,calc(100vh_-_300px))] min-h-0 flex-col gap-3.5 lg:flex-row"
+          >
             <section aria-label="Lista osób" className="min-h-0 min-w-0 flex-1">
               <PeopleTable
                 variant="process"

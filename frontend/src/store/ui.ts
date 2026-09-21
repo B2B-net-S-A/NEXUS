@@ -32,6 +32,12 @@ interface UiStoreState {
   /** Ukryj postać „Moi ludzie" w rogu — wejście zostaje w topbarze. */
   hideMyPeopleBuddy: boolean;
   setHideMyPeopleBuddy: (v: boolean) => void;
+  /**
+   * Kolumna filtrów listy rekrutacji (rekrutacja v3). `null` = użytkownik nie
+   * wybierał — obowiązuje domyślne wg szerokości okna (rozwinięta od `2xl`,
+   * zwinięta poniżej), liczone CSS-em, bez migotania przy hydracji.
+   */
+  jobsFiltersCollapsed: boolean | null;
   setDensity: (d: UiDensity) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (v: boolean) => void;
@@ -41,6 +47,7 @@ interface UiStoreState {
   clearColumnPreference: (entity: string) => void;
   setHideEmptyKanbanColumns: (v: boolean) => void;
   setCandidatesPageSize: (v: CandidatesPageSize) => void;
+  setJobsFiltersCollapsed: (v: boolean) => void;
 }
 
 export const useUiStore = create<UiStoreState>()(
@@ -55,6 +62,7 @@ export const useUiStore = create<UiStoreState>()(
       candidatesPageSize: 50,
       hideMyPeopleBuddy: false,
       setHideMyPeopleBuddy: (hideMyPeopleBuddy) => set({ hideMyPeopleBuddy }),
+      jobsFiltersCollapsed: null,
       setDensity: (density) => set({ density }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
@@ -73,10 +81,12 @@ export const useUiStore = create<UiStoreState>()(
       setHideEmptyKanbanColumns: (hideEmptyKanbanColumns) =>
         set({ hideEmptyKanbanColumns }),
       setCandidatesPageSize: (candidatesPageSize) => set({ candidatesPageSize }),
+      setJobsFiltersCollapsed: (jobsFiltersCollapsed) =>
+        set({ jobsFiltersCollapsed }),
     }),
     {
       name: "nexus-ui",
-      version: 6,
+      version: 7,
       migrate: (persisted, fromVersion) => {
         let state = (persisted ?? {}) as Partial<UiStoreState>;
         if (fromVersion < 2) {
@@ -104,6 +114,14 @@ export const useUiStore = create<UiStoreState>()(
           // Jednorazowy reset — do v5 `false` nie odróżniało świadomego wyboru
           // od starej wartości domyślnej.
           state = { ...state, hideEmptyKanbanColumns: true, candidatesPageSize: 50 };
+        }
+        if (fromVersion < 7) {
+          // Rekrutacja v3: zwijana kolumna filtrów listy rekrutacji. `null` =
+          // brak wyboru → domyślne wg szerokości okna.
+          state = {
+            ...state,
+            jobsFiltersCollapsed: state.jobsFiltersCollapsed ?? null,
+          };
         }
         return state;
       },

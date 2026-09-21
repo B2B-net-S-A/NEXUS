@@ -2067,6 +2067,72 @@ Raport naprawczy: `docs/manual-audit-2026-09-13-remediation-report.md`.
   treścią. Nie przywracaj nagłówka sekcji zależnego od stanu ani różnych
   `space-y` — klik trafiał w sąsiedni link (B57).
 
+## Rekrutacja v3: lista `/jobs` i „Więcej" w pasku bocznym
+
+Decyzje właściciela: pulpit i topbar bez zmian, **nic nie znika** — zmienia się
+miejsce, nie zbiór funkcji.
+
+- **Klik w wiersz listy OTWIERA rekrutację** (`router.push`, Ctrl/⌘ = nowa
+  karta; tytuł zostaje linkiem). Dok gotowości (`JobReadinessDock`, wariant
+  `list`) otwiera ikona **„Podgląd"** w wierszu i na kafelku (`aria-label`
+  „Podgląd: {tytuł}", `aria-pressed`), zamyka „Zamknij podgląd". Dok nie
+  otwiera się sam, a wiersz `can_open === false` nie ma ani nawigacji, ani
+  podglądu (dok pytałby o detal → 403). Gałąź kafelka z `pointer-events-none`
+  + `aria-disabled` czyta test backendu — nie ruszaj jej.
+- **Domyślny zakres zależy od ROLI** — jedna czysta reguła
+  `defaultMineForUser` (`lib/jobs-url-filters.ts`, semantyka `hasRole`):
+  recruiter, sourcer, tac, talent_community_manager, delivery_lead → „Moje"
+  (także konto wielorolowe z którąkolwiek z nich); admin, head_of_recruitment,
+  finance i viewer `user` → „Wszystkie". Jawne `mine=0/1` w adresie ZAWSZE
+  wygrywa; do adresu trafia tylko zakres INNY niż domyślny roli (czyste `/jobs`
+  znaczy więc co innego u rekrutera i u admina — link „dla kolegi" wysyłaj
+  z jawnym zakresem). Stan to NADPISANIA (`mineOverride`/`sortOverride`,
+  `null` = bez wyboru), bo rolę znamy dopiero po hydratacji store'u; zapytanie
+  listy ma `enabled: hydrated`. „Wyczyść" = `null` = domyślny roli. Pusty
+  zakres „Moje" ma własny komunikat z „Pokaż wszystkie" — to nie pusta baza.
+  Zakres NIE liczy się do „Filtry (N)". Licznik „Wszystkie" to pole `all`
+  z `/api/jobs/quick-counts`.
+- **Sortowanie domyślne zależy od zakresu** (`defaultSortForScope`):
+  „Moje" → `sort=attention` („Wymaga uwagi"), „Wszystkie" → `newest`. Do
+  adresu trafia tylko sortowanie INNE niż domyślne zakresu. Zmiana zakresu
+  przestawia sortowanie wyłącznie wtedy, gdy nie było wybrane jawnie.
+- **Kolumna filtrów jest zwijana** (`store/ui.ts` v7, `jobsFiltersCollapsed`):
+  `null` = brak wyboru → rozwinięta od `2xl`, zwinięta poniżej — liczone
+  CSS-em (`hidden 2xl:block`), bez migotania przy hydracji. W trybie `null`
+  otwarty dok chowa filtry (trzy kolumny ucinały tabeli termin i akcje).
+- **Kolumny:** „Etapy" = sześć liczb z `stage_columns`, grupowanych TĄ SAMĄ
+  funkcją co lejek (`buildStageFunnel`; tooltip `funnelGroupStages` wymienia
+  pełne nazwy etapów szablonu), „Wymaga ruchu" = `needs_action_count`
+  (0 = wyszarzone „na bieżąco", 1–4 ostrzeżenie, 5+ czerwone; brak pola =
+  kreska, nie zero) i „+N propozycji" (`open_proposals_count`, ukryte przy 0)
+  → `/jobs/{id}?tab=people&seg=proposals`. Komórki: `v2/jobs/JobListCells.tsx`.
+- **Słownik tego ekranu:** „Moje rekrutacje", „Brak opiekuna TAC"
+  (`tac_id IS NULL`; celowo NIE „Brak właściciela" — kolumna „Właściciel"
+  pokazuje `primary_owner`, więc wiersz mówiłby „Marta K." i „brak
+  właściciela" naraz). „Potrzebny search", „Priority Work"
+  i nazwy techniczne zostają.
+- **Klucze react-query listy buduje `jobsListQueryKey` /
+  `jobsQuickCountsQueryKey`** — harness `/preview/jobs-list-v3` zasiewa cache
+  tymi samymi funkcjami, a zapytania doku odcina interceptorem (zero sieci).
+- **Pasek boczny = płaska szyna + „Więcej".** `placement` w
+  `lib/nav-registry.ts` jest PER WPIS, niezależne od roli (kto co widzi,
+  rozstrzyga wyłącznie bramka widoczności): na szynie rdzeń każdej persony
+  w kolejności `NAV_PRIMARY_ORDER` (Dashboard, Rekrutacje, Kandydaci,
+  Wyszukiwarka, Talent Radar, Kalendarz, Klienci, Kontrakty, Zamówienia
+  z maila, Finanse, Insights), reszta w grupach `NAV_MORE_GROUPS`. Nowy wpis
+  `more` MUSI mieć `moreGroup`, nowy `primary` — miejsce w `NAV_PRIMARY_ORDER`
+  (pilnuje `nav-registry.test.ts`). „Kto co widzi" testuj przez
+  `visibleNavHrefs` (szyna + „Więcej"); `visibleNavSections` zostaje widokiem
+  sekcjami całego menu. Paleta ⌘K nadal listuje wszystko.
+- **„Więcej"** (`v2/shell/SidebarMore.tsx`): Radix Popover w trybie modalnym
+  (pułapka fokusu, Esc, fokus wraca na przycisk, strzałki chodzą po linkach),
+  licznik = SUMA liczników w środku, bieżąca strona spod „Więcej" zapala
+  przycisk. Przycisk używa `navItemClassName` (ta sama wysokość co linki) i
+  stoi za stałym slotem z kreską — inwariant `SIDEBAR_VERTICAL_LAYOUT` (B57)
+  zmierzony: pozycje Y identyczne przy 60 i 240 px. Przy otwartym panelu
+  `mouseleave` szyny jest ignorowany, a zamknięcie zdejmuje hover. Szuflada
+  mobilna renderuje grupy w linii (`SidebarMoreInline`), bez nakładki.
+
 ## Kanban bez bramek (decyzja Artura, 17.09.2026)
 
 Tylko 0,4 % ruchów w pipeline powstawało w NEXUSIE (131 z 32 872 w 90 dniach —
