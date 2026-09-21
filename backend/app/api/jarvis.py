@@ -19,6 +19,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, time, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, AsyncIterator, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -31,7 +32,7 @@ from app.api.deps import CurrentUser
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import client_ip_key, limiter, user_or_ip_key
-from app.core.scheduling import business_today
+from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.ai_feature import AIFeatureKey
 from app.models.jarvis import JarvisAction, JarvisConversation, JarvisMessage
 from app.services.ai_models import model_for
@@ -145,8 +146,12 @@ def _roles(user: Any) -> list[str]:
 
 
 def _today_start_utc() -> datetime:
+    # Północ dnia firmowego (Warszawa) przeliczona na UTC. Dawniej data
+    # warszawska dostawała strefę UTC, więc między 22:00 a 24:00 UTC początek
+    # dnia wypadał w przyszłości i licznik pokazywał 0.
     today = business_today()
-    return datetime.combine(today, time.min).replace(tzinfo=timezone.utc)
+    local_midnight = datetime.combine(today, time.min, tzinfo=ZoneInfo(DEFAULT_TZ))
+    return local_midnight.astimezone(timezone.utc)
 
 
 async def _used_today(db: AsyncSession, user_id: int, *, web: bool = False) -> int:
