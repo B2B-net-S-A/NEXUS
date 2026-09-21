@@ -7,6 +7,8 @@
  * sprawdza wtedy własną kopię.
  */
 
+import { hasRole, type UserRole } from "@/store/auth";
+
 export const JOB_STATUS_VALUES = ["draft", "published", "closed"] as const;
 
 export type JobStatusFilterValue = (typeof JOB_STATUS_VALUES)[number];
@@ -33,16 +35,49 @@ export function initialStatusFromUrl(
 }
 
 /**
- * Zakres listy: „Moje" jest DOMYŚLNE (rekrutacja v3) — adres bez parametru
- * `mine` otwiera rekrutacje zalogowanej osoby. `?mine=0` to jawne „Wszystkie"
- * i musi dać się zapisać w adresie, inaczej F5 albo link wysłany koledze
- * wracałby po cichu do „Moich". `?mine=1` (stare linki) nadal znaczy „Moje".
- *
- * Pulpit linkuje `mine=0` właśnie po to, żeby pokazać wszystkie rekrutacje —
- * potraktowanie samej obecności parametru jako `true` odwróciłoby sens linku.
+ * Role, które PROWADZĄ rekrutacje — dla nich lista startuje w „Moich".
+ * Admin, Head of Recruitment, Finanse i viewer `user` nadzorują albo czytają
+ * całość i zwykle nie mają własnych rekrutacji, więc startują we „Wszystkich"
+ * (decyzja właściciela, rekrutacja v3).
  */
-export function initialMineFromUrl(params: URLSearchParams): boolean {
-  return params.get("mine") !== "0";
+export const RECRUITMENT_RUNNING_ROLES: readonly UserRole[] = [
+  "recruiter",
+  "sourcer",
+  "tac",
+  "talent_community_manager",
+  "delivery_lead",
+];
+
+type ScopeUser = Parameters<typeof hasRole>[0];
+
+/**
+ * Domyślny zakres listy dla użytkownika: `true` = „Moje". Semantyka `hasRole`
+ * — konto wielorolowe z KTÓRĄKOLWIEK z ról prowadzących dostaje „Moje".
+ * Brak użytkownika (store jeszcze niezhydratowany) = „Wszystkie".
+ */
+export function defaultMineForUser(user: ScopeUser): boolean {
+  return hasRole(user, ...RECRUITMENT_RUNNING_ROLES);
+}
+
+/**
+ * Jawny zakres z adresu: `?mine=1` → „Moje", `?mine=0` → „Wszystkie",
+ * brak/inna wartość → `null` („bez wyboru — obowiązuje domyślny roli").
+ * Jawny parametr ZAWSZE wygrywa z domyślnym: pulpit linkuje `mine=0`, żeby
+ * pokazać wszystkie rekrutacje, a link wysłany koledze ma otworzyć to samo.
+ */
+export function mineOverrideFromUrl(params: URLSearchParams): boolean | null {
+  const raw = params.get("mine");
+  if (raw === "1") return true;
+  if (raw === "0") return false;
+  return null;
+}
+
+/** Zakres faktycznie obowiązujący: jawny wybór albo domyślny roli. */
+export function resolveMine(
+  override: boolean | null,
+  user: ScopeUser,
+): boolean {
+  return override ?? defaultMineForUser(user);
 }
 
 // ── Typ, termin, sortowanie (M03-B01) ─────────────────────────────────────
@@ -117,16 +152,16 @@ export function initialDeadlineFromUrl(
 }
 
 /**
- * `?sort=oldest` → `"oldest"`; brak/nieznana wartość → domyślne sortowanie
- * zakresu odczytanego z TEGO SAMEGO adresu (`defaultSortForScope`).
+ * `?sort=oldest` → `"oldest"`; brak/nieznana wartość → `null`, czyli
+ * „sortowanie idzie za zakresem" (`defaultSortForScope`).
  */
-export function initialSortFromUrl(params: URLSearchParams): JobSortFilterValue {
-  return pickFromUrl(
-    params,
-    "sort",
-    JOB_SORT_VALUES,
-    defaultSortForScope(initialMineFromUrl(params)),
-  );
+export function sortOverrideFromUrl(
+  params: URLSearchParams,
+): JobSortFilterValue | null {
+  const raw = params.get("sort");
+  return raw != null && (JOB_SORT_VALUES as readonly string[]).includes(raw)
+    ? (raw as JobSortFilterValue)
+    : null;
 }
 
 // ── Pozostałe filtry (audyt 17.09.2026) ────────────────────────────────────
@@ -183,6 +218,8 @@ export function initialPriorityWorkFromUrl(
 export interface JobsListUrlState {
   status: readonly JobStatusFilterValue[];
   mine: boolean;
+  /** Domyślny zakres ROLI (`defaultMineForUser`) — jego nie zapisujemy. */
+  defaultMine: boolean;
   type: JobTypeFilterValue;
   deadline: JobDeadlinePreset;
   sort: JobSortFilterValue;
@@ -219,9 +256,9 @@ const MANAGED_KEYS = [
  * więc lista bez zawężeń ma czysty adres `/jobs`. Parametry, którymi ta lista
  * nie zarządza, zostają nietknięte.
  *
- * Zakres: „Moje" jest domyślne, więc w adresie zapisujemy wyłącznie jawne
- * „Wszystkie" (`mine=0`). Sortowanie: tylko gdy różni się od domyślnego dla
- * bieżącego zakresu.
+ * Zakres trafia do adresu tylko wtedy, gdy różni się od domyślnego ROLI
+ * (`mine=0` u rekrutera, `mine=1` u admina). Sortowanie: tylko gdy różni się
+ * od domyślnego dla bieżącego zakresu.
  */
 export function encodeJobsListUrl(
   state: JobsListUrlState,
@@ -230,7 +267,7 @@ export function encodeJobsListUrl(
   const next = new URLSearchParams(current);
   for (const key of MANAGED_KEYS) next.delete(key);
   for (const status of state.status) next.append("status", status);
-  if (!state.mine) next.set("mine", "0");
+  if (state.mine !== state.defaultMine) next.set("mine", state.mine ? "1" : "0");
   if (state.type !== "all") next.set("type", state.type);
   if (state.deadline !== "any") next.set("deadline", state.deadline);
   if (state.sort !== defaultSortForScope(state.mine)) next.set("sort", state.sort);

@@ -4,7 +4,7 @@
  * Zakres tego pliku: NOWA logika tego PR-a — filtry „Szybkie" wysyłają te
  * SAME parametry zapytania co dziś (tylko przeniesione z rzędu pigułek do
  * pionowej listy w aside), `include_stage_counts` jest zawsze włączone, a
- * „Brak właściciela" zawęża WYŁĄCZNIE bieżącą, już wczytaną stronę (bez
+ * „Brak opiekuna TAC" zawęża WYŁĄCZNIE bieżącą, już wczytaną stronę (bez
  * dodatkowego zapytania). `JobReadinessDock` jest zamockowany — ma własny
  * plik testów i nie jest przedmiotem tego pliku.
  */
@@ -15,6 +15,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { JobsListV2 } from "@/components/v2/pages/JobsListV2";
+import { useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 
 const getMock = vi.fn();
@@ -97,6 +98,18 @@ vi.mock("@/components/v2/jobs/JobReadinessDock", () => ({
     </div>
   ),
 }));
+
+// Domyślny zakres zależy od roli, a zapytanie czeka na hydratację store'u.
+function signInAs(...roles: string[]) {
+  useAuthStore.setState({
+    user: { id: 7, name: "Test", email: "t@example.com", role: roles[0], roles } as never,
+    hydrated: true,
+  });
+}
+
+beforeEach(() => {
+  signInAs("recruiter");
+});
 
 function jobRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -287,7 +300,7 @@ describe("JobsListV2 — filtry Szybkie → parametry zapytania", () => {
   });
 });
 
-describe("JobsListV2 — „Brak właściciela” filtruje SERWER", () => {
+describe("JobsListV2 — „Brak opiekuna TAC” filtruje SERWER", () => {
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
@@ -305,9 +318,9 @@ describe("JobsListV2 — „Brak właściciela” filtruje SERWER", () => {
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
 
     // `getByRole("button", ...)`, NIE `getByText` — wiersz bez opiekuna TAC ma
-    // WŁASNY badge „Brak właściciela" (status), więc tekst wychodzi dwukrotnie.
+    // WŁASNY badge „Brak opiekuna TAC" (status), więc tekst wychodzi dwukrotnie.
     await user.click(
-      screen.getByRole("button", { name: /Brak właściciela/ }),
+      screen.getByRole("button", { name: /Brak opiekuna TAC/ }),
     );
 
     await waitFor(() => {
@@ -333,7 +346,7 @@ describe("JobsListV2 — liczniki filtrów „Szybkie”", () => {
       [/Niezamknięte/, "318"],
       [/Potrzebny search/, "41"],
       [/Aktywni w searchu/, "27"],
-      [/Brak właściciela/, "63"],
+      [/Brak opiekuna TAC/, "63"],
       [/Deadline ≤ 7 dni/, "9"],
     ];
     for (const [label, count] of expected) {
@@ -542,6 +555,63 @@ describe("JobsListV2 — zakres „Moje | Wszystkie” i sortowanie", () => {
       expect(latestParams()).toMatchObject({ sort: "newest" });
     });
     await waitFor(() => expect(window.location.search).toBe("?mine=0"));
+  });
+
+  it("admin / HoR / Finanse / viewer startują we „Wszystkich”, od najnowszej", async () => {
+    for (const role of ["admin", "head_of_recruitment", "finance", "user"]) {
+      getMock.mockClear();
+      signInAs(role);
+      const view = renderJobs();
+      await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+      expect(latestParams().mine, role).toBeUndefined();
+      expect(latestParams(), role).toMatchObject({ sort: "newest" });
+      expect(window.location.search).toBe("");
+      view.unmount();
+    }
+  });
+
+  it("konto wielorolowe z rolą prowadzącą dostaje „Moje”", async () => {
+    signInAs("admin", "delivery_lead");
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(latestParams()).toMatchObject({ mine: true, sort: "attention" });
+  });
+
+  it("jawne „Moje” u admina zapisuje mine=1, a „Wyczyść” wraca do domyślnego roli", async () => {
+    signInAs("admin");
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    const scope = within(screen.getByRole("group", { name: "Zakres rekrutacji" }));
+
+    await user.click(scope.getByRole("button", { name: /Moje/ }));
+    await waitFor(() =>
+      expect(latestParams()).toMatchObject({ mine: true, sort: "attention" }),
+    );
+    await waitFor(() => expect(window.location.search).toBe("?mine=1"));
+
+    await user.click(screen.getByText("Wyczyść"));
+    await waitFor(() => expect(latestParams().mine).toBeUndefined());
+    await waitFor(() => expect(window.location.search).toBe(""));
+  });
+
+  it("„Wyczyść” u rekrutera wraca do „Moich”", async () => {
+    const user = userEvent.setup();
+    renderJobs();
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    const scope = within(screen.getByRole("group", { name: "Zakres rekrutacji" }));
+    await user.click(scope.getByRole("button", { name: /Wszystkie/ }));
+    await waitFor(() => expect(latestParams().mine).toBeUndefined());
+
+    await user.click(screen.getByText("Wyczyść"));
+    await waitFor(() => expect(latestParams()).toMatchObject({ mine: true }));
+  });
+
+  it("nie pyta API przed hydratacją store'u (rola jeszcze nieznana)", async () => {
+    useAuthStore.setState({ user: null, hydrated: false });
+    renderJobs();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(jobsCalls()).toHaveLength(0);
   });
 
   it("pusty zakres „Moje” nie udaje pustej bazy — proponuje „Pokaż wszystkie”", async () => {

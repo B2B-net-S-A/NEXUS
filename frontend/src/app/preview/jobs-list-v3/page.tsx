@@ -243,8 +243,10 @@ export default function JobsListV3Preview() {
         id: 1,
         email: "preview@example.com",
         name: "Preview Rekruter",
+        // Wielorolowe: `admin` daje „Nowa rekrutacja", `recruiter` — domyślny
+        // zakres „Moje" (`defaultMineForUser`).
         role: "admin",
-        roles: ["admin"],
+        roles: ["admin", "recruiter"],
         profile_completed: true,
         profile_completed_at: null,
         force_password_change: false,

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { JobsListV2 } from "@/components/v2/pages/JobsListV2"
+import { useAuthStore } from "@/store/auth"
 import { useUiStore } from "@/store/ui"
 
 const getMock = vi.fn()
@@ -115,6 +116,11 @@ describe("JobsListV2 Priority Work", () => {
   })
 
   beforeEach(() => {
+    // Zapytanie listy czeka na hydratację store'u (domyślny zakres wg roli).
+    useAuthStore.setState({
+      user: { id: 7, name: "Test", email: "t@example.com", role: "recruiter", roles: ["recruiter"] } as never,
+      hydrated: true,
+    })
     getMock.mockReset()
     useUiStore.setState({ jobsView: "tiles" })
     getMock.mockResolvedValue({
@@ -171,7 +177,7 @@ describe("JobsListV2 Priority Work", () => {
     })
   })
 
-  it("opisuje brak TAC-a jako brak właściciela rekrutacji, nie primary klienta", async () => {
+  it("opisuje brak TAC-a jako brak opiekuna TAC, nie primary klienta", async () => {
     getMock.mockResolvedValue({
       data: {
         items: [
@@ -194,7 +200,7 @@ describe("JobsListV2 Priority Work", () => {
 
     // Filtr w kolumnie „Szybkie" i plakietka w wierszu — ta sama etykieta.
     expect(
-      (await screen.findAllByText("Brak właściciela")).length,
+      (await screen.findAllByText("Brak opiekuna TAC")).length,
     ).toBeGreaterThan(0)
     expect(screen.queryByText(/primary TAC/i)).not.toBeInTheDocument()
   })

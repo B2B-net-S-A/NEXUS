@@ -2079,15 +2079,23 @@ miejsce, nie zbiór funkcji.
   otwiera się sam, a wiersz `can_open === false` nie ma ani nawigacji, ani
   podglądu (dok pytałby o detal → 403). Gałąź kafelka z `pointer-events-none`
   + `aria-disabled` czyta test backendu — nie ruszaj jej.
-- **Zakres: „Moje" jest DOMYŚLNE.** Adres bez `mine` = „Moje"; jawne
-  „Wszystkie" to `mine=0` i MUSI zostać w adresie (F5, link dla kolegi);
-  stare `mine=1` nadal działa. Pusty zakres „Moje" ma własny komunikat
-  z „Pokaż wszystkie" — to nie jest pusta baza. Zakres NIE liczy się do
-  „Filtry (N)". Licznik „Wszystkie" to pole `all` z `/api/jobs/quick-counts`.
+- **Domyślny zakres zależy od ROLI** — jedna czysta reguła
+  `defaultMineForUser` (`lib/jobs-url-filters.ts`, semantyka `hasRole`):
+  recruiter, sourcer, tac, talent_community_manager, delivery_lead → „Moje"
+  (także konto wielorolowe z którąkolwiek z nich); admin, head_of_recruitment,
+  finance i viewer `user` → „Wszystkie". Jawne `mine=0/1` w adresie ZAWSZE
+  wygrywa; do adresu trafia tylko zakres INNY niż domyślny roli (czyste `/jobs`
+  znaczy więc co innego u rekrutera i u admina — link „dla kolegi" wysyłaj
+  z jawnym zakresem). Stan to NADPISANIA (`mineOverride`/`sortOverride`,
+  `null` = bez wyboru), bo rolę znamy dopiero po hydratacji store'u; zapytanie
+  listy ma `enabled: hydrated`. „Wyczyść" = `null` = domyślny roli. Pusty
+  zakres „Moje" ma własny komunikat z „Pokaż wszystkie" — to nie pusta baza.
+  Zakres NIE liczy się do „Filtry (N)". Licznik „Wszystkie" to pole `all`
+  z `/api/jobs/quick-counts`.
 - **Sortowanie domyślne zależy od zakresu** (`defaultSortForScope`):
   „Moje" → `sort=attention` („Wymaga uwagi"), „Wszystkie" → `newest`. Do
   adresu trafia tylko sortowanie INNE niż domyślne zakresu. Zmiana zakresu
-  przestawia sortowanie wyłącznie wtedy, gdy stało na wartości domyślnej.
+  przestawia sortowanie wyłącznie wtedy, gdy nie było wybrane jawnie.
 - **Kolumna filtrów jest zwijana** (`store/ui.ts` v7, `jobsFiltersCollapsed`):
   `null` = brak wyboru → rozwinięta od `2xl`, zwinięta poniżej — liczone
   CSS-em (`hidden 2xl:block`), bez migotania przy hydracji. W trybie `null`
@@ -2098,9 +2106,10 @@ miejsce, nie zbiór funkcji.
   (0 = wyszarzone „na bieżąco", 1–4 ostrzeżenie, 5+ czerwone; brak pola =
   kreska, nie zero) i „+N propozycji" (`open_proposals_count`, ukryte przy 0)
   → `/jobs/{id}?tab=people&seg=proposals`. Komórki: `v2/jobs/JobListCells.tsx`.
-- **Słownik tego ekranu:** „Moje rekrutacje", „Brak właściciela" (= brak
-  opiekuna TAC, `tac_id IS NULL`; NIE to samo co „Nieprzypisany" w kolumnie
-  Właściciel = brak `primary_owner`). „Potrzebny search", „Priority Work"
+- **Słownik tego ekranu:** „Moje rekrutacje", „Brak opiekuna TAC"
+  (`tac_id IS NULL`; celowo NIE „Brak właściciela" — kolumna „Właściciel"
+  pokazuje `primary_owner`, więc wiersz mówiłby „Marta K." i „brak
+  właściciela" naraz). „Potrzebny search", „Priority Work"
   i nazwy techniczne zostają.
 - **Klucze react-query listy buduje `jobsListQueryKey` /
   `jobsQuickCountsQueryKey`** — harness `/preview/jobs-list-v3` zasiewa cache

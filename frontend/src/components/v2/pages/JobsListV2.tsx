@@ -66,17 +66,20 @@ import {
   JOB_STATUS_OPTIONS,
   type JobStatusValue,
 } from "@/lib/filter-options";
+import { useAuthStore } from "@/store/auth";
 import { useUiStore } from "@/store/ui";
 import {
+  defaultMineForUser,
   defaultSortForScope,
   encodeJobsListUrl,
   initialDeadlineFromUrl,
   initialFlagFromUrl,
   initialIdsFromUrl,
-  initialMineFromUrl,
+  mineOverrideFromUrl,
+  resolveMine,
   initialPriorityWorkFromUrl,
   initialSearchFromUrl,
-  initialSortFromUrl,
+  sortOverrideFromUrl,
   initialStatusFromUrl,
   initialTypeFromUrl,
   type JobDeadlinePreset,
@@ -411,7 +414,7 @@ function QuickFilterRow({
         )}
       />
       {/* Etykieta ZAWIJA się zamiast ucinać: przy czterocyfrowym liczniku
-          („Brak właściciela 4236") `truncate` zostawiał „Brak ownera req…",
+          („Brak opiekuna TAC 4236") `truncate` zostawiał „Brak ownera req…",
           a to ta sama etykieta, po której użytkownik rozpoznaje filtr. */}
       <span className="min-w-0 flex-1 leading-snug">{label}</span>
       {count != null && (
@@ -645,7 +648,7 @@ function JobsTable({
                   {job.tac_id == null && (
                     <span title="Rekrutacja nie ma jawnie wybranego opiekuna TAC">
                       <Badge size="sm" variant="warning">
-                        Brak właściciela
+                        Brak opiekuna TAC
                       </Badge>
                     </span>
                   )}
@@ -759,7 +762,17 @@ export function JobsListV2() {
   const [typeFilter, setTypeFilter] = useState<JobType>(() =>
     initialTypeFromUrl(searchParams),
   );
-  const [mine, setMine] = useState(() => initialMineFromUrl(searchParams));
+  // Zakres i sortowanie trzymamy jako NADPISANIA (`null` = „bez wyboru"):
+  // zakres obowiązujący to jawny wybór albo domyślny roli, a sortowanie bez
+  // wyboru idzie za zakresem. Dzięki temu lista reaguje na hydratację store'u
+  // (rola znana dopiero po mount) bez gubienia jawnego `mine=0/1` z adresu.
+  const authUser = useAuthStore((s) => s.user);
+  const authHydrated = useAuthStore((s) => s.hydrated);
+  const defaultMine = defaultMineForUser(authUser);
+  const [mineOverride, setMineOverride] = useState<boolean | null>(() =>
+    mineOverrideFromUrl(searchParams),
+  );
+  const mine = resolveMine(mineOverride, authUser);
   const [responsibleIds, setResponsibleIds] = useState<number[]>(() =>
     initialIdsFromUrl(searchParams, "responsible"),
   );
@@ -781,7 +794,7 @@ export function JobsListV2() {
   const [openOnly, setOpenOnly] = useState(() =>
     initialFlagFromUrl(searchParams, "open"),
   );
-  // "Brak właściciela" jako FILTR (nie tylko badge, makieta „01 Lista").
+  // "Brak opiekuna TAC" jako FILTR (nie tylko badge, makieta „01 Lista").
   // Od 09.2026 filtruje SERWER (`owner_missing` w `GET /api/jobs`, predykat
   // `tac_id IS NULL`). Wcześniej zawężał wyłącznie już wczytaną stronę, więc
   // „63" obok nazwy filtra opisywało dwadzieścia widocznych wierszy, a nie
@@ -789,9 +802,10 @@ export function JobsListV2() {
   const [noOwnerOnly, setNoOwnerOnly] = useState(() =>
     initialFlagFromUrl(searchParams, "no_owner"),
   );
-  const [sort, setSort] = useState<JobSortValue>(() =>
-    initialSortFromUrl(searchParams),
+  const [sortOverride, setSort] = useState<JobSortValue | null>(() =>
+    sortOverrideFromUrl(searchParams),
   );
+  const sort: JobSortValue = sortOverride ?? defaultSortForScope(mine);
   const [priorityWorkFilter, setPriorityWorkFilter] =
     useState<PriorityWorkFilter>(() => initialPriorityWorkFromUrl(searchParams));
   const [page, setPage] = useState(1);
@@ -823,12 +837,10 @@ export function JobsListV2() {
   }, []);
   const filtersMode: FiltersMode =
     filtersPref == null ? "auto" : filtersPref ? "collapsed" : "expanded";
-  // Zmiana zakresu przestawia sortowanie TYLKO wtedy, gdy stało na wartości
-  // domyślnej poprzedniego zakresu — świadomy wybór użytkownika zostaje.
-  const changeScope = (nextMine: boolean) => {
-    if (nextMine === mine) return;
-    if (sort === defaultSortForScope(mine)) setSort(defaultSortForScope(nextMine));
-    setMine(nextMine);
+  // Sortowanie bez jawnego wyboru samo idzie za zakresem; jawnie wybrane
+  // zostaje. `null` = powrót do domyślnego zakresu roli („Wyczyść").
+  const changeScope = (nextMine: boolean | null) => {
+    setMineOverride(nextMine);
     setPage(1);
   };
 
@@ -844,6 +856,7 @@ export function JobsListV2() {
       {
         status: statusFilter,
         mine,
+        defaultMine,
         type: typeFilter,
         deadline: deadlinePreset,
         sort,
@@ -866,6 +879,7 @@ export function JobsListV2() {
   }, [
     statusFilter,
     mine,
+    defaultMine,
     typeFilter,
     deadlinePreset,
     sort,
@@ -888,7 +902,17 @@ export function JobsListV2() {
   const canCreateJob = can["job.create"];
   const canInvite = can["invite_link.create"];
 
-  const { data, isLoading, isError, isSuccess, error, refetch } = useQuery({
+  const {
+    data,
+    isLoading: queryLoading,
+    isError,
+    isSuccess,
+    error,
+    refetch,
+  } = useQuery({
+    // Domyślny zakres zależy od ROLI, a tę znamy dopiero po hydratacji store'u
+    // — bez bramki rekruter strzelałby najpierw we „Wszystkie", potem w „Moje".
+    enabled: authHydrated,
     queryKey: jobsListQueryKey({
       search: debouncedSearch,
       status: statusFilter,
@@ -957,6 +981,7 @@ export function JobsListV2() {
     staleTime: 60_000,
   });
 
+  const isLoading = queryLoading || !authHydrated;
   const items = data?.items ?? [];
   const total = data?.total ?? 0;
   const pageSize = data?.page_size ?? 20;
@@ -1082,8 +1107,8 @@ export function JobsListV2() {
   const resetFilters = () => {
     setTypeFilter("all");
     setStatusFilter([]);
-    // „Wyczyść" wraca do stanu DOMYŚLNEGO listy, a ten to „Moje".
-    changeScope(true);
+    // „Wyczyść" wraca do domyślnego zakresu ROLI (`defaultMineForUser`).
+    changeScope(null);
     setResponsibleIds([]);
     setClientIds([]);
     setCcIds([]);
@@ -1226,7 +1251,7 @@ export function JobsListV2() {
                 setNoOwnerOnly((p) => !p);
                 setPage(1);
               }}
-              label="Brak właściciela"
+              label="Brak opiekuna TAC"
               count={quickCounts?.owner_missing}
               tone="danger"
               title="Bez opiekuna TAC"
@@ -1741,7 +1766,7 @@ export function JobsListV2() {
                           {job.tac_id == null && (
                             <span title="Rekrutacja nie ma jawnie wybranego opiekuna TAC">
                               <Badge size="sm" variant="warning">
-                                Brak właściciela
+                                Brak opiekuna TAC
                               </Badge>
                             </span>
                           )}
