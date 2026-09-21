@@ -240,3 +240,18 @@ test("a refused start keeps the run on screen; re-reading it dismisses the refus
   await waitFor(() => expect(result.current.error).toBeNull());
   expect(result.current.data?.run_id).toBe("kept");
 });
+
+test("adopt podpina istniejący przegląd tylko wtedy, gdy żaden nie jest wybrany", async () => {
+  vi.mocked(candidateSearchApi.page).mockResolvedValue({
+    run_id: "srv", state: "complete", versions: {},
+    counts: { population: 1, pending: 0, evaluated: 1, failed: 0, eligible: 1, excluded: 0, needs_verification: 0 },
+    results: [],
+  } as never);
+  const { result } = renderHook(() => useFullCandidateSearch(), { wrapper: Wrapper });
+  act(() => result.current.adopt("srv"));
+  expect(result.current.runId).toBe("srv");
+  await waitFor(() => expect(candidateSearchApi.page).toHaveBeenCalledWith("srv", expect.anything(), expect.anything()));
+  act(() => result.current.adopt("other"));
+  expect(result.current.runId).toBe("srv");
+  expect(candidateSearchApi.start).not.toHaveBeenCalled();
+});
