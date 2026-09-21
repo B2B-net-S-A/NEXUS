@@ -2,8 +2,10 @@
  * Podpowiedzi stawki i dostępności z notatek (`suggestions` w odpowiedzi
  * `GET /api/pipeline/stages/{id}/screening`, backend: `screening_suggestions.py`).
  *
- * Serwer niczego nie zapisuje i my też nie: „Użyj" wypełnia pole formularza
- * tak, jakby rekruter je wpisał, a do bazy trafia dopiero zwykłym zapisem.
+ * Serwer niczego nie zapisuje. Stawka: „Użyj" wypełnia pole formularza, a do
+ * bazy trafia dopiero przy ruchu. Dostępność: „Użyj" to jawny zapis w PROFILU
+ * kandydata (`availabilityProfilePatch`) — nigdy w „Notatkach rekrutera",
+ * które widzi klient w share portalu.
  */
 
 import type { RateUnit } from "@/lib/api";
@@ -91,15 +93,36 @@ export function availabilitySuggestionText(
   return parts.length ? parts.join(" · ") : null;
 }
 
-const AVAILABILITY_PREFIX = "Dostępność (z notatek): ";
+const IMMEDIATE = /^(dost[eę]pn[yae]?\s+)?(od\s+(razu|zaraz)|natychmiast|immediately|asap)[.!]?$/i;
+
+function localIsoDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
 
 /**
- * Arkusz nie ma osobnego pola dostępności — trafia ona do „Notatek rekrutera".
- * Dopisujemy linię (nigdy nie nadpisujemy tekstu) i nie dublujemy jej.
+ * Co „Użyj" zapisałoby w PROFILU kandydata — albo `null`, gdy podpowiedzi nie
+ * da się pewnie przełożyć na pola profilu.
+ *
+ * Pewne są dwa przypadki: data ISO (`available_from`) i jednoznaczne „od razu"
+ * (= dzisiejsza data; tabela pokazuje datę dziś/minioną jako „od razu").
+ * `availability_status` profilu to postawa wobec ofert („aktywnie szuka"),
+ * nie termin — nigdy go stąd nie ustawiamy. „Za 2 tygodnie", okres
+ * wypowiedzenia itp. wymagają człowieka: chip bez „Użyj", z linkiem do profilu.
  */
-export function notesWithAvailability(notes: string, availabilityText: string): string {
-  const line = `${AVAILABILITY_PREFIX}${availabilityText}`;
-  if (notes.includes(line)) return notes;
-  const base = notes.trimEnd();
-  return base ? `${base}\n${line}` : line;
+export function availabilityProfilePatch(
+  availability: ScreeningAvailabilitySuggestion,
+  today: Date = new Date(),
+): { availability_date: string } | null {
+  const from = availability.available_from?.trim();
+  if (from) {
+    const match = ISO_DATE.exec(from);
+    if (!match) return null;
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    const valid = date.getMonth() === Number(match[2]) - 1 && date.getDate() === Number(match[3]);
+    return valid ? { availability_date: `${match[1]}-${match[2]}-${match[3]}` } : null;
+  }
+  if (availability.notice_period?.trim()) return null;
+  const raw = availability.raw?.trim();
+  return raw && IMMEDIATE.test(raw) ? { availability_date: localIsoDate(today) } : null;
 }

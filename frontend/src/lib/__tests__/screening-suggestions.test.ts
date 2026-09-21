@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  availabilityProfilePatch,
   availabilitySuggestionText,
   notedAtLabel,
-  notesWithAvailability,
   rateSuggestionFill,
   rateSuggestionLabel,
 } from "@/lib/screening-suggestions";
@@ -41,11 +41,18 @@ describe("screening-suggestions", () => {
     expect(availabilitySuggestionText(base)).toBeNull();
   });
 
-  it("dopisuje linię do notatek, nie nadpisuje i nie dubluje", () => {
-    const once = notesWithAvailability("Rozmowa po angielsku.\n", "od razu");
-    expect(once).toBe("Rozmowa po angielsku.\nDostępność (z notatek): od razu");
-    expect(notesWithAvailability(once, "od razu")).toBe(once);
-    expect(notesWithAvailability("", "od razu")).toBe("Dostępność (z notatek): od razu");
+  it("zapis w profilu tylko przy PEWNYM mapowaniu: data ISO albo jednoznaczne „od razu”", () => {
+    const base = { raw: null, notice_period: null, available_from: null, source_note_id: null, noted_at: null };
+    const today = new Date(2026, 8, 21, 15, 0);
+    expect(availabilityProfilePatch({ ...base, available_from: "2026-10-01" }, today)).toEqual({ availability_date: "2026-10-01" });
+    expect(availabilityProfilePatch({ ...base, raw: "Dostępny od razu" }, today)).toEqual({ availability_date: "2026-09-21" });
+    expect(availabilityProfilePatch({ ...base, raw: "ASAP" }, today)).toEqual({ availability_date: "2026-09-21" });
+    // Niepewne → człowiek uzupełnia w profilu.
+    expect(availabilityProfilePatch({ ...base, raw: "za 2 tygodnie" }, today)).toBeNull();
+    expect(availabilityProfilePatch({ ...base, raw: "od razu", notice_period: "1 miesiąc" }, today)).toBeNull();
+    expect(availabilityProfilePatch({ ...base, available_from: "październik" }, today)).toBeNull();
+    expect(availabilityProfilePatch({ ...base, available_from: "2026-02-31" }, today)).toBeNull();
+    expect(availabilityProfilePatch(base, today)).toBeNull();
   });
 
   it("data notatki tylko z ISO", () => {

@@ -3,15 +3,23 @@
 /**
  * Podpowiedzi „Z notatek: … — Użyj" pod polami stawki na stanowisku screeningu.
  *
- * Kliknięcie wyłącznie WYPEŁNIA pole (jak wpisanie z klawiatury): stawka idzie
- * do serwera dopiero przy ruchu na „Zweryfikowany", a dostępność — przy
- * zwykłym „Zapisz screening". Bez `rate` (w tym przy `rate_redacted`) chip
- * stawki nie istnieje: rola bez wglądu w stawki nie widzi nawet śladu kwoty.
+ * Stawka: kliknięcie wyłącznie WYPEŁNIA pole (jak wpisanie z klawiatury) —
+ * do serwera idzie dopiero przy ruchu na „Zweryfikowany". Bez `rate` (w tym
+ * przy `rate_redacted`) chip stawki nie istnieje: rola bez wglądu w stawki nie
+ * widzi nawet śladu kwoty.
+ *
+ * Dostępność: „Użyj" to JAWNY zapis w profilu kandydata (robi go rodzic).
+ * NIGDY nie dopisujemy jej do „Notatek rekrutera" — to pole widzi KLIENT
+ * w share portalu, a podpowiedź pochodzi z wewnętrznych notatek. Wartość,
+ * której nie da się pewnie przełożyć na pola profilu, dostaje link
+ * „uzupełnij w profilu" zamiast „Użyj".
  */
 
+import Link from "next/link";
 import { StickyNote } from "lucide-react";
 
 import {
+  availabilityProfilePatch,
   availabilitySuggestionText,
   notedAtLabel,
   rateSuggestionFill,
@@ -24,8 +32,11 @@ export interface ScreeningSuggestionChipsProps {
   suggestions: ScreeningSuggestions | null | undefined;
   disabled?: boolean;
   onUseRate: (fill: { rate: string; unit: RateUnit }) => void;
-  /** Brak = arkusz nie ma pola, do którego dałoby się wpisać dostępność. */
-  onUseAvailability?: (text: string) => void;
+  /** Zapis dostępności w PROFILU. Brak = użytkownik nie może edytować kandydata. */
+  onSaveAvailability?: (patch: { availability_date: string }) => void;
+  savingAvailability?: boolean;
+  /** Dokąd prowadzi „uzupełnij w profilu", gdy wartości nie da się zmapować. */
+  profileHref?: string;
 }
 
 function Chip({
@@ -33,11 +44,15 @@ function Chip({
   actionLabel,
   onUse,
   hint,
+  link,
+  busy = false,
 }: {
   text: string;
   actionLabel: string;
   onUse?: () => void;
   hint?: string;
+  link?: { href: string; label: string };
+  busy?: boolean;
 }) {
   return (
     <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] text-muted-foreground">
@@ -49,11 +64,16 @@ function Chip({
         <button
           type="button"
           onClick={onUse}
+          disabled={busy}
           aria-label={actionLabel}
-          className="shrink-0 font-semibold text-primary hover:underline"
+          className="shrink-0 font-semibold text-primary hover:underline disabled:opacity-60"
         >
-          Użyj
+          {busy ? "Zapisuję…" : "Użyj"}
         </button>
+      ) : link ? (
+        <Link href={link.href} className="shrink-0 font-semibold text-primary hover:underline">
+          {link.label}
+        </Link>
       ) : hint ? (
         <span className="shrink-0 italic">{hint}</span>
       ) : null}
@@ -65,7 +85,9 @@ export function ScreeningSuggestionChips({
   suggestions,
   disabled = false,
   onUseRate,
-  onUseAvailability,
+  onSaveAvailability,
+  savingAvailability = false,
+  profileHref,
 }: ScreeningSuggestionChipsProps) {
   const rate = suggestions?.rate_redacted ? undefined : suggestions?.rate;
   const availabilityText = suggestions?.availability
@@ -75,6 +97,9 @@ export function ScreeningSuggestionChips({
 
   const fill = rate ? rateSuggestionFill(rate) : null;
   const availabilityNoted = notedAtLabel(suggestions?.availability?.noted_at);
+  const availabilityPatch = suggestions?.availability
+    ? availabilityProfilePatch(suggestions.availability)
+    : null;
   return (
     <div className="flex flex-wrap gap-1.5" data-testid="screening-suggestions">
       {rate ? (
@@ -88,10 +113,16 @@ export function ScreeningSuggestionChips({
       {availabilityText ? (
         <Chip
           text={availabilityNoted ? `${availabilityText} · ${availabilityNoted}` : availabilityText}
-          actionLabel="Dopisz dostępność z notatek do notatek rekrutera"
+          actionLabel="Zapisz dostępność z notatek w profilu kandydata"
+          busy={savingAvailability}
           onUse={
-            !disabled && onUseAvailability
-              ? () => onUseAvailability(availabilityText)
+            !disabled && onSaveAvailability && availabilityPatch
+              ? () => onSaveAvailability(availabilityPatch)
+              : undefined
+          }
+          link={
+            !availabilityPatch && profileHref
+              ? { href: profileHref, label: "uzupełnij w profilu" }
               : undefined
           }
         />

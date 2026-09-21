@@ -4675,10 +4675,17 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   w `HistoryChatSlideOver` i `AutoCvSkipNotice` w sekcji CV panelu — nowy kod
   pominięcia dopisz do `SKIP_REASON_PL`, inaczej wyjdzie „powód: <kod>".
   Endpoint nie stronicuje: „Pokaż więcej" podnosi `limit` (sufit 100).
-  Podpowiedzi screeningu (`ScreeningSuggestionChips`) WYŁĄCZNIE wypełniają
-  pola: stawka → stan doku (idzie przy ruchu na „Zweryfikowany"), dostępność →
-  dopisana linia w „Notatkach rekrutera" (arkusz nie ma pola dostępności);
-  waluta inna niż PLN albo nieznana jednostka = chip bez „Użyj".
+  Podpowiedzi screeningu (`ScreeningSuggestionChips`): stawka WYŁĄCZNIE
+  wypełnia stan doku (idzie przy ruchu na „Zweryfikowany"); waluta inna niż
+  PLN albo nieznana jednostka = chip bez „Użyj". **Dostępność NIGDY nie trafia
+  do „Notatek rekrutera"** — to pole widzi KLIENT w share portalu, a podpowiedź
+  pochodzi z wewnętrznych notatek. „Użyj" to jawny zapis w PROFILU
+  (`PATCH /api/candidates/{id}` z `availability_date`, bramka `candidate.write`
+  — bez niej przycisku nie ma; toast + unieważnienie kanbana i kluczy
+  kandydata). Mapowanie ma JEDNO miejsce, `availabilityProfilePatch`: data ISO
+  albo jednoznaczne „od razu" (= dziś); `availability_status` to postawa wobec
+  ofert, nie termin — nie ustawiamy go. Reszta („za 2 tygodnie", okres
+  wypowiedzenia) = chip bez „Użyj" z linkiem „uzupełnij w profilu".
 
 ## NEXUS bez limitów AI (decyzja Artura, 17.09.2026)
 

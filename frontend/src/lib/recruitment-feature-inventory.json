@@ -663,7 +663,7 @@
   {
    "id": "screening.note-suggestions",
    "area": "screening",
-   "opis": "Podpowiedzi „Z notatek: … — Użyj” dla stawki i dostępności na stanowisku screeningu; wypełniają pola, zapis dopiero zwykłą ścieżką; bez chipa stawki przy `rate_redacted`",
+   "opis": "Podpowiedzi „Z notatek: … — Użyj” dla stawki i dostępności na stanowisku screeningu; stawka wypełnia pole (zapis przy ruchu), dostępność to jawny zapis w profilu kandydata (nigdy w notatkach widocznych dla klienta) albo link „uzupełnij w profilu”; bez chipa stawki przy `rate_redacted`",
    "file": "components/v2/jobs/ScreeningWorkbench.tsx",
    "marker": "ScreeningSuggestionChips",
    "v3_home": "panel → Screening → Stawka oczekiwana"

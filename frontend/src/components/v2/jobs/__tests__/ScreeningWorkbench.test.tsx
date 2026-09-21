@@ -18,11 +18,17 @@ const move = vi.fn();
 const getForStage = vi.fn();
 const submitScreening = vi.fn();
 const listForJob = vi.fn();
+const updateCandidate = vi.fn();
+const capability = vi.hoisted(() => ({ canWriteCandidate: true }));
+vi.mock("@/hooks/useCapability", () => ({
+  useCapability: () => capability.canWriteCandidate,
+}));
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: { get: vi.fn(), post: vi.fn() },
   pipelineApi: { move: (...a: unknown[]) => move(...a) },
+  candidatesApi: { update: (...a: unknown[]) => updateCandidate(...a) },
   screeningApi: {
     getForStage: (...a: unknown[]) => getForStage(...a),
     submit: (...a: unknown[]) => submitScreening(...a),
@@ -657,8 +663,10 @@ describe("ScreeningWorkbench — podpowiedzi z notatek (automaty 21.09.2026)", (
   };
 
   it.each([["full"], ["panel"]] as const)(
-    "układ %s: „Użyj” wypełnia pola i NICZEGO nie zapisuje",
+    "układ %s: stawka tylko wypełnia pole; dostępność to jawny zapis w PROFILU — notatki (widoczne dla klienta) nietknięte",
     async (layout) => {
+      capability.canWriteCandidate = true;
+      updateCandidate.mockResolvedValue({ data: {} });
       withSuggestions(SUGGESTIONS);
       renderWorkbench(layout === "panel" ? { layout, focusCandidateId: 111 } : {});
       const chips = await screen.findByTestId("screening-suggestions");
@@ -667,27 +675,66 @@ describe("ScreeningWorkbench — podpowiedzi z notatek (automaty 21.09.2026)", (
 
       await userEvent.click(within(chips).getByRole("button", { name: "Użyj stawki z notatek" }));
       expect(screen.getByLabelText("Kwota")).toHaveValue(175);
+      expect(updateCandidate).not.toHaveBeenCalled();
 
       await userEvent.click(
-        within(chips).getByRole("button", { name: /Dopisz dostępność z notatek/ }),
+        within(chips).getByRole("button", { name: "Zapisz dostępność z notatek w profilu kandydata" }),
       );
-      expect(screen.getByLabelText(/Notatki rekrutera/)).toHaveValue(
-        "Dostępność (z notatek): dostępny od razu",
+      await waitFor(() => expect(updateCandidate).toHaveBeenCalledOnce());
+      expect(updateCandidate.mock.calls[0][0]).toBe(111);
+      expect(updateCandidate.mock.calls[0][1]).toEqual({
+        availability_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      });
+      await waitFor(() =>
+        expect(showSuccess).toHaveBeenCalledWith("Zapisano dostępność w profilu kandydata"),
       );
-      // Pole notatek jest „brudne” jak po wpisaniu z klawiatury…
-      expect(screen.getAllByText(/Niezapisane zmiany/).length).toBeGreaterThan(0);
-      // …a do serwera nie poszło nic: ani arkusz, ani ruch.
+      // Pole widoczne dla klienta w share portalu NIGDY nie dostaje podpowiedzi.
+      expect(screen.getByLabelText(/Notatki rekrutera/)).toHaveValue("");
+      expect(screen.queryByText(/Niezapisane zmiany/)).not.toBeInTheDocument();
       expect(submitScreening).not.toHaveBeenCalled();
       expect(move).not.toHaveBeenCalled();
-      // Drugie kliknięcie nie dubluje linii.
-      await userEvent.click(
-        within(chips).getByRole("button", { name: /Dopisz dostępność z notatek/ }),
-      );
-      expect(screen.getByLabelText(/Notatki rekrutera/)).toHaveValue(
-        "Dostępność (z notatek): dostępny od razu",
-      );
     },
   );
+
+  it("dostępność nie do zmapowania: bez „Użyj”, z linkiem „uzupełnij w profilu”", async () => {
+    capability.canWriteCandidate = true;
+    withSuggestions({
+      rate_redacted: false,
+      availability: { ...SUGGESTIONS.availability, raw: "za 2 tygodnie od podpisania" },
+    });
+    renderWorkbench();
+    const chips = await screen.findByTestId("screening-suggestions");
+    expect(within(chips).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(chips).getByRole("link", { name: "uzupełnij w profilu" })).toHaveAttribute(
+      "href",
+      "/candidates/111",
+    );
+  });
+
+  it("bez prawa edycji kandydata chip dostępności nie ma „Użyj”", async () => {
+    capability.canWriteCandidate = false;
+    withSuggestions(SUGGESTIONS);
+    renderWorkbench();
+    const chips = await screen.findByTestId("screening-suggestions");
+    expect(chips).toHaveTextContent("dostępny od razu");
+    expect(
+      within(chips).queryByRole("button", { name: /Zapisz dostępność/ }),
+    ).not.toBeInTheDocument();
+    // Stawka zostaje — to pole formularza, nie zapis w profilu.
+    expect(within(chips).getByRole("button", { name: "Użyj stawki z notatek" })).toBeInTheDocument();
+    capability.canWriteCandidate = true;
+  });
+
+  it("nieudany zapis dostępności mówi o błędzie i niczego nie udaje", async () => {
+    capability.canWriteCandidate = true;
+    updateCandidate.mockRejectedValue({ response: { status: 403, data: { detail: "Brak uprawnień" } } });
+    withSuggestions(SUGGESTIONS);
+    renderWorkbench();
+    const chips = await screen.findByTestId("screening-suggestions");
+    await userEvent.click(within(chips).getByRole("button", { name: /Zapisz dostępność/ }));
+    await waitFor(() => expect(showError).toHaveBeenCalledWith("Brak uprawnień"));
+    expect(showSuccess).not.toHaveBeenCalled();
+  });
 
   it("wypełniona stawka idzie dopiero zwykłym ruchem na „Zweryfikowany”", async () => {
     withSuggestions(SUGGESTIONS);
