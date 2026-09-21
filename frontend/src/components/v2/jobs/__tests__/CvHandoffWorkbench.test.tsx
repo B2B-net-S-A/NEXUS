@@ -712,3 +712,96 @@ it("przy braku zasobów wraca do generatora bez ponownego zastępowania szkicu",
   expect(screen.queryByText(/Wybrany wynik generatora #42/)).toBeNull();
   expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
 });
+
+describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
+  const two = () =>
+    columns([
+      item(),
+      item({ id: 22, candidate_id: 122, name: "Marcin", lastname: "Jóźwiak" }),
+    ]);
+
+  it("pokazuje wyłącznie osobę z focusCandidateId — bez kolejki i nagłówka warsztatu", async () => {
+    renderWorkbench({ layout: "panel", focusCandidateId: 122, columns: two() });
+    await readySendButton();
+    expect(brandedGet).toHaveBeenCalledWith(22);
+    expect(brandedGet).not.toHaveBeenCalledWith(21);
+    expect(screen.queryByRole("list", { name: "Kandydaci do wysłania CV" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^CV ·/ })).toBeNull();
+    expect(screen.queryByText("Grzegorz Żebrowski")).toBeNull();
+  });
+
+  it("osoba spoza etapu „Zweryfikowany” dostaje zdanie o etapie, nie pustkę ani błąd", () => {
+    renderWorkbench({ layout: "panel", focusCandidateId: 131 });
+    expect(
+      screen.getByText(/Przekazanie CV klientowi jest dostępne na etapie „Zweryfikowany”/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(brandedGet).not.toHaveBeenCalled();
+  });
+
+  it("kluczowe akcje zostają: CV, edytor, stawka, link, karta Championa, linki, generator, reguły", async () => {
+    renderWorkbench({ layout: "panel", focusCandidateId: 121 });
+    await readySendButton();
+    expect(screen.getByRole("button", { name: "Pokaż" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Edytuj|Stwórz/ })).toBeTruthy();
+    expect(screen.getByLabelText("Kwota")).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: /Utwórz link do brandowanego CV/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Utwórz link \(30 dni\)/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Mail do klienta/ })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Linki i historia" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Reguły CV \(DL\)/ })).toBeTruthy();
+    // Generator jest zwinięty, ale osiągalny — i dostaje prefill.
+    expect(screen.queryByTestId("cv-generator-stub")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /Generator CV/ }));
+    expect(screen.getByTestId("cv-generator-stub").textContent).toContain(
+      "prefill:121/7",
+    );
+  });
+
+  it("bez `can_write_client_rate` pole stawki znika także w panelu", async () => {
+    renderWorkbench({
+      layout: "panel",
+      focusCandidateId: 121,
+      canWriteClientRate: false,
+    });
+    await readySendButton();
+    expect(screen.queryByLabelText("Kwota")).toBeNull();
+  });
+
+  it("kolejność ruch → link → stawka zostaje, a link jednorazowy przeżywa wyjście osoby z kolejki", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Host() {
+      const [remaining, setRemaining] = useAuditState(true);
+      return (
+        <CvHandoffWorkbench
+          jobId={7}
+          jobTitle="Programista Python"
+          clientId={4}
+          columns={columns(remaining ? [item()] : [])}
+          isLoading={false}
+          isError={false}
+          error={null}
+          isSuccess
+          onRetry={() => {}}
+          onMoved={() => setRemaining(false)}
+          readOnly={false}
+          canWriteClientRate
+          layout="panel"
+          focusCandidateId={121}
+        />
+      );
+    }
+    render(
+      <QueryClientProvider client={qc}>
+        <Host />
+      </QueryClientProvider>,
+    );
+    await readySendButton();
+    await userEvent.type(screen.getByLabelText("Kwota"), "25000");
+    await userEvent.click(await sendButton());
+    await screen.findByText(/dostępne na etapie „Zweryfikowany”/);
+    expect(calls).toEqual(["move", "share_link", "client_rate"]);
+    expect(shareCreate).toHaveBeenCalledWith(21, 14);
+    expect(screen.queryByText(/abc123/)).not.toBeNull();
+  });
+});

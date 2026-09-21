@@ -72,6 +72,24 @@ export interface KanbanItem {
  scorecard_done?: boolean;
  // Stawka z profilu kandydata (PLN/h) — podpowiedź w oknie „Zweryfikowany".
  candidate_expected_rate_hourly?: string | number | null;
+ // Widok „rekrutacja = jedna tabela" (wersja 3, 09.2026). Wszystkie pola są
+ // opcjonalne: starsza odpowiedź ich nie niesie, a tabela ma wtedy powiedzieć
+ // „—", nie zgadywać.
+ // Rekruter karty: właściciel procesu, a gdy go nie ma — osoba, która dodała
+ // kandydata do rekrutacji.
+ recruiter_id?: number | null;
+ recruiter_name?: string | null;
+ // Postawa kandydata wobec nowych projektów (`AvailabilityStatus`) i data,
+ // od której jest dostępny.
+ availability_status?: string | null;
+ availability_date?: string | null;
+ // Kody ostrzeżeń karty w stałej kolejności (`hm_veto`, `budget_exceeded`,
+ // kody polityki dopuszczalności — konflikt z klientem itd.).
+ warnings?: string[];
+ // Kto ma ruch według serwera — lustro `NextActionOwner` z
+ // `lib/pipeline-next-action.ts` (unia wpisana wprost: tamten moduł importuje
+ // typy stąd, więc import w drugą stronę zamknąłby cykl).
+ next_action_owner?: "recruiter" | "client" | "candidate" | "delivery" | "none";
 }
 
 export interface KanbanColumn {

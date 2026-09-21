@@ -362,3 +362,80 @@ describe("JobContractTab", () => {
     ).toBeTruthy();
   });
 });
+
+describe("JobContractTab — layout=\"panel\" (rekrutacja v3)", () => {
+  const twoOnContract = (): KanbanColumn[] => {
+    const cols = columns();
+    cols[1] = {
+      ...cols[1],
+      count: 2,
+      items: [
+        ...cols[1].items,
+        {
+          id: 701,
+          candidate_id: 43,
+          stage: "new",
+          name: "Marcin",
+          lastname: "Jóźwiak",
+          days_in_stage: 1,
+        },
+      ],
+    };
+    return cols;
+  };
+
+  it("pokazuje wyłącznie osobę z focusCandidateId — bez listy i nagłówka kroku", async () => {
+    generated.mockResolvedValue([
+      contractRow,
+      { ...contractRow, id: 6, contract_number: "1500/2026", candidate_id: 43, contract_id: 78 },
+    ]);
+    renderTab({ layout: "panel", focusCandidateId: 43, columns: twoOnContract() });
+    expect(await screen.findByText(/Umowa 1500\/2026/)).toBeTruthy();
+    expect(screen.queryByText(/1436\/2026/)).toBeNull();
+    expect(screen.queryByRole("list", { name: "Na etapach umowy" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Zamknięcie ·/ })).toBeNull();
+    expect(screen.queryByText("Grzegorz Żebrowski")).toBeNull();
+  });
+
+  it("osoba spoza etapów umowy dostaje zdanie o etapie — bez domyślnej pierwszej osoby", () => {
+    renderTab({ layout: "panel", focusCandidateId: 999 });
+    expect(
+      screen.getByText(/Umowa i przekazanie do Delivery są dostępne na etapach/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/1436\/2026/)).toBeNull();
+  });
+
+  it("kluczowe akcje zostają: generator B2B, kontrakt, potwierdzenie podpisu, historia, zamówienie, alerty DL", async () => {
+    renderTab({ layout: "panel", focusCandidateId: 42 });
+    expect(await screen.findByText(/Umowa 1436\/2026/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Otwórz w Generatorze B2B/ })).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: /Kontrakt w rejestrze/ }).getAttribute("href"),
+    ).toBe("/contracts/77");
+    expect(screen.getByRole("link", { name: /Potwierdź w pełni podpisaną/ })).toBeTruthy();
+    expect(screen.getByText("Historia statusów umowy")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Onboarding/ })).toBeTruthy();
+    await userEvent.click(screen.getByRole("tab", { name: "Zamówienie" }));
+    expect(screen.getByRole("link", { name: /Otwórz Zamówienia klienta/ })).toBeTruthy();
+    await userEvent.click(screen.getByRole("tab", { name: "Alerty DL" }));
+    expect(screen.getByRole("link", { name: /Sprawy tego klienta/ })).toBeTruthy();
+  });
+
+  it("„Zamknij rekrutację” jest w panelu domyślnie widoczne", async () => {
+    renderTab({ layout: "panel", focusCandidateId: 42 });
+    expect(await screen.findByRole("button", { name: /Zamknij rekrutację/ })).toBeTruthy();
+  });
+
+  it("`hideCloseJob` chowa przycisk i zdanie o roli w panelu", async () => {
+    renderTab({ layout: "panel", focusCandidateId: 42, hideCloseJob: true, canCloseJob: false });
+    await screen.findByText(/Umowa 1436\/2026/);
+    expect(screen.queryByRole("button", { name: /Zamknij rekrutację/ })).toBeNull();
+    expect(screen.queryByText(/Zamknięcie rekrutacji wymaga roli/)).toBeNull();
+  });
+
+  it("pełny układ bez `hideCloseJob` nadal ma „Zamknij rekrutację”", async () => {
+    renderTab();
+    expect(await screen.findByRole("button", { name: /Zamknij rekrutację/ })).toBeTruthy();
+  });
+});

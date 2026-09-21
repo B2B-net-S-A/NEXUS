@@ -61,6 +61,7 @@ import {
   moveDialogFor,
 } from "@/lib/pipeline-move-dialog";
 import { terminalOf } from "@/lib/kanban-terminal";
+import { TabbedNav } from "@/components/ds";
 
 export interface DecisionMoveTarget {
   col: KanbanColumn;
@@ -161,6 +162,12 @@ export interface InterviewDecisionDockProps {
    * pusta w rekrutacjach z samym budżetem godzinowym (UAT B72).
    */
   budgetHourly?: number | null;
+  /**
+   * `"panel"` (rekrutacja v3): dok osadzony w panelu osoby — bez nagłówka
+   * z nazwiskiem i bez „Zamknij dok" (panel ma własne), te same zakładki
+   * i te same akcje.
+   */
+  layout?: "full" | "panel";
 }
 
 export function InterviewDecisionDock({
@@ -177,6 +184,7 @@ export function InterviewDecisionDock({
   withdrawnColumn,
   stageLabel,
   budgetHourly = null,
+  layout = "full",
 }: InterviewDecisionDockProps) {
   const [activeTab, setActiveTab] = useState<DockTab>("decision");
 
@@ -211,46 +219,7 @@ export function InterviewDecisionDock({
     targetStage: null,
   });
 
-  return (
-    <WorkbenchDock
-      name="Decyzja"
-      who={fullName}
-      whoSub={
-        <span className="inline-flex flex-wrap items-center gap-1.5">
-          <span>{currentStageLabel}</span>
-          {item.days_in_stage != null && (
-            <span className="inline-flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              {item.days_in_stage} {item.days_in_stage === 1 ? "dzień" : "dni"}
-            </span>
-          )}
-          {item.hm_veto && (
-            <Badge variant="danger" size="sm">
-              <UserX className="h-2.5 w-2.5" /> Weto HM
-            </Badge>
-          )}
-        </span>
-      }
-      headerRight={
-        <button
-          type="button"
-          onClick={onClose}
-          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent"
-          aria-label="Zamknij dok"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      }
-      tabs={DOCK_TABS}
-      activeTab={activeTab}
-      onTabChange={(v) => setActiveTab(v as DockTab)}
-      footer={
-        <>
-          <Sparkles className="h-3 w-3 shrink-0" />„Przyjął” = konfetti jak dziś
-          (kids mode) i powiadomienia stage’owe wg reguł klienta.
-        </>
-      }
-    >
+  const body = (
       <>
         {activeTab === "decision" && (
           <div className="space-y-3">
@@ -463,6 +432,67 @@ export function InterviewDecisionDock({
           </DockActions>
         </div>
       </>
+  );
+
+  if (layout === "panel") {
+    return (
+      <section
+        aria-label="Decyzja"
+        className="space-y-3 rounded-xl border border-border bg-card p-3"
+      >
+        <TabbedNav
+          ariaLabel="Zakładki doku: Decyzja"
+          value={activeTab}
+          onValueChange={(v) => setActiveTab(v as DockTab)}
+          tabs={DOCK_TABS}
+          overflow="scroll"
+        />
+        {body}
+      </section>
+    );
+  }
+
+  return (
+    <WorkbenchDock
+      name="Decyzja"
+      who={fullName}
+      whoSub={
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          <span>{currentStageLabel}</span>
+          {item.days_in_stage != null && (
+            <span className="inline-flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {item.days_in_stage} {item.days_in_stage === 1 ? "dzień" : "dni"}
+            </span>
+          )}
+          {item.hm_veto && (
+            <Badge variant="danger" size="sm">
+              <UserX className="h-2.5 w-2.5" /> Weto HM
+            </Badge>
+          )}
+        </span>
+      }
+      headerRight={
+        <button
+          type="button"
+          onClick={onClose}
+          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent"
+          aria-label="Zamknij dok"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      }
+      tabs={DOCK_TABS}
+      activeTab={activeTab}
+      onTabChange={(v) => setActiveTab(v as DockTab)}
+      footer={
+        <>
+          <Sparkles className="h-3 w-3 shrink-0" />„Przyjął” = konfetti jak dziś
+          (kids mode) i powiadomienia stage’owe wg reguł klienta.
+        </>
+      }
+    >
+      {body}
     </WorkbenchDock>
   );
 }

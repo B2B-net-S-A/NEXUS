@@ -577,3 +577,58 @@ describe("ScreeningWorkbench", () => {
     expect(onMoved).toHaveBeenCalled();
   });
 });
+
+describe("ScreeningWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
+  it("pokazuje wyłącznie osobę z focusCandidateId — bez kolejki i nagłówka warsztatu", async () => {
+    renderWorkbench({ layout: "panel", focusCandidateId: 112 });
+    expect(await screen.findByRole("button", { name: /Zapisz screening/ })).toBeTruthy();
+    expect(getForStage).toHaveBeenCalledWith(12);
+    expect(screen.queryByRole("list", { name: "Kolejka screeningu" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Screening ·/ })).toBeNull();
+    expect(screen.queryByText("Grzegorz Żebrowski")).toBeNull();
+    expect(screen.queryByText(/SLA/)).toBeNull();
+  });
+
+  it("osoba spoza kolejki dostaje zdanie o etapie, nie pustkę ani błąd", () => {
+    renderWorkbench({ layout: "panel", focusCandidateId: 999 });
+    expect(
+      screen.getByText(/Arkusz screeningu jest dostępny na etapie „Screening”/),
+    ).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(getForStage).not.toHaveBeenCalled();
+  });
+
+  it("kluczowe akcje zostają: arkusz, stawka, prep-kit, baza pytań, ruch i odrzucenie", async () => {
+    const { onTabChange } = renderWorkbench({
+      layout: "panel",
+      focusCandidateId: 111,
+    });
+    await screen.findByRole("button", { name: /Zapisz screening/ });
+    expect(screen.getByRole("button", { name: /Zapisz screening/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Pokaż CV obok/ })).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: /Prep-kit/ }).getAttribute("href"),
+    ).toBe("/jobs/7/prep/111");
+    expect(screen.getByRole("button", { name: /Odrzuć z powodem/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Wróć później/ })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /Baza pytań/ }));
+    expect(onTabChange).toHaveBeenCalledWith("questions");
+  });
+
+  it("ruch na „Zweryfikowany” idzie tą samą trasą co w pełnym układzie", async () => {
+    const { onMoved } = renderWorkbench({
+      layout: "panel",
+      focusCandidateId: 112,
+    });
+    await screen.findByRole("button", { name: /Zapisz screening/ });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Zweryfikowany — zapisz stawkę/ }),
+    );
+    await waitFor(() => expect(onMoved).toHaveBeenCalled());
+    expect(move.mock.calls[0][0]).toMatchObject({
+      candidate_id: 112,
+      job_id: 7,
+      stage: "verified",
+    });
+  });
+});

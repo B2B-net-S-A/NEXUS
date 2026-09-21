@@ -73,6 +73,8 @@ import {
   WorkbenchRail,
   type DockTabItem,
 } from "@/components/v2/jobs/workbench-chrome";
+import { TabbedNav } from "@/components/ds";
+import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 
 /**
  * Bramka aktywacji kontraktu — lustro `ACTIVATION_REQUIRED_FIELDS`
@@ -106,7 +108,11 @@ const CONTRACT_STATUS_LABEL: Record<string, string> = {
 
 type DockTab = "after" | "order" | "alerts";
 
-export interface JobContractTabProps {
+/**
+ * `layout="panel"` (rekrutacja v3): bez listy „Na etapach umowy" — umowa,
+ * podpis i przekazanie do Delivery JEDNEJ osoby (`focusCandidateId`).
+ */
+export interface JobContractTabProps extends WorkbenchPanelProps {
   jobId: number;
   jobTitle: string;
   clientId?: number | null;
@@ -122,6 +128,11 @@ export interface JobContractTabProps {
   onColumnsRetry?: () => void;
   /** `job.update` — lustro `TacPlus`, tej samej bramki co `POST /jobs/{id}/close`. */
   canCloseJob: boolean;
+  /**
+   * Chowa „Zamknij rekrutację" (w widoku v3 akcja mieszka w oknie „Zlecenie").
+   * Domyślnie widoczna — także w panelu.
+   */
+  hideCloseJob?: boolean;
 }
 
 interface ContractEntry {
@@ -140,7 +151,11 @@ export function JobContractTab({
   columnsSuccess = true,
   onColumnsRetry,
   canCloseJob,
+  hideCloseJob = false,
+  layout = "full",
+  focusCandidateId = null,
 }: JobContractTabProps) {
+  const isPanel = layout === "panel";
   const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(
     null,
   );
@@ -163,13 +178,19 @@ export function JobContractTab({
   );
 
   const selected = useMemo<ContractEntry | null>(() => {
+    // W panelu wybór jest STEROWANY z zewnątrz — bez domyślnej pierwszej osoby.
+    if (isPanel) {
+      return (
+        entries.find((e) => e.item.candidate_id === focusCandidateId) ?? null
+      );
+    }
     if (entries.length === 0) return null;
     if (selectedCandidateId == null) return entries[0];
     return (
       entries.find((e) => e.item.candidate_id === selectedCandidateId) ??
       entries[0]
     );
-  }, [entries, selectedCandidateId]);
+  }, [entries, selectedCandidateId, isPanel, focusCandidateId]);
 
   const selectedName = selected
     ? `${selected.item.name ?? ""} ${selected.item.lastname ?? ""}`.trim() ||
@@ -222,139 +243,8 @@ export function JobContractTab({
     { value: "alerts", label: "Alerty DL" },
   ];
 
-  return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
-      {/* ── Szyna: na etapach umowy, podpis, alternatywy, moduły ────── */}
-      <WorkbenchRail
-        icon={<FileSignature className="h-4 w-4 text-primary" />}
-        title="Na etapach umowy"
-        count={entries.length}
-        meta={hiredCount > 0 ? `${hiredCount} zatrudnionych` : null}
-        footer={
-          primaryContract ? (
-            <SigningStatusHistory contract={primaryContract} />
-          ) : undefined
-        }
-      >
-        {listViewState === "loading" ? (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
-          </div>
-        ) : listBlocked ? (
-          <QueryStateNotice
-            state={listViewState as "forbidden" | "not_found" | "error"}
-            description={
-              listViewState === "error"
-                ? "Nie udało się wczytać pipeline'u tej rekrutacji. Kandydaci nie zniknęli — to nieudane pobranie."
-                : undefined
-            }
-            onRetry={listViewState === "error" ? onColumnsRetry : undefined}
-          />
-        ) : listViewState === "empty" ? (
-          <p className="text-xs text-muted-foreground">
-            Nikt nie jest jeszcze na etapie umowy ani zatrudnienia.
-          </p>
-        ) : (
-          <div className="space-y-0.5" role="list" aria-label="Na etapach umowy">
-            {entries.map(({ item, col }) => (
-              <div key={item.candidate_id} role="listitem">
-                <RailRow
-                  tone="warn"
-                  label={
-                    `${item.name ?? ""} ${item.lastname ?? ""}`.trim() ||
-                    "Kandydat"
-                  }
-                  meta={columnLabel(col)}
-                  active={item.candidate_id === selected?.item.candidate_id}
-                  onSelect={() => setSelectedCandidateId(item.candidate_id)}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-
-        <RailSection label="Podpis">
-          {contractsViewState === "loading" ? (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie umów…
-            </div>
-          ) : contractsViewState === "forbidden" ||
-            contractsViewState === "not_found" ||
-            contractsViewState === "error" ? (
-            // Komunikat awarii stoi RAZ, w karcie obok — dwa te same napisy
-            // na jednym ekranie czyta się jak dwie różne awarie.
-            <p className="text-[11px] text-warning-muted-foreground">
-              Stanu podpisu nie znamy — patrz komunikat w karcie zamknięcia.
-            </p>
-          ) : primaryContract ? (
-            <SigningTimeline contract={primaryContract} />
-          ) : (
-            <p className="text-[11px] text-muted-foreground">
-              Brak wygenerowanej umowy B2B dla tej rekrutacji.
-            </p>
-          )}
-        </RailSection>
-
-        <RailSection
-          label="Alternatywy (jak dziś)"
-          note="Wszystkie trzy akcje mieszkają w Generatorze Umów B2B — tu jest do nich wejście, nie ich kopia."
-        >
-          <div className="flex flex-wrap gap-1">
-            {["Oznacz wysłaną", "Wgraj podpisaną (PDF)", "Potwierdź w pełni podpisaną"].map(
-              (label) => (
-                <Link
-                  key={label}
-                  href="/contracts/b2b-generator"
-                  className="inline-flex h-6 items-center rounded-full border border-border px-2 text-[11px] text-foreground hover:border-primary hover:bg-primary/5"
-                >
-                  {label}
-                </Link>
-              ),
-            )}
-          </div>
-        </RailSection>
-
-        <RailSection
-          label="Moduły"
-          note="Te moduły nie zmieniają miejsca — ta zakładka czyta ich stan."
-        >
-          <div className="flex flex-col gap-1">
-            <ModuleLink href="/contracts/b2b-generator" label="Generator Umów B2B" />
-            <ModuleLink href="/contracts" label="Kontrakty" />
-            {clientId != null && (
-              <ModuleLink
-                href={`/clients/${clientId}?tab=zamowienia`}
-                label="Zamówienia klienta"
-              />
-            )}
-          </div>
-        </RailSection>
-      </WorkbenchRail>
-
-      {/* ── Środek: zamknięcie, hook i bramka aktywacji ────────────── */}
-      <section className="min-w-0 space-y-4">
-        {listBlocked ? null : listViewState === "empty" ? (
-          <EmptyState
-            icon={FileSignature}
-            title="Nikt nie doszedł jeszcze do umowy"
-            description="Ten krok zbiera kandydatów na etapach „Umowa wysłana”, „Umowa podpisana”, „Zatrudniony” i „Onboarding”. Podpis prowadzi Generator Umów B2B — ta zakładka pokazuje jego wynik."
-          />
-        ) : (
-          <>
-            <WorkbenchHeader
-              title={`Zamknięcie · ${selectedName ?? "Kandydat"}`}
-              subtitle={[
-                primaryContract
-                  ? `Umowa ${primaryContract.contract_number}`
-                  : "Bez wygenerowanej umowy B2B",
-                primaryContract?.start_date
-                  ? `start ${formatDate(primaryContract.start_date)}`
-                  : null,
-                primaryContract?.client_name,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-              badges={
+  // ── Fragmenty wspólne dla układu pełnego i panelu ───────────────────────
+  const headBadge =
                 primaryContract ? (
                   <Badge
                     size="sm"
@@ -367,9 +257,8 @@ export function JobContractTab({
                     {SIGNATURE_LABEL[primaryContract.signature_status] ??
                       primaryContract.signature_status}
                   </Badge>
-                ) : null
-              }
-              actions={
+                ) : null;
+  const headActions = (
                 <>
                   <ModuleLink
                     href="/contracts/b2b-generator"
@@ -384,8 +273,8 @@ export function JobContractTab({
                     />
                   )}
                 </>
-              }
-              tools={
+  );
+  const headTools = (
                 <>
                   {selected && (
                     <ToolPill tone="warn">
@@ -413,9 +302,9 @@ export function JobContractTab({
                     </ToolPill>
                   )}
                 </>
-              }
-            />
-
+  );
+  const contractsNotice = (
+    <>
             {contractsViewState === "forbidden" ||
             contractsViewState === "not_found" ||
             contractsViewState === "error" ? (
@@ -447,43 +336,50 @@ export function JobContractTab({
                 podpisu w Generatorze B2B.
               </p>
             ) : null}
-
-            <HiredHookCard clientId={clientId} hiredCount={hiredCount} />
-
-            <ActivationGateCard
-              contractId={primaryContract?.contract_id ?? null}
-            />
-          </>
-        )}
-      </section>
-
-      {/* ── Dok „Przekazanie do Delivery" ──────────────────────────── */}
-      <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
-        <WorkbenchDock
-          name="Przekazanie do Delivery"
-          who={selectedName ?? jobTitle}
-          // Bez wybranego kandydata nagłówek to tytuł rekrutacji — podtytuł
-          // nie może go powtarzać (na prodzie stało dwa razy to samo).
-          whoSub={[
-            primaryContract?.client_name,
-            selectedName ? jobTitle : null,
-            primaryContract?.start_date
-              ? `od ${formatDate(primaryContract.start_date)}`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-          tabs={dockTabs}
-          activeTab={dockTab}
-          onTabChange={(v) => setDockTab(v as DockTab)}
-          footer={
-            <>
-              <ShieldAlert className="h-3 w-3 shrink-0" />
-              Automatu zamykania rekrutacji celowo nie ma — przycisk, nie skutek
-              uboczny.
-            </>
-          }
-        >
+    </>
+  );
+  const signingBody = (
+    <>
+          {contractsViewState === "loading" ? (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie umów…
+            </div>
+          ) : contractsViewState === "forbidden" ||
+            contractsViewState === "not_found" ||
+            contractsViewState === "error" ? (
+            // Komunikat awarii stoi RAZ, w karcie obok — dwa te same napisy
+            // na jednym ekranie czyta się jak dwie różne awarie.
+            <p className="text-[11px] text-warning-muted-foreground">
+              Stanu podpisu nie znamy — patrz komunikat w karcie zamknięcia.
+            </p>
+          ) : primaryContract ? (
+            <SigningTimeline contract={primaryContract} />
+          ) : (
+            <p className="text-[11px] text-muted-foreground">
+              Brak wygenerowanej umowy B2B dla tej rekrutacji.
+            </p>
+          )}
+    </>
+  );
+  const alternativesBody = (
+    <>
+          <div className="flex flex-wrap gap-1">
+            {["Oznacz wysłaną", "Wgraj podpisaną (PDF)", "Potwierdź w pełni podpisaną"].map(
+              (label) => (
+                <Link
+                  key={label}
+                  href="/contracts/b2b-generator"
+                  className="inline-flex h-6 items-center rounded-full border border-border px-2 text-[11px] text-foreground hover:border-primary hover:bg-primary/5"
+                >
+                  {label}
+                </Link>
+              ),
+            )}
+          </div>
+    </>
+  );
+  const dockBody = (
+    <>
           {dockTab === "after" && (
             <>
               <dl className="space-y-2 text-xs">
@@ -621,7 +517,7 @@ export function JobContractTab({
 
           <div className="space-y-1.5 border-t border-border pt-3">
             <DockActions>
-              {canCloseJob && !readOnly ? (
+              {hideCloseJob ? null : canCloseJob && !readOnly ? (
                 <Button
                   type="button"
                   size="sm"
@@ -657,9 +553,9 @@ export function JobContractTab({
               </Link>
             </DockActions>
           </div>
-        </WorkbenchDock>
-      </aside>
-
+    </>
+  );
+  const closeDialog = hideCloseJob ? null : (
       <JobCloseWithReasonDialog
         open={closeOpen}
         onOpenChange={setCloseOpen}
@@ -668,6 +564,269 @@ export function JobContractTab({
         clientId={clientId}
         defaultReason={hiredCount > 0 ? "filled_by_us" : "other"}
       />
+  );
+
+  if (isPanel) {
+    if (listViewState === "loading") {
+      return (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
+        </div>
+      );
+    }
+    if (listBlocked) {
+      return (
+        <QueryStateNotice
+          state={listViewState as "forbidden" | "not_found" | "error"}
+          description={
+            listViewState === "error"
+              ? "Nie udało się wczytać pipeline'u tej rekrutacji. Kandydaci nie zniknęli — to nieudane pobranie."
+              : undefined
+          }
+          onRetry={listViewState === "error" ? onColumnsRetry : undefined}
+        />
+      );
+    }
+    if (!selected) {
+      return (
+        <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
+          Umowa i przekazanie do Delivery są dostępne na etapach „Umowa
+          wysłana”, „Umowa podpisana”, „Zatrudniony” i „Onboarding”. Ta osoba
+          jest dziś na innym etapie tej rekrutacji.
+        </p>
+      );
+    }
+    return (
+      <div className="flex min-w-0 flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {headBadge}
+          {headTools}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {primaryContract
+            ? [
+                `Umowa ${primaryContract.contract_number}`,
+                primaryContract.start_date
+                  ? `start ${formatDate(primaryContract.start_date)}`
+                  : null,
+                primaryContract.client_name,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : "Bez wygenerowanej umowy B2B"}
+        </p>
+        <div className="flex flex-wrap gap-1.5">{headActions}</div>
+
+        {contractsNotice}
+
+        <section
+          aria-label="Podpis"
+          className="space-y-2 rounded-xl border border-border bg-card p-3"
+        >
+          {signingBody}
+          {primaryContract && <SigningStatusHistory contract={primaryContract} />}
+          {alternativesBody}
+          <p className="text-[10.5px] text-muted-foreground">
+            Wszystkie trzy akcje mieszkają w Generatorze Umów B2B — tu jest do
+            nich wejście, nie ich kopia.
+          </p>
+        </section>
+
+        <section
+          aria-label="Przekazanie do Delivery"
+          className="space-y-3 rounded-xl border border-border bg-card p-3"
+        >
+          <TabbedNav
+            ariaLabel="Zakładki: Przekazanie do Delivery"
+            value={dockTab}
+            onValueChange={(v) => setDockTab(v as DockTab)}
+            tabs={dockTabs}
+            overflow="scroll"
+          />
+          {dockBody}
+        </section>
+
+        <details className="rounded-xl border border-border bg-card px-3 py-2 text-xs">
+          <summary className="cursor-pointer font-medium text-foreground">
+            Co zrobi system po „Zatrudniony” i czego wymaga aktywacja
+          </summary>
+          <div className="mt-2 space-y-3">
+            <HiredHookCard clientId={clientId} hiredCount={hiredCount} />
+            <ActivationGateCard
+              contractId={primaryContract?.contract_id ?? null}
+            />
+            <div className="flex flex-col gap-1">
+              <ModuleLink href="/contracts" label="Kontrakty" />
+              {clientId != null && (
+                <ModuleLink
+                  href={`/clients/${clientId}?tab=zamowienia`}
+                  label="Zamówienia klienta"
+                />
+              )}
+            </div>
+          </div>
+        </details>
+        {closeDialog}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
+      {/* ── Szyna: na etapach umowy, podpis, alternatywy, moduły ────── */}
+      <WorkbenchRail
+        icon={<FileSignature className="h-4 w-4 text-primary" />}
+        title="Na etapach umowy"
+        count={entries.length}
+        meta={hiredCount > 0 ? `${hiredCount} zatrudnionych` : null}
+        footer={
+          primaryContract ? (
+            <SigningStatusHistory contract={primaryContract} />
+          ) : undefined
+        }
+      >
+        {listViewState === "loading" ? (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
+          </div>
+        ) : listBlocked ? (
+          <QueryStateNotice
+            state={listViewState as "forbidden" | "not_found" | "error"}
+            description={
+              listViewState === "error"
+                ? "Nie udało się wczytać pipeline'u tej rekrutacji. Kandydaci nie zniknęli — to nieudane pobranie."
+                : undefined
+            }
+            onRetry={listViewState === "error" ? onColumnsRetry : undefined}
+          />
+        ) : listViewState === "empty" ? (
+          <p className="text-xs text-muted-foreground">
+            Nikt nie jest jeszcze na etapie umowy ani zatrudnienia.
+          </p>
+        ) : (
+          <div className="space-y-0.5" role="list" aria-label="Na etapach umowy">
+            {entries.map(({ item, col }) => (
+              <div key={item.candidate_id} role="listitem">
+                <RailRow
+                  tone="warn"
+                  label={
+                    `${item.name ?? ""} ${item.lastname ?? ""}`.trim() ||
+                    "Kandydat"
+                  }
+                  meta={columnLabel(col)}
+                  active={item.candidate_id === selected?.item.candidate_id}
+                  onSelect={() => setSelectedCandidateId(item.candidate_id)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        <RailSection label="Podpis">
+          {signingBody}
+        </RailSection>
+
+        <RailSection
+          label="Alternatywy (jak dziś)"
+          note="Wszystkie trzy akcje mieszkają w Generatorze Umów B2B — tu jest do nich wejście, nie ich kopia."
+        >
+          {alternativesBody}
+        </RailSection>
+
+        <RailSection
+          label="Moduły"
+          note="Te moduły nie zmieniają miejsca — ta zakładka czyta ich stan."
+        >
+          <div className="flex flex-col gap-1">
+            <ModuleLink href="/contracts/b2b-generator" label="Generator Umów B2B" />
+            <ModuleLink href="/contracts" label="Kontrakty" />
+            {clientId != null && (
+              <ModuleLink
+                href={`/clients/${clientId}?tab=zamowienia`}
+                label="Zamówienia klienta"
+              />
+            )}
+          </div>
+        </RailSection>
+      </WorkbenchRail>
+
+      {/* ── Środek: zamknięcie, hook i bramka aktywacji ────────────── */}
+      <section className="min-w-0 space-y-4">
+        {listBlocked ? null : listViewState === "empty" ? (
+          <EmptyState
+            icon={FileSignature}
+            title="Nikt nie doszedł jeszcze do umowy"
+            description="Ten krok zbiera kandydatów na etapach „Umowa wysłana”, „Umowa podpisana”, „Zatrudniony” i „Onboarding”. Podpis prowadzi Generator Umów B2B — ta zakładka pokazuje jego wynik."
+          />
+        ) : (
+          <>
+            <WorkbenchHeader
+              title={`Zamknięcie · ${selectedName ?? "Kandydat"}`}
+              subtitle={[
+                primaryContract
+                  ? `Umowa ${primaryContract.contract_number}`
+                  : "Bez wygenerowanej umowy B2B",
+                primaryContract?.start_date
+                  ? `start ${formatDate(primaryContract.start_date)}`
+                  : null,
+                primaryContract?.client_name,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+              badges={
+                headBadge
+              }
+              actions={
+                headActions
+              }
+              tools={
+                headTools
+              }
+            />
+
+            {contractsNotice}
+
+            <HiredHookCard clientId={clientId} hiredCount={hiredCount} />
+
+            <ActivationGateCard
+              contractId={primaryContract?.contract_id ?? null}
+            />
+          </>
+        )}
+      </section>
+
+      {/* ── Dok „Przekazanie do Delivery" ──────────────────────────── */}
+      <aside className="lg:col-span-2 xl:col-span-1 xl:sticky xl:top-4 xl:self-start">
+        <WorkbenchDock
+          name="Przekazanie do Delivery"
+          who={selectedName ?? jobTitle}
+          // Bez wybranego kandydata nagłówek to tytuł rekrutacji — podtytuł
+          // nie może go powtarzać (na prodzie stało dwa razy to samo).
+          whoSub={[
+            primaryContract?.client_name,
+            selectedName ? jobTitle : null,
+            primaryContract?.start_date
+              ? `od ${formatDate(primaryContract.start_date)}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          tabs={dockTabs}
+          activeTab={dockTab}
+          onTabChange={(v) => setDockTab(v as DockTab)}
+          footer={
+            <>
+              <ShieldAlert className="h-3 w-3 shrink-0" />
+              Automatu zamykania rekrutacji celowo nie ma — przycisk, nie skutek
+              uboczny.
+            </>
+          }
+        >
+          {dockBody}
+        </WorkbenchDock>
+      </aside>
+
+      {closeDialog}
     </div>
   );
 }
