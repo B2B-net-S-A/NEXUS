@@ -700,13 +700,13 @@ export function CvHandoffWorkbench({
                   <ReadyItem
                     tone={rule?.content_mode_locked ? "y" : "z"}
                     title={`Tryb: ${
-                      centrallyManaged ? "automatyczny" : rule?.content_mode
+                      centrallyManaged ? "domyślnie „Pod rekrutację”" : rule?.content_mode
                         ? (CONTENT_MODE_LABEL[rule.content_mode] ??
                           rule.content_mode)
                         : "do wyboru"
                     }`}
                     detail={
-                      centrallyManaged ? "ustalony z kontekstu rekrutacji i centralnych zasad" : rule?.content_mode_locked
+                      centrallyManaged ? "można zmienić w generatorze; bez Profilu Championa powstanie Redakcja" : rule?.content_mode_locked
                         ? "zablokowany regułą — serwer nadpisze inny wybór"
                         : "rekruter wybiera w generatorze"
                     }
@@ -950,13 +950,13 @@ export function CvHandoffWorkbench({
                 <AlertTriangle className="h-3 w-3 shrink-0" />
                 {centrallyManaged ? "Bez poprawnej, czytelnej zgody pakiet pozostaje szkicem i nie można go udostępnić klientowi." : `Bez zrzutu zgody RODO generacja dla klienta ${clientLabel || "tego klienta"} odmawia (422), zanim naliczy kwotę.`}
               </>
-            ) : (
+            ) : CV_CLIENT_LINKS_UI_ENABLED ? (
               <>
                 <Link2 className="h-3 w-3 shrink-0" />
                 Zarządzanie linkami zostaje też w doku „Karta w procesie” na
                 tablicy i na profilu kandydata.
               </>
-            );
+            ) : null;
   const dockBody = !selected ? (
             <p className="text-xs text-muted-foreground">
               Wybierz kandydata z kolejki, żeby przygotować wysyłkę.
@@ -1345,9 +1345,11 @@ export function CvHandoffWorkbench({
                 />
               )}
               {dockBody}
-              <p className="flex items-start gap-1.5 border-t border-border pt-2 text-[11px] text-muted-foreground">
-                {dockFooter}
-              </p>
+              {dockFooter ? (
+                <p className="flex items-start gap-1.5 border-t border-border pt-2 text-[11px] text-muted-foreground">
+                  {dockFooter}
+                </p>
+              ) : null}
             </section>
 
             <div className="rounded-xl border border-border bg-card">

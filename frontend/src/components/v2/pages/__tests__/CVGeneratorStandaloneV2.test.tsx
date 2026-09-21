@@ -871,3 +871,54 @@ describe("required vs optional and the readiness checklist", () => {
     expect(screen.getByRole("radio", { name: /^Przepisanie/ })).toHaveAttribute("aria-checked", "true");
   });
 });
+
+describe("central default content mode (21.09.2026 regression)", () => {
+  afterEach(() => { getMock.mockImplementation(async () => ({data: []})); });
+
+  // Produkcja: /policy bez rekrutacji podaje tryb domyślny „polished" (brak
+  // Championa), z rekrutacją — „tailored". Lista rekrutacji ma tryb w kluczu
+  // zapytania, więc każda zmiana trybu na chwilę gubiła wybraną rekrutację,
+  // polityka wracała do „polished", a potem znowu do „tailored" — w pętli,
+  // aż React przerywał render błędem #185 (Maximum update depth exceeded).
+  it("preselects the recruitment default once, without ping-ponging with the client-less policy", async () => {
+    setSourcingAccess("write");
+    const policy = (stageId: unknown) => ({
+      managed: true,
+      content_mode: stageId ? "tailored" : "polished",
+      default_mode: stageId ? "tailored" : "polished",
+      content_mode_locked: false,
+      content_mode_notice: null,
+      effective_policy: { key: "credit_agricole", version: 1, requires_en_copy: false, cv_language: "pl", filename_pattern: "CV_{IMIE_NAZWISKO}_{DATA}", require_recommendation_note: false, requires_rodo_consent_block: false, require_project_ref: false },
+    });
+    getMock.mockImplementation(async (url, config) => {
+      const u = String(url);
+      const params = (config as {params?: Record<string, unknown>} | undefined)?.params ?? {};
+      if (u.endsWith("/policy")) return {data: policy(params.stage_id)};
+      if (u.endsWith("/cv-sources")) return {data: [{id: 71, filename: "source.pdf", is_primary: true, uploaded_at: null}]};
+      if (u.endsWith("/recruitments")) return {data: [{stage_id: 30, job_id: 404748, job_title: "CA job", client_id: 5, client_name: "Credit Agricole", ready: true, has_cv: true, has_champion: true, has_notes: true, notes_chars: 400}]};
+      return {data: u.includes("cv-rule") ? null : []};
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const loopReported = () => errors.mock.calls.flat().map(String).join(" ").match(/Maximum update depth/);
+    try {
+      renderPage({prefillCandidateId: 463921, prefillCandidateName: "Test Person", prefillJobId: 404748});
+      await waitFor(() => expect(screen.getByRole("radio", { name: /Pod rekrutację/ })).toHaveAttribute("aria-checked", "true"));
+      // Daj ewentualnej pętli czas, żeby się ujawniła.
+      await new Promise((r) => setTimeout(r, 300));
+      expect(screen.queryByText(/chwilowo niedostępny/)).not.toBeInTheDocument();
+      expect(loopReported()).toBeNull();
+      expect(screen.getByRole("radio", { name: /Pod rekrutację/ })).toHaveAttribute("aria-checked", "true");
+      // Bramka pakietu zniknęła — podsumowanie nie straszy „szkicem”.
+      const summary = screen.getByTestId("cvgen-policy-summary");
+      expect(summary).toHaveTextContent("Przed wysłaniem sprawdź CV i w razie potrzeby popraw je w edytorze.");
+      expect(summary).not.toHaveTextContent(/Niekompletny pakiet/);
+      // Wybór rekrutera zostaje — nie jest cofany do trybu domyślnego.
+      fireEvent.click(screen.getByRole("radio", { name: /^Redakcja/ }));
+      await new Promise((r) => setTimeout(r, 300));
+      expect(screen.getByRole("radio", { name: /^Redakcja/ })).toHaveAttribute("aria-checked", "true");
+      expect(loopReported()).toBeNull();
+    } finally {
+      errors.mockRestore();
+    }
+  });
+});
