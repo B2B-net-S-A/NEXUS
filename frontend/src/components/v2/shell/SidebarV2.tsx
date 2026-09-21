@@ -87,7 +87,7 @@ export function SidebarV2({
   onClose?: () => void;
 }) {
   const pathname = usePathname();
-  const { user, logout } = useAuthStore();
+  const { user, logout, hydrated } = useAuthStore();
   const defaultDashboardHref = dashboardHref(user);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
   const canReadCandidates =
@@ -398,7 +398,23 @@ export function SidebarV2({
           collapsed && !mobileOpen ? "px-2" : "px-3",
         )}
       >
-        {collapsed && !mobileOpen ? (
+        {!hydrated ? (
+          // Przed wczytaniem sesji z pamięci przeglądarki NIE wiemy, czy ktoś
+          // jest zalogowany — „Sesja wygasła" migało przy każdym przeładowaniu.
+          <div
+            aria-hidden="true"
+            data-testid="sidebar-user-pending"
+            className={cn(
+              "flex items-center gap-2.5 rounded-md py-1.5",
+              collapsed && !mobileOpen ? "justify-center" : "px-2",
+            )}
+          >
+            <div className="h-8 w-8 shrink-0 animate-pulse rounded-full bg-foreground/6" />
+            {!(collapsed && !mobileOpen) && (
+              <div className="h-3 flex-1 animate-pulse rounded bg-foreground/6" />
+            )}
+          </div>
+        ) : collapsed && !mobileOpen ? (
           user ? (
             <Link
               href="/profile"
