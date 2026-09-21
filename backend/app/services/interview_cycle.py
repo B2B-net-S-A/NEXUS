@@ -1,0 +1,805 @@
+"""Cykl rozmowy u klienta — agregacja dla ekranu „Rozmowy u klienta” (0338).
+
+Jedna para (kandydat, rekrutacja) przechodzi siedem kroków::
+
+    Sloty (DL) → Wybór terminu (rekruter) → Prep → Prep 2
+    → Rozmowa u klienta → Telefon ≤30 min po → Debrief
+
+Moduł ma dwie warstwy:
+
+* ``compute_steps`` / ``compute_todos`` — CZYSTE funkcje na migawce pary
+  (``PairSnapshot``). Na nich stoją testy kroków i ta sama logika działa
+  niezależnie od tego, skąd przyszły dane.
+* ``load_overview`` — hurtowe zapytania (stała liczba, bez N+1) zbierające
+  pary w zakresie wołającego.
+
+Zakres „mine” = pary, w których wołający jest rekruterem wniosku o sloty,
+właścicielem wydarzenia cyklu albo osobą, która przesunęła kandydata na
+„Rozmowa z klientem”. Zakres „jobs” = wszystkie pary w rekrutacjach, do których
+należy (DL/TAC/właściciel/współpracownik). „all” = nadzór (admin/HoR).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from typing import Iterable, Literal, Optional
+
+from sqlalchemy import and_, func, or_, select, true
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+from app.models.candidate import Candidate
+from app.models.client import Client
+from app.models.client_interview_slot_request import (
+    OPEN_SLOT_STATUSES,
+    SLOT_STATUS_AWAITING_DL,
+    SLOT_STATUS_AWAITING_RECRUITER,
+    SLOT_STATUS_CANCELLED,
+    SLOT_STATUS_CONFIRMED,
+    ClientInterviewSlotRequest,
+)
+from app.models.interview_feedback import FeedbackSource, InterviewFeedback
+from app.models.job import Job
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.user import User
+
+Scope = Literal["mine", "jobs", "all"]
+StepState = Literal[
+    "done", "current", "scheduled", "waiting", "todo", "overdue", "skipped"
+]
+
+STEP_KEYS = ("slots", "choice", "prep", "prep2", "interview", "call", "debrief")
+STEP_LABELS = {
+    "slots": "Terminy od klienta",
+    "choice": "Wybór terminu",
+    "prep": "Prep",
+    "prep2": "Prep 2",
+    "interview": "Rozmowa u klienta",
+    "call": "Telefon po rozmowie",
+    "debrief": "Debrief",
+}
+
+# Okno, w którym para „żyje” na ekranie: rozmowy i prepy z ostatnich dwóch
+# tygodni (zaległy debrief) i najbliższego miesiąca.
+DEFAULT_DAYS_BACK = 14
+DEFAULT_DAYS_AHEAD = 30
+# Para bez żadnego wydarzenia pokazuje się, gdy przesunięto ją na „Rozmowa
+# z klientem” w tym oknie — dłużej wisząca to już nie agenda, tylko pipeline.
+STAGE_LOOKBACK_DAYS = 30
+MAX_PAIRS = 300
+
+
+@dataclass(frozen=True)
+class EventRef:
+    id: int
+    start: datetime
+    end: Optional[datetime]
+    title: str
+    status: str
+    online_meeting_url: Optional[str] = None
+    external_source: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SlotRef:
+    id: int
+    status: str
+    slots: tuple[dict, ...]
+    chosen_index: Optional[int]
+    respond_by: Optional[datetime]
+    recruiter_id: Optional[int]
+    created_by: Optional[int]
+    duration_minutes: int
+    note: Optional[str]
+    event_id: Optional[int]
+
+
+@dataclass(frozen=True)
+class DebriefRef:
+    id: int
+    overall_impression: Optional[int]
+    offer_acceptance: Optional[str]
+    acceptance_condition: Optional[str]
+    candidate_questions: Optional[str]
+    client_questions: Optional[str]
+
+
+@dataclass
+class PairSnapshot:
+    candidate_id: int
+    job_id: int
+    slot_request: Optional[SlotRef] = None
+    preps: list[EventRef] = field(default_factory=list)
+    interview: Optional[EventRef] = None
+    debrief: Optional[DebriefRef] = None
+    latest_stage: Optional[str] = None
+
+
+def _interview_end(ev: EventRef) -> datetime:
+    return ev.end or (ev.start + timedelta(hours=1))
+
+
+def _step(key: str, state: StepState, *, at=None, event_id=None, meta=None) -> dict:
+    return {
+        "key": key,
+        "label": STEP_LABELS[key],
+        "state": state,
+        "at": at,
+        "event_id": event_id,
+        "meta": meta,
+    }
+
+
+def compute_steps(
+    pair: PairSnapshot, now: datetime, *, call_window_minutes: int
+) -> list[dict]:
+    """Siedem kroków pary. Stan „current” ma najwyżej jeden krok — pierwszy
+    niezamknięty — żeby ekran wiedział, co podświetlić."""
+    req = pair.slot_request
+    iv = pair.interview
+    iv_done = iv is not None and _interview_end(iv) <= now
+    steps: list[dict] = []
+
+    # 1. Terminy od klienta
+    if req is not None or iv is not None:
+        steps.append(_step("slots", "done"))
+    else:
+        steps.append(_step("slots", "todo"))
+
+    # 2. Wybór terminu
+    if iv is not None or (req is not None and req.status == SLOT_STATUS_CONFIRMED):
+        steps.append(_step("choice", "done", at=iv.start if iv else None))
+    elif req is not None and req.status == SLOT_STATUS_AWAITING_DL:
+        chosen = _chosen_slot(req)
+        steps.append(
+            _step(
+                "choice",
+                "waiting",
+                at=chosen["start"] if chosen else None,
+                meta="czeka na potwierdzenie DL u klienta",
+            )
+        )
+    elif req is not None and req.status == SLOT_STATUS_AWAITING_RECRUITER:
+        overdue = req.respond_by is not None and req.respond_by < now
+        steps.append(
+            _step(
+                "choice",
+                "overdue" if overdue else "todo",
+                at=req.respond_by,
+                meta=f"{len(req.slots)} terminy do wyboru",
+            )
+        )
+    else:
+        steps.append(_step("choice", "todo"))
+
+    # 3–4. Prep i Prep 2
+    for idx, key in ((0, "prep"), (1, "prep2")):
+        ev = pair.preps[idx] if len(pair.preps) > idx else None
+        if ev is not None:
+            state: StepState = "done" if ev.start <= now else "scheduled"
+            steps.append(_step(key, state, at=ev.start, event_id=ev.id))
+        elif key == "prep2" and (iv_done or (iv is not None and iv.start <= now)):
+            # Drugi prep jest opcjonalny — po rozmowie już się nie wydarzy.
+            steps.append(_step(key, "skipped"))
+        elif key == "prep" and iv_done:
+            steps.append(_step(key, "skipped"))
+        else:
+            steps.append(_step(key, "todo"))
+
+    # 5. Rozmowa u klienta
+    if iv is None:
+        steps.append(_step("interview", "todo"))
+    elif iv_done:
+        steps.append(_step("interview", "done", at=iv.start, event_id=iv.id))
+    else:
+        steps.append(_step("interview", "scheduled", at=iv.start, event_id=iv.id))
+
+    # 6–7. Telefon po i debrief
+    if iv is None:
+        steps.append(_step("call", "todo"))
+        steps.append(_step("debrief", "todo"))
+    else:
+        end = _interview_end(iv)
+        deadline = end + timedelta(minutes=call_window_minutes)
+        if pair.debrief is not None:
+            steps.append(_step("call", "done", at=end, event_id=iv.id))
+            steps.append(_step("debrief", "done", event_id=iv.id))
+        elif not iv_done:
+            # `at` telefonu to zawsze KONIEC okna („zadzwoń do 13:30”).
+            steps.append(_step("call", "todo", at=deadline, event_id=iv.id))
+            steps.append(_step("debrief", "todo", event_id=iv.id))
+        elif now <= deadline:
+            steps.append(_step("call", "current", at=deadline, event_id=iv.id))
+            steps.append(_step("debrief", "todo", event_id=iv.id))
+        else:
+            steps.append(_step("call", "overdue", at=deadline, event_id=iv.id))
+            steps.append(_step("debrief", "overdue", event_id=iv.id))
+
+    # Pierwszy niezamknięty krok, który wymaga ruchu, zostaje „current”.
+    if not any(s["state"] == "current" for s in steps):
+        for s in steps:
+            if s["state"] in ("todo", "overdue", "waiting"):
+                if s["state"] == "todo":
+                    s["state"] = "current"
+                break
+    return steps
+
+
+def current_step_key(steps: list[dict]) -> Optional[str]:
+    for s in steps:
+        if s["state"] in ("current", "overdue", "waiting"):
+            return s["key"]
+    for s in steps:
+        if s["state"] in ("todo", "scheduled"):
+            return s["key"]
+    return None
+
+
+def _chosen_slot(req: SlotRef) -> Optional[dict]:
+    if req.chosen_index is None:
+        return None
+    if 0 <= req.chosen_index < len(req.slots):
+        return req.slots[req.chosen_index]
+    return None
+
+
+TodoKind = Literal[
+    "call_now",
+    "debrief_overdue",
+    "slots_pick",
+    "slots_confirm",
+    "prep_missing",
+    "prep2_missing",
+    "slots_missing",
+]
+_TODO_PRIORITY = {
+    "call_now": 0,
+    "debrief_overdue": 1,
+    "slots_pick": 2,
+    "slots_confirm": 3,
+    "prep_missing": 4,
+    "slots_missing": 5,
+    "prep2_missing": 6,
+}
+# Drugi prep podpowiadamy tylko, gdy rozmowa jest blisko — wcześniej to szum.
+PREP2_HINT_DAYS = 7
+
+
+def compute_todos(
+    pair: PairSnapshot,
+    now: datetime,
+    *,
+    call_window_minutes: int,
+    user_id: int,
+    is_dl_view: bool,
+) -> list[dict]:
+    """Zadania „Do zrobienia” dla pary. Rekruter i DL widzą inne przekazania:
+    wybór terminu należy do rekrutera, potwierdzenie u klienta do DL."""
+    todos: list[dict] = []
+    iv = pair.interview
+    req = pair.slot_request
+
+    def add(kind: str, *, due=None, event_id=None, slot_request_id=None):
+        todos.append(
+            {
+                "kind": kind,
+                "priority": _TODO_PRIORITY[kind],
+                "candidate_id": pair.candidate_id,
+                "job_id": pair.job_id,
+                "due": due,
+                "event_id": event_id,
+                "slot_request_id": slot_request_id,
+            }
+        )
+
+    if iv is not None and pair.debrief is None:
+        end = _interview_end(iv)
+        deadline = end + timedelta(minutes=call_window_minutes)
+        if end <= now <= deadline:
+            add("call_now", due=deadline, event_id=iv.id)
+        elif deadline < now:
+            add("debrief_overdue", due=deadline, event_id=iv.id)
+
+    if req is not None and req.status == SLOT_STATUS_AWAITING_RECRUITER:
+        if is_dl_view or req.recruiter_id in (None, user_id):
+            add("slots_pick", due=req.respond_by, slot_request_id=req.id)
+    if req is not None and req.status == SLOT_STATUS_AWAITING_DL:
+        if is_dl_view or req.created_by == user_id:
+            chosen = _chosen_slot(req)
+            add(
+                "slots_confirm",
+                due=chosen["start"] if chosen else None,
+                slot_request_id=req.id,
+            )
+
+    if iv is not None and iv.start > now:
+        if not pair.preps:
+            add("prep_missing", due=iv.start, event_id=iv.id)
+        elif (
+            len(pair.preps) == 1
+            and pair.preps[0].start <= now
+            and iv.start - now <= timedelta(days=PREP2_HINT_DAYS)
+        ):
+            add("prep2_missing", due=iv.start, event_id=iv.id)
+
+    if (
+        is_dl_view
+        and iv is None
+        and req is None
+        and pair.latest_stage == PipelineStage.client_interview.value
+    ):
+        add("slots_missing")
+    return todos
+
+
+# ── Ładowanie ────────────────────────────────────────────────────────────────
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _event_ref(ev: CalendarEvent) -> EventRef:
+    return EventRef(
+        id=ev.id,
+        start=_as_utc(ev.start_time),
+        end=_as_utc(ev.end_time) if ev.end_time else None,
+        title=ev.title,
+        status=ev.status.value if ev.status else "scheduled",
+        online_meeting_url=ev.online_meeting_url or ev.teams_link,
+        external_source=ev.external_source,
+    )
+
+
+def slot_ref(req: ClientInterviewSlotRequest) -> SlotRef:
+    return SlotRef(
+        id=req.id,
+        status=req.status,
+        slots=tuple(req.slots or ()),
+        chosen_index=req.chosen_index,
+        respond_by=_as_utc(req.respond_by) if req.respond_by else None,
+        recruiter_id=req.recruiter_id,
+        created_by=req.created_by,
+        duration_minutes=req.duration_minutes,
+        note=req.note,
+        event_id=req.event_id,
+    )
+
+
+async def _scope_pairs(
+    db: AsyncSession,
+    user: User,
+    scope: Scope,
+    *,
+    window_start: datetime,
+    window_end: datetime,
+    now: datetime,
+) -> set[tuple[int, int]]:
+    """Klucze par w zakresie — trzy źródła, każde jednym zapytaniem."""
+    from app.api.recruitment_access import job_scope_clause
+    from app.services.workforce_availability import operational_owner_ids
+
+    owners = sorted(operational_owner_ids(user))
+    job_filter_events = true()
+    job_filter_slots = true()
+    job_filter_stages = true()
+    if scope == "jobs":
+        job_filter_events = job_scope_clause(
+            user, CalendarEvent.job_id, oversight_bypass=False
+        )
+        job_filter_slots = job_scope_clause(
+            user, ClientInterviewSlotRequest.job_id, oversight_bypass=False
+        )
+        job_filter_stages = job_scope_clause(
+            user, CandidateStage.job_id, oversight_bypass=False
+        )
+
+    pairs: set[tuple[int, int]] = set()
+
+    ev_q = select(CalendarEvent.candidate_id, CalendarEvent.job_id).where(
+        CalendarEvent.event_type.in_((EventType.prep_call, EventType.client_interview)),
+        CalendarEvent.status != EventStatus.cancelled,
+        CalendarEvent.candidate_id.isnot(None),
+        CalendarEvent.job_id.isnot(None),
+        CalendarEvent.start_time >= window_start,
+        CalendarEvent.start_time <= window_end,
+        job_filter_events,
+    )
+    if scope == "mine":
+        ev_q = ev_q.where(
+            func.coalesce(
+                CalendarEvent.operational_owner_id, CalendarEvent.created_by
+            ).in_(owners)
+        )
+    for cid, jid in (await db.execute(ev_q.limit(MAX_PAIRS))).all():
+        pairs.add((cid, jid))
+
+    slot_q = select(
+        ClientInterviewSlotRequest.candidate_id, ClientInterviewSlotRequest.job_id
+    ).where(
+        or_(
+            ClientInterviewSlotRequest.status.in_(OPEN_SLOT_STATUSES),
+            and_(
+                ClientInterviewSlotRequest.status == SLOT_STATUS_CONFIRMED,
+                ClientInterviewSlotRequest.confirmed_at >= window_start,
+            ),
+        ),
+        job_filter_slots,
+    )
+    if scope == "mine":
+        slot_q = slot_q.where(
+            or_(
+                ClientInterviewSlotRequest.recruiter_id.in_(owners),
+                ClientInterviewSlotRequest.created_by == user.id,
+            )
+        )
+    for cid, jid in (await db.execute(slot_q.limit(MAX_PAIRS))).all():
+        pairs.add((cid, jid))
+
+    # Najnowszy etap pary = „Rozmowa z klientem”, przesunięty niedawno.
+    latest = (
+        select(
+            CandidateStage.candidate_id,
+            CandidateStage.job_id,
+            CandidateStage.stage,
+            CandidateStage.moved_by,
+            CandidateStage.moved_at,
+        )
+        .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+        .where(
+            CandidateStage.moved_at >= now - timedelta(days=STAGE_LOOKBACK_DAYS),
+            job_filter_stages,
+        )
+        .order_by(
+            CandidateStage.candidate_id,
+            CandidateStage.job_id,
+            CandidateStage.moved_at.desc(),
+            CandidateStage.id.desc(),
+        )
+        .subquery()
+    )
+    stage_q = select(latest.c.candidate_id, latest.c.job_id).where(
+        latest.c.stage == PipelineStage.client_interview
+    )
+    if scope == "mine":
+        from app.models.recruitment_process import RecruitmentProcess
+
+        owned_process = (
+            select(RecruitmentProcess.id)
+            .where(
+                RecruitmentProcess.candidate_id == latest.c.candidate_id,
+                RecruitmentProcess.job_id == latest.c.job_id,
+                RecruitmentProcess.owner_user_id.in_(owners),
+            )
+            .exists()
+        )
+        stage_q = stage_q.where(or_(latest.c.moved_by.in_(owners), owned_process))
+    for cid, jid in (await db.execute(stage_q.limit(MAX_PAIRS))).all():
+        pairs.add((cid, jid))
+    return pairs
+
+
+async def load_snapshots(
+    db: AsyncSession,
+    pairs: Iterable[tuple[int, int]],
+    *,
+    window_start: datetime,
+    window_end: datetime,
+) -> dict[tuple[int, int], PairSnapshot]:
+    """Migawki par — stała liczba zapytań niezależnie od liczby par."""
+    keys = sorted(set(pairs))[:MAX_PAIRS]
+    snaps = {k: PairSnapshot(candidate_id=k[0], job_id=k[1]) for k in keys}
+    if not keys:
+        return snaps
+    cand_ids = sorted({k[0] for k in keys})
+    job_ids = sorted({k[1] for k in keys})
+
+    # Wydarzenia cyklu: prepy i rozmowa u klienta w oknie.
+    ev_rows = (
+        await db.execute(
+            select(CalendarEvent)
+            .where(
+                CalendarEvent.candidate_id.in_(cand_ids),
+                CalendarEvent.job_id.in_(job_ids),
+                CalendarEvent.event_type.in_(
+                    (EventType.prep_call, EventType.client_interview)
+                ),
+                CalendarEvent.status != EventStatus.cancelled,
+                CalendarEvent.start_time >= window_start - timedelta(days=30),
+                CalendarEvent.start_time <= window_end,
+            )
+            .order_by(CalendarEvent.start_time)
+        )
+    ).scalars()
+    interviews: dict[tuple[int, int], CalendarEvent] = {}
+    for ev in ev_rows:
+        key = (ev.candidate_id, ev.job_id)
+        snap = snaps.get(key)
+        if snap is None:
+            continue
+        if ev.event_type == EventType.prep_call:
+            snap.preps.append(_event_ref(ev))
+        else:
+            # Najnowsza rozmowa u klienta — kolejne rundy nadpisują poprzednią.
+            interviews[key] = ev
+    for key, ev in interviews.items():
+        snaps[key].interview = _event_ref(ev)
+        # Prepy liczą się do TEJ rozmowy: te po niej należą do następnej rundy.
+        iv_start = _as_utc(ev.start_time)
+        snaps[key].preps = [p for p in snaps[key].preps if p.start <= iv_start]
+
+    # Wnioski o sloty: otwarty wygrywa, inaczej najnowszy niezanulowany.
+    slot_rows = (
+        await db.execute(
+            select(ClientInterviewSlotRequest)
+            .where(
+                ClientInterviewSlotRequest.candidate_id.in_(cand_ids),
+                ClientInterviewSlotRequest.job_id.in_(job_ids),
+                ClientInterviewSlotRequest.status != SLOT_STATUS_CANCELLED,
+            )
+            .order_by(ClientInterviewSlotRequest.created_at)
+        )
+    ).scalars()
+    for req in slot_rows:
+        snap = snaps.get((req.candidate_id, req.job_id))
+        if snap is None:
+            continue
+        current = snap.slot_request
+        if current is None or current.status not in OPEN_SLOT_STATUSES:
+            snap.slot_request = slot_ref(req)
+
+    # Debrief: feedback strony kandydata pod rozmową u klienta.
+    iv_ids = [s.interview.id for s in snaps.values() if s.interview is not None]
+    if iv_ids:
+        fb_rows = (
+            await db.execute(
+                select(InterviewFeedback).where(
+                    InterviewFeedback.calendar_event_id.in_(iv_ids),
+                    InterviewFeedback.feedback_source == FeedbackSource.candidate_side,
+                )
+            )
+        ).scalars()
+        by_event = {fb.calendar_event_id: fb for fb in fb_rows}
+        for snap in snaps.values():
+            if snap.interview is None:
+                continue
+            fb = by_event.get(snap.interview.id)
+            if fb is not None:
+                snap.debrief = DebriefRef(
+                    id=fb.id,
+                    overall_impression=fb.overall_impression,
+                    offer_acceptance=fb.offer_acceptance,
+                    acceptance_condition=fb.acceptance_condition,
+                    candidate_questions=fb.candidate_questions,
+                    client_questions=fb.client_questions,
+                )
+
+    # Najnowszy etap pary.
+    latest = (
+        select(CandidateStage.candidate_id, CandidateStage.job_id, CandidateStage.stage)
+        .distinct(CandidateStage.candidate_id, CandidateStage.job_id)
+        .where(
+            CandidateStage.candidate_id.in_(cand_ids),
+            CandidateStage.job_id.in_(job_ids),
+        )
+        .order_by(
+            CandidateStage.candidate_id,
+            CandidateStage.job_id,
+            CandidateStage.moved_at.desc(),
+            CandidateStage.id.desc(),
+        )
+    )
+    for cid, jid, stage in (await db.execute(latest)).all():
+        snap = snaps.get((cid, jid))
+        if snap is not None:
+            snap.latest_stage = stage.value if hasattr(stage, "value") else str(stage)
+    return snaps
+
+
+async def _labels(
+    db: AsyncSession, cand_ids: list[int], job_ids: list[int]
+) -> tuple[
+    dict[int, tuple[Optional[str], Optional[str]]],
+    dict[int, tuple[str, Optional[int], Optional[str]]],
+]:
+    names: dict[int, tuple[Optional[str], Optional[str]]] = {}
+    if cand_ids:
+        for cid, first, last, email in (
+            await db.execute(
+                select(
+                    Candidate.id, Candidate.name, Candidate.lastname, Candidate.email
+                ).where(Candidate.id.in_(cand_ids))
+            )
+        ).all():
+            full = " ".join(part for part in (first, last) if part) or None
+            names[cid] = (full, email)
+    jobs: dict[int, tuple[str, Optional[int], Optional[str]]] = {}
+    if job_ids:
+        for jid, title, client_id, client_name in (
+            await db.execute(
+                select(Job.id, Job.title, Job.client_id, Client.name)
+                .outerjoin(Client, Client.id == Job.client_id)
+                .where(Job.id.in_(job_ids))
+            )
+        ).all():
+            jobs[jid] = (title, client_id, client_name)
+    return names, jobs
+
+
+async def load_overview(
+    db: AsyncSession,
+    user: User,
+    *,
+    scope: Scope,
+    now: Optional[datetime] = None,
+    days_back: int = DEFAULT_DAYS_BACK,
+    days_ahead: int = DEFAULT_DAYS_AHEAD,
+    can_read_candidates: bool = True,
+) -> dict:
+    now = now or datetime.now(timezone.utc)
+    window_start = now - timedelta(days=days_back)
+    window_end = now + timedelta(days=days_ahead)
+    call_window = settings.POST_INTERVIEW_CALL_WINDOW_MINUTES
+    pair_keys = await _scope_pairs(
+        db, user, scope, window_start=window_start, window_end=window_end, now=now
+    )
+    snaps = await load_snapshots(
+        db, pair_keys, window_start=window_start, window_end=window_end
+    )
+    names, jobs = await _labels(
+        db,
+        sorted({k[0] for k in snaps}),
+        sorted({k[1] for k in snaps}),
+    )
+    is_dl_view = scope != "mine"
+
+    items: list[dict] = []
+    agenda: list[dict] = []
+    todos: list[dict] = []
+    for key, snap in snaps.items():
+        cid, jid = key
+        title, client_id, client_name = jobs.get(jid, (None, None, None))
+        # Nazwisko i e-mail tylko dla ról czytających kandydatów. E-mail jest
+        # potrzebny do zaproszenia na prep (Teams wysyła je kandydatowi).
+        name, email = (
+            names.get(cid, (None, None)) if can_read_candidates else (None, None)
+        )
+        pair_info = {
+            "candidate_id": cid,
+            "candidate_name": name,
+            "candidate_email": email,
+            "job_id": jid,
+            "job_title": title,
+            "client_id": client_id,
+            "client_name": client_name,
+        }
+        steps = compute_steps(snap, now, call_window_minutes=call_window)
+        req = snap.slot_request
+        items.append(
+            {
+                **pair_info,
+                "steps": steps,
+                "current_step": current_step_key(steps),
+                "latest_stage": snap.latest_stage,
+                "slot_request": _slot_payload(req) if req else None,
+                "interview_event_id": snap.interview.id if snap.interview else None,
+                "debrief": _debrief_payload(snap.debrief) if snap.debrief else None,
+            }
+        )
+        for t in compute_todos(
+            snap,
+            now,
+            call_window_minutes=call_window,
+            user_id=user.id,
+            is_dl_view=is_dl_view,
+        ):
+            todos.append({**t, **pair_info})
+
+        for idx, prep in enumerate(snap.preps):
+            if window_start <= prep.start <= window_end:
+                agenda.append(
+                    {
+                        **pair_info,
+                        "kind": "prep" if idx == 0 else "prep2",
+                        "start": prep.start,
+                        "end": prep.end,
+                        "event_id": prep.id,
+                        "online_meeting_url": prep.online_meeting_url,
+                    }
+                )
+        iv = snap.interview
+        if iv is not None and window_start <= iv.start <= window_end:
+            agenda.append(
+                {
+                    **pair_info,
+                    "kind": "interview",
+                    "start": iv.start,
+                    "end": iv.end,
+                    "event_id": iv.id,
+                    "online_meeting_url": None,
+                }
+            )
+            end = _interview_end(iv)
+            agenda.append(
+                {
+                    **pair_info,
+                    "kind": "call",
+                    "start": end,
+                    "end": end + timedelta(minutes=call_window),
+                    "event_id": iv.id,
+                    "online_meeting_url": None,
+                    "done": snap.debrief is not None,
+                }
+            )
+        if (
+            req is not None
+            and req.status == SLOT_STATUS_AWAITING_DL
+            and _chosen_slot(req) is not None
+        ):
+            chosen = _chosen_slot(req)
+            agenda.append(
+                {
+                    **pair_info,
+                    "kind": "tentative",
+                    "start": chosen["start"],
+                    "end": chosen.get("end"),
+                    "event_id": None,
+                    "slot_request_id": req.id,
+                    "online_meeting_url": None,
+                }
+            )
+
+    def _sort_key(entry: dict):
+        start = entry["start"]
+        if isinstance(start, str):
+            start = datetime.fromisoformat(start)
+        return _as_utc(start)
+
+    agenda.sort(key=_sort_key)
+    todos.sort(
+        key=lambda t: (
+            t["priority"],
+            _as_utc(t["due"]) if isinstance(t["due"], datetime) else window_end,
+        )
+    )
+    items.sort(
+        key=lambda i: (
+            STEP_KEYS.index(i["current_step"]) if i["current_step"] else 99,
+            i["candidate_name"] or "",
+        )
+    )
+    return {
+        "generated_at": now,
+        "scope": scope,
+        "call_window_minutes": call_window,
+        "items": items,
+        "agenda": agenda,
+        "todos": todos,
+        "truncated": len(pair_keys) > MAX_PAIRS,
+    }
+
+
+def _slot_payload(req: SlotRef) -> dict:
+    return {
+        "id": req.id,
+        "status": req.status,
+        "slots": list(req.slots),
+        "chosen_index": req.chosen_index,
+        "respond_by": req.respond_by,
+        "recruiter_id": req.recruiter_id,
+        "created_by": req.created_by,
+        "duration_minutes": req.duration_minutes,
+        "note": req.note,
+        "event_id": req.event_id,
+    }
+
+
+def _debrief_payload(fb: DebriefRef) -> dict:
+    return {
+        "id": fb.id,
+        "overall_impression": fb.overall_impression,
+        "offer_acceptance": fb.offer_acceptance,
+        "acceptance_condition": fb.acceptance_condition,
+    }

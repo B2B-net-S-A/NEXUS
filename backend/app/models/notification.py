@@ -152,6 +152,15 @@ class NotificationType(str, enum.Enum):
     # 0336: zapisane wyszukiwanie po migracji na wspólną semantykę filtrów
     # zwraca inny zbiór osób — alert wstrzymany do akceptacji właściciela.
     saved_search_reapproval = "saved_search_reapproval"
+    # 0338: cykl rozmowy u klienta — przekazania DL ↔ rekruter.
+    # DL dodał terminy od klienta → rekruter ustala z kandydatem.
+    interview_slots_requested = "interview_slots_requested"
+    # Rekruter wybrał termin → DL odpowiada klientowi.
+    interview_slot_chosen = "interview_slot_chosen"
+    # DL potwierdził termin u klienta → rozmowa jest w kalendarzu rekrutera.
+    interview_slot_confirmed = "interview_slot_confirmed"
+    # Rekruter zapisał debrief po rozmowie u klienta → DL wie, jak poszło.
+    interview_debrief_saved = "interview_debrief_saved"
 
 
 class Notification(Base, TimestampMixin):

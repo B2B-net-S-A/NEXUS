@@ -237,8 +237,13 @@ async def test_outlook_owned_fields_cannot_be_patched_locally(
     moved = await app_client.patch(
         f"/api/calendar/events/{event_id}",
         headers=app_auth_headers,
-        json={"start_time": (_START + timedelta(hours=2)).isoformat()},
+        json={
+            "start_time": (_START + timedelta(hours=2)).isoformat(),
+            "end_time": (_START + timedelta(hours=3)).isoformat(),
+        },
     )
+    # Od 0338 termin idzie do Outlooka organizatora — ale ten właściciel nie ma
+    # połączonej skrzynki, więc zmiany nie da się przepchnąć: 409.
     assert moved.status_code == 409, moved.text
 
     status_cancel = await app_client.patch(

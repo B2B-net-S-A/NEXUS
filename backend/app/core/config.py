@@ -811,6 +811,9 @@ class Settings(BaseSettings):
     POST_INTERVIEW_T15_MINUTES: int = 15
     POST_INTERVIEW_T45_MINUTES: int = 45
     POST_INTERVIEW_T2H_MINUTES: int = 120
+    # 0338: okno „zadzwoń do kandydata po rozmowie u klienta” (min od końca).
+    # Agenda „Rozmowy u klienta” pokazuje odliczanie do jego końca.
+    POST_INTERVIEW_CALL_WINDOW_MINUTES: int = 30
     # Po ilu minutach od end_time interview z status=scheduled → auto-flip na
     # completed (sygnał, że event się odbył, nawet jeśli nikt go ręcznie nie
     # oznaczył). 10 min grace period absorbuje opóźnienia.

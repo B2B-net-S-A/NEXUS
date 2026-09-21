@@ -578,21 +578,36 @@ _OUTLOOK_OWNED_FIELDS = frozenset(
 )
 
 
-def _reject_outlook_owned_changes(event: CalendarEvent, changes: dict) -> None:
+# 0338 („oba kierunki”): te pola NEXUS umie przepchnąć do Outlooka PATCH-em na
+# wydarzeniu organizatora. Uczestników, całodniowości i ręcznego linku Teams
+# nie przepychamy — to zmiana zaproszenia, którą zostawiamy Outlookowi.
+_OUTLOOK_PUSHABLE_FIELDS = frozenset(
+    {"title", "description", "start_time", "end_time", "location"}
+)
+
+
+def _outlook_changed_fields(event: CalendarEvent, changes: dict) -> list[str]:
     if not _is_outlook_event(event):
-        return
-    changed = sorted(
+        return []
+    return sorted(
         field
         for field in _OUTLOOK_OWNED_FIELDS & changes.keys()
         if getattr(event, field) != changes[field]
     )
-    if changed:
+
+
+def _reject_outlook_owned_changes(event: CalendarEvent, changes: dict) -> None:
+    if not _is_outlook_event(event):
+        return
+    changed = _outlook_changed_fields(event, changes)
+    if changed and not set(changed) <= _OUTLOOK_PUSHABLE_FIELDS:
         raise HTTPException(
             status_code=409,
             detail=(
-                "To wydarzenie pochodzi z Outlooka — termin, tytuł, miejsce, opis "
-                "i uczestników zmień w Outlooku. W NEXUSIE możesz zmienić typ, "
-                "kandydata, rekrutację i przypomnienie."
+                "To wydarzenie pochodzi z Outlooka — uczestników, cały dzień "
+                "i link do spotkania zmień w Outlooku. W NEXUSIE możesz zmienić "
+                "termin, tytuł, miejsce, opis, typ, kandydata, rekrutację "
+                "i przypomnienie."
             ),
         )
     if (
@@ -645,6 +660,9 @@ async def update_event(
     )
     changes = body.model_dump(exclude_unset=True)
     _reject_outlook_owned_changes(event, changes)
+    outlook_fields = _outlook_changed_fields(event, changes)
+    if outlook_fields:
+        await _push_outlook_changes(db, event, changes, outlook_fields)
     for field, value in changes.items():
         setattr(event, field, value)
     # Walidacja na WYNIKU, nie na samym żądaniu: PATCH bywa częściowy, więc
@@ -720,6 +738,92 @@ async def update_event(
     await db.commit()
     await db.refresh(event)
     return await _event_response(db, event, current_user)
+
+
+async def _push_outlook_changes(
+    db: AsyncSession, event: CalendarEvent, changes: dict, fields: list[str]
+) -> None:
+    """Przepchnij zmianę terminu/tytułu do Outlooka ZANIM zapiszemy ją lokalnie.
+
+    Sync nadpisuje pola Outlooka przy każdej zmianie `changeKey`, więc zapis
+    tylko w NEXUSIE zostałby cicho cofnięty przy następnej synchronizacji,
+    a uczestnicy zostaliby przy starym terminie. Dlatego odwrotnie: najpierw
+    Outlook (organizator = twórca wiersza), potem baza. Każda odmowa zostawia
+    wydarzenie w NEXUSIE nietknięte.
+    """
+    from app.models.m365 import M365Connection
+    from app.services.m365.calendar import build_update_payload, update_graph_event
+    from app.services.m365.graph_client import GraphRequestError
+    from app.services.m365.oauth import M365ReauthRequired
+
+    new_start = changes.get("start_time", event.start_time)
+    new_end = changes.get("end_time", event.end_time)
+    if new_end is not None and new_start is not None and new_end <= new_start:
+        raise HTTPException(status_code=422, detail=_END_BEFORE_START)
+
+    conn = (
+        await db.scalar(
+            select(M365Connection).where(M365Connection.user_id == event.created_by)
+        )
+        if event.created_by is not None
+        else None
+    )
+    if conn is None or not conn.is_active:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Tego wydarzenia nie da się zmienić z NEXUSA — właściciel nie ma "
+                "połączonej skrzynki Outlook. Zmień termin w Outlooku albo połącz "
+                "skrzynkę w Ustawieniach."
+            ),
+        )
+    payload = build_update_payload(
+        title=changes["title"] if "title" in fields else None,
+        description=changes.get("description") if "description" in fields else None,
+        start=new_start if {"start_time", "end_time"} & set(fields) else None,
+        end=new_end if {"start_time", "end_time"} & set(fields) else None,
+        location=changes.get("location"),
+        set_location="location" in fields,
+    )
+    try:
+        change_key = await update_graph_event(db, conn, event.external_id, payload)
+    except M365ReauthRequired as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Połączenie z Outlookiem wygasło — połącz skrzynkę ponownie "
+                "w Ustawieniach. W NEXUSIE nic nie zostało zmienione."
+            ),
+        ) from exc
+    except GraphRequestError as exc:
+        if exc.status in (400, 403, 404):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Outlook nie pozwolił zmienić tego spotkania — zwykle dlatego, "
+                    "że organizuje je ktoś inny. Zmień termin w Outlooku. W NEXUSIE "
+                    "nic nie zostało zmienione."
+                ),
+            ) from exc
+        logger.warning("calendar update: Graph %s for event %s", exc.status, event.id)
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Outlook nie przyjął zmiany — spróbuj ponownie za chwilę. "
+                "W NEXUSIE nic nie zostało zmienione."
+            ),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 — sieć
+        logger.exception("calendar update: Graph call failed for %s", event.id)
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Nie udało się połączyć z Outlookiem. W NEXUSIE nic nie zostało "
+                "zmienione."
+            ),
+        ) from exc
+    if change_key:
+        event.m365_change_key = change_key
 
 
 async def _load_mutable_event(

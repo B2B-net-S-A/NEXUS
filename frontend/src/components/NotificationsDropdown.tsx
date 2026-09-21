@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Store,
   Sparkles,
+  CalendarClock,
   AtSign,
   MessageSquare,
   BellRing,
@@ -380,6 +381,27 @@ const TYPE_CONFIG: Record<
   },
   candidate_search_completed: {
     icon: <Sparkles className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  // 0338: cykl rozmowy u klienta — przekazania DL ↔ rekruter i debrief.
+  interview_slots_requested: {
+    icon: <CalendarClock className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+  interview_slot_chosen: {
+    icon: <CalendarClock className="w-3.5 h-3.5" />,
+    color: "text-warning",
+    bgColor: "bg-warning/15",
+  },
+  interview_slot_confirmed: {
+    icon: <CalendarClock className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  interview_debrief_saved: {
+    icon: <CalendarClock className="w-3.5 h-3.5" />,
     color: "text-primary",
     bgColor: "bg-primary/15",
   },

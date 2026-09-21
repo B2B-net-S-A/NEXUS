@@ -81,7 +81,7 @@ vi.mock("@/components/ConfirmDialog", () => ({
   ),
 }));
 
-import CalendarPage from "@/app/calendar/page";
+import CalendarPage from "@/components/calendar/WeekCalendar";
 
 const LOADING = /Ładowanie kalendarza/;
 
@@ -289,7 +289,12 @@ describe("CalendarPage — link ?event=<id> (audyt B39)", () => {
     ).toBeInTheDocument();
     expect(mocks.getEvent).toHaveBeenCalledWith(42);
     // Strona pod otwartym oknem jest `aria-hidden` — nagłówek trzeba szukać jawnie.
-    expect(screen.getByRole("heading", { level: 1, hidden: true })).toHaveTextContent(/marzec 2031/);
+    // Miesiąc siatki to h2 (h1 ma ekran „Rozmowy u klienta”); okno ma własny h2.
+    expect(
+      screen
+        .getAllByRole("heading", { level: 2, hidden: true })
+        .some((h) => /marzec 2031/.test(h.textContent ?? "")),
+    ).toBe(true);
   });
 
   it("wydarzenie z uczestnikami z M365 ({address, name}) otwiera się zamiast wywracać kalendarz", async () => {
@@ -369,7 +374,7 @@ describe("CalendarPage — link ?event=<id> (audyt B39)", () => {
     expect(inner).toHaveFocus();
     fireEvent.keyDown(inner, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(mocks.replace).toHaveBeenCalledWith("/calendar");
+    expect(mocks.replace).toHaveBeenCalledWith("/calendar?view=week");
   });
 
   it("Escape na samym oknie wydarzenia z M365 też je zamyka", async () => {
@@ -393,7 +398,7 @@ describe("CalendarPage — link ?event=<id> (audyt B39)", () => {
 
     await screen.findByRole("dialog", { name: "Rozmowa z linku" });
     fireEvent.click(screen.getAllByRole("button", { name: "Zamknij" })[0]);
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/calendar"));
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/calendar?view=week"));
   });
 
   it("&action=feedback otwiera od razu formularz feedbacku zamiast szczegółów", async () => {
@@ -624,10 +629,18 @@ describe("CalendarPage — okno wydarzenia (audyt 17.09.2026)", () => {
     await waitFor(() => expect(mocks.updateEvent).toHaveBeenCalledWith(50, { event_type: "screening" }));
   });
 
-  it("wydarzenie z Outlooka edytuje tylko metadane", async () => {
+  it("wydarzenie z Outlooka: termin i tytuł idą też do Outlooka (0338)", async () => {
     await openEvent({ external_source: "microsoft365" });
     fireEvent.click(screen.getByRole("button", { name: "Edytuj" }));
-    expect(screen.getByTestId("calendar-event-edit-form")).toHaveTextContent(/pochodzi z Outlooka/);
+    expect(screen.getByTestId("calendar-event-edit-form")).toHaveTextContent(/trafi też do Outlooka/);
+    expect(screen.getByLabelText("Tytuł")).toBeInTheDocument();
+    expect(screen.getByLabelText("Od")).toBeInTheDocument();
+  });
+
+  it("całodniowe z Outlooka edytuje tylko metadane", async () => {
+    await openEvent({ external_source: "microsoft365", all_day: true });
+    fireEvent.click(screen.getByRole("button", { name: "Edytuj" }));
+    expect(screen.getByTestId("calendar-event-edit-form")).toHaveTextContent(/zmieniasz w Outlooku/);
     expect(screen.queryByLabelText("Tytuł")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Od")).not.toBeInTheDocument();
   });

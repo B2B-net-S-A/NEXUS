@@ -5059,7 +5059,8 @@ export const userEmailTemplatesApi = {
 export type InterviewQuestionSource =
   | "manual"
   | "auto_generated"
-  | "imported_from_champion";
+  | "imported_from_champion"
+  | "client_debrief";
 
 export type InterviewQuestionTypeLiteral =
   | "technical"
@@ -5084,6 +5085,7 @@ export type QuestionRating = "up" | "down";
 export type SuggestionTier =
   | "pinned"
   | "legacy_champion"
+  | "client_debrief"
   | "tier_1_same_cc"
   | "tier_2_secondary_cc"
   | "tier_3_client_knowledge"
