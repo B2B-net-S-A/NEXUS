@@ -85,7 +85,11 @@ async def assess(db, generated, *, note_id=None, lock=False):
     review = primary.package_review or {}
     if note_id is None:
         note_id = review.get("note_id")
-    reasons, documents, fingerprints, versions = [], [], {}, {}
+    # reasons = blokują wysyłkę klientowi; hints = podpowiedzi, nic nie blokują
+    # (21.09.2026: notatka rekomendacyjna i ręczne „potwierdź gotowość” zdjęte
+    # z bramki — w bazie nie ma prawdziwych notatek rekomendacyjnych, więc
+    # pakiet nigdy nie stawał się gotowy).
+    reasons, hints, documents, fingerprints, versions = [], [], [], {}, {}
     for row in rows:
         version = await db.scalar(
             select(CvDocumentVersion)
@@ -205,8 +209,9 @@ async def assess(db, generated, *, note_id=None, lock=False):
             or superseded
             or not note.content.strip()
         ):
-            reasons.append(
-                "Wybierz aktualną notatkę rekomendacyjną tego kandydata w tej rekrutacji."
+            hints.append(
+                "Wskazana notatka nie jest aktualną notatką tego kandydata w tej "
+                "rekrutacji — nie zostanie dołączona."
             )
         else:
             note_state = {
@@ -215,7 +220,9 @@ async def assess(db, generated, *, note_id=None, lock=False):
                 "hash": sha256(note.content.encode()).hexdigest(),
             }
     elif policy.get("require_recommendation_note"):
-        reasons.append("Nie wskazano notatki rekomendacyjnej dla tej rekrutacji.")
+        hints.append(
+            "Opcjonalnie: wskaż notatkę z rekomendacją kandydata w tej rekrutacji."
+        )
     fingerprint = digest(
         {"documents": fingerprints, "policy": policy, "note": note_state}
     )
@@ -223,8 +230,6 @@ async def assess(db, generated, *, note_id=None, lock=False):
         review.get("fingerprint") == fingerprint
         and review.get("sources_checked") is True
     )
-    if not confirmed:
-        reasons.append("Potwierdź sprawdzenie aktualnych CV i notatki względem źródeł.")
     state = {
         "fingerprint": fingerprint,
         "managed": True,
@@ -236,6 +241,7 @@ async def assess(db, generated, *, note_id=None, lock=False):
         "note_id": note_id,
         "ready": not reasons,
         "reasons": list(dict.fromkeys(reasons)),
+        "hints": list(dict.fromkeys(hints)),
         "sources_checked": confirmed,
         "generic": primary.content_mode != "tailored",
         "can_retry": bool(
@@ -269,14 +275,12 @@ async def confirm(
             409,
             "Pakiet lub notatka zmieniły się. Odśwież podgląd i sprawdź je ponownie.",
         )
-    missing = [r for r in state["reasons"] if not r.startswith("Potwierdź sprawdzenie")]
-    if missing or not sources_checked:
+    # Zapis wyboru notatki rekomendacyjnej (opcjonalnej). Nie jest już bramką
+    # wysyłki — wskazana notatka musi jednak być aktualna i tej rekrutacji.
+    if note_id and data["note"] is None:
         raise HTTPException(
             409,
-            {
-                "message": "Pakiet nie jest gotowy.",
-                "reasons": missing or ["Potwierdź sprawdzenie CV względem źródeł."],
-            },
+            "Wybierz aktualną notatkę rekomendacyjną tego kandydata w tej rekrutacji.",
         )
     data["primary"].package_review = {
         "fingerprint": data["fingerprint"],
@@ -284,7 +288,7 @@ async def confirm(
         "note_version": data["note"],
         "policy": data["policy"],
         "document_versions": data["versions"],
-        "sources_checked": True,
+        "sources_checked": bool(sources_checked),
         "reviewed_by": user_id,
         "reviewed_at": datetime.now(timezone.utc).isoformat(),
     }

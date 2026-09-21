@@ -3191,7 +3191,8 @@ async def cancel_generated_cv_review(
 
 class PackageConfirmation(BaseModel):
     note_id: Optional[int] = Field(default=None, ge=1)
-    sources_checked: bool
+    # Od 21.09.2026 bez znaczenia dla gotowości (zapis wyboru notatki).
+    sources_checked: bool = False
     expected_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
