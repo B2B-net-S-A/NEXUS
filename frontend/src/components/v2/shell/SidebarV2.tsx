@@ -18,6 +18,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { NavLink } from "./SidebarNavLink";
+import {
+  SidebarMoreFlyout,
+  SidebarMoreInline,
+  type BadgeCounts,
+} from "./SidebarMore";
 import { DynamindsMark } from "@/components/brand/DynamindsMark";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { dashboardHref } from "@/lib/dashboard-presets";
@@ -25,11 +31,11 @@ import { useSidebarPinned } from "./useSidebarPinned";
 import { hasSectionAccess } from "@/lib/section-access";
 import {
   resolveNavHref,
+  visibleMoreGroups,
   visibleNavSections,
-  type NavBadgeKey,
+  visiblePrimaryNav,
+  type NavEntry,
 } from "@/lib/nav-registry";
-
-type BadgeCounts = Partial<Record<NavBadgeKey, number>>;
 
 /**
  * Czy pozycja menu świeci się dla bieżącej ścieżki. Podstrony modułu
@@ -58,96 +64,6 @@ const CANDIDATES_SUBPAGES_WITH_OWN_ITEM = [
 // i palety ⌘K. Re-eksport zostaje, bo testy i inne moduły importują
 // `visibleNavSections` z tej ścieżki.
 export { visibleNavSections };
-
-function CountBadge({ count }: { count: number }) {
-  if (count <= 0) return null;
-  return (
-    <span className="ml-auto shrink-0 rounded-md bg-primary text-primary-foreground text-[10px] font-semibold tabular-nums min-w-[18px] h-[18px] px-1.5 flex items-center justify-center leading-none">
-      {count > 99 ? "99+" : count}
-    </span>
-  );
-}
-
-function NavLink({
-  href,
-  label,
-  icon: Icon,
-  active,
-  collapsed,
-  badgeCount,
-  onClick,
-  external,
-}: {
-  href: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  active: boolean;
-  collapsed: boolean;
-  badgeCount?: number;
-  onClick?: () => void;
-  external?: boolean;
-}) {
-  const sharedClassName = cn(
-    "relative flex items-center text-sm transition-colors duration-150",
-    "rounded-md focus:outline-hidden focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-1 focus-visible:ring-offset-sidebar",
-    collapsed ? "justify-center h-9 w-9 mx-auto" : "gap-3 px-3 h-9",
-    active
-      ? collapsed
-        ? "bg-primary/10 text-primary font-medium"
-        : "bg-primary/10 text-primary font-medium before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-[3px] before:rounded-r-full before:bg-primary"
-      : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground",
-  );
-  const inner = (
-    <>
-      <Icon className="shrink-0 h-4 w-4" />
-      {!collapsed && (
-        <>
-          <span className="truncate flex-1">{label}</span>
-          {badgeCount !== undefined && <CountBadge count={badgeCount} />}
-        </>
-      )}
-      {collapsed && badgeCount !== undefined && badgeCount > 0 && (
-        <span
-          className="absolute top-1 right-1 w-1.5 h-1.5 bg-primary rounded-full"
-          aria-label={`${badgeCount} nowych`}
-        />
-      )}
-    </>
-  );
-  const link = external ? (
-    <a
-      href={href}
-      onClick={onClick}
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label={`${label} (otwiera się w nowej karcie)`}
-      className={sharedClassName}
-    >
-      {inner}
-    </a>
-  ) : (
-    <Link
-      href={href}
-      onClick={onClick}
-      aria-label={label}
-      aria-current={active ? "page" : undefined}
-      className={sharedClassName}
-    >
-      {inner}
-    </Link>
-  );
-
-  if (!collapsed) return link;
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{link}</TooltipTrigger>
-      <TooltipContent side="right">
-        {label}
-        {badgeCount !== undefined && badgeCount > 0 ? ` (${badgeCount})` : ""}
-      </TooltipContent>
-    </Tooltip>
-  );
-}
 
 /**
  * Pionowe wymiary szyny są takie same w stanie zwiniętym i rozwiniętym (UAT B57).
@@ -212,11 +128,14 @@ export function SidebarV2({
   const contactFeature = useCandidateContactFeature({
     queryEnabled: canUseContactQueue,
   });
-  const navSections = visibleNavSections(user, {
-    contactQueueEnabled: contactFeature.enabled,
-  });
+  // Szyna = rdzeń pracy (płaska lista), reszta pod „Więcej". Bramka widoczności
+  // jest w rejestrze jedna — obie listy to ten sam zbiór co dotąd, podzielony.
+  const navOptions = { contactQueueEnabled: contactFeature.enabled };
+  const primaryItems = visiblePrimaryNav(user, navOptions);
+  const moreGroups = visibleMoreGroups(user, navOptions);
 
   const [hovered, setHovered] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [pinned, setPinned] = useSidebarPinned();
 
   useEffect(() => {
@@ -320,6 +239,15 @@ export function SidebarV2({
 
   const badgeCounts = stats ?? {};
   const isActive = (href: string) => isNavItemActive(pathname, href);
+  const isEntryActive = (entry: NavEntry) =>
+    isActive(resolveNavHref(entry, user));
+  const handleMoreOpenChange = (next: boolean) => {
+    setMoreOpen(next);
+    // Panel „Więcej" leży POZA szyną: `mouseleave` jest przy otwartym panelu
+    // ignorowany (szyna nie może zwinąć się spod panelu), więc po zamknięciu
+    // zdejmujemy hover ręcznie — inaczej szyna zostałaby rozwinięta na stałe.
+    if (!next) setHovered(false);
+  };
   const initials = user?.name
     ? user.name
         .split(" ")
@@ -336,7 +264,7 @@ export function SidebarV2({
     <aside
       aria-label="Nawigacja boczna"
       onMouseEnter={() => !mobileOpen && setHovered(true)}
-      onMouseLeave={() => !mobileOpen && setHovered(false)}
+      onMouseLeave={() => !mobileOpen && !moreOpen && setHovered(false)}
       className={cn(
         "bg-sidebar text-sidebar-foreground",
         "flex flex-col h-full shrink-0 overflow-hidden",
@@ -406,47 +334,53 @@ export function SidebarV2({
         aria-label="Nawigacja główna"
         className={cn("flex-1 overflow-y-auto py-3 px-2", SIDEBAR_VERTICAL_LAYOUT.navSpacing)}
       >
-        {navSections.map((section) => {
-          // Filtr ról i bramka kolejki telefonów siedzą w `visibleNavSections`
-          // (sekcje bez widocznych pozycji tu w ogóle nie docierają).
-          const visibleItems = section.items;
-          return (
-            <div key={section.title} className="mb-3">
-              <div className={SIDEBAR_VERTICAL_LAYOUT.sectionSlot}>
-                {!collapsed || mobileOpen ? (
-                  <p className="w-full truncate px-3 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-sidebar-muted select-none">
-                    {section.title}
-                  </p>
-                ) : (
-                  <div className="mx-2 mb-3 w-full border-t border-sidebar-border" />
-                )}
-              </div>
-              <div className={SIDEBAR_VERTICAL_LAYOUT.itemSpacing}>
-                {visibleItems.map(
-                  (item) => {
-                    const { href, label, icon, badgeKey, external } = item;
-                    const resolvedHref = resolveNavHref(item, user);
-                    return (
-                      <NavLink
-                        key={href}
-                        href={resolvedHref}
-                        label={label}
-                        icon={icon}
-                        active={isActive(resolvedHref)}
-                        collapsed={collapsed && !mobileOpen}
-                        badgeCount={
-                          badgeKey ? badgeCounts[badgeKey] : undefined
-                        }
-                        onClick={onClose}
-                        external={external}
-                      />
-                    );
-                  },
-                )}
-              </div>
+        <div className={cn("mb-3", SIDEBAR_VERTICAL_LAYOUT.itemSpacing)}>
+          {primaryItems.map((item) => {
+            const resolvedHref = resolveNavHref(item, user);
+            return (
+              <NavLink
+                key={item.id}
+                href={resolvedHref}
+                label={item.label}
+                icon={item.icon}
+                active={isActive(resolvedHref)}
+                collapsed={collapsed && !mobileOpen}
+                badgeCount={item.badgeKey ? badgeCounts[item.badgeKey] : undefined}
+                onClick={onClose}
+                external={item.external}
+              />
+            );
+          })}
+        </div>
+        {mobileOpen ? (
+          <SidebarMoreInline
+            groups={moreGroups}
+            user={user}
+            badgeCounts={badgeCounts}
+            isActive={isEntryActive}
+            onNavigate={onClose}
+            sectionSlotClassName={SIDEBAR_VERTICAL_LAYOUT.sectionSlot}
+            itemSpacingClassName={SIDEBAR_VERTICAL_LAYOUT.itemSpacing}
+          />
+        ) : moreGroups.length > 0 ? (
+          <div className="mb-3">
+            {/* Stały slot z kreską w OBU stanach — zero przesunięć w pionie. */}
+            <div className={SIDEBAR_VERTICAL_LAYOUT.sectionSlot}>
+              <div className="mx-2 mb-3 w-full border-t border-sidebar-border" />
             </div>
-          );
-        })}
+            <div className={SIDEBAR_VERTICAL_LAYOUT.itemSpacing}>
+              <SidebarMoreFlyout
+                groups={moreGroups}
+                user={user}
+                collapsed={collapsed}
+                open={moreOpen}
+                onOpenChange={handleMoreOpenChange}
+                badgeCounts={badgeCounts}
+                isActive={isEntryActive}
+              />
+            </div>
+          </div>
+        ) : null}
       </nav>
 
       {/*

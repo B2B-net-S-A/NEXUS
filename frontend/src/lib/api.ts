@@ -1345,6 +1345,8 @@ export const marketplaceApi = {
  * filtr listy (`jobs_*_clause` w `backend/app/api/jobs.py`).
  */
 export interface JobQuickCounts {
+  /** Cały rejestr — licznik segmentu „Wszystkie" (rekrutacja v3). */
+  all?: number;
   mine: number;
   open: number;
   needs_sourcing: number;
@@ -4761,6 +4763,8 @@ export interface StageScreeningResponse {
   job_id: number;
   champion_profile: ChampionProfile | Record<string, never>;
   screening_answers: ScreeningAnswers | null;
+  /** Podpowiedzi z notatek (automaty 21.09.2026); starszy backend ich nie niesie. */
+  suggestions?: import("@/lib/screening-suggestions").ScreeningSuggestions | null;
 }
 
 export const screeningApi = {

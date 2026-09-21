@@ -460,46 +460,28 @@ async def get_branded_cv(
     )
 
 
-@router.post(
-    "/candidates/stages/{stage_id}/cv/branded/select-generated",
-    response_model=CVBrandedResponse,
-)
-async def select_generated_cv(
-    stage_id: int,
-    payload: CVBrandedSelectGenerated,
-    current_user: CandidateWriteAccess,
-    db: AsyncSession = Depends(get_db),
-) -> CVBrandedResponse:
-    """Explicitly replace the current draft with this process's generated CV.
+async def apply_generated_to_stage_cv(
+    db: AsyncSession,
+    csv: CandidateStageCV,
+    generated: CvGeneratedDocument,
+    *,
+    user_id: Optional[int],
+    approved=None,
+    activity_action: str = "branded_cv_selected_from_generator",
+) -> None:
+    """Wczytaj wygenerowane CV jako SZKIC brandowanego CV etapu. Bez commitu.
 
-    Row lock + revision prevent overwriting edits made since selection. Previous
-    approvals and their public links remain pinned before a new draft is opened.
-    No model call and no regeneration from Candidate fields occurs here.
+    Jedna ścieżka dla kliknięcia „Zastąp szkic i otwórz edytor" i dla auto-CV po
+    ruchu na „Zweryfikowany" (`services/cv_auto_generate.py`). Wynik to zawsze
+    ``branded_status="draft"`` — zatwierdza wyłącznie człowiek (`finalize`).
+    Wołający trzyma blokadę wiersza i sprawdził rewizję / stan.
     """
-    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
-    check_revision(csv, payload.expected_revision)
-    generated = await db.get(CvGeneratedDocument, payload.generated_document_id)
-    if (
-        generated is None
-        or generated.candidate_id != csv.candidate_id
-        or generated.job_id != csv.job_id
-    ):
-        raise HTTPException(404, "Nie znaleziono CV tego kandydata w tej rekrutacji.")
-    if generated.status != "ready" or not generated.render_payload:
-        raise HTTPException(422, "Wybierz zakończoną generację CV.")
     from app.services.cv_generator_b2b.html_export import render_interactive_html
     from app.services.cv_generator_b2b.public_view import build_public_payload
 
     from app.services.cv_approval_provenance import capture_editor_origin
 
     public = build_public_payload(generated.render_payload)
-    approved = None
-    if payload.document_version_id is not None:
-        from app.services.cv_generated_approval import approved_version_for_generation
-
-        approved = await approved_version_for_generation(
-            db, generated, payload.document_version_id
-        )
     try:
         if approved is not None:
             from app.services.cv_document_assets import approved_assets
@@ -542,7 +524,7 @@ async def select_generated_cv(
     csv.branded_status = "draft"
     csv.edit_revision += 1
     csv.branded_updated_at = datetime.now(timezone.utc)
-    csv.branded_updated_by = current_user.id
+    csv.branded_updated_by = user_id
     csv.branded_finalized_at = None
     csv.branded_finalized_by = None
     csv.branded_snapshot_path = None
@@ -552,15 +534,54 @@ async def select_generated_cv(
         Activity(
             entity_type="candidate_stage_cv",
             entity_id=csv.id,
-            action="branded_cv_selected_from_generator",
-            user_id=current_user.id,
+            action=activity_action,
+            user_id=user_id,
             details={
-                "candidate_stage_id": stage_id,
+                "candidate_stage_id": csv.candidate_stage_id,
                 "generated_document_id": generated.id,
                 "version": csv.branded_version,
                 "edit_revision": csv.edit_revision,
             },
         )
+    )
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/branded/select-generated",
+    response_model=CVBrandedResponse,
+)
+async def select_generated_cv(
+    stage_id: int,
+    payload: CVBrandedSelectGenerated,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVBrandedResponse:
+    """Explicitly replace the current draft with this process's generated CV.
+
+    Row lock + revision prevent overwriting edits made since selection. Previous
+    approvals and their public links remain pinned before a new draft is opened.
+    No model call and no regeneration from Candidate fields occurs here.
+    """
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    check_revision(csv, payload.expected_revision)
+    generated = await db.get(CvGeneratedDocument, payload.generated_document_id)
+    if (
+        generated is None
+        or generated.candidate_id != csv.candidate_id
+        or generated.job_id != csv.job_id
+    ):
+        raise HTTPException(404, "Nie znaleziono CV tego kandydata w tej rekrutacji.")
+    if generated.status != "ready" or not generated.render_payload:
+        raise HTTPException(422, "Wybierz zakończoną generację CV.")
+    approved = None
+    if payload.document_version_id is not None:
+        from app.services.cv_generated_approval import approved_version_for_generation
+
+        approved = await approved_version_for_generation(
+            db, generated, payload.document_version_id
+        )
+    await apply_generated_to_stage_cv(
+        db, csv, generated, user_id=current_user.id, approved=approved
     )
     await db.commit()
     await db.refresh(csv)

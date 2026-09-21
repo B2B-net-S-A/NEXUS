@@ -305,6 +305,17 @@ _EMBED_TRIGGER_FIELDS = {
 # (scoring_service `_score_location`); `deadline` drives availability. Salary is
 # intentionally omitted: candidate B2B PLN/h vs job PLN/month is always
 # not_comparable → neutral, so it never moves a score (see P0-B1).
+# Pola, których zmiana na OPUBLIKOWANEJ rekrutacji zgłasza ją do auto-matchu
+# i nocnego pełnego przeglądu bazy (21.09.2026) — poza `_SIGNIFICANT_FIELDS`
+# Targu: budżet i warunki pracy (dealbreakery przeglądu).
+_AUTO_REVIEW_EXTRA_FIELDS = (
+    "rate_budget_hourly",
+    "salary_min",
+    "salary_max",
+    "remote_policy",
+    "onsite_days_per_week",
+)
+
 _SCORING_INPUT_FIELDS = _EMBED_TRIGGER_FIELDS | {
     "location",
     "remote_policy",
@@ -883,17 +894,17 @@ async def list_jobs(
     # odróżnia własnego etapu szablonu od „Nowi" (UAT B33).
     stage_columns: dict[int, list[dict]] = {}
     off_template_counts: dict[int, int] = {}
-    needs_action: dict[int, int] = {}
+    attention_by_job: dict[int, tuple[int, int]] = {}
     open_proposals: dict[int, int] = {}
     if include_stage_counts and job_ids:
         from app.services.job_needs_action import (  # noqa: PLC0415
-            needs_action_counts,
+            attention_counts,
         )
         from app.services.job_proposals import open_counts_for_jobs  # noqa: PLC0415
 
         # Po jednym zapytaniu na stronę: „wymaga ruchu" (ta sama reguła i to
         # samo wyrażenie co `sort=attention`) i otwarte propozycje (zespołowo).
-        needs_action = await needs_action_counts(
+        attention_by_job = await attention_counts(
             db,
             job_ids=job_ids,
             default_template_id=default_template_id_for_counts,
@@ -1096,7 +1107,10 @@ async def list_jobs(
             d["stage_breakdown"] = stage_breakdown.get(j.id, {})
             d["stage_columns"] = stage_columns.get(j.id, [])
             d["off_template_count"] = off_template_counts.get(j.id, 0)
-            d["needs_action_count"] = needs_action.get(j.id, 0)
+            needs_n, review_n = attention_by_job.get(j.id, (0, 0))
+            d["needs_action_count"] = needs_n
+            # Stos wejściowy (Ogłoszenia, Nowi) — osobno od „wymaga ruchu".
+            d["review_count"] = review_n
             d["open_proposals_count"] = open_proposals.get(j.id, 0)
         d["priority_assignment"] = priority_assignment_map.get(j.id)
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
@@ -1170,6 +1184,8 @@ async def jobs_quick_counts(
     row = (
         await db.execute(
             select(
+                # Cały rejestr — licznik segmentu „Wszystkie" obok „Moje".
+                func.count().label("all_jobs"),
                 func.count().filter(jobs_mine_clause(current_user)).label("mine"),
                 func.count().filter(jobs_open_only_clause()).label("open"),
                 func.count()
@@ -1187,6 +1203,7 @@ async def jobs_quick_counts(
     ).one()
 
     return {
+        "all": row.all_jobs,
         "mine": row.mine,
         "open": row.open,
         "needs_sourcing": row.needs_sourcing,
@@ -1740,6 +1757,10 @@ async def update_job(
         "title",
     )
     _before = {f: getattr(job, f) for f in _marketplace_snapshot_fields}
+    # Budżet i warunki biura nie wpływają na Targ, ale zmieniają to, kogo
+    # pokaże pełny przegląd bazy i auto-match (dealbreakery) — osobna lista,
+    # żeby nie wywoływać nimi rescanów Targu.
+    _review_before = {f: getattr(job, f) for f in _AUTO_REVIEW_EXTRA_FIELDS}
     _status_before = job.status
     for k, v in updates.items():
         setattr(job, k, v)
@@ -1834,6 +1855,7 @@ async def update_job(
         or is_significant_job_update(
             _before, {f: getattr(job, f) for f in _before.keys()}
         )
+        or any(getattr(job, f) != old for f, old in _review_before.items())
     ):
         from app.services.auto_match_outbox import enqueue_job_safe
 
@@ -2357,6 +2379,14 @@ async def _save_champion_profile(
     # scores so the Delivery Lead's work actually reaches the recruiter's ranking
     # (previously this write bypassed the refresh update_job does).
     await refresh_job_matching(job.id, db)
+
+    # Zmiana Championa to istotna zmiana wymagań: opublikowana rekrutacja wraca
+    # do auto-matchu nowych CV i do nocnego pełnego przeglądu bazy (21.09.2026).
+    # Własna sesja, nigdy nie rzuca.
+    if job.status == JobStatus.published:
+        from app.services.auto_match_outbox import enqueue_job_safe
+
+        await enqueue_job_safe(job.id)
 
     now_iso = datetime.now(timezone.utc).isoformat()
     bell_event = {

@@ -162,6 +162,11 @@ async def _process(event_id: int) -> str:
                 )
             )
             await db.commit()
+            if final:
+                # Zdarzenie porzucone po wszystkich próbach = nieudany bieg
+                # automatu: wpis w „Pracy w tle" rekrutacji (gdy zdarzenie jej
+                # dotyczy) i licznik serii dla adminów. Rekruter bez dzwonka.
+                await _record_dead_event(event_id, type(exc).__name__)
             level = (
                 logging.INFO
                 if isinstance(exc, AutoMatchUnavailable)
@@ -188,7 +193,28 @@ async def _process(event_id: int) -> str:
         )
         await db.commit()
         logger.info("[auto_match] event=%s trigger=%s %s", event_id, trigger, result)
+        from app.services import automation_failures as failures
+
+        await failures.record_success(failures.KIND_NEW_CV)
         return "done"
+
+
+async def _record_dead_event(event_id: int, code: str) -> None:
+    from app.services import automation_failures as failures
+
+    job_id = None
+    try:
+        async with AsyncSessionLocal() as db:
+            event = await db.get(CandidateMatchOutbox, event_id)
+            job_id = event.job_id if event is not None else None
+            if job_id is not None:
+                await failures.record_job_failure_event(
+                    db, job_id=job_id, action="auto_match_failed", error_code=code
+                )
+                await db.commit()
+    except Exception:  # noqa: BLE001 — księgowanie awarii nie dokłada awarii
+        pass
+    await failures.record_failure(failures.KIND_NEW_CV, code, job_id=job_id)
 
 
 async def drain_once() -> dict[str, int]:

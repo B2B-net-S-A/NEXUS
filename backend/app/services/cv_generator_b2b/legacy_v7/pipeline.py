@@ -154,6 +154,7 @@ def run_legacy_generation(
     project_ref: str | None = None,
     position_ref: str | None = None,
     prepared_source_facts: PreparedSourceFacts | None = None,
+    position_fallback: str | None = None,
 ) -> GenerationResult:
     """Same signature and result as ``_run_generation_pipeline``."""
     # ── 1. Extract CV text ───────────────────────────────────────────────
@@ -307,6 +308,7 @@ def run_legacy_generation(
         role_title = str(
             raw_data.get("presentation_position")
             or candidate_data.get("position")
+            or position_fallback
             or ""
         ).strip()
         candidate_data["generic_cv"] = mode != "tailored"

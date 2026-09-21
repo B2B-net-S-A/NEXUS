@@ -70,6 +70,9 @@ export interface KanbanItem {
  // zamiast otwierać formularz zaraz po ruchu.
  screening_done?: boolean;
  scorecard_done?: boolean;
+ // Automaty (21.09.2026): na TYM etapie leży gotowe auto-CV czekające na
+ // przegląd człowieka. Brak pola (starsza odpowiedź) = brak odznaki.
+ auto_cv_ready?: boolean;
  // Stawka z profilu kandydata (PLN/h) — podpowiedź w oknie „Zweryfikowany".
  candidate_expected_rate_hourly?: string | number | null;
  // Widok „rekrutacja = jedna tabela" (wersja 3, 09.2026). Wszystkie pola są

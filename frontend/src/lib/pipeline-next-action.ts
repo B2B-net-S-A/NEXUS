@@ -46,6 +46,14 @@ export type NextActionKind =
  */
 export type NextActionOwner =
   | "recruiter"
+  /**
+   * Stos wejściowy („Ogłoszenia", „Nowi") — zgłoszenia, których nikt jeszcze
+   * nie ruszył. Ruch jest po naszej stronie, ale to PRZEGLĄD, nie sprawa do
+   * załatwienia: na produkcji 431 z 467 osób jednej rekrutacji stało w
+   * „Ogłoszeniach" i „Wymaga mojego ruchu" pokazywało prawie wszystkich
+   * (decyzja Artura 21.09.2026: osobny licznik „Do przejrzenia").
+   */
+  | "review"
   | "client"
   | "candidate"
   | "delivery"
@@ -142,6 +150,7 @@ function ownerFor(
     return "delivery";
   }
   if (item.hm_veto) return "recruiter";
+  if (group === "posting" || group === "intake") return "review";
   if (group !== "client") return "recruiter";
   const days = item.days_in_stage ?? 0;
   if (days >= NUDGE_DAYS) return "recruiter";

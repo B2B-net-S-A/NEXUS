@@ -62,7 +62,16 @@ async def test_candidate_search_block_reports_size_estimate_and_runs_by_state(
         "results_total_pretty",
         "results_estimated_rows",
         "runs_by_state",
+        # 21.09.2026: nocne przeglądy automatyczne — ile leży i szacunek bajtów.
+        "auto_runs",
+        "auto_runs_rows",
+        "auto_runs_estimated_bytes",
     }
+    assert block["auto_runs"] >= 0 and block["auto_runs_rows"] >= 0
+    assert (
+        block["auto_runs_estimated_bytes"] is None
+        or 0 <= block["auto_runs_estimated_bytes"] <= block["results_total_bytes"]
+    )
     assert isinstance(block["results_total_bytes"], int)
     assert block["results_total_bytes"] >= 0 and block["results_total_pretty"]
     # An estimate never measured (-1) is unknown, never a fake zero.

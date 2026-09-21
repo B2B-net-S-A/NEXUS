@@ -68,6 +68,17 @@ export type NavUser =
 
 export type NavVisibilityOptions = { contactQueueEnabled: boolean };
 
+/** Grupy wysuwanego panelu „Więcej" — kolejność tablicy = kolejność w panelu. */
+export type NavMoreGroupKey = "daily" | "documents" | "sources" | "knowledge" | "system";
+
+export const NAV_MORE_GROUPS: readonly { key: NavMoreGroupKey; title: string }[] = [
+  { key: "daily", title: "Codzienna praca" },
+  { key: "documents", title: "Dokumenty" },
+  { key: "sources", title: "Baza i źródła" },
+  { key: "knowledge", title: "Wiedza i raporty" },
+  { key: "system", title: "System" },
+];
+
 export type NavEntry = {
   id: string;
   /**
@@ -91,10 +102,17 @@ export type NavEntry = {
   badgeKey?: NavBadgeKey;
   featureFlag?: NavFeatureFlag;
   /**
-   * Na razie każda widoczna pozycja jest `primary` — pole czyta dopiero
-   * kolejny PR (zwijanie rzadziej używanych pozycji pod „Więcej").
+   * `primary` = pozycja stoi na szynie; `more` = w wysuwanym panelu „Więcej".
+   * Podział jest per WPIS, niezależny od roli: o tym, KTO co widzi, decyduje
+   * wyłącznie bramka widoczności (sekcja / role / akcja / flaga). Rdzeń pracy
+   * każdej persony jest `primary` — sourcing/pipeline (Dashboard, Rekrutacje,
+   * Kandydaci, Wyszukiwarka, Talent Radar, Kalendarz), Delivery (Klienci,
+   * Kontrakty, Zamówienia z maila), Finanse i Insights — więc rekruter widzi
+   * sześć pozycji, a admin jedenaście, bez osobnych drzew per rola.
    */
   placement: "primary" | "more";
+  /** Wymagane dla `placement: "more"` (pilnuje test) — grupa w panelu. */
+  moreGroup?: NavMoreGroupKey;
   paletteKeywords?: string[];
   inPalette: boolean;
   /**
@@ -214,7 +232,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     section: "sourcing",
     roles: ["talent_community_manager", "tac", "recruiter", "sourcer"],
     featureFlag: "contactQueue",
-    placement: "primary",
+    placement: "more",
+    moreGroup: "daily",
     inPalette: true,
   },
   {
@@ -223,7 +242,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Generator CV",
     icon: Sparkles,
     section: "sourcing",
-    placement: "primary",
+    placement: "more",
+    moreGroup: "documents",
     inPalette: true,
   },
   // Dostęp do Generatora Umów B2B jest konfigurowany osobno od sekcji
@@ -235,7 +255,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     icon: FileSignature,
     section: "sourcing",
     action: "b2b_contract_generator",
-    placement: "primary",
+    placement: "more",
+    moreGroup: "documents",
     inPalette: true,
   },
   {
@@ -255,7 +276,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
       "sourcer",
     ],
     capability: "nav.talents",
-    placement: "primary",
+    placement: "more",
+    moreGroup: "sources",
     inPalette: true,
   },
   {
@@ -289,7 +311,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
       "sourcer",
     ],
     capability: "nav.sourcing",
-    placement: "primary",
+    placement: "more",
+    moreGroup: "sources",
     inPalette: true,
   },
   {
@@ -310,7 +333,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
       "finance",
       "sourcer",
     ],
-    placement: "primary",
+    placement: "more",
+    moreGroup: "daily",
     inPalette: true,
   },
   {
@@ -349,7 +373,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     icon: Briefcase,
     section: "delivery",
     capability: "nav.my_clients",
-    placement: "primary",
+    placement: "more",
+    moreGroup: "sources",
     inPalette: true,
   },
   {
@@ -371,7 +396,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     icon: Heart,
     section: "delivery",
     capability: "nav.my_relationships",
-    placement: "primary",
+    placement: "more",
+    moreGroup: "sources",
     inPalette: true,
   },
   // „Kontrakty" to jeden workspace z dwoma trybami (Obsługa kontraktorów /
@@ -407,7 +433,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     section: "insights",
     roles: CORTEX_ROLES,
     capability: "nav.cortex",
-    placement: "primary",
+    placement: "more",
+    moreGroup: "knowledge",
     inPalette: true,
   },
   {
@@ -426,7 +453,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Pomoc",
     icon: HelpCircle,
     section: "system",
-    placement: "primary",
+    placement: "more",
+    moreGroup: "system",
     inPalette: true,
   },
   {
@@ -435,7 +463,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Ustawienia",
     icon: Settings,
     section: "system",
-    placement: "primary",
+    placement: "more",
+    moreGroup: "system",
     inPalette: true,
   },
   {
@@ -450,6 +479,26 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inPalette: true,
     inSidebar: false,
   },
+];
+
+/**
+ * Kolejność pozycji na szynie (id wpisów). Szyna jest PŁASKA — bez nagłówków
+ * sekcji — i zaczyna się od tego, z czym rekruter pracuje codziennie; rdzeń
+ * Delivery/Finansów stoi niżej i tak jest widoczny tylko dla uprawnionych.
+ * Każdy wpis `primary` widoczny w menu MUSI tu być (pilnuje test).
+ */
+export const NAV_PRIMARY_ORDER: readonly string[] = [
+  "dashboard",
+  "jobs",
+  "candidates",
+  "candidate-search",
+  "talent-radar",
+  "calendar",
+  "clients",
+  "contracts",
+  "order-mail",
+  "finance",
+  "insights",
 ];
 
 const SECTION_META_BY_KEY = new Map(
@@ -498,7 +547,9 @@ export function visibleNavEntries(
 }
 
 /**
- * Pozycje menu widoczne dla danego użytkownika — czysta funkcja, żeby dało się
+ * Pozycje menu widoczne dla danego użytkownika POGRUPOWANE SEKCJAMI PRODUKTU
+ * (szyna i „Więcej" RAZEM — układ wizualny dają `visiblePrimaryNav`
+ * i `visibleMoreGroups`). Czysta funkcja, żeby dało się
  * to udowodnić testem bez montowania sidebara (a więc bez mocków `next/
  * navigation`, react-query, `api` i `useUiStore`).
  *
@@ -523,6 +574,59 @@ export function visibleNavSections(
     section: meta.section,
     items: entries.filter((entry) => entry.section === meta.key),
   })).filter((section) => section.items.length > 0);
+}
+
+/** Pozycje szyny (bez „Więcej"), w kolejności `NAV_PRIMARY_ORDER`. */
+export function visiblePrimaryNav(
+  user: NavUser,
+  opts: NavVisibilityOptions,
+): NavEntry[] {
+  const rank = (entry: NavEntry) => {
+    const index = NAV_PRIMARY_ORDER.indexOf(entry.id);
+    return index < 0 ? NAV_PRIMARY_ORDER.length : index;
+  };
+  return visibleNavEntries(user, opts)
+    .filter((entry) => entry.inSidebar !== false && entry.placement === "primary")
+    .sort((a, b) => rank(a) - rank(b));
+}
+
+export type NavMoreGroup = {
+  key: NavMoreGroupKey;
+  title: string;
+  items: NavEntry[];
+};
+
+/**
+ * Grupy panelu „Więcej" widoczne dla użytkownika — TA SAMA bramka co szyna
+ * (`isEntryVisible`), puste grupy odpadają. Pusta tablica = nie ma czego
+ * chować, więc sidebar nie renderuje przycisku „Więcej".
+ */
+export function visibleMoreGroups(
+  user: NavUser,
+  opts: NavVisibilityOptions,
+): NavMoreGroup[] {
+  const entries = visibleNavEntries(user, opts).filter(
+    (entry) => entry.inSidebar !== false && entry.placement === "more",
+  );
+  return NAV_MORE_GROUPS.map((group) => ({
+    ...group,
+    items: entries.filter((entry) => entry.moreGroup === group.key),
+  })).filter((group) => group.items.length > 0);
+}
+
+/**
+ * Wszystko, do czego menu prowadzi: szyna + „Więcej". Testy „która rola widzi
+ * który adres" pytają o TĘ sumę — przeniesienie pozycji pod „Więcej" nie może
+ * nikomu niczego zabrać ani dodać.
+ */
+export function visibleNavHrefs(
+  user: NavUser,
+  opts: NavVisibilityOptions,
+): string[] {
+  return [
+    ...visiblePrimaryNav(user, opts),
+    ...visibleMoreGroups(user, opts).flatMap((group) => group.items),
+  ].map((entry) => entry.href);
 }
 
 /**

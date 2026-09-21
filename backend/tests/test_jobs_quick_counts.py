@@ -143,6 +143,8 @@ async def test_quick_counts_agree_with_the_list_the_same_filter_returns(
         counts = await _quick_counts(app_client, app_auth_headers, window)
 
         expected = {
+            # Segment „Wszystkie" obok „Moje" — cały rejestr, bez filtra.
+            "all": await _list_total(app_client, app_auth_headers, ""),
             "mine": await _list_total(app_client, app_auth_headers, "mine=true"),
             "open": await _list_total(app_client, app_auth_headers, "open_only=true"),
             "needs_sourcing": await _list_total(
@@ -245,6 +247,7 @@ async def test_quick_counts_route_is_not_swallowed_by_the_job_id_path(
     response = await app_client.get("/api/jobs/quick-counts", headers=app_auth_headers)
     assert response.status_code == 200, response.text
     assert set(response.json()) == {
+        "all",
         "mine",
         "open",
         "needs_sourcing",

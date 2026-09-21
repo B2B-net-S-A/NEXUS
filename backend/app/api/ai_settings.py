@@ -40,6 +40,7 @@ from app.schemas.ai_settings import (
     FeatureUsage,
 )
 from app.services.ai_models import model_for
+from app.services.auto_match_outbox import auto_match_mode as _auto_match_mode
 from app.services.ai_quota import (
     _current_period_start,
     get_usage_summary_for_period,
@@ -306,7 +307,8 @@ async def get_auto_match_overview(
             row["score"] = float(row["score"])
     return {
         "enabled": bool(settings.AUTO_MATCH_ENABLED),
-        "dry_run": bool(settings.AUTO_MATCH_DRY_RUN),
+        "dry_run": _auto_match_mode() == "dry_run",
+        "mode": _auto_match_mode(),
         "min_score": float(settings.AUTO_MATCH_MIN_SCORE),
         "max_jobs_per_candidate": int(settings.AUTO_MATCH_MAX_JOBS_PER_CANDIDATE),
         "max_candidates_per_job": int(settings.AUTO_MATCH_MAX_CANDIDATES_PER_JOB),

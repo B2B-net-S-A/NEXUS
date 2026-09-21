@@ -123,13 +123,28 @@ export function useFullCandidateSearch({ includeCandidateDetails = false, storag
     return refetch();
   }, [refetch]);
 
+  // Podpina ISTNIEJĄCY przegląd (np. ostatni z serwera: uruchomiony w innej
+  // karcie, na innym komputerze albo nocny automat), gdy przeglądarka nie zna
+  // żadnego. Bez tego „Ostatni przegląd: … Twój" stał nad pustą listą, bo
+  // identyfikator przeglądu żył wyłącznie w localStorage. Nigdy nie podmienia
+  // przeglądu już wybranego ani startującego.
+  const adopt = useCallback((id: string) => {
+    if (inFlight.current || !id || id.length > 128) return;
+    setRunId((current) => {
+      if (current !== null) return current;
+      generation.current += 1;
+      setCursor({ filterKey: "", offset: 0 });
+      return id;
+    });
+  }, []);
+
   const changeMinScore = useCallback((value: number) => {
     setMinScore(value);
     setCursor({ filterKey: "", offset: 0 });
   }, []);
 
   return {
-    start, clear, runId, offset, setOffset,
+    start, clear, adopt, runId, offset, setOffset,
     setMinScore: changeMinScore,
     minScore, data: page.data,
     error: startError ?? page.error,

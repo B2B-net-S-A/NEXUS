@@ -18,11 +18,17 @@ const move = vi.fn();
 const getForStage = vi.fn();
 const submitScreening = vi.fn();
 const listForJob = vi.fn();
+const updateCandidate = vi.fn();
+const capability = vi.hoisted(() => ({ canWriteCandidate: true }));
+vi.mock("@/hooks/useCapability", () => ({
+  useCapability: () => capability.canWriteCandidate,
+}));
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: { get: vi.fn(), post: vi.fn() },
   pipelineApi: { move: (...a: unknown[]) => move(...a) },
+  candidatesApi: { update: (...a: unknown[]) => updateCandidate(...a) },
   screeningApi: {
     getForStage: (...a: unknown[]) => getForStage(...a),
     submit: (...a: unknown[]) => submitScreening(...a),
@@ -630,5 +636,148 @@ describe("ScreeningWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
       job_id: 7,
       stage: "verified",
     });
+  });
+});
+
+describe("ScreeningWorkbench — podpowiedzi z notatek (automaty 21.09.2026)", () => {
+  const withSuggestions = (suggestions: unknown) =>
+    getForStage.mockImplementation(async () => ({
+      data: {
+        stage_id: 11,
+        candidate_id: 111,
+        job_id: 7,
+        champion_profile: {
+          screening_questions: [
+            { id: "q1", question: "Kafka w produkcji?", ideal_answer: "tak", deal_breaker: "nie" },
+          ],
+        },
+        screening_answers: null,
+        suggestions,
+      },
+    }));
+
+  const SUGGESTIONS = {
+    rate_redacted: false,
+    rate: { value: 175, unit: "hour", currency: "PLN", raw: "175 zł/h", source_note_id: 5, noted_at: "2026-09-12" },
+    availability: { raw: "dostępny od razu", notice_period: null, available_from: null, source_note_id: 5, noted_at: "2026-09-12T10:00:00Z" },
+  };
+
+  it.each([["full"], ["panel"]] as const)(
+    "układ %s: stawka tylko wypełnia pole; dostępność to jawny zapis w PROFILU — notatki (widoczne dla klienta) nietknięte",
+    async (layout) => {
+      capability.canWriteCandidate = true;
+      updateCandidate.mockResolvedValue({ data: {} });
+      withSuggestions(SUGGESTIONS);
+      renderWorkbench(layout === "panel" ? { layout, focusCandidateId: 111 } : {});
+      const chips = await screen.findByTestId("screening-suggestions");
+      expect(chips).toHaveTextContent("Z notatek: 175 zł/h · 12.09");
+      expect(chips).toHaveTextContent("Z notatek: dostępny od razu · 12.09");
+
+      await userEvent.click(within(chips).getByRole("button", { name: "Użyj stawki z notatek" }));
+      expect(screen.getByLabelText("Kwota")).toHaveValue(175);
+      expect(updateCandidate).not.toHaveBeenCalled();
+
+      await userEvent.click(
+        within(chips).getByRole("button", { name: "Zapisz dostępność z notatek w profilu kandydata" }),
+      );
+      await waitFor(() => expect(updateCandidate).toHaveBeenCalledOnce());
+      expect(updateCandidate.mock.calls[0][0]).toBe(111);
+      expect(updateCandidate.mock.calls[0][1]).toEqual({
+        availability_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      });
+      await waitFor(() =>
+        expect(showSuccess).toHaveBeenCalledWith("Zapisano dostępność w profilu kandydata"),
+      );
+      // Pole widoczne dla klienta w share portalu NIGDY nie dostaje podpowiedzi.
+      expect(screen.getByLabelText(/Notatki rekrutera/)).toHaveValue("");
+      expect(screen.queryByText(/Niezapisane zmiany/)).not.toBeInTheDocument();
+      expect(submitScreening).not.toHaveBeenCalled();
+      expect(move).not.toHaveBeenCalled();
+    },
+  );
+
+  it("dostępność nie do zmapowania: bez „Użyj”, z linkiem „uzupełnij w profilu”", async () => {
+    capability.canWriteCandidate = true;
+    withSuggestions({
+      rate_redacted: false,
+      availability: { ...SUGGESTIONS.availability, raw: "za 2 tygodnie od podpisania" },
+    });
+    renderWorkbench();
+    const chips = await screen.findByTestId("screening-suggestions");
+    expect(within(chips).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(chips).getByRole("link", { name: "uzupełnij w profilu" })).toHaveAttribute(
+      "href",
+      "/candidates/111",
+    );
+  });
+
+  it("bez prawa edycji kandydata chip dostępności nie ma „Użyj”", async () => {
+    capability.canWriteCandidate = false;
+    withSuggestions(SUGGESTIONS);
+    renderWorkbench();
+    const chips = await screen.findByTestId("screening-suggestions");
+    expect(chips).toHaveTextContent("dostępny od razu");
+    expect(
+      within(chips).queryByRole("button", { name: /Zapisz dostępność/ }),
+    ).not.toBeInTheDocument();
+    // Stawka zostaje — to pole formularza, nie zapis w profilu.
+    expect(within(chips).getByRole("button", { name: "Użyj stawki z notatek" })).toBeInTheDocument();
+    capability.canWriteCandidate = true;
+  });
+
+  it("nieudany zapis dostępności mówi o błędzie i niczego nie udaje", async () => {
+    capability.canWriteCandidate = true;
+    updateCandidate.mockRejectedValue({ response: { status: 403, data: { detail: "Brak uprawnień" } } });
+    withSuggestions(SUGGESTIONS);
+    renderWorkbench();
+    const chips = await screen.findByTestId("screening-suggestions");
+    await userEvent.click(within(chips).getByRole("button", { name: /Zapisz dostępność/ }));
+    await waitFor(() => expect(showError).toHaveBeenCalledWith("Brak uprawnień"));
+    expect(showSuccess).not.toHaveBeenCalled();
+  });
+
+  it("wypełniona stawka idzie dopiero zwykłym ruchem na „Zweryfikowany”", async () => {
+    withSuggestions(SUGGESTIONS);
+    renderWorkbench();
+    const chips = await screen.findByTestId("screening-suggestions");
+    await userEvent.click(within(chips).getByRole("button", { name: "Użyj stawki z notatek" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: /Zweryfikowany — zapisz stawkę i przenieś/ }),
+    );
+    await waitFor(() => expect(move).toHaveBeenCalledOnce());
+    expect(move.mock.calls[0][0]).toMatchObject({
+      expected_rate_value: 175,
+      expected_rate_unit: "hourly",
+      expected_rate_currency: "PLN",
+    });
+  });
+
+  it("`rate_redacted`: żadnego chipa stawki — nawet gdyby kwota przyszła", async () => {
+    withSuggestions({ ...SUGGESTIONS, rate_redacted: true });
+    renderWorkbench();
+    const chips = await screen.findByTestId("screening-suggestions");
+    expect(chips).not.toHaveTextContent("175");
+    expect(within(chips).queryByRole("button", { name: "Użyj stawki z notatek" })).not.toBeInTheDocument();
+    expect(chips).toHaveTextContent("dostępny od razu");
+  });
+
+  it("stawka w innej walucie jest pokazana, ale bez „Użyj” (formularz liczy w PLN)", async () => {
+    withSuggestions({ rate_redacted: false, rate: { ...SUGGESTIONS.rate, currency: "EUR", value: 45 } });
+    renderWorkbench();
+    const chips = await screen.findByTestId("screening-suggestions");
+    expect(chips).toHaveTextContent("45 EUR/h");
+    expect(within(chips).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("brak podpowiedzi (i starszy backend bez pola) nie rysuje nic; tylko do odczytu chowa „Użyj”", async () => {
+    const first = renderWorkbench();
+    await screen.findByRole("button", { name: /Zapisz screening/ });
+    expect(screen.queryByTestId("screening-suggestions")).not.toBeInTheDocument();
+    first.unmount();
+
+    withSuggestions(SUGGESTIONS);
+    renderWorkbench({ readOnly: true });
+    const chips = await screen.findByTestId("screening-suggestions");
+    expect(within(chips).queryByRole("button")).not.toBeInTheDocument();
   });
 });

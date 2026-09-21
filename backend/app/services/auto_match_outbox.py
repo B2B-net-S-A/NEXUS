@@ -22,6 +22,38 @@ def auto_match_enabled() -> bool:
     return bool(getattr(settings, "AUTO_MATCH_ENABLED", False))
 
 
+def job_events_enabled() -> bool:
+    """Zdarzenie rekrutacji zasila DWA automaty: dopasowanie nowych CV i nocny
+    pełny przegląd bazy. Wystarczy, że działa jeden z nich."""
+    return auto_match_enabled() or bool(
+        getattr(settings, "AUTO_FULL_REVIEW_ENABLED", False)
+    )
+
+
+AUTO_MATCH_MODES = ("dry_run", "propose", "add")
+
+
+def auto_match_mode() -> str:
+    """`dry_run` | `propose` | `add` — JEDNO miejsce rozstrzygania trybu.
+
+    `AUTO_MATCH_MODE` wygrywa. Gdy go nie ma, alias `AUTO_MATCH_DRY_RUN`
+    (true → `dry_run`, false → `add`) zachowuje zachowanie instalacji, która
+    ustawiła go przed 21.09.2026. Bez obu zmiennych: `propose`. Nieznana
+    wartość = `dry_run` (literówka w Coolify nie może zacząć dodawać ludzi).
+    """
+    raw = getattr(settings, "AUTO_MATCH_MODE", None)
+    if isinstance(raw, str) and raw.strip():
+        mode = raw.strip().lower()
+        if mode in AUTO_MATCH_MODES:
+            return mode
+        logger.warning("[auto_match] nieznany AUTO_MATCH_MODE=%r → dry_run", raw)
+        return "dry_run"
+    alias = getattr(settings, "AUTO_MATCH_DRY_RUN", None)
+    if alias is None:
+        return "propose"
+    return "dry_run" if alias else "add"
+
+
 def candidate_revision(candidate) -> str:
     """Wersja profilu do dedupu: hash pliku CV albo chwila odczytu.
 
@@ -69,23 +101,34 @@ async def enqueue_candidate(
 
 
 async def enqueue_job(db: AsyncSession, *, job_id: int, trigger: str) -> None:
-    """Zgłoś rekrutację do dopasowania ze świeżymi profilami z CV."""
-    if not auto_match_enabled():
+    """Zgłoś rekrutację do dopasowania ze świeżymi profilami z CV.
+
+    Ten sam wiersz jest sygnałem dla nocnego pełnego przeglądu bazy
+    (`services/auto_full_review.py` czyta `created_at` zdarzeń rekrutacji).
+    """
+    if not job_events_enabled():
         return
     async with db.begin_nested():
         await db.execute(
             text(
                 "INSERT INTO candidate_match_outbox (job_id, trigger, status) "
-                "VALUES (:job_id, :trigger, 'pending') "
+                "VALUES (:job_id, :trigger, :status) "
                 "ON CONFLICT DO NOTHING"
             ),
-            {"job_id": job_id, "trigger": trigger[:16]},
+            {
+                "job_id": job_id,
+                "trigger": trigger[:16],
+                # Bez workera auto-match wiersz `pending` wisiałby bez końca
+                # i częściowy UNIQUE połykałby kolejne zmiany rekrutacji —
+                # `skipped` zostaje samym sygnałem dla nocnego przeglądu.
+                "status": "pending" if auto_match_enabled() else "skipped",
+            },
         )
 
 
 async def enqueue_job_safe(job_id: int, trigger: str = "job_publish") -> None:
     """Wariant dla `BackgroundTasks`: własna sesja, commit, nigdy nie rzuca."""
-    if not auto_match_enabled():
+    if not job_events_enabled():
         return
     from app.core.database import AsyncSessionLocal
 

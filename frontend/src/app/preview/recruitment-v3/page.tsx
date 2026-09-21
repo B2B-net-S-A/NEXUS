@@ -26,6 +26,11 @@ import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/r
 
 import { api } from "@/lib/api";
 import { candidateContactQueryKeys } from "@/lib/candidate-contact";
+import {
+  BACKGROUND_EVENTS_STEP,
+  jobBackgroundEventsQueryKey,
+  type JobBackgroundEvent,
+} from "@/lib/job-background-events";
 import type { CandidateSearchPage } from "@/lib/full-candidate-search-api";
 import {
   jobProposalsKeys,
@@ -124,6 +129,8 @@ function buildColumns(total: number): KanbanColumn[] {
       expected_rate_unit: hasRate ? "hourly" : null,
       expected_rate_currency: hasRate ? "PLN" : null,
       process_state_version: 1,
+      // Co trzecia osoba na „Zweryfikowany" ma gotowe auto-CV do przejrzenia.
+      auto_cv_ready: spec.stage === "verified" && pick(i + 23, 3) === 0,
       hm_veto:
         pick(i + 19, 40) === 0
           ? {
@@ -379,6 +386,23 @@ function seededClient(columns: KanbanColumn[]): QueryClient {
     meta: { tier_a_count: 0, tier_b_count: 0, total_sources: 0, reason_if_empty: null, hidden_ineligible: 0 },
   });
   client.setQueryData(jobProposalsKeys.recommendations(JOB_ID), null);
+  // „Praca w tle": okno „Historia i czat" i sekcja CV panelu (powód pominięcia
+  // auto-CV) czytają ten sam klucz — zasiany, żeby nie wyszło żadne zapytanie.
+  const verified = columns.find((column) => column.stage === "verified")?.items ?? [];
+  const person = (item: KanbanItem | undefined) =>
+    item ? { id: item.candidate_id, name: `${item.name ?? ""} ${item.lastname ?? ""}`.trim() } : null;
+  const backgroundItems: JobBackgroundEvent[] = [
+    { id: 5, kind: "auto_full_review", created_at: "2026-09-21T05:00:00Z", proposals: 12, eligible: 140, run_id: "preview-run" },
+    { id: 4, kind: "cv_auto_generate_skipped", created_at: "2026-09-20T14:10:00Z", reason: "consent_screenshot_required", candidate: person(verified.find((item) => !item.auto_cv_ready)) },
+    { id: 3, kind: "cv_auto_generate", created_at: "2026-09-20T13:40:00Z", candidate: person(verified.find((item) => item.auto_cv_ready)), generated_id: 1, document_status: "ready" },
+    { id: 2, kind: "new_cv_proposals", created_at: "2026-09-19T09:15:00Z", count: 3, trigger: "cv_ingest" },
+    { id: 1, kind: "auto_full_review_failed", created_at: "2026-09-18T05:00:00Z", reason: "stalled", message: "Przegląd stanął bez postępu i został przerwany." },
+  ];
+  client.setQueryData(jobBackgroundEventsQueryKey(JOB_ID, BACKGROUND_EVENTS_STEP), {
+    job_id: JOB_ID,
+    items: backgroundItems,
+    limit: BACKGROUND_EVENTS_STEP,
+  });
   return client;
 }
 

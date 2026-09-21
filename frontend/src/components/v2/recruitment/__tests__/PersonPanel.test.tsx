@@ -150,6 +150,32 @@ describe("PersonPanel — sekcja domyślna z etapu", () => {
     expect(screen.getAllByRole("tabpanel", { hidden: true })).toHaveLength(1);
   });
 
+  it("sekcja CV mówi, dlaczego automat NIE przygotował CV tej osoby — po polsku, z „Pracy w tle”", async () => {
+    const events = (items: unknown[]) =>
+      mocks.apiGet.mockImplementation((url: string) =>
+        Promise.resolve({ data: url.endsWith("/background-events") ? { job_id: 42, items, limit: 30 } : { items: [] } }),
+      );
+    events([
+      { id: 9, kind: "cv_auto_generate_skipped", created_at: "2026-09-21T08:00:00Z", reason: "consent_screenshot_required", candidate: { id: 3, name: "Marek Zieliński" } },
+      { id: 8, kind: "cv_auto_generate_skipped", created_at: "2026-09-21T07:00:00Z", reason: "no_cv_document", candidate: { id: 2, name: null } },
+    ]);
+    const first = renderPanel({ candidateId: 3 });
+    expect(await screen.findByTestId("auto-cv-skip-notice")).toHaveTextContent(
+      "CV nie zostało wygenerowane automatycznie: reguła klienta wymaga zrzutu zgody RODO.",
+    );
+    expect(mocks.apiGet).toHaveBeenCalledWith("/api/jobs/42/background-events", { params: { limit: 30 } });
+    first.unmount();
+
+    // Późniejsza udana generacja gasi stary powód.
+    events([
+      { id: 10, kind: "cv_auto_generate", created_at: "2026-09-21T09:00:00Z", candidate: { id: 3, name: null }, generated_id: 1, document_status: "ready" },
+      { id: 9, kind: "cv_auto_generate_skipped", created_at: "2026-09-21T08:00:00Z", reason: "consent_screenshot_required", candidate: { id: 3, name: null } },
+    ]);
+    renderPanel({ candidateId: 3 });
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalledWith("/api/jobs/42/background-events", expect.anything()));
+    await waitFor(() => expect(screen.queryByTestId("auto-cv-skip-notice")).not.toBeInTheDocument());
+  });
+
   it("etap wejściowy i zamknięty otwierają „Notatki i historia”", async () => {
     renderPanel({ candidateId: 1 });
     expect(screen.getByRole("tab", { name: "Notatki i historia" })).toHaveAttribute("aria-selected", "true");

@@ -14,7 +14,7 @@
  * (CLAUDE.md „Kanban bez bramek").
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, Search } from "lucide-react";
 
@@ -27,6 +27,7 @@ import type { VirtualTableKey } from "@/components/ds/VirtualTable";
 import { Button } from "@/components/ui/button";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
+import { useFillAvailableHeight } from "@/hooks/useFillAvailableHeight";
 import {
   usePipelineMove,
   type PipelineRejectionReasonOption,
@@ -160,6 +161,9 @@ export function RecruitmentWorkspace({
 
   // ── Dane ────────────────────────────────────────────────────────────
   const contactFeature = useCandidateContactFeature();
+  // Podłoga 320 px: przy niskim oknie (ok. 690 px) z banerem zostaje ~440 px —
+  // wyższa podłoga dokładałaby drugi pasek przewijania strony.
+  const fill = useFillAvailableHeight(320);
   // Ten sam klucz co strona rekrutacji (`id` z adresu jest stringiem) — jedno
   // zapytanie karmi pierścienie tablicy i kolumnę „Dop." tabeli.
   const scoresQuery = useQuery({
@@ -257,6 +261,24 @@ export function RecruitmentWorkspace({
     },
     [activeCandidateId, onActiveCandidateChange, onPanelSectionChange],
   );
+
+  // Makieta „wersja 3": panel od razu pokazuje pierwszą osobę z listy, żeby
+  // rekruter zaczynał od pracy, nie od pustego „Wybierz osobę". Raz na
+  // wejście w rekrutację i tylko na szerokim ekranie (panel obok tabeli, nie
+  // nakładka). Zamknięcie panelu jest decyzją użytkownika — nie otwieramy go
+  // ponownie sami.
+  const autoOpenedFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (autoOpenedFor.current === jobId) return;
+    if (!isPeopleSegment || activeCandidateId != null) return;
+    if (visibleRows.length === 0) return;
+    autoOpenedFor.current = jobId;
+    if (typeof window === "undefined") return;
+    if (window.matchMedia?.("(min-width: 1280px)").matches !== true) return;
+    const firstKey = groups ? groups[0]?.rowKeys[0] : visibleRows[0].key;
+    const first = visibleRows.find((row) => row.key === firstKey) ?? visibleRows[0];
+    onActiveCandidateChange(first.candidateId);
+  }, [jobId, isPeopleSegment, activeCandidateId, visibleRows, groups, onActiveCandidateChange]);
 
   const requestNote = useCallback(
     (row: ProcessPersonRow) => {
@@ -430,7 +452,13 @@ export function RecruitmentWorkspace({
             }
           />
 
-          <div className="flex h-[max(460px,calc(100vh_-_300px))] min-h-0 flex-col gap-3.5 lg:flex-row">
+          <div
+            ref={fill.ref}
+            // Wysokość z pomiaru (do dolnej krawędzi okna); klasa `h-[…]` to
+            // wyłącznie wartość sprzed pierwszego pomiaru.
+            style={fill.height != null ? { height: fill.height } : undefined}
+            className="flex h-[max(460px,calc(100vh_-_300px))] min-h-0 flex-col gap-3.5 lg:flex-row"
+          >
             <section aria-label="Lista osób" className="min-h-0 min-w-0 flex-1">
               <PeopleTable
                 variant="process"

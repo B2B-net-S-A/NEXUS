@@ -50,7 +50,12 @@ async def candidate_search_loop():
                             < datetime.now(timezone.utc),
                         ),
                     )
-                    .order_by(CandidateSearchRun.created_at)
+                    # Ręczny przegląd (człowiek czeka) zawsze przed nocnym
+                    # automatem, potem kolejność zgłoszeń.
+                    .order_by(
+                        store.auto_origin_clause().asc(),
+                        CandidateSearchRun.created_at,
+                    )
                     .limit(1)
                 )
             if run_id:

@@ -78,7 +78,34 @@ async def _candidate_search_storage(db: AsyncSession) -> dict[str, Any]:
         )
     )
     total, estimated = storage.bytes, storage.estimated_rows
+    # Nocne przeglądy automatyczne (21.09.2026): ile ich leży i ile zajmują.
+    # Bajty to SZACUNEK proporcjonalny (udział wierszy w migawkach populacji
+    # × rozmiar tabeli) — dokładny pomiar wymagałby skanu tabeli wyników.
+    from app.services.candidate_search_store import auto_origin_clause
+
+    auto = (
+        await db.execute(
+            select(
+                func.count(CandidateSearchRun.id).filter(auto_origin_clause()),
+                func.coalesce(
+                    func.sum(CandidateSearchRun.population_size).filter(
+                        auto_origin_clause()
+                    ),
+                    0,
+                ),
+                func.coalesce(func.sum(CandidateSearchRun.population_size), 0),
+            )
+        )
+    ).one()
+    auto_runs, auto_rows, all_rows = int(auto[0]), int(auto[1]), int(auto[2])
     return {
+        "auto_runs": auto_runs,
+        "auto_runs_rows": auto_rows,
+        "auto_runs_estimated_bytes": (
+            int(total * auto_rows / all_rows)
+            if total is not None and all_rows > 0
+            else None
+        ),
         "results_total_bytes": int(total) if total is not None else None,
         "results_total_pretty": storage.pretty,
         "results_estimated_rows": (

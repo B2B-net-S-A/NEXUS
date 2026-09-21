@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { CompetenceCategoryBadge } from "@/components/v2/CompetenceCategoryBadge";
 import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -1559,9 +1560,10 @@ function CandidateSearchRow({
           >
             {item.name} {item.lastname}
           </Link>
-          {item.competence_category && (
-            <Badge variant="neutral">{item.competence_category}</Badge>
-          )}
+          <CompetenceCategoryBadge
+            categoryId={item.competence_category_id}
+            slug={item.competence_category}
+          />
           {item.is_champion && (
             <Badge className="bg-warning-muted text-warning-muted-foreground">
               Champion

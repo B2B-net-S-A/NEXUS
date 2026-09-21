@@ -60,3 +60,31 @@ describe("useUiStore — migracja v6", () => {
     expect(useUiStore.getState().hideEmptyKanbanColumns).toBe(false);
   });
 });
+
+describe("useUiStore — migracja v7 (zwijana kolumna filtrów rekrutacji)", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("stan z v6 dostaje `null` = „brak wyboru, domyślne wg szerokości okna”", () => {
+    const migrate = useUiStore.persist.getOptions().migrate;
+    const migrated = migrate!(
+      { candidatesPageSize: 100, jobsView: "tiles" },
+      6,
+    ) as Record<string, unknown>;
+    expect(migrated).toMatchObject({
+      candidatesPageSize: 100,
+      jobsView: "tiles",
+      jobsFiltersCollapsed: null,
+    });
+  });
+
+  it("świadomy wybór przeżywa odczyt z localStorage", async () => {
+    window.localStorage.setItem(
+      "nexus-ui",
+      JSON.stringify({ state: { jobsFiltersCollapsed: true }, version: 7 }),
+    );
+    await useUiStore.persist.rehydrate();
+    expect(useUiStore.getState().jobsFiltersCollapsed).toBe(true);
+  });
+});

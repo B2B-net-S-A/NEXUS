@@ -187,6 +187,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/finance-order-pdfs",
     "/preview/contract-candidate-contact",
     "/preview/cv-search",
+    "/preview/jobs-list-v3",
     "/preview/jarvis",
     "/preview/recruitment-v3",
   ])("%s przechodzi", (route) => {

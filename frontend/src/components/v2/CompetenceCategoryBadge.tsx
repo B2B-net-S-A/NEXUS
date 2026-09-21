@@ -71,3 +71,23 @@ export function CompetenceCategoryBadge({
     </Badge>
   );
 }
+
+/**
+ * Sama nazwa kategorii (bez plakietki) — dla miejsc, gdzie kategoria jest
+ * zwykłym tekstem w linii metadanych. Jak plakietka: nigdy surowy klucz
+ * (`software_development`), a dopóki katalog się nie wczytał — nic.
+ */
+export function CompetenceCategoryName({
+  categoryId,
+  slug,
+}: {
+  categoryId?: number | null;
+  slug?: string | null;
+}) {
+  const { data } = useCompetenceCategories();
+  if (categoryId == null && !slug) return null;
+  const cc =
+    (categoryId != null ? data?.find((c) => c.id === categoryId) : undefined) ??
+    (slug ? data?.find((c) => c.slug === slug) : undefined);
+  return cc ? <>{cc.name_pl}</> : null;
+}

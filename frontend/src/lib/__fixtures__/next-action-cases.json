@@ -154,7 +154,7 @@
     "label": "Analiza CV · dziś",
     "tone": "normal",
     "kind": "analysis",
-    "owner": "recruiter"
+    "owner": "review"
    }
   },
   {
@@ -176,7 +176,7 @@
     "label": "Analiza CV · dziś",
     "tone": "normal",
     "kind": "analysis",
-    "owner": "recruiter"
+    "owner": "review"
    }
   },
   {
@@ -198,7 +198,7 @@
     "label": "Umów screening",
     "tone": "normal",
     "kind": "screening",
-    "owner": "recruiter"
+    "owner": "review"
    }
   },
   {
@@ -220,7 +220,7 @@
     "label": "Brak następnej akcji",
     "tone": "due",
     "kind": "analysis",
-    "owner": "recruiter"
+    "owner": "review"
    }
   },
   {
@@ -550,7 +550,7 @@
     "label": "Analiza CV · dziś",
     "tone": "normal",
     "kind": "analysis",
-    "owner": "recruiter"
+    "owner": "review"
    }
   }
  ]
