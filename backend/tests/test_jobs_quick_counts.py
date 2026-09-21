@@ -143,6 +143,8 @@ async def test_quick_counts_agree_with_the_list_the_same_filter_returns(
         counts = await _quick_counts(app_client, app_auth_headers, window)
 
         expected = {
+            # Segment „Wszystkie" obok „Moje" — cały rejestr, bez filtra.
+            "all": await _list_total(app_client, app_auth_headers, ""),
             "mine": await _list_total(app_client, app_auth_headers, "mine=true"),
             "open": await _list_total(app_client, app_auth_headers, "open_only=true"),
             "needs_sourcing": await _list_total(
