@@ -1,7 +1,8 @@
 """Kształt układu własnego pulpitu (0336) — jedno źródło prawdy po stronie API.
 
 Lista ``TILE_TYPES`` MUSI zgadzać się z rejestrem kafelków na froncie
-(``frontend/src/lib/dashboard-tiles/registry.tsx``) — pilnuje tego
+(``frontend/src/lib/api/userDashboard.ts`` i katalog
+``frontend/src/lib/dashboard-tiles/catalog.ts``) — pilnuje tego
 ``tests/test_dashboard_tile_types_mirror.py``. Nowy kafelek = wpis tu
 i w rejestrze.
 
@@ -51,7 +52,6 @@ TileType = Literal[
     "contact_oversight",
     "my_clients_alerts",
     "dl_alerts",
-    "orders_ending",
     "calendar_today",
     "metric_number",
     "metric_chart",

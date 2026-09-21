@@ -819,3 +819,14 @@
   .jarvis-art .j-glow,
   .jarvis-art .j-arm { animation: none !important; }
 }
+
+/* Własny pulpit: w trybie edycji uchwyt zmiany rozmiaru jest widoczny zawsze,
+   nie dopiero po najechaniu — inaczej nikt nie wie, że da się go złapać. */
+.dashboard-grid-editing .react-grid-item > .react-resizable-handle {
+  opacity: 1;
+}
+.dashboard-grid-editing .react-grid-item.react-grid-placeholder {
+  background: hsl(var(--primary));
+  opacity: 0.15;
+  border-radius: 0.75rem;
+}

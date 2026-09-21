@@ -5257,3 +5257,52 @@ Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
   (`CandidateFilters.semanticsVersion` → `semantics_version=2`), widok
   wyszukiwarki otwiera v3 przez `savedSearchToSearchViewRequest`. Stary ekran
   nadal ZAPISUJE formaty legacy (v1) — kolejny przebieg migracji je podniesie.
+## Własny pulpit startowy (0336, 21.09.2026)
+
+`/dashboard` to od 21.09.2026 pulpit, który każdy układa sam z kafelków
+(decyzje Artura: start od PUSTEGO pulpitu z poleceniami dla roli, katalog
+gotowych kafelków + kreator własnej metryki, siatka 12 kolumn z przeciąganiem
+i zmianą rozmiaru, JEDEN pulpit na osobę, stare presety ról usunięte od razu,
+finanse w kreatorze od razu). Raport: `docs/custom-dashboard-completion-report.md`.
+
+- **Układ = `user_dashboards` (0336)**, jeden wiersz na osobę, `layout` JSONB +
+  `version`. `GET/PUT /api/users/me/dashboard`; PUT wymaga `expected_version`
+  (409 `DASHBOARD_VERSION_CONFLICT` = inna karta zapisała wcześniej). Kształt
+  pilnuje `services/dashboard_tiles.py` — ściśle przy zapisie (422 po polsku),
+  łagodnie przy odczycie (nieznany typ odpada do `dropped_tiles`, pulpit się
+  otwiera). Linki w notatce: tylko `https://` i ścieżki `/…` (XSS).
+- **Nowy kafelek = cztery miejsca:** `TileType` (backend), `TILE_TYPES`
+  (`lib/api/userDashboard.ts`), definicja w `lib/dashboard-tiles/catalog.ts`
+  i `case` w `components/v2/dashboard/custom/TileContent.tsx`. Pierwsze dwa
+  pilnuje `test_dashboard_tile_types_mirror.py`.
+- **Gotowe kafelki to widżety ze starego pulpitu ról OPAKOWANE, nie przepisane**
+  (każdy sam pobiera dane i ma swoje bramki). Dostępność w katalogu jest lustrem
+  dawnych bramek `RoleDashboard` (sekcja, nie sama rola). `PriorityWorkIsMounted`
+  pilnuje, że Priority Work ma wejście z katalogu.
+- **Kreator metryki: `POST /api/dashboard-metrics/evaluate`** (POST tylko do
+  odczytu — w `READ_ONLY_POST_ROUTE_TEMPLATES`; limit 60/min per użytkownik;
+  katalog źródeł `GET /catalog`). Definicja deklaratywna
+  (`services/custom_metrics/definition.py`) — zamknięte słowniki miar,
+  podziałów i filtrów per źródło, zero SQL od użytkownika. **Uprawnienia liczone
+  przy KAŻDYM zapytaniu** (`engine.py`): sekcja źródła
+  (`section_access_for_user`), „czyje dane” z `resolve_dashboard_scope`
+  (self → tylko „moje”, recruitment_org → + zespół, delivery_clients/organization
+  → + cała firma). Za szeroka prośba = 403 `metric_scope_denied` ze zdaniem —
+  kafelek mówi „Brak dostępu”, nigdy nie pokazuje zera.
+- **Ruchy w pipeline liczą WYŁĄCZNIE kamienie milowe z
+  `analytics_first_milestones`** (reguła D2, jak Insights) — inne etapy świadomie
+  poza kreatorem, bo surowe `candidate_stages` dubluje powroty na etap.
+- **Kwoty = `insights_board_money.fold_money`** (ta sama funkcja co kafle Rady),
+  kontrakty z `RATE_SCHEDULE_LOADS`. Redakcja całościowa: Finanse/admin — wszyscy
+  klienci; Delivery Lead — wyłącznie klienci z
+  `resolve_delivery_lead_finance_client_ids`; klient spoza portfela w filtrze =
+  odmowa całości, nie częściowa suma. Wynik niesie notę o młodszej ewidencji
+  kontraktów.
+- **Zapis na froncie:** menu kafelka i dodanie z katalogu zapisują od razu;
+  przeciąganie/rozmiar pracują na szkicu z „Cofnij” i idą jednym PUT po
+  „Zapisz układ”. Na telefonie (< 768 px) lista w kolejności wiersz→kolumna,
+  bez edycji układu.
+- **`/dashboard#nadzor-kontaktu`** (link alertów SLA z `dashboard_v2.py`)
+  pokazuje panel nadzoru tymczasowo, gdy ktoś nie ma tego kafelka, z „Dodaj na
+  stałe”. `?preset=` jest ignorowane; `dashboardHref()` zawsze zwraca `/dashboard`.
+- Harness: `/preview/custom-dashboard` (pusty i pełny pulpit, zero zapytań).
