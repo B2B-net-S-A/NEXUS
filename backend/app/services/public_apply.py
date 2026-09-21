@@ -262,18 +262,6 @@ async def submit_application(
     await db.commit()
     candidate_id = candidate.id
 
-    # Siatka bezpieczeństwa: kandydat ma być w indeksie nawet wtedy, gdy odczyt
-    # CV w tle się nie powiedzie. Pełny wektor liczy `finish_cv_ingest`.
-    try:
-        from app.services.index_outbox_service import schedule_or_embed_candidate
-
-        await schedule_or_embed_candidate(candidate_id, db)
-        await db.commit()
-    except Exception as exc:  # pragma: no cover — defensive
-        logger.warning(
-            "[apply] index intent failed candidate=%s: %s", candidate_id, exc
-        )
-
     await _notify_owner(
         db,
         link=link,
@@ -392,6 +380,17 @@ async def _create_candidate(
     link = ref.link
     now = datetime.now(timezone.utc)
     remote_modes = _remote_modes(applicant.work_mode)
+    # Stawka jako argumenty konstruktora, nie przypisania po fakcie: to pola
+    # KANDYDATA, a kontrakt writera etapów (`test_priority_work_writer_
+    # architecture`) czyta przypisanie `*.expected_rate_currency` jako zapis
+    # krytycznego pola CandidateStage.
+    rate_fields: dict[str, Any] = {}
+    if applicant.expected_rate_hourly is not None:
+        rate_fields = {
+            "expected_rate_hourly": applicant.expected_rate_hourly,
+            "expected_rate_currency": "PLN",
+            "profile_rate_updated_at": now,
+        }
     candidate = Candidate(
         name=applicant.first_name,
         lastname=applicant.last_name,
@@ -405,13 +404,23 @@ async def _create_candidate(
         city=applicant.city,
         availability_date=applicant.availability_date,
         preferences={"remote_modes": remote_modes} if remote_modes else {},
+        **rate_fields,
     )
-    if applicant.expected_rate_hourly is not None:
-        candidate.expected_rate_hourly = applicant.expected_rate_hourly
-        candidate.expected_rate_currency = "PLN"
-        candidate.profile_rate_updated_at = now
     db.add(candidate)
     await db.flush()
+    # Intencja indeksu w tej samej transakcji co kandydat: rekord ma być w
+    # matchingu nawet wtedy, gdy odczyt CV w tle się nie powiedzie. Pełny wektor
+    # liczy potem `finish_cv_ingest`. Savepoint — awaria indeksu nie może cofnąć
+    # zgłoszenia.
+    from app.services.index_outbox_service import schedule_or_embed_candidate
+
+    try:
+        async with db.begin_nested():
+            await schedule_or_embed_candidate(candidate.id, db)
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning(
+            "[apply] index intent failed candidate=%s: %s", candidate.id, exc
+        )
     db.add(_consent_row(ref, candidate_id=candidate.id))
 
     stored_filename, _raw_text = await public_share._persist_cv(
