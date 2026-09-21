@@ -2148,6 +2148,35 @@ miejsce, nie zbiór funkcji.
   `mouseleave` szyny jest ignorowany, a zamknięcie zdejmuje hover. Szuflada
   mobilna renderuje grupy w linii (`SidebarMoreInline`), bez nakładki.
 
+## Jeden ekran „Kandydaci" — trzy tryby zamiast trzech pozycji menu (21.09.2026)
+
+Decyzja Artura 21.09.2026: Wyszukiwarka i Talent Radar były osobnymi wejściami
+do tej samej bazy obok listy kandydatów. Teraz to TRYBY jednego ekranu
+`/candidates` (`components/v2/candidates/CandidatesWorkspace.tsx`, parametr
+`?mode=` — czysty moduł `lib/candidates-mode.ts`):
+
+| Tryb | Adres | Punkt startu | Komponent |
+|---|---|---|---|
+| Baza | `/candidates` | filtry | `CandidatesListV2` |
+| Wyszukiwanie | `/candidates?mode=search` | nazwisko / słowa / opis (auto-rozpoznanie) | `CandidateSearchView` (`hideHeader`, `persistUrlParams`) |
+| Z treści requestu | `/candidates?mode=request` | wklejony request albo profil Championa | `TalentRadarWorkspace` (`embedded`) |
+
+- **Stare adresy działają**: `/candidates/search` przekierowuje serwerowo
+  z zachowaniem `?s=` i `?job=`; `/talent-radar` przekierowuje role z
+  `nav.candidates`, a rola BEZ niej (middleware nie wpuszcza jej na
+  `/candidates`) dostaje radar na miejscu — decyzja z 19.08 („radar dla każdej
+  zalogowanej roli") zostaje. Linki `/talent-radar` zapisane w powiadomieniach
+  (`candidate_search_worker`, `notification_access`) nie wymagają migracji.
+- **Tryb czyta się z WARTOŚCI parametru przy każdym renderze** — miękka
+  nawigacja przełącza widok (reguła z `useClientTab`).
+- **„Szukaj jak z requestu"**: długi wpis w wyszukiwarce (≥ 300 znaków albo
+  ≥ 3 nowe linie) proponuje przejście do trybu requestu; tekst jedzie STANEM
+  (`requestSeed` + `key` remontujący radar), nigdy adresem — to bywa pełna
+  treść requestu klienta. Radar z `initialText` czyści kryteria poprzedniego
+  wyszukiwania i nie przełącza się na zapamiętaną „Zapisaną rekrutację".
+- **Wyszukiwanie w rekrutacji** („Propozycje z bazy", „Szukaj ręcznie") zostaje
+  w rekrutacji — to ten sam `CandidateSearchView` z `addToJob`.
+
 ## Kanban bez bramek (decyzja Artura, 17.09.2026)
 
 Tylko 0,4 % ruchów w pipeline powstawało w NEXUSIE (131 z 32 872 w 90 dniach —
@@ -5342,10 +5371,15 @@ Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
   (`unified_to_list_params`, `semantics_version=2`), legacy → `filters.api` bez
   zmian. Zapis v3 z filtrami, których lista nie zna (`list_engine_gaps`: języki,
   źródła…), NIE jest odtwarzany — alert byłby szerszy niż zapis.
-- **UI do połączenia ekranów:** lista czyta `sv=2` z querystringu zapisu
-  (`CandidateFilters.semanticsVersion` → `semantics_version=2`), widok
-  wyszukiwarki otwiera v3 przez `savedSearchToSearchViewRequest`. Stary ekran
-  nadal ZAPISUJE formaty legacy (v1) — kolejny przebieg migracji je podniesie.
+- **UI (od #1665, 22.09.2026) wysyła v2 domyślnie na OBU ekranach**: lista
+  (brak `sv` = v2; do adresu trafia tylko `sv=1` zapisu „Zostaw po staremu”)
+  i wyszukiwarka (`semantics_version: 2`, koszyki `skills_required` /
+  `skills_preferred` / `skills_excluded`, `text_mode`, `hide_unknown`). Nowe
+  zapisy idą w formacie v3. Stary stan (`?s=`, zapisy legacy) otwiera się
+  przez adapter: `skills_must`/`skills_any` → „Mile widziane” (zawsze były
+  tylko rankingiem), `skills_none` → „Wyklucz” (`lib/candidate-search-semantics.ts`).
+  Migracja nie oznacza zapisów v3 z listy jako zmienionych
+  (`list_payload_is_unified`).
 ## Własny pulpit startowy (0337, 21.09.2026)
 
 `/dashboard` to od 21.09.2026 pulpit, który każdy układa sam z kafelków
@@ -5395,33 +5429,3 @@ finanse w kreatorze od razu). Raport: `docs/custom-dashboard-completion-report.m
   pokazuje panel nadzoru tymczasowo, gdy ktoś nie ma tego kafelka, z „Dodaj na
   stałe”. `?preset=` jest ignorowane; `dashboardHref()` zawsze zwraca `/dashboard`.
 - Harness: `/preview/custom-dashboard` (pusty i pełny pulpit, zero zapytań).
-
-
-## Jeden ekran „Kandydaci" — trzy tryby zamiast trzech pozycji menu (21.09.2026)
-
-Decyzja Artura 21.09.2026: Wyszukiwarka i Talent Radar były osobnymi wejściami
-do tej samej bazy obok listy kandydatów. Teraz to TRYBY jednego ekranu
-`/candidates` (`components/v2/candidates/CandidatesWorkspace.tsx`, parametr
-`?mode=` — czysty moduł `lib/candidates-mode.ts`):
-
-| Tryb | Adres | Punkt startu | Komponent |
-|---|---|---|---|
-| Baza | `/candidates` | filtry | `CandidatesListV2` |
-| Wyszukiwanie | `/candidates?mode=search` | nazwisko / słowa / opis (auto-rozpoznanie) | `CandidateSearchView` (`hideHeader`, `persistUrlParams`) |
-| Z treści requestu | `/candidates?mode=request` | wklejony request albo profil Championa | `TalentRadarWorkspace` (`embedded`) |
-
-- **Stare adresy działają**: `/candidates/search` przekierowuje serwerowo
-  z zachowaniem `?s=` i `?job=`; `/talent-radar` przekierowuje role z
-  `nav.candidates`, a rola BEZ niej (middleware nie wpuszcza jej na
-  `/candidates`) dostaje radar na miejscu — decyzja z 19.08 („radar dla każdej
-  zalogowanej roli") zostaje. Linki `/talent-radar` zapisane w powiadomieniach
-  (`candidate_search_worker`, `notification_access`) nie wymagają migracji.
-- **Tryb czyta się z WARTOŚCI parametru przy każdym renderze** — miękka
-  nawigacja przełącza widok (reguła z `useClientTab`).
-- **„Szukaj jak z requestu"**: długi wpis w wyszukiwarce (≥ 300 znaków albo
-  ≥ 3 nowe linie) proponuje przejście do trybu requestu; tekst jedzie STANEM
-  (`requestSeed` + `key` remontujący radar), nigdy adresem — to bywa pełna
-  treść requestu klienta. Radar z `initialText` czyści kryteria poprzedniego
-  wyszukiwania i nie przełącza się na zapamiętaną „Zapisaną rekrutację".
-- **Wyszukiwanie w rekrutacji** („Propozycje z bazy", „Szukaj ręcznie") zostaje
-  w rekrutacji — to ten sam `CandidateSearchView` z `addToJob`.
