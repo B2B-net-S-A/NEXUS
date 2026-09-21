@@ -29,7 +29,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F4  | cv_generator                     | claude-sonnet-5 (z 4.6)  |
 | F5  | cv_interactive_chat              | gpt-5.6-luna (z Haiku)   |
 | F6  | job_description_generator        | claude-sonnet-5          |
-| F7  | order_parser                     | gpt-5.6-luna             |
+| F7  | order_parser                     | claude-sonnet-5 (21.09)  |
 | F8  | uop_check                        | gpt-5.6-luna             |
 | F9  | cv_parser                        | claude-sonnet-5          |
 | F10 | cv_backfill + cv_name_backfill   | claude-sonnet-5 (z Haiku)|
@@ -130,16 +130,18 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         rationale="F13. Szkic Championa: najmniej nieugruntowanych pozycji (0.10).",
     ),
     AIFeatureKey.order_parser: ModelChoice(
-        default=GPT_LUNA,
+        default=SONNET_5,
         env_vars=("ORDER_PARSER_MODEL",),
         # settings_attr obok tego samego env: wierne odtworzenie oryginału
         # `os.environ.get("ORDER_PARSER_MODEL","") or settings.ORDER_PARSER_MODEL`.
         # env_vars (os.environ) wygrywa i zwykle to wystarcza; settings_attr
         # łapie wariant z pliku .env, który pydantic czyta, a os.environ nie widzi.
         settings_attr="ORDER_PARSER_MODEL",
-        fallbacks=(SONNET_5,),
-        rationale="F7. Odczyt PDF zamówień: GPT Luna 0 cichych błędów, dokładność 0.960, "
-        "~15× taniej niż Sonnet 5 (badanie 16.09).",
+        rationale="F7. Odczyt PDF zamówień: Sonnet 5 (decyzja Artura 21.09.2026, powrót "
+        "z GPT Luna). Luna czytała wartości poprawnie, ale oznaczała odczyt jako "
+        "niepewny bez konkretnego powodu, więc zamówienia Nordei szły do kolejki "
+        "zamiast zapisu automatycznego (2 z 6 po 16.09). Badanie 16.09 i tak "
+        "zalecało zostawić tę funkcję na Sonnecie.",
     ),
     AIFeatureKey.cv_requirement_map: ModelChoice(
         default=SONNET_5,

@@ -66,7 +66,6 @@ def test_ai_failure_is_described_without_provider_message(exc, expected):
 
 async def test_fallback_records_why_the_model_call_failed(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")  # F7: odczyt na GPT Luna
     monkeypatch.setattr(parser.settings, "ORDER_EXTRACTION_ENABLED", True)
 
     def boom(**_kwargs):
@@ -80,7 +79,6 @@ async def test_fallback_records_why_the_model_call_failed(monkeypatch):
 
 async def test_fallback_records_disabled_extraction(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")  # F7: odczyt na GPT Luna
     monkeypatch.setattr(parser.settings, "ORDER_EXTRACTION_ENABLED", False)
     result = await parse_order_document("Zamówienie nr 1/2031", all_rows=True)
     assert result.ai_failure == "odczyt AI wyłączony (ORDER_EXTRACTION_ENABLED)"
@@ -136,7 +134,6 @@ def _fallback_extraction() -> dict:
 
 async def _pending_fallback(db, monkeypatch, tmp_path, **meta):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")  # F7: odczyt na GPT Luna
     monkeypatch.setattr(ingest.settings, "ORDER_EXTRACTION_ENABLED", True)
     current = {"alior": policy_by_key("alior").rule_version}
     return await _alior_with_a_pending_next_period(
@@ -279,7 +276,6 @@ def _message(text: str, stop_reason: str = "end_turn"):
 
 async def test_answer_with_prose_is_read_by_ai_not_fallback(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")  # F7: odczyt na GPT Luna
     monkeypatch.setattr(parser.settings, "ORDER_EXTRACTION_ENABLED", True)
     monkeypatch.setattr(
         parser, "call_claude", lambda **_k: _message(f"Wynik:\n{_OBJECT}\nGotowe.")
@@ -291,7 +287,6 @@ async def test_answer_with_prose_is_read_by_ai_not_fallback(monkeypatch):
 
 async def test_truncated_answer_falls_back_with_shape(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")  # F7: odczyt na GPT Luna
     monkeypatch.setattr(parser.settings, "ORDER_EXTRACTION_ENABLED", True)
     monkeypatch.setattr(
         parser,
@@ -317,7 +312,6 @@ async def test_truncated_answer_falls_back_with_shape(monkeypatch):
 
 def _ai_available(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")  # F7: odczyt na GPT Luna
     monkeypatch.setattr(ingest.settings, "ORDER_EXTRACTION_ENABLED", True)
 
 

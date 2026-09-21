@@ -520,6 +520,9 @@ def test_availability_gates_follow_the_registrys_provider(monkeypatch):
         monkeypatch.setattr(settings, name, "", raising=False)
 
     # Sam klucz Anthropic nie wystarcza funkcji stojącej na innym dostawcy…
+    # (F7 domyślnie = Sonnet 5 od 21.09.2026, więc GPT ustawiamy env-em — tak
+    # samo, jak można to zrobić na produkcji bez zmiany kodu.)
+    monkeypatch.setenv("ORDER_PARSER_MODEL", "gpt-5.6-luna")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
     assert provider_of(ai_models.model_for(AIFeatureKey.order_parser)) == OPENAI
     assert ingest.ai_extraction_available() is False

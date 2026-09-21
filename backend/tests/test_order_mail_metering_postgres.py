@@ -7,11 +7,12 @@ wyłącznie z innych ścieżek — poczta nie miała bramki, więc żadna nie by
 Test idzie przez PRAWDZIWE ``call_claude`` z syntetyczną odpowiedzią dostawcy,
 czyli przez tę samą granicę, na której stoją ``_assert_declared`` i zapis tokenów.
 
-Od 16.09.2026 odczyt zamówień idzie na GPT Luna (decyzja F7), więc syntetyczna
-odpowiedź podstawiana jest na transporcie ``llm_providers`` zamiast na kliencie
-SDK Anthropic. Sens testu jest ten sam i mocniejszy: dowodzi, że telemetria
-kosztów widzi wywołanie dostawcy SPOZA Anthropic — a to właśnie ta ścieżka jest
-nowa i mogłaby przestać być liczona po cichu.
+Od 21.09.2026 odczyt zamówień domyślnie znów idzie na Sonneta 5 (F7), ale test
+jawnie przestawia model na GPT Luna przez ``ORDER_PARSER_MODEL`` — tak jak
+produkcja może to zrobić samą zmienną środowiskową. Syntetyczna odpowiedź
+podstawiana jest na transporcie ``llm_providers``, więc test dowodzi, że
+telemetria kosztów widzi wywołanie dostawcy SPOZA Anthropic — a ta ścieżka
+mogłaby przestać być liczona po cichu.
 """
 
 import os
@@ -27,6 +28,7 @@ from app.models.ai_feature import AIFeatureKey
 from app.models.ai_metering import AIOperation, AIProviderCall
 from app.services import ai_models, ai_quota, llm_providers
 from app.services import order_mail_ingest as ingest
+from app.services import order_pdf_parser
 from app.services.order_document_text import OrderDocumentText
 
 pytestmark = pytest.mark.skipif(
@@ -67,10 +69,13 @@ async def test_mail_order_read_is_metered_as_a_system_operation(monkeypatch):
     from app.core.database import AsyncSessionLocal
 
     seen: list = []
-    assert ai_models.model_for(AIFeatureKey.order_parser) == "gpt-5.6-luna", (
-        "F7: gdy odczyt zamówień wróci na innego dostawcę, ten test musi "
-        "podstawiać JEGO transport — inaczej mierzyłby ścieżkę awaryjną"
-    )
+    # Model przestawiony env-em (domyślnie F7 = Sonnet 5): test mierzy ścieżkę
+    # dostawcy spoza Anthropic, a transport podstawiony niżej to OpenAI.
+    # `order_pdf_parser._MODEL` liczy się przy imporcie modułu (jak na produkcji,
+    # gdzie zmiana env wymaga restartu), więc podmieniamy też stałą modułu.
+    monkeypatch.setenv("ORDER_PARSER_MODEL", "gpt-5.6-luna")
+    assert ai_models.model_for(AIFeatureKey.order_parser) == "gpt-5.6-luna"
+    monkeypatch.setattr(order_pdf_parser, "_MODEL", "gpt-5.6-luna")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(ingest.settings, "ORDER_EXTRACTION_ENABLED", True)
     monkeypatch.setattr(llm_providers.httpx, "post", _fake_provider_post(seen))

@@ -4503,10 +4503,17 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
 | F4 | cv_generator | Sonnet 5 (z 4.6) | F12 | candidate_summary | DeepSeek V4 Pro |
 | F5 | cv_interactive_chat | GPT Luna (z Haiku) | F13 | champion_draft | Sonnet 5 |
 | F6 | job_description_generator | Sonnet 5 | F14 | cv_rule_lint | Sonnet 5 (z Haiku) |
-| F7 | order_parser | GPT Luna | F15 | mindy_chat | GPT Luna |
+| F7 | order_parser | **Sonnet 5** (od 21.09) | F15 | mindy_chat | GPT Luna |
 | F8 | uop_check | GPT Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
 | F18 | cv_factual_verification | GPT Luna (z Sonnet 5) | | | |
 
+- **F7 wrócił na Sonneta 5 (decyzja Artura, 21.09.2026).** GPT Luna czytała
+  zamówienia poprawnie, ale oznaczała odczyt jako `uncertain` bez konkretnego
+  powodu („oznaczony przez model jako niepewny", echo instrukcji promptu), a
+  bramka poczty traktuje każdą niepewność jako powód do kolejki — Nordea po
+  16.09: 2 z 6 poprawnych zamówień do ręcznego sprawdzenia. Badanie 16.09 i tak
+  zalecało zostawić odczyt na Sonnecie. `order_pdf_parser._MODEL` liczy się przy
+  imporcie, więc zmiana `ORDER_PARSER_MODEL` w Coolify wymaga restartu.
 - **Rejestr jest JEDYNYM miejscem „funkcja → model".** Dostawca wynika z NAZWY
   modelu (`llm_providers.provider_of`: `claude-*` → Anthropic, `gpt-*` →
   OpenAI, `deepseek*` → DeepSeek). Nie dokładaj literałów modeli ani osobnych
