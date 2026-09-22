@@ -147,16 +147,16 @@ describe("rewriteLegacyJobParams", () => {
   });
 
   it("przepisuje stare zakładki, zostawiając resztę parametrów", () => {
-    expect(rewrite("tab=pipeline")).toBe("");
-    expect(rewrite("tab=pipeline&candidate=12")).toBe("candidate=12");
-    expect(rewrite("tab=screening")).toBe("seg=group%3Ascreening&panel=screening");
-    expect(rewrite("tab=notes&candidate=3")).toBe("candidate=3&panel=notes");
-    expect(rewrite("tab=chat")).toBe("win=history-chat&wintab=chat");
-    expect(rewrite("tab=history")).toBe("win=history-chat&wintab=request");
-    expect(rewrite("tab=portals")).toBe("win=order&wintab=portals");
-    expect(rewrite("tab=questions")).toBe("win=questions");
-    expect(rewrite("tab=manual-search")).toBe("win=manual-search");
-    expect(rewrite("tab=similar")).toBe("seg=proposals");
+    expect(rewrite("tab=pipeline")).toBe("tab=people");
+    expect(rewrite("tab=pipeline&candidate=12")).toBe("candidate=12&tab=people");
+    expect(rewrite("tab=screening")).toBe("tab=people&seg=group%3Ascreening&panel=screening");
+    expect(rewrite("tab=notes&candidate=3")).toBe("candidate=3&tab=people&panel=notes");
+    expect(rewrite("tab=chat")).toBe("tab=people&win=history-chat&wintab=chat");
+    expect(rewrite("tab=history")).toBe("tab=people&win=history-chat&wintab=request");
+    expect(rewrite("tab=portals")).toBe("tab=people&win=order&wintab=portals");
+    expect(rewrite("tab=questions")).toBe("tab=people&win=questions");
+    expect(rewrite("tab=manual-search")).toBe("tab=people&win=manual-search");
+    expect(rewrite("tab=similar")).toBe("tab=people&seg=proposals");
   });
 
   it("champion-profile → champion, z zachowaniem ?intake=1", () => {
@@ -164,8 +164,8 @@ describe("rewriteLegacyJobParams", () => {
   });
 
   it("?highlight=ai-proposals → segment propozycji, parametr znika", () => {
-    expect(rewrite("highlight=ai-proposals")).toBe("seg=proposals");
-    expect(rewrite("tab=ai-matching&highlight=ai-proposals")).toBe("seg=proposals");
+    expect(rewrite("highlight=ai-proposals")).toBe("tab=people&seg=proposals");
+    expect(rewrite("tab=ai-matching&highlight=ai-proposals")).toBe("tab=people&seg=proposals");
   });
 
   it("nieznana zakładka jest zdejmowana (ląduje na widoku domyślnym)", () => {

@@ -316,6 +316,8 @@ export type BulkAddSource =
 export interface BulkProposalsRequest {
   candidate_ids: number[];
   initial_stage_def_id?: number | null;
+  /** Alternatywa po legacy-enumie (np. „screening" — ✓ w „Do przejrzenia"). */
+  initial_stage_legacy?: string | null;
   note?: string | null;
   tags?: string[];
   /**

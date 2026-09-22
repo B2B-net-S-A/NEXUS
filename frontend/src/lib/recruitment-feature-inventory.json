@@ -723,6 +723,22 @@
    "file": "components/v2/jobs/new/NewJobPage.tsx",
    "marker": "SimilarJobsPicker",
    "v3_home": "nowa rekrutacja"
+  },
+  {
+   "id": "board.review-column",
+   "area": "pipeline",
+   "opis": "Tablica: pierwsza kolumna „Do przejrzenia” — przepięcia i propozycje z bazy nad osobami z ogłoszeń; ✓ do Screening, ✕ pomiń",
+   "file": "components/v2/pages/KanbanBoardV2.tsx",
+   "marker": "BoardReviewSection",
+   "v3_home": "Tablica → Do przejrzenia"
+  },
+  {
+   "id": "view.board-default",
+   "area": "nagłówek",
+   "opis": "Tablica jest widokiem domyślnym rekrutacji (22.09.2026); adres z segmentem/panelem otwiera Tabelę",
+   "file": "lib/job-detail-routing.ts",
+   "marker": "JOB_DETAIL_DEFAULT_VIEW: JobDetailView = \"board\"",
+   "v3_home": "przełącznik Tablica | Tabela"
   }
  ]
 }

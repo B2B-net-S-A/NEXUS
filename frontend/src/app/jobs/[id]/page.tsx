@@ -231,7 +231,9 @@ export default function JobDetailPage() {
   // strażnik linków): nowy identyfikator albo alias dawnej zakładki.
   const viewFromUrl =
     resolveUrlTab(searchParams?.get("tab"), JOB_DETAIL_TABS, JOB_DETAIL_TAB_ALIASES) ??
-    (urlState.highlightProposals ? JOB_DETAIL_DEFAULT_VIEW : null);
+    // Segment, sekcja panelu albo podświetlenie propozycji istnieją tylko
+    // w „Tabeli" — taki adres bez `tab=` nie może otworzyć Tablicy.
+    (urlState.view === "people" ? "people" : null);
   const [viewState, setViewState] = useUrlSyncedState<JobDetailView>(
     viewFromUrl,
     JOB_DETAIL_DEFAULT_VIEW,
@@ -739,9 +741,12 @@ export default function JobDetailPage() {
         onOpenHistoryChat={() => openSlideOver("history-chat")}
         onOpenQuestions={() => openSlideOver("questions")}
         onOpenSimilar={canWritePipeline ? () => setSimilarOpen(true) : undefined}
-        similarLinkedCount={similarJobs.data?.linked.length ?? null}
+        // Odpowiedź spoza kontraktu (brak list) = brak odznaki, nie wywrotka.
+        similarLinkedCount={
+          Array.isArray(similarJobs.data?.linked) ? similarJobs.data.linked.length : null
+        }
         similarSuggestedCount={
-          similarJobs.data
+          Array.isArray(similarJobs.data?.suggestions)
             ? similarJobs.data.suggestions.filter((s) => s.sent_count > 0).length
             : null
         }
