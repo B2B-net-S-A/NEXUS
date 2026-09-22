@@ -50,7 +50,7 @@ const AVAILABILITY_LABELS: Record<string, string> = {
  actively_looking: "Aktywnie szuka",
  open_to_offers: "Otwarty",
  not_looking: "Nie szuka",
- unknown: "Nie wiemy",
+ unknown: "Nieznane",
 };
 
 const OPEN_TO_LABELS: Record<string, string> = {

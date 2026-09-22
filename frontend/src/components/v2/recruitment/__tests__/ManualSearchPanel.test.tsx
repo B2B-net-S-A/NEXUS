@@ -49,6 +49,7 @@ describe("ManualSearchPanel", () => {
     expect(mocks.view).toHaveBeenLastCalledWith({
       initial: { fromJob: "Java Developer", must: ["Java 17", "Kafka"] },
       addToJob: { id: 7, title: "Java Developer" },
+      hideHeader: true,
       onBulkAdded,
       readOnly: true,
     });

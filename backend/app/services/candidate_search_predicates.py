@@ -1174,6 +1174,66 @@ def location_rank(cities: Optional[Sequence[str]]) -> Optional[ColumnElement]:
 _TRAFFIT_EXPERIENCE_BUCKETS = frozenset({"Poniżej 2", "2-5", "5+"})
 
 
+def unknown_count_rank(
+    *,
+    location_active: bool,
+    country_active: bool,
+    experience_active: bool,
+    rate_active: bool,
+) -> ColumnElement[int] | None:
+    """Ile AKTYWNYCH filtrów wiersz przeszedł wyłącznie na brak danych — lustro
+    SQL ``unknown_fields_for``. Lista sortuje po nim rosnąco, żeby osoby
+    z potwierdzonym dopasowaniem szły przed osobami z plakietką „brak …"
+    (test manualny 22.09.2026: przy filtrze „Kraków" 20 z 30 pierwszych
+    wierszy nie miało żadnego miasta). ``None`` = żaden filtr nie aktywny.
+    """
+    parts: list[ColumnElement[int]] = []
+    if location_active or country_active:
+        no_place = (
+            and_(Candidate.city.is_(None), Candidate.location.is_(None))
+            if location_active
+            else literal(False)
+        )
+        no_country = Candidate.country.is_(None) if country_active else literal(False)
+        parts.append(case((or_(no_place, no_country), 1), else_=0))
+    if experience_active:
+        bucket = Candidate.cv_extracted_data["traffit_experience"].astext
+        parts.append(
+            case(
+                (
+                    and_(
+                        Candidate.years_it_experience.is_(None),
+                        or_(
+                            bucket.is_(None),
+                            bucket.not_in(sorted(_TRAFFIT_EXPERIENCE_BUCKETS)),
+                        ),
+                    ),
+                    1,
+                ),
+                else_=0,
+            )
+        )
+    if rate_active:
+        currency = func.upper(
+            func.trim(func.coalesce(Candidate.expected_rate_currency, ""))
+        )
+        parts.append(
+            case(
+                (
+                    or_(
+                        Candidate.expected_rate_hourly.is_(None),
+                        currency.not_in(["", "PLN"]),
+                    ),
+                    1,
+                ),
+                else_=0,
+            )
+        )
+    if not parts:
+        return None
+    return reduce(lambda a, b: a + b, parts)
+
+
 def unknown_fields_for(
     candidate: Any,
     *,

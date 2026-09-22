@@ -878,7 +878,6 @@ function CandidateCell({
  </span>
  {isNew && <Badge size="sm" variant="success">Nowy</Badge>}
  <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="sm" className="shrink-0" />
- <UnknownFieldBadges fields={candidate.unknown_fields} className="shrink-0 flex-nowrap" />
  {contactFeatureEnabled ? (
  <ContactStatusBadge
  contactCase={candidate.contact_case}
@@ -886,11 +885,18 @@ function CandidateCell({
  />
  ) : null}
  </div>
+ {/* Plakietki „brak …" w DRUGIEJ linii: w pierwszej ścinały nazwisko
+ („Jan Ga…") — test manualny 22.09.2026. */}
+ {(secondary || location || (candidate.unknown_fields?.length ?? 0) > 0) && (
+ <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
  {(secondary || location) && (
- <p className="mt-0.5 truncate text-xs text-muted-foreground" title={[secondary, location].filter(Boolean).join(" · ")}>
+ <p className="min-w-0 truncate text-xs text-muted-foreground" title={[secondary, location].filter(Boolean).join(" · ")}>
  {secondary || "Brak stanowiska"}
  {location ? ` · ${location}` : ""}
  </p>
+ )}
+ <UnknownFieldBadges fields={candidate.unknown_fields} className="shrink-0 flex-nowrap" />
+ </div>
  )}
  </div>
  </button>
@@ -1301,7 +1307,12 @@ export function isHistoryNeutralChange(
  return filtersEqual({ ...previous, ...neutral }, { ...next, ...neutral });
 }
 
-export function CandidatesListV2() {
+export interface CandidatesListV2Props {
+  /** W ekranie „Kandydaci" tytuł strony daje rama z zakładkami trybów. */
+  hideTitle?: boolean;
+}
+
+export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = {}) {
  const router = useRouter();
  const { showSuccess } = useToast();
  const searchParams = useSearchParams();
@@ -2366,7 +2377,8 @@ export function CandidatesListV2() {
  {/* Header — celowo stonowany: tytuł/licznik to nie kluczowa informacja,
  więc bez gradientu i wielkiego H1. Wizualny akcent przeniesiony na
  przycisk „Zaawansowane" w toolbarze poniżej. */}
- <div className="flex items-end justify-between flex-wrap gap-3">
+ <div className={hideTitle ?"flex items-end justify-end flex-wrap gap-3" :"flex items-end justify-between flex-wrap gap-3"}>
+ {!hideTitle && (
  <div>
  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground/60">
  Sourcing · Kandydaci
@@ -2375,6 +2387,7 @@ export function CandidatesListV2() {
  Kandydaci
  </h1>
  </div>
+ )}
 
  <div className="flex items-center gap-2">
  <Popover>

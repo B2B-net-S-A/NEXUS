@@ -72,6 +72,7 @@ export function CandidatesWorkspace() {
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
+        <h1 className="text-lg font-semibold tracking-tight text-foreground/80">Kandydaci</h1>
         <TabbedNav
           tabs={MODE_TABS}
           value={mode}
@@ -84,7 +85,7 @@ export function CandidatesWorkspace() {
         </p>
       </div>
 
-      {mode === "list" && <CandidatesListV2 />}
+      {mode === "list" && <CandidatesListV2 hideTitle />}
       {mode === "search" && (
         <CandidateSearchView
           syncUrl

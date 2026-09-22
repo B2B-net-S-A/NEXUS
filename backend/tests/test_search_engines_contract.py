@@ -676,6 +676,37 @@ async def test_brak_danych_zostaje_i_jest_oznaczony(app_client, app_auth_headers
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("sort", ["newest", "oldest", "name"])
+async def test_lista_stawia_potwierdzone_przed_brakiem_danych(
+    app_client, app_auth_headers, sort
+):
+    """Test manualny 22.09.2026: przy filtrze miasta osoby bez żadnego miasta
+    (przepuszczone z plakietką „brak lokalizacji") zajmowały górę listy.
+    Potwierdzone dopasowanie idzie pierwsze w KAŻDYM sortowaniu; nikt nie
+    znika z wyniku."""
+    ids = await _seed()
+    ours = set(ids.values())
+    resp = await app_client.get(
+        "/api/candidates",
+        params=[
+            ("q_all", NONCE),
+            ("page_size", 100),
+            ("semantics_version", 2),
+            ("location", "warszawa"),
+            ("sort", sort),
+        ],
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    order = [i for i in resp.json()["items"] if i["id"] in ours]
+    flags = [bool(i["unknown_fields"]) for i in order]
+    assert flags == sorted(flags), f"brak danych przed dopasowaniem: {flags}"
+    assert {ids[k] for k in ("a", "m")} <= {
+        i["id"] for i in order if not i["unknown_fields"]
+    }
+
+
+@pytest.mark.asyncio
 async def test_hide_unknown_ukrywa_takze_brak_stawki(app_client, app_auth_headers):
     await _both(
         app_client,
