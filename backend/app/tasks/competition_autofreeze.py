@@ -149,6 +149,13 @@ async def competition_autofreeze_loop() -> None:
     """Pętla startowana z main.lifespan. Bezpieczna na CancelledError."""
     logger.info("competition_autofreeze_loop started")
     while True:
+        # 0343: seria „Zatrudniony" bez CV ma zniknąć z rankingu ZANIM okres
+        # zostanie zamrożony — zamrożone podium jest niezmienne i wypłaca
+        # nagrody. Działa także przy wyłączonym imporcie Traffita (drugi punkt
+        # wykrywania). Własna sesja, nigdy nie rzuca.
+        from app.services.placement_exclusions import run_detection_safely
+
+        await run_detection_safely("competition_autofreeze")
         try:
             await _run_once()
         except asyncio.CancelledError:

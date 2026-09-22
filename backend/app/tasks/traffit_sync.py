@@ -1162,6 +1162,12 @@ async def run_traffit_sync(
 
         if selected is None:
             record_job_outcome("traffit_sync", status == "ok", interval_seconds=86400)
+            # 0343: import mógł dowieźć serię „Zatrudniony" jednego konta (≥ 10
+            # par w dniu, bez CV wysłane) — taka seria nie jest placementem.
+            # Własna sesja, nigdy nie rzuca: statystyka nie wywraca importu.
+            from app.services.placement_exclusions import run_detection_safely
+
+            await run_detection_safely(f"traffit_{mode}")
         notes = sum(
             v.get("notes_promoted") or 0
             for v in results.values()

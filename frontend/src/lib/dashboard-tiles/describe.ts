@@ -85,5 +85,19 @@ export function describeMetric(
   if (metric.compare_previous && !SNAPSHOT.has(metric.measure) && metric.source !== "finance") {
     parts.push("(ze zmianą względem poprzedniego okresu)");
   }
-  return `${parts.join(" ")}.`;
+  const sentence = `${parts.join(" ")}.`;
+  // Lustro serwera (custom_metrics/engine.py): gdy ruchy są przypisywane
+  // ludziom, zasługa idzie jak w „Moje KPI”, nie do osoby, która kliknęła etap.
+  if (metric.source === "pipeline_moves" && creditsPeople(metric)) {
+    return `${sentence} ${CREDIT_SENTENCE}`;
+  }
+  return sentence;
+}
+
+export const CREDIT_SENTENCE =
+  "Zasługa jak w „Moje KPI”: ruch liczy się osobie, która zweryfikowała kandydata.";
+
+function creditsPeople(metric: MetricDefinition): boolean {
+  const author = metric.filters?.author ?? "me";
+  return author !== "all" || metric.group_by === "recruiter";
 }

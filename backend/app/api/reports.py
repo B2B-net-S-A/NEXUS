@@ -36,6 +36,7 @@ from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
 from app.services.insights_workdays import working_days_for
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 from app.services.metric_definitions import VERIFIER_ANCHORED_MILESTONES
+from app.services.placement_exclusions import not_excluded_placement
 
 logger = logging.getLogger(__name__)
 
@@ -872,6 +873,10 @@ async def _compute_dl_metrics(
             .where(
                 CandidateStage.job_id.in_(open_job_ids),
                 CandidateStage.stage == PipelineStage.hired,
+                # 0343: wykluczony placement (seria bez CV) nie zajmuje wakatu.
+                not_excluded_placement(
+                    CandidateStage.candidate_id, CandidateStage.job_id
+                ),
             )
             .group_by(CandidateStage.job_id)
         )
@@ -1215,6 +1220,10 @@ async def _compute_client_hit_ratio(
             .where(
                 Job.id.in_(closed_job_ids),
                 CandidateStage.stage == PipelineStage.hired,
+                # 0343: wykluczony placement (seria bez CV) nie jest placementem.
+                not_excluded_placement(
+                    CandidateStage.candidate_id, CandidateStage.job_id
+                ),
             )
             .group_by(Job.client_id, Job.id)
         )

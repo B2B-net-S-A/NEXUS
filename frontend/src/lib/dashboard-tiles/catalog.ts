@@ -374,7 +374,7 @@ export const TILE_TEMPLATES: TileTemplate[] = [
     key: "hired_month",
     type: "metric_number",
     label: "Zatrudnieni",
-    description: "Pierwsze zatrudnienia w tym miesiącu.",
+    description: "Twoje placementy w tym miesiącu — liczone jak w „Moje KPI”.",
     category: "recruitment",
     config: {
       title: "Zatrudnieni",

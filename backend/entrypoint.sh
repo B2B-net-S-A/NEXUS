@@ -2747,6 +2747,28 @@ _COLUMN_STATEMENTS = [
             id AS candidate_stage_id
         FROM candidate_stages
         ORDER BY candidate_id, job_id, moved_at DESC, id DESC""",
+    # ── Wykluczone placementy (0343) ────────────────────────────────────
+    # MUSI stać przed widokiem niżej: widok i VERIFIER_ANCHORED_CTE czytają
+    # tę tabelę, więc bez niej padałby widok (zostaje stara definicja) i KPI.
+    # Zasianie reguły: faza `seed-placement-exclusions` na dole skryptu.
+    """CREATE TABLE IF NOT EXISTS placement_exclusions (
+        id BIGSERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL
+            REFERENCES candidates(id) ON DELETE CASCADE,
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        candidate_stage_id INTEGER
+            REFERENCES candidate_stages(id) ON DELETE SET NULL,
+        reason VARCHAR(40) NOT NULL,
+        rule_version INTEGER NOT NULL DEFAULT 1,
+        detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        details JSONB NOT NULL DEFAULT '{}'::jsonb,
+        CONSTRAINT uq_placement_exclusions_candidate_job
+            UNIQUE (candidate_id, job_id),
+        CONSTRAINT ck_placement_exclusions_reason
+            CHECK (reason IN ('admin_bulk_no_cv', 'admin_bulk_2025_09_series'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_placement_exclusions_job_id "
+    "ON placement_exclusions (job_id)",
     """CREATE OR REPLACE VIEW analytics_first_milestones AS
         SELECT
             candidate_id,
@@ -2777,6 +2799,17 @@ _COLUMN_STATEMENTS = [
             -- zaakceptowana ('active') weryfikacja. Pozostałe stage'y mają
             -- default verification_status='active', więc filtr ich nie dotyka.
             AND (cs.stage <> 'verified' OR cs.verification_status = 'active')
+            -- 0343: „Zatrudniony" wykluczonej pary (seria bez CV, patrz
+            -- app/services/placement_exclusions.py) nie jest placementem.
+            -- Tabela `placement_exclusions` powstaje instrukcję wyżej.
+            AND (
+                cs.stage <> 'hired'
+                OR NOT EXISTS (
+                    SELECT 1 FROM placement_exclusions pe
+                    WHERE pe.candidate_id = cs.candidate_id
+                      AND pe.job_id = cs.job_id
+                )
+            )
         ) ranked
         WHERE rn = 1""",
     # ── Snapshoty + cutover (0177, plan analytics PR 7) ─────────────────
@@ -8314,6 +8347,45 @@ async def promote():
     print(f"pending verification promotion: {summary or 'nothing to do'}")
 
 asyncio.run(promote())
+PY
+
+# Wykluczone placementy (0343, 22.09.2026) — jednorazowe zasianie listy:
+# cała seria „Zatrudniony" z 24–25.09.2025 i reguła „seria ≥ 10 par jednego
+# konta w dniu warszawskim, pary bez CV wysłane" na całej historii. Tabela
+# i widok są w `_COLUMN_STATEMENTS` wyżej; tu tylko dane. SQL ma jedno źródło:
+# `app/services/placement_exclusions.py` (to samo woła migracja 0343).
+# Marker w `app_settings` + advisory lock → drugi start kończy się od razu.
+# Kolejne serie wykrywa pętla po imporcie Traffita. Log: wyłącznie liczby.
+startup_phase "seed-placement-exclusions"
+echo "Placement exclusions: one-shot seed (bulk hired series)..."
+python - <<'PY' || echo "placement exclusion seed skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.placement_exclusions import run_seed
+
+async def seed():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_seed(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            await db.rollback()
+            print(
+                f"placement exclusion seed failed ({type(exc).__name__}); "
+                "nothing written, next start retries"
+            )
+            return
+    if summary is None:
+        print("placement exclusion seed: already done")
+    else:
+        print(
+            "placement exclusion seed: "
+            f"historical={summary['historical_series_excluded']} "
+            f"rule={summary['rule_excluded']}"
+        )
+
+asyncio.run(seed())
 PY
 
 # PFRON 507–509 (0306, 09.2026) — jednorazowe rozdzielenie zamówień, które

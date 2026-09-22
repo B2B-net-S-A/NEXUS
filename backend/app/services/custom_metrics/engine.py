@@ -20,7 +20,18 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import Text, cast, column, func, or_, select, table
+from sqlalchemy import (
+    DateTime,
+    Integer,
+    Text,
+    cast,
+    column,
+    func,
+    or_,
+    select,
+    table,
+    text,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -89,6 +100,40 @@ _MILESTONES = table(
     column("first_reached_at"),
     column("first_moved_by"),
 )
+
+
+def _credited_milestones():
+    """Kamienie milowe z kredytem jak w „Moje KPI" (rodzina A).
+
+    Gdy metryka przypisuje ruchy LUDZIOM (autor „moje"/„mój zespół" albo
+    podział po rekruterze), zasługę dostaje osoba z ``VERIFIER_ANCHORED_CTE``
+    — pierwszy zaakceptowany weryfikator pary — a nie ten, kto kliknął etap
+    (decyzja 22.09.2026). Bez tego kafelek „Zatrudnieni" (moje) liczył inną
+    osobę niż panel „Moje KPI" obok. Liczby całej firmy bez podziału na ludzi
+    zostają na widoku ``analytics_first_milestones`` (ta sama reguła D2 co
+    Insights). Oba źródła pomijają wykluczone placementy (0343).
+    """
+    # Import lokalny: kpi_panel ciągnie kpi_engine, a silnik metryk nie
+    # powinien ładować go przy imporcie modułu.
+    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+
+    return (
+        text(
+            VERIFIER_ANCHORED_CTE
+            + """
+            SELECT candidate_id, job_id, stage, reached_at, credit_user
+            FROM credited
+            """
+        )
+        .columns(
+            column("candidate_id", Integer),
+            column("job_id", Integer),
+            column("stage", Text),
+            column("reached_at", DateTime(timezone=True)),
+            column("credit_user", Integer),
+        )
+        .subquery("credited_milestones")
+    )
 
 
 class MetricAccessDenied(Exception):
@@ -273,21 +318,32 @@ def _pipeline_query(
     window: Window,
     author_ids: Optional[frozenset[int]],
 ):
-    m = _MILESTONES.c
-    stage = cast(m.stage, Text)
+    # Przypisanie do ludzi = kredyt jak w „Moje KPI"; cała firma = widok.
+    if author_ids is not None or definition.group_by == "recruiter":
+        source = _credited_milestones()
+        m = source.c
+        stage = m.stage
+        person = m.credit_user
+        reached_at = m.reached_at
+    else:
+        source = _MILESTONES
+        m = source.c
+        stage = cast(m.stage, Text)
+        person = m.first_moved_by
+        reached_at = m.first_reached_at
     cols = {
         "client": Job.client_id,
-        "recruiter": m.first_moved_by,
+        "recruiter": person,
         "stage": stage,
         "competence_category": Job.competence_category_id,
     }
-    conds = [m.first_reached_at >= window.start, m.first_reached_at < window.end]
+    conds = [reached_at >= window.start, reached_at < window.end]
     if definition.stage:
         conds.append(stage == definition.stage)
     else:
         conds.append(stage.in_(MILESTONE_STAGES))
     if author_ids is not None:
-        conds.append(m.first_moved_by.in_(sorted(author_ids)))
+        conds.append(person.in_(sorted(author_ids)))
     f = definition.filters
     if f.client_ids:
         conds.append(Job.client_id.in_(f.client_ids))
@@ -295,8 +351,8 @@ def _pipeline_query(
         conds.append(Job.competence_category_id.in_(f.competence_category_ids))
     if f.job_ids:
         conds.append(m.job_id.in_(f.job_ids))
-    base = _MILESTONES.join(Job, Job.id == m.job_id)
-    return base, conds, cols, m.first_reached_at
+    base = source.join(Job, Job.id == m.job_id)
+    return base, conds, cols, reached_at
 
 
 def _candidates_query(

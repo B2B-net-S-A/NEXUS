@@ -108,6 +108,7 @@ from app.api import admin_clients_overview as admin_clients_overview_api
 from app.api import admin_snapshot
 from app.api import admin_pipeline_inventory
 from app.api import admin_process_adoption
+from app.api import admin_placement_exclusions
 from app.api import admin_engagement_inventory
 from app.api import admin_candidate_pii_orphans
 from app.api import admin_index_coverage, admin_schema_drift
@@ -1134,6 +1135,11 @@ app.include_router(
     admin_process_adoption.router,
     prefix="/api/admin",
     tags=["admin-process-adoption"],
+)
+app.include_router(
+    admin_placement_exclusions.router,
+    prefix="/api/admin",
+    tags=["admin-placement-exclusions"],
 )
 app.include_router(
     admin_engagement_inventory.router,
@@ -2707,6 +2713,7 @@ async def api_health_deep_check():
     from app.models.client_interview_slot_request import ClientInterviewSlotRequest
     from app.models.job_public_profile import JobPublicProfile
     from app.models.candidate_consent import CandidateConsent
+    from app.models.placement_exclusion import PlacementExclusion
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2871,6 +2878,9 @@ async def api_health_deep_check():
         # niego) i zgody z formularza (brak tabeli = każde zgłoszenie 500).
         ("job_public_profiles", JobPublicProfile),
         ("candidate_consents", CandidateConsent),
+        # 0343: wykluczone placementy — czyta je widok analytics_first_milestones
+        # i VERIFIER_ANCHORED_CTE, więc brak tabeli = KPI i Insights 500.
+        ("placement_exclusions", PlacementExclusion),
     ]
 
     checks: dict[str, str] = {}
