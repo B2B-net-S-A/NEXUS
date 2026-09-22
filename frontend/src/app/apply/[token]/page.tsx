@@ -7,6 +7,7 @@
 import { notFound } from"next/navigation";
 import { Calendar, MapPin, Sparkles } from"lucide-react";
 import ApplyForm from"./ApplyForm";
+import { forwardedClientHeaders } from "@/lib/server-forwarded";
 
 interface PageProps {
  params: Promise<{ token: string }>;
@@ -30,15 +31,27 @@ function apiBase(): string {
  );
 }
 
+/**
+ * FE-N01 (audyt 22.09 r2): tylko 404/410 znaczą „link nieważny”. 429 i 5xx
+ * to chwilowa awaria — rzucamy (granica błędu), zamiast wyrzucać kandydata
+ * na „nie znaleziono” z ważnym linkiem.
+ */
 async function fetchMeta(token: string): Promise<ApplyMeta | null> {
  const url = `${apiBase()}/api/public/apply/${token}`;
+ let res: Response;
  try {
- const res = await fetch(url, { cache: "no-store" });
- if (!res.ok) return null;
- return (await res.json()) as ApplyMeta;
+ res = await fetch(url, {
+ cache: "no-store",
+ headers: await forwardedClientHeaders(),
+ });
  } catch {
- return null;
+ throw new Error("Nie udało się wczytać zaproszenia. Spróbuj ponownie.");
  }
+ if (res.status === 404 || res.status === 410) return null;
+ if (!res.ok) {
+ throw new Error("Nie udało się wczytać zaproszenia. Spróbuj ponownie.");
+ }
+ return (await res.json()) as ApplyMeta;
 }
 
 const REMOTE_LABEL: Record<string, string> = {

@@ -15,6 +15,7 @@ Pilnuje tego ``test_public_surface_hardening.py``.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -68,6 +69,18 @@ async def _link_by_slug(
     return await db.scalar(query)
 
 
+async def _owner_active(db: AsyncSession, link: CandidateInviteLink) -> bool:
+    """audyt 22.09 r2 (SEC-06): czy właściciel linku nadal pracuje w NEXUSIE.
+
+    Stały link nieaktywnego pracownika działał, a powiadomienie o zgłoszeniu
+    trafiało na konto, którego nikt nie czyta — kandydat przepadał.
+    """
+    if link.created_by is None:
+        return False
+    owner = await db.get(User, link.created_by)
+    return bool(owner and owner.is_active)
+
+
 async def _recruiter_brief(db: AsyncSession, user_id: int) -> dict:
     user = await db.get(User, user_id)
     slug = await db.scalar(
@@ -77,13 +90,35 @@ async def _recruiter_brief(db: AsyncSession, user_id: int) -> dict:
             CandidateInviteLink.revoked.is_(False),
         )
     )
+    if user is None or not user.is_active:
+        # Odesłanie do stałego linku, który i tak da 404 (SEC-06).
+        slug = None
     return {
         "first_name": first_name(user.name if user else None) or "Zespół",
         "slug": slug,
     }
 
 
-async def _bump_visits(db: AsyncSession, link: CandidateInviteLink) -> None:
+# audyt 22.09 r2 (FE-N01): podglądy linków (LinkedIn, Slack, komunikatory)
+# i crawlery nie są odwiedzinami — inaczej licznik wejść mierzył boty.
+_BOT_UA = re.compile(
+    r"bot|crawler|spider|facebookexternalhit|linkedin|slack|whatsapp|telegram|"
+    r"discord|preview",
+    re.IGNORECASE,
+)
+
+
+def _counts_as_visit(request: Request) -> bool:
+    if request.headers.get("x-nexus-count-visit", "").strip() == "0":
+        return False
+    return not _BOT_UA.search(request.headers.get("user-agent", ""))
+
+
+async def _bump_visits(
+    db: AsyncSession, link: CandidateInviteLink, request: Request
+) -> None:
+    if not _counts_as_visit(request):
+        return
     await db.execute(
         update(CandidateInviteLink)
         .where(CandidateInviteLink.token == link.token)
@@ -135,7 +170,7 @@ async def get_career_job(
         about=profile.about,
         sections=profile.sections,
     )
-    await _bump_visits(db, link)
+    await _bump_visits(db, link, request)
     return {"status": "open", "recruiter": recruiter, "job": payload}
 
 
@@ -149,7 +184,7 @@ async def get_career_recruiter(
 ) -> dict:
     """Stały link rekrutera i jego otwarte, zatwierdzone rekrutacje."""
     link = await _link_by_slug(db, slug, kind="recruiter")
-    if link is None or not _link_active(link):
+    if link is None or not _link_active(link) or not await _owner_active(db, link):
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
     owner_id = link.created_by
 
@@ -191,7 +226,7 @@ async def get_career_recruiter(
         )
 
     recruiter = await _recruiter_brief(db, owner_id)
-    await _bump_visits(db, link)
+    await _bump_visits(db, link, request)
     _no_cache(response)
     return {"recruiter": recruiter, "jobs": jobs}
 
@@ -200,6 +235,8 @@ async def _apply_link(db: AsyncSession, slug: str) -> CandidateInviteLink:
     """Link, przez który wolno dziś aplikować — inaczej 404."""
     link = await _link_by_slug(db, slug)
     if link is None or not _link_active(link):
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    if link.kind == "recruiter" and not await _owner_active(db, link):
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
     if link.kind == "job":
         job = await db.get(Job, link.job_id) if link.job_id else None

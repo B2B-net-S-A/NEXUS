@@ -7,13 +7,14 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.activity import Activity
+from app.models.invite_link import CandidateInviteLink
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract
@@ -482,6 +483,16 @@ async def deactivate_user(
         user.authorization_version += 1
         user.tokens_valid_after = datetime.now(timezone.utc)
     user.is_active = False
+    # audyt 22.09 r2 (SEC-06): stały link kariery usuniętego pracownika
+    # przestaje działać na stałe (odczyt i tak sprawdza aktywność właściciela).
+    await db.execute(
+        update(CandidateInviteLink)
+        .where(
+            CandidateInviteLink.created_by == user.id,
+            CandidateInviteLink.kind == "recruiter",
+        )
+        .values(revoked=True)
+    )
     db.add(
         Activity(
             entity_type="user",
