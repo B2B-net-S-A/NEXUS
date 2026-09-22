@@ -67,7 +67,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { CandidateCvCell } from "@/components/v2/candidates/CandidateCvCell";
 import { CandidatePhoneCell } from "@/components/v2/candidates/CandidatePhoneCell";
-import { CandidateQuickFilters } from "@/components/v2/candidates/CandidateQuickFilters";
 import { CandidateProcessCell } from "@/components/v2/candidates/CandidateProcessCell";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1451,8 +1450,6 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
               />
             ) : null}
           </div>
-
-          <CandidateQuickFilters filters={filtersSnapshot} onPatch={patchFiltersFromFields} />
 
           <div className="flex flex-wrap items-center gap-2" aria-live="polite">
             <span className="text-sm font-medium text-foreground">

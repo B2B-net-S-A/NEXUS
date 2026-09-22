@@ -30,6 +30,8 @@ interface AdvancedSearchPopoverProps {
   className?: string;
   /** Bez nagłówka „Zaawansowane wyszukiwanie" — gdy sekcja ma już własny tytuł. */
   hideHeader?: boolean;
+  /** Które kubełki pokazać (domyślnie wszystkie) — reszta żyje gdzie indziej. */
+  sections?: ReadonlyArray<"all" | "any" | "none">;
 }
 
 const MAX_PER_BUCKET = 20;
@@ -96,16 +98,19 @@ function dedupeCaseInsensitive(xs: string[]): string[] {
  * removes the last chip on Backspace-when-empty. Emits the full new chip list
  * to `onChange` (already deduped + capped).
  */
-function ChipField({
+export function ChipField({
   chips,
   onChange,
   placeholder,
   tone,
+  ariaLabel,
 }: {
   chips: string[];
   onChange: (next: string[]) => void;
   placeholder: string;
   tone: Tone;
+  /** Nazwa pola dla czytnika ekranu (bez etykiety `<label>` obok). */
+  ariaLabel?: string;
 }) {
   const [draft, setDraft] = useState("");
   const limitReached = chips.length >= MAX_PER_BUCKET;
@@ -165,6 +170,7 @@ function ChipField({
         onBlur={commit}
         placeholder={limitReached ? `Limit ${MAX_PER_BUCKET} fraz osiągnięty` : placeholder}
         disabled={limitReached}
+        aria-label={ariaLabel}
         className="h-8 text-sm"
       />
     </div>
@@ -176,7 +182,9 @@ export function AdvancedSearchPopover({
   onChange,
   className,
   hideHeader = false,
+  sections,
 }: AdvancedSearchPopoverProps) {
+  const show = (key: "all" | "any" | "none") => !sections || sections.includes(key);
   // Always render at least one ANY group row so there's somewhere to type.
   // Empty groups live in state transiently and are filtered out at the URL /
   // API serialization boundary, so they never leak into a query.
@@ -210,7 +218,7 @@ export function AdvancedSearchPopover({
 
   return (
     <div className={cn("flex flex-col gap-4 p-1", className)}>
-      <div className={cn("flex items-start justify-between gap-2", hideHeader && totalCount === 0 && "hidden")}>
+      <div className={cn("flex items-start justify-between gap-2", hideHeader && "hidden")}>
         <div className={cn(hideHeader && "sr-only")}>
           <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
             Zaawansowane wyszukiwanie
@@ -233,6 +241,7 @@ export function AdvancedSearchPopover({
       </div>
 
       {/* ALL — every phrase must appear (AND) */}
+      {show("all") && (
       <section className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">
           <label>
@@ -262,8 +271,10 @@ export function AdvancedSearchPopover({
           tone="emerald"
         />
       </section>
+      )}
 
       {/* ANY — multiple OR-groups that AND together */}
+      {show("any") && (
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <label>
@@ -338,8 +349,10 @@ export function AdvancedSearchPopover({
           {canAddGroup ? "Dodaj grupę (ORAZ)" : `Limit ${MAX_ANY_GROUPS} grup`}
         </Button>
       </section>
+      )}
 
       {/* NONE — no phrase may appear (NOT) */}
+      {show("none") && (
       <section className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">
           <label>
@@ -369,6 +382,7 @@ export function AdvancedSearchPopover({
           tone="rose"
         />
       </section>
+      )}
     </div>
   );
 }

@@ -2180,23 +2180,19 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
 
 **Lista `/candidates` = JEDEN ekran, jeden silnik (`GET /api/candidates`).**
 - Filtry stoją na stałe w lewej kolumnie (`components/v2/candidates/CandidateFilterRail.tsx`;
-  poniżej `lg` ten sam panel w arkuszu) — **wariant B z makiety 22.09.2026**
-  (https://claude.ai/artifact/BmwbMSuaR1stDk8G4kJVoQ): na wierzchu tylko pięć
-  rozwiniętych grup (Kogo pokazać, Dostępność, Stawka B2B, Umiejętności,
-  Lokalizacja z trybem pracy), reszta (status, zatrudnienie, otwarty na, lata,
-  języki, kategoria, historia z nami, frazy w CV) w szufladzie „Więcej filtrów”
-  z licznikiem ustawionych w niej filtrów. **Uproszczenie 22.09.2026**
-  (makieta https://claude.ai/artifact/FZL7d1BycnJ4vXWB6ncf1s, logika
-  `lib/candidate-quick-filters.ts`): nad listą **gotowe skróty**
-  (`CandidateQuickFilters` — świecą, dopóki ich filtry są ustawione, drugi
-  klik zdejmuje WYŁĄCZNIE ich pola), a w panelu JEDNO pytanie „Czy można go
-  teraz zaproponować?” zamiast grup Dostępność/Zatrudnienie/Status — jedna
-  odpowiedź ustawia `availability` + `employment` naraz (samo „szuka pracy”
-  zostawiałoby konsultantów u klienta); połączenie spoza odpowiedzi = żadna
-  zaznaczona + zdanie „własne połączenie”. Szuflada: O kandydacie, Historia
-  z nami (otwarte) i ZWINIĘTE „Zaawansowane” (frazy LUB/ORAZ, etap, firma,
-  stanowisko, LinkedIn, pula, dodany przez, status w bazie, otwarty na,
-  ukryj bez danych). Nie przenoś grup z powrotem na
+  poniżej `lg` ten sam panel w arkuszu) — **decyzja Artura 22.09.2026: „szukamy
+  głównie ręcznie po słowach kluczowych i wykluczeniach, stawce, lokalizacji
+  i trybie pracy”.** Na wierzchu WYŁĄCZNIE: Słowa kluczowe (`q_all`, wszystkie
+  muszą być w CV/notatkach/profilu) · Wyklucz słowa (`q_none`) · Stawka B2B ·
+  Lokalizacja · Tryb pracy. Reszta w szufladzie „Zaawansowane” z licznikiem
+  ustawionych w niej filtrów: Historia z nami (otwarta — brał udział
+  w rekrutacji, etap, wysłany do klienta, pracował u klienta), Umiejętności,
+  Dostępność (jedno pytanie „Czy można go teraz zaproponować?” —
+  `lib/candidate-availability-choice.ts` ustawia `availability` + `employment`
+  naraz), Doświadczenie/języki/kategoria, Firma i stanowisko, Kto dodał/pule
+  (w tym „Moi kandydaci”), Inne (słowa LUB, status w bazie, otwarty na, ukryj
+  bez danych). Gotowych skrótów nad listą świadomie NIE ma („za bardzo
+  kombinujesz”). Nie przenoś grup z powrotem na
   wierzch — za dużo opcji naraz było powodem przebudowy. Tabela ma STAŁE
   kolumny: Kandydat (pod nazwiskiem miasto) · Ostatnie stanowisko (+ firma,
   `getCurrentTitle`/`getCurrentCompany`) · Telefon (`tel:` + kopiuj,
