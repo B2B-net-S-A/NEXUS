@@ -210,6 +210,11 @@ class JobResponse(BaseModel):
     managed_in_nexus_by: Optional[int] = None
     priority: JobPriority
     needs_sourcing: bool = False
+    # 0341: Delivery Lead oznaczył „Mamy championa" — dalej nie szukamy.
+    champion_found_at: Optional[datetime] = None
+    # 0341: status requestu liczony przez `job_similarity.request_status_expr`
+    # (closed · filled · contract · champion · incomplete · searching).
+    request_status: Optional[str] = None
     recruitment_type: RecruitmentType
     deadline: Optional[date]
     client_id: Optional[int]

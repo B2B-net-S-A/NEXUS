@@ -190,6 +190,7 @@ from app.api import job_shortlist as job_shortlist_api
 from app.api import hiring_manager_feedback as hiring_manager_feedback_api
 from app.api import proposals_bulk as proposals_bulk_api
 from app.api import job_proposals as job_proposals_api
+from app.api import job_similar as job_similar_api
 from app.api import invite_links as invite_links_api
 from app.api import career_links as career_links_api
 from app.api import public_career as public_career_api
@@ -1557,6 +1558,7 @@ app.include_router(help_materials_api.router, prefix="/api", tags=["help-materia
 app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
 app.include_router(job_proposals_api.router, prefix="/api", tags=["proposals"])
+app.include_router(job_similar_api.router, prefix="/api", tags=["similar-jobs"])
 app.include_router(job_shortlist_api.router, prefix="/api", tags=["shortlist"])
 app.include_router(
     hiring_manager_feedback_api.router,

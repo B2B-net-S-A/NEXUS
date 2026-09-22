@@ -18,6 +18,7 @@ import { formatBudgetHourly } from "@/lib/job-budget";
 import {
   formatHourlyRate,
   proposalRateFit,
+  reassignReason,
   type ProposalEntry,
   type ProposalRequirement,
 } from "@/lib/proposals-merge";
@@ -168,6 +169,19 @@ export function ProposalPanel({
       {detail.rejectedBySameClient && (
         <p role="note" className="rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground">
           Ten klient odrzucił już tę osobę w podobnym projekcie.
+        </p>
+      )}
+
+      {detail.reassignFrom && (
+        <p
+          role="note"
+          className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-primary"
+        >
+          <b className="font-semibold">↻ Przepięcie.</b> {reassignReason(detail.reassignFrom)}
+          {detail.reassignFrom.reference_number
+            ? ` (${detail.reassignFrom.reference_number})`
+            : ""}
+          . Rekrutacje są połączone jako podobne.
         </p>
       )}
 

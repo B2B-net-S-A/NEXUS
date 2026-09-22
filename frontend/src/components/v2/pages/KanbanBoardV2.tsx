@@ -72,6 +72,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from"@/components/ui/tooltip"
 import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
+import { BoardReviewSection } from "@/components/v2/jobs/BoardReviewSection";
 import { terminalOf } from"@/lib/kanban-terminal";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
@@ -79,7 +80,7 @@ import {
  usePipelineMove,
  type PipelineMoveConfirmedPatch,
 } from "@/hooks/usePipelineMove";
-import { PipelineFiltersRail } from "@/components/v2/jobs/PipelineFiltersRail";
+import { PipelineFilterBar } from "@/components/v2/jobs/PipelineFiltersRail";
 import {
  PipelineCandidateDock,
  type PipelineMoveTarget,
@@ -957,6 +958,10 @@ interface ColProps {
  group?: PipelineGroupKey;
  /** SLA klienta w dniach roboczych (karta klienta) — `null` = nie ustawiono. */
  slaDays: number | null;
+ /** Nagłówek kolumny zamiast nazwy etapu (kolumna „Do przejrzenia"). */
+ titleOverride?: string;
+ /** Treść nad kartami etapu — propozycje i przepięcia w „Do przejrzenia". */
+ prepend?: React.ReactNode;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -981,6 +986,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  isDimmed,
  group,
  slaDays,
+ titleOverride,
+ prepend,
 }: ColProps) {
  const dropId = colId(col);
  // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant
@@ -1003,9 +1010,10 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  data-colid={dropId}
  data-drop-disabled={noDrop}
  role="group"
- aria-label={`${columnLabel(col)}, liczba kandydatów: ${col.count}`}
+ aria-label={`${titleOverride ?? columnLabel(col)}, liczba kandydatów: ${col.count}`}
  className={cn(
  "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-border bg-background/60 sm:min-w-[19rem]",
+ prepend != null && "border-dashed border-primary/40",
  // NIE ściskamy kolumn do zera. Podłoga 12,5 rem (200 px) mieści pełną
  // kartę (nazwisko do dwóch linii, właściciel, wiek, następna akcja)
  // niezależnie od liczby kolumn. Board ma `overflow-auto`, więc nadmiar
@@ -1032,8 +1040,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <TooltipContent side="top">{CATEGORY_LABEL[col.category]}</TooltipContent>
  </Tooltip>
  )}
- <h3 className={cn("text-foreground flex-1 truncate", density === "compact" ?"text-sm font-medium" :"text-xl font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]")} title={columnLabel(col)}>
- {columnLabel(col)}
+ <h3 className={cn("text-foreground flex-1 truncate", density === "compact" ?"text-sm font-medium" :"text-xl font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)}>
+ {titleOverride ?? columnLabel(col)}
  </h3>
  <Badge size="sm" variant={col.count > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[9px]")}>
  {col.count}
@@ -1067,6 +1075,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  )}
  </div>
 
+ {prepend}
  <Droppable droppableId={dropId} isDropDisabled={noDrop}>
  {(provided, snapshot) => (
  <div
@@ -1303,7 +1312,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const {
  rejectionReasons,
  stagesWithScorecard,
- templateName,
  budgetHourly: jobBudgetHourlyValue,
  canWriteClientRate,
  } = useJobPipelineTemplate(jobId);
@@ -1331,6 +1339,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const [blockedFilter, setBlockedFilter] = useState(false);
  const [noActionFilter, setNoActionFilter] = useState(false);
  const [recruiterFilter, setRecruiterFilter] = useState<string | null>(null);
+ // Pasek filtrów (22.09.2026): „Mój ruch" i szukanie po nazwisku.
+ const [myMoveFilter, setMyMoveFilter] = useState(false);
+ const [nameQuery, setNameQuery] = useState("");
 
  // Grupy etapów — jedno źródło dla lewej kolumny, zwijania pustych grup na
  // tablicy i „następnej akcji" na karcie (bez grupy własny etap wewnętrzny po
@@ -1872,6 +1883,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  return ids;
  }, [cols, groupByColId, slaDays]);
+ // „Mój ruch" — następny krok należy do rekrutera (ta sama funkcja co karta).
+ const myMoveIds = useMemo(() => {
+ const ids = new Set<number>();
+ for (const col of cols) {
+ if (col.category === "terminal") continue;
+ const group = groupByColId.get(colId(col));
+ for (const item of col.items) {
+ if (nextActionFor(item, col, { slaDays, group }).owner === "recruiter") {
+ ids.add(item.id);
+ }
+ }
+ }
+ return ids;
+ }, [cols, groupByColId, slaDays]);
  // „Ostrzeżenia" = weto hiring managera. Od 17.09.2026 nic nie BLOKUJE ruchu
  // (karta „Oczekuje" nie powstaje), więc filtr pokazuje karty z ostrzeżeniem.
  const blockedCount = useMemo(
@@ -1898,9 +1923,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (recruiterFilter && item.added_to_job_by_name !== recruiterFilter) {
  return true;
  }
+ if (myMoveFilter && !myMoveIds.has(item.id)) return true;
+ const q = nameQuery.trim().toLocaleLowerCase("pl");
+ if (q && !`${item.name ?? ""} ${item.lastname ?? ""}`.toLocaleLowerCase("pl").includes(q)) {
+ return true;
+ }
  return false;
  },
- [stuckFilter, stuckIds, blockedFilter, noActionFilter, noActionIds, recruiterFilter]
+ [stuckFilter, stuckIds, blockedFilter, noActionFilter, noActionIds, recruiterFilter, myMoveFilter, myMoveIds, nameQuery]
  );
 
  // „Ukryj puste kolumny" usuwa CAŁE kolumny bez kandydatów z renderu — to
@@ -2022,13 +2052,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  kandydata" NIE zajmuje kolumny siatki — wysuwa się z prawej dopiero po
  kliknięciu karty (przegląd UX 17.09.2026: stała trzecia kolumna zjadała
  tablicy 360 px nawet wtedy, gdy nic nie było wybrane). */}
- <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)]">
- <PipelineFiltersRail
- stageCols={stageCols}
- groups={stageGroups}
- templateName={templateName}
- focusedColId={focusedColId}
- onFocusColumn={focusColumn}
+ <div className="space-y-3">
+ <PipelineFilterBar
+ nameQuery={nameQuery}
+ onNameQueryChange={setNameQuery}
+ myMoveFilter={myMoveFilter}
+ onToggleMyMoveFilter={() => setMyMoveFilter((v) => !v)}
+ myMoveCount={myMoveIds.size}
  offTemplateCount={offTemplate?.count ?? 0}
  onFocusOffTemplate={() => focusColumn(`stage:${OFF_TEMPLATE_STAGE}`)}
  stuckFilter={stuckFilter}
@@ -2210,7 +2240,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}
  </div>
  ) : (
- boardEntries.map((entry) =>
+ <>
+ {/* „Do przejrzenia" zawsze stoi pierwsza — także gdy szablon nie ma
+ etapu „Ogłoszenia" albo jego pusta kolumna jest ukryta. */}
+ {!boardEntries.some(
+ (e) => e.kind === "column" && e.col.stage === "posting",
+ ) && (
+ <div className="flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-dashed border-primary/40 bg-background/60 sm:min-w-[19rem] xl:pointer-fine:min-w-[12.5rem]">
+ <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+ <h3 className="flex-1 truncate text-sm font-medium text-foreground">Do przejrzenia</h3>
+ </div>
+ <BoardReviewSection jobId={jobId} readOnly={readOnly} showPostingHeading={false} />
+ </div>
+ )}
+ {boardEntries.map((entry) =>
  entry.kind === "collapsed" ? (
  <CollapsedGroupColumn
  key={entry.key}
@@ -2244,9 +2287,16 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  isDimmed={isDimmed}
  group={groupByColId.get(entry.key)}
  slaDays={slaDays}
+ {...(entry.col.stage === "posting"
+ ? {
+ titleOverride: "Do przejrzenia",
+ prepend: <BoardReviewSection jobId={jobId} readOnly={readOnly} />,
+ }
+ : {})}
  />
  )
- )
+ )}
+ </>
  )}
  </div>
  </DragDropContext>

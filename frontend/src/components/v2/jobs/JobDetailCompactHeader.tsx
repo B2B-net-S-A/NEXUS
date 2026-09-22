@@ -14,6 +14,7 @@ import {
   Sparkles,
   Table2,
   Target,
+  Trophy,
   UserCheck,
   UserPlus,
   Wand2,
@@ -97,6 +98,19 @@ interface JobDetailCompactHeaderProps {
   orderMissingCount?: number | null;
   onOpenHistoryChat: () => void;
   onOpenQuestions: () => void;
+  /** Okno „Podobne rekrutacje" (0341) — przepięcia osób wysłanych do klienta. */
+  onOpenSimilar?: () => void;
+  /** Połączone rekrutacje; `null`/`undefined` = nie wiadomo (bez odznaki). */
+  similarLinkedCount?: number | null;
+  /** Sugerowane podobne (niepołączone) — odznaka „≈ N". */
+  similarSuggestedCount?: number | null;
+  /**
+   * „Mamy championa" (0341) — przełącznik Delivery Leada. `undefined` = rola
+   * bez prawa (brak przycisku); status widać wtedy w odznace statusu.
+   */
+  championFound?: boolean;
+  onToggleChampion?: () => void;
+  championPending?: boolean;
   onAddCandidate?: () => void;
   onEdit?: () => void;
   onWriteAnnouncement?: () => void;
@@ -225,6 +239,12 @@ export function JobDetailCompactHeader({
   orderMissingCount,
   onOpenHistoryChat,
   onOpenQuestions,
+  onOpenSimilar,
+  similarLinkedCount,
+  similarSuggestedCount,
+  championFound,
+  onToggleChampion,
+  championPending,
   onAddCandidate,
   onEdit,
   onWriteAnnouncement,
@@ -320,8 +340,9 @@ export function JobDetailCompactHeader({
                   </Button>
                 ) : null}
 
-                {onEdit || onWriteAnnouncement || onGenerateInviteLink || onOpenAiTools ? (
-                  <DropdownMenu modal={false}>
+                {/* Menu „⋯" jest zawsze — niesie też „Bazę pytań" (makieta:
+                    rzadziej używana, więc zeszła z paska nagłówka). */}
+                <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
                       <Button
                         type="button"
@@ -335,6 +356,13 @@ export function JobDetailCompactHeader({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56">
                       <DropdownMenuLabel>Rekrutacja</DropdownMenuLabel>
+                      <DropdownMenuItem
+                        onSelect={() => deferMenuAction(onOpenQuestions)}
+                        data-testid="open-questions"
+                      >
+                        <BookOpen className="h-4 w-4" />
+                        Baza pytań
+                      </DropdownMenuItem>
                       {onEdit ? (
                         <DropdownMenuItem
                           onSelect={() => deferMenuAction(onEdit)}
@@ -378,7 +406,6 @@ export function JobDetailCompactHeader({
                       ) : null}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                ) : null}
               </>
             }
           />
@@ -454,16 +481,48 @@ export function JobDetailCompactHeader({
                 </Badge>
               ) : null}
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onOpenQuestions}
-              data-testid="open-questions"
-            >
-              <BookOpen className="h-4 w-4" aria-hidden="true" />
-              Baza pytań
-            </Button>
+
+            {onOpenSimilar ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={onOpenSimilar}
+                data-testid="open-similar"
+                title="Połącz podobne rekrutacje — osoby wysłane tam do klienta trafią do „Do przejrzenia”"
+              >
+                <Link2 className="h-4 w-4" aria-hidden="true" />
+                Podobne rekrutacje
+                {similarLinkedCount ? (
+                  <Badge size="sm" variant="info" className="tabular-nums">
+                    ↻ {similarLinkedCount}
+                  </Badge>
+                ) : similarSuggestedCount ? (
+                  <Badge size="sm" variant="outline" className="tabular-nums">
+                    ≈ {similarSuggestedCount}
+                  </Badge>
+                ) : null}
+              </Button>
+            ) : null}
+            {onToggleChampion ? (
+              <Button
+                type="button"
+                size="sm"
+                variant={championFound ? "primary" : "outline"}
+                onClick={onToggleChampion}
+                disabled={championPending}
+                aria-pressed={Boolean(championFound)}
+                data-testid="toggle-champion"
+                title={
+                  championFound
+                    ? "Cofnij „Mamy championa” — rekrutacja wraca do „Szukamy”"
+                    : "Mamy championa — dalej nie szukamy"
+                }
+              >
+                <Trophy className="h-4 w-4" aria-hidden="true" />
+                {championFound ? "Mamy championa" : "Oznacz: mamy championa"}
+              </Button>
+            ) : null}
           </nav>
 
           {hasContext ? (

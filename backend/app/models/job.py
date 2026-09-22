@@ -133,6 +133,15 @@ class Job(Base, TimestampMixin):
         Enum(JobPriority), default=JobPriority.medium, nullable=False
     )
 
+    # 0341: Delivery Lead oznacza „Mamy championa" — kandydat jest, dalej nie
+    # szukamy. Do tej chwili status requestu na liście to „Szukamy".
+    champion_found_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    champion_found_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Flagged by Delivery Lead (during onboarding or from the jobs list) to
     # signal the role needs active candidate sourcing.
     needs_sourcing: Mapped[bool] = mapped_column(

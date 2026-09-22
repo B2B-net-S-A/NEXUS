@@ -179,8 +179,15 @@ beforeEach(() => {
 });
 
 describe("strona rekrutacji — widoki", () => {
-  it("domyślnie „Tabela”: workspace dostaje tablicę, liczniki, prawa i SLA", async () => {
+  it("domyślnie „Tablica” (decyzja 22.09.2026), bez przepisywania adresu", async () => {
     renderPage();
+    expect(await screen.findByTestId("kanban")).toBeInTheDocument();
+    expect(screen.queryByTestId("workspace")).not.toBeInTheDocument();
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it("„Tabela”: workspace dostaje tablicę, liczniki, prawa i SLA", async () => {
+    renderPage("tab=people");
     expect(await screen.findByTestId("workspace")).toBeInTheDocument();
     expect(screen.queryByTestId("kanban")).not.toBeInTheDocument();
     await waitFor(() =>
@@ -201,14 +208,14 @@ describe("strona rekrutacji — widoki", () => {
     expect(nav.replace).not.toHaveBeenCalled();
   });
 
-  it("przełącznik „Tablica” pokazuje kanban i zapisuje widok w adresie", async () => {
+  it("przełącznik „Tabela” pokazuje tabelę i zapisuje widok w adresie", async () => {
     renderPage();
-    await screen.findByTestId("workspace");
-    await userEvent.click(screen.getByTestId("view-board"));
-    expect(await screen.findByTestId("kanban")).toBeInTheDocument();
-    expect(screen.queryByTestId("workspace")).not.toBeInTheDocument();
-    expect(window.location.search).toBe("?tab=board");
+    await screen.findByTestId("kanban");
     await userEvent.click(screen.getByTestId("view-people"));
+    expect(await screen.findByTestId("workspace")).toBeInTheDocument();
+    expect(screen.queryByTestId("kanban")).not.toBeInTheDocument();
+    expect(window.location.search).toBe("?tab=people");
+    await userEvent.click(screen.getByTestId("view-board"));
     expect(window.location.search).toBe("");
   });
 
@@ -223,11 +230,11 @@ describe("strona rekrutacji — widoki", () => {
 
 describe("strona rekrutacji — stare adresy", () => {
   it.each([
-    ["tab=screening", { segment: "group:screening", panelSection: "screening" }, "/jobs/42?seg=group%3Ascreening&panel=screening"],
-    ["tab=cv", { segment: "group:verification", panelSection: "cv" }, "/jobs/42?seg=group%3Averification&panel=cv"],
-    ["tab=ai-matching", { segment: "proposals" }, "/jobs/42?seg=proposals"],
-    ["tab=similar", { segment: "proposals" }, "/jobs/42?seg=proposals"],
-    ["tab=pipeline", { segment: "in-process" }, "/jobs/42"],
+    ["tab=screening", { segment: "group:screening", panelSection: "screening" }, "/jobs/42?tab=people&seg=group%3Ascreening&panel=screening"],
+    ["tab=cv", { segment: "group:verification", panelSection: "cv" }, "/jobs/42?tab=people&seg=group%3Averification&panel=cv"],
+    ["tab=ai-matching", { segment: "proposals" }, "/jobs/42?tab=people&seg=proposals"],
+    ["tab=similar", { segment: "proposals" }, "/jobs/42?tab=people&seg=proposals"],
+    ["tab=pipeline", { segment: "in-process" }, "/jobs/42?tab=people"],
   ])("?%s → tabela ze stanem %o", async (search, expected, rewritten) => {
     renderPage(search);
     await screen.findByTestId("workspace");
@@ -258,7 +265,7 @@ describe("strona rekrutacji — stare adresy", () => {
   });
 
   it("miękka nawigacja na tej samej rekrutacji (klik w powiadomienie) też działa", async () => {
-    const view = renderPage();
+    const view = renderPage("tab=people");
     await screen.findByTestId("workspace");
     expect(seen.history).toMatchObject({ open: false });
     view.navigate("tab=chat");
@@ -289,7 +296,7 @@ describe("strona rekrutacji — ?candidate=", () => {
 
 describe("strona rekrutacji — okna z nagłówka i z warsztatów", () => {
   it("przyciski nagłówka otwierają okna i zapisują je w adresie", async () => {
-    renderPage();
+    renderPage("tab=people");
     await screen.findByTestId("workspace");
     await userEvent.click(screen.getByTestId("open-order"));
     expect(await screen.findByTestId("order-window")).toBeInTheDocument();
@@ -301,7 +308,7 @@ describe("strona rekrutacji — okna z nagłówka i z warsztatów", () => {
   });
 
   it("warsztat proszący o dawną zakładkę „questions” dostaje okno, nie zmianę widoku", async () => {
-    renderPage();
+    renderPage("tab=people");
     await screen.findByTestId("workspace");
     const ctx = seen.workspace?.workbenchContext as { onTabChange: (tab: string) => void };
     act(() => ctx.onTabChange("questions"));
@@ -320,7 +327,7 @@ describe("strona rekrutacji — okna z nagłówka i z warsztatów", () => {
 
 describe("strona rekrutacji — poprawki po integracji v3", () => {
   it("narzędzia AI administratora otwierają się z menu „…”, bez zaznaczonej propozycji", async () => {
-    renderPage();
+    renderPage("tab=people");
     await screen.findByTestId("workspace");
     expect(screen.queryByTestId("job-ai-actions")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
@@ -330,7 +337,7 @@ describe("strona rekrutacji — poprawki po integracji v3", () => {
   });
 
   it("„Tabela” → „Tablica” otwiera dok osoby z panelu; powrót otwiera w panelu osobę z doku", async () => {
-    renderPage();
+    renderPage("tab=people");
     await screen.findByTestId("workspace");
     act(() => (seen.workspace?.onActiveCandidateChange as (id: number | null) => void)(7));
     await userEvent.click(screen.getByTestId("view-board"));
@@ -345,7 +352,7 @@ describe("strona rekrutacji — poprawki po integracji v3", () => {
   });
 
   it("zamknięty dok na „Tablicy” nie zamyka panelu po powrocie do „Tabeli”", async () => {
-    renderPage();
+    renderPage("tab=people");
     await screen.findByTestId("workspace");
     act(() => (seen.workspace?.onActiveCandidateChange as (id: number | null) => void)(7));
     await userEvent.click(screen.getByTestId("view-board"));
@@ -356,7 +363,7 @@ describe("strona rekrutacji — poprawki po integracji v3", () => {
   });
 
   it("podpowiedź „Obsada kompletna” otwiera okno „Zlecenie” na akcji zamknięcia", async () => {
-    renderPage();
+    renderPage("tab=people");
     await screen.findByTestId("workspace");
     const ctx = seen.workspace?.workbenchContext as { onRequestCloseJob: () => void };
     act(() => ctx.onRequestCloseJob());

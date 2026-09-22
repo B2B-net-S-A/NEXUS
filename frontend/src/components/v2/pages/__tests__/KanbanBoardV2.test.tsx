@@ -1158,33 +1158,26 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     useUiStore.setState({ density: "cozy", hideEmptyKanbanColumns: false } as never);
   });
 
-  it("lewa kolumna pokazuje grupy etapów z licznikami zamiast piętnastu zer", async () => {
+  it("filtry stoją w jednym pasku nad tablicą — bez lewej kolumny etapów", async () => {
     renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
 
-    const groups = screen.getByRole("list", { name: "Grupy etapów pipeline" });
-    expect(groups).toHaveTextContent("Wszystkie aktywne");
-    expect(groups).toHaveTextContent("Nowi / Analiza CV");
-    expect(groups).toHaveTextContent("U klienta (CV → interview)");
-    expect(groups).toHaveTextContent("Odrzuceni / wycofani");
-    // Etapy nie zniknęły — są schowane pod grupą, nie usunięte.
-    expect(
-      screen.queryByRole("list", { name: /Etapy grupy/ }),
-    ).toBeNull();
+    const bar = screen.getByRole("toolbar", { name: "Filtry tablicy" });
+    expect(within(bar).getByRole("button", { name: /^Mój ruch/ })).toBeTruthy();
+    expect(within(bar).getByRole("textbox", { name: "Filtruj po nazwisku" })).toBeTruthy();
+    // Lista etapów z dawnej kolumny zniknęła — fokus kolumny daje nawigator.
+    expect(screen.queryByRole("list", { name: "Grupy etapów pipeline" })).toBeNull();
   });
 
-  it("klik w grupę rozwija jej etapy z zachowanym fokusem kolumny", async () => {
+  it("„Mój ruch” i nazwisko przełączają się w pasku (aria-pressed)", async () => {
     renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
-
-    await userEvent.click(
-      screen.getByRole("button", { name: /U klienta \(CV → interview\)/ }),
-    );
-    const stages = await screen.findByRole("list", {
-      name: "Etapy grupy U klienta (CV → interview)",
-    });
-    expect(stages).toHaveTextContent("CV Wysłane");
-    expect(stages).toHaveTextContent("Akceptacja");
+    const myMove = screen.getByRole("button", { name: /^Mój ruch/ });
+    expect(myMove).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(myMove);
+    expect(myMove).toHaveAttribute("aria-pressed", "true");
+    await userEvent.type(screen.getByRole("textbox", { name: "Filtruj po nazwisku" }), "zzz");
+    expect(screen.getByRole("textbox", { name: "Filtruj po nazwisku" })).toHaveValue("zzz");
   });
 
   it("puste grupy klienta i umowy zwijają się w jedną kolumnę-zastępnik", async () => {

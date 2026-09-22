@@ -63,6 +63,18 @@ export interface ProposalInboxItem {
   /** Przegląd bazy, który zaproponował tę osobę (telemetria dodania). */
   run_id?: string | null;
   eligibility: MatchEligibility | null;
+  /** Przepięcie (0341): skąd osoba przychodzi — rekrutacja, etap, data wysłania. */
+  reassign_from?: ProposalReassignFrom | null;
+}
+
+export interface ProposalReassignFrom {
+  job_id: number;
+  title: string;
+  reference_number: string | null;
+  client_name: string | null;
+  stage: string | null;
+  /** ISO `YYYY-MM-DD` albo `null`. */
+  sent_at: string | null;
 }
 
 export interface ProposalInboxPage {

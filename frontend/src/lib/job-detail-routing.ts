@@ -25,7 +25,10 @@ import type {
 
 export type JobDetailView = "people" | "board" | "champion";
 
-export const JOB_DETAIL_DEFAULT_VIEW: JobDetailView = "people";
+// Tablica jest widokiem domyślnym (decyzja Artura 22.09.2026); „Tabela"
+// zostaje przełącznikiem. Adres z segmentem albo sekcją panelu osoby bez
+// jawnego `tab=` nadal otwiera „Tabelę" — tylko ona ma segmenty i panel.
+export const JOB_DETAIL_DEFAULT_VIEW: JobDetailView = "board";
 
 /** Zakładka startowa okna „Historia i czat" (lustro `HistoryChatTab`). */
 export type JobHistoryChatTab = "all" | "chat" | "moves" | "request" | "background";
@@ -173,7 +176,10 @@ export function readJobDetailUrlState(params: ParamReader | null | undefined): J
   const slideOver = parseRecruitmentSlideOver(get("win")) ?? legacy?.slideOver ?? null;
   const rawWinTab = get("wintab");
   return {
-    view: view ?? legacy?.view ?? (highlightProposals ? "people" : null),
+    view:
+      view ??
+      legacy?.view ??
+      (highlightProposals || get("seg") || get("panel") ? "people" : null),
     segment:
       parseRecruitmentSegment(get("seg")) ??
       legacy?.segment ??

@@ -1157,6 +1157,15 @@ async def move_candidate(
         if scheduled is not None:
             scheduled_rejection_email_id = scheduled.id
 
+    # 0341: osoba weszła do klienta → przepnij ją do połączonych (podobnych)
+    # rekrutacji jako propozycję „przepięcie". Nigdy nie rzuca.
+    if legacy_enum is not None:
+        from app.services.job_similarity import on_candidate_sent  # noqa: PLC0415
+
+        await on_candidate_sent(
+            db, job_id=data.job_id, candidate_id=stage.candidate_id, stage=legacy_enum
+        )
+
     actor_id = current_user.id
     await db.commit()
     await db.refresh(stage)
@@ -2529,6 +2538,15 @@ async def bulk_move_candidates(
             occurred_at=entry.moved_at,
         )
         moved += 1
+
+    # 0341: przepięcia do połączonych rekrutacji (jak w pojedynczym /move).
+    from app.services.job_similarity import on_candidate_sent  # noqa: PLC0415
+
+    bulk_stage = data.stage
+    for cid in unique_ids:
+        await on_candidate_sent(
+            db, job_id=data.job_id, candidate_id=cid, stage=bulk_stage
+        )
 
     actor_id = current_user.id
     await db.commit()

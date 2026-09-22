@@ -18,7 +18,10 @@ import type {
   ProposalCandidateItem,
 } from "@/lib/api";
 import type { CandidateSearchRow } from "@/lib/full-candidate-search-api";
-import type { ProposalInboxItem } from "@/lib/job-proposals-api";
+import type {
+  ProposalInboxItem,
+  ProposalReassignFrom,
+} from "@/lib/job-proposals-api";
 import { SEARCH_AVAILABILITY_OPTIONS } from "@/lib/search-availability";
 import {
   PROPOSAL_SOURCE_LABEL,
@@ -73,6 +76,8 @@ export interface ProposalDetail {
    * pozostałych powierzchniach rankingu. Tylko z żywego przeglądu.
    */
   missingMustGate: string[];
+  /** Przepięcie (0341): rekrutacja, w której osoba była już u klienta. */
+  reassignFrom: ProposalReassignFrom | null;
 }
 
 export interface ProposalEntry {
@@ -189,7 +194,17 @@ function emptyDetail(candidateId: number): ProposalDetail {
     firstSeenAt: null,
     aiSummary: null,
     missingMustGate: [],
+    reassignFrom: null,
   };
+}
+
+/** „Wysłany do PKO BP · Senior Java Developer · 26.08.2026". */
+export function reassignReason(from: ProposalReassignFrom): string {
+  const where = [from.client_name, from.title].filter(Boolean).join(" · ");
+  const when = from.sent_at
+    ? ` · ${from.sent_at.split("-").reverse().join(".")}`
+    : "";
+  return `Wysłany do klienta: ${where}${when}`;
 }
 
 function reqStatus(raw: string | undefined): RequirementStatus {
@@ -281,6 +296,10 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     if (d.detail.requirements.length === 0) d.detail.requirements = reqs;
     const reason = reasonFromRequirements(reqs);
     if (reason) d.reasons.inbox = reason;
+    if (item.reassign_from) {
+      d.detail.reassignFrom ??= item.reassign_from;
+      d.reasons.inbox = reassignReason(item.reassign_from);
+    }
   }
 
   if (input.run) {
@@ -382,7 +401,10 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
         fitScore: d.scores.length ? Math.max(...d.scores) : null,
         warnings,
         sources: SOURCE_ORDER.filter((s) => d.sources.has(s)),
-        reason: d.reasons.run ?? d.reasons.similar ?? d.reasons.recommendation ?? d.reasons.inbox ?? null,
+        // Przepięcie tłumaczy się samo — „był już u klienta" bije resztę powodów.
+        reason: detail.reassignFrom
+          ? (d.reasons.inbox ?? null)
+          : (d.reasons.run ?? d.reasons.similar ?? d.reasons.recommendation ?? d.reasons.inbox ?? null),
         isNew: d.isNew,
         previouslyDismissed: d.previouslyDismissed,
         runId: d.runId,
@@ -394,6 +416,10 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
 }
 
 export function compareProposals(a: ProposalEntry, b: ProposalEntry): number {
+  // Przepięcia (osoby już wysłane do klienta) zawsze na górze kolejki.
+  const ra = a.row.sources.includes("reassign");
+  const rb = b.row.sources.includes("reassign");
+  if (ra !== rb) return ra ? -1 : 1;
   const sa = a.row.fitScore;
   const sb = b.row.fitScore;
   if (sa !== sb) {

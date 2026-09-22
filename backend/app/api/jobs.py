@@ -727,6 +727,14 @@ async def list_jobs(
             "Active Jobs tab to show jobs assigned to a specific DL."
         ),
     ),
+    request_status: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Filter by computed request status (0341): closed · filled · "
+            "contract · champion · incomplete · searching. Repeatable, "
+            "OR-combined. Same rule as the `request_status` field of each row."
+        ),
+    ),
     include_stage_counts: bool = Query(
         False,
         description=(
@@ -829,6 +837,16 @@ async def list_jobs(
                 Job.id.in_(priority_assignment_job_ids),
                 Job.id.in_(priority_carry_job_ids),
             )
+        )
+    if request_status:
+        from app.services import job_similarity as _sim  # noqa: PLC0415
+
+        unknown = sorted(set(request_status) - set(_sim.REQUEST_STATUSES))
+        if unknown:
+            raise HTTPException(422, f"Nieznany status requestu: {', '.join(unknown)}")
+        status_sq = _sim.request_status_subquery(query.with_only_columns(Job.id))
+        query = query.outerjoin(status_sq, status_sq.c.job_id == Job.id).where(
+            _sim.request_status_expr(status_sq).in_(request_status)
         )
     total = (
         await db.execute(select(func.count()).select_from(query.subquery()))
@@ -974,6 +992,38 @@ async def list_jobs(
             ]
             off_template_counts[j.id] = off
 
+    # 0341: status requestu (ta sama reguła co filtr) + podobne rekrutacje.
+    from app.services import job_similarity as sim_service  # noqa: PLC0415
+
+    request_status_map = await sim_service.request_statuses(db, job_ids)
+    similar_linked: dict[int, list[int]] = {}
+    similar_briefs: dict[int, dict] = {}
+    similar_suggested: dict[int, dict] = {}
+    reassigned_map: dict[int, int] = {}
+    if include_stage_counts and job_ids:
+        similar_linked = await sim_service.linked_job_ids(db, job_ids)
+        reassigned_map = await sim_service.reassign_counts(db, job_ids)
+        first_linked = {ids[0] for ids in similar_linked.values() if ids}
+        if first_linked:
+            brief_rows = (
+                await db.execute(
+                    select(Job.id, Job.title, Job.reference_number).where(
+                        Job.id.in_(first_linked)
+                    )
+                )
+            ).all()
+            similar_briefs = {
+                r[0]: {"id": r[0], "title": r[1], "reference_number": r[2]}
+                for r in brief_rows
+            }
+        try:
+            similar_suggested = await sim_service.suggestion_summaries(
+                db, jobs, similar_linked
+            )
+        except Exception:  # noqa: BLE001 — podpowiedź, nie warunek listy
+            logger.exception("jobs list: similar suggestions failed")
+            similar_suggested = {}
+
     # Hydrate primary_owner + collaborators in one pass (avoid N+1).
     collab_map = await _load_collaborator_map(db, job_ids)
     user_ids: set[int] = set()
@@ -1112,6 +1162,16 @@ async def list_jobs(
             # Stos wejściowy (Ogłoszenia, Nowi) — osobno od „wymaga ruchu".
             d["review_count"] = review_n
             d["open_proposals_count"] = open_proposals.get(j.id, 0)
+            linked_ids = similar_linked.get(j.id, [])
+            d["similar"] = {
+                "linked_count": len(linked_ids),
+                "linked_first": (
+                    similar_briefs.get(linked_ids[0]) if linked_ids else None
+                ),
+                "reassigned_count": reassigned_map.get(j.id, 0),
+                "suggested": similar_suggested.get(j.id),
+            }
+        d["request_status"] = request_status_map.get(j.id, "searching")
         d["priority_assignment"] = priority_assignment_map.get(j.id)
         d["priority_carry_over_count"] = priority_carry_counts.get(j.id, 0)
         redact_job_for_viewer(d, current_user)
@@ -1653,6 +1713,10 @@ async def get_job(
     payload["can_write_client_rate"] = await resolve_client_rate_write(
         db, current_user, job
     )
+    # 0341: status requestu — ta sama reguła co wiersz listy.
+    from app.services.job_similarity import request_statuses  # noqa: PLC0415
+
+    payload["request_status"] = (await request_statuses(db, [job.id])).get(job.id)
     redact_job_for_viewer(payload, current_user)
     _redact_delivery_lead_job_finance(payload, current_user)
     return payload

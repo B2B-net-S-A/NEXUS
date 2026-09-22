@@ -61,7 +61,7 @@ describe("JobDetailCompactHeader", () => {
     expect(onAddCandidate).toHaveBeenCalledOnce();
   });
 
-  it("nie pokazuje głównej akcji, gdy sekcja jest tylko do odczytu", () => {
+  it("nie pokazuje głównej akcji, gdy sekcja jest tylko do odczytu", async () => {
     renderHeader({
       onAddCandidate: undefined,
       onEdit: undefined,
@@ -72,9 +72,10 @@ describe("JobDetailCompactHeader", () => {
     expect(
       screen.queryByRole("button", { name: "Dodaj kandydata" }),
     ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "Więcej akcji rekrutacji" }),
-    ).toBeNull();
+    // Menu „⋯" zostaje, ale niesie wyłącznie odczyt — „Bazę pytań".
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    const items = await screen.findAllByRole("menuitem");
+    expect(items.map((i) => i.textContent?.trim())).toEqual(["Baza pytań"]);
     // Przełącznik widoku i okna zostają także w trybie tylko-do-odczytu.
     expect(screen.getByRole("button", { name: /Tabela/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Zlecenie/ })).toBeTruthy();
@@ -107,8 +108,11 @@ describe("JobDetailCompactHeader", () => {
     expect(onOpenOrder).toHaveBeenCalledOnce();
     await userEvent.click(within(nav).getByRole("button", { name: /Historia i czat/ }));
     expect(onOpenHistoryChat).toHaveBeenCalledOnce();
-    await userEvent.click(within(nav).getByRole("button", { name: "Baza pytań" }));
-    expect(onOpenQuestions).toHaveBeenCalledOnce();
+    // „Baza pytań" zeszła z paska do menu „⋯" (makieta 22.09.2026).
+    expect(within(nav).queryByRole("button", { name: "Baza pytań" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /Baza pytań/ }));
+    await waitFor(() => expect(onOpenQuestions).toHaveBeenCalledOnce());
   });
 
   it("odznaka „brakuje N” tylko przy ZNANYCH brakach — niewiedza i zero milczą", () => {
@@ -311,10 +315,11 @@ describe("JobDetailCompactHeader — jobbar", () => {
     ).toBeTruthy();
   });
 
-  it("„Baza pytań” ma PEŁNĄ etykietę, nie samą ikonę", () => {
+  it("„Baza pytań” ma PEŁNĄ etykietę, nie samą ikonę", async () => {
     // Regresja z produkcji: ucięta etykieta czyta się jak brak funkcji.
     renderHeader();
-    const questions = screen.getByTestId("open-questions");
+    await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
+    const questions = await screen.findByTestId("open-questions");
     expect(questions).toHaveTextContent("Baza pytań");
     expect(questions.className).not.toContain("sr-only");
   });
