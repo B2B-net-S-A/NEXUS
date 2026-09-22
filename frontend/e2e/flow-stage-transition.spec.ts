@@ -51,8 +51,10 @@ test.describe("Pipeline rekrutacji @stack", () => {
     );
     expect(stageOf(kanbanAfterMove, candidate.id)).toBe("screening");
 
-    // Osoba jest w tabeli (widok domyślny) także po przeładowaniu rekrutacji…
-    await page.goto(`/jobs/${job.id}`);
+    // Osoba jest w tabeli także po przeładowaniu rekrutacji… Widokiem
+    // domyślnym jest Tablica (JOB_DETAIL_DEFAULT_VIEW, 22.09.2026), więc do
+    // Tabeli wchodzimy jawnym `?tab=people`.
+    await page.goto(`/jobs/${job.id}?tab=people`);
     await page.reload();
     const table = page.getByRole("grid", { name: "Osoby w rekrutacji" });
     await expect(table.getByText(fullName)).toBeVisible();
@@ -123,7 +125,7 @@ test.describe("Pipeline rekrutacji @stack", () => {
       "dodanie do rekrutacji",
     );
 
-    await page.goto(`/jobs/${job.id}`);
+    await page.goto(`/jobs/${job.id}?tab=people`);
     const table = page.getByRole("grid", { name: "Osoby w rekrutacji" });
     // Klik w lewą część komórki nazwiska — przy wąskim oknie reszta pola
     // bywa przykryta przez sąsiednią kolumnę.

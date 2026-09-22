@@ -9,7 +9,7 @@
  * czyste funkcje, bez Reacta, żeby dało się je przetestować na wartościach.
  *
  * Kształt adresu:
- *   ?tab=people|board|champion   widok (domyślny `people` nie stoi w adresie)
+ *   ?tab=people|board|champion   widok (domyślny `board` nie stoi w adresie)
  *   &seg=<RecruitmentSegment>    segment paska etapów
  *   &candidate=<id>              otwiera panel osoby (jednorazowy — strona go zdejmuje)
  *   &panel=<PersonPanelSection>  sekcja panelu osoby

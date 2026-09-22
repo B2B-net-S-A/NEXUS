@@ -50,10 +50,12 @@ test.describe("Dostępność @stack", () => {
     await expectNoCriticalViolations(page, testInfo, "job-board");
   });
 
-  test("tabela rekrutacji (widok domyślny)", async ({ admin, page }, testInfo) => {
+  // Widokiem domyślnym jest Tablica (decyzja z 22.09.2026, JOB_DETAIL_DEFAULT_VIEW),
+  // więc do Tabeli wchodzimy jawnym `?tab=people` — tak jak przełącznik w nagłówku.
+  test("tabela rekrutacji (przełącznik Tabela)", async ({ admin, page }, testInfo) => {
     const client = await createClient(admin.api);
     const job = await createJob(admin.api, client.id);
-    await page.goto(`/jobs/${job.id}`);
+    await page.goto(`/jobs/${job.id}?tab=people`);
     await expect(page.getByRole("navigation", { name: "Etapy rekrutacji" })).toBeVisible();
     await expectNoCriticalViolations(page, testInfo, "job-table");
   });
