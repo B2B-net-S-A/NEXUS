@@ -13,6 +13,18 @@ describe("formatNotificationText (UAT M00-B05)", () => {
     ).toBe("Zamówienie ZAM-1 kończy się 19.09.2026 (za 7 dni)");
   });
 
+  it("chowa klucz epizodu alertu z początku tytułu", () => {
+    expect(formatNotificationText("[7d|2026-09-30] Kontrakt wygasa: Jan Nowak (Nordea)")).toBe(
+      "Kontrakt wygasa: Jan Nowak (Nordea)",
+    );
+    expect(formatNotificationText("[compliance|2026-10-01] Dokument #3 wygasa")).toBe("Dokument #3 wygasa");
+    expect(formatNotificationText("[30d] Kontrakt #5 wygasa")).toBe("Kontrakt #5 wygasa");
+    // Nawias w środku tytułu zostaje.
+    expect(formatNotificationText("Zamówienie: Jan Nowak (Nordea) [pilne]")).toBe(
+      "Zamówienie: Jan Nowak (Nordea) [pilne]",
+    );
+  });
+
   it("zostawia tekst bez dat i pustą wartość", () => {
     expect(formatNotificationText("Nowy kandydat")).toBe("Nowy kandydat");
     expect(formatNotificationText(null)).toBe("");

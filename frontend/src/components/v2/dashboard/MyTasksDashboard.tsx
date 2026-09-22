@@ -27,7 +27,7 @@ import {
   type CalendarEventResponse,
   type NotificationResponse,
 } from "@/lib/api"
-import { notificationOnBehalfLabel } from "@/lib/notification-format"
+import { formatNotificationText, notificationOnBehalfLabel } from "@/lib/notification-format"
 import { cn } from "@/lib/utils"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
 import { useAuthStore } from "@/store/auth"
@@ -192,10 +192,10 @@ function NotificationList({
             />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium text-foreground">
-                {notification.title}
+                {formatNotificationText(notification.title)}
               </span>
               <span className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                {notification.message}
+                {formatNotificationText(notification.message)}
               </span>
               {onBehalf ? (
                 <span className="mt-0.5 block text-[11px] font-medium text-warning">
