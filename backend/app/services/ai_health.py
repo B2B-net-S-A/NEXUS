@@ -6,7 +6,7 @@ Two views live in this module:
   Qdrant retrieval), exposed as ``ok | degraded | down`` in ``meta.ai_status``
   so the frontend can nudge the user toward manual search;
 * **named per-provider trackers** (``voyage``, ``qdrant``, ``reranker``,
-  ``claude``), exposed per dependency by ``/api/health``.
+  ``claude``, ``openai``, ``deepseek``), exposed per dependency by ``/api/health``.
 
 Design choices:
 
@@ -161,9 +161,14 @@ class AiCallTimer:
 _PROVIDER_TRACKERS: dict[str, _AiHealthTracker] = {}
 _PROVIDER_REGISTRY_LOCK = threading.Lock()
 
-# Providers whose "slow" bar differs from the retrieval default. Anything not
+# Generative providers share the 60 s bar established for Claude: ordinary
+# successful generation can exceed the 5 s retrieval threshold. Anything not
 # listed keeps ``SLOW_THRESHOLD_MS``.
-_PROVIDER_SLOW_THRESHOLD_MS: dict[str, int] = {"claude": CLAUDE_SLOW_THRESHOLD_MS}
+_PROVIDER_SLOW_THRESHOLD_MS: dict[str, int] = {
+    "claude": CLAUDE_SLOW_THRESHOLD_MS,
+    "openai": CLAUDE_SLOW_THRESHOLD_MS,
+    "deepseek": CLAUDE_SLOW_THRESHOLD_MS,
+}
 
 
 def _tracker_for(provider: str) -> _AiHealthTracker:

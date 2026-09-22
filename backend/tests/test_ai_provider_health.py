@@ -85,7 +85,8 @@ def test_health_label_reports_degraded_on_slow_streak():
 # ── "slow" is a property of the provider, not of the module ─────────────────
 
 
-def test_claude_is_not_degraded_by_ordinary_multi_second_calls():
+@pytest.mark.parametrize("provider", ["claude", "openai", "deepseek"])
+def test_generation_is_not_degraded_by_ordinary_multi_second_calls(provider):
     """Measured defect, not a hypothetical: prod said `"anthropic": "degraded"`.
 
     One module constant (5 s, sized for Voyage/Qdrant) judged every tracker, so
@@ -95,44 +96,57 @@ def test_claude_is_not_degraded_by_ordinary_multi_second_calls():
     operator to skip that line, which is how the next real outage goes unread.
     """
     for _ in range(5):
-        record_provider_call("claude", 31_000, failed=False)
-    assert provider_health_label("claude") == "healthy"
+        record_provider_call(provider, 31_000, failed=False)
+    assert provider_health_label(provider) == "healthy"
 
 
-def test_retrieval_keeps_the_five_second_bar_while_claude_does_not():
+@pytest.mark.parametrize("provider", ["claude", "openai", "deepseek"])
+@pytest.mark.parametrize("retrieval_provider", ["voyage", "qdrant", "reranker"])
+def test_retrieval_keeps_the_five_second_bar_while_generation_does_not(
+    provider, retrieval_provider
+):
     """Paired on purpose: the SAME latency, two verdicts.
 
-    Six seconds is a broken retrieval call and an unremarkable LLM call. A
+    Five seconds is a slow retrieval call and an unremarkable LLM call. A
     single threshold cannot say both, so the pair is what proves the bar is
     per provider rather than merely raised for everyone.
     """
     for _ in range(3):
-        record_provider_call("voyage", SLOW_THRESHOLD_MS + 1000, failed=False)
-        record_provider_call("claude", SLOW_THRESHOLD_MS + 1000, failed=False)
-    assert provider_health_label("voyage") == "degraded"
-    assert provider_health_label("claude") == "healthy"
+        record_provider_call(retrieval_provider, SLOW_THRESHOLD_MS, failed=False)
+        record_provider_call(provider, SLOW_THRESHOLD_MS, failed=False)
+    assert provider_health_label(retrieval_provider) == "degraded"
+    assert provider_health_label(provider) == "healthy"
 
 
-def test_claude_still_reports_degraded_when_calls_crawl_toward_the_timeout():
+@pytest.mark.parametrize("provider", ["claude", "openai", "deepseek"])
+@pytest.mark.parametrize(
+    ("elapsed_ms", "expected_label"),
+    [(CLAUDE_SLOW_THRESHOLD_MS - 1, "healthy"), (CLAUDE_SLOW_THRESHOLD_MS, "degraded")],
+)
+def test_generation_keeps_the_sixty_second_slow_boundary(
+    provider, elapsed_ms, expected_label
+):
     """The wider bar is still a bar — otherwise the criterion is decoration.
 
     A call that SUCCEEDS a minute in is a provider about to start failing; the
     yellow light is worth having before the red one.
     """
     for _ in range(3):
-        record_provider_call("claude", CLAUDE_SLOW_THRESHOLD_MS + 1000, failed=False)
-    assert provider_health_label("claude") == "degraded"
+        record_provider_call(provider, elapsed_ms, failed=False)
+    assert provider_health_label(provider) == expected_label
 
 
-def test_claude_failure_streak_still_reports_unhealthy():
+@pytest.mark.parametrize("provider", ["claude", "openai", "deepseek"])
+@pytest.mark.parametrize("elapsed_ms", [12_000, CLAUDE_SLOW_THRESHOLD_MS])
+def test_generation_failure_streak_still_reports_unhealthy(provider, elapsed_ms):
     """Widening the slow bar must not blunt the error criterion.
 
     That criterion is what keeps a genuine outage distinguishable — the whole
     reason the slow one could be relaxed without losing anything.
     """
     for _ in range(CONSECUTIVE_FAILURE_THRESHOLD):
-        record_provider_call("claude", 12_000, failed=True)
-    assert provider_health_label("claude") == "unhealthy"
+        record_provider_call(provider, elapsed_ms, failed=True)
+    assert provider_health_label(provider) == "unhealthy"
 
 
 def test_observation_survives_recovery():
