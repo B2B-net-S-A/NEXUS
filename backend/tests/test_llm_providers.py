@@ -451,6 +451,48 @@ def test_metering_event_carries_the_provider_and_its_own_prices():
     assert event["price_version"]
 
 
+def test_openai_cache_write_is_its_own_bucket_priced_at_125_percent():
+    """GPT-5.6+ zgłasza zapis do cache w `prompt_tokens_details` i liczy go
+    1,25× wejścia (kształt zmierzony na gpt-6-luna 22.09.2026). Do tej daty
+    zapis siedział w zwykłym wejściu i był wyceniany o 20% za tanio."""
+    from decimal import Decimal
+
+    from app.services.ai_metering import response_event
+
+    payload = {
+        "id": "chatcmpl-6",
+        "model": "gpt-6-luna",
+        "choices": [{"message": {"content": "{}"}, "finish_reason": "stop"}],
+        "usage": {
+            "prompt_tokens": 2759,
+            "completion_tokens": 18,
+            "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 2756},
+        },
+    }
+    message = parse_response(OPENAI, "gpt-6-luna", payload)
+    assert message.usage.input_tokens == 3
+    assert message.usage.cache_creation_input_tokens == 2756
+    assert message.usage.cache_read_input_tokens == 0
+
+    event = response_event("op-6", message, model="gpt-6-luna", latency_ms=1)
+    assert event["cache_creation_tokens"] == 2756
+    # (0.10 × 3 + 0.125 × 2756 + 0.50 × 18) / 1e6
+    assert event["estimated_cost_usd"] == Decimal("0.00035380")
+
+
+def test_gpt_6_luna_is_priced_from_its_own_list_not_the_5_6_one():
+    from decimal import Decimal
+
+    from app.services.ai_metering import response_event
+
+    payload = _openai_payload(prompt=1500, cached=500, completion=100)
+    payload["model"] = "gpt-6-luna"  # cennik idzie za modelem z ODPOWIEDZI
+    message = parse_response(OPENAI, "gpt-6-luna", payload)
+    event = response_event("op-7", message, model="gpt-6-luna", latency_ms=1)
+    # (0.10 × 1000 + 0.01 × 500 + 0.50 × 100) / 1e6
+    assert event["estimated_cost_usd"] == Decimal("0.00015500")
+
+
 def test_deepseek_cache_read_is_priced_at_its_own_rate_not_a_tenth():
     from decimal import Decimal
 

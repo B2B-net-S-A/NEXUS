@@ -147,7 +147,7 @@ def test_the_reviewer_is_a_different_model_than_the_generator(review_on, monkeyp
 
     assert review_on["reviews"], "recenzja w ogóle nie pobiegła"
     for call in review_on["reviews"]:
-        assert call["model_override"] == "gpt-5.6-luna"
+        assert call["model_override"] == "gpt-6-luna"
         assert call["model_override"] != model_for(AIFeatureKey.cv_generator)
         # Przeciążenie u OpenAI nie może zdejmować funkcji, ale fallback musi
         # iść na Sonneta, a nie na fallback generatora (Opus).
@@ -172,7 +172,7 @@ def test_a_clean_review_is_stored_and_says_nothing_to_the_recruiter(
 
     report = result.render_payload["factual_verification"]
     assert report["status"] == "verified"
-    assert report["model"] == "gpt-5.6-luna"
+    assert report["model"] == "gpt-6-luna"
     assert not [w for w in result.warnings if "kontrola AI" in w]
 
 
