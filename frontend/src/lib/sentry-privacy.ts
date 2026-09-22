@@ -1,8 +1,20 @@
 import type { Event, Stacktrace } from '@sentry/nextjs'
 
-const safeTags = new Set(['api_failure', 'api_status', 'api_method', 'api_path', 'operation', 'failure_kind', 'terminal', 'sampling_policy', 'integration', 'job'])
+const safeTags = new Set(['api_failure', 'api_status', 'api_method', 'api_path', 'operation', 'failure_kind', 'terminal', 'sampling_policy', 'integration', 'job', 'react_error_code'])
 const safeIdentifier = /^[a-zA-Z0-9_./:{} -]{1,180}$/
 const capabilityPath = /(\/(?:cv|sign|apply|engagement|share|share-token|champion-card|champion-share|public\/[\w-]+)\/)[^/]+/gi
+
+/** Keep only React's numeric diagnostic, never decoder URLs or their arguments. */
+export function reactErrorCode(message: unknown): string | undefined {
+  return typeof message === 'string'
+    ? /\b(?:Minified )?React error #([1-9]\d{0,3})\b/.exec(message)?.[1]
+    : undefined
+}
+
+function privateErrorTitle(message: unknown, type = 'Error'): string {
+  const code = reactErrorCode(message)
+  return `${code ? `React error #${code}` : type} (private details omitted)`
+}
 
 function scrubSourceLocation(value: string): string {
   return value.split(/[?#]/, 1)[0].replace(capabilityPath, '$1[redacted]')
@@ -25,8 +37,10 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
   delete event.request
   delete event.extra
   if ('logentry' in event) delete event.logentry
-  if ('message' in event) event.message = 'Application failure (private details omitted)'
-  event.tags = Object.fromEntries(Object.entries(event.tags ?? {}).filter(([key, value]) => safeTags.has(key) && safeIdentifier.test(String(value))))
+  const reactCode = reactErrorCode(event.message) ?? event.exception?.values?.map(value => reactErrorCode(value.value)).find(Boolean)
+  if ('message' in event) event.message = privateErrorTitle(event.message, 'Application failure')
+  event.tags = Object.fromEntries(Object.entries(event.tags ?? {}).filter(([key, value]) => safeTags.has(key) && safeIdentifier.test(String(value)) && (key !== 'react_error_code' || /^[1-9]\d{0,3}$/.test(String(value)))))
+  if (reactCode) event.tags.react_error_code = reactCode
   const trace = event.contexts?.trace
   const correlation = event.contexts?.correlation ?? {}
   event.contexts = {
@@ -34,7 +48,7 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
     correlation: Object.fromEntries(Object.entries(correlation).filter(([key, value]) => ['request_id', 'operation_id'].includes(key) && /^[a-f0-9-]{16,36}$/i.test(String(value)))),
   }
   for (const value of ('exception' in event ? event.exception?.values : undefined) ?? []) {
-    value.value = `${value.type ?? 'Error'} (private details omitted)`
+    value.value = privateErrorTitle(value.value, value.type)
     if (value.mechanism) {
       delete value.mechanism.data
     }

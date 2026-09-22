@@ -8,13 +8,16 @@
 import * as Sentry from '@sentry/nextjs'
 import { apiTraceTargets, probeTelemetryCapability } from './src/lib/telemetry-capability'
 
-import { scrubSentryEvent, scrubReplayEvent, firstInSession } from './src/lib/sentry-privacy'
+import { scrubSentryEvent, scrubReplayEvent, firstInSession, reactErrorCode } from './src/lib/sentry-privacy'
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN
 
 /** Ułamek bezcielesnych błędów sieci raportowanych do Sentry (patrz beforeSend). */
 const NETWORK_ERROR_SAMPLE_RATE = 0.1
-const HYDRATION_ERROR_RE = /hydration|Hydration|Minified React error #(418|423|425)/
+const HYDRATION_ERROR_RE = /hydration|Minified React error #(418|425)\b/i
+// #419 is server-aborted Suspense; #422/#423 recover from hydration errors;
+// #424 is an early root update. They do not all mean mismatched HTML.
+const REACT_RECOVERY_CODES = new Set(['419', '422', '423', '424'])
 const CHUNK_ERROR_RE = /ChunkLoadError|Loading chunk [\w-]+ failed/
 
 if (dsn) {
@@ -82,17 +85,24 @@ if (dsn) {
             // którego już nie ma. Przy ~8 przebudowach dziennie to bezpośredni
             // pomiar wpływu deployów na użytkowników (reaudyt 14.09.2026, R07),
             // więc raportujemy pierwszą sygnaturę w sesji.
-            const chunkText = `${exc?.name ?? ''} ${exc?.message ?? ''} ${
-                event.exception?.values?.[0]?.type ?? ''
-            } ${event.exception?.values?.[0]?.value ?? ''}`
-            if (CHUNK_ERROR_RE.test(chunkText) || HYDRATION_ERROR_RE.test(chunkText)) {
-                const kind = CHUNK_ERROR_RE.test(chunkText) ? "chunk-load-error" : "hydration-error"
+            const failureText = [exc?.name, exc?.message, event.message,
+                ...(event.exception?.values ?? []).flatMap(value => [value.type, value.value]),
+            ].filter(value => typeof value === 'string').join(' ')
+            const reactCode = reactErrorCode(failureText)
+            const kind = CHUNK_ERROR_RE.test(failureText) ? 'chunk-load-error'
+                : reactCode && REACT_RECOVERY_CODES.has(reactCode) ? 'react-recoverable-error'
+                : HYDRATION_ERROR_RE.test(failureText) ? 'hydration-error' : undefined
+            // A terminal write already has deterministic operation reporting.
+            // Its React diagnostic must not turn that into session sampling.
+            if (kind && event.tags?.sampling_policy !== 'all-terminal-writes') {
                 const frame = event.exception?.values?.[0]?.stacktrace?.frames?.at(-1)
-                if (!firstInSession(`${kind}:${frame?.filename ?? ""}:${frame?.lineno ?? ""}`)) {
+                if (!firstInSession(`${kind}:${reactCode ?? ''}:${frame?.filename ?? ""}:${frame?.lineno ?? ""}`)) {
                     return null
                 }
-                event.fingerprint = [kind]
-                event.tags = { ...event.tags, sampling_policy: 'first-per-session', failure_kind: kind }
+                event.fingerprint = reactCode ? [kind, `react-${reactCode}`] : [kind]
+                event.tags = { ...event.tags, sampling_policy: 'first-per-session', failure_kind: kind,
+                    ...(reactCode ? { react_error_code: reactCode } : {}),
+                }
                 return scrubSentryEvent(event)
             }
 

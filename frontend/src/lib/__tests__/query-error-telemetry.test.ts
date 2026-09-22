@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
+// Vitest resolves Next's Node entrypoint; the production client bundle uses
+// the browser parser, which also understands Safari/Firefox stack syntax.
+vi.mock('@sentry/nextjs', async () => ({
+  defaultStackParser: (await import('@sentry/browser')).defaultStackParser,
+}));
+
 import {
   QUERY_FAILURE_DEDUPE_MS,
   classifyQueryError,
@@ -89,13 +95,71 @@ it("raportuje różne zapisy bez losowania, deduplikuje ten sam błąd operacji"
 
 it("raportuje nieoczekiwany błąd mutacji spoza axios bez prywatnej wiadomości", () => {
   const capture = vi.fn();
-  const report = createQueryFailureReporter({ capture, random: () => 0.99 });
+  const random = vi.fn(() => 0.99);
+  const report = createQueryFailureReporter({ capture, random });
   const mutation = {};
   report(new TypeError('private CV content'), mutation);
   report(new TypeError('private CV content'), mutation);
   report(new TypeError('private CV content'), {});
   expect(capture).toHaveBeenCalledTimes(2);
   expect(capture.mock.calls[0][0].message).not.toContain('private');
+  expect(capture.mock.calls[0][1].tags).toEqual({
+    terminal: 'true',
+    operation: 'client-mutation',
+    failure_kind: 'client',
+    sampling_policy: 'all-terminal-writes',
+  });
+  expect(capture.mock.calls[0][1].fingerprint).toEqual(['client-mutation-failure', '{{ default }}']);
+  expect(random).not.toHaveBeenCalled();
+});
+
+it('keeps the original mutation source location and React code without private stack content', () => {
+  const capture = vi.fn();
+  const report = createQueryFailureReporter({ capture });
+  const original = new Error('Minified React error #185; private@example.com');
+  original.stack = `${original.message}\nprivate multiline content\n    at runMutation (https://nexus.dynaminds.pl/_next/static/chunks/cv.js?token=secret-value:639:12)\n    at https://nexus.dynaminds.pl/cv/private-capability:44:3`;
+  report(original, {});
+  const [error, context] = capture.mock.calls[0];
+  expect(error.message).toBe('Client mutation failed (React error #185)');
+  expect(error.stack).toContain('https://nexus.dynaminds.pl/_next/static/chunks/cv.js:639:12');
+  expect(error.stack).toContain('https://nexus.dynaminds.pl/cv/[redacted]:44:3');
+  expect(error.stack).not.toMatch(/private@example.com|secret-value|private-capability|private multiline content/);
+  expect(context.tags.react_error_code).toBe('185');
+  expect(context.tags.api_failure).toBeUndefined();
+  expect(context.fingerprint).toEqual(['client-mutation-failure', '{{ default }}', 'react-185']);
+  expect(original.message).toContain('private@example.com');
+});
+
+it('never parses frame-shaped lines inside a multiline mutation message as source locations', () => {
+  const capture = vi.fn();
+  const report = createQueryFailureReporter({ capture });
+  const original = new Error('Private CV response\n    at private@example.com:44:3\n    at https://nexus.dynaminds.pl/_next/static/private-name.js:55:6');
+  report(original, {});
+  const [error] = capture.mock.calls[0];
+  expect(error.stack).not.toMatch(/Private CV response|private@example.com|private-name/);
+  expect(error.stack).toContain('query-error-telemetry.test.ts');
+});
+
+it('retains Safari and Firefox headerless script frames', () => {
+  const capture = vi.fn();
+  const report = createQueryFailureReporter({ capture });
+  const original = new Error('Private CV response');
+  original.stack = 'runMutation@https://nexus.dynaminds.pl/_next/static/chunks/cv.js:639:12\n@https://nexus.dynaminds.pl/_next/static/chunks/app.js:21:4';
+  report(original, {});
+  const [error] = capture.mock.calls[0];
+  expect(error.stack).toContain('https://nexus.dynaminds.pl/_next/static/chunks/cv.js:639:12');
+  expect(error.stack).toContain('https://nexus.dynaminds.pl/_next/static/chunks/app.js:21:4');
+  expect(error.stack).not.toContain('Private CV response');
+});
+
+it('drops an unrecognized stack header instead of risking private stale message content', () => {
+  const capture = vi.fn();
+  const report = createQueryFailureReporter({ capture });
+  const original = new Error('Updated message');
+  original.stack = 'Error: Previous private response\n    at private@example.com:44:3\n    at https://nexus.dynaminds.pl/_next/static/chunks/cv.js:639:12';
+  report(original, {});
+  const [error] = capture.mock.calls[0];
+  expect(error.stack).toBe('Error: Client mutation failed');
 });
 
 it("redacts capability paths even for short or URL-encoded tokens", () => {
