@@ -988,7 +988,7 @@ def response_context(job):
     }
 
 
-async def preview_document(data, filename, *, db=None, model=None):
+async def preview_document(data, filename, *, db=None, model=None, max_text=None):
     from app.services.champion_profile_ingest import (
         extract_document_text,
         parse_champion_document,
@@ -1017,14 +1017,19 @@ async def preview_document(data, filename, *, db=None, model=None):
     else:
         # Checked BEFORE the quota block: rejecting an over-long document must
         # not cost an AI call from the monthly limit.
-        if len(text) > MAX_TEXT:
+        # `max_text` podnosi limit WYŁĄCZNIE dla przebiegu backfillu z Traffita
+        # (dokumenty ponad 14 000 znaków); ekran importu zostaje przy MAX_TEXT.
+        limit = max_text or MAX_TEXT
+        if len(text) > limit:
             raise ValueError(
-                f"Dokument przekracza limit {MAX_TEXT} znaków odczytu przez AI. "
+                f"Dokument przekracza limit {limit} znaków odczytu przez AI. "
                 "Skróć treść albo użyj wzoru Word v4; niczego nie zaimportowano."
             )
         # `model` idzie dalej WYŁĄCZNIE, gdy przebieg go ustawia (backfill):
         # zwykła ścieżka woła parser dokładnie tak jak przed 22.09.2026.
         parse_kwargs = {"model": model} if model else {}
+        if max_text:
+            parse_kwargs["max_chars"] = max_text
         if db is None:
             parsed = await parse_champion_document(text, **parse_kwargs)
         else:
