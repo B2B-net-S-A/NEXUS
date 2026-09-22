@@ -10,6 +10,7 @@
 // 22.09.2026: raporty, narzędzia techniczne, Konflikty, Coaching, Pomoc i Teams
 // znikają z menu), ale dalej otwierają się pod adresem — stare linki działają.
 import { hasRole, type UserRole } from "@/store/auth";
+import { hasCapability, type Capability } from "@/lib/capabilities";
 import {
   hasSectionAccess,
   type ProductSection,
@@ -59,6 +60,8 @@ export type SettingsItemId =
 
 type Gate = {
   roles?: UserRole[];
+  /** Capability z `lib/capabilities.ts` — lustro strażnika backendu. */
+  capability?: Capability;
   section?: ProductSection;
   required?: Exclude<SectionAccess, "none">;
   /** Rola Finanse bez admina widzi tylko pozycje z tą flagą. */
@@ -90,7 +93,8 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     id: "outlook", area: "me", title: "Outlook i kalendarz",
     description: "Podłącz swoją skrzynkę i kalendarz Microsoft 365.",
     keywords: "poczta mail m365 microsoft skrzynka integracje",
-    gate: {},
+    // Finanse też tworzą wydarzenia w kalendarzu (audyt ról U6, 22.09).
+    gate: { finance: true },
   },
   {
     id: "people", area: "team", title: "Osoby i role",
@@ -131,7 +135,9 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     id: "mail", area: "rec", title: "Szablony maili",
     description: "Treści maili do kandydatów, także odrzucenia.",
     keywords: "email odrzucenie outreach szablony wiadomosci",
-    gate: { roles: ["admin"] },
+    // Zapis szablonu = `require_candidate_write` (emails.py) — każdy rekruter;
+    // do 22.09 pozycję widział tylko admin (audyt ról U10).
+    gate: { capability: "candidate.write" },
   },
   {
     id: "contracts", area: "deals", title: "Wzory umów",
@@ -205,7 +211,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
   {
     id: "teams", area: "me", title: "Powiadomienia Teams",
     description: "Powiadomienia NEXUSA w Microsoft Teams.",
-    keywords: "", hidden: true, gate: {},
+    keywords: "", hidden: true, gate: { finance: true },
   },
   {
     id: "coaching", area: "me", title: "Coaching KPI",
@@ -240,6 +246,7 @@ export function canSeeSettingsItem(user: SettingsUser | null, item: SettingsItem
   const { gate } = item;
   if (isFinanceReadOnly(user) && !gate.finance) return false;
   if (gate.roles && !hasRole(user, ...gate.roles)) return false;
+  if (gate.capability && !hasCapability(user, gate.capability)) return false;
   if (gate.section && !hasSectionAccess(user, gate.section, gate.required ?? "read")) return false;
   return true;
 }

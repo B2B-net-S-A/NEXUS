@@ -30,8 +30,10 @@ NEXT_NUMBER_URL = "/api/b2b-generator/next-number"
 GENERATED_URL = "/api/b2b-generator/generated"
 GENERATE_URL = "/api/b2b-generator/generate"
 
-# Każda rola ma domyślnie co najmniej podgląd. Administrator może to jednak
-# odebrać lub podnieść niezależnie od dostępu do całej sekcji Sourcing.
+# Każda rola operacyjna ma domyślnie co najmniej podgląd. Administrator może
+# to jednak odebrać lub podnieść niezależnie od dostępu do całej sekcji
+# Sourcing. Legacy viewer `user` nie wchodzi do generatora od 22.09.2026
+# (decyzja Artura) — patrz ``test_legacy_viewer_is_refused_at_the_entry_gate``.
 ALL_ROLES = [
     "admin",
     "head_of_recruitment",
@@ -41,7 +43,6 @@ ALL_ROLES = [
     "finance",
     "recruiter",
     "sourcer",
-    "user",
 ]
 UNSCOPED_ROLES = [role for role in ALL_ROLES if role != "delivery_lead"]
 
@@ -137,22 +138,14 @@ async def test_every_role_passes_generator_auth(
             f"{role_value} GET {url} → {r.status_code}: {r.text}"
         )
 
-    # Missing role reaches business validation for document operators. Plain
-    # TCM is deliberately stopped before any rate-bearing operation.
+    # Missing role reaches business validation for document operators — od
+    # 22.09.2026 także dla TCM (pełny generator, decyzja z audytu ról).
     r = await app_client.post(
         GENERATE_URL,
         json={"role_id": 999999, "start_date": "2026-01-01"},
         headers=headers,
     )
-    if role_value == "talent_community_manager":
-        assert r.status_code == 403, r.text
-        assert r.json()["detail"] == {
-            "code": "action_access_denied",
-            "action": "b2b_contract_generator",
-            "required": "generate",
-            "granted": "view",
-        }
-    elif role_value == "user":
+    if role_value == "user":
         assert r.status_code == 403, r.text
         assert r.json()["detail"] == {
             "code": "section_access_denied",
@@ -164,6 +157,15 @@ async def test_every_role_passes_generator_auth(
         assert r.status_code == 404, (
             f"{role_value} POST generate → {r.status_code}: {r.text}"
         )
+
+
+async def test_legacy_viewer_is_refused_at_the_entry_gate(app_client: AsyncClient):
+    """`user` zdjęty z ``B2B_GENERATOR_UNCONDITIONAL_ROLES`` (22.09.2026)."""
+
+    headers = await _headers_for(app_client, "user")
+    for url in (ROLES_URL, NEXT_NUMBER_URL, GENERATED_URL):
+        r = await app_client.get(url, headers=headers)
+        assert r.status_code == 403, f"user GET {url} → {r.status_code}: {r.text}"
 
 
 async def test_delivery_lead_without_assignment_can_browse_generator(
@@ -206,14 +208,14 @@ async def test_unscoped_roles_can_browse_generator(
             f"unassigned {role_value} GET {url} → {r.status_code}: {r.text}"
         )
 
-    # Drafting is reachable for document operators. TCM is a deliberate 403 at
-    # the finance boundary; the plain viewer is read-only in Sourcing.
+    # Drafting is reachable for document operators, TCM included since
+    # 22.09.2026; the plain viewer is read-only in Sourcing.
     r = await app_client.post(
         GENERATE_URL,
         json={"role_id": 999999, "start_date": "2026-01-01"},
         headers=headers,
     )
-    post_expected = 403 if role_value in {"talent_community_manager", "user"} else 404
+    post_expected = 403 if role_value == "user" else 404
     assert r.status_code == post_expected, (
         f"unassigned {role_value} POST generate → {r.status_code}: {r.text}"
     )
@@ -224,19 +226,17 @@ async def test_unscoped_roles_can_browse_generator(
             "required": "write",
             "granted": "read",
         }
-    elif role_value == "talent_community_manager":
-        assert r.json()["detail"]["code"] == "action_access_denied"
 
     # Opaque DOCX can contain rates. Missing id therefore produces the same
     # split: view-only roles are rejected before lookup, document operators
     # reach the 404.
     r = await app_client.get(f"{GENERATED_URL}/999999/docx", headers=headers)
-    docx_expected = 403 if role_value in {"talent_community_manager", "user"} else 404
+    docx_expected = 403 if role_value == "user" else 404
     assert r.status_code == docx_expected, (
         f"unassigned {role_value} GET generated/docx → {r.status_code}: {r.text}"
     )
 
-    # Generated-contract mutations are read-only for TCM.
+    # TCM ma pełny generator (22.09.2026): mutacje dochodzą do wyszukania wiersza.
     if role_value == "talent_community_manager":
         patch = await app_client.patch(
             f"{GENERATED_URL}/999999",
@@ -247,10 +247,8 @@ async def test_unscoped_roles_can_browse_generator(
             f"{GENERATED_URL}/999999",
             headers=headers,
         )
-        assert patch.status_code == 403, patch.text
-        assert delete.status_code == 403, delete.text
-        assert patch.json()["detail"]["required"] == "manage"
-        assert delete.json()["detail"]["required"] == "manage"
+        assert patch.status_code == 404, patch.text
+        assert delete.status_code == 404, delete.text
 
 
 async def test_unauthenticated_is_rejected(app_client: AsyncClient):

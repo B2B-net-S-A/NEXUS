@@ -11,10 +11,12 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: F401 (used via Depends)
 
-from app.api.deps import CurrentUser, TacPlus
+from app.api.deps import CurrentUser
+from app.api.recruitment_access import JobEditUser, ensure_job_editor
 from app.core.database import get_db
 from app.models.job import Job
 from app.models.job_posting import JobPosting, Portal, PostingStatus
+from app.models.user import User
 
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 
@@ -23,6 +25,17 @@ router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 def now_utc():
     return datetime.now(timezone.utc)
+
+
+async def _ensure_posting_job_editor(
+    db: AsyncSession, current_user: User, posting: JobPosting
+) -> None:
+    """Ogłoszenie redaguje ten, kto redaguje jego rekrutację (decyzja 22.09.2026)."""
+
+    job = await db.get(Job, posting.job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await ensure_job_editor(db, current_user, job)
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────────
@@ -121,7 +134,7 @@ async def list_postings(
 async def create_posting(
     job_id: int,
     data: PostingCreate,
-    current_user: TacPlus,
+    current_user: JobEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -131,6 +144,7 @@ async def create_posting(
     job = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await ensure_job_editor(db, current_user, job)
 
     now = now_utc()
     posting = JobPosting(
@@ -158,7 +172,7 @@ async def create_posting(
 async def update_posting(
     posting_id: int,
     data: PostingUpdate,
-    current_user: TacPlus,
+    current_user: JobEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Update posting status or metrics."""
@@ -167,6 +181,7 @@ async def update_posting(
     ).scalar_one_or_none()
     if not posting:
         raise HTTPException(status_code=404, detail="Posting not found")
+    await _ensure_posting_job_editor(db, current_user, posting)
 
     if data.status is not None:
         posting.status = data.status
@@ -183,7 +198,7 @@ async def update_posting(
 @router.delete("/postings/{posting_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_posting(
     posting_id: int,
-    current_user: TacPlus,
+    current_user: JobEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Remove a posting."""
@@ -192,6 +207,7 @@ async def delete_posting(
     ).scalar_one_or_none()
     if not posting:
         raise HTTPException(status_code=404, detail="Posting not found")
+    await _ensure_posting_job_editor(db, current_user, posting)
 
     await db.delete(posting)
     await db.commit()
@@ -201,7 +217,7 @@ async def delete_posting(
 async def publish_all(
     job_id: int,
     data: PublishAllRequest,
-    current_user: TacPlus,
+    current_user: JobEditUser,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -211,6 +227,7 @@ async def publish_all(
     job = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    await ensure_job_editor(db, current_user, job)
 
     # Get existing active postings for this job
     existing = (

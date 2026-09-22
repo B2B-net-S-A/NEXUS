@@ -50,6 +50,7 @@ import {
   fetchAuthenticatedBlob,
   postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
+import { hasSectionAccess } from "@/lib/section-access";
 import {
   canViewClientFinance,
   canManageMultiConsultantOrders,
@@ -176,9 +177,12 @@ export function MultiConsultantOrdersTab({
   const { data: defaultRateUnit } = useClientDefaultRateUnit(clientId);
   const canManage = canManageMultiConsultantOrders(user, clientId);
   const canLifecycle = canManageOrderLifecycle(user);
+  // Eksport = odczyt w sekcji Delivery (U8); TCM bez innej roli Delivery — bez
+  // eksportu, jak dotąd.
   const canExport =
-    !hasRole(user, "talent_community_manager") ||
-    hasRole(user, "admin", "delivery_lead", "finance");
+    hasSectionAccess(user, "delivery", "read") &&
+    (!hasRole(user, "talent_community_manager") ||
+      hasRole(user, "admin", "delivery_lead", "finance"));
   const allowedOrderTypes = ALL_ORDER_TYPES;
 
   const [pill, setPill] = useState<UnifiedOrderPill>("all");

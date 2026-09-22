@@ -315,9 +315,12 @@ async def test_activity_summary_uses_one_snapshot_for_counts_and_comparisons() -
             "benchmark_count": 3,
         },
     ]
+    # Cel postępu dnia: resolver `kpi_targets` (22.09.2026) czyta osobiste cele
+    # i wiersze ról dwoma zapytaniami — oba puste, więc obowiązuje katalog (4).
+    no_rows = MagicMock()
+    no_rows.all.return_value = []
     db = AsyncMock()
-    db.execute.side_effect = [users_result, overview_result]
-    db.scalar.side_effect = [None, None]
+    db.execute.side_effect = [users_result, overview_result, no_rows, no_rows]
 
     result = await activity_service.build_recruitment_activity_summary(
         db,
@@ -340,7 +343,9 @@ async def test_activity_summary_uses_one_snapshot_for_counts_and_comparisons() -
     assert comparisons["verification"].team_average == 8.0
     assert comparisons["placement"].personal_average == 2.0
     assert comparisons["placement"].team_average == 1.5
-    assert db.execute.await_count == 2
+    # Jedno zapytanie o ludzi + JEDEN przegląd (liczniki i porównania) + dwa
+    # zapytania o cel.
+    assert db.execute.await_count == 4
 
 
 def test_benchmark_window_never_includes_partial_current_month() -> None:

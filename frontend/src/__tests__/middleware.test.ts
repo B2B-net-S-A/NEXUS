@@ -374,6 +374,13 @@ describe("zawężenia ról nadal obowiązują", () => {
     expect(destination("/candidates", validViewer)).toBe("/403")
   })
 
+  it("viewer nie wchodzi do Kalendarza ani Generatora CV (backend 403)", () => {
+    expect(destination("/calendar", validViewer)).toBe("/403")
+    expect(destination("/cv-generator", validViewer)).toBe("/403")
+    expect(destination("/calendar", validRecruiter)).toBe("pass")
+    expect(destination("/cv-generator", validRecruiter)).toBe("pass")
+  })
+
   it("viewer nie wchodzi na /manager", () => {
     expect(destination("/manager", validViewer)).toBe("/403")
   })
@@ -491,8 +498,9 @@ describe("zawężenia ról nadal obowiązują", () => {
     expect(destination("/candidates/contact-queue", validViewer)).toBe("/403")
   })
 
-  it("kolejka zgłoszeń odcina Head of Recruitment, zgodnie z backendem (UAT A-B02)", () => {
-    expect(destination("/applications", validHeadOfRecruitment)).toBe("/403")
+  it("kolejka zgłoszeń wpuszcza Head of Recruitment (CANDIDATE_WRITE_ROLES od 17.09)", () => {
+    expect(destination("/applications", validHeadOfRecruitment)).toBe("pass")
+    expect(destination("/applications", validViewer)).toBe("/403")
     expect(destination("/applications", validRecruiter)).toBe("pass")
     expect(destination("/applications", validTac)).toBe("pass")
     expect(destination("/applications", validAdmin)).toBe("pass")

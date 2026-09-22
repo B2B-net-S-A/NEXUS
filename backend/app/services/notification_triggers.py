@@ -440,6 +440,12 @@ async def check_client_feedback_eobd(
 
 async def check_powercalling_kpi(db: AsyncSession, now: datetime) -> int:
     """O 11:45 — per-recruiter alert o <15 calli + agregat do HR-ów."""
+    # Bez telefonii raport mierzy coś, czego system nie rejestruje. CloudTalk
+    # jest wyłączony od 28.07.2026, a do 22.09 trigger i tak wysyłał codziennie
+    # tabelę „0/15 ❌" przy każdym rekruterze do Head of Recruitment
+    # (44 tabele i 268 alertów w 30 dni, wszystkie nieprzeczytane).
+    if not settings.CLOUDTALK_ENABLED:
+        return 0
     if not is_within_window(
         now,
         hour=settings.POWERCALLING_CHECK_HOUR,

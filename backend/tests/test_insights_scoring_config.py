@@ -29,6 +29,7 @@ _BACKEND = Path(__file__).resolve().parents[1]
 _VERSIONS = _BACKEND / "alembic" / "versions"
 _MIGRATION = _VERSIONS / "0256_insights_scoring_config.py"
 _MIGRATION_ALT = _VERSIONS / "0260_seniority_alternative_thresholds.py"
+_MIGRATION_RACE = _VERSIONS / "0346_kpi_catalog_unification.py"
 _ENTRYPOINT = _BACKEND / "entrypoint.sh"
 
 
@@ -74,6 +75,8 @@ def _defaults_from_migration() -> dict[str, int]:
     seeded[str(_literal(_MIGRATION_ALT, "_EXPERT_WINDOW_KEY"))] = int(
         _literal(_MIGRATION_ALT, "_EXPERT_WINDOW_NEW")  # type: ignore[arg-type]
     )
+    # 0346: minimum placementów Wyścigu Placementów (do 22.09 stała w kodzie).
+    seeded.update(_as_mapping(_literal(_MIGRATION_RACE, "_RACE_DEFAULTS")))
     return seeded
 
 

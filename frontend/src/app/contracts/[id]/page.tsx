@@ -463,6 +463,10 @@ export default function ContractDetailPage() {
     !impersonating &&
     hasRole(user, "admin", "delivery_lead") &&
     hasSectionAccess(user, "delivery", "write");
+  // Finanse zmieniają WYŁĄCZNIE kwoty (backend: `finance_amounts_only`),
+  // więc bez roli admin/DL dostają edycję ograniczoną do sekcji stawek.
+  const financeAmountsOnly =
+    !impersonating && !canEditContract && canManageFinance;
   const canEditContractStatus = !impersonating && canManageContractStatus(user);
   const id = Number(params.id);
 
@@ -752,7 +756,7 @@ export default function ContractDetailPage() {
       terminated_at: contract?.terminated_at,
       termination_reason: contract?.termination_reason,
     });
-    const payload: Record<string, unknown> = {
+    const operationalPayload: Record<string, unknown> = {
       start_date: form.start_date || null,
       end_date: endDateLocked ? null : form.end_date || null,
       client_order_end_date: form.client_order_end_date || null,
@@ -772,6 +776,9 @@ export default function ContractDetailPage() {
           ? form.order_consumption_unit
           : null,
     };
+    const payload: Record<string, unknown> = financeAmountsOnly
+      ? {}
+      : operationalPayload;
     if (canManageFinance) {
       Object.assign(payload, {
         rate_client: parseDecimalInput(form.rate_client),
@@ -952,6 +959,14 @@ export default function ContractDetailPage() {
           </p>
         </div>
 
+        {financeAmountsOnly && !editing && (
+          <button
+            onClick={handleStartEdit}
+            className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            <Pencil className="w-4 h-4" /> Edytuj stawki
+          </button>
+        )}
         {canEditContract && (
           <div className="flex gap-2 flex-wrap">
             <GenerateDocumentButton contractId={id} contractType={contract.contract_type} />
@@ -1362,7 +1377,7 @@ export default function ContractDetailPage() {
                 className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-4"
               >
                 <h2 className="text-sm font-semibold text-foreground dark:text-muted-foreground">
-                  Edycja kontraktu
+                  {financeAmountsOnly ? "Edycja stawek" : "Edycja kontraktu"}
                 </h2>
 
                 {error && (
@@ -1371,6 +1386,7 @@ export default function ContractDetailPage() {
                   </div>
                 )}
 
+                {!financeAmountsOnly && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="contract-edit-start-date" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
@@ -1465,6 +1481,7 @@ export default function ContractDetailPage() {
                     </select>
                   </div>
                 </div>
+                )}
 
                 {canManageFinance && (
                   <>
@@ -1991,6 +2008,8 @@ export default function ContractDetailPage() {
                   </>
                 )}
 
+                {!financeAmountsOnly && (
+                  <>
                 {/* Zużycie zamówienia — ilość + jednostka (RBH / MD) */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -2157,6 +2176,8 @@ export default function ContractDetailPage() {
                     </div>
                   </div>
                 </details>
+                  </>
+                )}
 
                 <div className="flex justify-end gap-2">
                   <button

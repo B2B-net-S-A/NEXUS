@@ -313,6 +313,48 @@ describe("ContractDetailPage — edycja walut stawek", () => {
   });
 });
 
+describe("ContractDetailPage — Finanse zmieniają tylko kwoty (audyt 22.09)", () => {
+  it("daje Finansom edycję stawek i wysyła wyłącznie pola kwot", async () => {
+    mocks.role = "finance";
+    mocks.canManageFinance = true;
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await screen.findByRole("heading", { name: /Kontrakt #563/ });
+    // Bez roli admin/DL nie ma pełnej edycji ani usuwania.
+    expect(screen.queryByRole("button", { name: /^Edytuj$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Usuń$/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^Edytuj stawki$/ }));
+    expect(screen.getByText("Edycja stawek")).toBeInTheDocument();
+    // Pola operacyjne (daty, status, zużycie) są schowane.
+    expect(screen.queryByLabelText("Data rozpoczęcia")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Status")).not.toBeInTheDocument();
+
+    await user.selectOptions(
+      screen.getByRole("combobox", {
+        name: "Waluta stawki przychodowej (klienta)",
+      }),
+      "GBP",
+    );
+    await user.click(screen.getByRole("button", { name: /Zapisz/ }));
+
+    await waitFor(() => expect(mocks.updateContract).toHaveBeenCalledTimes(1));
+    const payload = mocks.updateContract.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(payload.rate_client_currency).toBe("GBP");
+    for (const operational of [
+      "start_date",
+      "end_date",
+      "status",
+      "contract_type",
+      "order_consumption",
+      "handover_notes",
+    ]) {
+      expect(payload).not.toHaveProperty(operational);
+    }
+  });
+});
+
 describe("ContractDetailPage — poziom sekcji Delivery", () => {
   it("ukrywa mutacje dla Delivery read i podczas impersonacji", async () => {
     mocks.role = "delivery_lead";

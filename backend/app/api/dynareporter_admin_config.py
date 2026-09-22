@@ -29,8 +29,10 @@ class ChampionsLeagueScoring(BaseModel):
 
     Punkty: placement / interview / recommendation / verification.
     Prizes: per-rank PLN amounts displayed na podium (1st = `prize_1`, etc).
-    Thresholds: power_calling_min_per_day + linkedin_cv_per_md_target —
-    konfigurowalne business thresholds (DR `system_config`).
+    Thresholds: linkedin_cv_per_md_target — konfigurowalny business threshold
+    (DR `system_config`). `power_calling_min_per_day` usunięty 22.09.2026: nic
+    go nie czytało, a próg Power Calling to cel KPI „Weryfikacje dziś"
+    z katalogu (`kpi_catalog`). Stary klucz w zapisanym JSON-ie jest ignorowany.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -45,14 +47,7 @@ class ChampionsLeagueScoring(BaseModel):
     prize_2: int = Field(default=3000, ge=0, description="Nagroda za 2. miejsce (PLN)")
     prize_3: int = Field(default=2000, ge=0, description="Nagroda za 3. miejsce (PLN)")
     # Business thresholds — hardcoded w Rekrutacja page.tsx (Finding 11),
-    # teraz konfigurowalne. DR ma osobny `/config/power-calling-threshold` ale
-    # u nas pakujemy razem ze scoringiem żeby uniknąć kolejnego endpointu.
-    power_calling_min_per_day: int = Field(
-        default=3,
-        ge=0,
-        le=10,
-        description="Min. weryfikacji/dzień roboczy dla Power Calling badge",
-    )
+    # teraz konfigurowalne.
     linkedin_cv_per_md_target: int = Field(
         default=5,
         ge=0,
@@ -123,7 +118,7 @@ async def update_scoring(
     logger.info(
         "Champions League scoring updated by admin=%s: placement=%s interview=%s "
         "recommendation=%s verification=%s prize_1=%s prize_2=%s prize_3=%s "
-        "pc_threshold=%s linkedin_target=%s",
+        "linkedin_target=%s",
         current_user.id,
         payload.placement,
         payload.interview,
@@ -132,7 +127,6 @@ async def update_scoring(
         payload.prize_1,
         payload.prize_2,
         payload.prize_3,
-        payload.power_calling_min_per_day,
         payload.linkedin_cv_per_md_target,
     )
     return payload

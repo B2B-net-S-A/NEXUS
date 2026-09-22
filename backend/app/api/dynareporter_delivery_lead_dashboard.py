@@ -23,6 +23,7 @@ from app.analytics.capabilities import (
     require_dynareporter_section,
 )
 from app.core.database import get_db
+from app.services.metric_definitions import DL_HIT_RATIO_TARGET_PCT
 from app.schemas.dr_delivery_lead_dashboard import (
     DLDashboard,
     DLMember,
@@ -33,7 +34,7 @@ from app.schemas.dr_delivery_lead_dashboard import (
 
 router = APIRouter()
 
-HIT_RATIO_TARGET = 30  # %
+HIT_RATIO_TARGET = int(DL_HIT_RATIO_TARGET_PCT)  # % — jedna stała w repo
 
 
 _DATE_RE = r"^\d{4}-\d{2}-\d{2}$"

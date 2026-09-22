@@ -41,6 +41,7 @@ import type {
 import { useToast } from "@/components/Toast";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { resolveViewState, type ViewState } from "@/lib/view-state";
+import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 
 /** Role z organizacyjnym odczytem historii (lustro `_HISTORY_ORG_READER_ROLES`
  *  w `backend/app/api/jobs.py`): widzą kwoty fee, historię innych klientów
@@ -571,6 +572,8 @@ function MetaRow({
   fee: string | null;
 }) {
   const closedAt = formatDateShort(entry.closed_at);
+  // Funkcja TAC wyłączona w UI (22.09.2026) — `lib/tac-ui.ts`.
+  const tacName = TAC_UI_ENABLED ? entry.tac_name : null;
   return (
     <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground dark:text-muted-foreground mt-1">
       <span
@@ -615,10 +618,10 @@ function MetaRow({
           {fee}
         </span>
       )}
-      {(entry.tac_name || entry.delivery_lead_name) && (
+      {(tacName || entry.delivery_lead_name) && (
         <span className="text-muted-foreground" title="Owner roli">
-          {entry.tac_name ? `TAC: ${entry.tac_name}` : ""}
-          {entry.tac_name && entry.delivery_lead_name ? " · " : ""}
+          {tacName ? `TAC: ${tacName}` : ""}
+          {tacName && entry.delivery_lead_name ? " · " : ""}
           {entry.delivery_lead_name ? `DL: ${entry.delivery_lead_name}` : ""}
         </span>
       )}

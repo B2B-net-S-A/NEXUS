@@ -345,6 +345,9 @@ async def test_head_of_recruitment_never_gains_order_finance(
         def has_role(self, role: Role) -> bool:
             return role in self._roles
 
+        def get_all_roles(self) -> list[Role]:
+            return list(self._roles)
+
     for role in (Role.head_of_recruitment, Role.tac, Role.recruiter):
         assert (
             client_orders._can_manage_order_finance(_FakeUser(role), dl_assigned=True)
@@ -388,6 +391,9 @@ async def test_only_assigned_delivery_lead_can_rewrite_order_rate_unit(
 
         def has_role(self, role: Role) -> bool:
             return role in self._roles
+
+        def get_all_roles(self) -> list[Role]:
+            return list(self._roles)
 
     dl = _FakeUser(Role.delivery_lead)
     # Kwoty — wolno.

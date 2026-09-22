@@ -1429,18 +1429,39 @@ function JobFormFields({
   );
 }
 
-export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: () => void; onSuccess: (msg: string) => void }) {
+/**
+ * `scope="content"` (22.09.2026) — rekruter prowadzący i współpracownicy
+ * (`can_edit` z `GET /api/jobs/{id}`, bez capability `job.update`) zmieniają
+ * wyłącznie treść: opis i wymagania. Klient, budżet, właściciele, hiring
+ * manager, termin i status zostają w rękach Delivery Leada — nie renderujemy
+ * ich i NIE wysyłamy w PATCH (backend czyta `model_fields_set`, więc wartości
+ * w bazie zostają nietknięte). Patrz `lib/job-edit-access.ts`.
+ */
+export function EditJobModal({
+  job,
+  onClose,
+  onSuccess,
+  scope = "full",
+}: {
+  job: any;
+  onClose: () => void;
+  onSuccess: (msg: string) => void;
+  scope?: "full" | "content";
+}) {
   const [form, setForm] = useState<JobFormData>(() => jobToForm(job));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const contentOnly = scope === "content";
 
   const { data: clientsData } = useQuery({
     queryKey: ["clients-list-qa"],
     queryFn: () => phase5Api.clientsLookup().then(r => r.data),
+    enabled: !contentOnly,
   });
   const { data: usersData } = useQuery({
     queryKey: ["users-list-qa"],
     queryFn: () => api.get("/api/users").then(r => r.data),
+    enabled: !contentOnly,
   });
   const clients = clientsData ?? [];
   const users = usersData ?? [];
@@ -1462,6 +1483,15 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
     if (!form.title) { setError("Tytuł jest wymagany"); return; }
     setSaving(true); setError("");
     try {
+      if (contentOnly) {
+        await api.patch(`/api/jobs/${job.id}`, {
+          description: form.description || undefined,
+          requirements: form.requirements || undefined,
+        });
+        onSuccess("Rekrutacja zaktualizowana");
+        onClose();
+        return;
+      }
       await api.patch(`/api/jobs/${job.id}`, {
         title: form.title,
         client_id: form.client_id ? Number(form.client_id) : undefined,
@@ -1501,7 +1531,21 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
     <Modal title={`Edytuj: ${job.title}`} onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
-        <JobFormFields form={form} onChange={onChange} clients={clients} users={users} />
+        {contentOnly ? (
+          <>
+            <FieldGroup label="Opis">
+              <Textarea value={form.description} onChange={e => onChange("description", e.target.value)} rows={6} placeholder="Opis stanowiska..." />
+            </FieldGroup>
+            <FieldGroup label="Wymagania">
+              <Textarea value={form.requirements} onChange={e => onChange("requirements", e.target.value)} rows={4} placeholder="Wymagania techniczne..." />
+            </FieldGroup>
+            <p className="text-xs text-muted-foreground">
+              Klienta, budżet, zespół, termin i status rekrutacji zmienia Delivery Lead.
+            </p>
+          </>
+        ) : (
+          <JobFormFields form={form} onChange={onChange} clients={clients} users={users} />
+        )}
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Zapisz zmiany" />

@@ -319,10 +319,12 @@ export function hasAnalyticsCapability(
 }
 
 /**
- * Candidate-bearing contract/order resources combine recruitment PII with
- * rates. Finance works through person-free finance APIs, so even a finance
- * capability is insufficient here: only an Admin with the backend-issued
- * manage_finance capability may see or submit these fields.
+ * Zmiana kwot kontraktu i zamówienia (stawki, wartość, waluta). Decyzja
+ * Artura 22.09.2026 (audyt ról U6): Admin ORAZ Finanse — obie role wyłącznie
+ * z backendowym capability `manage_finance` z `/api/auth/me`. Delivery Lead
+ * własnego portfela ma osobną, węższą ścieżkę liczoną przez serwer
+ * (`can_manage_finance` w odpowiedziach zamówień). Stary cache bez
+ * capabilities = fail-closed.
  */
 export function canManageCandidateFinance(
   user:
@@ -331,7 +333,7 @@ export function canManageCandidateFinance(
     | undefined
 ): boolean {
   return (
-    hasRole(user, "admin") &&
+    hasRole(user, "admin", "finance") &&
     hasAnalyticsCapability(user, "manage_finance")
   )
 }
@@ -376,9 +378,17 @@ export function canViewCandidateFinance(
  *  Rozjazd tych dwóch list kończy się przyciskiem, który na kliknięciu daje
  *  403 — a to czyta się jak „zapis nie działa", nie jak „nie masz uprawnień". */
 export function canManageOrderLifecycle(
-  user: Pick<User, "role" | "roles"> | null | undefined
+  user:
+    | Pick<User, "role" | "roles" | "effective_section_access">
+    | null
+    | undefined
 ): boolean {
-  return hasRole(user, "admin", "delivery_lead", "finance")
+  // Rola to dopiero połowa bramki: backend liczy też sufit sekcji Delivery
+  // (zapis). DL z odebraną sekcją widziałby przyciski kończące się 403 (U8).
+  return (
+    hasRole(user, "admin", "delivery_lead", "finance") &&
+    hasSectionAccess(user, "delivery", "write")
+  )
 }
 
 /** Status kontraktu jest operacyjnie utrzymywany także przez TCM.

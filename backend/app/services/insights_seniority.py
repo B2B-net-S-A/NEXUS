@@ -64,11 +64,11 @@ logger = logging.getLogger(__name__)
 # z `kpi_panel.py:44-49` — tamta wciąga `delivery_lead`, który nie prowadzi
 # procesu rekrutacyjnego i którego placementy znaczą co innego.
 #
-# Różnica wobec `competitions.py:254-257`: tam predykat czyta OBA pola
-# (`role` ORAZ tablicę `roles`), tutaj tylko `role`. To jest wybór, nie
-# przeoczenie — ścieżka rozwoju opisuje główną rolę osoby, a nie każdą
-# personę, którą ktoś dorabia. Osoba z `role='delivery_lead'` i `recruiter`
-# w `roles` nie jest juniorem na ścieżce rekrutera.
+# Od 22.09.2026 pula czyta OBA pola (`role` ORAZ tablicę `roles`), tak jak
+# wyścigi (`competitions.py`) i cele KPI (`kpi_targets`: reguła „wszystkie
+# role osoby"). Do tej daty liczyła się tylko rola główna, więc Delivery Lead
+# z rolą TAC dostawał cel KPI i miejsce w wyścigu, ale nie miał ścieżki
+# rozwoju — trzy powierzchnie mówiły co innego o tej samej osobie (audyt T3).
 SENIORITY_PATH_ROLES: tuple[str, ...] = ("sourcer", "tac", "recruiter")
 
 LEVEL_JUNIOR = "junior"
@@ -429,12 +429,30 @@ async def load_thresholds(db: AsyncSession) -> SeniorityThresholds:
 
 # ── Zapytania ────────────────────────────────────────────────────────────────
 
-# Pula: `role` (nie `roles`) + `is_active`. Filtr aktywności jest tu warunkiem
-# POPRAWNOŚCI, nie kosmetyką — patrz punkt 3 docstringa modułu.
+# Pula: `role` LUB `roles` + `is_active`. Filtr aktywności jest tu warunkiem
+# POPRAWNOŚCI, nie kosmetyką — patrz punkt 3 docstringa modułu. Kolumna `role`
+# wyniku to rola główna, gdy leży na ścieżce; inaczej pierwsza rola ścieżki
+# z tablicy `roles` (osoba „na ścieżce jako TAC", nie „jako DL").
 _POPULATION_SQL = """
-    SELECT u.id AS user_id, u.name AS name, u.role::text AS role
+    SELECT u.id AS user_id, u.name AS name,
+           CASE
+               WHEN u.role::text = ANY(:roles) THEN u.role::text
+               ELSE (
+                   SELECT r.value
+                   FROM jsonb_array_elements_text(u.roles) AS r(value)
+                   WHERE r.value = ANY(:roles)
+                   ORDER BY array_position(CAST(:roles AS text[]), r.value)
+                   LIMIT 1
+               )
+           END AS role
     FROM users u
-    WHERE u.role::text = ANY(:roles)
+    WHERE (
+            u.role::text = ANY(:roles)
+            OR (
+                jsonb_typeof(u.roles) = 'array'
+                AND u.roles ?| CAST(:roles AS text[])
+            )
+          )
       AND u.is_active IS TRUE
 """
 

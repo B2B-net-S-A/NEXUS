@@ -49,10 +49,19 @@ describe("settings-registry — widoczność jak przed przebudową", () => {
     expect(can(user("finance", { delivery: "write" }), "cv")).toBe(false);
   });
 
-  it("Finanse bez admina widzą tylko swoje powierzchnie, bez Outlooka", () => {
+  it("Finanse bez admina widzą swoje powierzchnie i Outlooka (U6, 22.09)", () => {
     const f = user("finance", { finance: "write", insights: "read" });
     const listed = SETTINGS_ITEMS.filter((i) => !i.hidden && canSeeSettingsItem(f as never, i)).map((i) => i.id);
-    expect(listed.sort()).toEqual(["assign", "contracts", "history", "rates"]);
+    expect(listed.sort()).toEqual(["assign", "contracts", "history", "outlook", "rates"]);
+  });
+
+  it("Szablony maili: każdy z capability candidate.write, nie tylko admin (U10)", () => {
+    expect(can(user("recruiter", { sourcing: "write" }), "mail")).toBe(true);
+    expect(can(user("head_of_recruitment", { sourcing: "write" }), "mail")).toBe(true);
+    expect(can(user("recruiter", { sourcing: "read" }), "mail")).toBe(false);
+    expect(can(user("user", { sourcing: "write" }), "mail")).toBe(false);
+    // Finanse: middleware `/settings/templates` = NON_FINANCE_ROLES.
+    expect(can(user("finance", { sourcing: "write" }), "mail")).toBe(false);
   });
 
   it("rekruter ma jeden obszar", () => {

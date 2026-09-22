@@ -47,20 +47,23 @@ from app.services.competition_rules import (
 from app.models.job import Job, RecruitmentType
 from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
-from app.services.metric_definitions import FIRST_HIRED_PER_CANDIDATE_JOB
+from app.services.metric_definitions import (
+    DL_HIT_RATIO_TARGET_PCT,
+    FIRST_HIRED_PER_CANDIDATE_JOB,
+)
 from app.services.insights_scoring_config import (
     get_scoring_config,
     league_points_formula,
 )
+from app.services.kpi_targets import resolve_org_target
 
 logger = logging.getLogger(__name__)
 
 
 # ── Konfiguracja nagród ──────────────────────────────────────────────────
 
-HIT_RATIO_TARGET = 30.0  # % — próg wejścia na podium DL
+HIT_RATIO_TARGET = DL_HIT_RATIO_TARGET_PCT  # % — próg wejścia na podium DL
 QUARTERLY_MIN_PLACEMENTS = 3
-MONTHLY_RACE_MIN_PLACEMENTS = 2
 
 QUARTERLY_PRIZES_PLN = {1: 5000, 2: 3000, 3: 2000}
 MONTHLY_RACE_PRIZE_PLN = 1500
@@ -77,14 +80,39 @@ MONTHLY_RACE_PRIZE_NAME = "Voucher 1 500 PLN (Modivo, Douglas, Media Markt)"
 # ma własny, dwuczłonowy warunek (hit ratio ≥ 30% ORAZ ≥ 3 placementy), nie ma
 # klucza w konfiguracji i D3 jej nie obejmuje.
 
-# Wymóg tygodniowej aktywności dla Wyścigu Rekomendacji.
-MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY = 4
-MONTHLY_RACE_MIN_PRECISION_PCT = 75.0
+# Progi wyścigów miesięcznych NIE są już stałymi (22.09.2026):
+# - weryfikacje / dzień roboczy i precision czytają TE SAME cele co KPI
+#   (`kpi_targets.resolve_org_target`, katalog `kpi_catalog`) — do 22.09 wyścig
+#   z nagrodą miał własne „4" i „75", których zmiana celu KPI nie ruszała,
+# - minimum placementów wyścigu placementów jest w konfiguracji punktacji
+#   (`monthly_race_min_placements`, domyślnie 2), bo świadomie RÓŻNI się od celu
+#   KPI (1 placement / miesiąc — decyzja Artura 22.09.2026).
+# Wszystko czyta `monthly_race_thresholds` — jedno miejsce dla silnika
+# i opisu wymagań na ekranie.
 
 # Ile pozycji pokazujemy w rankingu wyścigu miesięcznego.
 MONTHLY_RACE_RANKING_SIZE = 10
 
 _WARSAW = ZoneInfo(DEFAULT_TZ)
+
+
+@dataclass(frozen=True)
+class MonthlyRaceThresholds:
+    """Progi obu wyścigów miesięcznych w chwili liczenia."""
+
+    verifications_per_day: int
+    precision_pct: float
+    min_placements: int
+
+
+async def monthly_race_thresholds(db: AsyncSession) -> MonthlyRaceThresholds:
+    """Progi wyścigów z tych samych źródeł co KPI i konfiguracja punktacji."""
+    config = await get_scoring_config(db)
+    return MonthlyRaceThresholds(
+        verifications_per_day=await resolve_org_target(db, "daily_first_verifications"),
+        precision_pct=float(await resolve_org_target(db, "monthly_precision")),
+        min_placements=int(config["monthly_race_min_placements"]),
+    )
 
 
 @dataclass
@@ -387,15 +415,10 @@ def days_left_in_month(today: Optional[date] = None) -> int:
     return max((end - today).days, 0)
 
 
-async def _rank_dls_by_placements(
-    db: AsyncSession,
-    *,
-    start: datetime,
-    end: datetime,
-    min_placements: int = QUARTERLY_MIN_PLACEMENTS,
-    limit: Optional[int] = None,
-) -> list[RankedUser]:
-    """Ranking DL-i po placementach w okresie.
+async def dl_portfolio_counts(
+    db: AsyncSession, *, start: datetime, end: datetime
+) -> tuple[dict[int, int], dict[int, int]]:
+    """Placementy i requesty body leasing per Delivery Lead w oknie.
 
     Placement = PIERWSZE wejście pary (kandydat, oferta) na `hired` w oknie
     (widok `analytics_first_milestones`, definicja D2). Do 22.09.2026 liczyliśmy
@@ -410,7 +433,12 @@ async def _rank_dls_by_placements(
 
     DL rekrutacji: `Job.delivery_lead_id`, a bez niego fallback przez
     `delivery_lead_client_assignments.is_head=true`
-    (zobacz reports._dl_head_fallback_map)."""
+    (zobacz reports._dl_head_fallback_map).
+
+    Tę samą definicję czyta liga ORAZ cel Delivery Leada (`kpi_goals`), żeby
+    „twoje hit ratio" i podium liczyły się z tych samych liczb. Zwraca
+    `(placements_by_dl, requests_by_dl)`.
+    """
     from app.api.reports import _dl_head_fallback_map, _resolve_dl_id
 
     fallback = await _dl_head_fallback_map(db)
@@ -459,6 +487,21 @@ async def _rank_dls_by_placements(
         if dl_id is None:
             continue
         requests_by_dl[dl_id] = requests_by_dl.get(dl_id, 0) + 1
+    return placements_by_dl, requests_by_dl
+
+
+async def _rank_dls_by_placements(
+    db: AsyncSession,
+    *,
+    start: datetime,
+    end: datetime,
+    min_placements: int = QUARTERLY_MIN_PLACEMENTS,
+    limit: Optional[int] = None,
+) -> list[RankedUser]:
+    """Ranking DL-i po placementach w okresie (liczniki: `dl_portfolio_counts`)."""
+    placements_by_dl, requests_by_dl = await dl_portfolio_counts(
+        db, start=start, end=end
+    )
 
     # Users
     dl_ids = set(placements_by_dl.keys()) | set(requests_by_dl.keys())
@@ -575,9 +618,10 @@ async def monthly_most_recommendations(
 ) -> list[RankedUser]:
     year, month = parse_month(period)
     start, end = month_bounds(year, month)
+    thresholds = await monthly_race_thresholds(db)
+    min_precision_pct = thresholds.precision_pct
     required_verifications = (
-        MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY
-        * business_days_elapsed_in_month(year, month)
+        thresholds.verifications_per_day * business_days_elapsed_in_month(year, month)
     )
     from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
@@ -649,7 +693,7 @@ async def monthly_most_recommendations(
                 "start": start,
                 "end": end,
                 "required_verifications": required_verifications,
-                "min_precision_pct": MONTHLY_RACE_MIN_PRECISION_PCT,
+                "min_precision_pct": min_precision_pct,
                 "ranking_size": MONTHLY_RACE_RANKING_SIZE,
             },
         )
@@ -667,7 +711,7 @@ async def monthly_most_recommendations(
         reasons: list[str] = []
         if verified < required_verifications:
             reasons.append("MIN_VERIFICATIONS_NOT_MET")
-        if 100.0 * recommendations < MONTHLY_RACE_MIN_PRECISION_PCT * verified:
+        if 100.0 * recommendations < min_precision_pct * verified:
             reasons.append("MIN_PRECISION_NOT_MET")
         ranked.append(
             RankedUser(
@@ -729,12 +773,13 @@ def qualified_for_award(ranked: list[RankedUser]) -> list[RankedUser]:
 async def monthly_most_placements(db: AsyncSession, period: str) -> list[RankedUser]:
     year, month = parse_month(period)
     start, end = month_bounds(year, month)
+    thresholds = await monthly_race_thresholds(db)
     return await _rank_recruiters_by_stage(
         db,
         stage=PipelineStage.hired,
         start=start,
         end=end,
-        min_value=MONTHLY_RACE_MIN_PLACEMENTS,
+        min_value=thresholds.min_placements,
         limit=10,
     )
 
@@ -1186,6 +1231,15 @@ async def award_order(
     )
 
 
+def _placements_word(count: int) -> str:
+    """„1 placement", „2 placementy", „5 placementów" — napis wymogu wyścigu."""
+    if count == 1:
+        return "placement"
+    if 2 <= count % 10 <= 4 and not 12 <= count % 100 <= 14:
+        return "placementy"
+    return "placementów"
+
+
 async def compose_monthly_races(
     db: AsyncSession, month_period: Optional[str] = None
 ) -> dict:
@@ -1200,6 +1254,7 @@ async def compose_monthly_races(
 
     rec_ranked = await monthly_most_recommendations(db, month_period)
     pl_ranked = await monthly_most_placements(db, month_period)
+    thresholds = await monthly_race_thresholds(db)
 
     # Wykluczenie: lider kwartału, do którego należy TEN miesiąc (nie bieżący
     # kwartał!), nie może wygrać wyścigu miesięcznego — ale z rankingu nie
@@ -1274,11 +1329,11 @@ async def compose_monthly_races(
             rec_order,
             [
                 (
-                    f"Wymóg: min. {MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY} "
+                    f"Wymóg: min. {thresholds.verifications_per_day} "
                     "weryfikacji/dzień roboczy w tym miesiącu"
                 ),
                 (
-                    f"Wymóg: min. {int(MONTHLY_RACE_MIN_PRECISION_PCT)}% "
+                    f"Wymóg: min. {int(thresholds.precision_pct)}% "
                     "precision rate (rekomendacje / weryfikacje)"
                 ),
             ],
@@ -1286,7 +1341,10 @@ async def compose_monthly_races(
         "placements": _format(
             pl_ranked,
             pl_order,
-            [f"Minimum {MONTHLY_RACE_MIN_PLACEMENTS} placementy do kwalifikacji"],
+            [
+                f"Minimum {thresholds.min_placements} "
+                f"{_placements_word(thresholds.min_placements)} do kwalifikacji"
+            ],
         ),
     }
 
