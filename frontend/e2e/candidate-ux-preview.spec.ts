@@ -78,51 +78,47 @@ test.describe("candidate UX deterministic previews", () => {
     });
   }
 
-  test("profile exposes five sections and a mobile section selector", async ({ page }) => {
+  // Profil ma od 22.09.2026 CZTERY zakładki (Profil · Rekrutacje · Historia ·
+  // Pliki i umowy, #1689) w jednym pasku, który na telefonie przewija się
+  // poziomo — dawnej listy rozwijanej „Sekcja profilu" już nie ma.
+  test("profile exposes four sections and they stay usable on mobile", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/preview/candidate-profile");
 
-    const selector = page.getByLabel("Sekcja profilu");
-    await expect(selector).toBeVisible();
-    await selector.selectOption("activity");
-    await expect(page.getByRole("button", { name: "Historia" })).toBeVisible();
+    const tabs = page.getByRole("tablist", { name: "Sekcje profilu kandydata" });
+    await expect(tabs).toBeVisible();
+    const history = tabs.getByRole("tab", { name: /Historia/ });
+    await history.scrollIntoViewIfNeeded();
+    await history.click();
+    await expect(history).toHaveAttribute("aria-selected", "true");
     await expectNoPageOverflow(page);
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.reload();
-    for (const label of ["Podsumowanie", "Rekrutacje", "Aktywność", "Dopasowanie", "Pliki i umowy"]) {
+    for (const label of ["Profil", "Rekrutacje", "Historia", "Pliki i umowy"]) {
       await expect(page.getByRole("tab", { name: new RegExp(label) })).toBeVisible();
     }
   });
 
-  test("quick view has one close and candidate facts precede suggestions", async ({ page }) => {
-    await page.goto("/preview/candidate-profile");
-    await page.getByRole("button", { name: "Quick view" }).click();
+  // Szybki podgląd żyje na liście kandydatów (od 22.09.2026 harness profilu
+  // pokazuje wyłącznie pełny profil). Pytamy o STRUKTURĘ, nie o napisy — patrz
+  // historia z „Oczekiwaną stawką" → „Stawką B2B", która zrobiła z tego testu
+  // alarm czerwony przez 21 nocy z samej zmiany copy.
+  test("quick view opens from the list with one close and the key facts", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/preview/candidates-list");
 
-    const quickView = page.getByRole("region", { name: "Szybki podgląd kandydata" });
-    await expect(quickView).toBeVisible();
+    const row = page.getByRole("group", { name: /Marta Przykładowa — Enter otwiera podgląd/ });
+    await row.focus();
+    await page.keyboard.press("Enter");
+
     await expect(page.getByRole("button", { name: "Zamknij szybki podgląd" })).toHaveCount(1);
-    // Asercja szła po WIDOCZNEJ etykiecie („Oczekiwana stawka"). PR #1009
-    // przemianował ją na „Stawka B2B" i nocny bieg zrobił się czerwony na 21
-    // nocy z rzędu — przestał odróżniać regresję od przeterminowanego napisu,
-    // a jest to jedyny automatyczny test dotykający produkcji. Pytamy więc
-    // o STRUKTURĘ: quick view ma listę faktów kandydata z kompletem pozycji.
-    // Zmiana copy nie może już zepsuć alarmu; usunięcie faktów — może.
-    // Pierwszy `dl` w quick view to KeyFacts — jedyny komponent w `ds/`, który
-    // renderuje listę definicji; `dl`-e rekomendacji są niżej w DOM.
-    const facts = quickView.locator("dl").first();
+    const facts = page.getByRole("dialog").locator("dl").first();
     await expect(facts).toBeVisible();
-    await expect(facts.locator("dt")).toHaveCount(4);
-    await expect(page.getByRole("heading", { name: "Sugerowane rekrutacje" })).toBeVisible();
+    await expect(facts.locator("dt")).toHaveCount(3);
 
-    const order = await page.evaluate(() => {
-      const facts = document.querySelector("dl");
-      const suggestions = document.querySelector("#quick-matches");
-      return facts && suggestions
-        ? facts.compareDocumentPosition(suggestions) & Node.DOCUMENT_POSITION_FOLLOWING
-        : 0;
-    });
-    expect(order).toBeTruthy();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: "Zamknij szybki podgląd" })).toHaveCount(0);
   });
 
   for (const theme of ["light", "dark", "soft", "kids"] as const) {
@@ -135,8 +131,8 @@ test.describe("candidate UX deterministic previews", () => {
         if (selectedTheme === "soft") document.documentElement.setAttribute("data-soft", "true");
         if (selectedTheme === "kids") document.documentElement.setAttribute("data-kids", "true");
       }, theme);
-      await expect(page.getByRole("heading", { name: "Quick view i pełny profil" })).toBeVisible();
-      await expect(page.getByText("Janusz Prażmowski").first()).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: /Marta Kowalczyk/ })).toBeVisible();
+      await expect(page.getByRole("tablist", { name: "Sekcje profilu kandydata" })).toBeVisible();
       await expectNoPageOverflow(page);
     });
   }

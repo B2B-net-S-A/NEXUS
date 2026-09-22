@@ -182,8 +182,13 @@ test.describe("Pipeline rekrutacji @stack", () => {
     await expect(card).toBeVisible();
     // Puste kolumny są domyślnie ukryte (store/ui.ts hideEmptyKanbanColumns),
     // a świeża rekrutacja ma tylko jedną niepustą — bez celu strzałka nic nie robi.
-    const showEmpty = page.getByRole("button", { name: /Kolumny: pokaż puste/ });
-    if (await showEmpty.isVisible()) await showEmpty.click();
+    // Przełącznik „Ukryj puste kolumny" (aria-pressed = puste ukryte) wyłączamy
+    // jawnie; do 22.09.2026 nazywał się „Kolumny: pokaż puste" i test po
+    // zmianie nazwy nic nie klikał, więc karta nie miała dokąd pojechać.
+    const hideEmpty = page.getByRole("button", { name: "Ukryj puste kolumny" });
+    await expect(hideEmpty).toBeVisible();
+    if ((await hideEmpty.getAttribute("aria-pressed")) === "true") await hideEmpty.click();
+    await expect(hideEmpty).toHaveAttribute("aria-pressed", "false");
     // Przeciąganie klawiaturą (@hello-pangea/dnd): Spacja podnosi kartę,
     // strzałka przenosi ją do sąsiedniej kolumny, Spacja upuszcza.
     await card.focus();
