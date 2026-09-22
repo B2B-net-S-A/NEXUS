@@ -25,12 +25,18 @@ def test_hourly_daily_conversion_uses_fixed_eight_hour_day() -> None:
 
 def test_conversion_preserves_empty_values_and_supports_contract_monthly_unit() -> None:
     assert convert_order_rate(None, RateUnit.hourly, RateUnit.daily) is None
+    # Miesiąc roboczy = 21 MD (``app.core.work_time``, do 22.09.2026: 22).
     assert convert_order_rate(
-        Decimal("22000"), RateUnit.monthly, RateUnit.daily
+        Decimal("21000"), RateUnit.monthly, RateUnit.daily
     ) == Decimal("1000.000")
     assert convert_order_rate(
         Decimal("1000"), RateUnit.daily, RateUnit.monthly
-    ) == Decimal("22000.000")
+    ) == Decimal("21000.000")
+    # Domyślne godziny = 168, więc trzy pary się zgadzają: 125 zł/h = 1000 zł/MD
+    # = 21 000 zł/mc.
+    assert convert_order_rate(
+        Decimal("125"), RateUnit.hourly, RateUnit.monthly
+    ) == Decimal("21000.000")
     assert convert_order_rate(
         Decimal("16000"), RateUnit.monthly, RateUnit.hourly, 160
     ) == Decimal("100.000")

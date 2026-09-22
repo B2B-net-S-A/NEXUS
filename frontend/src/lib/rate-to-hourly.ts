@@ -14,9 +14,10 @@
  */
 
 import type { RateUnit } from "@/lib/api";
+import { HOURS_PER_MD, HOURS_PER_MONTH } from "@/lib/work-time";
 
-export const HOURS_PER_DAY = 8;
-export const HOURS_PER_MONTH = 168;
+export const HOURS_PER_DAY = HOURS_PER_MD;
+export { HOURS_PER_MONTH };
 
 const HOURLY_DIVISOR: Record<RateUnit, number> = {
   hourly: 1,

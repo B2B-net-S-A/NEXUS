@@ -170,8 +170,8 @@ Zapisujesz przyciskiem **Utwórz umowę i zamówienie**.
 
 > **Jednostka stawki jest domyślnie „Miesięczna".** Ustaw ją **zanim** wpiszesz
 > kwoty — przełączenie jednostki przelicza obie stawki, a stawka godzinowa
-> zapisana jako miesięczna daje kwotę mniej więcej sto sześćdziesiąt razy za
-> dużą. Nie zatwierdzaj formularza klawiszem Enter, dopóki jednostka nie jest
+> zapisana jako miesięczna daje kwotę 168 razy za dużą (miesiąc roboczy to
+> 168 godzin = 21 MD × 8 h). Nie zatwierdzaj formularza klawiszem Enter, dopóki jednostka nie jest
 > ustawiona.
 
 > **Umowa aktywuje się sama, gdy ma komplet:** datę startu umowy, stawkę kosztową
@@ -898,7 +898,8 @@ widać tam było wyłącznie odczyty uruchamiane ręcznie w formularzach.
   stawka przeliczona na godzinę (1340 zł/MD → 167,50 zł/h). Umowa z generatora
   jest godzinowa i taka zostaje; umowa ryczałtowa (zł/mc) przechodzi na zł/h
   przy pierwszym zamówieniu w MD. Kwoty miesięczne się nie zmieniają — umowa
-  liczy wtedy 176 godzin w miesiącu (22 MD × 8 h). Stawka kosztowa wraca do
+  liczy standardowy miesiąc roboczy 168 godzin (21 MD × 8 h), tym samym
+  miesiącem system liczy MRR i marżę każdej umowy. Stawka kosztowa wraca do
   zamówienia w MD pomnożona przez 8, więc ta sama kwota.
 * **Ustawia stawkę kosztową zamówienia z umowy.** Umowa jest jej jedynym
   źródłem: pole w zamówieniu jest tylko do odczytu (dopisek „z kontraktu"),

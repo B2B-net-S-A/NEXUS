@@ -250,7 +250,7 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     ).toHaveValue("560");
   });
 
-  it("pokazuje godzinową stawkę kontraktu 60 bez normalizacji 160/22 i zapisuje 480 PLN/MD", async () => {
+  it("pokazuje godzinową stawkę kontraktu 60 bez normalizacji 168/21 i zapisuje 480 PLN/MD", async () => {
     const user = setupUser();
     const onSubmit = vi.fn();
     vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
@@ -295,7 +295,7 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_cost).toBe(480);
   });
 
-  it("pokazuje miesięczną stawkę kontraktu 1:1 i dopiero przy zapisie dzieli ją przez 22 MD", async () => {
+  it("pokazuje miesięczną stawkę kontraktu 1:1 i dopiero przy zapisie dzieli ją przez 21 MD", async () => {
     const user = setupUser();
     const onSubmit = vi.fn();
     vi.mocked(orderGroupsApi.consultantOptions).mockResolvedValue({
@@ -328,12 +328,12 @@ describe("ConsultantLineModal — wybór konsultanta", () => {
     expect(
       within(costUnits).getByRole("button", { name: "miesięczna (zł/mc)" }),
     ).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText(/Zapis w PLN\/MD: 46\.59 zł/)).toBeInTheDocument();
+    expect(screen.getByText(/Zapis w PLN\/MD: 48\.8 zł/)).toBeInTheDocument();
 
     await fillRevenueAndBudget(user);
     await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
 
-    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_cost).toBe(46.59);
+    expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_cost).toBe(48.8);
   });
 
   it("zachowuje walutę i surową stawkę kontraktu, przekazując konwersję PLN backendowi", async () => {
@@ -1157,7 +1157,7 @@ describe("ConsultantLineModal — odczyt PDF", () => {
 
     await user.click(screen.getByRole("button", { name: "Dodaj konsultanta" }));
     expect((onSubmit.mock.calls[0][0] as LineFormValues).rate_revenue).toBe(
-      545.45,
+      571.43,
     );
   });
 

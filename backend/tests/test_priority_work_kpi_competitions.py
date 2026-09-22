@@ -541,6 +541,22 @@ def test_only_qualified_recruiters_can_receive_monthly_award() -> None:
     assert [row.user_id for row in competitions.qualified_for_award(ranked)] == [2]
 
 
+def _no_closure_no_exclusion(monkeypatch) -> None:
+    """Atrapa dla testów mockowych: okres bez zamknięcia, nikt nie wykluczony.
+
+    Zamknięcia (0344) i wykluczenie lidera kwartału mają własne testy na
+    żywym Postgresie w `test_competition_freeze_rules.py`.
+    """
+    monkeypatch.setattr(competitions, "_period_closure", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        competitions,
+        "monthly_race_excluded_user_ids",
+        AsyncMock(
+            return_value=competitions.RaceExclusion(frozenset(), "test", "Q3 2026")
+        ),
+    )
+
+
 async def test_freeze_filters_disqualified_before_persisting_podium(
     monkeypatch,
 ) -> None:
@@ -569,6 +585,7 @@ async def test_freeze_filters_disqualified_before_persisting_podium(
         "compute_live",
         AsyncMock(return_value=ranked),
     )
+    _no_closure_no_exclusion(monkeypatch)
     db = SimpleNamespace(
         execute=AsyncMock(side_effect=[_Result([]), _Result([])]),
         add=lambda _row: None,
@@ -656,6 +673,7 @@ async def test_fresh_freeze_reports_the_rows_it_actually_wrote(monkeypatch) -> N
         ),
     ]
     monkeypatch.setattr(competitions, "compute_live", AsyncMock(return_value=ranked))
+    _no_closure_no_exclusion(monkeypatch)
     db = SimpleNamespace(
         execute=AsyncMock(side_effect=[_Result([]), _Result([])]),
         add=lambda _row: None,
@@ -748,19 +766,23 @@ async def test_autofreeze_failure_in_one_type_does_not_starve_the_rest(
 
     frozen: list[str] = []
 
-    async def _freeze(_db, ctype, period):
+    async def _freeze(_db, ctype, period, *, reason=None):
         frozen.append(f"{ctype.value}:{period}")
         return competitions.FrozenPodium([object()], already_frozen=False)
 
     monkeypatch.setattr(competitions, "freeze_competition", _freeze)
+    from app.services import competition_rules
 
-    # Styczeń — poprzedni kwartał (Q4 2025) != bieżący, więc blok kwartalny leci.
+    monkeypatch.setattr(competition_rules.settings, "TRAFFIT_SYNC_ENABLED", False)
+
+    # Styczeń — poprzedni kwartał (Q4 2025) != bieżący, więc blok kwartalny leci
+    # (PRZED miesiącami: wykluczenie lidera czyta wtedy zamrożony kwartał).
     results = await competition_autofreeze._run_once(date(2026, 1, 15))
 
     assert frozen == [
-        "monthly_placements:2025-12",
         "quarterly_champions_dl:Q4 2025",
         "quarterly_champions_recruiter:Q4 2025",
+        "monthly_placements:2025-12",
     ]
     assert set(results) == set(frozen)
     assert session.rollbacks == 1

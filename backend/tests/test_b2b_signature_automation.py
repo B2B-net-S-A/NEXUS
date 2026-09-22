@@ -1254,7 +1254,8 @@ async def test_keep_existing_terms_links_without_touching_the_contract(
         # zamówieniem przelicza jednak na zł/h (ticket 14.09.2026: stawki
         # w Kontraktach są godzinowe). Te same kwoty: × 8 = dawna stawka MD.
         assert contract.rate_unit == RateUnit.hourly
-        assert contract.billing_hours_per_month == 176
+        assert contract.billing_hours_per_month == 168
+        assert contract.orders_in_md is True
         assert contract.rate_candidate * 8 == Decimal("1204.000")
         assert contract.rate_client * 8 == Decimal("1760.000")
         assert contract.start_date == date(2026, 8, 1)

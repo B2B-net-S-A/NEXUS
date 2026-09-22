@@ -180,7 +180,7 @@ async def _new_person_contract(db, doc, rp, actor_user_id=None):
         framework_rate_schedule=[],
     )
     # Zamówienie w MD daje kontrakt w zł/h (decyzja 14.09.2026); szkic nie ma
-    # jeszcze kwot, więc przestawiana jest sama jednostka i 176 h/mc.
+    # jeszcze kwot, więc przestawiana jest sama jednostka i 168 h/mc.
     apply_contract_hourly_policy(contract)
     db.add(contract)
     await db.flush()
@@ -266,7 +266,7 @@ async def _renewal_of_completed_order(
     # reaktywacja w miejscu zostawiała je w wierszu, więc nowe zamówienie musi
     # je odziedziczyć. Bez `project_part` zamówienie e-Zdrowia nie przejdzie
     # walidacji części umowy, a bez `billing_hours_per_month` stawka
-    # przeliczałaby się po domyślnych 160 h.
+    # przeliczałaby się po domyślnych godzinach zamiast wpisanych w poprzednim.
     inherited = {
         "project_part": previous.project_part,
         # Część jest pochodną umowy wykonawczej (CeZ) — bez niej nowe

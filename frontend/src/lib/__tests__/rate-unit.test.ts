@@ -19,9 +19,9 @@ describe("rate-unit — przelicznik godzinowa / miesięczna ↔ MD", () => {
     expect(convertRate(1040, "md", "hour")).toBe(130);
   });
 
-  it("miesięczna ÷ 22 = MD i wraca do miesięcznej", () => {
-    expect(convertRate(11000, "month", "md")).toBe(500);
-    expect(convertRate(500, "md", "month")).toBe(11000);
+  it("miesięczna ÷ 21 = MD i wraca do miesięcznej", () => {
+    expect(convertRate(10500, "month", "md")).toBe(500);
+    expect(convertRate(500, "md", "month")).toBe(10500);
   });
 
   it("ta sama jednostka tylko zaokrągla", () => {
@@ -53,16 +53,16 @@ describe("rate-unit — przelicznik godzinowa / miesięczna ↔ MD", () => {
   it("zapis zawsze idzie w zł/MD — niezależnie od wybranej jednostki", () => {
     expect(toMdRate(130, "hour")).toBe(1040);
     expect(toMdRate(1040, "md")).toBe(1040);
-    expect(toMdRate(12000, "month")).toBe(545.45);
+    expect(toMdRate(12000, "month")).toBe(571.43);
   });
 
   it("stosuje kurs do PLN przed końcowym zaokrągleniem", () => {
     expect(toPlnMdRate(60, "hour", 1)).toBe(480);
     expect(toPlnMdRate(100, "hour", 4.25)).toBe(3400);
-    expect(toPlnMdRate(12000, "month", 4.25)).toBe(2318.18);
-    // 1024,87 / 22 = 46,585 — wymagane finansowe ROUND_HALF_UP, nie wynik
+    expect(toPlnMdRate(12000, "month", 4.25)).toBe(2428.57);
+    // 978,285 / 21 = 46,585 — wymagane finansowe ROUND_HALF_UP, nie wynik
     // zależny od binarnej reprezentacji IEEE-754.
-    expect(toPlnMdRate(1024.87, "month", 1)).toBe(46.59);
+    expect(toPlnMdRate(978.285, "month", 1)).toBe(46.59);
   });
 
   it("mapuje jednostkę kontraktu, a brak metadanych zgodnie wstecznie na MD", () => {
@@ -77,8 +77,8 @@ describe("rate-unit — przelicznik godzinowa / miesięczna ↔ MD", () => {
     expect(rateUnitLabel("month", "PLN")).toBe("miesięczna (zł/mc)");
   });
 
-  it("MD to 8 godzin — stała jest jawna, nie wklejona w kod", () => {
+  it("MD to 8 godzin, miesiąc 21 MD — stałe z lib/work-time, nie wklejone w kod", () => {
     expect(HOURS_PER_MD).toBe(8);
-    expect(MD_PER_MONTH).toBe(22);
+    expect(MD_PER_MONTH).toBe(21);
   });
 });

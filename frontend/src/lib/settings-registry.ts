@@ -29,7 +29,7 @@ export const SETTINGS_AREAS: readonly SettingsArea[] = [
   { id: "team", name: "Zespół i dostęp", hint: "Kto ma konto, co widzi i którego klienta prowadzi" },
   { id: "rec", name: "Rekrutacja", hint: "Etapy, CV dla klientów, ranking, maile" },
   { id: "deals", name: "Umowy i stawki", hint: "Wzory umów, stawki rynkowe" },
-  { id: "sys", name: "System", hint: "Powiadomienia, AI, Traffit, listy wyboru, historia zdarzeń" },
+  { id: "sys", name: "System", hint: "Powiadomienia, AI, Traffit, listy wyboru, historia zdarzeń, wykluczone placementy" },
 ] as const;
 
 export type SettingsItemId =
@@ -48,6 +48,7 @@ export type SettingsItemId =
   | "dict"
   | "fields"
   | "history"
+  | "placements"
   | "notifications"
   // Ukryte — tylko pod adresem.
   | "teams"
@@ -192,6 +193,13 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "zdarzenia audyt log historia usuniecia",
     wide: true, ownHeader: true,
     gate: { roles: ["admin", "finance"], section: "finance", finance: true },
+  },
+  {
+    id: "placements", area: "sys", title: "Wykluczone placementy",
+    description: "Zatrudnienia z masowych serii bez CV, które nie liczą się w statystykach.",
+    keywords: "placementy zatrudnieni statystyki wykluczenia seria kpi insights",
+    wide: true, ownHeader: true,
+    gate: { roles: ["admin"] },
   },
   // ── Ukryte (tylko pod adresem) ────────────────────────────────────────────
   {

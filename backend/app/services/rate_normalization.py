@@ -23,10 +23,14 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Optional
 
+from app.core.work_time import HOURS_PER_MONTH_DEC, MD_PER_MONTH_DEC
+
 POLICY_VERSION = "168h-21d-v1"
 
-MONTHLY_HOURS = Decimal("168")
-MONTHLY_DAYS = Decimal("21")
+# Od 22.09.2026 ta polityka jest miesiącem roboczym CAŁEGO systemu
+# (``app.core.work_time``) — MRR, marża i analityka liczą tym samym.
+MONTHLY_HOURS = HOURS_PER_MONTH_DEC
+MONTHLY_DAYS = MD_PER_MONTH_DEC
 
 _UNIT_FACTORS: dict[str, Decimal] = {
     "hourly": MONTHLY_HOURS,

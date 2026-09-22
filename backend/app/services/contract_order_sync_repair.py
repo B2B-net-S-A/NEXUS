@@ -35,6 +35,7 @@ from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
+from app.core.work_time import HOURS_PER_MONTH
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -147,8 +148,8 @@ def reconciliation_row(
     side = _order_side(order)
     unit: RateUnit = side["unit"]
     contract_unit = RateUnit(contract.rate_unit)
-    contract_hours = contract.billing_hours_per_month or 160
-    order_hours = order.billing_hours_per_month or 160
+    contract_hours = contract.billing_hours_per_month or HOURS_PER_MONTH
+    order_hours = order.billing_hours_per_month or HOURS_PER_MONTH
     cost_day = cost_reference_day(order, today)
     revenue_day = order.start_date or cost_day
 

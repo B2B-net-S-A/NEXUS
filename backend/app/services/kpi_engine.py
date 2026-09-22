@@ -250,13 +250,20 @@ async def count_canonical_metric(
     since: datetime,
     until: datetime,
 ) -> int:
-    """Kanoniczny licznik KPI v2 (plan §4.2) — te same definicje co
-    Analytics v1 i panel „Moje KPI":
+    """Kanoniczny licznik KPI v2 (plan §4.2) — definicje panelu „Moje KPI".
 
     - completed_calls: Call completed po COALESCE(started_at, created_at),
     - first_*: pierwsze milestone'y z atrybucją verifier-anchored
-      (VERIFIER_ANCHORED_CTE / view analytics_first_milestones),
+      (``VERIFIER_ANCHORED_CTE`` — rodzina atrybucji A: zasługę dostaje
+      pierwszy zaakceptowany weryfikator pary; widok
+      ``analytics_first_milestones`` jest tylko źródłem gałęzi ``legacy``),
     - new_candidates: candidates.created_by.
+
+    UWAGA: to NIE jest ta sama atrybucja co Analytics v1 / Insights (rodzina B:
+    ``analytics_first_milestones.first_moved_by`` = osoba, która kliknęła
+    etap). Liczba pierwszych wejść na etap w całej firmie jest wspólna, ale
+    przypisanie do ludzi się różni. Obie rodziny pomijają wykluczone
+    placementy (0343, ``services/placement_exclusions.py``).
     """
     if metric is KpiMetric.completed_calls:
         effective_at = func.coalesce(Call.started_at, Call.created_at)

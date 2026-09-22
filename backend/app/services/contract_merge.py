@@ -211,6 +211,9 @@ _CONTRACT_RATE_CACHE_FIELDS = {
     "rate_client_currency",
     "rate_candidate_currency",
     "billing_hours_per_month",
+    # Znacznik „zamówienia w MD" (0345) — ustawiany przez synchronizację
+    # z zamówieniami, nie przez scalenie; zostaje na kontrakcie zachowanym.
+    "orders_in_md",
     "margin",
 }
 _FINANCIAL_METADATA_FIELDS = (

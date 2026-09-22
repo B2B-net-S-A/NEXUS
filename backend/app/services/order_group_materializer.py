@@ -40,6 +40,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
+from app.core.work_time import HOURS_PER_MONTH
 from app.models.candidate import Candidate
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import GROUP_STATUS_ACTIVE, ClientOrderGroup
@@ -331,7 +332,7 @@ async def materialize_group_for_activated_order(
             value,
             unit,
             RateUnit.daily,
-            order.billing_hours_per_month or 160,
+            order.billing_hours_per_month or HOURS_PER_MONTH,
         )
         if per_md is None:
             return None
@@ -378,13 +379,19 @@ async def materialize_group_for_activated_order(
     _assert_fits_order_rate_column(order.md_rate_cost, "kosztowa")
     _assert_fits_order_rate_column(order.md_rate_revenue, "przychodowa")
     order.rate_candidate = convert_order_rate(
-        candidate_rate, unit, RateUnit.daily, order.billing_hours_per_month or 160
+        candidate_rate,
+        unit,
+        RateUnit.daily,
+        order.billing_hours_per_month or HOURS_PER_MONTH,
     )
     order.rate_client = convert_order_rate(
-        order.rate_client, unit, RateUnit.daily, order.billing_hours_per_month or 160
+        order.rate_client,
+        unit,
+        RateUnit.daily,
+        order.billing_hours_per_month or HOURS_PER_MONTH,
     )
     order.rate_unit = RateUnit.daily
-    order.billing_hours_per_month = 160
+    order.billing_hours_per_month = HOURS_PER_MONTH
     order.currency = client_currency
     order.rate_client_currency = client_currency
     order.rate_candidate_currency = candidate_currency

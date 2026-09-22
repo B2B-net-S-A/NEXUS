@@ -86,7 +86,7 @@ def test_monthly_daily_and_monthly_units_are_decimal():
     from app.models.contract import RateUnit
 
     daily = _FakeContract(rate_unit=RateUnit.daily)
-    assert _monthly(daily, Decimal("100.25")) == Decimal("2205.50")  # ×22
+    assert _monthly(daily, Decimal("100.25")) == Decimal("2105.25")  # ×21 MD
 
     monthly = _FakeContract(rate_unit=RateUnit.monthly)
     assert _monthly(monthly, Decimal("999.99")) == Decimal("999.99")

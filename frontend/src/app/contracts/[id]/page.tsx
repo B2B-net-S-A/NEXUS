@@ -52,6 +52,7 @@ import { celebrate } from "@/lib/celebrate";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { hasSectionAccess } from "@/lib/section-access";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
+import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import {
   canManageCandidateFinance,
@@ -430,7 +431,9 @@ function contractToForm(c: ContractDetail): EditForm {
     rate_client_currency: c.rate_client_currency ?? c.currency ?? "PLN",
     rate_candidate_currency: c.rate_candidate_currency ?? c.currency ?? "PLN",
     rate_unit: c.rate_unit ?? "monthly",
-    billing_hours_per_month: (c.billing_hours_per_month ?? 160).toString(),
+    billing_hours_per_month: (
+      c.billing_hours_per_month ?? HOURS_PER_MONTH
+    ).toString(),
     contract_type: c.contract_type,
     status: c.status,
     client_pm_name: c.client_pm_name ?? "",
@@ -777,7 +780,8 @@ export default function ContractDetailPage() {
         rate_client_currency: form.rate_client_currency,
         rate_candidate_currency: form.rate_candidate_currency,
         rate_unit: form.rate_unit,
-        billing_hours_per_month: Number(form.billing_hours_per_month) || 160,
+        billing_hours_per_month:
+          Number(form.billing_hours_per_month) || HOURS_PER_MONTH,
       });
       if ((isProgressive || hadSchedule) && scheduleSteps.length > 0) {
         payload.candidate_rate_schedule = scheduleSteps;

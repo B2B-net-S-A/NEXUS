@@ -3,6 +3,7 @@ from typing import Annotated, Any, Literal, Optional
 
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
+from app.core.work_time import HOURS_PER_MONTH
 from app.models.contract import (
     ContractStatus,
     ContractTerminationReason,
@@ -134,7 +135,7 @@ class ContractCreate(BaseModel):
     rate_client_currency: Optional[str] = None
     rate_candidate_currency: Optional[str] = None
     rate_unit: RateUnit = RateUnit.monthly
-    billing_hours_per_month: int = 160
+    billing_hours_per_month: int = HOURS_PER_MONTH
     # Effective-dated candidate-rate schedule (optional). When provided, drives
     # the candidate rate over time; `rate_candidate` is derived from it.
     candidate_rate_schedule: Optional[list[ContractCandidateRateInput]] = None

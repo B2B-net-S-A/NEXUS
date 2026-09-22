@@ -28,6 +28,7 @@ from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.contract_templates import _contract_vars, _jinja_env
 from app.core.database import get_db
 from app.core.scheduling import business_today
+from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.activity import Activity
 from app.models.call import Call
 from app.models.candidate import Candidate
@@ -928,7 +929,7 @@ async def _inherit_rates_into_unpriced_order_drafts(
     """Initialize drafts created before the Contract had financial terms.
 
     Flow B can be created operationally by a Delivery Lead without rates.  Its
-    non-null ORM defaults (monthly/160) must not masquerade as a manual order
+    non-null ORM defaults (monthly/168) must not masquerade as a manual order
     choice when an admin later completes the Contract.  We only touch
     standalone drafts whose two own rates are still empty; any priced order is
     already an independent snapshot and remains untouched.
@@ -2827,7 +2828,7 @@ async def create_contract(
         ]
     # Stawki w Kontraktach są godzinowe (14.09.2026): kontrakt podany w MD
     # przeliczamy w całości (stawki, harmonogramy, stawka ramowa, widełki ÷ 8,
-    # 176 h/mc) PRZED zapisem — nowy obiekt ma wszystkie kwoty w jednej
+    # 168 h/mc) PRZED zapisem — nowy obiekt ma wszystkie kwoty w jednej
     # jednostce, a kolekcje harmonogramów nie wymagają doczytania.
     apply_contract_hourly_policy(contract)
     db.add(contract)
@@ -3423,6 +3424,7 @@ async def update_contract(
     if normalized_from_daily:
         updates["rate_unit"] = RateUnit.hourly
         updates["billing_hours_per_month"] = contract.billing_hours_per_month
+        updates["orders_in_md"] = contract.orders_in_md
 
     draft_orders_inherited = 0
     if data.model_fields_set & _DRAFT_ORDER_RATE_INHERITANCE_INPUTS:
@@ -5333,9 +5335,9 @@ def _monthly_equivalent(
     if unit == RateUnit.monthly:
         return rate
     if unit == RateUnit.daily:
-        return rate * 22
+        return rate * MD_PER_MONTH
     if unit == RateUnit.hourly:
-        return rate * (hours or 160)
+        return rate * (hours or HOURS_PER_MONTH)
     return rate
 
 

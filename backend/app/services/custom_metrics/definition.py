@@ -40,6 +40,10 @@ MetricPeriod = Literal[
 # Etapy liczone z widoku `analytics_first_milestones` — PIERWSZE wejście pary
 # (kandydat, rekrutacja) na etap (reguła D2, ta sama co Insights). Inne etapy
 # świadomie poza kreatorem: surowe `candidate_stages` dubluje powroty na etap.
+# Przypisanie do LUDZI (autor „moje"/„mój zespół", podział po rekruterze) idzie
+# kredytem jak w „Moje KPI" (`VERIFIER_ANCHORED_CTE` — pierwszy zaakceptowany
+# weryfikator pary), nie osobą, która kliknęła etap (decyzja 22.09.2026).
+# Wykluczone placementy (0343) nie liczą się w żadnym wariancie.
 MILESTONE_STAGES: tuple[str, ...] = (
     "verified",
     "cv_sent",

@@ -86,6 +86,13 @@ const EventHistoryTab = dynamic(
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
   }
 );
+const PlacementExclusionsTab = dynamic(
+  () => import("@/components/settings/PlacementExclusionsTab"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
 
 const ConflictsRegistryTab = dynamic(
   () => import("@/components/settings/ConflictsRegistryTab"),
@@ -545,6 +552,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
       return <FirefliesCard />;
     case "history":
       return <EventHistoryTab />;
+    case "placements":
+      return <PlacementExclusionsTab />;
     case "teams":
       return <TeamsNotificationsCard />;
     case "coaching":

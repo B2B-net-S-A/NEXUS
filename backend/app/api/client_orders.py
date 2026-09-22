@@ -48,6 +48,7 @@ from app.services.critical_events import audited_deletion
 from app.services.order_engagement_separation import assert_no_open_md_group_line
 from app.core.database import get_db
 from app.core.scheduling import business_today
+from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.activity import Activity
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
@@ -652,9 +653,9 @@ def _normalize_monthly(
     if rate_unit == RateUnit.monthly or rate_unit is None:
         return rate
     if rate_unit == RateUnit.daily:
-        return rate * 22
+        return rate * MD_PER_MONTH
     if rate_unit == RateUnit.hourly:
-        return rate * (billing_hours or 160)
+        return rate * (billing_hours or HOURS_PER_MONTH)
     return rate
 
 
@@ -686,7 +687,7 @@ def _compute_monthly_margin(
     # `is not None` zamiast `or` — stawka 0 na Orderze jest legalna i nie może
     # po cichu spadać do stawki kontraktu. Stawka z kontraktu jest w JEGO
     # jednostce (zł/h od 14.09.2026), więc przed normalizacją przechodzi na
-    # jednostkę zamówienia — inaczej 125 zł/h liczyłoby się jako 125 zł/MD × 22.
+    # jednostkę zamówienia — inaczej 125 zł/h liczyłoby się jako 125 zł/MD × 21.
     rate_client_effective = (
         order.rate_client
         if order.rate_client is not None
@@ -1038,7 +1039,7 @@ def _flow_b_finance_kwargs(
         and client_currency != legacy
     ):
         _raise_currency_conflict(["rate_client_currency"])
-    billing_hours = payload.billing_hours_per_month or 160
+    billing_hours = payload.billing_hours_per_month or HOURS_PER_MONTH
     contract_kwargs: dict[str, object] = {
         "rate_client": payload.rate_client,
         "rate_candidate": payload.rate_candidate,
@@ -1353,7 +1354,7 @@ async def list_contractors_with_orders(
                 rate_client_currency=eff["rate_client_currency"],
                 rate_candidate_currency=eff["rate_candidate_currency"],
                 rate_unit=c.rate_unit.value,
-                billing_hours_per_month=c.billing_hours_per_month or 160,
+                billing_hours_per_month=c.billing_hours_per_month or HOURS_PER_MONTH,
                 initial_job_id=c.job_id,
                 initial_job_title=c.job.title if c.job else None,
                 latest_order_id=latest.id if latest else None,
@@ -1778,13 +1779,14 @@ async def create_order_extension(
     # na inną niż kontrakt zniekształciłaby dziedziczoną kwotę (×h/×dni). Domyślną
     # jednostkę klienta stosuje wyłącznie tworzenie NOWEGO zamówienia
     # (`contract-with-order`), gdzie stawek nie ma skąd dziedziczyć.
-    # Kontrakt przeliczony z MD jest dziś w zł/h (176 h/mc), ale jego zamówienia
-    # zostają w MD (ticket 14.09.2026) — ``order_unit_for_contract``.
+    # Kontrakt przeliczony z MD jest dziś w zł/h (168 h/mc, ``orders_in_md``),
+    # ale jego zamówienia zostają w MD (ticket 14.09.2026) —
+    # ``order_unit_for_contract``.
     resolved_unit = rate_unit or order_unit_for_contract(contract)
     resolved_billing_hours = billing_hours_per_month or (
-        contract.billing_hours_per_month or 160
+        contract.billing_hours_per_month or HOURS_PER_MONTH
         if RateUnit(resolved_unit) == RateUnit(contract.rate_unit)
-        else 160
+        else HOURS_PER_MONTH
     )
     # Values supplied by the form are already expressed in resolved_unit. A
     # missing value is inherited from Contract and therefore must be converted
@@ -2286,14 +2288,14 @@ async def update_order(
                     order.rate_candidate,
                     old_unit,
                     new_unit,
-                    order.billing_hours_per_month or 160,
+                    order.billing_hours_per_month or HOURS_PER_MONTH,
                 )
             if "rate_client" not in payload.model_fields_set:
                 data["rate_client"] = convert_order_rate(
                     order.rate_client,
                     old_unit,
                     new_unit,
-                    order.billing_hours_per_month or 160,
+                    order.billing_hours_per_month or HOURS_PER_MONTH,
                 )
 
     legacy_sent = "currency" in payload.model_fields_set
@@ -3065,7 +3067,7 @@ async def create_contract_with_order(
         **contract_finance_kwargs,
     )
     # Stawki w Kontraktach są godzinowe (14.09.2026): kontrakt z formularza
-    # w MD zapisujemy w zł/h (÷ 8, 176 h/mc). Zamówienie niżej zostaje w MD —
+    # w MD zapisujemy w zł/h (÷ 8, 168 h/mc). Zamówienie niżej zostaje w MD —
     # to dokument od klienta, a koszt wróci do niego ×8 bez zmiany kwoty.
     apply_contract_hourly_policy(contract)
     db.add(contract)

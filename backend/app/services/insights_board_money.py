@@ -36,6 +36,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Iterable, Optional, Sequence
 
+from app.core.work_time import HOURS_PER_MD, HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.contract import Contract, RateUnit
 from app.schemas.money import to_whole_pln
 from app.services.contract_rates import effective_rate_fields
@@ -60,16 +61,14 @@ MONTH_LABELS_PL = (
 )
 
 # Ile godzin kryje się za miesięczną kwotą kontraktu rozliczanego DZIENNIE.
-# `Contract.monthly_rate` mnoży stawkę dzienną przez 22 (standardowy miesiąc
-# roboczy PL), a jeden dzień roboczy to w tym repozytorium 8 godzin — ta sama
-# stała, którą polityka odczytu PDF Banku Pocztowego stosuje jako „netto MD ÷ 8"
-# (MD = man-day). Nie jest to zgadywanie: obie liczby są już przyjęte gdzie
-# indziej, a tutaj tylko się spotykają.
-HOURS_PER_WORKDAY = 8
-WORKDAYS_PER_MONTH = 22
+# `Contract.monthly_rate` mnoży stawkę dzienną przez 21 MD, a jeden dzień
+# roboczy to 8 godzin — obie liczby z jednego miejsca, ``app.core.work_time``
+# (decyzja 22.09.2026: miesiąc roboczy = 21 MD × 8 h = 168 h).
+HOURS_PER_WORKDAY = HOURS_PER_MD
+WORKDAYS_PER_MONTH = MD_PER_MONTH
 # Domyślny wymiar godzin, gdy kontrakt godzinowy go nie podaje — ta sama
 # wartość, którą zakłada `Contract.monthly_rate`.
-DEFAULT_BILLING_HOURS = 160
+DEFAULT_BILLING_HOURS = HOURS_PER_MONTH
 
 
 def ratio(
@@ -157,13 +156,13 @@ def _billable_hours(contract: Contract) -> Optional[Decimal]:
     """Ile godzin kryje się za miesięczną kwotą tego kontraktu.
 
     ``None`` dla rozliczenia miesięcznego — kwota ryczałtowa nie niesie
-    informacji o liczbie godzin, a podstawienie 160 zamieniłoby wskaźnik
+    informacji o liczbie godzin, a podstawienie 168 zamieniłoby wskaźnik
     „marża na godzinę" w marżę miesięczną podzieloną przez wymyśloną stałą.
     Taki kontrakt wypada z LICZNIKA i z MIANOWNIKA naraz (patrz ``fold_money``),
     więc średnia zostaje liczona z kontraktów, o których naprawdę wiemy.
     """
     if contract.rate_unit == RateUnit.hourly:
-        # `or 160` zamieniałoby JAWNE zero na 160, czyli dokładnie odwrotnie
+        # `or 168` zamieniałoby JAWNE zero na 168, czyli dokładnie odwrotnie
         # do intencji: guard w `fold_money` (`hours <= 0`) nigdy by takiego
         # kontraktu nie zobaczył, bo dostałby już podmienioną liczbę. Fallback
         # należy się wyłącznie brakowi wartości.

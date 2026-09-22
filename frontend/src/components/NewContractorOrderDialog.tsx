@@ -26,6 +26,7 @@ import { useExecutiveContractOptions } from "@/lib/api/executiveContracts";
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
+import { HOURS_PER_MONTH } from "@/lib/work-time";
 import {
   canManageCandidateFinance,
   useAuthStore,
@@ -132,7 +133,7 @@ export function NewContractorOrderDialog({
   // gdy nadpisał ją odczyt z dokumentu — inaczej późno dojeżdżający default
   // przełączyłby świadomie ustawioną jednostkę (i przeliczone pod nią kwoty).
   const rateUnitTouchedRef = useRef(false);
-  const [billingHours, setBillingHours] = useState("160");
+  const [billingHours, setBillingHours] = useState(String(HOURS_PER_MONTH));
   const [rateClientCurrency, setRateClientCurrency] = useState("PLN");
   const [rateCandidateCurrency, setRateCandidateCurrency] = useState("PLN");
   const [notes, setNotes] = useState("");
@@ -175,7 +176,7 @@ export function NewContractorOrderDialog({
     rateClient: "",
     rateCandidate: "",
     rateUnit: "monthly" as "monthly" | "daily" | "hourly",
-    billingHours: "160",
+    billingHours: String(HOURS_PER_MONTH),
   });
   formRef.current = {
     title,
@@ -262,7 +263,7 @@ export function NewContractorOrderDialog({
             form.rateClient,
             form.rateUnit,
             detectedUnit,
-            Number(form.billingHours) || 160,
+            Number(form.billingHours) || HOURS_PER_MONTH,
           ),
         );
         setRateCandidate(
@@ -270,7 +271,7 @@ export function NewContractorOrderDialog({
             form.rateCandidate,
             form.rateUnit,
             detectedUnit,
-            Number(form.billingHours) || 160,
+            Number(form.billingHours) || HOURS_PER_MONTH,
           ),
         );
         // Jednostka z dokumentu to świadomy wybór — nie pozwól, by późno
@@ -837,7 +838,7 @@ export function NewContractorOrderDialog({
                 }}
                 onRateCandidateChange={setRateCandidate}
                 onRateClientChange={setRateClient}
-                billingHoursPerMonth={Number(billingHours) || 160}
+                billingHoursPerMonth={Number(billingHours) || HOURS_PER_MONTH}
               />
               <div className="grid gap-3 sm:grid-cols-[8rem_1fr_1fr] sm:items-end">
                 <label>

@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/select";
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
+import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { CandidateRateScheduleFields } from "@/components/contracts/CandidateRateScheduleFields";
 import {
   buildCandidateRateSchedule,
@@ -108,7 +109,7 @@ function NewContractForm() {
   const [rateCandidateCurrency, setRateCandidateCurrency] = useState("PLN");
   // Stawki w Kontraktach są godzinowe (umowa B2B podaje stawkę za godzinę).
   const [rateUnit, setRateUnit] = useState("hourly");
-  const [billingHours, setBillingHours] = useState("160");
+  const [billingHours, setBillingHours] = useState(String(HOURS_PER_MONTH));
   // Effective-dated candidate-rate schedule. First row = stawka od startu
   // (effective_from puste ⇒ data rozpoczęcia). Kolejne wiersze = zmiany w czasie.
   const [rateSchedule, setRateSchedule] = useState<RateScheduleRow[]>([
@@ -255,7 +256,7 @@ function NewContractForm() {
           rate_client_currency: rateClientCurrency,
           rate_candidate_currency: rateCandidateCurrency,
           rate_unit: rateUnit,
-          billing_hours_per_month: Number(billingHours) || 160,
+          billing_hours_per_month: Number(billingHours) || HOURS_PER_MONTH,
           rate_candidate: schedule.length === 0 ? null : undefined,
           candidate_rate_schedule: schedule.length > 0 ? schedule : undefined,
           rate_client: parseDecimalInput(rateClient),

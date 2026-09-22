@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from app.core.work_time import HOURS_PER_MONTH
 from app.models.b2b_contract_role import B2BContractRole
 from app.services.b2b_contract_generator.formatting import format_rate, start_clause
 from app.services.b2b_contract_generator.gender import gender_forms
@@ -90,7 +91,7 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
             "rate_client": None,
             "currency": req.currency or "PLN",
             "rate_unit": "hourly",
-            "billing_hours_per_month": 160,
+            "billing_hours_per_month": HOURS_PER_MONTH,
             "contract_type": "b2b",
             "project_name": None,
             "team_name": None,

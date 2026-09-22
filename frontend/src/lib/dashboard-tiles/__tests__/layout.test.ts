@@ -116,7 +116,7 @@ describe("etykiety ustawień", () => {
 
   it("zdanie „Kafelek liczy” opisuje etap, zakres i okres", () => {
     expect(describeMetric(byKey("cv_sent_week").config.metric!)).toBe(
-      "Liczbę osób, które po raz pierwszy doszły do etapu „CV wysłane” — dane Twoje — okres: 7 dni (ze zmianą względem poprzedniego okresu).",
+      "Liczbę osób, które po raz pierwszy doszły do etapu „CV wysłane” — dane Twoje — okres: 7 dni (ze zmianą względem poprzedniego okresu). Zasługa jak w „Moje KPI”: ruch liczy się osobie, która zweryfikowała kandydata.",
     );
     expect(describeMetric(byKey("funnel").config.metric!, { clients: ["Nordea"] })).toContain(
       "u klienta Nordea",

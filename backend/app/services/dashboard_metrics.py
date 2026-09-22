@@ -19,6 +19,7 @@ from app.models.contract import Contract, ContractStatus
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services.contractor_identity import count_unique_contractors
+from app.services.placement_exclusions import not_excluded_placement
 
 
 async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
@@ -102,6 +103,10 @@ async def compute_kpi_snapshot(db: AsyncSession) -> dict[str, Any]:
                 CandidateStage.stage == PipelineStage.hired,
                 CandidateStage.moved_at >= month.start_utc,
                 CandidateStage.moved_at < month.end_utc,
+                # 0343: seria „Zatrudniony" bez CV nie jest placementem.
+                not_excluded_placement(
+                    CandidateStage.candidate_id, CandidateStage.job_id
+                ),
             )
         )
     ).scalar()

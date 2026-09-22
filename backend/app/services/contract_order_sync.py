@@ -25,9 +25,11 @@ Podział odpowiedzialności — każda strona jest źródłem prawdy dla SWOICH 
   prowadzi per linia Delivery Lead (patrz ``sync_orders_cost_from_contract``).
 
 Przelicznik: 1 MD = 8 godzin (``order_rate_snapshots.convert_order_rate``).
-Kontrakt przeliczony z MD na godziny dostaje 176 godzin rozliczeniowych
-w miesiącu (22 MD × 8 h) — dzięki temu miesięczne ekwiwalenty (MRR, marża
-miesięczna, raporty) są co do grosza takie jak przed przeliczeniem.
+Kontrakt przeliczony z MD na godziny liczy standardowy miesiąc roboczy 168 h
+(21 MD × 8 h, ``app.core.work_time``) — ten sam, którym czytniki pieniędzy
+liczą stawkę dzienną (× 21), więc miesięczne ekwiwalenty (MRR, marża
+miesięczna, raporty) są co do grosza takie jak przed przeliczeniem. Fakt, że
+zamówienia takiego kontraktu są w MD, niesie ``contracts.orders_in_md``.
 
 Kiedy liczy się zamówienie jako „uzupełnione": ma datę rozpoczęcia i dodatnią
 stawkę przychodową, a jego status nie jest ``cancelled``. Auto-szkic zakładany
@@ -60,6 +62,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.scheduling import business_today
+from app.core.work_time import HOURS_PER_MONTH
 from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.client_order import ClientOrder, ClientOrderStatus
@@ -68,7 +71,6 @@ from app.models.contract_client_rate import ContractClientRate
 from app.services.contract_lifecycle import auto_activate_complete_draft
 from app.services.order_rate_snapshots import (
     CONTRACT_RATE_SCALE,
-    MD_BILLING_HOURS_PER_MONTH,
     RATE_SCALE,
     contract_rate_in_unit,
     convert_order_rate,
@@ -80,7 +82,6 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "COST_TARGET_ORDER_STATUSES",
     "ContractSyncOutcome",
-    "MD_BILLING_HOURS_PER_MONTH",
     "apply_contract_hourly_policy",
     "contract_unit_for_order",
     "apply_manual_client_rate",
@@ -126,8 +127,8 @@ COST_TARGET_ORDER_STATUSES = frozenset(
     }
 )
 
-# ``MD_BILLING_HOURS_PER_MONTH`` (176 = 22 MD × 8 h, ``order_rate_snapshots``):
-# czytniki pieniędzy liczą miesięcznie stawkę dzienną ×22, a godzinową
+# ``HOURS_PER_MONTH`` (168 = 21 MD × 8 h, ``app.core.work_time``): czytniki
+# pieniędzy liczą miesięcznie stawkę dzienną × 21, a godzinową
 # × ``billing_hours_per_month`` — kontrakt przeliczony z MD na godziny z tą
 # liczbą godzin ma DOKŁADNIE ten sam miesięczny ekwiwalent.
 _PENDING_KEY = "contract_order_sync.pending_contract_ids"
@@ -172,12 +173,12 @@ def convert_rate_between(
     from_unit: RateUnit,
     to_unit: RateUnit,
     *,
-    from_hours: int = 160,
-    to_hours: int = 160,
+    from_hours: int = HOURS_PER_MONTH,
+    to_hours: int = HOURS_PER_MONTH,
 ) -> Optional[Decimal]:
     """Przelicz stawkę między jednostkami dwóch RÓŻNYCH dokumentów.
 
-    Godzina ↔ MD to zawsze 8 (ticket: „1 MD = 8 godzin"), MD ↔ miesiąc to 22.
+    Godzina ↔ MD to zawsze 8 (ticket: „1 MD = 8 godzin"), MD ↔ miesiąc to 21.
     Godzina ↔ miesiąc zależy od liczby godzin rozliczeniowych — i to jest
     jedyny powód tej funkcji: przy przejściu między kontraktem a zamówieniem
     liczba godzin miesiąca należy do strony, która jest MIESIĘCZNA, a nie do
@@ -188,7 +189,7 @@ def convert_rate_between(
         return None
     source, target = RateUnit(from_unit), RateUnit(to_unit)
     hours = from_hours if source == RateUnit.monthly else to_hours
-    return convert_order_rate(value, source, target, hours or 160)
+    return convert_order_rate(value, source, target, hours or HOURS_PER_MONTH)
 
 
 def contract_unit_for_order(order_unit: RateUnit) -> RateUnit:
@@ -268,7 +269,7 @@ def order_revenue_terms(order: ClientOrder) -> Optional[OrderRevenueTerms]:
         rate=amount,
         unit=unit,
         currency=str(currency).strip().upper() or "PLN",
-        billing_hours=order.billing_hours_per_month or 160,
+        billing_hours=order.billing_hours_per_month or HOURS_PER_MONTH,
     )
 
 
@@ -301,6 +302,7 @@ class ContractSyncOutcome:
     unit_switched_from: Optional[str] = None
     unit_switched_to: Optional[str] = None
     billing_hours_from: Optional[int] = None
+    orders_in_md_from: Optional[bool] = None
     revenue_steps_changed: int = 0
     period_changed: bool = False
     currency_changed: bool = False
@@ -313,6 +315,7 @@ class ContractSyncOutcome:
         return bool(
             self.unit_switched_to
             or self.billing_hours_from is not None
+            or self.orders_in_md_from is not None
             or self.revenue_steps_changed
             or self.period_changed
             or self.currency_changed
@@ -329,6 +332,8 @@ class ContractSyncOutcome:
             }
         if self.billing_hours_from is not None:
             details["billing_hours_per_month"] = {"from": self.billing_hours_from}
+        if self.orders_in_md_from is not None:
+            details["orders_in_md"] = {"from": self.orders_in_md_from}
         if self.revenue_steps_changed:
             details["revenue_steps_changed"] = self.revenue_steps_changed
         if self.period_changed:
@@ -350,6 +355,7 @@ def _switch_contract_unit(
     target: RateUnit,
     *,
     billing_hours: Optional[int] = None,
+    orders_in_md: Optional[bool] = None,
 ) -> None:
     """Przestaw jednostkę kontraktu, przeliczając KAŻDĄ kwotę, którą ona opisuje.
 
@@ -357,22 +363,34 @@ def _switch_contract_unit(
     i widełkami. Zmiana samej jednostki bez przeliczenia zamieniłaby 120 zł/h
     w 120 zł/MD — cichy, ośmiokrotny błąd marży.
 
-    Przejście MD → godziny ustawia 176 godzin rozliczeniowych (22 MD × 8 h):
-    bez tego 1000 zł/MD (22 000 zł/mc) po przeliczeniu na 125 zł/h liczyłoby
-    się jako 125 × 160 = 20 000 zł/mc, czyli MRR i marża spadłyby o 9%.
-    ``billing_hours`` wymusza liczbę godzin także przy innym przejściu (ryczałt
-    miesięczny → godziny, gdy powodem jest zamówienie w MD) — PRZED
-    przeliczeniem, żeby kwota miesięczna przeszła na godziny tym samym dzielnikiem,
-    którym czytniki potem wrócą do miesiąca.
+    Przejście MD → godziny ustawia standardowe 168 godzin rozliczeniowych
+    (21 MD × 8 h, ``app.core.work_time``): 1000 zł/MD (21 000 zł/mc) po
+    przeliczeniu na 125 zł/h liczy się jako 125 × 168 = 21 000 zł/mc, więc MRR
+    i marża się nie zmieniają. Do 22.09.2026 było to 176 h (22 MD) — a kontrakt
+    z domyślnymi 160 h tracił 9% MRR. ``billing_hours`` wymusza liczbę godzin
+    także przy innym przejściu (ryczałt miesięczny → godziny, gdy powodem jest
+    zamówienie w MD) — PRZED przeliczeniem, żeby kwota miesięczna przeszła na
+    godziny tym samym dzielnikiem, którym czytniki potem wrócą do miesiąca.
+
+    ``orders_in_md`` zapisuje, czy zamówienia dziedziczące z kontraktu mają
+    być w MD (``order_rate_snapshots.order_unit_for_contract``). Przejście
+    MD → godziny domyślnie go ustawia; kontrakt inny niż godzinowy go nie niesie.
     """
     source = RateUnit(contract.rate_unit)
     if source == target:
         return
-    if billing_hours is None and (source, target) == (RateUnit.daily, RateUnit.hourly):
-        billing_hours = MD_BILLING_HOURS_PER_MONTH
+    if (source, target) == (RateUnit.daily, RateUnit.hourly):
+        if billing_hours is None:
+            billing_hours = HOURS_PER_MONTH
+        if orders_in_md is None:
+            orders_in_md = True
     if billing_hours is not None and target == RateUnit.hourly:
         contract.billing_hours_per_month = billing_hours
-    hours = contract.billing_hours_per_month or 160
+    if target != RateUnit.hourly:
+        contract.orders_in_md = False
+    elif orders_in_md is not None:
+        contract.orders_in_md = orders_in_md
+    hours = contract.billing_hours_per_month or HOURS_PER_MONTH
 
     def conv(value: object) -> Optional[Decimal]:
         return convert_order_rate(
@@ -394,7 +412,7 @@ def _switch_contract_unit(
 
 
 def apply_contract_hourly_policy(contract: Contract) -> bool:
-    """Kontrakt w MD przestaw na zł/h (÷ 8, 176 h/mc). True, gdy przeliczono.
+    """Kontrakt w MD przestaw na zł/h (÷ 8, 168 h/mc). True, gdy przeliczono.
 
     Dla wierszy, w których WSZYSTKIE kwoty są w MD (nowy kontrakt z formularza
     albo z zamówienia, szkic z maila, kontrakt sprzed korekty 0309). Wymaga
@@ -528,40 +546,46 @@ async def sync_contract_from_orders(
     #    ale NIGDY nie przechodzi na MD (decyzja 14.09.2026): zamówienie
     #    w MD daje kontrakt godzinowy. Świeży kontrakt z umowy B2B zostaje
     #    godzinowy (120 zł/h), a stawka przychodowa 1340 zł/MD wchodzi do
-    #    harmonogramu jako 167,5 zł/h. Miesiąc zamówienia w MD to 22 MD, więc
-    #    kontrakt godzinowy liczy się wtedy 176 h/mc — dokładnie ten sam
+    #    harmonogramu jako 167,5 zł/h. Miesiąc zamówienia w MD to 21 MD, więc
+    #    kontrakt godzinowy liczy się wtedy 168 h/mc — dokładnie ten sam
     #    miesięczny ekwiwalent, który dawało dawne przestawienie kontraktu na
-    #    MD (× 22). Jawnie wybrana w zapisie jednostka (``follow_order_unit``)
+    #    MD (× 21). Jawnie wybrana w zapisie jednostka (``follow_order_unit``)
     #    zostawia też godziny wybrane przez operatora.
     #
     #    Kontrakt JUŻ godzinowy zachowuje swoje godziny (ticket: kontrakty
-    #    godzinowe bez zmian) — z dwoma wyjątkami, w których nie ma czego
-    #    „zachować": kontrakt jeszcze bez przychodu (pierwsze zamówienie w MD
-    #    dopiero ustala jego pieniądze, np. świeża umowa B2B) i kontrakt
-    #    176-godzinny, którego najnowsze zamówienie przestało być w MD — wtedy
-    #    liczy godziny tego zamówienia, jak dawne przejście z MD na godziny.
+    #    godzinowe bez zmian) — poza kontraktem jeszcze bez przychodu: jego
+    #    pierwsze zamówienie w MD dopiero ustala pieniądze (np. świeża umowa
+    #    B2B), więc dostaje standardowe 168 h i znacznik ``orders_in_md``.
+    #    Kontrakt przeliczony z MD, którego najnowsze zamówienie przestało być
+    #    w MD, traci znacznik — dalsze zamówienia dziedziczą zł/h. Do
+    #    22.09.2026 znacznikiem były 176 h, a ich zdjęcie kopiowało godziny
+    #    zamówienia; od ujednolicenia miesiąca godzin nie ma czego zdejmować.
     target_unit = contract_unit_for_order(latest.unit)
-    md_hours = MD_BILLING_HOURS_PER_MONTH if latest.unit == RateUnit.daily else None
+    orders_in_md = latest.unit == RateUnit.daily
+    md_hours = HOURS_PER_MONTH if orders_in_md else None
     no_revenue_yet = not has_own_revenue and not order_steps
     if follow_order_unit and RateUnit(contract.rate_unit) != target_unit:
         outcome.unit_switched_from = RateUnit(contract.rate_unit).value
-        _switch_contract_unit(contract, target_unit, billing_hours=md_hours)
+        _switch_contract_unit(
+            contract,
+            target_unit,
+            billing_hours=md_hours,
+            orders_in_md=orders_in_md,
+        )
         outcome.unit_switched_to = target_unit.value
     elif follow_order_unit and target_unit == RateUnit.hourly:
-        wanted_hours: Optional[int] = None
-        if md_hours is not None and no_revenue_yet:
-            wanted_hours = md_hours
-        elif (
-            md_hours is None
-            and contract.billing_hours_per_month == MD_BILLING_HOURS_PER_MONTH
-        ):
-            wanted_hours = latest.billing_hours
-        if (
-            wanted_hours is not None
-            and contract.billing_hours_per_month != wanted_hours
-        ):
-            outcome.billing_hours_from = contract.billing_hours_per_month
-            contract.billing_hours_per_month = wanted_hours
+        current_md = bool(contract.orders_in_md)
+        wanted_md: Optional[bool] = None
+        if orders_in_md and no_revenue_yet:
+            wanted_md = True
+            if contract.billing_hours_per_month != HOURS_PER_MONTH:
+                outcome.billing_hours_from = contract.billing_hours_per_month
+                contract.billing_hours_per_month = HOURS_PER_MONTH
+        elif not orders_in_md and current_md:
+            wanted_md = False
+        if wanted_md is not None and wanted_md != current_md:
+            outcome.orders_in_md_from = current_md
+            contract.orders_in_md = wanted_md
 
     # 3. Waluta stawki przychodowej — jedna na kontrakt, więc z najnowszego
     #    zamówienia. Kroki w innej walucie nie wchodzą do harmonogramu:
@@ -586,7 +610,7 @@ async def sync_contract_from_orders(
 
     # Stawka zamówienia w jednostce kontraktu: precyzja kontraktu (6 miejsc)
     # i godziny KONTRAKTU — krok ma dawać miesięcznie tyle, co zamówienie
-    # (22 000 zł/mc zamówienia = 125 zł/h kontraktu 176-godzinnego).
+    # (21 000 zł/mc zamówienia = 125 zł/h kontraktu 168-godzinnego).
     wanted: dict[int, tuple[date, Decimal]] = {}
     for t in terms:
         if t.currency != target_currency:
@@ -733,9 +757,9 @@ async def sync_orders_cost_from_contract(
         if cost is None:
             continue
         touched = False
-        # Godziny KONTRAKTU: 125 zł/h kontraktu 176-godzinnego to 22 000 zł/mc
-        # w zamówieniu miesięcznym, nie 20 000 (godziny zamówienia opisują
-        # inną kwotę). MD: × 8 niezależnie od godzin.
+        # Godziny KONTRAKTU: 125 zł/h kontraktu 168-godzinnego to 21 000 zł/mc
+        # w zamówieniu miesięcznym (godziny zamówienia opisują inną kwotę).
+        # MD: × 8 niezależnie od godzin.
         new_rate = contract_rate_in_unit(cost, contract, RateUnit(order.rate_unit))
         if not _same_amount(order.rate_candidate, new_rate):
             order.rate_candidate = new_rate

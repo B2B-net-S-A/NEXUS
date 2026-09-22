@@ -58,6 +58,7 @@ from app.api.deps import (
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
+from app.core.work_time import HOURS_PER_MONTH
 from app.models.activity import Activity
 from app.models.ai_feature import AIFeatureKey
 from app.models.candidate import Candidate
@@ -969,7 +970,7 @@ def _line_to_read(
                 order.rate_candidate,
                 order.rate_unit or RateUnit.daily,
                 RateUnit.daily,
-                order.billing_hours_per_month or 160,
+                order.billing_hours_per_month or HOURS_PER_MONTH,
             )
         )
         if with_finance
@@ -981,7 +982,7 @@ def _line_to_read(
                 order.rate_client,
                 order.rate_unit or RateUnit.daily,
                 RateUnit.daily,
-                order.billing_hours_per_month or 160,
+                order.billing_hours_per_month or HOURS_PER_MONTH,
             )
         )
         if with_finance
@@ -1737,7 +1738,7 @@ async def _build_line(
         rate_candidate=payload.rate_cost,
         rate_client=payload.rate_revenue,
         rate_unit=RateUnit.daily,
-        billing_hours_per_month=160,
+        billing_hours_per_month=HOURS_PER_MONTH,
         currency=payload.rate_client_currency or "PLN",
         rate_client_currency=payload.rate_client_currency or "PLN",
         rate_candidate_currency=payload.rate_candidate_currency or "PLN",
@@ -4236,7 +4237,7 @@ async def update_line(
                     getattr(line, source_field),
                     line.rate_unit or RateUnit.daily,
                     RateUnit.daily,
-                    line.billing_hours_per_month or 160,
+                    line.billing_hours_per_month or HOURS_PER_MONTH,
                 )
             if raw is None:
                 raise HTTPException(422, detail="Podaj stawkę dla wybranej waluty")
@@ -4269,7 +4270,7 @@ async def update_line(
                     getattr(line, source_field),
                     line.rate_unit or RateUnit.daily,
                     RateUnit.daily,
-                    line.billing_hours_per_month or 160,
+                    line.billing_hours_per_month or HOURS_PER_MONTH,
                 ),
             )
         line.rate_unit = RateUnit.daily
@@ -4817,7 +4818,7 @@ async def swap_consultant(
         rate_candidate=payload.rate_cost,
         rate_client=payload.rate_revenue,
         rate_unit=RateUnit.daily,
-        billing_hours_per_month=160,
+        billing_hours_per_month=HOURS_PER_MONTH,
         currency="PLN",
         rate_client_currency="PLN",
         rate_candidate_currency="PLN",

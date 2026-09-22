@@ -15,11 +15,12 @@
 
 import type { RateUnit } from "@/lib/api";
 import { rateToHourly } from "@/lib/rate-to-hourly";
+import { HOURS_PER_MONTH, MD_PER_MONTH } from "@/lib/work-time";
 
 /** `hourly → 21 dni × 8 h`, `daily → 21 dni` (polityka `168h-21d-v1`). */
 export const MONTHLY_FACTOR: Record<RateUnit, number> = {
-  hourly: 168,
-  daily: 21,
+  hourly: HOURS_PER_MONTH,
+  daily: MD_PER_MONTH,
   monthly: 1,
 };
 

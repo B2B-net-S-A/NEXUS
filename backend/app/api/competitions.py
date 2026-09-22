@@ -4,16 +4,17 @@
 Dostęp: sekcja Insights; POST /freeze dodatkowo tylko admin.
 """
 
-from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.services.insights_scoring_config import (
     get_scoring_config,
     league_points_formula,
@@ -101,7 +102,8 @@ async def get_current(
     ]
 
     # Meta fields (gamifikacja jak w InfraReporterze).
-    today = date.today()
+    # Kalendarz warszawski, nie UTC — ten sam, którym liczone są okresy.
+    today = business_today()
     days_remaining: Optional[int] = None
     prize_pool: Optional[int] = None
     requirement: Optional[str] = None
@@ -279,7 +281,47 @@ async def freeze(
         "period": period,
         "saved_count": created.saved_count,
         "already_frozen": created.already_frozen,
+        # frozen | no_winner | tie_pending | tie_resolved; null = okres
+        # zamrożony przed 0344 (same wiersze podium).
+        "closure_status": created.closure_status,
     }
+
+
+@router.get("/ties")
+async def list_pending_ties(
+    _user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Remisy na płatnych miejscach czekające na decyzję admina.
+
+    Miejsca objęte remisem nie mają wierszy podium (0 zł), dopóki admin nie
+    ustali kolejności — `POST /{type}/{period}/resolve-tie`.
+    """
+    return {"items": await comp_service.pending_competition_ties(db)}
+
+
+class ResolveTieRequest(BaseModel):
+    # Wszyscy remisujący ze wszystkich remisów okresu, w kolejności remisów
+    # z `GET /ties` i — w obrębie remisu — w kolejności decyzji.
+    user_ids: list[int] = Field(..., min_length=2, max_length=50)
+
+
+@router.post("/{type}/{period}/resolve-tie")
+async def resolve_tie(
+    type: str,
+    period: str,
+    payload: ResolveTieRequest,
+    user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin rozstrzyga remis: kolejność → wiersze podium z nagrodą."""
+    ctype = _parse_type(type)
+    try:
+        return await comp_service.resolve_competition_tie(
+            db, ctype, period, payload.user_ids, actor_id=user.id
+        )
+    except comp_service.TieResolutionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
 
 @router.get("/my-position")

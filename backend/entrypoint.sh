@@ -2747,6 +2747,28 @@ _COLUMN_STATEMENTS = [
             id AS candidate_stage_id
         FROM candidate_stages
         ORDER BY candidate_id, job_id, moved_at DESC, id DESC""",
+    # ── Wykluczone placementy (0343) ────────────────────────────────────
+    # MUSI stać przed widokiem niżej: widok i VERIFIER_ANCHORED_CTE czytają
+    # tę tabelę, więc bez niej padałby widok (zostaje stara definicja) i KPI.
+    # Zasianie reguły: faza `seed-placement-exclusions` na dole skryptu.
+    """CREATE TABLE IF NOT EXISTS placement_exclusions (
+        id BIGSERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL
+            REFERENCES candidates(id) ON DELETE CASCADE,
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        candidate_stage_id INTEGER
+            REFERENCES candidate_stages(id) ON DELETE SET NULL,
+        reason VARCHAR(40) NOT NULL,
+        rule_version INTEGER NOT NULL DEFAULT 1,
+        detected_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        details JSONB NOT NULL DEFAULT '{}'::jsonb,
+        CONSTRAINT uq_placement_exclusions_candidate_job
+            UNIQUE (candidate_id, job_id),
+        CONSTRAINT ck_placement_exclusions_reason
+            CHECK (reason IN ('admin_bulk_no_cv', 'admin_bulk_2025_09_series'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_placement_exclusions_job_id "
+    "ON placement_exclusions (job_id)",
     """CREATE OR REPLACE VIEW analytics_first_milestones AS
         SELECT
             candidate_id,
@@ -2777,6 +2799,17 @@ _COLUMN_STATEMENTS = [
             -- zaakceptowana ('active') weryfikacja. Pozostałe stage'y mają
             -- default verification_status='active', więc filtr ich nie dotyka.
             AND (cs.stage <> 'verified' OR cs.verification_status = 'active')
+            -- 0343: „Zatrudniony" wykluczonej pary (seria bez CV, patrz
+            -- app/services/placement_exclusions.py) nie jest placementem.
+            -- Tabela `placement_exclusions` powstaje instrukcję wyżej.
+            AND (
+                cs.stage <> 'hired'
+                OR NOT EXISTS (
+                    SELECT 1 FROM placement_exclusions pe
+                    WHERE pe.candidate_id = cs.candidate_id
+                      AND pe.job_id = cs.job_id
+                )
+            )
         ) ranked
         WHERE rn = 1""",
     # ── Snapshoty + cutover (0177, plan analytics PR 7) ─────────────────
@@ -4912,6 +4945,28 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE emails ADD COLUMN IF NOT EXISTS send_state VARCHAR(16) NULL "
     "CONSTRAINT ck_emails_send_state "
     "CHECK (send_state IN ('pending', 'sent', 'uncertain'))",
+    # 0344: zamknięcia okresów konkursów płatnych (frozen / no_winner /
+    # tie_pending / tie_resolved). Lustro 1:1 z migracją — pilnuje
+    # `test_competition_freeze_rules.py`.
+    """CREATE TABLE IF NOT EXISTS competition_period_closures (
+        id BIGSERIAL PRIMARY KEY,
+        competition_type VARCHAR(50) NOT NULL,
+        period VARCHAR(20) NOT NULL,
+        status VARCHAR(20) NOT NULL,
+        details JSONB NULL,
+        resolved_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        resolved_at TIMESTAMPTZ NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_competition_period_closures UNIQUE (competition_type, period),
+        CONSTRAINT ck_competition_period_closures_status
+            CHECK (status IN ('frozen', 'no_winner', 'tie_pending', 'tie_resolved'))
+    )""",
+    # 0345: jeden miesiąc roboczy 168 h (21 MD × 8 h, `app.core.work_time`).
+    # Znacznik „zamówienia kontraktu są w MD" — do 22.09.2026 niosła go liczba
+    # 176 h/mc. Domyślne godziny zamówienia ustawia faza więzów niżej (0249).
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS orders_in_md "
+    "BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE contracts ALTER COLUMN billing_hours_per_month SET DEFAULT 168",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -5390,7 +5445,7 @@ _DATA_STATEMENTS = [
     """UPDATE client_orders AS order_row
        SET rate_unit = COALESCE(contract.rate_unit, 'monthly'::rateunit),
            billing_hours_per_month = COALESCE(
-               contract.billing_hours_per_month, 160
+               contract.billing_hours_per_month, 168
            ),
            rate_client_currency = COALESCE(
                NULLIF(UPPER(BTRIM(contract.rate_client_currency)), ''),
@@ -5423,7 +5478,7 @@ _DATA_STATEMENTS = [
        SET rate_candidate = order_row.md_rate_cost,
            rate_client = order_row.md_rate_revenue,
            rate_unit = 'daily'::rateunit,
-           billing_hours_per_month = 160,
+           billing_hours_per_month = 168,
            rate_client_currency = 'PLN',
            rate_candidate_currency = 'PLN',
            currency = 'PLN'
@@ -6812,7 +6867,9 @@ _CONSTRAINT_STATEMENTS = [
     # rolling legacy writers; NOT NULL matches the ORM snapshot invariant.
     "ALTER TABLE client_orders ALTER COLUMN rate_unit SET DEFAULT 'monthly'",
     "ALTER TABLE client_orders ALTER COLUMN rate_unit SET NOT NULL",
-    "ALTER TABLE client_orders ALTER COLUMN billing_hours_per_month SET DEFAULT 160",
+    # 0345: domyślny miesiąc roboczy 168 h (do 22.09.2026: 160) — ta lista
+    # wykonuje się przy KAŻDYM starcie, więc stara liczba cofałaby migrację.
+    "ALTER TABLE client_orders ALTER COLUMN billing_hours_per_month SET DEFAULT 168",
     "ALTER TABLE client_orders ALTER COLUMN billing_hours_per_month SET NOT NULL",
     # Atomic closed-domain rewrite. If lock_timeout fires, the DROP rolls back
     # with the ADD and the next container start retries safely.
@@ -8316,6 +8373,45 @@ async def promote():
 asyncio.run(promote())
 PY
 
+# Wykluczone placementy (0343, 22.09.2026) — jednorazowe zasianie listy:
+# cała seria „Zatrudniony" z 24–25.09.2025 i reguła „seria ≥ 10 par jednego
+# konta w dniu warszawskim, pary bez CV wysłane" na całej historii. Tabela
+# i widok są w `_COLUMN_STATEMENTS` wyżej; tu tylko dane. SQL ma jedno źródło:
+# `app/services/placement_exclusions.py` (to samo woła migracja 0343).
+# Marker w `app_settings` + advisory lock → drugi start kończy się od razu.
+# Kolejne serie wykrywa pętla po imporcie Traffita. Log: wyłącznie liczby.
+startup_phase "seed-placement-exclusions"
+echo "Placement exclusions: one-shot seed (bulk hired series)..."
+python - <<'PY' || echo "placement exclusion seed skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.placement_exclusions import run_seed
+
+async def seed():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_seed(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            await db.rollback()
+            print(
+                f"placement exclusion seed failed ({type(exc).__name__}); "
+                "nothing written, next start retries"
+            )
+            return
+    if summary is None:
+        print("placement exclusion seed: already done")
+    else:
+        print(
+            "placement exclusion seed: "
+            f"historical={summary['historical_series_excluded']} "
+            f"rule={summary['rule_excluded']}"
+        )
+
+asyncio.run(seed())
+PY
+
 # PFRON 507–509 (0306, 09.2026) — jednorazowe rozdzielenie zamówień, które
 # czyszczenie kolejki maila z 9/10.09 przepisało W MIEJSCU nowym okresem:
 # nowy okres → nowy wiersz, oryginał wraca do stanu z Activity
@@ -8612,7 +8708,8 @@ PY
 
 # Stawki w Kontraktach godzinowe (09.2026, ticket „Ujednolicenie stawek") —
 # jednorazowo: każdy kontrakt w MD przechodzi na zł/h (stawki, harmonogramy,
-# stawka ramowa, widełki ÷ 8; 176 h/mc, więc kwoty miesięczne bez zmian).
+# stawka ramowa, widełki ÷ 8; standardowy miesiąc roboczy — od 0345 168 h/mc
+# i `orders_in_md`, wcześniej 176 h/mc — więc kwoty miesięczne bez zmian).
 # Kontrakty godzinowe i ryczałtowe zostają nietknięte, zamówień korekta nie
 # rusza (suma kontrolna przed i po, różnica = rollback). Czeka na poszerzone
 # kolumny (DDL 0309 wyżej) — bez nich nie zapisuje markera. Logika
@@ -8644,6 +8741,48 @@ async def repair():
             )
             sys.exit(1)
     print(f"contract hourly rate repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Jeden miesiąc roboczy 168 h (0345, decyzja 22.09.2026) — jednorazowo:
+# znacznik 176 h/mc przechodzi do `contracts.orders_in_md`, a godziny
+# rozliczeniowe 160/176 kontraktów i zamówień → 168 (inna, jawnie wybrana
+# liczba zostaje). Żadna stawka nie jest przepisywana. Safety-net dla
+# migracji 0345 (alembic na prodzie bywa osierocony). Jedno źródło SQL-a
+# w `app/services/billing_hours_unification.py`; marker + advisory lock,
+# `lock_timeout` 15 s — po przekroczeniu nic nie zapisuje, następny start
+# ponawia. Log: wyłącznie liczby (paragon w `app_settings`).
+startup_phase "repair-billing-hours-168"
+echo "Contracts/orders: unify billing hours to 168 h/month (one-shot)..."
+python - <<'PY' || echo "billing hours unification skipped; continuing"
+import asyncio
+import json
+from sqlalchemy import text
+from app.core.database import engine
+from app.services.billing_hours_unification import (
+    BILLING_HOURS_MARKER,
+    BILLING_HOURS_UNIFICATION_SQL,
+    summarize_receipt_for_log,
+)
+
+async def repair():
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(BILLING_HOURS_UNIFICATION_SQL))
+            receipt = await conn.scalar(
+                text("SELECT value::text FROM app_settings WHERE key = :key"),
+                {"key": BILLING_HOURS_MARKER},
+            )
+    except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        print(
+            f"billing hours unification failed ({type(exc).__name__}, "
+            f"sqlstate={sqlstate}); nothing written, next start retries"
+        )
+        return
+    summary = summarize_receipt_for_log(json.loads(receipt) if receipt else None)
+    print(f"billing hours unification: {summary}")
 
 asyncio.run(repair())
 PY

@@ -51,6 +51,9 @@ describe("OrderRateUnitToggle", () => {
     expect(convertRateInput("16000", "monthly", "hourly", 168)).toBe(
       "95.238",
     );
+    // Domyślnie jeden miesiąc roboczy: 168 h = 21 MD (lib/work-time).
+    expect(convertRateInput("16800", "monthly", "hourly")).toBe("100");
+    expect(convertRateInput("1000", "daily", "monthly")).toBe("21000");
   });
 
   it("zachowuje istniejący wybór GBP obok PLN/EUR/USD", async () => {

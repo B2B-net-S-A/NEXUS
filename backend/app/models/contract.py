@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Enum,
@@ -18,6 +19,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.base import TimestampMixin
 
 
@@ -170,8 +172,21 @@ class Contract(Base, TimestampMixin):
         nullable=False,
         server_default="monthly",
     )
+    # Domyślnie standardowy miesiąc roboczy 168 h (21 MD × 8 h, decyzja
+    # 22.09.2026 — ``app.core.work_time``); jawnie wpisana inna liczba wygrywa.
     billing_hours_per_month: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=160, server_default="160"
+        Integer,
+        nullable=False,
+        default=HOURS_PER_MONTH,
+        server_default=str(HOURS_PER_MONTH),
+    )
+    # Kontrakt godzinowy przeliczony z MD (``contract_order_sync``): zamówienia
+    # dziedziczące z niego stawki zostają w MD (``order_unit_for_contract``).
+    # Do 22.09.2026 znacznikiem było 176 h/mc — po ujednoliceniu miesiąca do
+    # 168 h liczba godzin przestała go odróżniać, więc fakt ma własną kolumnę
+    # (migracja 0345).
+    orders_in_md: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
 
     # Marża — obliczana automatycznie (rate_client - rate_candidate).
@@ -568,9 +583,9 @@ class Contract(Base, TimestampMixin):
         if self.rate_unit == RateUnit.monthly:
             return dec
         if self.rate_unit == RateUnit.daily:
-            return dec * 22  # standardowy miesiąc roboczy (PL)
+            return dec * MD_PER_MONTH  # standardowy miesiąc roboczy (work_time)
         if self.rate_unit == RateUnit.hourly:
-            return dec * (self.billing_hours_per_month or 160)
+            return dec * (self.billing_hours_per_month or HOURS_PER_MONTH)
         return dec
 
     @property

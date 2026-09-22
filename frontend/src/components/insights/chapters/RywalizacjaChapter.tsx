@@ -2,6 +2,7 @@
 
 import { InsightsCampaignBanner } from "@/components/insights/sections/InsightsCampaignBanner";
 import { InsightsCampaignAdmin } from "@/components/insights/sections/InsightsCampaignAdmin";
+import { CompetitionTiesAdmin } from "@/components/insights/sections/CompetitionTiesAdmin";
 import { ChampionsSection } from "@/components/insights/sections/ChampionsSection";
 import { InsightsRaces } from "@/components/insights/sections/InsightsRaces";
 import { SeniorityBoard } from "@/components/insights/sections/SeniorityBoard";
@@ -35,6 +36,9 @@ export function RywalizacjaChapter() {
           aktywnej kampanii nie renderuje nic (to normalny stan świata). */}
       <InsightsCampaignBanner />
       <InsightsCampaignAdmin />
+      {/* Tylko admin i tylko gdy zamknięty okres czeka na rozstrzygnięcie
+          remisu — w pozostałych przypadkach nie renderuje nic. */}
+      <CompetitionTiesAdmin />
 
       <InsightsSectionNav items={SECTIONS} ariaLabel="Sekcje Rywalizacji" />
 

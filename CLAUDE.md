@@ -4020,6 +4020,21 @@ bez przychodu i okresu zamówienia), choć zamówienie OIT/0189/2026/ITVM miało
 okres 15.09–31.12.2026 i 1340 PLN/MD. Serwis: `services/contract_order_sync.py`.
 Każda strona jest źródłem prawdy dla SWOICH pól:
 
+- **Jeden miesiąc roboczy: 168 h = 21 MD × 8 h (0345, decyzja Artura
+  22.09.2026).** Każde przeliczenie stawki godzinowej/dziennej na miesiąc (MRR,
+  marża, przychód, prognozy, analityka, UI) i między jednostkami czyta
+  `app/core/work_time.py` (lustro `frontend/src/lib/work-time.ts`); gołe
+  160/176/22 w modułach pieniędzy wywala `test_work_time_constant_guard.py`.
+  `billing_hours_per_month` domyślnie 168 (kontrakt i zamówienie); jawnie inna
+  liczba nadal wygrywa. Fakt „zamówienia tego kontraktu są w MD” niesie
+  `contracts.orders_in_md` — `order_unit_for_contract` czyta kolumnę, nie
+  godziny. Migracja 0345 (+ blok `repair-billing-hours-168` w entrypoincie,
+  SQL w `services/billing_hours_unification.py`) jednorazowo przepisała
+  160/176 → 168 w kontraktach i zamówieniach (paragon `0345_billing_hours_168`,
+  same liczby). Zamówienie w innej jednostce czasu niż kontrakt (godzinowy
+  kontrakt, miesięczne zamówienie) przelicza się przy najbliższej synchronizacji
+  nowym miesiącem — kwota miesięczna po obu stronach zostaje zgodna.
+
 - **Podpis obustronny w Generatorze B2B = kontrakt AKTYWNY od razu**
   (`confirm-fully-signed` → `contract_lifecycle.activate_without_revenue_gate`,
   `source="b2b_signed_agreement"`): start z umowy → bezterminowo, stawka
@@ -4042,8 +4057,9 @@ Każda strona jest źródłem prawdy dla SWOICH pól:
   Przełączenie przelicza KAŻDĄ kwotę kontraktu (obie stawki + harmonogramy,
   ramowa, widełki) z precyzją 6 miejsc (`CONTRACT_RATE_SCALE`, kolumny
   `NUMERIC(16,6)` od 0309 — 1001,55 zł/MD = 125,19375 zł/h; zamówienia zostają
-  przy 3 miejscach). Zamówienie w MD ustawia kontraktowi **176 h/mc** (22 MD ×
-  8 h): czytniki pieniędzy liczą MD × 22, a godziny × `billing_hours_per_month`,
+  przy 3 miejscach). Zamówienie w MD oznacza kontrakt `orders_in_md = true`
+  (od 0345; do 22.09.2026 ten fakt niosła liczba 176 h/mc), a godziny zostają
+  168: czytniki pieniędzy liczą MD × 21, a godziny × `billing_hours_per_month`,
   więc MRR/marża miesięczna są takie jak przy dawnym kontrakcie w MD. Jawnie
   wybrana jednostka w PATCH (`follow_order_unit=False`) zostawia też godziny.
   **Zamówienie nie jest ruszane** — zostaje w MD, koszt wraca do niego ×8 bez
@@ -4053,7 +4069,7 @@ Każda strona jest źródłem prawdy dla SWOICH pól:
   odmawiają 422 (`contract_rates_are_hourly`), a zapis kontraktu wciąż w MD
   przelicza go w całości. Formularze Kontraktów nie mają opcji „Dziennie".
   Jednorazowo `contract_hourly_rate_repair.py` (blok w `entrypoint.sh`, marker
-  `0309_contract_hourly_rates`): każdy kontrakt `daily` → zł/h + 176 h/mc,
+  `0309_contract_hourly_rates`): każdy kontrakt `daily` → zł/h + 176 h/mc (od 0345: 168 h + `orders_in_md`),
   kontrola odwrotności (×8 == dawna kwota) i miesięcznego ekwiwalentu, suma
   kontrolna `client_orders` przed/po (różnica = rollback); czeka na poszerzone
   kolumny, bez nich nie stawia markera. DDL 0309 zdejmuje i zakłada ponownie
@@ -4875,6 +4891,50 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   Slug definicji zbumpowany do `..._v2` — baner drukuje notatkę DOSŁOWNIE,
   więc definicja, która zmieniła znaczenie pod tym samym kluczem, byłaby
   niewykrywalna dla konsumenta.
+- **Wypłata konkursów = `award_order` + zamknięcie okresu (0344, decyzje
+  Artura 22.09.2026).** Ekran (`compose_monthly_races`) i `freeze_competition`
+  biorą kolejność nagród z JEDNEJ funkcji `award_order`: kwalifikacja →
+  wykluczenie lidera kwartału, do którego należy DANY miesiąc
+  (`monthly_race_excluded_user_ids`: zamrożony zwycięzca kwartału → remis
+  w kwartale czekający na admina, wykluczeni wszyscy remisujący → ranking od
+  początku kwartału do końca tego miesiąca) → remisy
+  (`services/competition_rules.py`). Do 22.09 zamrożenie pomijało wykluczenie
+  i lider Q2 dostał też nagrody miesięczne za maj i czerwiec — te okresy
+  zostały świadomie bez korekty. Remisy: wyścig placementów rozstrzyga suma
+  marży/h (`fold_money`, stawki z dnia placementu), brak marży albo równość
+  co do grosza → admin; wyścig rekomendacji — precyzja, potem wcześniejsza
+  ostatnia rekomendacja, bez admina; Liga i liga DL — każdy remis na płatnym
+  miejscu → admin. Każde zamrożenie zapisuje `competition_period_closures`
+  (`frozen`/`no_winner`/`tie_pending`/`tie_resolved`), więc okres bez
+  zwycięzcy albo z remisem nie jest liczony od nowa. Miejsca z remisu nie mają
+  wierszy podium (0 zł) do `POST /api/competitions/{type}/{period}/resolve-tie`
+  (admin, baner „Remis do rozstrzygnięcia” w Rywalizacji). Autofreeze zamraża
+  dopiero od 3. polskiego dnia roboczego po końcu okresu (`business_today()`)
+  i, przy włączonym syncu Traffita, po udanym `__daily__` z `last_synced_at`
+  późniejszym niż koniec okresu (do 22.09 zamrażał ok. 02:00 czasu PL, PRZED
+  importem ostatniego dnia); kwartał zamraża przed miesiącami. Liga DL liczy
+  pary (kandydat, oferta) z `analytics_first_milestones`, hit ratio =
+  placementy / rekrutacje zamknięte w kwartale.
+- **Wykluczone placementy (0343, decyzja Artura 22.09.2026).** Tabela
+  `placement_exclusions` (jedna para kandydat × rekrutacja = jeden wiersz).
+  Wykluczona para nie jest placementem w ŻADNEJ statystyce: widok
+  `analytics_first_milestones` i `VERIFIER_ANCHORED_CTE` (gałąź
+  `classified_stage_ranked`) pomijają wszystkie jej wiersze `hired`; inne
+  etapy liczą się normalnie, `candidate_stages` nigdy nie jest kasowane.
+  Reguła (`services/placement_exclusions.py` — jedyne źródło SQL dla
+  migracji, entrypointu i wykrywania): seria = jedno konto z ≥ 10 pierwszymi
+  zatrudnieniami pary w jednym dniu warszawskim; wykluczane są pary serii bez
+  `cv_sent`, na CAŁEJ historii (na prodzie ~217 par: 12.07.2024, 26.03.2025,
+  3–4.04.2025, 23.07.2025, 24–25.09.2025), a seria 24–25.09.2025 cała (także
+  pary z CV). To masowe rejestracje z Traffita, nie placementy. Żadnych ID
+  w kodzie. Wykrywanie po pełnym imporcie Traffita i w pętli
+  `competition_autofreeze` przed zamrożeniem; nigdy nie zdejmuje wykluczeń.
+  Nowy licznik czytający `hired` wprost z `candidate_stages` MUSI dostać
+  `not_excluded_placement(...)` (surowe SQL — `excluded_hired_sql(alias)`).
+  Lista: `GET /api/admin/placement-exclusions`, Ustawienia → System →
+  „Wykluczone placementy”. Kreator metryk pulpitu przypisujący ruchy ludziom
+  (moje / zespół / po rekruterze) kredytuje jak „Moje KPI”
+  (`VERIFIER_ANCHORED_CTE.credit_user`); liczby całej firmy liczy z widoku.
 - **Hall of Fame liczy TAK SAMO jak „Analiza placementów" (D2), ale INACZEJ
   niż wyścigi, które płacą.** Od 2026-09-01 `competitions.hall_of_fame` czyta
   `analytics_first_milestones.first_moved_by` — pierwsze wejście pary

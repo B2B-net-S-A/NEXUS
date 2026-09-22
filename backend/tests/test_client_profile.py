@@ -237,9 +237,10 @@ async def test_active_consultant_rates_come_from_the_schedule(
     assert row["monthly_rate_candidate"] == 12000
     assert row["monthly_rate_client"] == 18000
     assert row["monthly_margin"] == 6000
-    # Kolumny tabeli są godzinowe: kontrakt miesięczny ÷ 160 h rozliczeniowych.
-    assert row["hourly_rate_candidate"] == 75.0
-    assert row["hourly_rate_client"] == 112.5
+    # Kolumny tabeli są godzinowe: kontrakt miesięczny ÷ 168 h rozliczeniowych
+    # (domyślny miesiąc roboczy, ``app.core.work_time``).
+    assert row["hourly_rate_candidate"] == 71.43
+    assert row["hourly_rate_client"] == 107.14
     # Kafel liczy się z tego samego źródła co wiersze — inaczej suma nie
     # zgadzałaby się z tym, co widać pod nią.
     assert body["summary"]["active_mrr"] == 6000
@@ -264,8 +265,8 @@ async def test_archive_rates_are_resolved_at_the_end_date(
     assert row["monthly_rate_candidate"] == 12000
     assert row["monthly_rate_client"] == 18000
     assert row["monthly_margin"] == 6000
-    assert row["hourly_rate_candidate"] == 75.0
-    assert row["hourly_rate_client"] == 112.5
+    assert row["hourly_rate_candidate"] == 71.43
+    assert row["hourly_rate_client"] == 107.14
     # Rekrutacja linkowalna także w archiwum (dotąd był sam tytuł).
     assert row["job_id"] is not None
     assert row["job_title"] == "Projekt z harmonogramem"
@@ -1117,7 +1118,7 @@ async def test_md_line_rates_come_from_the_order_not_the_contract(
     assert row["hourly_rate_candidate"] == 72.0
     assert row["hourly_rate_client"] == 93.75
     # Marża miesięczna nadal z kontraktu — kafel MRR jest jej sumą.
-    assert row["monthly_margin"] == (800 - 576) * 22
+    assert row["monthly_margin"] == (800 - 576) * 21
 
 
 async def test_periodic_order_hourly_rate_comes_from_the_order(

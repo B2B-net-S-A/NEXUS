@@ -119,6 +119,11 @@ PANEL_KPI_DEFAULTS: dict[str, dict[UserRole, int]] = {
 #   5) `legacy_mf` / `legacy_credited` — dotychczasowy fallback wyłącznie dla
 #      historii sprzed pierwszego sklasyfikowanego procesu. Dzięki temu nowy
 #      attempt nie może odziedziczyć milestone'ów ani verifiera z poprzedniego.
+#
+# WYKLUCZONE PLACEMENTY (0343, `services/placement_exclusions.py`): wiersze
+# `hired` par z `placement_exclusions` nie są kredytowane w ŻADNEJ gałęzi —
+# `classified_stage_ranked` filtruje je wprost, a `legacy_mf` czyta widok,
+# który pomija je w definicji. Tylko `hired`; pozostałe etapy bez zmian.
 # Konsument dokleja własny SELECT … FROM credited.
 VERIFIER_ANCHORED_CTE = """
     WITH process_windows AS (
@@ -178,6 +183,16 @@ VERIFIER_ANCHORED_CTE = """
           AND (
               cs.stage::text <> 'verified'
               OR cs.verification_status::text = 'active'
+          )
+          -- 0343: „Zatrudniony" pary z listy wykluczeń (seria bez CV) nie jest
+          -- placementem. Inne etapy tej pary liczą się bez zmian.
+          AND (
+              cs.stage::text <> 'hired'
+              OR NOT EXISTS (
+                  SELECT 1 FROM placement_exclusions pe
+                  WHERE pe.candidate_id = cs.candidate_id
+                    AND pe.job_id = cs.job_id
+              )
           )
     ),
     classified_mf AS (
