@@ -4945,6 +4945,22 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE emails ADD COLUMN IF NOT EXISTS send_state VARCHAR(16) NULL "
     "CONSTRAINT ck_emails_send_state "
     "CHECK (send_state IN ('pending', 'sent', 'uncertain'))",
+    # 0344: zamknięcia okresów konkursów płatnych (frozen / no_winner /
+    # tie_pending / tie_resolved). Lustro 1:1 z migracją — pilnuje
+    # `test_competition_freeze_rules.py`.
+    """CREATE TABLE IF NOT EXISTS competition_period_closures (
+        id BIGSERIAL PRIMARY KEY,
+        competition_type VARCHAR(50) NOT NULL,
+        period VARCHAR(20) NOT NULL,
+        status VARCHAR(20) NOT NULL,
+        details JSONB NULL,
+        resolved_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        resolved_at TIMESTAMPTZ NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_competition_period_closures UNIQUE (competition_type, period),
+        CONSTRAINT ck_competition_period_closures_status
+            CHECK (status IN ('frozen', 'no_winner', 'tie_pending', 'tie_resolved'))
+    )""",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
