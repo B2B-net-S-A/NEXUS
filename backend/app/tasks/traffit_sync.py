@@ -885,6 +885,10 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "skipped_managed",
         # 18.09.2026: intencje przeindeksowania zapisane przez fazę `jobs`.
         "index_intents",
+        # Audyt 22.09 r2 (INTG-03): rekrutacje bez zmian i wpisy historii
+        # sprzed `since` pominięte przez deltę ogonową.
+        "unchanged",
+        "skipped_before_since",
         "drifted_entities",
         "drift",
         "total_source",
