@@ -2185,7 +2185,10 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   rozwiniętych grup (Kogo pokazać, Dostępność, Stawka B2B, Umiejętności,
   Lokalizacja z trybem pracy), reszta (status, zatrudnienie, otwarty na, lata,
   języki, kategoria, historia z nami, frazy w CV) w szufladzie „Więcej filtrów”
-  z licznikiem ustawionych w niej filtrów. Nie przenoś grup z powrotem na
+  z licznikiem ustawionych w niej filtrów. Szuflada = jednakowe zwijane
+  sekcje (`RailGroup`): krótkie (Status i zatrudnienie, Doświadczenie i języki,
+  Kategoria — pigułki) otwarte, długie (Historia z nami, Firma i stanowisko,
+  Źródło, Frazy w CV) zwinięte, póki nic w nich nie ustawiono. Nie przenoś grup z powrotem na
   wierzch — za dużo opcji naraz było powodem przebudowy. Tabela ma STAŁE
   kolumny: Kandydat (pod nazwiskiem miasto) · Ostatnie stanowisko (+ firma,
   `getCurrentTitle`/`getCurrentCompany`) · Telefon (`tel:` + kopiuj,

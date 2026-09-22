@@ -28,6 +28,8 @@ interface AdvancedSearchPopoverProps {
   value: AdvancedSearchValue;
   onChange: (next: AdvancedSearchValue) => void;
   className?: string;
+  /** Bez nagłówka „Zaawansowane wyszukiwanie" — gdy sekcja ma już własny tytuł. */
+  hideHeader?: boolean;
 }
 
 const MAX_PER_BUCKET = 20;
@@ -173,6 +175,7 @@ export function AdvancedSearchPopover({
   value,
   onChange,
   className,
+  hideHeader = false,
 }: AdvancedSearchPopoverProps) {
   // Always render at least one ANY group row so there's somewhere to type.
   // Empty groups live in state transiently and are filtered out at the URL /
@@ -207,8 +210,8 @@ export function AdvancedSearchPopover({
 
   return (
     <div className={cn("flex flex-col gap-4 p-1", className)}>
-      <div className="flex items-start justify-between gap-2">
-        <div>
+      <div className={cn("flex items-start justify-between gap-2", hideHeader && totalCount === 0 && "hidden")}>
+        <div className={cn(hideHeader && "sr-only")}>
           <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
             Zaawansowane wyszukiwanie
           </h3>
