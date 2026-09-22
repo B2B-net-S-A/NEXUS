@@ -51,8 +51,10 @@ test.describe("Pipeline rekrutacji @stack", () => {
     );
     expect(stageOf(kanbanAfterMove, candidate.id)).toBe("screening");
 
-    // Osoba jest w tabeli (widok domyślny) także po przeładowaniu rekrutacji…
-    await page.goto(`/jobs/${job.id}`);
+    // Osoba jest w tabeli także po przeładowaniu rekrutacji… Widokiem
+    // domyślnym jest Tablica (JOB_DETAIL_DEFAULT_VIEW, 22.09.2026), więc do
+    // Tabeli wchodzimy jawnym `?tab=people`.
+    await page.goto(`/jobs/${job.id}?tab=people`);
     await page.reload();
     const table = page.getByRole("grid", { name: "Osoby w rekrutacji" });
     await expect(table.getByText(fullName)).toBeVisible();
@@ -123,7 +125,7 @@ test.describe("Pipeline rekrutacji @stack", () => {
       "dodanie do rekrutacji",
     );
 
-    await page.goto(`/jobs/${job.id}`);
+    await page.goto(`/jobs/${job.id}?tab=people`);
     const table = page.getByRole("grid", { name: "Osoby w rekrutacji" });
     // Klik w lewą część komórki nazwiska — przy wąskim oknie reszta pola
     // bywa przykryta przez sąsiednią kolumnę.
@@ -180,8 +182,13 @@ test.describe("Pipeline rekrutacji @stack", () => {
     await expect(card).toBeVisible();
     // Puste kolumny są domyślnie ukryte (store/ui.ts hideEmptyKanbanColumns),
     // a świeża rekrutacja ma tylko jedną niepustą — bez celu strzałka nic nie robi.
-    const showEmpty = page.getByRole("button", { name: /Kolumny: pokaż puste/ });
-    if (await showEmpty.isVisible()) await showEmpty.click();
+    // Przełącznik „Ukryj puste kolumny" (aria-pressed = puste ukryte) wyłączamy
+    // jawnie; do 22.09.2026 nazywał się „Kolumny: pokaż puste" i test po
+    // zmianie nazwy nic nie klikał, więc karta nie miała dokąd pojechać.
+    const hideEmpty = page.getByRole("button", { name: "Ukryj puste kolumny" });
+    await expect(hideEmpty).toBeVisible();
+    if ((await hideEmpty.getAttribute("aria-pressed")) === "true") await hideEmpty.click();
+    await expect(hideEmpty).toHaveAttribute("aria-pressed", "false");
     // Przeciąganie klawiaturą (@hello-pangea/dnd): Spacja podnosi kartę,
     // strzałka przenosi ją do sąsiedniej kolumny, Spacja upuszcza.
     await card.focus();
