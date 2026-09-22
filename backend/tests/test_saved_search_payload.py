@@ -131,3 +131,18 @@ def test_zostaw_po_staremu_przypina_oryginal() -> None:
     assert restored == {**legacy, "keep_legacy_semantics": True}
     assert p.is_pinned_to_legacy(restored) and not p.is_pinned_to_legacy(legacy)
     assert p.restore_legacy_payload({"version": 3, "request": {}}) is None
+
+
+def test_zapis_listy_w_v2_nie_jest_neutralizowany() -> None:
+    """Lista zapisuje od 21.09.2026 `api.semantics_version = 2` — migracja nie
+    może takiemu zapisowi dokładać flag dawnego zachowania listy."""
+    v2 = {
+        "version": 2,
+        "qs": "loc=Gda%C5%84sk",
+        "api": {"location": "Gdańsk", "semantics_version": 2},
+    }
+    v1 = {"version": 2, "qs": "loc=Gda%C5%84sk", "api": {"location": "Gdańsk"}}
+    assert p.list_payload_is_unified(v2) is True
+    assert p.list_payload_is_unified(v1) is False
+    assert p.list_payload_is_unified({"qs": "q=x"}) is False
+    assert p.list_payload_is_unified(None) is False

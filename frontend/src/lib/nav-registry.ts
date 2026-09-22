@@ -34,7 +34,7 @@ import {
 import type { ComponentType } from "react";
 
 import { hasActionAccess, type ProductAction } from "@/lib/action-access";
-import type { Capability } from "@/lib/capabilities";
+import { hasCapability, type Capability } from "@/lib/capabilities";
 import { dashboardHref } from "@/lib/dashboard-presets";
 import {
   hasSectionAccess,
@@ -68,6 +68,9 @@ export type NavUser =
 
 export type NavVisibilityOptions = { contactQueueEnabled: boolean };
 
+/** Użytkownik, dla którego liczy się adres docelowy pozycji (`resolveHref`). */
+export type NavHrefUser = Parameters<typeof dashboardHref>[0];
+
 /** Grupy wysuwanego panelu „Więcej" — kolejność tablicy = kolejność w panelu. */
 export type NavMoreGroupKey = "daily" | "documents" | "sources" | "knowledge" | "system";
 
@@ -87,7 +90,7 @@ export type NavEntry = {
    * docelowy zależny od roli podaje `resolveHref`.
    */
   href: string;
-  resolveHref?: (user: Parameters<typeof dashboardHref>[0]) => string;
+  resolveHref?: (user: NavHrefUser) => string;
   label: string;
   icon: NavIcon;
   section: NavSectionKey;
@@ -102,13 +105,13 @@ export type NavEntry = {
   badgeKey?: NavBadgeKey;
   featureFlag?: NavFeatureFlag;
   /**
-   * `primary` = pozycja stoi na szynie; `more` = w wysuwanym panelu „Więcej".
-   * Podział jest per WPIS, niezależny od roli: o tym, KTO co widzi, decyduje
-   * wyłącznie bramka widoczności (sekcja / role / akcja / flaga). Rdzeń pracy
-   * każdej persony jest `primary` — sourcing/pipeline (Dashboard, Rekrutacje,
-   * Kandydaci, Wyszukiwarka, Talent Radar, Kalendarz), Delivery (Klienci,
-   * Kontrakty, Zamówienia z maila), Finanse i Insights — więc rekruter widzi
-   * sześć pozycji, a admin jedenaście, bez osobnych drzew per rola.
+   * `primary` = pozycja stoi na szynie (w jednej z grup `NAV_PRIMARY_GROUPS`);
+   * `more` = w wysuwanym panelu „Więcej". Podział jest per WPIS, niezależny od
+   * roli: o tym, KTO co widzi, decyduje wyłącznie bramka widoczności (sekcja /
+   * role / akcja / flaga). Rdzeń pracy każdej persony jest `primary` — „Praca"
+   * (Dashboard, Rekrutacje, Kandydaci, Kalendarz), „Klienci i umowy" (Klienci,
+   * Kontrakty, Zamówienia z maila) i „Firma" (Finanse, Insights) — więc
+   * rekruter widzi pięć pozycji, a admin dziewięć, bez osobnych drzew per rola.
    */
   placement: "primary" | "more";
   /** Wymagane dla `placement: "more"` (pilnuje test) — grupa w panelu. */
@@ -118,9 +121,10 @@ export type NavEntry = {
   paletteKeywords?: string[];
   inPalette: boolean;
   /**
-   * `false` = pozycja istnieje WYŁĄCZNIE w palecie ⌘K. Dziś jedna: „Panel
-   * managera" — z menu zdjęty dawno, ale paleta nadal do niego prowadziła, a
-   * przebudowa nawigacji nie może po cichu zabierać wejść. Brak pola = w menu.
+   * `false` = pozycja istnieje WYŁĄCZNIE w palecie ⌘K. Dziś trzy: „Panel
+   * managera" (z menu zdjęty dawno, ale paleta nadal do niego prowadziła) oraz
+   * Wyszukiwarka i Talent Radar (od 21.09.2026 tryby ekranu „Kandydaci").
+   * Przebudowa nawigacji nie może po cichu zabierać wejść. Brak pola = w menu.
    */
   inSidebar?: boolean;
   /**
@@ -211,18 +215,22 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "primary",
     inPalette: true,
   },
-  // Wyszukiwarka CV istniała tylko jako link z listy kandydatów — rekruter
-  // jej nie znajdował. Te same role co „Kandydaci": to ten sam moduł.
+  // Wyszukiwarka jest TRYBEM ekranu „Kandydaci" (decyzja 21.09.2026 — pasek
+  // boczny był przeładowany), więc z menu zniknęła; zostaje w palecie ⌘K,
+  // bo „wyszukiwarka" wpisana w ⌘K ma dalej prowadzić do wyszukiwarki.
+  // Te same role co „Kandydaci": to ten sam moduł.
   {
     id: "candidate-search",
-    href: "/candidates/search",
-    label: "Wyszukiwarka",
+    href: "/candidates?mode=search",
+    label: "Wyszukiwarka kandydatów",
     icon: Search,
     section: "sourcing",
     roles: CANDIDATES_NAV_ROLES,
     capability: "nav.candidates",
     placement: "primary",
+    paletteKeywords: ["wyszukiwarka", "szukaj", "search", "cv"],
     inPalette: true,
+    inSidebar: false,
   },
   {
     // Bez capability: kolejka telefonów jest semantyką WYKONAWCZĄ (lustro
@@ -290,14 +298,25 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     // zalogowanej roli (decyzja produktowa Artura 19.08). Lustrzane
     // z backendem (CurrentUser), middleware (brak wpisu = brak
     // zawężenia) i `nav.talent_radar` w lib/capabilities.ts.
+    //
+    // Od 21.09.2026 radar to tryb ekranu „Kandydaci" (`?mode=request`) i nie
+    // stoi w menu — tylko w palecie. Kto NIE ma `nav.candidates` (np. viewer
+    // `user`), nie wejdzie na /candidates, więc dla niego adres zostaje
+    // samodzielną stroną /talent-radar (działa dla każdej roli).
     id: "talent-radar",
     href: "/talent-radar",
-    label: "Talent Radar",
+    resolveHref: (user) =>
+      hasCapability(user, "nav.candidates")
+        ? "/candidates?mode=request"
+        : "/talent-radar",
+    label: "Szukaj z treści requestu (Talent Radar)",
     icon: Radar,
     section: "sourcing",
     capability: "nav.talent_radar",
     placement: "primary",
+    paletteKeywords: ["talent radar", "radar", "request", "treść requestu"],
     inPalette: true,
+    inSidebar: false,
   },
   {
     id: "marketplace",
@@ -493,25 +512,29 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   },
 ];
 
+/** Grupy szyny — kolejność tablicy = kolejność na szynie. */
+export type NavPrimaryGroupKey = "work" | "clients" | "company";
+
 /**
- * Kolejność pozycji na szynie (id wpisów). Szyna jest PŁASKA — bez nagłówków
- * sekcji — i zaczyna się od tego, z czym rekruter pracuje codziennie; rdzeń
- * Delivery/Finansów stoi niżej i tak jest widoczny tylko dla uprawnionych.
- * Każdy wpis `primary` widoczny w menu MUSI tu być (pilnuje test).
+ * Szyna jest podzielona na grupy z nagłówkami (decyzja 21.09.2026 — płaska
+ * lista jedenastu pozycji była przeładowana). `ids` = kolejność pozycji
+ * w grupie. Każdy wpis `primary` widoczny w menu MUSI być w dokładnie jednej
+ * grupie (pilnuje test). Grupa bez widocznych pozycji nie renderuje się.
  */
-export const NAV_PRIMARY_ORDER: readonly string[] = [
-  "dashboard",
-  "jobs",
-  "candidates",
-  "candidate-search",
-  "talent-radar",
-  "calendar",
-  "clients",
-  "contracts",
-  "order-mail",
-  "finance",
-  "insights",
+export const NAV_PRIMARY_GROUPS: readonly {
+  key: NavPrimaryGroupKey;
+  title: string;
+  ids: readonly string[];
+}[] = [
+  { key: "work", title: "Praca", ids: ["dashboard", "jobs", "candidates", "calendar"] },
+  { key: "clients", title: "Klienci i umowy", ids: ["clients", "contracts", "order-mail"] },
+  { key: "company", title: "Firma", ids: ["finance", "insights"] },
 ];
+
+/** Kolejność pozycji na szynie (id wpisów) — spłaszczone `NAV_PRIMARY_GROUPS`. */
+export const NAV_PRIMARY_ORDER: readonly string[] = NAV_PRIMARY_GROUPS.flatMap(
+  (group) => group.ids,
+);
 
 const SECTION_META_BY_KEY = new Map(
   NAV_SECTION_META.map((meta) => [meta.key, meta]),
@@ -588,18 +611,42 @@ export function visibleNavSections(
   })).filter((section) => section.items.length > 0);
 }
 
+export type NavPrimaryGroup = {
+  key: NavPrimaryGroupKey;
+  title: string;
+  items: NavEntry[];
+};
+
+/**
+ * Grupy szyny widoczne dla użytkownika, z pozycjami w kolejności grupy — TA
+ * SAMA bramka co reszta menu (`isEntryVisible`). Puste grupy odpadają, więc
+ * rekruter nie widzi nagłówka „Klienci i umowy" bez ani jednej pozycji.
+ */
+export function visiblePrimaryGroups(
+  user: NavUser,
+  opts: NavVisibilityOptions,
+): NavPrimaryGroup[] {
+  const byId = new Map(
+    visibleNavEntries(user, opts)
+      .filter((entry) => entry.inSidebar !== false && entry.placement === "primary")
+      .map((entry) => [entry.id, entry]),
+  );
+  return NAV_PRIMARY_GROUPS.map((group) => ({
+    key: group.key,
+    title: group.title,
+    items: group.ids.flatMap((id) => {
+      const entry = byId.get(id);
+      return entry ? [entry] : [];
+    }),
+  })).filter((group) => group.items.length > 0);
+}
+
 /** Pozycje szyny (bez „Więcej"), w kolejności `NAV_PRIMARY_ORDER`. */
 export function visiblePrimaryNav(
   user: NavUser,
   opts: NavVisibilityOptions,
 ): NavEntry[] {
-  const rank = (entry: NavEntry) => {
-    const index = NAV_PRIMARY_ORDER.indexOf(entry.id);
-    return index < 0 ? NAV_PRIMARY_ORDER.length : index;
-  };
-  return visibleNavEntries(user, opts)
-    .filter((entry) => entry.inSidebar !== false && entry.placement === "primary")
-    .sort((a, b) => rank(a) - rank(b));
+  return visiblePrimaryGroups(user, opts).flatMap((group) => group.items);
 }
 
 export type NavMoreGroup = {
@@ -660,7 +707,7 @@ export function visiblePaletteEntries(
 /** Adres, pod który pozycja faktycznie prowadzi (Dashboard zależy od roli). */
 export function resolveNavHref(
   entry: Pick<NavEntry, "href" | "resolveHref">,
-  user: Parameters<typeof dashboardHref>[0],
+  user: NavHrefUser,
 ): string {
   return entry.resolveHref ? entry.resolveHref(user) : entry.href;
 }

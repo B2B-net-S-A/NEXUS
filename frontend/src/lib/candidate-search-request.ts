@@ -61,9 +61,17 @@ const URL_REQUEST_KEYS = [
   "q_none",
   "q",
   "competence_category_ids",
+  // Pola legacy zostają czytane (stare `?s=`); widok przekłada je na kubełki
+  // (`toSearchSemanticsV2`) i sam zapisuje już wyłącznie kubełki niżej.
   "skills_must",
   "skills_any",
   "skills_none",
+  "skills_required",
+  "skills_required_any_groups",
+  "skills_preferred",
+  "skills_excluded",
+  "open_to",
+  "text_mode",
   "experience_years_min",
   "experience_years_max",
   "languages",

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import React, { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CandidateSearchRequest } from "@/lib/candidate-search-api";
@@ -36,20 +36,24 @@ const BASE: CandidateSearchRequest = {
   page: 1,
   page_size: 50,
   search_mode: "hybrid",
+  semantics_version: 2,
 };
 
 /** Kontrolowany panel z podglądem ostatniego `onChange`. */
 function Harness({
   initial,
   onChange,
+  textInterpretation,
 }: {
   initial: CandidateSearchRequest;
   onChange: (next: CandidateSearchRequest) => void;
+  textInterpretation?: React.ComponentProps<typeof FiltersPanel>["textInterpretation"];
 }) {
   const [value, setValue] = useState(initial);
   return (
     <FiltersPanel
       value={value}
+      textInterpretation={textInterpretation}
       onChange={(next) => {
         onChange(next);
         setValue(next);
@@ -61,20 +65,101 @@ function Harness({
 describe("FiltersPanel — limity lustrzane do backendu", () => {
   it("pole frazy ma limit 500 znaków i licznik", () => {
     render(<FiltersPanel value={{ ...BASE, q: "java" }} onChange={() => {}} />);
-    const input = screen.getByPlaceholderText(/Szukaj semantycznie/);
+    const input = screen.getByPlaceholderText(/Imię i nazwisko, e-mail/);
     expect(input.getAttribute("maxLength")).toBe(String(SEARCH_QUERY_MAX_LENGTH));
     expect(screen.getByText(`4/${SEARCH_QUERY_MAX_LENGTH}`)).toBeInTheDocument();
   });
 
-  it("jednoznakowa umiejętność („C”) jest przyjmowana", () => {
+  it("jednoznakowa umiejętność („C”) bez wyboru kubełka trafia do „Musi mieć”", () => {
     const onChange = vi.fn();
     render(<Harness initial={BASE} onChange={onChange} />);
-    const input = screen.getByLabelText("Skills (preferowane)");
+    const input = screen.getByLabelText("Dodaj umiejętność");
     fireEvent.change(input, { target: { value: "C" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onChange).toHaveBeenLastCalledWith(
-      expect.objectContaining({ skills_must: ["C"] }),
+      expect.objectContaining({ skills_required: ["C"] }),
     );
+  });
+
+  it("trzy kubełki: „Musi mieć” z grupą a|b, „Mile widziane”, „Wyklucz”", () => {
+    const onChange = vi.fn();
+    render(<Harness initial={BASE} onChange={onChange} />);
+    const input = screen.getByLabelText("Dodaj umiejętność");
+    fireEvent.change(input, { target: { value: "Java, Spring|Quarkus" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.click(screen.getByRole("radio", { name: "Mile widziane" }));
+    fireEvent.change(input, { target: { value: "Docker" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.change(input, { target: { value: "-PHP" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        skills_required: ["Java", "Spring|Quarkus"],
+        skills_preferred: ["Docker"],
+        skills_excluded: ["PHP"],
+      }),
+    );
+    expect(screen.getByText("Spring lub Quarkus")).toBeInTheDocument();
+    expect(screen.getByText("bez PHP")).toBeInTheDocument();
+  });
+
+  it("„Ukryj osoby bez danych” ustawia hide_unknown", () => {
+    const onChange = vi.fn();
+    render(<Harness initial={BASE} onChange={onChange} />);
+    fireEvent.click(screen.getByLabelText("Ukryj osoby bez danych"));
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ hide_unknown: true }),
+    );
+  });
+
+  it("przełącznik „Dosłownie / Po znaczeniu” ustawia text_mode i wraca do auto", () => {
+    const onChange = vi.fn();
+    render(
+      <Harness
+        initial={{ ...BASE, q: "Jan Kowalski" }}
+        onChange={onChange}
+        textInterpretation={{
+          applied: "literal",
+          interpretation: {
+            kind: "name",
+            mode: "literal",
+            rule: "multi_token_name",
+            name: ["Jan", "Kowalski"],
+            email: null,
+            phone: null,
+            skills: [],
+            locations: [],
+            other: [],
+          },
+        }}
+      />,
+    );
+    expect(screen.getByTestId("text-interpretation").textContent).toMatch(
+      /Rozumiem to jako: osoba \(Jan Kowalski\)/,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Po znaczeniu" }));
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ text_mode: "semantic" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Po znaczeniu" }));
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ text_mode: null }),
+    );
+  });
+
+  it("wklejony request pokazuje „Szukaj jak z requestu”", () => {
+    const onUseAsRequest = vi.fn();
+    const text = "Szukamy Java developera\nWymagania:\n- Java 17\n- Spring";
+    render(
+      <FiltersPanel
+        value={{ ...BASE, q: text }}
+        onChange={() => {}}
+        onUseAsRequest={onUseAsRequest}
+      />,
+    );
+    expect(screen.getByText("Wygląda na treść requestu.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Szukaj jak z requestu" }));
+    expect(onUseAsRequest).toHaveBeenCalledWith(text);
   });
 
   it("tekst wpisany bez Enter zamienia się w chip przy opuszczeniu pola", () => {
@@ -111,14 +196,18 @@ describe("FiltersPanel — limity lustrzane do backendu", () => {
         onChange={onChange}
       />,
     );
-    const skill = screen.getByLabelText("Skills (wyklucz)");
+    const skill = screen.getByLabelText("Dodaj umiejętność");
     fireEvent.change(skill, { target: { value: "PHP" } });
     fireEvent.click(screen.getByRole("button", { name: "Wyczyść" }));
     const cleared = onChange.mock.calls.at(-1)?.[0] as CandidateSearchRequest;
     expect(cleared.search_mode).toBe("boolean");
+    expect(cleared.semantics_version).toBe(2);
     expect(cleared.q).toBeUndefined();
     expect(cleared.tags).toBeUndefined();
-    expect((skill as HTMLInputElement).value).toBe("");
+    // Pole jest przemontowane — szkic nie zamieni się w chip przy blurze.
+    expect(
+      (screen.getByLabelText("Dodaj umiejętność") as HTMLInputElement).value,
+    ).toBe("");
   });
 
   it("lata doświadczenia są przycinane do 0–60", () => {

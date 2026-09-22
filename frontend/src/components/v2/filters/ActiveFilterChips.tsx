@@ -251,7 +251,7 @@ function collectChips(
  skillBuckets.must.forEach((skill, i) => {
  chips.push({
  key: `skill-must:${skill}:${i}`,
- label: skill,
+ label: `Musi mieć: ${skill}`,
  clear: () =>
  rebuildSkills({
  ...skillBuckets,
@@ -262,7 +262,7 @@ function collectChips(
  skillBuckets.anyGroups.forEach((group, i) => {
  chips.push({
  key: `skill-any:${i}`,
- label: group.join(" lub "),
+ label: `Musi mieć: ${group.join(" lub ")}`,
  clear: () =>
  rebuildSkills({
  ...skillBuckets,
@@ -281,6 +281,24 @@ function collectChips(
  }),
  });
  });
+ filters.skillsPreferred.forEach((skill, i) => {
+ chips.push({
+ key: `skill-pref:${skill}:${i}`,
+ label: `Mile widziane: ${skill.split("|").join(" lub ")}`,
+ clear: () =>
+ onUpdate({
+ skillsPreferred: filters.skillsPreferred.filter((_, idx) => idx !== i),
+ page: 1,
+ }),
+ });
+ });
+ if (filters.hideUnknown) {
+ chips.push({
+ key: "hide-unknown",
+ label: "Bez osób bez danych",
+ clear: () => onUpdate({ hideUnknown: false, page: 1 }),
+ });
+ }
  filters.poolIds.forEach((id) => {
  const name = poolsById?.get(id) ?? `Pula #${id}`;
  chips.push({
@@ -558,6 +576,8 @@ export function ActiveFilterChips({
  location: "",
  remote: [],
  skillsExpr: "",
+ skillsPreferred: [],
+ hideUnknown: false,
  poolIds: [],
  addedByIds: [],
  currentCompany: [],

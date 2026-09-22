@@ -230,7 +230,6 @@ describe("szyna vs „Więcej”", () => {
     expect(primary("user")).toEqual([
       "/dashboard",
       "/jobs",
-      "/talent-radar",
       "/calendar",
       "/insights",
     ]);
@@ -242,26 +241,32 @@ describe("SIDEBAR_VERTICAL_LAYOUT (UAT B57)", () => {
     const { SIDEBAR_VERTICAL_LAYOUT } = await import("@/components/v2/shell/SidebarV2");
     expect(SIDEBAR_VERTICAL_LAYOUT.navSpacing).toBe(SIDEBAR_VERTICAL_LAYOUT.itemSpacing);
     expect(SIDEBAR_VERTICAL_LAYOUT.sectionSlot).toMatch(/\bh-\d+\b/);
+    // Odstęp między grupami jest stały (bez wariantów per stan).
+    expect(SIDEBAR_VERTICAL_LAYOUT.groupSpacing).toMatch(/^mb-\d+$/);
+  });
+
+  it("re-eksportuje TEN SAM kontrakt, którego używa nagłówek grupy", async () => {
+    const sidebar = await import("@/components/v2/shell/SidebarV2");
+    const more = await import("@/components/v2/shell/SidebarMore");
+    expect(sidebar.SIDEBAR_VERTICAL_LAYOUT).toBe(more.SIDEBAR_VERTICAL_LAYOUT);
   });
 });
 
-describe("Wyszukiwarka w menu (B5)", () => {
-  it("dostają ją dokładnie te role, które widzą „Kandydaci”", () => {
+describe("Wyszukiwarka i Talent Radar = tryby ekranu „Kandydaci” (21.09.2026)", () => {
+  it("nie stoją w menu żadnej roli", () => {
     const roles: UserRole[] = ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "recruiter", "finance", "sourcer", "user"];
     for (const role of roles) {
       const items = hrefs(role);
-      expect(items.includes("/candidates/search")).toBe(items.includes("/candidates"));
+      expect(items).not.toContain("/candidates/search");
+      expect(items).not.toContain("/talent-radar");
     }
-    expect(hrefs("recruiter")).toContain("/candidates/search");
-    expect(hrefs("user")).not.toContain("/candidates/search");
   });
 
-  it("na wyszukiwarce świeci się tylko „Wyszukiwarka”, nie „Kandydaci”", () => {
-    expect(isNavItemActive("/candidates/search", "/candidates/search")).toBe(true);
-    expect(isNavItemActive("/candidates/search", "/candidates")).toBe(false);
+  it("na wyszukiwarce świeci się „Kandydaci” (nie ma już własnej pozycji)", () => {
+    expect(isNavItemActive("/candidates/search", "/candidates")).toBe(true);
+    expect(isNavItemActive("/candidates", "/candidates?mode=search")).toBe(true);
     expect(isNavItemActive("/candidates/contact-queue", "/candidates")).toBe(false);
     expect(isNavItemActive("/candidates/123", "/candidates")).toBe(true);
-    expect(isNavItemActive("/candidates", "/candidates/search")).toBe(false);
     expect(isNavItemActive("/candidates/searchable", "/candidates")).toBe(true);
   });
 });

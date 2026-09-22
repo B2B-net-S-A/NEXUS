@@ -1005,10 +1005,10 @@ const navContext: CandidateDetailNavigation | null = navigation ?? null;
  </Link>
  ) : backToTalentRadar ? (
  <Link
- href="/talent-radar"
+ href="/candidates?mode=request"
  className="inline-flex min-h-11 min-w-11 items-center gap-1 px-2 text-sm text-muted-foreground hover:text-primary"
  >
- <ArrowLeft className="h-4 w-4" /> Wróć do Talent Radaru
+ <ArrowLeft className="h-4 w-4" /> Wróć do wyszukiwania z requestu
  </Link>
  ) : (
  <Link

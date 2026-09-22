@@ -8,6 +8,7 @@ import {
 } from "@/lib/capabilities";
 import {
   NAV_MORE_GROUPS,
+  NAV_PRIMARY_GROUPS,
   NAV_PRIMARY_ORDER,
   NAV_REGISTRY,
   NAV_SECTION_META,
@@ -17,6 +18,7 @@ import {
   visibleNavHrefs,
   visibleNavSections,
   visiblePaletteEntries,
+  visiblePrimaryGroups,
   visiblePrimaryNav,
 } from "@/lib/nav-registry";
 import type { UserRole } from "@/store/auth";
@@ -74,12 +76,24 @@ describe("rejestr nawigacji — spójność wpisów", () => {
     }
   });
 
-  it("NAV_PRIMARY_ORDER wymienia DOKŁADNIE pozycje szyny (bez tylko-paletowych)", () => {
+  it("grupy szyny wymieniają DOKŁADNIE pozycje szyny, każdą raz (bez tylko-paletowych)", () => {
     const railIds = NAV_REGISTRY.filter(
       (entry) => entry.placement === "primary" && entry.inSidebar !== false,
     ).map((entry) => entry.id);
-    expect([...NAV_PRIMARY_ORDER].sort()).toEqual([...railIds].sort());
-    expect(new Set(NAV_PRIMARY_ORDER).size).toBe(NAV_PRIMARY_ORDER.length);
+    const grouped = NAV_PRIMARY_GROUPS.flatMap((group) => group.ids);
+    expect([...grouped].sort()).toEqual([...railIds].sort());
+    expect(new Set(grouped).size).toBe(grouped.length);
+    expect(NAV_PRIMARY_ORDER).toEqual(grouped);
+  });
+
+  it("grupy szyny: Praca · Klienci i umowy · Firma, w tej kolejności", () => {
+    expect(
+      NAV_PRIMARY_GROUPS.map((group) => [group.title, [...group.ids]]),
+    ).toEqual([
+      ["Praca", ["dashboard", "jobs", "candidates", "calendar"]],
+      ["Klienci i umowy", ["clients", "contracts", "order-mail"]],
+      ["Firma", ["finance", "insights"]],
+    ]);
   });
 });
 
@@ -88,16 +102,53 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
   const primaryHrefs = (role: UserRole) =>
     visiblePrimaryNav(userOf(role), opts).map((entry) => entry.href);
 
-  it("rekruter ma na szynie sześć pozycji codziennej pracy + Insights, w tej kolejności", () => {
+  const groupsOf = (role: UserRole) =>
+    visiblePrimaryGroups(userOf(role), opts).map((group) => [
+      group.title,
+      group.items.map((item) => item.href),
+    ]);
+
+  it("rekruter ma na szynie „Praca” + „Firma” (samo Insights), bez pustej grupy klientów", () => {
+    expect(groupsOf("recruiter")).toEqual([
+      ["Praca", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
+      ["Firma", ["/insights"]],
+    ]);
     expect(primaryHrefs("recruiter")).toEqual([
       "/dashboard",
       "/jobs",
       "/candidates",
-      "/candidates/search",
-      "/talent-radar",
       "/calendar",
       "/insights",
     ]);
+  });
+
+  it("Delivery Lead: klienci i umowy bez Finansów; finance i admin: wszystkie trzy grupy", () => {
+    expect(groupsOf("delivery_lead")).toEqual([
+      ["Praca", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
+      ["Klienci i umowy", ["/clients", "/contracts", "/order-mail"]],
+      ["Firma", ["/insights"]],
+    ]);
+    const full = [
+      ["Praca", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
+      ["Klienci i umowy", ["/clients", "/contracts", "/order-mail"]],
+      ["Firma", ["/finance", "/insights"]],
+    ];
+    expect(groupsOf("finance")).toEqual(full);
+    expect(groupsOf("admin")).toEqual(full);
+    for (const role of ALL_ROLES) {
+      for (const group of visiblePrimaryGroups(userOf(role), opts)) {
+        expect(group.items.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("Wyszukiwarka i Talent Radar zniknęły z menu (tryby ekranu Kandydaci)", () => {
+    for (const role of ALL_ROLES) {
+      const hrefs = visibleNavHrefs(userOf(role), opts);
+      expect(hrefs).not.toContain("/talent-radar");
+      expect(hrefs.some((href) => href.startsWith("/candidates?mode="))).toBe(false);
+      expect(hrefs).not.toContain("/candidates/search");
+    }
   });
 
   it("persony Delivery / Finanse / admin zachowują swój rdzeń na szynie", () => {
@@ -111,8 +162,6 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       "/dashboard",
       "/jobs",
       "/candidates",
-      "/candidates/search",
-      "/talent-radar",
       "/calendar",
       "/clients",
       "/contracts",
@@ -189,14 +238,14 @@ describe("rejestr nawigacji ↔ CAPABILITY_ROLES", () => {
 describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne jak przed refaktorem", () => {
   // Zamrożone z ręcznie pisanego `NAV_SECTIONS` (stan sprzed rejestru),
   // w kolejności menu, przy WYŁĄCZONEJ fladze kolejki telefonów.
+  // Bez Wyszukiwarki i Talent Radaru — od 21.09.2026 to tryby ekranu
+  // „Kandydaci”, dostępne z palety ⌘K, nie z menu.
   const SOURCING_OPERATIONAL = [
     "/dashboard",
     "/candidates",
-    "/candidates/search",
     "/cv-generator",
     "/contracts/b2b-generator",
     "/talents",
-    "/talent-radar",
     "/sourcing/marketplace",
   ];
   const PIPELINE = ["/jobs", "/calendar"];
@@ -255,7 +304,6 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       "/dashboard",
       "/cv-generator",
       "/contracts/b2b-generator",
-      "/talent-radar",
       ...PIPELINE,
       "/insights",
       ...SYSTEM,
@@ -276,10 +324,10 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     expect(ALL_ROLES.filter(withQueue).sort()).toEqual(
       sorted(["talent_community_manager", "tac", "recruiter", "sourcer"]),
     );
-    // Pozycja stoi tuż za Wyszukiwarką, jak w starym menu.
+    // Pozycja stoi tuż za „Kandydaci” (Wyszukiwarka zeszła z menu).
     const recruiter = sidebarHrefs("recruiter", true);
     expect(recruiter.indexOf("/candidates/contact-queue")).toBe(
-      recruiter.indexOf("/candidates/search") + 1,
+      recruiter.indexOf("/candidates") + 1,
     );
     for (const role of ALL_ROLES) {
       expect(sidebarHrefs(role, false)).not.toContain(
@@ -347,6 +395,49 @@ describe("paleta ⌘K ⊆ sidebar", () => {
     expect(recruiterPalette.some((entry) => entry.href === "/manager")).toBe(
       hasCapability(recruiter, "nav.manager"),
     );
+  });
+
+  const paletteHref = (role: UserRole, id: string) => {
+    const user = userOf(role);
+    const entry = visiblePaletteEntries(user, { contactQueueEnabled: false }, (c) =>
+      hasCapability(user, c),
+    ).find((candidate) => candidate.id === id);
+    return entry ? resolveNavHref(entry, user as never) : undefined;
+  };
+
+  it("Wyszukiwarka i Talent Radar zostają w palecie jako tryby ekranu Kandydaci", () => {
+    expect(paletteHref("recruiter", "candidate-search")).toBe("/candidates?mode=search");
+    expect(paletteHref("recruiter", "talent-radar")).toBe("/candidates?mode=request");
+    const radar = NAV_REGISTRY.find((entry) => entry.id === "talent-radar")!;
+    expect(radar.label).toBe("Szukaj z treści requestu (Talent Radar)");
+    expect(radar.paletteKeywords).toEqual(
+      expect.arrayContaining(["talent radar", "radar"]),
+    );
+    const search = NAV_REGISTRY.find((entry) => entry.id === "candidate-search")!;
+    expect(search.label).toBe("Wyszukiwarka kandydatów");
+    expect(search.paletteKeywords).toContain("wyszukiwarka");
+  });
+
+  it("bez `nav.candidates` Talent Radar prowadzi na samodzielną stronę /talent-radar", () => {
+    // Radar jest dla KAŻDEJ roli (19.08), a /candidates tylko dla `nav.candidates`.
+    expect(hasCapability(userOf("user"), "nav.candidates")).toBe(false);
+    expect(paletteHref("user", "talent-radar")).toBe("/talent-radar");
+    expect(paletteHref("user", "candidate-search")).toBeUndefined();
+    // Odebrana sekcja Sourcing też odcina /candidates — adres wraca do radaru.
+    const noSourcing = {
+      role: "recruiter" as const,
+      roles: ["recruiter" as const],
+      effective_section_access: {
+        sourcing: "none" as const,
+        pipeline: "write" as const,
+        delivery: "none" as const,
+        insights: "read" as const,
+        finance: "none" as const,
+        system_admin: "none" as const,
+      },
+    };
+    const radar = NAV_REGISTRY.find((entry) => entry.id === "talent-radar")!;
+    expect(resolveNavHref(radar, noSourcing as never)).toBe("/talent-radar");
   });
 
   it("Dashboard prowadzi do dashboardu roli, nie do `/`", () => {

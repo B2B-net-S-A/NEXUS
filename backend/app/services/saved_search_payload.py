@@ -536,6 +536,25 @@ def is_pinned_to_legacy(filters: Any) -> bool:
     return isinstance(filters, dict) and filters.get(KEEP_LEGACY_KEY) is True
 
 
+def list_payload_is_unified(filters: Any) -> bool:
+    """Zapis z LISTY w formacie ``{version: 2, qs, api}``, którego ``api`` już
+    niesie ``semantics_version: 2`` — lista zapisuje tak od 21.09.2026 (UI
+    domyślnie w v2). Taki zapis liczy się już wspólną semantyką, więc migracja
+    NIE może dokładać flag neutralizujących dawne zachowanie listy
+    (``hide_unknown``, ``location_scope``) — zmieniłyby wynik zapisu i wymusiły
+    ponowną akceptację czegoś, co właściciel zapisał po nowemu.
+    """
+    if not isinstance(filters, dict):
+        return False
+    api = filters.get("api")
+    if not isinstance(api, dict):
+        return False
+    try:
+        return int(api.get("semantics_version") or 0) == 2
+    except (TypeError, ValueError):
+        return False
+
+
 def restore_legacy_payload(filters: dict[str, Any]) -> Optional[dict[str, Any]]:
     """„Zostaw po staremu": oryginalny ładunek sprzed migracji + znacznik, że
     zostaje przy v1. ``None``, gdy zapis nie niesie oryginału."""

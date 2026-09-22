@@ -488,11 +488,11 @@ export function buildUnifiedPayload(
 /**
  * Zapis (dowolny format) → stan widoku `CandidateSearchView`.
  *
- * Widok nie ma jeszcze kontrolek dla jawnych kubełków, więc „Mile widziane"
- * wraca do chipów `skills_must` (w wyszukiwarce i tak są sygnałem rankingowym),
- * a przełączniki `open_to` do pól `open_to_*`. Zapis v3 niesie
- * `semantics_version: 2` — widok wysyła je dalej, więc rekruter widzi ten sam
- * zbiór, który policzyła migracja. Surowe żądanie legacy wraca bez zmian.
+ * Widok ma jawne kubełki umiejętności i „Otwarty na" (semantyka v2), więc
+ * zapis v3 wraca jako ciało wyszukiwarki bez przekładania na pola legacy.
+ * Surowe żądanie legacy wraca bez zmian — widok przepuszcza je przez
+ * `toSearchSemanticsV2` (`candidate-search-semantics.ts`), które korzysta
+ * z `searchRequestToUnified` wyżej, więc mapowanie legacy jest jedno.
  */
 export function savedSearchToSearchViewRequest(filters: unknown): Dict | null {
   const format = detectUnifiedFormat(filters);
@@ -500,15 +500,5 @@ export function savedSearchToSearchViewRequest(filters: unknown): Dict | null {
   if (format !== "unified") return null;
   const { request } = readSavedSearch(filters);
   if (!request) return null;
-  const body = unifiedToSearchBody(request);
-  const { skills_preferred, open_to, ...rest } = body as Dict & {
-    skills_preferred?: string[];
-    open_to?: string[];
-  };
-  const out: Dict = { ...rest };
-  if (skills_preferred?.length) out.skills_must = skills_preferred;
-  for (const [flag, name] of OPEN_TO_FLAGS) {
-    if (open_to?.includes(name)) out[flag] = true;
-  }
-  return out;
+  return unifiedToSearchBody(request);
 }

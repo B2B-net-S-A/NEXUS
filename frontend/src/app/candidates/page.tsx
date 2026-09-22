@@ -1,10 +1,10 @@
 import { Suspense } from "react";
-import { CandidatesListV2 } from "@/components/v2/pages/CandidatesListV2";
+import { CandidatesWorkspace } from "@/components/v2/candidates/CandidatesWorkspace";
 
 export default function CandidatesPage() {
   return (
     <Suspense>
-      <CandidatesListV2 />
+      <CandidatesWorkspace />
     </Suspense>
   );
 }
