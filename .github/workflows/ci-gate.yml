@@ -39,11 +39,10 @@ name: CI Gate
 # `frontend-fast` — sam `tsc --noEmit`, bez builda i bez lintu, żeby zmieścić się
 # w budżecie czasowym bramki.
 #     Bramkowanie na nim byłoby duplikatem tej samej weryfikacji.
-#   * pytest — przeszedł już na PR na tym samym kodzie (strict: true) i nadal
-#     leci na main w "CI". Świadomy kompromis: prod może żyć ~6 min przed
-#     zakończeniem pełnego pytestu na main. Realne ryzyko to semantyczny konflikt
-#     dwóch PR-ów zmergowanych blisko siebie — czerwone "CI" na main jest wtedy
-#     sygnałem do rollbacku (runbook §2).
+#   * pytest — pełny zestaw przeszedł już w kolejce merge'ów na DOKŁADNIE tym
+#     drzewie, które ląduje na mainie (od 22.09.2026 pełny pytest biegnie tylko
+#     tam; na PR-ze leci sito zmienionych plików). Powtarzanie go tutaj byłoby
+#     duplikatem, a bramka deployu ma zostać tania.
 
 on:
   push:

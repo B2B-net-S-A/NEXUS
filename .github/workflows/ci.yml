@@ -14,6 +14,16 @@ name: CI
 # ~18% rachunku za Actions w repo. Bramką deployu był i jest „CI Gate", nie ten
 # workflow (patrz nagłówek deploy.yml), więc zdjęcie `push` niczego nie odbramkowuje.
 #
+# PEŁNY PYTEST I PEŁNY FRONTEND TYLKO W KOLEJCE (od 22.09.2026). Na PR-ze leci
+# sito: testy backendu związane ze zmienionymi plikami
+# (`.github/scripts/select_pr_tests.py`, ~0–5 min) i Vitest dotknięty zmianą.
+# Zmierzone 22.09: jedna zmiana czekała ~20 min na CI PR-a, potem ~20 min na TO
+# SAMO CI w kolejce, na praktycznie tym samym drzewie. Kolejka waliduje
+# dokładnie to, co ląduje na mainie, więc pełny bieg zostaje tam; PR dostaje
+# szybki sygnał. Cena: błąd spoza sita wychodzi dopiero w kolejce (która
+# wyrzuca PR-a). Wymagane konteksty („Backend (pytest)”, „Frontend (typecheck
+# + build)”) zgłaszają się na PR-ze zawsze — decyduje o nich wynik sita.
+#
 # CO TRACIMY, świadomie: sygnał „main się zepsuł" PO merge'u. Ten sam sygnał
 # przychodzi teraz krok wcześniej — z kolejki, gdzie jeszcze blokuje merge
 # zamiast zawiadamiać o faktach dokonanych. Gdyby kolejka merge'ów kiedykolwiek
@@ -29,6 +39,10 @@ on:
   # head_branch == 'main' w deploy.yml.
   merge_group:
     types: [checks_requested]
+  # Ręczny pełny bieg (8 shardów + pokrycie + pełny frontend) na dowolnej
+  # gałęzi — zachowuje się jak kolejka, bo warunki pytają o `!= pull_request`.
+  # Przydaje się przed merge'em ryzykownej zmiany, żeby nie czekać na kolejkę.
+  workflow_dispatch:
 
 # A new PR revision supersedes older test runs of that same PR. Bieg z kolejki
 # merge'ów dostaje unikalny klucz, żeby grupy nigdy nie anulowały się nawzajem.
@@ -37,10 +51,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Pytest podzielony na 4 shardy = 4 OSOBNE runnery, każdy z własnym
-  # postgresem i sekwencyjnym pytestem. Pomiar na 3 shardach (run 31246862557):
-  # 7.7/11.9/7.1 min — round-robin nie wyrównuje czasów idealnie, stąd 4 shardy
-  # na cel ~10 min ściany (pełny suite jednym procesem: ~22 min). To nie jest
+  # Pytest podzielony na 8 shardów = 8 OSOBNYCH runnerów, każdy z własnym
+  # postgresem i sekwencyjnym pytestem. Pliki są dzielone według ZMIERZONEGO
+  # czasu (`backend/tests/ci_test_durations.json`, podział LPT w conftest), nie
+  # po kolei: przy 4 shardach round-robin dawał 14,7–20 min, a całość czekała
+  # na najwolniejszy (22.09.2026). Suma testów to ~57 min, więc 8 wyważonych
+  # shardów ≈ 7 min testów + ~1,5 min narzutu na shard. Biegnie WYŁĄCZNIE
+  # w kolejce merge'ów — na PR-ze sito `backend-pr-tests` niżej. To nie jest
   # xdist (wdrożony i wycofany — równolegli workerzy na WSPÓLNEJ bazie psuli
   # testy z globalnymi agregatami, a runner ma 4 vCPU na wszystko): semantyka
   # per shard jest identyczna z dzisiejszą, po prostu mniej plików na proces.
@@ -52,11 +69,12 @@ jobs:
   backend-lint-test:
     name: "Backend (pytest, shard ${{ matrix.shard }})"
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' }}
     strategy:
       # Jeden padnięty shard nie ubija pozostałych — pełny obraz w 1 przebiegu.
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     defaults:
       run:
         working-directory: backend
@@ -98,6 +116,20 @@ jobs:
           # `backend-coverage-combine` czyta pliki danych tą samą wersją (7.15.3) —
           # nowsze wydanie w shardach mogłoby wywrócić `coverage combine`.
           pip install pytest==9.1.1 pytest-asyncio==1.4.0 pytest-cov==7.1.0 coverage==7.15.3 -r requirements-testing.txt
+      # Testowy Postgres nie ma czego chronić przed awarią zasilania, a domyślnie
+      # zrzuca każdą transakcję na dysk (w logu shardu: jeden checkpoint 88 s).
+      # Wszystkie trzy parametry są przeładowywane bez restartu (sighup).
+      # NIGDY poza CI — to wyłącza trwałość danych.
+      - name: Szybszy Postgres (bez fsync — tylko CI)
+        env:
+          PGPASSWORD: nexus-ci-password
+        run: |
+          psql -h localhost -U nexus -d nexus_test -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET fsync = off" \
+            -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "ALTER SYSTEM SET full_page_writes = off" \
+            -c "SELECT pg_reload_conf()"
+          psql -h localhost -U nexus -d nexus_test -tAc "SHOW fsync"
       # Ten job ma własny kontener postgresa, więc potrzebuje własnego schematu.
       # Pełna choreografia migracji (seed → downgrade → re-upgrade) żyje w
       # ci-gate.yml; tutaj wystarczy doprowadzić bazę do head.
@@ -190,10 +222,28 @@ jobs:
           #
           # Czas tego joba NIE bramkuje już wdrożenia — deploy wisi na
           # „CI Gate" (~1,5 min), więc pytest wpływa wyłącznie na czas
-          # oczekiwania na PR-ze.
+          # przejścia przez kolejkę merge'ów.
+          # `--reruns 1`: test, który padł, powtarza się RAZ (pytest-rerunfailures).
+          # Jeden kapryśny test wyrzucał z kolejki PR-a i wszystkich za nim.
+          # Każde powtórzenie trafia do podsumowania biegu (krok niżej), żeby
+          # kapryśny test dało się naprawić, a nie ukryć.
           pytest tests/ \
-                 -v --tb=short \
-                 --cov=app --cov-branch --cov-report=term-missing
+                 -v --tb=short --reruns 1 --reruns-delay 2 \
+                 --cov=app --cov-branch --cov-report=term-missing \
+                 2>&1 | tee pytest-output.txt
+      - name: Testy powtórzone (kapryśne)
+        if: ${{ !cancelled() }}
+        run: |
+          reruns=$(grep -E ' RERUN( |$)' pytest-output.txt 2>/dev/null | sed -E 's/ RERUN.*//' | sort -u || true)
+          if [ -n "$reruns" ]; then
+            count=$(printf '%s\n' "$reruns" | wc -l | tr -d ' ')
+            echo "::warning::$count test(ów) przeszło dopiero za drugim razem — do naprawy (lista w podsumowaniu biegu)."
+            {
+              echo "### Testy powtórzone (shard ${{ strategy.job-index }})"
+              echo
+              printf '%s\n' "$reruns" | sed 's/^/- /'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
       # Surowy plik danych (nie XML): tylko z niego `coverage combine` potrafi
       # zsumować 4 shardy w jeden raport. `include-hidden-files` jest
       # load-bearing — od upload-artifact v4.4 pliki z kropką są domyślnie
@@ -219,7 +269,7 @@ jobs:
     name: Backend (coverage combine)
     runs-on: ubuntu-latest
     needs: backend-lint-test
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     defaults:
       run:
         working-directory: backend
@@ -233,7 +283,7 @@ jobs:
       COVERAGE_REPORT_THRESHOLD: "80"
       # Liczba shardów w matrixie `backend-lint-test` — kontrakt w
       # tests/test_ci_deploy_workflows_contract.py pilnuje zgodności.
-      EXPECTED_SHARDS: "4"
+      EXPECTED_SHARDS: "8"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -260,7 +310,7 @@ jobs:
             echo "Brak danych z shardów — raport nie powstał." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          # Komplet wejść: scalenie 3 z 4 shardów daje zaniżony wynik, który
+          # Komplet wejść: scalenie 7 z 8 shardów daje zaniżony wynik, który
           # bramka „bez spadku" wzięłaby za regresję — albo, gorzej, wynik
           # z niepełnego mianownika uznany za prawdziwy.
           if [ "${#files[@]}" -ne "$EXPECTED_SHARDS" ]; then
@@ -274,7 +324,7 @@ jobs:
           # brak wsparcia formatu w przyszłej wersji wywaliłby krok raportujący.
           total=$(coverage report --format=total --precision=2 2>/dev/null || echo "")
           {
-            echo "### Pokrycie backendu (4 shardy scalone: ${#files[@]} plik/ów)"
+            echo "### Pokrycie backendu (scalone shardy: ${#files[@]} z $EXPECTED_SHARDS)"
             echo
             echo "**Łącznie: ${total:-?}%** (próg raportowy: ${COVERAGE_REPORT_THRESHOLD}%, nie blokuje)"
             echo
@@ -320,6 +370,104 @@ jobs:
         if: ${{ !cancelled() && env.CODECOV_TOKEN == '' }}
         run: echo "::notice::CODECOV_TOKEN nie jest ustawiony — upload do Codecov pominięty; scalony raport jest w artefakcie backend-coverage-combined i w podsumowaniu biegu."
 
+  backend-pr-tests:
+    # Sito na PR-ze: tylko testy związane ze zmienionymi plikami, bez pokrycia.
+    # Pełny pytest (8 shardów + pokrycie) biegnie w kolejce merge'ów na drzewie,
+    # które ląduje na mainie. Reguły wyboru i ich granice:
+    # `.github/scripts/select_pr_tests.py`.
+    name: Backend (pytest, zmienione pliki)
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
+      pull-requests: read
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nexus
+          POSTGRES_PASSWORD: nexus-ci-password
+          POSTGRES_DB: nexus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://nexus:nexus-ci-password@localhost:5432/nexus_test
+      SECRET_KEY: ci-only-not-for-production-use-at-least-48-chars-long
+      CANDIDATE_IDENTITY_FINGERPRINT_KEY: ci-only-distinct-candidate-identity-key-at-least-48-chars
+      RUN_LIVE_TESTS: "0"
+      M365_TOKEN_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000="
+      AI_QUOTA_STRICT: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Wybierz testy dla zmienionych plików
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          # Fail-safe: bez listy plików nie zgadujemy — ale też nie puszczamy
+          # 57 minut testów w jednym jobie. Pełny zestaw i tak sprawdzi kolejka.
+          if ! files=$(gh api --paginate \
+                "/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+                --jq '.[].filename'); then
+            echo "::warning::Nie udało się odczytać listy plików PR-a — sito pominięte, pełne testy w kolejce merge'ów."
+            files=""
+          fi
+          printf '%s\n' "$files" | python3 ../.github/scripts/select_pr_tests.py > selected.txt 2> selection.log || true
+          cat selection.log
+          count=$(grep -c . selected.txt || true)
+          echo "count=${count:-0}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Testy backendu na PR-ze (sito)"
+            echo
+            head -1 selection.log
+            echo
+            echo "Pełny zestaw (8 shardów + pokrycie) biegnie w kolejce merge'ów."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.pick.outputs.count != '0'
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - name: Install dependencies
+        if: steps.pick.outputs.count != '0'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest==9.1.1 pytest-asyncio==1.4.0 -r requirements-testing.txt
+      # Testowy Postgres nie ma czego chronić przed awarią zasilania, a domyślnie
+      # zrzuca każdą transakcję na dysk (w logu shardu: jeden checkpoint 88 s).
+      # Wszystkie trzy parametry są przeładowywane bez restartu (sighup).
+      # NIGDY poza CI — to wyłącza trwałość danych.
+      - name: Szybszy Postgres (bez fsync — tylko CI)
+        if: steps.pick.outputs.count != '0'
+        env:
+          PGPASSWORD: nexus-ci-password
+        run: |
+          psql -h localhost -U nexus -d nexus_test -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET fsync = off" \
+            -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "ALTER SYSTEM SET full_page_writes = off" \
+            -c "SELECT pg_reload_conf()"
+          psql -h localhost -U nexus -d nexus_test -tAc "SHOW fsync"
+      - name: Apply migrations
+        if: steps.pick.outputs.count != '0'
+        run: alembic -c alembic/alembic.ini upgrade heads
+      - name: Pytest (wybrane pliki)
+        if: steps.pick.outputs.count != '0'
+        run: |
+          # xargs zamiast $(cat …): lista bywa długa, a nazwy nie mają spacji.
+          xargs -a selected.txt pytest -v --tb=short --reruns 1 --reruns-delay 2 -p no:cacheprovider
+
   backend-pytest-gate:
     # Branch protection wymaga kontekstu o nazwie DOKŁADNIE "Backend (pytest)".
     # Shardy raportują się jako "Backend (pytest, shard N)", więc wymagany
@@ -329,11 +477,21 @@ jobs:
     # jawnej czerwieni.
     name: Backend (pytest)
     runs-on: ubuntu-latest
-    needs: [backend-lint-test, backend-coverage-combine]
+    needs: [backend-lint-test, backend-coverage-combine, backend-pr-tests]
     if: ${{ always() }}
     steps:
       - name: Zbierz wyniki shardów i bramki pokrycia
         run: |
+          # Na PR-ze o kontekście decyduje sito; pełny bieg jest w kolejce.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            sieve="${{ needs.backend-pr-tests.result }}"
+            echo "Sito testów na PR-ze: $sieve (pełny pytest biegnie w kolejce merge'ów)"
+            if [ "$sieve" != "success" ]; then
+              echo "::error::Testy związane ze zmienionymi plikami nie przeszły (result=$sieve)"
+              exit 1
+            fi
+            exit 0
+          fi
           result="${{ needs.backend-lint-test.result }}"
           coverage="${{ needs.backend-coverage-combine.result }}"
           echo "Łączny wynik shardów: $result; bramka pokrycia: $coverage"
@@ -487,13 +645,23 @@ jobs:
       - name: Type check
         if: steps.scope.outputs.run == 'true'
         run: npm run type-check
+      # Na PR-ze tylko testy dotknięte zmianą (graf importów Vitesta względem
+      # bazy PR-a); zmiana konfiguracji albo package.json uruchamia wszystkie.
+      # Pełny Vitest z pokryciem (7 min) i `next build` biegną w kolejce.
+      - name: Vitest (testy dotknięte zmianą)
+        if: steps.scope.outputs.run == 'true' && github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          npx vitest run --changed "$BASE_SHA" --passWithNoTests
       - name: Vitest with coverage
         # Progi w vitest.config.ts (`coverage.thresholds`) = bramka „bez spadku"
         # frontendu (QA-01); Vitest kończy się błędem poniżej nich.
-        if: steps.scope.outputs.run == 'true'
+        if: steps.scope.outputs.run == 'true' && github.event_name != 'pull_request'
         run: npm run test:coverage
       - name: Upload frontend coverage (artifact)
-        if: ${{ !cancelled() && steps.scope.outputs.run == 'true' }}
+        if: ${{ !cancelled() && steps.scope.outputs.run == 'true' && github.event_name != 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: frontend-coverage
@@ -501,7 +669,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Upload frontend coverage to Codecov
-        if: ${{ !cancelled() && steps.scope.outputs.run == 'true' && env.CODECOV_TOKEN != '' }}
+        if: ${{ !cancelled() && steps.scope.outputs.run == 'true' && github.event_name != 'pull_request' && env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: frontend/coverage/lcov.info
@@ -510,7 +678,7 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Build
-        if: steps.scope.outputs.run == 'true'
+        if: steps.scope.outputs.run == 'true' && github.event_name != 'pull_request'
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
         run: npm run build

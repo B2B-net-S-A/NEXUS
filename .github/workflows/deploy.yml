@@ -126,12 +126,47 @@ jobs:
   select:
     name: Wybierz wydanie (HEAD maina z zieloną bramką)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # 15 min grupowania (niżej) + wybór wydania.
+    timeout-minutes: 20
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     outputs:
       release_sha: ${{ steps.release_select.outputs.release_sha }}
       defer: ${{ steps.release_select.outputs.defer }}
     steps:
+      # Grupowanie deployów (22.09.2026). Przy wielu sesjach Claude pracujących
+      # naraz kolejka merge'ów wypuszcza merge'e seriami, a każdy deploy to
+      # ~7 min budowy i ~1,5 min przerwy dla użytkowników. Czekamy, aż na mainie
+      # będzie cisza przez DEPLOY_QUIET_SECONDS (zmienna repo, domyślnie 300 s),
+      # najwyżej 15 min, żeby ciągły strumień nie wstrzymał wdrożeń na zawsze.
+      # Wybór wydania niżej bierze HEAD maina, więc cała seria jedzie jednym
+      # deployem; kolejne przebiegi tej serii pomija krok koalescencji.
+      # Ręczny „Run workflow” (wdróż teraz) nie czeka. `0` wyłącza grupowanie.
+      - name: Poczekaj na ciszę na mainie (grupowanie deployów)
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          QUIET: ${{ vars.DEPLOY_QUIET_SECONDS || '300' }}
+        run: |
+          set -u
+          deadline=$(( $(date +%s) + 900 ))
+          while :; do
+            last=$(gh api "repos/${{ github.repository }}/commits/main" --jq '.commit.committer.date' 2>/dev/null || true)
+            if [ -z "$last" ]; then
+              echo "::warning::Nie udało się odczytać ostatniego commitu maina — deploy bez grupowania."
+              break
+            fi
+            age=$(( $(date +%s) - $(date -d "$last" +%s) ))
+            if [ "$age" -ge "$QUIET" ]; then
+              echo "Ostatni merge ${age}s temu (próg ${QUIET}s) — wdrażamy."
+              break
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "Merge'e płyną bez przerwy od 15 min — wdrażamy bieżący HEAD."
+              break
+            fi
+            echo "Ostatni merge ${age}s temu — czekam na ciszę (${QUIET}s)…"
+            sleep 30
+          done
       - name: Checkout (tylko .github/scripts)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
