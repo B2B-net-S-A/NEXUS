@@ -1189,6 +1189,20 @@ def _apply_candidate_sort(query, filters: CandidateFilterSpec, q_any_groups):
     )
     if preferred_rank is not None:
         query = query.order_by(preferred_rank.desc())
+    # v2: osoby przepuszczone „na brak danych" (plakietka „brak …") idą za
+    # osobami z potwierdzonym dopasowaniem — w obrębie tej samej liczby braków
+    # obowiązuje żądany `sort`. Przy `hide_unknown` braków nie ma w wyniku.
+    if filters.semantics_version == 2 and not filters.hide_unknown:
+        unknown_rank = predicates.unknown_count_rank(
+            location_active=bool(filters.location or filters.location_cities),
+            country_active=bool(filters.country),
+            experience_active=(
+                filters.min_experience is not None or filters.max_experience is not None
+            ),
+            rate_active=filters.min_rate is not None or filters.max_rate is not None,
+        )
+        if unknown_rank is not None:
+            query = query.order_by(unknown_rank.asc())
     return _apply_requested_sort(query, filters, q_any_groups)
 
 
