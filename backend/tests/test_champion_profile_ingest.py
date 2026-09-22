@@ -441,3 +441,167 @@ def test_champion_dict_never_carries_client_card_fields():
     assert d["client"]["cv_language"] is None
     assert d["documents"] == []
     assert d["client"]["selling_points"] == "S"
+
+
+# ── Backfill z Traffita (22.09.2026): model na przebieg + scalanie po polu ──
+
+
+def test_merge_fills_only_blank_fields_of_a_legacy_profile():
+    """Profil z importu sierpniowego (płaski v3) dostaje wyłącznie braki.
+
+    Stawka i rola są w starym profilu — nie mogą zostać zmienione, choć nowy
+    odczyt podaje inne wartości. Pusty stack i pytania screeningowe wchodzą.
+    """
+    from app.services.champion_profile_ingest import merge_missing_fields
+
+    legacy = {
+        "role_name": "Analityk",
+        "rate_value": 145.0,
+        "_parser": "champion_parse:v3:haiku-4.5",
+        "_source": "traffit_recruitment_file:1",
+    }
+    fresh = build_champion_dict(
+        {
+            "basics": {
+                "role_name": "INNA ROLA",
+                "rate_value": 99.0,
+                "work_mode": "zdalnie",
+            },
+            "stack": {"must": [{"name": "SQL"}, {"name": "Python"}]},
+            "project": {"about": "Hurtownia danych banku."},
+            "screening_questions": [{"id": "q1", "question": "SQL?"}],
+        },
+        2,
+    )
+    merged, filled = merge_missing_fields(legacy, fresh)
+    assert merged["basics"]["role_name"] == "Analityk"
+    assert merged["basics"]["rate_value"] == 145.0
+    assert merged["basics"]["work_mode"] == "zdalnie"
+    assert [s["name"] for s in merged["stack"]["must"]] == ["SQL", "Python"]
+    assert merged["project"]["about"] == "Hurtownia danych banku."
+    assert merged["screening_questions"][0]["question"] == "SQL?"
+    assert "basics.role_name" not in filled and "basics.rate_value" not in filled
+    assert {
+        "basics.work_mode",
+        "stack.must",
+        "project.about",
+        "screening_questions",
+    } <= set(filled)
+    # Pochodzenie starego odczytu zostaje — po nim widać, skąd profil przyszedł.
+    assert merged["_parser"] == "champion_parse:v3:haiku-4.5"
+
+
+def test_merge_keeps_existing_screening_questions_whole():
+    from app.services.champion_profile_ingest import merge_missing_fields
+
+    old = {"screening_questions": [{"id": "q1", "question": "Stare pytanie"}]}
+    new = {
+        "screening_questions": [
+            {"id": "q1", "question": "Nowe"},
+            {"id": "q2", "question": "Drugie"},
+        ]
+    }
+    merged, filled = merge_missing_fields(old, new)
+    assert [q["question"] for q in merged["screening_questions"]] == ["Stare pytanie"]
+    assert "screening_questions" not in filled
+
+
+def test_enriched_provenance_survives_normalisation():
+    from app.schemas.champion import ChampionProfile
+
+    dumped = ChampionProfile.model_validate(
+        {"_enriched": {"model": "gpt-5.6-luna"}, "_parser": "p"}
+    ).model_dump(mode="json")
+    assert dumped["_enriched"] == {"model": "gpt-5.6-luna"}
+
+
+@pytest.mark.asyncio
+async def test_merge_skips_a_profile_edited_by_a_human(monkeypatch):
+    import app.services.champion_profile_ingest as m
+
+    job = SimpleNamespace(
+        id=21,
+        external_source="traffit",
+        external_id="4900",
+        champion_profile={"role_name": "Ręcznie"},
+        must_skills=[],
+        nice_skills=None,
+        rate_budget_hourly=None,
+        onsite_days_per_week=None,
+        remote_policy=None,
+        location=None,
+    )
+
+    class _Res:
+        def scalar_one_or_none(self):
+            return job
+
+    class _Db:
+        async def execute(self, stmt):
+            return _Res()
+
+        async def commit(self):
+            raise AssertionError("profil człowieka — zero zapisu")
+
+    async def _edited(db, job_id):
+        return True
+
+    monkeypatch.setattr(m, "has_human_edit", _edited)
+    out = await m.ingest_parsed_profile(
+        _Db(),
+        external_rid=4900,
+        file_id=3,
+        parsed={"stack": {"must": [{"name": "Go"}]}},
+        merge_existing=True,
+    )
+    assert out["outcome"] == "champion_human_edited"
+    assert job.champion_profile == {"role_name": "Ręcznie"}
+    assert job.must_skills == []
+
+
+@pytest.mark.asyncio
+async def test_parse_uses_the_requested_model_with_sonnet_fallback(monkeypatch):
+    import app.services.champion_profile_ingest as m
+
+    seen = {}
+
+    class _Block:
+        type = "text"
+        text = '{"basics": {"role_name": "Dev"}}'
+
+    class _Msg:
+        content = [_Block()]
+
+    async def fake_thread(fn, **kw):
+        seen.update(kw)
+        return _Msg()
+
+    monkeypatch.setattr(m, "run_in_threadpool", fake_thread)
+    await m.parse_champion_document("tekst " * 60, model="gpt-5.6-luna")
+    assert seen["model"] == "gpt-5.6-luna"
+    assert seen["fallback_models"] == ["claude-sonnet-5"]
+
+
+def test_backfill_bundle_keeps_the_last_file_per_recruitment(tmp_path):
+    from scripts.champion_backfill import read_bundle
+
+    bundle = tmp_path / "b.jsonl"
+    bundle.write_text(
+        '{"rid": 5, "file": 1, "name": "a.docx", "b64": "QQ=="}\n'
+        '{"rid": 3, "file": 9, "name": "c.pdf", "b64": "Qg=="}\n'
+        '{"rid": 5, "file": 2, "name": "b.docx", "b64": "Qw=="}\n',
+        encoding="utf-8",
+    )
+    rows = read_bundle(bundle)
+    assert [(r["rid"], r["file"]) for r in rows] == [(3, 9), (5, 2)]
+
+
+def test_backfill_bundle_reads_gzip(tmp_path):
+    import gzip
+
+    from scripts.champion_backfill import read_bundle
+
+    bundle = tmp_path / "b.jsonl.gz"
+    with gzip.open(bundle, "wt", encoding="utf-8") as handle:
+        handle.write('{"rid": 7, "file": 4, "name": "p.docx", "b64": "QQ=="}\n')
+    assert [r["rid"] for r in read_bundle(bundle)] == [7]
