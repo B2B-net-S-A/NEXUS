@@ -170,6 +170,28 @@ describe("NewJobPage", () => {
     expect(mocks.showSuccess).toHaveBeenCalled();
   });
 
+  it("nieudana publikacja — błąd bez toastu sukcesu (REC-04)", async () => {
+    await readRequest();
+    const fallback = mocks.post.getMockImplementation()!;
+    mocks.post.mockImplementation((url: string, ...rest: unknown[]) =>
+      url === "/api/jobs/900/publish"
+        ? Promise.reject({ response: { status: 409, data: { detail: "nie" } } })
+        : fallback(url, ...rest),
+    );
+    await screen.findByRole("option", { name: "Rekruterka Ola" });
+    fireEvent.change(screen.getByLabelText("Rekruter prowadzący"), {
+      target: { value: "31" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900"));
+    expect(mocks.showError).toHaveBeenCalledWith(
+      expect.stringContaining("nie opublikowana"),
+    );
+    expect(mocks.showSuccess).not.toHaveBeenCalledWith(
+      "Rekrutacja utworzona i przekazana do searchu.",
+    );
+  });
+
   it("braki w requeście blokują przekazanie, a szkic da się zapisać", async () => {
     await readRequest({
       ...INTAKE,

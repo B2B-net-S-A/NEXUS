@@ -16,6 +16,8 @@ import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
 import { SimilarJobsDialog } from "@/components/v2/jobs/SimilarJobsDialog";
 import { CHAMPION_ROLES, requestStatusOf } from "@/lib/request-status";
 import { similarJobsApi, useSimilarJobs } from "@/lib/similar-jobs-api";
+import { toggleChampionFound } from "@/lib/champion-found-toggle";
+import { useToast } from "@/components/Toast";
 import { countHired } from "@/lib/pipeline-flow";
 import { buildJobHeaderKpis } from "@/lib/job-header-kpis";
 import { jobBudgetHourly } from "@/lib/job-budget";
@@ -182,6 +184,7 @@ export default function JobDetailPage() {
   const pathname = usePathname();
   const openTab = useTabsStore((s) => s.openTab);
   const queryClient = useQueryClient();
+  const { showError } = useToast();
   const authUser = useAuthStore((s) => s.user);
   const impersonating = useAuthStore((s) => s.realUser !== null);
   const isAdmin = hasRole(authUser, "admin");
@@ -725,12 +728,17 @@ export default function JobDetailPage() {
             ? async () => {
                 setChampionPending(true);
                 try {
-                  await similarJobsApi.setChampionFound(
+                  // REC-05: odmowa serwera → toast, nie cisza.
+                  await toggleChampionFound({
                     jobId,
-                    job.champion_found_at == null,
-                  );
-                  await queryClient.invalidateQueries({ queryKey: ["job", id] });
-                  void queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
+                    found: job.champion_found_at == null,
+                    save: similarJobsApi.setChampionFound,
+                    refresh: async () => {
+                      await queryClient.invalidateQueries({ queryKey: ["job", id] });
+                      void queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
+                    },
+                    onError: showError,
+                  });
                 } finally {
                   setChampionPending(false);
                 }
