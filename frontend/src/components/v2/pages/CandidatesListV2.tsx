@@ -878,7 +878,6 @@ function CandidateCell({
  </span>
  {isNew && <Badge size="sm" variant="success">Nowy</Badge>}
  <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="sm" className="shrink-0" />
- <UnknownFieldBadges fields={candidate.unknown_fields} className="shrink-0 flex-nowrap" />
  {contactFeatureEnabled ? (
  <ContactStatusBadge
  contactCase={candidate.contact_case}
@@ -886,11 +885,18 @@ function CandidateCell({
  />
  ) : null}
  </div>
+ {/* Plakietki „brak …" w DRUGIEJ linii: w pierwszej ścinały nazwisko
+ („Jan Ga…") — test manualny 22.09.2026. */}
+ {(secondary || location || (candidate.unknown_fields?.length ?? 0) > 0) && (
+ <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
  {(secondary || location) && (
- <p className="mt-0.5 truncate text-xs text-muted-foreground" title={[secondary, location].filter(Boolean).join(" · ")}>
+ <p className="min-w-0 truncate text-xs text-muted-foreground" title={[secondary, location].filter(Boolean).join(" · ")}>
  {secondary || "Brak stanowiska"}
  {location ? ` · ${location}` : ""}
  </p>
+ )}
+ <UnknownFieldBadges fields={candidate.unknown_fields} className="shrink-0 flex-nowrap" />
+ </div>
  )}
  </div>
  </button>
