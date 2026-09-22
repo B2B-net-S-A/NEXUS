@@ -1,6 +1,6 @@
 // Podzakładka Ustawienia → Administracja wybierana adresem (`?sub=`) — B42.
 //
-// Główna zakładka jest w `?tab=` (`settings-tab.ts`), ale podzakładka
+// Pozycja „Osoby i role" (`settings-registry.ts`) ma podzakładki; podzakładka
 // (Użytkownicy / Uprawnienia / System / …) żyła w `useState("users")`:
 // F5 na „Uprawnieniach" wracało do „Użytkowników". Ten sam wzorzec co
 // `useSettingsTab`: efekt zależy od WARTOŚCI parametru (miękka nawigacja),
