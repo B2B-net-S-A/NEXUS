@@ -5101,6 +5101,8 @@ export const microsoft365Api = {
     /** Rekrutacja — bez niej feedback i eskalacja T+2h nie mają do czego się przypiąć. */
     job_id?: number | null;
     reminder_minutes?: number;
+    /** Identyfikator okna tworzenia (FIX-08) — ten sam przy ponowieniach. */
+    client_request_id?: string;
   }) =>
     api.post<CalendarEventResponse>(
       "/api/calendar/events/m365-invite",

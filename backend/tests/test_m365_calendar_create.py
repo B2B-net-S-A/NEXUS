@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from app.models.calendar_event import EventType
 from app.services.m365.calendar import (
     _build_event_payload,
@@ -123,3 +125,67 @@ def test_build_event_payload_uses_html_body_content_type() -> None:
     # Sanitizer keeps allowed tags; we only assert the bold survives — the
     # exact attribute whitelist is covered in test_html_sanitize.
     assert "<strong>Alice</strong>" in body["content"]
+
+
+# ── FIX-08 (audyt 22.09 r2): transactionId z identyfikatora okna ─────────────
+
+
+def test_transaction_id_from_intent_differs_for_identical_content() -> None:
+    from app.services.m365.calendar import event_transaction_id
+
+    start = datetime(2026, 9, 23, 10, tzinfo=timezone.utc)
+    end = datetime(2026, 9, 23, 11, tzinfo=timezone.utc)
+    common = dict(
+        owner_user_id=1,
+        title="Rozmowa",
+        start=start,
+        end=end,
+        attendee_emails=["a@b.pl"],
+    )
+    first = event_transaction_id(**common, intent_id="invite-form|1|aaaaaaaa-1")
+    second = event_transaction_id(**common, intent_id="invite-form|1|bbbbbbbb-2")
+    retry = event_transaction_id(**common, intent_id="invite-form|1|aaaaaaaa-1")
+    assert first != second, "drugie identyczne spotkanie Graph uzna za ponowienie"
+    assert first == retry
+
+
+@pytest.mark.asyncio
+async def test_invite_endpoint_passes_form_intent_to_graph(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from app.api import calendar as calendar_api
+    from app.services.m365 import calendar as m365_calendar
+
+    captured: dict = {}
+
+    class _Stop(Exception):
+        pass
+
+    async def _create(db, conn, **kwargs):  # noqa: ANN001
+        captured.update(kwargs)
+        raise _Stop()
+
+    async def _scope(*_a, **_kw):  # noqa: ANN002
+        return None
+
+    class _Db:
+        async def scalar(self, _stmt):  # noqa: ANN001
+            return SimpleNamespace(is_active=True, user_id=7)
+
+        async def get(self, _model, _id):  # noqa: ANN001
+            return SimpleNamespace(email="kandydat@example.com")
+
+    monkeypatch.setattr(m365_calendar, "create_event", _create)
+    monkeypatch.setattr(calendar_api, "_ensure_calendar_job_scope", _scope)
+    body = calendar_api.M365InviteRequest(
+        candidate_id=1,
+        title="Rozmowa",
+        start=datetime(2026, 9, 23, 10, tzinfo=timezone.utc),
+        end=datetime(2026, 9, 23, 11, tzinfo=timezone.utc),
+        client_request_id="abcdef12-3456",
+    )
+    with pytest.raises(_Stop):
+        await calendar_api.create_m365_invite(
+            body, current_user=SimpleNamespace(id=7), db=_Db()
+        )
+    assert captured["intent_id"] == "invite-form|7|abcdef12-3456"

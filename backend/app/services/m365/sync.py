@@ -31,7 +31,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -581,7 +581,21 @@ async def _upsert_message(
     # Graph's "@removed" shape marks deletions in delta results.
     if msg.get("@removed"):
         if existing:
-            await db.delete(existing)
+            if existing.candidate_id is not None or existing.idempotency_key:
+                # audyt 22.09 r2 (FIX-04): ``@removed`` przychodzi także przy
+                # PRZENIESIENIU wiadomości do folderu, którego nie
+                # synchronizujemy (Archiwum, własny folder). Mail powiązany
+                # z kandydatem albo wysłany z NEXUSA jest historią pracy
+                # z kandydatem — nie kasujemy go razem z powiązaniami.
+                logger.info(
+                    "m365 conn %s: email %s removed from %s in Outlook — kept "
+                    "(linked to candidate or sent from NEXUS)",
+                    conn.id,
+                    existing.id,
+                    folder_hint,
+                )
+            else:
+                await db.delete(existing)
         return None
 
     if existing is None:
@@ -770,11 +784,26 @@ async def _adopt_by_internet_message_id(
     new_id = msg.get("id")
     if not internet_message_id or not new_id:
         return None
+    # audyt 22.09 r2 (FIX-05): adopcja zależy od KIERUNKU. Mail wysłany
+    # z własnym adresem w CC ma w skrzynce DWIE kopie z tym samym
+    # ``internetMessageId`` (Wysłane + Odebrane). Bez tego kopia z Odebranych
+    # przejmowała wiersz wysyłki, a jej usunięcie kasowało wysłanego maila.
+    if folder_hint.lower() == "sentitems":
+        direction_clause = or_(
+            Email.idempotency_key.is_not(None),
+            Email.direction == EmailDirection.sent,
+        )
+    else:
+        direction_clause = and_(
+            Email.idempotency_key.is_(None),
+            Email.direction == EmailDirection.received,
+        )
     twin = await db.scalar(
         select(Email)
         .where(
             Email.user_id == conn.user_id,
             Email.m365_internet_message_id == internet_message_id,
+            direction_clause,
         )
         .order_by(Email.idempotency_key.is_(None), Email.id.asc())
         .limit(1)

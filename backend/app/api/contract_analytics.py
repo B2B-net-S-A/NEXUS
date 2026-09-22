@@ -748,8 +748,12 @@ async def location_distribution(
         Candidate.region,
     )
     if active_only:
+        # audyt 22.09 r2 (FIX-12): ta sama definicja „obecnego" kontraktu co
+        # reszta modułu — kontrakt z przyszłym startem nie jest jeszcze
+        # konsultantem pracującym w danym mieście.
         base_q = base_q.join(Contract, Contract.candidate_id == Candidate.id).where(
-            Contract.status.in_(_LIVE_CONTRACT_STATUSES)
+            Contract.status.in_(_LIVE_CONTRACT_STATUSES),
+            _started_by(business_today()),
         )
     rows = sorted((await db.execute(base_q.distinct())).all(), key=lambda row: row.id)
     profiles_by_identity = {}

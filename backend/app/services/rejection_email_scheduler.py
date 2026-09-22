@@ -34,6 +34,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import user_can_access_candidate_domain
@@ -395,7 +396,25 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
             subject=row.subject,
             body_html=row.body_html,
             candidate_id=row.candidate_id,
+            # audyt 22.09 r2 (FIX-03): STAŁY klucz intencji per wiersz
+            # harmonogramu. Klucz minutowy dawał po ponowieniu nowy odcisk,
+            # więc drugi mail odrzucenia wychodził do kandydata.
+            client_request_id=f"scheduled-rejection:{row.id}",
         )
+    except m365_sender.EmailSendConflict as conflict:
+        # Graph mógł już wysłać maila (utracona odpowiedź) albo wysyłka z tym
+        # kluczem jest w toku. NIE ponawiamy — drugi mail odrzucenia do
+        # kandydata jest gorszy niż żaden. Wiersz ``Email`` w stanie
+        # ``uncertain`` zostaje w bazie (commit), więc ewentualne ponowienie
+        # i tak trafi w istniejący klucz, a rekruter dostaje prośbę
+        # o sprawdzenie folderu Wysłane.
+        await _mark_send_outcome_unknown(db, row, conflict)
+        logger.warning(
+            "rejection_email_dispatch: row %s send outcome %s — no retry",
+            row_id,
+            conflict.state,
+        )
+        return
     except M365OwnerIneligible:
         # Close the narrow TOCTOU gap between the explicit role check above
         # and the sender/Graph execution boundary. This is terminal, not a
@@ -493,6 +512,57 @@ async def dispatch(db: AsyncSession, row_id: int) -> None:
 
 
 # ── Internals ───────────────────────────────────────────────────────────────
+
+
+async def _mark_send_outcome_unknown(
+    db: AsyncSession, row: ScheduledRejectionEmail, conflict: Exception
+) -> None:
+    """Wynik wysyłki nieznany — zamknij wiersz bez ponowień (FIX-03)."""
+    state = getattr(conflict, "state", "uncertain")
+    email_id = getattr(conflict, "email_id", None)
+    row.status = RejectionEmailStatus.failed
+    row.last_error = f"send_outcome_{state}"
+    if email_id is not None:
+        row.email_id = email_id
+    db.add(
+        Activity(
+            entity_type="candidate",
+            entity_id=row.candidate_id,
+            action="rejection_email_uncertain",
+            user_id=row.recruiter_id,
+            details={
+                "scheduled_rejection_email_id": row.id,
+                "email_id": email_id,
+                "send_state": state,
+            },
+        )
+    )
+    await db.flush()
+    notification = Notification(
+        user_id=row.recruiter_id,
+        title="Email odrzucenia — sprawdź folder Wysłane",
+        message=(
+            "Nie wiadomo, czy email odrzucenia wyszedł do kandydata "
+            "(Microsoft 365 nie potwierdził wysyłki). Sprawdź folder "
+            "Wysłane w Outlooku — NEXUS nie wyśle go ponownie."
+        ),
+        link=f"/candidates/{row.candidate_id}",
+        notification_type=NotificationType.rejection_email_failed,
+        related_entity_type="scheduled_rejection_email",
+        related_entity_id=row.id,
+    )
+    # Dzienny dedup powiadomień (ix_notif_dedup_daily) nie może wycofać
+    # zamknięcia wiersza — savepoint tylko wokół powiadomienia.
+    try:
+        async with db.begin_nested():
+            db.add(notification)
+    except IntegrityError:
+        logger.info(
+            "rejection_email_dispatch: uncertain notification for row %s "
+            "already sent today",
+            row.id,
+        )
+    await db.commit()
 
 
 async def _load_previous_stage(

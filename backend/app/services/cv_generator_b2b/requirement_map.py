@@ -67,6 +67,18 @@ def _normalize_for_match(text: str) -> str:
     return _WS_RE.sub(" ", text).strip().casefold()
 
 
+def _display_label(name: str, display: dict[str, str]) -> str:
+    """Pisownia z rekrutacji także dla alternatyw „X lub Y" (FIX-10).
+
+    Kontrakt składa grupę LUB w jedną etykietę małymi literami („java lub
+    kotlin"), a słownik pisowni zna tylko pojedyncze umiejętności — bez
+    rozbicia klient widział kafelek „java lub kotlin".
+    """
+    return " lub ".join(
+        display.get(part.casefold(), part) for part in name.split(" lub ")
+    )
+
+
 def build_requirements(job: Job) -> list[dict[str, str]]:
     """Lista wymagań na kafelki: ``[{"name", "kind": "must"|"nice"}]``.
 
@@ -123,8 +135,8 @@ def build_requirements(job: Job) -> list[dict[str, str]]:
     for source in sources:
         for name in iter_skill_names(source):
             display.setdefault(name.casefold(), name)
-    must = [display.get(n.casefold(), n) for n in must][:_MAX_MUST]
-    nice = [display.get(n.casefold(), n) for n in nice][:_MAX_NICE]
+    must = [_display_label(n, display) for n in must][:_MAX_MUST]
+    nice = [_display_label(n, display) for n in nice][:_MAX_NICE]
 
     seen: set[str] = set()
     requirements: list[dict[str, str]] = []
