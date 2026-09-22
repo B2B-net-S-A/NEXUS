@@ -103,6 +103,8 @@ async def fireflies_status(
     return {
         "connected": bool(os.getenv("FIREFLIES_API_KEY")),
         "last_synced_at": status.get("last_synced_at"),
+        "last_attempt_at": status.get("last_attempt_at"),
+        "last_success_at": status.get("last_success_at"),
         "transcript_count": total_notes,
         "error": status.get("error"),
     }
