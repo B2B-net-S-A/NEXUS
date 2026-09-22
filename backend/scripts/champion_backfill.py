@@ -10,7 +10,7 @@ i zapisuje je jako JEDEN plik JSONL; ten skrypt biegnie w kontenerze backendu::
     docker exec <backend> python -m scripts.champion_backfill \\
         --bundle /tmp/champ.jsonl --report /tmp/champ-report.jsonl --dry-run
 
-Wiersz paczki: ``{"rid": 4979, "file": 123, "name": "Profil.docx", "b64": "…"}``.
+Paczka może być skompresowana (``.jsonl.gz``). Wiersz paczki: ``{"rid": 4979, "file": 123, "name": "Profil.docx", "b64": "…"}``.
 
 Zasady zapisu (te same co endpoint collectora, ``admin_champion_ingest``):
 
@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import gzip
 import json
 import logging
 import sys
@@ -44,7 +45,8 @@ DEFAULT_MODEL = "gpt-5.6-luna"
 def read_bundle(path: Path) -> list[dict[str, Any]]:
     """Wiersze paczki; ostatni wiersz na dany ``rid`` wygrywa (nowszy plik)."""
     by_rid: dict[int, dict[str, Any]] = {}
-    with path.open(encoding="utf-8") as handle:
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rt", encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
             if not line:

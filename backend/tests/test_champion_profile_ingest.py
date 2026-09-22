@@ -594,3 +594,14 @@ def test_backfill_bundle_keeps_the_last_file_per_recruitment(tmp_path):
     )
     rows = read_bundle(bundle)
     assert [(r["rid"], r["file"]) for r in rows] == [(3, 9), (5, 2)]
+
+
+def test_backfill_bundle_reads_gzip(tmp_path):
+    import gzip
+
+    from scripts.champion_backfill import read_bundle
+
+    bundle = tmp_path / "b.jsonl.gz"
+    with gzip.open(bundle, "wt", encoding="utf-8") as handle:
+        handle.write('{"rid": 7, "file": 4, "name": "p.docx", "b64": "QQ=="}\n')
+    assert [r["rid"] for r in read_bundle(bundle)] == [7]
