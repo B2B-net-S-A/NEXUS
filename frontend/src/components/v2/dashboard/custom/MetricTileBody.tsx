@@ -38,6 +38,16 @@ export function formatMetricValue(value: number | null, unit: MetricResult["unit
   return unit === "pln" ? `${text} zł` : text
 }
 
+/**
+ * Wartość w dymku wykresu. `Number(null)` to 0 — dymek pokazywał „0" (albo
+ * „0 zł") dla punktu, którego NIE da się policzyć (FE-N10). Brak = „—".
+ */
+export function tooltipValue(value: unknown, unit: MetricResult["unit"]): string {
+  if (value === null || value === undefined || value === "") return "—"
+  const n = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(n) ? formatMetricValue(n, unit) : "—"
+}
+
 export function deltaText(result: MetricResult): { text: string; tone: "up" | "down" | "flat" } | null {
   if (result.previous_value === null || result.value === null) return null
   const diff = result.value - result.previous_value
@@ -160,7 +170,7 @@ function ChartView({ result, chart }: { result: MetricResult; chart: "bars" | "l
           <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
           <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
           <Tooltip
-            formatter={(value) => formatMetricValue(Number(value), result.unit)}
+            formatter={(value) => tooltipValue(value, result.unit)}
             contentStyle={{
               background: "hsl(var(--card))",
               border: "1px solid hsl(var(--border))",

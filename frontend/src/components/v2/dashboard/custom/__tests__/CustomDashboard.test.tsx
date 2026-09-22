@@ -136,6 +136,52 @@ describe("własny pulpit", () => {
     expect(saveMock.mock.calls[0][1]).toBe(5)
   })
 
+  it("druga akcja w trakcie zapisu nie idzie ze starą wersją (FE-N07)", async () => {
+    const tiles: DashboardTile[] = [
+      { id: "a", type: "note", x: 0, y: 0, w: 4, h: 2, config: { title: "Moje linki" } },
+      { id: "b", type: "note", x: 4, y: 0, w: 4, h: 2, config: { title: "Inne" } },
+    ]
+    getMock.mockResolvedValue({ tiles, version: 5, dropped_tiles: [] })
+    let release: (v: unknown) => void = () => {}
+    saveMock.mockImplementationOnce(
+      (next: DashboardTile[]) =>
+        new Promise((resolve) => {
+          release = () => resolve({ tiles: next, version: 6, dropped_tiles: [] })
+        }),
+    )
+    saveMock.mockImplementation(async (next: DashboardTile[]) => ({
+      tiles: next,
+      version: 7,
+      dropped_tiles: [],
+    }))
+    renderDashboard()
+
+    const open = async (title: string) => {
+      const menu = await screen.findByRole("button", { name: `Menu kafelka ${title}` })
+      fireEvent.pointerDown(menu, { button: 0, ctrlKey: false })
+    }
+    await open("Moje linki")
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Usuń z pulpitu" }))
+    await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1))
+
+    // W trakcie zapisu menu drugiego kafelka ma wyłączone akcje.
+    await open("Inne")
+    const remove = await screen.findByRole("menuitem", { name: "Usuń z pulpitu" })
+    expect(remove).toHaveAttribute("data-disabled")
+    fireEvent.click(remove)
+    expect(saveMock).toHaveBeenCalledTimes(1)
+
+    release(null)
+    await waitFor(() => expect(screen.queryByText("treść note")).toBeInTheDocument())
+    // Po zapisie kolejna akcja idzie z NOWĄ wersją i nowym układem.
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" })
+    await open("Inne")
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Usuń z pulpitu" }))
+    await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(2))
+    expect(saveMock.mock.calls[1][1]).toBe(6)
+    expect(saveMock.mock.calls[1][0]).toEqual([])
+  })
+
   it("pominięte kafelki są zgłoszone, a nie znikają bez słowa", async () => {
     getMock.mockResolvedValue({
       tiles: [{ id: "a", type: "note", x: 0, y: 0, w: 4, h: 2, config: {} }],

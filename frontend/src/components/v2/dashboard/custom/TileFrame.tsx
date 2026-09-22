@@ -30,6 +30,8 @@ export interface TileActions {
   onSettings: (id: string) => void
   onDuplicate: (id: string) => void
   onRemove: (id: string) => void
+  /** Trwa zapis pulpitu — akcje menu są wyłączone (FE-N07). */
+  busy?: boolean
 }
 
 export function TileFrame({
@@ -122,14 +124,15 @@ export function TileFrame({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => actions.onSettings(tile.id)}>
+                <DropdownMenuItem disabled={actions.busy} onSelect={() => actions.onSettings(tile.id)}>
                   Ustawienia kafelka
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => actions.onDuplicate(tile.id)}>
+                <DropdownMenuItem disabled={actions.busy} onSelect={() => actions.onDuplicate(tile.id)}>
                   Duplikuj
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive"
+                  disabled={actions.busy}
                   onSelect={() => actions.onRemove(tile.id)}
                 >
                   Usuń z pulpitu
@@ -162,14 +165,15 @@ export function TileFrame({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => actions.onSettings(tile.id)}>
+              <DropdownMenuItem disabled={actions.busy} onSelect={() => actions.onSettings(tile.id)}>
                 Ustawienia kafelka
               </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => actions.onDuplicate(tile.id)}>
+              <DropdownMenuItem disabled={actions.busy} onSelect={() => actions.onDuplicate(tile.id)}>
                 Duplikuj
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive"
+                disabled={actions.busy}
                 onSelect={() => actions.onRemove(tile.id)}
               >
                 Usuń z pulpitu

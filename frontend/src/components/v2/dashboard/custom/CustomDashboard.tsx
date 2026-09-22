@@ -12,7 +12,7 @@
 // Zapis niesie `expected_version`: dwie karty z otwartą edycją nie nadpisują
 // sobie układu po cichu — 409 przeładowuje pulpit i mówi to wprost.
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Check, LayoutGrid, Plus, Undo2 } from "lucide-react"
 
@@ -111,12 +111,28 @@ export function CustomDashboard() {
     el?.scrollIntoView({ behavior: "smooth", block: "start" })
   }, [oversightFromAlert, query.isSuccess])
 
+  // FE-N07: akcja z menu kafelka w trakcie zapisu szła ze STARĄ wersją
+  // i starym układem → 409 „zmieniono w innej karcie" i utrata pierwszej
+  // zmiany. Ref, nie tylko `isPending`: dwa kliknięcia w jednym takcie widzą
+  // ten sam render.
+  const savingRef = useRef(false)
+  const busy = save.isPending
   const persist = useCallback(
     (next: DashboardTile[], message?: string) => {
+      if (savingRef.current) {
+        showError("Poczekaj — zapisuję poprzednią zmianę pulpitu.")
+        return
+      }
+      savingRef.current = true
       save.mutate(
         { tiles: next, version },
         {
-          onSuccess: () => {
+          onSettled: () => {
+            savingRef.current = false
+          },
+          onSuccess: (data) => {
+            // Nowa wersja od razu w cache — kolejna akcja nie czeka na refetch.
+            queryClient.setQueryData(USER_DASHBOARD_QUERY_KEY, data)
             if (message) showSuccess(message)
           },
           onError: (error) => {
@@ -158,10 +174,16 @@ export function CustomDashboard() {
     setHistory([])
   }
   const saveEditing = () => {
+    if (savingRef.current) return
+    savingRef.current = true
     save.mutate(
       { tiles: draft, version },
       {
-        onSuccess: () => {
+        onSettled: () => {
+          savingRef.current = false
+        },
+        onSuccess: (data) => {
+          queryClient.setQueryData(USER_DASHBOARD_QUERY_KEY, data)
           setEditing(false)
           showSuccess("Układ pulpitu zapisany.")
         },
@@ -211,6 +233,9 @@ export function CustomDashboard() {
     },
     onDuplicate: (id: string) => commit(duplicateTile(tiles, id), "Kafelek zduplikowany."),
     onRemove: (id: string) => commit(removeTile(tiles, id), "Kafelek usunięty z pulpitu."),
+    // FE-N07: poza trybem edycji każda akcja zapisuje od razu — w trakcie
+    // zapisu menu kafelka jest wyłączone.
+    busy: busy && !editing,
   }
 
   const submitDialog = (config: TileConfig) => {

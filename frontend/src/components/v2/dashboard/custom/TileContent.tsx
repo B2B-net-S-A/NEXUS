@@ -54,7 +54,11 @@ export function TileContent({ tile }: { tile: DashboardTile }) {
 
   switch (tile.type) {
     case "my_tasks":
-      return <MyTasksDashboard />
+      // FE-N06 (regresja #1662): pulpit DL filtruje sprawy klientów z
+      // „Moich zadań” — mają własny kafelek „Moi klienci — sprawy”.
+      return (
+        <MyTasksDashboard recruitmentNotificationsOnly={preset === "delivery-lead"} />
+      )
     case "my_next_steps":
       return <MyNextStepsSection />
     case "my_contact_queue":

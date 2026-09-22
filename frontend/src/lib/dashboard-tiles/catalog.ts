@@ -91,6 +91,14 @@ function both(
   };
 }
 
+// Lustro `DlAlertsUser` (backend/app/api/dl_alerts.py).
+const DL_ALERTS_ROLES: UserRole[] = [
+  "admin",
+  "head_of_recruitment",
+  "delivery_lead",
+  "finance",
+];
+
 const CONTACT_CALLER_ROLES: UserRole[] = [
   "talent_community_manager",
   "recruiter",
@@ -255,7 +263,12 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     defaultSize: { w: 6, h: 5 },
     minSize: { w: 4, h: 3 },
     ownChrome: true,
-    availability: needsSection("delivery", "Delivery"),
+    // FE-N05: `/api/dl-alerts/cards` wpuszcza tylko DL_ALERTS_ROLES — sama
+    // sekcja Delivery (np. TCM) dawała kafelek kończący się 403.
+    availability: both(
+      needsSection("delivery", "Delivery"),
+      needsRole(DL_ALERTS_ROLES, "Dla Delivery Leadów, adminów, Head of Recruitment i Finansów"),
+    ),
   },
   dl_alerts: {
     type: "dl_alerts",

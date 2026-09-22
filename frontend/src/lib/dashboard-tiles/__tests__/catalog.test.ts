@@ -43,6 +43,34 @@ describe("katalog kafelków", () => {
     expect(templateAvailability(template("cv_sent_week"), recruiter).ok).toBe(true);
   });
 
+  it("sprawy klientów wymagają roli z dostępem do /api/dl-alerts (FE-N05)", () => {
+    const tcm = user("talent_community_manager", {
+      effective_section_access: {
+        sourcing: "read",
+        pipeline: "read",
+        delivery: "read",
+        insights: "read",
+        finance: "none",
+        system_admin: "none",
+      },
+    } as Partial<User>);
+    const result = templateAvailability(template("my_clients_alerts"), tcm);
+    expect(result.ok).toBe(false);
+    for (const role of ["admin", "head_of_recruitment", "delivery_lead", "finance"] as UserRole[]) {
+      const u = user(role, {
+        effective_section_access: {
+          sourcing: "read",
+          pipeline: "read",
+          delivery: "read",
+          insights: "read",
+          finance: "read",
+          system_admin: "none",
+        },
+      } as Partial<User>);
+      expect(templateAvailability(template("my_clients_alerts"), u).ok).toBe(true);
+    }
+  });
+
   it("odebrana sekcja wyłącza kafelek tej sekcji", () => {
     const noPipeline = user("recruiter", {
       effective_section_access: {
