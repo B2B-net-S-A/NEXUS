@@ -44,8 +44,6 @@ import { hasRole, type User, type UserRole } from "@/store/auth";
 export type NavIcon = ComponentType<{ className?: string }>;
 
 export type NavBadgeKey =
-  | "candidates"
-  | "jobs"
   | "applicationSubmissions"
   | "orderMail";
 
@@ -209,7 +207,6 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Kandydaci",
     icon: Users,
     section: "sourcing",
-    badgeKey: "candidates",
     roles: CANDIDATES_NAV_ROLES,
     capability: "nav.candidates",
     placement: "primary",
@@ -382,7 +379,6 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Rekrutacje",
     icon: Briefcase,
     section: "pipeline",
-    badgeKey: "jobs",
     placement: "primary",
     inPalette: true,
   },

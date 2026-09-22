@@ -4,9 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { X, ChevronLeft, ChevronRight, LogOut } from "lucide-react";
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import api from "@/lib/api";
 import {
   hasRole,
   ROLE_LABELS,
@@ -82,20 +80,6 @@ export function SidebarV2({
   const { user, logout, hydrated } = useAuthStore();
   const defaultDashboardHref = dashboardHref(user);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
-  const canReadCandidates =
-    hasSectionAccess(user, "sourcing") &&
-    hasRole(
-      user,
-      "admin",
-      "head_of_recruitment",
-      "delivery_lead",
-      "talent_community_manager",
-      "tac",
-      "recruiter",
-      "finance",
-      "sourcer",
-    );
-  const canReadJobs = hasSectionAccess(user, "pipeline");
   const canUseContactQueue =
     hasSectionAccess(user, "sourcing") &&
     hasRole(
@@ -139,73 +123,15 @@ export function SidebarV2({
   const expanded = hovered || pinned || mobileOpen;
   const collapsed = !expanded;
 
-  const { data: stats } = useQuery({
-    queryKey: [
-      "sidebar-badges-v2",
-      user?.id,
-      canReadCandidates,
-      canReadJobs,
-    ],
-    // Czekamy na rozstrzygnięcie auth, zanim strzelimy — bez tej bramki
-    // liczniki (/candidates, /jobs) lecą raz przed hydracją store'u i drugi
-    // raz po niej, na każdym wejściu na stronę.
-    enabled:
-      !!user && (canReadCandidates || canReadJobs),
-    queryFn: async () => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayIso = today.toISOString().slice(0, 10);
-      const promises: Promise<unknown>[] = [];
-      const slots: string[] = [];
-      if (canReadCandidates) {
-        promises.push(
-          api.get("/api/candidates", {
-            params: { page_size: 1, created_after: todayIso },
-          }),
-        );
-        slots.push("candidates");
-      }
-      if (canReadJobs) {
-        promises.push(
-          api.get("/api/jobs", {
-            params: { page_size: 1, status: "published" },
-          }),
-        );
-        slots.push("jobs");
-      }
-      // Indeksy nazwane zamiast pozycyjnych: `settled[2]` wymagało ręcznego
-      // śledzenia, gdzie w tablicy wylądowało dane zapytanie, więc dołożenie
-      // kolejnego licznika cicho przesunęłoby odczyt o jeden.
-      const settled = await Promise.allSettled(promises);
-      const bySlot = Object.fromEntries(
-        slots.map((name, i) => [name, settled[i]]),
-      ) as Record<string, (typeof settled)[number] | undefined>;
-      const candidatesRes = bySlot.candidates;
-      const jobsRes = bySlot.jobs;
-
-      return {
-        candidates:
-          candidatesRes?.status === "fulfilled"
-            ? ((candidatesRes.value as { data?: { total?: number } }).data
-                ?.total ?? 0)
-            : 0,
-        jobs:
-          jobsRes?.status === "fulfilled"
-            ? ((jobsRes.value as { data?: { total?: number } }).data?.total ??
-              0)
-            : 0,
-      } as BadgeCounts;
-    },
-    staleTime: 60_000,
-    refetchInterval: 5 * 60_000,
-  });
-
+  // Rekrutacje i Kandydaci NIE mają licznika (22.09.2026): liczyły wszystkie
+  // opublikowane rekrutacje i kandydatów dodanych dziś (głównie nocny import
+  // Traffita), więc stale świeciły „99+" jak nieprzeczytane sprawy, choć nie
+  // wymagały żadnej akcji. Licznik w menu ma znaczyć „masz coś do zrobienia".
   // Skrzynka zamówień jest trybem Kontraktów — jej licznik stoi przy nich.
   const orderMailPending = useOrderMailPendingCount(
     hasCapability(user, "nav.order_mail"),
   );
   const badgeCounts: BadgeCounts = {
-    ...(stats ?? {}),
     ...(orderMailPending ? { orderMail: orderMailPending } : {}),
   };
   const isActive = (href: string) => isNavItemActive(pathname, href);
