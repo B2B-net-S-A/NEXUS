@@ -514,7 +514,7 @@ async def test_apply_via_recruiter_link_pins_in_my_people_without_process(api):
 
 
 @pytest.mark.parametrize("link_kind", ["job", "recruiter"])
-async def test_duplicate_email_parks_submission_with_consent(api, link_kind):
+async def test_duplicate_email_links_submission_with_consent(api, link_kind):
     uid, headers, job_id = await _owner_with_job(api)
     if link_kind == "job":
         slug = (await _create_job_link(api, headers, job_id))["slug"]
@@ -557,14 +557,15 @@ async def test_duplicate_email_parks_submission_with_consent(api, link_kind):
             )
         )
         assert consent is not None and consent.candidate_id is None
+        assert sub.status == "linked"
         notif = await db.scalar(
             select(Notification).where(
                 Notification.user_id == uid,
-                Notification.related_entity_type == "application_submission",
-                Notification.related_entity_id == sub.id,
+                Notification.related_entity_type == "candidate",
+                Notification.related_entity_id == existing_id,
             )
         )
-        assert notif is not None and notif.link == "/applications"
+        assert notif is not None and notif.link == f"/candidates/{existing_id}"
 
 
 async def test_apply_requires_consent_and_honeypot_is_silent(api):

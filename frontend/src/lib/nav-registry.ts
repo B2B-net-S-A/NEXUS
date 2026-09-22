@@ -369,7 +369,12 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     ],
     placement: "more",
     moreGroup: "daily",
-    inPalette: true,
+    // Zdjęte z menu i palety 22.09.2026 (decyzja Artura): zgłoszenie osoby,
+    // która jest już w bazie, samo trafia do rekrutacji i na jej profil,
+    // więc kolejka nie ma czego zbierać (przez całe życie: 0 wpisów).
+    // Strona zostaje dla starych linków z powiadomień.
+    inSidebar: false,
+    inPalette: false,
   },
   {
     id: "jobs",

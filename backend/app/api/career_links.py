@@ -106,6 +106,10 @@ async def _stats(
                 Activity.action == "applied_via_invite",
                 Activity.created_at >= since,
                 Activity.details["invite_token_sha256"].astext == key,
+                # Od 22.09.2026 zgłoszenie osoby już w bazie też zostawia
+                # `applied_via_invite` (z `was_duplicate`) — liczy się niżej.
+                func.coalesce(Activity.details["was_duplicate"].astext, "false")
+                != "true",
             )
         )
         or 0

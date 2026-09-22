@@ -201,7 +201,6 @@ describe("szyna vs „Więcej”", () => {
     for (const href of [
       "/cv-generator",
       "/contracts/b2b-generator",
-      "/applications",
       "/help",
       "/settings",
     ]) {

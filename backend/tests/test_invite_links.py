@@ -311,15 +311,16 @@ async def test_public_apply_creates_candidate_with_ownership(inv_client: AsyncCl
 
 
 @pytest.mark.asyncio
-async def test_public_apply_duplicate_email_parks_submission_without_mutation(
+async def test_public_apply_duplicate_email_links_submission_without_mutation(
     inv_client: AsyncClient,
 ):
     """P0-CAND-01: a duplicate-email apply must NOT touch the canonical candidate.
 
     The whole point of the containment: a public, reusable invite link plus a
     known e-mail can no longer overwrite a candidate's name/CV/contact/owner.
-    Instead a pending ApplicationSubmission is parked for recruiter review, and
-    the response is generic (does not reveal the e-mail already existed).
+    Since 22.09.2026 the submission is recorded as ``linked`` and the matched
+    candidate lands on the job's pipeline (CV as a NON-primary document); the
+    response stays generic (does not reveal the e-mail already existed).
     """
     from app.models.application_submission import (
         ApplicationSubmission,
@@ -380,14 +381,14 @@ async def test_public_apply_duplicate_email_parks_submission_without_mutation(
         assert cand.cv_filename == "original_cv.pdf"  # CV NOT replaced
         assert cand.phone == "+48 111 000 000"  # contact NOT overwritten
 
-        # A pending submission was parked, pointing at the matched candidate.
+        # The submission is recorded as linked, pointing at the matched candidate.
         submission = await db.scalar(
             select(ApplicationSubmission).where(
                 ApplicationSubmission.matched_candidate_id == original_id
             )
         )
         assert submission is not None
-        assert submission.status == ApplicationSubmissionStatus.pending_review.value
+        assert submission.status == ApplicationSubmissionStatus.linked.value
         assert submission.submitted_first_name == "Attacker"
         assert submission.submitted_email == applicant_email
         assert submission.job_id == job_id
@@ -395,14 +396,14 @@ async def test_public_apply_duplicate_email_parks_submission_without_mutation(
         assert submission.invite_link_token_sha256
         assert submission.invite_link_token_sha256 != token
 
-        # No candidate stage was created for the matched candidate either.
+        # The matched candidate is on the job's pipeline, like a new applicant.
         stage = await db.scalar(
             select(CandidateStage).where(
                 CandidateStage.candidate_id == original_id,
                 CandidateStage.job_id == job_id,
             )
         )
-        assert stage is None
+        assert stage is not None
 
 
 @pytest.mark.asyncio
@@ -650,15 +651,14 @@ async def test_invite_source_label_resolves_on_encrypted_v2_path(
 
 
 @pytest.mark.asyncio
-async def test_reapply_audits_submission_not_candidate(
+async def test_reapply_audits_candidate_without_changing_owner(
     inv_client: AsyncClient,
 ):
-    """P0-CAND-01: a duplicate-email reapply audits the SUBMISSION, not the candidate.
+    """P0-CAND-01: a duplicate-email reapply never reassigns ownership.
 
-    The old contract reassigned ownership and wrote an ``applied_via_invite``
-    Activity onto the existing candidate. The new contract leaves the candidate
-    (and its audit trail) untouched and records a ``submission_received``
-    Activity against the parked submission instead.
+    Since 22.09.2026 the reapply writes ``applied_via_invite`` (marked
+    ``was_duplicate``) onto the existing candidate — it is now on the job's
+    pipeline — but ``created_by`` stays with the original owner.
     """
     from app.models.activity import Activity
     from app.models.application_submission import ApplicationSubmission
@@ -703,7 +703,6 @@ async def test_reapply_audits_submission_not_candidate(
     assert resp.status_code == 201, resp.text
 
     async with AsyncSessionLocal() as db:
-        # No applied_via_invite Activity written onto the existing candidate.
         cand_act = await db.scalar(
             select(Activity).where(
                 Activity.entity_type == "candidate",
@@ -711,27 +710,20 @@ async def test_reapply_audits_submission_not_candidate(
                 Activity.action == "applied_via_invite",
             )
         )
-        assert cand_act is None
+        assert cand_act is not None
+        assert cand_act.user_id == uid_y
+        assert cand_act.details["was_duplicate"] is True
         # Ownership stayed with X.
         cand = await db.scalar(select(Candidate).where(Candidate.id == cand_id))
         assert cand is not None and cand.created_by == uid_x
 
-        # The submission carries the audit instead.
         submission = await db.scalar(
             select(ApplicationSubmission).where(
                 ApplicationSubmission.matched_candidate_id == cand_id
             )
         )
         assert submission is not None
-        sub_act = await db.scalar(
-            select(Activity).where(
-                Activity.entity_type == "application_submission",
-                Activity.entity_id == submission.id,
-                Activity.action == "submission_received",
-            )
-        )
-        assert sub_act is not None
-        assert sub_act.user_id == uid_y
+        assert cand_act.details["submission_id"] == submission.id
 
 
 @pytest.mark.asyncio

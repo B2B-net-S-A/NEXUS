@@ -1,9 +1,11 @@
 """Tests for the P0-CAND-01 containment: public /apply/{token} submissions.
 
 Covers:
-- Duplicate-email apply parks a pending ApplicationSubmission and leaves the
-  matched Candidate byte-for-byte unchanged (name/lastname/cv/owner), with a
-  generic response (no created/updated enumeration leak).
+- Duplicate-email apply (since 22.09.2026) records the submission as
+  ``linked``, attaches the CV as a NON-primary document, opens the process on
+  the job and leaves the matched Candidate's fields unchanged
+  (name/lastname/cv/owner), with a generic response (no enumeration leak).
+  A globally blacklisted match gets the document only — no process.
 - New-email apply still creates a candidate (branch A preserved).
 - The recruiter review API: list pending, and resolve link / merge / create /
   reject — each performs the right mutation (or none) and writes an audit
@@ -170,7 +172,7 @@ async def _apply(
 
 
 @pytest.mark.asyncio
-async def test_duplicate_email_apply_parks_submission(sub_client: AsyncClient):
+async def test_duplicate_email_apply_links_into_recruitment(sub_client: AsyncClient):
     uid_owner, _, _ = await _seed_user(UserRole.recruiter, "owner")
     uid_link, email_link, pass_link = await _seed_user(UserRole.recruiter, "linker")
     job_id = await _seed_job()
@@ -197,9 +199,73 @@ async def test_duplicate_email_apply_parks_submission(sub_client: AsyncClient):
             )
         )
         assert sub is not None
-        assert sub.status == ApplicationSubmissionStatus.pending_review.value
+        assert sub.status == ApplicationSubmissionStatus.linked.value
         assert sub.submitted_first_name == "Impostor"
         assert sub.cv_filename == "cv.pdf"
+
+        stage = await db.scalar(
+            select(CandidateStage).where(
+                CandidateStage.candidate_id == cand_id,
+                CandidateStage.job_id == job_id,
+            )
+        )
+        assert stage is not None and stage.stage.value == "new"
+
+        doc = await db.scalar(
+            select(CandidateDocument).where(
+                CandidateDocument.candidate_id == cand_id,
+                CandidateDocument.external_source == "apply_submission",
+            )
+        )
+        assert doc is not None and doc.is_primary is False
+
+        act = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "candidate",
+                Activity.entity_id == cand_id,
+                Activity.action == "applied_via_invite",
+            )
+        )
+        assert act is not None
+        assert act.details["was_duplicate"] is True
+        assert act.details["process_opened"] is True
+
+
+@pytest.mark.asyncio
+async def test_duplicate_email_of_blacklisted_candidate_opens_no_process(
+    sub_client: AsyncClient,
+):
+    from app.models.candidate import CandidateStatus
+
+    uid_owner, _, _ = await _seed_user(UserRole.recruiter, "bl-owner")
+    _, email_link, pass_link = await _seed_user(UserRole.recruiter, "bl-linker")
+    job_id = await _seed_job()
+    dup_email = f"bl-{uuid.uuid4().hex[:6]}@example.com"
+    cand_id = await _seed_candidate(dup_email, uid_owner, name="Blocked")
+    async with AsyncSessionLocal() as db:
+        cand = await db.get(Candidate, cand_id)
+        cand.status = CandidateStatus.blacklisted
+        await db.commit()
+
+    headers = await _login(sub_client, email_link, pass_link)
+    token = await _make_link(sub_client, headers, job_id)
+    await _apply(sub_client, token, email=dup_email)
+
+    async with AsyncSessionLocal() as db:
+        stage = await db.scalar(
+            select(CandidateStage).where(
+                CandidateStage.candidate_id == cand_id,
+                CandidateStage.job_id == job_id,
+            )
+        )
+        assert stage is None
+        sub = await db.scalar(
+            select(ApplicationSubmission).where(
+                ApplicationSubmission.matched_candidate_id == cand_id
+            )
+        )
+        assert sub is not None
+        assert sub.status == ApplicationSubmissionStatus.linked.value
 
 
 # ── (b) new email — branch A still creates a candidate ───────────────────────
@@ -260,6 +326,12 @@ async def _park_submission(
             )
         )
         assert sub is not None
+        # Od 22.09.2026 zgłoszenie jest podpinane od razu. Ręczne
+        # rozstrzyganie zostaje dla wierszy sprzed zmiany — cofamy status do
+        # tamtego stanu, żeby testować resolver.
+        sub.status = ApplicationSubmissionStatus.pending_review.value
+        sub.reviewed_at = None
+        await db.commit()
         return sub.id, cand_id, dup_email, headers["Authorization"]
 
 
@@ -355,6 +427,11 @@ async def test_resolve_merge_fills_only_empty_fields(sub_client: AsyncClient):
             )
         )
         sub_id = sub.id
+        # Wiersz sprzed 22.09.2026 (wtedy czekał na decyzję) — patrz
+        # `_park_submission`.
+        sub.status = ApplicationSubmissionStatus.pending_review.value
+        sub.reviewed_at = None
+        await db.commit()
 
     resp = await sub_client.post(
         f"/api/application-submissions/{sub_id}/resolve",
