@@ -691,6 +691,72 @@ def _strip_json_fences(raw: str) -> str:
     return raw.strip().rstrip("`").strip()
 
 
+# Ile ostatnich granic elementów (przecinków poza napisem) próbujemy przy
+# ratowaniu uciętej odpowiedzi — każda próba to jedno ``json.loads``.
+_SALVAGE_MAX_CUTS = 200
+
+
+def _close_open_brackets(prefix: str) -> str:
+    """Domknij nawiasy prefiksu JSON, który NIE kończy się w środku napisu."""
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    for ch in prefix:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]" and stack:
+            stack.pop()
+    return prefix + "".join("}" if o == "{" else "]" for o in reversed(stack))
+
+
+def _salvage_truncated_json(raw: str) -> Optional[dict[str, Any]]:
+    """Uratuj odpowiedź uciętą limitem tokenów (audyt 22.09 r2, AI-07).
+
+    Cofa się do ostatniej granicy pełnego elementu (przecinek poza napisem),
+    odrzuca niedokończony ogon i domyka nawiasy. Niedokończona wartość nigdy
+    nie trafia do wyniku (lepiej jej nie mieć niż mieć ucięte zdanie). Bez
+    tego zapłacona odpowiedź szła do kosza, a profil budował regex.
+    """
+    start = raw.find("{")
+    if start == -1:
+        return None
+    text = raw[start:]
+    cuts: list[int] = []
+    in_string = False
+    escaped = False
+    for index, ch in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == ",":
+            cuts.append(index)
+    for cut in reversed(cuts[-_SALVAGE_MAX_CUTS:]):
+        try:
+            data = json.loads(_close_open_brackets(text[:cut]))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and data:
+            return data
+    return None
+
+
 async def _parse_with_claude(
     cv_text: str,
     *,
@@ -751,7 +817,21 @@ async def _parse_with_claude(
             getattr(b, "text", "") or "" for b in message.content if hasattr(b, "text")
         )
         unwrapped = _strip_json_fences(raw)
-        data = json.loads(unwrapped)
+        truncated = getattr(message, "stop_reason", None) == "max_tokens"
+        try:
+            data = json.loads(unwrapped)
+        except json.JSONDecodeError:
+            salvaged = _salvage_truncated_json(unwrapped) if truncated else None
+            if salvaged is None:
+                raise
+            data = salvaged
+            data["_truncated"] = True
+            logger.warning(
+                "[cv_parser] truncated JSON salvaged (template=%s v%d, keys=%d)",
+                template.name,
+                template.version,
+                len(data),
+            )
         if not isinstance(data, dict):
             return None
         data["_source"] = f"claude:{template.name}:v{template.version}"
@@ -846,9 +926,13 @@ async def parse_cv(
     prefer_llm: bool = True,
     db: "AsyncSession | None" = None,
     model: str | None = None,
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     """
     Extract structured facts from CV text.
+
+    ``user_id`` (AI-07, audyt 22.09 r2) — osoba, na którą idzie operacja AI
+    w liczniku kosztów; bez niego każde wgranie CV było „systemowe”.
 
     With `prefer_llm=True` (default) the parser walks the hierarchy
     Claude → Ollama → regex; the first path that returns a non-None result
@@ -885,7 +969,7 @@ async def parse_cv(
             from app.services.ai_quota import AIQuotaExceeded, ai_feature
 
             try:
-                async with ai_feature(db, AIFeatureKey.cv_parser):
+                async with ai_feature(db, AIFeatureKey.cv_parser, user_id=user_id):
                     claude = await _parse_with_claude(cv_text, model=model)
             except AIQuotaExceeded as quota_exc:
                 logger.info(

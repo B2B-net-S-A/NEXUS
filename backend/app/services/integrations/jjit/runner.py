@@ -152,6 +152,19 @@ class JjitRun:
             run.finished_at = _utcnow()
             await db.commit()
 
+    async def _parse_cv(self, text: str) -> dict:
+        """Odczyt CV z panelu JJIT (audyt 22.09 r2, AI-05).
+
+        ``dry_run`` NIE woła modelu: wynik i tak jest wyrzucany (nic nie
+        trafia do Traffita), a płatne wywołanie szło poza licznikiem kosztów.
+        Tryb importu idzie przez bramkę ``ai_feature(cv_parser)`` z własną
+        sesją, więc koszt jest widoczny w Ustawieniach → AI.
+        """
+        if self.dry_run:
+            return await parse_cv(text, prefer_llm=False)
+        async with AsyncSessionLocal() as db:
+            return await parse_cv(text, db=db)
+
     async def _event(self, **fields) -> None:
         async with AsyncSessionLocal() as db:
             db.add(
@@ -259,7 +272,9 @@ class JjitRun:
             try:
                 text = await asyncio.to_thread(_cv_text, cv)
                 parsed = (
-                    await parse_cv(text) if text and len(text.strip()) >= 50 else {}
+                    await self._parse_cv(text)
+                    if text and len(text.strip()) >= 50
+                    else {}
                 )
             except Exception as e:  # noqa: BLE001
                 logger.warning("jjit: parse_cv failed for %s: %s", aid, e)

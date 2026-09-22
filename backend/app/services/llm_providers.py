@@ -140,6 +140,64 @@ class ProviderMessage:
 # ── Tłumaczenie żądania ────────────────────────────────────────────────────
 
 
+# Słowa kluczowe JSON Schema, których tryb ścisły OpenAI nie obsługuje —
+# schemat z którymkolwiek idzie bez ``strict`` (odrzucenie całego żądania
+# byłoby gorsze niż luźniejszy tryb).
+_STRICT_UNSUPPORTED_KEYWORDS = frozenset(
+    {
+        "allOf",
+        "oneOf",
+        "not",
+        "if",
+        "then",
+        "else",
+        "patternProperties",
+        "dependentRequired",
+        "dependentSchemas",
+        "unevaluatedProperties",
+        "default",
+    }
+)
+
+
+def _strict_compatible(schema: Any) -> bool:
+    """Czy schemat spełnia wymogi ``strict: true`` OpenAI (AI-02).
+
+    Każdy obiekt musi mieć ``additionalProperties: false`` i ``required``
+    równe WSZYSTKIM właściwościom; żadnych słów kluczowych spoza wspieranego
+    podzbioru. Schemat niespełniający warunków idzie jak dotąd (``False``).
+    """
+
+    def ok(node: Any) -> bool:
+        if isinstance(node, list):
+            return all(ok(item) for item in node)
+        if not isinstance(node, dict):
+            return True
+        if _STRICT_UNSUPPORTED_KEYWORDS & set(node):
+            return False
+        is_object = node.get("type") == "object" or "properties" in node
+        if is_object:
+            properties = node.get("properties") or {}
+            if node.get("additionalProperties") is not False:
+                return False
+            if set(node.get("required") or []) != set(properties):
+                return False
+            if len(node.get("required") or []) != len(properties):
+                return False
+        for key, value in node.items():
+            if key in ("enum", "const", "required", "description", "title"):
+                continue
+            if key == "properties" and isinstance(value, dict):
+                if not all(ok(child) for child in value.values()):
+                    return False
+                continue
+            if not ok(value):
+                return False
+        return True
+
+    return isinstance(schema, dict) and ok(schema)
+
+
 def _flatten_text(content: Any, *, what: str) -> str:
     """Treść wiadomości/promptu systemowego jako jeden string.
 
@@ -220,7 +278,10 @@ def build_request(
                 "json_schema": {
                     "name": "nexus_output",
                     "schema": schema,
-                    "strict": False,
+                    # audyt 22.09 r2 (AI-02): tryb ścisły, gdy schemat na to
+                    # pozwala. Bez niego ~13% odpowiedzi kontroli CV łamało
+                    # schemat (``invalid_schema``) i recenzja przepadała.
+                    "strict": _strict_compatible(schema),
                 },
             }
         # `temperature` świadomie pomijane: modele rozumujące GPT odrzucają

@@ -79,6 +79,9 @@ const SKIP_REASON_PL: Record<string, string> = {
   consent_screenshot_required: "reguła klienta wymaga zrzutu zgody RODO",
   client_rule_inputs_missing: "reguła klienta wymaga danych, których automat nie ma",
   generation_unavailable: "generator CV był niedostępny",
+  // AI-06 (audyt 22.09 r2): powrót karty na „Zweryfikowany” z tym samym CV.
+  already_generated:
+    "CV z tego samego pliku już wygenerowano w tej rekrutacji — nowego nie tworzono",
 };
 
 /** Polski powód pominięcia auto-CV; nieznany kod nie udaje znanego. */

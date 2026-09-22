@@ -59,7 +59,10 @@ async def test_reparse_queues_the_upload_enrichment_for_the_primary_cv(
 
     assert response.status_code == 202, response.text
     assert response.json() == {"status": "queued", "document_id": document_id}
-    task.assert_awaited_once_with(candidate_id, document_id, "a" * 64)
+    task.assert_awaited_once()
+    assert task.await_args.args == (candidate_id, document_id, "a" * 64)
+    # AI-07: odczyt CV liczy się na osobę, która go zleciła, nie na „system”.
+    assert task.await_args.kwargs["actor_user_id"] is not None
 
 
 async def test_reparse_without_primary_cv_says_so(

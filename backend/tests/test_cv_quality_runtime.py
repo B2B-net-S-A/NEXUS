@@ -12,7 +12,8 @@ from scripts import eval_cv_factual_gate as runner
 
 
 SOURCE = "Jan Testowy. Tworzył API w Pythonie. Nie pracował z Kubernetes."
-DOCUMENT = {"name": "Jan Testowy", "why_points": ["Tworzył API w Pythonie."]}
+# ``why_points`` jest narracją (AI-02) — twierdzenie faktyczne w certyfikatach.
+DOCUMENT = {"name": "Jan Testowy", "certifications": ["Tworzył API w Pythonie."]}
 
 
 def review(content):
