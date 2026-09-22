@@ -159,15 +159,23 @@ async def _queue_daily_alerts(db: AsyncSession) -> None:
             ("tokeny", float(tokens or 0), float(prior_tokens or 0) / 7, 1_000_000),
             ("USD (szacunek)", float(cost or 0), float(prior_cost or 0) / 7, 10),
         ):
+            # Klucz dedupu zostaje przy dawnej nazwie metryki; zmienia się tylko tekst.
+            label, decimals = ("tokenów", 0) if metric == "tokeny" else (metric, 2)
             level = _daily_level(used, baseline, floor)
             if level:
                 await queue_alert(
                     db,
                     f"daily:{today.date()}:{feature}:{metric}:{level}",
-                    f"AI {feature}: ostatnie 24 h — {used:,.2f} {metric}; "
-                    f"średnia wcześniejszych 7 dni — {baseline:,.2f}. "
+                    f"AI {feature}: ostatnie 24 h — {_pl_number(used, decimals)} {label}; "
+                    f"średnia wcześniejszych 7 dni — {_pl_number(baseline, decimals)}. "
                     "Sprawdź zużycie w Ustawienia → AI. Funkcja pozostaje dostępna.",
                 )
+
+
+def _pl_number(value: float, decimals: int) -> str:
+    """Liczba po polsku: spacja tysięcy, przecinek dziesiętny (1 099 201; 12,50)."""
+    text = f"{value:,.{decimals}f}"
+    return text.replace(",", "\u00a0").replace(".", ",")
 
 
 def pending_alert_predicate(webhook: bool):

@@ -75,11 +75,18 @@ export function AgendaView({
   const visibleDays = showAll ? days : days.slice(0, 3);
   const callNow = data.todos.filter((t) => t.kind === "call_now");
   const otherTodos = data.todos.filter((t) => t.kind !== "call_now");
+  // Bez wyboru z linku: najpierw telefon „teraz”, potem PIERWSZA pozycja
+  // z listy „Do zrobienia” — ta sama, którą użytkownik widzi na górze.
+  // `data.items[0]` ma inną kolejność niż lista zadań i wskazywał osobę
+  // ze środka listy.
+  const firstTodoKey = [...callNow, ...otherTodos].map(pairKey)[0] ?? null;
   const selected =
     data.items.find((i) => pairKey(i) === selectedKey) ??
     data.items.find((i) => i.current_step === "call") ??
+    (firstTodoKey ? data.items.find((i) => pairKey(i) === firstTodoKey) : undefined) ??
     data.items[0] ??
     null;
+  const selectedPairKey = selected ? pairKey(selected) : null;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[320px_minmax(0,1fr)_360px]">
@@ -103,9 +110,9 @@ export function AgendaView({
                   key={`${t.kind}-${pairKey(t)}`}
                   className={cn(
                     "flex items-start gap-3 px-3.5 py-3",
-                    selected && pairKey(t) === pairKey(selected) && "bg-primary/5",
+                    pairKey(t) === selectedPairKey && "bg-primary/5",
                   )}
-                  aria-current={selected && pairKey(t) === pairKey(selected) ? "true" : undefined}
+                  aria-current={pairKey(t) === selectedPairKey ? "true" : undefined}
                 >
                   <span className={cn("mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full", DOT[t.kind])} aria-hidden />
                   <button
@@ -176,7 +183,7 @@ export function AgendaView({
                       key={`${e.kind}-${e.event_id ?? e.slot_request_id}-${e.start}`}
                       entry={e}
                       now={now}
-                      selected={pairKey(e) === (selected ? pairKey(selected) : null)}
+                      selected={pairKey(e) === selectedPairKey}
                       onSelect={() => onSelect(pairKey(e))}
                       onAction={onAction}
                     />

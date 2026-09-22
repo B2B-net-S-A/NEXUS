@@ -219,6 +219,45 @@ describe("CalendarCycleScreen", () => {
     );
   });
 
+  it("bez wyboru z linku karta pokazuje PIERWSZĄ osobę z „Do zrobienia” i lista ją zaznacza", async () => {
+    // Kolejność `items` (serwer) różni się od kolejności zadań — na prodzie
+    // karta pokazywała czwartą osobę z listy, a lista nie mówiła, kto wybrany.
+    const base = overview().items[0];
+    const slotsItem = (id: number, name: string) => ({
+      ...base,
+      candidate_id: id,
+      candidate_name: name,
+      current_step: "slots" as const,
+      steps: base.steps.map((st) => ({ ...st, state: st.key === "slots" ? ("current" as const) : ("todo" as const) })),
+    });
+    const later = slotsItem(91, "Zofia Późniejsza");
+    const first = slotsItem(92, "Adam Pierwszy");
+    const todo = (p: { candidate_id: number; candidate_name: string }) => ({
+      ...PAIR,
+      candidate_id: p.candidate_id,
+      candidate_name: p.candidate_name,
+      kind: "slots_missing" as const,
+      priority: 5,
+      due: null,
+      event_id: null,
+      slot_request_id: null,
+    });
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle") {
+        return Promise.resolve({
+          data: { ...overview(), items: [later, first], agenda: [], todos: [todo(first), todo(later)] },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderScreen();
+    const card = await screen.findByRole("complementary", { name: "Wybrany kandydat" });
+    expect(within(card).getByText("Adam Pierwszy")).toBeInTheDocument();
+    const current = document.querySelectorAll('[aria-current="true"]');
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveTextContent("Adam Pierwszy");
+  });
+
   it("tablica stawia kandydata w kolumnie bieżącego kroku", async () => {
     mocks.search = "view=board";
     renderScreen();
