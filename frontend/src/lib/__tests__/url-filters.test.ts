@@ -33,6 +33,9 @@ describe("url-filters", () => {
       pipelineStage: ["new", "screening", "verified"],
       competenceCategoryIds: [4, 9],
       sort: "name",
+      sortExplicit: false,
+      textMode: "semantic",
+      languages: ["en:B2", "de"],
       page: 3,
       remote: ["remote", "hybrid"],
       skillsExpr: "python OR aws",
@@ -475,5 +478,42 @@ describe("talent radar back-ref", () => {
   it("wyklucza się z job back-ref w obie strony", () => {
     expect(decodeJobBackRef(encodeTalentRadarBackRef())).toBeNull();
     expect(decodeTalentRadarBackRef(sp("from=job&jobId=5"))).toBe(false);
+  });
+});
+
+describe("lista kandydatów: tekst, sortowanie i języki (22.09.2026)", () => {
+  it("tekst bez wybranego sortowania idzie po trafności, jawne „Najnowsi” wygrywa", () => {
+    const typed = { ...DEFAULT_FILTERS, q: "java developer" };
+    expect(filtersToApiParams(typed, 1).sort).toBe("relevance");
+    expect(filtersToApiParams({ ...typed, sortExplicit: true }, 1).sort).toBe("newest");
+    expect(filtersToApiParams({ ...typed, sort: "name" }, 1).sort).toBe("name");
+    // Bez tekstu domyślne „Najnowsi" zostaje.
+    expect(filtersToApiParams(DEFAULT_FILTERS, 1).sort).toBe("newest");
+  });
+
+  it("jawne „Najnowsi” przeżywa adres (sort=newest), domyślne nie trafia do adresu", () => {
+    const explicit = { ...DEFAULT_FILTERS, q: "x", sortExplicit: true };
+    const encoded = encodeFilters(explicit);
+    expect(encoded.get("sort")).toBe("newest");
+    expect(decodeFilters(encoded)).toEqual(explicit);
+    expect(encodeFilters({ ...DEFAULT_FILTERS, q: "x" }).has("sort")).toBe(false);
+  });
+
+  it("text_mode idzie tylko przy tekście i w semantyce v2", () => {
+    const f = { ...DEFAULT_FILTERS, q: "kto zna kafkę", textMode: "semantic" as const };
+    expect(filtersToApiParams(f, 1).text_mode).toBe("semantic");
+    expect(filtersToApiParams({ ...f, textMode: "auto" }, 1).text_mode).toBe("auto");
+    expect(filtersToApiParams({ ...f, q: "" }, 1).text_mode).toBeUndefined();
+    expect(filtersToApiParams({ ...f, semanticsVersion: 1 }, 1).text_mode).toBeUndefined();
+    expect(encodeFilters(f).get("tm")).toBe("semantic");
+    expect(decodeFilters(sp("tm=bogus")).textMode).toBe("auto");
+  });
+
+  it("języki: adres `lang`, API `languages`, nieczytelne wpisy odpadają", () => {
+    const decoded = decodeFilters(sp("lang=EN:b2,de,xx:Z9,en:C1"));
+    expect(decoded.languages).toEqual(["en:B2", "de"]);
+    expect(encodeFilters(decoded).get("lang")).toBe("en:B2,de");
+    expect(filtersToApiParams(decoded, 1).languages).toEqual(["en:B2", "de"]);
+    expect(filtersToApiParams(DEFAULT_FILTERS, 1).languages).toBeUndefined();
   });
 });

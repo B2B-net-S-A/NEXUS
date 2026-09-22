@@ -1,73 +1,50 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from"react";
-import Link from"next/link";
-import { useRouter, useSearchParams } from"next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
- keepPreviousData,
- useMutation,
- useQuery,
- useQueryClient,
-} from"@tanstack/react-query";
-import { useVirtualizer } from"@tanstack/react-virtual";
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
- Banknote,
- Briefcase,
- Building2,
- CalendarClock,
- ChevronRight,
- CircleDot,
- Columns3,
- Copy,
- Download,
- ExternalLink,
- FileArchive,
- FileText,
- GitCompare,
- Layers,
- LayoutGrid,
- Link as LinkIcon,
- Loader2,
- Lock,
- Mail,
- MapPin,
- MessageSquare,
- Phone,
- Plus,
- Rows3,
- Search,
- SlidersHorizontal,
- Sparkles,
- Table2,
- Tags,
- Upload,
- Users,
- XCircle,
-} from"lucide-react";
-import api, { savedSearchesApi } from"@/lib/api";
+  ChevronDown,
+  ChevronRight,
+  Download,
+  FileArchive,
+  FileText,
+  Link as LinkIcon,
+  Lock,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  Sparkles,
+  Upload,
+  UserPlus,
+  Users,
+  XCircle,
+} from "lucide-react";
+import api, { savedSearchesApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/components/Toast";
 import {
- BulkCvDownloadError,
- downloadBulkCvs,
-} from"@/lib/bulk-cv-download";
+  BulkCvDownloadError,
+  downloadBulkCvs,
+} from "@/lib/bulk-cv-download";
 import {
- buildCandidateExportRequest,
- downloadCandidateExport,
- type CandidateExportScope,
+  buildCandidateExportRequest,
+  downloadCandidateExport,
+  type CandidateExportScope,
 } from "@/lib/candidate-export";
 import { filtersFromCandidateSavedSearch } from "@/lib/candidate-saved-search";
-import { cn, formatDate, formatRelativeTime } from"@/lib/utils";
-import { AddCandidateModal } from"@/components/AppShell";
-import { ImportCandidatesV2 } from"@/components/v2/modals/ImportCandidatesV2";
-import { AddCandidateFromCVModal } from"@/components/v2/modals/AddCandidateFromCVModal";
-import { QuickAssignV2 } from"@/components/v2/modals/QuickAssignV2";
-import { GenerateInviteLinkV2 } from"@/components/v2/modals/GenerateInviteLinkV2";
-import {
-  FilePreviewModal,
-  downloadDocumentBlob,
-  type CandidateDocument,
-} from "@/components/v2/files/FilePreviewModal";
+import { cn } from "@/lib/utils";
+import { AddCandidateModal } from "@/components/AppShell";
+import { ImportCandidatesV2 } from "@/components/v2/modals/ImportCandidatesV2";
+import { AddCandidateFromCVModal } from "@/components/v2/modals/AddCandidateFromCVModal";
+import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
+import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 import { CandidateQuickView } from "@/components/v2/pages/CandidateQuickView";
 import {
   fetchCandidateListPage,
@@ -75,1219 +52,253 @@ import {
   getCandidateListViewState,
 } from "@/components/v2/pages/candidate-list-query";
 import { useCandidateSearchDebounce } from "@/hooks/useCandidateSearchDebounce";
-import { MatchSnippet } from"@/components/v2/MatchSnippet";
+import { MatchSnippet } from "@/components/v2/MatchSnippet";
 import {
- Sheet,
- SheetContent,
- SheetHeader,
- SheetBody,
- SheetFooter,
- SheetTitle,
- SheetDescription,
-} from"@/components/ui/sheet";
-import { CANDIDATES_PAGE_SIZES, useUiStore, type CandidatesPageSize } from"@/store/ui";
-import { Avatar, AvatarFallback } from"@/components/ui/avatar";
-import { Badge } from"@/components/ui/badge";
-import { Button } from"@/components/ui/button";
-import { Checkbox } from"@/components/ui/checkbox";
-import { Input } from"@/components/ui/input";
-import { Skeleton } from"@/components/ui/skeleton";
-import { MatchScoreBadge } from "@/components/ds/MatchScoreBadge";
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { CANDIDATES_PAGE_SIZES, useUiStore, type CandidatesPageSize } from "@/store/ui";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
- Popover,
- PopoverContent,
- PopoverTrigger,
-} from"@/components/ui/popover";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
- Select,
- SelectContent,
- SelectItem,
- SelectTrigger,
- SelectValue,
-} from"@/components/ui/select";
-import { Kbd } from"@/components/ui/kbd";
-import {
- CandidateHighlights,
- type AvailabilityStatus,
- type EmploymentInfo,
-} from"@/components/v2/CandidateHighlights";
-import { useAuthStore, hasRole } from"@/store/auth";
-import { LocationInput } from"@/components/v2/filters/LocationInput";
-import { TalentPoolMultiSelect } from"@/components/v2/filters/TalentPoolMultiSelect";
-import { CompetenceCategoryBadge } from"@/components/v2/CompetenceCategoryBadge";
-import { AddedByMultiSelect } from"@/components/v2/filters/AddedByMultiSelect";
-import { CompanyAutocomplete } from"@/components/v2/filters/CompanyAutocomplete";
-import { ClientMultiSelect } from"@/components/v2/filters/ClientMultiSelect";
-import { RecruitmentMultiSelect } from"@/components/v2/filters/RecruitmentMultiSelect";
-import { ActiveFilterChips } from"@/components/v2/filters/ActiveFilterChips";
-import { StageFilterPanel } from"@/components/v2/filters/StageFilterPanel";
-import { OPEN_TO_OPTIONS, type OpenToValue } from"@/lib/filter-options";
-import {
-  PillGroup,
-  toggleInList,
-} from "@/components/v2/candidates/filters/FilterPillGroup";
-import {
-  StatusAvailabilityFilterFields,
-  countStatusAvailability,
-} from "@/components/v2/candidates/filters/StatusAvailabilityFilterFields";
-import { CompetenceCategoryFilterFields } from "@/components/v2/candidates/filters/CompetenceCategoryFilterFields";
-import { ToolbarFilterPill } from "@/components/v2/candidates/filters/ToolbarFilterPill";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { AvailabilityStatus, EmploymentInfo } from "@/components/v2/CandidateHighlights";
+import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
+import { ActiveFilterChips } from "@/components/v2/filters/ActiveFilterChips";
+import type { StageFilterValue } from "@/components/v2/filters/StageFilterPanel";
 import {
   AddToRecruitmentDialog,
   addToRecruitmentSummary,
 } from "@/components/v2/recruitment/AddToRecruitmentDialog";
-import type { StageFilterValue } from "@/components/v2/filters/StageFilterPanel";
+import type { OpenToValue } from "@/lib/filter-options";
 import {
- decodeFilters,
- decodeSelectedIds,
- decodeSkillsExpr,
- encodeCompareHref,
- encodeFilterCriteria,
- encodeFilters,
- filtersEqual,
- filtersToApiParams,
- parseRateBound,
- parseYearBound,
- type AvailabilityFilter,
- type CandidateFilters,
- type CandidateStatusFilter,
- type EmploymentFilter,
- type PipelineStageFilter,
- type RecruitmentMatch,
- type RecentlyChangedJobs,
-} from"@/lib/url-filters";
+  decodeFilters,
+  decodeSelectedIds,
+  decodeSkillsExpr,
+  effectiveSort,
+  encodeCompareHref,
+  encodeFilterCriteria,
+  encodeFilters,
+  encodeNavContext,
+  filtersEqual,
+  filtersToApiParams,
+  parseRateBound,
+  parseYearBound,
+  type AvailabilityFilter,
+  type CandidateFilters,
+  type CandidateStatusFilter,
+  type EmploymentFilter,
+  type PipelineStageFilter,
+  type RecruitmentMatch,
+  type RecentlyChangedJobs,
+  type TextModeFilter,
+} from "@/lib/url-filters";
 import {
- countSkillConstraints,
- parseSkillExpression,
- serializeSkillBuckets,
-} from"@/lib/skill-expression";
-import { CandidatesTiles } from"@/components/v2/pages/CandidatesTiles";
+  countSkillConstraints,
+  parseSkillExpression,
+  serializeSkillBuckets,
+} from "@/lib/skill-expression";
+import { looksLikePastedRequest, type SkillBucketsValue } from "@/lib/candidate-search-semantics";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import type { CandidateContactSummary } from "@/lib/candidate-contact";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import {
- candidateRowTestId,
- focusCandidateRow,
- formatProfileRate,
- formatCandidateLocation,
- getCandidateInitials,
- getCurrentCompany,
- getCurrentTitle,
- getExperienceLabel,
- getSkillList,
- isRowActivationKey,
-} from"@/components/v2/pages/candidate-list-helpers";
-import { PinnedCandidatesBar } from"@/components/v2/filters/PinnedCandidatesBar";
-import { RequireRole } from"@/components/RequireRole";
-import { SavedSearchesMenu } from"@/components/v2/filters/SavedSearchesMenu";
-import { AdvancedSearchPopover } from"@/components/v2/filters/AdvancedSearchPopover";
-import { SkillBucketsField } from "@/components/v2/candidates/SkillBucketsField";
-import { TextInterpretationLine } from "@/components/v2/candidates/TextInterpretationLine";
-import {
- HideUnknownToggle,
- UnknownFieldBadges,
-} from "@/components/v2/candidates/UnknownFieldBadges";
+  candidateRowTestId,
+  focusCandidateRow,
+  formatCandidateLocation,
+  getCandidateInitials,
+  getCurrentCompany,
+  getCurrentTitle,
+  getSkillList,
+  isRowActivationKey,
+} from "@/components/v2/pages/candidate-list-helpers";
+import { PinnedCandidatesBar } from "@/components/v2/filters/PinnedCandidatesBar";
+import { SavedSearchesMenu } from "@/components/v2/filters/SavedSearchesMenu";
 import type { SearchTextInterpretation } from "@/lib/candidate-search-api";
-import type { TextModeApplied } from "@/lib/candidate-search-semantics";
-import { ROLE_LABELS, type UserRole } from"@/store/auth";
+import { CandidateFilterRail } from "@/components/v2/candidates/CandidateFilterRail";
+import {
+  ListSearchInterpretation,
+  type ListTextModeApplied,
+} from "@/components/v2/candidates/ListSearchInterpretation";
+import { CandidateBulkBar } from "@/components/v2/candidates/CandidateBulkBar";
+import { RequestSearchDialog } from "@/components/v2/candidates/RequestSearchDialog";
+import {
+  availabilityCellText,
+  candidatesCountLabel,
+  lastContactText,
+  processCell,
+  rateCellText,
+} from "@/components/v2/candidates/candidate-row-format";
+import type { TalentRadarInitialRequest } from "@/components/talent-radar/TalentRadarWorkspace";
 
-const STATUS_LABELS: Record<string, string> = {
- active: "Aktywny",
- passive: "Pasywny",
- blacklisted: "Zablokowany",
-};
+/** Role z prawem eksportu (lustro `CANDIDATE_EXPORT_ROLES` w candidate_access.py). */
+const EXPORT_ROLES: UserRole[] = [
+  "admin",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "tac",
+  "finance",
+];
 
-const STATUS_VARIANT: Record<string, "success" |"warning" |"danger"> = {
- active: "success",
- passive: "warning",
- blacklisted: "danger",
-};
-
-// ── Drawer filter primitives (panel „Filtry") ───────────────────────────────
-// Małe, czysto prezentacyjne klocki używane tylko przez boczny panel filtrów:
-// sekcja z separatorem, pole z etykietą oraz preset. Grupa „pigułek" i bloki
-// współdzielone z paskiem narzędzi żyją w `components/v2/candidates/filters`.
-// Cały stan trzyma rodzic (CandidatesListV2); tu zero logiki biznesowej.
-// Akcent nagłówka sekcji — kolorowa „plakietka" z ikoną. Po jednym tonie na
-// sekcję, żeby bloki filtrów dało się rozróżnić na pierwszy rzut oka. Statyczne
-// klasy (Tailwind nie czyta dynamicznie sklejanych nazw).
-type SectionAccent = "primary" | "emerald" | "violet" | "sky" | "amber";
-
-const SECTION_ACCENT_CLASSES: Record<SectionAccent, string> = {
-  primary: "bg-primary/10 text-primary",
-  emerald: "bg-success-muted text-success-muted-foreground",
-  violet: "bg-primary/10 text-primary",
-  sky: "bg-info-muted text-info-muted-foreground",
-  amber: "bg-warning-muted text-warning-muted-foreground",
-};
-
-// Każda sekcja to teraz osobna „karta" (border + cień) z kolorową ikoną w
-// nagłówku — sekcje przestają się zlewać, a wzrok łapie strukturę panelu.
-function FilterSection({
-  title,
-  icon,
-  accent = "primary",
-  children,
-}: {
-  title: string;
-  icon?: ReactNode;
-  accent?: SectionAccent;
-  children: ReactNode;
-}) {
-  return (
-    <section className="space-y-3 rounded-xl border border-border bg-card p-4 shadow-xs">
-      <h3 className="flex items-center gap-2.5 text-sm font-semibold tracking-tight text-foreground">
-        {icon ? (
-          <span
-            className={cn(
-              "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg [&>svg]:h-4 [&>svg]:w-4",
-              SECTION_ACCENT_CLASSES[accent],
-            )}
-          >
-            {icon}
-          </span>
-        ) : null}
-        {title}
-      </h3>
-      <div className="space-y-4">{children}</div>
-    </section>
-  );
-}
-
-function FilterField({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-        {label}
-      </p>
-      {children}
-      {hint ? <p className="text-[10px] text-muted-foreground">{hint}</p> : null}
-    </div>
-  );
-}
-
-function PresetChip({
-  active,
-  onClick,
-  icon,
-  children,
-}: {
-  active?: boolean;
-  onClick: () => void;
-  icon?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full border transition-colors",
-        active
-          ? "bg-primary text-primary-foreground border-primary shadow-xs"
-          : "bg-card text-foreground border-border hover:bg-accent",
-      )}
-    >
-      {icon}
-      {children}
-    </button>
-  );
-}
-
-const REMOTE_FILTER_OPTIONS = [
-  { value: "remote", label: "Zdalnie" },
-  { value: "hybrid", label: "Hybryda" },
-  { value: "onsite", label: "Stacjonarnie" },
+/** Stałe kolumny tabeli (22.09.2026) — zamiast konfiguracji kolumn i presetów. */
+const TABLE_COLUMNS = [
+  { id: "candidate", label: "Kandydat", width: "minmax(210px, 2fr)", minWidth: 210 },
+  { id: "skills", label: "Umiejętności", width: "minmax(130px, 1fr)", minWidth: 130 },
+  { id: "location", label: "Lokalizacja", width: "minmax(92px, 0.7fr)", minWidth: 92 },
+  { id: "availability", label: "Dostępność", width: "minmax(92px, 0.7fr)", minWidth: 92 },
+  { id: "rate", label: "Stawka B2B", width: "minmax(76px, 0.5fr)", minWidth: 76 },
+  { id: "process", label: "W procesie", width: "minmax(128px, 1.1fr)", minWidth: 128 },
+  { id: "contact", label: "Ostatni kontakt", width: "minmax(84px, 0.6fr)", minWidth: 84 },
 ] as const;
+/** Tylko „W procesie" potrzebuje wzbogacenia (aktywne rekrutacje). */
+const LIST_COLUMN_IDS: ReadonlySet<string> = new Set(["process"]);
+const GRID_TEMPLATE = ["32px", ...TABLE_COLUMNS.map((c) => c.width), "44px"].join(" ");
+const GRID_MIN_WIDTH = 32 + 44 + TABLE_COLUMNS.reduce((sum, c) => sum + c.minWidth, 0);
+const ROW_HEIGHT = 64;
 
-const RECENTLY_CHANGED_OPTIONS = [
-  { value: null, label: "Wszyscy" },
-  { value: 1, label: "1 mies." },
-  { value: 2, label: "2 mies." },
-  { value: 3, label: "3 mies." },
-] as const;
+const SORT_LABELS: Record<CandidateFilters["sort"], string> = {
+  relevance: "Trafność",
+  newest: "Najnowsi",
+  oldest: "Najstarsi",
+  // Backend sortuje po NAZWISKU, potem imieniu, bez polskich znaków.
+  name: "Nazwisko A–Z",
+};
 
-
-// Deterministyczna kolorystyka awatara wg ID kandydata — 8 wariantów cycle.
-// Daje "kolorową" listę bez randomizacji (ten sam kandydat = ten sam kolor
-// między reloadami). Każdy wariant: jasne tło + ciemny tekst + ciemny ring.
+// Deterministyczna kolorystyka awatara wg ID kandydata (ten sam kandydat =
+// ten sam kolor między odświeżeniami).
 const AVATAR_COLOR_CLASSES = [
- "bg-primary/10 text-primary ring-1 ring-primary/20",
- "bg-info-muted text-info-muted-foreground ring-1 ring-info/20",
- "bg-success-muted text-success-muted-foreground ring-1 ring-success/20",
- "bg-warning-muted text-warning-muted-foreground ring-1 ring-warning/20",
- "bg-destructive-muted text-destructive-muted-foreground ring-1 ring-destructive/20",
- "bg-accent text-accent-foreground ring-1 ring-border",
- "bg-secondary text-secondary-foreground ring-1 ring-border",
- "bg-muted text-muted-foreground ring-1 ring-border",
+  "bg-primary/10 text-primary ring-1 ring-primary/20",
+  "bg-info-muted text-info-muted-foreground ring-1 ring-info/20",
+  "bg-success-muted text-success-muted-foreground ring-1 ring-success/20",
+  "bg-warning-muted text-warning-muted-foreground ring-1 ring-warning/20",
+  "bg-accent text-accent-foreground ring-1 ring-border",
+  "bg-secondary text-secondary-foreground ring-1 ring-border",
 ];
 
 function avatarColorClass(id: number): string {
- return AVATAR_COLOR_CLASSES[Math.abs(id) % AVATAR_COLOR_CLASSES.length];
+  return AVATAR_COLOR_CLASSES[Math.abs(id) % AVATAR_COLOR_CLASSES.length];
 }
 
-const SORT_OPTIONS = [
- { value: "newest", label: "Najnowsi" },
- { value: "oldest", label: "Najstarsi" },
- // Backend pod kluczem "name" sortuje po NAZWISKU, potem po imieniu, bez
- // polskich znaków, z rekordami bez nazwiska na końcu
- // (candidates.py `_apply_candidate_sort`) — etykieta mówi dokładnie to.
- { value: "name", label: "Nazwisko (A–Z)" },
- { value: "relevance", label: "Trafność" },
-];
-
 function parseEnumCsv<T extends string>(
- raw: string | null | undefined,
- allowed: ReadonlyArray<T>,
+  raw: string | null | undefined,
+  allowed: ReadonlyArray<T>,
 ): T[] {
- if (!raw) return [];
- const set = new Set<string>(allowed);
- return raw
- .split(",")
- .map((s) => s.trim())
- .filter((s): s is T => s.length > 0 && set.has(s));
+  if (!raw) return [];
+  const set = new Set<string>(allowed);
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s): s is T => s.length > 0 && set.has(s));
 }
 
 interface Candidate {
- id: number;
- name?: string;
- lastname?: string;
- email?: string;
- phone?: string | null;
- position?: string;
- current_role?: string;
- source?: string;
- status?:"active" |"passive" |"blacklisted";
- availability_status?: AvailabilityStatus;
- employment?: EmploymentInfo;
- location?: string;
- city?: string | null;
- country?: string | null;
- years_it_experience?: number | null;
- competence_category?: string | null;
- competence_category_id?: number | null;
- skills?: unknown;
- experience?: unknown;
- linkedin_current_company?: string | null;
- linkedin_current_title?: string | null;
- created_at?: string;
- updated_at?: string;
- created_by_user?: { id: number; name: string } | null;
- match_stats?: {
- open_count: number;
- total_open: number;
- /** Ile z rozważonych ofert ma ZMIERZONĄ warstwę semantyczną. */
- measured_open?: number;
- /** `null` = nic nie zmierzono — to NIE jest zero (audyt 18.09.2026). */
- top_score: number | null;
- };
- match_snippet?: string | null;
- talent_pools?: Array<{ id: number; name: string }>;
- linkedin_employment_changed_at?: string | null;
- open_to_side_projects?: boolean;
- open_to_sales_support?: boolean;
- open_to_expert_consult?: boolean;
- cv_filename?: string | null;
- active_recruitments?: Array<{
- job_id: number;
- job_title: string;
- client_name?: string | null;
- stage: string;
- // KTO i KIEDY przeniósł kandydata na bieżący etap tej rekrutacji.
- moved_at?: string | null;
- moved_by_name?: string | null;
- }> | null;
- // Quick-glance triage fields — populated when API called with
- // include_last_activity=true. Backend already strips HTML + truncates
- // last_note_preview to 120 chars; last_rejection_reason = kategoria +
- // notatka rekrutera ("Po CV — kandydat nie jest zainteresowany"), bez
- // sufiksu projektu, pełna treść; rate is formatted "150 PLN/h".
- last_note_preview?: string | null;
- last_rejection_reason?: string | null;
- last_rate?: string | null;
- expected_rate_hourly?: number | string | null;
- expected_rate_currency?: string | null;
- contact_case?: CandidateContactSummary | null;
- /**
- * Semantyka v2: aktywne filtry lokalizacji / stażu / stawki, które osoba
- * przeszła wyłącznie przez brak danych (`location`, `experience`, `rate`).
- */
- unknown_fields?: string[];
+  id: number;
+  name?: string;
+  lastname?: string;
+  email?: string;
+  phone?: string | null;
+  position?: string;
+  current_role?: string;
+  status?: "active" | "passive" | "blacklisted";
+  availability_status?: AvailabilityStatus;
+  availability_date?: string | null;
+  notice_period?: number | null;
+  notice_period_unit?: "days" | "weeks" | "months" | null;
+  employment?: EmploymentInfo;
+  location?: string;
+  city?: string | null;
+  competence_category?: string | null;
+  competence_category_id?: number | null;
+  skills?: unknown;
+  experience?: unknown;
+  linkedin_current_company?: string | null;
+  linkedin_current_title?: string | null;
+  last_contacted_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  match_snippet?: string | null;
+  active_recruitments?: Array<{
+    job_id: number;
+    job_title: string;
+    client_name?: string | null;
+    stage: string;
+    moved_at?: string | null;
+    moved_by_name?: string | null;
+  }> | null;
+  expected_rate_hourly?: number | string | null;
+  expected_rate_currency?: string | null;
+  contact_case?: CandidateContactSummary | null;
+  /** Semantyka v2: filtry przejście wyłącznie przez brak danych. */
+  unknown_fields?: string[];
 }
 
 interface CandidateListResponse {
- items: Candidate[];
- total: number;
- page: number;
- page_size: number;
- /** Jak lista odczytała `q` — zawsze dosłownie („literal") albo „none". */
- text_mode_applied?: TextModeApplied | null;
- interpretation?: SearchTextInterpretation | null;
+  items: Candidate[];
+  total: number;
+  page: number;
+  page_size: number;
+  /** Jak lista odczytała `q` (dosłownie / po znaczeniu / brak tekstu). */
+  text_mode_applied?: ListTextModeApplied | null;
+  interpretation?: SearchTextInterpretation | null;
+  /** Wyszukiwanie po znaczeniu nie odpowiedziało — wynik jest dosłowny. */
+  search_degraded?: boolean;
+  /** Pula wyników po znaczeniu jest przycięta. */
+  result_cap_reached?: boolean;
 }
 
-/** Polskie etykiety pipeline'u — używamy w kolumnie "Rekrutacje" tooltipach. */
-const STAGE_LABELS: Record<string, string> = {
- posting: "Ogłoszenia",
- new: "Nowy",
- prep_call: "Prep call",
- screening: "Screening",
- verified: "Zweryfikowany",
- interview: "Interview",
- cv_sent: "CV wysłane",
- client_interview: "Rozmowa u klienta",
- acceptance: "Akceptacja",
- negotiation: "Negocjacje",
- onboarding: "Onboarding",
- hired: "Zatrudniony",
- rejected: "Odrzucony",
- withdrawn: "Wycofany",
-};
-
-function stageLabel(stage: string): string {
- return STAGE_LABELS[stage] ?? stage;
+/**
+ * Parametry `GET /api/candidates` dla strony listy — jedno źródło dla
+ * komponentu i harnessu `/preview/candidates-list` (zasiew cache musi trafić
+ * w dokładnie ten klucz).
+ */
+export function candidatesListApiParams(
+  filters: CandidateFilters,
+  page: number,
+  pageSize: number,
+): Record<string, unknown> {
+  const { includeMatchStats, includeActiveRecruitments, includeLastActivity } =
+    getCandidateListIncludeFlags("list", LIST_COLUMN_IDS);
+  return filtersToApiParams(filters, page, {
+    page_size: pageSize,
+    include_match_stats: includeMatchStats || undefined,
+    include_active_recruitments: includeActiveRecruitments,
+    include_last_activity: includeLastActivity || undefined,
+  });
 }
 
-// Terminalne etapy — rekrutacja zamknięta, ale nadal pokazujemy ją w kolumnie
-// „Rekrutacje" (kandydat „widnieje w pipeline"); status różnicujemy kolorem.
-const TERMINAL_STAGES = new Set(["rejected", "withdrawn", "hired"]);
-
-function isTerminalStage(stage: string): boolean {
- return TERMINAL_STAGES.has(stage);
+export function candidatesListQueryKey(params: Record<string, unknown>) {
+  return ["candidates-v2", params] as const;
 }
 
-/** Kolor badge'a etapu w popoverze „Rekrutacje": zielony = zatrudniony,
- *  czerwony = odrzucony, szary = wycofany, neutralny = etap aktywny. */
-function stageBadgeClass(stage: string): string {
- switch (stage) {
- case "hired":
- return "border-transparent bg-success-muted text-success-muted-foreground";
- case "rejected":
- return "border-transparent bg-destructive-muted text-destructive-muted-foreground";
- case "withdrawn":
- return "border-transparent bg-muted text-muted-foreground";
- default:
- return "";
- }
-}
+/** Liczba całej bazy do nagłówka — jedno tanie zapytanie o 1 wiersz. */
+export const CANDIDATES_BASE_TOTAL_QUERY_KEY = ["candidates-v2", "base-total"] as const;
+const CANDIDATES_BASE_TOTAL_PARAMS = { page: 1, page_size: 1, semantics_version: 2 };
 
-/** Sortuje rekrutacje do popovera: aktywne najpierw, terminalne na końcu;
- *  wewnątrz grupy najnowszy ruch pierwszy. */
-function sortRecruitments<T extends { stage: string; moved_at?: string | null }>(
- recs: readonly T[]
-): T[] {
- return [...recs].sort((a, b) => {
- const ta = isTerminalStage(a.stage) ? 1 : 0;
- const tb = isTerminalStage(b.stage) ? 1 : 0;
- if (ta !== tb) return ta - tb;
- const ma = a.moved_at ? Date.parse(a.moved_at) : 0;
- const mb = b.moved_at ? Date.parse(b.moved_at) : 0;
- return mb - ma;
- });
-}
-
-// Role scopes the admin can target when saving candidates-columns as default.
-// Order matches the user hierarchy (admin → user).
-const SAVE_ROLE_OPTIONS: Array<{ value: UserRole |"_global"; label: string }> = [
- { value: "_global", label: "Dla wszystkich (domyślne)" },
- { value: "admin", label: `Dla: ${ROLE_LABELS.admin}` },
- { value: "head_of_recruitment", label: `Dla: ${ROLE_LABELS.head_of_recruitment}` },
- { value: "delivery_lead", label: `Dla: ${ROLE_LABELS.delivery_lead}` },
- { value: "talent_community_manager", label: `Dla: ${ROLE_LABELS.talent_community_manager}` },
- { value: "tac", label: `Dla: ${ROLE_LABELS.tac}` },
- { value: "recruiter", label: `Dla: ${ROLE_LABELS.recruiter}` },
- { value: "sourcer", label: `Dla: ${ROLE_LABELS.sourcer}` },
- { value: "user", label: `Dla: ${ROLE_LABELS.user}` },
-];
-
-// All columns that can be shown/hidden via the"Kolumny" popover.
-// Order in this array = visual order in the table.
-const ALL_COLUMNS = [
- { id: "candidate", label: "Kandydat", required: true, width: "minmax(260px, 1.35fr)", minWidth: 260 },
- { id: "contact", label: "Kontakt i CV", required: false, width: "minmax(220px, 1.1fr)", minWidth: 220 },
- { id: "status_availability", label: "Status i dostępność", required: false, width: "minmax(180px, 0.9fr)", minWidth: 180 },
- { id: "process", label: "Proces", required: false, width: "minmax(220px, 1.1fr)", minWidth: 220 },
- { id: "rate", label: "Stawka", required: false, width: "minmax(120px, 0.6fr)", minWidth: 120 },
- { id: "activity", label: "Ostatnia aktywność", required: false, width: "minmax(240px, 1.2fr)", minWidth: 240 },
- { id: "phone", label: "Telefon", required: false, width: "minmax(150px, 0.8fr)", minWidth: 150 },
- { id: "email", label: "Email", required: false, width: "minmax(210px, 1fr)", minWidth: 210 },
- { id: "cv", label: "CV", required: false, width: "minmax(90px, 0.4fr)", minWidth: 90 },
- { id: "recruitments", label: "Rekrutacje", required: false, width: "minmax(200px, 1fr)", minWidth: 200 },
- { id: "stage_moved", label: "Przeniósł na etap", required: false, width: "minmax(190px, 0.9fr)", minWidth: 190 },
- { id: "title", label: "Stanowisko", required: false, width: "minmax(180px, 0.9fr)", minWidth: 180 },
- { id: "company", label: "Firma", required: false, width: "minmax(170px, 0.8fr)", minWidth: 170 },
- { id: "location", label: "Lokalizacja", required: false, width: "minmax(140px, 0.7fr)", minWidth: 140 },
- { id: "experience", label: "Doświadczenie", required: false, width: "minmax(130px, 0.6fr)", minWidth: 130 },
- { id: "skills", label: "Skills", required: false, width: "minmax(220px, 1.1fr)", minWidth: 220 },
- { id: "last_note", label: "Ostatnia notatka", required: false, width: "minmax(240px, 1.2fr)", minWidth: 240 },
- { id: "rejection_reason", label: "Powód odrzucenia", required: false, width: "minmax(220px, 1.1fr)", minWidth: 220 },
- { id: "position", label: "Pozycja", required: false, width: "minmax(180px, 0.9fr)", minWidth: 180 },
- { id: "status", label: "Status", required: false, width: "minmax(150px, 0.7fr)", minWidth: 150 },
- { id: "match", label: "Dopasowanie", required: false, width: "minmax(150px, 0.7fr)", minWidth: 150 },
- { id: "created", label: "Dodano", required: false, width: "minmax(130px, 0.6fr)", minWidth: 130 },
- { id: "added_by", label: "Dodał", required: false, width: "minmax(140px, 0.7fr)", minWidth: 140 },
-] as const;
-type ColumnId = (typeof ALL_COLUMNS)[number]["id"];
-
-// Kolumny sprzed zgrupowania (Kontakt i CV / Status i dostępność / Proces).
-// Zostają w ALL_COLUMNS, bo zapisane preferencje i domyślne ustawienia admina
-// mogą je jeszcze wskazywać, ale nie da się ich już wybrać: przy odczycie
-// preferencji zamieniamy je na kolumnę, która przejęła ich treść.
-const HIDDEN_FROM_PICKER: ReadonlySet<string> = new Set([
- "recruitments",
- "status",
- "cv",
- "position",
-]);
-const LEGACY_COLUMN_REPLACEMENTS: Readonly<Record<string, ColumnId | null>> = {
- recruitments: "process",
- status: "status_availability",
- cv: "contact",
- position: null,
-};
-const PICKER_COLUMNS = ALL_COLUMNS.filter((c) => !HIDDEN_FROM_PICKER.has(c.id));
-
-/** Widoczne kolumny po zamianie wycofanych identyfikatorów na ich następców
- *  (bez duplikatów, w kolejności ALL_COLUMNS). */
-export function normalizeVisibleColumnIds(ids: readonly string[]): ColumnId[] {
- const visible = new Set<string>();
- for (const id of ids) {
- const mapped = id in LEGACY_COLUMN_REPLACEMENTS ? LEGACY_COLUMN_REPLACEMENTS[id] : id;
- if (mapped) visible.add(mapped);
- }
- return ALL_COLUMNS.filter((c) => visible.has(c.id)).map((c) => c.id as ColumnId);
-}
-
-/** Zapisana preferencja to lista UKRYTYCH kolumn — normalizujemy przez listę
- *  widocznych, żeby wycofana kolumna przeniosła widoczność na następczynię. */
-export function normalizeHiddenColumnIds(hidden: readonly string[]): ColumnId[] {
- const hiddenSet = new Set(hidden);
- const visible = normalizeVisibleColumnIds(
- ALL_COLUMNS.filter((c) => c.required || !hiddenSet.has(c.id)).map((c) => c.id),
- );
- const visibleSet = new Set<string>(visible);
- return ALL_COLUMNS.filter((c) => !c.required && !visibleSet.has(c.id)).map(
- (c) => c.id as ColumnId,
- );
-}
-
-// Default columns shown to a new user (no global override, no per-user override).
-// Triage-first set: dokładnie te kolumny, których rekruter potrzebuje BEZ
-// klikania w kandydata po boolean searchu — identity + telefon + email + CV
-// + status w innych rekrutacjach + stawka + ostatnia notatka + powód
-// odrzucenia + data dodania. Title/Company/Skills/Status/Match/Position/
-// Added-by są opt-in via "Kolumny" popover (recruiter który chce stanowisko/
-// firmę z CV wciska Kolumny → Stanowisko / Firma).
-const HARD_DEFAULT_COLUMNS: ColumnId[] = [
- "candidate",
- "contact",
- "status_availability",
- "process",
- "rate",
- "activity",
-];
-
-const COLUMN_PRESETS: ReadonlyArray<{
- id: "recruiter" | "sourcing" | "process" | "administration";
- label: string;
- columns: readonly ColumnId[];
-}> = [
- { id: "recruiter", label: "Rekruter", columns: HARD_DEFAULT_COLUMNS },
- {
- id: "sourcing",
- label: "Sourcing",
- columns: ["candidate", "contact", "status_availability", "rate", "activity", "match"],
- },
- {
- id: "process",
- label: "Proces",
- columns: ["candidate", "status_availability", "process", "activity", "added_by"],
- },
- {
- id: "administration",
- label: "Administracja",
- columns: ["candidate", "contact", "created", "added_by", "rejection_reason"],
- },
-];
-
-/** Otwiera CV w podglądzie in-app (modal): PDF → natywny viewer w <iframe>,
- *  DOCX → render przez `docx-preview`. Wcześniej robiliśmy `window.open(blob)`,
- *  co dla DOCX wymuszało DOWNLOAD (przeglądarka nie ma natywnego viewera Worda)
- *  — to był zgłoszony bug „przycisk CV pobiera CV zamiast go otwierać". Pipeline:
- *    1) GET /api/candidates/{id}/documents → znajdź primary doc.
- *    2) <FilePreviewModal> sam streamuje content (?disposition=inline) i renderuje.
- *  Modal współdzielony z `CandidateDetailV2` (PlikiTab) — components/v2/files. */
-function CandidateCvCell({ candidate }: { candidate: Candidate }) {
-  const [loading, setLoading] = useState(false);
-  const [previewDocumentId, setPreviewDocumentId] = useState<number | null>(null);
-  const [documents, setDocuments] = useState<CandidateDocument[]>([]);
-  const { showError } = useToast();
-  if (!candidate.cv_filename) {
-    return (
-      <span className="text-xs text-muted-foreground" aria-label="Brak CV">
-        —
-      </span>
-    );
-  }
-  const openCv = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (loading) return;
-    setLoading(true);
-    try {
-      // Przez wspólnego klienta API: ponowienia interceptora przy restarcie API
-      // i czytelny powód błędu. Surowy `fetch` z cichym `catch` sprawiał, że
-      // przycisk po prostu nic nie robił.
-      const { data: docs } = await api.get<CandidateDocument[]>(
-        `/api/candidates/${candidate.id}/documents?kind=cv`,
-      );
-      const primary = docs.find((d) => d.is_primary) ?? docs[0];
-      if (!primary) {
-        showError("Kandydat nie ma zapisanego pliku CV.");
-        return;
-      }
-      setDocuments(docs);
-      setPreviewDocumentId(primary.id);
-    } catch (error) {
-      showError(apiErrorMessage(error, "Nie udało się otworzyć CV kandydata."));
-    } finally {
-      setLoading(false);
-    }
-  };
-  return (
-    <>
-      <button
-        type="button"
-        onClick={openCv}
-        disabled={loading}
-        title="Otwórz CV w podglądzie"
-        aria-label="Otwórz podgląd CV kandydata"
-        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2 py-0 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-      >
-        {loading ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <FileText className="h-3 w-3" />
-        )}
-        <span>CV</span>
-      </button>
-      <FilePreviewModal
-        documents={documents}
-        initialDocumentId={previewDocumentId}
-        candidateId={candidate.id}
-        onClose={() => setPreviewDocumentId(null)}
-        onDownload={(d) =>
-          downloadDocumentBlob(candidate.id, d).catch(() => {})
-        }
-      />
-    </>
-  );
-}
-
-/** Pokazuje liczbę rekrutacji, w których kandydat się znajduje (wszystkie etapy,
- *  też terminalne — odrzucony/zatrudniony/wycofany), z popoverem na hover/click
- *  z listą {job_title, klient, stage}. Status różnicowany kolorem badge'a.
- *  Klik w wpis → /jobs/{id}. */
-function CandidateRecruitmentsCell({ candidate }: { candidate: Candidate }) {
- const recs = sortRecruitments(candidate.active_recruitments ?? []);
- if (recs.length === 0) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- // Aktywne (nie-terminalne) sterują kolorem licznika: bursztynowy gdy są
- // żywe procesy, neutralny gdy wszystkie zamknięte.
- const activeCount = recs.filter((r) => !isTerminalStage(r.stage)).length;
- const counterClass =
- activeCount > 0
- ? "bg-warning-muted text-warning-muted-foreground hover:bg-warning-muted/70"
- : "bg-muted text-muted-foreground hover:bg-muted/80";
- return (
- <Popover>
- <PopoverTrigger asChild>
- <button
- type="button"
- onClick={(e) => e.stopPropagation()}
- className="inline-flex items-center gap-1"
- title={`Rekrutacje: ${recs.length}${activeCount < recs.length ? ` (aktywne: ${activeCount})` : ""}`}
- >
- <Badge size="sm" variant="soft" className={`gap-1 ${counterClass}`}>
- <Briefcase className="h-3 w-3" />
- {recs.length}
- </Badge>
- </button>
- </PopoverTrigger>
- <PopoverContent
- align="start"
- className="w-80 p-0"
- onClick={(e) => e.stopPropagation()}
- >
- <div className="px-3 py-2 border-b border-border">
- <div className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
- Rekrutacje ({recs.length})
- </div>
- </div>
- <ul className="max-h-80 overflow-auto">
- {recs.map((r) => (
- <li
- key={`${r.job_id}-${r.stage}`}
- className="border-b border-border last:border-0"
- >
- <Link
- href={`/jobs/${r.job_id}`}
- onClick={(e) => e.stopPropagation()}
- className="flex items-start gap-2 px-3 py-2 hover:bg-accent"
- >
- <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground mt-1" />
- <div className="min-w-0 flex-1">
- <div className="text-sm font-medium text-foreground truncate">
- {r.job_title}
- </div>
- <div className="text-xs text-muted-foreground truncate">
- {r.client_name ?? "—"}
- </div>
- {(r.moved_by_name || r.moved_at) && (
- <div
- className="mt-0.5 text-[11px] leading-snug text-muted-foreground/80"
- title={`Kto i kiedy przeniósł kandydata na etap „${stageLabel(r.stage)}"`}
- >
- {r.moved_by_name ? `Przeniósł: ${r.moved_by_name}` : "Przeniesiono"}
- {r.moved_at ? ` · ${formatDate(r.moved_at)}` : ""}
- </div>
- )}
- </div>
- <Badge
- size="sm"
- variant="outline"
- className={`shrink-0 ${stageBadgeClass(r.stage)}`}
- >
- {stageLabel(r.stage)}
- </Badge>
- </Link>
- </li>
- ))}
- </ul>
- </PopoverContent>
- </Popover>
- );
-}
-
-/** Always-visible attribution for the "Przeniósł na etap" column. Surfaces KTO
- *  i KIEDY przeniósł kandydata na etap — the same data the "Rekrutacje" popover
- *  carries, but inline so it shows without opening the popover (the recurring
- *  „nie da się sprawdzić kto/kiedy" complaint was just discoverability).
- *  Stage-aware: when a `?stage=` filter is active it attributes the recruitment
- *  whose stage matches it (freshest move if several); otherwise the
- *  most-recently-moved recruitment (any stage, też terminalny). */
-function StageMovedCell({ candidate }: { candidate: Candidate }) {
- const searchParams = useSearchParams();
- const recs = candidate.active_recruitments ?? [];
- if (recs.length === 0) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- // Active stage filter from the URL (?stage=verified — comma-separated when
- // multiple stages are selected).
- const activeStages = (searchParams.get("stage") ?? "")
- .split(",")
- .map((s) => s.trim())
- .filter(Boolean);
- // Freshest move first → both "most recent" and "most recent at the filtered
- // stage" reduce to a single find on the sorted copy.
- const sorted = [...recs].sort((a, b) => {
- const ta = a.moved_at ? Date.parse(a.moved_at) : 0;
- const tb = b.moved_at ? Date.parse(b.moved_at) : 0;
- return tb - ta;
- });
- const chosen =
- (activeStages.length
- ? sorted.find((r) => activeStages.includes(r.stage))
- : undefined) ?? sorted[0];
- if (!chosen || (!chosen.moved_by_name && !chosen.moved_at)) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- return (
- <div
- className="min-w-0"
- title={`Kto i kiedy przeniósł kandydata na etap „${stageLabel(chosen.stage)}"`}
- >
- <div className="text-sm text-foreground truncate">
- {chosen.moved_by_name ?? "Przeniesiono"}
- </div>
- <div className="text-[11px] leading-snug text-muted-foreground">
- {stageLabel(chosen.stage)}
- {chosen.moved_at ? ` · ${formatDate(chosen.moved_at)}` : ""}
- </div>
- </div>
- );
-}
-
-interface CandidateCellProps {
- columnId: ColumnId;
- candidate: Candidate;
- fullName: string;
- initials: string;
- density: "compact" |"cozy";
- stats: Candidate["match_stats"];
- onOpenDetail: () => void;
- /** Kandydat nowszy niż last_viewed_at aktywnego zapisanego wyszukiwania
-  *  — renderuje badge „Nowy” przy nazwisku. */
- isNew?: boolean;
- contactFeatureEnabled: boolean;
-}
-
-/** Single-cell renderer for the candidates table. Renders one cell per visible
- *  column. Decoupled from the row component so we can iterate over
- *  `visibleColumns` without a giant switch inline in JSX. */
-function CandidateCell({
- columnId,
- candidate,
- fullName,
- initials,
- density,
- stats,
- onOpenDetail,
- isNew = false,
- contactFeatureEnabled,
-}: CandidateCellProps) {
- switch (columnId) {
- case "candidate": {
- const title = getCurrentTitle(candidate);
- const company = getCurrentCompany(candidate);
- const location = formatCandidateLocation(
- candidate.city ?? candidate.location ?? null,
- );
- const secondary = [title, company].filter(Boolean).join(" · ");
- return (
- <button
- type="button"
- onClick={onOpenDetail}
- className="flex min-w-0 items-center gap-3 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
- >
- <Avatar size={density === "compact" ?"sm" :"md"}>
- <AvatarFallback className={avatarColorClass(candidate.id)}>{initials}</AvatarFallback>
- </Avatar>
- <div className="min-w-0">
- <div className="flex min-w-0 items-center gap-1.5">
- <span className="truncate font-medium text-foreground hover:text-primary" title={fullName}>
- {fullName}
- </span>
- {isNew && <Badge size="sm" variant="success">Nowy</Badge>}
- <CompetenceCategoryBadge categoryId={candidate.competence_category_id} slug={candidate.competence_category} size="sm" className="shrink-0" />
- {contactFeatureEnabled ? (
- <ContactStatusBadge
- contactCase={candidate.contact_case}
- className="shrink-0"
- />
- ) : null}
- </div>
- {/* Plakietki „brak …" w DRUGIEJ linii: w pierwszej ścinały nazwisko
- („Jan Ga…") — test manualny 22.09.2026. */}
- {(secondary || location || (candidate.unknown_fields?.length ?? 0) > 0) && (
- <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
- {(secondary || location) && (
- <p className="min-w-0 truncate text-xs text-muted-foreground" title={[secondary, location].filter(Boolean).join(" · ")}>
- {secondary || "Brak stanowiska"}
- {location ? ` · ${location}` : ""}
- </p>
- )}
- <UnknownFieldBadges fields={candidate.unknown_fields} className="shrink-0 flex-nowrap" />
- </div>
- )}
- </div>
- </button>
- );
- }
- case "contact": {
- return (
- <div className="flex min-w-0 items-center gap-2">
- <div className="min-w-0 flex-1 space-y-1">
- {candidate.email ? (
- <a
- href={`mailto:${candidate.email}`}
- onClick={(event) => event.stopPropagation()}
- className="flex items-center gap-1.5 truncate text-xs text-foreground hover:text-primary"
- title={candidate.email}
- >
- <Mail className="h-3 w-3 shrink-0 text-muted-foreground" />
- <span className="truncate">{candidate.email}</span>
- </a>
- ) : null}
- {candidate.phone ? (
- <a
- href={`tel:${candidate.phone}`}
- onClick={(event) => event.stopPropagation()}
- className="flex items-center gap-1.5 truncate text-xs text-muted-foreground hover:text-primary"
- title={candidate.phone}
- >
- <Phone className="h-3 w-3 shrink-0" />
- <span className="truncate">{candidate.phone}</span>
- </a>
- ) : null}
- {!candidate.email && !candidate.phone && (
- <span className="text-xs text-muted-foreground">Brak kontaktu</span>
- )}
- </div>
- <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
- <CandidateCvCell candidate={candidate} />
- </div>
- </div>
- );
- }
- case "status_availability": {
- return (
- <div className="min-w-0 space-y-1.5">
- {candidate.status && STATUS_LABELS[candidate.status] ? (
- <Badge variant={STATUS_VARIANT[candidate.status]} size="sm">
- {STATUS_LABELS[candidate.status]}
- </Badge>
- ) : null}
- <div className="min-w-0">
- <CandidateHighlights candidate={candidate} variant="compact" />
- </div>
- </div>
- );
- }
- case "process": {
- return <CandidateRecruitmentsCell candidate={candidate} />;
- }
- case "activity": {
- const text = candidate.last_note_preview ?? candidate.last_rejection_reason;
- const Icon = candidate.last_note_preview ? MessageSquare : XCircle;
- return (
- <div className="min-w-0">
- {text ? (
- <div className="flex min-w-0 items-start gap-1.5">
- <Icon className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
- <span className="line-clamp-2 text-xs text-foreground" title={text}>
- {text}
- </span>
- </div>
- ) : (
- <span className="text-xs text-muted-foreground">Brak aktywności</span>
- )}
- {(candidate.updated_at ?? candidate.created_at) && (
- // Czas modyfikacji rekordu, nie czas aktywności — podpisany
- // wprost, żeby nie stał obok „Brak aktywności” jak data
- // aktywności (UAT B66).
- <p className="mt-1 text-[11px] text-muted-foreground">
- Rekord zmieniony: {formatRelativeTime(candidate.updated_at ?? candidate.created_at!)}
- </p>
- )}
- </div>
- );
- }
- case "phone": {
- const phone = candidate.phone;
- if (!phone) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- const onCopy = (e: React.MouseEvent) => {
- e.stopPropagation();
- if (typeof navigator !=="undefined" && navigator.clipboard) {
- void navigator.clipboard.writeText(phone);
- }
- };
- return (
- <div className="flex items-center gap-1.5 min-w-0 group">
- <Phone className="h-3 w-3 shrink-0 text-success" />
- <a
- href={`tel:${phone}`}
- onClick={(e) => e.stopPropagation()}
- className="text-sm text-foreground truncate hover:text-primary"
- title={phone}
- >
- {phone}
- </a>
- <button
- type="button"
- onClick={onCopy}
- title="Kopiuj numer"
- className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100"
- >
- <Copy className="h-3 w-3" />
- </button>
- </div>
- );
- }
- case "email": {
- const email = candidate.email;
- if (!email) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- const onCopy = (e: React.MouseEvent) => {
- e.stopPropagation();
- if (typeof navigator !== "undefined" && navigator.clipboard) {
- void navigator.clipboard.writeText(email);
- }
- };
- return (
- <div className="flex items-center gap-1.5 min-w-0 group">
- <Mail className="h-3 w-3 shrink-0 text-info" />
- <a
- href={`mailto:${email}`}
- onClick={(e) => e.stopPropagation()}
- className="text-sm text-foreground truncate hover:text-primary"
- title={email}
- >
- {email}
- </a>
- <button
- type="button"
- onClick={onCopy}
- title="Kopiuj email"
- className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100"
- >
- <Copy className="h-3 w-3" />
- </button>
- </div>
- );
- }
- case "cv": {
- return <CandidateCvCell candidate={candidate} />;
- }
- case "recruitments": {
- return <CandidateRecruitmentsCell candidate={candidate} />;
- }
- case "stage_moved": {
- return <StageMovedCell candidate={candidate} />;
- }
- case "title": {
- const title = getCurrentTitle(candidate);
- return (
- <span
- className="text-sm text-foreground truncate block"
- title={title ?? undefined}
- >
- {title ??"—"}
- </span>
- );
- }
- case "company": {
- const company = getCurrentCompany(candidate);
- if (!company) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- return (
- <div className="flex items-center gap-1.5 min-w-0">
- <Building2 className="h-3 w-3 shrink-0 text-primary" />
- <span
- className="text-sm text-foreground truncate"
- title={company}
- >
- {company}
- </span>
- </div>
- );
- }
- case "location": {
- const loc = formatCandidateLocation(candidate.city ?? candidate.location ?? null);
- if (!loc) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- return (
- <div className="flex items-center gap-1.5 min-w-0">
- <MapPin className="h-3 w-3 shrink-0 text-destructive" />
- <span className="text-sm text-foreground truncate" title={loc}>
- {loc}
- </span>
- </div>
- );
- }
- case "experience": {
- const tag = getExperienceLabel(candidate.years_it_experience);
- if (!tag) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- return (
- <Badge size="sm" variant={tag.variant}>
- {tag.label}
- </Badge>
- );
- }
- case "skills": {
- const skills = getSkillList(candidate, 8);
- if (skills.length === 0) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- const shown = skills.slice(0, 3);
- const overflow = skills.length - shown.length;
- return (
- <div className="flex items-center gap-1 min-w-0 flex-wrap">
- {shown.map((s) => (
- <Badge key={s} size="sm" variant="outline" className="font-normal">
- {s}
- </Badge>
- ))}
- {overflow > 0 && (
- <span
- className="text-[11px] text-muted-foreground"
- title={skills.slice(3).join(",")}
- >
- +{overflow}
- </span>
- )}
- </div>
- );
- }
- case "rate": {
- // Kolumna pokazuje stawkę z profilu — tę, po której filtruje lista.
- // Stawka z procesu rekrutacji jest osobną informacją (UAT B58).
- const profileRate = formatProfileRate(candidate);
- const processRate = candidate.last_rate;
- if (!profileRate && !processRate) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- return (
- <div className="min-w-0">
- {profileRate ? (
- <div className="flex items-center gap-1.5 min-w-0">
- <Banknote className="h-3 w-3 shrink-0 text-success" />
- <span
- className="truncate text-sm font-semibold text-success-muted-foreground"
- title="Stawka z profilu kandydata"
- >
- {profileRate}
- </span>
- </div>
- ) : (
- <span className="text-xs text-muted-foreground">Brak w profilu</span>
- )}
- {processRate && processRate !== profileRate && (
- <p
- className="mt-0.5 truncate text-[11px] text-muted-foreground"
- title="Ostatnia stawka zapisana w procesie rekrutacji"
- >
- w procesie: {processRate}
- </p>
- )}
- </div>
- );
- }
- case "last_note": {
- const note = candidate.last_note_preview;
- if (!note) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- return (
- <div className="flex items-start gap-1.5 min-w-0">
- <MessageSquare className="mt-0.5 h-3 w-3 shrink-0 text-info" />
- <span
- className={cn(
- "text-xs text-muted-foreground",
- // Wiersz ma stałą wysokość (64px compact / 92px cozy) z treścią
- // wyśrodkowaną w pionie — przy 2 liniach sporo miejsca pod notatką
- // marnowało się. 3 linie (compact, 48px) / 4 (cozy, 64px) mieszczą
- // się w wysokości wiersza, więc widać więcej treści bez rozpychania
- // rzędu. Pełna notatka zostaje w tooltipie (`title`) i w profilu.
- density === "compact" ? "line-clamp-3" : "line-clamp-4"
- )}
- title={note}
- >
- {note}
- </span>
- </div>
- );
- }
- case "rejection_reason": {
- const reason = candidate.last_rejection_reason;
- if (!reason) {
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- // Kategoria + notatka rekrutera ("Po CV — kandydat nie jest
- // zainteresowany tą ofertą"). Wiersze listy mają STAŁĄ wysokość
- // (virtualizer, rowHeight 64/92px) — bez clampa długi free-text
- // rekrutera wylewał się poza wiersz i nachodził na sąsiednie rzędy
- // (nieczytelne). `line-clamp-2` przycina do 2 linii w obrębie wiersza,
- // a pełna treść zostaje w tooltipie (`title`) i po kliknięciu w profil.
- // `wrap-break-word` zabezpiecza długie ciągłe tokeny.
- return (
- <div className="flex items-start gap-1.5 min-w-0">
- <XCircle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
- <span
- className="text-xs text-foreground line-clamp-2 wrap-break-word"
- title={reason}
- >
- {reason}
- </span>
- </div>
- );
- }
- case "position": {
- // Legacy column kept for back-compat — recruiters who opt-in still get
- // the old "Pozycja" value (rarely populated outside of pipeline rows).
- return (
- <span className="text-sm text-foreground truncate block">
- {candidate.position ?? candidate.current_role ??"—"}
- </span>
- );
- }
- case "status": {
- return (
- <div className="min-w-0">
- <CandidateHighlights candidate={candidate} variant="compact" />
- </div>
- );
- }
- case "match": {
- // `top_score === null` znaczy „nie zmierzono", nie „zero". Do 18.09.2026
- // odznaka pokazywała stałe 26,2 (suma czterech warstw „brak danych" przy
- // semantyce 0) i „0 pasujących ofert" o KAŻDYM kandydacie w bazie —
- // liczba arytmetycznie poprawna i bez żadnego znaczenia.
- if (stats && stats.top_score !== null && stats.open_count > 0) {
- return (
- <div className="flex min-w-0 items-center gap-2">
- <MatchScoreBadge score={stats.top_score} size="sm" />
- <span className="truncate text-xs text-muted-foreground">
- {stats.open_count}/{stats.total_open} rekrutacji
- </span>
- </div>
- );
- }
- if (stats && stats.top_score === null) {
- return (
- <span
- className="text-xs text-muted-foreground"
- title="Dopasowanie nie zostało jeszcze policzone dla tego kandydata — otwórz rekrutację, żeby je zmierzyć."
- >
- Nie policzono
- </span>
- );
- }
- return <span className="text-xs text-muted-foreground">—</span>;
- }
- case "created": {
- return (
- <span className="text-xs text-muted-foreground truncate block">
- {candidate.created_at
- ? formatRelativeTime(candidate.created_at)
- :"—"}
- </span>
- );
- }
- case "added_by": {
- return (
- <span
- className="text-xs text-muted-foreground truncate block"
- title={
- candidate.created_by_user
- ? candidate.created_by_user.name
- :"Import systemowy"
- }
- >
- {candidate.created_by_user
- ? candidate.created_by_user.name
- :"System"}
- </span>
- );
- }
- default:
- return null;
- }
+/** Wyszarzone „brak" — brak danych nie może wyglądać jak wartość. */
+function Missing() {
+  return <span className="text-xs text-muted-foreground/80">brak</span>;
 }
 
 /** Ścieżka, pod którą lista pisze swój stan do adresu. */
@@ -1295,7 +306,7 @@ const CANDIDATES_LIST_PATH = "/candidates";
 
 /**
  * Czy zmiana stanu listy NIE jest krokiem historii przeglądarki. Pisanie w polu
- * wyszukiwania, zmiana strony i przełączenie widoku (tabela/kafelki) tylko
+ * wyszukiwania i zmiana strony tylko
  * podmieniają bieżący wpis; zmiana filtra, sortowania albo zapisanego
  * wyszukiwania dodaje nowy, żeby „Wstecz" cofało filtr.
  */
@@ -1308,116 +319,23 @@ export function isHistoryNeutralChange(
 }
 
 export interface CandidatesListV2Props {
-  /** W ekranie „Kandydaci" tytuł strony daje rama z zakładkami trybów. */
-  hideTitle?: boolean;
+  /**
+   * „Z requestu": dane z okna idą do rodzica (ekran „Kandydaci"), który
+   * pokazuje wyniki. Bez tego przycisk się nie renderuje.
+   */
+  onRequestSearch?: (request: TalentRadarInitialRequest) => void;
 }
 
-export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = {}) {
- const router = useRouter();
- const { showSuccess } = useToast();
- const searchParams = useSearchParams();
- const density = useUiStore((s) => s.density);
- const setDensity = useUiStore((s) => s.setDensity);
- const candidatesView = useUiStore((s) => s.candidatesView);
- const setCandidatesView = useUiStore((s) => s.setCandidatesView);
- const [isMobileViewport, setIsMobileViewport] = useState(false);
- useEffect(() => {
- const media = window.matchMedia("(max-width: 767px)");
- const sync = () => setIsMobileViewport(media.matches);
- sync();
- media.addEventListener("change", sync);
- return () => media.removeEventListener("change", sync);
- }, []);
- const effectiveCandidatesView = isMobileViewport ? "tiles" : candidatesView;
- const candidatesPageSize = useUiStore((s) => s.candidatesPageSize);
- const setCandidatesPageSize = useUiStore((s) => s.setCandidatesPageSize);
- const columnPrefs = useUiStore((s) => s.columnPreferences);
- const setColumnPref = useUiStore((s) => s.setColumnPreference);
- const parentRef = useRef<HTMLDivElement>(null);
- const queryClient = useQueryClient();
- const contactFeature = useCandidateContactFeature();
-
- // Global default column config (admin-editable via PUT /api/settings/candidates-columns).
- // Per-user overrides live in the zustand store — they always win.
- const { data: globalColumnsConfig } = useQuery<{ columns: ColumnId[] }>({
- queryKey: ["settings","candidates-columns"],
- queryFn: () =>
- api.get("/api/settings/candidates-columns").then((r) => r.data),
- staleTime: 60_000,
- });
- const globalDefaultHiddenCols: ColumnId[] = useMemo(() => {
- const visibleIds = new Set<string>(
- normalizeVisibleColumnIds(globalColumnsConfig?.columns ?? HARD_DEFAULT_COLUMNS)
- );
- return ALL_COLUMNS.filter((c) => !c.required && !visibleIds.has(c.id)).map(
- (c) => c.id as ColumnId
- );
- }, [globalColumnsConfig]);
- const userOverride = columnPrefs["candidates-v2"];
- // Zapisane preferencje mogą wskazywać wycofane kolumny (Rekrutacje, Status,
- // CV, Pozycja) — normalizacja przy odczycie, bez przepisywania zapisu.
- const hiddenColumns = new Set<string>(
- userOverride ? normalizeHiddenColumnIds(userOverride) : globalDefaultHiddenCols
- );
- const visibleColumns = ALL_COLUMNS.filter((c) => !hiddenColumns.has(c.id));
- const visibleColumnIdsInOrder = visibleColumns.map((column) => column.id);
- const activeColumnPreset = COLUMN_PRESETS.find(
- (preset) =>
- preset.columns.length === visibleColumnIdsInOrder.length &&
- preset.columns.every((column) => visibleColumnIdsInOrder.includes(column)),
- );
- const customColumnsRef = useRef<ColumnId[] | null>(null);
- useEffect(() => {
- if (!activeColumnPreset) {
- customColumnsRef.current = visibleColumnIdsInOrder;
- }
- }, [activeColumnPreset, visibleColumnIdsInOrder]);
- // CSS grid template: 32px checkbox + each visible column's width + 60px action slot.
- const gridTemplateColumns = [
- "32px",
- ...visibleColumns.map((c) => c.width),
- "60px",
- ].join(" ");
- const gridMinWidth =
- 32 + 60 + visibleColumns.reduce((total, column) => total + column.minWidth, 0);
-
- // Admin scope for the"Zapisz jako domyślne" action. `"_global"` means save
- // the baseline that applies to every role without a specific override.
- const [saveTargetRole, setSaveTargetRole] = useState<UserRole |"_global">("_global"
- );
-
- const saveColumnDefault = useMutation({
- mutationFn: (args: { columns: ColumnId[]; role: UserRole |"_global" }) =>
- api
- .put("/api/settings/candidates-columns", {
- columns: args.columns,
- role: args.role === "_global" ? null : args.role,
- })
- .then((r) => r.data),
- onSuccess: (_data, variables) => {
- queryClient.invalidateQueries({
- queryKey: ["settings","candidates-columns"],
- });
- const label =
- variables.role === "_global"
- ?"dla wszystkich"
- : `dla roli: ${ROLE_LABELS[variables.role]}`;
- setToast?.(`Zapisano jako domyślne ${label}.`);
- },
- });
- const resetToGlobalDefault = () =>
- useUiStore.getState().clearColumnPreference("candidates-v2");
- const applyColumnPreset = (columns: readonly ColumnId[]) => {
- const visible = new Set(columns);
- visible.add("candidate");
- const hidden = ALL_COLUMNS.filter((column) => !visible.has(column.id)).map(
- (column) => column.id as ColumnId,
- );
- setColumnPref("candidates-v2", hidden);
- };
- const applyCustomColumns = () => {
- if (customColumnsRef.current) applyColumnPreset(customColumnsRef.current);
- };
+export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}) {
+  const router = useRouter();
+  const { showSuccess } = useToast();
+  const searchParams = useSearchParams();
+  const candidatesPageSize = useUiStore((s) => s.candidatesPageSize);
+  const setCandidatesPageSize = useUiStore((s) => s.setCandidatesPageSize);
+  const parentRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
+  const contactFeature = useCandidateContactFeature();
+  const [requestOpen, setRequestOpen] = useState(false);
 
  // URL state ---------------------------------------------------
  const [search, setSearch] = useState(searchParams.get("q") ??"");
@@ -1434,6 +352,20 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  ? raw
  : "newest";
  });
+ // Jawne „Najnowsi" (w adresie `sort=newest`) — bez niego wpisany tekst
+ // szereguje po trafności (patrz `effectiveSort`).
+ const [sortExplicit, setSortExplicit] = useState<boolean>(
+ searchParams.get("sort") === "newest",
+ );
+ // Tryb tekstu: auto (backend decyduje) / dosłownie / po znaczeniu. URL `tm`.
+ const [textMode, setTextMode] = useState<TextModeFilter>(() => {
+ const raw = searchParams.get("tm");
+ return raw === "literal" || raw === "semantic" ? raw : "auto";
+ });
+ // Języki (`en:B2`), ten sam dekoder co chipy i zapisane wyszukiwania.
+ const [languages, setLanguages] = useState<string[]>(
+ () => decodeFilters(new URLSearchParams(searchParams.toString())).languages,
+ );
  const [page, setPage] = useState(Number(searchParams.get("page") ??"1"));
  const [remoteFilter, setRemoteFilter] = useState<string[]>(
  searchParams.get("remote")?.split(",").filter(Boolean) ?? []
@@ -1696,6 +628,9 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  availability: availabilityFilter,
  pipelineStage: pipelineStageFilter,
  sort: sortBy,
+ sortExplicit,
+ textMode,
+ languages,
  page,
  remote: remoteFilter as CandidateFilters["remote"],
  skillsExpr: skillExpr,
@@ -1725,7 +660,7 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  openTo: openToFilter,
  recentlyChangedJobs,
  semanticsVersion,
- view: effectiveCandidatesView,
+ view: "list",
  savedSearchId: activeSavedSearchId,
  qAll,
  qAny: qAnyGroups,
@@ -1738,6 +673,9 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  availabilityFilter,
  pipelineStageFilter,
  sortBy,
+ sortExplicit,
+ textMode,
+ languages,
  page,
  remoteFilter,
  skillExpr,
@@ -1767,7 +705,6 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  openToFilter,
  recentlyChangedJobs,
  semanticsVersion,
- effectiveCandidatesView,
  activeSavedSearchId,
  qAll,
  qAnyGroups,
@@ -1810,32 +747,9 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  }, [filtersSnapshot]);
 
  // Data --------------------------------------------------------
- const visibleColumnIds = useMemo(
- () => new Set<ColumnId>(visibleColumns.map((column) => column.id)),
- [visibleColumns],
- );
- const {
- includeMatchStats,
- includeActiveRecruitments,
- includeLastActivity,
- } = getCandidateListIncludeFlags(effectiveCandidatesView, visibleColumnIds);
  const candidatesApiParams = useMemo(
- () =>
- filtersToApiParams(filtersSnapshot, page, {
- page_size: candidatesPageSize,
- include_match_stats: includeMatchStats,
- include_active_recruitments: includeActiveRecruitments,
- include_last_activity: includeLastActivity,
- match_threshold: includeMatchStats ? 35 : undefined,
- }),
- [
- filtersSnapshot,
- page,
- candidatesPageSize,
- includeMatchStats,
- includeActiveRecruitments,
- includeLastActivity,
- ],
+ () => candidatesListApiParams(filtersSnapshot, page, candidatesPageSize),
+ [filtersSnapshot, page, candidatesPageSize],
  );
  const {
  data,
@@ -1845,7 +759,7 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  error: candidatesError,
  refetch: refetchCandidates,
  } = useQuery({
- queryKey: ["candidates-v2", candidatesApiParams],
+ queryKey: candidatesListQueryKey(candidatesApiParams),
  queryFn: ({ signal }) =>
  fetchCandidateListPage<CandidateListResponse>(candidatesApiParams, signal),
  placeholderData: keepPreviousData,
@@ -1890,7 +804,7 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  const hasSearchTerms = searchTerms.length > 0;
 
  // Virtualization ---------------------------------------------
- // Bazowa wysokość wiersza: luźne 64/92px dają oddech na pojedynczego kandydata.
+ // Bazowa wysokość wiersza: stałe 64px (tabela bez przełącznika gęstości).
  // Gdy wyszukiwanie jest aktywne i kandydat ma dopasowany fragment CV
  // (`match_snippet`), wiersz rośnie o SNIPPET_AREA, by zmieścić snippet pod
  // danymi — recruiter od razu widzi, z czego wynika dopasowanie (parytet Traffit).
@@ -1898,7 +812,7 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  // fraza — 3 linie (line-clamp-3 niżej) mieszczą kilka okien „pole: …fragment…".
  // 66px = 3 linie text-xs/leading-normal (3×18=54) + hairline (border-t, 1px)
  // + pt-1/pb-1.5 (10px) — czytelny snippet bez ucinania trzeciej linii.
- const rowHeight = density === "compact" ? 64 : 92;
+ const rowHeight = ROW_HEIGHT;
  const SNIPPET_AREA = 66;
  const virtualizer = useVirtualizer({
  count: items.length,
@@ -1909,14 +823,14 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  },
  overscan: 10,
  });
- // estimateSize zależy od danych (snippet) i gęstości; react-virtual czyta
+ // estimateSize zależy od danych (snippet); react-virtual czyta
  // estimateSize na nowo dopiero po `measure()` (resecie cache rozmiarów), więc
- // wymuszamy je po każdej zmianie wyników / gęstości / aktywności wyszukiwania.
+ // wymuszamy je po każdej zmianie wyników / aktywności wyszukiwania.
  // Klucz to stabilna referencja `data` z react-query (NIE `items`, które są
  // świeżą tablicą co render → pętla re-measure).
  useEffect(() => {
  virtualizer.measure();
- }, [virtualizer, data, rowHeight, hasSearchTerms]);
+ }, [virtualizer, data, hasSearchTerms]);
 
  // Selection ---------------------------------------------------
  // `?sel=` odtwarza zaznaczenie po powrocie z porównania (UAT B21) — czytane
@@ -2136,7 +1050,8 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  (recentlyChangedJobs ? 1 : 0) +
  qAll.length +
  qAnyGroups.flat().length +
- qNone.length;
+ qNone.length +
+ languages.length;
 
  const applyFiltersPatch = (patch: Partial<CandidateFilters>) => {
  if (patch.q !== undefined) {
@@ -2148,6 +1063,9 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  if (patch.availability !== undefined) setAvailabilityFilter(patch.availability);
  if (patch.pipelineStage !== undefined) setPipelineStageFilter(patch.pipelineStage);
  if (patch.sort !== undefined) setSortBy(patch.sort);
+ if (patch.sortExplicit !== undefined) setSortExplicit(patch.sortExplicit);
+ if (patch.textMode !== undefined) setTextMode(patch.textMode);
+ if (patch.languages !== undefined) setLanguages(patch.languages);
  if (patch.page !== undefined) setPage(patch.page);
  if (patch.remote !== undefined) setRemoteFilter(patch.remote);
  if (patch.skillsExpr !== undefined) {
@@ -2188,7 +1106,6 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  setRecentlyChangedJobs(patch.recentlyChangedJobs);
  if (patch.semanticsVersion !== undefined)
  setSemanticsVersion(patch.semanticsVersion);
- if (patch.view !== undefined) setCandidatesView(patch.view);
  if (patch.savedSearchId !== undefined)
  setActiveSavedSearchId(patch.savedSearchId);
  if (patch.qAll !== undefined) setQAll(patch.qAll);
@@ -2196,8 +1113,7 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  if (patch.qNone !== undefined) setQNone(patch.qNone);
  };
 
- // „Wstecz"/„Dalej" w przeglądarce przywraca filtry z adresu wpisu. Widok
- // (tabela/kafelki) nie jest krokiem historii, więc go nie cofamy.
+ // „Wstecz"/„Dalej" w przeglądarce przywraca filtry z adresu wpisu.
  const applyFiltersPatchRef = useRef(applyFiltersPatch);
  applyFiltersPatchRef.current = applyFiltersPatch;
  useEffect(() => {
@@ -2236,15 +1152,7 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  if (patch.movedBefore !== undefined) setStageMovedBefore(patch.movedBefore);
  setPage(1);
  };
- const mineActive =
- !!currentUser && addedByIds.length === 1 && addedByIds[0] === currentUser.id;
- const toggleMine = () => {
- if (!currentUser) return;
- setAddedByIds(mineActive ? [] : [currentUser.id]);
- setPage(1);
- };
  const hasActiveCriteria = Boolean(search) || totalActiveFilters > 0;
- const compareOverflow = Math.max(0, selectedIds.size - 3);
 
  // Reset kompletu filtrów („Wyczyść wszystko" w panelu). Obejmuje też pola
  // spoza CandidateFilters (open_to, recently_changed_jobs) oraz proste „q".
@@ -2284,6 +1192,8 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  setStageCurrentOnly(false);
  setRecentlyChangedJobs(null);
  setSemanticsVersion(2);
+ setLanguages([]);
+ setTextMode("auto");
  setQAll([]);
  setQAny([]);
  setQNone([]);
@@ -2365,1418 +1275,664 @@ export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = 
  ))}
  </div>
  );
+  // Liczba całej bazy do nagłówka — osobne, tanie zapytanie (1 wiersz).
+  const { data: baseTotalData } = useQuery({
+    queryKey: CANDIDATES_BASE_TOTAL_QUERY_KEY,
+    queryFn: ({ signal }) =>
+      fetchCandidateListPage<CandidateListResponse>(CANDIDATES_BASE_TOTAL_PARAMS, signal),
+    staleTime: 5 * 60_000,
+  });
+  const baseTotal = baseTotalData?.total ?? null;
 
- return (
- /* Szerszy cap niż standardowe 1400px reszty list (Oferty/Klienci/Kontrakty),
-    bo tabela kandydatów ma do 10 kolumn. Tabela jest w pełni responsywna:
-    tracki to minmax(0,fr) + komórki overflow-hidden, więc kolumny kurczą się
-    do dowolnej szerokości i CAŁA tabela zawsze mieści się w ekranie (na wąskim
-    widać mniej szczegółów w komórce, nigdy nie ma poziomego ucięcia/scrolla).
-    Cap 2400px tylko ogranicza nadmierne rozciąganie wierszy na ultrawide/4K. */
- <div className="max-w-[2400px] mx-auto space-y-4">
- {/* Header — celowo stonowany: tytuł/licznik to nie kluczowa informacja,
- więc bez gradientu i wielkiego H1. Wizualny akcent przeniesiony na
- przycisk „Zaawansowane" w toolbarze poniżej. */}
- <div className={hideTitle ?"flex items-end justify-end flex-wrap gap-3" :"flex items-end justify-between flex-wrap gap-3"}>
- {!hideTitle && (
- <div>
- <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground/60">
- Sourcing · Kandydaci
- </p>
- <h1 className="text-lg font-semibold tracking-tight text-foreground/80 mt-0.5">
- Kandydaci
- </h1>
- </div>
- )}
+  const skillBucketsValue: SkillBucketsValue = {
+    required: [
+      ...skillBuckets.must,
+      ...skillBuckets.anyGroups.map((g) => g.join("|")),
+    ],
+    preferred: skillsPreferred,
+    excluded: skillBuckets.none,
+  };
+  const canExport = hasRole(currentUser, ...EXPORT_ROLES);
+  const shownSort = effectiveSort(filtersSnapshot);
+  const hasText = search.trim().length >= 2;
+  const sortOptions = (["relevance", "newest", "oldest", "name"] as const).filter(
+    (value) => value !== "relevance" || hasText || sortBy === "relevance",
+  );
+  const pastedRequest = looksLikePastedRequest(searchDraft);
 
- <div className="flex items-center gap-2">
- <Popover>
- <PopoverTrigger asChild>
- <Button size="sm" variant="outline">
- <Upload className="h-4 w-4" /> Importuj
- </Button>
- </PopoverTrigger>
- <PopoverContent align="end" className="w-52 p-1">
- <button
- onClick={() => setShowImport(true)}
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
- >
- <Upload className="h-4 w-4 text-muted-foreground" /> Import CSV
- </button>
- <button
- onClick={() => setShowAddFromCV(true)}
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
- >
- <Sparkles className="h-4 w-4 text-muted-foreground" /> Dodaj z CV
- </button>
- <Link
- href="/candidates/bulk-import"
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent"
- >
- <FileArchive className="h-4 w-4 text-muted-foreground" /> Masowy import CV
- </Link>
- <button
- onClick={() => setShowInvite(true)}
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
- >
- <LinkIcon className="h-4 w-4 text-muted-foreground" /> Wygeneruj link
- </button>
- </PopoverContent>
- </Popover>
- {/* „Więcej" niesie już tylko eksport, więc bramkujemy CAŁE menu listą
- `CANDIDATE_EXPORT_ROLES` (candidate_access.py) — admin, HoR, DL, TCM, TAC,
- finance. Backend zwraca 403 pozostałym („Wygeneruj link" przeszło do
- „Importuj"). */}
- <RequireRole roles={["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "finance"]}>
- <Popover>
- <PopoverTrigger asChild>
- <Button size="sm" variant="outline">Więcej</Button>
- </PopoverTrigger>
- <PopoverContent align="end" className="w-56 p-1">
- <button
- onClick={() => doExport("csv", "filtered")}
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
- >
- <Download className="h-4 w-4 text-muted-foreground" /> Eksportuj wyniki CSV
- </button>
- <button
- onClick={() => doExport("xlsx", "filtered")}
- className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
- >
- <FileText className="h-4 w-4 text-muted-foreground" /> Eksportuj wyniki XLSX
- </button>
- </PopoverContent>
- </Popover>
- </RequireRole>
- <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
- <Plus className="h-4 w-4" />
- <span className="hidden sm:inline">Dodaj kandydata</span>
- <span className="sm:hidden">Dodaj</span>
- </Button>
- </div>
- </div>
+  const openDetailAt = (candidateId: number) => {
+    setDetailId(candidateId);
+    const idx = items.findIndex((c) => c.id === candidateId);
+    if (idx >= 0) setDetailPosition((page - 1) * pageSize + idx + 1);
+  };
 
-      {/* Toolbar — odchudzony pasek: szukaj + jeden przycisk „Filtry"
-          (cała konfiguracja w bocznym panelu) + zapisane wyszukiwania,
-          a po prawej sterowanie widokiem (sortowanie, kolumny, układ). */}
-      <div className="sticky top-2 z-30 rounded-xl border border-border bg-card/95 p-3 shadow-xs backdrop-blur-sm supports-backdrop-filter:bg-card/85">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex-1 min-w-[240px] max-w-lg">
-            <Input
-              leadingIcon={<Search className="h-4 w-4" />}
-              placeholder="Szukaj po imieniu, emailu, stanowisku…"
-              aria-label="Szukaj kandydatów"
-              className="h-9 rounded-md"
-              value={searchDraft}
-              onChange={(e) => setSearchDraft(e.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") commitSearch();
-              }}
-            />
-            {/* „Rozumiem to jako…": lista dopasowuje tekst wyłącznie
-                dosłownie, więc bez przełącznika — mówimy to wprost. */}
-            {search.trim() && data && (
-              <TextInterpretationLine
-                className="mt-1"
+  const rail = (
+    <CandidateFilterRail
+      filters={filtersSnapshot}
+      onPatch={patchFiltersFromFields}
+      currentUserId={currentUser?.id ?? null}
+      skills={skillBucketsValue}
+      onSkillsChange={applySkillBuckets}
+      stage={stageFilterValue}
+      onStageChange={onStageFilterChange}
+      phrases={{ all: qAll, any: qAny, none: qNone }}
+      activeCount={totalActiveFilters}
+      onClearAll={resetAllFilters}
+    />
+  );
+
+  return (
+    <div className="mx-auto max-w-[2400px] space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Kandydaci</h1>
+          {baseTotal !== null && (
+            <span className="text-sm text-muted-foreground">
+              {baseTotal.toLocaleString("pl-PL")} w bazie
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline">
+                <Upload className="h-4 w-4" /> Importuj <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuItem onSelect={() => setShowImport(true)}>
+                <Upload className="h-4 w-4" /> Import CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setShowAddFromCV(true)}>
+                <Sparkles className="h-4 w-4" /> Dodaj z CV
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/candidates/bulk-import">
+                  <FileArchive className="h-4 w-4" /> Masowy import CV
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setShowInvite(true)}>
+                <LinkIcon className="h-4 w-4" /> Wygeneruj link
+              </DropdownMenuItem>
+              {canExport && (
+                <>
+                  {/* Eksport CAŁEGO wyniku (nie tylko zaznaczenia) — role jak w
+                      `CANDIDATE_EXPORT_ROLES`; backend zwraca 403 pozostałym. */}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => void doExport("csv", "filtered")}>
+                    <Download className="h-4 w-4" /> Eksportuj wyniki (CSV)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void doExport("xlsx", "filtered")}>
+                    <FileText className="h-4 w-4" /> Eksportuj wyniki (XLSX)
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
+            <Plus className="h-4 w-4" />
+            Dodaj kandydata
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex items-start gap-6">
+        <div
+          data-testid="candidate-filter-rail"
+          className="sticky top-2 hidden max-h-[calc(100vh-6rem)] w-[248px] shrink-0 self-start overflow-y-auto pb-6 pr-1 lg:block"
+        >
+          {rail}
+        </div>
+
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="min-w-[240px] flex-1">
+                <Input
+                  leadingIcon={<Search className="h-4 w-4" />}
+                  placeholder="Nazwisko, e-mail, telefon albo opis, kogo szukasz…"
+                  aria-label="Szukaj kandydatów"
+                  className="h-10 rounded-lg"
+                  value={searchDraft}
+                  onChange={(e) => setSearchDraft(e.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") commitSearch();
+                  }}
+                />
+              </div>
+              {onRequestSearch && (
+                <Button
+                  variant="outline"
+                  className="h-10"
+                  onClick={() => setRequestOpen(true)}
+                  title="Wklej request klienta, wgraj profil Championa albo wybierz rekrutację"
+                >
+                  <FileText className="h-4 w-4" /> Z requestu
+                </Button>
+              )}
+              <Button
+                variant={totalActiveFilters > 0 ? "primary" : "outline"}
+                className="h-10 lg:hidden"
+                onClick={() => setFiltersOpen(true)}
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                Filtry{totalActiveFilters > 0 ? ` (${totalActiveFilters})` : ""}
+              </Button>
+            </div>
+            {pastedRequest && onRequestSearch ? (
+              <p className="text-xs text-muted-foreground">
+                To wygląda na treść requestu.{" "}
+                <button
+                  type="button"
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                  onClick={() => setRequestOpen(true)}
+                >
+                  Szukaj z requestu
+                </button>
+              </p>
+            ) : hasText && data ? (
+              <ListSearchInterpretation
                 applied={data.text_mode_applied}
                 interpretation={data.interpretation}
-                note={
-                  data.interpretation?.kind === "text"
-                    ? "Lista szuka tego tekstu dosłownie — po znaczeniu szuka wyszukiwarka."
-                    : undefined
-                }
-              />
-            )}
-          </div>
-
-          {/* Jedyny punkt wejścia do wszystkich filtrów — otwiera boczny panel. */}
-          <Button
-            size="md"
-            variant={totalActiveFilters > 0 ? "primary" : "outline"}
-            onClick={() => setFiltersOpen(true)}
-            title="Wszystkie filtry w jednym panelu"
-            className="font-semibold"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-            Filtry
-            {totalActiveFilters > 0 && (
-              <Badge variant="burgundy" size="sm" className="ml-1">
-                {totalActiveFilters}
-              </Badge>
-            )}
-          </Button>
-
-          {/* Skróty do najczęstszych grup filtrów — ten sam stan co szuflada. */}
-          <div
-            className="flex flex-wrap items-center gap-1.5"
-            role="group"
-            aria-label="Szybkie filtry"
-          >
-            <ToolbarFilterPill
-              label="Status"
-              icon={<CircleDot className="h-3.5 w-3.5" />}
-              count={countStatusAvailability({
-                status: statusFilter,
-                employment: employmentFilter,
-                availability: availabilityFilter,
-                openTo: openToFilter,
-              })}
-            >
-              <StatusAvailabilityFilterFields
-                value={{
-                  status: statusFilter,
-                  employment: employmentFilter,
-                  availability: availabilityFilter,
-                  openTo: openToFilter,
+                degraded={data.search_degraded === true}
+                capReached={data.result_cap_reached === true}
+                textMode={textMode}
+                onTextModeChange={(mode) => {
+                  setTextMode(mode);
+                  setPage(1);
                 }}
-                onPatch={patchFiltersFromFields}
               />
-            </ToolbarFilterPill>
-            <StageFilterPanel
-              value={stageFilterValue}
-              onChange={onStageFilterChange}
-            />
-            <ToolbarFilterPill
-              label="Kategoria"
-              icon={<Layers className="h-3.5 w-3.5" />}
-              count={competenceCategoryIds.length}
-            >
-              <CompetenceCategoryFilterFields
-                value={{ competenceCategoryIds }}
-                onPatch={patchFiltersFromFields}
-              />
-            </ToolbarFilterPill>
-            {currentUser && (
-              <PresetChip
-                icon={<Users className="h-4 w-4" />}
-                active={mineActive}
-                onClick={toggleMine}
-              >
-                Moi kandydaci
-              </PresetChip>
-            )}
+            ) : null}
           </div>
 
-          <SavedSearchesMenu
-            currentQs={encodeFilterCriteria(filtersSnapshot).toString()}
-            onApply={(qs, ssId, previousViewedAt) => {
-              setNewSince(previousViewedAt);
-              const decoded = filtersFromCandidateSavedSearch(
-                { qs },
-                effectiveCandidatesView,
-              );
-              applyFiltersPatch({
-                ...decoded,
-                page: 1,
-                view: effectiveCandidatesView,
-                savedSearchId: ssId,
-              });
-              clearSelection();
+          <div className="flex flex-wrap items-center gap-2" aria-live="polite">
+            <span className="text-sm font-medium text-foreground">
+              {isLoading
+                ? "Ładowanie…"
+                : isError && items.length === 0
+                  ? "Nie udało się pobrać danych"
+                  : candidatesCountLabel(total)}
+            </span>
+            {isFetching && !isLoading && (
+              <span className="text-xs text-muted-foreground">aktualizuję…</span>
+            )}
+            <ActiveFilterChips filters={filtersSnapshot} onUpdate={applyFiltersPatch} />
+            <div className="ml-auto flex items-center gap-2">
+              <SavedSearchesMenu
+                currentQs={encodeFilterCriteria(filtersSnapshot).toString()}
+                onApply={(qs, ssId, previousViewedAt) => {
+                  setNewSince(previousViewedAt);
+                  const decoded = filtersFromCandidateSavedSearch({ qs }, "list");
+                  applyFiltersPatch({
+                    ...decoded,
+                    page: 1,
+                    savedSearchId: ssId,
+                  });
+                  clearSelection();
+                }}
+              />
+              <Select
+                value={shownSort}
+                onValueChange={(value) => {
+                  const next = value as CandidateFilters["sort"];
+                  setSortBy(next);
+                  setSortExplicit(next === "newest");
+                }}
+              >
+                <SelectTrigger aria-label="Sortowanie kandydatów" className="h-9 w-[170px] rounded-md">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {sortOptions.map((value) => (
+                    <SelectItem key={value} value={value}>
+                      {SORT_LABELS[value]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <PinnedCandidatesBar
+            onOpenCandidate={(id) => {
+              setDetailId(id);
+              const idx = items.findIndex((c) => c.id === id);
+              // Przypięty spoza bieżącej strony nie ma pozycji na liście —
+              // podgląd bez „poprzedni/następny".
+              setDetailPosition(idx >= 0 ? (page - 1) * pageSize + idx + 1 : 0);
             }}
           />
 
-          <div className="ml-auto flex items-center gap-2">
-            <Select
-              value={sortBy}
-              onValueChange={(value) =>
-                setSortBy(value as CandidateFilters["sort"])
-              }
+          {listViewState === "refresh-error" && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2 text-sm"
             >
-              <SelectTrigger
-                aria-label="Sortowanie kandydatów"
-                className="w-[160px] h-9 rounded-md shadow-xs font-medium"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SORT_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
- {/* Column customization popover */}
- <Popover>
- <PopoverTrigger asChild>
- <button
- type="button"
- title="Konfiguracja kolumn"
- aria-label="Konfiguracja kolumn"
- className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
- >
- <Columns3 className="h-4 w-4" />
- </button>
- </PopoverTrigger>
- <PopoverContent align="end" className="w-64">
- <div className="mb-3">
- <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
- Presety
- </p>
- <div className="grid grid-cols-2 gap-1.5">
- {COLUMN_PRESETS.map((preset) => {
- const active = activeColumnPreset?.id === preset.id;
- return (
- <button
- key={preset.id}
- type="button"
- onClick={() => applyColumnPreset(preset.columns)}
- aria-pressed={active}
- className={cn(
- "rounded-md border px-2 py-1.5 text-left text-xs transition-colors",
- active
- ? "border-primary bg-primary/10 text-primary"
- : "border-border text-foreground hover:bg-accent",
- )}
- >
- {preset.label}
- </button>
- );
- })}
- <button
- type="button"
- onClick={applyCustomColumns}
- disabled={!customColumnsRef.current}
- aria-pressed={!activeColumnPreset}
- className={cn(
- "rounded-md border px-2 py-1.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50",
- !activeColumnPreset
- ? "border-primary bg-primary/10 text-primary"
- : "border-border text-foreground hover:bg-accent",
- )}
- >
- Własny
- </button>
- </div>
- </div>
- <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground mb-2">
- Kolumny niestandardowe
- </h3>
- <div className="space-y-1.5">
- {PICKER_COLUMNS.map((col) => {
- const shown = !hiddenColumns.has(col.id);
- return (
- <label
- key={col.id}
- className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-accent"
- >
- <Checkbox
- checked={shown}
- disabled={col.required}
- onCheckedChange={(v) => {
- const next = new Set(hiddenColumns);
- if (v) next.delete(col.id);
- else next.add(col.id);
- setColumnPref("candidates-v2",
- Array.from(next) as ColumnId[]
- );
- }}
- />
- <span
- className={
- col.required
- ?"text-muted-foreground"
- :"text-foreground"
- }
- >
- {col.label}
- {col.required && (
- <span className="ml-1 text-[10px]">(wymagane)</span>
- )}
- </span>
- </label>
- );
- })}
- </div>
- <div className="mt-3 pt-2 border-t border-border flex flex-col gap-1.5">
- {userOverride && (
- <button
- type="button"
- onClick={resetToGlobalDefault}
- className="text-xs text-muted-foreground hover:text-primary text-left"
- >
- Przywróć domyślne
- </button>
- )}
- <RequireRole roles={["admin"]}>
- <div className="flex flex-col gap-1.5">
- <label
- htmlFor="candidates-columns-save-scope"
- className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground"
- >
- Zakres zapisu (admin)
- </label>
- <select
- id="candidates-columns-save-scope"
- value={saveTargetRole}
- onChange={(e) =>
- setSaveTargetRole(
- e.target.value as UserRole |"_global"
- )
- }
- className="text-xs rounded-md border border-border bg-card px-2 py-1 focus:outline-hidden focus:ring-2 focus:ring-primary"
- >
- {SAVE_ROLE_OPTIONS.map((opt) => (
- <option key={opt.value} value={opt.value}>
- {opt.label}
- </option>
- ))}
- </select>
- <button
- type="button"
- onClick={() => {
- const visibleIds = ALL_COLUMNS.filter(
- (c) => !hiddenColumns.has(c.id)
- ).map((c) => c.id as ColumnId);
- saveColumnDefault.mutate({
- columns: visibleIds,
- role: saveTargetRole,
- });
- }}
- disabled={saveColumnDefault.isPending}
- className="text-xs text-primary hover:underline text-left disabled:opacity-50"
- title="Zapisz bieżący układ jako domyślny dla wybranego zakresu"
- >
- {saveColumnDefault.isPending
- ?"Zapisywanie…"
- :"💾 Zapisz jako domyślne"}
- </button>
- </div>
- </RequireRole>
- </div>
- </PopoverContent>
- </Popover>
- <div
- className="hidden items-center rounded-md border border-border overflow-hidden md:flex"
- role="group"
- aria-label="Widok listy"
- >
- <button
- type="button"
- onClick={() => setCandidatesView("list")}
- title="Widok tabeli"
- aria-label="Widok tabeli"
- aria-pressed={effectiveCandidatesView === "list"}
- className={cn("h-9 w-9 flex items-center justify-center transition-colors",
- effectiveCandidatesView === "list"
- ?"bg-primary text-primary-foreground"
- :"text-muted-foreground hover:bg-accent"
- )}
- >
- <Table2 className="h-4 w-4" />
- </button>
- <button
- type="button"
- onClick={() => setCandidatesView("tiles")}
- title="Widok kafelków"
- aria-label="Widok kafelków"
- aria-pressed={effectiveCandidatesView === "tiles"}
- className={cn("h-9 w-9 flex items-center justify-center transition-colors",
- effectiveCandidatesView === "tiles"
- ?"bg-primary text-primary-foreground"
- :"text-muted-foreground hover:bg-accent"
- )}
- >
- <LayoutGrid className="h-4 w-4" />
- </button>
- </div>
- <button
- type="button"
- onClick={() => setDensity(density === "cozy" ?"compact" :"cozy")}
- title="Przełącz gęstość"
- aria-label={`Gęstość: ${density === "cozy" ? "komfortowa" : "kompaktowa"}. Przełącz widok`}
- className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
- >
- <Rows3 className="h-4 w-4" />
- </button>
- </div>
- </div>
- </div>
+              <span className="text-destructive">
+                Nie udało się odświeżyć wyników. Wyświetlam poprzednie dane.
+              </span>
+              <Button variant="outline" size="sm" onClick={() => void refetchCandidates()}>
+                Spróbuj ponownie
+              </Button>
+            </div>
+          )}
 
- <div className="flex flex-wrap items-center justify-between gap-2" aria-live="polite">
- <ActiveFilterChips filters={filtersSnapshot} onUpdate={applyFiltersPatch} />
- <span className="ml-auto text-xs text-muted-foreground">
- {isLoading ? (
- "Ładowanie…"
- ) : isError && items.length === 0 ? (
- "Nie udało się pobrać danych"
- ) : (
- <>
- {total.toLocaleString("pl-PL")}{" "}
- {hasActiveCriteria ? "wyników" : "w bazie"}
- </>
- )}
- {isFetching && !isLoading ? " · aktualizuję…" : ""}
- </span>
- </div>
-
-      {/* Panel filtrów — boczna szuflada z całą konfiguracją (Traffit-style).
-          Pasek wyżej pokazuje tylko szukajkę + „Filtry"; tutaj zaznaczasz, po
-          czym filtrować. Wyniki aktualizują się na bieżąco (każdy setter już
-          synchronizuje URL + zapytanie). „Wyczyść wszystko" resetuje komplet. */}
-      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-        <SheetContent side="right" size="lg">
-          <SheetHeader>
-            <SheetTitle className="flex items-center gap-2">
-              <SlidersHorizontal className="h-5 w-5 text-primary" />
-              Filtry
-              {totalActiveFilters > 0 && (
-                <Badge variant="burgundy" size="sm">
-                  {totalActiveFilters}
-                </Badge>
-              )}
-            </SheetTitle>
-            <SheetDescription>
-              Zaznacz, po czym chcesz filtrować — wyniki aktualizują się na
-              bieżąco.
-            </SheetDescription>
-          </SheetHeader>
-
-          <SheetBody className="space-y-4 bg-muted/30">
-            {/* Szybkie filtry — gotowe presety jednym kliknięciem. */}
-            <FilterSection
-              title="Szybkie filtry"
-              icon={<Sparkles />}
-              accent="primary"
+          <div className="overflow-x-auto overflow-y-hidden rounded-lg border border-border bg-card">
+            <div
+              role="row"
+              className="sticky top-0 z-10 grid h-10 items-center gap-3 border-b border-border bg-muted/60 px-4 text-xs font-semibold text-muted-foreground"
+              style={{ gridTemplateColumns: GRID_TEMPLATE, minWidth: `${GRID_MIN_WIDTH}px` }}
             >
-              <div className="flex flex-wrap gap-2">
-                <PresetChip
-                  icon={<Sparkles className="h-4 w-4" />}
-                  onClick={() => {
-                    setEmploymentFilter(["available"]);
-                    setAvailabilityFilter(["actively_looking"]);
-                    setPage(1);
-                  }}
-                >
-                  Dostępni do sourcingu
-                </PresetChip>
-                <PresetChip
-                  icon={<Sparkles className="h-4 w-4" />}
-                  active={openToFilter.length === OPEN_TO_OPTIONS.length}
-                  onClick={() => {
-                    if (openToFilter.length === OPEN_TO_OPTIONS.length) {
-                      setOpenToFilter([]);
-                    } else {
-                      setOpenToFilter(
-                        OPEN_TO_OPTIONS.map((o) => o.value) as OpenToValue[],
-                      );
-                    }
-                    setPage(1);
-                  }}
-                >
-                  Otwarci na extra
-                </PresetChip>
-                {currentUser && (
-                  <PresetChip
-                    icon={<Users className="h-4 w-4" />}
-                    active={mineActive}
-                    onClick={toggleMine}
-                  >
-                    Moi kandydaci
-                  </PresetChip>
-                )}
+              <div className="flex items-center">
+                <Checkbox
+                  checked={
+                    allVisibleSelected ? true : visibleSelectedCount > 0 ? "indeterminate" : false
+                  }
+                  onCheckedChange={selectAllVisible}
+                  aria-label="Zaznacz stronę"
+                />
               </div>
-            </FilterSection>
-
-            {/* Status i dostępność — małe zbiory opcji jako „pigułki". */}
-            <FilterSection
-              title="Status i dostępność"
-              icon={<CircleDot />}
-              accent="emerald"
-            >
-              <StatusAvailabilityFilterFields
-                value={{
-                  status: statusFilter,
-                  employment: employmentFilter,
-                  availability: availabilityFilter,
-                  openTo: openToFilter,
-                }}
-                onPatch={patchFiltersFromFields}
-              />
-            </FilterSection>
-
-            {/* Etap rekrutacji — zunifikowany panel etap/klient/kto/kiedy. */}
-            <FilterSection
-              title="Etap rekrutacji"
-              icon={<Layers />}
-              accent="violet"
-            >
-              <StageFilterPanel
-                value={stageFilterValue}
-                onChange={onStageFilterChange}
-              />
-            </FilterSection>
-
-            {/* Data wysłania do klienta — własna sekcja. Filtr po dacie
-                rekomendacji kandydata do klienta (przejście na etap `cv_sent`);
-                niezależny od panelu etapu i historyczny. */}
-            <FilterSection
-              title="Data wysłania do klienta"
-              icon={<CalendarClock />}
-              accent="violet"
-            >
-              <FilterField
-                label="Zakres dat (od – do)"
-                hint="Kandydaci zarekomendowani do klienta (przejście na etap CV wysłane) w tym oknie. Zakres włącznie; nie wymaga wyboru etapu."
-              >
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 space-y-1">
-                    <label className="block text-[10px] text-muted-foreground">
-                      od
-                    </label>
-                    <Input
-                      type="date"
-                      aria-label="Data wysłania do klienta — od"
-                      value={sentToClientFrom}
-                      max={sentToClientTo || undefined}
-                      onChange={(e) => {
-                        setSentToClientFrom(e.target.value);
-                        setPage(1);
-                      }}
-                      className="text-sm"
-                    />
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="block text-[10px] text-muted-foreground">
-                      do
-                    </label>
-                    <Input
-                      type="date"
-                      aria-label="Data wysłania do klienta — do"
-                      value={sentToClientTo}
-                      min={sentToClientFrom || undefined}
-                      onChange={(e) => {
-                        setSentToClientTo(e.target.value);
-                        setPage(1);
-                      }}
-                      className="text-sm"
-                    />
-                  </div>
+              {TABLE_COLUMNS.map((col) => (
+                <div key={col.id} role="columnheader" className="truncate">
+                  {col.label}
                 </div>
-              </FilterField>
-            </FilterSection>
+              ))}
+              <div />
+            </div>
 
-            {/* Dane zawodowe — lokalizacja, firmy, tryb pracy, doświadczenie. */}
-            <FilterSection
-              title="Dane zawodowe"
-              icon={<Briefcase />}
-              accent="sky"
+            <div
+              ref={parentRef}
+              data-testid="candidate-list-scroll"
+              style={{
+                height: "calc(100vh - 300px)",
+                minHeight: 360,
+                minWidth: `${GRID_MIN_WIDTH}px`,
+              }}
+              className="overflow-y-auto overflow-x-hidden"
             >
-              <FilterField label="Lokalizacja">
-                <LocationInput
-                  value={locationFilter}
-                  onChange={(v) => {
-                    setLocationFilter(v);
-                    setPage(1);
+              {listViewState === "initial-loading" ? (
+                loadingRows
+              ) : listViewState === "error" ? (
+                queryErrorPanel
+              ) : listViewState === "empty" ? (
+                emptyState
+              ) : (
+                <div
+                  style={{
+                    height: `${virtualizer.getTotalSize()}px`,
+                    width: "100%",
+                    position: "relative",
                   }}
-                />
-              </FilterField>
-              <FilterField label="Obecna firma">
-                <CompanyAutocomplete
-                  value={currentCompanyFilter}
-                  onChange={(v) => {
-                    setCurrentCompanyFilter(v);
-                    setPage(1);
-                  }}
-                  placeholder="np. Google, Allegro"
-                  suggestEndpoint="/api/candidates/companies/suggest"
-                />
-              </FilterField>
-              <FilterField label="Obecne stanowisko">
-                <CompanyAutocomplete
-                  value={currentTitleFilter}
-                  onChange={(v) => {
-                    setCurrentTitleFilter(v);
-                    setPage(1);
-                  }}
-                  placeholder="np. Senior Engineer, PM"
-                  suggestEndpoint="/api/candidates/titles/suggest"
-                />
-              </FilterField>
-              <FilterField label="Poprzednia firma">
-                <CompanyAutocomplete
-                  value={pastCompanyFilter}
-                  onChange={(v) => {
-                    setPastCompanyFilter(v);
-                    setPage(1);
-                  }}
-                  placeholder="np. IBM, Accenture"
-                  suggestEndpoint="/api/candidates/companies/suggest"
-                />
-              </FilterField>
-              <PillGroup
-                label="Tryb pracy"
-                options={REMOTE_FILTER_OPTIONS}
-                value={remoteFilter}
-                onToggle={(v) => {
-                  setRemoteFilter(toggleInList(remoteFilter, v));
-                  setPage(1);
-                }}
-              />
-              <FilterField
-                label="Lata doświadczenia"
-                hint="Zakres lat doświadczenia w IT (np. od 2 do 30)."
-              >
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min={0}
-                    max={60}
-                    placeholder="od"
-                    value={experienceMin ?? ""}
-                    onChange={(e) => {
-                      setExperienceMin(parseYearBound(e.target.value));
-                      setPage(1);
-                    }}
-                    className="w-24"
-                  />
-                  <span className="text-muted-foreground">–</span>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={60}
-                    placeholder="do"
-                    value={experienceMax ?? ""}
-                    onChange={(e) => {
-                      setExperienceMax(parseYearBound(e.target.value));
-                      setPage(1);
-                    }}
-                    className="w-24"
-                  />
-                  <span className="text-xs text-muted-foreground">lat</span>
-                </div>
-              </FilterField>
-              <FilterField
-                label="Stawka godzinowa (PLN/h)"
-                hint="Oczekiwana stawka godzinowa B2B (np. od 120 do 200). Osoby bez podanej stawki zostają na liście z plakietką „brak stawki” — chyba że zaznaczysz „Ukryj osoby bez danych”."
-              >
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min={0}
-                    placeholder="od"
-                    value={rateMin ?? ""}
-                    onChange={(e) => {
-                      setRateMin(parseRateBound(e.target.value));
-                      setPage(1);
-                    }}
-                    className="w-24"
-                  />
-                  <span className="text-muted-foreground">–</span>
-                  <Input
-                    type="number"
-                    min={0}
-                    placeholder="do"
-                    value={rateMax ?? ""}
-                    onChange={(e) => {
-                      setRateMax(parseRateBound(e.target.value));
-                      setPage(1);
-                    }}
-                    className="w-24"
-                  />
-                  <span className="text-xs text-muted-foreground">PLN/h</span>
-                </div>
-              </FilterField>
-              <FilterField
-                label="Brak danych"
-                hint="Filtry lokalizacji, lat doświadczenia i stawki nie usuwają osób, o których nie mamy tych danych — widzisz je z plakietką „brak …”."
-              >
-                <HideUnknownToggle
-                  checked={hideUnknown}
-                  onChange={(next) => {
-                    setHideUnknown(next);
-                    setPage(1);
-                  }}
-                />
-              </FilterField>
-              <FilterField
-                label="Umiejętności"
-                hint="Pozycja dodana bez wyboru trafia do „Musi mieć”. „Java|Kotlin” = którakolwiek z nich, „-PHP” = wyklucz."
-              >
-                <SkillBucketsField
-                  value={{
-                    required: [
-                      ...skillBuckets.must,
-                      ...skillBuckets.anyGroups.map((g) => g.join("|")),
-                    ],
-                    preferred: skillsPreferred,
-                    excluded: skillBuckets.none,
-                  }}
-                  onChange={applySkillBuckets}
-                />
-              </FilterField>
-              <FilterField label="Niedawno zmienił pracę (LinkedIn)">
-                <div className="flex flex-wrap gap-1.5">
-                  {RECENTLY_CHANGED_OPTIONS.map((opt) => {
-                    const active = recentlyChangedJobs === opt.value;
+                >
+                  {virtualizer.getVirtualItems().map((virtualRow) => {
+                    const candidate = items[virtualRow.index];
+                    const fullName =
+                      `${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim() || "Kandydat";
+                    const initials = getCandidateInitials(candidate) || "?";
+                    const isSelected = selectedIds.has(candidate.id);
+                    // Wiersz nowy od ostatniego otwarcia zapisanego wyszukiwania —
+                    // nowy kandydat albo istniejący, który wszedł do zbioru.
+                    const isNewMatch =
+                      newSinceTs !== null &&
+                      ((!!candidate.created_at && Date.parse(candidate.created_at) > newSinceTs) ||
+                        (!!candidate.updated_at && Date.parse(candidate.updated_at) > newSinceTs));
+                    const position = (page - 1) * pageSize + virtualRow.index + 1;
+                    const openDetail = () => openDetailAt(candidate.id);
+                    const snippet = hasSearchTerms ? candidate.match_snippet : null;
+                    const secondary = [getCurrentTitle(candidate), getCurrentCompany(candidate)]
+                      .filter(Boolean)
+                      .join(" · ");
+                    const skills = getSkillList(candidate, 8);
+                    const location = formatCandidateLocation(candidate.city ?? candidate.location ?? null);
+                    const availability = availabilityCellText(candidate);
+                    const rate = rateCellText(candidate);
+                    const process = processCell(candidate.employment, candidate.active_recruitments);
+                    const lastContact = lastContactText(candidate.last_contacted_at);
                     return (
-                      <button
-                        key={opt.value ?? "all"}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => {
-                          setRecentlyChangedJobs(opt.value);
-                          setPage(1);
+                      <div
+                        key={candidate.id}
+                        data-testid={candidateRowTestId(candidate.id)}
+                        data-index={virtualRow.index}
+                        onClick={openDetail}
+                        // Wiersz jest celem klawiatury (UAT B22): Enter/Spacja
+                        // otwiera podgląd, po zamknięciu fokus tu wraca.
+                        role="group"
+                        aria-label={`${fullName} — Enter otwiera podgląd`}
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.target !== e.currentTarget || !isRowActivationKey(e.key)) return;
+                          e.preventDefault();
+                          openDetail();
+                        }}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          height: `${virtualRow.size}px`,
+                          transform: `translateY(${virtualRow.start}px)`,
                         }}
                         className={cn(
-                          "px-2.5 py-1 text-xs rounded-full border transition-colors",
-                          active
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border bg-card text-foreground hover:border-primary hover:bg-accent",
+                          "group flex cursor-pointer flex-col overflow-hidden border-b border-border transition-colors",
+                          "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                          isNewMatch ? "bg-success-muted/40" : "bg-card",
+                          "hover:bg-muted/50",
+                          isSelected && "bg-primary/5!",
                         )}
                       >
-                        {opt.label}
-                      </button>
+                        <div
+                          className="grid shrink-0 items-center gap-3 px-4"
+                          style={{ gridTemplateColumns: GRID_TEMPLATE, height: `${ROW_HEIGHT}px` }}
+                        >
+                          <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleId(candidate.id)}
+                              aria-label={`Zaznacz ${fullName}`}
+                            />
+                          </div>
+                          <div className="flex min-w-0 items-center gap-3">
+                            <Avatar size="sm">
+                              <AvatarFallback className={avatarColorClass(candidate.id)}>
+                                {initials}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <Link
+                                  href={`/candidates/${candidate.id}?${encodeNavContext(filtersSnapshot, position).toString()}`}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="min-w-0 truncate font-medium text-foreground hover:text-primary hover:underline"
+                                  title={fullName}
+                                >
+                                  {fullName}
+                                </Link>
+                                {/* Kategoria kompetencji jest w podglądzie i profilu —
+                                    w wierszu zabierała miejsce nazwisku. */}
+                                {isNewMatch ? (
+                                  <Badge size="sm" variant="success" className="shrink-0">
+                                    Nowy
+                                  </Badge>
+                                ) : null}
+                                {contactFeature.enabled ? (
+                                  <ContactStatusBadge contactCase={candidate.contact_case} className="shrink-0" />
+                                ) : null}
+                              </div>
+                              <p className="truncate text-xs text-muted-foreground" title={secondary || undefined}>
+                                {secondary || "Brak stanowiska"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden">
+                            {skills.length === 0 ? (
+                              <Missing />
+                            ) : (
+                              <>
+                                {skills.slice(0, 3).map((s) => (
+                                  <Badge key={s} size="sm" variant="outline" className="max-w-[9rem] truncate font-normal">
+                                    {s}
+                                  </Badge>
+                                ))}
+                                {skills.length > 3 && (
+                                  <span className="text-[11px] text-muted-foreground" title={skills.slice(3).join(", ")}>
+                                    +{skills.length - 3}
+                                  </span>
+                                )}
+                              </>
+                            )}
+                          </div>
+                          <div className="min-w-0 truncate text-sm text-foreground" title={location ?? undefined}>
+                            {location ?? <Missing />}
+                          </div>
+                          <div className="min-w-0 truncate text-sm text-foreground">
+                            {availability ?? <Missing />}
+                          </div>
+                          <div className="min-w-0 truncate text-sm text-foreground" title="Stawka z profilu kandydata">
+                            {rate ?? <Missing />}
+                          </div>
+                          <div
+                            className={cn(
+                              "min-w-0 truncate text-sm",
+                              process?.tone === "employed" ? "font-medium text-warning-muted-foreground" : "text-foreground",
+                            )}
+                            title={process?.text}
+                          >
+                            {process ? process.text : <span className="text-muted-foreground">—</span>}
+                          </div>
+                          <div className="min-w-0 truncate text-sm text-muted-foreground">
+                            {lastContact ?? <Missing />}
+                          </div>
+                          <div className="flex justify-end">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 w-8 p-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setAssignFor({ id: candidate.id, name: fullName });
+                              }}
+                              aria-label={`Przypisz ${fullName} do rekrutacji`}
+                              title="Przypisz do rekrutacji"
+                            >
+                              <UserPlus className="h-4 w-4" aria-hidden />
+                            </Button>
+                          </div>
+                        </div>
+                        {/* Fragment CV, który dopasował wyszukiwanie — pod nazwiskiem. */}
+                        {snippet && (
+                          <button
+                            type="button"
+                            onClick={openDetail}
+                            className="min-h-0 flex-1 overflow-hidden border-t border-border/40 px-4 pb-1.5 pt-1 text-left"
+                          >
+                            <MatchSnippet
+                              snippet={snippet}
+                              terms={searchTerms}
+                              className="block pl-12 line-clamp-3"
+                            />
+                          </button>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
-              </FilterField>
-            </FilterSection>
+              )}
+            </div>
 
-            {/* Kategoria kompetencji — 5 głównych obszarów (primary + poboczne). */}
-            <FilterSection
-              title="Kategoria kompetencji"
-              icon={<Layers />}
-              accent="violet"
-            >
-              <CompetenceCategoryFilterFields
-                value={{ competenceCategoryIds }}
-                onPatch={patchFiltersFromFields}
-              />
-            </FilterSection>
+            {!isLoading && items.length > 0 && (
+              <div className="flex h-12 items-center justify-between gap-3 border-t border-border bg-muted/40 px-4 text-sm">
+                <span className="text-muted-foreground">
+                  {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} z{" "}
+                  {total.toLocaleString("pl-PL")}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={String(candidatesPageSize)}
+                    onValueChange={(value) => {
+                      const next = Number(value) as CandidatesPageSize;
+                      if (!CANDIDATES_PAGE_SIZES.includes(next)) return;
+                      setCandidatesPageSize(next);
+                      applyFiltersPatch({ page: 1 });
+                    }}
+                  >
+                    <SelectTrigger aria-label="Liczba kandydatów na stronie" className="h-8 w-[152px] whitespace-nowrap rounded-md">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CANDIDATES_PAGE_SIZES.map((size) => (
+                        <SelectItem key={size} value={String(size)}>
+                          {size} na stronie
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    Poprzednia
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Następna <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
-            {/* Pule i przynależność — talent pool, kto dodał, historia klienta. */}
-            <FilterSection
-              title="Pule i przynależność"
-              icon={<Tags />}
-              accent="amber"
-            >
-              <FilterField label="Talent pool">
-                <TalentPoolMultiSelect
-                  value={poolIds}
-                  onChange={(ids) => {
-                    setPoolIds(ids);
-                    setPage(1);
-                  }}
-                />
-              </FilterField>
-              <FilterField label="Dodany przez">
-                <AddedByMultiSelect
-                  value={addedByIds}
-                  onChange={(ids) => {
-                    setAddedByIds(ids);
-                    setPage(1);
-                  }}
-                />
-              </FilterField>
-              <FilterField
-                label="Pracował u klienta"
-                hint="Historia kontraktów / współpracy z danym klientem."
-              >
-                <ClientMultiSelect
-                  value={workedAtClientIds}
-                  onChange={(ids) => {
-                    setWorkedAtClientIds(ids);
-                    setPage(1);
-                  }}
-                />
-              </FilterField>
-              <FilterField
-                label="Rekrutacja"
-                hint="Przypisanie kandydata do wybranej rekrutacji — albo jego brak."
-              >
-                <RecruitmentMultiSelect
-                  value={recruitmentIds}
-                  onChange={(ids) => {
-                    setRecruitmentIds(ids);
-                    setPage(1);
-                  }}
-                />
-                {recruitmentIds.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {(
-                      [
-                        { value: "assigned", label: "Przypisani" },
-                        { value: "not_assigned", label: "Nieprzypisani" },
-                      ] as const
-                    ).map((opt) => {
-                      const active = recruitmentMatch === opt.value;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          aria-pressed={active}
-                          onClick={() => {
-                            setRecruitmentMatch(opt.value);
-                            setPage(1);
-                          }}
-                          className={cn(
-                            "px-2.5 py-1 text-xs rounded-full border transition-colors",
-                            active
-                              ? "bg-primary text-primary-foreground border-primary"
-                              : "bg-card text-foreground border-border hover:bg-accent",
-                          )}
-                        >
-                          {opt.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </FilterField>
-            </FilterSection>
-
-            {/* Wyszukiwanie po frazach (boolean ALL / ANY / NONE) — na końcu:
-                najczęstsze filtry są wyżej i w pasku nad listą. */}
-            <FilterSection
-              title="Wyszukiwanie po frazach"
-              icon={<Search />}
-              accent="primary"
-            >
-              <AdvancedSearchPopover
-                value={{ all: qAll, any: qAny, none: qNone }}
-                onChange={(next) => {
-                  setQAll(next.all);
-                  setQAny(next.any);
-                  setQNone(next.none);
-                  setPage(1);
-                }}
-              />
-            </FilterSection>
-          </SheetBody>
-
-          <SheetFooter className="sm:justify-between">
-            <Button
-              variant="ghost"
-              onClick={resetAllFilters}
-              disabled={totalActiveFilters === 0 && !search}
-            >
-              Wyczyść wszystko
-            </Button>
+      {/* Filtry na węższych ekranach — ta sama kolumna w panelu bocznym. */}
+      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <SheetContent side="left" size="sm">
+          <SheetHeader>
+            <SheetTitle>Filtry</SheetTitle>
+            <SheetDescription>Wyniki aktualizują się na bieżąco.</SheetDescription>
+          </SheetHeader>
+          <SheetBody>{rail}</SheetBody>
+          <SheetFooter>
             <Button variant="primary" onClick={() => setFiltersOpen(false)}>
-              Pokaż wyniki ({total.toLocaleString("pl-PL")})
+              Pokaż {candidatesCountLabel(total)}
             </Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>
 
- {/* Pinned candidates bar — short-list workflow (Phase 4). Hidden when
- user has zero pins so it doesn't waste space for casual browsing. */}
- <PinnedCandidatesBar
- onOpenCandidate={(id) => {
- setDetailId(id);
- const idx = items.findIndex((c) => c.id === id);
- // Przypięty spoza bieżącej strony nie ma pozycji na liście — podgląd
- // bez „poprzedni/następny” (wcześniej „0 z N” i skok na pozycję 1).
- setDetailPosition(idx >= 0 ? (page - 1) * pageSize + idx + 1 : 0);
- }}
- />
+      <CandidateBulkBar
+        count={selectedIds.size}
+        onAddToRecruitment={() => setShowBulkRecruitment(true)}
+        onCompare={() =>
+          // Link niesie kontekst listy — „Wróć do kandydatów" oddaje filtry,
+          // stronę i zaznaczenie (UAT B21).
+          router.push(encodeCompareHref(filtersSnapshot, Array.from(selectedIds)))
+        }
+        onDownloadCvs={() => void doBulkDownloadCvs()}
+        downloadingCvs={isDownloadingZip}
+        onAddToPool={() => setShowBulkPool(true)}
+        addingToPool={bulkPoolPending}
+        onExportSelected={canExport ? () => void doExport("csv", "selected") : undefined}
+        onClear={clearSelection}
+      />
 
- {listViewState === "refresh-error" && (
- <div
- role="alert"
- className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2 text-sm"
- >
- <span className="text-destructive">
- Nie udało się odświeżyć wyników. Wyświetlam poprzednie dane.
- </span>
- <Button variant="outline" size="sm" onClick={() => void refetchCandidates()}>
- Spróbuj ponownie
- </Button>
- </div>
- )}
+      <AddToRecruitmentDialog
+        open={showBulkRecruitment}
+        onOpenChange={setShowBulkRecruitment}
+        candidateIds={Array.from(selectedIds)}
+        source="candidate_list"
+        onAdded={(result) => {
+          showSuccess(addToRecruitmentSummary(result));
+          clearSelection();
+          // Kolumna „W procesie" pokazuje rekrutacje kandydata.
+          void queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
+        }}
+      />
 
- {/* Data grid (virtualized) */}
- <div
- className={cn(
- "rounded-lg border border-border bg-card",
- effectiveCandidatesView === "list"
- ? "overflow-x-auto overflow-y-hidden"
- : "overflow-hidden",
- )}
- >
- {/* Header row (list view only) */}
- {effectiveCandidatesView === "list" && (
- <div
- className={cn("grid items-center gap-4 px-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground bg-muted/60 dark:bg-muted/40 border-b border-border border-l-4 border-l-transparent sticky top-0 z-10",
- density === "compact" ?"h-9" :"h-10"
- )}
- style={{ gridTemplateColumns, minWidth: `${gridMinWidth}px` }}
- >
- <div className="sticky left-0 z-20 flex items-center bg-muted/95">
- <Checkbox
- checked={
- allVisibleSelected
- ? true
- : visibleSelectedCount > 0
- ?"indeterminate"
- : false
- }
- onCheckedChange={selectAllVisible}
- aria-label="Zaznacz stronę"
- />
- </div>
- {visibleColumns.map((col) => (
- <div
- key={col.id}
- className={cn(
- "truncate",
- col.id === "candidate" &&
- "sticky left-16 z-20 -ml-1 bg-muted/95 py-2 pl-1",
- )}
- >
- {col.label}
- </div>
- ))}
- <div />
- </div>
- )}
+      {showBulkPool && (
+        <BulkAddToPoolModal
+          selectedCount={selectedIds.size}
+          onCancel={() => setShowBulkPool(false)}
+          onConfirm={doBulkAddToPool}
+          pending={bulkPoolPending}
+        />
+      )}
 
- {/* Virtualized body — list or tiles */}
- {effectiveCandidatesView === "tiles" ? (
- listViewState === "initial-loading" ? (
- loadingRows
- ) : listViewState === "error" ? (
- queryErrorPanel
- ) : listViewState === "empty" ? (
- emptyState
- ) : (
- <CandidatesTiles
- items={items}
- contactFeatureEnabled={contactFeature.enabled}
- selectedIds={selectedIds}
- onToggleSelect={toggleId}
- onOpenDetail={(id) => {
- setDetailId(id);
- const idx = items.findIndex((c) => c.id === id);
- if (idx >= 0) {
- setDetailPosition((page - 1) * pageSize + idx + 1);
- }
- }}
- onQuickAssign={(c) => setAssignFor(c)}
- />
- )
- ) : (
- <div
- ref={parentRef}
- data-testid="candidate-list-scroll"
- style={{
- height: "calc(100vh - 290px)",
- minHeight: 360,
- minWidth: `${gridMinWidth}px`,
- }}
- className="overflow-y-auto overflow-x-hidden"
- >
- {listViewState === "initial-loading" ? (
- loadingRows
- ) : listViewState === "error" ? (
- queryErrorPanel
- ) : listViewState === "empty" ? (
- emptyState
- ) : (
- <div
- style={{
- height: `${virtualizer.getTotalSize()}px`,
- width: "100%",
- position: "relative",
- }}
- >
- {virtualizer.getVirtualItems().map((virtualRow) => {
- const candidate = items[virtualRow.index];
- const fullName =
- `${candidate.name ??""} ${candidate.lastname ??""}`.trim() ||"Kandydat";
- const initials = getCandidateInitials(candidate) || "?";
- const isSelected = selectedIds.has(candidate.id);
- const stats = candidate.match_stats;
- // Highlight rows that newly matched since the last time this saved search
- // was opened. V2 alerts on EXISTING candidates that changed into the match
- // set (old created_at, fresh updated_at), so we mark a row when EITHER its
- // created_at (brand-new) OR updated_at (newly-relevant) crossed the marker.
- const isNewMatch =
- newSinceTs !== null &&
- ((!!candidate.created_at && Date.parse(candidate.created_at) > newSinceTs) ||
- (!!candidate.updated_at && Date.parse(candidate.updated_at) > newSinceTs));
- const openDetail = () => {
- setDetailId(candidate.id);
- const idx = items.findIndex((c) => c.id === candidate.id);
- if (idx >= 0) {
- setDetailPosition((page - 1) * pageSize + idx + 1);
- }
- };
- const snippet = hasSearchTerms ? candidate.match_snippet : null;
- return (
- <div
- key={candidate.id}
- data-testid={candidateRowTestId(candidate.id)}
- data-index={virtualRow.index}
- onClick={openDetail}
- // Wiersz jest celem klawiatury (UAT B22): Tab trafia na wiersz,
- // Enter/Spacja otwiera podgląd, a po zamknięciu podglądu fokus tu wraca.
- // Klawisz z zagnieżdżonej kontrolki (checkbox, przyciski) zostaje jej.
- // `role="group"`, nie `button`: wiersz ma w środku checkbox i przyciski,
- // a rola przycisku nie dopuszcza interaktywnych potomków (WAI-ARIA APG).
- role="group"
- aria-label={`${fullName} — Enter otwiera podgląd`}
- tabIndex={0}
- onKeyDown={(e) => {
- if (e.target !== e.currentTarget || !isRowActivationKey(e.key)) return;
- e.preventDefault();
- openDetail();
- }}
- style={{
- position: "absolute",
- top: 0,
- left: 0,
- width: "100%",
- height: `${virtualRow.size}px`,
- transform: `translateY(${virtualRow.start}px)`,
- }}
- className={cn(
- "flex cursor-pointer flex-col overflow-hidden border-b border-border transition-colors",
- "border-l-4 border-l-transparent",
- "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
- // Zebra striping: parzysty index = białe tło, nieparzysty = lawendowy tint.
- virtualRow.index % 2 === 0 ? "bg-card" : "bg-muted/30 dark:bg-muted/20",
- isNewMatch && "bg-success-muted/70 border-l-success",
- "hover:bg-muted/60 hover:border-l-primary/50",
- isSelected && "bg-primary/10! border-l-primary!"
- )}
- >
- <div
- className="grid items-center gap-4 px-4 shrink-0"
- style={{ gridTemplateColumns, height: `${rowHeight}px` }}
- >
- <div
- className="sticky left-0 z-10 flex items-center self-stretch bg-card/95"
- onClick={(e) => e.stopPropagation()}
- >
- <Checkbox
- checked={isSelected}
- onCheckedChange={() => toggleId(candidate.id)}
- aria-label={`Zaznacz ${fullName}`}
- />
- </div>
- {visibleColumns.map((col) => (
- <div
- key={col.id}
- className={cn(
- "min-w-0 overflow-hidden",
- col.id === "candidate" &&
- "sticky left-16 z-10 -ml-1 bg-card/95 py-1 pl-1 backdrop-blur-xs",
- )}
- >
- {/* overflow-hidden → grid item ma auto-min-width:0, więc kolumna kurczy
-     się do szerokości tracku (minmax(0,fr)) i przycina treść zamiast
-     rozpychać siatkę. Dzięki temu cała tabela zawsze mieści się w ekranie —
-     na wąskim widać mniej szczegółów w komórce, ale wszystkie kolumny są. */}
- <CandidateCell
- columnId={col.id}
- candidate={candidate}
- fullName={fullName}
- initials={initials}
- density={density}
- stats={stats}
- onOpenDetail={openDetail}
- isNew={isNewMatch}
- contactFeatureEnabled={contactFeature.enabled}
- />
- </div>
- ))}
- <div className="flex justify-end">
- <button
- type="button"
- onClick={(e) => {
- e.stopPropagation();
- setAssignFor({ id: candidate.id, name: fullName });
- }}
- title="Przypisz do rekrutacji"
- aria-label={`Przypisz ${fullName} do rekrutacji`}
- className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
- >
- <Briefcase className="h-3.5 w-3.5" />
- </button>
- </div>
- </div>
- {/* Snippet CV: dlaczego kandydat trafił w wyniki — pokrywa wszystkie
-     frazy z search. Wcięty pod nazwisko (32px checkbox + 16px gap), pełna
-     szerokość, max 3 linie. Klik otwiera szczegóły — jak reszta wiersza. */}
- {snippet && (
- <button
- type="button"
- onClick={openDetail}
- className="flex-1 min-h-0 overflow-hidden border-t border-border/40 px-4 pt-1 pb-1.5 text-left"
- >
- <MatchSnippet
- snippet={snippet}
- terms={searchTerms}
- className="block pl-12 line-clamp-3"
- />
- </button>
- )}
- </div>
- );
- })}
- </div>
- )}
- </div>
- )}
+      {onRequestSearch && (
+        <RequestSearchDialog
+          open={requestOpen}
+          onOpenChange={setRequestOpen}
+          initialText={pastedRequest ? searchDraft : ""}
+          onSubmit={onRequestSearch}
+        />
+      )}
 
- {/* Pagination */}
- {!isLoading && items.length > 0 && (
- <div className="flex items-center justify-between gap-3 px-4 h-12 border-t border-border bg-muted/40 dark:bg-muted/20 text-sm">
- <span className="text-muted-foreground">
- Strona <span className="font-semibold text-foreground">{page}</span> z {totalPages}
- {selectedIds.size > 0 && (
- <>
- {" ·"}
- <span className="font-semibold text-primary">
- {selectedIds.size} zaznaczonych
- </span>
- </>
- )}
- </span>
- <div className="flex items-center gap-2">
- <Select
- value={String(candidatesPageSize)}
- onValueChange={(value) => {
- const next = Number(value) as CandidatesPageSize;
- if (!CANDIDATES_PAGE_SIZES.includes(next)) return;
- setCandidatesPageSize(next);
- applyFiltersPatch({ page: 1 });
- }}
- >
- <SelectTrigger
- aria-label="Liczba kandydatów na stronie"
- className="h-8 w-[132px] rounded-md"
- >
- <SelectValue />
- </SelectTrigger>
- <SelectContent>
- {CANDIDATES_PAGE_SIZES.map((size) => (
- <SelectItem key={size} value={String(size)}>
- {size} na stronie
- </SelectItem>
- ))}
- </SelectContent>
- </Select>
- <Button
- size="sm"
- variant="outline"
- disabled={page <= 1}
- onClick={() => setPage((p) => Math.max(1, p - 1))}
- >
- Poprzednia
- </Button>
- <Button
- size="sm"
- variant="outline"
- disabled={page >= totalPages}
- onClick={() => setPage((p) => p + 1)}
- >
- Następna <ChevronRight className="h-3.5 w-3.5" />
- </Button>
- </div>
- </div>
- )}
- </div>
+      {showAdd && (
+        <AddCandidateModal onClose={() => setShowAdd(false)} onSuccess={toastOnSuccess} />
+      )}
+      <ImportCandidatesV2
+        open={showImport}
+        onOpenChange={setShowImport}
+        onImported={() => toastOnSuccess("Import zakończony.")}
+      />
+      <AddCandidateFromCVModal
+        open={showAddFromCV}
+        onOpenChange={setShowAddFromCV}
+        onAdded={() => toastOnSuccess("Kandydat dodany z CV.")}
+      />
+      <GenerateInviteLinkV2 open={showInvite} onOpenChange={setShowInvite} />
+      <QuickAssignV2
+        open={!!assignFor}
+        onOpenChange={(v) => !v && setAssignFor(null)}
+        candidateId={assignFor?.id ?? 0}
+        candidateName={assignFor?.name ?? ""}
+        onAssigned={() => toastOnSuccess("Kandydat przypisany.")}
+      />
 
- {/* Floating BulkActionsBar */}
- {selectedIds.size > 0 && (
- <div className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 animate-slide-in-bottom items-center gap-3 rounded-xl border border-border bg-card px-4 py-2.5 text-foreground shadow-md">
- <span className="text-xs">
- Zaznaczono: <span className="font-bold">{selectedIds.size}</span>
- </span>
- <div className="h-4 w-px bg-card/15" />
- <div className="flex flex-col items-center">
- <Button
- size="sm"
- variant="primary"
- disabled={compareOverflow > 0}
- aria-describedby={compareOverflow > 0 ? "candidates-compare-limit" : undefined}
- onClick={() => {
- // Porównanie mieści 3 osoby — nadmiarowego zaznaczenia nie ucinamy
- // po cichu, tylko prosimy o odznaczenie (przycisk jest wtedy wyłączony).
- if (selectedIds.size > 3) return;
- // Link niesie kontekst listy — „Wróć do kandydatów" oddaje filtry,
- // stronę i zaznaczenie (UAT B21).
- router.push(encodeCompareHref(filtersSnapshot, Array.from(selectedIds)));
- }}
- >
- <GitCompare className="h-3.5 w-3.5" /> Porównaj
- </Button>
- {compareOverflow > 0 && (
- <span
- id="candidates-compare-limit"
- className="mt-0.5 text-[10px] text-muted-foreground"
- >
- Maks. 3 — odznacz {compareOverflow}
- </span>
- )}
- </div>
- <Button
- size="sm"
- variant="ghost"
- onClick={() => setShowBulkRecruitment(true)}
- title="Dodaj zaznaczonych do rekrutacji"
- >
- <Briefcase className="h-3.5 w-3.5" /> Dodaj do rekrutacji
- </Button>
- <RequireRole roles={["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "tac", "finance"]}>
- <Button
- size="sm"
- variant="ghost"
- onClick={() => doExport("csv", "selected")}
- >
- <Download className="h-3.5 w-3.5" /> Eksportuj zaznaczone ({selectedIds.size})
- </Button>
- </RequireRole>
- <Button
- size="sm"
- variant="ghost"
- onClick={doBulkDownloadCvs}
- disabled={isDownloadingZip}
- >
- {isDownloadingZip ? (
- <Loader2 className="h-3.5 w-3.5 animate-spin" />
- ) : (
- <FileArchive className="h-3.5 w-3.5" />
- )}{""}
- Pobierz CV (ZIP)
- </Button>
- <Button
- size="sm"
- variant="ghost"
- onClick={() => setShowBulkPool(true)}
- disabled={bulkPoolPending}
- title="Dodaj zaznaczonych do puli talentów"
- >
- <Users className="h-3.5 w-3.5" /> Dodaj do puli
- </Button>
- <button
- onClick={clearSelection}
- className="text-xs text-foreground/70 hover:text-foreground ml-1"
- >
- Wyczyść
- </button>
- </div>
- )}
+      {/* Szybki podgląd kandydata. */}
+      <Sheet open={detailId !== null} onOpenChange={(v) => !v && setDetailId(null)}>
+        <SheetContent
+          side="right"
+          size="lg"
+          className="p-0!"
+          hideClose
+          // Podgląd otwiera się programowo, więc fokus wraca na wiersz ostatnio
+          // oglądanego kandydata — także po nawigacji w podglądzie (UAT B22).
+          onCloseAutoFocus={(e) => {
+            if (focusCandidateRow(lastDetailIdRef.current)) e.preventDefault();
+          }}
+        >
+          {detailId !== null && (
+            <CandidateQuickView
+              candidateId={detailId}
+              onClose={() => setDetailId(null)}
+              rateLookup={(id) => {
+                const row = items.find((c) => c.id === id);
+                return row ? rateCellText(row) : undefined;
+              }}
+              navigation={
+                detailPosition <= 0
+                  ? undefined
+                  : {
+                      filters: filtersSnapshot,
+                      position: detailPosition,
+                      pageItems: items.map((c) => ({
+                        id: c.id,
+                        name: c.name,
+                        lastname: c.lastname,
+                      })),
+                      total,
+                      // Przy keepPreviousData strona odpowiedzi może być inna niż
+                      // strona kontrolek — nawigacja liczy z odpowiedzi.
+                      pageNumber: data?.page ?? page,
+                      pageSize,
+                      onNavigate: ({ candidateId, position }) => {
+                        setDetailId(candidateId);
+                        setDetailPosition(position);
+                        // Lista idzie za nawigacją, żeby po zamknięciu podglądu
+                        // stała na stronie, na której ta się skończyła.
+                        const nextListPage = Math.floor((position - 1) / pageSize) + 1;
+                        if (nextListPage !== page) setPage(nextListPage);
+                      },
+                    }
+              }
+            />
+          )}
+        </SheetContent>
+      </Sheet>
 
- <AddToRecruitmentDialog
- open={showBulkRecruitment}
- onOpenChange={setShowBulkRecruitment}
- candidateIds={Array.from(selectedIds)}
- source="candidate_list"
- onAdded={(result) => {
- showSuccess(addToRecruitmentSummary(result));
- clearSelection();
- // Kolumna „Proces" pokazuje rekrutacje kandydata.
- void queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });
- }}
- />
-
- {/* Bulk add-to-pool modal */}
- {showBulkPool && (
- <BulkAddToPoolModal
- selectedCount={selectedIds.size}
- onCancel={() => setShowBulkPool(false)}
- onConfirm={doBulkAddToPool}
- pending={bulkPoolPending}
- />
- )}
-
- {/* Keyboard hints */}
- <div className="hidden md:flex items-center gap-3 text-[10px] text-muted-foreground justify-center">
- <span>
- <Kbd>⌘</Kbd> <Kbd>K</Kbd> — szybkie wyszukiwanie
- </span>
- <span>
- <Kbd>N</Kbd> — nowy kandydat
- </span>
- <span>
- <Kbd>Enter</Kbd> — dodaj umiejętność w filtrze
- </span>
- </div>
-
- {/* Modals */}
- {showAdd && (
- <AddCandidateModal onClose={() => setShowAdd(false)} onSuccess={toastOnSuccess} />
- )}
- <ImportCandidatesV2
- open={showImport}
- onOpenChange={setShowImport}
- onImported={() => toastOnSuccess("Import zakończony.")}
- />
- <AddCandidateFromCVModal
- open={showAddFromCV}
- onOpenChange={setShowAddFromCV}
- onAdded={() => toastOnSuccess("Kandydat dodany z CV.")}
- />
- <GenerateInviteLinkV2 open={showInvite} onOpenChange={setShowInvite} />
- <QuickAssignV2
- open={!!assignFor}
- onOpenChange={(v) => !v && setAssignFor(null)}
- candidateId={assignFor?.id ?? 0}
- candidateName={assignFor?.name ??""}
- onAssigned={() => toastOnSuccess("Kandydat przypisany.")}
- />
-
- {/* Side sheet: lightweight candidate quick view. */}
- <Sheet
- open={detailId !== null}
- onOpenChange={(v) => !v && setDetailId(null)}
- >
- <SheetContent
- side="right"
- size="2xl"
- className="p-0!"
- hideClose
- // Podgląd otwiera się programowo (bez Radixowego triggera), więc domyślny
- // powrót fokusu trafiał w `body`. Wracamy na wiersz ostatnio oglądanego
- // kandydata — także po nawigacji prev/next w podglądzie (UAT B22).
- onCloseAutoFocus={(e) => {
- if (focusCandidateRow(lastDetailIdRef.current)) e.preventDefault();
- }}
- >
- {detailId !== null && (
- <CandidateQuickView
- candidateId={detailId}
- onClose={() => setDetailId(null)}
- navigation={detailPosition <= 0 ? undefined : {
- filters: filtersSnapshot,
- position: detailPosition,
- pageItems: items.map((c) => ({
- id: c.id,
- name: c.name,
- lastname: c.lastname,
- })),
- total,
- // During keepPreviousData the controls already point at the next page while
- // `items` still belong to the previous response. Pass the response page so
- // prev/next never indexes stale rows as if they came from the new page.
- pageNumber: data?.page ?? page,
- pageSize,
- onNavigate: ({ candidateId, position }) => {
- setDetailId(candidateId);
- setDetailPosition(position);
- // Keep the underlying list in sync so closing the sheet
- // lands on the page where navigation ended.
- const nextListPage =
- Math.floor((position - 1) / pageSize) + 1;
- if (nextListPage !== page) setPage(nextListPage);
- },
- }}
- />
- )}
- </SheetContent>
- </Sheet>
-
- {showToast && (
- <div className="fixed bottom-4 right-4 z-9999 px-4 py-3 rounded-lg shadow-md text-sm bg-card text-foreground">
- {showToast}
- </div>
- )}
- </div>
- );
+      {showToast && (
+        <div className="fixed bottom-4 right-4 z-9999 rounded-lg bg-card px-4 py-3 text-sm text-foreground shadow-md">
+          {showToast}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Bulk add-to-pool modal (Phase „Otwartość" Faza 2.5) ─────────────────────

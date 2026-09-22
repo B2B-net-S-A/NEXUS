@@ -50,14 +50,6 @@ vi.mock("@/hooks/useCandidateNavigation", () => ({
   }),
 }));
 
-vi.mock("@/components/v2/DeferUntilVisible", () => ({
-  DeferUntilVisible: ({ children }: { children: React.ReactNode }) => children,
-}));
-
-vi.mock("@/components/SuggestedJobsWidget", () => ({
-  SuggestedJobsWidget: () => <div>Sugerowane rekrutacje test</div>,
-}));
-
 vi.mock("@/components/calls/CallButton", () => ({
   default: ({ phone }: { phone: string }) => <button>{phone}</button>,
 }));
@@ -170,6 +162,7 @@ function quickViewData() {
       },
     ],
     cv_highlights: {
+      years_experience: 8,
       bullets: [
         "Senior Cloud Architect z 10-letnim doświadczeniem.",
         "Technologie: AWS, Kubernetes, Terraform.",
@@ -181,20 +174,6 @@ function quickViewData() {
       can_view_documents: true,
       can_open_full_profile: true,
     },
-  };
-}
-
-function documentData() {
-  return {
-    id: 3,
-    filename: "JanKowalski.pdf",
-    content_type: "application/pdf",
-    size_bytes: 1024,
-    document_kind: "cv",
-    is_primary: true,
-    uploaded_at: "2026-07-10T08:00:00Z",
-    external_source: "traffit",
-    created_at: "2026-07-10T08:00:00Z",
   };
 }
 
@@ -210,100 +189,91 @@ describe("CandidateQuickView", () => {
       if (url === "/api/candidates/7/risk") {
         return Promise.resolve({ data: { level: "low" } } as never);
       }
-      if (url === "/api/candidates/7/documents?kind=cv") {
-        return Promise.resolve({ data: [documentData()] } as never);
-      }
       return Promise.reject(new Error(`Unexpected GET ${url}`));
     });
   });
 
-  it("shows complete identity, contact, source, pipeline, AI and note authors", async () => {
-    const onClose = vi.fn();
-    render(<CandidateQuickView candidateId={7} onClose={onClose} />, {
-      wrapper,
-    });
+  it("shows identity, facts, contact, processes and the latest note — nothing more", async () => {
+    render(
+      <CandidateQuickView candidateId={7} onClose={vi.fn()} rateLookup={() => "160 zł/h"} />,
+      { wrapper },
+    );
 
     const fullName = "Jan Adam Maksymilian Kowalski-Wiśniewski";
     const headings = await screen.findAllByRole("heading", { name: fullName });
     expect(headings).toHaveLength(2);
     expect(headings[1]).toHaveClass("whitespace-nowrap");
-    expect(headings[1]).not.toHaveClass("truncate");
     expect(screen.getByText("JK")).toBeInTheDocument();
-    expect(screen.getByText("Cloud Architect")).toBeInTheDocument();
+    expect(screen.getByText("Cloud Architect · 8 lat")).toBeInTheDocument();
+    expect(screen.getByText("Aktywny")).toBeInTheDocument();
+
+    const facts = screen.getByLabelText("Najważniejsze fakty");
+    expect(within(facts).getByText("Otwarty na oferty · wypowiedzenie 2 mies.")).toBeInTheDocument();
+    expect(within(facts).getByText("160 zł/h")).toBeInTheDocument();
+    expect(within(facts).getByText("Warszawa, Polska")).toBeInTheDocument();
+
     expect(
-      screen.getByText(
-        "jan.adam.maksymilian.kowalski-wisniewski@example.com",
-      ),
+      screen.getByText("jan.adam.maksymilian.kowalski-wisniewski@example.com"),
     ).toBeInTheDocument();
     expect(screen.getByText("+48 500 100 200")).toBeInTheDocument();
-    expect(screen.getByText("Warszawa, Polska")).toBeInTheDocument();
-    expect(screen.getByText("Otwarty na oferty · 2 mies.")).toBeInTheDocument();
 
-    expect(screen.getByText("Anna Kowalska")).toBeInTheDocument();
-    expect(screen.getByText("LinkedIn")).toBeInTheDocument();
-    expect(screen.getByText("TRAFFIT")).toBeInTheDocument();
+    expect(screen.getByText("Platform Engineer")).toBeInTheDocument();
     expect(screen.getByText("Rozmowa techniczna")).toBeInTheDocument();
-    expect(screen.getByText(/Ewa Nowak/)).toBeInTheDocument();
-    expect(
-      screen.getByText("Senior Cloud Architect z 10-letnim doświadczeniem."),
-    ).toBeInTheDocument();
+    // Tylko NAJNOWSZA notatka.
+    expect(screen.getByText("Rozmowa techniczna poszła bardzo dobrze.")).toBeInTheDocument();
     expect(screen.getByText(/Piotr Zieliński/)).toBeInTheDocument();
-    expect(screen.getByText(/System \/ import/)).toBeInTheDocument();
+    expect(screen.queryByText("Notatka z importu.")).toBeNull();
 
-    expect(
-      screen.getByRole("button", { name: "Przypisz do rekrutacji" }),
-    ).toBeEnabled();
-    expect(
-      screen.queryByRole("button", { name: "Oznacz jako zatrudnionego" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Więcej akcji kandydata" }),
-    ).toBeEnabled();
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Otwórz CV" })).toBeEnabled(),
-    );
-    expect(screen.getByRole("button", { name: "Pełny profil" })).toBeEnabled();
-    expect(screen.queryByText("Rust")).not.toBeInTheDocument();
-    expect(
-      await screen.findByText("Sugerowane rekrutacje test"),
-    ).toBeInTheDocument();
-
-    await waitFor(() =>
-      expect(
-        screen.getAllByRole("button", { name: "Zamknij szybki podgląd" }),
-      ).toHaveLength(1),
-    );
+    // Wycięte z podglądu: podsumowanie AI, umiejętności, źródło, CV, notatnik.
+    expect(screen.queryByText("Podsumowanie AI")).toBeNull();
+    expect(screen.queryByText("Kubernetes")).toBeNull();
+    expect(screen.queryByText("Anna Kowalska")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Otwórz CV" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dodaj notatkę" })).toBeNull();
     expect(apiGet).not.toHaveBeenCalledWith(
-      "/api/candidates/7/ai-profile",
-      expect.anything(),
-    );
-    expect(apiGet).not.toHaveBeenCalledWith(
-      "/api/candidates/7/history",
+      "/api/candidates/7/documents?kind=cv",
       expect.anything(),
     );
   });
 
-  it("disables the CV action with an explanation when no CV is classified", async () => {
-    apiGet.mockImplementation((url: string) => {
-      if (url === "/api/candidates/7/quick-view") {
-        return Promise.resolve({ data: quickViewData() } as never);
-      }
-      if (url === "/api/candidates/7/risk") {
-        return Promise.resolve({ data: { level: "low" } } as never);
-      }
-      if (url === "/api/candidates/7/documents?kind=cv") {
-        return Promise.resolve({ data: [] } as never);
-      }
-      return Promise.reject(new Error(`Unexpected GET ${url}`));
-    });
+  it("missing rate reads as „brak”, an unknown one as a dash", async () => {
+    const { unmount } = render(
+      <CandidateQuickView candidateId={7} onClose={vi.fn()} rateLookup={() => null} />,
+      { wrapper },
+    );
+    const facts = await screen.findByLabelText("Najważniejsze fakty");
+    expect(within(facts).getByText("brak")).toBeInTheDocument();
+    unmount();
 
+    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, { wrapper });
+    const facts2 = await screen.findByLabelText("Najważniejsze fakty");
+    expect(within(facts2).getByText("—")).toBeInTheDocument();
+  });
+
+  it("footer: assign, open profile, then the small more menu", async () => {
     render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
       wrapper,
     });
 
-    const button = await screen.findByRole("button", { name: "Otwórz CV" });
-    await waitFor(() => expect(button).toBeDisabled());
-    expect(button).toHaveAttribute("title", "Brak sklasyfikowanego CV");
+    await screen.findByRole("button", { name: "Otwórz profil" });
+    const footer = screen.getByLabelText("Akcje kandydata");
+    const names = within(footer)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label") ?? button.textContent?.trim());
+    expect(names).toEqual([
+      "Przypisz do rekrutacji",
+      "Otwórz profil",
+      "Więcej akcji kandydata",
+    ]);
+  });
+
+  it("„Wszystkie” opens the profile on the recruitments tab", async () => {
+    const onClose = vi.fn();
+    render(<CandidateQuickView candidateId={7} onClose={onClose} />, { wrapper });
+    await userEvent.click(await screen.findByRole("button", { name: "Wszystkie" }));
+    expect(onClose).toHaveBeenCalled();
+    expect(push.mock.calls[0][0]).toMatch(/^\/candidates\/7\?/);
+    expect(push.mock.calls[0][0]).toContain("recruitments");
   });
 
   it.each([
@@ -319,19 +289,13 @@ describe("CandidateQuickView", () => {
       });
 
       expect(
-        await screen.findByRole("button", { name: "Pełny profil" }),
+        await screen.findByRole("button", { name: "Otwórz profil" }),
       ).toBeEnabled();
       expect(
         screen.queryByRole("button", { name: "Przypisz do rekrutacji" }),
       ).not.toBeInTheDocument();
       expect(
-        screen.queryByRole("button", { name: "Oznacz jako zatrudnionego" }),
-      ).not.toBeInTheDocument();
-      expect(
         screen.queryByRole("button", { name: "Więcej akcji kandydata" }),
-      ).not.toBeInTheDocument();
-      expect(
-        screen.queryByRole("button", { name: "Dodaj notatkę" }),
       ).not.toBeInTheDocument();
       expect(
         screen.queryByRole("button", { name: "+48 500 100 200" }),
@@ -349,44 +313,6 @@ describe("CandidateQuickView", () => {
     expect(
       await screen.findByRole("button", { name: "Przypisz do rekrutacji" }),
     ).toBeEnabled();
-    expect(
-      screen.getAllByRole("button", { name: "Dodaj notatkę" }).length,
-    ).toBeGreaterThan(0);
-  });
-
-  it("orders the quick actions: assign, note, CV, full profile, more", async () => {
-    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
-      wrapper,
-    });
-
-    await screen.findByRole("button", { name: "Pełny profil" });
-    const group = screen.getByLabelText("Akcje kandydata");
-    const names = within(group)
-      .getAllByRole("button")
-      .map((button) => button.getAttribute("aria-label") ?? button.textContent?.trim());
-    expect(names).toEqual([
-      "Przypisz do rekrutacji",
-      "Dodaj notatkę",
-      "Otwórz CV",
-      "Pełny profil",
-      "Więcej akcji kandydata",
-    ]);
-  });
-
-  it("opens and focuses the note composer from the header action", async () => {
-    render(<CandidateQuickView candidateId={7} onClose={vi.fn()} />, {
-      wrapper,
-    });
-
-    const group = await screen.findByLabelText("Akcje kandydata");
-    await userEvent.click(
-      within(group).getByRole("button", { name: "Dodaj notatkę" }),
-    );
-
-    const textarea = await screen.findByRole("textbox", {
-      name: "Treść notatki",
-    });
-    await waitFor(() => expect(textarea).toHaveFocus());
   });
 
   it("marks as employed from the more menu through the anchored popover", async () => {
@@ -423,9 +349,6 @@ describe("CandidateQuickView", () => {
             },
           },
         } as never);
-      }
-      if (url === "/api/candidates/7/documents?kind=cv") {
-        return Promise.resolve({ data: [documentData()] } as never);
       }
       return Promise.resolve({ data: {} } as never);
     });
@@ -504,9 +427,6 @@ describe("CandidateQuickView", () => {
       }
       if (url === "/api/candidates/7/risk") {
         return Promise.resolve({ data: { level: "low" } } as never);
-      }
-      if (url === "/api/candidates/7/documents?kind=cv") {
-        return Promise.resolve({ data: [documentData()] } as never);
       }
       return Promise.resolve({ data: {} } as never);
     });

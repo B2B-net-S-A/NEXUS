@@ -2,10 +2,9 @@
  * Manual CV search V2 — end-to-end smoke.
  *
  * Covers the happy path of the boolean/semantic search flow:
- *  1. /candidates/search renders the FiltersPanel (CC chips + boolean popover).
- *  2. Picking a CC chip narrows the result list.
- *  3. Saving the current search round-trips through the chips strip.
- *  4. The job profile exposes a "Wyszukaj manualnie" tab that pre-fills
+ *  1. The old /candidates/search address lands on the single candidates list
+ *     (22.09.2026) with the search state carried over.
+ *  2. The job profile exposes a "Wyszukaj manualnie" tab that pre-fills
  *     filters from job metadata.
  *
  * NB: the standalone toolbar entry link on /candidates was removed — it
@@ -22,57 +21,12 @@ const PASSWORD = process.env.E2E_USER_PASSWORD || "";
 test.describe("Manual CV search V2", () => {
   test.skip(!PASSWORD, "Set E2E_USER_PASSWORD to run");
 
-  test("standalone /candidates/search renders the search view", async ({ page }) => {
-    await page.goto("/candidates/search");
-    await expect(
-      page.getByRole("heading", { name: /Wyszukiwanie kandydatów/i }),
-    ).toBeVisible({ timeout: 10_000 });
-  });
-
-  test("competence category chip narrows the result count", async ({ page }) => {
-    await page.goto("/candidates/search");
-    // Wait for the CC group to render — it's lazy-loaded.
-    const ccGroup = page.getByRole("group", {
-      name: /Filtruj po kategorii kompetencji/i,
-    });
-    await expect(ccGroup).toBeVisible({ timeout: 10_000 });
-    // First category chip — unfiltered count is the baseline.
-    const firstChip = ccGroup.locator("button").first();
-    const chipText = (await firstChip.textContent())?.trim();
-    expect(chipText).toBeTruthy();
-    // Click → result count changes (filter takes effect within 1s debounce).
-    await firstChip.click();
-    await page.waitForTimeout(600);
-    await expect(firstChip).toHaveAttribute("aria-checked", "true");
-  });
-
-  test("save-and-reload roundtrip via chip strip", async ({ page }) => {
-    await page.goto("/candidates/search");
-    await page
-      .getByRole("group", { name: /Filtruj po kategorii kompetencji/i })
-      .waitFor({ timeout: 10_000 });
-
-    // Pick any CC, type a free-text query, save.
-    await page
-      .getByRole("group", { name: /Filtruj po kategorii kompetencji/i })
-      .locator("button")
-      .first()
-      .click();
-    await page.getByPlaceholder(/Szukaj w CV/i).fill("python");
-    await page.waitForTimeout(500);
-
-    const saveButton = page.getByRole("button", { name: /Zapisz/i }).first();
-    await saveButton.click();
-    const nameField = page.getByPlaceholder(/Nazwa…/i);
-    await expect(nameField).toBeVisible();
-    const presetName = `e2e-${Date.now()}`;
-    await nameField.fill(presetName);
-    await page.getByRole("button", { name: /^Zapisz$/i }).click();
-
-    // Strip should now show the freshly created chip.
-    await expect(page.getByText(presetName, { exact: true })).toBeVisible({
-      timeout: 5_000,
-    });
+  test("stary adres /candidates/search prowadzi na listę z polem wyszukiwania", async ({ page }) => {
+    // Od 22.09.2026 wyszukiwanie żyje na liście „Kandydaci"; stan `?s=`
+    // przechodzi na parametry listy.
+    await page.goto(`/candidates/search?s=${encodeURIComponent('{"q":"python"}')}`);
+    await expect(page).toHaveURL(/\/candidates\?q=python/);
+    await expect(page.getByLabel("Szukaj kandydatów")).toHaveValue("python");
   });
 
   test("job profile exposes 'Szukaj ręcznie' slide-over", async ({ page }) => {

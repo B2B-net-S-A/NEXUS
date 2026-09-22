@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 import { candidatesModeHref } from "@/lib/candidates-mode";
+import { searchStateToListHref } from "@/lib/candidates-search-redirect";
 
 /**
- * Wyszukiwarka jest trybem ekranu „Kandydaci" (21.09.2026). Stary adres
- * przekierowuje z zachowaniem stanu (`?s=` z filtrami, `?job=`), żeby
- * zapisane linki i „Wstecz" z profilu otwierały to samo wyszukiwanie.
+ * Stary adres wyszukiwarki. Od 22.09.2026 wyszukiwanie żyje na liście
+ * „Kandydaci": stan (`?s=` z filtrami) przechodzi wprost na listę. Adres
+ * z rekrutacją (`?job=`) dalej otwiera wyszukiwarkę rekrutacji.
  */
 export default async function CandidatesSearchRedirect({
   searchParams,
@@ -17,5 +18,6 @@ export default async function CandidatesSearchRedirect({
     if (Array.isArray(value)) value.forEach((v) => params.append(key, v));
     else if (value !== undefined) params.set(key, value);
   }
-  redirect(candidatesModeHref("search", params));
+  if (params.get("job")) redirect(candidatesModeHref("search", params));
+  redirect(searchStateToListHref(params));
 }

@@ -98,6 +98,7 @@ _SHARED_KEYS = (
     "experience_years_min",
     "experience_years_max",
     "tags",
+    "languages",
     "location_cities",
     "location_countries",
     "location_scope",
@@ -123,6 +124,41 @@ def _as_list(value: Any) -> list[Any]:
 
 def _split_pipe(value: Any) -> list[str]:
     return [part.strip() for part in str(value or "").split("|") if part.strip()]
+
+
+def _languages_from_list(value: Any) -> list[dict[str, Any]]:
+    """Parametr listy ``languages`` (``"en"`` / ``"en:B2"``) → kształt wspólny
+    ``[{code, min_level?}]`` — ten sam co ``languages`` wyszukiwarki. Brak
+    poziomu zostaje brakiem (oba silniki przyjmują wtedy próg domyślny B2)."""
+    out: list[dict[str, Any]] = []
+    for entry in _as_list(value):
+        if isinstance(entry, dict):
+            out.append(dict(entry))
+            continue
+        code, sep, level = str(entry).strip().partition(":")
+        if not code.strip():
+            continue
+        item: dict[str, Any] = {"code": code.strip().upper()}
+        level = level.strip()
+        if sep and level:
+            item["min_level"] = "native" if level.lower() == "native" else level.upper()
+        out.append(item)
+    return out
+
+
+def _languages_to_list(value: Any) -> list[str]:
+    """Kształt wspólny ``[{code, min_level?}]`` → parametr listy ``kod[:POZIOM]``."""
+    out: list[str] = []
+    for entry in _as_list(value):
+        if isinstance(entry, dict):
+            code = str(entry.get("code") or "").strip()
+            if not code:
+                continue
+            level = entry.get("min_level")
+            out.append(f"{code}:{level}" if level else code)
+        elif str(entry).strip():
+            out.append(str(entry).strip())
+    return out
 
 
 def _compact(request: dict[str, Any]) -> dict[str, Any]:
@@ -206,6 +242,7 @@ def list_api_to_unified(api: dict[str, Any]) -> dict[str, Any]:
         "min_experience",
         "max_experience",
         "tags",
+        "languages",
         "location",
         "location_cities",
         "country",
@@ -232,6 +269,7 @@ def list_api_to_unified(api: dict[str, Any]) -> dict[str, Any]:
             "experience_years_min": api.get("min_experience"),
             "experience_years_max": api.get("max_experience"),
             "tags": _as_list(api.get("tags")),
+            "languages": _languages_from_list(api.get("languages")),
             "location_cities": cities,
             "location_countries": _as_list(api.get("country")),
             "location_scope": api.get("location_scope"),
@@ -306,6 +344,7 @@ def search_request_to_unified(body: dict[str, Any]) -> dict[str, Any]:
         "experience_years_min",
         "experience_years_max",
         "tags",
+        "languages",
         "location_cities",
         "location_countries",
         "location_scope",
@@ -335,6 +374,7 @@ def search_request_to_unified(body: dict[str, Any]) -> dict[str, Any]:
             "experience_years_min": body.get("experience_years_min"),
             "experience_years_max": body.get("experience_years_max"),
             "tags": _as_list(body.get("tags")),
+            "languages": _as_list(body.get("languages")),
             "location_cities": _as_list(body.get("location_cities")),
             "location_countries": _as_list(body.get("location_countries")),
             "location_scope": body.get("location_scope"),
@@ -405,7 +445,24 @@ def unified_to_list_params(request: dict[str, Any]) -> dict[str, Any]:
         ]
     if "q_any_groups" in req:
         out["q_any_group"] = ["|".join(g) for g in req["q_any_groups"]]
+    if "languages" in req:
+        out["languages"] = _languages_to_list(req["languages"])
     return out
+
+
+def with_literal_text(params: dict[str, Any]) -> dict[str, Any]:
+    """Parametry listy z tekstem ``q`` czytanym DOSŁOWNIE.
+
+    Od 22.09.2026 lista w v2 z ``text_mode`` auto/semantic odpala retrieval
+    semantyczny (Voyage, pula ≤ ``SEARCH_HYBRID_POOL_SIZE`` z CAŁEJ bazy).
+    Skaner alertów i porównanie w migracji zapisów odtwarzają zapis tak, jak
+    lista działała dotąd — dosłownie: pula z całej bazy przecięta ze znakiem
+    wodnym ``id_after`` gubiłaby nowych kandydatów, a każdy przebieg płaciłby
+    za embeddingi.
+    """
+    if params.get("text_mode") in ("auto", "semantic"):
+        return {**params, "text_mode": "literal"}
+    return params
 
 
 def unified_to_search_body(request: dict[str, Any]) -> dict[str, Any]:
@@ -420,7 +477,7 @@ def unified_to_search_body(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_engine_gaps(request: dict[str, Any]) -> list[str]:
-    """Pola, których lista NIE umie wyrazić (np. języki, źródła) — zapis z nimi
+    """Pola, których lista NIE umie wyrazić (np. źródła, „ma CV") — zapis z nimi
     nie może być odtwarzany przez listę jako alert, bo byłby szerszy."""
     ignored = {"sort", "search_mode", "exclude_blacklisted", "exclude_in_job_id"}
     return sorted(k for k in (request.get("search_only") or {}) if k not in ignored)

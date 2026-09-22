@@ -1,106 +1,102 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Database, FileText, Search } from "lucide-react";
-import { TabbedNav } from "@/components/ds/TabbedNav";
+import { ArrowLeft } from "lucide-react";
 import { CandidatesListV2 } from "@/components/v2/pages/CandidatesListV2";
-import { CandidateSearchView } from "@/components/v2/pages/CandidateSearchView";
-import { TalentRadarWorkspace } from "@/components/talent-radar/TalentRadarWorkspace";
+import {
+  CandidateSearchView,
+  JOB_URL_PARAM,
+} from "@/components/v2/pages/CandidateSearchView";
+import {
+  TalentRadarWorkspace,
+  type TalentRadarInitialRequest,
+} from "@/components/talent-radar/TalentRadarWorkspace";
 import {
   CANDIDATES_MODE_PARAM,
   candidatesModeHref,
   parseCandidatesMode,
-  type CandidatesMode,
 } from "@/lib/candidates-mode";
+import { searchStateToListHref } from "@/lib/candidates-search-redirect";
 
 /**
- * Jeden ekran „Kandydaci" (decyzja właściciela 21.09.2026): dawne trzy wejścia
- * do tej samej bazy — lista, Wyszukiwarka i Talent Radar — są TRYBAMI tego
- * ekranu, różnią się tylko punktem startu (filtry, słowa, treść requestu).
- * Stare adresy `/candidates/search` i `/talent-radar` przekierowują tutaj
- * (linki zapisane w powiadomieniach dalej działają).
+ * Jeden ekran „Kandydaci" (uproszczenie 22.09.2026): lista z filtrami po
+ * lewej i jednym polem wyszukiwania. Nie ma już zakładek trybów.
  *
- * Tryb czyta się z WARTOŚCI parametru przy każdym renderze, więc miękka
- * nawigacja (klik w powiadomienie przy otwartym ekranie) przełącza widok.
+ * Stare adresy dalej działają:
+ * - `?mode=search` bez rekrutacji → stan wyszukiwarki (`?s=`) przechodzi na
+ *   listę (`router.replace`, bez nowego wpisu historii);
+ * - `?mode=search&job=…` → wyszukiwarka z wybraną rekrutacją, jak dotąd;
+ * - `?mode=request` → wyniki „Szukaj z requestu" (Talent Radar) z linkiem
+ *   powrotu. Dane z okna „Z requestu" idą STANEM, nigdy adresem — treść
+ *   requestu klienta bywa długa i poufna.
  */
-const MODE_TABS = [
-  { value: "list", label: "Baza", icon: Database },
-  { value: "search", label: "Wyszukiwanie", icon: Search },
-  { value: "request", label: "Z treści requestu", icon: FileText },
-] satisfies { value: CandidatesMode; label: string; icon: typeof Search }[];
 
-const MODE_HINT: Record<CandidatesMode, string> = {
-  list: "Cała baza kandydatów z filtrami.",
-  search:
-    "Wpisz nazwisko, umiejętności albo opis — rozpoznamy, o co chodzi. Filtry obok zawężają wynik.",
-  request:
-    "Wklej treść requestu albo wgraj profil Championa — ranking całej bazy, bez zakładania rekrutacji.",
-};
-
-// Stały obiekt: wyszukiwarka dopisuje go do adresu przy każdej zmianie filtra,
-// więc nowa referencja co render niepotrzebnie odpalałaby jej efekt.
+// Stały obiekt: wyszukiwarka dopisuje go do adresu przy każdej zmianie filtra.
 const SEARCH_URL_PARAMS = { [CANDIDATES_MODE_PARAM]: "search" };
+
+function BackToCandidates() {
+  return (
+    <Link
+      href="/candidates"
+      className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+    >
+      <ArrowLeft className="h-4 w-4" aria-hidden />
+      Kandydaci
+    </Link>
+  );
+}
 
 export function CandidatesWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const mode = parseCandidatesMode(searchParams?.get(CANDIDATES_MODE_PARAM));
-  // Tekst przeniesiony z wyszukiwarki do trybu requestu — w stanie, nie
-  // w adresie: to bywa pełna treść requestu klienta (długa, poufna).
-  const [requestSeed, setRequestSeed] = useState<{ text: string; key: number } | null>(
-    null,
-  );
+  const jobParam = searchParams?.get(JOB_URL_PARAM) ?? null;
+  const legacySearchWithoutJob = mode === "search" && !jobParam;
+  const [requestSeed, setRequestSeed] = useState<
+    (TalentRadarInitialRequest & { key: number }) | null
+  >(null);
 
-  const changeMode = useCallback(
-    (next: string) => {
-      const parsed = parseCandidatesMode(next);
-      if (parsed === mode) return;
-      router.push(candidatesModeHref(parsed));
-    },
-    [mode, router],
-  );
+  useEffect(() => {
+    if (!legacySearchWithoutJob) return;
+    router.replace(searchStateToListHref(new URLSearchParams(searchParams?.toString() ?? "")));
+  }, [legacySearchWithoutJob, router, searchParams]);
 
-  const useAsRequest = useCallback(
-    (text: string) => {
-      setRequestSeed({ text, key: Date.now() });
+  const startRequest = useCallback(
+    (initial: TalentRadarInitialRequest) => {
+      setRequestSeed({ ...initial, key: Date.now() });
       router.push(candidatesModeHref("request"));
     },
     [router],
   );
 
-  return (
-    <div className="space-y-3">
-      <div className="space-y-1.5">
-        <h1 className="text-lg font-semibold tracking-tight text-foreground/80">Kandydaci</h1>
-        <TabbedNav
-          tabs={MODE_TABS}
-          value={mode}
-          onValueChange={changeMode}
-          ariaLabel="Tryb ekranu Kandydaci"
-          listClassName="w-auto"
-        />
-        <p className="text-xs text-muted-foreground" data-testid="candidates-mode-hint">
-          {MODE_HINT[mode]}
-        </p>
-      </div>
+  if (legacySearchWithoutJob) return null;
 
-      {mode === "list" && <CandidatesListV2 hideTitle />}
-      {mode === "search" && (
-        <CandidateSearchView
-          syncUrl
-          hideHeader
-          persistUrlParams={SEARCH_URL_PARAMS}
-          onUseAsRequest={useAsRequest}
-        />
-      )}
-      {mode === "request" && (
+  if (mode === "search") {
+    return (
+      <div className="space-y-3">
+        <BackToCandidates />
+        <CandidateSearchView syncUrl hideHeader persistUrlParams={SEARCH_URL_PARAMS} />
+      </div>
+    );
+  }
+
+  if (mode === "request") {
+    return (
+      <div className="space-y-3">
+        <BackToCandidates />
+        <h1 className="text-lg font-semibold tracking-tight text-foreground">
+          Szukaj z requestu
+        </h1>
         <TalentRadarWorkspace
           key={requestSeed?.key ?? "radar"}
           embedded
-          initialText={requestSeed?.text}
+          initial={requestSeed ?? undefined}
         />
-      )}
-    </div>
-  );
+      </div>
+    );
+  }
+
+  return <CandidatesListV2 onRequestSearch={startRequest} />;
 }

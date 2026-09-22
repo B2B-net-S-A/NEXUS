@@ -12,8 +12,11 @@ import {
   serializeSkillBuckets,
 } from "@/lib/skill-expression";
 import type { OpenToValue } from "@/lib/filter-options";
+import { normalizeLanguageFilters } from "@/lib/candidate-languages";
 
 export type SortMode = "newest" | "oldest" | "name" | "relevance";
+/** Jak czytać tekst `q` — `auto` = decyduje backend („Rozumiem to jako…"). */
+export type TextModeFilter = "auto" | "literal" | "semantic";
 export type SkillCombine = "and" | "or";
 export type RemoteMode = "remote" | "hybrid" | "onsite";
 export type CandidatesView = "list" | "tiles";
@@ -82,6 +85,20 @@ export interface CandidateFilters {
   // category is their PRIMARY or a SECONDARY assignment. Round-trips as `cc`.
   competenceCategoryIds: number[];
   sort: SortMode;
+  /**
+   * Czy rekruter JAWNIE wybrał „Najnowsi". Bez wyboru sortowania lista z
+   * wpisanym tekstem szereguje po trafności (`sort=relevance` w API); dopiero
+   * świadome „Najnowsi" to wyłącza. Znaczenie ma wyłącznie dla `newest` —
+   * każde inne sortowanie jest wyborem z definicji. W URL: `sort=newest`.
+   */
+  sortExplicit: boolean;
+  /** Tryb tekstu (`text_mode` w API) — w URL `tm`, pomijany przy `auto`. */
+  textMode: TextModeFilter;
+  /**
+   * Języki: `kod` albo `kod:POZIOM` (np. `en:B2`), każdy wymagany. W URL `lang`
+   * (CSV), w API powtarzany `languages`.
+   */
+  languages: string[];
   page: number;
   remote: RemoteMode[];
   // Boolean skill expression typed into the "Umiejętności" box, e.g.
@@ -183,6 +200,9 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   pipelineStage: [],
   competenceCategoryIds: [],
   sort: "newest",
+  sortExplicit: false,
+  textMode: "auto",
+  languages: [],
   page: 1,
   remote: [],
   skillsExpr: "",
@@ -281,7 +301,10 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.availability.length) p.set("availability", CSV(f.availability));
   if (f.pipelineStage.length) p.set("stage", CSV(f.pipelineStage));
   if (f.competenceCategoryIds.length) p.set("cc", CSV(f.competenceCategoryIds));
-  if (f.sort !== "newest") p.set("sort", f.sort);
+  if (f.sort !== "newest" || f.sortExplicit) p.set("sort", f.sort);
+  if (f.textMode !== "auto") p.set("tm", f.textMode);
+  const languages = normalizeLanguageFilters(f.languages);
+  if (languages.length) p.set("lang", CSV(languages));
   if (f.page > 1) p.set("page", String(f.page));
   if (f.remote.length) p.set("remote", CSV(f.remote));
   if (f.skillsExpr.trim()) p.set("skills_q", f.skillsExpr.trim());
@@ -335,6 +358,9 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     sortRaw === "oldest" || sortRaw === "name" || sortRaw === "relevance"
       ? sortRaw
       : "newest";
+  const tmRaw = sp.get("tm");
+  const textMode: TextModeFilter =
+    tmRaw === "literal" || tmRaw === "semantic" ? tmRaw : "auto";
   const viewRaw = sp.get("view");
   const view: CandidatesView = viewRaw === "tiles" ? "tiles" : "list";
   const remote = parseCsv(sp.get("remote")).filter(
@@ -379,6 +405,9 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     pipelineStage,
     competenceCategoryIds: parseCsvInt(sp.get("cc")),
     sort,
+    sortExplicit: sort === "newest" && sortRaw === "newest",
+    textMode,
+    languages: normalizeLanguageFilters(parseCsv(sp.get("lang"))),
     page,
     remote,
     skillsExpr: decodeSkillsExpr(sp),
@@ -531,6 +560,8 @@ export function filtersToApiParams(
   const anyGroups = skillBuckets.anyGroups.length
     ? skillBuckets.anyGroups.map((g) => g.join("|"))
     : undefined;
+  const hasText = filters.q.trim().length >= 2;
+  const languages = normalizeLanguageFilters(filters.languages);
   return {
     // Poniżej 2 znaków NIE wysyłamy `q` — backend odpowiada wtedy 422
     // (`min_length=2`, jak `/api/search/global`), a pole filtruje się przecież
@@ -540,8 +571,11 @@ export function filtersToApiParams(
     // guard po tej.
     q: filters.q.trim().length >= 2 ? filters.q : undefined,
     status: filters.status.length ? filters.status : undefined,
+    // Tryb tekstu tylko przy tekście i we wspólnej semantyce (v1 go nie zna).
+    text_mode: hasText && v2 ? filters.textMode : undefined,
     page,
-    sort: filters.sort || undefined,
+    sort: effectiveSort(filters) || undefined,
+    languages: languages.length ? languages : undefined,
     skills: !v2 && skillBuckets.must.length ? skillBuckets.must : undefined,
     skill_combine: !v2 && skillBuckets.must.length > 1 ? "and" : undefined,
     skills_any: v2 ? undefined : anyGroups,
@@ -606,6 +640,17 @@ export function filtersToApiParams(
     q_none: filters.qNone.length ? filters.qNone : undefined,
     ...extras,
   };
+}
+
+/**
+ * Sortowanie wysyłane do API. Wpisany tekst bez jawnego wyboru sortowania =
+ * trafność (dla wyszukiwania po znaczeniu to kolejność puli; decyzja
+ * 22.09.2026). Jawny wybór rekrutera wygrywa zawsze.
+ */
+export function effectiveSort(filters: Pick<CandidateFilters, "q" | "sort" | "sortExplicit">): SortMode {
+  const hasText = filters.q.trim().length >= 2;
+  if (hasText && filters.sort === "newest" && !filters.sortExplicit) return "relevance";
+  return filters.sort;
 }
 
 /**

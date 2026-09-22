@@ -764,6 +764,11 @@ class CandidateQuickViewCandidate(BaseModel):
     competence_category: Optional[str] = None
     skills: Optional[Any] = None
     contact_case: Optional[ContactCaseSummaryResponse] = None
+    # Stawka z profilu — ta sama, którą lista pokazuje w kolumnie „Stawka B2B”
+    # (podgląd ma bramkę co najmniej tak ścisłą jak lista). Bez niej kafel
+    # stawki w podglądzie był pusty dla osoby spoza bieżącej strony listy.
+    expected_rate_hourly: Optional[Decimal] = None
+    expected_rate_currency: Optional[str] = None
 
 
 class CandidateQuickViewResponse(BaseModel):
@@ -785,10 +790,16 @@ class CandidateList(BaseModel):
     page: int
     page_size: int
     # Jak potraktowano `q` — te same pola co `meta` wyszukiwarki
-    # (`candidate_search_predicates.TextInterpretation`). Lista zna wyłącznie
-    # dopasowanie dosłowne: "literal" albo "none" (bez `q`).
+    # (`candidate_search_predicates.TextInterpretation`): "semantic" (retrieval
+    # hybrydowy, v2 + jawne `text_mode`), "literal" albo "none" (bez `q`).
     text_mode_applied: Optional[str] = None
     interpretation: Optional[dict] = None
+    # Tryb semantyczny: noga gęsta (Qdrant / Voyage) padła, wynik to sam BM25 —
+    # krótka lista NIE znaczy „w bazie nikogo nie ma".
+    search_degraded: bool = False
+    # Tryb semantyczny: pula retrievalu osiągnęła sufit
+    # (`SEARCH_HYBRID_POOL_SIZE`) — pasujących osób może być więcej.
+    result_cap_reached: bool = False
 
 
 class CandidateFromCVDuplicate(BaseModel):

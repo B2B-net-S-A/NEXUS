@@ -36,6 +36,8 @@ interface CandidateActivitySummaryCardProps {
    * karta AI na profilu: akapit „Z CV” stoi na górze, pod nim historia.
    */
   cvSummary?: string | null;
+  /** Nagłówek karty. Profil kandydata: „Podsumowanie” (jedyna karta AI). */
+  title?: string;
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -165,6 +167,7 @@ function SummarySources({ data }: { data: CandidateActivitySummary }) {
 export function CandidateActivitySummaryCard({
   candidateId,
   cvSummary = null,
+  title = "Podsumowanie AI",
 }: CandidateActivitySummaryCardProps) {
   const { showError, showSuccess } = useToast();
   const queryClient = useQueryClient();
@@ -270,7 +273,7 @@ export function CandidateActivitySummaryCard({
               className="flex items-center gap-2"
             >
               <Sparkles aria-hidden="true" className="size-4 text-primary" />
-              Podsumowanie AI
+              {title}
             </CardTitle>
             <p className="mt-1 text-sm text-muted-foreground">
               Zwięzły obraz aktywności widocznej w Twoim zakresie uprawnień.

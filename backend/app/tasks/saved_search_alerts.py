@@ -93,9 +93,13 @@ def alert_list_params(filters: Optional[dict]) -> Optional[dict]:
     if fmt == "unified" and request is not None:
         if payloads.list_engine_gaps(request):
             return None
-        return payloads.unified_to_list_params(request)
+        return payloads.with_literal_text(payloads.unified_to_list_params(request))
     api_params = (filters or {}).get("api")
-    return api_params if isinstance(api_params, dict) else None
+    if not isinstance(api_params, dict):
+        return None
+    # Zapis listy v2 (od 21.09.2026) może nieść `text_mode` — skaner czyta
+    # tekst dosłownie, jak lista dotąd (`with_literal_text`).
+    return payloads.with_literal_text(api_params)
 
 
 def polish_candidates(n: int) -> str:

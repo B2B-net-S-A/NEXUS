@@ -1,27 +1,23 @@
 "use client";
 
 import * as React from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   BriefcaseBusiness,
-  Calendar,
   ChevronLeft,
   ChevronRight,
-  FileText,
   Mail,
-  MapPin,
   Maximize2,
   MessageSquare,
   MoreHorizontal,
   Phone,
-  Sparkles,
   UserPlus,
   X,
 } from "lucide-react";
 
-import api, { extractErrorMsg } from "@/lib/api";
+import api from "@/lib/api";
 import { formatDate, formatRelativeTime } from "@/lib/utils";
 import { DEFAULT_FILTERS, encodeNavContext } from "@/lib/url-filters";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -34,24 +30,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/components/Toast";
 import CallButton from "@/components/calls/CallButton";
 import {
   AtOurClientBanner,
   type EmploymentInfo,
 } from "@/components/v2/CandidateHighlights";
 import { CompetenceCategoryBadge } from "@/components/v2/CompetenceCategoryBadge";
-import { DeferUntilVisible } from "@/components/v2/DeferUntilVisible";
-import {
-  type CandidateDocument,
-  downloadDocumentBlob,
-  FilePreviewModal,
-} from "@/components/v2/files/FilePreviewModal";
 import { MarkEmployedAction } from "@/components/v2/MarkEmployedAction";
 import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import { RiskBadge } from "@/components/v2/RiskBadge";
-import { SuggestedJobsWidget } from "@/components/SuggestedJobsWidget";
 import { useCandidateNavigation } from "@/hooks/useCandidateNavigation";
 import type { CandidateRiskProfile } from "@/types/candidate-risk";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
@@ -71,6 +58,7 @@ import {
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCloudTalkEnabled } from "@/hooks/useCloudTalkEnabled";
 import { canMutateSection } from "@/lib/section-access";
+import { rateCellText } from "@/components/v2/candidates/candidate-row-format";
 
 type QuickViewDestination =
   | "summary"
@@ -93,8 +81,9 @@ interface QuickViewCandidate {
   employment?: EmploymentInfo | null;
   competence_category_id?: number | null;
   competence_category?: string | null;
-  skills?: Array<string | { name?: string | null }> | null;
   contact_case?: CandidateContactSummary | null;
+  expected_rate_hourly?: number | string | null;
+  expected_rate_currency?: string | null;
 }
 
 interface CandidateQuickViewData {
@@ -109,11 +98,6 @@ interface CandidateQuickViewData {
     available_from: string | null;
     notice_period: number | null;
     notice_period_unit: "days" | "weeks" | "months" | null;
-  };
-  source: {
-    added_by_name: string;
-    acquisition_source: string | null;
-    imported_via: string | null;
   };
   current_recruitments: Array<{
     job_id: number;
@@ -130,9 +114,9 @@ interface CandidateQuickViewData {
     created_at: string;
     author_name: string | null;
   }>;
-  cv_highlights: {
-    bullets: string[];
-  };
+  cv_highlights?: {
+    years_experience?: number | null;
+  } | null;
   capabilities: {
     can_assign: boolean;
     can_mark_employed: boolean;
@@ -150,6 +134,12 @@ export interface CandidateQuickViewProps {
     candidateId: number,
     destination?: QuickViewDestination,
   ) => void;
+  /**
+   * Stawka z profilu, już sformatowana („160 zł/h") — z wiersza listy, bo
+   * `quick-view` jej nie niesie. `null` = osoba nie ma stawki (pokazujemy
+   * „brak"), `undefined` = nie wiemy (np. kandydat spoza bieżącej strony).
+   */
+  rateLookup?: (candidateId: number) => string | null | undefined;
 }
 
 /** Let a Radix menu close (and return focus) before the next layer opens. */
@@ -162,46 +152,32 @@ function requestStatus(error: unknown): number | null {
   return (error as { response?: { status?: number } }).response?.status ?? null;
 }
 
-function candidateSkills(candidate: QuickViewCandidate): string[] {
-  if (!Array.isArray(candidate.skills)) return [];
-  const names = candidate.skills
-    .map((skill) =>
-      typeof skill === "string" ? skill.trim() : String(skill.name ?? "").trim(),
-    )
-    .filter(Boolean);
-  return Array.from(new Set(names)).slice(0, 8);
-}
-
 function availabilityLabel(
   availability: CandidateQuickViewData["availability"],
-): string {
+): string | null {
   const statusLabels: Record<string, string> = {
-    actively_looking: "Dostępny aktywnie",
+    actively_looking: "Szuka aktywnie",
     open_to_offers: "Otwarty na oferty",
-    not_looking: "Niedostępny",
+    not_looking: "Nie szuka",
     available: "Dostępny",
-    unknown: "Nieznana",
   };
-  const status = availability.status
-    ? (statusLabels[availability.status] ?? availability.status)
-    : null;
-  const details: string[] = [];
-  if (availability.available_from) {
-    details.push(`od ${formatDate(availability.available_from)}`);
-  } else if (
-    availability.notice_period != null &&
-    availability.notice_period_unit
-  ) {
-    const units = {
-      days: "dni",
-      weeks: "tyg.",
-      months: "mies.",
-    } as const;
-    details.push(
-      `${availability.notice_period} ${units[availability.notice_period_unit]}`,
-    );
+  const status = availability.status ? (statusLabels[availability.status] ?? null) : null;
+  if (availability.available_from) return `od ${formatDate(availability.available_from)}`;
+  if (availability.notice_period != null && availability.notice_period_unit) {
+    const units = { days: "dni", weeks: "tyg.", months: "mies." } as const;
+    const notice = `wypowiedzenie ${availability.notice_period} ${units[availability.notice_period_unit]}`;
+    return status ? `${status} · ${notice}` : notice;
   }
-  return [status, ...details].filter(Boolean).join(" · ") || "Brak danych";
+  return status;
+}
+
+function yearsLabel(years: number | null | undefined): string | null {
+  if (years == null || !Number.isFinite(years) || years <= 0) return null;
+  if (years === 1) return "1 rok";
+  const lastDigit = years % 10;
+  const lastTwo = years % 100;
+  const few = lastDigit >= 2 && lastDigit <= 4 && !(lastTwo >= 12 && lastTwo <= 14);
+  return `${years} ${few ? "lata" : "lat"}`;
 }
 
 function QuickSectionError({
@@ -224,167 +200,37 @@ function QuickSectionError({
   );
 }
 
-function ContactItem({
-  icon,
-  label,
-  children,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  children: React.ReactNode;
-}) {
+/** Kafel faktu — „brak" wyszarzony, żeby pustka nie udawała wartości. */
+function FactTile({ label, value }: { label: string; value: React.ReactNode }) {
+  const missing = value === null || value === undefined || value === "";
   return (
-    <div className="min-w-0 rounded-lg border border-border bg-card px-3 py-2.5">
-      <div className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-        {icon}
-        <span>{label}</span>
-      </div>
-      <div className="max-w-full overflow-x-auto whitespace-nowrap text-sm font-medium text-foreground">
-        {children}
-      </div>
+    <div className="min-w-0 rounded-lg border border-border bg-muted/30 px-3 py-2">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd
+        className={
+          missing
+            ? "mt-0.5 text-sm text-muted-foreground"
+            : "mt-0.5 truncate text-sm font-medium text-foreground"
+        }
+      >
+        {missing ? "brak" : value}
+      </dd>
     </div>
   );
 }
 
-function QuickNotes({
-  candidateId,
-  notes,
-  canWrite,
-  composeRequest = 0,
-}: {
-  candidateId: number;
-  notes: CandidateQuickViewData["recent_notes"];
-  canWrite: boolean;
-  /** Bumped by the header "Dodaj notatkę" action: open, scroll, focus. */
-  composeRequest?: number;
-}) {
-  const queryClient = useQueryClient();
-  const { showError, showSuccess } = useToast();
-  const [composerOpen, setComposerOpen] = React.useState(false);
-  const [note, setNote] = React.useState("");
-  const sectionRef = React.useRef<HTMLElement>(null);
-  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
-
-  React.useEffect(() => {
-    if (!canWrite || composeRequest === 0) return;
-    setComposerOpen(true);
-  }, [canWrite, composeRequest]);
-
-  React.useEffect(() => {
-    if (!composerOpen || composeRequest === 0) return;
-    sectionRef.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-    textareaRef.current?.focus({ preventScroll: true });
-  }, [composerOpen, composeRequest]);
-
-  const addNote = useMutation({
-    mutationFn: () => {
-      if (!canWrite) throw new Error("Brak prawa zapisu w Sourcing");
-      return api.post("/api/notes", {
-        candidate_id: candidateId,
-        content: note.trim(),
-        note_type: "general",
-      });
-    },
-    onSuccess: () => {
-      setNote("");
-      setComposerOpen(false);
-      invalidateCandidateMutation(queryClient, candidateId, "note");
-      void queryClient.invalidateQueries({
-        queryKey: candidateQueryKeys.quickView(candidateId),
-      });
-      showSuccess("Notatka dodana");
-    },
-    onError: (error) =>
-      showError(extractErrorMsg(error) || "Nie udało się dodać notatki"),
-  });
-
-  return (
-    <section
-      ref={sectionRef}
-      aria-labelledby="quick-notes-heading"
-      className="space-y-3"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <h3
-          id="quick-notes-heading"
-          className="text-sm font-semibold text-foreground"
-        >
-          Notatki
-        </h3>
-        {canWrite ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setComposerOpen((open) => !open)}
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            Dodaj notatkę
-          </Button>
-        ) : null}
-      </div>
-
-      {canWrite && composerOpen ? (
-        <div className="space-y-2 rounded-lg border border-border bg-muted/30 p-3">
-          <Textarea
-            ref={textareaRef}
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            rows={3}
-            placeholder="Krótka notatka o kandydacie…"
-            aria-label="Treść notatki"
-          />
-          <div className="flex justify-end gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setComposerOpen(false)}
-            >
-              Anuluj
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => addNote.mutate()}
-              loading={addNote.isPending}
-              disabled={!note.trim()}
-            >
-              Zapisz
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {notes.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border py-5 text-center text-sm text-muted-foreground">
-          Brak notatek.
-        </p>
-      ) : (
-        <ol className="divide-y divide-border rounded-lg border border-border">
-          {notes.map((item) => (
-            <li key={item.id} className="flex gap-3 px-3 py-3">
-              <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="whitespace-pre-wrap text-sm text-foreground">
-                  {item.content}
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {item.author_name || "System / import"}
-                  {" · "}
-                  {formatRelativeTime(item.created_at)}
-                </p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
-  );
-}
-
+/**
+ * Szybki podgląd kandydata z listy (makieta „Podgląd", 22.09.2026): kto to
+ * jest, czy jest dostępny i za ile, jak się skontaktować, w jakich procesach
+ * już jest i co ostatnio zanotowano. Dwie akcje: przypisać albo otworzyć
+ * pełny profil — wszystko inne (notatki, CV, dopasowania) żyje w profilu.
+ */
 export function CandidateQuickView({
   candidateId,
   onClose,
   navigation,
   onOpenFullProfile,
+  rateLookup,
 }: CandidateQuickViewProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -398,17 +244,12 @@ export function CandidateQuickView({
   const contactFeature = useCandidateContactFeature({
     queryEnabled: Boolean(currentUser),
   });
-  const { showError } = useToast();
   const cloudTalkEnabled = useCloudTalkEnabled({
     enabled: Boolean(currentUser) && canWriteSourcing,
   });
   const [assignOpen, setAssignOpen] = React.useState(false);
   const [markEmployedOpen, setMarkEmployedOpen] = React.useState(false);
-  const [composeNoteRequest, setComposeNoteRequest] = React.useState(0);
   const [contactOutcomeOpen, setContactOutcomeOpen] = React.useState(false);
-  const [previewDocumentId, setPreviewDocumentId] = React.useState<
-    number | null
-  >(null);
 
   const navigationState = useCandidateNavigation(
     navigation
@@ -449,18 +290,6 @@ export function CandidateQuickView({
     enabled: Number.isFinite(candidateId) && candidateId > 0,
     staleTime: 5 * 60_000,
   });
-  const documentsQuery = useQuery<CandidateDocument[]>({
-    queryKey: candidateQueryKeys.cvDocuments(candidateId),
-    queryFn: ({ signal }) =>
-      api
-        .get(`/api/candidates/${candidateId}/documents?kind=cv`, { signal })
-        .then((response) => response.data),
-    enabled:
-      Number.isFinite(candidateId) &&
-      candidateId > 0 &&
-      quickViewQuery.data?.capabilities.can_view_documents === true,
-    staleTime: 30_000,
-  });
 
   const quickView = quickViewQuery.data;
   const candidate = quickView?.candidate;
@@ -487,11 +316,6 @@ export function CandidateQuickView({
     staleTime: 30_000,
     retry: false,
   });
-  const cvDocuments = Array.isArray(documentsQuery.data)
-    ? documentsQuery.data
-    : [];
-  const primaryCv =
-    cvDocuments.find((document) => document.is_primary) ?? cvDocuments[0] ?? null;
 
   const openFullProfile = React.useCallback(
     (destination: QuickViewDestination = "summary") => {
@@ -524,19 +348,8 @@ export function CandidateQuickView({
   const fullName = candidate
     ? `${candidate.name ?? ""} ${candidate.lastname ?? ""}`.trim()
     : "Profil kandydata";
-  const skills = candidate ? candidateSkills(candidate) : [];
-  const canOpenCv =
-    Boolean(quickView?.capabilities.can_view_documents) &&
-    Boolean(primaryCv) &&
-    !documentsQuery.isPending;
-  const cvButtonTitle =
-    quickView?.capabilities.can_view_documents === false
-      ? "Brak uprawnień do dokumentów"
-      : documentsQuery.error
-        ? "Nie udało się pobrać listy CV"
-        : !primaryCv && !documentsQuery.isPending
-          ? "Brak sklasyfikowanego CV"
-          : undefined;
+  // Stawka z odpowiedzi podglądu; wiersz listy tylko do czasu jej wczytania.
+  const rate = (candidate ? rateCellText(candidate) : null) ?? rateLookup?.(candidateId);
 
   const isEmployedAtClient =
     candidate?.employment?.state === "employed_at_client";
@@ -544,20 +357,20 @@ export function CandidateQuickView({
     canWriteSourcing &&
     !isEmployedAtClient &&
     quickView?.capabilities.can_mark_employed === true;
-  // The popover of MarkEmployedAction anchors on this wrapper — a Radix
-  // menu root renders no DOM of its own, so the anchor needs a real box.
+  // „Oznacz jako zatrudnionego" nie ma innego miejsca w aplikacji — zostaje
+  // w małym menu „⋯". Popover akcji kotwiczy się na tym opakowaniu (korzeń
+  // menu Radixa nie renderuje własnego DOM-u).
   const moreActionsMenu = (
     <div className="flex">
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
-            variant="outline"
+            variant="ghost"
+            size="icon-sm"
             aria-label="Więcej akcji kandydata"
             title="Więcej akcji"
-            className="h-auto min-h-12 w-full justify-start whitespace-normal px-3 py-2 text-left text-sm"
           >
-            <MoreHorizontal className="h-4 w-4 shrink-0" />
-            Więcej
+            <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-60">
@@ -586,16 +399,13 @@ export function CandidateQuickView({
     </div>
   );
 
-  const downloadDocument = React.useCallback(
-    async (document: CandidateDocument) => {
-      try {
-        await downloadDocumentBlob(candidateId, document);
-      } catch (error) {
-        showError(extractErrorMsg(error) || "Nie udało się pobrać dokumentu");
-      }
-    },
-    [candidateId, showError],
-  );
+  const titleLine = [
+    quickView?.current_position.title || null,
+    yearsLabel(quickView?.cv_highlights?.years_experience),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const latestNote = quickView?.recent_notes[0] ?? null;
 
   return (
     <div
@@ -604,7 +414,7 @@ export function CandidateQuickView({
     >
       <SheetTitle className="sr-only">{fullName}</SheetTitle>
       <SheetDescription className="sr-only">
-        Szybki podgląd danych, rekrutacji i ostatnich notatek kandydata.
+        Szybki podgląd: dostępność, stawka, kontakt, procesy i ostatnia notatka.
       </SheetDescription>
 
       <header className="sticky top-0 z-20 border-b border-border bg-card/95 px-3 py-2 backdrop-blur-sm sm:px-5">
@@ -674,9 +484,9 @@ export function CandidateQuickView({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {quickViewQuery.isPending ? (
           <div className="space-y-4 p-5" aria-busy="true">
-            <div className="h-52 animate-pulse rounded-xl bg-muted" />
-            <div className="h-36 animate-pulse rounded-xl bg-muted/70" />
-            <div className="h-48 animate-pulse rounded-xl bg-muted/50" />
+            <div className="h-24 animate-pulse rounded-xl bg-muted" />
+            <div className="h-16 animate-pulse rounded-xl bg-muted/70" />
+            <div className="h-32 animate-pulse rounded-xl bg-muted/50" />
           </div>
         ) : quickViewQuery.error || !quickView || !candidate ? (
           <div
@@ -708,338 +518,225 @@ export function CandidateQuickView({
             ) : null}
           </div>
         ) : (
-          <div className="divide-y divide-border">
-            <section className="space-y-4 px-4 py-5 sm:px-6">
-              {candidate.employment ? (
-                <AtOurClientBanner employment={candidate.employment} />
-              ) : null}
-              {candidate.status === "blacklisted" ||
-              riskQuery.data?.level === "high" ? (
-                <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  {candidate.status === "blacklisted"
-                    ? "Kandydat znajduje się na blacklist."
-                    : "Kandydat ma wysokie ryzyko wycofania z procesu."}
-                </div>
-              ) : null}
+          <div className="space-y-5 px-4 py-5 sm:px-6">
+            {candidate.employment ? (
+              <AtOurClientBanner employment={candidate.employment} />
+            ) : null}
+            {candidate.status === "blacklisted" ||
+            riskQuery.data?.level === "high" ? (
+              <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {candidate.status === "blacklisted"
+                  ? "Kandydat znajduje się na blacklist."
+                  : "Kandydat ma wysokie ryzyko wycofania z procesu."}
+              </div>
+            ) : null}
 
-              <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)]">
-                <div className="min-w-0 space-y-4">
-                  <div className="flex min-w-0 items-start gap-4">
-                    <Avatar size="xl" className="shrink-0">
-                      <AvatarFallback>
-                        {getCandidateInitials(candidate) || "?"}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <h2 className="max-w-full overflow-x-auto whitespace-nowrap pb-1 text-[clamp(1.35rem,3.6vw,2rem)] font-semibold tracking-tight text-foreground">
-                        {fullName}
-                      </h2>
-                      <p className="text-sm text-muted-foreground">
-                        {quickView.current_position.title ||
-                          "Stanowisko nieuzupełnione"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    {candidate.status ? (
-                      <Badge
-                        size="sm"
-                        variant={
-                          candidate.status === "blacklisted"
-                            ? "danger"
-                            : candidate.status === "passive"
-                              ? "warning"
-                              : "success"
-                        }
-                      >
-                        {candidate.status === "active"
-                          ? "Aktywny"
+            <section className="flex min-w-0 items-start gap-4">
+              <Avatar size="lg" className="shrink-0">
+                <AvatarFallback>
+                  {getCandidateInitials(candidate) || "?"}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <h2 className="max-w-full overflow-x-auto whitespace-nowrap pb-0.5 text-xl font-semibold tracking-tight text-foreground">
+                  {fullName}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {titleLine || "Stanowisko nieuzupełnione"}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {candidate.status ? (
+                    <Badge
+                      size="sm"
+                      variant={
+                        candidate.status === "blacklisted"
+                          ? "danger"
                           : candidate.status === "passive"
-                            ? "Pasywny"
-                            : "Zablokowany"}
-                      </Badge>
-                    ) : null}
-                    {riskQuery.data ? (
-                      <RiskBadge profile={riskQuery.data} />
-                    ) : null}
-                    <CompetenceCategoryBadge
-                      categoryId={candidate.competence_category_id}
-                      slug={candidate.competence_category}
+                            ? "warning"
+                            : "success"
+                      }
+                    >
+                      {candidate.status === "active"
+                        ? "Aktywny"
+                        : candidate.status === "passive"
+                          ? "Pasywny"
+                          : "Zablokowany"}
+                    </Badge>
+                  ) : null}
+                  <CompetenceCategoryBadge
+                    categoryId={candidate.competence_category_id}
+                    slug={candidate.competence_category}
+                    size="sm"
+                  />
+                  {riskQuery.data && riskQuery.data.level === "high" ? (
+                    <RiskBadge profile={riskQuery.data} />
+                  ) : null}
+                  {contactFeature.enabled ? (
+                    <ContactStatusBadge
+                      contactCase={candidate.contact_case}
                       size="sm"
                     />
-                    {contactFeature.enabled ? (
-                      <ContactStatusBadge
-                        contactCase={candidate.contact_case}
-                        size="sm"
-                      />
-                    ) : null}
-                  </div>
-
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <ContactItem
-                      icon={<Mail className="h-3.5 w-3.5" />}
-                      label="E-mail"
-                    >
-                      {candidate.email ? (
-                        <a
-                          href={`mailto:${candidate.email}`}
-                          className="hover:text-primary"
-                        >
-                          {candidate.email}
-                        </a>
-                      ) : (
-                        "Brak danych"
-                      )}
-                    </ContactItem>
-                    <ContactItem
-                      icon={<Phone className="h-3.5 w-3.5" />}
-                      label="Telefon"
-                    >
-                      {candidate.phone ? (
-                        canWriteSourcing && cloudTalkEnabled ? (
-                          <CallButton
-                            candidateId={candidateId}
-                            phone={candidate.phone}
-                            compact
-                            className="whitespace-nowrap"
-                          />
-                        ) : (
-                          candidate.phone
-                        )
-                      ) : (
-                        "Brak danych"
-                      )}
-                    </ContactItem>
-                    <ContactItem
-                      icon={<MapPin className="h-3.5 w-3.5" />}
-                      label="Lokalizacja"
-                    >
-                      {candidate.location || candidate.city || "Brak danych"}
-                    </ContactItem>
-                    <ContactItem
-                      icon={<Calendar className="h-3.5 w-3.5" />}
-                      label="Dostępność"
-                    >
-                      {availabilityLabel(quickView.availability)}
-                    </ContactItem>
-                  </div>
-                </div>
-
-                <div
-                  className="grid grid-cols-2 gap-2 self-start"
-                  aria-label="Akcje kandydata"
-                >
-                  {canWriteSourcing ? (
-                    <Button
-                      className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
-                      onClick={() => setAssignOpen(true)}
-                      disabled={!quickView.capabilities.can_assign}
-                    >
-                      <UserPlus className="h-4 w-4 shrink-0" />
-                      Przypisz do rekrutacji
-                    </Button>
-                  ) : null}
-                  {canWriteSourcing ? (
-                    <Button
-                      variant="outline"
-                      className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
-                      onClick={() => setComposeNoteRequest((value) => value + 1)}
-                    >
-                      <MessageSquare className="h-4 w-4 shrink-0" />
-                      Dodaj notatkę
-                    </Button>
-                  ) : null}
-                  <Button
-                    variant="outline"
-                    className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
-                    onClick={() =>
-                      primaryCv && setPreviewDocumentId(primaryCv.id)
-                    }
-                    disabled={!canOpenCv}
-                    title={cvButtonTitle}
-                  >
-                    <FileText className="h-4 w-4 shrink-0" />
-                    Otwórz CV
-                  </Button>
-                  <Button
-                    className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
-                    onClick={() => openFullProfile("summary")}
-                    disabled={!quickView.capabilities.can_open_full_profile}
-                  >
-                    <Maximize2 className="h-4 w-4 shrink-0" />
-                    Pełny profil
-                  </Button>
-                  {canOwnContact && fullContactCaseQuery.data ? (
-                    <Button
-                      variant="outline"
-                      className="h-auto min-h-12 justify-start whitespace-normal px-3 py-2 text-left text-sm"
-                      onClick={() => setContactOutcomeOpen(true)}
-                    >
-                      <Phone className="h-4 w-4 shrink-0" />
-                      Zaloguj wynik telefonu
-                    </Button>
-                  ) : null}
-                  {canWriteSourcing ? (
-                    canMarkEmployed ? (
-                      <MarkEmployedAction
-                        candidateId={candidateId}
-                        employment={candidate.employment}
-                        open={markEmployedOpen}
-                        onOpenChange={setMarkEmployedOpen}
-                        anchor={moreActionsMenu}
-                      />
-                    ) : (
-                      moreActionsMenu
-                    )
                   ) : null}
                 </div>
               </div>
-
-              {riskQuery.error ? (
-                <QuickSectionError
-                  label="Ocena ryzyka jest niedostępna"
-                  onRetry={() => riskQuery.refetch()}
-                />
-              ) : null}
-              {documentsQuery.error ? (
-                <QuickSectionError
-                  label="Nie udało się pobrać listy CV"
-                  onRetry={() => documentsQuery.refetch()}
-                />
-              ) : null}
             </section>
 
-            <section className="grid gap-4 px-4 py-5 sm:px-6 lg:grid-cols-2">
-              <article className="rounded-xl border border-border bg-card p-4">
-                <h3 className="text-sm font-semibold text-foreground">Źródło</h3>
-                <dl className="mt-3 space-y-3 text-sm">
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Dodał</dt>
-                    <dd className="mt-0.5 font-medium text-foreground">
-                      {quickView.source.added_by_name || "System / import"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">
-                      Pozyskano z
-                    </dt>
-                    <dd className="mt-0.5 font-medium text-foreground">
-                      {quickView.source.acquisition_source || "Brak danych"}
-                    </dd>
-                  </div>
-                  {quickView.source.imported_via ? (
-                    <div>
-                      <dt className="text-xs text-muted-foreground">
-                        Zaimportowano przez
-                      </dt>
-                      <dd className="mt-0.5 font-medium text-foreground">
-                        {quickView.source.imported_via}
-                      </dd>
-                    </div>
-                  ) : null}
-                </dl>
-              </article>
+            <dl className="grid grid-cols-3 gap-2" aria-label="Najważniejsze fakty">
+              <FactTile label="Dostępność" value={availabilityLabel(quickView.availability)} />
+              <FactTile label="Stawka B2B" value={rate === undefined ? "—" : rate} />
+              <FactTile label="Lokalizacja" value={candidate.location || candidate.city || null} />
+            </dl>
 
-              <article className="rounded-xl border border-border bg-card p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-foreground">
-                    Pipeline
-                  </h3>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => openFullProfile("recruitments")}
+            <section aria-label="Kontakt" className="space-y-1.5 text-sm">
+              <div className="flex min-w-0 items-center gap-2">
+                <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                {candidate.email ? (
+                  <a
+                    href={`mailto:${candidate.email}`}
+                    className="truncate text-foreground hover:text-primary"
                   >
+                    {candidate.email}
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">brak e-maila</span>
+                )}
+              </div>
+              <div className="flex min-w-0 items-center gap-2">
+                <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                {candidate.phone ? (
+                  canWriteSourcing && cloudTalkEnabled ? (
+                    <CallButton
+                      candidateId={candidateId}
+                      phone={candidate.phone}
+                      compact
+                      className="whitespace-nowrap"
+                    />
+                  ) : (
+                    <span className="text-foreground">{candidate.phone}</span>
+                  )
+                ) : (
+                  <span className="text-muted-foreground">brak telefonu</span>
+                )}
+              </div>
+            </section>
+
+            <section aria-labelledby="quick-recruitments-heading" className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <h3 id="quick-recruitments-heading" className="text-sm font-semibold text-foreground">
+                  W procesie
+                </h3>
+                {quickView.current_recruitments.length > 0 ? (
+                  <Button size="sm" variant="ghost" onClick={() => openFullProfile("recruitments")}>
                     Wszystkie
                   </Button>
-                </div>
-                {quickView.current_recruitments.length === 0 ? (
-                  <p className="mt-3 rounded-lg border border-dashed border-border py-5 text-center text-sm text-muted-foreground">
-                    Brak aktywnych rekrutacji.
-                  </p>
-                ) : (
-                  <ul className="mt-2 divide-y divide-border">
-                    {quickView.current_recruitments.slice(0, 3).map((item) => (
-                      <li key={item.job_id} className="py-2.5 first:pt-1">
-                        <p className="text-sm font-medium text-foreground">
-                          {item.stage_name}
-                          <span className="font-normal text-muted-foreground">
-                            {" · "}
-                            {item.job_title}
-                            {item.client_name ? ` · ${item.client_name}` : ""}
-                          </span>
-                        </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          Dodano {formatDate(item.moved_at)} przez{" "}
-                          {item.moved_by_name || "System / import"}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </article>
-            </section>
-
-            <section className="space-y-4 px-4 py-5 sm:px-6">
-              <div>
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  Podsumowanie AI
-                </h3>
-                {quickView.cv_highlights.bullets.length > 0 ? (
-                  <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm leading-6 text-muted-foreground">
-                    {quickView.cv_highlights.bullets.slice(0, 4).map((bullet) => (
-                      <li key={bullet}>{bullet}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    Brak wiarygodnych danych wyekstrahowanych z CV.
-                  </p>
-                )}
+                ) : null}
               </div>
-              {skills.length > 0 ? (
-                <div>
-                  <h3 className="mb-2 text-sm font-semibold text-foreground">
-                    Umiejętności
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {skills.map((skill) => (
-                      <Badge key={skill} variant="soft" size="md">
-                        {skill}
+              {quickView.current_recruitments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nie jest w żadnym procesie.</p>
+              ) : (
+                <ul className="divide-y divide-border rounded-lg border border-border">
+                  {quickView.current_recruitments.slice(0, 3).map((item) => (
+                    <li key={item.job_id} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-foreground">
+                          {item.job_title}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {item.client_name ?? "—"}
+                        </span>
+                      </span>
+                      <Badge size="sm" variant="soft" className="shrink-0">
+                        {item.stage_name}
                       </Badge>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </section>
 
-            <div className="px-4 py-5 sm:px-6">
-              <QuickNotes
-                candidateId={candidateId}
-                notes={quickView.recent_notes}
-                canWrite={canWriteSourcing}
-                composeRequest={composeNoteRequest}
-              />
-            </div>
+            <section aria-labelledby="quick-note-heading" className="space-y-2">
+              <h3 id="quick-note-heading" className="text-sm font-semibold text-foreground">
+                Ostatnia notatka
+              </h3>
+              {latestNote ? (
+                <figure className="flex gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                  <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+                  <div className="min-w-0">
+                    <blockquote className="line-clamp-4 whitespace-pre-wrap text-sm text-foreground">
+                      {latestNote.content}
+                    </blockquote>
+                    <figcaption className="mt-1 text-xs text-muted-foreground">
+                      {latestNote.author_name || "System / import"}
+                      {" · "}
+                      {formatRelativeTime(latestNote.created_at)}
+                    </figcaption>
+                  </div>
+                </figure>
+              ) : (
+                <p className="text-sm text-muted-foreground">Brak notatek.</p>
+              )}
+            </section>
 
-            <div className="px-4 py-5 sm:px-6">
-              <DeferUntilVisible minHeight={180} rootMargin="200px">
-                <SuggestedJobsWidget
-                  candidateId={candidateId}
-                  variant="compact"
-                  maxItems={2}
-                  hideWhenEmpty
-                  canAssign={canWriteSourcing}
-                  onShowAll={() => openFullProfile("matching")}
-                />
-              </DeferUntilVisible>
-            </div>
+            {riskQuery.error ? (
+              <QuickSectionError
+                label="Ocena ryzyka jest niedostępna"
+                onRetry={() => riskQuery.refetch()}
+              />
+            ) : null}
           </div>
         )}
       </div>
+
+      {quickView && candidate ? (
+        <footer
+          className="flex flex-wrap items-center gap-2 border-t border-border bg-card px-4 py-3 sm:px-6"
+          aria-label="Akcje kandydata"
+        >
+          {canWriteSourcing ? (
+            <Button
+              onClick={() => setAssignOpen(true)}
+              disabled={!quickView.capabilities.can_assign}
+            >
+              <UserPlus className="h-4 w-4" />
+              Przypisz do rekrutacji
+            </Button>
+          ) : null}
+          <Button
+            variant="outline"
+            onClick={() => openFullProfile("summary")}
+            disabled={!quickView.capabilities.can_open_full_profile}
+          >
+            <Maximize2 className="h-4 w-4" />
+            Otwórz profil
+          </Button>
+          {canOwnContact && fullContactCaseQuery.data ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setContactOutcomeOpen(true)}
+            >
+              <Phone className="h-3.5 w-3.5" />
+              Zaloguj wynik telefonu
+            </Button>
+          ) : null}
+          {canWriteSourcing ? (
+            <div className="ml-auto">
+              {canMarkEmployed ? (
+                <MarkEmployedAction
+                  candidateId={candidateId}
+                  employment={candidate.employment}
+                  open={markEmployedOpen}
+                  onOpenChange={setMarkEmployedOpen}
+                  anchor={moreActionsMenu}
+                />
+              ) : (
+                moreActionsMenu
+              )}
+            </div>
+          ) : null}
+        </footer>
+      ) : null}
 
       {canWriteSourcing && candidate ? (
         <QuickAssignV2
@@ -1055,13 +752,6 @@ export function CandidateQuickView({
           }}
         />
       ) : null}
-      <FilePreviewModal
-        documents={cvDocuments}
-        initialDocumentId={previewDocumentId}
-        candidateId={candidateId}
-        onClose={() => setPreviewDocumentId(null)}
-        onDownload={downloadDocument}
-      />
       {canWriteSourcing ? (
         <ContactOutcomeSheet
           contactCase={fullContactCaseQuery.data ?? null}

@@ -1,30 +1,61 @@
+/**
+ * Adres URL profilu kandydata: cztery zakładki (Profil, Rekrutacje, Historia,
+ * Pliki i umowy) i ich filtry.
+ *
+ * Stare klucze MUSZĄ działać dalej — linki z powiadomień są zapisane w bazie
+ * (`?tab=chat&msg=`, `?tab=activity&activity=notes&note=`), a stare zakładki
+ * („Dopasowanie”, „Maile”, „Aktywność”) przez lata trafiały do zakładek
+ * przeglądarki i maili. Każdy stary klucz ma tu alias na nową zakładkę
+ * z właściwym filtrem albo sekcją.
+ */
 export const PROFILE_SECTIONS = [
   "summary",
   "recruitments",
   "activity",
-  "matching",
   "documents",
-  // „Maile” — bez tego wpisu `?tab=emails` i kliknięcie zakładki wracały
-  // na Podsumowanie (UAT M01-B03).
-  "emails",
 ] as const;
 
-export const ACTIVITY_VIEWS = ["timeline", "notes", "calls", "chat"] as const;
+/** Filtry zakładki „Historia”. `timeline` = „Wszystko”. */
+export const ACTIVITY_VIEWS = [
+  "timeline",
+  "notes",
+  "emails",
+  "calls",
+  "chat",
+] as const;
+/** Sekcja zakładki „Pliki i umowy”, do której przewijamy. */
 export const DOCUMENT_VIEWS = ["files", "contracts"] as const;
+/** Sekcja zakładki „Rekrutacje” — `matching` rozwija „Dopasowanie do rekrutacji”. */
+export const RECRUITMENT_VIEWS = ["list", "matching"] as const;
 
 export type CandidateProfileSection = (typeof PROFILE_SECTIONS)[number];
 export type CandidateActivityView = (typeof ACTIVITY_VIEWS)[number];
 export type CandidateDocumentView = (typeof DOCUMENT_VIEWS)[number];
+export type CandidateRecruitmentView = (typeof RECRUITMENT_VIEWS)[number];
+
+/**
+ * Stare zakładki najwyższego poziomu, które wciąż przyjmujemy na wejściu
+ * zapisu (np. szybki podgląd z listy otwiera „matching”).
+ */
+export type LegacyProfileSection = "matching" | "emails";
 
 export interface CandidateProfileView {
   section: CandidateProfileSection;
   activity: CandidateActivityView;
   documents: CandidateDocumentView;
+  recruitments: CandidateRecruitmentView;
   /** True when an old top-level tab needs replacing with the canonical URL. */
   isLegacy: boolean;
   /** True when the incoming URL explicitly selected any tab. */
   hasExplicitTab: boolean;
 }
+
+export type CandidateProfileViewInput = {
+  section: CandidateProfileSection | LegacyProfileSection;
+  activity: CandidateActivityView;
+  documents: CandidateDocumentView;
+  recruitments?: CandidateRecruitmentView;
+};
 
 type VisibleRecruitment = {
   job_id?: unknown;
@@ -122,9 +153,50 @@ export function focusCandidateRecruitmentCard(
   return true;
 }
 
+type ViewTarget = Pick<
+  CandidateProfileView,
+  "section" | "activity" | "documents" | "recruitments"
+>;
+
+const DEFAULT_TARGET: Omit<ViewTarget, "section"> = {
+  activity: "timeline",
+  documents: "files",
+  recruitments: "list",
+};
+
+const target = (
+  section: CandidateProfileSection,
+  sub: Partial<Omit<ViewTarget, "section">> = {},
+): ViewTarget => ({ section, ...DEFAULT_TARGET, ...sub });
+
 /**
- * Translate the pre-PR2, nine-tab URLs to the five-section information
- * architecture. Unknown values fail safely to the summary.
+ * Stare klucze `?tab=` → nowa zakładka z filtrem. Każdy wpis tutaj to link,
+ * który gdzieś żyje (powiadomienia w bazie, zakładki przeglądarki, maile).
+ */
+const LEGACY_TABS: Record<string, ViewTarget> = {
+  // Zakładki sprzed 09.2026 (sześć sekcji).
+  matching: target("recruitments", { recruitments: "matching" }),
+  emails: target("activity", { activity: "emails" }),
+  // Zakładki sprzed PR2 (dziewięć zakładek).
+  profil: target("summary"),
+  podglad: target("activity"),
+  timeline: target("activity"),
+  rekrutacje: target("recruitments"),
+  dopasowanie: target("recruitments", { recruitments: "matching" }),
+  notatki: target("activity", { activity: "notes" }),
+  // Angielski alias — starsze linki z powiadomień o wzmiankach (`?tab=notes`).
+  notes: target("activity", { activity: "notes" }),
+  calls: target("activity", { activity: "calls" }),
+  // `?tab=chat&msg=` — link z powiadomienia czatu (candidate_chat.py).
+  chat: target("activity", { activity: "chat" }),
+  maile: target("activity", { activity: "emails" }),
+  pliki: target("documents", { documents: "files" }),
+  umowa: target("documents", { documents: "contracts" }),
+};
+
+/**
+ * Translate the incoming URL to the four-tab information architecture.
+ * Unknown values fail safely to the summary.
  */
 export function parseCandidateProfileView(
   params: URLSearchParams,
@@ -133,6 +205,7 @@ export function parseCandidateProfileView(
   const rawTab = params.get("tab");
   const rawActivity = params.get("activity");
   const rawDocuments = params.get("documents");
+  const rawRecruitments = params.get("recruitments");
 
   if (isOneOf(rawTab, PROFILE_SECTIONS)) {
     return {
@@ -141,52 +214,17 @@ export function parseCandidateProfileView(
       documents: isOneOf(rawDocuments, DOCUMENT_VIEWS)
         ? rawDocuments
         : "files",
+      recruitments: isOneOf(rawRecruitments, RECRUITMENT_VIEWS)
+        ? rawRecruitments
+        : "list",
       isLegacy: false,
       hasExplicitTab: true,
     };
   }
 
-  const legacy: Record<
-    string,
-    Pick<CandidateProfileView, "section" | "activity" | "documents">
-  > = {
-    profil: { section: "summary", activity: "timeline", documents: "files" },
-    podglad: {
-      section: "activity",
-      activity: "timeline",
-      documents: "files",
-    },
-    timeline: {
-      section: "activity",
-      activity: "timeline",
-      documents: "files",
-    },
-    rekrutacje: {
-      section: "recruitments",
-      activity: "timeline",
-      documents: "files",
-    },
-    dopasowanie: {
-      section: "matching",
-      activity: "timeline",
-      documents: "files",
-    },
-    notatki: { section: "activity", activity: "notes", documents: "files" },
-    // Angielski alias — starsze linki z powiadomień o wzmiankach (`?tab=notes`).
-    notes: { section: "activity", activity: "notes", documents: "files" },
-    calls: { section: "activity", activity: "calls", documents: "files" },
-    chat: { section: "activity", activity: "chat", documents: "files" },
-    pliki: { section: "documents", activity: "timeline", documents: "files" },
-    umowa: {
-      section: "documents",
-      activity: "timeline",
-      documents: "contracts",
-    },
-  };
-
-  if (rawTab && legacy[rawTab]) {
+  if (rawTab && Object.prototype.hasOwnProperty.call(LEGACY_TABS, rawTab)) {
     return {
-      ...legacy[rawTab],
+      ...LEGACY_TABS[rawTab],
       isLegacy: true,
       hasExplicitTab: true,
     };
@@ -196,28 +234,53 @@ export function parseCandidateProfileView(
   // (fokus liczony w profilu z `jobId`, gdy brak `focusJobId`).
   if (options.fromJob) {
     return {
-      section: "recruitments",
-      activity: "timeline",
-      documents: "files",
+      ...target("recruitments"),
       isLegacy: false,
       hasExplicitTab: false,
     };
   }
 
   return {
-    section: "summary",
-    activity: "timeline",
-    documents: "files",
+    ...target("summary"),
     isLegacy: Boolean(rawTab),
     hasExplicitTab: Boolean(rawTab),
+  };
+}
+
+/** Sprowadza stary klucz sekcji (`matching`, `emails`) do nowej zakładki. */
+export function normalizeProfileViewInput(
+  view: CandidateProfileViewInput,
+): ViewTarget {
+  if (view.section === "matching") {
+    return {
+      section: "recruitments",
+      activity: view.activity,
+      documents: view.documents,
+      recruitments: "matching",
+    };
+  }
+  if (view.section === "emails") {
+    return {
+      section: "activity",
+      activity: "emails",
+      documents: view.documents,
+      recruitments: view.recruitments ?? "list",
+    };
+  }
+  return {
+    section: view.section,
+    activity: view.activity,
+    documents: view.documents,
+    recruitments: view.recruitments ?? "list",
   };
 }
 
 /** Preserve unrelated context (`nav`, filters, `from`, `jobId`, `msg`). */
 export function withCandidateProfileView(
   current: URLSearchParams,
-  view: Pick<CandidateProfileView, "section" | "activity" | "documents">,
+  input: CandidateProfileViewInput,
 ): URLSearchParams {
+  const view = normalizeProfileViewInput(input);
   const next = new URLSearchParams(current.toString());
   next.set("tab", view.section);
 
@@ -226,6 +289,10 @@ export function withCandidateProfileView(
 
   if (view.section === "documents") next.set("documents", view.documents);
   else next.delete("documents");
+
+  if (view.section === "recruitments" && view.recruitments === "matching") {
+    next.set("recruitments", "matching");
+  } else next.delete("recruitments");
 
   return next;
 }

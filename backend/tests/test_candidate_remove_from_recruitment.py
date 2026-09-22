@@ -175,3 +175,27 @@ async def test_remove_from_recruitment_cascades_cv_snapshot(
             )
         ).scalar_one_or_none()
     assert remaining is None, "CV snapshot should be cascade-deleted with the stage"
+
+
+async def test_history_carries_client_name_of_the_recruitment(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Karta rekrutacji na profilu kandydata mówi, u KOGO jest proces."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.job import Job
+
+    candidate_id = await _seed_candidate()
+    job_id = await _seed_job()
+    await _seed_stage(candidate_id, job_id, "new")
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        client = await db.get(Client, job.client_id)
+        expected = client.name
+
+    r = await app_client.get(
+        f"/api/candidates/{candidate_id}/history", headers=app_auth_headers
+    )
+    assert r.status_code == 200, r.text
+    (entry,) = [j for j in r.json()["jobs"] if j["job_id"] == job_id]
+    assert entry["client_name"] == expected

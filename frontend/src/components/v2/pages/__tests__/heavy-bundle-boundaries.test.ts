@@ -63,16 +63,47 @@ const CASES: Array<{
   why: string;
 }> = [
   {
-    label: "CandidateDetailV2 → edytor draftu umowy",
-    file: "components/v2/pages/CandidateDetailV2.tsx",
+    // Od 09.2026 zakładka „Pliki i umowy” żyje w osobnym pliku, a profil
+    // (`CandidateDetailV2`) importuje ją statycznie — więc granica musi stać
+    // TUTAJ, inaczej TipTap wraca do chunku trasy.
+    label: "Profil kandydata → edytor draftu umowy",
+    file: "components/v2/candidate-profile/FilesContractsTab.tsx",
     heavy: /^@tiptap\//,
-    lazyModule: "./ContractDraftEditor",
+    lazyModule: "@/components/v2/pages/ContractDraftEditor",
     why:
       "TipTap/ProseMirror wraca do chunku trasy /candidates/[id] — najcięższej " +
       "w aplikacji — mimo że edytor renderuje się tylko za ścieżką " +
-      "Dokumenty → Umowy → draft.",
+      "Pliki i umowy → istniejący draft.",
+  },
+  {
+    label: "Profil kandydata → edycja CV firmowego",
+    file: "components/v2/candidate-profile/RecruitmentsTab.tsx",
+    heavy: /^@tiptap\/|CVBrandedEditModal$/,
+    lazyModule: "@/components/v2/modals/CVBrandedEditModal",
+    why:
+      "Modal edycji brandowanego CV (TipTap) renderuje się dopiero po " +
+      "kliknięciu na karcie rekrutacji — statyczny import wciąga go do " +
+      "każdego otwarcia profilu.",
   },
 ];
+
+it("profil kandydata nie importuje statycznie edytorów TipTapa", () => {
+  // Orkiestrator i każdy plik zakładki — żaden nie może wciągać edytorów.
+  const dir = path.join(SRC, "components/v2/candidate-profile");
+  const files = [
+    path.join(SRC, "components/v2/pages/CandidateDetailV2.tsx"),
+    ...fs
+      .readdirSync(dir)
+      .filter((name) => /\.tsx?$/.test(name))
+      .map((name) => path.join(dir, name)),
+  ];
+  const offenders = files.flatMap((file) =>
+    staticSpecifiers(fs.readFileSync(file, "utf8"))
+      .filter((spec) => /^@tiptap\/|ContractDraftEditor$|CVBrandedEditModal$/.test(spec))
+      .map((spec) => `${path.relative(SRC, file)} → ${spec}`),
+  );
+  expect(offenders).toEqual([]);
+});
 
 describe("ciężkie biblioteki zostają za granicą next/dynamic", () => {
   for (const testCase of CASES) {

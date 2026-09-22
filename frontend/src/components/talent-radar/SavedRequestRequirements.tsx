@@ -45,9 +45,9 @@ function Editor({ jobId, contract, canEdit, onSaved }: { jobId: number; contract
   </div>;
 }
 
-export function SavedRequestRequirements({ jobId, canEdit, onSaved }: { jobId: number; canEdit: boolean; onSaved: () => void }) {
+export function SavedRequestRequirements({ jobId, canEdit, onSaved, defaultOpen = false }: { jobId: number; canEdit: boolean; onSaved: () => void; defaultOpen?: boolean }) {
   const query = useQuery({ queryKey: ["matching-requirements", jobId], queryFn: () => matchingRequirementsApi.get(jobId) });
-  return <details className="rounded-lg border bg-card p-4">
+  return <details className="rounded-lg border bg-card p-4" open={defaultOpen || undefined}>
     <summary className="cursor-pointer font-medium">Wymagania wyszukiwania</summary>
     {query.isPending ? <p role="status">Wczytuję wymagania…</p> : query.error ? <p role="alert">{extractErrorMsg(query.error)}</p> : query.data &&
       <Editor key={`${jobId}:${JSON.stringify(query.data)}`} jobId={jobId} contract={query.data} canEdit={canEdit} onSaved={onSaved} />}
