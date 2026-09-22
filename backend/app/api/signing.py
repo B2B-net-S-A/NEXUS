@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.contract_access import assert_contract_legal_contract_access
-from app.api.deps import CurrentUser, TacPlus, require_roles
+from app.api.deps import CurrentUser, DeliveryLeadPlus, require_roles
 from app.api.section_access import ProductSection, require_section_access
 from app.core.config import settings
 from app.core.database import get_db
@@ -74,7 +74,7 @@ def _require_enabled() -> None:
 async def send_for_signature(
     contract_id: int,
     payload: SignForSignatureRequest,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> SignForSignatureResponse:
     """Create the signature, mint the link, return the shareable URL. 202."""
@@ -101,7 +101,7 @@ async def send_for_signature(
 )
 async def mark_sent_offline(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Offline (e-mail) flow: record the contract as sent → 'Umowa wysłana'.
@@ -195,7 +195,7 @@ async def get_signature(
 )
 async def withdraw_signature(
     signature_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Withdraw a pending signature (revokes the public link via expiry)."""
@@ -248,7 +248,7 @@ async def withdraw_signature(
 )
 async def regenerate_link(
     signature_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Mint a fresh single-use link for a still-pending signature."""

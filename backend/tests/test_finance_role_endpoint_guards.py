@@ -58,7 +58,7 @@ from app.api import (
     reports,
     signing,
 )
-from app.api.deps import AdminUser, DeliveryLeadPlus, HeadOfRecruitmentPlus, TacPlus
+from app.api.deps import AdminUser, DeliveryLeadPlus, HeadOfRecruitmentPlus
 from app.api.financial_access import (
     FinanceApproveUser,
     FinanceManageUser,
@@ -638,8 +638,9 @@ async def test_finance_draft_print_preview_does_not_persist_default_template(
         contracts.create_contract_equipment,
     ],
 )
-def test_contract_mutations_keep_tac_plus(endpoint):
-    assert _current_user_annotation(endpoint) == TacPlus
+def test_contract_mutations_are_delivery_lead_plus(endpoint):
+    # Do 22.09.2026 TacPlus — TAC i tak odcinała sekcja Delivery (audyt U7).
+    assert _current_user_annotation(endpoint) == DeliveryLeadPlus
 
 
 def test_candidate_finance_read_is_split_from_candidate_finance_write():
@@ -956,7 +957,7 @@ def test_contract_signature_reads_include_finance_without_signature_actions():
         signing.send_for_signature,
         signing.withdraw_signature,
     ):
-        assert _current_user_annotation(endpoint) == TacPlus
+        assert _current_user_annotation(endpoint) == DeliveryLeadPlus
 
 
 def test_finance_calendar_oversight_is_read_only():
