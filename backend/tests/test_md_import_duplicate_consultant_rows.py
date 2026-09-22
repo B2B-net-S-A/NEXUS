@@ -399,6 +399,50 @@ async def test_reimporting_the_split_month_does_not_move_md_twice(
     assert next_line["md_remaining"] == pytest.approx(40.0)
 
 
+async def test_reimport_after_materialization_does_not_double_count(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Audyt 22.09 r2 (FIN-MD-01): po materializacji następca jest ``active``,
+    więc powtórka importu dopasowywała wiersz do NASTĘPCY i zapisywała na nim
+    pełne 30 MD — a 20 MD poprzednika za ten sam miesiąc zostawało (MD liczone
+    dwa razy, następcy zostawało 20 zamiast 40)."""
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
+    )
+    successor_start = _TODAY - timedelta(days=5)
+    successor = await _extend(
+        app_client,
+        app_auth_headers,
+        client_id,
+        group["id"],
+        start=successor_start,
+        lines=[
+            dict(
+                _md_line(contracts[0], 50),
+                start_date=successor_start.isoformat(),
+            )
+        ],
+    )
+    finance = await _finance_headers(app_client)
+    payload = _sheet([(names[0], 30)])
+
+    first = await _import(app_client, finance, payload)
+    assert first["rows_applied"] == 1, first
+    assert (await _line_of(app_client, app_auth_headers, client_id, successor["id"]))[
+        "is_active"
+    ] is True, "kontynuacja powinna się zmaterializować"
+
+    second = await _import(app_client, finance, payload)
+    assert second["rows_applied"] == 1, second
+
+    current_line = await _line_of(app_client, app_auth_headers, client_id, group["id"])
+    next_line = await _line_of(app_client, app_auth_headers, client_id, successor["id"])
+    assert current_line["md_remaining"] == pytest.approx(0.0)
+    assert next_line["md_remaining"] == pytest.approx(40.0)
+
+
 async def test_raising_the_budget_takes_the_md_back_from_the_continuation(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):

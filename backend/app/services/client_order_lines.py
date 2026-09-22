@@ -1528,6 +1528,11 @@ class MdConsumptionOutcome:
     transferred: Decimal
     successor_order: Optional[ClientOrder]
     successor_group: Optional[ClientOrderGroup]
+    #: Linia (i jej grupa), na której faktycznie zaczęło się rozliczenie
+    #: miesiąca — po przekierowaniu na poprzednika (FIN-MD-01) inna niż ta,
+    #: którą podał wołający.
+    order: Optional[ClientOrder] = None
+    group: Optional[ClientOrderGroup] = None
 
 
 async def successor_line_for(
@@ -1584,6 +1589,59 @@ async def successor_line_for(
     ]
     if len(by_candidate) == 1:
         return by_candidate[0], successor
+    return None, None
+
+
+async def predecessor_line_for(
+    db: AsyncSession, order: ClientOrder
+) -> tuple[Optional[ClientOrder], Optional[ClientOrderGroup]]:
+    """Linia TEGO SAMEGO konsultanta w zamówieniu-poprzedniku (lustro
+    :func:`successor_line_for`).
+
+    Audyt 22.09 r2 (FIN-MD-01). Po materializacji następca jest ``active``,
+    więc powtórka importu miesiąca, w którym nadwyżka przeszła na następcę,
+    dopasowywała wiersz do NASTĘPCY (``prefer_active_line``) i zapisywała na
+    nim pełną liczbę — a wpis poprzednika za ten miesiąc zostawał. 20 MD
+    liczone podwójnie. Podział miesiąca zaczyna się zawsze od poprzednika.
+
+    Ta sama reguła dopasowania: najpierw ``contract_id``, potem kandydat;
+    niejednoznaczność = pustka (bez zgadywania).
+    """
+    if order.order_group_id is None:
+        return None, None
+    group = await db.get(ClientOrderGroup, order.order_group_id)
+    if group is None or group.predecessor_group_id is None:
+        return None, None
+    predecessor = await db.get(ClientOrderGroup, group.predecessor_group_id)
+    if predecessor is None:
+        return None, None
+    lines = list(
+        (
+            await db.scalars(
+                _line_query().where(ClientOrder.order_group_id == predecessor.id)
+            )
+        ).all()
+    )
+    open_lines = [
+        line
+        for line in lines
+        if line.md_total is not None and line.status != ClientOrderStatus.cancelled
+    ]
+    by_contract = [line for line in open_lines if line.contract_id == order.contract_id]
+    if len(by_contract) == 1:
+        return by_contract[0], predecessor
+    if by_contract:
+        return None, None
+    wanted = order.contract.candidate_id if order.contract else None
+    if wanted is None:
+        return None, None
+    by_candidate = [
+        line
+        for line in open_lines
+        if line.contract is not None and line.contract.candidate_id == wanted
+    ]
+    if len(by_candidate) == 1:
+        return by_candidate[0], predecessor
     return None, None
 
 
@@ -1645,6 +1703,25 @@ async def apply_md_consumption(
     successor_line: Optional[ClientOrder] = None
     successor_group: Optional[ClientOrderGroup] = None
     if allow_successor_transfer:
+        # Audyt 22.09 r2 (FIN-MD-01): miesiąc już raz podzielony z poprzednika
+        # rozliczamy ZNOWU od poprzednika — inaczej powtórka importu po
+        # materializacji zapisałaby całość na następcy, a wpis poprzednika
+        # za ten miesiąc zostałby (MD liczone dwa razy).
+        pred_line, pred_group = await predecessor_line_for(db, order)
+        if pred_line is not None and (
+            await db.scalar(
+                select(ClientOrderMdConsumption.id).where(
+                    ClientOrderMdConsumption.order_id == pred_line.id,
+                    ClientOrderMdConsumption.period_month == period_month,
+                )
+            )
+        ):
+            await db.scalar(
+                select(ClientOrder.id)
+                .where(ClientOrder.id == pred_line.id)
+                .with_for_update()
+            )
+            order, group = pred_line, pred_group
         successor_line, successor_group = await successor_line_for(db, order)
 
     applied = value
@@ -1719,6 +1796,8 @@ async def apply_md_consumption(
         transferred=overflow,
         successor_order=successor_line,
         successor_group=successor_group,
+        order=order,
+        group=group,
     )
 
 
