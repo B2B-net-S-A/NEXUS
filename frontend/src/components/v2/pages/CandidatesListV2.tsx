@@ -1518,8 +1518,12 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
           )}
 
           <div className="overflow-x-auto overflow-y-hidden rounded-lg border border-border bg-card">
+            {/* Nagłówek kolumn to zwykłe etykiety, bez ról tabeli: wiersze są
+                `role="group"` (checkbox i przyciski w środku), a połowiczne
+                role `row`/`columnheader` bez `table` łamią ARIA (axe:
+                aria-required-parent / aria-required-children). */}
             <div
-              role="row"
+              data-testid="candidate-list-header"
               className="sticky top-0 z-10 grid h-10 items-center gap-3 border-b border-border bg-muted/60 px-4 text-xs font-semibold text-muted-foreground"
               style={{ gridTemplateColumns: GRID_TEMPLATE, minWidth: `${GRID_MIN_WIDTH}px` }}
             >
@@ -1533,7 +1537,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                 />
               </div>
               {TABLE_COLUMNS.map((col) => (
-                <div key={col.id} role="columnheader" className="truncate">
+                <div key={col.id} data-column-header className="truncate">
                   {col.label}
                 </div>
               ))}
