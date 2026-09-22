@@ -43,10 +43,10 @@ Wszystkie 48 ustaleń sprawdzono na `main` 4920ee1 (o 13 commitów nowszym niż 
 | SIG-01…05 | naprawione + moduł wyłączony (`SIGNING_ENABLED=false`) | `test_signing_finalize_integrity.py`; `upload-signed` usunięty |
 | CAL-01 | naprawione | walidacja przed wysłaniem zmiany do Outlooka; `test_calendar_outlook_update.py` |
 | CV-01 | naprawione | GET bez zapisu, `finalize`/`review` przyjmują `none` |
-| INT-04/05/07 | naprawione | rezerwacja wiersza przed wywołaniem Graph, `send_state` (migracja 0341), `client_request_id`; `test_m365_send_once.py` |
+| INT-04/05/07 | naprawione | rezerwacja wiersza przed wywołaniem Graph, `send_state` (migracja 0342), `client_request_id`; `test_m365_send_once.py` |
 | INT-06 | naprawione | brak ponowień POST po timeoucie, `transactionId` |
 | INT-08 | naprawione | błąd listowania załączników zatrzymuje kursor, ponowienia `download_failed[n]`; `test_m365_attachment_retry.py` |
-| INT-14 | naprawione | dopasowanie po `internetMessageId` + jednorazowe usunięcie duplikatów (`0341_m365_email_dedupe`); `test_m365_email_identity.py` |
+| INT-14 | naprawione | dopasowanie po `internetMessageId` + jednorazowe usunięcie duplikatów (`0342_m365_email_dedupe`); `test_m365_email_identity.py` |
 | INT-01…03 | naprawione (moduł wyłączony) | `services/cloudtalk_candidate.py`; `test_audit_cloudtalk_sync_int.py` |
 | INT-09/10 | naprawione (moduł wyłączony) | `services/autenti/activity_log.py`; `test_audit_autenti_int.py` |
 | INT-11…13 | naprawione | paginacja, `DateTime`, znacznik ostatniej synchronizacji przesuwany tylko przy braku błędów; dodatkowo naprawiony zapis notatek (ON CONFLICT); `test_audit_fireflies_sync_int.py` |
@@ -77,7 +77,7 @@ Wszystkie 48 ustaleń sprawdzono na `main` 4920ee1 (o 13 commitów nowszym niż 
 
 ## Po wdrożeniu
 
-1. `/api/health` pokazuje nowy SHA, `/api/health/alembic` nie pokazuje dryfu, a paragon `0341_m365_email_dedupe` jest w `app_settings`.
+1. `/api/health` pokazuje nowy SHA, `/api/health/alembic` nie pokazuje dryfu, a paragon `0342_m365_email_dedupe` jest w `app_settings`.
 2. Logi WARNING z trybu cienia OAuth przez tydzień. Brakujące trasy dopisać do mapy, potem ustawić `OAUTH_ROUTE_SCOPES_ENFORCE=true`.
 3. `scripts/eval_matching.py`: porównanie przed i po SCV-01/02 (Precision@5, MRR).
 4. Po zielonym E2E dodać „E2E stack (ci-chromium)” do rulesetu 22799346.

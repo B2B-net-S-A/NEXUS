@@ -5210,7 +5210,7 @@ Raport: `docs/audyt-nexus-2026-09-22.md`, naprawa: `docs/audit-2026-09-22-remedi
   Konto bez hasła (SSO, zaślepka Traffita) dostaje 400 przy zmianie hasła,
   `/auth/me` niesie `has_password`.
 - **Wysyłka maila M365 jest jednorazowa**: wiersz `Email` rezerwowany PRZED
-  Graphem (`send_state` pending/sent/uncertain, migracja 0341), klucz =
+  Graphem (`send_state` pending/sent/uncertain, migracja 0342), klucz =
   użytkownik + `client_request_id` z okna compose/reply. `uncertain` NIE jest
   „do ponowienia" — to „nie wiadomo, czy wyszło". `GraphClient` nie ponawia POST
   po `ReadTimeout`/`ReadError` (tylko `retry_unsafe=True` dla odczytów jak

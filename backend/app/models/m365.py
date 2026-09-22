@@ -249,7 +249,7 @@ class Email(Base, TimestampMixin):
     # partial index in migration 0102 enforces uniqueness only on NOT NULL.
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
 
-    # 0341 (INT-04/05/07) — stan wiersza zarezerwowanego przed Graphem:
+    # 0342 (INT-04/05/07) — stan wiersza zarezerwowanego przed Graphem:
     # ``pending`` (wysyłka w toku), ``sent``, ``uncertain`` (szkic powstał,
     # odpowiedź na wysyłkę zginęła — nie wiadomo, czy mail wyszedł).
     # NULL = wiersz sprzed zmiany albo z synchronizacji (jak ``sent``).
