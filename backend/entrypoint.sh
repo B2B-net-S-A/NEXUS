@@ -4751,6 +4751,10 @@ _COLUMN_STATEMENTS = [
     # odczyt użytkownika (w tym logowanie) pada na UndefinedColumnError.
     # Lustro 1:1 z migracją — pilnuje `test_jarvis_migration_mirror.py`.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS jarvis_prefs JSONB NOT NULL DEFAULT '{}'::jsonb",
+    # 0348: wyciszone kategorie powiadomień. Model `User` deklaruje kolumnę —
+    # bez niej każdy odczyt użytkownika (w tym logowanie) pada. Lustro 1:1
+    # z migracją — pilnuje `test_notification_categories.py`.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS muted_notification_categories JSONB NOT NULL DEFAULT '{}'::jsonb",
     """CREATE TABLE IF NOT EXISTS jarvis_conversations (
         id UUID PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

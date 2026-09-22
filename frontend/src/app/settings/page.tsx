@@ -37,6 +37,7 @@ import { formatRelativeTime } from "@/lib/utils";
 import Link from "next/link";
 import { SettingsBreadcrumb } from "@/components/settings/SettingsBreadcrumb";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
+import { NotificationPreferencesPanel } from "@/components/settings/NotificationPreferencesPanel";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
@@ -530,6 +531,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
       return <NotificationDeliverySettings />;
     case "outlook":
       return <Microsoft365Card />;
+    case "my-notifications":
+      return <NotificationPreferencesPanel />;
     case "people":
       return <AdminUsersTab embedded />;
     case "stages":

@@ -25,7 +25,7 @@ export interface SettingsArea {
 }
 
 export const SETTINGS_AREAS: readonly SettingsArea[] = [
-  { id: "me", name: "Moje konto", hint: "Outlook i kalendarz" },
+  { id: "me", name: "Moje konto", hint: "Outlook, kalendarz i moje powiadomienia" },
   { id: "team", name: "Zespół i dostęp", hint: "Kto ma konto, co widzi i którego klienta prowadzi" },
   { id: "rec", name: "Rekrutacja", hint: "Etapy, CV dla klientów, ranking, maile" },
   { id: "deals", name: "Umowy i stawki", hint: "Wzory umów, stawki rynkowe" },
@@ -34,6 +34,7 @@ export const SETTINGS_AREAS: readonly SettingsArea[] = [
 
 export type SettingsItemId =
   | "outlook"
+  | "my-notifications"
   | "people"
   | "assign"
   | "stages"
@@ -90,6 +91,12 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     id: "outlook", area: "me", title: "Outlook i kalendarz",
     description: "Podłącz swoją skrzynkę i kalendarz Microsoft 365.",
     keywords: "poczta mail m365 microsoft skrzynka integracje",
+    gate: {},
+  },
+  {
+    id: "my-notifications", area: "me", title: "Moje powiadomienia",
+    description: "Wybierz, które powiadomienia mają do Ciebie trafiać.",
+    keywords: "powiadomienia dzwonek wycisz wylacz alerty przypomnienia kategorie",
     gate: {},
   },
   {

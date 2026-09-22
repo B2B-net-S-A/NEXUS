@@ -49,6 +49,8 @@ import {
   ListChecks,
   Workflow,
   ClipboardList,
+  BellOff,
+  Settings2,
 } from "lucide-react";
 import { notificationsApi } from "@/lib/api";
 import {
@@ -70,6 +72,11 @@ import {
 import { useNotifications, WsNotification } from "@/hooks/useNotifications";
 import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackModal";
 import { useAuthStore } from "@/store/auth";
+import { useSetNotificationCategoryMuted } from "@/lib/api/notificationPreferences";
+import { apiErrorMessage } from "@/lib/api-error";
+
+/** Ustawienia „Moje powiadomienia" (Ustawienia → Moje konto). */
+export const MY_NOTIFICATIONS_SETTINGS_HREF = "/settings?item=my-notifications";
 
 type Notification = {
   id: number;
@@ -81,6 +88,9 @@ type Notification = {
   is_read: boolean;
   created_at?: string | null;
   on_behalf_of_name?: string | null;
+  category?: string | null;
+  category_label?: string | null;
+  category_mutable?: boolean;
 };
 
 const TYPE_CONFIG: Record<
@@ -526,6 +536,32 @@ export function NotificationsDropdown() {
     },
   });
 
+  // „Nie pokazuj takich" — wycisza całą kategorię (0348). Ostatnie wyciszenie
+  // zostaje nad listą z „Cofnij", bo pozycja znika z listy od razu.
+  const muteMutation = useSetNotificationCategoryMuted();
+  const [lastMuted, setLastMuted] = useState<{
+    key: string;
+    label: string;
+  } | null>(null);
+  const muteCategory = (notif: Notification) => {
+    if (!notif.category || !notif.category_mutable) return;
+    const muted = {
+      key: notif.category,
+      label: notif.category_label || notif.category,
+    };
+    muteMutation.mutate(
+      { category: muted.key, muted: true },
+      { onSuccess: () => setLastMuted(muted) },
+    );
+  };
+  const undoMute = () => {
+    if (!lastMuted) return;
+    muteMutation.mutate(
+      { category: lastMuted.key, muted: false },
+      { onSuccess: () => setLastMuted(null) },
+    );
+  };
+
   const markAllMutation = useMutation({
     mutationFn: () => notificationsApi.markAllRead(),
     onSuccess: () => {
@@ -593,19 +629,60 @@ export function NotificationsDropdown() {
                   </span>
                 )}
               </div>
-              {/* „Oznacz wszystko” oznacza tylko WŁASNE — przy samych
-                  przypomnieniach w zastępstwie klik nic by nie zmienił. */}
-              {unreadCount > 0 && (data?.own_unread_count ?? unreadCount) > 0 && (
+              <div className="flex items-center gap-3">
+                {/* „Oznacz wszystko” oznacza tylko WŁASNE — przy samych
+                    przypomnieniach w zastępstwie klik nic by nie zmienił. */}
+                {unreadCount > 0 && (data?.own_unread_count ?? unreadCount) > 0 && (
+                  <button
+                    onClick={() => markAllMutation.mutate()}
+                    disabled={markAllMutation.isPending}
+                    className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 font-medium transition-colors"
+                  >
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    Oznacz wszystko jako przeczytane
+                  </button>
+                )}
                 <button
-                  onClick={() => markAllMutation.mutate()}
-                  disabled={markAllMutation.isPending}
-                  className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 font-medium transition-colors"
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    router.push(MY_NOTIFICATIONS_SETTINGS_HREF);
+                  }}
+                  aria-label="Ustawienia powiadomień"
+                  title="Ustawienia powiadomień"
+                  className="p-1 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                 >
-                  <CheckCheck className="w-3.5 h-3.5" />
-                  Oznacz wszystko jako przeczytane
+                  <Settings2 className="w-4 h-4" />
                 </button>
-              )}
+              </div>
             </div>
+
+            {lastMuted && (
+              <div
+                role="status"
+                className="flex items-center justify-between gap-2 px-4 py-2 border-b border-border bg-muted text-xs text-foreground"
+              >
+                <span className="min-w-0">
+                  Wyłączono: <span className="font-medium">{lastMuted.label}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={undoMute}
+                  disabled={muteMutation.isPending}
+                  className="shrink-0 font-medium text-primary hover:text-primary/80 disabled:opacity-50"
+                >
+                  Cofnij
+                </button>
+              </div>
+            )}
+            {muteMutation.isError && (
+              <div
+                role="alert"
+                className="px-4 py-2 border-b border-border text-xs text-destructive"
+              >
+                {apiErrorMessage(muteMutation.error, "Nie udało się zmienić ustawień powiadomień.")}
+              </div>
+            )}
 
             {/* List */}
             <div className="max-h-[420px] overflow-y-auto">
@@ -620,7 +697,7 @@ export function NotificationsDropdown() {
                     const cfg = TYPE_CONFIG[notif.notification_type] || FALLBACK_TYPE_CONFIG;
                     const onBehalf = notificationOnBehalfLabel(notif);
                     return (
-                      <li key={notif.id} className="border-b border-border last:border-b-0">
+                      <li key={notif.id} className="group relative border-b border-border last:border-b-0">
                         <div
                           role="button"
                           tabIndex={0}
@@ -671,6 +748,18 @@ export function NotificationsDropdown() {
                           <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-1">{notificationTimeAgo(notif.created_at)}</p>
                         </div>
                         </div>
+                        {notif.category_mutable && notif.category && (
+                          <button
+                            type="button"
+                            onClick={() => muteCategory(notif)}
+                            disabled={muteMutation.isPending}
+                            aria-label={`Nie pokazuj takich: ${notif.category_label ?? notif.category}`}
+                            title={`Nie pokazuj takich (${notif.category_label ?? notif.category})`}
+                            className="absolute right-2 bottom-2 p-1 rounded-md bg-card text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 hover:text-foreground transition-opacity disabled:opacity-50"
+                          >
+                            <BellOff className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </li>
                     );
                   })}

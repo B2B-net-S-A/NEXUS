@@ -3,6 +3,7 @@ Notifications API
 User notification system with unread badge support.
 """
 
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,6 +19,15 @@ from app.api.deps import CurrentUser
 from app.services.notification_access import (
     notification_types_for_sections,
     notification_visibility_predicate,
+    user_may_receive_type,
+)
+from app.services.notification_categories import (
+    CATEGORY_BY_TYPE,
+    CATEGORY_INFO,
+    NotificationCategory,
+    is_mutable,
+    muted_categories,
+    types_in,
 )
 from app.services.section_permissions import ProductSection
 from app.services.workforce_availability import operational_owner_ids
@@ -41,9 +51,25 @@ class NotificationResponse(BaseModel):
     # właściciela, żeby dzwonek mówił „w zastępstwie za …" zamiast udawać,
     # że to Twoja sprawa. ``None`` = powiadomienie własne.
     on_behalf_of_name: Optional[str] = None
+    # Kategoria z „Moje konto → Powiadomienia" (0348) — dzwonek pokazuje przy
+    # pozycji „Nie pokazuj takich" tylko dla kategorii, które wolno wyciszyć.
+    category: Optional[str] = None
+    category_label: Optional[str] = None
+    category_mutable: bool = False
 
     class Config:
         from_attributes = True
+
+
+def _category_fields(notification_type: NotificationType) -> dict:
+    category = CATEGORY_BY_TYPE.get(notification_type)
+    if category is None:
+        return {}
+    return {
+        "category": category.value,
+        "category_label": CATEGORY_INFO[category].label,
+        "category_mutable": is_mutable(category),
+    }
 
 
 class NotificationListResponse(BaseModel):
@@ -226,6 +252,7 @@ async def list_notifications(
                 if n.user_id != current_user.id
                 else None
             ),
+            **_category_fields(n.notification_type),
         )
         for n in notifications
     ]
@@ -290,6 +317,7 @@ async def mark_as_read(
         notification_type=notif.notification_type.value,
         is_read=notif.is_read,
         created_at=notif.created_at.isoformat() if notif.created_at else None,
+        **_category_fields(notif.notification_type),
     )
 
 
@@ -321,6 +349,160 @@ async def mark_all_read(
         updated=result.rowcount or 0,
         message="Wszystkie powiadomienia oznaczone jako przeczytane",
     )
+
+
+# ── Własne ustawienia: które kategorie powiadomień przychodzą (0348) ─────────
+
+
+class NotificationCategoryPreference(BaseModel):
+    key: str
+    label: str
+    description: str
+    mandatory: bool
+    muted: bool
+    # Ile powiadomień tej kategorii przyszło w ostatnich 30 dniach (także
+    # w czasie wyciszenia) — pomaga zdecydować, co wyłączyć.
+    received_30d: int
+
+
+class NotificationPreferencesResponse(BaseModel):
+    categories: List[NotificationCategoryPreference]
+
+
+class NotificationCategoryUpdate(BaseModel):
+    muted: bool
+
+
+# Typy kontekstowe nie mają stałej sekcji — decyduje link albo rodzaj czatu.
+# Kategoria jest pokazywana, gdy KTÓRYKOLWIEK z tych wariantów może dotrzeć.
+_CONTEXT_PROBES: dict[
+    NotificationType, tuple[tuple[Optional[str], Optional[str]], ...]
+] = {
+    NotificationType.job_chat_message: ((None, None), ("candidate_chat_message", None)),
+    NotificationType.job_chat_mention: ((None, None), ("candidate_chat_message", None)),
+    NotificationType.note_mention: tuple(
+        (None, link)
+        for link in ("/candidates", "/jobs", "/clients", "/insights", "/finance")
+    ),
+    NotificationType.pending_verification: ((None, "/jobs/0"),),
+}
+
+
+def _category_reachable(user: User, category: NotificationCategory) -> bool:
+    for ntype in types_in(category):
+        probes = _CONTEXT_PROBES.get(ntype, ((None, None),))
+        for related_entity_type, link in probes:
+            if user_may_receive_type(
+                user, ntype, related_entity_type=related_entity_type, link=link
+            ):
+                return True
+    return False
+
+
+async def _preferences_response(
+    db: AsyncSession, user: User
+) -> NotificationPreferencesResponse:
+    counts_rows = await db.execute(
+        select(Notification.notification_type, func.count())
+        .where(
+            Notification.user_id == user.id,
+            Notification.created_at >= func.now() - func.make_interval(0, 0, 0, 30),
+        )
+        .group_by(Notification.notification_type)
+    )
+    per_category: dict[NotificationCategory, int] = {}
+    for ntype, count in counts_rows.all():
+        category = CATEGORY_BY_TYPE.get(ntype)
+        if category is not None:
+            per_category[category] = per_category.get(category, 0) + int(count)
+
+    muted = muted_categories(user.muted_notification_categories)
+    return NotificationPreferencesResponse(
+        categories=[
+            NotificationCategoryPreference(
+                key=category.value,
+                label=info.label,
+                description=info.description,
+                mandatory=info.mandatory,
+                muted=category in muted,
+                received_30d=per_category.get(category, 0),
+            )
+            for category, info in CATEGORY_INFO.items()
+            if _category_reachable(user, category)
+        ]
+    )
+
+
+@router.get(
+    "/notifications/preferences", response_model=NotificationPreferencesResponse
+)
+async def get_notification_preferences(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Kategorie powiadomień, które mogą do mnie trafić, i czy są wyciszone."""
+    return await _preferences_response(db, current_user)
+
+
+@router.put(
+    "/notifications/preferences/{category}",
+    response_model=NotificationPreferencesResponse,
+)
+async def set_notification_category(
+    category: str,
+    payload: NotificationCategoryUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Włącza albo wycisza jedną kategorię — ze strony ustawień i z dzwonka.
+
+    Ponowne włączenie oznacza jako przeczytane powiadomienia tej kategorii
+    utworzone W CZASIE wyciszenia: bez tego dzwonek po włączeniu pokazałby
+    naraz wszystko, co przyszło przez ten czas. Starsze nieprzeczytane
+    zostają — „Cofnij" tuż po wyciszeniu niczego nie gasi.
+    """
+    try:
+        target = NotificationCategory(category)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Nieznana kategoria powiadomień")
+    if not is_mutable(target):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Kategorii „{CATEGORY_INFO[target].label}” nie można wyłączyć.",
+        )
+
+    # Blokada wiersza: dwie karty zmieniające różne kategorie naraz nie mogą
+    # nadpisać sobie nawzajem słownika wyciszeń.
+    await db.refresh(current_user, with_for_update=True)
+    stored = dict(current_user.muted_notification_categories or {})
+    key = target.value
+
+    if payload.muted and key not in stored:
+        stored[key] = datetime.now(timezone.utc).isoformat()
+        current_user.muted_notification_categories = stored
+    elif not payload.muted and key in stored:
+        muted_at_raw = stored.pop(key)
+        current_user.muted_notification_categories = stored
+        try:
+            muted_at = datetime.fromisoformat(str(muted_at_raw))
+        except ValueError:
+            muted_at = None
+        if muted_at is not None:
+            await db.execute(
+                update(Notification)
+                .where(
+                    Notification.user_id == current_user.id,
+                    Notification.is_read.is_(False),
+                    Notification.notification_type.in_(
+                        sorted(types_in(target), key=str)
+                    ),
+                    Notification.created_at >= muted_at,
+                )
+                .values(is_read=True)
+            )
+    await db.commit()
+    await db.refresh(current_user)
+    return await _preferences_response(db, current_user)
 
 
 # ── Helper — create notifications from other endpoints ────────────────────────
