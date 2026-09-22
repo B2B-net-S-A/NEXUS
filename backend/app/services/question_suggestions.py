@@ -35,6 +35,7 @@ from app.models.cc_feedback import JobSecondaryCc
 from app.models.client_knowledge import ClientKnowledge, KnowledgeCategory
 from app.models.interview_question import (
     InterviewQuestion,
+    InterviewQuestionSource,
     JobQuestion,
 )
 from app.models.job import Job
@@ -54,7 +55,9 @@ class SuggestedQuestion:
     """Zserializowany kawałek pytania zwrócony do prep-kita."""
 
     text: str
-    source_tier: str  # "pinned" | "legacy_champion" | "tier_1_same_cc" |
+    source_tier: (
+        str  # "pinned" | "legacy_champion" | "client_debrief" | "tier_1_same_cc" |
+    )
     # "tier_2_secondary_cc" | "tier_3_client_knowledge" | "tier_4_auto_generated"
     question_id: Optional[int] = None
     source_job_id: Optional[int] = None
@@ -114,6 +117,28 @@ async def _tier_pinned(db: AsyncSession, job: Job) -> list[SuggestedQuestion]:
         for link in links
         if link.question is not None
     ]
+
+
+# Pytania z debriefów po rozmowach u klienta (0338): klient pyta w kółko o to
+# samo, więc to najlepsze źródło do prepu następnej osoby. Sufit, bo lista
+# rośnie z każdą rozmową, a prep ma być krótki.
+CLIENT_DEBRIEF_LIMIT = 15
+
+
+async def _tier_client_debrief(db: AsyncSession, job: Job) -> list[SuggestedQuestion]:
+    """Pytania, które TEN klient zadawał kandydatom (najnowsze najpierw)."""
+    if job.client_id is None:
+        return []
+    result = await db.execute(
+        select(InterviewQuestion)
+        .where(
+            InterviewQuestion.client_id == job.client_id,
+            InterviewQuestion.source == InterviewQuestionSource.client_debrief,
+        )
+        .order_by(InterviewQuestion.created_at.desc(), InterviewQuestion.id.desc())
+        .limit(CLIENT_DEBRIEF_LIMIT)
+    )
+    return [_q_from_iq(iq, "client_debrief") for iq in result.scalars().all()]
 
 
 def _tier_legacy_champion(job: Job) -> list[SuggestedQuestion]:
@@ -534,6 +559,14 @@ async def suggest_questions_for_prep(
     # Always-on
     buckets.append(await _tier_pinned(db, job))
     buckets.append(_tier_legacy_champion(job))
+    requirement_names = job_requirement_names(job)
+    buckets.append(
+        [
+            q
+            for q in await _tier_client_debrief(db, job)
+            if _fits_job(q, requirement_names)
+        ]
+    )
 
     # Dolewamy fallbacki tylko jeśli brak
     current_unique: set[str] = set()
@@ -542,7 +575,6 @@ async def suggest_questions_for_prep(
             current_unique.add(_normalize_dedup_key(q.text))
 
     degraded = False
-    requirement_names = job_requirement_names(job)
 
     if len(current_unique) < target_count:
         tier1, tier1_degraded = await _tier_same_cc_similar(db, job)

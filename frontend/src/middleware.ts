@@ -336,7 +336,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/finance-order-pdfs`,
 //   `/preview/contract-candidate-contact`, `/preview/cv-search`,
 //   `/preview/recruitment-v3`,
-//   `/preview/jobs-list-v3`
+//   `/preview/jobs-list-v3`, `/preview/calendar-cycle`
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
 //                  Renderują wyłącznie zahardkodowane mocki i nie wołają
@@ -391,6 +391,7 @@ const PUBLIC_PATHS = [
   "/preview/recruitment-v3",
   "/preview/my-people",
   "/preview/custom-dashboard",
+  "/preview/calendar-cycle",
 ];
 
 function isPublicPath(pathname: string): boolean {

@@ -98,6 +98,11 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     # pipeline'u tej rekrutacji.
     NotificationType.my_people_match: ProductSection.pipeline,
     NotificationType.saved_search_reapproval: ProductSection.sourcing,
+    # 0338: cykl rozmowy u klienta (terminy od klienta) — sekcja kalendarza.
+    NotificationType.interview_slots_requested: ProductSection.pipeline,
+    NotificationType.interview_slot_chosen: ProductSection.pipeline,
+    NotificationType.interview_slot_confirmed: ProductSection.pipeline,
+    NotificationType.interview_debrief_saved: ProductSection.pipeline,
 }
 
 CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(

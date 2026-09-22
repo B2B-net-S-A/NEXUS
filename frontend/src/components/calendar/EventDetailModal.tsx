@@ -478,7 +478,10 @@ export function changedEventFields(
   if (form.reminder_minutes !== initial.reminder_minutes) {
     out.reminder_minutes = form.reminder_minutes;
   }
-  if (outlook || event.all_day) {
+  // 0338: termin, tytuł, miejsce i opis wydarzenia z Outlooka idą do Outlooka
+  // organizatora (serwer przepycha je PATCH-em przed zapisem lokalnym).
+  // Całodniowe z Outlooka dalej edytujemy wyłącznie w Outlooku.
+  if (event.all_day) {
     if (!outlook && form.title.trim() !== initial.title) out.title = form.title.trim();
     if (!outlook && form.location !== initial.location) out.location = form.location || null;
     if (!outlook && form.description !== initial.description) {
@@ -522,11 +525,11 @@ function EventEditForm({
 
   const submit = () => {
     setError(null);
-    if (!outlook && !form.title.trim()) {
+    if (!(outlook && event.all_day) && !form.title.trim()) {
       setError("Tytuł jest wymagany.");
       return;
     }
-    if (!outlook && !event.all_day) {
+    if (!event.all_day) {
       if (!form.start_time) {
         setError("Czas rozpoczęcia jest wymagany.");
         return;
@@ -548,13 +551,13 @@ function EventEditForm({
     <div className="space-y-3" data-testid="calendar-event-edit-form">
       {outlook ? (
         <p className="text-xs text-muted-foreground bg-muted rounded-lg px-3 py-2">
-          To wydarzenie pochodzi z Outlooka — termin, tytuł, miejsce i uczestników
-          zmieniasz w Outlooku. Tutaj ustawisz typ, kandydata, rekrutację
-          i przypomnienie.
+          {event.all_day
+            ? "To wydarzenie pochodzi z Outlooka — termin, tytuł, miejsce i uczestników zmieniasz w Outlooku. Tutaj ustawisz typ, kandydata, rekrutację i przypomnienie."
+            : "To wydarzenie pochodzi z Outlooka — zmiana terminu, tytułu, miejsca lub opisu trafi też do Outlooka i do uczestników. Uczestników zmieniasz w Outlooku."}
         </p>
       ) : null}
 
-      {!outlook && (
+      {!(outlook && event.all_day) && (
         <div>
           <label htmlFor="event-edit-title" className="text-xs font-semibold text-muted-foreground block mb-1">
             Tytuł
@@ -586,7 +589,7 @@ function EventEditForm({
         </select>
       </div>
 
-      {!outlook && !event.all_day && (
+      {!event.all_day && (
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label htmlFor="event-edit-start" className="text-xs font-semibold text-muted-foreground block mb-1">
@@ -647,7 +650,7 @@ function EventEditForm({
         />
       </div>
 
-      {!outlook && (
+      {!(outlook && event.all_day) && (
         <div>
           <label htmlFor="event-edit-location" className="text-xs font-semibold text-muted-foreground block mb-1">
             Lokalizacja
@@ -683,7 +686,7 @@ function EventEditForm({
         </select>
       </div>
 
-      {!outlook && (
+      {!(outlook && event.all_day) && (
         <div>
           <label htmlFor="event-edit-description" className="text-xs font-semibold text-muted-foreground block mb-1">
             Opis

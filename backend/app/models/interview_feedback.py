@@ -16,6 +16,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     SmallInteger,
+    String,
     Text,
     UniqueConstraint,
 )
@@ -82,6 +83,11 @@ class InterviewFeedback(Base, TimestampMixin):
             "overall_fit IS NULL OR (overall_fit BETWEEN 1 AND 5)",
             name="ck_interview_feedback_overall_fit_range",
         ),
+        CheckConstraint(
+            "offer_acceptance IS NULL OR offer_acceptance IN "
+            "('yes', 'likely', 'no', 'unknown')",
+            name="ck_interview_feedback_offer_acceptance",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -126,6 +132,10 @@ class InterviewFeedback(Base, TimestampMixin):
     next_step_preference: Mapped[Optional[NextStepPreference]] = mapped_column(
         Enum(NextStepPreference, name="nextsteppreference", create_type=False)
     )
+    # 0338: debrief po rozmowie u klienta — czy kandydat przyjmie ofertę
+    # (yes/likely/no/unknown) i pod jakim warunkiem.
+    offer_acceptance: Mapped[Optional[str]] = mapped_column(String(16))
+    acceptance_condition: Mapped[Optional[str]] = mapped_column(Text)
 
     # ── client_side (nullable when source=candidate_side) ──
     technical_fit: Mapped[Optional[int]] = mapped_column(SmallInteger)

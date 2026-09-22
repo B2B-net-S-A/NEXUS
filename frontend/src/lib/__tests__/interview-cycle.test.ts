@@ -1,0 +1,165 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  actionForItem,
+  actionForTodo,
+  candidateLabel,
+  countdownLabel,
+  formatDayLabel,
+  groupAgendaByDay,
+  parseCycleParam,
+  parseScope,
+  parseView,
+  upcomingAgenda,
+  type AgendaEntry,
+  type CycleItem,
+  type CycleStep,
+  type TodoEntry,
+} from "@/lib/interview-cycle";
+
+const PAIR = {
+  candidate_id: 1,
+  candidate_name: "Anna Kowalska",
+  candidate_email: "anna@example.com",
+  job_id: 2,
+  job_title: "Data Engineer",
+  client_id: 3,
+  client_name: "Nordea",
+};
+
+function steps(overrides: Partial<Record<CycleStep["key"], CycleStep["state"]>>): CycleStep[] {
+  const keys: CycleStep["key"][] = ["slots", "choice", "prep", "prep2", "interview", "call", "debrief"];
+  return keys.map((key) => ({
+    key,
+    label: key,
+    state: overrides[key] ?? "todo",
+    at: null,
+    event_id: null,
+    meta: null,
+  }));
+}
+
+function item(partial: Partial<CycleItem>): CycleItem {
+  return {
+    ...PAIR,
+    steps: steps({}),
+    current_step: "slots",
+    latest_stage: "client_interview",
+    slot_request: null,
+    interview_event_id: null,
+    debrief: null,
+    ...partial,
+  };
+}
+
+function agenda(start: string, kind: AgendaEntry["kind"] = "prep", extra: Partial<AgendaEntry> = {}): AgendaEntry {
+  return { ...PAIR, kind, start, end: null, event_id: 9, slot_request_id: null, online_meeting_url: null, done: false, ...extra };
+}
+
+describe("interview-cycle — adres", () => {
+  it("?event= zawsze otwiera Tydzień, domyślnie Agenda", () => {
+    expect(parseView(null, false)).toBe("agenda");
+    expect(parseView("board", false)).toBe("board");
+    expect(parseView("board", true)).toBe("week");
+    expect(parseView("cokolwiek", false)).toBe("agenda");
+  });
+
+  it("zakres z adresu albo domyślny roli", () => {
+    expect(parseScope(null, "jobs")).toBe("jobs");
+    expect(parseScope("mine", "jobs")).toBe("mine");
+    expect(parseScope("xxx", "mine")).toBe("mine");
+  });
+
+  it("?cycle=12-34 → para; śmieci → null", () => {
+    expect(parseCycleParam("12-34")).toEqual({ candidateId: 12, jobId: 34 });
+    expect(parseCycleParam("12")).toBeNull();
+    expect(parseCycleParam(null)).toBeNull();
+  });
+});
+
+describe("interview-cycle — czas", () => {
+  const now = new Date("2031-06-10T10:00:00Z"); // 12:00 w Warszawie
+
+  it("odliczanie zaokrągla w górę i mówi „po terminie”", () => {
+    expect(countdownLabel("2031-06-10T10:17:10Z", now)).toBe("zostało 18 min");
+    expect(countdownLabel("2031-06-10T09:48:00Z", now)).toBe("po terminie 12 min");
+  });
+
+  it("etykieta dnia: dziś / jutro w strefie Warszawy", () => {
+    expect(formatDayLabel("2031-06-10T15:00:00Z", now)).toMatch(/^Dziś/);
+    // 23:30 UTC = 01:30 następnego dnia w Warszawie → już „Jutro”.
+    expect(formatDayLabel("2031-06-10T23:30:00Z", now)).toMatch(/^Jutro/);
+  });
+
+  it("agenda po dniach, chronologicznie", () => {
+    const days = groupAgendaByDay(
+      [agenda("2031-06-11T08:00:00Z"), agenda("2031-06-10T12:00:00Z"), agenda("2031-06-10T07:00:00Z")],
+      now,
+    );
+    expect(days.map((d) => d.entries.length)).toEqual([2, 1]);
+    expect(days[0].entries[0].start).toBe("2031-06-10T07:00:00Z");
+  });
+
+  it("przeszłe dni znikają, chyba że wisi niezamknięty telefon", () => {
+    const list = upcomingAgenda(
+      [
+        agenda("2031-06-09T08:00:00Z"),
+        agenda("2031-06-09T09:00:00Z", "call"),
+        agenda("2031-06-09T10:00:00Z", "call", { done: true }),
+        agenda("2031-06-10T09:00:00Z"),
+      ],
+      now,
+    );
+    expect(list).toHaveLength(2);
+  });
+});
+
+describe("interview-cycle — akcje", () => {
+  it("rola bez DL nie dostaje „Dodaj terminy”", () => {
+    const it0 = item({ steps: steps({ slots: "current" }) });
+    expect(actionForItem(it0, { canManageSlots: false })).toBeNull();
+    expect(actionForItem(it0, { canManageSlots: true })?.label).toBe("Dodaj terminy");
+  });
+
+  it("wybór terminu należy do rekrutera, potwierdzenie do DL", () => {
+    const req = {
+      id: 5,
+      status: "awaiting_dl" as const,
+      slots: [{ start: "2031-06-12T08:00:00Z", end: null }],
+      chosen_index: 0,
+      respond_by: null,
+      recruiter_id: 7,
+      created_by: 8,
+      duration_minutes: 60,
+      note: null,
+      event_id: null,
+    };
+    const waiting = item({ steps: steps({ slots: "done", choice: "waiting" }), slot_request: req });
+    expect(actionForItem(waiting, { canManageSlots: false })).toBeNull();
+    expect(actionForItem(waiting, { canManageSlots: true })?.action.type).toBe("confirm");
+    const pick = item({
+      steps: steps({ slots: "done", choice: "current" }),
+      slot_request: { ...req, status: "awaiting_recruiter", chosen_index: null },
+    });
+    expect(actionForItem(pick, { canManageSlots: false })?.action.type).toBe("pick");
+  });
+
+  it("telefon po rozmowie → debrief pod wydarzeniem rozmowy", () => {
+    const it0 = item({
+      steps: steps({ slots: "done", choice: "done", prep: "done", prep2: "skipped", interview: "done", call: "current" }),
+      interview_event_id: 44,
+    });
+    expect(actionForItem(it0, { canManageSlots: false })).toEqual(
+      expect.objectContaining({ stepKey: "call", label: "Zapisz debrief", action: expect.objectContaining({ type: "debrief", eventId: 44 }) }),
+    );
+  });
+
+  it("zadanie „Zadzwoń teraz” otwiera debrief", () => {
+    const todo: TodoEntry = { ...PAIR, kind: "call_now", priority: 0, due: null, event_id: 44, slot_request_id: null };
+    expect(actionForTodo(todo, [])).toEqual(expect.objectContaining({ type: "debrief", eventId: 44 }));
+  });
+
+  it("bez nazwiska (brak odczytu kandydatów) — numer, nie pustka", () => {
+    expect(candidateLabel({ candidate_id: 9, candidate_name: null })).toBe("Kandydat #9");
+  });
+});
