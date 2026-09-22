@@ -228,12 +228,11 @@ describe("CandidatesListV2", () => {
       const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
       expect(headers).toEqual([
         "Kandydat",
-        "Umiejętności",
         "Lokalizacja",
         "Dostępność",
         "Stawka B2B",
         "W procesie",
-        "Ostatni kontakt",
+        "CV",
       ]);
       // Sekcje zawsze widoczne w kolumnie filtrów.
       expect(within(rail()).getByRole("radiogroup", { name: "Kogo pokazać" })).toBeTruthy();
@@ -256,6 +255,7 @@ describe("CandidatesListV2", () => {
           name: "Marta",
           lastname: "Kowalczyk",
           skills: ["Java", "Spring", "Kafka", "AWS"],
+          cv_filename: "CV_Marta.pdf",
           city: "Warszawa",
           availability_date: "2026-10-01",
           expected_rate_hourly: 160,
@@ -273,10 +273,14 @@ describe("CandidatesListV2", () => {
       expect(within(row).getByText("od 01.10")).toBeTruthy();
       expect(within(row).getByText("160 zł/h")).toBeTruthy();
       expect(within(row).getByText("2 procesy · CV wysłane")).toBeTruthy();
-      expect(within(row).getByText("+1")).toBeTruthy();
+      // Kolumna „CV”: przycisk podglądu tylko u osoby z plikiem CV.
+      expect(
+        within(row).getByRole("button", { name: "Podgląd CV: Marta Kowalczyk" }),
+      ).toBeTruthy();
       const empty = screen.getByTestId("candidate-row-2");
-      // Umiejętności, lokalizacja, dostępność, stawka i kontakt — pięć „brak”.
-      expect(within(empty).getAllByText("brak")).toHaveLength(5);
+      // Lokalizacja, dostępność, stawka i CV — cztery „brak”.
+      expect(within(empty).getAllByText("brak")).toHaveLength(4);
+      expect(within(empty).queryByRole("button", { name: /Podgląd CV/ })).toBeNull();
       expect(
         within(empty).getByRole("button", { name: "Przypisz Tomasz Nowicki do rekrutacji" }),
       ).toBeTruthy();

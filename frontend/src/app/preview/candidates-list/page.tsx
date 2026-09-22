@@ -69,6 +69,7 @@ const CANDIDATES = [
     competence_category_id: 2,
     competence_category: "software_development",
     last_contacted_at: daysAgo(1),
+    cv_filename: "CV_przykladowe.pdf",
     active_recruitments: [recruitment(11, "verified", 6), recruitment(12, "cv_sent", 2)],
   },
   {
@@ -83,6 +84,7 @@ const CANDIDATES = [
     availability_status: "actively_looking",
     expected_rate_hourly: 140,
     last_contacted_at: daysAgo(3),
+    cv_filename: "CV_przykladowe.pdf",
     active_recruitments: [],
   },
   {
@@ -97,6 +99,7 @@ const CANDIDATES = [
     notice_period_unit: "months",
     expected_rate_hourly: 155,
     last_contacted_at: daysAgo(8),
+    cv_filename: "CV_przykladowe.pdf",
     active_recruitments: [recruitment(13, "client_interview", 4)],
   },
   {
@@ -121,6 +124,7 @@ const CANDIDATES = [
     availability_status: "actively_looking",
     expected_rate_hourly: 150,
     last_contacted_at: daysAgo(30),
+    cv_filename: "CV_przykladowe.pdf",
     employment: { state: "employed_at_client", client_name: "Klient Omega" },
     active_recruitments: [],
   },
