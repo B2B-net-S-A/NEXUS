@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   careerLinksApi,
+  careerLinkQueryKey,
   inviteLinksQueryKey,
   useInviteLinks,
 } from "@/lib/api/careerLinks";
@@ -36,6 +37,9 @@ export function InviteLinkHistory({ enabled }: { enabled: boolean }) {
     onSuccess: () => {
       showSuccess("Link wycofany.");
       qc.invalidateQueries({ queryKey: inviteLinksQueryKey() });
+      // Lista „Rekrutacje widoczne na Twojej stronie” liczy się z aktywnych
+      // linków — bez odświeżenia wycofana rekrutacja dalej na niej wisiała.
+      qc.invalidateQueries({ queryKey: careerLinkQueryKey() });
     },
     onError: (err) =>
       showError(apiErrorMessage(err, "Nie udało się wycofać linku.")),
