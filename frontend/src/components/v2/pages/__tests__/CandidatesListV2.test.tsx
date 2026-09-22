@@ -225,7 +225,12 @@ describe("CandidatesListV2", () => {
         "Nazwisko, e-mail, telefon albo opis, kogo szukasz…",
       );
       expect(screen.getByRole("button", { name: /Z requestu/ })).toBeTruthy();
-      const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+      const headers = Array.from(
+        screen.getByTestId("candidate-list-header").querySelectorAll("[data-column-header]"),
+      ).map((h) => h.textContent);
+      // Bez połowicznych ról tabeli (axe: aria-required-parent/children).
+      expect(screen.queryAllByRole("columnheader")).toHaveLength(0);
+      expect(screen.queryAllByRole("row")).toHaveLength(0);
       expect(headers).toEqual([
         "Kandydat",
         "Lokalizacja",
