@@ -30,8 +30,10 @@ NEXT_NUMBER_URL = "/api/b2b-generator/next-number"
 GENERATED_URL = "/api/b2b-generator/generated"
 GENERATE_URL = "/api/b2b-generator/generate"
 
-# Każda rola ma domyślnie co najmniej podgląd. Administrator może to jednak
-# odebrać lub podnieść niezależnie od dostępu do całej sekcji Sourcing.
+# Każda rola operacyjna ma domyślnie co najmniej podgląd. Administrator może
+# to jednak odebrać lub podnieść niezależnie od dostępu do całej sekcji
+# Sourcing. Legacy viewer `user` nie wchodzi do generatora od 22.09.2026
+# (decyzja Artura) — patrz ``test_legacy_viewer_is_refused_at_the_entry_gate``.
 ALL_ROLES = [
     "admin",
     "head_of_recruitment",
@@ -41,7 +43,6 @@ ALL_ROLES = [
     "finance",
     "recruiter",
     "sourcer",
-    "user",
 ]
 UNSCOPED_ROLES = [role for role in ALL_ROLES if role != "delivery_lead"]
 
@@ -164,6 +165,15 @@ async def test_every_role_passes_generator_auth(
         assert r.status_code == 404, (
             f"{role_value} POST generate → {r.status_code}: {r.text}"
         )
+
+
+async def test_legacy_viewer_is_refused_at_the_entry_gate(app_client: AsyncClient):
+    """`user` zdjęty z ``B2B_GENERATOR_UNCONDITIONAL_ROLES`` (22.09.2026)."""
+
+    headers = await _headers_for(app_client, "user")
+    for url in (ROLES_URL, NEXT_NUMBER_URL, GENERATED_URL):
+        r = await app_client.get(url, headers=headers)
+        assert r.status_code == 403, f"user GET {url} → {r.status_code}: {r.text}"
 
 
 async def test_delivery_lead_without_assignment_can_browse_generator(

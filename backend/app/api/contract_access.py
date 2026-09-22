@@ -180,8 +180,11 @@ ContractLegalReadAccess = Annotated[
 ]
 
 
-# Every current role except Delivery Lead admitted unconditionally to the
-# sourcing-side generator. Explicit tuple
+# Every operational role except Delivery Lead admitted unconditionally to the
+# sourcing-side generator. Legacy viewer `user` usunięty 22.09.2026 (decyzja
+# Artura; migracja 0210 nie zostawiła żadnego takiego konta), więc jest
+# odrzucany jak każda rola bez jawnej decyzji. Wejście do rejestru NIE daje
+# wglądu w stawki — te rozstrzyga ``_RateVisibility`` w generatorze. Explicit tuple
 # rather than an implicit "everyone else" fallthrough — a bare `return
 # current_user` default would silently hand full generator access to any
 # *future* UserRole the moment it's added to the enum, with no callsite
@@ -204,7 +207,6 @@ B2B_GENERATOR_UNCONDITIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.finance,
     UserRole.recruiter,
     UserRole.sourcer,
-    UserRole.user,
 )
 
 B2B_GENERATOR_ACTION = ProductAction.b2b_contract_generator
@@ -264,6 +266,6 @@ async def require_b2b_generator_access(
 # is intentionally disabled for the unconditional roles inside
 # ``b2b_contract_generator`` (full-access tool, see ``_generator_unscoped``)
 # — otherwise roles with no client-assignment graph at all
-# (recruiter/sourcer/finance/user) would pass this gate and then hit a
+# (recruiter/sourcer/finance) would pass this gate and then hit a
 # permanently empty list.
 B2BGeneratorAccess = Annotated[User, Depends(require_b2b_generator_access)]
