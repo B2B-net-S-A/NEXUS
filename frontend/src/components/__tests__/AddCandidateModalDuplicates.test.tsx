@@ -11,9 +11,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
   usePathname: () => "/candidates",
 }));
-vi.mock("@/components/jobs/CompetenceCategoryPicker", () => ({
-  CompetenceCategoryPicker: () => null,
-}));
 vi.mock("@/components/jobs/AutoAssignedCollaborators", () => ({
   AutoAssignedCollaborators: () => null,
 }));
