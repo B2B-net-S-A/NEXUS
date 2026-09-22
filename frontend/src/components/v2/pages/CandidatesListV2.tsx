@@ -65,6 +65,7 @@ import {
 import { CANDIDATES_PAGE_SIZES, useUiStore, type CandidatesPageSize } from "@/store/ui";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { CandidateCvCell } from "@/components/v2/candidates/CandidateCvCell";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -130,7 +131,6 @@ import {
   getCandidateInitials,
   getCurrentCompany,
   getCurrentTitle,
-  getSkillList,
   isRowActivationKey,
 } from "@/components/v2/pages/candidate-list-helpers";
 import { PinnedCandidatesBar } from "@/components/v2/filters/PinnedCandidatesBar";
@@ -146,7 +146,6 @@ import { RequestSearchDialog } from "@/components/v2/candidates/RequestSearchDia
 import {
   availabilityCellText,
   candidatesCountLabel,
-  lastContactText,
   processCell,
   rateCellText,
 } from "@/components/v2/candidates/candidate-row-format";
@@ -165,12 +164,11 @@ const EXPORT_ROLES: UserRole[] = [
 /** Stałe kolumny tabeli (22.09.2026) — zamiast konfiguracji kolumn i presetów. */
 const TABLE_COLUMNS = [
   { id: "candidate", label: "Kandydat", width: "minmax(210px, 2fr)", minWidth: 210 },
-  { id: "skills", label: "Umiejętności", width: "minmax(130px, 1fr)", minWidth: 130 },
   { id: "location", label: "Lokalizacja", width: "minmax(92px, 0.7fr)", minWidth: 92 },
   { id: "availability", label: "Dostępność", width: "minmax(92px, 0.7fr)", minWidth: 92 },
   { id: "rate", label: "Stawka B2B", width: "minmax(76px, 0.5fr)", minWidth: 76 },
   { id: "process", label: "W procesie", width: "minmax(128px, 1.1fr)", minWidth: 128 },
-  { id: "contact", label: "Ostatni kontakt", width: "minmax(84px, 0.6fr)", minWidth: 84 },
+  { id: "cv", label: "CV", width: "minmax(64px, 0.4fr)", minWidth: 64 },
 ] as const;
 /** Tylko „W procesie" potrzebuje wzbogacenia (aktywne rekrutacje). */
 const LIST_COLUMN_IDS: ReadonlySet<string> = new Set(["process"]);
@@ -236,6 +234,8 @@ interface Candidate {
   linkedin_current_company?: string | null;
   linkedin_current_title?: string | null;
   last_contacted_at?: string | null;
+  /** Nazwa pliku głównego CV — kolumna „CV” (podgląd po kliknięciu). */
+  cv_filename?: string | null;
   created_at?: string;
   updated_at?: string;
   match_snippet?: string | null;
@@ -1582,12 +1582,10 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                     const secondary = [getCurrentTitle(candidate), getCurrentCompany(candidate)]
                       .filter(Boolean)
                       .join(" · ");
-                    const skills = getSkillList(candidate, 8);
                     const location = formatCandidateLocation(candidate.city ?? candidate.location ?? null);
                     const availability = availabilityCellText(candidate);
                     const rate = rateCellText(candidate);
                     const process = processCell(candidate.employment, candidate.active_recruitments);
-                    const lastContact = lastContactText(candidate.last_contacted_at);
                     return (
                       <div
                         key={candidate.id}
@@ -1663,24 +1661,6 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                               </p>
                             </div>
                           </div>
-                          <div className="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden">
-                            {skills.length === 0 ? (
-                              <Missing />
-                            ) : (
-                              <>
-                                {skills.slice(0, 3).map((s) => (
-                                  <Badge key={s} size="sm" variant="outline" className="max-w-[9rem] truncate font-normal">
-                                    {s}
-                                  </Badge>
-                                ))}
-                                {skills.length > 3 && (
-                                  <span className="text-[11px] text-muted-foreground" title={skills.slice(3).join(", ")}>
-                                    +{skills.length - 3}
-                                  </span>
-                                )}
-                              </>
-                            )}
-                          </div>
                           <div className="min-w-0 truncate text-sm text-foreground" title={location ?? undefined}>
                             {location ?? <Missing />}
                           </div>
@@ -1699,8 +1679,12 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                           >
                             {process ? process.text : <span className="text-muted-foreground">—</span>}
                           </div>
-                          <div className="min-w-0 truncate text-sm text-muted-foreground">
-                            {lastContact ?? <Missing />}
+                          <div className="min-w-0">
+                            <CandidateCvCell
+                              candidateId={candidate.id}
+                              candidateName={fullName}
+                              hasCv={Boolean(candidate.cv_filename)}
+                            />
                           </div>
                           <div className="flex justify-end">
                             <Button

@@ -2176,7 +2176,10 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
 **Lista `/candidates` = JEDEN ekran, jeden silnik (`GET /api/candidates`).**
 - Filtry stoją na stałe w lewej kolumnie (`components/v2/candidates/CandidateFilterRail.tsx`;
   poniżej `lg` ten sam panel w arkuszu). „Kogo pokazać: Wszyscy / Moi” zastępuje
-  trzy dawne kontrolki „Moi kandydaci”. Tabela ma STAŁE kolumny — bez presetów,
+  trzy dawne kontrolki „Moi kandydaci”. Tabela ma STAŁE kolumny (Kandydat,
+  Lokalizacja, Dostępność, Stawka B2B, W procesie, CV — „CV” otwiera podgląd
+  pliku, `CandidateCvCell`; umiejętności i „Ostatni kontakt” zdjęte decyzją
+  Artura 22.09, bo pole kontaktu jest prawie puste) — bez presetów,
   wyboru kolumn, kafelków i gęstości (`/api/settings/candidates-columns` nie ma
   już konsumenta na tym ekranie).
 - **Jedno pole wyszukiwania szuka też „po znaczeniu”.** Lista wysyła

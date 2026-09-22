@@ -2112,6 +2112,9 @@ async def list_candidates(
             .join(Job, Job.id == latest_per_pair.c.job_id)
             .outerjoin(Client, Client.id == Job.client_id)
             .outerjoin(mover, mover.id == latest_per_pair.c.moved_by)
+            # Zamknięta rekrutacja nie jest „w procesie” — ta sama reguła co
+            # zakładka Rekrutacje na profilu (`isRecruitmentEnded`) i podgląd.
+            .where(Job.status != JobStatus.closed)
         )
         for (
             cand_id,
@@ -3469,6 +3472,8 @@ async def get_candidate_quick_view(
                 PipelineStageDef,
                 PipelineStageDef.id == latest_per_job.c.stage_def_id,
             )
+            # Zamknięta rekrutacja nie jest „w procesie” (reguła listy i profilu).
+            .where(Job.status != JobStatus.closed)
             .where(
                 or_(
                     PipelineStageDef.is_terminal.is_(False),

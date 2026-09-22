@@ -199,3 +199,38 @@ async def test_history_carries_client_name_of_the_recruitment(
     assert r.status_code == 200, r.text
     (entry,) = [j for j in r.json()["jobs"] if j["job_id"] == job_id]
     assert entry["client_name"] == expected
+
+
+async def test_closed_recruitment_is_not_in_process_on_list_or_quick_view(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """„W procesie” = rekrutacja niezamknięta — lista, podgląd i zakładka
+    Rekrutacje na profilu liczą to tak samo."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.job import Job, JobStatus
+
+    candidate_id = await _seed_candidate()
+    open_job = await _seed_job()
+    closed_job = await _seed_job()
+    await _seed_stage(candidate_id, open_job, "screening")
+    await _seed_stage(candidate_id, closed_job, "screening")
+    async with AsyncSessionLocal() as db:
+        (await db.get(Job, closed_job)).status = JobStatus.closed
+        email = (await db.get(Candidate, candidate_id)).email
+        await db.commit()
+
+    r = await app_client.get(
+        "/api/candidates",
+        params={"q": email, "include_active_recruitments": "true"},
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    (row,) = [c for c in r.json()["items"] if c["id"] == candidate_id]
+    assert [a["job_id"] for a in row["active_recruitments"]] == [open_job]
+
+    q = await app_client.get(
+        f"/api/candidates/{candidate_id}/quick-view", headers=app_auth_headers
+    )
+    assert q.status_code == 200, q.text
+    assert [r["job_id"] for r in q.json()["current_recruitments"]] == [open_job]

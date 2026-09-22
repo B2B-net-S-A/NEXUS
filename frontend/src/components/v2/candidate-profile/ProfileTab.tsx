@@ -134,7 +134,7 @@ export function ProfileTab({
       >
         <CandidateRecentRecruitmentsCard
           candidateId={candidate.id}
-          title="W procesie"
+          title="Ostatnie rekrutacje"
           onShowAll={() => onNavigate({ section: "recruitments" })}
         />
         <Card>
