@@ -2217,19 +2217,22 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
 - Filtry stoją na stałe w lewej kolumnie (`components/v2/candidates/CandidateFilterRail.tsx`;
   poniżej `lg` ten sam panel w arkuszu) — **decyzja Artura 22.09.2026: „szukamy
   głównie ręcznie po słowach kluczowych i wykluczeniach, stawce, lokalizacji
-  i trybie pracy”.** Na wierzchu WYŁĄCZNIE: Słowa kluczowe (`q_all`, wszystkie
-  muszą być w CV/notatkach/profilu) · Wyklucz słowa (`q_none`) · Stawka B2B ·
-  Lokalizacja · Tryb pracy. Reszta w szufladzie „Zaawansowane” z licznikiem
-  ustawionych w niej filtrów: Historia z nami (otwarta — brał udział
-  w rekrutacji, etap, wysłany do klienta, pracował u klienta), Umiejętności,
+  i trybie pracy”.** Na wierzchu WYŁĄCZNIE: Słowa kluczowe jak w Traffit
+  (`CandidateSearchFields.tsx`: zielone „Zawiera wszystkie” `q_all`, niebieskie
+  „Zawiera którekolwiek” = PIERWSZA grupa `q_any`, czerwone „Nie zawiera
+  żadnego” `q_none`, „Szukaj w” `q_scope`) · Stawka B2B · Lokalizacja (miasto
+  z podpowiedziami, promień w km, województwa) · Tryb pracy. Reszta w szufladzie
+  „Zaawansowane” z licznikiem ustawionych w niej filtrów: Historia z nami
+  (otwarta — brał udział w rekrutacji, etap, wysłany do klienta, pracował
+  u klienta, KONTAKT z kandydatem w okresie i przez kogo), Umiejętności,
   Dostępność (jedno pytanie „Czy można go teraz zaproponować?” —
   `lib/candidate-availability-choice.ts` ustawia `availability` + `employment`
   naraz), Doświadczenie/języki/kategoria, Firma i stanowisko, Kto dodał/pule
-  (w tym „Moi kandydaci”), Inne (słowa LUB, status w bazie, otwarty na, ukryj
-  bez danych). Gotowych skrótów nad listą świadomie NIE ma („za bardzo
-  kombinujesz”). Nie przenoś grup z powrotem na
-  wierzch — za dużo opcji naraz było powodem przebudowy. Tabela ma STAŁE
-  kolumny: Kandydat (pod nazwiskiem miasto) · Ostatnie stanowisko (+ firma,
+  (w tym „Moi kandydaci”), Inne (KOLEJNE grupy LUB, status w bazie, otwarty
+  na, ukryj bez danych). Gotowych skrótów nad listą świadomie NIE ma („za
+  bardzo kombinujesz”). Nie przenoś grup z powrotem na wierzch — za dużo
+  opcji naraz było powodem przebudowy. Tabela ma domyślnie kolumny:
+  Kandydat (pod nazwiskiem miasto) · Ostatnie stanowisko (+ firma,
   `getCurrentTitle`/`getCurrentCompany`) · Telefon (`tel:` + kopiuj,
   `CandidatePhoneCell`) · Stawka B2B · Dostępność · W procesie (skrót, a po
   najechaniu/kliknięciu lista rekrutacji w toku z klientem i etapem,
@@ -2237,9 +2240,44 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   (podgląd, `CandidateCvCell`; przycisk tylko przy `has_cv_document` z listy —
   NIE przy `cv_filename`, bo import Traffita wpisuje nazwę pliku, zanim faza
   plików go pobierze) · Przypisz (widoczny przycisk „Rekrutacja”;
-  hurtem przez zaznaczenie i `CandidateBulkBar`). Bez presetów, wyboru
-  kolumn, kafelków i gęstości (`/api/settings/candidates-columns` nie ma już
-  konsumenta na tym ekranie).
+  hurtem przez zaznaczenie i `CandidateBulkBar`). Przycisk „Kolumny” pozwala
+  każdemu dołożyć E-mail, Lokalizację, Staż, Ostatni kontakt, Dodano albo
+  schować kolumnę (`lib/candidate-table-columns.ts`; wybór w przeglądarce,
+  `useUiStore.columnPreferences["candidates-table-v2"]` = lista ukrytych;
+  Kandydat i Przypisz zawsze). Bez presetów, kafelków i gęstości
+  (`/api/settings/candidates-columns` nie ma konsumenta na tym ekranie).
+- **Słowa kluczowe v2 = CAŁE SŁOWA (porównanie z Traffitem, 22.09.2026).**
+  „java” nie znajduje „JavaScript” (przed zmianą: 22 384 osoby, w Traffit
+  15 916; po zmianie 14 071 w 0,7 s). `java*` = początek słowa, `*script` =
+  koniec, fraza = słowa obok siebie, `c++`/`.net` z granicą słowa tylko po
+  stronie litery. Reguła ma trzy lustra: `services/keyword_terms.py` (regex
+  Postgresa + Pythona i `to_tsquery`), `advanced_candidate_search._whole_word_match`
+  (FTS dla słów i fraz, regex z jawną klasą liter — ctype produkcji to `C`,
+  więc `[[:alnum:]]` zna tylko ASCII) i wycinki `candidate_snippets.extract_field_snippets`.
+  **v1 (alerty starych zapisów) zostaje przy podłańcuchu.** Zakres `q_scope`
+  (`all|cv|title|skills|notes`, „Stanowisko” = `experience[*].role`) działa
+  tylko w v2 i dotyczy wszystkich trzech pól słów. Odpowiedź v2 niesie
+  `match_snippets` — każde pole z trafieniem (do 5, po 2 okna) z zakresami
+  pogrubień liczonymi na serwerze; front (`FieldSnippets`) nie powtarza reguły.
+- **Lokalizacja z promieniem i województwo** (`services/pl_places.py`, dane
+  `app/data/pl_places.json` z GeoNames, CC BY 4.0, 3 331 miejscowości,
+  pokrycie 95% kandydatów z miastem). Kandydaci NIE mają współrzędnych, więc
+  filtr wylicza w Pythonie nazwy miejscowości w promieniu i porównuje je
+  z kluczem nazwy `city`/pierwszego członu `location` (`place_key_sql` —
+  lustro `place_key`). Kraj inny niż PL odpada (zagraniczna nazwa bywa równa
+  polskiej wsi). Nieznane miasto z promieniem = 422 po polsku. Podpowiedzi:
+  `GET /api/candidates/places/suggest` (bez bazy).
+- **Kontakt z kandydatem** (`contacted=yes|no`, `contacted_from/to`,
+  `contacted_by`): notatka, rozmowa (`calls`) albo aktywność Traffita
+  `Email`/`Reply`/`Rozmowa telefoniczna`/`Spotkanie`. Historia z Traffita ma
+  datę importu (5.05.2026) — okres wcześniejszy nic nie znaczy.
+- **Zapisane wyszukiwania: dzwonek domyślnie WŁĄCZONY przy zapisie**
+  (22.09.2026 na produkcji: 3 zapisy, 0 z dzwonkiem, skaner nie sprawdził
+  nikogo). Skaner pyta listę o `changed_after` (zmiana wiersza ALBO nowa/
+  zmieniona notatka ALBO nowy dokument — notatka dodana w NEXUSIE nie rusza
+  `candidates.updated_at`). `POST /saved-searches/{id}/viewed` zwraca
+  `new_candidate_ids` z logu alertów, a lista oznacza „Nowy” tych ludzi (plus
+  nowo dodanych); samo `updated_at` odpadło, bo nocny import podświetlał tysiące.
 - **Jedno pole wyszukiwania szuka też „po znaczeniu”.** Lista wysyła
   `text_mode` (URL `tm`, domyślnie `auto`) przy niepustym `q` i v2; backend
   (`_resolve_semantic_text` w `api/candidates.py`) idzie wtedy pulą
@@ -5619,7 +5657,7 @@ Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
 | Lata doświadczenia | jedna reguła przedziału: dokładna liczba, a gdy jej brak — koszyk Traffita |
 | Tagi | cały tag (token JSON, bez wielkości liter), nie podłańcuch |
 | Lokalizacja | `city` LUB `location`, `%`/`_` dosłownie, bez polskich znaków; kilka miast (`location_cities`) i kraj w obu |
-| `q_all`/`q_any`/`q_none` | jeden parser (`parse_q_groups`; grupa jako lista albo `a\|b`) |
+| `q_all`/`q_any`/`q_none` | jeden parser (`parse_q_groups`; grupa jako lista albo `a\|b`); CAŁE słowa, gwiazdka `java*`/`*script` (`keyword_terms`) — v1 podłańcuch |
 | status / dostępność | zgodne w obu wersjach — przypięte testem |
 
 - **Pola legacy umiejętności znaczą w L i S co innego — w OBU wersjach.** L:

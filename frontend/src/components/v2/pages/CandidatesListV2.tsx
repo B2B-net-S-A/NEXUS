@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -12,6 +12,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ChevronDown,
   ChevronRight,
+  Columns3,
   Download,
   FileArchive,
   FileText,
@@ -52,7 +53,12 @@ import {
   getCandidateListViewState,
 } from "@/components/v2/pages/candidate-list-query";
 import { useCandidateSearchDebounce } from "@/hooks/useCandidateSearchDebounce";
-import { MatchSnippet } from "@/components/v2/MatchSnippet";
+import {
+  FieldSnippets,
+  MAX_FIELD_SNIPPETS,
+  MatchSnippet,
+  type FieldSnippet,
+} from "@/components/v2/MatchSnippet";
 import {
   Sheet,
   SheetBody,
@@ -63,6 +69,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { CANDIDATES_PAGE_SIZES, useUiStore, type CandidatesPageSize } from "@/store/ui";
+import {
+  CANDIDATE_COLUMNS,
+  CANDIDATE_TABLE_PREFS_KEY,
+  candidateGridLayout,
+  toggleCandidateColumn,
+  visibleCandidateColumns,
+} from "@/lib/candidate-table-columns";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { CandidateCvCell } from "@/components/v2/candidates/CandidateCvCell";
@@ -74,8 +87,10 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -96,6 +111,7 @@ import {
 } from "@/components/v2/recruitment/AddToRecruitmentDialog";
 import type { OpenToValue } from "@/lib/filter-options";
 import {
+  DEFAULT_FILTERS,
   decodeFilters,
   decodeSelectedIds,
   decodeSkillsExpr,
@@ -108,6 +124,9 @@ import {
   filtersToApiParams,
   parseRateBound,
   parseYearBound,
+  pickTraffitExtras,
+  pickTraffitExtrasPatch,
+  type TraffitExtraFilters,
   type AvailabilityFilter,
   type CandidateFilters,
   type CandidateStatusFilter,
@@ -162,21 +181,8 @@ const EXPORT_ROLES: UserRole[] = [
   "finance",
 ];
 
-/** Stałe kolumny tabeli (22.09.2026) — zamiast konfiguracji kolumn i presetów. */
-const TABLE_COLUMNS = [
-  { id: "candidate", label: "Kandydat", width: "minmax(168px, 1.5fr)", minWidth: 168 },
-  { id: "position", label: "Ostatnie stanowisko", width: "minmax(150px, 1.5fr)", minWidth: 150 },
-  { id: "phone", label: "Telefon", width: "minmax(132px, 1fr)", minWidth: 132 },
-  { id: "rate", label: "Stawka B2B", width: "minmax(72px, 0.6fr)", minWidth: 72 },
-  { id: "availability", label: "Dostępność", width: "minmax(88px, 0.8fr)", minWidth: 88 },
-  { id: "process", label: "W procesie", width: "minmax(112px, 1fr)", minWidth: 112 },
-  { id: "cv", label: "CV", width: "minmax(52px, 0.4fr)", minWidth: 52 },
-  { id: "assign", label: "Przypisz", width: "104px", minWidth: 104 },
-] as const;
 /** Tylko „W procesie" potrzebuje wzbogacenia (aktywne rekrutacje). */
 const LIST_COLUMN_IDS: ReadonlySet<string> = new Set(["process"]);
-const GRID_TEMPLATE = ["32px", ...TABLE_COLUMNS.map((c) => c.width)].join(" ");
-const GRID_MIN_WIDTH = 32 + TABLE_COLUMNS.reduce((sum, c) => sum + c.minWidth, 0);
 const ROW_HEIGHT = 64;
 
 const SORT_LABELS: Record<CandidateFilters["sort"], string> = {
@@ -237,6 +243,7 @@ interface Candidate {
   linkedin_current_company?: string | null;
   linkedin_current_title?: string | null;
   last_contacted_at?: string | null;
+  years_it_experience?: number | null;
   /** Nazwa pliku głównego CV — kolumna „CV” (podgląd po kliknięciu). */
   cv_filename?: string | null;
   /** Czy jest zapisany dokument CV — to on decyduje o przycisku podglądu. */
@@ -244,6 +251,8 @@ interface Candidate {
   created_at?: string;
   updated_at?: string;
   match_snippet?: string | null;
+  /** v2: każde pole z trafieniem słowa kluczowego (z zakresami pogrubień). */
+  match_snippets?: FieldSnippet[] | null;
   active_recruitments?: Array<{
     job_id: number;
     job_title: string;
@@ -301,6 +310,18 @@ export function candidatesListQueryKey(params: Record<string, unknown>) {
 export const CANDIDATES_BASE_TOTAL_QUERY_KEY = ["candidates-v2", "base-total"] as const;
 const CANDIDATES_BASE_TOTAL_PARAMS = { page: 1, page_size: 1, semantics_version: 2 };
 
+/** „22.09.2026” albo `null` dla braku / nieczytelnej daty. */
+function formatShortDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const ts = Date.parse(value);
+  if (!Number.isFinite(ts)) return null;
+  return new Date(ts).toLocaleDateString("pl-PL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
 /** Wyszarzone „brak" — brak danych nie może wyglądać jak wartość. */
 function Missing() {
   return <span className="text-xs text-muted-foreground/80">brak</span>;
@@ -337,6 +358,14 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
   const searchParams = useSearchParams();
   const candidatesPageSize = useUiStore((s) => s.candidatesPageSize);
   const setCandidatesPageSize = useUiStore((s) => s.setCandidatesPageSize);
+  // Kolumny tabeli — wybór każdej osoby (lista ukrytych, w przeglądarce).
+  const hiddenColumns = useUiStore(
+    (s) => s.columnPreferences[CANDIDATE_TABLE_PREFS_KEY] ?? null,
+  );
+  const setColumnPreference = useUiStore((s) => s.setColumnPreference);
+  const clearColumnPreference = useUiStore((s) => s.clearColumnPreference);
+  const visibleColumns = useMemo(() => visibleCandidateColumns(hiddenColumns), [hiddenColumns]);
+  const gridLayout = useMemo(() => candidateGridLayout(visibleColumns), [visibleColumns]);
   const parentRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const contactFeature = useCandidateContactFeature();
@@ -508,6 +537,12 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  const raw = Number.parseInt(searchParams.get("rcj") ?? "", 10);
  return raw === 1 || raw === 2 || raw === 3 ? raw : null;
  });
+ // Filtry z porównania z Traffitem (22.09.2026): zakres słów kluczowych,
+ // promień w km, województwa i kontakt — jeden obiekt stanu, bo zawsze
+ // chodzą razem przez adres, „Wyczyść" i „Wstecz".
+ const [traffitExtras, setTraffitExtras] = useState<TraffitExtraFilters>(() =>
+ pickTraffitExtras(decodeFilters(new URLSearchParams(searchParams.toString()))),
+ );
  // Wersja semantyki filtrów: domyślnie 2 (jedna semantyka z wyszukiwarką,
  // decyzja 21.09.2026), także dla starych zakładek bez `sv`. `sv=1` niesie
  // tylko zapis przypięty do dawnych zasad. Bez kontrolki w UI — „Wyczyść"
@@ -594,6 +629,10 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  }
  );
  const [newSince, setNewSince] = useState<string | null>(null);
+ // Kto WSZEDŁ do wyniku zapisanego wyszukiwania od ostatniego otwarcia (log
+ // skanera alertów) — także osoba, która była w bazie, a zaczęła pasować po
+ // nowym CV albo notatce.
+ const [newMatchIds, setNewMatchIds] = useState<ReadonlySet<number>>(() => new Set());
  const ssInitRef = useRef(false);
  useEffect(() => {
  // Wejście z linku powiadomienia (?ss=ID bez przejścia przez menu) —
@@ -607,6 +646,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  if (!row || row.user_id !== currentUser.id) return;
  const r = await savedSearchesApi.markViewed(row.id);
  setNewSince(r.data.previous_viewed_at);
+ setNewMatchIds(new Set(r.data.new_candidate_ids ?? []));
  queryClient.invalidateQueries({
  queryKey: ["saved-searches","candidates"],
  });
@@ -670,8 +710,10 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  qAll,
  qAny: qAnyGroups,
  qNone,
+ ...traffitExtras,
  }),
  [
+ traffitExtras,
  search,
  statusFilter,
  employmentFilter,
@@ -819,12 +861,19 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  // + pt-1/pb-1.5 (10px) — czytelny snippet bez ucinania trzeciej linii.
  const rowHeight = ROW_HEIGHT;
  const SNIPPET_AREA = 66;
+ // v2: jedna linia na pole (18px) + odstępy (11px). Wysokość musi być
+ // dokładna — wiersze są pozycjonowane przez wirtualizację.
+ const snippetAreaFor = (c: Candidate | undefined): number => {
+ const fields = c?.match_snippets?.length ?? 0;
+ if (fields > 0) return 11 + 18 * Math.min(fields, MAX_FIELD_SNIPPETS);
+ return c?.match_snippet ? SNIPPET_AREA : 0;
+ };
  const virtualizer = useVirtualizer({
  count: items.length,
  getScrollElement: () => parentRef.current,
  estimateSize: (index) => {
  const c = items[index];
- return rowHeight + (hasSearchTerms && c?.match_snippet ? SNIPPET_AREA : 0);
+ return rowHeight + (hasSearchTerms ? snippetAreaFor(c) : 0);
  },
  overscan: 10,
  });
@@ -1056,7 +1105,11 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  qAll.length +
  qAnyGroups.flat().length +
  qNone.length +
- languages.length;
+ languages.length +
+ (traffitExtras.locationRadiusKm !== null && locationFilter ? 1 : 0) +
+ traffitExtras.voivodeships.length +
+ (traffitExtras.contacted ? 1 : 0) +
+ (traffitExtras.contacted ? traffitExtras.contactedByIds.length : 0);
 
  const applyFiltersPatch = (patch: Partial<CandidateFilters>) => {
  if (patch.q !== undefined) {
@@ -1116,6 +1169,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  if (patch.qAll !== undefined) setQAll(patch.qAll);
  if (patch.qAny !== undefined) setQAny(patch.qAny);
  if (patch.qNone !== undefined) setQNone(patch.qNone);
+ const extras = pickTraffitExtrasPatch(patch);
+ if (extras) setTraffitExtras((prev) => ({ ...prev, ...extras }));
  };
 
  // „Wstecz"/„Dalej" w przeglądarce przywraca filtry z adresu wpisu.
@@ -1202,6 +1257,10 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  setQAll([]);
  setQAny([]);
  setQNone([]);
+ setTraffitExtras(pickTraffitExtras(DEFAULT_FILTERS));
+ // Wyczyszczone filtry to już nie jest zapisane wyszukiwanie — „Nowy" gaśnie.
+ setNewMatchIds(new Set());
+ setNewSince(null);
  setPage(1);
  };
 
@@ -1466,8 +1525,9 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             <div className="ml-auto flex items-center gap-2">
               <SavedSearchesMenu
                 currentQs={encodeFilterCriteria(filtersSnapshot).toString()}
-                onApply={(qs, ssId, previousViewedAt) => {
+                onApply={(qs, ssId, previousViewedAt, newCandidateIds) => {
                   setNewSince(previousViewedAt);
+                  setNewMatchIds(new Set(newCandidateIds));
                   const decoded = filtersFromCandidateSavedSearch({ qs }, "list");
                   applyFiltersPatch({
                     ...decoded,
@@ -1496,6 +1556,37 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                   ))}
                 </SelectContent>
               </Select>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="md" aria-label="Wybierz kolumny tabeli">
+                    <Columns3 className="h-4 w-4" aria-hidden />
+                    Kolumny
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>Kolumny w tabeli</DropdownMenuLabel>
+                  {CANDIDATE_COLUMNS.filter((col) => !col.required).map((col) => (
+                    <DropdownMenuCheckboxItem
+                      key={col.id}
+                      checked={visibleColumns.some((v) => v.id === col.id)}
+                      // Menu zostaje otwarte — zwykle przełącza się kilka kolumn naraz.
+                      onSelect={(e) => e.preventDefault()}
+                      onCheckedChange={() =>
+                        setColumnPreference(
+                          CANDIDATE_TABLE_PREFS_KEY,
+                          toggleCandidateColumn(hiddenColumns, col.id),
+                        )
+                      }
+                    >
+                      {col.label}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => clearColumnPreference(CANDIDATE_TABLE_PREFS_KEY)}>
+                    Przywróć domyślne
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
@@ -1531,7 +1622,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             <div
               data-testid="candidate-list-header"
               className="sticky top-0 z-10 grid h-10 items-center gap-3 border-b border-border bg-muted/60 px-4 text-xs font-semibold text-muted-foreground"
-              style={{ gridTemplateColumns: GRID_TEMPLATE, minWidth: `${GRID_MIN_WIDTH}px` }}
+              style={{ gridTemplateColumns: gridLayout.template, minWidth: `${gridLayout.minWidth}px` }}
             >
               <div className="flex items-center">
                 <Checkbox
@@ -1542,7 +1633,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                   aria-label="Zaznacz stronę"
                 />
               </div>
-              {TABLE_COLUMNS.map((col) => (
+              {visibleColumns.map((col) => (
                 <div key={col.id} data-column-header className="truncate">
                   {col.label}
                 </div>
@@ -1555,7 +1646,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
               style={{
                 height: "calc(100vh - 300px)",
                 minHeight: 360,
-                minWidth: `${GRID_MIN_WIDTH}px`,
+                minWidth: `${gridLayout.minWidth}px`,
               }}
               className="overflow-y-auto overflow-x-hidden"
             >
@@ -1580,14 +1671,18 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                     const initials = getCandidateInitials(candidate) || "?";
                     const isSelected = selectedIds.has(candidate.id);
                     // Wiersz nowy od ostatniego otwarcia zapisanego wyszukiwania —
-                    // nowy kandydat albo istniejący, który wszedł do zbioru.
+                    // nowy kandydat albo istniejący, który wszedł do zbioru (log
+                    // alertów). Samo `updated_at` odpadło: nocny import Traffita
+                    // rusza tysiące wierszy i każdy świecił jako „Nowy”.
                     const isNewMatch =
-                      newSinceTs !== null &&
-                      ((!!candidate.created_at && Date.parse(candidate.created_at) > newSinceTs) ||
-                        (!!candidate.updated_at && Date.parse(candidate.updated_at) > newSinceTs));
+                      newMatchIds.has(candidate.id) ||
+                      (newSinceTs !== null &&
+                        !!candidate.created_at &&
+                        Date.parse(candidate.created_at) > newSinceTs);
                     const position = (page - 1) * pageSize + virtualRow.index + 1;
                     const openDetail = () => openDetailAt(candidate.id);
                     const snippet = hasSearchTerms ? candidate.match_snippet : null;
+                    const fieldSnippets = hasSearchTerms ? candidate.match_snippets ?? [] : [];
                     const jobTitle = getCurrentTitle(candidate);
                     const company = getCurrentCompany(candidate);
                     const location = formatCandidateLocation(candidate.city ?? candidate.location ?? null);
@@ -1627,7 +1722,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                       >
                         <div
                           className="grid shrink-0 items-center gap-3 px-4"
-                          style={{ gridTemplateColumns: GRID_TEMPLATE, height: `${ROW_HEIGHT}px` }}
+                          style={{ gridTemplateColumns: gridLayout.template, height: `${ROW_HEIGHT}px` }}
                         >
                           <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
                             <Checkbox
@@ -1636,7 +1731,12 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                               aria-label={`Zaznacz ${fullName}`}
                             />
                           </div>
-                          <div className="flex min-w-0 items-center gap-3">
+                          {visibleColumns.map((col) => {
+                            const cell = (() => {
+                              switch (col.id) {
+                                case "candidate":
+                                  return (
+<div className="flex min-w-0 items-center gap-3">
                             <Avatar size="sm">
                               <AvatarFallback className={avatarColorClass(candidate.id)}>
                                 {initials}
@@ -1668,7 +1768,10 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                               </p>
                             </div>
                           </div>
-                          <div className="min-w-0">
+                                  );
+                                case "position":
+                                  return (
+<div className="min-w-0">
                             {jobTitle ? (
                               <>
                                 <p className="truncate text-sm text-foreground" title={jobTitle}>
@@ -1684,30 +1787,48 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                               <Missing />
                             )}
                           </div>
-                          <div className="min-w-0">
+                                  );
+                                case "phone":
+                                  return (
+<div className="min-w-0">
                             <CandidatePhoneCell phone={candidate.phone} candidateName={fullName} />
                           </div>
-                          <div className="min-w-0 truncate text-sm text-foreground" title="Stawka z profilu kandydata">
+                                  );
+                                case "rate":
+                                  return (
+<div className="min-w-0 truncate text-sm text-foreground" title="Stawka z profilu kandydata">
                             {rate ?? <Missing />}
                           </div>
-                          <div className="min-w-0 truncate text-sm text-foreground">
+                                  );
+                                case "availability":
+                                  return (
+<div className="min-w-0 truncate text-sm text-foreground">
                             {availability ?? <Missing />}
                           </div>
-                          <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
+                                  );
+                                case "process":
+                                  return (
+<div className="min-w-0" onClick={(e) => e.stopPropagation()}>
                             <CandidateProcessCell
                               candidateName={fullName}
                               employment={candidate.employment}
                               recruitments={candidate.active_recruitments}
                             />
                           </div>
-                          <div className="min-w-0">
+                                  );
+                                case "cv":
+                                  return (
+<div className="min-w-0">
                             <CandidateCvCell
                               candidateId={candidate.id}
                               candidateName={fullName}
                               hasCv={candidate.has_cv_document ?? Boolean(candidate.cv_filename)}
                             />
                           </div>
-                          <div className="flex">
+                                  );
+                                case "assign":
+                                  return (
+<div className="flex">
                             <Button
                               size="sm"
                               variant="outline"
@@ -1723,9 +1844,53 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                               Rekrutacja
                             </Button>
                           </div>
+                                  );
+                                case "email":
+                                  return (
+<div className="min-w-0 truncate text-sm text-foreground" title={candidate.email ?? undefined}>
+                            {candidate.email ?? <Missing />}
+                          </div>
+                                  );
+                                case "location":
+                                  return (
+<div className="min-w-0 truncate text-sm text-foreground" title={location ?? undefined}>
+                            {location ?? <Missing />}
+                          </div>
+                                  );
+                                case "experience":
+                                  return (
+<div className="min-w-0 truncate text-sm text-foreground">
+                            {candidate.years_it_experience != null ? `${candidate.years_it_experience} lat` : <Missing />}
+                          </div>
+                                  );
+                                case "last_contact":
+                                  return (
+<div className="min-w-0 truncate text-sm text-foreground">
+                            {formatShortDate(candidate.last_contacted_at) ?? <Missing />}
+                          </div>
+                                  );
+                                case "added":
+                                  return (
+<div className="min-w-0 truncate text-sm text-foreground">
+                            {formatShortDate(candidate.created_at) ?? <Missing />}
+                          </div>
+                                  );
+                              }
+                            })();
+                            return <Fragment key={col.id}>{cell}</Fragment>;
+                          })}
                         </div>
                         {/* Fragment CV, który dopasował wyszukiwanie — pod nazwiskiem. */}
-                        {snippet && (
+                        {fieldSnippets.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={openDetail}
+                            aria-label={`${fullName} — gdzie padły szukane słowa`}
+                            className="min-h-0 flex-1 overflow-hidden border-t border-border/40 px-4 pb-1.5 pt-1 text-left"
+                          >
+                            <FieldSnippets snippets={fieldSnippets} className="pl-12" />
+                          </button>
+                        ) : snippet ? (
                           <button
                             type="button"
                             onClick={openDetail}
@@ -1737,7 +1902,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                               className="block pl-12 line-clamp-3"
                             />
                           </button>
-                        )}
+                        ) : null}
                       </div>
                     );
                   })}

@@ -535,6 +535,12 @@ class CandidateIdentityRestoreRequest(BaseModel):
         return self
 
 
+class MatchSnippet(BaseModel):
+    field: str
+    text: str
+    highlights: list[list[int]] = Field(default_factory=list)
+
+
 class CandidateResponse(BaseModel):
     # Lista, `semantics_version=2`: które AKTYWNE filtry („location",
     # „experience", „rate") ta osoba przeszła wyłącznie dlatego, że nie mamy
@@ -661,6 +667,10 @@ class CandidateResponse(BaseModel):
     # origin prefix ("CV:", "Notatka:", …) — frontend renders it verbatim
     # and applies <mark> highlighting client-side.
     match_snippet: Optional[str] = None
+    # v2 (22.09.2026): każde pole z trafieniem słowa kluczowego osobno —
+    # `field` („Treść CV”, „Stanowisko”…), `text` i `highlights` (zakresy
+    # znaków do pogrubienia, liczone tą samą regułą co filtr: całe słowa).
+    match_snippets: Optional[list[MatchSnippet]] = None
     # Talent pools the candidate belongs to. Populated when the list endpoint
     # eager-loads `pool_memberships → pool` (see `_candidate_list_options`).
     talent_pools: list[TalentPoolBrief] = Field(default_factory=list)

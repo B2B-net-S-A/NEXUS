@@ -103,3 +103,65 @@ export function highlightTerms(text: string, terms: string[]): HighlightPart[] {
   }
   return parts;
 }
+
+/** Jedno pole z trafieniem (`candidate.match_snippets`, v2 listy). */
+export interface FieldSnippet {
+  field: string;
+  text: string;
+  /** Zakresy znaków do pogrubienia — liczone na serwerze tą samą regułą co
+   *  filtr (całe słowa, gwiazdka), więc „java” nie pogrubia „JavaScript”. */
+  highlights: number[][];
+}
+
+/** Najwięcej pól pod wierszem — reszta jest w podglądzie kandydata. */
+export const MAX_FIELD_SNIPPETS = 4;
+
+/** Wszystkie pola z trafieniem — każde w osobnej linii: „Treść CV: …”,
+ *  „Stanowisko: …” (jak w Traffit). Pogrubienia z zakresów serwera, bez
+ *  `dangerouslySetInnerHTML` — treść CV jest niezaufana. */
+export function FieldSnippets({
+  snippets,
+  className,
+}: {
+  snippets: FieldSnippet[];
+  className?: string;
+}) {
+  const shown = snippets.slice(0, MAX_FIELD_SNIPPETS);
+  if (shown.length === 0) return null;
+  return (
+    <span className={cn("block text-xs leading-normal text-muted-foreground", className)}>
+      {shown.map((snippet, i) => (
+        <span key={`${snippet.field}-${i}`} className="block truncate">
+          <span className="font-medium text-foreground/80">{snippet.field}:</span>{" "}
+          {splitByRanges(snippet.text, snippet.highlights).map((part, j) =>
+            part.match ? (
+              <strong key={j} className="font-semibold text-foreground">
+                {part.text}
+              </strong>
+            ) : (
+              <span key={j}>{part.text}</span>
+            ),
+          )}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Tekst pocięty zakresami `[start, end)`; zakresy poza tekstem i nakładające
+ *  się są pomijane (dane z serwera — nie ufamy, że są idealne). */
+export function splitByRanges(text: string, ranges: number[][]): HighlightPart[] {
+  const parts: HighlightPart[] = [];
+  let cursor = 0;
+  const sorted = [...ranges]
+    .filter((r) => r.length === 2 && r[0] >= 0 && r[1] > r[0] && r[1] <= text.length)
+    .sort((a, b) => a[0] - b[0]);
+  for (const [start, end] of sorted) {
+    if (start < cursor) continue;
+    if (start > cursor) parts.push({ text: text.slice(cursor, start), match: false });
+    parts.push({ text: text.slice(start, end), match: true });
+    cursor = end;
+  }
+  if (cursor < text.length) parts.push({ text: text.slice(cursor), match: false });
+  return parts;
+}

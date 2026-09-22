@@ -3209,9 +3209,11 @@ export const savedSearchesApi = {
   ) => api.patch<SavedSearchRow>(`/api/saved-searches/${id}`, data),
   delete: (id: number) => api.delete(`/api/saved-searches/${id}`),
   // Resets the unseen badge + rolls last_viewed_at forward; returns the
-  // PREVIOUS last_viewed_at — the list highlights rows created after it.
+  // PREVIOUS last_viewed_at and the people who ENTERED the result since then
+  // (alert log — also existing people who started matching after a new CV or
+  // note). The list highlights them as „Nowy w wyniku”.
   markViewed: (id: number) =>
-    api.post<{ previous_viewed_at: string | null }>(
+    api.post<{ previous_viewed_at: string | null; new_candidate_ids?: number[] }>(
       `/api/saved-searches/${id}/viewed`,
     ),
 };

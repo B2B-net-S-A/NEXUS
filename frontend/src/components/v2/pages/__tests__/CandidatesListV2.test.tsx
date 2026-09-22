@@ -255,12 +255,19 @@ describe("CandidatesListV2", () => {
         "Przypisz",
       ]);
       // Na wierzchu tylko to, czym zespół szuka (decyzja 22.09.2026).
-      expect(within(rail()).getByLabelText("Słowa kluczowe — muszą być wszystkie")).toBeTruthy();
-      expect(within(rail()).getByLabelText("Wyklucz słowa")).toBeTruthy();
+      // Słowa kluczowe jak w Traffit: wszystkie / którekolwiek / żadne + „Szukaj w”.
+      expect(within(rail()).getByLabelText("Zawiera wszystkie ze słów")).toBeTruthy();
+      expect(within(rail()).getByLabelText("Zawiera którekolwiek ze słów")).toBeTruthy();
+      expect(within(rail()).getByLabelText("Nie zawiera żadnego ze słów")).toBeTruthy();
+      expect(within(rail()).getByLabelText("Szukaj w")).toBeTruthy();
+      expect(within(rail()).getByLabelText("Promień")).toBeTruthy();
       expect(within(rail()).getByText("Stawka B2B")).toBeTruthy();
       expect(within(rail()).getByText("Lokalizacja")).toBeTruthy();
       expect(within(rail()).getByText("Tryb pracy")).toBeTruthy();
-      expect(within(rail()).queryByText("Umiejętności")).toBeNull();
+      // „Umiejętności” jest na wierzchu tylko jako zakres „Szukaj w” — sama
+      // grupa filtrów umiejętności siedzi w „Zaawansowanych”.
+      expect(within(rail()).queryByLabelText("Musi mieć")).toBeNull();
+      expect(within(rail()).queryByRole("button", { name: /^Umiejętności/ })).toBeNull();
       expect(within(rail()).queryByRole("radiogroup", { name: "Kogo pokazać" })).toBeNull();
       // Reszta w szufladzie „Zaawansowane”; historia z nami otwarta na starcie.
       fireEvent.click(within(rail()).getByRole("button", { name: /Zaawansowane/ }));
@@ -334,16 +341,84 @@ describe("CandidatesListV2", () => {
 
     it("słowa kluczowe i wykluczenia z panelu idą do API", async () => {
       renderList();
-      const must = within(rail()).getByLabelText("Słowa kluczowe — muszą być wszystkie");
+      const must = within(rail()).getByLabelText("Zawiera wszystkie ze słów");
       fireEvent.change(must, { target: { value: "Kafka" } });
       fireEvent.keyDown(must, { key: "Enter" });
-      const exclude = within(rail()).getByLabelText("Wyklucz słowa");
+      const exclude = within(rail()).getByLabelText("Nie zawiera żadnego ze słów");
       fireEvent.change(exclude, { target: { value: "junior" } });
       fireEvent.keyDown(exclude, { key: "Enter" });
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ q_all: ["Kafka"], q_none: ["junior"] });
       });
+    });
+
+    it("„którekolwiek” i „Szukaj w” z panelu idą do API", async () => {
+      renderList();
+      const any = within(rail()).getByLabelText("Zawiera którekolwiek ze słów");
+      fireEvent.change(any, { target: { value: "Spring" } });
+      fireEvent.keyDown(any, { key: "Enter" });
+      fireEvent.change(any, { target: { value: "Quarkus" } });
+      fireEvent.keyDown(any, { key: "Enter" });
+      fireEvent.change(within(rail()).getByLabelText("Szukaj w"), { target: { value: "cv" } });
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ q_any_group: ["Spring|Quarkus"], q_scope: "cv" });
+      });
+    });
+
+    it("promień w km wysyła się razem z miastem", async () => {
+      renderList();
+      fireEvent.change(within(rail()).getByLabelText("Miasto"), { target: { value: "Kraków" } });
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ location: "Kraków" });
+      });
+      fireEvent.change(within(rail()).getByLabelText("Promień"), { target: { value: "25" } });
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ location: "Kraków", location_radius_km: 25 });
+      });
+    });
+
+    it("kontakt z kandydatem w „Historii z nami”", async () => {
+      renderList();
+      const more = await openAdvanced(/Historia z nami/);
+      const group = within(more).getByRole("radiogroup", { name: "Kontakt z kandydatem" });
+      fireEvent.click(within(group).getByRole("radio", { name: "Nie było kontaktu" }));
+      fireEvent.change(within(more).getByLabelText("Kontakt — od"), {
+        target: { value: "2026-08-01" },
+      });
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ contacted: "no", contacted_from: "2026-08-01" });
+      });
+    });
+
+    it("wybrane kolumny z preferencji osoby", async () => {
+      const { useUiStore } = await import("@/store/ui");
+      useUiStore.getState().setColumnPreference("candidates-table-v2", ["phone", "cv"]);
+      try {
+        renderList();
+        const headers = Array.from(
+          screen.getByTestId("candidate-list-header").querySelectorAll("[data-column-header]"),
+        ).map((h) => h.textContent);
+        expect(headers).toEqual([
+          "Kandydat",
+          "Ostatnie stanowisko",
+          "E-mail",
+          "Lokalizacja",
+          "Stawka B2B",
+          "Dostępność",
+          "Staż",
+          "W procesie",
+          "Ostatni kontakt",
+          "Dodano",
+          "Przypisz",
+        ]);
+      } finally {
+        useUiStore.getState().clearColumnPreference("candidates-table-v2");
+      }
     });
 
     it("dostępność w „Zaawansowanych” łączy dostępność i zatrudnienie jedną odpowiedzią", async () => {

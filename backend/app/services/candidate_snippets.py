@@ -220,3 +220,185 @@ def extract_search_terms(
         for group in q_any_groups:
             parts.extend(group)
     return _normalize_terms(parts)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# v2: wszystkie trafienia, osobno dla każdego pola (Traffit parity, 22.09.2026)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Traffit pod każdym wynikiem pokazuje każde pole, w którym padło szukane słowo
+# („Treść CV: …”, „Technologie: …”, „Stanowisko: …”), z pogrubieniem. Stary
+# wycinek NEXUSA brał JEDNO okno z pierwszego pola i szukał podłańcucha, więc
+# „java” pogrubiało „Java” w „JavaScript”. Tu: to samo dopasowanie co filtr
+# (`keyword_terms` — całe słowa, gwiazdka), zakres pola i zakresy pogrubień
+# liczone na serwerze (front nie powtarza reguły).
+
+_FIELD_WINDOWS = 2
+_MAX_FIELDS = 5
+
+_SCOPE_FIELDS = {
+    "cv": {"Treść CV"},
+    "title": {"Stanowisko"},
+    "skills": {"Umiejętności"},
+    "notes": {"Notatka"},
+}
+
+
+def _experience_roles(candidate: Candidate) -> str:
+    exp = candidate.experience
+    if not isinstance(exp, list):
+        return ""
+    roles = [
+        str(item.get("role")).strip()
+        for item in exp
+        if isinstance(item, dict) and item.get("role")
+    ]
+    return " · ".join(r for r in roles if r)
+
+
+def _structured_corpus(
+    candidate: Candidate, notes_contents: Optional[list[str]]
+) -> list[tuple[str, str]]:
+    blocks: list[tuple[str, str]] = [
+        ("Treść CV", clean_rich_text(candidate.raw_cv_text)),
+        ("Stanowisko", _experience_roles(candidate)),
+        ("Umiejętności", clean_rich_text(flatten_json_text(candidate.skills))),
+        ("Doświadczenie", clean_rich_text(flatten_json_text(candidate.experience))),
+        ("Podsumowanie AI", clean_rich_text(candidate.ai_summary)),
+        ("Uwagi", clean_rich_text(candidate.engagement_notes)),
+        ("Tagi", clean_rich_text(flatten_json_text(candidate.tags))),
+        ("Wykształcenie", clean_rich_text(flatten_json_text(candidate.education))),
+        ("Języki", clean_rich_text(flatten_json_text(candidate.languages))),
+        ("Kategoria", clean_rich_text(candidate.competence_category)),
+        ("Lokalizacja", clean_rich_text(candidate.location or candidate.city)),
+    ]
+    for note in notes_contents or []:
+        blocks.append(("Notatka", clean_rich_text(note)))
+    blocks.extend(
+        [
+            ("Email", clean_rich_text(candidate.email)),
+            (
+                "Kandydat",
+                clean_rich_text(f"{candidate.name or ''} {candidate.lastname or ''}"),
+            ),
+        ]
+    )
+    return blocks
+
+
+def _term_patterns(terms: list[str], whole_words: bool) -> list:
+    import re
+
+    from app.services.keyword_terms import parse_keyword, py_regex
+
+    patterns = []
+    for raw in terms:
+        term = parse_keyword(raw)
+        if term is None:
+            continue
+        if whole_words:
+            patterns.append(py_regex(term))
+        else:
+            patterns.append(re.compile(re.escape(term.text), re.IGNORECASE))
+    return patterns
+
+
+def extract_field_snippets(
+    candidate: Candidate,
+    terms: list[str],
+    notes_contents: Optional[list[str]] = None,
+    *,
+    whole_words: bool = True,
+    scope: str = "all",
+) -> list[dict]:
+    """Lista ``{"field", "text", "highlights": [[start, end], …]}`` — każde pole
+    z trafieniem (najwyżej ``_MAX_FIELDS``), w każdym do ``_FIELD_WINDOWS``
+    okien. ``highlights`` to zakresy znaków w ``text`` do pogrubienia."""
+    patterns = _term_patterns(terms, whole_words)
+    if not patterns:
+        return []
+    allowed = _SCOPE_FIELDS.get(scope)
+    out: list[dict] = []
+    for label, text in _structured_corpus(candidate, notes_contents):
+        if len(out) >= _MAX_FIELDS:
+            break
+        if not text or (allowed is not None and label not in allowed):
+            continue
+        spans: list[tuple[int, int]] = []
+        for pattern in patterns:
+            spans.extend((m.start(), m.end()) for m in pattern.finditer(text))
+        if not spans:
+            continue
+        spans.sort()
+        windows = _coalesce(spans, _MERGE_GAP)[:_FIELD_WINDOWS]
+        pieces: list[str] = []
+        highlights: list[list[int]] = []
+        for w_start, w_end in windows:
+            start = max(0, w_start - _CONTEXT)
+            end = min(len(text), max(w_end + _CONTEXT, start + 1))
+            if end - start > _MAX_WINDOW_LEN:
+                end = start + _MAX_WINDOW_LEN
+            prefix = "…" if start > 0 else ""
+            suffix = "…" if end < len(text) else ""
+            offset = sum(len(p) for p in pieces) + (3 * len(pieces)) + len(prefix)
+            chunk = text[start:end]
+            for s, e in spans:
+                if s >= start and e <= end:
+                    highlights.append([offset + s - start, offset + e - start])
+            pieces.append(prefix + chunk + suffix)
+        joined = " · ".join(pieces)
+        # Odstępy z CV (nowe linie, taby) — jedna linia, zakresy przeliczone.
+        normalized, mapping = _collapse_whitespace(joined)
+        units = _utf16_positions(normalized)
+        out.append(
+            {
+                "field": label,
+                "text": normalized,
+                # Zakresy w jednostkach UTF-16 — tak liczy `String.slice` we
+                # froncie; emoji przed trafieniem przesuwałoby pogrubienie.
+                "highlights": [
+                    [units[mapping[s]], units[mapping[e - 1] + 1]]
+                    for s, e in highlights
+                ],
+            }
+        )
+    return out
+
+
+def _utf16_positions(text: str) -> list[int]:
+    """``positions[i]`` = pozycja znaku ``i`` w jednostkach UTF-16 (długość
+    ``len(text) + 1`` — ostatni element to długość całego tekstu)."""
+    positions = [0]
+    for ch in text:
+        positions.append(positions[-1] + (2 if ord(ch) > 0xFFFF else 1))
+    return positions
+
+
+def _collapse_whitespace(text: str) -> tuple[str, list[int]]:
+    """Zwija odstępy do pojedynczej spacji; ``mapping[i]`` = nowa pozycja
+    znaku ``i`` (znaki zwinięte wskazują na zachowaną spację)."""
+    result: list[str] = []
+    mapping: list[int] = []
+    prev_space = False
+    for ch in text:
+        if ch.isspace():
+            if prev_space:
+                mapping.append(len(result) - 1)
+                continue
+            result.append(" ")
+            prev_space = True
+        else:
+            result.append(ch)
+            prev_space = False
+        mapping.append(len(result) - 1)
+    return "".join(result), mapping
+
+
+def snippets_as_text(snippets: list[dict]) -> Optional[str]:
+    """Stary kształt ``match_snippet`` (jeden napis) z listy pól."""
+    if not snippets:
+        return None
+    text = " · ".join(f"{s['field']}: {s['text']}" for s in snippets)
+    if len(text) > _MAX_SNIPPET_LEN:
+        text = text[: _MAX_SNIPPET_LEN - 1].rstrip() + "…"
+    return text
