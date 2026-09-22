@@ -48,33 +48,52 @@ function newId(): string {
   );
 }
 
-export function bottomRow(tiles: DashboardTile[]): number {
+export function bottomRow(tiles: Pick<DashboardTile, "y" | "h">[]): number {
   return tiles.reduce((max, t) => Math.max(max, t.y + t.h), 0);
 }
 
+function overlaps(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+/** Pierwsze wolne miejsce: najwyższy wiersz, potem najbardziej na lewo. */
+export function firstFreeSpot(
+  tiles: Pick<DashboardTile, "x" | "y" | "w" | "h">[],
+  w: number,
+  h: number,
+): { x: number; y: number } {
+  const width = Math.min(w, GRID_COLUMNS);
+  const limit = bottomRow(tiles);
+  for (let y = 0; y <= limit; y += 1) {
+    for (let x = 0; x + width <= GRID_COLUMNS; x += 1) {
+      const spot = { x, y, w: width, h };
+      if (!tiles.some((t) => overlaps(spot, t))) return { x, y };
+    }
+  }
+  return { x: 0, y: limit };
+}
+
 /**
- * Dokłada kafelki pod istniejącym układem, pakując je wierszami od lewej.
+ * Dokłada kafelki w pierwsze wolne miejsca układu (od góry, od lewej).
  * Nigdy nie przesuwa kafelków, które już są — dodanie czegoś nie może
- * rozwalić układu, który ktoś sobie ułożył.
+ * rozwalić układu, który ktoś sobie ułożył. Do 22.09.2026 nowe kafelki
+ * lądowały zawsze pod spodem od lewej i prawa połowa pulpitu zostawała pusta
+ * (zauważone w teście na produkcji).
  */
 export function appendTemplates(
   tiles: DashboardTile[],
   templates: TileTemplate[],
 ): DashboardTile[] {
   const out = [...tiles];
-  let x = 0;
-  let y = bottomRow(tiles);
-  let rowHeight = 0;
   for (const template of templates) {
     if (out.length >= MAX_TILES) break;
     const def = TILE_DEFINITIONS[template.type];
     const size = template.size ?? def.defaultSize;
     const w = Math.min(size.w, GRID_COLUMNS);
-    if (x + w > GRID_COLUMNS) {
-      x = 0;
-      y += rowHeight;
-      rowHeight = 0;
-    }
+    const { x, y } = firstFreeSpot(out, w, size.h);
     out.push({
       id: newId(),
       type: template.type,
@@ -84,8 +103,6 @@ export function appendTemplates(
       h: size.h,
       config: structuredCloneSafe(template.config),
     });
-    x += w;
-    rowHeight = Math.max(rowHeight, size.h);
   }
   return out;
 }
@@ -100,10 +117,8 @@ export function duplicateTile(
 ): DashboardTile[] {
   const source = tiles.find((t) => t.id === id);
   if (!source || tiles.length >= MAX_TILES) return tiles;
-  return [
-    ...tiles,
-    { ...structuredCloneSafe(source), id: newId(), x: 0, y: bottomRow(tiles) },
-  ];
+  const { x, y } = firstFreeSpot(tiles, source.w, source.h);
+  return [...tiles, { ...structuredCloneSafe(source), id: newId(), x, y }];
 }
 
 export function removeTile(tiles: DashboardTile[], id: string): DashboardTile[] {
