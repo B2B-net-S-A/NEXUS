@@ -103,6 +103,10 @@ async def test_second_import_of_the_same_recruitment_writes_nothing():
         finally:
             if job_id is not None:
                 await db.execute(
+                    text("DELETE FROM candidate_match_outbox WHERE job_id = :j"),
+                    {"j": job_id},
+                )
+                await db.execute(
                     text(
                         "DELETE FROM match_index_outbox "
                         "WHERE entity_type = 'job' AND entity_id = :i"

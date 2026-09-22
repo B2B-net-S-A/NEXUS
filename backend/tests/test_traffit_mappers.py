@@ -580,6 +580,43 @@ class TestTraffitRecruitmentToJob:
         assert result["closed_at"] is None
 
 
+class TestResponsiblePerson:
+    """Audyt 22.09 r2 (DATA-01/PROD-03): opiekun rekrutacji z listy."""
+
+    def test_list_of_people_maps_to_recruiter(self):
+        payload = {
+            "id": 1,
+            "name": "X",
+            "responsible_person": [{"id": 99}, {"id": 43}],
+        }
+        result = traffit_recruitment_to_job(payload, {}, {}, {"43": 7})
+        assert result["recruiter_id"] == 7
+
+    def test_dict_and_bare_id_still_work(self):
+        assert (
+            traffit_recruitment_to_job(
+                {"id": 1, "name": "X", "responsible_person": {"id": 43}},
+                {},
+                {},
+                {"43": 7},
+            )["recruiter_id"]
+            == 7
+        )
+        assert (
+            traffit_recruitment_to_job(
+                {"id": 1, "name": "X", "responsible_person": 43}, {}, {}, {"43": 7}
+            )["recruiter_id"]
+            == 7
+        )
+
+    def test_unknown_people_give_no_recruiter(self):
+        payload = {"id": 1, "name": "X", "responsible_person": [{"id": 1}, None]}
+        assert (
+            traffit_recruitment_to_job(payload, {}, {}, {"43": 7})["recruiter_id"]
+            is None
+        )
+
+
 class TestTraffitLocalTime:
     """Audyt 22.09 r2 (INTG-04): Traffit podaje czas lokalny, nie UTC."""
 

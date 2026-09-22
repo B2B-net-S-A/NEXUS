@@ -50,6 +50,7 @@ from app.services.inactive_client_cleanup_run import purged_external_ids
 from app.services.traffit.client import TraffitClient
 from app.services.traffit.mappers import (
     _parse_traffit_datetime,
+    responsible_user_id,
     select_all_files_with_priority,
     select_primary_cv_file,
     traffit_activity_to_activity,
@@ -305,6 +306,11 @@ class PhaseProgress:
     # Audyt 22.09 r2 (INTG-03): wpisy /recruitment_history starsze niż `since`
     # pominięte przez deltę ogonową (sortowanie `id DESC`).
     skipped_before_since: int = 0
+    # Audyt 22.09 r2 (DATA-01): zdarzenia rekrutacji dla automatów (nocny
+    # przegląd bazy, auto-match, dzwonek „Moi ludzie") zapisane przez import
+    # oraz opiekunowie uzupełnieni z /recruitments/{id}.
+    job_events: int = 0
+    owners_filled: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -354,6 +360,8 @@ class PhaseProgress:
             "index_intents": self.index_intents,
             "unchanged": self.unchanged,
             "skipped_before_since": self.skipped_before_since,
+            "job_events": self.job_events,
+            "owners_filled": self.owners_filled,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -2363,6 +2371,9 @@ class TraffitImporter:
         existing_job_clients = await self._build_job_client_map()
         user_map = await self.build_user_id_map()
         touched_job_ids: list[int] = []
+        # DATA-01: opublikowane rekrutacje nowe albo ze zmienionym
+        # tytułem/statusem — zdarzenie dla automatów.
+        event_job_ids: list[int] = []
         logger.info(
             "Jobs lookup maps: clients=%d workflows=%d users=%d",
             len(client_map),
@@ -2505,7 +2516,7 @@ class TraffitImporter:
                         was_insert = bool(row[1])
                         previous = before_import.get(payload["external_id"])
                         managed = bool(row[2])
-                        if (
+                        meaningful = (
                             was_insert
                             or previous is None
                             or (
@@ -2515,8 +2526,11 @@ class TraffitImporter:
                                     or previous[1] != payload.get("title")
                                 )
                             )
-                        ):
+                        )
+                        if meaningful:
                             touched_job_ids.append(int(row[0]))
+                            if not managed and payload.get("status") == "published":
+                                event_job_ids.append(int(row[0]))
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
                     f"upsert job ext={payload.get('external_id')}: {e!r}"
@@ -2536,6 +2550,23 @@ class TraffitImporter:
                 progress.inserted += 1
             else:
                 progress.updated += 1
+
+        if not self.dry_run:
+            # Audyt 22.09 r2 (DATA-01/PROD-03): import Traffita (99% rekrutacji)
+            # NIE zapisywał zdarzeń rekrutacji, więc nocny przegląd bazy,
+            # auto-match nowej rekrutacji i dzwonek „Moi ludzie" nie ruszyły
+            # ani razu od 21.09 (0 wierszy z `job_id` w kolejce).
+            from app.services.auto_match_outbox import enqueue_job
+
+            for job_id in event_job_ids:
+                try:
+                    await enqueue_job(self.db, job_id=job_id, trigger="traffit_job")
+                    progress.job_events += 1
+                except Exception as exc:  # noqa: BLE001
+                    # Brak zdarzenia = rekrutacja poczeka na ręczną zmianę;
+                    # nie wywracamy importu rekrutacji.
+                    logger.warning("Jobs: enqueue_job job=%s failed: %r", job_id, exc)
+            await self._backfill_job_owners(progress, user_map)
 
         # Intencja przeindeksowania rekrutacji — jak dla kandydatów.
         # `_UPSERT_JOB` nadpisuje `title`, a tytuł WCHODZI do tekstu embeddingu
@@ -2567,6 +2598,70 @@ class TraffitImporter:
             json.dumps(progress.as_dict(), default=str)[:500],
         )
         return progress
+
+    async def _backfill_job_owners(
+        self, progress: PhaseProgress, user_map: dict[str, int]
+    ) -> None:
+        """Opiekun dla opublikowanych rekrutacji bez `recruiter_id` i `tac_id`.
+
+        Audyt 22.09 r2 (DATA-01/PROD-03): lista /recruitments/ nie niosła
+        opiekuna w kształcie, który znał mapper, więc 312 z 326 opublikowanych
+        rekrutacji nie miało nikogo — nocny przegląd bazy pomija rekrutację bez
+        autora. Dopytujemy /recruitments/{id} (limit na bieg) i wpisujemy
+        opiekuna WYŁĄCZNIE tam, gdzie pole wciąż jest puste.
+        """
+        limit = max(0, int(settings.TRAFFIT_SYNC_JOB_OWNER_LOOKUPS))
+        if limit == 0 or not user_map:
+            return
+        rows = (
+            await self.db.execute(
+                text(
+                    """
+                    SELECT id, external_id FROM jobs
+                     WHERE external_source = 'traffit'
+                       AND external_id IS NOT NULL
+                       AND status = 'published'
+                       AND recruiter_id IS NULL
+                       AND tac_id IS NULL
+                       AND NOT managed_in_nexus
+                     ORDER BY id DESC
+                     LIMIT :limit
+                    """
+                ),
+                {"limit": limit},
+            )
+        ).fetchall()
+        for job_id, external_id in rows:
+            try:
+                resp = await self.traffit._get_raw(  # noqa: SLF001
+                    f"/recruitments/{external_id}", page=1, page_size=1
+                )
+                if resp.status_code != 200:
+                    continue
+                detail = resp.json()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Jobs: owner lookup for recruitment %s failed: %r",
+                    external_id,
+                    exc,
+                )
+                continue
+            if isinstance(detail, list):
+                detail = detail[0] if detail else None
+            if not isinstance(detail, dict):
+                continue
+            owner = responsible_user_id(detail, user_map)
+            if owner is None:
+                continue
+            result = await self.db.execute(
+                text(
+                    "UPDATE jobs SET recruiter_id = :owner, updated_at = NOW() "
+                    "WHERE id = :job_id AND recruiter_id IS NULL"
+                ),
+                {"owner": owner, "job_id": job_id},
+            )
+            if result.rowcount:
+                progress.owners_filled += 1
 
     # ── Faza 5: talents ─────────────────────────────────────────────────────
 

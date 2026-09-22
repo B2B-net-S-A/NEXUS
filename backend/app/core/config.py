@@ -512,7 +512,8 @@ class Settings(BaseSettings):
     # do skrzynki „Propozycje" (źródło `full_base`). False = pętla kończy się
     # przed startem, nic się nie dzieje (stan sprzed 21.09).
     AUTO_FULL_REVIEW_ENABLED: bool = True
-    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 20
+    # audyt 22.09 r2 (PROD-03): 5/noc — przegląd to ~190 MB, 20/noc zapełniało wolumen.
+    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 5
     AUTO_FULL_REVIEW_TOP_K: int = 60
     # Osobny próg, bo pełny przegląd punktuje kanonicznym fitem, a auto-match
     # nowych CV starszym scoringiem — wspólny próg stroiłby dwa różne pomiary.

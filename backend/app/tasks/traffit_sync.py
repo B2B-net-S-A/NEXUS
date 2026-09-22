@@ -889,6 +889,10 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         # sprzed `since` pominięte przez deltę ogonową.
         "unchanged",
         "skipped_before_since",
+        # Audyt 22.09 r2 (DATA-01): zdarzenia rekrutacji dla automatów
+        # i opiekunowie uzupełnieni z /recruitments/{id}.
+        "job_events",
+        "owners_filled",
         "drifted_entities",
         "drift",
         "total_source",

@@ -808,6 +808,38 @@ def normalize_job_status(raw: Optional[str], is_closed: bool = False) -> str:
     return _JOB_STATUS_MAP.get(raw.strip().lower(), "published")
 
 
+def responsible_user_id(
+    payload: dict[str, Any], user_id_map: Optional[dict[str, int]]
+) -> Optional[int]:
+    """Opiekun rekrutacji z `responsible_person` Traffita → id usera NEXUSA.
+
+    Audyt 22.09 r2 (DATA-01/PROD-03): Traffit zwraca `responsible_person` jako
+    LISTĘ osób (czasem słownik, czasem samo id), a mapper znał tylko słownik —
+    312 z 326 opublikowanych rekrutacji nie miało ani `recruiter_id`, ani
+    `tac_id`, więc nocny przegląd bazy nie miał dla kogo liczyć. Pierwsza osoba
+    z listy, którą znamy w NEXUSIE, wygrywa.
+    """
+    if not user_id_map:
+        return None
+    raw = payload.get("responsible_person")
+    candidates = raw if isinstance(raw, list) else [raw]
+    for entry in candidates:
+        if isinstance(entry, dict):
+            traffit_user_id = entry.get("id")
+            if traffit_user_id is None and isinstance(entry.get("user"), dict):
+                traffit_user_id = entry["user"].get("id")
+        else:
+            traffit_user_id = entry
+        if traffit_user_id is None or isinstance(traffit_user_id, bool):
+            continue
+        if not isinstance(traffit_user_id, (int, str)):
+            continue
+        nexus_id = user_id_map.get(str(traffit_user_id))
+        if nexus_id is not None:
+            return nexus_id
+    return None
+
+
 def traffit_recruitment_to_job(
     payload: dict[str, Any],
     client_external_id_to_nexus_id: dict[str, int],
@@ -839,11 +871,7 @@ def traffit_recruitment_to_job(
 
     recruiter_id: Optional[int] = None
     if user_id_map:
-        rp = payload.get("responsible_person")
-        if isinstance(rp, dict):
-            traffit_user_id = rp.get("id")
-            if traffit_user_id is not None:
-                recruiter_id = user_id_map.get(str(traffit_user_id))
+        recruiter_id = responsible_user_id(payload, user_id_map)
 
     is_closed = bool(payload.get("is_closed") or False)
     closing_date = payload.get("closing_date")  # "yyyy-MM-dd HH:mm:ss" lub None
