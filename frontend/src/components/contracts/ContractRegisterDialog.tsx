@@ -49,6 +49,7 @@ import {
   type RegisterContractRow,
 } from "@/lib/contract-register";
 import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
+import { warsawToday } from "@/lib/warsaw-date";
 
 type CandidateOption = {
   id: number;
@@ -69,7 +70,7 @@ interface Props {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return warsawToday();
 }
 
 const STATUS_OPTIONS = [

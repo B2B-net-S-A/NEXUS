@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { contractsApi, CONTRACT_TERMINATION_REASONS, type ContractTerminationReason } from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { ModalShell } from "./CloseJobAsLostModal";
+import { warsawToday } from "@/lib/warsaw-date";
 
 interface Props {
   contractId: number;
@@ -25,7 +26,7 @@ export function TerminateContractModal({
   const [reason, setReason] = useState<ContractTerminationReason>("project_ended");
   const [lessons, setLessons] = useState("");
   const [terminatedAt, setTerminatedAt] = useState(
-    () => new Date().toISOString().slice(0, 10)
+    () => warsawToday()
   );
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();

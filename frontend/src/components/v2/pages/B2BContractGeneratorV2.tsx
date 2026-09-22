@@ -93,6 +93,7 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import { warsawToday } from "@/lib/warsaw-date";
 
 // Router generatora ma szeroką bramkę Sourcing, ale operacje na dokumentach
 // ze stawką mają osobne, konfigurowalne uprawnienie. Poziom `view` dostaje
@@ -218,7 +219,7 @@ function parseRate(raw: string): number | null {
 }
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return warsawToday();
 }
 
 
