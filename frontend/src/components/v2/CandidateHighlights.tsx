@@ -215,7 +215,7 @@ export function CandidateHighlights({
  {availability_status === "open_to_offers" && (
  <Badge variant="info" size="sm">
  <Circle className="h-1.5 w-1.5 fill-current" />
- {isEmployedAtClient ?"Otwarty na dodatkowe" :"Otwarty na projekty"}
+ {isEmployedAtClient ?"Otwarty na dodatkowe" :"Otwarty na oferty"}
  </Badge>
  )}
  {variant === "full" && availability_status === "not_looking" && (
@@ -231,17 +231,17 @@ export function CandidateHighlights({
 /** Polish label for a raw availability value. Used by filter dropdowns + edit form. */
 export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
  actively_looking: "Aktywnie szuka",
- open_to_offers: "Otwarty na projekty",
+ open_to_offers: "Otwarty na oferty",
  not_looking: "Nie szuka",
- unknown: "Nie wiemy",
+ unknown: "Nieznane",
 };
 
 export const AVAILABILITY_OPTIONS: { value: AvailabilityStatus; label: string }[] =
  [
  { value: "actively_looking", label: "Aktywnie szuka" },
- { value: "open_to_offers", label: "Otwarty na projekty" },
+ { value: "open_to_offers", label: "Otwarty na oferty" },
  { value: "not_looking", label: "Nie szuka" },
- { value: "unknown", label: "Nie wiemy" },
+ { value: "unknown", label: "Nieznane" },
  ];
 
 export const EMPLOYMENT_FILTER_OPTIONS: {

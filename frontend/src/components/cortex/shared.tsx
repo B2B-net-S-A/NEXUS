@@ -61,9 +61,9 @@ export function FreshnessBadge({ freshness }: { freshness: string }) {
 
 export const AVAILABILITY_LABELS: Record<string, string> = {
   actively_looking: "Aktywnie szuka",
-  open_to_offers: "Otwarty na projekty",
+  open_to_offers: "Otwarty na oferty",
   not_looking: "Nie szuka",
-  unknown: "Nie wiemy",
+  unknown: "Nieznane",
 };
 
 const AVAILABILITY_VARIANT: Record<string, BadgeProps["variant"]> = {

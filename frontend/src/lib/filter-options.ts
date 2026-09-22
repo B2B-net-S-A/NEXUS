@@ -40,9 +40,9 @@ export const AVAILABILITY_OPTIONS: ReadonlyArray<
   MultiSelectFilterOption<AvailabilityValue>
 > = [
   { value: "actively_looking", label: "Aktywnie szuka" },
-  { value: "open_to_offers", label: "Otwarty na projekty" },
+  { value: "open_to_offers", label: "Otwarty na oferty" },
   { value: "not_looking", label: "Nie szuka" },
-  { value: "unknown", label: "Nie wiemy" },
+  { value: "unknown", label: "Nieznane" },
 ];
 
 // Pipeline stage — etap kandydata w procesie rekrutacyjnym.
