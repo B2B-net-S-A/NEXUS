@@ -5212,6 +5212,21 @@ async def delete_candidate(
     from app.services.cv_source_erasure import detach_candidate_job_sources
 
     storage_keys.extend(await detach_candidate_job_sources(db, candidate_id))
+
+    # Audyt 22.09 r2 (CAND-02, art. 17 RODO): zgłoszenia z formularza
+    # aplikacyjnego niosą CV (bajty albo klucz w storage), kontakt i zgodę.
+    # FK `matched_candidate_id` to SET NULL, więc bez tego przeżywały
+    # usunięcie profilu. Bierzemy te dopasowane do kandydata i te z jego
+    # adresem e-mail (zgłoszenie sprzed dopasowania nie ma FK); zgody
+    # zgłoszeń kaskadują z wiersza, ale liczymy je do dowodu wykonania.
+    from app.services.application_submission_erasure import (
+        erase_candidate_submissions,
+    )
+
+    submission_erasure = await erase_candidate_submissions(
+        db, candidate_id=candidate_id, email=candidate.email
+    )
+    storage_keys.extend(submission_erasure.pop("storage_keys"))
     storage_keys = sorted(set(storage_keys))
 
     # Pseudonimizacja umów PRZED usunięciem: `SET NULL` zadziała w bazie sam,
@@ -5328,6 +5343,7 @@ async def delete_candidate(
             "subject_ref": subject_ref,
             **search_erasure,
             **jarvis_erasure,
+            **submission_erasure,
         },
     )
     # Historia zdarzeń (Ustawienia). Wpis przeżywa usunięcie, więc NIE niesie
