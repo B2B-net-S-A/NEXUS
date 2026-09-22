@@ -9,6 +9,7 @@ and `external_id=<graph event id>` — same upsert pattern as `ical_import.py`.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional, TypedDict
@@ -89,6 +90,39 @@ def _resolve_with_teams(
     return event_type in _TEAMS_DEFAULT_EVENT_TYPES
 
 
+def event_transaction_id(
+    *,
+    owner_user_id: Optional[int],
+    title: str,
+    start: datetime,
+    end: datetime,
+    attendee_emails: list[str],
+    intent_id: Optional[str] = None,
+) -> str:
+    """Stały ``transactionId`` intencji utworzenia wydarzenia (INT-06).
+
+    Graph rozpoznaje po nim powtórzone ``POST /me/events`` i nie tworzy
+    drugiego spotkania ani drugiego zaproszenia. Wartość MUSI być taka sama
+    przy każdym ponowieniu tej samej operacji — dlatego nie jest losowa:
+    jawny identyfikator intencji wołającego albo skrót właściciela, tytułu,
+    terminu i uczestników.
+    """
+    if intent_id:
+        seed = f"intent|{intent_id}"
+    else:
+        seed = "|".join(
+            [
+                "event",
+                str(owner_user_id or ""),
+                (title or "").strip(),
+                start.isoformat(),
+                end.isoformat(),
+                ",".join(sorted({a.strip().lower() for a in attendee_emails if a})),
+            ]
+        )
+    return "nexus-" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:40]
+
+
 def _build_event_payload(
     *,
     title: str,
@@ -97,6 +131,7 @@ def _build_event_payload(
     end: datetime,
     attendee_emails: list[str],
     want_teams: bool,
+    transaction_id: Optional[str] = None,
 ) -> dict:
     """Shape a Graph `/me/events` POST body.
 
@@ -121,6 +156,8 @@ def _build_event_payload(
     if want_teams:
         payload["isOnlineMeeting"] = True
         payload["onlineMeetingProvider"] = "teamsForBusiness"
+    if transaction_id:
+        payload["transactionId"] = transaction_id
     return payload
 
 
@@ -137,8 +174,13 @@ async def create_event(
     extra_attendees: Optional[list[str]] = None,
     invite_candidate: bool = True,
     with_teams_meeting: Optional[bool] = None,
+    intent_id: Optional[str] = None,
 ) -> CalendarEvent:
     """Create a Graph event + matching local CalendarEvent row.
+
+    ``intent_id`` — opcjonalny stały identyfikator operacji wołającego; z niego
+    (albo z treści wydarzenia) powstaje ``transactionId``, dzięki któremu Graph
+    nie tworzy duplikatu przy powtórzonym żądaniu (INT-06).
 
     When `with_teams_meeting` is True, Graph generates a Teams join URL and
     embeds it in the event invitation. When None (default), the helper opts
@@ -158,6 +200,14 @@ async def create_event(
         end=end,
         attendee_emails=attendee_emails,
         want_teams=want_teams,
+        transaction_id=event_transaction_id(
+            owner_user_id=connection.user_id,
+            title=title,
+            start=start,
+            end=end,
+            attendee_emails=attendee_emails,
+            intent_id=intent_id,
+        ),
     )
 
     async with GraphClient(connection, db) as gc:
@@ -425,7 +475,10 @@ async def get_free_busy(
         "endTime": {"dateTime": end_utc.isoformat(), "timeZone": "UTC"},
         "availabilityViewInterval": interval_minutes,
     }
-    response = await gc.post("/me/calendar/getSchedule", json=payload)
+    # getSchedule tylko czyta — powtórka po utracie odpowiedzi jest bezpieczna.
+    response = await gc.post(
+        "/me/calendar/getSchedule", json=payload, retry_unsafe=True
+    )
     return parse_free_busy_response(
         response, window_start=start_utc, interval_minutes=interval_minutes
     )
