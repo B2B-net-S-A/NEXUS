@@ -165,8 +165,13 @@ function rail() {
   return screen.getByRole("complementary", { name: "Filtry kandydatów" });
 }
 
+/** Status żyje w szufladzie „Więcej filtrów” (wariant B). */
 async function pickStatus(option: string) {
-  fireEvent.click(within(rail()).getByRole("button", { name: option }));
+  if (!screen.queryByTestId("candidate-more-filters")) {
+    fireEvent.click(within(rail()).getByRole("button", { name: /Więcej filtrów/ }));
+  }
+  const more = await screen.findByTestId("candidate-more-filters");
+  fireEvent.click(within(more).getByRole("button", { name: option }));
 }
 
 async function candidateCalls() {
@@ -233,21 +238,26 @@ describe("CandidatesListV2", () => {
       expect(screen.queryAllByRole("row")).toHaveLength(0);
       expect(headers).toEqual([
         "Kandydat",
-        "Lokalizacja",
-        "Dostępność",
+        "Ostatnie stanowisko",
+        "Telefon",
         "Stawka B2B",
+        "Dostępność",
         "W procesie",
         "CV",
+        "Przypisz",
       ]);
       // Sekcje zawsze widoczne w kolumnie filtrów.
       expect(within(rail()).getByRole("radiogroup", { name: "Kogo pokazać" })).toBeTruthy();
-      expect(within(rail()).getByText("Status")).toBeTruthy();
+      // Wariant B: pięć grup na wierzchu, reszta w szufladzie „Więcej filtrów”.
       expect(within(rail()).getByText("Dostępność")).toBeTruthy();
+      expect(within(rail()).getByText("Stawka B2B")).toBeTruthy();
       expect(within(rail()).getByText("Umiejętności")).toBeTruthy();
-      // Grupy zwinięte, dopóki nic w nich nie ustawiono.
-      expect(
-        within(rail()).getByRole("button", { name: /Lokalizacja i tryb pracy/ }),
-      ).toHaveAttribute("aria-expanded", "false");
+      expect(within(rail()).getByText("Lokalizacja")).toBeTruthy();
+      expect(within(rail()).queryByText("Status")).toBeNull();
+      fireEvent.click(within(rail()).getByRole("button", { name: /Więcej filtrów/ }));
+      const more = await screen.findByTestId("candidate-more-filters");
+      expect(within(more).getByText("Status")).toBeTruthy();
+      expect(within(more).getByText("Języki")).toBeTruthy();
       // Bez konfiguracji kolumn, gęstości i widoku kafelków.
       expect(screen.queryByLabelText("Konfiguracja kolumn")).toBeNull();
       expect(screen.queryByLabelText("Widok kafelków")).toBeNull();
@@ -262,10 +272,13 @@ describe("CandidatesListV2", () => {
           skills: ["Java", "Spring", "Kafka", "AWS"],
           cv_filename: "CV_Marta.pdf",
           city: "Warszawa",
+          phone: "+48 601 204 118",
+          linkedin_current_title: "Senior Java Developer",
+          linkedin_current_company: "Fikcyjny Bank",
           availability_date: "2026-10-01",
           expected_rate_hourly: 160,
           active_recruitments: [
-            { job_id: 1, job_title: "A", stage: "verified", moved_at: "2026-09-01T10:00:00Z" },
+            { job_id: 1, job_title: "A", client_name: "Klient A", stage: "verified", moved_at: "2026-09-01T10:00:00Z" },
             { job_id: 2, job_title: "B", stage: "cv_sent", moved_at: "2026-09-10T10:00:00Z" },
             { job_id: 3, job_title: "C", stage: "rejected", moved_at: "2026-09-12T10:00:00Z" },
           ],
@@ -277,14 +290,26 @@ describe("CandidatesListV2", () => {
       const row = await screen.findByTestId("candidate-row-1");
       expect(within(row).getByText("od 01.10")).toBeTruthy();
       expect(within(row).getByText("160 zł/h")).toBeTruthy();
-      expect(within(row).getByText("2 procesy · CV wysłane")).toBeTruthy();
+      expect(within(row).getByText("Senior Java Developer")).toBeTruthy();
+      expect(within(row).getByText("Fikcyjny Bank")).toBeTruthy();
+      expect(within(row).getByRole("link", { name: "+48 601 204 118" })).toHaveAttribute(
+        "href",
+        "tel:+48601204118",
+      );
+      // „W procesie”: najechanie pokazuje rekrutacje w toku (bez zamkniętych).
+      fireEvent.mouseEnter(within(row).getByText("2 procesy · CV wysłane"));
+      expect(await screen.findByText("Rekrutacje w toku (2)")).toBeTruthy();
+      expect(screen.getByRole("link", { name: /^B/ })).toHaveAttribute("href", "/jobs/2");
+      expect(screen.getByRole("link", { name: /^A/ })).toHaveAttribute("href", "/jobs/1");
+      expect(screen.queryByRole("link", { name: /^C/ })).toBeNull();
       // Kolumna „CV”: przycisk podglądu tylko u osoby z plikiem CV.
       expect(
         within(row).getByRole("button", { name: "Podgląd CV: Marta Kowalczyk" }),
       ).toBeTruthy();
       const empty = screen.getByTestId("candidate-row-2");
-      // Lokalizacja, dostępność, stawka i CV — cztery „brak”.
-      expect(within(empty).getAllByText("brak")).toHaveLength(4);
+      // Stanowisko, telefon, stawka, dostępność i CV — pięć „brak”.
+      expect(within(empty).getAllByText("brak")).toHaveLength(5);
+      expect(within(empty).getByText("brak lokalizacji")).toBeTruthy();
       expect(within(empty).queryByRole("button", { name: /Podgląd CV/ })).toBeNull();
       expect(
         within(empty).getByRole("button", { name: "Przypisz Tomasz Nowicki do rekrutacji" }),
@@ -374,17 +399,14 @@ describe("CandidatesListV2", () => {
       });
     });
 
-    it("języki z adresu idą do API, a ich grupa jest rozwinięta", async () => {
+    it("języki z adresu idą do API i podbijają licznik „Więcej filtrów”", async () => {
       urlParams = new URLSearchParams("lang=en:B2");
       renderList();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ languages: ["en:B2"] });
       });
-      expect(within(rail()).getByRole("button", { name: /Języki/ })).toHaveAttribute(
-        "aria-expanded",
-        "true",
-      );
+      expect(within(rail()).getByRole("button", { name: /Więcej filtrów\s*1/ })).toBeTruthy();
       expect(screen.getByText("Język: angielski min. B2")).toBeTruthy();
     });
 
