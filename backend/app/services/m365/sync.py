@@ -584,6 +584,14 @@ async def _upsert_message(
             await db.delete(existing)
         return None
 
+    if existing is None:
+        # INT-14: identyfikator Graph NIE jest trwały — szkic wysłany z NEXUSA
+        # dostaje nowe ID po przeniesieniu do Wysłanych (tak samo każda
+        # wiadomość przeniesiona między folderami). Tożsamością wiadomości
+        # w skrzynce jest ``internetMessageId``; bez tego dopasowania delta
+        # Wysłanych zakładała drugi wiersz tej samej wysyłki.
+        existing = await _adopt_by_internet_message_id(db, conn, msg, folder_hint)
+
     categories = msg.get("categories") or []
     is_private = settings.M365_IGNORE_CATEGORY in categories
 
@@ -729,16 +737,81 @@ async def _upsert_message(
 
     # Attachments — only for non-filtered messages and when we actually have any.
     if not is_private and has_attachments:
-        try:
-            # Download and persist the durable attachment row inside the page
-            # transaction.  CV parsing may call external AI providers and used
-            # to keep this Graph page open for minutes.  The dedicated worker
-            # consumes the committed row after the page cursor is durable.
-            await attachment_handler.download_for_email(db, gc, row)
-        except Exception:  # noqa: BLE001
-            logger.exception("attachment handling failed for email %s", row.id)
+        # Download and persist the durable attachment row inside the page
+        # transaction.  CV parsing may call external AI providers and used
+        # to keep this Graph page open for minutes.  The dedicated worker
+        # consumes the committed row after the page cursor is durable.
+        #
+        # INT-08: błąd listowania załączników NIE jest już połykany — pętla
+        # strony liczy go jako błąd wiadomości, więc kursor delty stoi, a mail
+        # (zapisany i tak razem ze stroną) wraca w następnym przebiegu.
+        # Pojedynczy nieudany plik zostaje oznaczony ``download_failed[n]``
+        # i ponawia go pętla ``m365_cv_parse``.
+        await attachment_handler.download_for_email(db, gc, row)
 
     return row
+
+
+async def _adopt_by_internet_message_id(
+    db: AsyncSession,
+    conn: M365Connection,
+    msg: dict,
+    folder_hint: str,
+) -> Optional[Email]:
+    """Znajdź wiersz tej samej wiadomości po ``internetMessageId`` i przepisz
+    mu aktualne ID Graph. ``None`` = to naprawdę nowa wiadomość.
+
+    Tylko w obrębie jednej skrzynki (``user_id``) — ta sama wiadomość
+    u adresata w innej skrzynce NEXUSA jest osobnym wierszem. Przy kilku
+    wierszach (duplikaty sprzed poprawki) bierzemy ten z kluczem wysyłki,
+    potem najstarszy — tak samo jak jednorazowe sprzątanie.
+    """
+    internet_message_id = msg.get("internetMessageId")
+    new_id = msg.get("id")
+    if not internet_message_id or not new_id:
+        return None
+    twin = await db.scalar(
+        select(Email)
+        .where(
+            Email.user_id == conn.user_id,
+            Email.m365_internet_message_id == internet_message_id,
+        )
+        .order_by(Email.idempotency_key.is_(None), Email.id.asc())
+        .limit(1)
+    )
+    if twin is None:
+        return None
+    twin_id = twin.id
+    conversation_id = msg.get("conversationId")
+    try:
+        # SAVEPOINT: m365_message_id ma UNIQUE — równoległy przebieg mógł już
+        # wstawić wiersz z nowym ID. Konflikt nie może zatruć sesji strony.
+        async with db.begin_nested():
+            twin.m365_message_id = new_id
+            if conversation_id and (twin.m365_conversation_id or "").startswith(
+                "pending:"
+            ):
+                twin.m365_conversation_id = conversation_id
+            if twin.send_state in ("pending", "uncertain") and (
+                folder_hint.lower() == "sentitems"
+            ):
+                # Wiadomość jest w Wysłanych — wynik wysyłki przestał być
+                # niepewny.
+                twin.send_state = "sent"
+            await db.flush()
+    except IntegrityError:
+        logger.info(
+            "m365 conn %s: email %s re-identification lost a race — skipping",
+            conn.id,
+            twin_id,
+        )
+        return None
+    logger.info(
+        "m365 conn %s: email %s re-identified by internetMessageId (id changed)",
+        conn.id,
+        twin_id,
+    )
+    return twin
 
 
 def _new_email_row(

@@ -85,7 +85,8 @@ def requirements_for_job(job) -> MatchingRequirements:
 # part of every request fingerprint, so a stored ranking computed under the
 # previous policy can never be served as current.
 # v2 (UAT M02-B01): same tagi nie czynią umiejętności „znanymi”.
-MUST_GATE_POLICY_VERSION = "known-technology-gap-v2"
+# v3 (SCV-01): C, C++ i C# przestały być jedną umiejętnością.
+MUST_GATE_POLICY_VERSION = "known-technology-gap-v3"
 
 
 def search_dealbreaker_inputs(job, *, exclude_missing_must: bool | None = None):

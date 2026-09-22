@@ -62,6 +62,95 @@ def location_tokens(raw: object) -> set[str]:
     return tokens
 
 
+# ── Tokeny MIASTA (SCV-02) ───────────────────────────────────────────────────
+#
+# Połowa „miasto” w scoringu (`scoring_service._score_location`) liczyła pełne
+# punkty za DOWOLNY wspólny token, a blob importu niesie kraj i województwo —
+# „Warszawa, Polska” i „Kraków, Polska” dopasowywały się przez „polska”. Pełna
+# połowa należy się WYŁĄCZNIE za wspólne miasto; kraj ani region nie są
+# dowodem, że kandydat dojedzie do biura.
+
+_BLOB_CITY_KEYS = ("locality", "city")
+
+_REGION_TOKENS = frozenset(
+    {
+        "dolnośląskie",
+        "kujawsko-pomorskie",
+        "lubelskie",
+        "lubuskie",
+        "łódzkie",
+        "małopolskie",
+        "mazowieckie",
+        "opolskie",
+        "podkarpackie",
+        "podlaskie",
+        "pomorskie",
+        "śląskie",
+        "świętokrzyskie",
+        "warmińsko-mazurskie",
+        "wielkopolskie",
+        "zachodniopomorskie",
+    }
+)
+
+_COUNTRY_TOKENS = frozenset(
+    {
+        "polska",
+        "poland",
+        "pl",
+        "rzeczpospolita polska",
+        "niemcy",
+        "germany",
+        "ukraina",
+        "ukraine",
+        "europe",
+        "europa",
+        "eu",
+        "uk",
+        "united kingdom",
+        "wielka brytania",
+    }
+)
+
+_NOT_A_CITY = frozenset(
+    {"remote", "zdalnie", "zdalna", "zdalny", "hybrid", "hybrydowo", "onsite"}
+)
+
+_REGION_PREFIX = re.compile(r"^(województwo|woj\.?)\s+")
+
+
+def _is_city_token(token: str) -> bool:
+    t = _REGION_PREFIX.sub("", token.strip().lower())
+    if not t or t != token.strip().lower():
+        # Miał prefiks „województwo …” — to region, nie miasto.
+        return False
+    return t not in _REGION_TOKENS and t not in _COUNTRY_TOKENS and t not in _NOT_A_CITY
+
+
+def city_tokens(raw: object) -> set[str]:
+    """Tokeny miasta z lokalizacji (blob albo tekst) — bez kraju i regionu.
+
+    Blob: wyłącznie ``locality``/``city``. Tekst: tokeny `location_tokens`
+    minus kraje, województwa i tryby pracy. Pusty zbiór = miasto nieznane.
+    """
+    if not raw:
+        return set()
+    s = str(raw).strip()
+    if s.startswith("{"):
+        try:
+            data = json.loads(s)
+        except (ValueError, TypeError):
+            return set()
+        if not isinstance(data, dict):
+            return set()
+        return {
+            v.strip().lower()
+            for key in _BLOB_CITY_KEYS
+            if isinstance((v := data.get(key)), str) and v.strip()
+        }
+    return {t for t in location_tokens(s) if _is_city_token(t)}
+
+
 def tokens_overlap(a: set[str], b: set[str]) -> bool:
     """Substring-tolerant overlap between two token sets (either direction).
 

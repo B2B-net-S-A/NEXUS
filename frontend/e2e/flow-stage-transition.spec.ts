@@ -125,7 +125,9 @@ test.describe("Pipeline rekrutacji @stack", () => {
 
     await page.goto(`/jobs/${job.id}`);
     const table = page.getByRole("grid", { name: "Osoby w rekrutacji" });
-    await table.getByText(fullName).click();
+    // Klik w lewą część komórki nazwiska — przy wąskim oknie reszta pola
+    // bywa przykryta przez sąsiednią kolumnę.
+    await table.getByText(fullName).click({ position: { x: 4, y: 4 } });
     const panel = page.getByRole("complementary", { name: "Wybrana osoba" });
     await expect(panel.getByText(fullName)).toBeVisible();
 
@@ -176,6 +178,10 @@ test.describe("Pipeline rekrutacji @stack", () => {
       .filter({ has: page.getByRole("link", { name: fullName }) })
       .first();
     await expect(card).toBeVisible();
+    // Puste kolumny są domyślnie ukryte (store/ui.ts hideEmptyKanbanColumns),
+    // a świeża rekrutacja ma tylko jedną niepustą — bez celu strzałka nic nie robi.
+    const showEmpty = page.getByRole("button", { name: /Kolumny: pokaż puste/ });
+    if (await showEmpty.isVisible()) await showEmpty.click();
     // Przeciąganie klawiaturą (@hello-pangea/dnd): Spacja podnosi kartę,
     // strzałka przenosi ją do sąsiedniej kolumny, Spacja upuszcza.
     await card.focus();

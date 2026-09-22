@@ -16,12 +16,15 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import case, distinct, func, select
+from sqlalchemy import distinct, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, PlainSerializer
 
 from app.api.financial_access import FinanceReadUser
 from app.core.database import get_db
+from app.core.scheduling import business_today
+from app.schemas.money import to_whole_pln
+from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus, ContractTerminationReason
@@ -32,6 +35,7 @@ from app.services.consultant_population import consultant_population
 from app.services.contractor_identity import (
     candidate_identity_key,
     contractor_identity_sql_expression,
+    current_contracts,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,27 +56,91 @@ MoneyPLN = Annotated[
 ]
 
 
-# ── SQL helper: normalise a per-row rate to monthly using rate_unit ───────────
+# ── Wycena kontraktów: harmonogramy stawek, nie kolumny cache ─────────────────
+#
+# Audyt 22.09.2026 (AN-01/AN-02): ta analityka czytała ``contracts.rate_*`` —
+# kolumny odświeżane wyłącznie przy ZAPISIE kontraktu — i liczyła każdy kontrakt
+# ze statusem ``active``/``ending``, także taki, którego start dopiero nadejdzie.
+# Kokpit Rady, profil klienta i portal DL liczą z harmonogramów
+# (``effective_rate_fields``), wyłącznie kontrakty już obowiązujące
+# (``is_current_contract``) i zaokrąglają każdą kwotę kontraktu do pełnych
+# złotych PRZED sumowaniem (``to_whole_pln``). Ten sam klient pokazywał więc
+# inną marżę w Finansach niż w Radzie. Teraz reguła jest wspólna.
 
-_WORKING_DAYS_PER_MONTH = 22
+
+def _pln_leg(
+    amount: Optional[Decimal],
+    currency: str,
+    rate_cache: dict[str, tuple[Decimal, bool]],
+) -> tuple[Optional[Decimal], bool]:
+    """Kwota jednej nogi w PLN albo ``None``; ``complete`` = kurs był dostępny."""
+    fx, found = rate_cache.get((currency or "PLN").upper(), (Decimal("1"), False))
+    return amount_to_pln_with_rate(amount, fx if found else None)
 
 
-def _sql_monthly(col):
-    return case(
-        (Contract.rate_unit == "daily", col * _WORKING_DAYS_PER_MONTH),
-        (Contract.rate_unit == "hourly", col * Contract.billing_hours_per_month),
-        else_=col,
+def _contract_money_pln(
+    contract: Contract,
+    on: date,
+    rate_cache: dict[str, tuple[Decimal, bool]],
+) -> tuple[Optional[Decimal], Optional[Decimal], bool]:
+    """(przychód, marża, komplet) jednego kontraktu w PLN na dzień ``on``.
+
+    Nogi przychodu i kosztu przeliczane są niezależnie, a wynik zaokrąglany
+    do pełnych złotych tak samo jak w ``insights_board_money.fold_money``.
+    Przychód bez kosztu nie ma marży (``None``), a brak kursu wyklucza nogę
+    — żadna obca kwota nie jest traktowana jak PLN po nominale.
+    """
+    eff = effective_rate_fields(contract, on)
+    revenue_pln, revenue_complete = _pln_leg(
+        eff["monthly_rate_client"], eff["rate_client_currency"], rate_cache
     )
+    cost_pln, cost_complete = _pln_leg(
+        eff["monthly_rate_candidate"], eff["rate_candidate_currency"], rate_cache
+    )
+    revenue = Decimal(to_whole_pln(revenue_pln)) if revenue_pln is not None else None
+    margin = (
+        Decimal(to_whole_pln(revenue_pln - cost_pln))
+        if revenue_pln is not None and cost_pln is not None
+        else None
+    )
+    return revenue, margin, revenue_complete and cost_complete
 
 
-def _client_currency(contract: Contract) -> str:
-    """Currency of revenue, with a rollout-safe fallback for legacy rows."""
-    return (contract.rate_client_currency or contract.currency or "PLN").upper()
+def _contract_currencies(contracts) -> set[str]:
+    return {
+        currency
+        for c in contracts
+        for currency in (
+            c.resolved_rate_client_currency,
+            c.resolved_rate_candidate_currency,
+        )
+    }
 
 
-def _candidate_currency(contract: Contract) -> str:
-    """Currency of candidate cost, with a rollout-safe fallback for legacy rows."""
-    return (contract.rate_candidate_currency or contract.currency or "PLN").upper()
+def _started_by(today: date):
+    """SQL-owe lustro ``is_current_contract``: start nie później niż dziś albo brak daty."""
+    return or_(Contract.start_date.is_(None), Contract.start_date <= today)
+
+
+async def _load_live_contracts(db: AsyncSession, today: date) -> list[Contract]:
+    """Żywe kontrakty (active/ending), które JUŻ obowiązują, z harmonogramami stawek.
+
+    ``RATE_SCHEDULE_LOADS`` jest obowiązkowe — bez niego resolver stawek robi
+    lazy-load w sesji async (``MissingGreenlet`` → 500 bez CORS).
+    """
+    rows = (
+        (
+            await db.execute(
+                select(Contract)
+                .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
+                .options(*RATE_SCHEDULE_LOADS)
+                .order_by(Contract.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return current_contracts(rows, today)
 
 
 async def _resolve_rate_cache(db, currencies) -> dict[str, tuple[Decimal, bool]]:
@@ -181,48 +249,35 @@ async def margin_by_contractor(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ):
-    rev_sql = _sql_monthly(Contract.rate_client).label("revenue")
-    cost_sql = _sql_monthly(Contract.rate_candidate).label("cost")
-    # Read one row per contract: revenue and candidate cost can now carry two
-    # different currencies, so a single SQL ``SUM(margin) GROUP BY currency``
-    # has no valid financial meaning. Both legs are converted independently and
-    # only then subtracted in PLN.
-    res = await db.execute(
-        select(
-            Candidate.id,
-            Candidate.name,
-            Candidate.lastname,
-            Contract.rate_client_currency,
-            Contract.rate_candidate_currency,
-            Contract.currency,
-            rev_sql,
-            cost_sql,
-        )
-        .join(Contract, Contract.candidate_id == Candidate.id)
-        .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
-    )
-    raw = res.all()
-    currencies = {
-        currency
-        for r in raw
-        for currency in (
-            (r.rate_client_currency or r.currency or "PLN").upper(),
-            (r.rate_candidate_currency or r.currency or "PLN").upper(),
-        )
+    today = business_today()
+    # One contract at a time: revenue and candidate cost can carry two
+    # different currencies, so both legs are converted independently and only
+    # then subtracted in PLN (see ``_contract_money_pln``).
+    contracts = [
+        c for c in await _load_live_contracts(db, today) if c.candidate_id is not None
+    ]
+    names = {
+        row.id: row
+        for row in (
+            await db.execute(
+                select(Candidate.id, Candidate.name, Candidate.lastname).where(
+                    Candidate.id.in_({c.candidate_id for c in contracts})
+                )
+            )
+        ).all()
     }
-    rate_cache = await _resolve_rate_cache(db, currencies)
+    rate_cache = await _resolve_rate_cache(db, _contract_currencies(contracts))
 
     acc: dict[int, dict] = {}
-    for r in raw:
-        client_currency = (r.rate_client_currency or r.currency or "PLN").upper()
-        candidate_currency = (r.rate_candidate_currency or r.currency or "PLN").upper()
-        client_fx, client_found = rate_cache[client_currency]
-        candidate_fx, candidate_found = rate_cache[candidate_currency]
+    for c in contracts:
+        person = names.get(c.candidate_id)
+        if person is None:
+            continue
         bucket = acc.setdefault(
-            r.id,
+            c.candidate_id,
             {
-                "name": r.name,
-                "lastname": r.lastname,
+                "name": person.name,
+                "lastname": person.lastname,
                 "active_contracts": 0,
                 "margin": Decimal("0"),
                 "revenue": Decimal("0"),
@@ -230,17 +285,12 @@ async def margin_by_contractor(
             },
         )
         bucket["active_contracts"] += 1
-        revenue_pln, revenue_complete = amount_to_pln_with_rate(
-            r.revenue, client_fx if client_found else None
-        )
-        cost_pln, cost_complete = amount_to_pln_with_rate(
-            r.cost, candidate_fx if candidate_found else None
-        )
-        if revenue_pln is not None:
-            bucket["revenue"] += revenue_pln
-        if revenue_pln is not None and cost_pln is not None:
-            bucket["margin"] += revenue_pln - cost_pln
-        if not revenue_complete or not cost_complete:
+        revenue, margin, complete = _contract_money_pln(c, today, rate_cache)
+        if revenue is not None:
+            bucket["revenue"] += revenue
+        if margin is not None:
+            bucket["margin"] += margin
+        if not complete:
             bucket["fx_missing"] = True
 
     rows = [
@@ -270,45 +320,31 @@ async def _margin_by_client_rows(db: AsyncSession) -> List[MarginByClient]:
 
     Bez limitu — przycinanie należy do endpointu listy, nie do liczenia.
     """
-    rev_sql = _sql_monthly(Contract.rate_client).label("revenue")
-    cost_sql = _sql_monthly(Contract.rate_candidate).label("cost")
+    today = business_today()
+    contracts = [
+        c for c in await _load_live_contracts(db, today) if c.client_id is not None
+    ]
     client_name = client_display_name_expression()
-    # One row per contract for the same reason as ``margin_by_contractor``:
-    # revenue and cost currencies must be resolved independently.
-    res = await db.execute(
-        select(
-            Client.id,
-            client_name.label("client_name"),
-            Contract.rate_client_currency,
-            Contract.rate_candidate_currency,
-            Contract.currency,
-            rev_sql,
-            cost_sql,
-        )
-        .join(Contract, Contract.client_id == Client.id)
-        .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
-    )
-    raw = res.all()
-    currencies = {
-        currency
-        for r in raw
-        for currency in (
-            (r.rate_client_currency or r.currency or "PLN").upper(),
-            (r.rate_candidate_currency or r.currency or "PLN").upper(),
-        )
+    names = {
+        row.id: row.client_name
+        for row in (
+            await db.execute(
+                select(Client.id, client_name.label("client_name")).where(
+                    Client.id.in_({c.client_id for c in contracts})
+                )
+            )
+        ).all()
     }
-    rate_cache = await _resolve_rate_cache(db, currencies)
+    rate_cache = await _resolve_rate_cache(db, _contract_currencies(contracts))
 
     acc: dict[int, dict] = {}
-    for r in raw:
-        client_currency = (r.rate_client_currency or r.currency or "PLN").upper()
-        candidate_currency = (r.rate_candidate_currency or r.currency or "PLN").upper()
-        client_fx, client_found = rate_cache[client_currency]
-        candidate_fx, candidate_found = rate_cache[candidate_currency]
+    for c in contracts:
+        if c.client_id not in names:
+            continue
         bucket = acc.setdefault(
-            r.id,
+            c.client_id,
             {
-                "name": r.client_name,
+                "name": names[c.client_id],
                 "active_contracts": 0,
                 "margin": Decimal("0"),
                 "revenue": Decimal("0"),
@@ -316,17 +352,12 @@ async def _margin_by_client_rows(db: AsyncSession) -> List[MarginByClient]:
             },
         )
         bucket["active_contracts"] += 1
-        revenue_pln, revenue_complete = amount_to_pln_with_rate(
-            r.revenue, client_fx if client_found else None
-        )
-        cost_pln, cost_complete = amount_to_pln_with_rate(
-            r.cost, candidate_fx if candidate_found else None
-        )
-        if revenue_pln is not None:
-            bucket["revenue"] += revenue_pln
-        if revenue_pln is not None and cost_pln is not None:
-            bucket["margin"] += revenue_pln - cost_pln
-        if not revenue_complete or not cost_complete:
+        revenue, margin, complete = _contract_money_pln(c, today, rate_cache)
+        if revenue is not None:
+            bucket["revenue"] += revenue
+        if margin is not None:
+            bucket["margin"] += margin
+        if not complete:
             bucket["fx_missing"] = True
 
     rows = [
@@ -409,7 +440,8 @@ async def utilization(
     active_contracts = (
         await db.execute(
             select(func.count(Contract.id)).where(
-                Contract.status.in_(_LIVE_CONTRACT_STATUSES)
+                Contract.status.in_(_LIVE_CONTRACT_STATUSES),
+                _started_by(business_today()),
             )
         )
     ).scalar() or 0
@@ -437,29 +469,31 @@ async def revenue_forecast(
         ),
     ),
 ):
-    today = date.today()
+    today = business_today()
     first_of_month = today.replace(day=1)
 
-    all_active_res = await db.execute(
-        select(Contract).where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
+    # Wszystkie żywe kontrakty — także z przyszłym startem: prognoza pyta
+    # o przyszłe miesiące, a o tym, czy kontrakt działa w danym miesiącu,
+    # rozstrzygają daty (niżej), nie dzisiejszy stan.
+    active_contracts = list(
+        (
+            await db.execute(
+                select(Contract)
+                .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
+                .options(*RATE_SCHEDULE_LOADS)
+                .order_by(Contract.id)
+            )
+        )
+        .scalars()
+        .all()
     )
-    active_contracts = list(all_active_res.scalars().all())
-
-    from app.api.reports import _monthly_rate_candidate, _monthly_rate_client
 
     # Resolve each leg's currency once (all forecast months use today's rate).
-    rate_cache = await _resolve_rate_cache(
-        db,
-        {
-            currency
-            for c in active_contracts
-            for currency in (_client_currency(c), _candidate_currency(c))
-        },
-    )
+    rate_cache = await _resolve_rate_cache(db, _contract_currencies(active_contracts))
     fx_missing = False
     missing_fx: set[str] = set()
 
-    def _to_display(amount: Decimal | int, currency: str) -> Optional[Decimal]:
+    def _to_display(amount: Optional[Decimal], currency: str) -> Optional[Decimal]:
         """Convert a monthly amount to PLN, or ``None`` when it must be dropped.
 
         When ``convert_currency`` is on and a non-PLN currency has no cached NBP
@@ -470,6 +504,8 @@ async def revenue_forecast(
         so there we keep the raw amount.
         """
         nonlocal fx_missing
+        if amount is None:
+            return None
         cur = (currency or "PLN").upper()
         if not convert_currency or cur == "PLN":
             return Decimal(amount)
@@ -496,34 +532,30 @@ async def revenue_forecast(
         active_in_month = [
             c
             for c in active_contracts
-            # `start_date` is nullable (Contract.start_date: Optional[date]), so
-            # comparing it unguarded raised TypeError and answered 500 for the
-            # whole forecast as soon as ONE active contract had no start date.
-            # Null start = unknown when the revenue begins, so the row is not
-            # projected — same convention as `analytics.metrics` builds its
-            # month-by-month active series with. A null END date still means
-            # open-ended (indefinite contracts) and stays included.
-            if c.start_date is not None
-            and c.start_date < next_month
+            # Pusta data startu = start NIEZNANY, nie „planowany" — ta sama
+            # reguła co ``is_current_contract`` (audyt 18.09.2026), więc
+            # pierwszy miesiąc prognozy zgadza się z dzisiejszymi sumami.
+            # Pusta data końca = umowa bezterminowa.
+            if (c.start_date is None or c.start_date < next_month)
             and (c.end_date is None or c.end_date >= month_start)
         ]
         revenue_raw = Decimal("0")
         margin_raw = Decimal("0")
         for c in active_in_month:
-            rev = (
-                _to_display(_monthly_rate_client(c), _client_currency(c))
-                if c.rate_client is not None
-                else None
-            )
-            cost = (
-                _to_display(_monthly_rate_candidate(c), _candidate_currency(c))
-                if c.rate_candidate is not None
-                else None
+            # Stawka OBOWIĄZUJĄCA w tym miesiącu (harmonogram), nie dzisiejsza
+            # kolumna: podwyżka zaplanowana na marzec pokazuje się od marca.
+            on = month_start
+            if c.start_date is not None and c.start_date > on:
+                on = c.start_date
+            eff = effective_rate_fields(c, on)
+            rev = _to_display(eff["monthly_rate_client"], eff["rate_client_currency"])
+            cost = _to_display(
+                eff["monthly_rate_candidate"], eff["rate_candidate_currency"]
             )
             if rev is not None:
-                revenue_raw += rev
+                revenue_raw += Decimal(to_whole_pln(rev))
             if rev is not None and cost is not None:
-                margin_raw += rev - cost
+                margin_raw += Decimal(to_whole_pln(rev - cost))
         months.append(
             ForecastMonth(
                 month=month_start.strftime("%Y-%m"),
@@ -593,6 +625,9 @@ async def role_client_mix(
     ``total_active_contracts`` remains a separate raw-contract metric and also
     includes detached rows that cannot appear in a person bucket.
     """
+    # Kontrakt z przyszłym startem nie jest dzisiejszą obsadą — ta sama reguła
+    # co kafle marży (``is_current_contract``).
+    today = business_today()
     role_expr = func.coalesce(Job.title, Candidate.competence_category, "Unknown")
     client_name = client_display_name_expression()
     identity_key = contractor_identity_sql_expression(
@@ -611,7 +646,7 @@ async def role_client_mix(
             )
             .select_from(Contract)
             .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
-            .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
+            .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES), _started_by(today))
         )
     ).one()
     total_active = int(totals.contractors or 0)
@@ -627,7 +662,7 @@ async def role_client_mix(
         .join(Candidate, Candidate.id == Contract.candidate_id)
         .join(Client, Client.id == Contract.client_id)
         .outerjoin(Job, Job.id == Contract.job_id)
-        .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
+        .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES), _started_by(today))
         .group_by(role_expr, Client.id, client_name)
         .order_by(func.count(distinct(identity_key)).desc())
     )
@@ -640,7 +675,7 @@ async def role_client_mix(
         .select_from(Contract)
         .join(Candidate, Candidate.id == Contract.candidate_id)
         .outerjoin(Job, Job.id == Contract.job_id)
-        .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
+        .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES), _started_by(today))
         .group_by(role_expr)
     )
     role_totals = {row.role: int(row.cnt) for row in role_totals_res.all()}

@@ -82,6 +82,10 @@ class UserResponse(BaseModel):
     # ustawiamy True; frontend redirectuje do /profile dopóki nie zmieni.
     force_password_change: bool = False
     force_password_change_at: Optional[datetime] = None
+    # Czy konto ma własne hasło (AUTH-04). ``False`` = tylko SSO — profil
+    # chowa formularz zmiany hasła. Wypełniane w ``build_user_response``
+    # (``/auth/me``); listy administracyjne zostawiają ``None`` = nie wiadomo.
+    has_password: Optional[bool] = None
     # Ostatnia aktywność (WS connection time z `ConnectionManager`). Pełni rolę
     # proxy "ostatniego logowania" w UI profilu — true `last_login` wymagałby
     # osobnej kolumny + login event hook (kandydat na osobne enhancement).

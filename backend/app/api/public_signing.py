@@ -29,7 +29,11 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.signature_link import SignatureLink
-from app.services.signing.sender import finalize_signed_pdf, render_unsigned_pdf
+from app.services.signing.sender import (
+    finalize_signed_pdf,
+    record_source_pdf,
+    render_unsigned_pdf,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -119,6 +123,12 @@ async def get_unsigned_pdf(
         raise HTTPException(
             status_code=500, detail="Nie udało się wygenerować PDF"
         ) from exc
+    # SIG-02: zapamiętaj odcisk dokładnie tego PDF-u, który wychodzi do
+    # podpisującego — finalizacja przyjmie tylko plik zaczynający się tymi
+    # bajtami. Sprawa już zamknięta nie zbiera nowych odcisków.
+    if sig.status in (SignatureStatus.sent, SignatureStatus.in_progress):
+        record_source_pdf(sig, pdf)
+        await db.commit()
     return Response(
         content=pdf,
         media_type="application/pdf",

@@ -3219,32 +3219,6 @@ export const signingApi = {
     api
       .post(`/api/signing/contracts/${contractId}/mark-sent-offline`, {})
       .then((r) => r.data),
-  // Offline (e-mail) flow: recruiter uploads a signed PDF → validate. Moves to
-  // "Umowa podpisana", or "Zatrudniony" when both parties signed (>=2 sigs).
-  uploadSigned: (contractId: number, file: File) => {
-    const form = new FormData();
-    form.append("file", file);
-    return api
-      .post<{
-        status: string;
-        is_qes: boolean;
-        signature_level: string | null;
-        signed_by: string | null;
-        indication: string | null;
-        dss_verified: boolean;
-        signature_count: number | null;
-        signers: string[];
-        both_parties_signed: boolean;
-        pipeline_stage: string;
-      }>(`/api/signing/contracts/${contractId}/upload-signed`, form, {
-        // Bez jawnego multipartu axios serializuje FormData do JSON-a
-        // (instancja `api` ma domyślne application/json) → backend widzi puste
-        // ciało i odpowiada 422 „file Field required", czyli podpisana umowa
-        // nigdy nie przechodzi na „Umowa podpisana".
-        headers: { "Content-Type": "multipart/form-data" },
-      })
-      .then((r) => r.data);
-  },
 };
 
 export interface B2BRenderPayload {
@@ -4866,6 +4840,8 @@ export interface EmailMessage {
     | "unmatched";
   match_confidence: number | null;
   candidate_id?: number | null;
+  /** Stan wysyłki z NEXUSA: pending / sent / uncertain; null = z synchronizacji. */
+  send_state?: "pending" | "sent" | "uncertain" | null;
   attachments?: EmailAttachmentPreview[];
 }
 
@@ -4894,6 +4870,14 @@ export interface EmailThreadPreview {
   latest: EmailMessage;
   message_count: number;
   unread_count: number;
+}
+
+/** Strona wątków kandydata — `total` pozwala napisać „Pokazano X z Y". */
+export interface EmailThreadPage {
+  items: EmailThreadPreview[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export type FreeBusyStatus =
@@ -4943,21 +4927,41 @@ export const microsoft365Api = {
   disconnect: () => api.delete("/api/microsoft365/connection"),
   triggerSync: () => api.post("/api/microsoft365/sync/trigger"),
 
-  listCandidateThreads: (candidateId: number) =>
-    api.get<EmailThreadPreview[]>(`/api/candidates/${candidateId}/emails`),
+  listCandidateThreads: (candidateId: number, limit = 50, offset = 0) =>
+    api.get<EmailThreadPage>(`/api/candidates/${candidateId}/emails`, {
+      params: { limit, offset },
+    }),
   listThreadMessages: (candidateId: number, conversationId: string) =>
     api.get<EmailMessage[]>(
       `/api/candidates/${candidateId}/emails/thread/${encodeURIComponent(conversationId)}`,
     ),
-  searchEmails: (q: string, limit = 50, offset = 0) =>
+  /** `candidateId` zawęża trafienia do maili tego kandydata (FE-08). */
+  searchEmails: (
+    q: string,
+    limit = 50,
+    offset = 0,
+    candidateId?: number,
+  ) =>
     api.get<EmailSearchResponse>("/api/microsoft365/emails/search", {
-      params: { q, limit, offset },
+      params: {
+        q,
+        limit,
+        offset,
+        ...(candidateId ? { candidate_id: candidateId } : {}),
+      },
     }),
   getEmail: (emailId: number) =>
     api.get<EmailMessage>(`/api/emails/${emailId}`),
   compose: (
     candidateId: number,
-    payload: { to: string[]; cc?: string[]; subject: string; body_html: string },
+    payload: {
+      to: string[];
+      cc?: string[];
+      subject: string;
+      body_html: string;
+      /** UUID nadany przy otwarciu formularza; ten sam przy ponowieniach. */
+      client_request_id?: string;
+    },
   ) =>
     api.post<EmailMessage>(
       `/api/candidates/${candidateId}/emails/compose`,
@@ -4965,7 +4969,12 @@ export const microsoft365Api = {
     ),
   reply: (
     candidateId: number,
-    payload: { email_id: number; body_html: string },
+    payload: {
+      email_id: number;
+      body_html: string;
+      /** UUID nadany przy otwarciu formularza; ten sam przy ponowieniach. */
+      client_request_id?: string;
+    },
   ) =>
     api.post<EmailMessage>(
       `/api/candidates/${candidateId}/emails/reply`,

@@ -1207,6 +1207,11 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   i pasuje do zamówienia Polkomtela — decyduje numer, nie nazwisko; jeżeli nie
   pasuje, system **nie wraca do dopasowania po nazwisku**, tylko zostawia wiersz
   niedopasowany. U BNP i BIK obowiązuje samo nazwisko.
+* **Wiersz z liczbą MD ujemną, większą niż 1000 albo nieliczbową („NaN”)
+  jest odrzucany** i trafia do pominiętych wierszy z numerem i powodem — nie
+  zmienia żadnego budżetu. To samo dotyczy nieczytelnej kwoty faktury
+  (nieskończonej albo powyżej miliarda złotych). Popraw plik i wgraj miesiąc
+  ponownie.
 * **Powtórny import tego samego miesiąca nadpisuje** poprzednie zużycie — MD nie
   odejmą się drugi raz.
 * **Ale błędne przypisanie wiersza jest nieodwracalne.** Wiersz raz rozstrzygnięty

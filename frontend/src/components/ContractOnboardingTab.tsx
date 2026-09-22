@@ -1,10 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
 import { formatDate } from "@/lib/utils";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useToast } from "@/components/Toast";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { resolveViewState } from "@/lib/view-state";
 import {
   CheckSquare,
   Square,
@@ -13,17 +17,6 @@ import {
   Trash2,
   Loader2,
 } from "lucide-react";
-
-const DEFAULT_ITEMS = [
-  "BHP — szkolenie",
-  "Podpisana umowa",
-  "Sprzęt (laptop)",
-  "Dostępy do VPN klienta",
-  "Konto w Slacku klienta",
-  "Onboarding u PM klienta",
-  "Email firmowy",
-  "Dostęp do repozytorium",
-];
 
 interface OnboardingItem {
   id: number;
@@ -60,10 +53,29 @@ export function ContractOnboardingTab({
   const queryClient = useQueryClient();
   const [newLabel, setNewLabel] = useState("");
 
-  const { data, isLoading } = useQuery<OnboardingItem[]>({
+  const { showToast } = useToast();
+  const onMutationError = (fallback: string) => (err: unknown) =>
+    showToast(apiErrorMessage(err, fallback), "error");
+
+  const onboardingQuery = useQuery<OnboardingItem[]>({
     queryKey: ["contract-onboarding", contractId],
     queryFn: () =>
       api.get(`/api/contracts/${contractId}/onboarding`).then((r) => r.data),
+  });
+
+  // Jedno żądanie, lista domyślna po stronie serwera, blokada wiersza
+  // kontraktu (audyt FE-04). Dawniej osiem osobnych POST-ów: podwójne
+  // kliknięcie dublowało listę, a awaria w środku zostawiała jej połowę.
+  const seedMutation = useMutation({
+    mutationFn: () =>
+      api
+        .post<OnboardingItem[]>(`/api/contracts/${contractId}/onboarding/seed`)
+        .then((r) => r.data),
+    onSuccess: (items) => {
+      queryClient.setQueryData(["contract-onboarding", contractId], items);
+      queryClient.invalidateQueries({ queryKey: ["contract-onboarding", contractId] });
+    },
+    onError: onMutationError("Nie udało się wygenerować listy onboardingowej."),
   });
 
   const createMutation = useMutation({
@@ -73,6 +85,7 @@ export function ContractOnboardingTab({
       queryClient.invalidateQueries({ queryKey: ["contract-onboarding", contractId] });
       setNewLabel("");
     },
+    onError: onMutationError("Nie udało się dodać pozycji."),
   });
 
   const updateMutation = useMutation({
@@ -85,6 +98,7 @@ export function ContractOnboardingTab({
     }) => api.patch(`/api/contracts/${contractId}/onboarding/${id}`, payload),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["contract-onboarding", contractId] }),
+    onError: onMutationError("Nie udało się zmienić statusu pozycji."),
   });
 
   const deleteMutation = useMutation({
@@ -92,22 +106,49 @@ export function ContractOnboardingTab({
       api.delete(`/api/contracts/${contractId}/onboarding/${id}`),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["contract-onboarding", contractId] }),
+    onError: onMutationError("Nie udało się usunąć pozycji."),
   });
 
+  // Blokada synchroniczna: dwa kliknięcia w tej samej klatce (zanim React
+  // zdąży wyrenderować `disabled`) nie mogą wysłać dwóch żądań.
+  const seedingRef = useRef(false);
   const handleSeed = () => {
-    DEFAULT_ITEMS.forEach((label, idx) => {
-      createMutation.mutate({ label, order: idx });
+    if (seedingRef.current) return;
+    seedingRef.current = true;
+    seedMutation.mutate(undefined, {
+      onSettled: () => {
+        seedingRef.current = false;
+      },
     });
   };
 
-  const items = data ?? [];
+  const items = onboardingQuery.data ?? [];
+  const viewState = resolveViewState({
+    isLoading: onboardingQuery.isLoading,
+    error: onboardingQuery.error,
+    isSuccess: onboardingQuery.isSuccess,
+    isEmpty: items.length === 0,
+  });
+  const isBlocked =
+    viewState === "forbidden" ||
+    viewState === "not_found" ||
+    viewState === "error";
   const doneCount = items.filter((i) => i.status === "done").length;
   const activeCount = items.filter((i) => i.status !== "na").length;
   const pct = activeCount > 0 ? Math.round((doneCount / activeCount) * 100) : 0;
 
   return (
     <div className="space-y-4">
-      {items.length === 0 && !isLoading && !readOnly && (
+      {(viewState === "forbidden" ||
+        viewState === "not_found" ||
+        viewState === "error") && (
+        <QueryStateNotice
+          state={viewState}
+          onRetry={() => void onboardingQuery.refetch()}
+        />
+      )}
+
+      {viewState === "empty" && !readOnly && (
         <RequireRole roles={["admin", "delivery_lead"]}>
           <div className="bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/10 rounded-2xl p-5">
             <p className="text-sm text-primary dark:text-primary mb-3">
@@ -115,16 +156,19 @@ export function ContractOnboardingTab({
               sprzęt, dostępy, VPN, Slack klient, email, repo) i dostosuj.
             </p>
             <button
+              type="button"
               onClick={handleSeed}
-              className="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-sm font-medium"
+              disabled={seedMutation.isPending}
+              className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
             >
+              {seedMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
               Wygeneruj domyślny checklist
             </button>
           </div>
         </RequireRole>
       )}
 
-      {items.length === 0 && !isLoading && readOnly && (
+      {viewState === "empty" && readOnly && (
         <p className="text-sm text-muted-foreground italic">
           Brak listy onboardingowej.
         </p>
@@ -147,7 +191,7 @@ export function ContractOnboardingTab({
         </div>
       )}
 
-      {!readOnly && (
+      {!readOnly && !isBlocked && (
         <RequireRole roles={["admin", "delivery_lead"]}>
           <form
             onSubmit={(e) => {
@@ -176,7 +220,7 @@ export function ContractOnboardingTab({
         </RequireRole>
       )}
 
-      {isLoading ? (
+      {viewState === "loading" ? (
         <div className="text-sm text-muted-foreground flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie…
         </div>

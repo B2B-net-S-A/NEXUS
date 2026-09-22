@@ -41,7 +41,7 @@ from app.models.job import Job
 from app.services import champion_view
 from app.services.candidate_job_eligibility import extract_excluded_client_ids
 from app.services.champion_job_sync import champion_work_mode_to_remote
-from app.services.location_utils import location_tokens, tokens_overlap
+from app.services.location_utils import city_tokens, tokens_overlap
 
 logger = logging.getLogger(__name__)
 
@@ -277,6 +277,8 @@ def scoring_algorithm_version() -> str:
     payload["skill_evidence_contract"] = "2026-09-08-source-union-modality"
     payload["requirement_contract"] = "2026-09-09-and-of-or"
     payload["budget_contract"] = "2026-09-09-explicit-budget-currency"
+    payload["skill_canon_contract"] = "2026-09-22-significant-signs"
+    payload["location_contract"] = "2026-09-22-city-token-only"
     payload["default_weights"] = [
         SEMANTIC_MAX,
         SKILLS_MAX,
@@ -1009,6 +1011,15 @@ def _skills_curated(candidate) -> bool:
     )
 
 
+# Kolejność load-bearing: „.net” przed resztą, „++”/„#” przyklejone do litery.
+_SIGNIFICANT_SKILL_SIGNS: tuple[tuple["re.Pattern[str]", str], ...] = (
+    (re.compile(r"(?<![a-z0-9])\.net\b"), "dotnet"),
+    (re.compile(r"\bc\s*\+\+"), "cpp"),
+    (re.compile(r"\bc\s*#"), "csharp"),
+    (re.compile(r"\bf\s*#"), "fsharp"),
+)
+
+
 def _canon_skill(s: str) -> str:
     """Canonicalize a skill for tolerant comparison (drop punctuation/spaces
     and a few well-known suffix variants so e.g. ``postgresql``/``postgres``
@@ -1019,7 +1030,15 @@ def _canon_skill(s: str) -> str:
     porównania co chipy ✓/✗ na `/ai-matches` — inaczej bramka i wiersz
     rankingu mogłyby się nie zgadzać co do tego, czy dany skill jest obecny.
     """
-    canon = "".join(ch for ch in s.lower() if ch.isalnum())
+    lowered = s.lower().strip()
+    # SCV-01: znaki niosące znaczenie mapujemy PRZED zdjęciem interpunkcji —
+    # inaczej „C++”, „C#” i „C” zwijały się do „c” i były nieodróżnialne
+    # (C++ spełniał must-have C#). Formy docelowe (`cpp`, `csharp`, `fsharp`,
+    # `dotnet`) są tymi samymi aliasami, które niesie taksonomia (0012), więc
+    # „cpp” ↔ „C++” i „csharp” ↔ „C#” nadal się zgadzają.
+    for sign, word in _SIGNIFICANT_SKILL_SIGNS:
+        lowered = sign.sub(word, lowered)
+    canon = "".join(ch for ch in lowered if ch.isalnum())
     for a, b in (("postgresql", "postgres"), ("nodejs", "node")):
         if canon == a:
             canon = b
@@ -1298,7 +1317,7 @@ def _score_location(
 ) -> LayerResult:
     """Remote/location fit. Budget split 50/50 between remote compat + city match.
 
-    The city half parses BOTH sides through ``location_tokens`` so the
+    The city half parses BOTH sides through ``city_tokens`` so the
     structured JSON blob ~99% of imported candidates store in ``location``
     (``{"locality":"Warszawa",...}``) is compared on place tokens, not by
     raw-string substring (which practically never matched a blob).
@@ -1311,7 +1330,8 @@ def _score_location(
       remote half  full      remote policy known AND candidate mode matches
                    0         known MISMATCH (candidate stated modes, job's not among them)
                    neutral   no signal (job has no remote policy OR candidate stated none)
-      city  half   full      job + candidate share a place token
+      city  half   full      job + candidate share a CITY token (SCV-02 — a
+                             shared country/region alone earns nothing)
                    0         known DIFFERENT city (both sides have tokens, no overlap)
                    neutral   can't judge (job has a location but candidate's is unknown,
                              OR — new — the job carries no location at all)
@@ -1368,8 +1388,11 @@ def _score_location(
         champion = _champion_dict(job)
         basics = champion.get("basics") or {}
         job_location = basics.get("candidate_location_pref") or champion.get("location")
-    job_tokens = location_tokens(job_location)
-    cand_tokens = location_tokens(candidate.location)
+    # SCV-02: pełna połowa wyłącznie za wspólne MIASTO. Kraj i województwo
+    # nie są dowodem dojazdu („Warszawa, Polska” ≠ „Kraków, Polska”); oferta
+    # albo kandydat bez miasta = nieznane (polityka neutralna jak dotąd).
+    job_tokens = city_tokens(job_location)
+    cand_tokens = city_tokens(candidate.location)
     if job_tokens:
         if tokens_overlap(cand_tokens, job_tokens):
             points += half

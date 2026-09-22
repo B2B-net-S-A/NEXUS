@@ -25,15 +25,15 @@ import logging
 from datetime import datetime, timezone
 from io import BytesIO
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.models.activity import Activity
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.notification import NotificationType
 from app.services import storage_service
+from app.services.autenti.activity_log import add_autenti_activity
 from app.services.autenti.client import (
     AutentiClient,
     AutentiConfig,
@@ -58,14 +58,21 @@ def _interval_seconds() -> int:
 
 
 async def _sweep_expired() -> int:
-    """Confirm and finalize expired signatures. Returns rows touched."""
+    """Confirm and finalize expired signatures. Returns rows touched.
+
+    INT-10: każdy podpis w OSOBNEJ transakcji — do 09.2026 jeden commit na
+    całą paczkę, a podpis umowy ramowej/aneksu (``contract_id IS NULL``)
+    wywracał go na NOT NULL `activities.entity_id`, więc NIC z paczki nie
+    wygasało, bieg za biegiem. Wpis do historii kontraktu powstaje wyłącznie
+    dla podpisu z kontraktem; pozostałe tylko zmieniają status (log).
+    """
     config = AutentiConfig.from_settings()
     touched = 0
     now = datetime.now(timezone.utc)
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
-            select(DocumentSignature).where(
+            select(DocumentSignature.id).where(
                 DocumentSignature.status.in_(
                     [SignatureStatus.sent, SignatureStatus.in_progress]
                 ),
@@ -74,13 +81,20 @@ async def _sweep_expired() -> int:
                 DocumentSignature.provider_ref.is_not(None),
             )
         )
-        candidates = list(result.scalars().all())
+        # Ids, nie obiekty: rollback jednego podpisu wygasza całą sesję.
+        candidate_ids = list(result.scalars().all())
 
-        if not candidates:
+        if not candidate_ids:
             return 0
 
         async with AutentiClient(config) as client:
-            for sig in candidates:
+            for sig_id in candidate_ids:
+                sig = await db.get(DocumentSignature, sig_id)
+                if sig is None or sig.status not in (
+                    SignatureStatus.sent,
+                    SignatureStatus.in_progress,
+                ):
+                    continue
                 try:
                     info = await client.get_process(sig.autenti_process_id or "")
                 except AutentiNotFoundError:
@@ -88,7 +102,7 @@ async def _sweep_expired() -> int:
                     info = {"status": "DOCUMENT_PROCESS_EXPIRED"}
                 except AutentiError as exc:
                     logger.warning(
-                        "Sweeper: get_process failed sig=%d err=%s", sig.id, exc
+                        "Sweeper: get_process failed sig=%d err=%s", sig_id, exc
                     )
                     continue
 
@@ -96,38 +110,56 @@ async def _sweep_expired() -> int:
                 if remote_status not in _AUTENTI_EXPIRED_STATUS_VALUES:
                     continue
 
-                sig.status = SignatureStatus.expired
-                db.add(
-                    Activity(
-                        entity_type="contract",
-                        entity_id=sig.contract_id,
-                        action="signature_expired",
-                        user_id=sig.sender_user_id,
-                        external_source="autenti",
-                        external_id=sig.autenti_process_id,
-                    )
-                )
                 try:
-                    await emit_notification(
-                        db,
-                        user_id=sig.sender_user_id,
-                        title="Umowa wygasła bez podpisu",
-                        message=(
-                            f"Wysyłka kontraktu #{sig.contract_id} do "
-                            f"{sig.signer_first_name} {sig.signer_last_name} "
-                            "wygasła. Wyślij ponownie z nowym terminem."
-                        ),
-                        ntype=NotificationType.signature_failed,
-                        related_entity_type="document_signature",
-                        related_entity_id=sig.id,
+                    await _finalize_expired(db, sig)
+                    await db.commit()
+                except Exception:  # noqa: BLE001 — jeden podpis nie blokuje paczki
+                    await db.rollback()
+                    logger.exception(
+                        "Sweeper: expiring signature failed sig=%d", sig_id
                     )
-                except Exception:  # noqa: BLE001
-                    logger.exception("Sweeper: notification emit failed sig=%d", sig.id)
+                    continue
                 touched += 1
-
-        if touched:
-            await db.commit()
     return touched
+
+
+async def _finalize_expired(db, sig: DocumentSignature) -> None:
+    sig.status = SignatureStatus.expired
+    if sig.contract_id is None:
+        logger.info(
+            "Sweeper: signature %d has no contract — status expired, "
+            "no contract activity written",
+            sig.id,
+        )
+    else:
+        await add_autenti_activity(
+            db,
+            process_id=sig.autenti_process_id,
+            action="signature_expired",
+            entity_type="contract",
+            entity_id=sig.contract_id,
+            user_id=sig.sender_user_id,
+        )
+    target = (
+        f"kontraktu #{sig.contract_id}" if sig.contract_id is not None else "dokumentu"
+    )
+    try:
+        async with db.begin_nested():
+            await emit_notification(
+                db,
+                user_id=sig.sender_user_id,
+                title="Umowa wygasła bez podpisu",
+                message=(
+                    f"Wysyłka {target} do "
+                    f"{sig.signer_first_name} {sig.signer_last_name} "
+                    "wygasła. Wyślij ponownie z nowym terminem."
+                ),
+                ntype=NotificationType.signature_failed,
+                related_entity_type="document_signature",
+                related_entity_id=sig.id,
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("Sweeper: notification emit failed sig=%d", sig.id)
 
 
 async def _retry_signed_downloads() -> int:
@@ -155,12 +187,30 @@ async def _retry_signed_downloads() -> int:
                 DocumentSignature.signed_document_id.is_(None),
                 DocumentSignature.provider_ref.is_not(None),
                 DocumentSignature.retry_count < 3,
+                # INT-10: ContractDocument wymaga kontraktu. Podpis umowy
+                # ramowej/aneksu nie ma go — pomijamy zamiast wywracać zapis.
+                DocumentSignature.contract_id.is_not(None),
             )
         )
         # Iterate over ids and re-load each row: a per-signature rollback
         # expires everything in the session, so holding a batch of ORM objects
         # across it would break every later iteration with a lazy-load error.
         candidate_ids = list(result.scalars().all())
+        skipped = await db.scalar(
+            select(func.count(DocumentSignature.id)).where(
+                DocumentSignature.status == SignatureStatus.completed,
+                DocumentSignature.signed_document_id.is_(None),
+                DocumentSignature.provider_ref.is_not(None),
+                DocumentSignature.retry_count < 3,
+                DocumentSignature.contract_id.is_(None),
+            )
+        )
+        if skipped:
+            logger.info(
+                "Sweeper: %d completed signature(s) without a contract skipped "
+                "(no ContractDocument target)",
+                skipped,
+            )
         if not candidate_ids:
             return 0
 

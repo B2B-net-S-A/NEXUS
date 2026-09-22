@@ -24,6 +24,12 @@ from app.services.onboarding_access import onboarding_persona_for_user
 from app.services.order_change_audit import stamp_actor
 from app.services.jarvis.via_tag import INTERNAL_HEADER as JARVIS_INTERNAL_HEADER
 from app.services.jarvis.via_tag import stamp_via
+from app.services.oauth_route_scopes import (
+    INSUFFICIENT_SCOPE,
+    ROUTE_NOT_EXPOSED,
+    decide,
+    route_template,
+)
 from app.services.request_semantics import is_read_only_http_request
 from app.services.section_permissions import resolve_effective_section_access
 from app.services.service_account_auth import (
@@ -141,9 +147,13 @@ async def _resolve_impersonation(
 # odpięcie usera (``acting_user_id=NULL``) → 401, bez ruszania JWT-ów ludzi.
 #
 # Scope'y: mutacja (POST/PUT/PATCH/DELETE) wymaga dowolnego ``*:write``, odczyt
-# dowolnego scope'u. Granularne mapowanie ścieżka→scope świadomie odłożone —
-# rola usera serwisowego i tak ogranicza, co wolno.
-_CLIENT_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+# dowolnego scope'u. Na to nakłada się zakres zależny od trasy (AUTH-01,
+# ``services/oauth_route_scopes.py``): trasa → zasób, tryb cienia do czasu
+# ``OAUTH_ROUTE_SCOPES_ENFORCE=true``.
+#
+# Efektywne scope'y = scope'y z JWT ∩ BIEŻĄCE ``client.scopes`` (AUTH-02).
+# Wydany token niesie migawkę z chwili wymiany; bez przecięcia odebranie
+# uprawnienia w Ustawieniach działało dopiero po wygaśnięciu tokenu (1 h).
 
 
 async def _resolve_client_principal(
@@ -170,9 +180,12 @@ async def _resolve_client_principal(
     if user is None or not user.is_active:
         raise credentials_exception
 
-    scopes = set((payload.get("scope") or "").split())
+    scopes = set((payload.get("scope") or "").split()) & set(client.scopes or [])
+    # Odczyt/zapis wg tej samej klasyfikacji co sekcje i podgląd — POST-y
+    # tylko do odczytu (np. ``check-duplicates``) nie wymagają ``*:write``.
+    path = getattr(getattr(request, "url", None), "path", "") or ""
     if not scopes or (
-        request.method not in _CLIENT_READ_METHODS
+        not is_read_only_http_request(request.method, path)
         and not any(scope.endswith(":write") for scope in scopes)
     ):
         raise HTTPException(
@@ -184,9 +197,52 @@ async def _resolve_client_principal(
             },
         )
 
+    _enforce_route_scope(request, client.client_id, scopes)
+
     # Ślad dla audytu/logów — który klient działał w imieniu usera.
     request.state.oauth_client_id = client.client_id
     return user
+
+
+def _enforce_route_scope(request: Request, client_id: str, scopes: set[str]) -> None:
+    """Zakres zależny od trasy (AUTH-01): egzekwowany albo tylko logowany."""
+
+    url = getattr(request, "url", None)
+    path = getattr(url, "path", "") or ""
+    template = route_template(request)
+    decision = decide(
+        method=request.method, path=path, template=template, scopes=scopes
+    )
+    if decision.allowed:
+        return
+    enforce = settings.OAUTH_ROUTE_SCOPES_ENFORCE
+    logger.warning(
+        "oauth route scope %s oauth_client_id=%s method=%s route=%s "
+        "required=%s reason=%s",
+        "denied" if enforce else "would_deny (shadow)",
+        client_id,
+        request.method,
+        template or path,
+        "|".join(decision.required) or "-",
+        decision.reason,
+    )
+    if not enforce:
+        return
+    if decision.reason == ROUTE_NOT_EXPOSED:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ROUTE_NOT_EXPOSED,
+        )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "error": INSUFFICIENT_SCOPE,
+            "method": request.method,
+            "route": template,
+            "required_any": list(decision.required),
+            "granted": sorted(scopes),
+        },
+    )
 
 
 async def get_authenticated_user(
@@ -250,6 +306,10 @@ async def get_authenticated_user(
         # at 1.
         if not token_authorization_version_matches(payload, user.authorization_version):
             raise credentials_exception
+        # Token wybity hasłem tymczasowym (admin-reset) niesie ``fpc``.
+        # Ta zależność go przepuszcza — obsługuje /auth/me i zmianę hasła —
+        # a ``get_current_user`` odmawia nim dostępu domenowego (AUTH-03).
+        request.state.password_change_required = bool(payload.get("fpc"))
 
     # Autor zmian zamówień w dzienniku Finansów (``order_change_events``).
     # Sesja żądania jest współdzielona przez zależności, więc handler zapisuje
@@ -302,6 +362,28 @@ def ensure_onboarding_complete(current_user: User) -> User:
     return current_user
 
 
+#: Odmowa dostępu domenowego tokenem z hasła tymczasowego (AUTH-03).
+PASSWORD_CHANGE_REQUIRED_DETAIL = "password_change_required"
+
+
+def ensure_password_change_not_required(request: Request) -> None:
+    """Token z ``fpc`` nie wykonuje operacji biznesowych przed zmianą hasła.
+
+    Do 09.2026 flagę egzekwował wyłącznie middleware frontendu (przekierowanie
+    na profil), więc hasło tymczasowe z admin-resetu dawało pełny dostęp do
+    API. Osiągalne zostają powierzchnie na ``AuthenticatedUser``:
+    ``/auth/me``, ``/auth/change-password`` i onboarding; ``/auth/refresh``
+    nie używa tej zależności (wybija token z tą samą flagą).
+    """
+
+    state = getattr(request, "state", None)
+    if getattr(state, "password_change_required", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PASSWORD_CHANGE_REQUIRED_DETAIL,
+        )
+
+
 async def get_current_user(
     request: Request,
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
@@ -315,6 +397,7 @@ async def get_current_user(
     """
 
     current_user = await get_authenticated_user(request, credentials, db)
+    ensure_password_change_not_required(request)
     current_user = ensure_onboarding_complete(current_user)
     from app.services.workforce_availability import workforce_context
 

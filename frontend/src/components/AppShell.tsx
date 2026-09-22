@@ -38,6 +38,11 @@ import { useCapability } from "@/hooks/useCapability";
 import { editableTagText, mergeEditedTags, structuredTagLabels } from "@/lib/candidate-tags";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { defaultMeetingWindow } from "@/lib/meeting-defaults";
+import {
+  CandidateCombobox,
+  type CandidateChoice,
+} from "@/components/calendar/CandidateCombobox";
 
 // ── Breadcrumb helper ────────────────────────────────────────────────────────
 
@@ -1741,20 +1746,17 @@ export function EditClientModal({ client, onClose, onSuccess }: { client: any; o
 // ── Modal: Zaplanuj spotkanie ─────────────────────────────────────────────────
 
 export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (msg: string) => void }) {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const defaultStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours() + 1)}:00`;
-  const defaultEnd = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours() + 2)}:00`;
-
-  const [form, setForm] = useState({ title: "", event_type: "meeting", start_time: defaultStart, end_time: defaultEnd, candidate_id: "" });
+  // Pełna godzina + 1 h liczona przez `Date` — po 23:00 przewija się na
+  // następny dzień zamiast dawać „T24:00" (FE-12).
+  const [defaults] = useState(() => defaultMeetingWindow());
+  const [form, setForm] = useState({ title: "", event_type: "meeting", start_time: defaults.start, end_time: defaults.end });
+  // Kandydat szukany po stronie serwera — dawny `<select>` z `page_size: 100`
+  // nie pozwalał wskazać nikogo spoza pierwszej setki (FE-11).
+  const [candidate, setCandidate] = useState<CandidateChoice | null>(null);
+  const candidateLabelId = useId();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const { data: candidatesData } = useQuery({
-    queryKey: ["candidates-list-qa"],
-    queryFn: () => api.get("/api/candidates", { params: { page_size: 100 } }).then(r => r.data),
-  });
-  const candidates = candidatesData?.items ?? [];
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1767,7 +1769,7 @@ export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; o
         event_type: form.event_type,
         start_time: new Date(form.start_time).toISOString(),
         end_time: form.end_time ? new Date(form.end_time).toISOString() : undefined,
-        candidate_id: form.candidate_id ? Number(form.candidate_id) : undefined,
+        candidate_id: candidate?.id,
       });
       onSuccess("Spotkanie zaplanowane pomyślnie");
       onClose();
@@ -1800,14 +1802,19 @@ export function AddMeetingModal({ onClose, onSuccess }: { onClose: () => void; o
             <Input type="datetime-local" value={form.end_time} onChange={e => set("end_time", e.target.value)} />
           </FieldGroup>
         </div>
-        <FieldGroup label="Kandydat">
-          <Select value={form.candidate_id} onChange={e => set("candidate_id", e.target.value)}>
-            <option value="">— opcjonalnie —</option>
-            {candidates.map((c: any) => (
-              <option key={c.id} value={c.id}>{c.name} {c.lastname}</option>
-            ))}
-          </Select>
-        </FieldGroup>
+        <div>
+          <span
+            id={candidateLabelId}
+            className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1"
+          >
+            Kandydat (opcjonalnie)
+          </span>
+          <CandidateCombobox
+            value={candidate}
+            onChange={setCandidate}
+            labelledBy={candidateLabelId}
+          />
+        </div>
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Zaplanuj" />

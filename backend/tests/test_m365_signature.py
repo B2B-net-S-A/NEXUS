@@ -18,6 +18,8 @@ suite runs in CI without postgres or a real Microsoft account.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
@@ -438,6 +440,17 @@ class _FakeAsyncSession:
     async def flush(self) -> None:  # noqa: D401 — fake
         return None
 
+    def begin_nested(self) -> Any:
+        # send_new rezerwuje wiersz w savepoincie (INT-04) — atrapa bez bazy.
+        @asynccontextmanager
+        async def _savepoint():
+            yield None
+
+        return _savepoint()
+
+    async def delete(self, obj: Any) -> None:
+        self.added.remove(obj)
+
     async def get(self, model: Any, row_id: int, **_kwargs: Any) -> Any:
         if model is User and row_id == self.owner.id:
             return self.owner
@@ -487,7 +500,7 @@ class _FakeGraphClient:
         self.gets.append((url, params))
         return self._signature_response
 
-    async def post(self, url: str, json: Any = None) -> Any:
+    async def post(self, url: str, json: Any = None, **_kwargs: Any) -> Any:
         self.posts.append((url, json))
         # Mimic the draft creation response so send_new() can read .id off it.
         if url == "/me/messages":

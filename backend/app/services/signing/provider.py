@@ -18,6 +18,8 @@ Plan: ``docs/in-house-qes-signature-plan.md`` §3, §7.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
 
@@ -57,6 +59,52 @@ class SignedArtifact:
     identity_provider: Optional[str] = None
 
 
+# Wynik pojedynczego podpisu, który uznajemy za POZYTYWNY (SIG-01). DSS zwraca
+# ``TOTAL_PASSED`` (czasem z myślnikiem), a lokalny pyHanko — nasz odpowiednik
+# ``PRE_CHECK_PASSED`` (podpis nienaruszony i kryptograficznie ważny; zaufania
+# do listy EU lokalnie nie sprawdzamy, od tego jest DSS).
+POSITIVE_INDICATIONS = frozenset({"TOTAL_PASSED", "PRE_CHECK_PASSED"})
+
+_UNKNOWN_SIGNER_MARKERS = ("nieznany sygnatariusz",)
+
+
+def normalize_person_text(value: str | None) -> str:
+    """Małe litery, bez polskich znaków i interpunkcji — do porównań nazwisk."""
+    if not value:
+        return ""
+    text = value.replace("ł", "l").replace("Ł", "L")
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"[^0-9a-zA-Z]+", " ", text).lower()
+    return " ".join(text.split())
+
+
+def signer_identity(raw: str | None) -> str:
+    """Tożsamość podpisującego z podmiotu certyfikatu (CN), znormalizowana.
+
+    pyHanko daje ``Common Name: Jan Kowalski, Country: PL, …``, DSS zwykle samo
+    ``Jan Kowalski`` albo ``CN=Jan Kowalski,…``. Pusty napis = tożsamość
+    nieznana — taki podpis nie liczy się jako osobna strona.
+    """
+    if not raw:
+        return ""
+    text = str(raw)
+    if any(marker in text.lower() for marker in _UNKNOWN_SIGNER_MARKERS):
+        return ""
+    match = re.search(r"common name:\s*([^,;]+)", text, flags=re.IGNORECASE)
+    if match is None:
+        match = re.search(r"(?:^|[,/;\s])cn=([^,;/]+)", text, flags=re.IGNORECASE)
+    value = match.group(1) if match else text
+    return normalize_person_text(value)
+
+
+def is_positive_indication(indication: str | None) -> bool:
+    """Czy wynik walidacji podpisu jest jawnie pozytywny (``TOTAL_PASSED``)."""
+    if not indication:
+        return False
+    return indication.strip().upper().replace("-", "_") in POSITIVE_INDICATIONS
+
+
 @dataclass(frozen=True)
 class ValidationReport:
     """Outcome of validating a PAdES signature against the EU Trusted List."""
@@ -72,17 +120,46 @@ class ValidationReport:
     signature_count: Optional[int] = None
     # Human-friendly signer names (one per approval signature), best-effort.
     signers: list[str] = field(default_factory=list)
+    # Wynik KAŻDEGO podpisu zatwierdzającego: ``{"signer", "indication"}``
+    # (SIG-01). Pusta lista = walidator nie rozstrzygnął żadnego podpisu, więc
+    # dokumentu nie wolno zakończyć.
+    signature_results: list[dict[str, Any]] = field(default_factory=list)
     raw: dict[str, Any] = field(default_factory=dict)
 
     @property
-    def both_parties_signed(self) -> bool:
-        """True only when we positively detect ≥2 approval signatures.
+    def all_signatures_passed(self) -> bool:
+        """True tylko, gdy KAŻDY podpis ma jawnie pozytywny wynik (SIG-01).
 
-        For a B2B contract this means the consultant AND our company-side
-        representative have both signed → the contract is fully executed.
-        Conservative on ``None`` (unknown count → not both).
+        Liczba wyników musi się zgadzać z liczbą podpisów — podpis, którego
+        walidator nie ocenił, nie może przejść „przy okazji" innych.
         """
-        return (self.signature_count or 0) >= 2
+        results = self.signature_results
+        if not results:
+            return False
+        if self.signature_count is not None and self.signature_count != len(results):
+            return False
+        return all(is_positive_indication(r.get("indication")) for r in results)
+
+    @property
+    def positive_signer_identities(self) -> list[str]:
+        """Różne, znane tożsamości z pozytywnym wynikiem (kolejność zachowana)."""
+        seen: list[str] = []
+        for result in self.signature_results:
+            if not is_positive_indication(result.get("indication")):
+                continue
+            identity = signer_identity(result.get("signer"))
+            if identity and identity not in seen:
+                seen.append(identity)
+        return seen
+
+    @property
+    def both_parties_signed(self) -> bool:
+        """Co najmniej dwie RÓŻNE tożsamości z pozytywnym wynikiem (SIG-03).
+
+        Dwa podpisy tej samej osoby (albo podpisy o nieznanym podmiocie) nie
+        są podpisem obu stron. Konserwatywnie: brak wyników = nie.
+        """
+        return len(self.positive_signer_identities) >= 2
 
     def as_db_report(self) -> dict[str, Any]:
         """Shape persisted to ``document_signatures.validation_report`` JSONB."""
@@ -94,6 +171,7 @@ class ValidationReport:
             "sub_indication": self.sub_indication,
             "signature_count": self.signature_count,
             "signers": self.signers,
+            "signature_results": self.signature_results,
             "raw": self.raw,
         }
 

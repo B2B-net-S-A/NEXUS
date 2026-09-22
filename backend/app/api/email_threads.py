@@ -79,6 +79,9 @@ class EmailOut(BaseModel):
     match_method: str
     match_confidence: Optional[float]
     candidate_id: Optional[int] = None
+    # INT-04: stan wysyłki z NEXUSA (pending/sent/uncertain; None = wiersz
+    # z synchronizacji albo sprzed zmiany).
+    send_state: Optional[str] = None
     attachments: list[AttachmentOut] = []
 
     model_config = ConfigDict(from_attributes=True)
@@ -90,6 +93,17 @@ class ThreadPreview(BaseModel):
     latest: EmailOut
     message_count: int
     unread_count: int
+
+
+class ThreadListResponse(BaseModel):
+    """Strona wątków kandydata. ``total`` = wszystkie widoczne wątki, żeby UI
+    mogło napisać „Pokazano X z Y" i zaproponować „Pokaż więcej" zamiast
+    urywać historię na pierwszej stronie."""
+
+    items: list[ThreadPreview]
+    total: int
+    limit: int
+    offset: int
 
 
 class EmailSearchHit(BaseModel):
@@ -119,16 +133,28 @@ class EmailSearchResponse(BaseModel):
     offset: int
 
 
+# INT-04/05: identyfikator operacji nadany przez formularz przy otwarciu okna
+# (crypto.randomUUID) i powtarzany przy ponowieniach. Opcjonalny — bez niego
+# serwer bierze odcisk treści.
+_CLIENT_REQUEST_ID_PATTERN = r"^[A-Za-z0-9-]{8,64}$"
+
+
 class ComposeRequest(BaseModel):
     to: list[EmailStr]
     cc: list[EmailStr] = []
     subject: str = Field(min_length=1, max_length=998)
     body_html: str = Field(min_length=1)
+    client_request_id: Optional[str] = Field(
+        default=None, pattern=_CLIENT_REQUEST_ID_PATTERN
+    )
 
 
 class ReplyRequest(BaseModel):
     email_id: int
     body_html: str = Field(min_length=1)
+    client_request_id: Optional[str] = Field(
+        default=None, pattern=_CLIENT_REQUEST_ID_PATTERN
+    )
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -144,6 +170,15 @@ async def _require_active_connection(db: AsyncSession, user_id: int) -> M365Conn
             detail="No active Microsoft 365 connection",
         )
     return conn
+
+
+def _send_conflict_http(exc: m365_sender.EmailSendConflict) -> HTTPException:
+    """Wysyłka w toku albo o nieznanym wyniku — nigdy druga wysyłka.
+
+    Zawsze 409 (także gdy to żądanie straciło odpowiedź Graph): 502 zostałby
+    ponowiony przez interceptor frontu, a wynik i tak byłby ten sam.
+    """
+    return HTTPException(status.HTTP_409_CONFLICT, detail=str(exc))
 
 
 def _can_access_email(email: Email, user, privileged_role: bool) -> bool:
@@ -175,6 +210,7 @@ def _to_email_out(email: Email) -> EmailOut:
         match_method=email.match_method.value if email.match_method else "unmatched",
         match_confidence=email.match_confidence,
         candidate_id=email.candidate_id,
+        send_state=email.send_state,
         attachments=[],  # filled by callers that eager-load
     )
 
@@ -182,14 +218,15 @@ def _to_email_out(email: Email) -> EmailOut:
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 
-@router.get("/candidates/{candidate_id}/emails", response_model=list[ThreadPreview])
+@router.get("/candidates/{candidate_id}/emails", response_model=ThreadListResponse)
 async def list_candidate_emails(
     candidate_id: int,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     include_archived: bool = Query(False),
-) -> list[ThreadPreview]:
+) -> ThreadListResponse:
     """Return conversation previews for a candidate, most-recent first.
 
     Groups by `m365_conversation_id`. Each preview carries the latest message
@@ -224,20 +261,26 @@ async def list_candidate_emails(
             if e.received_at > slot["latest"].received_at:
                 slot["latest"] = e
 
-    previews = sorted(
+    ordered = sorted(
         threads.values(), key=lambda t: t["latest"].received_at, reverse=True
-    )[:limit]
+    )
+    page = ordered[offset : offset + limit]
 
-    return [
-        ThreadPreview(
-            conversation_id=t["latest"].m365_conversation_id,
-            subject=t["latest"].subject,
-            latest=_to_email_out(t["latest"]),
-            message_count=t["count"],
-            unread_count=t["unread"],
-        )
-        for t in previews
-    ]
+    return ThreadListResponse(
+        items=[
+            ThreadPreview(
+                conversation_id=t["latest"].m365_conversation_id,
+                subject=t["latest"].subject,
+                latest=_to_email_out(t["latest"]),
+                message_count=t["count"],
+                unread_count=t["unread"],
+            )
+            for t in page
+        ],
+        total=len(ordered),
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get(
@@ -335,15 +378,24 @@ async def compose_email(
     # P0.9: sending real M365 mail requires an internal operational role
     # (CandidatePIIAccess excludes the read-only viewer).
     conn = await _require_active_connection(db, current_user.id)
-    row = await m365_sender.send_new(
-        db,
-        conn,
-        to=[str(x) for x in payload.to],
-        cc=[str(x) for x in payload.cc],
-        subject=payload.subject,
-        body_html=payload.body_html,
-        candidate_id=candidate_id,
-    )
+    # INT-07: kandydat MUSI istnieć, zanim cokolwiek pójdzie do Graph —
+    # inaczej mail wychodził, a zapis śladu padał na kluczu obcym.
+    if await db.get(Candidate, candidate_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie znaleziono kandydata")
+    try:
+        row = await m365_sender.send_new(
+            db,
+            conn,
+            to=[str(x) for x in payload.to],
+            cc=[str(x) for x in payload.cc],
+            subject=payload.subject,
+            body_html=payload.body_html,
+            candidate_id=candidate_id,
+            client_request_id=payload.client_request_id,
+            commit_reservation=True,
+        )
+    except m365_sender.EmailSendConflict as exc:
+        raise _send_conflict_http(exc) from exc
     await db.commit()
     return _to_email_out(row)
 
@@ -359,6 +411,7 @@ async def search_emails(
     q: str = Query(..., min_length=2, max_length=200),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    candidate_id: Optional[int] = Query(None, ge=1),
     db: AsyncSession = Depends(get_db),
 ) -> EmailSearchResponse:
     """Full-text search over the caller's own emails (Phase 4.4).
@@ -372,6 +425,11 @@ async def search_emails(
 
     Ranking: ``ts_rank`` desc with ``received_at`` desc as tiebreaker — when
     two emails match equally, newest wins.
+
+    ``candidate_id`` zawęża trafienia do maili przypisanych temu kandydatowi —
+    wyszukiwarka w profilu kandydata inaczej pokazywała maile innych osób,
+    a kliknięcie takiego wyniku otwierało pusty wątek (para kandydat A +
+    rozmowa kandydata B nie ma wiadomości).
     """
     # Single CTE-style query to share the same `:q` binding for filter,
     # ranking and snippet. asyncpg's prepared-statement cache handles repeats.
@@ -392,6 +450,10 @@ async def search_emails(
             FROM emails e
             WHERE e.user_id = :user_id
               AND e.search_vector @@ plainto_tsquery('simple', :q)
+              AND (
+                  CAST(:candidate_id AS integer) IS NULL
+                  OR e.candidate_id = CAST(:candidate_id AS integer)
+              )
         )
         SELECT id, m365_conversation_id, candidate_id, subject,
                from_address, from_name, received_at,
@@ -404,7 +466,13 @@ async def search_emails(
     )
     result = await db.execute(
         sql,
-        {"q": q, "user_id": current_user.id, "limit": limit, "offset": offset},
+        {
+            "q": q,
+            "user_id": current_user.id,
+            "candidate_id": candidate_id,
+            "limit": limit,
+            "offset": offset,
+        },
     )
     rows = result.mappings().all()
 
@@ -446,9 +514,24 @@ async def reply_email(
             status.HTTP_400_BAD_REQUEST,
             "original email belongs to a different candidate",
         )
-    row = await m365_sender.reply(
-        db, conn, email_row=original, body_html=payload.body_html
-    )
+    if (original.m365_message_id or "").startswith(m365_sender.PENDING_ID_PREFIX):
+        # Wiersz zarezerwowany, którego szkic jeszcze nie powstał — Graph nie
+        # zna tego identyfikatora, odpowiedź skończyłaby się 404.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Ta wiadomość jest jeszcze wysyłana — spróbuj za chwilę.",
+        )
+    try:
+        row = await m365_sender.reply(
+            db,
+            conn,
+            email_row=original,
+            body_html=payload.body_html,
+            client_request_id=payload.client_request_id,
+            commit_reservation=True,
+        )
+    except m365_sender.EmailSendConflict as exc:
+        raise _send_conflict_http(exc) from exc
     if row.candidate_id is None:
         row.candidate_id = candidate_id
         row.match_method = EmailMatchMethod.manual

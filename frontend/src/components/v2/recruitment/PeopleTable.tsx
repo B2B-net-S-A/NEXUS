@@ -421,10 +421,13 @@ export function PeopleTable({
       {
         key: "name",
         header: "Kandydat",
-        width: "minmax(0,1.25fr)",
+        // Dolna granica: przy otwartym panelu osoby (od 1280 px) kolumna
+        // zwężała się do kilkudziesięciu pikseli, a pole nazwiska nachodziło
+        // na pigułkę etapu obok — klik trafiał w sąsiednią komórkę.
+        width: "minmax(160px,1.25fr)",
         sortKey: "name",
         render: (row) => (
-          <span className="font-semibold" title={row.fullName}>
+          <span className="block truncate font-semibold" title={row.fullName}>
             {row.fullName}
           </span>
         ),

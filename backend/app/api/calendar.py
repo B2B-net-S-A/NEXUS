@@ -660,18 +660,26 @@ async def update_event(
     )
     changes = body.model_dump(exclude_unset=True)
     _reject_outlook_owned_changes(event, changes)
-    outlook_fields = _outlook_changed_fields(event, changes)
-    if outlook_fields:
-        await _push_outlook_changes(db, event, changes, outlook_fields)
-    for field, value in changes.items():
-        setattr(event, field, value)
+
+    # CAL-01: KAŻDA lokalna odmowa (daty wynikowe, zakres rekrutacji) zapada
+    # PRZED wywołaniem Outlooka. Dawniej Graph przyjmował zmianę, a dopiero
+    # potem NEXUS odmawiał 403/422 i cofał transakcję — Outlook i NEXUS
+    # rozjeżdżały się, a uczestnicy dostawali już powiadomienie o zmianie.
+    #
     # Walidacja na WYNIKU, nie na samym żądaniu: PATCH bywa częściowy, więc
     # nowy koniec trzeba porównać z zapisanym początkiem (i odwrotnie).
-    if event.all_day and changes.keys() & {"all_day", "start_time", "end_time"}:
-        event.start_time, event.end_time = normalize_all_day(
-            event.start_time, event.end_time
-        )
-    elif event.end_time is not None and event.end_time <= event.start_time:
+    new_start = changes.get("start_time", event.start_time)
+    new_end = changes.get("end_time", event.end_time)
+    new_all_day = changes.get("all_day", event.all_day)
+    normalize_all_day_range = bool(new_all_day) and bool(
+        changes.keys() & {"all_day", "start_time", "end_time"}
+    )
+    if (
+        not normalize_all_day_range
+        and new_start is not None
+        and new_end is not None
+        and new_end <= new_start
+    ):
         raise HTTPException(status_code=422, detail=_END_BEFORE_START)
     # Bramkujemy PRZEJŚCIE `job_id`, nie wartość po mutacji — poprzedni wariant
     # był jednocześnie za surowy i trywialnie omijalny:
@@ -689,7 +697,8 @@ async def update_event(
     # nie sama obecność klucza: klient odsyłający cały obiekt (a więc i
     # niezmienione `job_id`) nie robi żadnego przepięcia i nie może przez to
     # wrócić do problemu (a).
-    if "job_id" in changes and event.job_id != previous_handoff[1]:
+    new_job_id = changes.get("job_id", event.job_id)
+    if "job_id" in changes and new_job_id != previous_handoff[1]:
         await _ensure_calendar_job_scope(
             db,
             current_user,
@@ -697,7 +706,20 @@ async def update_event(
             job_id=previous_handoff[1],
         )
         await _ensure_calendar_job_scope(
-            db, current_user, candidate_id=event.candidate_id, job_id=event.job_id
+            db,
+            current_user,
+            candidate_id=changes.get("candidate_id", event.candidate_id),
+            job_id=new_job_id,
+        )
+
+    outlook_fields = _outlook_changed_fields(event, changes)
+    if outlook_fields:
+        await _push_outlook_changes(db, event, changes, outlook_fields)
+    for field, value in changes.items():
+        setattr(event, field, value)
+    if normalize_all_day_range:
+        event.start_time, event.end_time = normalize_all_day(
+            event.start_time, event.end_time
         )
 
     current_handoff = (

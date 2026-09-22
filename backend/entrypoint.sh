@@ -4907,6 +4907,11 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_job_similar_links_similar_job_id "
     "ON job_similar_links (similar_job_id)",
+    # 0342: stan rezerwacji wysyłki maila z NEXUSA (pending/sent/uncertain,
+    # NULL = wiersz sprzed zmiany albo z synchronizacji). Lustro 1:1 z migracją.
+    "ALTER TABLE emails ADD COLUMN IF NOT EXISTS send_state VARCHAR(16) NULL "
+    "CONSTRAINT ck_emails_send_state "
+    "CHECK (send_state IN ('pending', 'sent', 'uncertain'))",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -8490,6 +8495,42 @@ async def repair():
             )
             return
     print(f"contract start-date repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Zdublowane maile M365 (INT-14, audyt 22.09.2026) — jednorazowo: ta sama
+# skrzynka + ten sam internetMessageId = jeden wiersz (zostaje ten z kluczem
+# wysyłki, inaczej najstarszy; przejmuje aktualne ID Graph, kandydata,
+# brakujące załączniki i powiązania maili odrzucenia). Logika
+# w `app/services/m365_email_dedupe_repair.py`; marker w `app_settings`
+# + advisory lock. Porażka nie zapisuje niczego — następny start ponawia.
+# Log: wyłącznie liczby.
+startup_phase "repair-m365-email-duplicates"
+echo "M365: merge duplicated email rows by internetMessageId (one-shot)..."
+python - <<'PY' || echo "m365 email dedupe skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.m365_email_dedupe_repair import (
+    run_m365_email_dedupe_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_m365_email_dedupe_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane maili
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"m365 email dedupe failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"m365 email dedupe: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY

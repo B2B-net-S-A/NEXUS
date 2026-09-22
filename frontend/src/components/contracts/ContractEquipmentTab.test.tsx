@@ -20,6 +20,10 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showToast: vi.fn() }),
+}));
+
 function renderTab() {
   const queryClient = new QueryClient({
     defaultOptions: {

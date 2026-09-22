@@ -7,6 +7,9 @@ import api from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
 import { formatDate } from "@/lib/utils";
 import { B2B_EXTENSION_HINT } from "@/lib/contract-end-date";
+import { warsawToday } from "@/lib/warsaw-date";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { resolveViewState } from "@/lib/view-state";
 import {
   canManageCandidateFinance,
   canViewClientFinance,
@@ -62,18 +65,28 @@ interface FormState {
   new_team_name: string;
 }
 
-const TODAY = new Date().toISOString().slice(0, 10);
-
-const EMPTY: FormState = {
-  amendment_type: "extension",
-  effective_date: TODAY,
-  reason: "",
-  new_end_date: "",
-  new_rate_candidate: "",
-  new_rate_client: "",
-  new_project_name: "",
-  new_team_name: "",
-};
+/**
+ * Pusty formularz aneksu — liczony przy KAŻDYM otwarciu, nie raz przy
+ * załadowaniu modułu. Stała `TODAY` z czasu importu zamrażała datę: karta
+ * otwarta wczoraj podpowiadała wczorajszą datę wejścia w życie, a wyliczenie
+ * z `toISOString()` dawało datę UTC, czyli między północą w Warszawie
+ * a północą UTC — wczoraj (audyt FE-07).
+ */
+export function emptyAmendmentForm(
+  amendmentType: AmendmentType = "extension",
+  today: string = warsawToday(),
+): FormState {
+  return {
+    amendment_type: amendmentType,
+    effective_date: today,
+    reason: "",
+    new_end_date: "",
+    new_rate_candidate: "",
+    new_rate_client: "",
+    new_project_name: "",
+    new_team_name: "",
+  };
+}
 
 export function ContractAmendmentsTab({
   contractId,
@@ -93,10 +106,10 @@ export function ContractAmendmentsTab({
   const canManageFinance = canManageCandidateFinance(user);
   const canViewFinance = canViewClientFinance(user, clientId);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<FormState>(EMPTY);
+  const [form, setForm] = useState<FormState>(() => emptyAmendmentForm());
   const [error, setError] = useState("");
 
-  const { data, isLoading } = useQuery<Amendment[]>({
+  const amendmentsQuery = useQuery<Amendment[]>({
     queryKey: ["contract-amendments", contractId],
     queryFn: () =>
       api.get(`/api/contracts/${contractId}/amendments`).then((r) => r.data),
@@ -110,8 +123,14 @@ export function ContractAmendmentsTab({
       queryClient.invalidateQueries({ queryKey: ["contract", contractId] });
       queryClient.invalidateQueries({ queryKey: ["contract-activities", contractId] });
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
+      // Aneks zmienia status, datę końca i stawki — lista kontraktów, lista
+      // „kończących się" i historia stawek muszą to zobaczyć bez przeładowania
+      // strony (audyt FE-02). Klucze: `ContractsListV2`, `contracts/[id]`.
+      queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
+      queryClient.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
+      queryClient.invalidateQueries({ queryKey: ["contract-rate-history", contractId] });
       setShowForm(false);
-      setForm(EMPTY);
+      setForm(emptyAmendmentForm());
       setError("");
     },
     onError: (err: unknown) => {
@@ -123,7 +142,7 @@ export function ContractAmendmentsTab({
     e.preventDefault();
     if (form.amendment_type === "rate_change" && !canManageFinance) {
       setShowForm(false);
-      setForm(EMPTY);
+      setForm(emptyAmendmentForm());
       setError("");
       return;
     }
@@ -149,10 +168,17 @@ export function ContractAmendmentsTab({
     createMutation.mutate(payload);
   };
 
-  const amendments = (data ?? []).filter(
+  const amendments = (amendmentsQuery.data ?? []).filter(
     (amendment) =>
       canViewFinance || amendment.amendment_type !== "rate_change",
   );
+
+  const viewState = resolveViewState({
+    isLoading: amendmentsQuery.isLoading,
+    error: amendmentsQuery.error,
+    isSuccess: amendmentsQuery.isSuccess,
+    isEmpty: amendments.length === 0,
+  });
 
   return (
     <div className="space-y-4">
@@ -162,7 +188,7 @@ export function ContractAmendmentsTab({
             <div className="flex flex-wrap gap-2">
             <button
               onClick={() => {
-                setForm({ ...EMPTY, amendment_type: "extension" });
+                setForm(emptyAmendmentForm("extension"));
                 setShowForm(true);
               }}
               disabled={extensionLocked}
@@ -174,7 +200,7 @@ export function ContractAmendmentsTab({
             {canManageFinance && (
               <button
                 onClick={() => {
-                  setForm({ ...EMPTY, amendment_type: "rate_change" });
+                  setForm(emptyAmendmentForm("rate_change"));
                   setShowForm(true);
                 }}
                 className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-3 py-2 rounded-lg text-sm font-medium"
@@ -184,7 +210,7 @@ export function ContractAmendmentsTab({
             )}
             <button
               onClick={() => {
-                setForm({ ...EMPTY, amendment_type: "scope_change" });
+                setForm(emptyAmendmentForm("scope_change"));
                 setShowForm(true);
               }}
               className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-3 py-2 rounded-lg text-sm font-medium"
@@ -193,7 +219,7 @@ export function ContractAmendmentsTab({
             </button>
             <button
               onClick={() => {
-                setForm({ ...EMPTY, amendment_type: "early_termination" });
+                setForm(emptyAmendmentForm("early_termination"));
                 setShowForm(true);
               }}
               className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm font-medium"
@@ -338,7 +364,7 @@ export function ContractAmendmentsTab({
               type="button"
               onClick={() => {
                 setShowForm(false);
-                setForm(EMPTY);
+                setForm(emptyAmendmentForm());
                 setError("");
               }}
               className="px-3 py-2 text-sm text-foreground hover:bg-muted dark:text-muted-foreground dark:hover:bg-muted rounded-lg"
@@ -356,10 +382,17 @@ export function ContractAmendmentsTab({
         </form>
       )}
 
-      {isLoading ? (
+      {viewState === "loading" ? (
         <div className="text-sm text-muted-foreground flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie aneksów…
         </div>
+      ) : viewState === "forbidden" ||
+        viewState === "not_found" ||
+        viewState === "error" ? (
+        <QueryStateNotice
+          state={viewState}
+          onRetry={() => void amendmentsQuery.refetch()}
+        />
       ) : amendments.length === 0 ? (
         <div className="text-sm text-muted-foreground italic bg-card dark:bg-muted rounded-2xl p-8 text-center shadow-xs">
           {readOnly ? (

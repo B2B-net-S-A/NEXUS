@@ -36,6 +36,7 @@ from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.notification import NotificationType
 from app.models.user import User
 from app.services import storage_service
+from app.services.autenti.activity_log import add_autenti_activity
 from app.services.autenti.client import (
     AutentiClient,
     AutentiConfig,
@@ -376,16 +377,14 @@ async def send_pdf_to_autenti(signature_id: int) -> None:
 
             sig.status = SignatureStatus.sent
             sig.sent_at = datetime.now(timezone.utc)
-            db.add(
-                Activity(
-                    entity_type="document_signature",
-                    entity_id=sig.id,
-                    action="client_doc_signature_sent",
-                    user_id=sig.sender_user_id,
-                    external_source="autenti",
-                    external_id=str(process_id),
-                    details={"signature_type": sig.autenti_signature_type},
-                )
+            await add_autenti_activity(
+                db,
+                process_id=process_id,
+                action="client_doc_signature_sent",
+                entity_type="document_signature",
+                entity_id=sig.id,
+                user_id=sig.sender_user_id,
+                details={"signature_type": sig.autenti_signature_type},
             )
             await emit_notification(
                 db,

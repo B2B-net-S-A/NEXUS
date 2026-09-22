@@ -4,7 +4,11 @@ Per-connection instance:
 - Reads encrypted tokens from `M365Connection`, decrypts in memory.
 - On 401 → refreshes, re-encrypts, persists row, retries once.
 - On 429/503 → honors Retry-After (cap 60s), exponential backoff on repeat.
-- On network errors → retries 2× with jitter.
+- On network errors → retries 2× with jitter. POST is NOT retried after a
+  ReadTimeout/ReadError (INT-06): the request may already have been accepted
+  (Graph wysłał zaproszenie / maila), a powtórka zdublowałaby skutek. Jawnie
+  bezpieczne POST-y (np. ``getSchedule``) przekazują ``retry_unsafe=True``.
+  ``ConnectError`` jest ponawiany zawsze — żądanie nie opuściło klienta.
 
 A class-level semaphore throttles concurrent Graph calls across the whole
 process (Graph allows 10,000 req / 10 min / app — with 4 concurrent and
@@ -101,6 +105,7 @@ class GraphClient:
         json: Optional[Any] = None,
         headers: Optional[dict] = None,
         expect_json: bool = True,
+        retry_unsafe: bool = False,
     ) -> Any:
         # A long delta/backfill context can stay open while an administrator
         # changes the owner's role. Revalidate before every outbound request,
@@ -118,7 +123,13 @@ class GraphClient:
             try:
                 async with asyncio.timeout(_HARD_TIMEOUT_SECONDS):
                     return await self._request_loop(
-                        method, url, params, json, hdrs, expect_json
+                        method,
+                        url,
+                        params,
+                        json,
+                        hdrs,
+                        expect_json,
+                        retry_read_errors=method != "POST" or retry_unsafe,
                     )
             except asyncio.TimeoutError as exc:
                 raise GraphRequestError(
@@ -133,6 +144,8 @@ class GraphClient:
         json: Optional[Any],
         hdrs: dict,
         expect_json: bool,
+        *,
+        retry_read_errors: bool = True,
     ) -> Any:
         refreshed_once = False
         network_tries = 0
@@ -142,7 +155,19 @@ class GraphClient:
                 resp = await self._client.request(
                     method, url, params=params, json=json, headers=hdrs
                 )
-            except (httpx.ConnectError, httpx.ReadTimeout, httpx.ReadError):
+            except httpx.ConnectError:
+                # Połączenie nie powstało — serwer nie widział żądania.
+                network_tries += 1
+                if network_tries > _MAX_RETRIES_NETWORK:
+                    raise
+                await asyncio.sleep(1.0 + random.random() * 1.5)
+                continue
+            except (httpx.ReadTimeout, httpx.ReadError):
+                # Żądanie mogło zostać przyjęte, zginęła tylko odpowiedź.
+                # Dla POST (tworzenie wydarzenia, wysyłka maila) powtórka
+                # zdublowałaby skutek — oddajemy błąd wołającemu (INT-06).
+                if not retry_read_errors:
+                    raise
                 network_tries += 1
                 if network_tries > _MAX_RETRIES_NETWORK:
                     raise
@@ -252,11 +277,24 @@ class GraphClient:
         return await self._request("GET", url, params=params)
 
     async def post(
-        self, url: str, json: Optional[Any] = None, *, expect_json: bool = True
+        self,
+        url: str,
+        json: Optional[Any] = None,
+        *,
+        expect_json: bool = True,
+        retry_unsafe: bool = False,
     ) -> Any:
         # `expect_json=False` dla akcji bez ciała odpowiedzi (np. `/cancel`
-        # odpowiada 202 z pustą treścią).
-        return await self._request("POST", url, json=json, expect_json=expect_json)
+        # odpowiada 202 z pustą treścią). `retry_unsafe=True` wyłącznie dla
+        # POST-ów tylko do odczytu (np. `getSchedule`) — tylko one mogą być
+        # powtórzone po utracie odpowiedzi.
+        return await self._request(
+            "POST",
+            url,
+            json=json,
+            expect_json=expect_json,
+            retry_unsafe=retry_unsafe,
+        )
 
     async def patch(self, url: str, json: Optional[Any] = None) -> Any:
         return await self._request("PATCH", url, json=json)

@@ -213,6 +213,7 @@ def require_scope(*required: OAuthScope):
 
     async def dep(
         creds: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+        db: AsyncSession = Depends(get_db),
     ) -> ClientPrincipal:
         if creds is None:
             raise HTTPException(
@@ -238,7 +239,24 @@ def require_scope(*required: OAuthScope):
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid_token_type"
             )
 
-        granted = set((payload.get("scope") or "").split())
+        # Klient czytany przy KAŻDYM żądaniu (AUTH-02): wyłączony klient
+        # traci dostęp od razu, a scope'y tokenu są przecinane z bieżącymi
+        # ``client.scopes`` — odebranie uprawnienia działa bez czekania na
+        # wygaśnięcie tokenu (1 h).
+        client_id = str(payload.get("sub") or "")
+        client = (
+            await db.execute(
+                select(OAuthClient).where(OAuthClient.client_id == client_id)
+            )
+        ).scalar_one_or_none()
+        if not client_id or client is None or not client.enabled:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="invalid_client",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        granted = set((payload.get("scope") or "").split()) & set(client.scopes or [])
         missing = required_set - granted
         if missing:
             raise HTTPException(
@@ -251,7 +269,7 @@ def require_scope(*required: OAuthScope):
             )
 
         return ClientPrincipal(
-            client_id=str(payload.get("sub", "")),
+            client_id=client_id,
             scopes=sorted(granted),
         )
 

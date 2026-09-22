@@ -14,8 +14,15 @@ from sqlalchemy import or_, select
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.operation_telemetry import record_job_outcome
-from app.models.m365 import Email, EmailAttachment
+from app.models.m365 import Email, EmailAttachment, M365Connection
 from app.services.m365 import attachment_handler
+from app.services.m365.graph_client import GraphClient
+
+# INT-08 — przerwa między próbami pobrania tego samego załącznika. Liczona od
+# ``updated_at`` wiersza (każda porażka go podbija).
+DOWNLOAD_RETRY_BACKOFF = timedelta(minutes=15)
+# Wiersze z 1–4 porażkami; piąta jest ostateczna (MAX_DOWNLOAD_ATTEMPTS).
+_RETRYABLE_DOWNLOAD_ERROR = r"^download_failed(\[[1-4]\])?:"
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +182,61 @@ async def _create_from_unknown_sender_once(db) -> bool:
     return True
 
 
+async def run_m365_attachment_retry_once() -> bool:
+    """Ponów jedno nieudane pobranie załącznika (INT-08). ``True`` = była praca.
+
+    Do 09.2026 załącznik, którego pobranie raz padło, zostawał bez pliku na
+    zawsze: parser wymaga ``storage_path``, a delta maila była już
+    potwierdzona. Najwyżej ``MAX_DOWNLOAD_ATTEMPTS`` prób, co
+    ``DOWNLOAD_RETRY_BACKOFF``; sukces czyści ``parse_error`` i załącznik
+    trafia do zwykłej kolejki parsera.
+    """
+    if not settings.M365_INTEGRATION_ENABLED:
+        return False
+    cutoff = datetime.now(timezone.utc) - DOWNLOAD_RETRY_BACKOFF
+    async with AsyncSessionLocal() as db:
+        attachment = await db.scalar(
+            select(EmailAttachment)
+            .join(Email, Email.id == EmailAttachment.email_id)
+            .join(M365Connection, M365Connection.user_id == Email.user_id)
+            .where(
+                EmailAttachment.storage_path.is_(None),
+                EmailAttachment.parse_error.regexp_match(_RETRYABLE_DOWNLOAD_ERROR),
+                EmailAttachment.updated_at < cutoff,
+                M365Connection.is_active.is_(True),
+            )
+            .order_by(EmailAttachment.is_cv_candidate.desc(), EmailAttachment.id)
+            .with_for_update(skip_locked=True, of=EmailAttachment)
+            .limit(1)
+        )
+        if attachment is None:
+            return False
+        email_row = await db.get(Email, attachment.email_id)
+        connection = await db.scalar(
+            select(M365Connection).where(M365Connection.user_id == email_row.user_id)
+        )
+        attachment_id = attachment.id
+        try:
+            async with GraphClient(connection, db) as gc:
+                ok = await attachment_handler.retry_attachment_download(
+                    gc, email_row, attachment
+                )
+        except Exception as exc:  # noqa: BLE001 — właściciel/token/Graph
+            ok = False
+            attachment_handler.mark_download_failed(attachment, exc)
+        await db.commit()
+        logger.info(
+            "m365_attachment_download_retry",
+            extra={
+                "event_kind": "m365_cv_parse_progress",
+                "operation": "m365_attachment_download_retry",
+                "subject_id": attachment_id,
+                "outcome": "success" if ok else "failure",
+            },
+        )
+        return True
+
+
 async def m365_cv_parse_loop() -> None:
     """Continuously drain committed CV attachments in bounded transactions."""
     if not (settings.M365_INTEGRATION_ENABLED and settings.M365_AUTO_PARSE_CV):
@@ -187,6 +249,8 @@ async def m365_cv_parse_loop() -> None:
     while True:
         try:
             processed = await run_m365_cv_parse_once()
+            if not processed:
+                processed = await run_m365_attachment_retry_once()
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
@@ -195,4 +259,8 @@ async def m365_cv_parse_loop() -> None:
         await asyncio.sleep(interval if not processed else 1)
 
 
-__all__ = ["m365_cv_parse_loop", "run_m365_cv_parse_once"]
+__all__ = [
+    "m365_cv_parse_loop",
+    "run_m365_attachment_retry_once",
+    "run_m365_cv_parse_once",
+]

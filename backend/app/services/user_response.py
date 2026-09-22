@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.security import has_usable_password
 from app.models.user import User, UserRole
 from app.schemas.user import DashboardDataScope, DashboardPreset, UserResponse
 from app.services.access_scope import (
@@ -49,6 +50,7 @@ async def build_user_response(user: User, db: AsyncSession) -> UserResponse:
     from app.analytics.capabilities import capabilities_for  # noqa: PLC0415
 
     response = UserResponse.model_validate(user)
+    response.has_password = has_usable_password(user.password_hash)
     capabilities = sorted(cap.value for cap in capabilities_for(user))
     response.capabilities = capabilities
     response.analytics_capabilities = capabilities

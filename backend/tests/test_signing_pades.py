@@ -172,4 +172,5 @@ async def test_unsigned_pdf_reports_no_signature():
         "indication": "NO_SIGNATURE",
         "signature_count": 0,
         "signers": [],
+        "signature_results": [],
     }

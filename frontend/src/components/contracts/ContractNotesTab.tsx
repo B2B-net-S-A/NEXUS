@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { contractsApi, type ContractTimelineItem } from "@/lib/api";
 import { Phone, StickyNote } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { resolveViewState } from "@/lib/view-state";
 
 interface Props {
   contractId: number;
@@ -30,16 +32,38 @@ function formatDuration(seconds: number | null): string {
 }
 
 export function ContractNotesTab({ contractId }: Props) {
-  const { data: items = [], isLoading } = useQuery({
+  const notesQuery = useQuery({
     queryKey: ["contract-notes-timeline", contractId],
     queryFn: async () => {
       const res = await contractsApi.notesTimeline(contractId);
       return res.data as ContractTimelineItem[];
     },
   });
+  const items = notesQuery.data ?? [];
+  const viewState = resolveViewState({
+    isLoading: notesQuery.isLoading,
+    error: notesQuery.error,
+    isSuccess: notesQuery.isSuccess,
+    isEmpty: items.length === 0,
+  });
 
-  if (isLoading) {
+  if (viewState === "loading") {
     return <p className="text-sm text-muted-foreground">Ładowanie historii…</p>;
+  }
+
+  // Awaria NIE może udawać „brak notatek" — to zdanie zachęca do dopisywania
+  // rekordów, które mogą już istnieć (audyt FE-03).
+  if (
+    viewState === "forbidden" ||
+    viewState === "not_found" ||
+    viewState === "error"
+  ) {
+    return (
+      <QueryStateNotice
+        state={viewState}
+        onRetry={() => void notesQuery.refetch()}
+      />
+    );
   }
 
   if (items.length === 0) {

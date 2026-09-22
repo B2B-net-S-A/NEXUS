@@ -12,7 +12,7 @@ Two independent holes were closed:
 2. ``finalize_signed_pdf`` unconditionally set ``status=completed`` with no
    guard, so even a still-live token finalized a withdrawn signature. A
    fail-closed status check now rejects anything not in-flight. This is the real
-   safety net (guards BOTH the public /submit and the recruiter /upload-signed),
+   safety net (guards the public /submit; the recruiter /upload-signed was removed),
    tested behaviourally: the guard is the first statement and raises 409 before
    touching the DB or the provider. A lightweight stand-in for the signature is
    used deliberately — instantiating the real ORM model would trigger full

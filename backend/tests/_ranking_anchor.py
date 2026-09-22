@@ -77,8 +77,8 @@ async def ranking_anchor(app_client, headers: dict, *, limit: int) -> Decimal:
             cutoff,
             min(Decimal(str(row["total_monthly_margin"])) for row in rows),
         )
-    # Całkowita: ułamkowość wyniku ma dowodzić przewalutowania (patrz
-    # `assert margin != int(margin)` w teście FX), a nie pochodzić z kotwicy.
+    # Całkowita: kwoty analityki są w pełnych złotych (`to_whole_pln`), więc
+    # kotwica nie może wnosić groszy, których wynik i tak by nie pokazał.
     anchor = (cutoff + _HEADROOM).to_integral_value(rounding=ROUND_CEILING)
     assert anchor < RATE_CEILING, (
         f"próg odcięcia rankingu urósł do {cutoff} — kotwica {anchor} nie "

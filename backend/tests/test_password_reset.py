@@ -420,3 +420,83 @@ async def test_change_password_self_clears_force_flag(
         u = await db.scalar(select(User).where(User.id == fresh_user["id"]))
         assert u.force_password_change is False
         assert u.force_password_change_at is None
+
+
+# ── AUTH-03: token z hasła tymczasowego nie ma dostępu domenowego ───────────
+
+
+async def test_fpc_token_is_refused_by_business_api_but_reaches_recovery(
+    app_client: AsyncClient, fresh_user: dict
+):
+    async with AsyncSessionLocal() as db:
+        u = await db.scalar(select(User).where(User.id == fresh_user["id"]))
+        u.force_password_change = True
+        await db.commit()
+
+    login_resp = await app_client.post(
+        "/api/auth/login",
+        json={"email": fresh_user["email"], "password": fresh_user["password"]},
+    )
+    assert login_resp.status_code == 200
+    headers = {"Authorization": f"Bearer {login_resp.json()['access_token']}"}
+
+    business = await app_client.get("/api/notifications", headers=headers)
+    assert business.status_code == 403
+    assert business.json()["detail"] == "password_change_required"
+
+    me = await app_client.get("/api/auth/me", headers=headers)
+    assert me.status_code == 200
+    assert me.json()["force_password_change"] is True
+    assert me.json()["has_password"] is True
+
+    changed = await app_client.post(
+        "/api/auth/change-password",
+        json={
+            "current_password": fresh_user["password"],
+            "new_password": "AfterForce99!",
+        },
+        headers=headers,
+    )
+    assert changed.status_code == 204
+
+    # Nowa sesja po zmianie hasła nie niesie ``fpc`` — API działa.
+    relogin = await app_client.post(
+        "/api/auth/login",
+        json={"email": fresh_user["email"], "password": "AfterForce99!"},
+    )
+    fresh_headers = {"Authorization": f"Bearer {relogin.json()['access_token']}"}
+    assert (
+        await app_client.get("/api/notifications", headers=fresh_headers)
+    ).status_code == 200
+
+
+# ── AUTH-04: konto tylko SSO nie ma hasła do zmiany ─────────────────────────
+
+
+async def test_sso_only_account_gets_400_on_change_password_and_no_password_flag(
+    app_client: AsyncClient, fresh_user: dict
+):
+    from app.core.security import create_access_token
+
+    async with AsyncSessionLocal() as db:
+        u = await db.scalar(select(User).where(User.id == fresh_user["id"]))
+        u.password_hash = None
+        await db.commit()
+        token = create_access_token(
+            u.id, u.role.value, authorization_version=u.authorization_version
+        )
+    headers = {"Authorization": f"Bearer {token}"}
+
+    me = await app_client.get("/api/auth/me", headers=headers)
+    assert me.status_code == 200
+    assert me.json()["has_password"] is False
+
+    resp = await app_client.post(
+        "/api/auth/change-password",
+        json={"current_password": "cokolwiek1", "new_password": "NoweHaslo99!"},
+        headers=headers,
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == (
+        "To konto loguje się przez Microsoft — hasłem zarządza Microsoft."
+    )
