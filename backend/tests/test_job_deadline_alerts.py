@@ -232,8 +232,18 @@ async def test_email_dispatch_via_delegated_connection(
     calls = []
 
     async def _fake_send_system(
-        db, connection, *, to, subject, text_body, html_body=None
+        db,
+        connection,
+        *,
+        to,
+        subject,
+        text_body,
+        delivery_kind,
+        event_at,
+        html_body=None,
     ):
+        assert delivery_kind == "job_deadline"
+        assert event_at is not None and event_at.tzinfo is not None
         calls.append((connection, to))
         return True
 

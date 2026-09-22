@@ -17,7 +17,7 @@ from app.core.config import settings
 pytestmark = pytest.mark.asyncio
 
 
-def _fake_graph(behavior, deleted=None):
+def _fake_graph(behavior, deleted=None, delete_error=None):
     """Factory podmieniająca GraphClient na async-CM z zadanym `post`.
 
     `deleted` (opcjonalna lista) zbiera URL-e przekazane do `delete` — do
@@ -40,6 +40,8 @@ def _fake_graph(behavior, deleted=None):
         async def delete(self, url):
             if deleted is not None:
                 deleted.append(url)
+            if delete_error is not None:
+                raise delete_error
 
     return _FGC
 
@@ -131,6 +133,109 @@ async def test_send_system_email_deletes_orphaned_draft_on_send_failure(monkeypa
     )
     assert ok is False
     assert deleted == ["/me/messages/m-9"]
+
+
+@pytest.mark.parametrize("kind", ["job_deadline", "delivery_alert"])
+@pytest.mark.parametrize("transition", ["unchanged", "off", "off_on"])
+async def test_send_system_email_rechecks_policy_after_draft_creation(
+    monkeypatch, kind, transition
+):
+    from app.services import notification_delivery as delivery
+
+    now = datetime(2026, 9, 22, 12, tzinfo=timezone.utc)
+    event_at = now + timedelta(seconds=1)
+    policy = delivery.DeliveryPolicy.from_value(
+        delivery.updated_value(
+            delivery.DeliveryPolicy(), enabled=True, toggles={kind: True}, now=now
+        )
+    )
+    assert policy.allows(kind, event_at)
+    calls, deleted = [], []
+
+    async def _policy(_db):
+        return policy
+
+    def _behavior(url, json):
+        nonlocal policy
+        calls.append(url)
+        if url == "/me/messages":
+            if transition != "unchanged":
+                policy = delivery.DeliveryPolicy.from_value(
+                    delivery.updated_value(
+                        policy,
+                        enabled=False,
+                        toggles={},
+                        now=now + timedelta(seconds=2),
+                    )
+                )
+            if transition == "off_on":
+                policy = delivery.DeliveryPolicy.from_value(
+                    delivery.updated_value(
+                        policy, enabled=True, toggles={}, now=now + timedelta(seconds=3)
+                    )
+                )
+            return {"id": "policy-race"}
+        return {}
+
+    monkeypatch.setattr(delivery, "load_policy", _policy)
+    monkeypatch.setattr(sysmail, "GraphClient", _fake_graph(_behavior, deleted=deleted))
+    ok = await sysmail.send_system_email(
+        db=None,
+        connection=_Conn(),
+        to="rec@example.invalid",
+        subject="Routine notification",
+        text_body="Test",
+        delivery_kind=kind,
+        event_at=event_at,
+    )
+    if transition == "unchanged":
+        assert ok is True
+        assert calls == ["/me/messages", "/me/messages/policy-race/send"]
+        assert deleted == []
+    else:
+        assert ok is False
+        assert calls == ["/me/messages"]
+        assert deleted == ["/me/messages/policy-race"]
+
+
+@pytest.mark.parametrize("policy_error", [False, True])
+async def test_send_system_email_cannot_send_if_policy_or_cleanup_fails(
+    monkeypatch, policy_error, caplog
+):
+    from app.services import notification_delivery as delivery
+
+    calls, deleted = [], []
+
+    async def _policy(_db):
+        if policy_error:
+            raise RuntimeError("Policy unavailable")
+        return delivery.DeliveryPolicy()
+
+    def _behavior(url, json):
+        calls.append(url)
+        return {"id": "retained-unsent-draft"}
+
+    monkeypatch.setattr(delivery, "load_policy", _policy)
+    monkeypatch.setattr(
+        sysmail,
+        "GraphClient",
+        _fake_graph(
+            _behavior, deleted=deleted, delete_error=RuntimeError("Cleanup unavailable")
+        ),
+    )
+    ok = await sysmail.send_system_email(
+        db=None,
+        connection=_Conn(),
+        to="rec@example.invalid",
+        subject="Routine notification",
+        text_body="Test",
+        delivery_kind="job_deadline",
+        event_at=datetime.now(timezone.utc),
+    )
+    assert ok is False
+    assert calls == ["/me/messages"]
+    assert deleted == ["/me/messages/retained-unsent-draft"]
+    assert "retained-unsent-draft" in caplog.text
 
 
 async def test_get_system_sender_connection_matches_active_upn(monkeypatch):

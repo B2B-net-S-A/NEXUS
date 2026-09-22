@@ -337,7 +337,13 @@ async def _dispatch_emails(db: AsyncSession) -> int:
             if connection is not None:
                 # Delegated Graph — async, wprost (ma sesję db).
                 ok = await send_system_email(
-                    db, connection, to=user.email, subject=subject, text_body=text_body
+                    db,
+                    connection,
+                    to=user.email,
+                    subject=subject,
+                    text_body=text_body,
+                    delivery_kind="job_deadline",
+                    event_at=notif.created_at,
                 )
             else:
                 # Blocking smtplib/app-only — offload z event loopa.

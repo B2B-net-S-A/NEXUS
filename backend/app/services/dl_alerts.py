@@ -984,7 +984,13 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
                 continue
             if connection is not None:
                 ok = await send_system_email(
-                    db, connection, to=user.email, subject=subject, text_body=text_body
+                    db,
+                    connection,
+                    to=user.email,
+                    subject=subject,
+                    text_body=text_body,
+                    delivery_kind="delivery_alert",
+                    event_at=alert.created_at,
                 )
             else:
                 ok = await asyncio.to_thread(

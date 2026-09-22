@@ -17,6 +17,7 @@ połączeń).
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import func, select
@@ -55,6 +56,8 @@ async def send_system_email(
     subject: str,
     text_body: str,
     html_body: Optional[str] = None,
+    delivery_kind: str | None = None,
+    event_at: datetime | None = None,
 ) -> bool:
     """Wyślij mail systemowy przez delegated Graph (draft + send). True gdy poszedł.
 
@@ -80,6 +83,21 @@ async def send_system_email(
                 )
                 return False
             try:
+                if delivery_kind is not None:
+                    from app.services.notification_delivery import load_policy
+
+                    # Draft creation/token refresh can outlast an admin toggle.
+                    # Recheck at the final send boundary, including a new cutoff
+                    # after OFF -> ON, while the draft is still unsent.
+                    if not (await load_policy(db)).allows(delivery_kind, event_at):
+                        try:
+                            await gc.delete(f"/me/messages/{message_id}")
+                        except Exception:  # noqa: BLE001
+                            logger.warning(
+                                "system_mail: policy blocked send; unsent draft retained %s",
+                                message_id,
+                            )
+                        return False
                 await gc.post(f"/me/messages/{message_id}/send", json={})
             except Exception:
                 # Wersja robocza już powstała — sprzątnij sierotę z Drafts, żeby
