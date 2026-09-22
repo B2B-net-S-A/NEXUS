@@ -162,6 +162,10 @@ _LATEST_SQL = text(
           FROM candidate_stages cs
           JOIN jobs j ON j.id = cs.job_id
          WHERE j.status = 'published'
+           -- Równoważne filtrowi po wyborze najnowszego wiersza: para z ruchem
+           -- w oknie ma w oknie także swój NAJNOWSZY wiersz. Bez tego zapytanie
+           -- sortowało całą historię etapów przy każdym odczycie pulpitu.
+           AND cs.moved_at >= :since
          ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
     )
     SELECT l.id, l.candidate_id, l.job_id, l.stage_def_id, l.moved_at,
@@ -492,14 +496,16 @@ async def load_assignee(db: AsyncSession, assignee_id: int) -> User:
 
 
 async def ensure_assignee_can_move(
-    db: AsyncSession, *, job_id: int, assignee: User, added_by: int
+    db: AsyncSession, *, job_id: int, assignee: User, actor: User
 ) -> bool:
     """Wytypowana osoba musi móc przesunąć kartę na „Wysłane do Cpro".
 
     Rekrutacje z Traffita zwykle nie mają w NEXUSIE rekrutera ani zespołu,
-    więc rekruter spoza zespołu dostałby 403 przy własnym zadaniu. Typowanie
-    dopisuje go do zespołu rekrutacji (jawny ślad: ``added_by``). Zwraca, czy
-    dopisano.
+    więc rekruter spoza zespołu dostałby 403 przy własnym zadaniu. Dopisać go
+    do zespołu może jednak tylko ktoś, kto i tak zmienia zespoły (admin,
+    Delivery Lead, Head of Recruitment — role DZ); zwykły członek zespołu nie
+    może tą drogą wprowadzać do rekrutacji innych osób (lustro bramki
+    `POST /api/jobs/{id}/collaborators`). Zwraca, czy dopisano.
     """
 
     from fastapi import HTTPException  # noqa: PLC0415
@@ -513,8 +519,16 @@ async def ensure_assignee_can_move(
         return False
     except HTTPException:
         pass
+    if not actor.has_any_role(*DZ_BADGE_ROLES):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Ta osoba nie jest w zespole rekrutacji. Wybierz kogoś z zespołu "
+                "albo poproś Delivery Leada o dodanie jej do rekrutacji."
+            ),
+        )
     stmt = pg_insert(JobCollaborator).values(
-        job_id=job_id, user_id=assignee.id, added_by=added_by
+        job_id=job_id, user_id=assignee.id, added_by=actor.id
     )
     await db.execute(
         stmt.on_conflict_do_update(
@@ -536,7 +550,13 @@ async def notify_cpro_assignment(
     assignee_id: int,
     actor: User,
 ) -> None:
-    """Dzwonek dla wytypowanej osoby (nie dla siebie samego)."""
+    """Dzwonek dla wytypowanej osoby (nie dla siebie samego).
+
+    Dedup dobowy `ix_notif_dedup_daily` jest po (osoba, typ, wiersz etapu):
+    ponowne wytypowanie TEJ SAMEJ osoby do tego samego kandydata tego samego
+    dnia (A → B → A) nie daje drugiego dzwonka — zadanie i tak czeka na jej
+    pulpicie, a zmianę widać w historii (`cpro_assignee_changed`).
+    """
 
     if assignee_id == actor.id:
         return

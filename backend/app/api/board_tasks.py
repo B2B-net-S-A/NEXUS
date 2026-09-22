@@ -139,7 +139,7 @@ async def set_cpro_assignee(
 
     assignee = await svc.load_assignee(db, body.assignee_id)
     added = await svc.ensure_assignee_can_move(
-        db, job_id=job.id, assignee=assignee, added_by=current_user.id
+        db, job_id=job.id, assignee=assignee, actor=current_user
     )
     previous = row.task_assignee_id
     row.task_assignee_id = assignee.id

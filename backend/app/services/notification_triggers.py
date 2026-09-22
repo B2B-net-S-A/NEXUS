@@ -628,8 +628,15 @@ async def check_board_tasks_digest(db: AsyncSession, now: datetime) -> int:
 
     from app.services import board_tasks  # noqa: PLC0415
 
-    snapshot = await board_tasks.load_snapshot(db, now=now)
-    counts = await board_tasks.digest_counts(db, snapshot)
+    # Skrót dzieli transakcję z pozostałymi triggerami ticku — jego awaria
+    # (savepoint + log) nie może zatrzymać przypomnień o rozmowach i KPI.
+    try:
+        async with db.begin_nested():
+            snapshot = await board_tasks.load_snapshot(db, now=now)
+            counts = await board_tasks.digest_counts(db, snapshot)
+    except Exception:  # noqa: BLE001
+        logger.exception("board_tasks_digest: nie udało się policzyć kolejki")
+        return 0
     emitted = 0
     for user_id, line in counts.items():
         if line.total == 0:

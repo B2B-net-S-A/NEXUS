@@ -380,6 +380,26 @@ async def test_dz_then_cpro_assignment_then_sent_flows_through_the_queue(
         assert cards[0]["task_assignee_id"] == rec_id
         assert cards[0]["task_assignee_name"]
 
+        # Rekruter z zespołu nie może wprowadzić do rekrutacji osoby spoza niej
+        # (zespół zmienia admin / DL / HoR) — 422, bez zmian.
+        outsider_id, _ = await _seed_user(UserRole.sourcer)
+        refused = await api_client.patch(
+            f"/api/board-tasks/cpro/{todo[0]['stage_id']}/assignee",
+            headers=rec,
+            json={"assignee_id": outsider_id},
+        )
+        assert refused.status_code == 422, refused.text
+        async with AsyncSessionLocal() as db:
+            assert (
+                await db.scalar(
+                    select(JobCollaborator.id).where(
+                        JobCollaborator.job_id == jid,
+                        JobCollaborator.user_id == outsider_id,
+                    )
+                )
+                is None
+            )
+
         # Zmiana osoby — HoR przejmuje.
         swap = await api_client.patch(
             f"/api/board-tasks/cpro/{todo[0]['stage_id']}/assignee",

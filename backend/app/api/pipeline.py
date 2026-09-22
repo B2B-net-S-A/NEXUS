@@ -530,6 +530,7 @@ async def move_candidate(
     # 0346: osoba, która wyśle kandydata do Cpro — typowana przy oznaczeniu
     # gotowości. Na każdym innym etapie pole nie ma znaczenia, więc 422.
     cpro_assignee: Optional[User] = None
+    cpro_assignee_added_to_team = False
     if data.task_assignee_id is not None:
         if stage_def is None or not is_cpro_stage(stage_def.name):
             raise HTTPException(
@@ -540,6 +541,11 @@ async def move_candidate(
                 ),
             )
         cpro_assignee = await board_tasks_svc.load_assignee(db, data.task_assignee_id)
+        # Przed ruchem: odmowa (osoba spoza zespołu, a typuje ktoś bez prawa
+        # zmiany zespołu) ma zatrzymać ruch, zanim cokolwiek się zapisze.
+        cpro_assignee_added_to_team = await board_tasks_svc.ensure_assignee_can_move(
+            db, job_id=job.id, assignee=cpro_assignee, actor=current_user
+        )
 
     # Use the same first lock as the signed-contract automation. Besides
     # serializing two pipeline moves, this prevents the inverse
@@ -826,12 +832,8 @@ async def move_candidate(
         expected_state_version=data.expected_state_version,
     )
     await create_original_cv_snapshot(db, stage)
-    cpro_assignee_added_to_team = False
     if cpro_assignee is not None:
         stage.task_assignee_id = cpro_assignee.id
-        cpro_assignee_added_to_team = await board_tasks_svc.ensure_assignee_can_move(
-            db, job_id=job.id, assignee=cpro_assignee, added_by=current_user.id
-        )
     if is_terminal_target:
         await maybe_close_contact_opportunity(
             db,
