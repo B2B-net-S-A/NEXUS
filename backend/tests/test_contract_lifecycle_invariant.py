@@ -1000,12 +1000,24 @@ async def test_qes_authoritative_pass_completes(monkeypatch) -> None:
         monkeypatch,
         dss_url="http://dss.internal/validate",
         report=ValidationReport(
-            is_qes=True, indication="TOTAL-PASSED", signature_level="QESIG"
+            is_qes=True,
+            indication="TOTAL-PASSED",
+            signature_level="QESIG",
+            signature_count=1,
+            signers=["Jan Podpisujacy"],
+            signature_results=[
+                {"signer": "Jan Podpisujacy", "indication": "TOTAL_PASSED"}
+            ],
         ),
     )
+    source = b"%PDF-source-contract"
     async with db:
+        # SIG-02: plik musi zaczynać się bajtami PDF-u wydanego do podpisu.
+        signing_sender.record_source_pdf(sig, source)
         result = await signing_sender.finalize_signed_pdf(
-            db, sig, b"%PDF-fake", moved_by=sig.sender_user_id
+            db, sig, source + b"\n%incremental-signature", moved_by=sig.sender_user_id
         )
         assert result["status"] == "ok"
+        assert result["pipeline_moved"] is False
         assert sig.status == SignatureStatus.completed
+        assert sig.validation_report[signing_sender.SOURCE_PDFS_KEY]

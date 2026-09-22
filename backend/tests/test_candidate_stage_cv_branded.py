@@ -3,9 +3,9 @@
 Pokrycie:
 
   GET /cv/branded:
-    * lazy render przy pierwszym GET — content_html niepusty, status='draft',
-      template='standard', language='pl', rendered_from_default=True
-    * drugi GET → status='draft', rendered_from_default=False (no re-render)
+    * GET w stanie 'none' → podgląd z domyślnego szablonu, status='none',
+      rendered_from_default=True, BEZ zapisu w bazie (CV-01)
+    * drugi GET → nadal 'none', ta sama treść, nic nie zapisane
 
   PATCH /cv/branded:
     * save content_html → zachowuje treść
@@ -20,7 +20,7 @@ Pokrycie:
 
   POST /cv/branded/finalize:
     * draft → finalized, snapshot do storage
-    * 409 gdy status≠'draft'
+    * 'none' (bez wcześniejszego PATCH) też można zatwierdzić (CV-01)
     * 422 gdy treść pusta
     * po finalize ponowny finalize → 409
 
@@ -83,7 +83,9 @@ async def _draft_request_body(url, body=None):
         )
         values = {"expected_revision": csv.edit_revision}
         if url.endswith("/finalize"):
-            values["content_html"] = csv.branded_draft_html or " "
+            values["content_html"] = (
+                csv.branded_draft_html or "<h1>Brand</h1><p>Treść CV</p>"
+            )
         return {**values, **(body or {})}
 
 
@@ -199,13 +201,22 @@ async def test_get_branded_lazy_renders_on_first_call(
     )
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["status"] == "draft"
+    assert body["status"] == "none"
     assert body["template"] == "standard"
     assert body["language"] == "pl"
     assert body["rendered_from_default"] is True
     assert body["content_html"] is not None
     # Treść powinna zawierać imię kandydata (z _generate_cv_html)
     assert "Brand" in body["content_html"]
+    # CV-01: odczyt niczego nie zapisuje — ani statusu, ani treści, ani rewizji.
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        assert csv.branded_status == "none"
+        assert csv.branded_draft_html is None
+        assert csv.branded_updated_by is None
+        assert (csv.edit_revision or 0) == body["edit_revision"]
 
 
 @pytest.mark.asyncio
@@ -220,7 +231,8 @@ async def test_get_branded_returns_existing_after_first(
         f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
     )
     assert second.status_code == 200
-    assert second.json()["rendered_from_default"] is False
+    assert second.json()["status"] == "none"
+    assert second.json()["edit_revision"] == first.json()["edit_revision"]
     # Treść powinna być identyczna z pierwszym wywołaniem.
     assert second.json()["content_html"] == first.json()["content_html"]
 
@@ -340,17 +352,24 @@ async def test_finalize_creates_snapshot_and_flips_status(
 
 
 @pytest.mark.asyncio
-async def test_finalize_409_when_not_draft(
+async def test_finalize_accepts_none_without_prior_patch(
     app_client: AsyncClient, app_auth_headers: dict
 ):
+    """CV-01: GET nie zakłada szkicu, więc finalize przyjmuje też 'none'."""
     sid, _, _ = await _seed_full_stage()
-    # Bez GET najpierw — status='none' → 409
-    res = await _post(
-        app_client,
+    preview = await app_client.get(
+        f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
+    )
+    res = await app_client.post(
         f"/api/candidates/stages/{sid}/cv/branded/finalize",
         headers=app_auth_headers,
+        json={
+            "expected_revision": preview.json()["edit_revision"],
+            "content_html": preview.json()["content_html"],
+        },
     )
-    assert res.status_code == 409
+    assert res.status_code == 200, res.text
+    assert res.json()["status"] == "finalized"
 
 
 @pytest.mark.asyncio
@@ -442,7 +461,7 @@ async def test_branded_cv_isolated_between_stages(
         headers=app_auth_headers,
     )
     body_b = res_b.json()
-    assert body_b["status"] == "draft"  # świeżo lazy-rendered po GET
+    assert body_b["status"] == "none"  # podgląd bez zapisu (CV-01)
     assert "STAGE-A custom" not in (body_b["content_html"] or "")
 
 
@@ -871,8 +890,12 @@ async def test_review_rejection_keeps_database_draft(
     from fastapi import HTTPException
 
     sid, _, _ = await _seed_full_stage()
-    await app_client.get(
-        f"/api/candidates/stages/{sid}/cv/branded", headers=app_auth_headers
+    # GET nie zakłada już szkicu (CV-01) — zakłada go pierwszy zapis.
+    await _patch(
+        app_client,
+        f"/api/candidates/stages/{sid}/cv/branded",
+        headers=app_auth_headers,
+        json={"content_html": "<h1>Brand</h1><p>Szkic</p>"},
     )
     approved_content_review.side_effect = HTTPException(422, "Niepotwierdzone fakty")
     response = await _post(

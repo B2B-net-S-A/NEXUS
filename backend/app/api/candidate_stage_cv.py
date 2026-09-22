@@ -70,7 +70,7 @@ from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.schemas.candidate_stage_cv import (
     CVBrandedFinalize,
     CVBrandedReview,
@@ -376,11 +376,18 @@ def _build_branded_response(
 def _build_transient_branded_response(
     csv: CandidateStageCV, html: str
 ) -> CVBrandedResponse:
-    """Finance preview for an uninitialized draft without mutating the ORM row."""
+    """Podgląd CV w stanie ``none`` — bez zapisu (CV-01).
+
+    Odczyt nie zakłada szkicu: robi to pierwszy PATCH (albo finalize, który
+    przyjmuje także ``none``). ``edit_revision`` jest prawdziwe, żeby kolejny
+    zapis przeszedł kontrolę rewizji.
+    """
 
     return CVBrandedResponse(
         candidate_stage_id=csv.candidate_stage_id,
-        status="draft",
+        edit_revision=csv.edit_revision or 0,
+        version=csv.branded_version or 1,
+        status="none",
         content_html=html,
         template=_DEFAULT_TEMPLATE,
         language=_DEFAULT_LANGUAGE,
@@ -395,6 +402,23 @@ def _build_transient_branded_response(
     )
 
 
+def _materialize_draft_from_none(
+    csv: CandidateStageCV, content_html: str, user_id: int
+) -> None:
+    """Załóż szkic ze stanu ``none`` treścią z żądania zapisu (CV-01).
+
+    Rewizji NIE podbijamy: klient wysyła tę samą ``expected_revision`` do
+    kontroli i do zatwierdzenia, a oba kroki muszą przejść kontrolę rewizji.
+    Wołane wyłącznie przez trasy zapisu (kontrola, zatwierdzenie).
+    """
+    csv.branded_draft_html = content_html
+    csv.branded_template = csv.branded_template or _DEFAULT_TEMPLATE
+    csv.branded_language = csv.branded_language or _DEFAULT_LANGUAGE
+    csv.branded_status = "draft"
+    csv.branded_updated_at = datetime.now(timezone.utc)
+    csv.branded_updated_by = user_id
+
+
 @router.get(
     "/candidates/stages/{stage_id}/cv/branded",
     response_model=CVBrandedResponse,
@@ -404,42 +428,16 @@ async def get_branded_cv(
     current_user: CandidateDocumentAccess,
     db: AsyncSession = Depends(get_db),
 ) -> CVBrandedResponse:
-    """Lazy render brandowanego CV — pierwszy GET generuje HTML z `_generate_cv_html()`,
-    następne zwracają zachowany content."""
+    """Brandowane CV etapu. W stanie ``none`` zwraca podgląd wyrenderowany
+    z domyślnego szablonu BEZ zapisu (CV-01) — GET był dotąd jedyną trasą
+    odczytu, która zmieniała stan dokumentu, rewizję i autora, także dla ról
+    z samym odczytem. Szkic zakłada pierwszy PATCH albo finalize."""
     csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
 
-    rendered = False
     if csv.branded_status == "none":
         candidate, job = await _load_candidate_and_job(db, csv)
         html = _generate_cv_html(candidate, _DEFAULT_TEMPLATE, _DEFAULT_LANGUAGE, job)
-        if current_user.has_role(UserRole.finance):
-            return _build_transient_branded_response(csv, html)
-        csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
-        if csv.branded_status != "none":
-            return _build_branded_response(csv)
-        csv.branded_draft_html = html
-        csv.branded_template = _DEFAULT_TEMPLATE
-        csv.branded_language = _DEFAULT_LANGUAGE
-        csv.branded_status = "draft"
-        csv.edit_revision += 1
-        csv.branded_updated_at = datetime.now(timezone.utc)
-        csv.branded_updated_by = current_user.id
-        rendered = True
-        db.add(
-            Activity(
-                entity_type="candidate_stage_cv",
-                entity_id=csv.id,
-                action="branded_cv_initialized",
-                user_id=current_user.id,
-                details={
-                    "candidate_stage_id": stage_id,
-                    "template": _DEFAULT_TEMPLATE,
-                    "language": _DEFAULT_LANGUAGE,
-                },
-            )
-        )
-        await db.commit()
-        await db.refresh(csv)
+        return _build_transient_branded_response(csv, html)
 
     updated_by_name: Optional[str] = None
     if csv.branded_updated_by:
@@ -456,7 +454,6 @@ async def get_branded_cv(
         csv,
         updated_by_name=updated_by_name,
         finalized_by_name=finalized_by_name,
-        rendered_from_default=rendered,
     )
 
 
@@ -676,7 +673,9 @@ async def render_branded_cv_for_print(
     csv = await _load_csv_for_stage(db, stage_id, current_user, read_access=True)
     draft_html = csv.branded_draft_html
     candidate: Optional[Candidate] = None
-    if not draft_html and current_user.has_role(UserRole.finance):
+    # CV-01: GET nie zakłada już szkicu, więc CV w stanie `none` drukujemy
+    # z domyślnego szablonu (bez zapisu) dla każdej roli, nie tylko Finansów.
+    if not draft_html and csv.branded_status == "none":
         candidate, job = await _load_candidate_and_job(db, csv)
         draft_html = _generate_cv_html(
             candidate, _DEFAULT_TEMPLATE, _DEFAULT_LANGUAGE, job
@@ -725,7 +724,8 @@ async def preview_branded_docx(
     """Render the current editor contents and frozen assets without approval."""
     csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
     check_revision(csv, payload.expected_revision)
-    if csv.branded_status != "draft":
+    # `none` też — podgląd renderuje treść z żądania i niczego nie zapisuje.
+    if csv.branded_status not in ("none", "draft"):
         raise HTTPException(
             409, "Podgląd dotyczy szkicu. Pobierz zatwierdzoną wersję CV."
         )
@@ -762,13 +762,20 @@ async def finalize_branded_cv(
     """
     csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
     check_revision(csv, payload.expected_revision)
-    if csv.branded_status != "draft":
+    # `none` też: GET nie zakłada już szkicu (CV-01), a treść przychodzi
+    # w `content_html`, więc zatwierdzenie bez wcześniejszego PATCH-a jest
+    # poprawne.
+    if csv.branded_status not in ("none", "draft"):
         raise HTTPException(
             status_code=409,
             detail=(
                 f"Branded CV is in status '{csv.branded_status}', "
-                "expected 'draft' to finalize."
+                "expected 'none' or 'draft' to finalize."
             ),
+        )
+    if csv.branded_status == "none":
+        _materialize_draft_from_none(
+            csv, sanitize_cv_html(payload.content_html), current_user.id
         )
     csv.branded_draft_html = sanitize_cv_html(payload.content_html)
     if not csv.branded_draft_html.strip():
@@ -1362,6 +1369,14 @@ async def start_stage_cv_review(
     from app.services.cv_approval_queue import enqueue_review
 
     draft = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    if draft.branded_status == "none":
+        # CV-01: podgląd z GET nie zakłada szkicu, więc kontrola przed
+        # zatwierdzeniem (pierwszy zapis) zakłada go treścią z żądania.
+        check_revision(draft, payload.expected_revision)
+        content = sanitize_cv_html(payload.content_html)
+        if not content.strip():
+            raise HTTPException(422, "CV nie może być puste.")
+        _materialize_draft_from_none(draft, content, current_user.id)
     result = await enqueue_review(db, draft, payload, current_user.id)
     await db.commit()
     return result

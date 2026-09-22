@@ -3219,32 +3219,6 @@ export const signingApi = {
     api
       .post(`/api/signing/contracts/${contractId}/mark-sent-offline`, {})
       .then((r) => r.data),
-  // Offline (e-mail) flow: recruiter uploads a signed PDF → validate. Moves to
-  // "Umowa podpisana", or "Zatrudniony" when both parties signed (>=2 sigs).
-  uploadSigned: (contractId: number, file: File) => {
-    const form = new FormData();
-    form.append("file", file);
-    return api
-      .post<{
-        status: string;
-        is_qes: boolean;
-        signature_level: string | null;
-        signed_by: string | null;
-        indication: string | null;
-        dss_verified: boolean;
-        signature_count: number | null;
-        signers: string[];
-        both_parties_signed: boolean;
-        pipeline_stage: string;
-      }>(`/api/signing/contracts/${contractId}/upload-signed`, form, {
-        // Bez jawnego multipartu axios serializuje FormData do JSON-a
-        // (instancja `api` ma domyślne application/json) → backend widzi puste
-        // ciało i odpowiada 422 „file Field required", czyli podpisana umowa
-        // nigdy nie przechodzi na „Umowa podpisana".
-        headers: { "Content-Type": "multipart/form-data" },
-      })
-      .then((r) => r.data);
-  },
 };
 
 export interface B2BRenderPayload {

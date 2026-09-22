@@ -146,3 +146,61 @@ async def test_attendees_still_belong_to_outlook(app_client: AsyncClient):
         json={"attendees": ["x@example.com"]},
     )
     assert resp.status_code == 409, resp.text
+
+
+async def test_refused_job_rebind_never_reaches_outlook(
+    app_client: AsyncClient, monkeypatch
+):
+    """CAL-01: odmowa zakresu rekrutacji zapada PRZED wywołaniem Grapha."""
+    from app.models.client import Client
+    from app.models.job import Job
+
+    headers, event_id = await _owner_with_event()
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Klient CAL01 {uuid.uuid4().hex[:6]}")
+        db.add(client)
+        await db.flush()
+        foreign_job = Job(title="Cudza rekrutacja", client_id=client.id)
+        db.add(foreign_job)
+        await db.commit()
+        foreign_job_id = foreign_job.id
+
+    calls: list[str] = []
+
+    async def fake_update(db, conn, graph_id, payload):
+        calls.append(graph_id)
+        return "ck-2"
+
+    monkeypatch.setattr(m365_calendar, "update_graph_event", fake_update)
+    resp = await app_client.patch(
+        f"/api/calendar/events/{event_id}",
+        headers=headers,
+        json={"title": "Zmieniony", "job_id": foreign_job_id},
+    )
+    assert resp.status_code == 403, resp.text
+    assert calls == [], "Outlook dostał zmianę, której NEXUS odmówił"
+    async with AsyncSessionLocal() as db:
+        ev = await db.get(CalendarEvent, event_id)
+        assert ev.title == "Prep z kandydatem"
+        assert ev.job_id is None
+
+
+async def test_invalid_resulting_range_never_reaches_outlook(
+    app_client: AsyncClient, monkeypatch
+):
+    """CAL-01: nowy początek po zapisanym końcu → 422 bez wywołania Grapha."""
+    headers, event_id = await _owner_with_event()
+    calls: list[str] = []
+
+    async def fake_update(db, conn, graph_id, payload):
+        calls.append(graph_id)
+        return "ck-2"
+
+    monkeypatch.setattr(m365_calendar, "update_graph_event", fake_update)
+    resp = await app_client.patch(
+        f"/api/calendar/events/{event_id}",
+        headers=headers,
+        json={"start_time": (_START + timedelta(hours=3)).isoformat()},
+    )
+    assert resp.status_code == 422, resp.text
+    assert calls == []

@@ -583,7 +583,7 @@ function CVBrandedEditContent({
  Drukuj / PDF
  </Button>
  <div className="flex flex-wrap items-center gap-2">
- {!isFinalized && data?.status === "draft" && <Button size="sm" variant="outline"
+ {!isFinalized && (data?.status === "draft" || data?.status === "none") && <Button size="sm" variant="outline"
  disabled={downloadingDocx || finalizeMut.isPending || swapMut.isPending} onClick={() => void previewDocx()}>
  <Download className="h-3.5 w-3.5 mr-1.5" /> Pobierz szkic DOCX
  </Button>}

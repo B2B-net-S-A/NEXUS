@@ -18,6 +18,7 @@ Plan: ``docs/in-house-qes-signature-plan.md`` §3, §7.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -42,6 +43,11 @@ from app.schemas.document_signature import SignForSignatureRequest
 from app.services import storage_service
 from app.services.notification_triggers import emit as emit_notification
 from app.services.signing.pdf_renderer import render_contract_pdf
+from app.services.signing.provider import (
+    ValidationReport,
+    normalize_person_text,
+    signer_identity,
+)
 from app.services.signing.registry import get_provider
 
 logger = logging.getLogger(__name__)
@@ -54,6 +60,16 @@ logger = logging.getLogger(__name__)
 # jako ręczne.
 STAGE_SIGNED = "Umowa podpisana"
 STAGE_HIRED = "Zatrudniony"
+
+# Klucz w ``document_signatures.validation_report`` z odciskami PDF-ów, które
+# wyszły do podpisującego (SIG-02). Lista, bo PDF jest renderowany przy każdym
+# pobraniu — każda wydana wersja jest zapisana i każda może wrócić podpisana.
+SOURCE_PDFS_KEY = "source_pdfs"
+_MAX_SOURCE_PDFS = 20
+
+SOURCE_MISMATCH_MESSAGE = (
+    "Podpisany plik nie pasuje do wysłanej umowy — wymaga ręcznej weryfikacji."
+)
 
 
 def _require_enabled() -> None:
@@ -205,6 +221,125 @@ def render_unsigned_pdf(sig: DocumentSignature) -> bytes:
     return render_contract_pdf(html, title=f"Umowa #{sig.contract_id}")
 
 
+def record_source_pdf(sig: DocumentSignature, pdf_bytes: bytes) -> None:
+    """Zapamiętaj odcisk (SHA-256 + długość) PDF-u wydanego do podpisu (SIG-02).
+
+    Wołane tam, gdzie PDF opuszcza system (publiczne ``/sign/{token}/pdf``).
+    Finalizacja przyjmuje wyłącznie plik, który ZACZYNA SIĘ dokładnie tymi
+    bajtami — podpis PAdES jest przyrostowym dopisaniem do oryginału. Nie
+    commituje (robi to wołający).
+    """
+    digest = hashlib.sha256(pdf_bytes).hexdigest()
+    report = dict(sig.validation_report or {})
+    sources = [
+        dict(item)
+        for item in report.get(SOURCE_PDFS_KEY) or []
+        if isinstance(item, dict)
+    ]
+    if any(
+        item.get("sha256") == digest and item.get("length") == len(pdf_bytes)
+        for item in sources
+    ):
+        return
+    sources.append(
+        {
+            "sha256": digest,
+            "length": len(pdf_bytes),
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    report[SOURCE_PDFS_KEY] = sources[-_MAX_SOURCE_PDFS:]
+    # Nowy obiekt — JSONB bez MutableDict nie widzi zmian w miejscu.
+    sig.validation_report = report
+
+
+def _recorded_sources(sig: DocumentSignature) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in (sig.validation_report or {}).get(SOURCE_PDFS_KEY) or []
+        if isinstance(item, dict)
+        and isinstance(item.get("sha256"), str)
+        and isinstance(item.get("length"), int)
+    ]
+
+
+def _source_mismatch(reason: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=f"{SOURCE_MISMATCH_MESSAGE} {reason}",
+    )
+
+
+def _assert_matches_source(sig: DocumentSignature, pdf_bytes: bytes) -> None:
+    """Podpisany PDF musi zaczynać się bajtami PDF-u wydanego do podpisu."""
+    sources = _recorded_sources(sig)
+    if not sources:
+        # Sprawa sprzed zapisu odcisków (albo PDF nigdy nie został pobrany
+        # z linku) — nie mamy z czym porównać, więc nie zamykamy automatycznie.
+        raise _source_mismatch(
+            "Brak zapisanego odcisku wysłanego dokumentu, więc nie da się "
+            "potwierdzić, że podpisano tę umowę."
+        )
+    for item in sources:
+        length = item["length"]
+        if len(pdf_bytes) <= length:
+            continue
+        if hashlib.sha256(pdf_bytes[:length]).hexdigest() == item["sha256"]:
+            return
+    raise _source_mismatch(
+        "Treść pliku różni się od dokumentu, który wysłaliśmy do podpisu."
+    )
+
+
+def _name_tokens(value: str | None) -> set[str]:
+    return set(normalize_person_text(value).split())
+
+
+def _company_signer_tokens() -> list[set[str]]:
+    return [
+        tokens
+        for tokens in (
+            _name_tokens(name)
+            for name in (settings.SIGNING_COMPANY_SIGNER_NAMES or "").split(",")
+        )
+        if tokens
+    ]
+
+
+def _expected_signers_check(
+    sig: DocumentSignature, report: ValidationReport
+) -> list[str]:
+    """Sprawdź strony podpisu; zwraca tożsamości spoza kandydata (SIG-02).
+
+    Kandydat musi podpisać. Każdy inny podpis musi mieć czytelną tożsamość,
+    a jeśli skonfigurowano sygnatariuszy firmy — należeć do jednego z nich.
+    """
+    if any(not signer_identity(r.get("signer")) for r in report.signature_results):
+        raise _source_mismatch("Nie da się odczytać, kto złożył jeden z podpisów.")
+    candidate_tokens = _name_tokens(
+        f"{sig.signer_first_name or ''} {sig.signer_last_name or ''}"
+    )
+    identities = report.positive_signer_identities
+    candidate_ids = [
+        ident
+        for ident in identities
+        if candidate_tokens and candidate_tokens <= set(ident.split())
+    ]
+    if not candidate_ids:
+        raise _source_mismatch(
+            f"Wśród podpisów nie ma podpisu {sig.signer_first_name} "
+            f"{sig.signer_last_name}."
+        )
+    others = [ident for ident in identities if ident not in candidate_ids]
+    company = _company_signer_tokens()
+    if company:
+        for ident in others:
+            ident_tokens = set(ident.split())
+            if not any(tokens <= ident_tokens for tokens in company):
+                raise _source_mismatch("Umowę podpisała osoba spoza stron umowy.")
+    return others
+
+
 def mint_signature_link(
     db: AsyncSession, sig: DocumentSignature, *, party: str = "consultant"
 ) -> tuple[SignatureLink, str]:
@@ -300,18 +435,18 @@ async def finalize_signed_pdf(
 ) -> dict[str, Any]:
     """Validate a signed PAdES, attach it, complete the signature, advance pipeline.
 
-    Shared by the public ``/submit`` (consultant web upload) and the recruiter
-    ``/upload-signed`` (offline e-mail) endpoints — identical validation +
-    storage + completion. Advances the candidate to "Umowa podpisana", or to
-    "Zatrudniony" when the PDF is signed by BOTH parties (consultant + our
-    company side, i.e. ``>= 2`` approval signatures). Does NOT commit (caller
-    owns the transaction). Returns the validation verdict dict for the response.
+    Wołane przez publiczne ``/sign/{token}/submit``. Kolejność bramek:
+    status sprawy → podpis obecny → QES (autorytatywny DSS) → KAŻDY podpis
+    z jawnie pozytywnym wynikiem (SIG-01) → plik zaczyna się bajtami PDF-u
+    wydanego do podpisu i podpisali właściwi ludzie (SIG-02). Każda odmowa
+    zostawia sprawę bez zmian (wołający nie commituje po 4xx), więc da się
+    ponowić. Nie przesuwa kandydata w pipeline (od 17.09.2026). Does NOT commit.
     """
     # Fail-closed on status (M5-P0.2). A withdrawn/expired/rejected — or already
     # completed — signature must never be finalized, even if a still-live token
     # survived (belt-and-braces with link revocation on withdraw). Only an
     # in-flight signature (sent / in_progress) may be completed. Guards BOTH
-    # callers: public /sign/{token}/submit and recruiter /upload-signed.
+    # callers (dawniej także usunięte /upload-signed).
     if sig.status not in (SignatureStatus.sent, SignatureStatus.in_progress):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -359,13 +494,32 @@ async def finalize_signed_pdf(
                 ),
             )
 
-    # Both parties signed (consultant + our company side) ⇒ the contract is
-    # fully executed. Detected via the approval-signature count (>= 2);
-    # conservative on an unknown count. See ``ValidationReport.both_parties_signed``.
-    # `target_stage` to już tylko etykieta w audycie — od 17.09.2026 podpis
-    # NIE przesuwa kandydata w pipeline.
-    both_signed = report.both_parties_signed
-    target_stage = STAGE_HIRED if both_signed else STAGE_SIGNED
+    # SIG-01: zamknąć sprawę wolno WYŁĄCZNIE przy jawnie pozytywnym wyniku
+    # KAŻDEGO podpisu. TOTAL_FAILED, INDETERMINATE i brak walidatora (wynik
+    # bez ocen podpisów) zostawiają sprawę do ponowienia.
+    if not report.all_signatures_passed:
+        verdicts = ", ".join(
+            str(r.get("indication") or "brak wyniku") for r in report.signature_results
+        ) or (report.indication or "brak wyniku")
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Nie wszystkie podpisy mają pozytywny wynik weryfikacji "
+                f"(wyniki: {verdicts}). Dokument nie został sfinalizowany — "
+                "spróbuj ponownie albo przekaż plik do ręcznej weryfikacji."
+            ),
+        )
+
+    # SIG-02: plik musi być TĄ umową (przyrostowy PAdES zaczyna się bajtami
+    # wysłanego PDF-u) i podpisaną przez właściwe strony.
+    _assert_matches_source(sig, pdf_bytes)
+    other_signers = _expected_signers_check(sig, report)
+
+    # Obie strony (SIG-03): co najmniej dwie RÓŻNE tożsamości z pozytywnym
+    # wynikiem, w tym kandydat i ktoś inny. `suggested_stage` to wyłącznie
+    # podpowiedź — od 17.09.2026 podpis NIE przesuwa kandydata w pipeline.
+    both_signed = report.both_parties_signed and bool(other_signers)
+    suggested_stage = STAGE_HIRED if both_signed else STAGE_SIGNED
 
     rel_path, size = storage_service.save_contract_document(
         sig.contract_id, f"signed_umowa_{sig.contract_id}.pdf", BytesIO(pdf_bytes)
@@ -383,7 +537,9 @@ async def finalize_signed_pdf(
 
     now = datetime.now(timezone.utc)
     sig.signed_document_id = signed_doc.id
-    sig.validation_report = report.as_db_report()
+    db_report = report.as_db_report()
+    db_report[SOURCE_PDFS_KEY] = _recorded_sources(sig)
+    sig.validation_report = db_report
     sig.signature_level = report.signature_level
     sig.status = SignatureStatus.completed
     sig.completed_at = now
@@ -401,7 +557,8 @@ async def finalize_signed_pdf(
                 "signed_by": report.signed_by,
                 "signature_count": report.signature_count,
                 "both_parties_signed": both_signed,
-                "pipeline_stage": target_stage,
+                "suggested_pipeline_stage": suggested_stage,
+                "pipeline_moved": False,
             },
         )
     )
@@ -411,10 +568,13 @@ async def finalize_signed_pdf(
             "Umowa podpisana przez obie strony" if both_signed else "Umowa podpisana"
         )
         if both_signed:
+            # SIG-05: podpis nie zmienia etapu — mówimy, co zrobić, zamiast
+            # twierdzić, że kandydat już jest na „Zatrudniony".
             message = (
                 f"Umowa kontraktu #{sig.contract_id} dla "
-                f"{sig.signer_first_name} {sig.signer_last_name} została podpisana "
-                "przez obie strony — kandydat przeszedł na etap „Zatrudniony”."
+                f"{sig.signer_first_name} {sig.signer_last_name}: umowa "
+                "podpisana przez obie strony — przenieś kandydata na etap "
+                "Zatrudniony ręcznie."
             )
         else:
             message = (
@@ -444,5 +604,6 @@ async def finalize_signed_pdf(
         "signature_count": report.signature_count,
         "signers": report.signers,
         "both_parties_signed": both_signed,
-        "pipeline_stage": target_stage,
+        "suggested_pipeline_stage": suggested_stage,
+        "pipeline_moved": False,
     }

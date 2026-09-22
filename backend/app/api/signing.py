@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -32,13 +32,10 @@ from app.schemas.document_signature import (
     SignForSignatureResponse,
 )
 from app.services.signing.sender import (
-    finalize_signed_pdf,
     mint_signature_link,
     prepare_and_send,
     prepare_send,
 )
-
-_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -143,45 +140,11 @@ async def mark_sent_offline(
     return sig
 
 
-@router.post(
-    "/contracts/{contract_id}/upload-signed",
-    status_code=status.HTTP_201_CREATED,
-    dependencies=_DELIVERY_SECTION_DEPENDENCIES,
-)
-async def upload_signed_offline(
-    contract_id: int,
-    current_user: TacPlus,
-    file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Offline (e-mail) flow: recruiter uploads a signed PDF received by e-mail.
-
-    Validates it (pyHanko, same as the consultant flow), attaches it, completes
-    the signature and advances the candidate to 'Umowa podpisana'.
-    """
-    _require_enabled()
-    await assert_contract_legal_contract_access(
-        db, current_user, contract_id, write=True
-    )
-    pdf_bytes = await file.read()
-    if not pdf_bytes:
-        raise HTTPException(status_code=422, detail="Pusty plik")
-    if len(pdf_bytes) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Plik za duży (max 20 MB)")
-    if not pdf_bytes.startswith(b"%PDF"):
-        raise HTTPException(status_code=422, detail="To nie jest plik PDF")
-
-    sig = await prepare_send(
-        db,
-        contract_id=contract_id,
-        payload=SignForSignatureRequest(
-            provider="upload_validate", signature_type="QES"
-        ),
-        sender_user=current_user,
-    )
-    verdict = await finalize_signed_pdf(db, sig, pdf_bytes, moved_by=current_user.id)
-    await db.commit()
-    return verdict
+# SIG-04: `POST /contracts/{id}/upload-signed` usunięty 22.09.2026. Zakładał
+# nową sprawę w statusie `draft` i od razu ją finalizował, więc zawsze kończył
+# się 409 (finalizacja przyjmuje tylko `sent`/`in_progress`), a przycisk
+# zniknął z UI 17.09.2026 — umowy podpisujemy offline, a podpis potwierdza
+# „Oznacz jako podpisaną" w Generatorze B2B.
 
 
 @router.get(

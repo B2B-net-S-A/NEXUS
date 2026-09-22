@@ -65,6 +65,7 @@ class ValidationService:
                 indication=local.get("indication"),
                 signature_count=local.get("signature_count"),
                 signers=local.get("signers") or [],
+                signature_results=local.get("signature_results") or [],
                 raw=local,
             )
         except Exception as exc:
@@ -112,6 +113,7 @@ class ValidationService:
         signed_by = None
         sig_count: int | None = None
         signer_list: list[str] = []
+        results: list[dict[str, Any]] = []
         try:
             simple = data.get("simpleReport") or data
             sigs = simple.get("signatureOrTimestamp") or simple.get("signature") or []
@@ -135,6 +137,15 @@ class ValidationService:
                     for s in approval_sigs
                     if (s.get("signedBy") or s.get("SignedBy"))
                 ]
+                # SIG-01: wynik KAŻDEGO podpisu, nie tylko pierwszego — drugi
+                # podpis z TOTAL_FAILED nie może się schować za pierwszym.
+                results = [
+                    {
+                        "signer": s.get("signedBy") or s.get("SignedBy"),
+                        "indication": s.get("indication") or s.get("Indication"),
+                    }
+                    for s in approval_sigs
+                ]
             # If no approval signatures were identified (e.g. an unrecognised
             # report shape, or only timestamps), leave sig_count=None →
             # conservative "not both parties signed". Do NOT count len(sigs):
@@ -142,6 +153,7 @@ class ValidationService:
         except Exception:  # pragma: no cover — defensive mapping
             sig_count = None
             signer_list = []
+            results = []
         level_str = (sig_level or "").upper() if isinstance(sig_level, str) else ""
         is_qes = "QES" in level_str or "QESIG" in level_str
         return ValidationReport(
@@ -151,5 +163,6 @@ class ValidationService:
             indication=str(indication) if indication else None,
             signature_count=sig_count,
             signers=signer_list,
+            signature_results=results,
             raw=data,
         )

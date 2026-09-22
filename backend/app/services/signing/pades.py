@@ -32,6 +32,14 @@ logger = logging.getLogger(__name__)
 
 
 def count_approval_signatures(reader: Any) -> tuple[Optional[int], list[str]]:
+    """Liczba podpisów zatwierdzających + nazwy podpisujących (bez znaczników czasu)."""
+    approvals = approval_signatures(reader)
+    if approvals is None:
+        return None, []
+    return len(approvals), [name for _emb, name in approvals]
+
+
+def approval_signatures(reader: Any) -> Optional[list[tuple[Any, str]]]:
     """Count APPROVAL signatures + collect signer subjects from a signed PDF.
 
     Network-free, no async validation. Counts only approval signatures
@@ -46,9 +54,9 @@ def count_approval_signatures(reader: Any) -> tuple[Optional[int], list[str]]:
     ``EmbeddedPdfSignature.signer_cert.subject.human_friendly`` (reads the cert
     straight from the embedded CMS — no network, no validation context).
 
-    Returns ``(approval_count, signer_names)``; degrades to ``(None, [])`` on
-    ANY error — never raises. ``None`` count ⇒ callers treat as "not both
-    parties signed" (conservative).
+    Returns ``[(embedded_signature, signer_name), …]``; degrades to ``None``
+    on ANY error — never raises. ``None`` ⇒ callers treat as "not both parties
+    signed" (conservative).
     """
     try:
         try:
@@ -57,10 +65,9 @@ def count_approval_signatures(reader: Any) -> tuple[Optional[int], list[str]]:
             logger.warning(
                 "pyhanko: could not enumerate embedded_signatures", exc_info=True
             )
-            return None, []
+            return None
 
-        approval_count = 0
-        signer_names: list[str] = []
+        approvals: list[tuple[Any, str]] = []
         for emb in embedded:
             # Discriminate approval signature (/Sig) vs document timestamp.
             obj_type: Optional[str] = None
@@ -89,8 +96,6 @@ def count_approval_signatures(reader: Any) -> tuple[Optional[int], list[str]]:
             if obj_type != "/Sig":
                 continue  # unknown subtype — conservative: do not count
 
-            approval_count += 1
-
             # Signer subject — straight from the embedded CMS, no network.
             name: Optional[str] = None
             try:
@@ -103,12 +108,12 @@ def count_approval_signatures(reader: Any) -> tuple[Optional[int], list[str]]:
                     "pyhanko: could not extract signer_cert subject", exc_info=True
                 )
                 name = None
-            signer_names.append(name or "<nieznany sygnatariusz>")
+            approvals.append((emb, name or "<nieznany sygnatariusz>"))
 
-        return approval_count, signer_names
+        return approvals
     except Exception:  # noqa: BLE001 — last-resort guard, never break validation
         logger.warning("pyhanko: count_approval_signatures failed", exc_info=True)
-        return None, []
+        return None
 
 
 async def validate_pades_local(signed_pdf: bytes) -> dict[str, Any]:
@@ -142,12 +147,13 @@ async def validate_pades_local(signed_pdf: bytes) -> dict[str, Any]:
 
     # pyHanko parse + signature enumeration is sync CPU work — offload it so
     # the signing request path does not block the event loop.
-    def _parse_signatures() -> tuple[int, list[str], list]:
+    def _parse_signatures() -> tuple[Optional[list[tuple[Any, str]]], list]:
         reader = PdfFileReader(BytesIO(signed_pdf))
-        count, names = count_approval_signatures(reader)
-        return count, names, list(reader.embedded_signatures)
+        return approval_signatures(reader), list(reader.embedded_signatures)
 
-    approval_count, signer_names, embedded = await run_in_threadpool(_parse_signatures)
+    approvals, embedded = await run_in_threadpool(_parse_signatures)
+    approval_count = None if approvals is None else len(approvals)
+    signer_names = [name for _emb, name in approvals or []]
     if not embedded:
         return {
             "is_qes": False,
@@ -159,36 +165,67 @@ async def validate_pades_local(signed_pdf: bytes) -> dict[str, Any]:
             "indication": "NO_SIGNATURE",
             "signature_count": 0,
             "signers": [],
+            "signature_results": [],
         }
 
     # No EU Trusted List roots here → integrity/structure only, soft-fail on
     # revocation, no network. Authoritative trust comes from DSS.
     vc = ValidationContext(allow_fetching=False, revocation_mode="soft-fail")
-    status = await async_validate_pdf_signature(
-        embedded[0], signer_validation_context=vc
-    )
+
+    # SIG-01: KAŻDY podpis zatwierdzający jest walidowany osobno. Dawniej
+    # sprawdzany był tylko pierwszy, więc uszkodzony drugi podpis przechodził.
+    signature_results: list[dict[str, Any]] = []
+    first_status = None
+    for emb, name in approvals or []:
+        try:
+            status = await async_validate_pdf_signature(
+                emb, signer_validation_context=vc
+            )
+        except Exception:  # noqa: BLE001 — uszkodzony podpis = wynik negatywny
+            logger.warning("pyhanko: signature validation failed", exc_info=True)
+            status = None
+        if first_status is None:
+            first_status = status
+        passed = bool(
+            status is not None
+            and getattr(status, "intact", False)
+            and getattr(status, "valid", False)
+        )
+        signature_results.append(
+            {
+                "signer": name,
+                "indication": "PRE_CHECK_PASSED" if passed else "PRE_CHECK_FAILED",
+            }
+        )
+    if first_status is None and not approvals:
+        # Są tylko znaczniki czasu — oceniamy pierwszy, ale bez wyników podpisów.
+        try:
+            first_status = await async_validate_pdf_signature(
+                embedded[0], signer_validation_context=vc
+            )
+        except Exception:  # noqa: BLE001
+            first_status = None
 
     signed_by = None
-    for attr in ("signing_cert",):
-        cert = getattr(status, attr, None)
-        if cert is not None:
-            subj = getattr(cert, "subject", None)
-            signed_by = getattr(subj, "human_friendly", None) or (
-                str(subj) if subj else None
-            )
-            break
+    cert = getattr(first_status, "signing_cert", None)
+    if cert is not None:
+        subj = getattr(cert, "subject", None)
+        signed_by = getattr(subj, "human_friendly", None) or (
+            str(subj) if subj else None
+        )
 
     return {
         # Conservative: local path never asserts QES — that's DSS's verdict.
         "is_qes": False,
-        "valid": bool(getattr(status, "bottom_line", False)),
-        "intact": bool(getattr(status, "intact", False)),
-        "trusted": bool(getattr(status, "trusted", False)),
+        "valid": bool(getattr(first_status, "bottom_line", False)),
+        "intact": bool(getattr(first_status, "intact", False)),
+        "trusted": bool(getattr(first_status, "trusted", False)),
         "signed_by": signed_by,
         "signature_level": None,
         "indication": "PRE_CHECK_ONLY",
         "signature_count": approval_count,
         "signers": signer_names,
+        "signature_results": signature_results,
     }
 
 

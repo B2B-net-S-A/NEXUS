@@ -1216,6 +1216,11 @@ class Settings(BaseSettings):
     SIGNING_PROVIDER: str = "szafir_sdk"
     # Token TTL for the public /sign/{token} signing links (days).
     SIGNING_LINK_EXPIRY_DAYS: int = 14
+    # Imiona i nazwiska osób podpisujących umowy B2B po stronie firmy (CSV).
+    # Finalizacja sprawdza, że każdy podpis spoza kandydata należy do jednej
+    # z nich (SIG-02). Puste = drugi podpis nie jest weryfikowany imiennie,
+    # ale nadal musi to być INNA tożsamość niż kandydat.
+    SIGNING_COMPANY_SIGNER_NAMES: str = ""
     # Signing sweeper cadence (timeout sweep, attach retry, expiry). Clamped
     # to >=300s in the loop.
     SIGNING_SWEEPER_INTERVAL_SECONDS: int = 3600
