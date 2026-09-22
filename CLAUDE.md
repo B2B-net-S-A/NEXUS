@@ -3918,6 +3918,21 @@ bezterminowe) została w „Aktywnych". Jedna reguła w trzech miejscach:
   wskrzeszenie wciągnęłoby do MRR osoby, które faktycznie odeszły
   (dwie z trzech u VeloBanku nie są na nowym zamówieniu).
 
+## Zakładka „Kończące się 30d" — tylko zamówienia bez kontynuacji (22.09.2026)
+
+Jedna reguła, `endingOrderWithoutSuccessor` / `endingGroupWithoutSuccessor`
+w `lib/client-order-list.ts`, zasila pigułkę, jej licznik, filtr „kończy się
+w ciągu N dni" i plakietkę karty. Zamówienie kończące się w oknie odpada, gdy
+inne zamówienie tego kontraktu (grupy MD: tej samej rodziny przedłużeń po
+`predecessor_group_id`, spłaszczonej z `future_orders`) trwa po jego końcu —
+lustro `covers_after` z `order_facts.py` (szkic się liczy, anulowane nie,
+zamknięte bez daty nie). Każde zamówienie w łańcuchu ocenia się osobno, więc
+krótkie przedłużenie kończące się w oknie zostawia kartę z plakietką
+„przyszłe zamówienie … kończy się za N dni". **`days_to_latest_end` z API nie
+jest już czytany przez tę zakładkę** — liczył po zamówieniu z najpóźniejszym
+startem i wskazywał plakietką złe zamówienie. Rodzinę grup buduj z PEŁNEJ listy
+(`buildOrderGroupFamilies`), nie z podzbioru po filtrze pigułki.
+
 ## Umowa B2B jest bezterminowa, dopóki ktoś jej ręcznie nie zakończy (11.09.2026)
 
 Data zakończenia umów B2B była przepisywana z końca ZAMÓWIENIA (pole

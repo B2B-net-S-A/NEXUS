@@ -8,12 +8,15 @@ import type {
 import type { OrderGroupRead, OrderLineRead } from "@/lib/api/orderGroups";
 import {
   DEFAULT_ORDER_LIST_FILTERS,
+  buildOrderGroupFamilies,
   consultantMatchesQuery,
   contractClosed,
   contractorMatchesPill,
   contractorOrderType,
   effectiveClientOrderType,
   effectiveGroupOrderType,
+  endingGroupWithoutSuccessor,
+  endingOrderWithoutSuccessor,
   filterMaterializedContractorShells,
   filterAndSortContractors,
   filterAndSortOrderGroups,
@@ -821,5 +824,168 @@ describe("sortOrderLinesByEnd", () => {
     ];
     sortOrderLinesByEnd(lines);
     expect(lines.map((item) => item.id)).toEqual([1, 2]);
+  });
+});
+
+// ── Reguła zakładki „Kończące się" (ticket 09.2026) ─────────────────────────
+// Zamówienie kończące się w ciągu 30 dni, które ma dodane przyszłe zamówienie
+// po sobie, nie wymaga działania — znika z zakładki. Każde zamówienie w
+// łańcuchu ocenia się niezależnie.
+describe("reguła zakładki Kończące się", () => {
+  const TODAY = "2026-09-22";
+  // Kontrakt #145 z produkcji: 282129 (30.03–30.09) + przyszłe 286699 (01.10–14.10).
+  const current = (over: Partial<ClientOrderRead> = {}) =>
+    clientOrder(308, "periodic", {
+      contract_id: 145,
+      title: "282129",
+      status: "active",
+      start_date: "2026-03-30",
+      end_date: "2026-09-30",
+      ...over,
+    });
+  const next = (over: Partial<ClientOrderRead> = {}) =>
+    clientOrder(654, "periodic", {
+      contract_id: 145,
+      title: "286699",
+      status: "active",
+      start_date: "2026-10-01",
+      end_date: "2026-11-30",
+      ...over,
+    });
+
+  it("zamówienie z dodanym przyszłym zamówieniem nie trafia do zakładki", () => {
+    const person = contractor(145, "Marek Urbański", {
+      orders: [next(), current()],
+      days_to_latest_end: 69,
+    });
+    expect(endingOrderWithoutSuccessor(person.orders, 30, TODAY)).toBeNull();
+    expect(contractorMatchesPill(person, "ending_30d", TODAY)).toBe(false);
+  });
+
+  it("szkic przyszłego zamówienia też jest zaplanowaną kontynuacją", () => {
+    const person = contractor(145, "Marek Urbański", {
+      orders: [next({ status: "draft" }), current()],
+    });
+    expect(contractorMatchesPill(person, "ending_30d", TODAY)).toBe(false);
+  });
+
+  it("zamówienie bez kontynuacji nadal jest w zakładce", () => {
+    const person = contractor(145, "Marek Urbański", { orders: [current()] });
+    expect(endingOrderWithoutSuccessor(person.orders, 30, TODAY)?.title).toBe(
+      "282129",
+    );
+    expect(contractorMatchesPill(person, "ending_30d", TODAY)).toBe(true);
+  });
+
+  it("przyszłe zamówienie, które samo zbliża się do końca, trafia do zakładki", () => {
+    // Stan produkcji z 22.09: 286699 kończy się 14.10, czyli za 22 dni.
+    const person = contractor(145, "Marek Urbański", {
+      orders: [next({ end_date: "2026-10-14" }), current()],
+    });
+    const ending = endingOrderWithoutSuccessor(person.orders, 30, TODAY);
+    expect(ending?.title).toBe("286699");
+    expect(contractorMatchesPill(person, "ending_30d", TODAY)).toBe(true);
+  });
+
+  it("kontynuacji nie dają anulowane ani zamknięte wcześniej zamówienia", () => {
+    const cancelled = contractor(145, "X", {
+      orders: [next({ status: "cancelled" }), current()],
+    });
+    expect(contractorMatchesPill(cancelled, "ending_30d", TODAY)).toBe(true);
+    const closedEarlier = contractor(145, "X", {
+      orders: [
+        current(),
+        clientOrder(700, "periodic", {
+          status: "completed",
+          start_date: "2026-01-01",
+          end_date: "2026-03-29",
+        }),
+      ],
+    });
+    expect(contractorMatchesPill(closedEarlier, "ending_30d", TODAY)).toBe(true);
+  });
+
+  it("bezterminowa kontynuacja zamyka sprawę, zamknięty wiersz bez daty nie", () => {
+    const open = contractor(145, "X", {
+      orders: [next({ end_date: null }), current()],
+    });
+    expect(contractorMatchesPill(open, "ending_30d", TODAY)).toBe(false);
+    const closedNoDate = contractor(145, "X", {
+      orders: [next({ end_date: null, status: "completed" }), current()],
+    });
+    expect(contractorMatchesPill(closedNoDate, "ending_30d", TODAY)).toBe(true);
+  });
+
+  it("filtr „kończy się w ciągu N dni” liczy tę samą regułę", () => {
+    const withNext = contractor(145, "Z kontynuacją", {
+      orders: [next(), current()],
+    });
+    const alone = contractor(146, "Bez kontynuacji", {
+      orders: [current({ id: 309, contract_id: 146 })],
+    });
+    const result = filterAndSortContractors(
+      [withNext, alone],
+      "",
+      { ...DEFAULT_ORDER_LIST_FILTERS, endingSoon: true, endingDays: 30 },
+      TODAY,
+    );
+    expect(result.map((item) => item.contract_id)).toEqual([146]);
+  });
+
+  it("zamówienie MD z przedłużeniem nie trafia do zakładki, przedłużenie tak", () => {
+    const extension = group(31, "MD-2", {
+      status: "scheduled",
+      predecessor_group_id: 30,
+      start_date: "2026-10-01",
+      end_date: "2026-10-14",
+    });
+    const base = group(30, "MD-1", {
+      start_date: "2026-03-30",
+      end_date: "2026-09-30",
+      future_orders: [extension],
+    });
+    const families = buildOrderGroupFamilies([base]);
+    // Poprzednik ma kontynuację, ale przedłużenie samo kończy się za 22 dni.
+    expect(
+      endingGroupWithoutSuccessor(base, 30, TODAY, families)?.order_number,
+    ).toBe("MD-2");
+    expect(orderGroupMatchesPill(base, "ending_30d", TODAY, families)).toBe(true);
+
+    const longExtension = { ...extension, end_date: "2026-12-31" };
+    const covered = { ...base, future_orders: [longExtension] };
+    expect(
+      orderGroupMatchesPill(
+        covered,
+        "ending_30d",
+        TODAY,
+        buildOrderGroupFamilies([covered]),
+      ),
+    ).toBe(false);
+  });
+
+  it("szkic przedłużenia MD na liście głównej też jest kontynuacją", () => {
+    const base = group(40, "MD-1", {
+      start_date: "2026-03-30",
+      end_date: "2026-09-30",
+    });
+    const draft = group(41, "MD-2", {
+      status: "draft",
+      predecessor_group_id: 40,
+      start_date: "2026-10-01",
+      end_date: "2026-12-31",
+    });
+    const families = buildOrderGroupFamilies([base, draft]);
+    expect(orderGroupMatchesPill(base, "ending_30d", TODAY, families)).toBe(false);
+    // Bez rodziny (np. przefiltrowany podzbiór) kontynuacji nie widać.
+    expect(orderGroupMatchesPill(base, "ending_30d", TODAY)).toBe(true);
+    expect(
+      filterAndSortOrderGroups(
+        [base],
+        "",
+        { ...DEFAULT_ORDER_LIST_FILTERS, endingSoon: true },
+        TODAY,
+        families,
+      ),
+    ).toEqual([]);
   });
 });

@@ -42,7 +42,15 @@ Nad listą masz:
   w „Aktywnych" z dopiskiem **„Brak aktywnego zamówienia"** — to sygnał dla
   Ciebie: dodaj przedłużenie albo poproś administrację o zakończenie umowy
   w Kontraktach. Data końca wpisana tam w umowie od razu staje się datą końca
-  jej otwartego zamówienia (zamówienie zaczynające się później jest anulowane),
+  jej otwartego zamówienia (zamówienie zaczynające się później jest anulowane).
+  **W „Kończących się 30d" są tylko zamówienia, które nie mają jeszcze
+  kontynuacji.** Gdy do zamówienia kończącego się w ciągu 30 dni dodasz już
+  przyszłe zamówienie (także szkic „do uzupełnienia"), to zamówienie znika
+  z tej zakładki i z jej licznika — nie wymaga działania. Samo przyszłe
+  zamówienie ocenia się tak samo: jeśli ono z kolei kończy się w ciągu 30 dni
+  i nic nie ma po nim, karta zostaje w zakładce, a plakietka mówi „przyszłe
+  zamówienie … kończy się za N dni". Przy zamówieniach MD/kosztowych
+  kontynuacją jest przedłużenie tego zamówienia,
 * wyszukiwarkę po numerze zamówienia albo imieniu i nazwisku konsultanta,
 * **Filtry i sortowanie** (zakresy dat, „Bliskie wyczerpania budżetu (≥80%)",
   „Kończące się w ciągu N dni"),
