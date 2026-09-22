@@ -4866,6 +4866,8 @@ export interface EmailMessage {
     | "unmatched";
   match_confidence: number | null;
   candidate_id?: number | null;
+  /** Stan wysyłki z NEXUSA: pending / sent / uncertain; null = z synchronizacji. */
+  send_state?: "pending" | "sent" | "uncertain" | null;
   attachments?: EmailAttachmentPreview[];
 }
 
@@ -4978,7 +4980,14 @@ export const microsoft365Api = {
     api.get<EmailMessage>(`/api/emails/${emailId}`),
   compose: (
     candidateId: number,
-    payload: { to: string[]; cc?: string[]; subject: string; body_html: string },
+    payload: {
+      to: string[];
+      cc?: string[];
+      subject: string;
+      body_html: string;
+      /** UUID nadany przy otwarciu formularza; ten sam przy ponowieniach. */
+      client_request_id?: string;
+    },
   ) =>
     api.post<EmailMessage>(
       `/api/candidates/${candidateId}/emails/compose`,
@@ -4986,7 +4995,12 @@ export const microsoft365Api = {
     ),
   reply: (
     candidateId: number,
-    payload: { email_id: number; body_html: string },
+    payload: {
+      email_id: number;
+      body_html: string;
+      /** UUID nadany przy otwarciu formularza; ten sam przy ponowieniach. */
+      client_request_id?: string;
+    },
   ) =>
     api.post<EmailMessage>(
       `/api/candidates/${candidateId}/emails/reply`,

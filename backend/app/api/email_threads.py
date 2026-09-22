@@ -79,6 +79,9 @@ class EmailOut(BaseModel):
     match_method: str
     match_confidence: Optional[float]
     candidate_id: Optional[int] = None
+    # INT-04: stan wysyłki z NEXUSA (pending/sent/uncertain; None = wiersz
+    # z synchronizacji albo sprzed zmiany).
+    send_state: Optional[str] = None
     attachments: list[AttachmentOut] = []
 
     model_config = ConfigDict(from_attributes=True)
@@ -130,16 +133,28 @@ class EmailSearchResponse(BaseModel):
     offset: int
 
 
+# INT-04/05: identyfikator operacji nadany przez formularz przy otwarciu okna
+# (crypto.randomUUID) i powtarzany przy ponowieniach. Opcjonalny — bez niego
+# serwer bierze odcisk treści.
+_CLIENT_REQUEST_ID_PATTERN = r"^[A-Za-z0-9-]{8,64}$"
+
+
 class ComposeRequest(BaseModel):
     to: list[EmailStr]
     cc: list[EmailStr] = []
     subject: str = Field(min_length=1, max_length=998)
     body_html: str = Field(min_length=1)
+    client_request_id: Optional[str] = Field(
+        default=None, pattern=_CLIENT_REQUEST_ID_PATTERN
+    )
 
 
 class ReplyRequest(BaseModel):
     email_id: int
     body_html: str = Field(min_length=1)
+    client_request_id: Optional[str] = Field(
+        default=None, pattern=_CLIENT_REQUEST_ID_PATTERN
+    )
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -155,6 +170,15 @@ async def _require_active_connection(db: AsyncSession, user_id: int) -> M365Conn
             detail="No active Microsoft 365 connection",
         )
     return conn
+
+
+def _send_conflict_http(exc: m365_sender.EmailSendConflict) -> HTTPException:
+    """Wysyłka w toku albo o nieznanym wyniku — nigdy druga wysyłka.
+
+    Zawsze 409 (także gdy to żądanie straciło odpowiedź Graph): 502 zostałby
+    ponowiony przez interceptor frontu, a wynik i tak byłby ten sam.
+    """
+    return HTTPException(status.HTTP_409_CONFLICT, detail=str(exc))
 
 
 def _can_access_email(email: Email, user, privileged_role: bool) -> bool:
@@ -186,6 +210,7 @@ def _to_email_out(email: Email) -> EmailOut:
         match_method=email.match_method.value if email.match_method else "unmatched",
         match_confidence=email.match_confidence,
         candidate_id=email.candidate_id,
+        send_state=email.send_state,
         attachments=[],  # filled by callers that eager-load
     )
 
@@ -353,15 +378,24 @@ async def compose_email(
     # P0.9: sending real M365 mail requires an internal operational role
     # (CandidatePIIAccess excludes the read-only viewer).
     conn = await _require_active_connection(db, current_user.id)
-    row = await m365_sender.send_new(
-        db,
-        conn,
-        to=[str(x) for x in payload.to],
-        cc=[str(x) for x in payload.cc],
-        subject=payload.subject,
-        body_html=payload.body_html,
-        candidate_id=candidate_id,
-    )
+    # INT-07: kandydat MUSI istnieć, zanim cokolwiek pójdzie do Graph —
+    # inaczej mail wychodził, a zapis śladu padał na kluczu obcym.
+    if await db.get(Candidate, candidate_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie znaleziono kandydata")
+    try:
+        row = await m365_sender.send_new(
+            db,
+            conn,
+            to=[str(x) for x in payload.to],
+            cc=[str(x) for x in payload.cc],
+            subject=payload.subject,
+            body_html=payload.body_html,
+            candidate_id=candidate_id,
+            client_request_id=payload.client_request_id,
+            commit_reservation=True,
+        )
+    except m365_sender.EmailSendConflict as exc:
+        raise _send_conflict_http(exc) from exc
     await db.commit()
     return _to_email_out(row)
 
@@ -480,9 +514,24 @@ async def reply_email(
             status.HTTP_400_BAD_REQUEST,
             "original email belongs to a different candidate",
         )
-    row = await m365_sender.reply(
-        db, conn, email_row=original, body_html=payload.body_html
-    )
+    if (original.m365_message_id or "").startswith(m365_sender.PENDING_ID_PREFIX):
+        # Wiersz zarezerwowany, którego szkic jeszcze nie powstał — Graph nie
+        # zna tego identyfikatora, odpowiedź skończyłaby się 404.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Ta wiadomość jest jeszcze wysyłana — spróbuj za chwilę.",
+        )
+    try:
+        row = await m365_sender.reply(
+            db,
+            conn,
+            email_row=original,
+            body_html=payload.body_html,
+            client_request_id=payload.client_request_id,
+            commit_reservation=True,
+        )
+    except m365_sender.EmailSendConflict as exc:
+        raise _send_conflict_http(exc) from exc
     if row.candidate_id is None:
         row.candidate_id = candidate_id
         row.match_method = EmailMatchMethod.manual

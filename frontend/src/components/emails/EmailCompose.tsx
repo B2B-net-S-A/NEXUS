@@ -13,6 +13,7 @@ import {
   type UserEmailTemplate,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { newClientRequestId } from "@/lib/client-request-id";
 import { Alert } from "@/components/ui/alert";
 import {
   Dialog,
@@ -62,6 +63,10 @@ export default function EmailCompose(props: EmailComposeProps) {
       : `Kontakt — ${candidateName}`,
   );
   const [error, setError] = useState<string | null>(null);
+  // Jeden identyfikator operacji na otwarcie okna (INT-04/05): ponowienie
+  // wysyłki z tego samego okna nie wyśle drugiego maila, a nowe okno to
+  // nowa wiadomość.
+  const [clientRequestId] = useState(newClientRequestId);
   const [templateNotice, setTemplateNotice] = useState<TemplateNotice | null>(
     null,
   );
@@ -137,6 +142,7 @@ export default function EmailCompose(props: EmailComposeProps) {
           .reply(candidateId, {
             email_id: props.replyTo.id,
             body_html: html,
+            client_request_id: clientRequestId,
           })
           .then((r) => r.data);
       }
@@ -148,6 +154,7 @@ export default function EmailCompose(props: EmailComposeProps) {
             .filter(Boolean),
           subject,
           body_html: html,
+          client_request_id: clientRequestId,
         })
         .then((r) => r.data);
     },

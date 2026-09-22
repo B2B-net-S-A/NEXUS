@@ -86,13 +86,12 @@ async def download_for_email(
     # `contentBytes` for fileAttachment — exactly what we need below. The extra
     # payload is small (attachments are typically <10 per email and metadata is
     # tiny next to the bytes themselves).
-    try:
-        page = await gc.get(f"/me/messages/{email_row.m365_message_id}/attachments")
-    except Exception:  # noqa: BLE001
-        logger.exception(
-            "Failed to list attachments for email %s", email_row.m365_message_id
-        )
-        return []
+    #
+    # INT-08: błąd LISTOWANIA propaguje się do syncu. Do 09.2026 zwracał pustą
+    # listę, więc mail był zapisany, delta potwierdzona, a CV nie powstawało
+    # nigdy (żaden wiersz załącznika = nic do ponowienia). Teraz przebieg
+    # liczy błąd strony i kursor delty stoi — następny przebieg wraca po mail.
+    page = await gc.get(f"/me/messages/{email_row.m365_message_id}/attachments")
 
     results: list[EmailAttachment] = []
     max_bytes = settings.M365_MAX_ATTACHMENT_MB * 1024 * 1024
@@ -167,16 +166,73 @@ async def download_for_email(
             )
             row.storage_path = rel_path
             row.sha256 = (await asyncio.to_thread(hashlib.sha256, content)).hexdigest()
+            if download_attempts(row.parse_error):
+                # Udane pobranie po wcześniejszej porażce — parser CV czeka
+                # na wiersz bez błędu pobrania.
+                row.parse_error = None
         except Exception as exc:  # noqa: BLE001
             logger.exception(
                 "Failed to persist attachment %s for email %s", m365_id, email_row.id
             )
-            row.parse_error = f"download_failed: {exc!r}"[:500]
+            mark_download_failed(row, exc)
 
         results.append(row)
 
     await db.flush()
     return results
+
+
+# INT-08 — licznik prób pobrania żyje w samym ``parse_error``
+# (``download_failed[n]: …``), bez migracji. Stary zapis ``download_failed: …``
+# to pierwsza próba. Pętla ``m365_cv_parse`` ponawia do ``MAX_DOWNLOAD_ATTEMPTS``.
+DOWNLOAD_FAILED_PREFIX = "download_failed"
+MAX_DOWNLOAD_ATTEMPTS = 5
+_DOWNLOAD_ATTEMPTS_RE = re.compile(r"^download_failed(?:\[(\d+)\])?")
+
+
+def download_attempts(parse_error: Optional[str]) -> int:
+    """Liczba nieudanych prób pobrania zapisana w ``parse_error`` (0 = brak)."""
+    if not parse_error:
+        return 0
+    match = _DOWNLOAD_ATTEMPTS_RE.match(parse_error)
+    if match is None:
+        return 0
+    return int(match.group(1)) if match.group(1) else 1
+
+
+def mark_download_failed(row: EmailAttachment, exc: BaseException) -> None:
+    attempts = download_attempts(row.parse_error) + 1
+    row.parse_error = f"{DOWNLOAD_FAILED_PREFIX}[{attempts}]: {exc!r}"[:500]
+
+
+async def retry_attachment_download(
+    gc: GraphClient, email_row: Email, row: EmailAttachment
+) -> bool:
+    """Ponów pobranie jednego załącznika (INT-08). ``True`` = plik zapisany.
+
+    Sukces czyści ``parse_error`` — dopiero wtedy parser CV (który wymaga
+    ``storage_path``) bierze załącznik. Porażka podbija licznik prób.
+    """
+    try:
+        content = await gc.download(
+            f"/me/messages/{email_row.m365_message_id}/attachments/"
+            f"{row.m365_attachment_id}/$value"
+        )
+        rel_path = await asyncio.to_thread(
+            _persist_bytes, email_row, row.filename, content
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "m365 attachment retry failed: attachment=%s (%s)",
+            row.id,
+            type(exc).__name__,
+        )
+        mark_download_failed(row, exc)
+        return False
+    row.storage_path = rel_path
+    row.sha256 = (await asyncio.to_thread(hashlib.sha256, content)).hexdigest()
+    row.parse_error = None
+    return True
 
 
 def _persist_bytes(email_row: Email, filename: str, content: bytes) -> str:

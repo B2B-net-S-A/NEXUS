@@ -249,6 +249,12 @@ class Email(Base, TimestampMixin):
     # partial index in migration 0102 enforces uniqueness only on NOT NULL.
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(128))
 
+    # 0341 (INT-04/05/07) — stan wiersza zarezerwowanego przed Graphem:
+    # ``pending`` (wysyłka w toku), ``sent``, ``uncertain`` (szkic powstał,
+    # odpowiedź na wysyłkę zginęła — nie wiadomo, czy mail wyszedł).
+    # NULL = wiersz sprzed zmiany albo z synchronizacji (jak ``sent``).
+    send_state: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+
     # Phase 4.4 — postgres FTS column. Generated STORED in migration 0103 from
     # subject (weight A) + from_name/from_address (B) + body_text (C).
     # `Computed(..., persisted=True)` tells SQLAlchemy the column is DB-managed
