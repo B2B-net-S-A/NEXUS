@@ -48,9 +48,6 @@ vi.mock("@/hooks/useCapability", () => ({
   }),
 }));
 
-vi.mock("@/components/v2/modals/CreateJobModal", () => ({
-  CreateJobModal: () => null,
-}));
 
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({

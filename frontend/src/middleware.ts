@@ -389,6 +389,7 @@ const PUBLIC_PATHS = [
   "/preview/inactive-clients-cleanup",
   "/preview/order-new-from-pdf",
   "/preview/jobs-list-v3",
+  "/preview/new-job",
   "/preview/finance-order-changes",
   "/preview/finance-order-pdfs",
   "/preview/contract-candidate-contact",

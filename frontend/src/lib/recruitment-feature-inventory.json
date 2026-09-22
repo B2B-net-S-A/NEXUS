@@ -495,7 +495,7 @@
   {
    "id": "champ.settings",
    "area": "zlecenie",
-   "opis": "TAC / DL / szablon / kategoria / priorytet / termin",
+   "opis": "Delivery Lead i termin (TAC, szablon, kategoria, Program/Train i priorytet usunięte 22.09.2026 decyzją Artura — ustawia je backend)",
    "file": "components/v2/jobs/JobReadinessDock.tsx",
    "marker": "JobSettingsPanel",
    "v3_home": "okno Zlecenie + strona Champion"

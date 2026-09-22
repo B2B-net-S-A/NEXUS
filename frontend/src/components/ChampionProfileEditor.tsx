@@ -91,7 +91,7 @@ interface ChampionProfileEditorProps {
    *  retrieval can default to same-client scope. */
   clientId?: number | null;
   /**
-   * `CreateJobModal` ląduje tu z `?intake=1` (`lib/job-create-landing.ts`)
+   * `CreateJobModal` ląduje tu z `?intake=1` (stary przepływ; od 22.09.2026 tworzenie to `/jobs/new`)
    * gdy nowo utworzona rekrutacja ma opis do podania AI — otwiera panel
    * „Wklej opis" (AI intake) od razu, zamiast zmuszać DL-a do odnalezienia
    * go samemu w zwiniętym panelu.
@@ -145,7 +145,7 @@ export function ChampionProfileEditor({
     : null;
 
   // AI Intake (Phase 14). `intakeDefaultOpen`/`intakeSeedText` — patrz
-  // `CreateJobModalProps`/`createdJobUrl` (`?intake=1` z nowo zapisanej
+  // `?intake=1` (stare linki sprzed strony `/jobs/new`, 22.09.2026; z nowo zapisanej
   // rekrutacji, PR 2).
   const [showIntake, setShowIntake] = useState(intakeDefaultOpen);
   // Grupa „proza" (2 · 4 · 5) zwija się DOPIERO gdy wszystkie trzy sekcje są

@@ -39,7 +39,6 @@ import type {
   RequestHistoryResponse,
 } from "@/lib/api";
 import { useToast } from "@/components/Toast";
-import { CreateJobModal } from "@/components/v2/modals/CreateJobModal";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { resolveViewState, type ViewState } from "@/lib/view-state";
 
@@ -172,8 +171,10 @@ export function RequestHistorySection({
   const [activeBucket, setActiveBucket] = useState<"in_progress" | "closed">(
     "closed",
   );
-  const [templateJobId, setTemplateJobId] = useState<number | null>(null);
+  // „Skopiuj jako template" otwiera stronę nowej rekrutacji z `?from=` —
+  // od 22.09.2026 tworzenie to strona `/jobs/new`, nie okno.
   const router = useRouter();
+  const copyAsTemplate = (jobId: number) => router.push(`/jobs/new?from=${jobId}`);
   const qc = useQueryClient();
   const { showToast } = useToast();
 
@@ -312,7 +313,7 @@ export function RequestHistorySection({
                   window.open(`/jobs/${entry.job_id}`, "_blank", "noopener,noreferrer")
                 }
                 onCopyAsTemplate={
-                  mutationActions ? () => setTemplateJobId(entry.job_id) : undefined
+                  mutationActions ? () => copyAsTemplate(entry.job_id) : undefined
                 }
                 onAddChampion={
                   mutationActions && entry.champion_candidate_id != null
@@ -333,19 +334,6 @@ export function RequestHistorySection({
               />
             ))}
           </ul>
-        )}
-
-        {mutationActions && templateJobId !== null && (
-          <CreateJobModal
-            fromJobId={templateJobId}
-            onClose={() => setTemplateJobId(null)}
-            onSuccess={(msg) => {
-              setTemplateJobId(null);
-              showToast(msg, "success");
-              qc.invalidateQueries({ queryKey: ["jobs"] });
-              qc.invalidateQueries({ queryKey: ["jobs-v2"] });
-            }}
-          />
         )}
       </section>
     );
@@ -438,7 +426,7 @@ export function RequestHistorySection({
               window.open(`/jobs/${entry.job_id}`, "_blank", "noopener,noreferrer")
             }
             onCopyAsTemplate={
-              mutationActions ? () => setTemplateJobId(entry.job_id) : undefined
+              mutationActions ? () => copyAsTemplate(entry.job_id) : undefined
             }
             onAddChampion={
               mutationActions && entry.champion_candidate_id != null
@@ -454,20 +442,6 @@ export function RequestHistorySection({
           />
         ))}
       </ul>
-
-      {/* Skopiuj jako template — modal rendered locally */}
-      {mutationActions && templateJobId !== null && (
-        <CreateJobModal
-          fromJobId={templateJobId}
-          onClose={() => setTemplateJobId(null)}
-          onSuccess={(msg) => {
-            setTemplateJobId(null);
-            showToast(msg, "success");
-            qc.invalidateQueries({ queryKey: ["jobs"] });
-            qc.invalidateQueries({ queryKey: ["jobs-v2"] });
-          }}
-        />
-      )}
     </section>
   );
 }

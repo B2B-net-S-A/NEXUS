@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Briefcase,
@@ -30,9 +30,7 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapabilities } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { CreateJobModal } from "@/components/v2/modals/CreateJobModal";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
-import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -814,7 +812,6 @@ export function JobsListV2() {
   const [priorityWorkFilter, setPriorityWorkFilter] =
     useState<PriorityWorkFilter>(() => initialPriorityWorkFromUrl(searchParams));
   const [page, setPage] = useState(1);
-  const [showAdd, setShowAdd] = useState(false);
   const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
   // Dok podglądu (gotowość rekrutacji) otwiera ikona „Podgląd" w wierszu —
   // klik w wiersz OTWIERA rekrutację (rekrutacja v3). `null` = dok zamknięty,
@@ -823,8 +820,6 @@ export function JobsListV2() {
   // zamyka dok, zamiast zostawić go bez podświetlonego wiersza.
   const [previewJobId, setPreviewJobId] = useState<number | null>(null);
   const router = useRouter();
-  const queryClient = useQueryClient();
-  const { showSuccess } = useToast();
   const jobsView = useUiStore((s) => s.jobsView);
   const setJobsView = useUiStore((s) => s.setJobsView);
   // Kolumna filtrów: `null` = brak wyboru → domyślne wg szerokości okna
@@ -1146,7 +1141,7 @@ export function JobsListV2() {
         <div className="ml-auto flex items-center gap-2">
           {/* Capability `job.create` = backendowy TacPlus (POST /api/jobs). */}
           {canCreateJob && (
-            <Button size="sm" variant="primary" onClick={() => setShowAdd(true)}>
+            <Button size="sm" variant="primary" onClick={() => router.push("/jobs/new")}>
               <Plus className="h-4 w-4" /> Nowa rekrutacja
             </Button>
           )}
@@ -1431,7 +1426,7 @@ export function JobsListV2() {
               size="sm"
               variant="outline"
               className="w-full"
-              onClick={() => setShowAdd(true)}
+              onClick={() => router.push("/jobs/new")}
             >
               <Plus className="h-4 w-4" /> Nowa rekrutacja
             </Button>
@@ -1630,7 +1625,7 @@ export function JobsListV2() {
                   {canCreateJob && (
                     <>
                       <button
-                        onClick={() => setShowAdd(true)}
+                        onClick={() => router.push("/jobs/new")}
                         className="text-primary hover:underline"
                       >
                         Utwórz pierwszą
@@ -1925,16 +1920,6 @@ export function JobsListV2() {
         )}
       </div>
 
-      {showAdd && (
-        <CreateJobModal
-          onClose={() => setShowAdd(false)}
-          onSuccess={(msg) => {
-            queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
-            setShowAdd(false);
-            showSuccess(msg);
-          }}
-        />
-      )}
 
       <GenerateInviteLinkV2
         open={inviteModalForJob !== null}
