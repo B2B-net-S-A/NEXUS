@@ -149,9 +149,15 @@ export function sortRows(
  *    „były pracownik" i liczy się normalnie. Wycięcie go kasowałoby wstecz
  *    wyniki, które ta osoba osiągnęła w tym oknie.
  */
+/** Ile wierszy tabeli widać przed „Pokaż wszystkich". */
+export const TEAM_TABLE_COLLAPSED_ROWS = 10;
+
 export function InsightsTeamTable({ period, renderFlags }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("verifications");
   const [sortDir, setSortDir] = useState<SortDirection>("desc");
+  // Pierwsze wiersze po sortowaniu, reszta pod przyciskiem — 28 osób
+  // z plakietkami to ~2400 px i przykrywało resztę rozdziału Wyniki.
+  const [expanded, setExpanded] = useState(false);
 
   const { data, isPending, isSuccess, isError, error, refetch } = useQuery({
     queryKey: insightsTeamQueryKeys.teamTable(period),
@@ -271,7 +277,7 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, index) => (
+                {(expanded ? rows : rows.slice(0, TEAM_TABLE_COLLAPSED_ROWS)).map((row, index) => (
                   <tr key={row.user_id} className="border-b border-border/50">
                     <td className="py-2 pr-3 align-top">
                       <div className="flex items-start gap-2">
@@ -350,7 +356,7 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
                 <tfoot>
                   <tr className="border-t border-border text-foreground">
                     <td className="py-2 pr-3 font-semibold" colSpan={2}>
-                      Razem (widoczne wiersze)
+                      Razem ({count(rows.length)} osób w tabeli)
                     </td>
                     {METRIC_KEYS.map((key) => (
                       <td
@@ -394,6 +400,19 @@ export function InsightsTeamTable({ period, renderFlags }: Props) {
               )}
             </table>
           </div>
+
+          {rows.length > TEAM_TABLE_COLLAPSED_ROWS ? (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+              className="mt-2 text-sm font-semibold text-primary hover:underline"
+            >
+              {expanded
+                ? "Pokaż mniej"
+                : `Pokaż wszystkich (${count(rows.length)})`}
+            </button>
+          ) : null}
 
           <p className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />

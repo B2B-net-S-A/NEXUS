@@ -210,8 +210,13 @@ function MetricCard({
       (v): v is number => v !== null && v !== undefined,
     ),
   );
-  const max = Math.max(1, ...all);
-  const min = Math.min(0, ...all);
+  // Skala z danych, nie od zera: marża % krąży wokół 20–27% i przy osi od
+  // zera wszystkie trzy lata zlewały się w jedną płaską kreskę.
+  const rawMax = all.length ? Math.max(...all) : 1;
+  const rawMin = all.length ? Math.min(...all) : 0;
+  const pad = (rawMax - rawMin) * 0.1 || Math.abs(rawMax) * 0.1 || 1;
+  const max = rawMax + pad;
+  const min = rawMin - pad;
   const W = 220;
   const H = 64;
   const point = (v: number, i: number) =>
@@ -331,7 +336,7 @@ function Header({ data }: { data: InsightsYoYResponse }) {
       <p className="text-sm text-muted-foreground">
         Porównanie {data.years[0]}–{data.years[data.years.length - 1]}, miesiąc
         do miesiąca. Pieniądze wyceniane na ostatni dzień miesiąca z
-        harmonogramów stawek — tą samą funkcją co kafle wyżej.
+        harmonogramów stawek — tą samą funkcją co kokpit niżej.
       </p>
       {partial ? (
         <p className="text-xs text-muted-foreground">

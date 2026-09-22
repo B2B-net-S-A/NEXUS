@@ -36,6 +36,20 @@ const HEAT_CLASS: Record<0 | 1 | 2 | 3 | 4, string> = {
   4: "bg-primary text-primary-foreground",
 };
 
+/** Data „stan na" po polsku — serwer oddaje pełny znacznik ISO z czasem. */
+export function formatAsOf(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("pl-PL", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Warsaw",
+  });
+}
+
 /**
  * Rekrutacje według kompetencji — kandydaci na etapie × kategoria (stan na dziś).
  *
@@ -58,14 +72,20 @@ export function CompetenceMatrix() {
     isEmpty: (data?.categories.length ?? 0) === 0,
   });
 
+  // Skala z KATEGORII, bez „Bez kategorii": na produkcji ten wiersz ma
+  // kilkanaście tysięcy kandydatów na etapie „Nowy" i zjadał całą skalę —
+  // każda prawdziwa kategoria wychodziła tak samo blada.
   const max = data
     ? Math.max(
         0,
-        ...data.categories.flatMap((c) =>
-          data.stages.map((s) => c.stage_counts[s.key as CompetenceStageKey] ?? 0),
-        ),
+        ...data.categories
+          .filter((c) => c.category_id !== null)
+          .flatMap((c) =>
+            data.stages.map((s) => c.stage_counts[s.key as CompetenceStageKey] ?? 0),
+          ),
       )
     : 0;
+  const asOf = data ? formatAsOf(data.as_of) : "dziś";
 
   return (
     <section className="bg-card rounded-xl border border-border p-6 shadow-xs space-y-4">
@@ -77,7 +97,7 @@ export function CompetenceMatrix() {
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
             Kandydaci na etapie w otwartych rekrutacjach · stan na{" "}
-            {data?.as_of ?? "dziś"} · im ciemniej, tym więcej
+            {asOf} · im ciemniej, tym więcej
           </p>
         </div>
       </div>
@@ -134,7 +154,9 @@ export function CompetenceMatrix() {
                         key={s.key}
                         className={cn(
                           "h-10 min-w-16 rounded-md text-center font-bold tabular-nums",
-                          HEAT_CLASS[heatLevel(v, max)],
+                          c.category_id === null
+                            ? "bg-muted text-muted-foreground"
+                            : HEAT_CLASS[heatLevel(v, max)],
                         )}
                       >
                         {count(v)}

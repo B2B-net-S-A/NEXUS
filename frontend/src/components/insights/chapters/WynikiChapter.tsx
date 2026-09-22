@@ -109,7 +109,7 @@ export function WynikiChapter() {
             hint="dzienny cel, Twoje liczby i porównanie ze średnią zespołu"
           />
           {canReadPipeline ? (
-            <RecruitmentActivityDashboard showNextSteps={false} />
+            <RecruitmentActivityDashboard showNextSteps={false} embedded />
           ) : (
             <p className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
               Aktywność dnia i miesiąca jest dostępna dla osób z dostępem do
@@ -132,7 +132,16 @@ export function WynikiChapter() {
           >
             <InsightsTeamActivity period={period} />
           </InsightsDisclosure>
-          {canSeeWorkload ? <AllocationWorkloadBoard /> : null}
+          {canSeeWorkload ? (
+            // Zwinięte: ~40 kart osób, w większości zerowych, przykrywało
+            // resztę rozdziału. To narzędzie HoR-a, nie statystyka dla zespołu.
+            <InsightsDisclosure
+              title="Obłożenie i zastępstwa"
+              hint="tylko HoR i admin · rozwiń"
+            >
+              <AllocationWorkloadBoard />
+            </InsightsDisclosure>
+          ) : null}
         </DeferUntilVisible>
       </InsightsSection>
 

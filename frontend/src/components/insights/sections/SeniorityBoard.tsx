@@ -55,6 +55,9 @@ export function progressCaption(entry: SeniorityEntry): string {
     : `Do ${next}: brakuje ${n} ${n === 1 ? "placementu" : "placementów"}`;
 }
 
+/** Ile kart widać w kolumnie przed „Pokaż wszystkich". */
+export const SENIORITY_COLUMN_LIMIT = 6;
+
 /**
  * Ścieżka rozwoju jako tablica Junior / Senior / Expert (21.09.2026).
  *
@@ -65,6 +68,9 @@ export function progressCaption(entry: SeniorityEntry): string {
  */
 export function SeniorityBoard() {
   const [showTable, setShowTable] = useState(false);
+  // Kolumna Junior bywa trzy razy dłuższa od pozostałych — bez limitu tablica
+  // ciągnęła się przez kilka ekranów, a Senior i Expert stały puste obok.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const { data, isPending, isSuccess, isError, error, refetch } = useQuery({
     queryKey: ["insights", "recruitment", "seniority"],
     queryFn: () => insightsApi.seniority(),
@@ -145,7 +151,10 @@ export function SeniorityBoard() {
                     Nikt na tym poziomie.
                   </p>
                 ) : (
-                  people.map((entry) => {
+                  (expanded[column.level]
+                    ? people
+                    : people.slice(0, SENIORITY_COLUMN_LIMIT)
+                  ).map((entry) => {
                     const pct =
                       entry.level === "expert"
                         ? 100
@@ -187,6 +196,23 @@ export function SeniorityBoard() {
                     );
                   })
                 )}
+                {people.length > SENIORITY_COLUMN_LIMIT ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpanded((prev) => ({
+                        ...prev,
+                        [column.level]: !prev[column.level],
+                      }))
+                    }
+                    aria-expanded={!!expanded[column.level]}
+                    className="w-full rounded-lg px-2 py-1.5 text-xs font-semibold text-primary hover:bg-card"
+                  >
+                    {expanded[column.level]
+                      ? "Pokaż mniej"
+                      : `Pokaż wszystkich (${people.length})`}
+                  </button>
+                ) : null}
               </div>
             );
           })}
