@@ -40,6 +40,7 @@ import Microsoft365Card from "@/components/settings/Microsoft365Card";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
+import NotificationDeliverySettings from "@/components/settings/NotificationDeliverySettings";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import { clearOnboardingCompleted } from "@/lib/onboarding-storage";
 import { requestOnboardingOpen } from "@/components/OnboardingWalkthrough";
@@ -518,6 +519,8 @@ function SettingsHome({ areas, user }: { areas: SettingsArea[]; user: Parameters
 
 function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters<typeof hasSectionAccess>[0] }) {
   switch (item.id) {
+    case "notifications":
+      return <NotificationDeliverySettings />;
     case "outlook":
       return <Microsoft365Card />;
     case "people":

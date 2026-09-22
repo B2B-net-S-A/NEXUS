@@ -250,7 +250,7 @@ jobs:
           # `configured` to zdrowa wartość checku `anthropic` (mapa
           # {"ok": "configured"} w app/main.py) — bez tego wyjątku ostrzeżenie
           # wisiałoby stale przy poprawnie skonfigurowanym kluczu.
-          ALLOWLIST='{"autenti":["unconfigured"],"priority_work":["disabled"]}'
+          ALLOWLIST='{"autenti":["unconfigured"],"priority_work":["disabled"],"notification_email_policy":["disabled"]}'
           classified=$(printf '%s' "$body" | jq -r --argjson allow "$ALLOWLIST" '
             .checks
             | to_entries

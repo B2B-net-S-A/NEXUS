@@ -19,6 +19,7 @@ import smtplib
 import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from datetime import datetime
 from typing import Optional
 
 from app.core.config import settings
@@ -142,6 +143,7 @@ def send_mention_email(
     snippet: str,
     deep_link_path: str,
     context_label: str,
+    event_at: datetime | None = None,
 ) -> bool:
     """Wysyła notyfikację email gdy ktoś @mention'uje usera w notatce.
 
@@ -190,7 +192,11 @@ def send_mention_email(
         f'font-weight:500">Otwórz w Nexusie</a></p>'
         '<hr><p style="color:#888;font-size:12px">Nexus ATS</p>'
     )
-    return send_email(to_email, subject, text_body, html_body)
+    from app.services.notification_delivery import guarded_send
+
+    return guarded_send(
+        "mentions", event_at, send_email, to_email, subject, text_body, html_body
+    )
 
 
 def send_password_reset_email(
@@ -374,6 +380,7 @@ def send_chat_fallback_email(
     notification_title: str,
     notification_message: str,
     deep_link_path: str,
+    event_at: datetime | None = None,
 ) -> bool:
     """Email fallback dla chatów (>15 min offline).
 
@@ -407,4 +414,8 @@ def send_chat_fallback_email(
         f'font-weight:500">Otwórz w Nexusie</a></p>'
         '<hr><p style="color:#888;font-size:12px">Nexus ATS</p>'
     )
-    return send_email(to_email, subject, text_body, html_body)
+    from app.services.notification_delivery import guarded_send
+
+    return guarded_send(
+        "chat_unread", event_at, send_email, to_email, subject, text_body, html_body
+    )

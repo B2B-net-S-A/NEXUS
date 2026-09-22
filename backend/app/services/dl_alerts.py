@@ -893,11 +893,15 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
     from sqlalchemy import or_
 
     from app.services.email import email_channel_enabled, send_email
+    from app.services.notification_delivery import guarded_send, load_policy
     from app.services.m365.system_mail import (
         get_system_sender_connection,
         send_system_email,
     )
 
+    policy = await load_policy(db)
+    if not policy.kind_enabled("delivery_alert"):
+        return 0
     connection = await get_system_sender_connection(db)
     if connection is None and not email_channel_enabled():
         return 0
@@ -912,6 +916,7 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
             .where(
                 DlAlert.status == DL_ALERT_STATUS_NEW,
                 DlAlert.email_sent_at.is_(None),
+                DlAlert.created_at >= policy.cutoff_for("delivery_alert"),
                 DlAlert.payload["email"].as_boolean().is_(True),
                 or_(
                     DlAlert.email_send_started_at.is_(None),
@@ -969,13 +974,34 @@ async def send_pending_alert_emails(db: AsyncSession) -> int:
         )
         ok = False
         try:
+            if not (await load_policy(db)).allows("delivery_alert", alert.created_at):
+                await db.execute(
+                    update(DlAlert)
+                    .where(DlAlert.id == alert_id)
+                    .values(email_send_started_at=None)
+                )
+                await db.commit()
+                continue
             if connection is not None:
                 ok = await send_system_email(
-                    db, connection, to=user.email, subject=subject, text_body=text_body
+                    db,
+                    connection,
+                    to=user.email,
+                    subject=subject,
+                    text_body=text_body,
+                    delivery_kind="delivery_alert",
+                    event_at=alert.created_at,
                 )
             else:
                 ok = await asyncio.to_thread(
-                    send_email, user.email, subject, text_body, None
+                    guarded_send,
+                    "delivery_alert",
+                    alert.created_at,
+                    send_email,
+                    user.email,
+                    subject,
+                    text_body,
+                    None,
                 )
         except asyncio.CancelledError:
             raise

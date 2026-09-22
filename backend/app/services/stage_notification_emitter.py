@@ -30,6 +30,7 @@ from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 from app.services.email import send_email
+from app.services.notification_delivery import guarded_send, load_policy
 from app.services.notification_triggers import emit
 from app.services.stage_notification_email_template import render_stage_email
 from app.services.stage_notification_resolver import (
@@ -123,7 +124,15 @@ def _send_email_for_recipient(
         notes=new_stage.notes,
         link=link,
     )
-    send_email(user.email, subject, text_body, html_body)
+    guarded_send(
+        "pipeline_stage",
+        new_stage.moved_at,
+        send_email,
+        user.email,
+        subject,
+        text_body,
+        html_body,
+    )
 
 
 async def notify_stage_change(
@@ -195,6 +204,10 @@ async def notify_stage_change(
 
         if rec.notify_email:
             try:
+                if not (await load_policy(db)).allows(
+                    "pipeline_stage", new_stage.moved_at
+                ):
+                    continue
                 user = await _user_by_id(db, rec.user_id)
                 if user is None:
                     logger.debug(

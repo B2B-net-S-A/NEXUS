@@ -612,7 +612,9 @@ async def test_resolved_episode_can_alert_again():
     assert second[0].dedupe_key.endswith(":e1:0")
 
 
-async def test_email_is_sent_once_for_threshold_rows(monkeypatch):
+async def test_email_is_sent_once_for_threshold_rows(
+    monkeypatch, routine_notification_email_enabled
+):
     from app.core.database import AsyncSessionLocal
     from app.models.dl_alert import ALERT_PERIODIC_ORDER_ENDING, DlAlert
     import app.services.email as email_mod

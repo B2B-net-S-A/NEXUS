@@ -1943,6 +1943,19 @@ async def api_health_check():
         except Exception:
             checks["m365_mail"] = "degraded"
 
+    # Administrative pause is distinct from provider health: account-security
+    # email still uses the transport, whose raw verdict remains above.
+    try:
+        from app.services.notification_delivery import load_policy
+
+        async with AsyncSessionLocal() as session:
+            email_policy = await asyncio.wait_for(load_policy(session), timeout=1.0)
+        checks["notification_email_policy"] = (
+            "configured" if email_policy.effective_enabled else "disabled"
+        )
+    except Exception:
+        checks["notification_email_policy"] = "degraded"
+
     # M365 encryption — separate from `m365` because a misconfigured key
     # silently breaks every refresh (see Sentry NEXUS-BE-1, 2026-05). Round-trip
     # encrypt→decrypt with a sentinel so "key set" alone is not enough.

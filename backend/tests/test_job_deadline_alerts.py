@@ -175,7 +175,9 @@ async def test_dedup_no_duplicate_on_second_run():
         await _cleanup(job_id, client_id, [rec_id, col_id, adm_id])
 
 
-async def test_email_dispatch_marks_sent_on_success(monkeypatch):
+async def test_email_dispatch_marks_sent_on_success(
+    monkeypatch, routine_notification_email_enabled
+):
     """SMTP on + send_email→True → email_sent_at stemplowany na deadline-notyfikacjach."""
     import app.tasks.job_deadline_alerts as jda
     from app.core.config import settings
@@ -216,7 +218,9 @@ async def test_email_dispatch_marks_sent_on_success(monkeypatch):
         await _cleanup(job_id, client_id, [rec_id, col_id, adm_id])
 
 
-async def test_email_dispatch_via_delegated_connection(monkeypatch):
+async def test_email_dispatch_via_delegated_connection(
+    monkeypatch, routine_notification_email_enabled
+):
     """Gdy jest połączenie skrzynki serwisowej → wysyłka przez send_system_email (delegated)."""
     import app.tasks.job_deadline_alerts as jda
 
@@ -228,8 +232,18 @@ async def test_email_dispatch_via_delegated_connection(monkeypatch):
     calls = []
 
     async def _fake_send_system(
-        db, connection, *, to, subject, text_body, html_body=None
+        db,
+        connection,
+        *,
+        to,
+        subject,
+        text_body,
+        delivery_kind,
+        event_at,
+        html_body=None,
     ):
+        assert delivery_kind == "job_deadline"
+        assert event_at is not None and event_at.tzinfo is not None
         calls.append((connection, to))
         return True
 
@@ -268,7 +282,9 @@ async def test_email_dispatch_via_delegated_connection(monkeypatch):
         await _cleanup(job_id, client_id, [rec_id, col_id, adm_id])
 
 
-async def test_email_dispatch_releases_claim_on_failure(monkeypatch):
+async def test_email_dispatch_releases_claim_on_failure(
+    monkeypatch, routine_notification_email_enabled
+):
     """SMTP on + send_email→False → email_sent_at NULL i rezerwacja zwolniona (retryable)."""
     import app.tasks.job_deadline_alerts as jda
     from app.core.config import settings

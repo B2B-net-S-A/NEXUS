@@ -136,6 +136,19 @@ def test_allowlist_cannot_silence_a_real_failure() -> None:
 
 
 @requires_jq
+def test_paused_notification_policy_does_not_hide_provider_failure(
+    tmp_path: Path,
+) -> None:
+    rc, outputs, annotations = _run(
+        tmp_path,
+        _payload(notification_email_policy="disabled", m365_mail="degraded"),
+    )
+    assert rc == 0
+    assert any("m365_mail" in item for item in annotations)
+    assert not any("notification_email_policy" in item for item in annotations)
+
+
+@requires_jq
 def test_production_payload_stays_green_but_reports_warnings(tmp_path: Path) -> None:
     """Payload produkcji z 2026-08-21: żadnej awarii, ale trzy rzeczy do wiedzenia.
 

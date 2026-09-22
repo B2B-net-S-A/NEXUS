@@ -26,14 +26,15 @@ from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobStatus
-from app.models.note import Note
 from app.models.note_mention import NoteMention
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 from app.services.mention_parser import parse_mentions_global
 
-
-pytestmark = pytest.mark.asyncio
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.usefixtures("routine_notification_email_enabled"),
+]
 
 
 async def _new_user(db, role: UserRole, *, is_active: bool = True) -> tuple[User, str]:
