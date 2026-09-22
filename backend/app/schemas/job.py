@@ -215,6 +215,8 @@ class JobResponse(BaseModel):
     # 0341: status requestu liczony przez `job_similarity.request_status_expr`
     # (closed · filled · contract · champion · incomplete · searching).
     request_status: Optional[str] = None
+    # Tablica (22.09.2026): odznaka „Gotowy do Cpro" istnieje tylko u Nordei.
+    cpro_enabled: bool = False
     recruitment_type: RecruitmentType
     deadline: Optional[date]
     client_id: Optional[int]

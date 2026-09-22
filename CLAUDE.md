@@ -2578,6 +2578,25 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   reszta → W procesie), główna akcja pod nazwiskiem, notatka zawsze na dole.
   **Okno Zlecenie: trzy bloki** (Co zamówił klient · Zespół · Ogłoszenie),
   priorytet/ustawienia/kompletność w „Więcej"; „Baza pytań" w menu „⋯".
+- **Tablica: jeden etap = jedna kolumna, reszta to odznaki** (decyzja Artura
+  22.09.2026, `lib/board-stages.ts` → `foldBoardColumns`). Szablony w bazie
+  ZOSTAJĄ — nocny import z Traffita zapisuje ruch na dokładny stan swojego
+  procesu, więc składa się wyłącznie RENDER: etapy-odznaki rozpoznane po nazwie
+  dołączają do kolumny swojego znaczenia („Przepuszczony przez DZ" → „DZ ✓"
+  i „Wysłać do Cpro" → „Gotowy do Cpro" w „Zweryfikowany"; Prep/„Po
+  Interview" → „Rozmowa u klienta"; „Umowa wysłana/podpisana" → „Umowa";
+  „Onboarding" → „Zatrudniony"), duplikaty z importu („Zaakceptowany (#41)")
+  łączą się, a odrzuceni/wycofani/rezerwa są paskiem nad tablicą (chip = cel
+  upuszczenia, klik rozwija kolumny). Nazwę kolumny Tablicy dostaje TYLKO etap
+  o kanonicznym kodzie; własne etapy (kod zastępczy `new` poza pierwszym,
+  `interview` itd.) zostają osobnymi kolumnami z własną nazwą — inaczej
+  szablon z samych własnych etapów złożyłby się w „Nowi". Karta upuszczona na
+  kolumnę trafia na etap-gospodarza; odznakę włącza/wyłącza przełącznik w doku
+  (ruch na etap-odznakę / z powrotem). Serwer (`services/board_stage_badges.py`,
+  `/move` i `/bulk-move`): „DZ ✓" tylko admin/DL/Head of Recruitment (Dominik
+  = HoR), „Gotowy do Cpro" tylko u klienta z `NORDEA_ORDER_NUMBER_CLIENT_IDS`
+  (`job.cpro_enabled`). Reguła nazw DZ/Cpro ma lustro front↔back na wspólnym
+  `__fixtures__/board-stage-cases.json` (prawdziwe nazwy z 3 szablonów).
 - **Filtry Tablicy = jeden pasek nad tablicą** (`PipelineFilterBar`) zamiast
   lewej kolumny: na wierzchu nazwisko i „Mój ruch" (owner następnego kroku =
   rekruter, ta sama `nextActionFor` co karta), reszta w „Filtry ▾" z licznikiem

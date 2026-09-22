@@ -54,7 +54,6 @@ import {
  downloadBulkCvs,
 } from"@/lib/bulk-cv-download";
 import { cn, formatDate } from"@/lib/utils";
-import { countPl } from"@/lib/plural-pl";
 import { encodeJobBackRef } from"@/lib/url-filters";
 import { useUiStore } from"@/store/ui";
 import { Badge } from"@/components/ui/badge";
@@ -73,6 +72,16 @@ import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
 import { BoardReviewSection } from "@/components/v2/jobs/BoardReviewSection";
+import {
+ SETTABLE_BADGES,
+ STAGE_BADGE_LABEL,
+ STAGE_BADGE_TITLE,
+ foldBoardColumns,
+ placeStage,
+ type BoardColumnKey,
+ type StageBadgeKey,
+} from "@/lib/board-stages";
+import { hasRole, useAuthStore } from "@/store/auth";
 import {
  BoardWorkbenchDrawer,
  type BoardWorkbenchContext,
@@ -102,13 +111,11 @@ import {
 } from "@/components/v2/pages/kanban-shared";
 import {
  CV_SENT_STAGE,
- PIPELINE_GROUP_SHORT_LABEL,
  findStageColumn,
  formatExpectedRate,
  groupKanbanColumns,
  moveBlockedReason,
  primaryForwardMove,
- type PipelineColumnGroup,
  type PipelineGroupKey,
  type PrimaryForwardMove,
 } from "@/lib/pipeline-flow";
@@ -185,6 +192,8 @@ interface KanbanBoardV2Props {
  /** Deep link `?candidate=&panel=` — otwiera warsztat tej osoby. */
  initialWorkbench?: { candidateId: number; section: PersonPanelSection } | null;
  onInitialWorkbenchHandled?: () => void;
+ /** Odznaka „Gotowy do Cpro" (tylko Nordea — `job.cpro_enabled`). */
+ cproEnabled?: boolean;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -532,7 +541,19 @@ interface CardProps {
   *  `lib/pipeline-next-action.ts`. Przekazywany gotowy (a nie liczony tutaj),
   *  bo tylko kolumna zna grupę etapu policzoną nad CAŁĄ tablicą. */
  nextAction: NextAction;
+ /** Odznaka z etapu szablonu złożonego w tę kolumnę (DZ, Cpro, prep, umowa…). */
+ stageBadge?: StageBadgeKey | null;
 }
+
+const STAGE_BADGE_TONE: Record<StageBadgeKey, string> = {
+ dz: "bg-success/15 text-success",
+ cpro: "bg-info/15 text-info",
+ prep: "bg-info/15 text-info",
+ after_interview: "bg-muted text-muted-foreground",
+ contract_sent: "bg-warning/15 text-warning",
+ contract_signed: "bg-success/15 text-success",
+ onboarding: "bg-info/15 text-info",
+};
 
 const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item,
@@ -555,6 +576,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onOpenDock,
  dimmed,
  nextAction,
+ stageBadge = null,
 }: CardProps) {
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
  const normalizedMatchScore =
@@ -840,6 +862,18 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ponad budżet
  </span>
  )}
+ {stageBadge && (
+ <span
+ className={cn(
+ "inline-flex items-center rounded px-1 text-[9px] font-semibold",
+ STAGE_BADGE_TONE[stageBadge],
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={STAGE_BADGE_TITLE[stageBadge]}
+ >
+ {STAGE_BADGE_LABEL[stageBadge]}
+ </span>
+ )}
  {/* `=== true`: odznaka obiecuje gotowy dokument (dawna odznaka
  kolumny „Następny krok" w Tabeli). */}
  {item.auto_cv_ready === true && (
@@ -989,6 +1023,8 @@ interface ColProps {
  titleOverride?: string;
  /** Treść nad kartami etapu — propozycje i przepięcia w „Do przejrzenia". */
  prepend?: React.ReactNode;
+ /** Odznaki kart z etapów złożonych w tę kolumnę (klucz: id karty). */
+ badgeByItemId?: ReadonlyMap<number, StageBadgeKey>;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -1015,6 +1051,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  slaDays,
  titleOverride,
  prepend,
+ badgeByItemId,
 }: ColProps) {
  const dropId = colId(col);
  // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant
@@ -1164,6 +1201,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onOpenDock={onOpenDock}
  dimmed={isDimmed(item)}
  nextAction={nextActions[index]}
+ stageBadge={badgeByItemId?.get(item.id) ?? null}
  />
  </div>
  )}
@@ -1177,121 +1215,6 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  );
 });
 
-/**
- * Zwinięta grupa pustych etapów — JEDNA kolumna-zastępnik zamiast trzech
- * pustych („Default B2B" ma trzynaście pustych kolumn z piętnastu).
- *
- * Zastępnik JEST celem upuszczenia — pod `droppableId` PIERWSZEJ kolumny swojej
- * grupy („CV Wysłane" dla etapów u klienta, „Umowa wysłana" dla umowy). Bez
- * tego zwijanie zabierałoby najczęstszy ruch w produkcie: pierwsze CV do
- * klienta przeciągane ze Screeningu na pusty jeszcze etap „CV Wysłane"
- * wymagałoby wcześniejszego kliknięcia „Rozwiń etapy", czyli regresu
- * domyślnego zachowania w zamian za porządek na ekranie.
- *
- * Dwie rzeczy, na których to stoi:
- *  1. `onDragEnd` rozwiązuje cel po `droppableId` (`stageCols.find(c => colId(c)
- *     === res.destination.droppableId)`), NIE po indeksie — więc upuszczenie tu
- *     wpada w tę samą ścieżkę `requestMove` co każdy inny drop, z całą bramką
- *     i modalami (stawka do klienta, weto HM, powód odrzucenia). Zero nowej
- *     logiki ruchu.
- *  2. Kolumna, której id pożyczamy, jest zwinięta, więc NIE jest renderowana —
- *     `droppableId` nie dubluje się (biblioteka tego wymaga). Gdy grupa się
- *     rozwija, zastępnik znika razem z tym id.
- *
- * Karta trafia zawsze na PIERWSZY etap grupy, nie na „przypadkowy" — to jest
- * ten etap, na który i tak prowadzi kolejność szablonu.
- */
-const CollapsedGroupColumn = memo(function CollapsedGroupColumn({
- group,
- fullPipelineDesktop,
- desktopOverview,
- readOnly,
- onExpand,
-}: {
- group: PipelineColumnGroup;
- fullPipelineDesktop: boolean;
- desktopOverview: boolean;
- readOnly: boolean;
- onExpand: () => void;
-}) {
- const label = PIPELINE_GROUP_SHORT_LABEL[group.key];
- // Grupa zwija się dopiero od dwóch kolumn, więc pierwsza zawsze istnieje.
- const dropTarget = group.columns[0];
- // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant na
- // `isDropDisabled`. Ta sama wartość ląduje w atrybucie niżej, żeby test
- // wiązał się z NIĄ, a nie z własną kopią flagi (DnD nie odpala się w jsdom).
- const noDrop = Boolean(readOnly);
- return (
- <div
- data-collapsed-group={group.key}
- data-drop-disabled={noDrop}
- role="group"
- aria-label={`${label}, grupa pustych etapów: ${group.columns
- .map((c) => columnLabel(c))
- .join(", ")}. Upuszczenie karty przenosi ją na etap ${columnLabel(dropTarget)}.`}
- className={cn(
- "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-dashed border-border bg-background/40 sm:min-w-[19rem]",
- // Kafelek: kolumny dzielą się dostępną szerokością i mieszczą się bez
- // przewijania. Kolumny: podłoga 12,5 rem (200 px), nadmiar przewija się
- // w poziomie — patrz `lib/kanban-view-preferences.ts`.
- fullPipelineDesktop && desktopOverview &&"xl:pointer-fine:w-0 xl:pointer-fine:min-w-0 xl:pointer-fine:basis-0 xl:pointer-fine:grow xl:pointer-fine:shrink",
- fullPipelineDesktop && !desktopOverview &&"xl:pointer-fine:w-auto xl:pointer-fine:min-w-[12.5rem] xl:pointer-fine:basis-[12.5rem] xl:pointer-fine:grow"
- )}
- >
- <div className="flex items-center gap-2 border-b border-border px-3 py-2">
- <span className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" aria-hidden="true" />
- <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground" title={label}>
- {label}
- </h3>
- <Badge size="sm" variant="outline">
- {group.count}
- </Badge>
- </div>
- <div className="border-b border-border px-3 pb-1.5 pt-1 text-[9.5px] text-muted-foreground">
- <span className="line-clamp-2">
- {group.columns.map((c) => columnLabel(c)).join(" · ")}
- </span>
- </div>
- <Droppable droppableId={colId(dropTarget)} isDropDisabled={noDrop}>
- {(provided, snapshot) => (
- <div
- ref={provided.innerRef}
- {...provided.droppableProps}
- className={cn(
- "flex flex-1 flex-col gap-2 p-2.5 text-[10.5px] leading-snug text-muted-foreground transition-colors",
- snapshot.isDraggingOver && "bg-primary/10"
- )}
- >
- {snapshot.isDraggingOver ? (
- // Ghost z makiety (linia 1110): w trakcie przeciągania zastępnik
- // mówi WPROST, na który etap trafi karta — inaczej upuszczenie na
- // kolumnę podpisaną nazwą grupy byłoby zgadywanką.
- <div className="grid place-items-center rounded-lg border-[1.5px] border-dashed border-primary/45 bg-primary/5 px-2 py-3 text-center font-medium text-primary">
- upuść tutaj → {columnLabel(dropTarget)}
- </div>
- ) : (
- <>
- <p>
- {countPl(group.columns.length, "etap", "etapy", "etapów")} zwinięte,
- dopóki są puste. Upuszczenie karty tutaj przenosi ją na etap
- „{columnLabel(dropTarget)}".
- </p>
- <button
- type="button"
- onClick={onExpand}
- className="self-start rounded-md border border-border px-2 py-1 text-[10.5px] text-foreground transition-colors hover:bg-accent"
- >
- Rozwiń etapy
- </button>
- </>
- )}
- {provided.placeholder}
- </div>
- )}
- </Droppable>
- </div>
- );
-});
 
 // ── Board ────────────────────────────────────────────────────────────
 
@@ -1301,7 +1224,7 @@ const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
@@ -1319,6 +1242,49 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Kolumny SZABLONU — wszystko, co wybiera cel ruchu albo mierzy pipeline,
  // musi iść po tej liście, nie po `cols` (w `cols` siedzi też kubełek).
  const stageCols = useMemo(() => cols.filter((c) => !isOffTemplate(c)), [cols]);
+ // 9 kolumn Tablicy (22.09.2026, `lib/board-stages.ts`): etapy szablonu
+ // złożone w kolumny, to, co nie jest krokiem procesu, jako odznaka na karcie.
+ // `cols`/`stageCols` zostają PRAWDZIWYMI etapami — z nich liczy się ruch,
+ // liczniki i dok; złożenie dotyczy wyłącznie renderu i celów upuszczenia.
+ const boardFold = useMemo(() => foldBoardColumns(stageCols), [stageCols]);
+ const displayCols = useMemo(
+ () =>
+ boardFold.columns.map((f) => ({ ...f.host, items: f.items, count: f.count })),
+ [boardFold]
+ );
+ const boardKeyByColId = useMemo(() => {
+ const m = new Map<string, BoardColumnKey>();
+ for (const f of boardFold.columns) if (f.key) m.set(colId(f.host), f.key);
+ return m;
+ }, [boardFold]);
+ const boardLabelByColId = useMemo(() => {
+ const m = new Map<string, string>();
+ for (const f of boardFold.columns) m.set(colId(f.host), f.label);
+ return m;
+ }, [boardFold]);
+ // Prawdziwy etap → gospodarz jego kolumny Tablicy (tam trafia ruch).
+ const hostByColId = useMemo(() => {
+ const m = new Map<string, KanbanColumn>();
+ for (const f of boardFold.columns) for (const c of f.members) m.set(colId(c), f.host);
+ for (const c of boardFold.closed) m.set(colId(c), c);
+ return m;
+ }, [boardFold]);
+ // Cele ruchu z doku i paska zbiorczego: 9 gospodarzy + zamknięci.
+ // Gospodarz niesie nazwę KOLUMNY Tablicy („Umowa", nie „Umowa wysłana").
+ const moveTargetCols = useMemo(
+ () => [
+ ...boardFold.columns.map((f) => ({ ...f.host, name: f.label })),
+ ...boardFold.closed,
+ ],
+ [boardFold]
+ );
+ // Odrzuceni / wycofani / rezerwa — pasek pod tablicą, rozwijany na kolumny.
+ const [showClosed, setShowClosed] = useState(false);
+ const authUser = useAuthStore((st) => st.user);
+ const canSetDzBadge =
+ hasRole(authUser, "admin") ||
+ hasRole(authUser, "delivery_lead") ||
+ hasRole(authUser, "head_of_recruitment");
  // Osoby już na tablicy — „Do przejrzenia" nie proponuje ich drugi raz.
  const boardCandidateIds = useMemo(
  () => cols.flatMap((c) => c.items.map((i) => i.candidate_id)),
@@ -1398,18 +1364,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const playbookQuery = useClientPlaybook(clientId);
  const slaDays = playbookQuery.data?.sla_business_days ?? null;
 
- // Grupy pustych etapów rozwinięte ręcznie („Rozwiń etapy" na zastępniku).
- const [expandedGroups, setExpandedGroups] = useState<Set<PipelineGroupKey>>(
- () => new Set()
- );
- const expandGroup = useCallback((key: PipelineGroupKey) => {
- setExpandedGroups((prev) => {
- if (prev.has(key)) return prev;
- const next = new Set(prev);
- next.add(key);
- return next;
- });
- }, []);
 
  // --- Wysokość kolumn liczona dynamicznie od realnej pozycji boardu ---------
  // Problem: stary `h-[calc(100vh-350px)]` miał na sztywno offset 350px = wysokość
@@ -1629,16 +1583,21 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  (res: DropResult) => {
  if (readOnly) return;
  if (!res.destination) return;
- const src = cols.find((c) => colId(c) === res.source.droppableId);
- // `stageCols`, nie `cols` — kubełek nie jest celem ruchu. Istniejący
- // guard `if (!src || !dst) return;` domyka sprawę, gdyby drop przeszedł.
+ // Kolumna Tablicy składa kilka etapów — indeks karty liczy się po
+ // ZŁOŻONEJ liście, a ruch po prawdziwym etapie, na którym karta stoi.
+ const srcDisplay =
+ displayCols.find((c) => colId(c) === res.source.droppableId) ??
+ cols.find((c) => colId(c) === res.source.droppableId);
+ // `stageCols`, nie `cols` — kubełek nie jest celem ruchu.
  const dst = stageCols.find((c) => colId(c) === res.destination!.droppableId);
- if (!src || !dst || colId(src) === colId(dst)) return;
- const item = src.items[res.source.index];
+ if (!srcDisplay || !dst || colId(srcDisplay) === colId(dst)) return;
+ const item = srcDisplay.items[res.source.index];
  if (!item) return;
- requestMove(item, colId(src), dst);
+ const realSrc = cols.find((c) => c.items.some((i) => i.id === item.id));
+ if (!realSrc || hostByColId.get(colId(realSrc)) === dst) return;
+ requestMove(item, colId(realSrc), dst);
  },
- [cols, stageCols, requestMove, readOnly]
+ [cols, displayCols, stageCols, hostByColId, requestMove, readOnly]
  );
 
  // Potwierdzone usunięcie kandydata z tej rekrutacji. Optymistycznie zdejmuje
@@ -1737,12 +1696,18 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  for (const c of cols) {
  const found = c.items.find((i) => i.candidate_id === dockCandidateId);
  if (found) {
- return { dockItem: found, dockItemColId: colId(c), dockItemColLabel: columnLabel(c) };
+ const host = hostByColId.get(colId(c));
+ return {
+ dockItem: found,
+ dockItemColId: colId(c),
+ dockItemColLabel:
+ (host ? boardLabelByColId.get(colId(host)) : undefined) ?? columnLabel(c),
+ };
  }
  }
  }
  return { dockItem: null, dockItemColId: null, dockItemColLabel: null };
- }, [cols, dockCandidateId]);
+ }, [cols, dockCandidateId, hostByColId, boardLabelByColId]);
 
  // Dok jest nakładką z prawej — Escape go zamyka, chyba że otwarty jest
  // dialog (modal powodu odrzucenia, stawki itp.): wtedy Escape należy do niego.
@@ -1834,10 +1799,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // z warsztatami 05–07. Od 17.09.2026 blokuje wyłącznie brak prawa zapisu:
  // weto HM, czarna lista, NDA i konkurent są ostrzeżeniem serwera, które
  // tablica zamienia na okno „Przenieś mimo to".
+ const dockHost = dockItemColId ? (hostByColId.get(dockItemColId) ?? null) : null;
  const dockMoveTargets = useMemo<PipelineMoveTarget[]>(() => {
  if (!dockItem || !dockItemColId) return [];
- return stageCols
- .filter((c) => colId(c) !== dockItemColId)
+ // Cele: 9 kolumn Tablicy (ich gospodarze) + zamknięci — bez etapów-odznak,
+ // te ustawia się przełącznikiem odznaki.
+ return moveTargetCols
+ .filter((c) => !dockHost || colId(c) !== colId(dockHost))
  .map((c) => {
  const terminal = terminalOf(c);
  const blockedReason = moveBlockedReason({
@@ -1848,7 +1816,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  });
  return { col: c, blockedReason };
  });
- }, [dockItem, dockItemColId, stageCols, readOnly]);
+ }, [dockItem, dockItemColId, moveTargetCols, dockHost, readOnly]);
  // „Odrzuć z powodem" w doku — ta sama bramka (tylko `readOnly`).
  const dockRejectBlockedReason = useMemo(
  () =>
@@ -1869,13 +1837,49 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // (`lib/pipeline-flow.ts`), obok jedynej bramki ruchu `moveBlockedReason`.
  const dockPrimaryMove = useMemo<PrimaryForwardMove | null>(() => {
  if (!dockItem || !dockItemColId) return null;
+ // Po kolumnach Tablicy, nie po etapach szablonu: z „Zweryfikowany" główna
+ // akcja prowadzi do „CV wysłane", nie do etapu-odznaki „DZ".
  return primaryForwardMove({
  item: dockItem,
- columns: stageCols,
- currentColId: dockItemColId,
+ columns: moveTargetCols,
+ currentColId: dockHost ? colId(dockHost) : dockItemColId,
  readOnly,
  });
- }, [dockItem, dockItemColId, stageCols, readOnly]);
+ }, [dockItem, dockItemColId, moveTargetCols, dockHost, readOnly]);
+
+ // Przełączniki odznak w doku: etap-odznaka z kolumny tej osoby. Włączenie =
+ // ruch na etap-odznakę, wyłączenie = powrót na gospodarza kolumny.
+ const dockBadgeToggles = useMemo(() => {
+ if (!dockItem || !dockItemColId || !dockHost) return [];
+ const fold = boardFold.columns.find((f) => f.host === dockHost);
+ if (!fold) return [];
+ const toggles: Array<{
+ key: StageBadgeKey;
+ label: string;
+ active: boolean;
+ disabledReason: string | null;
+ onToggle: () => void;
+ }> = [];
+ for (const member of fold.members) {
+ const badge = placeStage(member).badge;
+ if (!badge || !SETTABLE_BADGES.includes(badge)) continue;
+ if (badge === "cpro" && !cproEnabled) continue;
+ const active = colId(member) === dockItemColId;
+ toggles.push({
+ key: badge,
+ label: STAGE_BADGE_LABEL[badge],
+ active,
+ disabledReason: readOnly
+ ? "Tylko odczyt."
+ : badge === "dz" && !canSetDzBadge
+ ? "„DZ ✓” ustawia Delivery Lead albo Head of Recruitment."
+ : null,
+ onToggle: () =>
+ requestMove(dockItem, dockItemColId, active ? dockHost : member),
+ });
+ }
+ return toggles;
+ }, [dockItem, dockItemColId, dockHost, boardFold, cproEnabled, readOnly, canSetDzBadge, requestMove]);
 
  // Wiersz „następna akcja" doku — TA SAMA funkcja, którą renderuje karta na
  // tablicy; osobna kopia rozjechałaby się przy pierwszej zmianie progu.
@@ -2004,60 +2008,26 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  [stuckFilter, stuckIds, blockedFilter, noActionFilter, noActionIds, recruiterFilter, myMoveFilter, myMoveIds, nameQuery]
  );
 
- // „Ukryj puste kolumny" usuwa CAŁE kolumny bez kandydatów z renderu — to
- // jest bezpieczne dla `@hello-pangea/dnd` (w odróżnieniu od filtrowania
- // ITEMÓW wewnątrz kolumny, patrz `isDimmed`): pusta kolumna nie ma żadnych
- // indeksów do zepsucia, a `onDragEnd`/`bulkMove`/`stageCols` i tak liczą po
- // PEŁNYM `cols`, więc ukrycie jej z widoku nie rusza celów ruchu.
- const visibleCols = useMemo(
- // Kolumna etapu „Ogłoszenia" niesie „Do przejrzenia" (propozycje z bazy
- // i przepięcia spoza kanbana), więc nie znika, gdy jej karty są puste.
- () =>
- hideEmptyColumns
- ? cols.filter((c) => c.count > 0 || c.stage === "posting")
- : cols,
- [cols, hideEmptyColumns]
+ // Kolumny do renderu: 9 kolumn Tablicy (+ rozwinięci zamknięci + kubełek
+ // „Poza szablonem"). „Ukryj puste kolumny" usuwa CAŁE kolumny bez kart —
+ // bezpieczne dla `@hello-pangea/dnd` (pusta kolumna nie ma indeksów).
+ // „Do przejrzenia" nie znika nigdy: niesie propozycje spoza kanbana.
+ const offTemplateCols = useMemo(() => cols.filter((c) => isOffTemplate(c)), [cols]);
+ const visibleCols = useMemo(() => {
+ const base = [
+ ...displayCols,
+ ...(showClosed ? boardFold.closed : []),
+ ...offTemplateCols,
+ ];
+ return hideEmptyColumns
+ ? base.filter((c) => c.count > 0 || boardKeyByColId.get(colId(c)) === "review")
+ : base;
+ }, [displayCols, boardFold, showClosed, offTemplateCols, hideEmptyColumns, boardKeyByColId]);
+
+ const boardEntries = useMemo(
+ () => visibleCols.map((col) => ({ kind: "column" as const, key: colId(col), col })),
+ [visibleCols]
  );
-
- // Grupy zwinięte w jedną kolumnę-zastępnik: WYŁĄCZNIE etapy u klienta i etapy
- // umowy, wyłącznie gdy KAŻDA kolumna grupy jest pusta i gdy jest ich więcej
- // niż jedna (zwinięcie jednej kolumny w jeden zastępnik to sama zmiana nazwy).
- // Grupa, w której ktokolwiek stoi, rozwija się z powrotem sama.
- const collapsedGroupKeys = useMemo(() => {
- const keys = new Set<PipelineGroupKey>();
- for (const group of stageGroups) {
- if (group.key !== "client" && group.key !== "contract") continue;
- if (expandedGroups.has(group.key)) continue;
- if (group.columns.length < 2) continue;
- if (group.columns.every((c) => c.count === 0)) keys.add(group.key);
- }
- return keys;
- }, [stageGroups, expandedGroups]);
-
- // Lista renderu tablicy: prawdziwe kolumny (jedyne cele `Droppable`) i
- // zastępniki zwiniętych grup. Zastępnik wchodzi w miejsce PIERWSZEJ kolumny
- // swojej grupy, więc kolejność etapów zostaje nienaruszona.
- const boardEntries = useMemo(() => {
- const entries: Array<
- | { kind: "column"; key: string; col: KanbanColumn }
- | { kind: "collapsed"; key: string; group: PipelineColumnGroup }
- > = [];
- const emitted = new Set<PipelineGroupKey>();
- for (const col of visibleCols) {
- const groupKey = groupByColId.get(colId(col));
- if (groupKey && collapsedGroupKeys.has(groupKey)) {
- if (emitted.has(groupKey)) continue;
- emitted.add(groupKey);
- const group = stageGroups.find((g) => g.key === groupKey);
- if (group) {
- entries.push({ kind: "collapsed", key: `group:${groupKey}`, group });
- continue;
- }
- }
- entries.push({ kind: "column", key: colId(col), col });
- }
- return entries;
- }, [visibleCols, groupByColId, collapsedGroupKeys, stageGroups]);
 
  const bulkMove = (destColId: string) => {
  const dst = stageCols.find((c) => colId(c) === destColId);
@@ -2195,7 +2165,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  {stageCols.length > 0 && (
  <StageFocusNavigator
- cols={stageCols}
+ cols={displayCols}
  focusedId={focusedColId}
  onFocus={focusColumn}
  density={density}
@@ -2225,7 +2195,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  {/* „Zatrudniony" nie jest celem ruchu zbiorczego — hired zakłada
  szkic kontraktu i zamówienia per osoba (guard w `bulkMove`
  odrzuca go i tak; tu nie kusimy opcją, która zawsze odmówi). */}
- {stageCols
+ {moveTargetCols
  .filter((c) => terminalOf(c) !== "hired")
  .map((c) => (
  <SelectItem key={colId(c)} value={colId(c)}>
@@ -2296,6 +2266,50 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
  {/* Board */}
  <DragDropContext onDragEnd={onDragEnd}>
+ {/* Odrzuceni / wycofani (i rezerwa) nie zajmują kolumn — pasek nad
+ tablicą. Każdy chip jest celem upuszczenia (odrzucenie z powodem jak
+ dotąd), klik rozwija ich pełne kolumny. */}
+ {boardFold.closed.length > 0 && (
+ <div
+ data-testid="board-closed-bar"
+ className="mb-2 flex flex-wrap items-center justify-end gap-1.5 text-xs"
+ >
+ {showClosed ? (
+ <button
+ type="button"
+ onClick={() => setShowClosed(false)}
+ className="rounded-md border border-border px-2 py-1 text-muted-foreground hover:bg-accent"
+ >
+ Zwiń zamkniętych
+ </button>
+ ) : (
+ boardFold.closed.map((c) => (
+ <Droppable key={colId(c)} droppableId={colId(c)} isDropDisabled={readOnly}>
+ {(provided, snapshot) => (
+ <div
+ ref={provided.innerRef}
+ {...provided.droppableProps}
+ className={cn(
+ "rounded-md border border-dashed border-border transition-colors",
+ snapshot.isDraggingOver && "border-destructive bg-destructive/10"
+ )}
+ >
+ <button
+ type="button"
+ onClick={() => setShowClosed(true)}
+ className="px-2 py-1 text-muted-foreground hover:text-foreground"
+ >
+ {columnLabel(c)}{" "}
+ <span className="font-semibold tabular-nums text-foreground">{c.count}</span> →
+ </button>
+ <div className="hidden">{provided.placeholder}</div>
+ </div>
+ )}
+ </Droppable>
+ ))
+ )}
+ </div>
+ )}
  <div
  ref={boardRef}
  data-testid="pipeline-board"
@@ -2314,9 +2328,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  >
  {/* „Do przejrzenia" zawsze stoi pierwsza — także gdy szablon nie ma
  etapu „Ogłoszenia" albo jego pusta kolumna jest ukryta. */}
- {!boardEntries.some(
- (e) => e.kind === "column" && e.col.stage === "posting",
- ) && (
+ {!boardEntries.some((e) => boardKeyByColId.get(e.key) === "review") && (
  <div className="flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-dashed border-primary/40 bg-background/60 sm:min-w-[19rem] xl:pointer-fine:min-w-[12.5rem]">
  <div className="flex items-center gap-2 border-b border-border px-3 py-2">
  <h3 className="flex-1 truncate text-sm font-medium text-foreground">Do przejrzenia</h3>
@@ -2350,17 +2362,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </div>
  ) : (
  <>
- {boardEntries.map((entry) =>
- entry.kind === "collapsed" ? (
- <CollapsedGroupColumn
- key={entry.key}
- group={entry.group}
- fullPipelineDesktop={fullPipelineDesktop}
- desktopOverview={desktopOverview}
- readOnly={readOnly}
- onExpand={() => expandGroup(entry.group.key)}
- />
- ) : (
+ {boardEntries.map((entry) => (
  <KanbanColumnV2
  key={entry.key}
  col={entry.col}
@@ -2384,7 +2386,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  isDimmed={isDimmed}
  group={groupByColId.get(entry.key)}
  slaDays={slaDays}
- {...(entry.col.stage === "posting"
+ badgeByItemId={boardFold.badgeByItemId}
+ {...(boardLabelByColId.has(entry.key)
+ ? { titleOverride: boardLabelByColId.get(entry.key) }
+ : {})}
+ {...(boardKeyByColId.get(entry.key) === "review"
  ? {
  titleOverride: "Do przejrzenia",
  prepend: (
@@ -2398,8 +2404,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  : {})}
  />
- )
- )}
+ ))}
  </>
  )}
  </div>
@@ -2438,6 +2443,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onMoveTo={handleDockMove}
  onOpenScreening={handleOpenScreening}
  onReject={handleDockReject}
+ badgeToggles={dockBadgeToggles}
  onOpenWorkbench={
  workbenchContext
  ? (section) =>

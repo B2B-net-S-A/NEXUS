@@ -313,6 +313,18 @@ export interface PipelineCandidateDockProps {
    * przycisków warsztatu (np. harness).
    */
   onOpenWorkbench?: (section: WorkbenchSection) => void;
+  /**
+   * Odznaki etapu (Tablica 22.09.2026): „DZ ✓", „Gotowy do Cpro" (Nordea),
+   * „podpisana". Włączenie = ruch na etap-odznakę, wyłączenie = powrót na
+   * etap kolumny — liczy to tablica, dok tylko pokazuje przełączniki.
+   */
+  badgeToggles?: ReadonlyArray<{
+    key: string;
+    label: string;
+    active: boolean;
+    disabledReason: string | null;
+    onToggle: () => void;
+  }>;
 }
 
 type WorkbenchSection = "cv" | "screening" | "interviews" | "contract";
@@ -393,6 +405,7 @@ export function PipelineCandidateDock({
   onOpenScreening,
   onReject,
   onOpenWorkbench,
+  badgeToggles = [],
 }: PipelineCandidateDockProps) {
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
@@ -775,6 +788,33 @@ export function PipelineCandidateDock({
                 profileHref={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
               />
             </div>
+          </div>
+        )}
+        {badgeToggles.length > 0 && (
+          <div
+            role="group"
+            aria-label="Odznaki etapu"
+            className="mt-2 flex flex-wrap items-center gap-1.5"
+          >
+            {badgeToggles.map((badge) => (
+              <button
+                key={badge.key}
+                type="button"
+                aria-pressed={badge.active}
+                disabled={Boolean(badge.disabledReason)}
+                title={badge.disabledReason ?? undefined}
+                onClick={badge.onToggle}
+                className={cn(
+                  "inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-[11px] font-semibold transition-colors disabled:opacity-50",
+                  badge.active
+                    ? "border-success/40 bg-success/10 text-success"
+                    : "border-border bg-background text-muted-foreground hover:bg-accent",
+                )}
+              >
+                {badge.active ? "✓ " : "+ "}
+                {badge.label}
+              </button>
+            ))}
           </div>
         )}
         {readOnly && (

@@ -1037,6 +1037,8 @@ export default function JobDetailPage() {
                 onRequestCloseJob: () => openSlideOver("order", { orderSection: "close" }),
               }}
               kanbanQueryState={kanbanQueryState}
+              // „Gotowy do Cpro" — odznaka wyłącznie u Nordei (serwer).
+              cproEnabled={job.cpro_enabled === true}
               // `?candidate=&panel=` (także linki zapisane w powiadomieniach):
               // od razu warsztat tej osoby na właściwej sekcji.
               initialWorkbench={

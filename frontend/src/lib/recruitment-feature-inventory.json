@@ -780,6 +780,14 @@
    "file": "components/v2/recruitment/BoardWorkbenchDrawer.tsx",
    "marker": "PersonPanel",
    "v3_home": "Tablica → panel osoby → warsztat"
+  },
+  {
+   "id": "board.stage-badges",
+   "area": "pipeline",
+   "opis": "Tablica: jeden etap = jedna kolumna; etapy-odznaki (DZ ✓, Gotowy do Cpro — tylko Nordea, Prep, Umowa wysłana/podpisana, Onboarding) jako odznaki na karcie, przełączniki w panelu osoby; odrzuceni/wycofani na pasku",
+   "file": "lib/board-stages.ts",
+   "marker": "foldBoardColumns",
+   "v3_home": "Tablica → kolumny, karta, panel osoby"
   }
  ]
 }
