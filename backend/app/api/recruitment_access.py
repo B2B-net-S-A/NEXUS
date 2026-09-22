@@ -51,6 +51,8 @@ membership gate.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from enum import StrEnum
 from typing import Annotated, Optional
 
 from fastapi import Depends, HTTPException, status
@@ -686,3 +688,125 @@ async def ensure_delivery_lead_job_visible(
     assert_delivery_lead_job_visible(
         job, await delivery_lead_job_pairs(current_user, db)
     )
+
+
+# ── Redakcja rekrutacji (decyzja Artura 22.09.2026) ─────────────────────────
+#
+# Rekrutację ZAKŁADA admin albo Delivery Lead (`/jobs/new`), a jej cykl życia
+# (publikacja, zamknięcie, usunięcie, przełączenie do NEXUSA) zostaje przy
+# admin / DL / TAC. TREŚĆ rekrutacji — opis, ogłoszenia, profil Championa —
+# redaguje też osoba, która ją PROWADZI, i jej współpracownicy, niezależnie od
+# roli. Do 22.09 wszystkie te trasy stały za `TacPlus`, a funkcji TAC nie
+# używamy, więc rekruter prowadzący rekrutację nie mógł poprawić jej opisu.
+#
+# Konta TAC zostają bez zmian (decyzja 22.09): TAC redaguje jak dotąd każdą
+# rekrutację, ale kod nie WYMAGA już TAC do niczego, co robi rekruter.
+
+JOB_EDIT_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
+
+# Pola, których członek zespołu (rekruter prowadzący, współpracownik) nie
+# zmienia: status to cykl życia, klient i osoby prowadzące to decyzja
+# Delivery, a widełki wynagrodzenia ustawia admin albo TAC (CLAUDE.md).
+JOB_MEMBER_LOCKED_FIELDS: frozenset[str] = frozenset(
+    {
+        "status",
+        "client_id",
+        "recruiter_id",
+        "tac_id",
+        "delivery_lead_id",
+        "salary_min",
+        "salary_max",
+    }
+)
+
+_JOB_EDIT_DENIED = (
+    "Edytować rekrutację może osoba, która ją prowadzi, jej współpracownik, "
+    "Delivery Lead albo admin."
+)
+_JOB_MEMBER_LOCKED_DENIED = (
+    "Status, klienta, osoby prowadzące i widełki wynagrodzenia zmienia "
+    "Delivery Lead albo admin."
+)
+
+
+class JobEditLevel(StrEnum):
+    """Zakres redakcji rekrutacji: pełny (DL/admin/TAC) albo członka zespołu."""
+
+    full = "full"
+    member = "member"
+
+
+async def job_edit_level(
+    db: AsyncSession,
+    user: User,
+    job: Job,
+    *,
+    tac_unscoped: bool = True,
+) -> JobEditLevel | None:
+    """Jeden rozstrzygacz „czy ta osoba redaguje tę rekrutację".
+
+    ``tac_unscoped=False`` dla powierzchni Championa: tam TAC od #1069 widzi
+    wyłącznie oferty, których jest TAC-iem (``ensure_champion_job_visible``),
+    więc przechodzi tylko ścieżką członkostwa — tak jak rekruter.
+    """
+
+    if user.has_role(UserRole.admin):
+        return JobEditLevel.full
+    if user.has_role(UserRole.delivery_lead):
+        try:
+            assert_delivery_lead_job_visible(
+                job, await delivery_lead_job_pairs(user, db)
+            )
+            return JobEditLevel.full
+        except HTTPException as exc:
+            if exc.status_code != status.HTTP_403_FORBIDDEN:
+                raise
+    if tac_unscoped and user.has_role(UserRole.tac):
+        return JobEditLevel.full
+    if user.has_any_role(*JOB_EDIT_ROLES) and await is_member_of_job(db, user, job.id):
+        return JobEditLevel.member
+    return None
+
+
+async def ensure_job_editor(
+    db: AsyncSession,
+    user: User,
+    job: Job,
+    *,
+    fields: Iterable[str] = (),
+    tac_unscoped: bool = True,
+) -> JobEditLevel:
+    """403, gdy osoba nie redaguje rekrutacji albo zmienia pola spoza zakresu."""
+
+    level = await job_edit_level(db, user, job, tac_unscoped=tac_unscoped)
+    if level is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, _JOB_EDIT_DENIED)
+    if level is JobEditLevel.member and JOB_MEMBER_LOCKED_FIELDS & set(fields):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, _JOB_MEMBER_LOCKED_DENIED)
+    return level
+
+
+async def ensure_champion_job_editor(
+    job: Job, current_user: User, db: AsyncSession
+) -> None:
+    """Zapis Championa: DL/admin jak dotąd plus zespół rekrutacji (TAC też)."""
+
+    await ensure_job_editor(db, current_user, job, tac_unscoped=False)
+
+
+async def ensure_champion_job_reader(
+    job: Job, current_user: User, db: AsyncSession
+) -> None:
+    """Odczyt powierzchni Championa: dotychczasowy zakres albo zespół rekrutacji."""
+
+    try:
+        await ensure_champion_job_read_visible(job, current_user, db)
+        return
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_403_FORBIDDEN:
+            raise
+    await ensure_champion_job_editor(job, current_user, db)
+
+
+# Bramka roli tras redakcji — zakres rozstrzyga ``ensure_job_editor`` w trasie.
+JobEditUser = Annotated[User, Depends(require_roles(*JOB_EDIT_ROLES))]
