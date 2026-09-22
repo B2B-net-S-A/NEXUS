@@ -5,6 +5,20 @@ const addToJob = vi.fn();
 const dismiss = vi.fn();
 const hookArgs = vi.fn();
 let entries: unknown[] = [];
+let status: Record<string, unknown> = {};
+const retryEngine = vi.fn();
+
+function okStatus(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    settled: true,
+    inbox: { isLoading: false, isError: false, hasMore: false },
+    similar: { isError: false },
+    recommendations: { isError: false },
+    run: { error: null },
+    retryEngine,
+    ...over,
+  };
+}
 
 vi.mock("@/components/v2/recruitment/useJobProposals", () => ({
   useJobProposals: (...a: unknown[]) => {
@@ -15,10 +29,7 @@ vi.mock("@/components/v2/recruitment/useJobProposals", () => ({
       dismissing: false,
       addToJob,
       dismiss,
-      status: {
-        inbox: { isLoading: false, isError: false },
-        retryEngine: vi.fn(),
-      },
+      status,
     };
   },
 }));
@@ -48,6 +59,7 @@ function entry(id: number, sources: string[], reason: string | null = null) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  status = okStatus();
   entries = [
     entry(1, ["reassign"], "Wysłany do klienta: mBank · Kotlin Developer · 26.08.2026"),
     entry(2, ["full_base"]),
@@ -97,5 +109,38 @@ describe("Tablica — kolumna „Do przejrzenia”", () => {
     entries = [];
     render(<BoardReviewSection jobId={5} readOnly={false} />);
     expect(screen.getByText("Nikt nie czeka na przejrzenie.")).toBeInTheDocument();
+  });
+
+  // REC-02 (audyt 22.09 r2)
+  it("awaria innego źródła przy pustej liście to komunikat z Ponów, nie pustka", () => {
+    entries = [];
+    status = okStatus({ similar: { isError: true }, run: { error: new Error("x") } });
+    render(<BoardReviewSection jobId={5} readOnly={false} />);
+    expect(screen.queryByText("Nikt nie czeka na przejrzenie.")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("przegląd bazy, podobne projekty");
+    fireEvent.click(screen.getByRole("button", { name: "Ponów" }));
+    expect(retryEngine).toHaveBeenCalled();
+  });
+
+  it("częściowa awaria przy niepustej liście — lista i ostrzeżenie", () => {
+    status = okStatus({ recommendations: { isError: true } });
+    render(<BoardReviewSection jobId={5} readOnly={false} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Lista może być niepełna");
+    expect(screen.getByText("Osoba 1")).toBeInTheDocument();
+  });
+
+  it("źródła jeszcze się wczytują — nie twierdzi, że nikt nie czeka", () => {
+    entries = [];
+    status = okStatus({ settled: false });
+    render(<BoardReviewSection jobId={5} readOnly={false} />);
+    expect(screen.getByText("Wczytuję…")).toBeInTheDocument();
+    expect(screen.queryByText("Nikt nie czeka na przejrzenie.")).not.toBeInTheDocument();
+  });
+
+  it("skrzynka z kolejną stroną — licznik „N+”", () => {
+    status = okStatus({ inbox: { isLoading: false, isError: false, hasMore: true } });
+    render(<BoardReviewSection jobId={5} readOnly={false} />);
+    expect(screen.getByTestId("board-review-count")).toHaveTextContent("14+");
+    expect(screen.getByRole("link", { name: "Przejrzyj wszystkich 14+ →" })).toBeInTheDocument();
   });
 });
