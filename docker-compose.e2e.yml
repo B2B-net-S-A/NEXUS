@@ -58,6 +58,8 @@ services:
       # Pusta baza nie ma klientów z manifestu portfela — bez tego entrypoint
       # (świadomie fail-closed) zatrzymuje start backendu.
       CLIENT_PORTFOLIO_MANIFEST_SKIP: "1"
+      # audyt 22.09 r2 (PROD-08): stack E2E dalej dostaje dane demo z seed.py.
+      NEXUS_DEMO_SEED: "true"
       # Integracje i pętle tła, które bez kluczy tylko hałasują w logach albo
       # próbowałyby sięgać do usług zewnętrznych.
       TRAFFIT_SYNC_ENABLED: "false"
