@@ -39,6 +39,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,20 +50,93 @@ from app.models.recruitment_pipeline import PipelineStage
 logger = logging.getLogger(__name__)
 
 
+async def _reassign_imported(db: AsyncSession, rows: Sequence[dict]) -> int:
+    """Przepięcia podobnych rekrutacji dla etapów WSTAWIONYCH przez import.
+
+    Audyt 22.09 r2 (REC-01): przepięcie (propozycja `reassign` w połączonych
+    rekrutacjach) odpalał wyłącznie ruch w NEXUSIE, a import Traffita to 99,6%
+    ruchów — więc funkcja praktycznie nie działała. Tylko etapy „u klienta"
+    (`REASSIGN_STAGES`) z ostatnich `TRAFFIT_IMPORT_REASSIGN_WINDOW_DAYS` dni:
+    import historii nie może przepinać ludzi wysłanych do klienta rok temu.
+    ``on_candidate_sent`` ma własny SAVEPOINT i nie rzuca; propozycje są
+    idempotentne (`upsert_proposals`).
+    """
+    from sqlalchemy import select
+
+    from app.models.job_similar_link import JobSimilarLink
+    from app.services.job_similarity import REASSIGN_STAGES, on_candidate_sent
+
+    stage_values = {stage.value: stage for stage in REASSIGN_STAGES}
+    cutoff = datetime.now(timezone.utc) - timedelta(
+        days=max(0, int(settings.TRAFFIT_IMPORT_REASSIGN_WINDOW_DAYS))
+    )
+    eligible = [
+        r
+        for r in rows
+        if r.get("stage_legacy_enum") in stage_values
+        and isinstance(r.get("moved_at"), datetime)
+        and r["moved_at"] >= cutoff
+    ]
+    if not eligible:
+        return 0
+    # Jedno zapytanie zamiast jednego na wiersz: przepinamy tylko z rekrutacji,
+    # które ktoś połączył z innymi.
+    linked = set(
+        (
+            await db.execute(
+                select(JobSimilarLink.similar_job_id)
+                .where(
+                    JobSimilarLink.similar_job_id.in_(
+                        sorted({int(r["job_id"]) for r in eligible})
+                    )
+                )
+                .distinct()
+            )
+        ).scalars()
+    )
+    written = 0
+    for row in eligible:
+        if int(row["job_id"]) not in linked:
+            continue
+        written += await on_candidate_sent(
+            db,
+            job_id=int(row["job_id"]),
+            candidate_id=int(row["candidate_id"]),
+            stage=stage_values[row["stage_legacy_enum"]],
+            sent_at=row["moved_at"],
+        )
+    return written
+
+
 async def apply_imported_stage_side_effects(
     db: AsyncSession,
     *,
     rows: Sequence[dict],
+    inserted_rows: Optional[Sequence[dict]] = None,
 ) -> dict[str, int]:
     """Odpal wąski zestaw skutków dla właśnie zaimportowanych etapów.
 
     ``rows`` to payloady wsadu importera (``candidate_id``, ``job_id``,
-    ``stage_legacy_enum``). Zwraca licznik wykonanych skutków — do logów
-    i testów, nie do sterowania przepływem.
+    ``stage_legacy_enum``). ``inserted_rows`` — podzbiór NOWO wstawionych
+    wierszy (przepięcia, REC-01; aktualizacja istniejącego etapu nie jest
+    nowym wysłaniem). Zwraca licznik wykonanych skutków — do logów i testów,
+    nie do sterowania przepływem.
     """
 
-    applied = {"risk": 0, "talent_pool": 0}
-    if not settings.TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED or not rows:
+    applied = {"risk": 0, "talent_pool": 0, "reassigned": 0}
+    if not rows:
+        return applied
+    if not settings.TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED:
+        # Przepięcia mają WŁASNY wyłącznik (domyślnie włączony) — reszta
+        # skutków zostaje za `TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED`.
+        if settings.TRAFFIT_IMPORT_REASSIGN_ENABLED and inserted_rows:
+            applied["reassigned"] = await _reassign_imported(db, inserted_rows)
+            try:
+                await db.commit()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("import reassign commit failed: %s", exc)
+                await db.rollback()
+                applied["reassigned"] = 0
         return applied
 
     candidate_ids = sorted({int(r["candidate_id"]) for r in rows})
@@ -125,6 +200,10 @@ async def apply_imported_stage_side_effects(
                     row["job_id"],
                     exc,
                 )
+
+    # 3. Przepięcia podobnych rekrutacji (REC-01).
+    if settings.TRAFFIT_IMPORT_REASSIGN_ENABLED and inserted_rows:
+        applied["reassigned"] = await _reassign_imported(db, inserted_rows)
 
     try:
         await db.commit()

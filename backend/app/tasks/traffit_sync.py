@@ -893,6 +893,8 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         # i opiekunowie uzupełnieni z /recruitments/{id}.
         "job_events",
         "owners_filled",
+        # Audyt 22.09 r2 (REC-01): przepięcia z etapów wstawionych przez import.
+        "reassigned",
         "drifted_entities",
         "drift",
         "total_source",

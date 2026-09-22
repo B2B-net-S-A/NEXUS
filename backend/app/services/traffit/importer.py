@@ -311,6 +311,9 @@ class PhaseProgress:
     # oraz opiekunowie uzupełnieni z /recruitments/{id}.
     job_events: int = 0
     owners_filled: int = 0
+    # Audyt 22.09 r2 (REC-01): propozycje przepięcia do połączonych rekrutacji
+    # zapisane dla etapów wstawionych przez import.
+    reassigned: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -362,6 +365,7 @@ class PhaseProgress:
             "skipped_before_since": self.skipped_before_since,
             "job_events": self.job_events,
             "owners_filled": self.owners_filled,
+            "reassigned": self.reassigned,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -4111,9 +4115,14 @@ class TraffitImporter:
         # awaria bazy przechodzą tędy. Pilnuje tego
         # `test_the_hook_can_raise_so_the_callers_guard_is_not_dead`.
         try:
-            await apply_imported_stage_side_effects(
-                self.db, rows=[payload for payload, _, _ in pending_rows]
+            applied = await apply_imported_stage_side_effects(
+                self.db,
+                rows=[payload for payload, _, _ in pending_rows],
+                inserted_rows=[
+                    payload for payload, _, was_insert in pending_rows if was_insert
+                ],
             )
+            progress.reassigned += int((applied or {}).get("reassigned") or 0)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Imported-stage side effects failed: %r", exc)
             try:
