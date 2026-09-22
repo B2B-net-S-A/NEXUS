@@ -25,7 +25,6 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.call import Call, CallDirection, CallStatus
 from app.services.cloudtalk import timestamp_is_fresh, verify_signature
-from app.services.dedup_service import _normalize_phone
 
 router = APIRouter()
 
@@ -402,44 +401,35 @@ async def _process_cloudtalk_payload(
     from app.models.candidate import Candidate
 
     candidate: Optional[Candidate] = None
-    ambiguous_match = False
-    last9 = _normalize_phone(phone)
-    if last9:
-        normalized_col = func.right(
-            func.regexp_replace(Candidate.phone, r"[^\d]", "", "g"), 9
+    # INT-01: ten sam resolver co backfill (`tasks/cloudtalk_sync.py`).
+    from app.services.cloudtalk_candidate import match_call_candidate
+
+    match = await match_call_candidate(db, phone)
+    ambiguous_match = match.ambiguous
+    last9 = match.last9
+    if ambiguous_match:
+        # F-12: two or more candidates share the same trailing-9 phone
+        # digits. Do NOT guess — auto-picking one would drop one person's
+        # recording/transcript onto an arbitrary other candidate's profile.
+        # Leave the call UNASSIGNED (candidate_id NULL) so an operator can
+        # attribute it manually. The Call row is still upserted below so the
+        # event isn't lost, and candidate-dependent enrichment is skipped.
+        logger.warning(
+            "CloudTalk webhook: phone last-9=%s matched several candidates "
+            "(ct_id=%s, first candidate_ids=%s) — leaving call UNASSIGNED for "
+            "manual attribution (no auto-pick)",
+            last9,
+            ct_id,
+            list(match.candidate_ids),
         )
-        phone_match = (Candidate.phone.isnot(None)) & (normalized_col == last9)
-        matched_ids = (
-            await db.scalars(
-                select(Candidate.id).where(phone_match).order_by(Candidate.id)
-            )
-        ).all()
-        if len(matched_ids) > 1:
-            # F-12: two or more candidates share the same trailing-9 phone
-            # digits. Do NOT guess — auto-picking one (e.g. the newest id) would
-            # drop one person's recording/transcript onto an arbitrary other
-            # candidate's profile (privacy + data-integrity leak). Leave the call
-            # UNASSIGNED (candidate stays None → candidate_id NULL) so an operator
-            # can attribute it manually. The Call row is still upserted below so
-            # the event isn't lost, and candidate-dependent enrichment is skipped.
-            ambiguous_match = True
-            logger.warning(
-                "CloudTalk webhook: phone last-9=%s matched %d candidates "
-                "(ct_id=%s, candidate_ids=%s) — leaving call UNASSIGNED for "
-                "manual attribution (no auto-pick)",
-                last9,
-                len(matched_ids),
-                ct_id,
-                list(matched_ids),
-            )
-        elif matched_ids:
-            candidate = await db.get(Candidate, matched_ids[0])
-        else:
-            logger.info(
-                "CloudTalk webhook: no candidate match for phone last-9=%s (ct_id=%s)",
-                last9,
-                ct_id,
-            )
+    elif match.candidate_id is not None:
+        candidate = await db.get(Candidate, match.candidate_id)
+    elif last9:
+        logger.info(
+            "CloudTalk webhook: no candidate match for phone last-9=%s (ct_id=%s)",
+            last9,
+            ct_id,
+        )
 
     from app.models.user import User
 

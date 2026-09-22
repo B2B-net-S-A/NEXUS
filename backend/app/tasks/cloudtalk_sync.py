@@ -6,8 +6,8 @@ otherwise — the kill-switch keeps the background task harmless until the
 admin provisions credentials and flips the flag.
 
 Responsibilities:
-1. Fetch call history from ``GET /calls/index.json`` for the window
-   ``[max(MAX(calls.started_at), now() - BACKFILL_DAYS) → now()]``.
+1. Fetch call history from ``GET /calls/index.json`` for the FULL window
+   ``[now() - BACKFILL_DAYS → now()]`` (INT-03 — idempotent upsert).
 2. Upsert each call by ``cloudtalk_call_id``. New rows get the same
    defensive parsing as the webhook handler; existing rows only receive
    transcript / summary / recording_url updates (first-event wins for
@@ -26,15 +26,14 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.call import Call, CallDirection, CallStatus
-from app.models.candidate import Candidate
 from app.models.user import User
 from app.services.cloudtalk import CloudTalkClient, CloudTalkConfig, CloudTalkError
-from app.services.dedup_service import _normalize_phone
+from app.services.cloudtalk_candidate import match_call_candidate
 
 logger = logging.getLogger(__name__)
 
@@ -82,18 +81,10 @@ async def _resolve_user_id(db, agent_id: Optional[int]) -> Optional[int]:
     return await db.scalar(select(User.id).where(User.cloudtalk_agent_id == agent_id))
 
 
-async def _resolve_candidate_id(db, phone: str) -> Optional[int]:
-    last9 = _normalize_phone(phone)
-    if not last9:
-        return None
-    normalized_col = func.right(
-        func.regexp_replace(Candidate.phone, r"[^\d]", "", "g"), 9
-    )
-    return await db.scalar(
-        select(Candidate.id)
-        .where(Candidate.phone.isnot(None))
-        .where(normalized_col == last9)
-        .limit(1)
+def backfill_window_start(now: Optional[datetime] = None) -> datetime:
+    now = now or datetime.now(timezone.utc)
+    return now - timedelta(
+        days=max(1, int(settings.CLOUDTALK_HISTORICAL_BACKFILL_DAYS))
     )
 
 
@@ -110,10 +101,15 @@ async def _upsert_call(db, raw: dict) -> int:
         raw.get("phone") or raw.get("external_number") or raw.get("caller_number") or ""
     ).strip()
 
-    candidate_id = await _resolve_candidate_id(db, phone) if phone else None
-    if candidate_id is None:
-        # Phone didn't match — skip to avoid orphaned rows. Webhook
-        # behavior is the same (returns ok with candidate_matched=false).
+    # INT-01: ten sam resolver co webhook. Dokładnie jedno trafienie →
+    # kandydat; kilka → rozmowa zapisana BEZ kandydata (do ręcznego
+    # przypisania, jak F-12 w webhooku); zero → pomijamy nowy wiersz, ale
+    # istniejący (np. z webhooka) nadal dostaje brakujące pola.
+    match = await match_call_candidate(db, phone) if phone else None
+    candidate_id = match.candidate_id if match is not None else None
+    ambiguous = bool(match is not None and match.ambiguous)
+    existing = await db.scalar(select(Call).where(Call.cloudtalk_call_id == ct_id))
+    if existing is None and candidate_id is None and not ambiguous:
         return 0
 
     agent_raw = raw.get("agent")
@@ -147,8 +143,6 @@ async def _upsert_call(db, raw: dict) -> int:
     started_at = _parse_dt(raw.get("started_at") or raw.get("created_at"))
     user_id = await _resolve_user_id(db, agent_id)
 
-    existing = await db.scalar(select(Call).where(Call.cloudtalk_call_id == ct_id))
-
     if existing is None:
         db.add(
             Call(
@@ -169,6 +163,13 @@ async def _upsert_call(db, raw: dict) -> int:
 
     # UPDATE — only backfill nullable fields that webhook may have missed.
     changed = False
+    # INT-02: status idzie tylko do przodu. `initiated` to zaślepka wyjścia
+    # z NEXUSA sprzed zakończenia rozmowy — gdy webhook call-ended nie
+    # dotarł, backfill jest jedynym źródłem statusu końcowego. Status już
+    # końcowy zostaje (pierwsze zdarzenie wygrywa, jak dotąd).
+    if existing.status == CallStatus.initiated and status != CallStatus.initiated:
+        existing.status = status
+        changed = True
     if transcript and not existing.transcript:
         existing.transcript = transcript
         changed = True
@@ -195,15 +196,11 @@ async def _upsert_call(db, raw: dict) -> int:
 
 async def _run_sync_window() -> dict:
     """One sync iteration. Returns counters for logging."""
-    async with AsyncSessionLocal() as db:
-        latest_started = await db.scalar(
-            select(func.max(Call.started_at)).where(Call.started_at.isnot(None))
-        )
-
-    backfill_floor = datetime.now(timezone.utc) - timedelta(
-        days=max(1, int(settings.CLOUDTALK_HISTORICAL_BACKFILL_DAYS))
-    )
-    since = max(latest_started or backfill_floor, backfill_floor)
+    # INT-03: zawsze PEŁNE okno backfillu. Okno od `max(started_at)` gubiło
+    # na zawsze każdą rozmowę, która doszła do CloudTalka później niż nowsza
+    # (transkrypt dosłany po godzinach, rozmowa bez dopasowanego kandydata
+    # dodanego dzień później). Upsert po `cloudtalk_call_id` jest idempotentny.
+    since = backfill_window_start()
     since_iso = since.strftime("%Y-%m-%d %H:%M:%S")
     until_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
