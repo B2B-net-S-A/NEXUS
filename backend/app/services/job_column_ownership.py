@@ -76,6 +76,9 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "managed_in_nexus",
         "managed_in_nexus_at",
         "managed_in_nexus_by",
+        # 0341: „Mamy championa" — decyzja Delivery Leada w NEXUSIE.
+        "champion_found_at",
+        "champion_found_by",
         "needs_sourcing",
         "favorite_sourcing_paused",
         "description",
