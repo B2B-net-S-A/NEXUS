@@ -4967,6 +4967,14 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS orders_in_md "
     "BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE contracts ALTER COLUMN billing_hours_per_month SET DEFAULT 168",
+    # 0346 (audyt 22.09, druga runda): snapshot CV etapu jako wskaźnik do
+    # object storage (PROD-02) i pamięć przypięcia przy uśpieniu (CAND-07).
+    "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS "
+    "original_cv_storage_key VARCHAR(512) NULL",
+    "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS "
+    "original_cv_sha256 VARCHAR(64) NULL",
+    "ALTER TABLE my_people_overrides ADD COLUMN IF NOT EXISTS "
+    "restore_kind VARCHAR(16) NULL",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -7246,12 +7254,31 @@ _CONSTRAINT_STATEMENTS = [
     END $$""",
     "ALTER TABLE md_consumption_import_rows "
     "DROP CONSTRAINT IF EXISTS ck_md_import_rows_cost_status",
+    # 0346: 'non_positive_amount' — korekta faktury / kwota ≤ 0 (FIN-MD-06).
     """DO $$ BEGIN
         ALTER TABLE md_consumption_import_rows
             ADD CONSTRAINT ck_md_import_rows_cost_status
             CHECK (cost_status IS NULL OR cost_status IN (
-                'applied', 'unmatched_number', 'unmatched_consultant'
+                'applied', 'unmatched_number', 'unmatched_consultant',
+                'non_positive_amount'
             )) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0346: 'cost_only' — wiersz arkusza z samą fakturą, bez liczby MD.
+    "ALTER TABLE md_consumption_import_rows "
+    "DROP CONSTRAINT IF EXISTS ck_md_import_rows_status",
+    """DO $$ BEGIN
+        ALTER TABLE md_consumption_import_rows
+            ADD CONSTRAINT ck_md_import_rows_status
+            CHECK (status IN (
+                'applied', 'needs_assignment', 'unmatched', 'cost_only'
+            )) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE my_people_overrides "
+    "DROP CONSTRAINT IF EXISTS ck_my_people_overrides_restore_kind",
+    """DO $$ BEGIN
+        ALTER TABLE my_people_overrides
+            ADD CONSTRAINT ck_my_people_overrides_restore_kind
+            CHECK (restore_kind IS NULL OR restore_kind IN ('pinned'));
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE finance_monthly_results DROP CONSTRAINT IF EXISTS ck_finance_monthly_results_row_number",
     """DO $$ BEGIN

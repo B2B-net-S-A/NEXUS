@@ -45,10 +45,14 @@ _PERIOD_MONTH_CHECK = "period_month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'"
 IMPORT_ROW_APPLIED = "applied"
 IMPORT_ROW_NEEDS_ASSIGNMENT = "needs_assignment"
 IMPORT_ROW_UNMATCHED = "unmatched"
+# FIN-MD-06 (0346): wiersz z samą fakturą (numer + kwota, bez liczby MD) —
+# rozlicza wyłącznie pulę kosztową.
+IMPORT_ROW_COST_ONLY = "cost_only"
 IMPORT_ROW_STATUSES: tuple[str, ...] = (
     IMPORT_ROW_APPLIED,
     IMPORT_ROW_NEEDS_ASSIGNMENT,
     IMPORT_ROW_UNMATCHED,
+    IMPORT_ROW_COST_ONLY,
 )
 
 IMPORT_ROW_STATUS_LABELS: dict[str, str] = {
@@ -59,6 +63,7 @@ IMPORT_ROW_STATUS_LABELS: dict[str, str] = {
     # miesiąc (`client_order_lines.line_settles_in_month`). Stara etykieta
     # wysyłała operatora po odblokowanie statusu, którego nikt już nie pyta.
     IMPORT_ROW_UNMATCHED: "Brak pasującego zamówienia",
+    IMPORT_ROW_COST_ONLY: "Tylko faktura (bez MD)",
 }
 
 CONSUMPTION_SOURCE_IMPORT = "import"
@@ -70,16 +75,20 @@ CONSUMPTION_SOURCE_MANUAL = "manual"
 COST_ROW_APPLIED = "applied"
 COST_ROW_UNMATCHED_NUMBER = "unmatched_number"
 COST_ROW_UNMATCHED_CONSULTANT = "unmatched_consultant"
+# FIN-MD-06 (0346): korekta faktury / kwota ≤ 0 — nie znika po cichu.
+COST_ROW_NON_POSITIVE = "non_positive_amount"
 COST_ROW_STATUSES: tuple[str, ...] = (
     COST_ROW_APPLIED,
     COST_ROW_UNMATCHED_NUMBER,
     COST_ROW_UNMATCHED_CONSULTANT,
+    COST_ROW_NON_POSITIVE,
 )
 
 COST_ROW_STATUS_LABELS: dict[str, str] = {
     COST_ROW_APPLIED: "Rozliczono",
     COST_ROW_UNMATCHED_NUMBER: "Brak zamówienia o tym numerze",
     COST_ROW_UNMATCHED_CONSULTANT: "Numer się zgadza, konsultant nie",
+    COST_ROW_NON_POSITIVE: "Korekta / kwota ≤ 0 — rozlicz ręcznie",
 }
 
 
@@ -146,12 +155,13 @@ class MdConsumptionImportRow(Base):
     __tablename__ = "md_consumption_import_rows"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('applied', 'needs_assignment', 'unmatched')",
+            "status IN ('applied', 'needs_assignment', 'unmatched', 'cost_only')",
             name="ck_md_import_rows_status",
         ),
         CheckConstraint(
             "cost_status IS NULL OR cost_status IN "
-            "('applied', 'unmatched_number', 'unmatched_consultant')",
+            "('applied', 'unmatched_number', 'unmatched_consultant', "
+            "'non_positive_amount')",
             name="ck_md_import_rows_cost_status",
         ),
         Index("ix_md_import_rows_import", "import_id"),

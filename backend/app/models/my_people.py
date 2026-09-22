@@ -53,6 +53,10 @@ class MyPeopleOverride(Base):
             "kind <> 'snoozed' OR reason IS NOT NULL",
             name="ck_my_people_overrides_snooze_reason",
         ),
+        CheckConstraint(
+            "restore_kind IS NULL OR restore_kind IN ('pinned')",
+            name="ck_my_people_overrides_restore_kind",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -65,6 +69,9 @@ class MyPeopleOverride(Base):
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     reason: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # CAND-07: uśpienie przypiętej osoby pamięta przypięcie; „Przywróć” wraca
+    # do niego zamiast kasować wiersz.
+    restore_kind: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
