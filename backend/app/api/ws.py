@@ -400,6 +400,9 @@ def _ws_payload_authorizes_user(payload: dict, user: User) -> bool:
         user.is_active
         and not token_is_revoked(payload, user.tokens_valid_after)
         and token_authorization_version_matches(payload, user.authorization_version)
+        # audyt 22.09 r2 (FIX-09): token z hasła tymczasowego (``fpc``) nie
+        # wykonuje operacji biznesowych po HTTP — nie dostaje też powiadomień.
+        and not payload.get("fpc")
     )
 
 

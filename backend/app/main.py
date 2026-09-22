@@ -585,6 +585,10 @@ async def lifespan(app: FastAPI):
     _migration_failure = startup_failure_message(read_startup_status())
     if _migration_failure:
         logger.error(_migration_failure)
+    # audyt 22.09 r2 (SEC-02): klucz z historii gita — tylko głośny log.
+    from app.core.config import log_if_secret_key_leaked
+
+    log_if_secret_key_leaked(settings.SECRET_KEY)
     try:
         # Rozgrzanie cache grafu rewizji: pierwszy odczyt parsuje wszystkie
         # pliki migracji, a /api/health liczy go pod 2-sekundowym timeoutem.

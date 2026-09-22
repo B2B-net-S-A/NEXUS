@@ -45,6 +45,7 @@ from app.services.cv_generator_b2b.public_view import (
     build_public_payload,
     public_payload_text,
 )
+from app.services.prompt_fencing import json_for_prompt
 from app.services.llm_prompts import CV_REQUIREMENT_MAP
 from app.services.ai_models import model_for
 
@@ -435,8 +436,8 @@ async def generate_map_result(
     from app.services.claude_client import call_claude
 
     prompt = CV_REQUIREMENT_MAP.render(
-        cv_json=json.dumps(public_payload, ensure_ascii=False),
-        requirements_json=json.dumps(requirements, ensure_ascii=False),
+        cv_json=json_for_prompt(public_payload),
+        requirements_json=json_for_prompt(requirements),
         language_label=(
             "angielski" if public_payload["language"] == "en" else "polski"
         ),

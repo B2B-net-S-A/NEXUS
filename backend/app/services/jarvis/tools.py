@@ -70,6 +70,10 @@ class JarvisTool:
     # Zdanie na karcie akcji (tylko ``write``) — budowane z args po stronie
     # serwera, nie przez model.
     preview: Optional[Callable[[dict[str, Any]], str]] = field(default=None, repr=False)
+    # Pełna treść pokazywana POD zdaniem karty jako zwykły tekst (audyt 22.09
+    # r2, SEC-07): zdanie przycina treść do 160 znaków, a „Zrób to" zapisuje
+    # całość — człowiek musi widzieć dokładnie to, co zatwierdza.
+    detail: Optional[Callable[[dict[str, Any]], str]] = field(default=None, repr=False)
     # Komunikat po udanym wykonaniu akcji (tylko ``write``).
     done: str = "Gotowe."
 
@@ -1165,6 +1169,7 @@ WRITE_TOOLS: tuple[JarvisTool, ...] = (
         ),
         shape=pick_list(("id", "candidate_id", "job_id", "created_at")),
         preview=lambda a: f"Dodam notatkę do {_who(a)}: „{_short(a.get('content'))}”",
+        detail=lambda a: str(a.get("content") or "")[:4000],
     ),
     JarvisTool(
         name="move_candidate_stage",

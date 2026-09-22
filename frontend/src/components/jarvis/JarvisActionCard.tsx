@@ -42,6 +42,16 @@ export function JarvisActionCard({ action, busy = false, disabled = false, onCon
         {pending ? "Do zatwierdzenia" : "Akcja"}
       </div>
       <JarvisMarkdown>{action.preview.text}</JarvisMarkdown>
+      {action.preview.body && (
+        // Pełna treść zapisu, dokładnie ta, którą „Zrób to” zapisze — jako
+        // zwykły tekst (NIE markdown: to treść pochodząca od modelu).
+        <pre
+          className="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 px-2 py-1.5 font-sans text-xs text-foreground"
+          data-testid="jarvis-action-body"
+        >
+          {action.preview.body}
+        </pre>
+      )}
       {action.preview.warning && pending && (
         <p className="mt-2 flex items-start gap-1.5 rounded-md bg-warning-muted px-2 py-1.5 text-xs text-warning-muted-foreground">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />

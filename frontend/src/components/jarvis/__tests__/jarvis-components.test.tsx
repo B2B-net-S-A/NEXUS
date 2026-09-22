@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { JarvisActionCard } from "../JarvisActionCard";
-import { JarvisMarkdown } from "../JarvisMarkdown";
+import { JarvisMarkdown, isInternalHref } from "../JarvisMarkdown";
 import { JarvisPanel, type JarvisPanelProps } from "../JarvisPanel";
 
 vi.mock("next/link", () => ({
@@ -25,6 +25,18 @@ describe("Markdown Jarvisa", () => {
     );
     const hrefs = [...container.querySelectorAll("a")].map((a) => a.getAttribute("href"));
     expect(hrefs).toEqual(["/candidates/12"]);
+  });
+
+  it("nie linkuje `/\\evil` — backslash przeglądarka czyta jak ukośnik (AI-01)", () => {
+    expect(isInternalHref("/\\evil.example/x")).toBe(false);
+    expect(isInternalHref("/\\/evil.example")).toBe(false);
+    expect(isInternalHref("/jobs/5")).toBe(true);
+    const { container } = render(
+      <JarvisMarkdown>{"[zły](/\\evil.example/x) i [ok](/jobs/5)"}</JarvisMarkdown>,
+    );
+    for (const a of container.querySelectorAll("a")) {
+      expect(a.getAttribute("href")).not.toMatch(/^\/\\/);
+    }
   });
 });
 
@@ -81,6 +93,21 @@ function panelProps(overrides: Partial<JarvisPanelProps> = {}): JarvisPanelProps
     ...overrides,
   };
 }
+
+describe("karta akcji — pełna treść (SEC-07)", () => {
+  it("pokazuje całą treść notatki jako zwykły tekst", () => {
+    const body = "Linia 1\n**nie pogrubiaj** " + "x".repeat(500) + " KONIEC";
+    render(
+      <JarvisActionCard
+        action={{ id: "a2", tool: "create_note", status: "proposed", preview: { text: "Dodam notatkę", body } }}
+      />,
+    );
+    const pre = screen.getByTestId("jarvis-action-body");
+    expect(pre.tagName).toBe("PRE");
+    expect(pre.textContent).toBe(body);
+    expect(pre.querySelector("strong")).toBeNull();
+  });
+});
 
 describe("panel", () => {
   it("Enter wysyła, Shift+Enter nie", () => {
