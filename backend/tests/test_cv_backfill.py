@@ -63,6 +63,9 @@ def _recording_gate(entered: list, *, refuse: AIQuotaExceeded | None = None):
 def _claude_step_unavailable_by_default(monkeypatch):
     """Testy nie zależą od klucza API w środowisku uruchomienia."""
     monkeypatch.setattr(cv_backfill.settings, "ANTHROPIC_API_KEY", None)
+    # F10 = GPT-6 Luna (22.09.2026): krok modelu pyta o klucz DOSTAWCY.
+    monkeypatch.setattr(cv_backfill.settings, "OPENAI_API_KEY", "")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
 
 def _ph_candidate(**kw) -> Candidate:
@@ -270,6 +273,7 @@ def test_parse_cv_accepts_the_model_the_name_backfill_passes():
 
 def _claude_step_available(monkeypatch):
     monkeypatch.setattr(cv_backfill.settings, "ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(cv_backfill.settings, "OPENAI_API_KEY", "test-key")
     monkeypatch.setattr(cv_backfill.settings, "CV_ENRICHMENT_ENABLED", True)
 
 

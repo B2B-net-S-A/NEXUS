@@ -5314,12 +5314,12 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
 | ID | funkcja | model | ID | funkcja | model |
 |---|---|---|---|---|---|
 | F1 | scoring | Sonnet 5 | F9 | cv_parser | Sonnet 5 |
-| F2 | champion_profile_parse | Sonnet 5 (z Haiku) | F10 | cv_backfill, cv_name_backfill | Sonnet 5 (z Haiku) |
+| F2 | champion_profile_parse | Sonnet 5 (z Haiku) | F10 | cv_backfill, cv_name_backfill | **GPT-6 Luna** (z Sonnet 5, od 22.09) |
 | F3 | cv_requirement_map | Sonnet 5 | F11 | notes_extraction | DeepSeek V4 Pro (z Haiku) |
-| F4 | cv_generator | Sonnet 5 (z 4.6) | F12 | candidate_summary | DeepSeek V4 Pro |
-| F5 | cv_interactive_chat | GPT-6 Luna (z Sonnet 5) | F13 | champion_draft | Sonnet 5 |
+| F4 | cv_generator | Sonnet 5 (z 4.6) | F12 | candidate_summary | **GPT-6 Luna** (z Sonnet 5, od 22.09) |
+| F5 | cv_interactive_chat | GPT-6 Luna (z Sonnet 5) | F13 | champion_draft | **GPT-6 Luna** (z Sonnet 5, od 22.09) |
 | F6 | job_description_generator | Sonnet 5 | F14 | cv_rule_lint | Sonnet 5 (z Haiku) |
-| F7 | order_parser | **Sonnet 5** (od 21.09) | F15 | mindy_chat | GPT-6 Luna |
+| F7 | order_parser | **GPT-6 Luna** (z Sonnet 5, od 22.09) | F15 | mindy_chat | GPT-6 Luna |
 | F8 | uop_check | GPT-6 Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
 | F18 | cv_factual_verification | GPT-6 Luna (z Sonnet 5) | | | |
 
@@ -5329,11 +5329,26 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
   0,10/0,50 USD za 1M zamiast 0,20/1,20. Powrót bez deployu: env funkcji
   (np. `UOP_CHECK_MODEL=gpt-5.6-luna`). Przeniesienie na Lunę KOLEJNEJ funkcji
   wymaga pomiaru jak w badaniu — nie samej zmiany wersji.
+- **Pomiar GPT-6 Luna 22.09.2026** (harness `/root/nexus-model-eval`, te same
+  przypadki co 16.09, 14 zadań, 0,79 USD) przeniósł na Lunę 6 decyzją Artura:
+  F7 zamówienia (błędy krytyczne 3,9% vs 4,7% Sonneta, 0 cichych), F12
+  podsumowanie aktywności (96,7% poprawnych jak DeepSeek, bez wysyłki poza EOG),
+  F13 szkic Championa (remis) i F10 masowe uzupełnianie pól/nazwisk z CV
+  (0,07 vs 0,08 wymyślonej technologii na CV). **Parser CV (F9) zostaje na
+  Sonnecie**: na tym samym prompcie v7 Luna 6 wymyśla 0,62 technologii na CV,
+  Sonnet 0,17 (różnica istotna). Porównując modele po zmianie promptu,
+  licz OBA na bieżącym prompcie — stare wyniki mieszają efekt modelu i promptu.
+  F10 nie czyta już `CLAUDE_MODEL_CV`/`CLAUDE_MODEL_CV_BULK` (te zostają przy
+  parserze, lincie i datach doświadczenia); zapas przy przeciążeniu OpenAI to
+  model parsera CV (`_parse_with_claude`), zamówienia/Champion/podsumowanie
+  przekazują `fallbacks_for(...)` jawnie. Harness przechwytuje od 22.09 także
+  `llm_providers.chat_complete` — bez tego bieg modelu OpenAI szedł na model
+  produkcji.
 - **OpenAI od GPT-5.6 liczy ZAPIS do cache (1,25× wejścia)** i zgłasza go
   w `prompt_tokens_details.cache_write_tokens`; `parse_response` odejmuje go
   od wejścia, a `_PRICES` dla OpenAI to czwórka (wejście, wyjście, odczyt,
   zapis). Do 22.09 zapis był wyceniany jak zwykłe wejście.
-- **F7 wrócił na Sonneta 5 (decyzja Artura, 21.09.2026).** GPT Luna czytała
+- **F7 był na Sonnecie 5 od 21.09 do 22.09.2026** (powrót z GPT-5.6 Luna; od 22.09 GPT-6 Luna — obserwuj kolejkę Nordei). GPT-5.6 Luna czytała
   zamówienia poprawnie, ale oznaczała odczyt jako `uncertain` bez konkretnego
   powodu („oznaczony przez model jako niepewny", echo instrukcji promptu), a
   bramka poczty traktuje każdą niepewność jako powód do kolejki — Nordea po
