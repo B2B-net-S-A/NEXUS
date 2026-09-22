@@ -1081,9 +1081,11 @@ export function PipelineCandidateDock({
         </DockSection>
       </div>
 
-      {/* Notatka zawsze pod ręką — bez przechodzenia do sekcji „Notatki". */}
+      {/* Notatka zawsze pod ręką — bez przechodzenia do sekcji „Notatki".
+          Prawy margines zostawia róg maskotce Jarvisa (fixed, 64 px + 20 px
+          odstępu) — bez niego zasłaniała przycisk wysyłania notatki. */}
       {!readOnly && (
-        <div className="flex items-end gap-1.5 border-t border-border bg-muted/10 p-3">
+        <div className="flex items-end gap-1.5 border-t border-border bg-muted/10 p-3 pr-[5.75rem]">
           <textarea
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}

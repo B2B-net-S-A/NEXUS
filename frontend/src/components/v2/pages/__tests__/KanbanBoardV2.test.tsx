@@ -1339,7 +1339,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     await screen.findByTestId("pipeline-board");
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Kolumny: ukryj puste" }),
+      screen.getByRole("button", { name: "Ukryj puste kolumny" }),
     );
 
     expect(container.querySelectorAll("[data-collapsed-group]")).toHaveLength(0);

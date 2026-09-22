@@ -1292,6 +1292,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Kolumny SZABLONU — wszystko, co wybiera cel ruchu albo mierzy pipeline,
  // musi iść po tej liście, nie po `cols` (w `cols` siedzi też kubełek).
  const stageCols = useMemo(() => cols.filter((c) => !isOffTemplate(c)), [cols]);
+ // Osoby już na tablicy — „Do przejrzenia" nie proponuje ich drugi raz.
+ const boardCandidateIds = useMemo(
+ () => cols.flatMap((c) => c.items.map((i) => i.candidate_id)),
+ [cols]
+ );
  const [focusedColId, setFocusedColId] = useState<string | null>(() =>
  defaultFocusColumnId(columns)
  );
@@ -1939,7 +1944,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // indeksów do zepsucia, a `onDragEnd`/`bulkMove`/`stageCols` i tak liczą po
  // PEŁNYM `cols`, więc ukrycie jej z widoku nie rusza celów ruchu.
  const visibleCols = useMemo(
- () => (hideEmptyColumns ? cols.filter((c) => c.count > 0) : cols),
+ // Kolumna etapu „Ogłoszenia" niesie „Do przejrzenia" (propozycje z bazy
+ // i przepięcia spoza kanbana), więc nie znika, gdy jej karty są puste.
+ () =>
+ hideEmptyColumns
+ ? cols.filter((c) => c.count > 0 || c.stage === "posting")
+ : cols,
  [cols, hideEmptyColumns]
  );
 
@@ -2221,8 +2231,26 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}
  style={columnHeight != null ? { height: columnHeight } : undefined}
  >
+ {/* „Do przejrzenia" zawsze stoi pierwsza — także gdy szablon nie ma
+ etapu „Ogłoszenia" albo jego pusta kolumna jest ukryta. */}
+ {!boardEntries.some(
+ (e) => e.kind === "column" && e.col.stage === "posting",
+ ) && (
+ <div className="flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-dashed border-primary/40 bg-background/60 sm:min-w-[19rem] xl:pointer-fine:min-w-[12.5rem]">
+ <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+ <h3 className="flex-1 truncate text-sm font-medium text-foreground">Do przejrzenia</h3>
+ </div>
+ <BoardReviewSection
+ jobId={jobId}
+ readOnly={readOnly}
+ showPostingHeading={false}
+ pipelineCandidateIds={boardCandidateIds}
+ budgetHourly={jobBudgetHourlyValue ?? null}
+ />
+ </div>
+ )}
  {boardEntries.length === 0 ? (
- <div className="w-full py-12 text-center text-sm text-muted-foreground">
+ <div className="flex-1 py-12 text-center text-sm text-muted-foreground">
  <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-40" />
  {cols.length === 0 ? (
  "Brak kolumn w tej kategorii."
@@ -2241,18 +2269,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </div>
  ) : (
  <>
- {/* „Do przejrzenia" zawsze stoi pierwsza — także gdy szablon nie ma
- etapu „Ogłoszenia" albo jego pusta kolumna jest ukryta. */}
- {!boardEntries.some(
- (e) => e.kind === "column" && e.col.stage === "posting",
- ) && (
- <div className="flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-dashed border-primary/40 bg-background/60 sm:min-w-[19rem] xl:pointer-fine:min-w-[12.5rem]">
- <div className="flex items-center gap-2 border-b border-border px-3 py-2">
- <h3 className="flex-1 truncate text-sm font-medium text-foreground">Do przejrzenia</h3>
- </div>
- <BoardReviewSection jobId={jobId} readOnly={readOnly} showPostingHeading={false} />
- </div>
- )}
  {boardEntries.map((entry) =>
  entry.kind === "collapsed" ? (
  <CollapsedGroupColumn
@@ -2290,7 +2306,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  {...(entry.col.stage === "posting"
  ? {
  titleOverride: "Do przejrzenia",
- prepend: <BoardReviewSection jobId={jobId} readOnly={readOnly} />,
+ prepend: (
+ <BoardReviewSection
+ jobId={jobId}
+ readOnly={readOnly}
+ pipelineCandidateIds={boardCandidateIds}
+ budgetHourly={jobBudgetHourlyValue ?? null}
+ />
+ ),
  }
  : {})}
  />

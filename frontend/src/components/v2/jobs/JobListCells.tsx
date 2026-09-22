@@ -7,6 +7,7 @@
  * Osobny plik, bo `JobsListV2.tsx` jest już długi, a te trzy elementy mają
  * własną logikę tonu i odmiany — testowalną bez montowania całej listy.
  */
+import { countPl } from "@/lib/plural-pl";
 import Link from "next/link";
 import type { MouseEvent } from "react";
 
@@ -279,10 +280,10 @@ export function SimilarJobsCell({
       title="System znalazł podobne rekrutacje z osobami wysłanymi do klienta"
     >
       <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-primary/40 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
-        ≈ {suggested.count} {suggested.count === 1 ? "podobna" : "podobne"}
+        ≈ {countPl(suggested.count, "podobna", "podobne", "podobnych")}
       </span>
       <span className="mt-0.5 block text-[11px] text-muted-foreground">
-        {suggested.sent_count} wysłanych ·{" "}
+        {suggested.sent_count} u klienta ·{" "}
         <span className="font-semibold text-primary">Przepnij →</span>
       </span>
     </button>

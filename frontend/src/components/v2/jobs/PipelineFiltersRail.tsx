@@ -192,7 +192,7 @@ export function PipelineFilterBar({
         )}
       >
         <LayoutGrid className="h-3 w-3" />
-        Kolumny: {hideEmptyColumns ? "pokaż puste" : "ukryj puste"}
+        Ukryj puste kolumny
       </button>
       {/* SLA klienta — z karty klienta; brak mówimy wprost, bo cisza
           czytałaby się jak „zdążamy". */}

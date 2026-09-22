@@ -1,5 +1,6 @@
 "use client";
 
+import { pluralPl } from "@/lib/plural-pl";
 import { useEffect, useMemo, useState } from "react";
 import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import {
@@ -1570,7 +1571,7 @@ export function JobsListV2() {
               return withSuggestions > 0 ? (
                 <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-dashed border-primary/40 px-2 py-1 text-xs font-medium text-primary">
                   ≈ {withSuggestions}{" "}
-                  {withSuggestions === 1 ? "rekrutacja ma" : "rekrutacje mają"} podobne
+                  {pluralPl(withSuggestions, "rekrutacja ma", "rekrutacje mają", "rekrutacji ma")} podobne
                   z osobami u klienta — przepnij je
                 </span>
               ) : null;
