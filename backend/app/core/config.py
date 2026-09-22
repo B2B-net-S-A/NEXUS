@@ -1475,6 +1475,12 @@ class Settings(BaseSettings):
     # Sufit kandydatów na bieg (~$0,002/kandydata na Haiku). Ogranicza koszt
     # pojedynczego dnia; zaległość zbiega w kolejnych dobach.
     NOTES_INSIGHTS_SYNC_BATCH_LIMIT: int = 300
+    # Dodatkowy sufit na bieg: kandydaci, których notatki się NIE zmieniły, ale
+    # ich fakty policzono starszą wersją promptu (np. przed dodaniem trybu
+    # pracy, 22.09.2026). Idą po zmienionych, więc nowe notatki zawsze mają
+    # pierwszeństwo. ~16 tys. wierszy przy 700/dobę = ok. 3 tygodnie,
+    # ~0,004 USD/kandydata na DeepSeek. 0 = nie doganiaj starych wersji.
+    NOTES_INSIGHTS_SYNC_UPGRADE_LIMIT: int = 700
 
     # ── Weekly eval guard (strażnik jakości matchingu) ──────────────────────
     # Cotygodniowy pomiar harnessem na zamrożonych 50 ofertach + alert regresu

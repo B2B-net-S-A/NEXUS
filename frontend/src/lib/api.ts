@@ -6,6 +6,7 @@ import { apiSupportsCorrelation, probeTelemetryCapability } from "./telemetry-ca
 
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, getAccessToken } from "./session";
+import type { WorkMode } from "./work-mode";
 import type {
   RoleActionPermissionChange,
   RoleSectionPermissionChange,
@@ -826,7 +827,112 @@ export const candidateFactsApi = {
         { params: { limit: Math.min(5, Math.max(1, limit)) } },
       )
       .then((response) => response.data),
+  /** Fakty z notatek rekruterów obok stanu profilu (czysty odczyt). */
+  getNotesFacts: (candidateId: number) =>
+    api
+      .get<CandidateNotesFacts>(`/api/candidates/${candidateId}/notes-facts`)
+      .then((response) => response.data),
+  /** Zapisz w profilu JEDNO pole z notatek — wartość wylicza serwer. */
+  applyNotesFact: (
+    candidateId: number,
+    field: CandidateNotesFactField,
+    expectedProfileRateVersion?: number,
+  ) =>
+    api
+      .post<CandidateNotesFacts>(
+        `/api/candidates/${candidateId}/notes-facts/apply`,
+        {
+          field,
+          ...(expectedProfileRateVersion != null
+            ? { expected_profile_rate_version: expectedProfileRateVersion }
+            : {}),
+        },
+      )
+      .then((response) => response.data),
+  updateWorkMode: (
+    candidateId: number,
+    data: { remote_modes: WorkMode[]; max_onsite_days_per_week: number | null },
+  ) =>
+    api
+      .patch<CandidateWorkModeResult>(
+        `/api/candidates/${candidateId}/work-mode`,
+        data,
+      )
+      .then((response) => response.data),
 };
+
+export type CandidateNotesFactField =
+  | "rate"
+  | "work_mode"
+  | "contract_form"
+  | "availability"
+  | "office_cities";
+
+export interface CandidateWorkModeResult {
+  candidate_id: number;
+  remote_modes: WorkMode[];
+  max_onsite_days_per_week: number | null;
+}
+
+export interface CandidateNotesFacts {
+  candidate_id: number;
+  extracted_at: string | null;
+  has_facts: boolean;
+  rate: {
+    value: string;
+    currency: string | null;
+    period: "h" | "md" | "month" | null;
+    raw: string | null;
+    as_of: string | null;
+    hourly_pln: string | null;
+    flexibility: string | null;
+    profile_amount: string | null;
+    profile_rate_version: number;
+    can_apply: boolean;
+  } | null;
+  work_mode: {
+    modes: WorkMode[];
+    max_onsite_days: number | null;
+    profile_modes: WorkMode[];
+    profile_max_onsite_days: number | null;
+    can_apply: boolean;
+  } | null;
+  contract_form: {
+    value: "b2b" | "uop" | "any";
+    profile_contract_types: string[];
+    can_apply: boolean;
+  } | null;
+  availability: {
+    raw: string | null;
+    notice_period_text: string | null;
+    available_from_text: string | null;
+    notice_period: number | null;
+    notice_period_unit: string | null;
+    available_from: string | null;
+    profile_notice_period: number | null;
+    profile_notice_period_unit: string | null;
+    profile_availability_date: string | null;
+    can_apply: boolean;
+  } | null;
+  office_cities: {
+    cities: string[];
+    profile_office_cities: string[];
+    can_apply: boolean;
+  } | null;
+  relocation: { willing: boolean | null; targets: string[] } | null;
+  current_engagement: {
+    employer: string | null;
+    project: string | null;
+    ends_at: string | null;
+    raw: string | null;
+  } | null;
+  not_looking_until: string | null;
+  languages: { name: string; level: string | null }[];
+  sectors_prefer: string[];
+  sectors_avoid: string[];
+  client_vetoes: { client: string; reason: string | null }[];
+  matching_facts: string | null;
+}
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
 export interface ImportTaskStatus {

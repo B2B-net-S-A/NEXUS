@@ -31,6 +31,7 @@ def _cand(**kw):
         availability_status="unknown",
         cv_extracted_data=None,
         max_onsite_days_per_week=None,
+        preferences=None,
     )
     defaults.update(kw)
     return SimpleNamespace(**defaults)
@@ -39,14 +40,18 @@ def _cand(**kw):
 def _apply(cand, parsed, fp="fp-1"):
     # flag_modified wymaga instrumentacji ORM — SimpleNamespace jej nie ma,
     # więc podmieniamy na no-op przez monkeypatching modułu w teście wywołań.
+    import app.services.candidate_notes_facts as facts_mod
     import app.services.notes_insights_extractor as mod
 
     original = mod.flag_modified
+    original_facts = facts_mod.flag_modified
     mod.flag_modified = lambda *a, **k: None
+    facts_mod.flag_modified = lambda *a, **k: None
     try:
         return apply_insights(cand, parsed, fingerprint=fp)
     finally:
         mod.flag_modified = original
+        facts_mod.flag_modified = original_facts
 
 
 def test_fill_empty_columns_and_insights_merge():
@@ -200,7 +205,59 @@ def test_prompt_mentions_onsite_days_and_version_bumped():
     from app.services.notes_insights_extractor import PROMPT, PROMPT_VERSION
 
     assert "max_onsite_days_per_week" in PROMPT
-    assert PROMPT_VERSION == "v4-onsite-days"
+    assert '"work_modes"' in PROMPT
+    assert PROMPT_VERSION == "v5-work-modes"
+
+
+def test_work_modes_fill_empty_preferences_from_hybrid_with_days():
+    cand = _cand()
+    stats = _apply(
+        cand,
+        {"preferences": {"work_modes": ["hybrid"], "max_onsite_days_per_week": 2}},
+    )
+    assert cand.preferences == {"remote_modes": ["remote", "hybrid"]}
+    assert cand.max_onsite_days_per_week == 2
+    assert stats["remote_modes_filled"] == 1
+    assert stats["onsite_days_filled"] == 1
+    ins = cand.cv_extracted_data["_notes_insights"]
+    assert ins["_remote_modes_from_notes"] is True
+    assert ins["preferences"]["work_modes"] == ["hybrid"]
+
+
+def test_onsite_without_number_means_five_days_and_all_modes():
+    cand = _cand()
+    _apply(cand, {"preferences": {"work_modes": ["onsite"]}})
+    assert cand.max_onsite_days_per_week == 5
+    assert cand.preferences["remote_modes"] == ["remote", "hybrid", "onsite"]
+
+
+def test_hybrid_without_number_leaves_days_unknown():
+    cand = _cand()
+    stats = _apply(cand, {"preferences": {"work_modes": ["hybrid"]}})
+    assert cand.max_onsite_days_per_week is None
+    assert cand.preferences["remote_modes"] == ["remote", "hybrid"]
+    assert stats["onsite_days_filled"] == 0
+
+
+def test_human_work_modes_never_overwritten_but_days_still_filled():
+    cand = _cand(preferences={"remote_modes": ["onsite"], "industries": ["bank"]})
+    stats = _apply(
+        cand,
+        {"preferences": {"work_modes": ["remote"], "max_onsite_days_per_week": 0}},
+    )
+    assert cand.preferences == {"remote_modes": ["onsite"], "industries": ["bank"]}
+    assert stats["remote_modes_filled"] == 0
+    assert cand.max_onsite_days_per_week == 0, "kolumna pusta — FILL_EMPTY"
+
+
+def test_extractor_label_names_the_real_model():
+    from app.services.notes_insights_extractor import EXTRACTION_MODEL, PROMPT_VERSION
+
+    cand = _cand()
+    _apply(cand, {"matching_facts": "x"})
+    assert cand.cv_extracted_data["_notes_insights"]["_extractor"] == (
+        f"notes_insights:{PROMPT_VERSION}:{EXTRACTION_MODEL}"
+    )
 
 
 def test_rate_guards_reject_md_and_absurd_values():

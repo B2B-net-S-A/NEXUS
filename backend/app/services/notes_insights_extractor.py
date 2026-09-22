@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 # pętla do nich dojdzie, w ramach budżetu per bieg). Bump NIE przelicza
 # korpusu wstecz — `_select_stale_candidates` wybiera po dacie notatki vs
 # stemplu ekstrakcji, fingerprint tu tylko pomija duplikaty w pętli.
-PROMPT_VERSION = "v4-onsite-days"
+PROMPT_VERSION = "v5-work-modes"
 EXTRACTION_MODEL = model_for(AIFeatureKey.notes_extraction)
 NOTES_LIMIT = 20
 BLOB_CHAR_LIMIT = 12000
@@ -61,7 +61,7 @@ PROMPT = """Z wewnętrznych notatek rekruterów o kandydacie wyciągnij FAKTY do
  "availability": {"raw": str|null, "notice_period": str|null, "available_from": str|null},
  "not_looking_until": str|null,
  "current_engagement": {"employer": str|null, "project": str|null, "ends_at": str|null, "raw": str|null},
- "preferences": {"remote_only": bool|null, "max_onsite_days_per_week": int|null, "locations": [str], "sectors_prefer": [str], "sectors_avoid": [str], "other": str|null},
+ "preferences": {"remote_only": bool|null, "work_modes": ["remote"|"hybrid"|"onsite"], "max_onsite_days_per_week": int|null, "locations": [str], "sectors_prefer": [str], "sectors_avoid": [str], "other": str|null},
  "relocation": {"willing": bool|null, "targets": [str]},
  "contract_form_preference": "b2b"|"uop"|"any"|null,
  "languages_observed": [{"name": str, "level": str|null}],
@@ -83,9 +83,14 @@ Zasady:
   NIE przepisuj skilli wspomnianych wyłącznie jako "w CV".
 - "skills_gaps_observed": wyłącznie braki techniczne nazwane wprost; ZERO ocen
   miękkich i opinii personalnych.
+- "work_modes": tryby pracy, które kandydat WPROST akceptuje: "remote"
+  (zdalnie), "hybrid" (hybrydowo / część dni w biurze), "onsite"
+  (stacjonarnie / codziennie w biurze). Kilka, gdy akceptuje kilka
+  ("hybrydowo albo stacjonarnie" = ["hybrid","onsite"]); brak wzmianki = [].
 - "max_onsite_days_per_week": TYLKO gdy kandydat wprost nazwał limit dni w
-  biurze (0-7; "tylko zdalnie"/"wyłącznie zdalnie" = 0); bez liczby wprost
-  → null. Nie zgaduj z ogólnych deklaracji trybu pracy bez liczby.
+  biurze (0-7; "tylko zdalnie"/"wyłącznie zdalnie" = 0; "hybryda 2 dni w
+  biurze" = 2; "raz w tygodniu" = 1; "stacjonarnie 5 dni" = 5); bez liczby
+  wprost → null. Nie zgaduj liczby z samego słowa "hybrydowo".
 - "matching_facts": 2-3 zdania samych faktów istotnych przy doborze, bez opinii.
 Zwróć SAM JSON.
 
@@ -349,6 +354,7 @@ def apply_insights(
         "status_set": 0,
         "locked_skills": 0,
         "onsite_days_filled": 0,
+        "remote_modes_filled": 0,
     }
     now = now_iso or datetime.now(timezone.utc).isoformat()
     extracted = (
@@ -365,7 +371,7 @@ def apply_insights(
             insights[key] = value
     insights["_extracted_at"] = now
     insights["_v2_extracted_at"] = now
-    insights["_extractor"] = f"notes_insights:{PROMPT_VERSION}:haiku-4.5"
+    insights["_extractor"] = f"notes_insights:{PROMPT_VERSION}:{EXTRACTION_MODEL}"
     insights["_input_hash"] = fingerprint
 
     changed = False
@@ -487,28 +493,22 @@ def apply_insights(
         stats["status_set"] = 1
         changed = True
 
-    # ── dni w biurze → kolumna (FILL_EMPTY, trzecia rubryka rekrutacji 0278) ─
-    # Bez "aktualizacji własnego wpisu" jak przy stawce: to liczba wprost
-    # nazwana przez kandydata, nie coś, co ekstrakcja mogłaby świadomie
-    # "poprawić" świeższą notatką — wartość CZŁOWIEKA (modal edycji) zostaje
-    # nietknięta zawsze, niezależnie od tego, kto ją wpisał.
-    pref = parsed.get("preferences")
-    pref = pref if isinstance(pref, dict) else {}
-    days = pref.get("max_onsite_days_per_week")
-    if days is None and pref.get("remote_only") is True:
-        # "tylko zdalnie" bez jawnej liczby = 0 dni w biurze — ten sam wniosek
-        # co S4 w migracji 0278 dla wierszy zaznaczonych remote_only wcześniej.
-        days = 0
-    if (
-        getattr(candidate, "max_onsite_days_per_week", None) is None
-        and isinstance(days, int)
-        and not isinstance(days, bool)
-        and 0 <= days <= 7
-    ):
-        candidate.max_onsite_days_per_week = days
+    # ── tryb pracy + dni w biurze → profil (FILL_EMPTY, każde pole osobno) ──
+    # Reguła jest JEDNA (`candidate_notes_facts.work_mode_from_insights`) i tę
+    # samą czyta profil kandydata: dni podane wprost > „tylko zdalnie” (0) >
+    # „stacjonarnie” (5), a tryby wynikają z dni (N dni w biurze akceptuje też
+    # mniej). Wartość CZŁOWIEKA (modal edycji, pasek faktów) zostaje zawsze.
+    from app.services.candidate_notes_facts import fill_work_mode_from_notes
+
+    mode_stats = fill_work_mode_from_notes(candidate, parsed)
+    if mode_stats["onsite_days_filled"]:
         insights["_onsite_days_from_notes"] = True
-        stats["onsite_days_filled"] = 1
-        changed = True
+    if mode_stats["remote_modes_filled"]:
+        insights["_remote_modes_from_notes"] = True
+    for key, value in mode_stats.items():
+        if value:
+            stats[key] = value
+            changed = True
 
     extracted["_notes_insights"] = insights
     candidate.cv_extracted_data = extracted

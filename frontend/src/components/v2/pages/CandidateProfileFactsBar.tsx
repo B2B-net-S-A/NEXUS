@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Briefcase,
   CalendarClock,
   Languages,
   Loader2,
@@ -27,6 +28,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -39,6 +41,14 @@ import {
   type CandidateProfileRate,
 } from "@/lib/api";
 import { cn, formatDate } from "@/lib/utils";
+import {
+  WORK_MODES,
+  WORK_MODE_LABELS,
+  formatWorkMode,
+  profileWorkMode,
+  workModeValidationError,
+  type WorkMode,
+} from "@/lib/work-mode";
 import { useCapability } from "@/hooks/useCapability";
 import { formatCandidateLocation } from "./candidate-list-helpers";
 import { invalidateCandidateMutation } from "./candidate-cache";
@@ -129,6 +139,8 @@ interface CandidateProfileFactsBarProps {
     availability_date?: string | null;
     notice_period?: number | null;
     notice_period_unit?: string | null;
+    preferences?: unknown;
+    max_onsite_days_per_week?: number | null;
   };
 }
 
@@ -675,6 +687,168 @@ function LocationEditor({
   );
 }
 
+function WorkModeEditor({
+  open,
+  onOpenChange,
+  candidate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  candidate: CandidateProfileFactsBarProps["candidate"];
+}) {
+  const queryClient = useQueryClient();
+  const { showError, showSuccess } = useToast();
+  const [modes, setModes] = React.useState<WorkMode[]>([]);
+  const [days, setDays] = React.useState("");
+  const [mutationError, setMutationError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const current = profileWorkMode(
+      candidate.preferences,
+      candidate.max_onsite_days_per_week,
+    );
+    setModes(current.modes);
+    setDays(current.days != null ? String(current.days) : "");
+    setMutationError(null);
+  }, [candidate.preferences, candidate.max_onsite_days_per_week, open]);
+
+  const parsedDays = days.trim() === "" ? null : Number(days);
+  const daysInvalid =
+    parsedDays != null &&
+    (!Number.isInteger(parsedDays) || parsedDays < 0 || parsedDays > 7);
+  const coherenceError = daysInvalid
+    ? null
+    : workModeValidationError(modes, parsedDays);
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      candidateFactsApi.updateWorkMode(candidate.id, {
+        remote_modes: modes,
+        max_onsite_days_per_week: parsedDays,
+      }),
+    onSuccess: () => {
+      setMutationError(null);
+      invalidateCandidateMutation(queryClient, candidate.id, "edit");
+      queryClient.invalidateQueries({
+        queryKey: candidateQueryKeys.notesFacts(candidate.id),
+      });
+      onOpenChange(false);
+      showSuccess("Tryb pracy zapisany");
+    },
+    onError: (error) => {
+      const message =
+        extractErrorMsg(error) || "Nie udało się zapisać trybu pracy";
+      setMutationError(message);
+      showError(message);
+    },
+  });
+
+  const toggle = (mode: WorkMode, on: boolean) => {
+    setModes((prev) =>
+      WORK_MODES.filter((m) => (m === mode ? on : prev.includes(m))),
+    );
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent aria-describedby="candidate-work-mode-dialog-description">
+        <DialogHeader>
+          <DialogTitle>Tryb pracy kandydata</DialogTitle>
+          <DialogDescription id="candidate-work-mode-dialog-description">
+            Zaznacz wszystkie tryby, które kandydat akceptuje, i podaj, ile
+            dni w tygodniu może być w biurze. Wyszukiwanie odrzuca rekrutacje
+            wymagające więcej dni w biurze.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          <fieldset>
+            <legend className="text-sm font-medium">Akceptuje pracę</legend>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {WORK_MODES.map((mode) => {
+                const id = `candidate-work-mode-${mode}`;
+                return (
+                  <label
+                    key={mode}
+                    htmlFor={id}
+                    className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-border px-3 text-sm"
+                  >
+                    <Checkbox
+                      id={id}
+                      checked={modes.includes(mode)}
+                      onCheckedChange={(value) => toggle(mode, value === true)}
+                    />
+                    {WORK_MODE_LABELS[mode]}
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+          <div>
+            <Label htmlFor="candidate-work-mode-days">
+              Maksymalnie dni w biurze w tygodniu
+            </Label>
+            <Input
+              id="candidate-work-mode-days"
+              className="mt-1 min-h-11 w-32"
+              inputMode="numeric"
+              value={days}
+              onChange={(event) =>
+                setDays(event.target.value.replace(/[^0-9]/g, "").slice(0, 1))
+              }
+              placeholder="np. 2"
+              invalid={daysInvalid || Boolean(coherenceError)}
+              aria-describedby="candidate-work-mode-days-hint"
+            />
+            <p
+              id="candidate-work-mode-days-hint"
+              className="mt-1 text-xs text-muted-foreground"
+            >
+              0 = wyłącznie zdalnie, 5 = cały tydzień w biurze. Puste = nie
+              wiadomo.
+            </p>
+          </div>
+          {daysInvalid || coherenceError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {daysInvalid ? "Podaj liczbę od 0 do 7." : coherenceError}
+            </p>
+          ) : null}
+          {mutationError ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive-muted px-3 py-2 text-sm text-destructive-muted-foreground [overflow-wrap:anywhere]"
+            >
+              {mutationError}
+            </p>
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11 min-w-11"
+            onClick={() => onOpenChange(false)}
+          >
+            Anuluj
+          </Button>
+          <Button
+            type="button"
+            className="min-h-11 min-w-11"
+            loading={mutation.isPending}
+            disabled={daysInvalid || Boolean(coherenceError)}
+            onClick={() => {
+              setMutationError(null);
+              mutation.mutate();
+            }}
+          >
+            Zapisz tryb pracy
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function RateEditor({
   open,
   onOpenChange,
@@ -899,11 +1073,13 @@ export function CandidateProfileFactsBar({
   const [languagesOpen, setLanguagesOpen] = React.useState(false);
   const [locationOpen, setLocationOpen] = React.useState(false);
   const [rateOpen, setRateOpen] = React.useState(false);
+  const [workModeOpen, setWorkModeOpen] = React.useState(false);
 
   React.useEffect(() => {
     setLanguagesOpen(false);
     setLocationOpen(false);
     setRateOpen(false);
+    setWorkModeOpen(false);
   }, [candidate.id]);
 
   const languagesQuery = useQuery<LanguagesQueryData>({
@@ -930,6 +1106,11 @@ export function CandidateProfileFactsBar({
     canonicalLocation ||
     formatCandidateLocation(candidate.location) ||
     "";
+  const workMode = profileWorkMode(
+    candidate.preferences,
+    candidate.max_onsite_days_per_week,
+  );
+  const workModeLabel = formatWorkMode(workMode.modes, workMode.days);
   const languagesForbidden = requestStatus(languagesQuery.error) === 403;
   const rateForbidden = requestStatus(rateQuery.error) === 403;
 
@@ -940,8 +1121,8 @@ export function CandidateProfileFactsBar({
         className={cn(
           "grid gap-3",
           canViewAndEditRate && !rateForbidden
-            ? "sm:grid-cols-2 xl:grid-cols-4"
-            : "sm:grid-cols-3",
+            ? "sm:grid-cols-2 xl:grid-cols-5"
+            : "sm:grid-cols-2 xl:grid-cols-4",
         )}
       >
         {languagesQuery.isPending ? (
@@ -1038,6 +1219,22 @@ export function CandidateProfileFactsBar({
           {availabilityValue(candidate)}
         </FactShell>
 
+        <FactShell
+          icon={<Briefcase className="size-4" />}
+          label="Tryb pracy"
+          muted={!workModeLabel}
+          action={
+            canEditFacts ? (
+              <EditFactButton
+                label="Edytuj tryb pracy"
+                onClick={() => setWorkModeOpen(true)}
+              />
+            ) : null
+          }
+        >
+          {workModeLabel ?? "Nie uzupełniono"}
+        </FactShell>
+
         {canViewAndEditRate && !rateForbidden ? (
           rateQuery.isPending ? (
             <FactLoading label="Stawka B2B" />
@@ -1091,6 +1288,13 @@ export function CandidateProfileFactsBar({
         <LocationEditor
           open={locationOpen}
           onOpenChange={setLocationOpen}
+          candidate={candidate}
+        />
+      ) : null}
+      {canEditFacts ? (
+        <WorkModeEditor
+          open={workModeOpen}
+          onOpenChange={setWorkModeOpen}
           candidate={candidate}
         />
       ) : null}

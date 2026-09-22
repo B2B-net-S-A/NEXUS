@@ -44,6 +44,7 @@ import {
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
 import { CandidateActivitySummaryCard } from "@/components/v2/pages/CandidateActivitySummaryCard";
+import { CandidateNotesFactsCard } from "@/components/v2/pages/CandidateNotesFactsCard";
 import { CandidateRecentRecruitmentsCard } from "@/components/v2/pages/CandidateRecentRecruitmentsCard";
 import {
   formatEducationYears,
@@ -112,6 +113,7 @@ export function ProfileTab({
           cvSummary={candidate.ai_summary ?? null}
           title="Podsumowanie"
         />
+        <CandidateNotesFactsCard candidateId={candidate.id} readOnly={readOnly} />
         <CvRow
           candidate={candidate}
           readOnly={readOnly}

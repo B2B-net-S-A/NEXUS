@@ -35,6 +35,7 @@ from app.models.candidate import Candidate
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.notes_insights_extractor import (
     MIN_BLOB_CHARS,
+    PROMPT_VERSION,
     apply_insights,
     build_notes_blob,
     extract_insights,
@@ -161,6 +162,49 @@ async def _select_stale_candidates(limit: int) -> list[int]:
     return stale
 
 
+async def _select_outdated_candidates(limit: int, exclude: set[int]) -> list[int]:
+    """Kandydaci z faktami policzonymi starszą wersją promptu (notatki bez zmian).
+
+    Wiersz „bez treści” (`_no_content`) pomijamy — nowa wersja promptu nie
+    zrobi z kilku słów notatki niczego więcej, a każdy taki wiersz zjadałby
+    miejsce w budżecie biegu. Najświeższe notatki najpierw.
+    """
+    if limit <= 0:
+        return []
+    marker = f"notes_insights:{PROMPT_VERSION}:%"
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.execute(
+                text(
+                    """
+                    SELECT c.id
+                    FROM candidates c
+                    JOIN (
+                        SELECT candidate_id,
+                               max(greatest(created_at, updated_at)) AS latest
+                        FROM notes
+                        WHERE candidate_id IS NOT NULL
+                        GROUP BY candidate_id
+                    ) ln ON ln.candidate_id = c.id
+                    WHERE jsonb_typeof(c.cv_extracted_data) = 'object'
+                      AND jsonb_typeof(c.cv_extracted_data->'_notes_insights') = 'object'
+                      AND coalesce(
+                            c.cv_extracted_data->'_notes_insights'->>'_no_content',
+                            'false') <> 'true'
+                      AND coalesce(
+                            c.cv_extracted_data->'_notes_insights'->>'_extractor',
+                            '') NOT LIKE :marker
+                    ORDER BY ln.latest DESC
+                    LIMIT :lim
+                    """
+                ),
+                {"marker": marker, "lim": limit + len(exclude)},
+            )
+        ).all()
+    out = [int(r[0]) for r in rows if int(r[0]) not in exclude]
+    return out[:limit]
+
+
 async def run_notes_insights_sync() -> dict[str, Any]:
     """Jeden bieg: selekcja przeterminowanych → ekstrakcja → zapis. Zwraca statystyki."""
     from app.services.index_outbox_service import CANDIDATE, record_bulk_reindex
@@ -179,9 +223,16 @@ async def run_notes_insights_sync() -> dict[str, Any]:
         "rate_written": 0,
         "rate_updated": 0,
         "onsite_days_filled": 0,
+        "remote_modes_filled": 0,
         "quota_blocked": 0,
+        "upgrade_selected": 0,
     }
     stale = await _select_stale_candidates(limit)
+    upgrade = await _select_outdated_candidates(
+        max(0, int(settings.NOTES_INSIGHTS_SYNC_UPGRADE_LIMIT)), set(stale)
+    )
+    stats["upgrade_selected"] = len(upgrade)
+    stale = stale + upgrade
     stats["selected"] = len(stale)
     touched: list[int] = []
 
@@ -249,6 +300,7 @@ async def run_notes_insights_sync() -> dict[str, Any]:
                     "rate_written",
                     "rate_updated",
                     "onsite_days_filled",
+                    "remote_modes_filled",
                 ):
                     stats[key] += row_stats.get(key, 0)
                 if row_stats.get("changed"):

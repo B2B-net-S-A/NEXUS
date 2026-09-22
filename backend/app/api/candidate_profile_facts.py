@@ -14,13 +14,25 @@ from app.api.candidate_access import (
 )
 from app.core.database import get_db
 from app.schemas.candidate_profile_facts import (
+    CandidateNotesFactApply,
+    CandidateNotesFactsResponse,
+    CandidateWorkModeResponse,
+    CandidateWorkModeUpdate,
     CandidateLanguagesPut,
     CandidateLanguagesResponse,
     CandidateProfileRatePatch,
     CandidateProfileRateResponse,
     CandidateRecentRecruitmentsResponse,
 )
+from app.services import candidate_audit
 from app.services import candidate_profile_facts as facts
+from app.services.candidate_notes_facts import (
+    NotesFactUnavailable,
+    apply_notes_fact,
+    build_notes_facts,
+    profile_work_mode,
+    set_profile_work_mode,
+)
 
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 
@@ -289,4 +301,132 @@ async def get_candidate_recent_recruitments(
     return CandidateRecentRecruitmentsResponse(
         candidate_id=candidate_id,
         items=items,
+    )
+
+
+# ── Fakty z notatek rekruterów + tryb pracy (22.09.2026) ───────────────────
+
+
+async def _locked_candidate(db: AsyncSession, candidate_id: int):  # type: ignore[no-untyped-def]
+    candidate = await facts.get_candidate_profile_rate(
+        db, candidate_id, for_update=True
+    )
+    return candidate
+
+
+@router.get(
+    "/{candidate_id}/notes-facts",
+    response_model=CandidateNotesFactsResponse,
+)
+async def get_candidate_notes_facts(
+    candidate_id: int,
+    current_user: CandidateProfileFactsReadAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CandidateNotesFactsResponse:
+    """Co notatki rekruterów mówią o kandydacie (czysty odczyt, bez modelu).
+
+    Ta sama bramka co globalna stawka profilu: widok niesie stawkę z notatek.
+    """
+    del current_user
+    try:
+        candidate = await facts.get_candidate_profile_rate(db, candidate_id)
+    except facts.CandidateNotFoundError:
+        raise _not_found() from None
+    return CandidateNotesFactsResponse(**build_notes_facts(candidate))
+
+
+@router.post(
+    "/{candidate_id}/notes-facts/apply",
+    response_model=CandidateNotesFactsResponse,
+)
+async def apply_candidate_notes_fact(
+    candidate_id: int,
+    payload: CandidateNotesFactApply,
+    current_user: CandidateProfileFactsWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CandidateNotesFactsResponse:
+    """Zapisz w profilu wartość z notatek — wylicza ją serwer, nie przeglądarka."""
+    try:
+        candidate = await _locked_candidate(db, candidate_id)
+    except facts.CandidateNotFoundError:
+        raise _not_found() from None
+    if payload.field == "rate":
+        if payload.expected_profile_rate_version is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Brak wersji stawki profilu — odśwież profil i spróbuj ponownie.",
+            )
+        if candidate.profile_rate_version != payload.expected_profile_rate_version:
+            raise _version_conflict(
+                kind="profile-rate",
+                candidate_id=candidate_id,
+                current_version=candidate.profile_rate_version,
+            )
+    try:
+        details = apply_notes_fact(candidate, payload.field)
+    except NotesFactUnavailable:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Notatki nie zawierają już wartości, którą da się zapisać w tym polu.",
+        ) from None
+
+    rate_audit = details.pop("rate_audit", None)
+    if rate_audit is not None:
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.PROFILE_RATE_CHANGED,
+            user_id=current_user.id,
+            entity_id=candidate_id,
+            details=rate_audit,
+        )
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.NOTES_FACT_APPLIED,
+        user_id=current_user.id,
+        entity_id=candidate_id,
+        details=details,
+    )
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    await mark_stale_for_candidate(db, candidate_id)
+    await db.commit()
+    return CandidateNotesFactsResponse(**build_notes_facts(candidate))
+
+
+@router.patch(
+    "/{candidate_id}/work-mode",
+    response_model=CandidateWorkModeResponse,
+)
+async def patch_candidate_work_mode(
+    candidate_id: int,
+    payload: CandidateWorkModeUpdate,
+    current_user: CandidateProfileFactsWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CandidateWorkModeResponse:
+    """Tryb pracy i dni w biurze z paska faktów profilu."""
+    try:
+        candidate = await _locked_candidate(db, candidate_id)
+    except facts.CandidateNotFoundError:
+        raise _not_found() from None
+    change = set_profile_work_mode(
+        candidate,
+        modes=list(payload.remote_modes),
+        max_onsite_days=payload.max_onsite_days_per_week,
+    )
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.WORK_MODE_CHANGED,
+        user_id=current_user.id,
+        entity_id=candidate_id,
+        details=change,
+    )
+    from app.services.match_score_cache import mark_stale_for_candidate
+
+    await mark_stale_for_candidate(db, candidate_id)
+    await db.commit()
+    current = profile_work_mode(candidate)
+    return CandidateWorkModeResponse(
+        candidate_id=candidate_id,
+        remote_modes=current["modes"],
+        max_onsite_days_per_week=current["max_onsite_days"],
     )
