@@ -196,6 +196,37 @@ def _priority_compliant_at_create(
     return value if isinstance(value, bool) else None
 
 
+async def submission_block_reason(
+    db: AsyncSession, *, job_id: int, candidate_id: int
+) -> Optional[str]:
+    """Twardy powód, dla którego zgłoszenie NIE może otworzyć procesu.
+
+    Ta sama bramka co przy przypisaniu kandydata do rekrutacji
+    (``assert_candidate_move_eligible``): globalna czarna lista albo weto
+    hiring managera tej rekrutacji. Konflikty z klientem są ostrzeżeniami
+    i tu nie blokują. ``None`` = proces można otworzyć.
+    """
+    from app.models.job import Job
+    from app.services.pipeline_eligibility import (
+        detail_for,
+        evaluate_candidates_for_job_with_verdicts,
+    )
+
+    job = await db.get(Job, job_id)
+    if job is None:
+        return None
+    decisions, verdicts = await evaluate_candidates_for_job_with_verdicts(
+        db,
+        job=job,
+        candidate_ids=[candidate_id],
+        now=datetime.now(timezone.utc),
+    )
+    decision = decisions.get(candidate_id)
+    if decision is None or decision.assignment_allowed:
+        return None
+    return detail_for(decision, verdicts.get(candidate_id))
+
+
 async def _ensure_submission_process(
     db: AsyncSession,
     *,
@@ -203,7 +234,13 @@ async def _ensure_submission_process(
     candidate_id: int,
     actor_user_id: int,
 ) -> Optional[CandidateStage]:
-    """Route a resolved job application into the canonical pipeline once."""
+    """Route a resolved job application into the canonical pipeline once.
+
+    Audyt 22.09 r2 (CAND-01): ręczne rozstrzygnięcie zgłoszenia DODAJE
+    kandydata do rekrutacji, więc przechodzi tę samą twardą bramkę co
+    przypisanie — weto hiring managera albo globalna czarna lista = 409
+    (cała operacja się wycofuje, nic nie zostaje zapisane).
+    """
     if submission.job_id is None:
         return None
     existing = await db.scalar(
@@ -214,6 +251,11 @@ async def _ensure_submission_process(
     )
     if existing is not None:
         return None
+    reason = await submission_block_reason(
+        db, job_id=submission.job_id, candidate_id=candidate_id
+    )
+    if reason is not None:
+        raise HTTPException(status_code=409, detail=reason)
     stage = await open_process(
         db,
         candidate_id=candidate_id,

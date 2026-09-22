@@ -552,3 +552,111 @@ async def test_review_api_requires_auth(sub_client: AsyncClient):
         "/api/application-submissions", headers=viewer_headers
     )
     assert forbidden.status_code == 403, forbidden.text
+
+
+# ── CAND-01 (audyt 22.09 r2): weto hiring managera ──────────────────────────
+
+
+async def _vetoed_world() -> dict:
+    """Kandydat odrzucony przez HM, który prowadzi też rekrutację docelową."""
+    from tests.test_manager_rejection_gate import _seed_vetoed_candidate
+
+    world = await _seed_vetoed_candidate()
+    async with AsyncSessionLocal() as db:
+        target = await db.get(Job, world["target_job_id"])
+        target.is_open = True
+        await db.commit()
+    return world
+
+
+@pytest.mark.asyncio
+async def test_duplicate_apply_of_vetoed_candidate_opens_no_process(
+    sub_client: AsyncClient,
+):
+    from app.models.notification import Notification
+
+    world = await _vetoed_world()
+    uid_link, email_link, pass_link = await _seed_user(UserRole.recruiter, "veto-l")
+    async with AsyncSessionLocal() as db:
+        email = (await db.get(Candidate, world["candidate_id"])).email
+    headers = await _login(sub_client, email_link, pass_link)
+    token = await _make_link(sub_client, headers, world["target_job_id"])
+
+    # Publicznie: to samo ogólne 201 (bez 409 i bez enumeracji).
+    await _apply(sub_client, token, email=email)
+
+    async with AsyncSessionLocal() as db:
+        stage = await db.scalar(
+            select(CandidateStage).where(
+                CandidateStage.candidate_id == world["candidate_id"],
+                CandidateStage.job_id == world["target_job_id"],
+            )
+        )
+        assert stage is None
+        doc = await db.scalar(
+            select(CandidateDocument).where(
+                CandidateDocument.candidate_id == world["candidate_id"],
+                CandidateDocument.external_source == "apply_submission",
+            )
+        )
+        assert doc is not None  # CV zostaje przy profilu
+        note = await db.scalar(
+            select(Notification)
+            .where(Notification.user_id == uid_link)
+            .order_by(Notification.id.desc())
+        )
+        assert note is not None
+        assert "nie dodano tej osoby do rekrutacji" in note.message
+        assert world["manager_name"] in note.message
+        act = await db.scalar(
+            select(Activity).where(
+                Activity.entity_id == world["candidate_id"],
+                Activity.action == "applied_via_invite",
+            )
+        )
+        assert act.details["process_opened"] is False
+        assert act.details["process_blocked"] is True
+
+
+@pytest.mark.asyncio
+async def test_resolve_link_of_vetoed_candidate_returns_409(sub_client: AsyncClient):
+    world = await _vetoed_world()
+    _, email_a, pass_a = await _seed_user(UserRole.admin, "veto-admin")
+    admin_headers = await _login(sub_client, email_a, pass_a)
+    async with AsyncSessionLocal() as db:
+        email = (await db.get(Candidate, world["candidate_id"])).email
+        sub = ApplicationSubmission(
+            invite_link_token_sha256="0" * 64,
+            job_id=world["target_job_id"],
+            status=ApplicationSubmissionStatus.pending_review.value,
+            submitted_first_name="Jan",
+            submitted_last_name="Veto",
+            submitted_email=email,
+            matched_candidate_id=world["candidate_id"],
+            cv_filename="v.pdf",
+            cv_file_content=b"%PDF-1.4 veto",
+            cv_content_type="application/pdf",
+            cv_size_bytes=13,
+        )
+        db.add(sub)
+        await db.commit()
+        sub_id = sub.id
+
+    resp = await sub_client.post(
+        f"/api/application-submissions/{sub_id}/resolve",
+        json={"action": "link"},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert world["manager_name"] in resp.text
+
+    async with AsyncSessionLocal() as db:
+        again = await db.get(ApplicationSubmission, sub_id)
+        assert again.status == ApplicationSubmissionStatus.pending_review.value
+        doc = await db.scalar(
+            select(CandidateDocument).where(
+                CandidateDocument.candidate_id == world["candidate_id"],
+                CandidateDocument.external_source == "apply_submission",
+            )
+        )
+        assert doc is None  # wszystko wycofane
