@@ -368,6 +368,9 @@ async def test_delivery_lead_goals_count_portfolio_placements():
             client_id=client.id,
             delivery_lead_id=dl_id,
             recruitment_type=RecruitmentType.body_leasing,
+            # Mianownik hit ratio = rekrutacje ZAMKNIĘTE w kwartale (definicja
+            # ligi DL od 22.09.2026, `competitions.dl_portfolio_counts`).
+            closed_at=now - timedelta(minutes=1),
         )
         candidate = Candidate(name="Goal", lastname=uuid.uuid4().hex[:6])
         db.add_all([job, candidate])

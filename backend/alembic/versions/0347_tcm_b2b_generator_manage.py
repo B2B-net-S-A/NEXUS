@@ -5,7 +5,7 @@ generator umów B2B (``manage``). Produkcja ma to od 03–04.09 (zmiana w panelu
 RBAC), ale seed 0273 zakłada ``view`` — świeża baza (CI, odtworzenie) dawała
 TCM mniej niż produkcja i niż ``DEFAULT_ROLE_ACTION_ACCESS``.
 
-Zmieniamy WYŁĄCZNIE wiersz z seeda (``updated_by IS NULL`` i ``view``): decyzja
+Zmieniamy WYŁĄCZNIE wiersz z seeda (bez autora zmiany i z ``view``): decyzja
 administratora zapisana w panelu RBAC zostaje nietknięta. Na produkcji to
 no-op (wiersz ma autora i już ``manage``).
 
