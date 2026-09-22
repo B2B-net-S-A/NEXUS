@@ -1461,6 +1461,37 @@ class Settings(BaseSettings):
     # zwykle dziesiątki wierszy — 200 ogranicza patologiczny bieg do ~$1,6.
     TRAFFIT_SYNC_CV_FIELDS_LIMIT: int = 200
 
+    # audyt 22.09 r2 (INTG-01/02, INTG-03, DATA-01/PROD-03, REC-01, DATA-03/04,
+    # PROD-01) — jeden blok ustawień obszaru „Traffit, automaty, dane".
+    # INTG-01: przerwana próba (deploy w trakcie) wznawia się od faz, których
+    # jeszcze nie skończyła — o ile ta sama `since` i ostatni ślad próby młodszy
+    # niż tyle godzin. Starsza próba = zaczynamy od nowa.
+    TRAFFIT_SYNC_ATTEMPT_RESUME_HOURS: int = 24
+    # INTG-03: delta `pipelines` czyta /recruitment_history od NAJNOWSZYCH
+    # (`id DESC`) i kończy na stronie, na której pojawił się wpis starszy niż
+    # `since` — zamiast pełnego przeglądu ~200 tys. wierszy w każdej delcie.
+    TRAFFIT_PIPELINES_DELTA_TAIL: bool = True
+    # DATA-01: ile opublikowanych rekrutacji bez opiekuna (`recruiter_id`
+    # i `tac_id` puste) dopytujemy o `responsible_person` w jednym biegu fazy
+    # `jobs` (jedno wywołanie /recruitments/{id} na rekrutację).
+    TRAFFIT_SYNC_JOB_OWNER_LOOKUPS: int = 400
+    # REC-01: przepięcia podobnych rekrutacji dla etapów wstawionych przez import
+    # (99,6% ruchów). Tylko wiersze z ostatnich tylu dni — import historii nie
+    # może przepinać ludzi wysłanych do klienta rok temu.
+    TRAFFIT_IMPORT_REASSIGN_ENABLED: bool = True
+    TRAFFIT_IMPORT_REASSIGN_WINDOW_DAYS: int = 7
+    # DATA-03/04: retencja kolejek i dzienników automatów (pętla co 6 h).
+    QUEUE_RETENTION_ENABLED: bool = True
+    QUEUE_RETENTION_INTERVAL_SECONDS: int = 6 * 3600
+    AUTOMATION_LOG_RETENTION_DAYS: int = 30
+    QUEUE_OUTBOX_RETENTION_DAYS: int = 30
+    # DATA-04/PROD-10: surowe wyniki przeglądów AUTOMATYCZNYCH (~190 MB każdy)
+    # żyją tyle dni; propozycje z nich są już w `job_proposals`.
+    AUTO_FULL_REVIEW_RETENTION_DAYS: int = 2
+    # PROD-01: katalog, w którym cron hosta zapisuje `backup-volume.json`
+    # (montowany read-only do kontenera backendu).
+    HOST_STATUS_DIR: str = "/run/nexus-host-status"
+
     # ── Notes insights sync (świeżość faktów z notatek) ─────────────────────
     # Cykliczna ekstrakcja `cv_extracted_data._notes_insights` po imporcie
     # 08.2026. Płacą wyłącznie kandydaci ze zmienionymi notatkami (fingerprint
