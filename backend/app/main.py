@@ -199,6 +199,7 @@ from app.api import user_dashboard as user_dashboard_api
 from app.api import dashboard_metrics as dashboard_metrics_api
 from app.api import settings as app_settings_api
 from app.api import champion_intake as champion_intake_api
+from app.api import job_request_intake as job_request_intake_api
 from app.api import champion_suggestions as champion_suggestions_api
 from app.api import rate_benchmarks as rate_benchmarks_api
 from app.api import team_structure as team_structure_api
@@ -966,6 +967,7 @@ app.add_middleware(
 
 # Register routers
 app.include_router(champion_intake_api.router, prefix="/api", tags=["champion"])
+app.include_router(job_request_intake_api.router, prefix="/api", tags=["jobs"])
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 # IMPORTANT: candidate_pins MUST be mounted BEFORE candidates so its

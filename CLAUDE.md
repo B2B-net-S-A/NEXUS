@@ -2348,6 +2348,41 @@ innego niż serwer albo nadpisywał cudzą pracę.
   jadą w PUT; okno „Uzgodnij profil i pola rekrutacji” dostaje widoczny `draft`
   (pusty stack + „Uzgodnij też pole” czyściłby `must_skills`).
 
+## Nowa rekrutacja = strona `/jobs/new` z requestu klienta (22.09.2026)
+
+Decyzje Artura: tworzenie rekrutacji przenosimy z Traffita do NEXUSA (do
+22.09 w NEXUSIE powstały 2 prawdziwe rekrutacje, ~100/mc szło z Traffita),
+startem jest mail klienta, AI wypełnia minimum, DL sprawdza i jednym
+kliknięciem „Utwórz i przekaż do searchu”. Okno `CreateJobModal` (9 pól)
+USUNIĘTE — każde wejście („Dodaj” w pasku, lista, ⌘⇧J, „Skopiuj jako
+template” → `/jobs/new?from=<id>`) prowadzi na stronę.
+
+- **Odczyt przed zapisem:** `POST /api/job-intake/read` (tekst) i
+  `/read-file` (.docx/.pdf/.txt) — `app/api/job_request_intake.py`,
+  `DeliveryLeadPlus`, 20/min per osoba, prompt `JOB_REQUEST_INTAKE`,
+  kwota `champion_draft`. Niczego nie zapisuje. Budżet liczy KOD
+  (`champion_intake.document_rate` na dosłownym cytacie `rate_quote`), nie
+  model; cytat spoza tekstu requestu jest odrzucany (także podświetlenia).
+  Stawka dzienna/brutto/obca = `None` + notatka, nigdy przeliczenie.
+- **Braki = lustro handoffu** (`job_readiness`): rola, must-have, budżet,
+  tryb pracy (+ dni i miasto przy biurze/hybrydzie), opis projektu, 2 pytania
+  screeningowe. Dwie kopie: `services/job_request_intake.missing_fields`
+  i `lib/job-request-intake.ts::missingFor` — zmieniając bramkę handoffu,
+  zmień obie.
+- **Zapis idzie ZWYKŁYMI trasami** w stałej kolejności: `POST /api/jobs` →
+  `PUT …/champion-profile` → `POST …/handoff` (wymaga rekrutera — pole
+  „Prowadzi”) → `POST …/publish`. Awaria po utworzeniu rekrutacji = toast
+  + przejście do zakładki Championa, nigdy utrata. „Zapisz szkic” kończy
+  po Championie.
+- **Pola usunięte z tworzenia I ustawień** (TAC, szablon procesu, kategoria
+  kompetencji, Program/Train, priorytet, typ rekrutacji, widełki PLN/mies.):
+  `JobSettingsPanel` ma dwa pola (Delivery Lead, Deadline), `EditJobModal`
+  ich nie renderuje ani NIE WYSYŁA (PATCH czyta `model_fields_set`, więc dane
+  w bazie zostają). Ustawia je backend. Nie przywracaj bez decyzji.
+- Strona jest dla admina i Delivery Leada (`job.create` + rola), bo odczyt,
+  Champion i handoff to `DeliveryLeadPlus`. Harness `/preview/new-job`
+  (`?state=request|review|gaps`, zero zapytań).
+
 ## Rekrutacja „wersja 3" — jedna tabela + panel osoby (21.09.2026, #1641 #1657 #1659)
 
 Decyzje Artura z 21.09.2026 (makiety „Wersja 3"): rekrutacja to JEDNA tabela osób

@@ -1056,7 +1056,7 @@ export default function JobDetailPage() {
                 (isAdmin || hasRole(authUser, "delivery_lead"))
               }
               // `CreateJobModal` ląduje tu z `?intake=1` gdy nowa rekrutacja
-              // ma opis do podania AI (`createdJobUrl`) — otwiera panel „Wklej
+              // ma opis do podania AI (stare linki; od 22.09.2026 `/jobs/new`) — otwiera panel „Wklej
               // opis" od razu, zamiast zmuszać DL-a do odnalezienia go samemu.
               intakeDefaultOpen={searchParams?.get("intake") === "1"}
               intakeSeedText={job?.description ?? undefined}

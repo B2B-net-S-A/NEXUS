@@ -46,6 +46,8 @@ _RATE_LIMITED_MODULES = (
     "api/dashboard_metrics.py",
     # Strona kariery (0339): publiczne GET-y i formularz multipart.
     "api/public_career.py",
+    # Odczyt requestu klienta na /jobs/new: każde wywołanie to płatny model.
+    "api/job_request_intake.py",
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.

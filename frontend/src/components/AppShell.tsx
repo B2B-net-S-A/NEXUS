@@ -9,7 +9,7 @@
  */
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Children,
   cloneElement,
@@ -29,7 +29,6 @@ import api, {
   candidateProfileApi,
   clientTeamApi,
   phase5Api,
-  pipelineTemplatesApi,
 } from "@/lib/api";
 import type {
   ClientDirectoryCategory,
@@ -39,8 +38,6 @@ import { useCapability } from "@/hooks/useCapability";
 import { editableTagText, mergeEditedTags, structuredTagLabels } from "@/lib/candidate-tags";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { CompetenceCategoryPicker } from "@/components/jobs/CompetenceCategoryPicker";
-import { CreateJobModal } from "@/components/v2/modals/CreateJobModal";
 
 // ── Breadcrumb helper ────────────────────────────────────────────────────────
 
@@ -1234,35 +1231,17 @@ function JobFormFields({
   onChange,
   clients,
   users,
-  templates,
 }: {
   form: JobFormData;
   onChange: (k: keyof JobFormData, v: string) => void;
   clients: any[];
   users: any[];
-  templates: { id: number; name: string; is_default?: boolean; archived?: boolean }[];
 }) {
-  const ccId = form.competence_category_id ? Number(form.competence_category_id) : null;
-  // Phase 15 / Phase D: podpowiedzi `train_name` zawężone do klienta.
-  // Fallback na globalną listę gdy klient nie wybrany. Pomijamy fetch gdy
-  // input jest jeszcze pusty (brak potrzeby).
+  // 22.09.2026 (strona `/jobs/new`): TAC, Program/Train, typ rekrutacji,
+  // widełki PLN/mies., priorytet, szablon procesu i kategoria kompetencji
+  // zniknęły z tworzenia I z edycji — ustawia je backend, dane zostają.
   const clientIdNum = form.client_id ? Number(form.client_id) : null;
-  const { data: trainNamesData } = useQuery<{ items: string[] }>({
-    queryKey: ["jobs-train-names", clientIdNum],
-    queryFn: async () => {
-      const params = clientIdNum !== null ? { client_id: clientIdNum } : {};
-      const res = await api.get<{ items: string[] }>("/api/jobs/train-names", {
-        params,
-      });
-      return res.data;
-    },
-    staleTime: 60_000,
-  });
-  const trainNameSuggestions = trainNamesData?.items ?? [];
-
-  // Team klienta: TAC-y są równorzędni. Flaga pierwszego priorytetu opisuje
-  // kolejność pracy konkretnego TAC-a i celowo nie bierze udziału w wyborze
-  // ownera requestu.
+  // Zespół klienta — tylko po head DL (podpowiedź przy Delivery Leadzie).
   const { data: clientTeam } = useQuery<ClientTeamResponse>({
     queryKey: ["client-team", clientIdNum],
     queryFn: async () => {
@@ -1273,8 +1252,6 @@ function JobFormFields({
     enabled: clientIdNum !== null,
     staleTime: 30_000,
   });
-  const clientTacs = clientTeam?.tacs ?? [];
-  const soleClientTac = clientTacs.length === 1 ? clientTacs[0] : null;
   const headDl = clientTeam?.delivery_leads.find(d => d.is_head);
 
   // Hiring manager autocomplete — fetch Contacts klienta (2026-05-11).
@@ -1304,18 +1281,14 @@ function JobFormFields({
     return a.name.localeCompare(b.name);
   });
 
-  // Auto-fill tylko dla jednoznacznej relacji. Pierwszy priorytet TAC-a nie
-  // rozstrzyga remisu, więc przy kilku TAC-ach pole pozostaje puste.
+  // Auto-fill Delivery Leada z head DL klienta, gdy pole puste.
   useEffect(() => {
     if (!clientTeam) return;
-    if (!form.tac_id && soleClientTac) {
-      onChange("tac_id", String(soleClientTac.user_id));
-    }
     if (!form.delivery_lead_id && headDl) {
       onChange("delivery_lead_id", String(headDl.user_id));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientTeam?.tacs.length, clientTeam?.delivery_leads.length, clientIdNum]);
+  }, [clientTeam?.delivery_leads.length, clientIdNum]);
 
   const dlAssignableUsers = users.filter((u: any) =>
     ["delivery_lead", "admin", "head_of_recruitment"].includes(u.role ?? "")
@@ -1331,38 +1304,16 @@ function JobFormFields({
           {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </Select>
       </FieldGroup>
-      <FieldGroup label="Program / Train (opcjonalne)">
-        <Input
-          list="job-train-names-autocomplete"
-          value={form.train_name}
-          onChange={e => onChange("train_name", e.target.value)}
-          placeholder="np. ART Payments, CIB Mortgages, TRAIN-X"
-        />
-        <datalist id="job-train-names-autocomplete">
-          {trainNameSuggestions.map((name) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
-        <p className="text-[11px] text-muted-foreground mt-1">
-          Programme / Agile Release Train. Pomaga Champion Profile znaleźć
-          podobne historyczne role z tego samego programu. Zostaw puste,
-          a AI spróbuje wyekstrahować z opisu.
-        </p>
-      </FieldGroup>
       <div className="grid grid-cols-2 gap-3">
-        <FieldGroup label="Typ rekrutacji">
-          <Select value={form.recruitment_type} onChange={e => onChange("recruitment_type", e.target.value)}>
-            <option value="body_leasing">Body Leasing</option>
-            <option value="sales_project">Sprzedaż</option>
-            <option value="tender">Przetarg</option>
-          </Select>
-        </FieldGroup>
         <FieldGroup label="Status">
           <Select value={form.status} onChange={e => onChange("status", e.target.value)}>
             <option value="draft">Draft</option>
             <option value="published">Opublikowana</option>
             <option value="closed">Zamknięta</option>
           </Select>
+        </FieldGroup>
+        <FieldGroup label="Deadline">
+          <Input type="date" value={form.deadline} onChange={e => onChange("deadline", e.target.value)} />
         </FieldGroup>
       </div>
       <FieldGroup label="Opis">
@@ -1402,14 +1353,6 @@ function JobFormFields({
           />
         </FieldGroup>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <FieldGroup label="Wynagrodzenie min (PLN/mies.)">
-          <Input type="number" value={form.salary_min} onChange={e => onChange("salary_min", e.target.value)} placeholder="90" />
-        </FieldGroup>
-        <FieldGroup label="Wynagrodzenie max (PLN/mies.)">
-          <Input type="number" value={form.salary_max} onChange={e => onChange("salary_max", e.target.value)} placeholder="150" />
-        </FieldGroup>
-      </div>
       {/* Budżet dla kandydata (dealbreaker-switch). Osobne pole, bo
           salary_min/max ma niejednoznaczną jednostkę: formularz podpisuje je
           PLN/h, ale importy/seed trzymają tam PLN/mies. — scoring odmawia tej
@@ -1417,19 +1360,6 @@ function JobFormFields({
       <FieldGroup label="Budżet PLN/h dla kandydata (switch „poza budżetem”)">
         <Input type="number" value={form.rate_budget_hourly} onChange={e => onChange("rate_budget_hourly", e.target.value)} placeholder="np. 150 — puste = użyjemy stawki Championa" />
       </FieldGroup>
-      <div className="grid grid-cols-2 gap-3">
-        <FieldGroup label="Priorytet">
-          <Select value={form.priority} onChange={e => onChange("priority", e.target.value)}>
-            <option value="low">Niski</option>
-            <option value="medium">Średni</option>
-            <option value="high">Wysoki</option>
-            <option value="urgent">Krytyczny</option>
-          </Select>
-        </FieldGroup>
-        <FieldGroup label="Deadline">
-          <Input type="date" value={form.deadline} onChange={e => onChange("deadline", e.target.value)} />
-        </FieldGroup>
-      </div>
       <FieldGroup label="Rekruter prowadzący">
         <Select value={form.recruiter_id} onChange={e => onChange("recruiter_id", e.target.value)}>
           <option value="">— nieprzypisany —</option>
@@ -1440,46 +1370,6 @@ function JobFormFields({
             </option>
           ))}
         </Select>
-      </FieldGroup>
-      {clientIdNum !== null && clientTeam && clientTacs.length === 0 && (
-        <div className="text-xs text-amber-700 bg-amber-50 dark:bg-amber-900/20 dark:text-amber-300 rounded-lg px-3 py-2">
-          ⚠️ Klient nie ma przypisanego TAC-a. Uzupełnij relację w
-          zakładce „Opiekunowie”; bez niej request zostanie zapisany bez ownera
-          TAC.
-        </div>
-      )}
-      <FieldGroup label="Owner requestu (TAC)">
-        <Select
-          value={form.tac_id}
-          onChange={e => onChange("tac_id", e.target.value)}
-          aria-label="Owner requestu (TAC)"
-          disabled={clientIdNum === null}
-        >
-          <option value="">— bez ownera requestu —</option>
-          {clientTacs.length > 0 && (
-            <optgroup label="TAC-y przypisani do klienta">
-              {clientTacs.map((t) => (
-                <option key={`client-tac-${t.user_id}`} value={t.user_id}>
-                  {t.name}
-                  {t.role ? ` (${t.role})` : ""}
-                  {t.is_first_priority_for_tac
-                    ? " · osobisty 1. priorytet"
-                    : ""}
-                </option>
-              ))}
-            </optgroup>
-          )}
-        </Select>
-        {form.tac_id && soleClientTac && Number(form.tac_id) === soleClientTac.user_id && (
-          <p className="text-[11px] text-emerald-600 mt-1">
-            ✓ Prefill: jedyny TAC przypisany do klienta
-          </p>
-        )}
-        {clientIdNum === null && (
-          <p className="text-[11px] text-muted-foreground mt-1">
-            Najpierw wybierz klienta, aby zobaczyć jego TAC-ów.
-          </p>
-        )}
       </FieldGroup>
       <FieldGroup label="Delivery Lead">
         <Select value={form.delivery_lead_id} onChange={e => onChange("delivery_lead_id", e.target.value)}>
@@ -1530,35 +1420,6 @@ function JobFormFields({
           </p>
         )}
       </FieldGroup>
-      <FieldGroup label="Szablon procesu rekrutacyjnego">
-        <Select
-          value={form.pipeline_template_id}
-          onChange={e => onChange("pipeline_template_id", e.target.value)}
-        >
-          <option value="">— domyślny szablon —</option>
-          {templates
-            .filter(t => !t.archived)
-            .map(t => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-                {t.is_default ? " (domyślny)" : ""}
-              </option>
-            ))}
-        </Select>
-        <p className="text-[11px] text-muted-foreground mt-1">
-          Definiuje etapy kanbana i powody odrzucenia. Zmień w{" "}
-          <a href="/settings/pipeline-templates" target="_blank" className="text-primary underline">
-            Ustawieniach →
-          </a>
-        </p>
-      </FieldGroup>
-      <CompetenceCategoryPicker
-        value={ccId}
-        onChange={(v) => onChange("competence_category_id", v !== null ? String(v) : "")}
-        jobTitle={form.title}
-        description={form.description}
-        requirements={form.requirements}
-      />
     </>
   );
 }
@@ -1576,13 +1437,8 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
     queryKey: ["users-list-qa"],
     queryFn: () => api.get("/api/users").then(r => r.data),
   });
-  const { data: templatesData } = useQuery({
-    queryKey: ["pipeline-templates-list"],
-    queryFn: () => pipelineTemplatesApi.list(false).then(r => r.data),
-  });
   const clients = clientsData ?? [];
   const users = usersData ?? [];
-  const templates = templatesData ?? [];
 
   const onChange = (k: keyof JobFormData, v: string) =>
     setForm((current) => {
@@ -1590,7 +1446,6 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
         return {
           ...current,
           client_id: v,
-          tac_id: "",
           delivery_lead_id: "",
         };
       }
@@ -1605,7 +1460,6 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
       await api.patch(`/api/jobs/${job.id}`, {
         title: form.title,
         client_id: form.client_id ? Number(form.client_id) : undefined,
-        recruitment_type: form.recruitment_type,
         status: form.status,
         description: form.description || undefined,
         requirements: form.requirements || undefined,
@@ -1616,31 +1470,20 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
         remote_policy: form.remote_policy || null,
         onsite_days_per_week:
           form.onsite_days_per_week === "" ? null : Number(form.onsite_days_per_week),
-        salary_min: form.salary_min ? Number(form.salary_min) : undefined,
-        salary_max: form.salary_max ? Number(form.salary_max) : undefined,
         // Czyszczalne (`null`, nie `undefined`): PATCH z pustym polem musi
         // móc zdjąć wcześniej ustawiony budżet, np. gdy DL chce z powrotem
         // polegać na stawce z Profilu Championa (`resolve_job_budget_hourly`
         // preferuje kolumnę, więc bez tego budżetu nie dałoby się cofnąć).
         rate_budget_hourly: form.rate_budget_hourly ? Number(form.rate_budget_hourly) : null,
-        priority: form.priority,
         deadline: form.deadline || undefined,
         recruiter_id: form.recruiter_id ? Number(form.recruiter_id) : undefined,
-        // Override TAC / DL w PATCH. `undefined` jest pomijane (zachowa DB);
-        // jeśli form.tac_id == "" oznacza to, że user jawnie chce "nieprzypisany"
-        // i musimy wysłać null — inaczej zostanie stary auto-assign.
-        tac_id: form.tac_id ? Number(form.tac_id) : null,
+        // Pola usunięte z formularza 22.09.2026 (TAC, typ, widełki, priorytet,
+        // szablon, kategoria, Program/Train) NIE są wysyłane — PATCH czyta
+        // `model_fields_set`, więc wartości w bazie zostają nietknięte.
         delivery_lead_id: form.delivery_lead_id ? Number(form.delivery_lead_id) : null,
         hiring_manager_contact_id: form.hiring_manager_contact_id
           ? Number(form.hiring_manager_contact_id)
           : null,
-        pipeline_template_id: form.pipeline_template_id ? Number(form.pipeline_template_id) : null,
-        competence_category_id: form.competence_category_id
-          ? Number(form.competence_category_id)
-          : null,
-        // Phase 15 / Phase D: pusty string → null (clear); non-empty → value.
-        // `undefined` pominąłby pole w PATCH i zachował wartość DB.
-        train_name: form.train_name.trim() ? form.train_name.trim() : null,
       });
       onSuccess("Rekrutacja zaktualizowana");
       onClose();
@@ -1653,7 +1496,7 @@ export function EditJobModal({ job, onClose, onSuccess }: { job: any; onClose: (
     <Modal title={`Edytuj: ${job.title}`} onClose={onClose} wide>
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
         {error && <ErrorBanner error={error} />}
-        <JobFormFields form={form} onChange={onChange} clients={clients} users={users} templates={templates} />
+        <JobFormFields form={form} onChange={onChange} clients={clients} users={users} />
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
           <SaveButton saving={saving} label="Zapisz zmiany" />
@@ -2097,14 +1940,16 @@ function QuickActionsButton({
 } = {}) {
   const [open, setOpen] = useState(false);
   const [modal, setModal] = useState<ModalType>(null);
+  const router = useRouter();
 
   // Handle external modal trigger (from keyboard shortcuts)
   useEffect(() => {
     if (externalModal) {
-      setModal(externalModal);
+      if (externalModal === "job") router.push("/jobs/new");
+      else setModal(externalModal);
       onExternalModalClear?.();
     }
-  }, [externalModal, onExternalModalClear]);
+  }, [externalModal, onExternalModalClear, router]);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const queryClient = useQueryClient();
   const ref = useRef<HTMLDivElement>(null);
@@ -2152,7 +1997,12 @@ function QuickActionsButton({
             {QUICK_ACTIONS.map(({ label, icon: Icon, modal: m }) => (
               <button
                 key={m}
-                onClick={() => { setOpen(false); setModal(m); }}
+                onClick={() => {
+                  setOpen(false);
+                  // Nowa rekrutacja to strona, nie okno (22.09.2026).
+                  if (m === "job") router.push("/jobs/new");
+                  else setModal(m);
+                }}
                 className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground dark:text-muted-foreground hover:bg-muted dark:hover:bg-muted transition-colors"
               >
                 <Icon className="w-4 h-4 text-muted-foreground" />
@@ -2165,9 +2015,6 @@ function QuickActionsButton({
 
       {/* Modals */}
       {modal === "candidate" && <AddCandidateModal onClose={() => setModal(null)} onSuccess={showToast} />}
-      {modal === "job" && (
-        <CreateJobModal onClose={() => setModal(null)} onSuccess={(msg) => showToast(msg)} />
-      )}
       {modal === "client" && <AddClientModal onClose={() => setModal(null)} onSuccess={showToast} />}
       {modal === "meeting" && <AddMeetingModal onClose={() => setModal(null)} onSuccess={showToast} />}
 

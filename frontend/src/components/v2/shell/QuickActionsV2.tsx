@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Briefcase, Building2, CalendarPlus, Contact2, Link2, Plus, UserPlus } from "lucide-react";
 import type { Capability } from "@/lib/capabilities";
@@ -18,7 +19,6 @@ import {
   AddContactModal,
   AddMeetingModal,
 } from "@/components/AppShell";
-import { CreateJobModal } from "@/components/v2/modals/CreateJobModal";
 import { GenerateInviteLinkV2 } from "@/components/v2/modals/GenerateInviteLinkV2";
 
 export type QuickActionModal =
@@ -57,21 +57,30 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const queryClient = useQueryClient();
   const can = useCapabilities();
+  const router = useRouter();
 
   /** Fail-closed: modal otwiera się WYŁĄCZNIE gdy user ma capability. Dotyczy
    *  także wejść zewnętrznych (skróty klawiszowe, Command Palette), żeby żadna
    *  alternatywna ścieżka nie ominęła bramki. */
   const openModal = (next: QuickActionModal) => {
     if (next && !can[ACTION_CAPABILITY[next]]) return;
+    // Nowa rekrutacja to strona `/jobs/new`, nie okno (22.09.2026).
+    if (next === "job") {
+      router.push("/jobs/new");
+      return;
+    }
     setModal(next);
   };
 
   useEffect(() => {
     if (externalModal) {
-      if (can[ACTION_CAPABILITY[externalModal]]) setModal(externalModal);
+      if (can[ACTION_CAPABILITY[externalModal]]) {
+        if (externalModal === "job") router.push("/jobs/new");
+        else setModal(externalModal);
+      }
       onExternalModalClear?.();
     }
-  }, [externalModal, onExternalModalClear, can]);
+  }, [externalModal, onExternalModalClear, can, router]);
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -153,15 +162,6 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
       </DropdownMenu>
 
       {modal === "candidate" && <AddCandidateModal onClose={() => setModal(null)} onSuccess={showToast} />}
-      {modal === "job" && (
-        <CreateJobModal
-          onClose={() => setModal(null)}
-          // `showToast` ma drugi parametr `type` — `CreateJobModal.onSuccess`
-          // niesie tam opcjonalny obiekt `job`, więc przekazanie funkcji
-          // wprost podstawiłoby go pod `type` (styl błędu zamiast sukcesu).
-          onSuccess={(msg) => showToast(msg)}
-        />
-      )}
       {modal === "client" && <AddClientModal onClose={() => setModal(null)} onSuccess={showToast} />}
       {modal === "contact" && <AddContactModal onClose={() => setModal(null)} onSuccess={showToast} />}
       {modal === "meeting" && <AddMeetingModal onClose={() => setModal(null)} onSuccess={showToast} />}

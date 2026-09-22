@@ -835,15 +835,7 @@ export function JobReadinessDock({
       <JobSettingsPanel
         jobId={jobId}
         clientId={job.client_id ?? null}
-        jobTitle={job.title}
-        jobDescription={job.description ?? null}
-        jobRequirements={job.requirements ?? null}
-        tacId={job.tac_id ?? null}
         deliveryLeadId={job.delivery_lead_id ?? null}
-        pipelineTemplateId={job.pipeline_template_id ?? null}
-        competenceCategoryId={job.competence_category_id ?? null}
-        trainName={job.train_name ?? null}
-        priority={job.priority ?? null}
         deadline={job.deadline ?? null}
         canEdit={canWritePipeline && canUpdateJob}
       />

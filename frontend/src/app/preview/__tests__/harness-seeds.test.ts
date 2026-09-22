@@ -214,3 +214,20 @@ describe("/preview/custom-dashboard zasiewa każdy stały klucz", () => {
     }
   });
 });
+
+describe("/preview/new-job zasiewa każdy stały klucz", () => {
+  const harness = withoutComments(read("app/preview/new-job/page.tsx")).replace(/\s+/g, " ");
+
+  it("nie zostawia klucza, który uruchomiłby zapytanie i przerzucił na /login", () => {
+    const keys = [
+      ...literalQueryKeys(read("components/v2/jobs/new/NewJobPage.tsx")),
+      // `ClientSinglePicker` bierze klucz z propsa — ten sam literał co w kroku 1.
+      '["clients-lookup-new-job"]',
+    ];
+    expect(keys.length).toBeGreaterThan(1);
+    expect(keys.filter((key) => !harness.includes(key))).toEqual([]);
+    expect(read("components/v2/jobs/new/NewJobRequestStep.tsx")).toContain(
+      'queryKey="clients-lookup-new-job"',
+    );
+  });
+});

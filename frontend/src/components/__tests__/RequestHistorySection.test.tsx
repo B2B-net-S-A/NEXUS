@@ -7,10 +7,11 @@ const mocks = vi.hoisted(() => ({
   forJob: vi.fn(),
   addCandidate: vi.fn(),
   showToast: vi.fn(),
+  push: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: mocks.push }),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -24,9 +25,6 @@ vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast: mocks.showToast }),
 }));
 
-vi.mock("@/components/v2/modals/CreateJobModal", () => ({
-  CreateJobModal: () => <div role="dialog">Kopiowanie requestu</div>,
-}));
 
 import { RequestHistorySection } from "@/components/RequestHistorySection";
 import { useAuthStore } from "@/store/auth";
@@ -99,6 +97,15 @@ describe("RequestHistorySection read-only", () => {
     fireEvent.click(screen.getByTestId("request-history-cross-client"));
     await waitFor(() => expect(mocks.forJob).toHaveBeenCalledTimes(2));
     expect(mocks.addCandidate).not.toHaveBeenCalled();
+  });
+
+  it("„Skopiuj jako template” otwiera stronę nowej rekrutacji z szablonem", async () => {
+    renderSection(false);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Skopiuj jako template" }),
+    );
+    expect(mocks.push).toHaveBeenCalledWith("/jobs/new?from=12");
   });
 
   it("pozostawia akcje dla użytkownika z zapisem", async () => {

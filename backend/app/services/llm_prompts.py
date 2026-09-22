@@ -922,6 +922,63 @@ CV_REQUIREMENT_MAP = PromptTemplate(
 )
 
 
+# ── Nowa rekrutacja z requestu klienta (strona /jobs/new) ───────────────────
+#
+# Jeden odczyt maila klienta ZANIM rekrutacja istnieje. Zwraca wyłącznie to,
+# czego wymaga „Przekaż do searchu” (`job_readiness.job_handoff_blockers`),
+# płasko — formularz nie przepisuje sekcji Championa. Stawkę model CYTUJE
+# (`rate_quote`), a liczbę wyprowadza kod (`champion_intake.document_rate`):
+# model nie może wpisać budżetu, którego request nie podaje w PLN/h.
+
+JOB_REQUEST_INTAKE = PromptTemplate(
+    name="job_request_intake",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
+        "Czytasz request klienta (zwykle mail) i wypisujesz z niego dane "
+        "potrzebne do rozpoczęcia wyszukiwania kandydatów. "
+        "NAJWAŻNIEJSZE REGUŁY: "
+        "(1) Wypisuj WYŁĄCZNIE to, co jest w tekście. Czego nie ma — null albo []. "
+        "Nigdy nie zgaduj budżetu, trybu pracy, liczby dni ani miasta. "
+        "(2) Jedyny wyjątek: pytania screeningowe oznaczone from_request=false "
+        "możesz zaproponować sam, żeby było ich co najmniej 2. "
+        "(3) Pola evidence i rate_quote to DOSŁOWNE fragmenty tekstu "
+        "(kopiuj znak w znak, bez zmian). "
+        "(4) Odpowiedź to czysty JSON bez komentarzy i bez code fences."
+    ),
+    template=(
+        "Klient: {client_name}\n\n"
+        "Request od klienta:\n"
+        "---\n"
+        "{request_text}\n"
+        "---\n\n"
+        "Zwróć JSON:\n"
+        "{{\n"
+        '  "role_name": str|null,            // nazwa stanowiska, np. "Senior Java Developer"\n'
+        '  "must": [str],                     // POJEDYNCZE technologie wymagane, max 10\n'
+        '  "nice": [str],                     // POJEDYNCZE technologie/dziedziny mile widziane, max 8\n'
+        '  "seniority_min_years": int|null,   // minimalne lata doświadczenia, tylko gdy podane\n'
+        '  "rate_quote": str|null,            // dosłowny fragment ze stawką/budżetem, np. "do 170 zł/h netto"\n'
+        '  "work_mode": "zdalnie"|"hybrydowo"|"stacjonarnie"|null,\n'
+        '  "onsite_days_per_week": int|null,  // dni w biurze w tygodniu, tylko gdy podane\n'
+        '  "office_city": str|null,           // samo miasto biura, np. "Warszawa"\n'
+        '  "start_date": str|null,            // RRRR-MM-DD, tylko gdy podana konkretna data\n'
+        '  "project_about": str|null,         // cel projektu, MAKSYMALNIE 2 zdania po polsku\n'
+        '  "responsibilities": str|null,      // obowiązki, krótko po polsku\n'
+        '  "screening_questions": [\n'
+        '    {{"question": str, "ideal_answer": str, "from_request": bool}}\n'
+        "  ],\n"
+        '  "evidence": [str]                  // dosłowne fragmenty, z których wziąłeś dane powyżej\n'
+        "}}\n\n"
+        "Pytania screeningowe: najpierw te, o które klient pyta albo które wynikają "
+        "wprost z wymagań (from_request=true). Jeśli jest ich mniej niż 2, dodaj "
+        "własne propozycje (from_request=false), razem najwyżej 4. Pytania po polsku, "
+        "do kandydata, jedno zdanie; ideal_answer — czego szukać w odpowiedzi, krótko."
+    ),
+)
+
+
 # ── Registry (for logging + future A/B) ─────────────────────────────────────
 
 ALL_TEMPLATES: dict[str, PromptTemplate] = {
@@ -938,5 +995,6 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         MATCH_JUSTIFICATION,
         CANDIDATE_ACTIVITY_SUMMARY,
         CV_REQUIREMENT_MAP,
+        JOB_REQUEST_INTAKE,
     )
 }
