@@ -35,6 +35,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.work_time import HOURS_PER_MONTH
 from app.models.base import TimestampMixin
 from app.models.contract import RateUnit
 
@@ -172,7 +173,10 @@ class ClientOrder(Base, TimestampMixin):
         server_default="monthly",
     )
     billing_hours_per_month: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=160, server_default="160"
+        Integer,
+        nullable=False,
+        default=HOURS_PER_MONTH,
+        server_default=str(HOURS_PER_MONTH),
     )
 
     # Waluty obu stron stawki. ``currency`` niżej zostaje aliasem strony

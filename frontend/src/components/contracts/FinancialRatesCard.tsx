@@ -1,6 +1,7 @@
 import { AlertCircle, Banknote, RefreshCw, TrendingUp } from "lucide-react";
 
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { HOURS_PER_MONTH, MD_PER_MONTH } from "@/lib/work-time";
 
 export interface EurPlnRate {
   rate: number;
@@ -74,8 +75,8 @@ function monthlyMultiplier(
   rateUnit: FinancialRatesContract["rate_unit"],
   billingHoursPerMonth: number,
 ): number {
-  if (rateUnit === "daily") return 22;
-  if (rateUnit === "hourly") return billingHoursPerMonth || 160;
+  if (rateUnit === "daily") return MD_PER_MONTH;
+  if (rateUnit === "hourly") return billingHoursPerMonth || HOURS_PER_MONTH;
   return 1;
 }
 

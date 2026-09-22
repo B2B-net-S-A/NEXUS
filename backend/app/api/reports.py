@@ -19,6 +19,7 @@ from app.api.financial_access import FinanceReadUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.cache import cache_get, cache_set
+from app.core.work_time import HOURS_PER_MONTH, MD_PER_MONTH
 from app.models.client import Client
 from app.models.competence_category import (
     CompetenceCategory,
@@ -46,9 +47,11 @@ router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 # ── Rate-unit aware helpers (Phase 9 A3) ───────────────────────────────────────
 # Previously reports used a blanket `* 160` multiplier, assuming every Contract
 # stored a monthly rate. Phase 9 A3 introduced `rate_unit` + `billing_hours_per_month`;
-# these helpers normalise stored rates to a monthly amount.
+# these helpers normalise stored rates to a monthly amount. Miesiąc roboczy
+# jest jeden dla całego systemu (``app.core.work_time``, 22.09.2026): 21 MD
+# i 168 h (fallback, gdy kontrakt godzinowy nie podaje godzin).
 
-_WORKING_DAYS_PER_MONTH = 22
+_WORKING_DAYS_PER_MONTH = MD_PER_MONTH
 
 
 def _monthly(contract: Contract, value: Optional[Decimal | int | float]) -> Decimal:
@@ -69,7 +72,7 @@ def _monthly(contract: Contract, value: Optional[Decimal | int | float]) -> Deci
     if contract.rate_unit.value == "daily":
         return dec * _WORKING_DAYS_PER_MONTH
     # hourly
-    return dec * int(contract.billing_hours_per_month or 160)
+    return dec * int(contract.billing_hours_per_month or HOURS_PER_MONTH)
 
 
 def _monthly_rate_client(contract: Contract) -> Decimal:
@@ -130,7 +133,13 @@ def _sql_monthly(col):
     """SQLAlchemy CASE expr: convert rate column to monthly using Contract.rate_unit."""
     return case(
         (Contract.rate_unit == "daily", col * _WORKING_DAYS_PER_MONTH),
-        (Contract.rate_unit == "hourly", col * Contract.billing_hours_per_month),
+        (
+            Contract.rate_unit == "hourly",
+            col
+            * func.coalesce(
+                func.nullif(Contract.billing_hours_per_month, 0), HOURS_PER_MONTH
+            ),
+        ),
         else_=col,
     )
 

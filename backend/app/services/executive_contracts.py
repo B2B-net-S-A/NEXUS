@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.scheduling import business_today
+from app.core.work_time import HOURS_PER_MONTH
 from app.models.activity import Activity
 from app.models.client_executive_contract import (
     EXECUTIVE_CONTRACT_STATUS_ACTIVE,
@@ -384,7 +385,7 @@ def _draft_order_for(
     """Szkic zamówienia dla kontraktu bez zamówienia — minimalny zestaw pól.
 
     Lustro ``create_order_extension``: jednostka i godziny rozliczeniowe
-    dziedziczone z kontraktu (kolumny NOT NULL z domyślnymi ``monthly``/160),
+    dziedziczone z kontraktu (kolumny NOT NULL z domyślnymi ``monthly``/168),
     stawki puste — to szkic do uzupełnienia, nie zamówienie od klienta.
     Tytułem jest numer umowy wykonawczej, bo to jedyna rzecz, którą o tym
     zamówieniu wiemy na pewno.
@@ -399,7 +400,7 @@ def _draft_order_for(
         status=ClientOrderStatus.draft,
         start_date=contract.start_date,
         rate_unit=unit,
-        billing_hours_per_month=contract.billing_hours_per_month or 160,
+        billing_hours_per_month=contract.billing_hours_per_month or HOURS_PER_MONTH,
         executive_contract_id=executive.id,
         project_part=project_part,
         created_by_user_id=user_id,

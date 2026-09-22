@@ -4,7 +4,7 @@ Kryteria akceptacji, każde osobnym testem:
 
 * kontrakt w MD → zł/h (MD ÷ 8) dla stawki kosztowej i przychodowej, bez
   zaokrąglenia zniekształcającego kwotę; miesięczne ekwiwalenty bez zmian
-  (176 h/mc = 22 MD × 8 h);
+  (168 h/mc = 21 MD × 8 h — jeden miesiąc roboczy, ``app.core.work_time``);
 * kontrakty godzinowe i ryczałtowe (decyzja Artura) — bez zmian;
 * zamówienia — bez zmian, co do wartości i jednostki;
 * nowe zamówienie w MD daje w Kontraktach stawkę godzinową;
@@ -23,6 +23,7 @@ from httpx import AsyncClient
 from openpyxl import load_workbook
 from sqlalchemy import delete, select
 
+from app.core.work_time import HOURS_PER_MONTH
 from app.models.activity import Activity
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
@@ -30,7 +31,6 @@ from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_client_rate import ContractClientRate
 from app.models.contract_framework_rate import ContractFrameworkRate
 from app.services.contract_order_sync import (
-    MD_BILLING_HOURS_PER_MONTH,
     apply_contract_hourly_policy,
     contract_unit_for_order,
     sync_contract_from_orders,
@@ -131,7 +131,8 @@ def test_daily_contract_is_converted_exactly_with_all_its_amounts():
     assert apply_contract_hourly_policy(contract)
 
     assert contract.rate_unit == RateUnit.hourly
-    assert contract.billing_hours_per_month == MD_BILLING_HOURS_PER_MONTH == 176
+    assert contract.billing_hours_per_month == HOURS_PER_MONTH == 168
+    assert contract.orders_in_md is True
     assert contract.rate_candidate == Decimal("125.19375")
     assert contract.rate_client == Decimal("167.5")
     assert contract.framework_rate == Decimal("187.5125")
@@ -169,7 +170,7 @@ def test_hourly_and_monthly_contracts_are_left_alone(unit):
 async def test_md_order_on_a_monthly_contract_gives_hourly_with_the_same_month():
     contract = _contract(
         rate_unit=RateUnit.monthly,
-        rate_candidate=Decimal("17600"),
+        rate_candidate=Decimal("16800"),
     )
 
     outcome = await sync_contract_from_orders(
@@ -180,9 +181,10 @@ async def test_md_order_on_a_monthly_contract_gives_hourly_with_the_same_month()
         "monthly",
         "hourly",
     )
-    assert contract.billing_hours_per_month == 176
-    assert contract.rate_candidate == Decimal("100"), "17 600 zł/mc ÷ 176 h"
-    assert contract.monthly_rate(contract.rate_candidate) == Decimal("17600")
+    assert contract.billing_hours_per_month == 168
+    assert contract.orders_in_md is True
+    assert contract.rate_candidate == Decimal("100"), "16 800 zł/mc ÷ 168 h"
+    assert contract.monthly_rate(contract.rate_candidate) == Decimal("16800")
     assert contract.rate_client == Decimal("167.5")
 
 
@@ -198,19 +200,22 @@ async def test_monthly_order_keeps_the_monthly_contract():
     assert contract.rate_client == Decimal("22000")
 
 
-async def test_first_md_order_gives_a_new_hourly_contract_176_hours():
+async def test_first_md_order_gives_a_new_hourly_contract_168_hours():
     """Kontrakt bez przychodu (świeża umowa B2B) — pierwsze zamówienie w MD
-    ustala jego pieniądze, więc miesiąc liczy się jak w zamówieniu (22 MD)."""
-    contract = _contract(rate_candidate=Decimal("120"), billing_hours_per_month=168)
+    ustala jego pieniądze: standardowy miesiąc (21 MD × 8 h) i zamówienia w MD."""
+    contract = _contract(rate_candidate=Decimal("120"), billing_hours_per_month=160)
 
     outcome = await sync_contract_from_orders(
         _FakeDb(), contract, [_order()], actor_id=None, today=TODAY
     )
-    assert contract.billing_hours_per_month == 176
-    assert outcome.billing_hours_from == 168
-    assert outcome.as_details()["billing_hours_per_month"] == {"from": 168}
+    assert contract.billing_hours_per_month == 168
+    assert contract.orders_in_md is True
+    assert outcome.billing_hours_from == 160
+    assert outcome.orders_in_md_from is False
+    assert outcome.as_details()["billing_hours_per_month"] == {"from": 160}
+    assert outcome.as_details()["orders_in_md"] == {"from": False}
 
-    explicit = _contract(rate_candidate=Decimal("120"), billing_hours_per_month=168)
+    explicit = _contract(rate_candidate=Decimal("120"), billing_hours_per_month=160)
     await sync_contract_from_orders(
         _FakeDb(),
         explicit,
@@ -219,7 +224,8 @@ async def test_first_md_order_gives_a_new_hourly_contract_176_hours():
         today=TODAY,
         follow_order_unit=False,
     )
-    assert explicit.billing_hours_per_month == 168
+    assert explicit.billing_hours_per_month == 160
+    assert not explicit.orders_in_md
     assert explicit.rate_client == Decimal("167.5")
 
 
@@ -241,38 +247,46 @@ async def test_hourly_contract_with_revenue_keeps_its_hours_on_an_md_order():
     assert contract.effective_client_rate(TODAY) == Decimal("167.5")
 
 
-async def test_176_hours_follow_the_newest_order_back_to_hourly():
+async def test_md_marker_follows_the_newest_order_back_to_hourly():
+    """Najnowsze zamówienie przestało być w MD — kontrakt traci znacznik,
+    a godziny zostają standardowe (do 22.09.2026 znacznikiem było 176 h,
+    które trzeba było zdjąć)."""
     contract = _contract(
-        rate_candidate=Decimal("120"), billing_hours_per_month=176
+        rate_candidate=Decimal("120"),
+        billing_hours_per_month=168,
+        orders_in_md=True,
     )
     hourly = _order(
         101,
         rate_unit=RateUnit.hourly,
         rate_client=Decimal("170"),
         start_date=date(2027, 1, 1),
-        billing_hours_per_month=168,
+        billing_hours_per_month=160,
     )
 
-    await sync_contract_from_orders(
+    outcome = await sync_contract_from_orders(
         _FakeDb(), contract, [_order(), hourly], actor_id=None, today=TODAY
     )
 
-    assert contract.billing_hours_per_month == 168
+    assert contract.billing_hours_per_month == 168, "godziny zamówienia nie wchodzą"
+    assert contract.orders_in_md is False
+    assert outcome.orders_in_md_from is True
     assert contract.rate_candidate == Decimal("120")
 
 
 async def test_monthly_order_uses_the_contract_hours_both_ways():
-    """Kontrakt 125 zł/h × 176 h = 22 000 zł/mc — zamówienie miesięczne 22 000
-    nie może stać się 20 000 (koszt) ani krokiem 137,5 zł/h (przychód)."""
+    """Kontrakt 125 zł/h × 168 h = 21 000 zł/mc — zamówienie miesięczne 21 000
+    (z inną liczbą godzin) nie może stać się 20 000 (koszt) ani krokiem
+    131,25 zł/h (przychód): liczą godziny KONTRAKTU."""
     contract = _contract(
         rate_candidate=Decimal("125"),
         rate_client=None,
-        billing_hours_per_month=176,
+        billing_hours_per_month=168,
     )
     monthly = _order(
         rate_unit=RateUnit.monthly,
-        rate_client=Decimal("22000"),
-        rate_candidate=Decimal("22000"),
+        rate_client=Decimal("21000"),
+        rate_candidate=Decimal("21000"),
         billing_hours_per_month=160,
     )
 
@@ -290,7 +304,7 @@ async def test_monthly_order_uses_the_contract_hours_both_ways():
 
     assert contract.effective_client_rate(TODAY) == Decimal("125")
     assert changed == []
-    assert monthly.rate_candidate == Decimal("22000")
+    assert monthly.rate_candidate == Decimal("21000")
 
 
 def test_orders_inheriting_from_a_converted_contract_stay_in_md():
@@ -302,9 +316,12 @@ def test_orders_inheriting_from_a_converted_contract_stay_in_md():
     converted = _contract(
         rate_candidate=Decimal("125.19375"),
         rate_client=Decimal("167.5"),
-        billing_hours_per_month=176,
+        billing_hours_per_month=168,
+        orders_in_md=True,
     )
-    b2b = _contract(rate_candidate=Decimal("120"), billing_hours_per_month=160)
+    b2b = _contract(rate_candidate=Decimal("120"), billing_hours_per_month=168)
+    # 176 h bez znacznika nie jest już sygnałem MD (znacznik ma własną kolumnę).
+    legacy_hours = _contract(rate_candidate=Decimal("120"), billing_hours_per_month=176)
 
     assert order_unit_for_contract(converted) == RateUnit.daily
     assert order_unit_for_contract(b2b) == RateUnit.hourly
@@ -313,6 +330,7 @@ def test_orders_inheriting_from_a_converted_contract_stay_in_md():
     assert fields["rate_candidate"] == Decimal("1001.550")
     assert fields["rate_client"] == Decimal("1340.000")
     assert inherited_order_rate_fields(b2b)["rate_unit"] == RateUnit.hourly
+    assert order_unit_for_contract(legacy_hours) == RateUnit.hourly
 
 
 def test_order_margin_falls_back_to_the_contract_rate_in_the_order_unit():
@@ -321,13 +339,14 @@ def test_order_margin_falls_back_to_the_contract_rate_in_the_order_unit():
     contract = _contract(
         rate_candidate=Decimal("120"),
         rate_client=Decimal("167.5"),
-        billing_hours_per_month=176,
+        billing_hours_per_month=168,
+        orders_in_md=True,
     )
     order = _order(rate_client=Decimal("1340"), rate_candidate=None)
 
     margin = _compute_monthly_margin(order, contract, on=TODAY)
 
-    assert margin == (Decimal("1340") - Decimal("960")) * 22
+    assert margin == (Decimal("1340") - Decimal("960")) * 21
 
 
 async def test_second_sync_changes_nothing():
@@ -432,7 +451,7 @@ async def test_new_contract_entered_in_md_is_saved_hourly(
     assert resp.status_code in (200, 201), resp.text
     body = resp.json()
     assert body["rate_unit"] == "hourly"
-    assert body["billing_hours_per_month"] == 176
+    assert body["billing_hours_per_month"] == 168
     assert Decimal(str(body["rate_candidate"])) == Decimal("120")
     assert Decimal(str(body["rate_client"])) == Decimal("167.5")
 
@@ -511,7 +530,8 @@ async def test_saving_a_legacy_md_contract_converts_it_whole(
     assert resp.status_code == 200, resp.text
     loaded = await _load(contract_id)
     assert loaded.rate_unit == RateUnit.hourly
-    assert loaded.billing_hours_per_month == 176
+    assert loaded.billing_hours_per_month == 168
+    assert loaded.orders_in_md is True
     assert (loaded.rate_candidate, loaded.rate_client) == (
         Decimal("120"),
         Decimal("167.5"),
@@ -721,7 +741,8 @@ async def test_repair_converts_md_contracts_and_leaves_orders_and_others_untouch
 
         converted = await _load(daily_id)
         assert converted.rate_unit == RateUnit.hourly
-        assert converted.billing_hours_per_month == 176
+        assert converted.billing_hours_per_month == 168
+        assert converted.orders_in_md is True
         assert converted.rate_candidate == Decimal("125.19375")
         assert converted.rate_client == Decimal("167.5")
         assert converted.framework_rate == Decimal("187.5125")

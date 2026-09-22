@@ -48,6 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.scheduling import business_today
+from app.core.work_time import HOURS_PER_MD_DEC, HOURS_PER_MONTH
 from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate
@@ -103,7 +104,7 @@ logger = logging.getLogger(__name__)
 
 RECEIPT_KEY_PREFIX = "ezdrowie_md_seed_"
 _ZERO = Decimal("0")
-_HOURS_PER_MD = Decimal("8")
+_HOURS_PER_MD = HOURS_PER_MD_DEC
 
 
 class EzdrowieMdSeedBlocked(ValueError):
@@ -218,7 +219,9 @@ def _new_contract(
         rate_unit=RateUnit.hourly,
         rate_candidate=(line.rate_cost / _HOURS_PER_MD),
         rate_client=(line.rate_revenue / _HOURS_PER_MD),
-        billing_hours_per_month=176,
+        billing_hours_per_month=HOURS_PER_MONTH,
+        # Kontrakt godzinowy z linii MD — zamówienia dziedziczą w MD.
+        orders_in_md=True,
     )
 
 
@@ -451,7 +454,7 @@ async def _create_line(
         rate_candidate=line.rate_cost,
         rate_client=line.rate_revenue,
         rate_unit=RateUnit.daily,
-        billing_hours_per_month=160,
+        billing_hours_per_month=HOURS_PER_MONTH,
         currency="PLN",
         rate_client_currency="PLN",
         rate_candidate_currency="PLN",

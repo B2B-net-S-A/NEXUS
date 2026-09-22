@@ -163,10 +163,11 @@ async def test_czapelka_ticket_example_end_to_end_on_the_contract():
     assert contract.rate_candidate == Decimal("120.000"), "koszt z umowy bez zmian"
     assert contract.effective_client_rate(date(2026, 9, 20)) == Decimal("167.5")
     assert contract.rate_client == Decimal("167.5"), "1340 zł/MD ÷ 8"
-    # Miesiąc zamówienia w MD = 22 MD = 176 h: przychód miesięczny kontraktu
-    # jest dokładnie tym, co zamówienie (1340 × 22).
-    assert contract.billing_hours_per_month == 176
-    assert contract.monthly_rate(contract.rate_client) == Decimal("1340") * 22
+    # Miesiąc roboczy = 21 MD = 168 h (``app.core.work_time``): przychód
+    # miesięczny kontraktu jest dokładnie tym, co zamówienie (1340 × 21).
+    assert contract.billing_hours_per_month == 168
+    assert contract.orders_in_md is True
+    assert contract.monthly_rate(contract.rate_client) == Decimal("1340") * 21
     assert (contract.client_order_start_date, contract.client_order_end_date) == (
         date(2026, 9, 15),
         date(2026, 12, 31),
@@ -597,7 +598,8 @@ async def test_filling_the_order_updates_the_contract_through_the_api(
         contract = await _load_contract(ids["contract_id"])
         assert contract.status == ContractStatus.draft
         assert contract.rate_unit == RateUnit.hourly
-        assert contract.billing_hours_per_month == 160
+        assert contract.billing_hours_per_month == 168, "domyślny miesiąc roboczy"
+        assert not contract.orders_in_md
         assert (contract.client_order_start_date, contract.client_order_end_date) == (
             None,
             None,
@@ -610,7 +612,8 @@ async def test_filling_the_order_updates_the_contract_through_the_api(
     contract = await _load_contract(ids["contract_id"])
     assert contract.status == ContractStatus.active
     assert contract.rate_unit == RateUnit.hourly
-    assert contract.billing_hours_per_month == 176
+    assert contract.billing_hours_per_month == 168
+    assert contract.orders_in_md is True
     assert contract.effective_client_rate(date(2026, 10, 1)) == Decimal("167.5")
     assert contract.effective_candidate_rate(date(2026, 10, 1)) == Decimal("120")
     assert (contract.client_order_start_date, contract.client_order_end_date) == (

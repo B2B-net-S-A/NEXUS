@@ -56,6 +56,7 @@ import {
   fmtDate,
 } from "@/components/orders/InlineOrderFields";
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
+import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { EditOrderDialog } from "@/components/EditOrderDialog";
 import { DeleteOrderDialog } from "@/components/orders/DeleteOrderDialog";
@@ -532,7 +533,7 @@ export function ContractorOrderCards({
                 rateCandidate: contractor.rate_candidate,
                 contractRateUnit: contractor.rate_unit,
                 contractBillingHoursPerMonth:
-                  contractor.billing_hours_per_month ?? 160,
+                  contractor.billing_hours_per_month ?? HOURS_PER_MONTH,
                 contractRateClientCurrency: normalizeOrderCurrency(
                   contractor.rate_client_currency,
                   contractor.currency,
@@ -949,7 +950,7 @@ function ContractorCard({
         String(
           patch.billing_hours_per_month ??
             contractor.billing_hours_per_month ??
-            160,
+            HOURS_PER_MONTH,
         ),
       );
       form.append(

@@ -93,6 +93,7 @@ const DETAIL_LABELS: Record<string, string> = {
   margin: "Marża",
   framework_rate: "Stawka z umowy ramowej",
   billing_hours_per_month: "Godziny / miesiąc",
+  orders_in_md: "Zamówienia w MD",
   target_rate_min: "Widełki docelowe (min)",
   target_rate_max: "Widełki docelowe (max)",
   currency: "Waluta",

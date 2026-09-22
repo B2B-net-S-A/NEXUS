@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.scheduling import business_today
+from app.core.work_time import HOURS_PER_MD_DEC, MD_PER_MONTH_DEC
 from app.models.candidate import Candidate
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import (
@@ -68,8 +69,8 @@ from app.services.multi_consultant_orders import (
 from app.services.shared_md_orders import uses_shared_md_pool
 
 ZERO = Decimal("0")
-HOURS_PER_MD = Decimal("8")
-STANDARD_WORKING_DAYS_PER_MONTH = Decimal("22")
+HOURS_PER_MD = HOURS_PER_MD_DEC
+STANDARD_WORKING_DAYS_PER_MONTH = MD_PER_MONTH_DEC
 MONEY_SCALE = Decimal("0.01")
 
 # Nazwy miesięcy w MIANOWNIKU — wpis historii brzmi „Za lipiec 2026", a nie
@@ -269,7 +270,8 @@ def contract_rate_cost_per_md_pln(
 ) -> Optional[Decimal]:
     """Efektywna stawka kosztowa kontraktu w kanonicznym PLN/MD.
 
-    Godzina × 8, dzień × 1, miesiąc ÷ 22, na końcu kurs waluty. Brak stawki
+    Godzina × 8, dzień × 1, miesiąc ÷ 21 (``app.core.work_time``), na końcu
+    kurs waluty. Brak stawki
     albo kursu = ``None`` — nigdy nie udajemy kursu 1:1.
     """
     raw_rate = contract.effective_candidate_rate(on)

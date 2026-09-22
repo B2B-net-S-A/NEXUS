@@ -33,6 +33,7 @@ import {
 import { isEzdrowieClient } from "@/lib/ezdrowie";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
+import { HOURS_PER_MONTH } from "@/lib/work-time";
 import {
   canManageCandidateFinance,
   useAuthStore,
@@ -62,7 +63,7 @@ export function ExtendOrderDialog({
   const rateBillingHours =
     latest?.billing_hours_per_month ??
     contract.billing_hours_per_month ??
-    160;
+    HOURS_PER_MONTH;
 
   // Bez autofillu: ta wartość ląduje na karcie jako „Numer zamówienia", więc
   // podpowiedź „Przedłużenie <imię>" wpisywała tam nazwisko zamiast numeru

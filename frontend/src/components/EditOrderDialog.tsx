@@ -48,6 +48,7 @@ import {
 } from "@/lib/order-documents";
 import { extractionErrorMessage, numberToField } from "@/lib/order-extraction";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
+import { HOURS_PER_MONTH } from "@/lib/work-time";
 import {
   effectiveClientOrderType,
   type LegacyClientOrderType,
@@ -107,7 +108,7 @@ export function EditOrderDialog({
   onCreate,
   rateCandidate,
   contractRateUnit = "monthly",
-  contractBillingHoursPerMonth = 160,
+  contractBillingHoursPerMonth = HOURS_PER_MONTH,
   contractRateClientCurrency,
   contractRateCandidateCurrency,
   canManageFinance,
@@ -157,7 +158,9 @@ export function EditOrderDialog({
     order?.rate_unit ?? contractRateUnit ?? "monthly",
   );
   const rateBillingHours =
-    order?.billing_hours_per_month ?? contractBillingHoursPerMonth ?? 160;
+    order?.billing_hours_per_month ??
+    contractBillingHoursPerMonth ??
+    HOURS_PER_MONTH;
   const [rateClientCurrency, setRateClientCurrency] = useState(
     normalizeOrderCurrency(
       order?.rate_client_currency,

@@ -11,6 +11,7 @@ from starlette.responses import RedirectResponse
 from app.api.financial_access import can_read_client_finance
 from app.core.database import get_db
 from app.core.scheduling import business_today
+from app.core.work_time import HOURS_PER_MONTH
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -149,7 +150,7 @@ def _hourly_rate(contract: Contract, rate: object) -> Optional[Decimal]:
         rate,
         RateUnit(contract.rate_unit),
         RateUnit.hourly,
-        contract.billing_hours_per_month or 160,
+        contract.billing_hours_per_month or HOURS_PER_MONTH,
     )
 
 
@@ -193,7 +194,7 @@ def _order_hourly_leg(order: Optional[ClientOrder], side: str) -> Optional[_Hour
     else:
         return None
     hourly = convert_order_rate(
-        amount, unit, RateUnit.hourly, order.billing_hours_per_month or 160
+        amount, unit, RateUnit.hourly, order.billing_hours_per_month or HOURS_PER_MONTH
     )
     if hourly is None:
         return None

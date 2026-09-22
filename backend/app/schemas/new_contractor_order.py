@@ -57,7 +57,7 @@ class NewContractorOrderRequest(BaseModel):
     """``monthly`` / ``daily`` / ``hourly``; Admin defaultuje do monthly."""
 
     billing_hours_per_month: Optional[int] = Field(None, ge=1)
-    """Dla rate_unit=hourly; Admin defaultuje do 160."""
+    """Dla rate_unit=hourly; domyślnie 168 (``app.core.work_time.HOURS_PER_MONTH``)."""
 
     # Legacy alias = waluta przychodowa klienta. Gdy nowe pola są nieobecne,
     # zachowujemy dawną semantykę jednej waluty dla obu stawek.

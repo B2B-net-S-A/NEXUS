@@ -333,12 +333,12 @@ def test_flow_b_admin_keeps_rate_defaults_and_order_snapshot_shape():
         "currency": "PLN",
         "rate_client_currency": "PLN",
         "rate_candidate_currency": "PLN",
-        "billing_hours_per_month": 160,
+        "billing_hours_per_month": 168,
     }
     assert order_kwargs == {
         "rate_candidate": Decimal("14000"),
         "rate_client": Decimal("18000"),
-        "billing_hours_per_month": 160,
+        "billing_hours_per_month": 168,
         "total_value": None,
         "currency": "PLN",
         "rate_client_currency": "PLN",

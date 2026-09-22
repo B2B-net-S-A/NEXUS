@@ -8,6 +8,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.core.work_time import HOURS_PER_MONTH
 from app.models.client_order import ClientOrderStatus
 from app.models.contract import RateUnit
 from app.models.order_type import OrderType
@@ -108,7 +109,7 @@ class ClientOrderRead(BaseModel):
     rate_candidate: Optional[Decimal] = None
     rate_client: Optional[Decimal]
     rate_unit: RateUnit = RateUnit.monthly
-    billing_hours_per_month: int = 160
+    billing_hours_per_month: int = HOURS_PER_MONTH
     total_value: Optional[Decimal]
     currency: Optional[str]
     rate_client_currency: Optional[str] = None
@@ -174,7 +175,7 @@ class ContractWithOrdersRead(BaseModel):
     # /mc zamiast hardkodować "/mc". Sama jednostka nie jest kwotą → nie
     # podlega redakcji finansowej.
     rate_unit: str = "monthly"
-    billing_hours_per_month: int = 160
+    billing_hours_per_month: int = HOURS_PER_MONTH
 
     # Initial Job z którego powstał Contract
     initial_job_id: Optional[int]

@@ -1,5 +1,10 @@
 import Decimal from "decimal.js";
 
+import {
+  HOURS_PER_MD as WORK_HOURS_PER_MD,
+  MD_PER_MONTH as WORK_MD_PER_MONTH,
+} from "@/lib/work-time";
+
 /**
  * Przelicznik jednostki stawki: godzinowa / miesięczna ↔ MD.
  *
@@ -16,9 +21,9 @@ import Decimal from "decimal.js";
  */
 
 /** Roboczodzień (MD) = 8 godzin. Ta sama stała co po stronie parsera PDF. */
-export const HOURS_PER_MD = 8;
-/** Standardowy miesiąc rozliczeniowy kontraktu miesięcznego. */
-export const MD_PER_MONTH = 22;
+export const HOURS_PER_MD = WORK_HOURS_PER_MD;
+/** Standardowy miesiąc roboczy (21 MD, `lib/work-time.ts`; do 22.09.2026: 22). */
+export const MD_PER_MONTH = WORK_MD_PER_MONTH;
 
 export type RateUnit = "hour" | "md" | "month";
 export type ContractRateUnit = "hourly" | "daily" | "monthly";

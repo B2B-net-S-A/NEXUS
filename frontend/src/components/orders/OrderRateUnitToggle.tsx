@@ -3,6 +3,7 @@
 import Decimal from "decimal.js";
 
 import type { OrderRateUnit } from "@/lib/api/dlPortal";
+import { HOURS_PER_MD, HOURS_PER_MONTH, MD_PER_MONTH } from "@/lib/work-time";
 
 const RATE_UNITS: ReadonlyArray<{
   value: OrderRateUnit;
@@ -19,7 +20,7 @@ export function convertRateInput(
   value: string,
   from: OrderRateUnit,
   to: OrderRateUnit,
-  billingHoursPerMonth = 160,
+  billingHoursPerMonth = HOURS_PER_MONTH,
 ): string {
   if (!value.trim()) return value;
   let amount: Decimal;
@@ -35,14 +36,20 @@ export function convertRateInput(
     (from === "hourly" && to === "daily") ||
     (from === "daily" && to === "hourly")
   ) {
-    converted = from === "hourly" ? amount.times(8) : amount.dividedBy(8);
+    converted =
+      from === "hourly"
+        ? amount.times(HOURS_PER_MD)
+        : amount.dividedBy(HOURS_PER_MD);
   } else if (
     (from === "daily" && to === "monthly") ||
     (from === "monthly" && to === "daily")
   ) {
-    converted = from === "daily" ? amount.times(22) : amount.dividedBy(22);
+    converted =
+      from === "daily"
+        ? amount.times(MD_PER_MONTH)
+        : amount.dividedBy(MD_PER_MONTH);
   } else {
-    const hours = new Decimal(billingHoursPerMonth || 160);
+    const hours = new Decimal(billingHoursPerMonth || HOURS_PER_MONTH);
     converted =
       from === "hourly" ? amount.times(hours) : amount.dividedBy(hours);
   }
@@ -113,7 +120,7 @@ export function OrderRateUnitToggle({
   onValueChange,
   onRateCandidateChange,
   onRateClientChange,
-  billingHoursPerMonth = 160,
+  billingHoursPerMonth = HOURS_PER_MONTH,
   disabled = false,
 }: OrderRateUnitToggleProps) {
   function select(next: OrderRateUnit) {

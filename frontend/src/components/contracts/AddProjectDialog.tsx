@@ -61,6 +61,7 @@ import {
 } from "@/components/ui/select";
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
+import { HOURS_PER_MONTH } from "@/lib/work-time";
 
 type ClientOption = { id: number; name: string };
 type JobOption = { id: number; title: string };
@@ -214,7 +215,8 @@ export function AddProjectDialog({
           rate_client_currency: rateClientCurrency,
           rate_candidate_currency: rateCandidateCurrency,
           rate_unit: rateUnit,
-          billing_hours_per_month: baseContract.billing_hours_per_month || 160,
+          billing_hours_per_month:
+            baseContract.billing_hours_per_month || HOURS_PER_MONTH,
           rate_candidate: parseDecimalInput(rateCost),
           rate_client: parseDecimalInput(rateRevenue),
         });

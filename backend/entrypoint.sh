@@ -4961,6 +4961,12 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_competition_period_closures_status
             CHECK (status IN ('frozen', 'no_winner', 'tie_pending', 'tie_resolved'))
     )""",
+    # 0345: jeden miesiąc roboczy 168 h (21 MD × 8 h, `app.core.work_time`).
+    # Znacznik „zamówienia kontraktu są w MD" — do 22.09.2026 niosła go liczba
+    # 176 h/mc. Domyślne godziny zamówienia ustawia faza więzów niżej (0249).
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS orders_in_md "
+    "BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE contracts ALTER COLUMN billing_hours_per_month SET DEFAULT 168",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -5439,7 +5445,7 @@ _DATA_STATEMENTS = [
     """UPDATE client_orders AS order_row
        SET rate_unit = COALESCE(contract.rate_unit, 'monthly'::rateunit),
            billing_hours_per_month = COALESCE(
-               contract.billing_hours_per_month, 160
+               contract.billing_hours_per_month, 168
            ),
            rate_client_currency = COALESCE(
                NULLIF(UPPER(BTRIM(contract.rate_client_currency)), ''),
@@ -5472,7 +5478,7 @@ _DATA_STATEMENTS = [
        SET rate_candidate = order_row.md_rate_cost,
            rate_client = order_row.md_rate_revenue,
            rate_unit = 'daily'::rateunit,
-           billing_hours_per_month = 160,
+           billing_hours_per_month = 168,
            rate_client_currency = 'PLN',
            rate_candidate_currency = 'PLN',
            currency = 'PLN'
@@ -6861,7 +6867,9 @@ _CONSTRAINT_STATEMENTS = [
     # rolling legacy writers; NOT NULL matches the ORM snapshot invariant.
     "ALTER TABLE client_orders ALTER COLUMN rate_unit SET DEFAULT 'monthly'",
     "ALTER TABLE client_orders ALTER COLUMN rate_unit SET NOT NULL",
-    "ALTER TABLE client_orders ALTER COLUMN billing_hours_per_month SET DEFAULT 160",
+    # 0343: domyślny miesiąc roboczy 168 h (do 22.09.2026: 160) — ta lista
+    # wykonuje się przy KAŻDYM starcie, więc stara liczba cofałaby migrację.
+    "ALTER TABLE client_orders ALTER COLUMN billing_hours_per_month SET DEFAULT 168",
     "ALTER TABLE client_orders ALTER COLUMN billing_hours_per_month SET NOT NULL",
     # Atomic closed-domain rewrite. If lock_timeout fires, the DROP rolls back
     # with the ADD and the next container start retries safely.
@@ -8700,7 +8708,8 @@ PY
 
 # Stawki w Kontraktach godzinowe (09.2026, ticket „Ujednolicenie stawek") —
 # jednorazowo: każdy kontrakt w MD przechodzi na zł/h (stawki, harmonogramy,
-# stawka ramowa, widełki ÷ 8; 176 h/mc, więc kwoty miesięczne bez zmian).
+# stawka ramowa, widełki ÷ 8; standardowy miesiąc roboczy — od 0343 168 h/mc
+# i `orders_in_md`, wcześniej 176 h/mc — więc kwoty miesięczne bez zmian).
 # Kontrakty godzinowe i ryczałtowe zostają nietknięte, zamówień korekta nie
 # rusza (suma kontrolna przed i po, różnica = rollback). Czeka na poszerzone
 # kolumny (DDL 0309 wyżej) — bez nich nie zapisuje markera. Logika
@@ -8732,6 +8741,48 @@ async def repair():
             )
             sys.exit(1)
     print(f"contract hourly rate repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Jeden miesiąc roboczy 168 h (0343, decyzja 22.09.2026) — jednorazowo:
+# znacznik 176 h/mc przechodzi do `contracts.orders_in_md`, a godziny
+# rozliczeniowe 160/176 kontraktów i zamówień → 168 (inna, jawnie wybrana
+# liczba zostaje). Żadna stawka nie jest przepisywana. Safety-net dla
+# migracji 0343 (alembic na prodzie bywa osierocony). Jedno źródło SQL-a
+# w `app/services/billing_hours_unification.py`; marker + advisory lock,
+# `lock_timeout` 15 s — po przekroczeniu nic nie zapisuje, następny start
+# ponawia. Log: wyłącznie liczby (paragon w `app_settings`).
+startup_phase "repair-billing-hours-168"
+echo "Contracts/orders: unify billing hours to 168 h/month (one-shot)..."
+python - <<'PY' || echo "billing hours unification skipped; continuing"
+import asyncio
+import json
+from sqlalchemy import text
+from app.core.database import engine
+from app.services.billing_hours_unification import (
+    BILLING_HOURS_MARKER,
+    BILLING_HOURS_UNIFICATION_SQL,
+    summarize_receipt_for_log,
+)
+
+async def repair():
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(BILLING_HOURS_UNIFICATION_SQL))
+            receipt = await conn.scalar(
+                text("SELECT value::text FROM app_settings WHERE key = :key"),
+                {"key": BILLING_HOURS_MARKER},
+            )
+    except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+        sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+        print(
+            f"billing hours unification failed ({type(exc).__name__}, "
+            f"sqlstate={sqlstate}); nothing written, next start retries"
+        )
+        return
+    summary = summarize_receipt_for_log(json.loads(receipt) if receipt else None)
+    print(f"billing hours unification: {summary}")
 
 asyncio.run(repair())
 PY

@@ -14,8 +14,10 @@ Reguły (kryteria akceptacji ticketu):
   ramowa i widełki — MD ÷ 8, bez zaokrąglenia zniekształcającego kwotę.
   Przed zapisem sprawdzamy odwrotność (godzinowa × 8 == dawna dzienna); kontrakt,
   którego nie da się przeliczyć dokładnie, zostaje w MD z kodem powodu;
-* ``billing_hours_per_month = 176`` (22 MD × 8 h) — czytniki pieniędzy liczą
-  miesięcznie MD × 22 i godziny × liczba godzin, więc MRR, marża miesięczna
+* ``billing_hours_per_month`` = standardowy miesiąc roboczy (w 09.2026 było
+  to 176 h = 22 MD × 8 h; od 22.09.2026 168 h = 21 MD × 8 h,
+  ``app.core.work_time``) i ``orders_in_md`` — czytniki pieniędzy liczą
+  miesięcznie MD × 21 i godziny × liczba godzin, więc MRR, marża miesięczna
   i raporty są po korekcie co do grosza takie jak przed nią;
 * zamówienia NIE są ruszane: korekta nie woła synchronizacji z zamówieniami,
   a suma kontrolna wszystkich ``client_orders`` przed i po musi być identyczna —
@@ -40,13 +42,11 @@ from typing import Any, Optional
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.work_time import HOURS_PER_MONTH
 from app.models.activity import Activity
 from app.models.app_setting import AppSetting
 from app.models.contract import Contract, RateUnit
-from app.services.contract_order_sync import (
-    MD_BILLING_HOURS_PER_MONTH,
-    _switch_contract_unit,
-)
+from app.services.contract_order_sync import _switch_contract_unit
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
 from app.services.order_rate_snapshots import (
     CONTRACT_RATE_SCALE,
@@ -269,7 +269,8 @@ async def run_contract_hourly_rate_repair(
             _switch_contract_unit(contract, RateUnit.hourly)
             contract.margin = contract.calculate_margin()
             if (
-                contract.billing_hours_per_month != MD_BILLING_HOURS_PER_MONTH
+                contract.billing_hours_per_month != HOURS_PER_MONTH
+                or not contract.orders_in_md
                 or _monthly_equivalents(contract) != monthly_before
             ):
                 raise RuntimeError(
@@ -297,7 +298,7 @@ async def run_contract_hourly_rate_repair(
                         "rate_unit": {"from": "daily", "to": "hourly"},
                         "billing_hours_per_month": {
                             "from": hours_before,
-                            "to": MD_BILLING_HOURS_PER_MONTH,
+                            "to": HOURS_PER_MONTH,
                         },
                         "divisor": 8,
                     },
