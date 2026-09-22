@@ -72,7 +72,7 @@ vi.mock("@/components/v2/pages/DopasowanieTab", () => ({
   DopasowanieTab: () => <div data-testid="dopasowanie-tab-stub" />,
 }));
 
-import { PipelineCandidateDock } from "@/components/v2/jobs/PipelineCandidateDock";
+import { PipelineCandidateDock, nowSectionForStage } from "@/components/v2/jobs/PipelineCandidateDock";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 
@@ -80,7 +80,8 @@ function baseItem(overrides: Partial<KanbanItem> = {}): KanbanItem {
   return {
     id: 501,
     candidate_id: 42,
-    stage: "new",
+    // Etap u klienta → sekcja „Teraz" to „W procesie" (oś czasu i warunki).
+    stage: "cv_sent",
     name: "Anna",
     lastname: "Kowalska",
     days_in_stage: 3,
@@ -180,27 +181,30 @@ describe("PipelineCandidateDock", () => {
     apiPost.mockResolvedValue({ data: {} });
   });
 
-  it("renderuje nagłówek kandydata i domyślną zakładkę „W procesie”", () => {
+  it("renderuje nagłówek i otwiera sekcję „Teraz” właściwą dla etapu", () => {
     renderDock();
     expect(screen.getByText("Anna Kowalska")).toBeTruthy();
     expect(screen.getByText(/Etap · Nowi \/ Analiza CV/)).toBeTruthy();
-    expect(screen.getByRole("tab", { name: /W procesie/ })).toHaveAttribute(
-      "aria-selected",
-      "true"
+    expect(screen.getByRole("button", { name: /W procesie.*Teraz/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
     );
   });
 
-  it("pasek pięciu zakładek zawija się zamiast chować „Notatki” za krawędzią", () => {
-    // UAT M03-B06: 438 px zakładek w 327-px pasku z `overflow-x-auto` —
-    // „Notatki” były niewidoczne i bez wskaźnika przewijania.
+  it("pozostałe sekcje są zwinięte, ale wszystkie osiągalne (bez chowania za krawędzią)", () => {
     renderDock();
-    const tablist = screen.getByRole("tablist");
-    expect(tablist.className).toContain("flex-wrap");
-    expect(tablist.className).not.toContain("min-w-max");
-    expect(tablist.parentElement?.className ?? "").not.toContain(
-      "overflow-x-auto"
-    );
-    expect(screen.getByRole("tab", { name: /Notatki/ })).toBeTruthy();
+    for (const name of [/^Screening/, /^CV/, /^Dopasowanie/, /^Notatki/]) {
+      expect(screen.getByRole("button", { name })).toHaveAttribute("aria-expanded", "false");
+    }
+  });
+
+  it("sekcja „Teraz” zależy od etapu: Nowi → CV, Screening → Screening", () => {
+    expect(nowSectionForStage("new")).toBe("cv");
+    expect(nowSectionForStage("posting")).toBe("cv");
+    expect(nowSectionForStage("screening")).toBe("screening");
+    expect(nowSectionForStage("verified")).toBe("cv");
+    expect(nowSectionForStage("client_interview")).toBe("process");
+    expect(nowSectionForStage(null)).toBe("process");
   });
 
   it("wyszarza zablokowany etap w menu „Inny etap…” z powodem pod nazwą", async () => {
@@ -257,13 +261,14 @@ describe("PipelineCandidateDock", () => {
     renderDock({ readOnly: true, canReject: true });
 
     expect(screen.queryByRole("button", { name: /Odrzuć z powodem/ })).toBeNull();
-    // Otwórz CV pozostaje — to podgląd, nie zapis.
-    expect(screen.getByRole("button", { name: /Otwórz CV/ })).toBeInTheDocument();
+    // Otwórz CV pozostaje — to podgląd, nie zapis (menu „⋯").
+    await user.click(screen.getByRole("button", { name: "Więcej akcji osoby" }));
+    expect(await screen.findByRole("menuitem", { name: /Otwórz CV/ })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
 
-    await user.click(screen.getByRole("tab", { name: /Notatki/ }));
     expect(screen.queryByPlaceholderText(/Dodaj notatkę/)).toBeNull();
 
-    await user.click(screen.getByRole("tab", { name: /^CV$/ }));
+    await user.click(screen.getByRole("button", { name: /^CV/ }));
     expect(screen.queryByText(/Stwórz brandowane/)).toBeNull();
     expect(screen.queryByText(/Wyślij klientowi/)).toBeNull();
   });
@@ -298,7 +303,7 @@ describe("PipelineCandidateDock", () => {
     const onOpenScreening = vi.fn();
     renderDock({ onOpenScreening });
 
-    await user.click(screen.getByRole("tab", { name: /Screening/ }));
+    await user.click(screen.getByRole("button", { name: /^Screening/ }));
     await user.click(
       screen.getByRole("button", { name: /Otwórz Screening Championa/ })
     );
@@ -357,7 +362,8 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     expect(
       await screen.findByText("Python Developer · Asseco · Warszawa · 56 / 100"),
     ).toBeTruthy();
-    expect(await screen.findByText("Aktywny")).toBeTruthy();
+    // Status kandydata w nagłówku tylko wtedy, gdy wymaga uwagi (czarna lista).
+    expect(screen.queryByText("Aktywny")).toBeNull();
   });
 
   it("oś czasu niesie następną akcję jako bieżący punkt", () => {
@@ -484,18 +490,18 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     expect(button.getAttribute("title")).toBe("Stawka czeka na akceptację");
   });
 
-  it("zielona pigułka nie obiecuje więcej, niż karta wie", () => {
-    const target = stageCol("screening", "Screening", { stage_def_id: 2 });
-    renderDock({ moveTargets: [{ col: target, blockedReason: null }] });
-    const pill = screen.getByText("Brak znanych blokad");
-    expect(pill.closest("[title]")?.getAttribute("title")).toContain(
-      "bramka sprawdza dopiero przy samym ruchu",
+  it("pole notatki stoi zawsze na dole i wysyła Enterem", async () => {
+    const user = userEvent.setup();
+    renderDock();
+    const box = screen.getByRole("textbox", { name: "Dodaj notatkę" });
+    await user.type(box, "Chce hybrydę{Enter}");
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith("/api/notes", {
+        candidate_id: 42,
+        job_id: 10,
+        content: "Chce hybrydę",
+        note_type: "general",
+      }),
     );
-  });
-
-  it("zablokowany etap gasi zieloną pigułkę", () => {
-    const target = stageCol("cv_sent", "CV Wysłane", { stage_def_id: 5 });
-    renderDock({ moveTargets: [{ col: target, blockedReason: "Weto HM" }] });
-    expect(screen.queryByText("Brak znanych blokad")).toBeNull();
   });
 });

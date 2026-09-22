@@ -162,8 +162,10 @@ describe("OrderSlideOver", () => {
 
   it("sekcje montują klocki dopiero po rozwinięciu", async () => {
     const h = setup();
-    const team = await screen.findByRole("button", { name: /Zespół i właściciel/ });
-    expect(team).toHaveTextContent("Anna Nowicka");
+    // Blok „Zespół" pokazuje właściciela od razu; panele montują się po „Zmień".
+    const teamBlock = await screen.findByRole("region", { name: "Zespół" });
+    expect(teamBlock).toHaveTextContent("Anna Nowicka");
+    const team = screen.getByRole("button", { name: /Zmień zespół i hiring managera/ });
     expect(screen.queryByTestId("ownership-panel")).not.toBeInTheDocument();
     fireEvent.click(team);
     expect(screen.getByTestId("ownership-panel")).toBeInTheDocument();
@@ -174,7 +176,8 @@ describe("OrderSlideOver", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Priorytet/ }));
     expect(screen.getByTestId("priority-context")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Ogłoszenie i link aplikacyjny/ }));
+    expect(screen.queryByTestId("postings")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Portale ogłoszeniowe/ }));
     expect(screen.getByTestId("postings")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Napisz ogłoszenie z AI" }));
     expect(h.onOpenAiWriter).toHaveBeenCalled();
@@ -194,7 +197,7 @@ describe("OrderSlideOver", () => {
     await screen.findByText("Java 17");
     expect(screen.queryByRole("button", { name: "Edytuj rekrutację" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Zamknij rekrutację" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Zespół i właściciel/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Zmień zespół i hiring managera/ }));
     expect(screen.getByTestId("hm-picker")).toHaveAttribute("data-can-edit", "false");
   });
 

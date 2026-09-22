@@ -739,6 +739,30 @@
    "file": "lib/job-detail-routing.ts",
    "marker": "JOB_DETAIL_DEFAULT_VIEW: JobDetailView = \"board\"",
    "v3_home": "przełącznik Tablica | Tabela"
+  },
+  {
+   "id": "dock.now-sections",
+   "area": "panel",
+   "opis": "Dok osoby na Tablicy: główna akcja i „Odrzuć” pod nazwiskiem, sekcje zwijane z podsumowaniem, sekcja „Teraz” wg etapu, CV/wiadomość/profil w menu „⋯”",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "nowSectionForStage",
+   "v3_home": "Tablica → panel osoby"
+  },
+  {
+   "id": "dock.note-footer",
+   "area": "panel",
+   "opis": "Pole notatki zawsze na dole doku (Enter wysyła)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "aria-label=\"Dodaj notatkę\"",
+   "v3_home": "Tablica → panel osoby"
+  },
+  {
+   "id": "order.blocks",
+   "area": "zlecenie",
+   "opis": "Okno Zlecenie w trzech blokach: Co zamówił klient · Zespół · Ogłoszenie i link, reszta w „Więcej”",
+   "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
+   "marker": "OrderBlock",
+   "v3_home": "okno Zlecenie"
   }
  ]
 }

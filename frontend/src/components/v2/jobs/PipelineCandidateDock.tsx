@@ -26,7 +26,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Ban,
-  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -36,6 +35,7 @@ import {
   HelpCircle,
   Loader2,
   Mail,
+  MoreHorizontal,
   Send,
   Sparkles,
   UserPlus,
@@ -60,7 +60,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { TabbedNav } from "@/components/ds";
 import { cn, formatDate } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
 import { normalizeRateToMonthly } from "@/lib/verified-rate-gate";
@@ -68,7 +67,7 @@ import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { DopasowanieTab } from "@/components/v2/pages/DopasowanieTab";
-import { ScoreRing, type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
+import { type KanbanColumn, type KanbanItem } from "@/components/v2/pages/kanban-shared";
 import type { NextAction } from "@/lib/pipeline-next-action";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { CVShareLinkModal } from "@/components/v2/modals/CVShareLinkModal";
@@ -101,13 +100,84 @@ export interface PipelineMoveTarget {
 
 type DockTab = "process" | "screening" | "cv" | "match" | "notes";
 
-const DOCK_TABS: { value: DockTab; label: string }[] = [
-  { value: "process", label: "W procesie" },
-  { value: "screening", label: "Screening" },
-  { value: "cv", label: "CV" },
-  { value: "match", label: "Dopasowanie" },
-  { value: "notes", label: "Notatki" },
-];
+/**
+ * Panel osoby (makieta 22.09.2026): zamiast pięciu zakładek — sekcje zwijane
+ * z jednozdaniowym podsumowaniem. Otwarta jest sekcja właściwa dla etapu
+ * („Teraz"), reszta czeka zwinięta; każdą da się rozwinąć obok innych.
+ */
+const DOCK_SECTION_LABEL: Record<DockTab, string> = {
+  process: "W procesie",
+  screening: "Screening",
+  cv: "CV",
+  match: "Dopasowanie",
+  notes: "Notatki",
+};
+
+/** Sekcja „Teraz" wg etapu karty (legacy-enum `stage`). */
+export function nowSectionForStage(stage: string | null | undefined): DockTab {
+  switch (stage) {
+    case "posting":
+    case "new":
+    case "verified":
+      return "cv";
+    case "screening":
+    case "prep_call":
+      return "screening";
+    default:
+      return "process";
+  }
+}
+
+function DockSection({
+  id,
+  label,
+  summary,
+  isNow,
+  open,
+  onToggle,
+  children,
+}: {
+  id: DockTab;
+  label: string;
+  summary: ReactNode;
+  isNow: boolean;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      className={cn(
+        "rounded-lg border",
+        isNow ? "border-primary/40 bg-primary/5" : "border-border",
+      )}
+      aria-labelledby={`dock-section-${id}`}
+    >
+      <button
+        type="button"
+        id={`dock-section-${id}`}
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+      >
+        <span className="text-xs font-semibold text-foreground">{label}</span>
+        {isNow ? (
+          <span className="rounded bg-primary px-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
+            Teraz
+          </span>
+        ) : null}
+        <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+          {open ? null : summary}
+        </span>
+        <ChevronDown
+          className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+          aria-hidden="true"
+        />
+      </button>
+      {open ? <div className="px-3 pb-3">{children}</div> : null}
+    </section>
+  );
+}
 
 interface NoteListItem {
   id: number;
@@ -239,13 +309,46 @@ export interface PipelineCandidateDockProps {
   onReject: () => void;
 }
 
+/** Rzadsze akcje osoby — CV, wiadomość, pełny profil — w menu „⋯". */
+function PersonMoreMenu({
+  onOpenCv,
+  onSendEmail,
+  profileHref,
+}: {
+  onOpenCv: () => void;
+  onSendEmail: () => void;
+  profileHref: string;
+}) {
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button size="icon-sm" variant="outline" aria-label="Więcej akcji osoby">
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        <DropdownMenuItem onSelect={() => deferMenuAction(onOpenCv)}>
+          <FileText className="h-3.5 w-3.5" /> Otwórz CV
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => deferMenuAction(onSendEmail)}>
+          <Mail className="h-3.5 w-3.5" /> Wyślij wiadomość
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href={profileHref}>
+            <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function PipelineCandidateDock({
   item,
   jobId,
   currentStageLabel,
   jobTitle,
   matchScore,
-  scoresLoading,
   moveTargets,
   readOnly,
   contactFeatureEnabled,
@@ -266,7 +369,18 @@ export function PipelineCandidateDock({
 }: PipelineCandidateDockProps) {
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<DockTab>("process");
+  const nowSection = nowSectionForStage(item.stage);
+  const [openSections, setOpenSections] = useState<Set<DockTab>>(
+    () => new Set([nowSection]),
+  );
+  const isOpen = (id: DockTab) => openSections.has(id);
+  const toggleSection = (id: DockTab) =>
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const [openOriginal, setOpenOriginal] = useState(false);
   const [openBranded, setOpenBranded] = useState(false);
   const [openShare, setOpenShare] = useState(false);
@@ -277,8 +391,9 @@ export function PipelineCandidateDock({
   // wyczyść niedokończony draft notatki; inaczej dok pokazywałby zakładkę
   // „Notatki" poprzedniego kandydata z jego niewysłanym tekstem.
   useEffect(() => {
-    setActiveTab("process");
+    setOpenSections(new Set([nowSectionForStage(item.stage)]));
     setNoteText("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tylko zmiana osoby
   }, [item.candidate_id]);
 
   const fullName = `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
@@ -293,10 +408,6 @@ export function PipelineCandidateDock({
   // rekrutacji to odznaka, nie blokada, więc nie odbiera karcie zielonej
   // pigułki „bez blokad".
   const overBudget = isOverHourlyBudget(item, budgetHourly);
-  const noKnownBlockers =
-    !item.hm_veto &&
-    moveTargets.length > 0 &&
-    moveTargets.every((t) => !t.blockedReason);
   const normalizedScore =
     typeof matchScore === "number" && Number.isFinite(matchScore)
       ? Math.max(0, Math.min(100, Math.round(matchScore)))
@@ -342,7 +453,7 @@ export function PipelineCandidateDock({
   const screeningQuery = useQuery({
     queryKey: ["pipeline-stage-screening", item.id],
     queryFn: () => screeningApi.getForStage(item.id).then((r) => r.data),
-    enabled: activeTab === "screening",
+    enabled: isOpen("screening"),
     staleTime: 30_000,
   });
   const screeningAnswers = screeningQuery.data?.screening_answers ?? null;
@@ -351,12 +462,12 @@ export function PipelineCandidateDock({
   const cvOriginalQuery = useQuery<CVOriginalSnapshot>({
     queryKey: ["cv-original", item.id],
     queryFn: () => candidateStageCvApi.original.get(item.id).then((r) => r.data),
-    enabled: activeTab === "cv",
+    enabled: isOpen("cv"),
   });
   const cvBrandedQuery = useQuery<CVBrandedState>({
     queryKey: ["cv-branded", item.id],
     queryFn: () => candidateStageCvApi.branded.get(item.id).then((r) => r.data),
-    enabled: activeTab === "cv" || openBranded || openShare,
+    enabled: isOpen("cv") || openBranded || openShare,
   });
   const brandedStatus = cvBrandedQuery.data?.status ?? "none";
 
@@ -371,7 +482,7 @@ export function PipelineCandidateDock({
       api
         .get(`/api/notes?candidate_id=${item.candidate_id}&job_id=${jobId}`)
         .then((r) => r.data),
-    enabled: activeTab === "notes",
+    enabled: isOpen("notes"),
   });
   const addNoteMutation = useMutation({
     mutationFn: (content: string) =>
@@ -513,10 +624,7 @@ export function PipelineCandidateDock({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          {(normalizedScore != null || scoresLoading) && (
-            <ScoreRing score={normalizedScore} density="compact" />
-          )}
-          {candidate?.status && (
+          {candidate?.status === "blacklisted" && (
             <Badge
               variant={candidate.status === "blacklisted" ? "danger" : "neutral"}
               size="sm"
@@ -535,20 +643,6 @@ export function PipelineCandidateDock({
           )}
           {contactFeatureEnabled && (
             <ContactStatusBadge contactCase={item.contact_case} size="sm" />
-          )}
-          {/* Zielona pigułka mówi o tym, co karta WIE — nie o całej bramce.
-              Pozostałych siedmiu powodów (czarna lista, NDA, konkurent,
-              zatrudnienie u klienta…) backend pilnuje dopiero wewnątrz
-              `POST /pipeline/move`, więc tooltip nazywa granicę tej obietnicy;
-              bez niego pigułka obiecywałaby przejście, którego nie sprawdziła. */}
-          {noKnownBlockers && (
-            <Badge
-              variant="success"
-              size="sm"
-              title="Karta nie niesie weta hiring managera ani oczekującej weryfikacji, a żaden etap nie jest wyszarzony. Pozostałe powody blokady bramka sprawdza dopiero przy samym ruchu."
-            >
-              <CheckCircle2 className="h-2.5 w-2.5" /> Brak znanych blokad
-            </Badge>
           )}
           {item.hm_veto && (
             <Badge
@@ -569,24 +663,112 @@ export function PipelineCandidateDock({
           )}
         </div>
 
-        {/* `dense` + `wrap`, nie `scroll`: pięć zakładek miało 438 px
-            w 327-px pasku doku — „Dopasowanie” było ucięte, a „Notatki”
-            niewidoczne i bez wskaźnika przewijania (UAT M03-B06). Ciaśniejsze
-            triggery mieszczą zwykle komplet w jednym wierszu; gdy nie, drugi
-            wiersz jest lepszy niż zakładka schowana za krawędzią. */}
-        <TabbedNav
-          ariaLabel="Zakładki karty kandydata"
-          value={activeTab}
-          onValueChange={(v) => setActiveTab(v as DockTab)}
-          tabs={DOCK_TABS}
-          overflow="wrap"
-          dense
-        />
+        {/* Główna akcja zaraz pod nazwiskiem (makieta „Panel osoby"). Ta sama
+            ścieżka co drag&drop (`requestMove`) — okna stawki, potwierdzeń
+            i powodu odrzucenia działają bez zmian. */}
+        {!readOnly && (
+          <div className="space-y-1.5">
+            {primaryTarget ? (
+              <Button
+                size="sm"
+                onClick={() => onMoveTo(primaryTarget)}
+                className="w-full justify-center"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+                Przenieś na etap: {primaryTarget.name ?? primaryTarget.stage}
+              </Button>
+            ) : primaryBlocked ? (
+              <div className="space-y-1">
+                <Button
+                  size="sm"
+                  disabled
+                  title={primaryBlocked.reason}
+                  className="w-full justify-center"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                  Przenieś na etap:{" "}
+                  {primaryBlocked.col.name ?? primaryBlocked.col.stage}
+                </Button>
+                <p role="note" className="text-[10.5px] leading-snug text-destructive">
+                  {primaryBlocked.reason}
+                </p>
+              </div>
+            ) : null}
+            <div className="flex items-center gap-1.5">
+              {moveTargets.length > 0 && (
+                <DropdownMenu modal={false}>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline" className="flex-1 justify-between">
+                      Inny etap…
+                      <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    className="max-h-[60vh] w-72 overflow-y-auto"
+                  >
+                    {moveTargets.map(({ col, blockedReason }) => {
+                      const label = col.name ?? col.stage;
+                      return (
+                        <DropdownMenuItem
+                          key={col.stage_def_id ?? col.stage}
+                          aria-label={label}
+                          disabled={Boolean(blockedReason)}
+                          title={blockedReason ?? undefined}
+                          onSelect={() => deferMenuAction(() => onMoveTo(col))}
+                          className="block"
+                        >
+                          <span className="block">{label}</span>
+                          {blockedReason && (
+                            <span className="block text-xs text-muted-foreground">
+                              {blockedReason}
+                            </span>
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+              {canReject && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onReject}
+                  disabled={Boolean(rejectBlockedReason)}
+                  title={rejectBlockedReason ?? undefined}
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <Ban className="h-3.5 w-3.5" /> Odrzuć z powodem
+                </Button>
+              )}
+              <PersonMoreMenu
+                onOpenCv={() => setOpenOriginal(true)}
+                onSendEmail={() => setOpenEmail(true)}
+                profileHref={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
+              />
+            </div>
+          </div>
+        )}
+        {readOnly && (
+          <PersonMoreMenu
+            onOpenCv={() => setOpenOriginal(true)}
+            onSendEmail={() => setOpenEmail(true)}
+            profileHref={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
+          />
+        )}
       </div>
 
       {/* ── Treść zakładki (przewijana) ──────────────────────────────── */}
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
-        {activeTab === "process" && (
+        <DockSection
+          id="process"
+          label={DOCK_SECTION_LABEL.process}
+          summary={`${currentStageLabel}${item.days_in_stage != null ? ` · ${daysLabel(item.days_in_stage)}` : ""}${nextAction && nextAction.kind !== "none" ? ` · ${nextAction.label}` : ""}`}
+          isNow={nowSection === "process"}
+          open={isOpen("process")}
+          onToggle={() => toggleSection("process")}
+        >
           <div className="space-y-3">
             <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3 text-xs">
               <div className="flex items-center justify-between gap-2 font-medium text-foreground">
@@ -696,9 +878,16 @@ export function PipelineCandidateDock({
               </div>
             </div>
           </div>
-        )}
+        </DockSection>
 
-        {activeTab === "screening" && (
+        <DockSection
+          id="screening"
+          label={DOCK_SECTION_LABEL.screening}
+          summary={screeningAnswers ? (screeningAnswers.overall_fit === "fit" ? "Pasuje" : screeningAnswers.overall_fit === "miss" ? "Nie pasuje" : "Niepewne") : "Arkusz Championa"}
+          isNow={nowSection === "screening"}
+          open={isOpen("screening")}
+          onToggle={() => toggleSection("screening")}
+        >
           <div className="space-y-3">
             <Button
               size="sm"
@@ -754,9 +943,16 @@ export function PipelineCandidateDock({
               </p>
             )}
           </div>
-        )}
+        </DockSection>
 
-        {activeTab === "cv" && (
+        <DockSection
+          id="cv"
+          label={DOCK_SECTION_LABEL.cv}
+          summary={brandedStatus === "finalized" ? "CV firmowe gotowe" : brandedStatus === "draft" ? "CV firmowe w szkicu" : "Oryginał i CV firmowe"}
+          isNow={nowSection === "cv"}
+          open={isOpen("cv")}
+          onToggle={() => toggleSection("cv")}
+        >
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-1.5">
               {cvOriginalQuery.isLoading ? (
@@ -826,47 +1022,33 @@ export function PipelineCandidateDock({
               )}
             </div>
           </div>
-        )}
+        </DockSection>
 
-        {activeTab === "match" && (
+        <DockSection
+          id="match"
+          label={DOCK_SECTION_LABEL.match}
+          summary={normalizedScore != null ? `${normalizedScore} / 100` : "Uzasadnienie dopasowania"}
+          isNow={nowSection === "match"}
+          open={isOpen("match")}
+          onToggle={() => toggleSection("match")}
+        >
           <DopasowanieTab
             candidateId={item.candidate_id}
             recruitments={[{ job_id: jobId, job_title: jobLabel }]}
             defaultJobId={jobId}
             readOnly={readOnly}
           />
-        )}
+        </DockSection>
 
-        {activeTab === "notes" && (
+        <DockSection
+          id="notes"
+          label={DOCK_SECTION_LABEL.notes}
+          summary={notesQuery.data?.items ? `${notesQuery.data.items.length} w tej rekrutacji` : "Notatki w tej rekrutacji"}
+          isNow={nowSection === "notes"}
+          open={isOpen("notes")}
+          onToggle={() => toggleSection("notes")}
+        >
           <div className="space-y-3">
-            {!readOnly && (
-              <div className="space-y-1.5">
-                <textarea
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      submitNote();
-                    }
-                  }}
-                  placeholder="Dodaj notatkę… (Enter wysyła, Shift+Enter nowa linia)"
-                  rows={2}
-                  className="w-full rounded-md border border-border bg-card px-3 py-2 text-xs focus:outline-hidden focus:ring-2 focus:ring-primary"
-                />
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    onClick={submitNote}
-                    disabled={!noteText.trim() || addNoteMutation.isPending}
-                    loading={addNoteMutation.isPending}
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                    Dodaj notatkę
-                  </Button>
-                </div>
-              </div>
-            )}
             {notesQuery.isLoading ? (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
@@ -896,149 +1078,37 @@ export function PipelineCandidateDock({
               </p>
             )}
           </div>
-        )}
+        </DockSection>
       </div>
 
-      {/* ── Przenieś na etap + akcje (zawsze widoczne, niezależnie od zakładki) ── */}
-      <div className="space-y-3 border-t border-border bg-muted/10 p-4">
-        <div className="grid grid-cols-2 gap-1.5">
-          {/* Główna akcja: pierwszy DOZWOLONY etap po bieżącym. Ta sama ścieżka
-              co drag&drop (`requestMove`), więc modale stawki, potwierdzenia
-              i powodu odrzucenia działają bez zmian. */}
-          {primaryTarget && !readOnly && (
-            <Button
-              size="sm"
-              onClick={() => onMoveTo(primaryTarget)}
-              className="col-span-2 justify-start"
-            >
-              <ChevronRight className="h-3.5 w-3.5" />
-              Przenieś na etap: {primaryTarget.name ?? primaryTarget.stage}
-            </Button>
-          )}
-          {/* Weto HM na drodze naprzód: kolejny krok wyszarzony z powodem —
-              nie proponujemy dalszego etapu, bo to byłby objazd weta. */}
-          {!primaryTarget && primaryBlocked && !readOnly && (
-            <div className="col-span-2 space-y-1">
-              <Button
-                size="sm"
-                disabled
-                title={primaryBlocked.reason}
-                className="w-full justify-start"
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-                Przenieś na etap:{" "}
-                {primaryBlocked.col.name ?? primaryBlocked.col.stage}
-              </Button>
-              <p role="note" className="text-[10.5px] leading-snug text-destructive">
-                {primaryBlocked.reason}
-              </p>
-            </div>
-          )}
-          {/* Pozostałe etapy w menu zamiast ściany pigułek (przegląd UX
-              17.09.2026). Bramka jest ta sama: zablokowany etap jest
-              wyszarzony z powodem pod nazwą. */}
-          {moveTargets.length > 0 && !readOnly && (
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="col-span-2 justify-between"
-                >
-                  Inny etap…
-                  <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="max-h-[60vh] w-72 overflow-y-auto"
-              >
-                {moveTargets.map(({ col, blockedReason }) => {
-                  const label = col.name ?? col.stage;
-                  return (
-                    <DropdownMenuItem
-                      key={col.stage_def_id ?? col.stage}
-                      aria-label={label}
-                      disabled={Boolean(blockedReason)}
-                      title={blockedReason ?? undefined}
-                      onSelect={() => deferMenuAction(() => onMoveTo(col))}
-                      className="block"
-                    >
-                      <span className="block">{label}</span>
-                      {blockedReason && (
-                        <span className="block text-xs text-muted-foreground">
-                          {blockedReason}
-                        </span>
-                      )}
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+      {/* Notatka zawsze pod ręką — bez przechodzenia do sekcji „Notatki". */}
+      {!readOnly && (
+        <div className="flex items-end gap-1.5 border-t border-border bg-muted/10 p-3">
+          <textarea
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submitNote();
+              }
+            }}
+            aria-label="Dodaj notatkę"
+            placeholder="Dodaj notatkę… (Enter wysyła)"
+            rows={1}
+            className="min-h-8 flex-1 resize-none rounded-md border border-border bg-card px-3 py-1.5 text-xs focus:outline-hidden focus:ring-2 focus:ring-primary"
+          />
           <Button
             size="sm"
-            variant="outline"
-            onClick={() => setOpenOriginal(true)}
-            className="justify-start"
+            onClick={submitNote}
+            disabled={!noteText.trim() || addNoteMutation.isPending}
+            loading={addNoteMutation.isPending}
+            aria-label="Dodaj notatkę — wyślij"
           >
-            <FileText className="h-3.5 w-3.5" /> Otwórz CV
+            <Send className="h-3.5 w-3.5" />
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setOpenEmail(true)}
-            loading={openEmail && !candidateDetailQuery.data && candidateDetailQuery.isFetching}
-            className="justify-start"
-          >
-            <Mail className="h-3.5 w-3.5" /> Wyślij wiadomość
-          </Button>
-          <Link
-            href={`/candidates/${item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
-            className="inline-flex h-8 items-center justify-start gap-1.5 rounded-lg border border-border px-3 text-xs text-muted-foreground hover:bg-muted"
-          >
-            <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
-          </Link>
-          {canReject && !readOnly && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onReject}
-              disabled={Boolean(rejectBlockedReason)}
-              title={rejectBlockedReason ?? undefined}
-              className="justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-            >
-              <Ban className="h-3.5 w-3.5" /> Odrzuć z powodem
-            </Button>
-          )}
         </div>
-      </div>
-
-      {/* Stopka — te same dwa ruchy co strzałki w nagłówku, w zasięgu kciuka
-          po przewinięciu doku do końca. */}
-      {position != null && total ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-border bg-muted/20 px-4 py-2 text-[11px] text-muted-foreground">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onSelectPrevious}
-            disabled={position <= 1}
-            className="h-7 px-2"
-          >
-            <ChevronLeft className="h-3.5 w-3.5" /> Poprzedni
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onSelectNext}
-            disabled={position >= total}
-            className="h-7 px-2"
-          >
-            Następny <ChevronRight className="h-3.5 w-3.5" />
-          </Button>
-          <span className="ml-auto">Wynik = ten sam, co pierścień na tablicy.</span>
-        </div>
-      ) : null}
+      )}
 
       {openOriginal && (
         <CVOriginalPreviewModal

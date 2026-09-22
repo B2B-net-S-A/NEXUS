@@ -114,31 +114,6 @@ function DisclosureRow({
   );
 }
 
-/** Wiersz z jedną akcją po prawej (nawigacja albo otwarcie innego okna). */
-function ActionRow({
-  label,
-  action,
-  onClick,
-}: {
-  label: string;
-  action: string;
-  onClick: () => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-border/70 py-2.5 text-[13px] last:border-b-0">
-      <span className="min-w-0 text-foreground">{label}</span>
-      <button
-        type="button"
-        onClick={onClick}
-        aria-label={`${label} — ${action}`}
-        className="shrink-0 font-medium text-primary hover:underline"
-      >
-        {action}
-      </button>
-    </div>
-  );
-}
-
 /**
  * „Brakuje N rzeczy" — werdykt OFICJALNEJ bramki „Przekaż do searchu".
  *
@@ -251,8 +226,8 @@ function OrderBody({
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const closeRequestHandled = useRef(false);
 
-  const teamRef = useRef<HTMLDivElement | null>(null);
-  const portalsRef = useRef<HTMLDivElement | null>(null);
+  const teamRef = useRef<HTMLElement | null>(null);
+  const portalsRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLDivElement | null>(null);
 
   // Ten sam klucz co strona rekrutacji i dok gotowości (`["job", "<id>"]`) —
@@ -336,21 +311,38 @@ function OrderBody({
     void queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
   };
 
+  const collaboratorNames = (job.collaborators ?? [])
+    .map((c: { name?: string | null }) => c.name?.trim())
+    .filter(Boolean)
+    .join(", ");
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <MissingBlock jobId={jobId} canSeeGate={canSeeGate} />
 
-      <section className="space-y-3" aria-label="Najważniejsze fakty zlecenia">
-        <div className="flex items-center gap-2">
-          <h3 className="flex-1 text-sm font-semibold text-foreground">
-            Uzupełnione z requestu klienta
-          </h3>
-          {canEdit ? (
-            <Button type="button" variant="outline" size="sm" onClick={leaveFor(onEdit)}>
-              Edytuj rekrutację
+      {/* Makieta „Zlecenie" (22.09.2026): trzy bloki — co zamówił klient,
+          zespół, ogłoszenie — a rzadsze ustawienia zwinięte w „Więcej". */}
+      <OrderBlock
+        title="Co zamówił klient"
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={leaveFor(() => onNavigate("champion"))}
+              aria-label="Profil Championa i pytania na screening — Otwórz pełne"
+            >
+              Profil Championa ↗
             </Button>
-          ) : null}
-        </div>
+            {canEdit ? (
+              <Button type="button" variant="ghost" size="sm" onClick={leaveFor(onEdit)}>
+                Edytuj rekrutację
+              </Button>
+            ) : null}
+          </>
+        }
+      >
         <dl className="grid grid-cols-2 gap-3">
           <Fact label="Budżet" value={budgetLabel} />
           <Fact label="Tryb i lokalizacja" value={formatJobLocation(job)} />
@@ -384,21 +376,43 @@ function OrderBody({
             Brak wymagań must / nice — dodaj je w Profilu Championa (sekcja Stack).
           </p>
         )}
-      </section>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
+          {/* Karta klienta: SLA, limity CV, zasady procesu. Link do Pomocy, nie
+              do `/clients/*` — tamta trasa jest bramkowana sekcją Delivery,
+              a kartę czyta każda rola operacyjna. */}
+          {job.client_id != null ? (
+            <Link
+              href={`/help?tab=clients&client=${job.client_id}`}
+              aria-label={`Karta klienta${job.client_name ? ` ${job.client_name}` : ""} — otwórz`}
+              className="font-medium text-primary hover:underline"
+            >
+              Karta klienta ↗
+            </Link>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => onOpenSlideOver("questions")}
+            aria-label="Baza pytań — Otwórz"
+            className="font-medium text-primary hover:underline"
+          >
+            Baza pytań
+          </button>
+        </div>
+      </OrderBlock>
 
-      <section className="border-t border-border pt-1" aria-label="Szczegóły zlecenia">
-        <ActionRow
-          label="Profil Championa i pytania na screening"
-          action="Otwórz pełne"
-          onClick={leaveFor(() => onNavigate("champion"))}
-        />
-
+      <OrderBlock title="Zespół" sectionRef={teamRef}>
+        <dl className="grid grid-cols-2 gap-3">
+          <Fact label="Prowadzi" value={job.primary_owner?.name ?? "nieprzypisany"} />
+          <Fact
+            label="Hiring manager"
+            value={job.hiring_manager_name?.trim() || "— wybierz"}
+          />
+          <Fact label="Współpracują" value={collaboratorNames || "—"} />
+        </dl>
         <DisclosureRow
-          label="Zespół i właściciel"
-          hint={job.primary_owner?.name ?? "nieprzypisany"}
+          label="Zmień zespół i hiring managera"
           open={teamOpen}
           onToggle={() => setTeamOpen((v) => !v)}
-          sectionRef={teamRef}
         >
           <div className="space-y-4">
             <JobOwnershipPanel
@@ -417,7 +431,51 @@ function OrderBody({
             />
           </div>
         </DisclosureRow>
+      </OrderBlock>
 
+      <OrderBlock title="Ogłoszenie i link aplikacyjny" sectionRef={portalsRef}>
+        {onOpenAiWriter || onOpenInviteLink ? (
+          <div className="flex flex-wrap gap-2">
+            {onOpenAiWriter ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={leaveFor(onOpenAiWriter)}
+              >
+                Napisz ogłoszenie z AI
+              </Button>
+            ) : null}
+            {onOpenInviteLink ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={leaveFor(onOpenInviteLink)}
+              >
+                Wygeneruj link aplikacyjny
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Ogłoszenie i link aplikacyjny są dostępne dla opublikowanej
+            rekrutacji i ról z prawem jej edycji.
+          </p>
+        )}
+        <DisclosureRow
+          label="Portale ogłoszeniowe"
+          open={portalsOpen}
+          onToggle={() => setPortalsOpen((v) => !v)}
+        >
+          <PostingsSection jobId={jobId} readOnly={readOnly} />
+        </DisclosureRow>
+      </OrderBlock>
+
+      <section aria-label="Więcej ustawień" className="px-1">
+        <h3 className="pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Więcej
+        </h3>
         <DisclosureRow
           label="Priorytet"
           open={priorityOpen}
@@ -425,9 +483,9 @@ function OrderBody({
         >
           <JobPriorityContext jobId={jobId} />
         </DisclosureRow>
-
         <DisclosureRow
           label="Ustawienia rekrutacji"
+          hint="Delivery Lead i termin"
           open={settingsOpen}
           onToggle={() => setSettingsOpen((v) => !v)}
         >
@@ -439,75 +497,8 @@ function OrderBody({
             canEdit={canEdit}
           />
         </DisclosureRow>
-
-        <DisclosureRow
-          label="Ogłoszenie i link aplikacyjny"
-          open={portalsOpen}
-          onToggle={() => setPortalsOpen((v) => !v)}
-          sectionRef={portalsRef}
-        >
-          <div className="space-y-3">
-            {onOpenAiWriter || onOpenInviteLink ? (
-              <div className="flex flex-wrap gap-2">
-                {onOpenAiWriter ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={leaveFor(onOpenAiWriter)}
-                  >
-                    Napisz ogłoszenie z AI
-                  </Button>
-                ) : null}
-                {onOpenInviteLink ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={leaveFor(onOpenInviteLink)}
-                  >
-                    Wygeneruj link aplikacyjny
-                  </Button>
-                ) : null}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Ogłoszenie i link aplikacyjny są dostępne dla opublikowanej
-                rekrutacji i ról z prawem jej edycji.
-              </p>
-            )}
-            <h4 className="text-xs font-semibold text-muted-foreground">
-              Portale ogłoszeniowe
-            </h4>
-            <PostingsSection jobId={jobId} readOnly={readOnly} />
-          </div>
-        </DisclosureRow>
-
-        <ActionRow
-          label="Baza pytań"
-          action="Otwórz"
-          onClick={() => onOpenSlideOver("questions")}
-        />
-
-        {/* Karta klienta: SLA, limity CV, zasady procesu. Link do Pomocy, nie do
-            `/clients/*` — tamta trasa jest bramkowana sekcją Delivery, a kartę
-            czyta każda rola operacyjna. */}
-        {job.client_id != null ? (
-          <div className="flex items-center justify-between gap-3 border-b border-border/70 py-2.5 text-[13px] last:border-b-0">
-            <span className="min-w-0 text-foreground">Karta klienta</span>
-            <Link
-              href={`/help?tab=clients&client=${job.client_id}`}
-              aria-label={`Karta klienta${job.client_name ? ` ${job.client_name}` : ""} — otwórz`}
-              className="shrink-0 font-medium text-primary hover:underline"
-            >
-              {job.client_name ? `${job.client_name} →` : "Otwórz →"}
-            </Link>
-          </div>
-        ) : null}
-
-        {/* Pełna checklista kompletności (właściciel, Champion, budżet, must /
-            nice, HM) to ISTNIEJĄCY dok — montowany dopiero po rozwinięciu, bo
-            sam odpytuje pipeline i Championa. Reguł nie kopiujemy. */}
+        {/* Pełna checklista kompletności to ISTNIEJĄCY dok — montowany dopiero
+            po rozwinięciu, bo sam odpytuje pipeline i Championa. */}
         <DisclosureRow
           label="Pełna kompletność zlecenia"
           open={readinessOpen}
@@ -523,12 +514,12 @@ function OrderBody({
       </p>
 
       {canEdit && !isClosed ? (
-        <div ref={closeRef} className="border-t border-border pt-4">
+        <div ref={closeRef} className="border-t border-border pt-3">
           <Button
             type="button"
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="w-full justify-center"
+            className="w-full justify-center text-destructive hover:bg-destructive/10 hover:text-destructive"
             onClick={() => setCloseDialogOpen(true)}
           >
             Zamknij rekrutację
@@ -545,6 +536,33 @@ function OrderBody({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Blok okna Zlecenia — tytuł z akcjami po prawej i treść pod spodem. */
+function OrderBlock({
+  title,
+  actions,
+  children,
+  sectionRef,
+}: {
+  title: string;
+  actions?: ReactNode;
+  children: ReactNode;
+  sectionRef?: React.Ref<HTMLElement>;
+}) {
+  return (
+    <section
+      ref={sectionRef}
+      aria-label={title}
+      className="space-y-3 rounded-xl border border-border p-4"
+    >
+      <div className="flex items-center gap-2">
+        <h3 className="flex-1 text-sm font-semibold text-foreground">{title}</h3>
+        {actions}
+      </div>
+      {children}
+    </section>
   );
 }
 

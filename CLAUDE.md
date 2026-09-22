@@ -2473,6 +2473,15 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   procesu 5 min z indeksem odwróconym. Lista pokazuje „≈" tylko przy
   sugestiach z osobami u klienta. DL wskazuje podobne już przy tworzeniu
   (`POST /api/job-similarity/preview` → po zapisie `POST …/similar`).
+- **Tablica jest widokiem domyślnym** (`JOB_DETAIL_DEFAULT_VIEW = "board"`);
+  adres z `seg=`/`panel=` bez `tab=` otwiera Tabelę. Pierwsza kolumna
+  „Do przejrzenia" = `BoardReviewSection` (propozycje + przepięcia) wpięta
+  w kolumnę etapu „Ogłoszenia"; ✓ dodaje z `initial_stage_legacy: "screening"`.
+- **Dok osoby: sekcje zamiast zakładek** — „Teraz" wg etapu
+  (`nowSectionForStage`: posting/new/verified → CV, screening → Screening,
+  reszta → W procesie), główna akcja pod nazwiskiem, notatka zawsze na dole.
+  **Okno Zlecenie: trzy bloki** (Co zamówił klient · Zespół · Ogłoszenie),
+  priorytet/ustawienia/kompletność w „Więcej"; „Baza pytań" w menu „⋯".
 
 ## Rekrutacja „wersja 3" — jedna tabela + panel osoby (21.09.2026, #1641 #1657 #1659)
 

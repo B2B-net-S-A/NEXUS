@@ -340,8 +340,9 @@ export function JobDetailCompactHeader({
                   </Button>
                 ) : null}
 
-                {onEdit || onWriteAnnouncement || onGenerateInviteLink || onOpenAiTools ? (
-                  <DropdownMenu modal={false}>
+                {/* Menu „⋯" jest zawsze — niesie też „Bazę pytań" (makieta:
+                    rzadziej używana, więc zeszła z paska nagłówka). */}
+                <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
                       <Button
                         type="button"
@@ -355,6 +356,13 @@ export function JobDetailCompactHeader({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56">
                       <DropdownMenuLabel>Rekrutacja</DropdownMenuLabel>
+                      <DropdownMenuItem
+                        onSelect={() => deferMenuAction(onOpenQuestions)}
+                        data-testid="open-questions"
+                      >
+                        <BookOpen className="h-4 w-4" />
+                        Baza pytań
+                      </DropdownMenuItem>
                       {onEdit ? (
                         <DropdownMenuItem
                           onSelect={() => deferMenuAction(onEdit)}
@@ -398,7 +406,6 @@ export function JobDetailCompactHeader({
                       ) : null}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                ) : null}
               </>
             }
           />
@@ -474,16 +481,7 @@ export function JobDetailCompactHeader({
                 </Badge>
               ) : null}
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={onOpenQuestions}
-              data-testid="open-questions"
-            >
-              <BookOpen className="h-4 w-4" aria-hidden="true" />
-              Baza pytań
-            </Button>
+
             {onOpenSimilar ? (
               <Button
                 type="button"
