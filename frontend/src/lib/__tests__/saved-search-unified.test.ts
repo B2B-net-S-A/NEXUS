@@ -7,6 +7,7 @@ import {
   readSavedSearch,
   unifiedToListParams,
   unifiedToSearchBody,
+  withRequestFlags,
   withSemanticsMarker,
 } from "@/lib/saved-search-unified";
 
@@ -58,6 +59,17 @@ describe("saved-search-unified — wspólne przypadki z backendem", () => {
       });
     });
   }
+
+  it("flagi neutralizujące trafiają do querystringu listy (CAND-06)", () => {
+    const req = { hide_unknown: true, location_scope: "location_only" } as never;
+    expect(withRequestFlags("loc=gdansk", req)).toBe(
+      "loc=gdansk&hu=1&ls=location_only",
+    );
+    expect(withRequestFlags("loc=gdansk&hu=1", req)).toBe(
+      "loc=gdansk&hu=1&ls=location_only",
+    );
+    expect(withRequestFlags("q=python", {} as never)).toBe("q=python");
+  });
 
   it("znacznik semantyki dopisuje się raz", () => {
     expect(withSemanticsMarker("q=python")).toBe("q=python&sv=2");
