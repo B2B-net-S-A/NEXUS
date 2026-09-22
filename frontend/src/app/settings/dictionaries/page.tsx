@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import {
-  ArrowLeft,
   BookOpen,
   Plus,
   Archive,
@@ -302,13 +301,6 @@ export default function DictionariesPage() {
   return (
     <div className="container max-w-5xl mx-auto py-8 px-4">
       <div className="mb-6">
-        <Link
-          href="/settings"
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Ustawienia
-        </Link>
         <h1 className="text-2xl font-bold text-foreground mt-2">Słowniki</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Edytuj wartości używane w listach rozwijanych — branże, powody

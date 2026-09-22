@@ -6,7 +6,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import api from "@/lib/api";
 import {
-  Settings,
   Plug,
   Mail,
   RefreshCw,
@@ -20,22 +19,23 @@ import {
   Sliders,
   Coins,
   FileSignature,
-  FileCheck2,
   Workflow,
   Stethoscope,
   ChevronRight,
   FileText,
-  Shield,
   Users as UsersIcon,
   BarChart3,
   Network,
   MessageSquare,
-  History,
-  AlertOctagon,
+  Briefcase,
+  Cpu,
+  Search,
+  UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime } from "@/lib/utils";
 import Link from "next/link";
+import { SettingsBreadcrumb } from "@/components/settings/SettingsBreadcrumb";
 import Microsoft365Card from "@/components/settings/Microsoft365Card";
 import TeamsNotificationsCard from "@/components/settings/TeamsNotificationsCard";
 import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
@@ -43,7 +43,18 @@ import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
 import { clearOnboardingCompleted } from "@/lib/onboarding-storage";
 import { requestOnboardingOpen } from "@/components/OnboardingWalkthrough";
-import { useSettingsTab, type SettingsTab } from "@/lib/settings-tab";
+import {
+  findSettingsArea,
+  isFinanceReadOnly,
+  listedSettingsAreas,
+  listedSettingsItems,
+  resolveSettingsView,
+  searchSettingsItems,
+  settingsItemHref,
+  type SettingsArea,
+  type SettingsAreaId,
+  type SettingsItem,
+} from "@/lib/settings-registry";
 import {
   hasSectionAccess,
   type ProductSection,
@@ -90,65 +101,6 @@ const PipelineTemplatesTab = dynamic(
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
   }
 );
-
-// ── Tab config ────────────────────────────────────────────────────────────────
-
-// Klucze zakładek żyją w `lib/settings-tab.ts` — `?tab=` w adresie (M11-B01).
-type Tab = SettingsTab;
-
-interface TabConfig {
-  id: Tab;
-  label: string;
-  icon: React.ReactNode;
-  /** Jeśli ustawione — tab widoczny tylko dla użytkowników z którąkolwiek z tych ról. */
-  roles?: UserRole[];
-  section?: ProductSection;
-  required?: Exclude<SectionAccess, "none">;
-}
-
-const TABS: TabConfig[] = [
-  { id: "integracje", label: "Integracje", icon: <Plug className="w-4 h-4" /> },
-  { id: "szablony", label: "Szablony email", icon: <Mail className="w-4 h-4" /> },
-  { id: "coaching", label: "Coaching KPI", icon: <Sparkles className="w-4 h-4" /> },
-  {
-    id: "procesy",
-    label: "Procesy",
-    icon: <Workflow className="w-4 h-4" />,
-    roles: ["admin", "delivery_lead"],
-    section: "pipeline",
-    required: "write",
-  },
-  {
-    id: "administracja",
-    label: "Administracja",
-    icon: <Shield className="w-4 h-4" />,
-    roles: ["admin"],
-  },
-  // Ogólnosystemowy dziennik krytycznych operacji (usunięcia i zablokowane
-  // próby). Wyłącznie Admin i Finanse — backend pilnuje tego samego.
-  {
-    id: "historia",
-    label: "Historia zdarzeń",
-    icon: <History className="w-4 h-4" />,
-    roles: ["admin", "finance"],
-    // Backend wymaga sekcji Finanse (F02) — zakładka bez niej kończyłaby się 403.
-    section: "finance",
-  },
-  // Rejestr konfliktów kandydat↔klient. Backend (`GET /api/conflicts`) wymaga
-  // odczytu kandydatów; sekcja Sourcing jest bramką tej samej powierzchni.
-  {
-    id: "konflikty",
-    label: "Konflikty",
-    icon: <AlertOctagon className="w-4 h-4" />,
-    roles: ["admin", "delivery_lead", "head_of_recruitment"],
-    section: "sourcing",
-  },
-  { id: "zaawansowane", label: "Zaawansowane", icon: <Settings className="w-4 h-4" /> },
-  { id: "pomoc", label: "Pomoc", icon: <HelpCircle className="w-4 h-4" /> },
-];
-
-// Taby które wymagają szerszego kontenera (tabele, dnd, grid).
-const WIDE_TABS: Tab[] = ["procesy", "administracja", "historia", "konflikty"];
 
 // Sub-pages dostępne via direct URL — sklejone razem dla discoverability.
 const ADVANCED_LINKS: Array<{
@@ -296,7 +248,6 @@ const ADVANCED_LINKS: Array<{
 
 // Finance gets operational read surfaces only. Integration sync, templates,
 // scoring, AI, diagnostics and configuration editors remain unavailable.
-const FINANCE_READ_ONLY_TABS = new Set<Tab>(["historia", "zaawansowane", "pomoc"]);
 const FINANCE_READ_ONLY_LINKS = new Set([
   "/settings/rate-benchmarks",
   "/settings/contract-templates",
@@ -475,170 +426,222 @@ function FirefliesCard() {
 }
 
 // ── Settings page ─────────────────────────────────────────────────────────────
+//
+// Jedno wejście (22.09.2026, propozycja „kafelki"): strona startowa z obszarami,
+// obszar = krótka lista pozycji, pozycja = sam ekran. Widok wynika WYŁĄCZNIE
+// z adresu (`?area=`, `?item=`; stare `?tab=` przez `LEGACY_SETTINGS_TABS`),
+// więc F5, „Wstecz" i miękka nawigacja zawsze pokazują to samo. Mapa pozycji
+// i reguły widoczności: `lib/settings-registry.ts`.
+
+const AREA_ICONS: Record<SettingsAreaId, React.ComponentType<{ className?: string }>> = {
+  me: UserRound,
+  team: UsersIcon,
+  rec: Briefcase,
+  deals: FileSignature,
+  sys: Cpu,
+};
+
+function SettingsItemRows({ items, showArea = false }: { items: SettingsItem[]; showArea?: boolean }) {
+  return (
+    <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+      {items.map((item) => (
+        <li key={item.id}>
+          <Link
+            href={settingsItemHref(item)}
+            className="flex min-h-14 items-center gap-4 px-5 py-3.5 transition-colors hover:bg-muted/60"
+          >
+            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="text-[15px] font-semibold text-foreground">{item.title}</span>
+              <span className="text-sm text-muted-foreground">{item.description}</span>
+            </span>
+            {showArea && (
+              <span className="shrink-0 text-xs text-muted-foreground">
+                {findSettingsArea(item.area)?.name}
+              </span>
+            )}
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SettingsHome({ areas, user }: { areas: SettingsArea[]; user: Parameters<typeof searchSettingsItems>[0] }) {
+  const [query, setQuery] = useState("");
+  const results = searchSettingsItems(user, query);
+  const searching = query.trim() !== "";
+  return (
+    <>
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Ustawienia</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">Wybierz obszar albo wpisz, czego szukasz.</p>
+      </div>
+      <label className="relative block">
+        <span className="sr-only">Szukaj w ustawieniach</span>
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Np. rola, reguły CV, Traffit"
+          className="h-12 w-full rounded-xl border border-border bg-card pl-11 pr-4 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+        />
+      </label>
+      {!searching && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {areas.map((area) => {
+            const Icon = AREA_ICONS[area.id];
+            return (
+              <Link
+                key={area.id}
+                href={`/settings?area=${area.id}`}
+                className="flex min-h-36 flex-col gap-2.5 rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary hover:shadow-xs"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <Icon className="h-5 w-5" />
+                </span>
+                <span className="text-base font-semibold text-foreground">{area.name}</span>
+                <span className="text-sm text-muted-foreground">{area.hint}</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+      {searching && results.length > 0 && <SettingsItemRows items={results} showArea />}
+      {searching && results.length === 0 && (
+        <p className="text-sm text-muted-foreground">Nic nie pasuje do „{query.trim()}”.</p>
+      )}
+    </>
+  );
+}
+
+function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters<typeof hasSectionAccess>[0] }) {
+  switch (item.id) {
+    case "outlook":
+      return <Microsoft365Card />;
+    case "people":
+      return <AdminUsersTab embedded />;
+    case "stages":
+      return <PipelineTemplatesTab />;
+    case "mail":
+      return (
+        <div className="space-y-4">
+          <EmailTemplatesCard />
+          <div className="rounded-2xl border border-border bg-card p-5 text-sm text-muted-foreground">
+            Szablony odrzuceń mają własny edytor:{" "}
+            <Link href="/settings/templates" className="font-medium text-primary hover:underline">
+              otwórz szablony odrzuceń
+            </Link>
+          </div>
+        </div>
+      );
+    case "traffit":
+      return <TraffitSyncCard />;
+    case "fireflies":
+      return <FirefliesCard />;
+    case "history":
+      return <EventHistoryTab />;
+    case "teams":
+      return <TeamsNotificationsCard />;
+    case "coaching":
+      return <CoachingSettings />;
+    case "conflicts":
+      return <ConflictsRegistryTab />;
+    case "help":
+      return <OnboardingSettings />;
+    case "advanced":
+      return <AdvancedLinksGrid user={user} />;
+    default:
+      return null;
+  }
+}
+
+function AdvancedLinksGrid({ user }: { user: Parameters<typeof hasSectionAccess>[0] }) {
+  const financeReadOnly = isFinanceReadOnly(user as Parameters<typeof isFinanceReadOnly>[0]);
+  const links = ADVANCED_LINKS.filter(
+    (link) =>
+      (!financeReadOnly || FINANCE_READ_ONLY_LINKS.has(link.href)) &&
+      (!link.roles || hasRole(user as Parameters<typeof hasRole>[0], ...link.roles)) &&
+      (!link.section || hasSectionAccess(user, link.section, link.required ?? "read")),
+  );
+  return (
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      {links.map((link) => (
+        <Link
+          key={link.href}
+          href={link.href}
+          className="group rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary hover:shadow-xs"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              {link.icon}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold text-foreground">{link.title}</h3>
+              <p className="mt-1 text-xs text-muted-foreground">{link.description}</p>
+            </div>
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const { user, hydrated } = useAuthStore();
-  // `?tab=` w adresie: F5 i linki `/settings?tab=…` otwierają właściwą
-  // zakładkę (także przy miękkiej nawigacji — patrz `useSettingsTab`).
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useSettingsTab(
-    searchParams?.get("tab") ?? null,
-  );
 
   // The auth store hydrates `user` from localStorage in a post-mount effect
-  // (AppShellV2). Until then `user` is null, so role-gated tabs (Procesy,
-  // Administracja) and admin advanced-links get filtered out and flash in once
-  // hydration completes. Gate on `hydrated` like the sibling settings pages
-  // (linkedin-metrics, team-structure) to avoid the flash-of-missing-tabs.
+  // (AppShellV2). Until then `user` is null and every role-gated area would be
+  // filtered out and flash in once hydration completes.
   if (!hydrated) {
     return <div className="p-6 text-muted-foreground">Ładowanie…</div>;
   }
 
-  const financeReadOnly = hasRole(user, "finance") && !hasRole(user, "admin");
-  // „Reguły CV" to własna zakładka (a nie kafel zagrzebany w „Zaawansowane"),
-  // bo DL konfiguruje reguły regularnie — to nie jest sekcja techniczna. Bramka
-  // = ta sama co dawny link zaawansowany: admin/DL z zapisem sekcji Delivery.
-  const canManageCvRules =
-    !financeReadOnly &&
-    hasRole(user, "admin", "delivery_lead") &&
-    hasSectionAccess(user, "delivery", "write");
-  const visibleTabs = TABS.filter(
-    (tab) =>
-      (!financeReadOnly || FINANCE_READ_ONLY_TABS.has(tab.id)) &&
-      (!tab.roles || hasRole(user, ...tab.roles)) &&
-      (!tab.section ||
-        hasSectionAccess(user, tab.section, tab.required ?? "read")),
-  );
-  const visibleAdvancedLinks = ADVANCED_LINKS.filter(
-    (link) =>
-      (!financeReadOnly || FINANCE_READ_ONLY_LINKS.has(link.href)) &&
-      (!link.roles || hasRole(user, ...link.roles)) &&
-      (!link.section ||
-        hasSectionAccess(user, link.section, link.required ?? "read")),
-  );
-  const visibleActiveTab = visibleTabs.some((tab) => tab.id === activeTab)
-    ? activeTab
-    : (visibleTabs[0]?.id ?? "pomoc");
-
-  const isWide = WIDE_TABS.includes(visibleActiveTab);
-  const containerClass = isWide ? "max-w-7xl mx-auto space-y-6" : "max-w-4xl mx-auto space-y-6";
+  const view = resolveSettingsView(user, {
+    item: searchParams?.get("item"),
+    area: searchParams?.get("area"),
+    tab: searchParams?.get("tab"),
+  });
+  const wide = view.kind === "item" && view.item.wide;
 
   return (
-    <div className={containerClass}>
-      <div>
-        <h1 className="text-2xl font-bold text-foreground dark:text-foreground">Ustawienia</h1>
-        <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
-          Zarządzaj integracjami i konfiguracją systemu
-        </p>
-      </div>
+    <div className={cn("mx-auto space-y-6", wide ? "max-w-7xl" : "max-w-4xl")}>
+      {view.kind === "home" && (
+        <SettingsHome areas={listedSettingsAreas(user)} user={user} />
+      )}
 
-      <div className="flex gap-1 bg-muted dark:bg-muted p-1 rounded-xl w-fit flex-wrap">
-        {visibleTabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
-              visibleActiveTab === tab.id
-                ? "bg-card dark:bg-muted text-foreground dark:text-foreground shadow-xs"
-                : "text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground"
-            )}
-          >
-            {tab.icon}
-            {tab.label}
-          </button>
-        ))}
-        {canManageCvRules && (
-          // Zakładka-link: treść żyje pod osobną trasą /settings/cv-rules, więc
-          // klik nawiguje (nie przełącza panelu in-page) — nigdy nie jest „active".
-          <Link
-            href="/settings/cv-rules"
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground"
-          >
-            <FileCheck2 className="w-4 h-4" />
-            Reguły CV
-          </Link>
-        )}
-      </div>
-
-      {visibleActiveTab === "integracje" && (
-        <div className="space-y-4">
-          <Microsoft365Card />
-          {/* Synchronizacja zapisuje notatki kandydatów — backend wymaga sekcji
-              Sourcing (F02), więc bez niej karta nie ma czego pokazać. */}
-          {hasSectionAccess(user, "sourcing") && <FirefliesCard />}
-          <TeamsNotificationsCard />
-          <TraffitSyncCard />
-
-          <div className="bg-muted dark:bg-muted/50 rounded-2xl border border-dashed border-border dark:border-border p-8 text-center">
-            <Plug className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">Więcej integracji wkrótce</p>
-            <p className="text-xs text-muted-foreground mt-1">LinkedIn, Slack...</p>
+      {view.kind === "area" && (
+        <>
+          <SettingsBreadcrumb area={view.area} />
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">{view.area.name}</h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">{view.area.hint}</p>
           </div>
-        </div>
+          <SettingsItemRows
+            items={listedSettingsItems(user).filter((i) => i.area === view.area.id)}
+          />
+        </>
       )}
 
-      {visibleActiveTab === "szablony" && (
-        <div className="space-y-4">
-          <EmailTemplatesCard />
-          <div className="bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-6 text-center">
-            <Mail className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-              Szukasz szablonów odrzucenia? Są zarządzane na osobnej stronie.
-            </p>
-            <Link
-              href="/settings/templates"
-              className="inline-flex items-center gap-2 mt-3 text-sm text-primary hover:underline font-medium"
-            >
-              Przejdź do szablonów odrzucenia <ExternalLink className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-        </div>
+      {view.kind === "item" && (
+        <>
+          <SettingsBreadcrumb area={view.area} item={view.item} />
+          {!view.item.ownHeader && (
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">{view.item.title}</h1>
+              <p className="mt-0.5 text-sm text-muted-foreground">{view.item.description}</p>
+            </div>
+          )}
+          {/* Karta Fireflies wymaga sekcji Sourcing — bramka jest w rejestrze. */}
+          <SettingsItemBody item={view.item} user={user} />
+        </>
       )}
-
-      {visibleActiveTab === "coaching" && <CoachingSettings />}
-
-      {visibleActiveTab === "procesy" && <PipelineTemplatesTab />}
-
-      {visibleActiveTab === "administracja" && <AdminUsersTab />}
-
-      {visibleActiveTab === "historia" && <EventHistoryTab />}
-
-      {visibleActiveTab === "konflikty" && <ConflictsRegistryTab />}
-
-      {visibleActiveTab === "zaawansowane" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {visibleAdvancedLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="group bg-card dark:bg-muted rounded-2xl border border-border dark:border-border p-5 hover:border-primary hover:shadow-xs transition-all"
-            >
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                  {link.icon}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold text-foreground dark:text-foreground">
-                      {link.title}
-                    </h3>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
-                  </div>
-                  <p className="text-xs text-muted-foreground dark:text-muted-foreground mt-1">
-                    {link.description}
-                  </p>
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
-
-      {visibleActiveTab === "pomoc" && <OnboardingSettings />}
     </div>
   );
 }
+
 
 function CoachingSettings() {
   const queryClient = useQueryClient();

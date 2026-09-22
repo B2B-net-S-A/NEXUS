@@ -2,7 +2,6 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useAdminSubTab, writeAdminSubTabToUrl } from "@/lib/settings-admin-subtab";
-import { writeSettingsTabToUrl } from "@/lib/settings-tab";
 
 // B42: podzakładka Administracji nie była w adresie — F5 na „Uprawnieniach"
 // wracało do „Użytkowników".
@@ -47,13 +46,4 @@ describe("useAdminSubTab", () => {
     expect(window.location.search).toBe("?tab=administracja");
   });
 
-  it("zmiana głównej zakładki poza Administrację zdejmuje `?sub=`", () => {
-    window.history.replaceState(null, "", "/settings?tab=administracja&sub=permissions");
-    writeSettingsTabToUrl("procesy");
-    expect(window.location.search).toBe("?tab=procesy");
-
-    // Powrót na Administrację nie odtwarza podzakładki sam z siebie.
-    writeSettingsTabToUrl("administracja");
-    expect(window.location.search).toBe("?tab=administracja");
-  });
 });

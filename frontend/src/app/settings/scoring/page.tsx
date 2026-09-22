@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
-import { ArrowLeft, Save, Trash2, Plus, Sparkles, AlertCircle } from "lucide-react";
+import { Save, Trash2, Plus, Sparkles, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   scoringWeightsApi,
@@ -351,12 +350,6 @@ export default function ScoringWeightsPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
-        <Link
-          href="/settings"
-          className="text-muted-foreground hover:text-foreground dark:text-muted-foreground"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-foreground dark:text-foreground flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-purple-500" />

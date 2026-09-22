@@ -10,7 +10,6 @@ import {
 } from "@hello-pangea/dnd";
 import Link from "next/link";
 import {
-  ArrowLeft,
   Plus,
   Archive,
   ArchiveRestore,
@@ -452,13 +451,6 @@ export default function EntityFieldsPage() {
   return (
     <div className="container max-w-6xl mx-auto py-8 px-4">
       <div className="mb-6">
-        <Link
-          href="/settings"
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Ustawienia
-        </Link>
         <h1 className="text-2xl font-bold text-foreground mt-2">
           Konfiguracja pól
         </h1>
