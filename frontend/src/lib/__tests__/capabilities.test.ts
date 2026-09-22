@@ -64,12 +64,12 @@ const EXPECTED: Record<
     admin: true, head_of_recruitment: true, delivery_lead: true,
     tac: true, recruiter: true, sourcer: true, user: false,
   },
-  // POST /api/jobs → TacPlus
+  // `/jobs/new` → DeliveryLeadPlus (job_request_intake.py). TAC poza (U4).
   "job.create": {
     admin: true,
     head_of_recruitment: false,
     delivery_lead: true,
-    tac: true,
+    tac: false,
     recruiter: false,
     sourcer: false,
     user: false,
@@ -316,24 +316,6 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  "nav.cortex": {
-    admin: true,
-    head_of_recruitment: true,
-    delivery_lead: true,
-    tac: true,
-    recruiter: true,
-    sourcer: true,
-    user: false,
-  },
-  "nav.manager": {
-    admin: true,
-    head_of_recruitment: false,
-    delivery_lead: true,
-    tac: false,
-    recruiter: false,
-    sourcer: false,
-    user: false,
-  },
   // /api/finance/* → require_roles(admin, finance) — moduł własny finance
   // (finance poza tym dziedziczy tier recruitera, patrz financeExpected).
   "nav.finance": {
@@ -363,7 +345,6 @@ function financeExpected(capability: Capability): boolean {
       "nav.order_mail",
       "nav.my_relationships",
       "nav.contracts",
-      "nav.cortex",
     ].includes(capability)
   ) {
     return true;
@@ -392,7 +373,6 @@ function talentCommunityManagerExpected(capability: Capability): boolean {
     "nav.order_mail",
     "nav.my_relationships",
     "nav.contracts",
-    "nav.cortex",
   ].includes(capability);
 }
 
@@ -456,7 +436,7 @@ describe("hasCapability — przypadki brzegowe", () => {
   });
 
   it("brak `roles` (stary cache localStorage) fallbackuje na primary `role`", () => {
-    expect(hasCapability({ role: "tac" }, "job.create")).toBe(true);
+    expect(hasCapability({ role: "delivery_lead" }, "job.create")).toBe(true);
     expect(hasCapability({ role: "recruiter" }, "job.create")).toBe(false);
   });
 
@@ -489,7 +469,6 @@ describe("hasCapability — przypadki brzegowe", () => {
     expect(hasCapability(mkUser("finance"), "nav.my_clients")).toBe(true);
     expect(hasCapability(mkUser("finance"), "nav.my_relationships")).toBe(true);
     expect(hasCapability(mkUser("finance"), "nav.contracts")).toBe(true);
-    expect(hasCapability(mkUser("finance"), "nav.cortex")).toBe(true);
   });
 
   it("Talent Community Manager ma biznes bez Finansów i tylko odczyt Delivery", () => {
@@ -676,7 +655,9 @@ describe("regresja F-19: żadna akcja tworzenia nie omija rejestru", () => {
       const contract = hasCapability(mkUser(role), "contract.create");
       expect(hasCapability(mkUser(role), "client.create")).toBe(contract);
     }
-    expect(hasCapability(mkUser("tac"), "job.create")).toBe(true);
+    // TAC nie zakłada rekrutacji (`/jobs/new` = DeliveryLeadPlus, U4 22.09).
+    expect(hasCapability(mkUser("tac"), "job.create")).toBe(false);
+    expect(hasCapability(mkUser("delivery_lead"), "job.create")).toBe(true);
     expect(hasCapability(mkUser("tac"), "client.create")).toBe(false);
   });
 });
@@ -802,7 +783,10 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   "candidate.create": { guards: [["deps", "RecruiterPlus"]] },
   // PATCH /api/candidates/{id}, POST /api/notes, assign-to-job (CandidateWriteAccess).
   "candidate.write": { guards: [["candidateAccess", "CandidateWriteAccess"]] },
-  "job.create": { guards: [["deps", "TacPlus"]] },
+  // Najwęższe ogniwo tworzenia: `/jobs/new` woła `POST /api/job-intake/read`
+  // i handoff za `DeliveryLeadPlus` (job_request_intake.py importuje alias
+  // z deps.py — test niżej pilnuje, że dalej go używa).
+  "job.create": { guards: [["deps", "DeliveryLeadPlus"]] },
   "job.update": { guards: [["deps", "TacPlus"]] },
   "client.create": {
     productDecision:
@@ -871,10 +855,18 @@ const CAPABILITY_BACKEND_MIRROR: Record<
     productDecision:
       "ContractReadUser is intersected with the central Delivery section read matrix.",
   },
-  "nav.cortex": { guards: [["cortex", "CortexUser"]] },
-  "nav.manager": { guards: [["deps", "DeliveryLeadPlus"]] },
   "nav.finance": { guards: [["deps", "FinanceModuleUser"]] },
 };
+
+describe("job.create = strażnik strony `/jobs/new`", () => {
+  it("odczyt requestu stoi za DeliveryLeadPlus", () => {
+    const source = readFileSync(
+      join(REPO_ROOT, "backend/app/api/job_request_intake.py"),
+      "utf8",
+    );
+    expect(source).toMatch(/current_user:\s*DeliveryLeadPlus/);
+  });
+});
 
 describe("kontrakt backend ↔ rejestr capability", () => {
   it("każda capability ma zadeklarowane lustro w backendzie", () => {
@@ -931,10 +923,11 @@ const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
   // Panel klientów, Moje relacje i Zamówienia z maila od 22.09.2026 to tryby
   // ekranów Klienci / Kontrakty (wejście z ⌘K), więc nie mają pozycji menu.
   "/contracts": "nav.contracts",
-  // "/cortex": "nav.cortex" — Cortex ukryty w UI (21.09.2026); wróci razem z wpisem w nav-registry.
+  // Cortex ukryty w UI (21.09.2026) — capability `nav.cortex` zdjęta 22.09
+  // (brak konsumenta); bramkę `/cortex` trzyma middleware (CORTEX_ROLES).
   "/finance": "nav.finance",
-  // `nav.manager` (/manager) NIE ma dziś pozycji w sidebarze — „Panel Managera"
-  // jest zakomentowany od 2026-05-28. Bramkę pilnuje middleware.
+  // `/manager` przekierowuje na `/dashboard` — bez pozycji w menu i palecie
+  // (capability `nav.manager` zdjęta 22.09.2026).
 };
 
 /**
@@ -952,6 +945,11 @@ const SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY: readonly string[] = [
   // CandidateWriteAccess + membership do oferty, więc sama lista ról nie
   // wystarcza do decyzji o widoczności ekranu.
   "/applications",
+  // Kalendarz i Generator CV: lista ról tylko odcina legacy viewera `user`
+  // (backend: RecruitmentReadAccess / CandidateWriteAccess); obie pozycje
+  // należą do sekcji, a nie do osobnej capability nawigacyjnej.
+  "/calendar",
+  "/cv-generator",
 ];
 
 describe("kontrakt sidebar ↔ rejestr capability", () => {

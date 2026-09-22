@@ -82,19 +82,8 @@ export function SidebarV2({
   const { user, logout, hydrated } = useAuthStore();
   const defaultDashboardHref = dashboardHref(user);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
-  const canReadCandidates =
-    hasSectionAccess(user, "sourcing") &&
-    hasRole(
-      user,
-      "admin",
-      "head_of_recruitment",
-      "delivery_lead",
-      "talent_community_manager",
-      "tac",
-      "recruiter",
-      "finance",
-      "sourcer",
-    );
+  // Ta sama bramka co pozycja „Kandydaci" (rejestr capability, U10).
+  const canReadCandidates = hasCapability(user, "nav.candidates");
   const canReadJobs = hasSectionAccess(user, "pipeline");
   const canUseContactQueue =
     hasSectionAccess(user, "sourcing") &&

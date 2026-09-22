@@ -33,7 +33,11 @@ import {
 import type { ComponentType } from "react";
 
 import { hasActionAccess, type ProductAction } from "@/lib/action-access";
-import { hasCapability, type Capability } from "@/lib/capabilities";
+import {
+  CAPABILITY_ROLES,
+  hasCapability,
+  type Capability,
+} from "@/lib/capabilities";
 import { dashboardHref } from "@/lib/dashboard-presets";
 import {
   hasSectionAccess,
@@ -169,17 +173,9 @@ export const NAV_SECTION_META: readonly NavSectionMeta[] = [
   { key: "system", title: "System", icon: Settings },
 ];
 
-/** Moduł kandydatów — rola `user` (viewer/klient) nie ma dostępu. */
-const CANDIDATES_NAV_ROLES: UserRole[] = [
-  "admin",
-  "head_of_recruitment",
-  "delivery_lead",
-  "talent_community_manager",
-  "tac",
-  "recruiter",
-  "finance",
-  "sourcer",
-];
+/** Moduł kandydatów — rola `user` (viewer/klient) nie ma dostępu. Lista ról
+ *  z rejestru capability (U10: jedna kopia zamiast pięciu). */
+const CANDIDATES_NAV_ROLES: UserRole[] = [...CAPABILITY_ROLES["nav.candidates"]];
 
 /**
  * Kolejność wpisów w obrębie sekcji = kolejność pozycji w menu.
@@ -253,6 +249,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Generator CV",
     icon: Sparkles,
     section: "sourcing",
+    // Generacja = CandidateWriteAccess — viewer `user` dostałby 403.
+    roles: [...CAPABILITY_ROLES["candidate.write"]],
     placement: "more",
     moreGroup: "documents",
     inPalette: true,
@@ -278,16 +276,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Talenty",
     icon: Star,
     section: "sourcing",
-    roles: [
-      "admin",
-      "head_of_recruitment",
-      "delivery_lead",
-      "talent_community_manager",
-      "tac",
-      "recruiter",
-      "finance",
-      "sourcer",
-    ],
+    roles: [...CAPABILITY_ROLES["nav.talents"]],
     capability: "nav.talents",
     placement: "more",
     moreGroup: "sources",
@@ -329,16 +318,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Targ / Dostępni",
     icon: Store,
     section: "sourcing",
-    roles: [
-      "admin",
-      "head_of_recruitment",
-      "delivery_lead",
-      "talent_community_manager",
-      "tac",
-      "recruiter",
-      "finance",
-      "sourcer",
-    ],
+    roles: [...CAPABILITY_ROLES["nav.sourcing"]],
     capability: "nav.sourcing",
     placement: "more",
     moreGroup: "sources",
@@ -356,17 +336,9 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     icon: Inbox,
     section: "sourcing",
     badgeKey: "applicationSubmissions",
-    // Te same role co `canReviewApplications` w sidebarze i backendowe
-    // CandidateWriteAccess — HoR nie rozpatruje zgłoszeń (UAT A-B02).
-    roles: [
-      "admin",
-      "delivery_lead",
-      "talent_community_manager",
-      "tac",
-      "recruiter",
-      "finance",
-      "sourcer",
-    ],
+    // Backendowe CandidateWriteAccess — od 17.09.2026 z Head of Recruitment
+    // (parytet z rekruterem, audyt ról U5).
+    roles: [...CAPABILITY_ROLES["candidate.write"]],
     placement: "more",
     moreGroup: "daily",
     // Zdjęte z menu i palety 22.09.2026 (decyzja Artura): zgłoszenie osoby,
@@ -392,6 +364,9 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     label: "Kalendarz",
     icon: Calendar,
     section: "pipeline",
+    // Odczyt kalendarza = RecruitmentReadAccess (role operacyjne) — viewer
+    // `user` dostałby 403.
+    roles: [...CAPABILITY_ROLES["nav.candidates"]],
     placement: "primary",
     inPalette: true,
   },
@@ -509,18 +484,9 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     moreGroup: "system",
     inPalette: true,
   },
-  {
-    id: "manager",
-    href: "/manager",
-    label: "Panel managera",
-    icon: GitBranch,
-    section: "system",
-    roles: ["admin", "delivery_lead"],
-    capability: "nav.manager",
-    placement: "primary",
-    inPalette: true,
-    inSidebar: false,
-  },
+  // „Panel managera" (`/manager`) zdjęty z palety 22.09.2026 — trasa od dawna
+  // przekierowuje na `/dashboard`, więc wpis prowadził w to samo miejsce co
+  // „Dashboard" (audyt ról U10).
 ];
 
 /** Grupy szyny — kolejność tablicy = kolejność na szynie. */

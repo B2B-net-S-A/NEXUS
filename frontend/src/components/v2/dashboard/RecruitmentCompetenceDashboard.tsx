@@ -49,6 +49,7 @@ import { useDebouncedValue } from "@/lib/use-debounced-value"
 import { cn } from "@/lib/utils"
 import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
 import { useAuthStore } from "@/store/auth"
+import { TAC_UI_ENABLED } from "@/lib/tac-ui"
 
 const PAGE_SIZE = 50
 const NO_FAVORITE = "none"
@@ -208,7 +209,8 @@ function Owners({ process }: { process: RecruitmentOperationsProcess }) {
   if (process.owners.recruiter) {
     people.push({ role: "Rekruter", person: process.owners.recruiter })
   }
-  if (process.owners.tac) {
+  // Funkcja TAC wyłączona w UI (22.09.2026) — `lib/tac-ui.ts`.
+  if (TAC_UI_ENABLED && process.owners.tac) {
     people.push({ role: "TAC", person: process.owners.tac })
   }
   if (process.owners.delivery_lead) {

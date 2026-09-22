@@ -17,8 +17,10 @@
 
 import type { UserRole } from "@/store/auth";
 
-/** Role z przypisaniem klienta — mają „Moich klientów" i to jest ich domyślny widok. */
-export const CLIENTS_MINE_ROLES: readonly UserRole[] = ["delivery_lead", "tac"];
+/** Role z przypisaniem klienta — mają „Moich klientów" i to jest ich domyślny
+ *  widok. Bez TAC (22.09.2026): funkcja TAC jest wyłączona, a TAC nie ma
+ *  sekcji Delivery, więc ekranu klientów i tak nie widzi. */
+export const CLIENTS_MINE_ROLES: readonly UserRole[] = ["delivery_lead"];
 
 /**
  * „Moi klienci" czy „Wszyscy". Jawne `mine=0/1` w adresie wygrywa; bez niego

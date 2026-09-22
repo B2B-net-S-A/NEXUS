@@ -47,6 +47,11 @@ export interface OrderSlideOverProps {
   jobId: number;
   /** `canWritePipeline && job.update` — edycja pól, HM, ustawień, zamknięcie. */
   canEdit: boolean;
+  /**
+   * Edycja TREŚCI (opis, ogłoszenia) — `can_edit` z serwera: także rekruter
+   * prowadzący i współpracownicy (22.09.2026). Brak = `canEdit`.
+   */
+  canEditContent?: boolean;
   /** Brak zapisu w sekcji pipeline — portale bez akcji publikacji. */
   readOnly?: boolean;
   /** Przejście do pełnego widoku (dziś tylko Profil Championa). */
@@ -200,6 +205,7 @@ function Fact({ label, value }: { label: string; value: string }) {
 function OrderBody({
   jobId,
   canEdit,
+  canEditContent = canEdit,
   readOnly,
   onNavigate,
   onOpenSlideOver,
@@ -335,7 +341,7 @@ function OrderBody({
             >
               Profil Championa ↗
             </Button>
-            {canEdit ? (
+            {canEditContent ? (
               <Button type="button" variant="ghost" size="sm" onClick={leaveFor(onEdit)}>
                 Edytuj rekrutację
               </Button>
@@ -468,7 +474,8 @@ function OrderBody({
           open={portalsOpen}
           onToggle={() => setPortalsOpen((v) => !v)}
         >
-          <PostingsSection jobId={jobId} readOnly={readOnly} />
+          {/* Ogłoszenia zapisuje każdy, kto edytuje treść rekrutacji. */}
+          <PostingsSection jobId={jobId} readOnly={readOnly || !canEditContent} />
         </DisclosureRow>
       </OrderBlock>
 

@@ -152,7 +152,7 @@ describe("hasRole", () => {
 })
 
 describe("canManageCandidateFinance", () => {
-  it("wymaga jednocześnie roli Admin i capability manage_finance", () => {
+  it("wymaga roli Admin/Finanse i capability manage_finance (U6, 22.09)", () => {
     expect(
       canManageCandidateFinance({
         role: "admin",
@@ -165,16 +165,23 @@ describe("canManageCandidateFinance", () => {
         capabilities: [],
       })
     ).toBe(false)
+    // Decyzja Artura 22.09.2026: Finanse zmieniają kwoty kontraktów
+    // i zamówień przez `manage_finance`.
     expect(
       canManageCandidateFinance({
         role: "finance",
         capabilities: ["manage_finance"],
       })
+    ).toBe(true)
+    expect(
+      canManageCandidateFinance({
+        role: "finance",
+        capabilities: ["view_finance"],
+      })
     ).toBe(false)
     expect(
       canManageCandidateFinance({
         role: "delivery_lead",
-        roles: ["delivery_lead", "finance"],
         capabilities: ["manage_finance"],
       })
     ).toBe(false)

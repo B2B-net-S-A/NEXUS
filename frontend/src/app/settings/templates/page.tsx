@@ -18,6 +18,7 @@ import {
   Copy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { AppModal } from "@/components/ds/AppModal";
 import { splitTemplateVariables } from "@/lib/template-variables";
 
@@ -533,6 +534,9 @@ export default function EmailTemplatesPage() {
   // undefined = none selected, null = create new, EmailTemplate = edit
   const [deleteTarget, setDeleteTarget] = useState<EmailTemplate | null>(null);
   const [seedStatus, setSeedStatus] = useState<string | null>(null);
+  // Tworzenie i edycja szablonu = `require_candidate_write` (każdy rekruter),
+  // usunięcie i domyślne szablony = `AdminUser` (backend/app/api/emails.py).
+  const isAdmin = useAuthStore((s) => hasRole(s.user, "admin"));
 
   const { data: allTemplates = [], isLoading } = useQuery<EmailTemplate[]>({
     queryKey: ["email-templates"],
@@ -584,7 +588,7 @@ export default function EmailTemplatesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {allTemplates.length === 0 && !isLoading && (
+          {isAdmin && allTemplates.length === 0 && !isLoading && (
             <button
               onClick={handleSeedTemplates}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
@@ -695,15 +699,17 @@ export default function EmailTemplatesPage() {
                         </p>
                       </div>
                       {/* Quick actions */}
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(t); }}
-                          className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 dark:hover:bg-red-900/20 rounded transition-colors"
-                          title="Usuń"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      {isAdmin && (
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteTarget(t); }}
+                            className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 dark:hover:bg-red-900/20 rounded transition-colors"
+                            title="Usuń"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </li>
                 ))}
