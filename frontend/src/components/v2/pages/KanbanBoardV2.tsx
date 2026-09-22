@@ -274,19 +274,11 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  cols,
  focusedId,
  onFocus,
- density,
- onToggleDensity,
- viewMode,
- onSetViewMode,
  fullPipelineDesktop,
 }: {
  cols: KanbanColumn[];
  focusedId: string | null;
  onFocus: (id: string) => void;
- density: "cozy" | "compact";
- onToggleDensity: () => void;
- viewMode: KanbanViewMode | null;
- onSetViewMode: (next: KanbanViewMode) => void;
  fullPipelineDesktop: boolean;
 }) {
  const focusedIndex = Math.max(
@@ -299,7 +291,12 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
 
  return (
  <div
- className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-2 py-1.5"
+ className={cn(
+ "flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-card px-2 py-1.5",
+ // Na desktopie wszystkie kolumny są widoczne — wiersz niósłby tylko
+ // przełączniki, które siedzą teraz w pasku filtrów (makieta 2).
+ fullPipelineDesktop && "xl:pointer-fine:hidden"
+ )}
  role="navigation"
  aria-label="Nawigacja etapów pipeline"
  >
@@ -367,6 +364,24 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  {/* Przełącznik widoku. Renderowany TYLKO gdy jest co przełączać
  (`kanbanViewToggleVisible`): poniżej progu kolumny i tak mieszczą się bez
  przewijania, więc „widok przeglądowy" dałby wyłącznie mniejsze karty. */}
+ </div>
+ );
+});
+
+/** Przełączniki widoku (kafelki/kolumny) i gęstości — w pasku filtrów Tablicy. */
+function BoardViewControls({
+ viewMode,
+ onSetViewMode,
+ density,
+ onToggleDensity,
+}: {
+ viewMode: KanbanViewMode | null;
+ onSetViewMode: (next: KanbanViewMode) => void;
+ density: "cozy" | "compact";
+ onToggleDensity: () => void;
+}) {
+ return (
+ <>
  {viewMode !== null && (
  <div
  role="group"
@@ -417,9 +432,9 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  Gęstość: {density === "compact" ? "kompaktowa" : "cozy"}
  </TooltipContent>
  </Tooltip>
- </div>
+ </>
  );
-});
+}
 
 const OverviewScoreBadge = memo(function OverviewScoreBadge({
  normalizedScore,
@@ -2124,6 +2139,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  slaDays={slaDays}
  slaClientName={playbookQuery.data?.client_name ?? null}
  slaLoading={playbookQuery.isLoading}
+ trailing={
+ <BoardViewControls
+ viewMode={viewToggleVisible ? viewMode : null}
+ onSetViewMode={setViewPreference}
+ density={density}
+ onToggleDensity={() => setDensity(density === "cozy" ? "compact" : "cozy")}
+ />
+ }
  inProcessCount={stageCols.reduce(
  (sum, c) => sum + (c.category === "terminal" ? 0 : c.count),
  0
@@ -2168,12 +2191,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  cols={displayCols}
  focusedId={focusedColId}
  onFocus={focusColumn}
- density={density}
- onToggleDensity={() =>
- setDensity(density === "cozy" ? "compact" : "cozy")
- }
- viewMode={viewToggleVisible ? viewMode : null}
- onSetViewMode={setViewPreference}
  fullPipelineDesktop={fullPipelineDesktop}
  />
  )}
