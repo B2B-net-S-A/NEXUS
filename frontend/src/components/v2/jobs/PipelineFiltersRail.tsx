@@ -91,6 +91,7 @@ export function PipelineFilterBar({
   slaClientName,
   slaLoading,
   inProcessCount,
+  trailing,
 }: {
   nameQuery: string;
   onNameQueryChange: (value: string) => void;
@@ -118,6 +119,8 @@ export function PipelineFilterBar({
   slaLoading: boolean;
   /** Osoby w procesie (bez etapów końcowych) — podsumowanie po prawej. */
   inProcessCount?: number;
+  /** Przełączniki widoku i gęstości Tablicy (za podsumowaniem). */
+  trailing?: React.ReactNode;
 }) {
   // Makieta 2 (22.09.2026): na wierzchu tylko nazwisko i „Mój ruch", reszta
   // filtrów w „Filtry ▾" — z licznikiem aktywnych, żeby schowany filtr nie
@@ -250,6 +253,7 @@ export function PipelineFilterBar({
               : "SLA: nie ustawiono w karcie klienta"}
         </span>
       </span>
+      {trailing ? <span className="inline-flex items-center gap-1">{trailing}</span> : null}
     </div>
   );
 }

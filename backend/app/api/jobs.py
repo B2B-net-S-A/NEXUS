@@ -1717,6 +1717,9 @@ async def get_job(
     from app.services.job_similarity import request_statuses  # noqa: PLC0415
 
     payload["request_status"] = (await request_statuses(db, [job.id])).get(job.id)
+    from app.services.board_stage_badges import cpro_enabled_for_client  # noqa: PLC0415
+
+    payload["cpro_enabled"] = cpro_enabled_for_client(job.client_id)
     redact_job_for_viewer(payload, current_user)
     _redact_delivery_lead_job_finance(payload, current_user)
     return payload

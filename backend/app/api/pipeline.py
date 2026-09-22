@@ -27,6 +27,7 @@ from app.models.recruitment_process import RecruitmentProcess
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
+from app.services.board_stage_badges import ensure_badge_stage_allowed
 from app.services import champion_view
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
@@ -516,6 +517,13 @@ async def move_candidate(
                 f"(etap '{stage_def.name}' mapuje się na "
                 f"'{stage_def.legacy_enum_value}')."
             ),
+        )
+
+    # Etapy-odznaki Tablicy (22.09.2026): „DZ ✓" ustawia DL / Head of
+    # Recruitment, „Gotowy do Cpro" istnieje tylko u Nordei.
+    if stage_def is not None:
+        ensure_badge_stage_allowed(
+            current_user, stage_name=stage_def.name, client_id=job.client_id
         )
 
     # Use the same first lock as the signed-contract automation. Besides
@@ -2486,6 +2494,15 @@ async def bulk_move_candidates(
     # Runs after the pure-input terminal/gate 422s above (which reveal nothing
     # job-specific) and before any candidate lookup.
     await ensure_job_membership(db, current_user, job.id)
+
+    # Etap-odznaka Tablicy (DZ / Cpro) — ta sama reguła co pojedynczy /move.
+    bulk_stage_def = await _resolve_stage_def(
+        db, job, stage_def_id=None, legacy_stage=data.stage
+    )
+    if bulk_stage_def is not None:
+        ensure_badge_stage_allowed(
+            current_user, stage_name=bulk_stage_def.name, client_id=job.client_id
+        )
 
     # Faza 1 globalnej kolejności blokad: komplet kandydatów rosnąco, ZANIM
     # `transition_process` w pętli niżej weźmie blokadę oferty. Bez tego pętla
