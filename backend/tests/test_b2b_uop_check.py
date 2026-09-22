@@ -54,7 +54,7 @@ def test_check_uop_retries_once_after_malformed_response(monkeypatch):
     }
     assert [call["request_id"] for call in calls] == ["uop-check", "uop-check-retry"]
     # F8 (decyzja 16.09.2026): znamiona UoP na GPT Luna.
-    assert all(call["model"] == "gpt-5.6-luna" for call in calls)
+    assert all(call["model"] == "gpt-6-luna" for call in calls)
     assert "POPRZEDNIA ODPOWIEDŹ" in calls[1]["content"]
 
 

@@ -39,7 +39,7 @@ from sqlalchemy import select
 
 logger = logging.getLogger("champion_backfill")
 
-DEFAULT_MODEL = "gpt-5.6-luna"
+DEFAULT_MODEL = "gpt-6-luna"
 
 
 def read_bundle(path: Path) -> list[dict[str, Any]]:

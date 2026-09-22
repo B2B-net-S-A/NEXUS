@@ -5276,12 +5276,22 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
 | F2 | champion_profile_parse | Sonnet 5 (z Haiku) | F10 | cv_backfill, cv_name_backfill | Sonnet 5 (z Haiku) |
 | F3 | cv_requirement_map | Sonnet 5 | F11 | notes_extraction | DeepSeek V4 Pro (z Haiku) |
 | F4 | cv_generator | Sonnet 5 (z 4.6) | F12 | candidate_summary | DeepSeek V4 Pro |
-| F5 | cv_interactive_chat | GPT Luna (z Haiku) | F13 | champion_draft | Sonnet 5 |
+| F5 | cv_interactive_chat | GPT-6 Luna (z Sonnet 5) | F13 | champion_draft | Sonnet 5 |
 | F6 | job_description_generator | Sonnet 5 | F14 | cv_rule_lint | Sonnet 5 (z Haiku) |
-| F7 | order_parser | **Sonnet 5** (od 21.09) | F15 | mindy_chat | GPT Luna |
-| F8 | uop_check | GPT Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
-| F18 | cv_factual_verification | GPT Luna (z Sonnet 5) | | | |
+| F7 | order_parser | **Sonnet 5** (od 21.09) | F15 | mindy_chat | GPT-6 Luna |
+| F8 | uop_check | GPT-6 Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
+| F18 | cv_factual_verification | GPT-6 Luna (z Sonnet 5) | | | |
 
+- **„Luna" to od 22.09.2026 GPT-6 Luna (`gpt-6-luna`)**, nie GPT-5.6 Luna,
+  na której robiono badanie 16.09 — liczby F5/F8/F15/F18 pochodzą z wersji
+  5.6. Kształt żądania bez zmian (sprawdzone żądaniem z produkcji), cena
+  0,10/0,50 USD za 1M zamiast 0,20/1,20. Powrót bez deployu: env funkcji
+  (np. `UOP_CHECK_MODEL=gpt-5.6-luna`). Przeniesienie na Lunę KOLEJNEJ funkcji
+  wymaga pomiaru jak w badaniu — nie samej zmiany wersji.
+- **OpenAI od GPT-5.6 liczy ZAPIS do cache (1,25× wejścia)** i zgłasza go
+  w `prompt_tokens_details.cache_write_tokens`; `parse_response` odejmuje go
+  od wejścia, a `_PRICES` dla OpenAI to czwórka (wejście, wyjście, odczyt,
+  zapis). Do 22.09 zapis był wyceniany jak zwykłe wejście.
 - **F7 wrócił na Sonneta 5 (decyzja Artura, 21.09.2026).** GPT Luna czytała
   zamówienia poprawnie, ale oznaczała odczyt jako `uncertain` bez konkretnego
   powodu („oznaczony przez model jako niepewny", echo instrukcji promptu), a
