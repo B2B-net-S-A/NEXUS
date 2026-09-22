@@ -2111,6 +2111,12 @@ miejsce, nie zbiór funkcji.
   pokazuje `primary_owner`, więc wiersz mówiłby „Marta K." i „brak
   właściciela" naraz). „Potrzebny search", „Priority Work"
   i nazwy techniczne zostają.
+- **Funkcja TAC jest WYŁĄCZONA w UI** (decyzja Artura 22.09.2026: „każdy
+  jest rekruterem lub sourcerem"): `lib/tac-ui.ts` → `TAC_UI_ENABLED = false`
+  chowa plakietkę i szybki filtr „Brak opiekuna TAC" (świeciły na ~4 250
+  z 4 265 rekrutacji), a `?no_owner=1` ze starego linku nie zawęża listy
+  ukrytym filtrem. Rola `tac`, kolumna `tac_id` i pole w ustawieniach
+  rekrutacji zostają — powrót = zmiana stałej.
 - **Klucze react-query listy buduje `jobsListQueryKey` /
   `jobsQuickCountsQueryKey`** — harness `/preview/jobs-list-v3` zasiewa cache
   tymi samymi funkcjami, a zapytania doku odcina interceptorem (zero sieci).
@@ -2395,8 +2401,7 @@ użytkownik. Pulpit, lądowanie po loginie i pasek górny — bez zmian. Raport:
   (#1647 wygrywa z makietą „wariant B"): warsztat CV i wysyłka zbiorcza oznaczają
   „CV Wysłane" bez linku.
 - **Znane rozbieżności z makietą (świadomie, 21.09):** przypinanie pozycji
-  w „Więcej" niezrobione; „Brak opiekuna TAC" świeci na ~4 256 z 4 265
-  rekrutacji (szum danych z importu); stawka/dostępność w tabeli głównie „—",
+  w „Więcej" niezrobione; stawka/dostępność w tabeli głównie „—",
   bo dane w bazie są puste.
 
 ## Konflikty z klientem (blacklist / NDA / konkurent) są OSTRZEŻENIEM, nie blokadą (decyzja Artura, 17.09.2026)
