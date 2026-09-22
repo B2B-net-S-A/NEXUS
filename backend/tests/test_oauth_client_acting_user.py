@@ -304,6 +304,63 @@ async def test_enforced_write_route_rejects_a_read_only_token(enforce):
     assert exc.value.detail["error"] == "insufficient_scope"
 
 
+async def test_read_only_post_outside_the_map_is_403_even_in_shadow_mode():
+    """FIX-01: #1700 przepuścił eksport z samym ``candidate:read``."""
+    db = _FakeDb(_client(), _user())
+    request = _routed_request(
+        "POST", "/api/candidates/export", "/api/candidates/export"
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await _resolve_client_principal(request, _payload(scope="candidate:read"), db)
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "route_not_exposed_to_clients"
+
+
+async def test_mapped_read_only_post_still_passes_in_shadow_mode():
+    user = _user()
+    db = _FakeDb(_client(), user)
+    request = _routed_request(
+        "POST",
+        "/api/candidates/check-duplicates",
+        "/api/candidates/check-duplicates",
+    )
+
+    resolved = await _resolve_client_principal(
+        request, _payload(scope="candidate:read"), db
+    )
+
+    assert resolved is user
+
+
+@pytest.mark.parametrize(
+    ("method", "template", "concrete"),
+    [
+        ("POST", "/api/candidates/{candidate_id}/cv", "/api/candidates/5/cv"),
+        ("POST", "/api/candidates/{candidate_id}/sources", "/api/candidates/5/sources"),
+        (
+            "GET",
+            "/api/candidates/{candidate_id}/recommendations",
+            "/api/candidates/5/recommendations",
+        ),
+    ],
+)
+async def test_enforced_jjit_routes_pass_with_candidate_write(
+    enforce, method, template, concrete
+):
+    """FIX-02: importer JJIT nie może stanąć po włączeniu egzekwowania."""
+    user = _user()
+    db = _FakeDb(_client(), user)
+    request = _routed_request(method, template, concrete)
+
+    resolved = await _resolve_client_principal(
+        request, _payload(scope="candidate:write"), db
+    )
+
+    assert resolved is user
+
+
 async def test_scope_revoked_on_the_client_stops_an_already_issued_token():
     """AUTH-02: token z ``candidate:write`` po odebraniu scope'u klientowi."""
 
