@@ -27,7 +27,7 @@ import {
   type InternalAxiosRequestConfig,
 } from "axios";
 
-import api from "@/lib/api";
+import api, { type CandidateNotesFacts } from "@/lib/api";
 import { ToastProvider } from "@/components/Toast";
 import { CandidateDetailV2 } from "@/components/v2/pages/CandidateDetailV2";
 import {
@@ -73,6 +73,8 @@ const CANDIDATE = {
   country: "PL",
   availability_status: "open_to_offers",
   availability_date: "2026-10-01",
+  preferences: { remote_modes: ["remote", "hybrid"] },
+  max_onsite_days_per_week: 2,
   tags: ["java", "fintech"],
   cv_filename: "CV_Marta_Kowalczyk.pdf",
   cv_parsed_at: daysAgo(10),
@@ -377,6 +379,63 @@ const ROUTES: Array<[RegExp, (config: InternalAxiosRequestConfig) => unknown]> =
 /**
  * Lokalna odpowiedź dla żądania. Zwraca odpowiedź albo lokalny błąd 404.
  */
+const NOTES_FACTS: CandidateNotesFacts = {
+  candidate_id: CANDIDATE_ID,
+  extracted_at: daysAgo(1),
+  has_facts: true,
+  rate: {
+    value: "1400",
+    currency: "PLN",
+    period: "md",
+    raw: "Oczekuje 1400 zł netto za dzień na B2B, do negocjacji.",
+    as_of: "2026-09",
+    hourly_pln: "175.00",
+    flexibility: "Zejdzie do 1300 zł/MD przy dłuższym projekcie.",
+    profile_amount: "160.00",
+    profile_rate_version: 1,
+    can_apply: true,
+  },
+  work_mode: {
+    modes: ["remote", "hybrid"],
+    max_onsite_days: 3,
+    profile_modes: ["remote", "hybrid"],
+    profile_max_onsite_days: 2,
+    can_apply: true,
+  },
+  contract_form: { value: "b2b", profile_contract_types: [], can_apply: true },
+  availability: {
+    raw: "Okres wypowiedzenia 1 miesiąc.",
+    notice_period_text: "1 miesiąc",
+    available_from_text: null,
+    notice_period: 1,
+    notice_period_unit: "months",
+    available_from: null,
+    profile_notice_period: null,
+    profile_notice_period_unit: null,
+    profile_availability_date: "2026-10-01",
+    can_apply: true,
+  },
+  office_cities: {
+    cities: ["Warszawa"],
+    profile_office_cities: ["Warszawa"],
+    can_apply: false,
+  },
+  relocation: { willing: false, targets: [] },
+  current_engagement: {
+    employer: "Bank (przykład)",
+    project: "system płatności",
+    ends_at: "2026-12",
+    raw: null,
+  },
+  not_looking_until: null,
+  languages: [{ name: "angielski", level: "C1" }],
+  sectors_prefer: ["fintech"],
+  sectors_avoid: ["gambling"],
+  client_vetoes: [],
+  matching_facts:
+    "Szuka projektu w Javie od stycznia; preferuje fintech, max 3 dni w biurze w Warszawie.",
+};
+
 function localResponse(config: InternalAxiosRequestConfig):
   | { ok: true; response: AxiosResponse }
   | { ok: false; error: AxiosError } {
@@ -467,6 +526,7 @@ function seededClient(): QueryClient {
     data: LANGUAGES,
     etag: '"preview-v1"',
   });
+  qc.setQueryData(candidateQueryKeys.notesFacts(CANDIDATE_ID), NOTES_FACTS);
   qc.setQueryData(candidateQueryKeys.profileRate(CANDIDATE_ID), {
     data: PROFILE_RATE,
     etag: '"preview-v1"',

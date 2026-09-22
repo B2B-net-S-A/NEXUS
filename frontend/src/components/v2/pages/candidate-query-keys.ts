@@ -65,6 +65,8 @@ export const candidateQueryKeys = {
     ["candidate-languages", candidateId(id)] as const,
   profileRate: (id: number | string) =>
     ["candidate-profile-rate", candidateId(id)] as const,
+  notesFacts: (id: number | string) =>
+    ["candidate-notes-facts", candidateId(id)] as const,
   recentRecruitments: (
     id: number | string,
     limit: number,

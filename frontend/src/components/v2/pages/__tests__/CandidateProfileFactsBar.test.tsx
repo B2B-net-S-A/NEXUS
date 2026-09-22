@@ -45,6 +45,7 @@ vi.mock("@/lib/api", () => ({
     updateLanguages: vi.fn(),
     getProfileRate: vi.fn(),
     updateProfileRate: vi.fn(),
+    updateWorkMode: vi.fn(),
   },
   candidateProfileApi: {
     updateLocation: vi.fn(),
@@ -206,9 +207,8 @@ describe("CandidateProfileFactsBar", () => {
     const user = userEvent.setup();
     renderBar();
 
-    await screen.findByText("Nie uzupełniono");
     await user.click(
-      screen.getByRole("button", { name: "Edytuj języki" }),
+      await screen.findByRole("button", { name: "Edytuj języki" }),
     );
     await user.click(screen.getByRole("button", { name: "Dodaj język" }));
     await user.type(screen.getByLabelText("Język"), "Angielski");
@@ -555,4 +555,59 @@ describe("CandidateProfileFactsBar", () => {
     expect(await screen.findByText("Stawka B2B")).toBeInTheDocument();
     expect(mockedFactsApi.getProfileRate).toHaveBeenCalled();
   });
+
+  it("pokazuje tryb pracy z liczbą dni w biurze, nie samo „hybrydowo”", async () => {
+    renderBar({
+      preferences: { remote_modes: ["remote", "hybrid"] },
+      max_onsite_days_per_week: 2,
+    });
+    expect(
+      await screen.findByText(
+        "Hybrydowo lub zdalnie · do 2 dni w biurze w tygodniu",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("zapisuje tryb pracy i dni w biurze przez endpoint faktów profilu", async () => {
+    const user = userEvent.setup();
+    mockedFactsApi.updateWorkMode.mockResolvedValue({
+      candidate_id: 7,
+      remote_modes: ["remote", "hybrid"],
+      max_onsite_days_per_week: 3,
+    });
+    renderBar();
+    expect(await screen.findByText("Angielski · C1")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edytuj tryb pracy" }));
+    await user.click(screen.getByLabelText("Zdalnie"));
+    await user.click(screen.getByLabelText("Hybrydowo"));
+    await user.type(
+      screen.getByLabelText("Maksymalnie dni w biurze w tygodniu"),
+      "3",
+    );
+    await user.click(screen.getByRole("button", { name: "Zapisz tryb pracy" }));
+    await waitFor(() =>
+      expect(mockedFactsApi.updateWorkMode).toHaveBeenCalledWith(7, {
+        remote_modes: ["remote", "hybrid"],
+        max_onsite_days_per_week: 3,
+      }),
+    );
+    expect(showSuccess).toHaveBeenCalledWith("Tryb pracy zapisany");
+  });
+
+  it("blokuje sprzeczność „tylko zdalnie” z dniami w biurze przed wysłaniem", async () => {
+    const user = userEvent.setup();
+    renderBar();
+    expect(await screen.findByText("Angielski · C1")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edytuj tryb pracy" }));
+    await user.click(screen.getByLabelText("Zdalnie"));
+    await user.type(
+      screen.getByLabelText("Maksymalnie dni w biurze w tygodniu"),
+      "2",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/Tylko zdalnie/);
+    expect(
+      screen.getByRole("button", { name: "Zapisz tryb pracy" }),
+    ).toBeDisabled();
+  });
 });
+

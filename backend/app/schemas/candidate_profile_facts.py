@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Literal, Optional
 
@@ -199,3 +199,142 @@ class RecentRecruitmentItem(BaseModel):
 class CandidateRecentRecruitmentsResponse(BaseModel):
     candidate_id: int
     items: list[RecentRecruitmentItem]
+
+
+# ── Fakty z notatek rekruterów (22.09.2026) ────────────────────────────────
+
+WorkMode = Literal["remote", "hybrid", "onsite"]
+NotesFactField = Literal[
+    "rate", "work_mode", "contract_form", "availability", "office_cities"
+]
+
+
+class NotesRateFact(BaseModel):
+    value: Decimal
+    currency: Optional[str] = None
+    period: Optional[Literal["h", "md", "month"]] = None
+    raw: Optional[str] = None
+    as_of: Optional[str] = None
+    hourly_pln: Optional[Decimal] = None
+    flexibility: Optional[str] = None
+    profile_amount: Optional[Decimal] = None
+    profile_rate_version: int = 0
+    can_apply: bool = False
+
+
+class NotesWorkModeFact(BaseModel):
+    modes: list[WorkMode]
+    max_onsite_days: Optional[int] = None
+    profile_modes: list[WorkMode]
+    profile_max_onsite_days: Optional[int] = None
+    can_apply: bool = False
+
+
+class NotesContractFormFact(BaseModel):
+    value: Literal["b2b", "uop", "any"]
+    profile_contract_types: list[str]
+    can_apply: bool = False
+
+
+class NotesAvailabilityFact(BaseModel):
+    raw: Optional[str] = None
+    notice_period_text: Optional[str] = None
+    available_from_text: Optional[str] = None
+    notice_period: Optional[int] = None
+    notice_period_unit: Optional[str] = None
+    available_from: Optional[date] = None
+    profile_notice_period: Optional[int] = None
+    profile_notice_period_unit: Optional[str] = None
+    profile_availability_date: Optional[date] = None
+    can_apply: bool = False
+
+
+class NotesOfficeCitiesFact(BaseModel):
+    cities: list[str]
+    profile_office_cities: list[str]
+    can_apply: bool = False
+
+
+class NotesRelocationFact(BaseModel):
+    willing: Optional[bool] = None
+    targets: list[str] = Field(default_factory=list)
+
+
+class NotesEngagementFact(BaseModel):
+    employer: Optional[str] = None
+    project: Optional[str] = None
+    ends_at: Optional[str] = None
+    raw: Optional[str] = None
+
+
+class NotesLanguageFact(BaseModel):
+    name: str
+    level: Optional[str] = None
+
+
+class NotesClientVetoFact(BaseModel):
+    client: str
+    reason: Optional[str] = None
+
+
+class CandidateNotesFactsResponse(BaseModel):
+    """Co notatki rekruterów mówią o kandydacie, obok stanu profilu."""
+
+    candidate_id: int
+    extracted_at: Optional[str] = None
+    has_facts: bool = False
+    rate: Optional[NotesRateFact] = None
+    work_mode: Optional[NotesWorkModeFact] = None
+    contract_form: Optional[NotesContractFormFact] = None
+    availability: Optional[NotesAvailabilityFact] = None
+    office_cities: Optional[NotesOfficeCitiesFact] = None
+    relocation: Optional[NotesRelocationFact] = None
+    current_engagement: Optional[NotesEngagementFact] = None
+    not_looking_until: Optional[str] = None
+    languages: list[NotesLanguageFact] = Field(default_factory=list)
+    sectors_prefer: list[str] = Field(default_factory=list)
+    sectors_avoid: list[str] = Field(default_factory=list)
+    client_vetoes: list[NotesClientVetoFact] = Field(default_factory=list)
+    matching_facts: Optional[str] = None
+
+
+class CandidateNotesFactApply(BaseModel):
+    """Zapisz w profilu jedno pole wyliczone przez serwer z notatek.
+
+    Przy stawce `expected_profile_rate_version` jest wymagane — to ta sama
+    ochrona przed nadpisaniem cudzej, świeższej poprawki co w If-Match.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: NotesFactField
+    expected_profile_rate_version: Optional[int] = Field(default=None, ge=0)
+
+
+class CandidateWorkModeUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    remote_modes: list[WorkMode] = Field(default_factory=list)
+    max_onsite_days_per_week: Optional[int] = Field(default=None, ge=0, le=7)
+
+    @model_validator(mode="after")
+    def _coherent(self) -> "CandidateWorkModeUpdate":
+        modes = set(self.remote_modes)
+        days = self.max_onsite_days_per_week
+        if days is not None and modes:
+            if modes == {"remote"} and days > 0:
+                raise ValueError(
+                    "Tylko zdalnie oznacza 0 dni w biurze — popraw tryb albo liczbę dni."
+                )
+            if days == 0 and modes - {"remote"}:
+                raise ValueError(
+                    "0 dni w biurze oznacza pracę wyłącznie zdalną — odznacz "
+                    "hybrydę i pracę stacjonarną albo podaj liczbę dni."
+                )
+        return self
+
+
+class CandidateWorkModeResponse(BaseModel):
+    candidate_id: int
+    remote_modes: list[WorkMode]
+    max_onsite_days_per_week: Optional[int] = None

@@ -1629,6 +1629,37 @@ w entrypoint.sh). Pełny opis: `docs/cv-interactive-share-completion-report.md`.
 - Dwa nowe klucze AI w Ustawieniach → AI: `cv_requirement_map`,
   `cv_interactive_chat` (0217 seeduje `ai_features`).
 
+## Fakty z notatek rekruterów na profilu kandydata (22.09.2026)
+
+Nocna pętla `notes_insights_sync` (włączona na prodzie) czyta notatki
+kandydata (także przeniesione z Traffita) i zapisuje fakty w
+`cv_extracted_data._notes_insights`. Profil pokazuje je w karcie
+„Z notatek rekruterów” (`CandidateNotesFactsCard`, `GET/POST
+/api/candidates/{id}/notes-facts[/apply]`), a tryb pracy ma pole w pasku
+faktów (`PATCH /api/candidates/{id}/work-mode`). Jedna reguła:
+`services/candidate_notes_facts.py` (lustro frontu: `lib/work-mode.ts`).
+
+- **Tryb pracy wynika z dni w biurze:** N dni akceptuje też mniej (0 =
+  zdalnie, 1–4 = też hybrydowo, 5+ = też stacjonarnie) — ta sama reguła co
+  bramka dni w biurze w wyszukiwaniu. Dni: liczba podana wprost > „tylko
+  zdalnie” (0) > „stacjonarnie” (5); „hybrydowo” bez liczby zostawia dni puste.
+  Ekstrakcja (prompt `v5-work-modes`, pole `preferences.work_modes`) wypełnia
+  `preferences.remote_modes` i `max_onsite_days_per_week` WYŁĄCZNIE, gdy pole
+  jest puste — każde osobno.
+- **Stawka z notatek NIGDY nie zapisuje się sama, jeśli nie jest PLN/h.**
+  Karta pokazuje odpowiednik (MD ÷ 8, miesiąc ÷ 168), zapis dopiero po
+  „Zapisz w profilu”, z wersją stawki (412 przy zmianie w innym oknie),
+  `source="notes_confirmed"` + `_manual_override_rate`. Inna waluta — bez
+  przeliczenia.
+- **„Zapisz w profilu” wskazuje POLE, wartość wylicza serwer** z zapisanych
+  faktów (rate, work_mode, contract_form, availability, office_cities).
+  Zastrzeżenia do klientów są tylko pokazywane — nie tworzą konfliktu.
+- **Doganianie starszej wersji promptu:** po kandydatach ze zmienionymi
+  notatkami bieg dobiera najwyżej `NOTES_INSIGHTS_SYNC_UPGRADE_LIMIT` (700)
+  kandydatów z `_extractor` innym niż bieżąca wersja (bez wierszy
+  `_no_content`). ~16 tys. wierszy ≈ 3 tygodnie, ~0,004 USD/kandydata.
+  Zmiana promptu = bump `PROMPT_VERSION`, a doganianie ruszy samo.
+
 ## Podsumowanie aktywności kandydata (AI)
 
 Karta „Podsumowanie aktywności" w szynie „Podsumowanie AI" profilu kandydata
