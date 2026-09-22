@@ -66,6 +66,8 @@ import { CANDIDATES_PAGE_SIZES, useUiStore, type CandidatesPageSize } from "@/st
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { CandidateCvCell } from "@/components/v2/candidates/CandidateCvCell";
+import { CandidatePhoneCell } from "@/components/v2/candidates/CandidatePhoneCell";
+import { CandidateProcessCell } from "@/components/v2/candidates/CandidateProcessCell";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -146,7 +148,6 @@ import { RequestSearchDialog } from "@/components/v2/candidates/RequestSearchDia
 import {
   availabilityCellText,
   candidatesCountLabel,
-  processCell,
   rateCellText,
 } from "@/components/v2/candidates/candidate-row-format";
 import type { TalentRadarInitialRequest } from "@/components/talent-radar/TalentRadarWorkspace";
@@ -163,17 +164,19 @@ const EXPORT_ROLES: UserRole[] = [
 
 /** Stałe kolumny tabeli (22.09.2026) — zamiast konfiguracji kolumn i presetów. */
 const TABLE_COLUMNS = [
-  { id: "candidate", label: "Kandydat", width: "minmax(210px, 2fr)", minWidth: 210 },
-  { id: "location", label: "Lokalizacja", width: "minmax(92px, 0.7fr)", minWidth: 92 },
-  { id: "availability", label: "Dostępność", width: "minmax(92px, 0.7fr)", minWidth: 92 },
-  { id: "rate", label: "Stawka B2B", width: "minmax(76px, 0.5fr)", minWidth: 76 },
-  { id: "process", label: "W procesie", width: "minmax(128px, 1.1fr)", minWidth: 128 },
-  { id: "cv", label: "CV", width: "minmax(64px, 0.4fr)", minWidth: 64 },
+  { id: "candidate", label: "Kandydat", width: "minmax(168px, 1.5fr)", minWidth: 168 },
+  { id: "position", label: "Ostatnie stanowisko", width: "minmax(150px, 1.5fr)", minWidth: 150 },
+  { id: "phone", label: "Telefon", width: "minmax(132px, 1fr)", minWidth: 132 },
+  { id: "rate", label: "Stawka B2B", width: "minmax(72px, 0.6fr)", minWidth: 72 },
+  { id: "availability", label: "Dostępność", width: "minmax(88px, 0.8fr)", minWidth: 88 },
+  { id: "process", label: "W procesie", width: "minmax(112px, 1fr)", minWidth: 112 },
+  { id: "cv", label: "CV", width: "minmax(52px, 0.4fr)", minWidth: 52 },
+  { id: "assign", label: "Przypisz", width: "104px", minWidth: 104 },
 ] as const;
 /** Tylko „W procesie" potrzebuje wzbogacenia (aktywne rekrutacje). */
 const LIST_COLUMN_IDS: ReadonlySet<string> = new Set(["process"]);
-const GRID_TEMPLATE = ["32px", ...TABLE_COLUMNS.map((c) => c.width), "44px"].join(" ");
-const GRID_MIN_WIDTH = 32 + 44 + TABLE_COLUMNS.reduce((sum, c) => sum + c.minWidth, 0);
+const GRID_TEMPLATE = ["32px", ...TABLE_COLUMNS.map((c) => c.width)].join(" ");
+const GRID_MIN_WIDTH = 32 + TABLE_COLUMNS.reduce((sum, c) => sum + c.minWidth, 0);
 const ROW_HEIGHT = 64;
 
 const SORT_LABELS: Record<CandidateFilters["sort"], string> = {
@@ -1318,6 +1321,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
       phrases={{ all: qAll, any: qAny, none: qNone }}
       activeCount={totalActiveFilters}
       onClearAll={resetAllFilters}
+      resultLabel={isLoading ? undefined : candidatesCountLabel(total)}
     />
   );
 
@@ -1376,10 +1380,10 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
         </div>
       </div>
 
-      <div className="flex items-start gap-6">
+      <div className="flex items-start gap-5">
         <div
           data-testid="candidate-filter-rail"
-          className="sticky top-2 hidden max-h-[calc(100vh-6rem)] w-[248px] shrink-0 self-start overflow-y-auto pb-6 pr-1 lg:block"
+          className="sticky top-2 hidden max-h-[calc(100vh-6rem)] w-[224px] shrink-0 self-start overflow-y-auto pb-6 pr-1 lg:block"
         >
           {rail}
         </div>
@@ -1537,7 +1541,6 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                   {col.label}
                 </div>
               ))}
-              <div />
             </div>
 
             <div
@@ -1579,13 +1582,11 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                     const position = (page - 1) * pageSize + virtualRow.index + 1;
                     const openDetail = () => openDetailAt(candidate.id);
                     const snippet = hasSearchTerms ? candidate.match_snippet : null;
-                    const secondary = [getCurrentTitle(candidate), getCurrentCompany(candidate)]
-                      .filter(Boolean)
-                      .join(" · ");
+                    const jobTitle = getCurrentTitle(candidate);
+                    const company = getCurrentCompany(candidate);
                     const location = formatCandidateLocation(candidate.city ?? candidate.location ?? null);
                     const availability = availabilityCellText(candidate);
                     const rate = rateCellText(candidate);
-                    const process = processCell(candidate.employment, candidate.active_recruitments);
                     return (
                       <div
                         key={candidate.id}
@@ -1656,28 +1657,42 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                                   <ContactStatusBadge contactCase={candidate.contact_case} className="shrink-0" />
                                 ) : null}
                               </div>
-                              <p className="truncate text-xs text-muted-foreground" title={secondary || undefined}>
-                                {secondary || "Brak stanowiska"}
+                              <p className="truncate text-xs text-muted-foreground" title={location ?? undefined}>
+                                {location ?? "brak lokalizacji"}
                               </p>
                             </div>
                           </div>
-                          <div className="min-w-0 truncate text-sm text-foreground" title={location ?? undefined}>
-                            {location ?? <Missing />}
+                          <div className="min-w-0">
+                            {jobTitle ? (
+                              <>
+                                <p className="truncate text-sm text-foreground" title={jobTitle}>
+                                  {jobTitle}
+                                </p>
+                                {company && (
+                                  <p className="truncate text-xs text-muted-foreground" title={company}>
+                                    {company}
+                                  </p>
+                                )}
+                              </>
+                            ) : (
+                              <Missing />
+                            )}
                           </div>
-                          <div className="min-w-0 truncate text-sm text-foreground">
-                            {availability ?? <Missing />}
+                          <div className="min-w-0">
+                            <CandidatePhoneCell phone={candidate.phone} candidateName={fullName} />
                           </div>
                           <div className="min-w-0 truncate text-sm text-foreground" title="Stawka z profilu kandydata">
                             {rate ?? <Missing />}
                           </div>
-                          <div
-                            className={cn(
-                              "min-w-0 truncate text-sm",
-                              process?.tone === "employed" ? "font-medium text-warning-muted-foreground" : "text-foreground",
-                            )}
-                            title={process?.text}
-                          >
-                            {process ? process.text : <span className="text-muted-foreground">—</span>}
+                          <div className="min-w-0 truncate text-sm text-foreground">
+                            {availability ?? <Missing />}
+                          </div>
+                          <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
+                            <CandidateProcessCell
+                              candidateName={fullName}
+                              employment={candidate.employment}
+                              recruitments={candidate.active_recruitments}
+                            />
                           </div>
                           <div className="min-w-0">
                             <CandidateCvCell
@@ -1686,11 +1701,11 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                               hasCv={Boolean(candidate.cv_filename)}
                             />
                           </div>
-                          <div className="flex justify-end">
+                          <div className="flex">
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-8 w-8 p-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                              className="h-8 gap-1 border-primary/40 bg-primary/5 px-2 text-primary hover:bg-primary hover:text-primary-foreground"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setAssignFor({ id: candidate.id, name: fullName });
@@ -1698,7 +1713,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                               aria-label={`Przypisz ${fullName} do rekrutacji`}
                               title="Przypisz do rekrutacji"
                             >
-                              <UserPlus className="h-4 w-4" aria-hidden />
+                              <UserPlus className="h-3.5 w-3.5" aria-hidden />
+                              Rekrutacja
                             </Button>
                           </div>
                         </div>

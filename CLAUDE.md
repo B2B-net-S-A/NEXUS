@@ -2175,13 +2175,22 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
 
 **Lista `/candidates` = JEDEN ekran, jeden silnik (`GET /api/candidates`).**
 - Filtry stoją na stałe w lewej kolumnie (`components/v2/candidates/CandidateFilterRail.tsx`;
-  poniżej `lg` ten sam panel w arkuszu). „Kogo pokazać: Wszyscy / Moi” zastępuje
-  trzy dawne kontrolki „Moi kandydaci”. Tabela ma STAŁE kolumny (Kandydat,
-  Lokalizacja, Dostępność, Stawka B2B, W procesie, CV — „CV” otwiera podgląd
-  pliku, `CandidateCvCell`; umiejętności i „Ostatni kontakt” zdjęte decyzją
-  Artura 22.09, bo pole kontaktu jest prawie puste) — bez presetów,
-  wyboru kolumn, kafelków i gęstości (`/api/settings/candidates-columns` nie ma
-  już konsumenta na tym ekranie).
+  poniżej `lg` ten sam panel w arkuszu) — **wariant B z makiety 22.09.2026**
+  (https://claude.ai/artifact/BmwbMSuaR1stDk8G4kJVoQ): na wierzchu tylko pięć
+  rozwiniętych grup (Kogo pokazać, Dostępność, Stawka B2B, Umiejętności,
+  Lokalizacja z trybem pracy), reszta (status, zatrudnienie, otwarty na, lata,
+  języki, kategoria, historia z nami, frazy w CV) w szufladzie „Więcej filtrów”
+  z licznikiem ustawionych w niej filtrów. Nie przenoś grup z powrotem na
+  wierzch — za dużo opcji naraz było powodem przebudowy. Tabela ma STAŁE
+  kolumny: Kandydat (pod nazwiskiem miasto) · Ostatnie stanowisko (+ firma,
+  `getCurrentTitle`/`getCurrentCompany`) · Telefon (`tel:` + kopiuj,
+  `CandidatePhoneCell`) · Stawka B2B · Dostępność · W procesie (skrót, a po
+  najechaniu/kliknięciu lista rekrutacji w toku z klientem i etapem,
+  `CandidateProcessCell` — reguła „w toku” jedna: `activeRecruitments`) · CV
+  (podgląd, `CandidateCvCell`) · Przypisz (widoczny przycisk „Rekrutacja”;
+  hurtem przez zaznaczenie i `CandidateBulkBar`). Bez presetów, wyboru
+  kolumn, kafelków i gęstości (`/api/settings/candidates-columns` nie ma już
+  konsumenta na tym ekranie).
 - **Jedno pole wyszukiwania szuka też „po znaczeniu”.** Lista wysyła
   `text_mode` (URL `tm`, domyślnie `auto`) przy niepustym `q` i v2; backend
   (`_resolve_semantic_text` w `api/candidates.py`) idzie wtedy pulą

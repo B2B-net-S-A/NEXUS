@@ -79,6 +79,20 @@ export function availabilityCellText(c: CandidateRowAvailabilitySource): string 
   }
 }
 
+/**
+ * Rekrutacje w toku (bez etapów końcowych), od najświeższego ruchu — to samo
+ * źródło dla skrótu w komórce i listy po najechaniu.
+ */
+export function activeRecruitments(
+  recruitments: readonly CandidateRowRecruitment[] | null | undefined,
+): CandidateRowRecruitment[] {
+  return (recruitments ?? [])
+    .filter((r) => !TERMINAL_STAGES.has(r.stage))
+    .sort(
+      (a, b) => (b.moved_at ? Date.parse(b.moved_at) : 0) - (a.moved_at ? Date.parse(a.moved_at) : 0),
+    );
+}
+
 export interface ProcessCell {
   /** Główna linia („2 procesy · CV wysłane", „Pracuje u nas · PKO BP"). */
   text: string;
@@ -109,11 +123,9 @@ export function processCell(
       tone: "employed",
     };
   }
-  const active = (recruitments ?? []).filter((r) => !TERMINAL_STAGES.has(r.stage));
+  const active = activeRecruitments(recruitments);
   if (active.length === 0) return null;
-  const latest = [...active].sort(
-    (a, b) => (b.moved_at ? Date.parse(b.moved_at) : 0) - (a.moved_at ? Date.parse(a.moved_at) : 0),
-  )[0];
+  const latest = active[0];
   return {
     text: `${active.length} ${processesWord(active.length)} · ${stageLabel(latest.stage)}`,
     tone: "process",
