@@ -34,7 +34,7 @@ Pozostał alert o wyczerpaniu limitu Replay. Nie zmieniono opłat ani próbkowan
 
 ## Kryteria zamknięcia
 
-Weryfikacja lokalna poprawki telemetrii: 34 skupione testy oraz ukierunkowany TypeScript przeszły; `git diff --check` czysty. Lokalny cache zależności ma Vitest 3.2.6, podczas gdy lockfile wymaga 5.0.1. Pełny lokalny TypeScript zgłasza niezwiązane braki/stare zależności (`react-grid-layout`, `pdfjs`, Tiptap); wymagane CI instalujące dokładny lockfile pozostaje bramką wdrożenia. Nie używano lokalnego Dockera.
+Weryfikacja lokalna poprawki telemetrii: 37 skupionych testów oraz ukierunkowany TypeScript przeszły; `git diff --check` czysty. Osobny przegląd potwierdził ochronę przed traktowaniem wieloliniowej prywatnej wiadomości jako stosu i zachowanie źródeł Safari/Firefox. Lokalny cache zależności ma Vitest 3.2.6, podczas gdy lockfile wymaga 5.0.1. Pełny lokalny TypeScript zgłasza niezwiązane braki/stare zależności (`react-grid-layout`, `pdfjs`, Tiptap); wymagane CI instalujące dokładny lockfile pozostaje bramką wdrożenia. Nie używano lokalnego Dockera.
 
 1. Wymagane CI, merge i zgodny SHA API oraz frontendu dla poprawki telemetrii; health/deep/Alembic odczytane osobno.
 2. Diagnostyka zachowuje numer Reacta oraz oczyszczone źródło lokalnego wyjątku; wiadomości, parametry URL, dane kandydatów i treści odpowiedzi nie trafiają do Sentry.

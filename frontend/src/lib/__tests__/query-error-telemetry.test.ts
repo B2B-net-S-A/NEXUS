@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
+// Vitest resolves Next's Node entrypoint; the production client bundle uses
+// the browser parser, which also understands Safari/Firefox stack syntax.
+vi.mock('@sentry/nextjs', async () => ({
+  defaultStackParser: (await import('@sentry/browser')).defaultStackParser,
+}));
+
 import {
   QUERY_FAILURE_DEDUPE_MS,
   classifyQueryError,
@@ -122,6 +128,38 @@ it('keeps the original mutation source location and React code without private s
   expect(context.tags.api_failure).toBeUndefined();
   expect(context.fingerprint).toEqual(['client-mutation-failure', '{{ default }}', 'react-185']);
   expect(original.message).toContain('private@example.com');
+});
+
+it('never parses frame-shaped lines inside a multiline mutation message as source locations', () => {
+  const capture = vi.fn();
+  const report = createQueryFailureReporter({ capture });
+  const original = new Error('Private CV response\n    at private@example.com:44:3\n    at https://nexus.dynaminds.pl/_next/static/private-name.js:55:6');
+  report(original, {});
+  const [error] = capture.mock.calls[0];
+  expect(error.stack).not.toMatch(/Private CV response|private@example.com|private-name/);
+  expect(error.stack).toContain('query-error-telemetry.test.ts');
+});
+
+it('retains Safari and Firefox headerless script frames', () => {
+  const capture = vi.fn();
+  const report = createQueryFailureReporter({ capture });
+  const original = new Error('Private CV response');
+  original.stack = 'runMutation@https://nexus.dynaminds.pl/_next/static/chunks/cv.js:639:12\n@https://nexus.dynaminds.pl/_next/static/chunks/app.js:21:4';
+  report(original, {});
+  const [error] = capture.mock.calls[0];
+  expect(error.stack).toContain('https://nexus.dynaminds.pl/_next/static/chunks/cv.js:639:12');
+  expect(error.stack).toContain('https://nexus.dynaminds.pl/_next/static/chunks/app.js:21:4');
+  expect(error.stack).not.toContain('Private CV response');
+});
+
+it('drops an unrecognized stack header instead of risking private stale message content', () => {
+  const capture = vi.fn();
+  const report = createQueryFailureReporter({ capture });
+  const original = new Error('Updated message');
+  original.stack = 'Error: Previous private response\n    at private@example.com:44:3\n    at https://nexus.dynaminds.pl/_next/static/chunks/cv.js:639:12';
+  report(original, {});
+  const [error] = capture.mock.calls[0];
+  expect(error.stack).toBe('Error: Client mutation failed');
 });
 
 it("redacts capability paths even for short or URL-encoded tokens", () => {
