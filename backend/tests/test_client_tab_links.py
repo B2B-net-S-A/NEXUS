@@ -78,8 +78,10 @@ def _job_tab_keys() -> set[str]:
 
 def _candidate_tab_keys() -> set[str]:
     source = CANDIDATE_NAV_TS.read_text(encoding="utf-8")
+    # Od 22.09.2026 stare klucze `?tab=` mapuje stała `LEGACY_TABS`
+    # (profil w czterech zakładkach; `matching`/`emails` to już aliasy).
     return _array_literal(source, "PROFILE_SECTIONS") | _object_keys(
-        source, "const legacy"
+        source, "const LEGACY_TABS"
     )
 
 
@@ -123,7 +125,15 @@ def test_frontend_tab_key_sources_are_parsed() -> None:
         "champion-profile",
         "similar",
     } <= _job_tab_keys()
-    assert {"summary", "activity", "chat", "notes", "notatki"} <= _candidate_tab_keys()
+    assert {
+        "summary",
+        "activity",
+        "chat",
+        "notes",
+        "notatki",
+        "matching",
+        "emails",
+    } <= _candidate_tab_keys()
     assert {"timeline", "notes", "calls", "chat"} <= _candidate_activity_keys()
     assert {"integracje", "administracja"} <= _settings_tab_keys()
     assert {
