@@ -1425,6 +1425,16 @@ class Settings(BaseSettings):
     # catch-up in `should_run_full`, a backlog closes in about three nights
     # rather than a month and a half.
     TRAFFIT_SYNC_FULL_FILES_LIMIT: int = 25000
+    # Delta: kandydaci z Traffita z nazwą CV (`cv_filename`), ale bez żadnego
+    # pobranego dokumentu — dołączani do fazy plików niezależnie od
+    # `updated_at >= run_start`. Bez tego kandydat zaimportowany w biegu, który
+    # deploy zabił przed fazą plików, wypadał z zakresu każdej kolejnej delty
+    # (nowy bieg = nowy `run_start`) i czekał na niedzielny pełny sweep
+    # (prod 22.09.2026: 14 z 50 najnowszych bez pliku po >2 h). Okno w dniach od
+    # utworzenia i sufit na bieg — trwale niepobieralne pliki nie mogą zjadać
+    # każdej delty.
+    TRAFFIT_SYNC_PENDING_FILES_DAYS: int = 14
+    TRAFFIT_SYNC_PENDING_FILES_LIMIT: int = 500
     # Same idea for the `"? ?"` name-recovery sweep, but a much tighter budget:
     # every row costs an LLM call, and the selection is NOT self-clearing (a CV
     # that yields no name stays `"?"`), so an unbounded pass would re-pay for the

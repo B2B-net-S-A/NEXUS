@@ -1,6 +1,6 @@
 """`phases=` — zawężenie biegu do wskazanych faz.
 
-Powód istnienia: `candidate_files` jest DZIEWIĄTĄ z piętnastu faz, a
+Powód istnienia: `candidate_files` była DZIEWIĄTĄ z piętnastu faz (do 22.09.2026), a
 `candidates` przed nią trwa godzinami. Coolify restartuje kontener przy każdym
 pushu na main, więc bieg ginie, zanim dojdzie do zamiatania plików. Na prodzie
 11.08 kursor plików nie drgnął przez 2,5 h mimo trzech uruchomionych biegów,

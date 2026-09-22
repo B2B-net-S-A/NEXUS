@@ -26,7 +26,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
@@ -3188,6 +3188,53 @@ class TraffitImporter:
                     {**doc_params, "is_primary": False},
                 )
 
+    async def _delta_file_targets(self, since: datetime):
+        """Cele fazy plików w delcie: (id, external_id) kandydatów Traffita."""
+        # Delta mode: recently-changed candidates regardless of existing
+        # files; we skip already-present file_ids per candidate below.
+        #
+        # PLUS „zaległe pliki": kandydat Traffita z nazwą CV, ale bez ani
+        # jednego pobranego dokumentu. `since` to start BIEŻĄCEGO biegu, więc
+        # kandydat upsertowany w biegu, który deploy zabił przed tą fazą,
+        # nie spełnia `updated_at >= since` w żadnym kolejnym (każdy ma nowy
+        # start) — a lista pokazywała mu nazwę CV bez pliku. Okno i sufit:
+        # patrz `TRAFFIT_SYNC_PENDING_FILES_*`.
+        return await self.db.execute(
+            text(
+                """
+                SELECT c.id, c.external_id
+                FROM candidates c
+                WHERE c.external_source = 'traffit'
+                  AND c.external_id IS NOT NULL
+                  AND c.updated_at >= :since
+                UNION
+                SELECT p.id, p.external_id
+                FROM (
+                    SELECT c.id, c.external_id
+                    FROM candidates c
+                    WHERE c.external_source = 'traffit'
+                      AND c.external_id IS NOT NULL
+                      AND NULLIF(btrim(c.cv_filename), '') IS NOT NULL
+                      AND c.created_at >= :pending_since
+                      AND NOT EXISTS (
+                          SELECT 1 FROM candidate_documents cd
+                          WHERE cd.candidate_id = c.id
+                            AND cd.external_source = 'traffit'
+                      )
+                    ORDER BY c.id DESC
+                    LIMIT :pending_limit
+                ) p
+                ORDER BY id
+                """
+            ),
+            {
+                "since": since,
+                "pending_since": datetime.now(timezone.utc)
+                - timedelta(days=max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_DAYS))),
+                "pending_limit": max(0, int(settings.TRAFFIT_SYNC_PENDING_FILES_LIMIT)),
+            },
+        )
+
     async def import_candidate_files(
         self, since: Optional[datetime] = None
     ) -> PhaseProgress:
@@ -3265,21 +3312,7 @@ class TraffitImporter:
                 {"after_id": after_id, "limit": scan_limit},
             )
         else:
-            # Delta mode: recently-changed candidates regardless of existing
-            # files; we skip already-present file_ids per candidate below.
-            result = await self.db.execute(
-                text(
-                    """
-                    SELECT c.id, c.external_id
-                    FROM candidates c
-                    WHERE c.external_source = 'traffit'
-                      AND c.external_id IS NOT NULL
-                      AND c.updated_at >= :since
-                    ORDER BY c.id
-                    """
-                ),
-                {"since": since},
-            )
+            result = await self._delta_file_targets(since)
         targets = list(result)
         progress.total_source = len(targets)
         # A short batch means the sweep reached the last candidate: the pass is
