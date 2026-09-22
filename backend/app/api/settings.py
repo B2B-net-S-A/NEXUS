@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any, List, Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +33,60 @@ from app.models.user import UserRole
 
 
 router = APIRouter()
+
+
+class NotificationEmailToggle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    email_enabled: StrictBool
+
+    @field_validator("id")
+    @classmethod
+    def known_routine_type(cls, value: str) -> str:
+        from app.services.notification_delivery import ROUTINE_KINDS
+
+        if value not in ROUTINE_KINDS:
+            raise ValueError("Nieznany lub nieedytowalny typ powiadomienia")
+        return value
+
+
+class NotificationDeliveryUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: StrictBool
+    types: list[NotificationEmailToggle] = Field(default_factory=list, max_length=5)
+
+    @field_validator("types")
+    @classmethod
+    def unique_types(cls, value: list[NotificationEmailToggle]):
+        if len({item.id for item in value}) != len(value):
+            raise ValueError("Powtórzony typ powiadomienia")
+        return value
+
+
+@router.get("/notification-delivery")
+async def get_notification_delivery(
+    _admin: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    from app.services.notification_delivery import admin_view
+
+    return await admin_view(db)
+
+
+@router.put("/notification-delivery")
+async def put_notification_delivery(
+    payload: NotificationDeliveryUpdate,
+    admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    from app.services.notification_delivery import admin_view, save_policy
+
+    await save_policy(
+        db,
+        enabled=payload.enabled,
+        toggles={item.id: item.email_enabled for item in payload.types},
+        admin_id=admin.id,
+    )
+    return await admin_view(db)
 
 
 # Column ids the candidates list knows how to render. Mirrors `ALL_COLUMNS`

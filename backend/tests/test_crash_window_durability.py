@@ -134,6 +134,7 @@ async def _crash_one_pass(monkeypatch, notif_id: int) -> None:
             await fallback_mod._process_one_pass(db)
 
 
+@pytest.mark.usefixtures("routine_notification_email_enabled")
 async def test_crash_mid_send_does_not_mark_the_mail_as_sent(monkeypatch) -> None:
     """The regression itself: a crash between claim and send must not lie.
 
@@ -158,6 +159,7 @@ async def test_crash_mid_send_does_not_mark_the_mail_as_sent(monkeypatch) -> Non
         await _cleanup_notification(user_id, notif_id)
 
 
+@pytest.mark.usefixtures("routine_notification_email_enabled")
 async def test_ambiguous_mail_is_not_retried_after_the_stale_claim_expires(
     monkeypatch,
 ) -> None:
@@ -189,6 +191,7 @@ async def test_ambiguous_mail_is_not_retried_after_the_stale_claim_expires(
         await _cleanup_notification(user_id, notif_id)
 
 
+@pytest.mark.usefixtures("routine_notification_email_enabled")
 async def test_a_live_claim_still_blocks_a_second_pass(monkeypatch) -> None:
     """Recovery must not become a double send while the first pass may be alive."""
     user_id, notif_id = await _seed_offline_chat_notification()
@@ -212,6 +215,7 @@ async def test_a_live_claim_still_blocks_a_second_pass(monkeypatch) -> None:
         await _cleanup_notification(user_id, notif_id)
 
 
+@pytest.mark.usefixtures("routine_notification_email_enabled")
 async def test_abandoned_claim_before_delivery_started_remains_recoverable(monkeypatch):
     user_id, notif_id = await _seed_offline_chat_notification()
     calls = []

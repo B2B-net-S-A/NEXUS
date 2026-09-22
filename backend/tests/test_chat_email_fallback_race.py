@@ -12,6 +12,7 @@ Real Postgres (in-process, migrations applied by CI before pytest).
 from __future__ import annotations
 
 import uuid
+import pytest
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete
@@ -21,6 +22,8 @@ from app.core.security import hash_password
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 from app.tasks.chat_email_fallback import _claim_notification, _process_one_pass
+
+pytestmark = pytest.mark.usefixtures("routine_notification_email_enabled")
 
 
 async def _seed_offline_chat_notification() -> tuple[int, int]:

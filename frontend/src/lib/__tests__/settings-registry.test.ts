@@ -59,6 +59,13 @@ describe("settings-registry — widoczność jak przed przebudową", () => {
     const r = user("recruiter", { pipeline: "write" });
     expect(listedSettingsAreas(r as never).map((a) => a.id)).toEqual(["me"]);
   });
+
+  it("Powiadomienia są dostępne tylko dla admina z dostępem do Systemu", () => {
+    expect(can(user("admin", { system_admin: "write" }), "notifications")).toBe(true);
+    expect(can(user("admin", { system_admin: "none" }), "notifications")).toBe(false);
+    expect(can(user("recruiter", { system_admin: "write" }), "notifications")).toBe(false);
+    expect(can(user("finance", { system_admin: "write" }), "notifications")).toBe(false);
+  });
 });
 
 describe("settings-registry — nawigacja", () => {
@@ -87,5 +94,11 @@ describe("settings-registry — nawigacja", () => {
   it("wyszukiwanie ignoruje polskie znaki i wielkość liter", () => {
     expect(searchSettingsItems(admin as never, "USUNIĘCIA").map((i) => i.id)).toEqual(["history"]);
     expect(searchSettingsItems(admin as never, "   ")).toEqual([]);
+  });
+
+  it("wyszukuje nadawcę maili w sekcji Powiadomienia", () => {
+    expect(searchSettingsItems(admin as never, "nadawca").map((i) => i.id)).toEqual(["notifications"]);
+    const view = resolveSettingsView(admin as never, { item: "notifications" });
+    expect(view.kind === "item" && view.area.id).toBe("sys");
   });
 });

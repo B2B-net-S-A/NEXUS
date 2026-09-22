@@ -60,6 +60,40 @@ _PINNED_HOUR = 23
 _PINNED_MINUTE = 59
 
 
+@pytest.fixture
+def routine_notification_email_enabled(monkeypatch):
+    """Explicit opt-in for existing delivery/retry tests; production defaults OFF."""
+    from app.services import notification_delivery as delivery
+    from datetime import timedelta, timezone
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=365)).isoformat()
+    policy = delivery.DeliveryPolicy.from_value(
+        {
+            "enabled": True,
+            "send_not_before": cutoff,
+            "types": {
+                kind: {"email_enabled": True, "send_not_before": cutoff}
+                for kind in delivery.ROUTINE_KINDS
+            },
+        }
+    )
+
+    async def enabled_policy(_db):
+        return policy
+
+    monkeypatch.setattr(delivery, "load_policy", enabled_policy)
+    monkeypatch.setattr(delivery, "load_policy_sync", lambda: policy)
+    for module in (
+        "app.tasks.chat_email_fallback",
+        "app.tasks.job_deadline_alerts",
+        "app.tasks.app_mail_monitor",
+        "app.services.stage_notification_emitter",
+        "app.services.mention_dispatch",
+    ):
+        monkeypatch.setattr(f"{module}.load_policy", enabled_policy, raising=False)
+    return policy
+
+
 def pinned_moment(session_day: date, current_day: date) -> datetime | None:
     """Moment, na który przypiąć zegar, albo ``None`` gdy nie ma czego naprawiać.
 

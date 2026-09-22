@@ -29,7 +29,7 @@ export const SETTINGS_AREAS: readonly SettingsArea[] = [
   { id: "team", name: "Zespół i dostęp", hint: "Kto ma konto, co widzi i którego klienta prowadzi" },
   { id: "rec", name: "Rekrutacja", hint: "Etapy, CV dla klientów, ranking, maile" },
   { id: "deals", name: "Umowy i stawki", hint: "Wzory umów, stawki rynkowe" },
-  { id: "sys", name: "System", hint: "AI, Traffit, listy wyboru, historia zdarzeń" },
+  { id: "sys", name: "System", hint: "Powiadomienia, AI, Traffit, listy wyboru, historia zdarzeń" },
 ] as const;
 
 export type SettingsItemId =
@@ -48,6 +48,7 @@ export type SettingsItemId =
   | "dict"
   | "fields"
   | "history"
+  | "notifications"
   // Ukryte — tylko pod adresem.
   | "teams"
   | "coaching"
@@ -144,6 +145,13 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "benchmark wycena stawki rynek",
     route: "/settings/rate-benchmarks",
     gate: { roles: ["admin", "finance"], section: "finance", finance: true },
+  },
+  {
+    id: "notifications", area: "sys", title: "Powiadomienia",
+    description: "Co uruchamia automatyczne maile, kto je otrzymuje i które są włączone.",
+    keywords: "powiadomienia email maile wysylka nadawca odbiorcy kolejka",
+    wide: true,
+    gate: { roles: ["admin"], section: "system_admin" },
   },
   {
     id: "ai", area: "sys", title: "Koszty AI",

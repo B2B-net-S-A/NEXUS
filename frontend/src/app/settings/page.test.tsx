@@ -28,6 +28,9 @@ vi.mock("@/components/settings/TraffitSyncCard", () => ({
 vi.mock("@/components/settings/EmailTemplatesCard", () => ({
   default: () => null,
 }));
+vi.mock("@/components/settings/NotificationDeliverySettings", () => ({
+  default: () => <div>Konfiguracja wysyłki powiadomień</div>,
+}));
 vi.mock("@/lib/onboarding-storage", () => ({
   clearOnboardingCompleted: vi.fn(),
 }));
@@ -121,6 +124,13 @@ describe("SettingsPage — strona startowa", () => {
 });
 
 describe("SettingsPage — obszar i pozycja", () => {
+  it("prowadzi z Systemu do wbudowanego panelu powiadomień", () => {
+    mocks.user = ADMIN;
+    renderSettings("item=notifications");
+    expect(screen.getByRole("heading", { level: 1, name: "Powiadomienia" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "System" })).toHaveAttribute("href", "/settings?area=sys");
+    expect(screen.getByText("Konfiguracja wysyłki powiadomień")).toBeInTheDocument();
+  });
   it("obszar pokazuje listę pozycji i ścieżkę", () => {
     mocks.user = ADMIN;
     renderSettings("area=rec");

@@ -42,6 +42,7 @@ from app.models.note import Note
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.email import send_mention_email
+from app.services.notification_delivery import DeliveryPolicy, load_policy
 from app.services.notification_access import (
     filter_notification_recipients,
     user_can_receive_notification,
@@ -200,6 +201,11 @@ async def send_mention_side_effects(
             related_entity_type="note",
             link=deep_link_path,
         )
+        try:
+            policy = await load_policy(db)
+        except Exception:
+            logger.warning("mention email policy unavailable; email blocked")
+            policy = DeliveryPolicy()
     allowed_ids = {user.id for user in allowed_users}
 
     sent = 0
@@ -235,7 +241,7 @@ async def send_mention_side_effects(
             )
 
         # Email — tylko gdy user ma email i jest aktywny.
-        if not user.email:
+        if not user.email or not policy.allows("mentions", notif.created_at):
             continue
         try:
             # Blocking smtplib send — offload off the event loop.
@@ -247,6 +253,7 @@ async def send_mention_side_effects(
                 snippet=snippet,
                 deep_link_path=deep_link_path,
                 context_label=context_label,
+                event_at=notif.created_at,
             )
             if ok:
                 sent += 1

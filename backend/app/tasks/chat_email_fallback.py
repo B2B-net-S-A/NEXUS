@@ -12,7 +12,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import false, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -29,6 +29,7 @@ from app.services.section_permissions import (
 )
 from app.services.notification_access import user_can_receive_notification
 from app.services.email import send_chat_fallback_email
+from app.services.notification_delivery import DeliveryPolicy, load_policy
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,7 @@ async def _send_chat_email(user: User, notif: Notification) -> bool:
 
     def send():
         from app.services.m365.app_mail import last_delivery_uncertain
+        from app.services.notification_delivery import last_send_policy_blocked
 
         ok = send_chat_fallback_email(
             to_email=user.email,
@@ -76,8 +78,14 @@ async def _send_chat_email(user: User, notif: Notification) -> bool:
             notification_title=notif.title,
             notification_message=notif.message or "",
             deep_link_path=notif.link or "/",
+            event_at=notif.created_at,
         )
-        if settings.M365_APP_MAIL_ENABLED and not ok and last_delivery_uncertain():
+        if (
+            settings.M365_APP_MAIL_ENABLED
+            and not ok
+            and not last_send_policy_blocked()
+            and last_delivery_uncertain()
+        ):
             raise DeliveryUncertain()
         return ok
 
@@ -197,7 +205,7 @@ async def _channel_waiting() -> bool:
     return max(state.get("next_attempt_at", 0), state.get("lease_until", 0)) > now
 
 
-def pending_candidate_query(now: datetime):
+def pending_candidate_query(now: datetime, policy: DeliveryPolicy | None = None):
     """SQL candidate queue; final section access is checked by the worker.
 
     Reused by monitoring so unattempted rows are included in backlog evidence.
@@ -205,6 +213,7 @@ def pending_candidate_query(now: datetime):
     """
     threshold = now - timedelta(minutes=OFFLINE_THRESHOLD_MIN)
     stale_cutoff = now - timedelta(minutes=CLAIM_STALE_MIN)
+    policy = policy or DeliveryPolicy()
     return (
         select(Notification, User)
         .join(User, User.id == Notification.user_id)
@@ -217,6 +226,11 @@ def pending_candidate_query(now: datetime):
         .where(~User.roles.contains([UserRole.finance.value]))
         .where(~User.roles.contains([UserRole.user.value]))
         .where(Notification.created_at <= threshold)
+        .where(
+            Notification.created_at >= policy.cutoff_for("chat_unread")
+            if policy.kind_enabled("chat_unread")
+            else false()
+        )
         .where(Notification.is_read.is_(False))
         .where(Notification.email_sent_at.is_(None))
         .where(Notification.email_delivery_uncertain.is_(False))
@@ -239,6 +253,9 @@ def pending_candidate_query(now: datetime):
 
 async def _process_one_pass(db: AsyncSession) -> int:
     """Single pass — return count of emails fired."""
+    policy = await load_policy(db)
+    if not policy.kind_enabled("chat_unread"):
+        return 0
     if await _channel_waiting():
         return 0
     now = datetime.now(timezone.utc)
@@ -253,7 +270,7 @@ async def _process_one_pass(db: AsyncSession) -> int:
     #     crashed process ARE picked up again — that is the recovery path)
     # These filters only narrow the batch; the atomic claim below is the real
     # guard against a double send.
-    rows = await db.execute(pending_candidate_query(now).limit(BATCH_SIZE))
+    rows = await db.execute(pending_candidate_query(now, policy).limit(BATCH_SIZE))
     pairs = rows.all()
     if not pairs:
         return 0
@@ -306,6 +323,9 @@ async def _process_one_pass(db: AsyncSession) -> int:
             or notif.email_sent_at is not None
             or (user.last_seen_at and user.last_seen_at > threshold)
         ):
+            await _release_claim(db, notif.id)
+            continue
+        if not (await load_policy(db)).allows("chat_unread", notif.created_at):
             await _release_claim(db, notif.id)
             continue
         await _mark_delivery_started(db, notif.id)

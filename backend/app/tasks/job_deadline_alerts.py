@@ -53,6 +53,7 @@ from app.models.job_collaborator import JobCollaborator
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.email import email_channel_enabled, send_email
+from app.services.notification_delivery import guarded_send, load_policy
 from app.services.m365.system_mail import (
     get_system_sender_connection,
     send_system_email,
@@ -254,6 +255,9 @@ async def _dispatch_emails(db: AsyncSession) -> int:
     Delegated nie wymaga admin-consentu w Azure — działa gdy ktoś podłączył
     ``M365_MAIL_SENDER_UPN`` w UI.
     """
+    policy = await load_policy(db)
+    if not policy.kind_enabled("job_deadline"):
+        return 0
     connection = await get_system_sender_connection(db)
     if connection is None and not email_channel_enabled():
         # Żaden kanał (delegated, Graph app-only, SMTP) — nie rezerwuj, retry później.
@@ -267,6 +271,7 @@ async def _dispatch_emails(db: AsyncSession) -> int:
         .where(Notification.notification_type.in_(_DEADLINE_NTYPES))
         .where(User.is_active.is_(True))
         .where(Notification.email_sent_at.is_(None))
+        .where(Notification.created_at >= policy.cutoff_for("job_deadline"))
         .where(
             or_(
                 Notification.email_send_started_at.is_(None),
@@ -326,6 +331,9 @@ async def _dispatch_emails(db: AsyncSession) -> int:
         )
         ok = False
         try:
+            if not (await load_policy(db)).allows("job_deadline", notif.created_at):
+                await _release_email_claim(db, notif.id)
+                continue
             if connection is not None:
                 # Delegated Graph — async, wprost (ma sesję db).
                 ok = await send_system_email(
@@ -334,7 +342,14 @@ async def _dispatch_emails(db: AsyncSession) -> int:
             else:
                 # Blocking smtplib/app-only — offload z event loopa.
                 ok = await asyncio.to_thread(
-                    send_email, user.email, subject, text_body, None
+                    guarded_send,
+                    "job_deadline",
+                    notif.created_at,
+                    send_email,
+                    user.email,
+                    subject,
+                    text_body,
+                    None,
                 )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
