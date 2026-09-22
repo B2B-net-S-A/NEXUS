@@ -96,14 +96,19 @@ export function CycleBoard({
                     <div className="text-sm font-semibold text-foreground">{candidateLabel(item)}</div>
                     <div className="text-xs text-muted-foreground">{pairContext(item)}</div>
                   </button>
-                  <div
-                    className={cn(
-                      "font-mono text-xs font-semibold tabular-nums",
-                      overdue || hot ? "text-destructive" : "text-foreground/80",
-                    )}
-                  >
-                    {step?.at ? `${formatDayLabel(step.at)} ${formatTime(step.at)}` : (step?.meta ?? "—")}
-                  </div>
+                  {step?.at || step?.meta ? (
+                    <div
+                      className={cn(
+                        "text-xs font-semibold tabular-nums",
+                        step?.at && "font-mono",
+                        overdue || hot ? "text-destructive" : "text-foreground/80",
+                      )}
+                    >
+                      {step?.at
+                        ? `${key === "call" ? "do " : ""}${formatDayLabel(step.at)} ${formatTime(step.at)}`
+                        : step?.meta}
+                    </div>
+                  ) : null}
                   {action ? (
                     <button
                       type="button"

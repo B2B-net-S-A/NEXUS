@@ -99,7 +99,14 @@ export function AgendaView({
                 action &&
                 !((action.type === "add_slots" || action.type === "confirm") && !canManageSlots);
               return (
-                <li key={`${t.kind}-${pairKey(t)}`} className="flex items-start gap-3 px-3.5 py-3">
+                <li
+                  key={`${t.kind}-${pairKey(t)}`}
+                  className={cn(
+                    "flex items-start gap-3 px-3.5 py-3",
+                    selected && pairKey(t) === pairKey(selected) && "bg-primary/5",
+                  )}
+                  aria-current={selected && pairKey(t) === pairKey(selected) ? "true" : undefined}
+                >
                   <span className={cn("mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full", DOT[t.kind])} aria-hidden />
                   <button
                     type="button"
@@ -190,23 +197,20 @@ export function AgendaView({
         )}
       </section>
 
-      {/* Karta kandydata */}
+      {/* Karta kandydata — bez par w cyklu nie ma czego pokazać (pusta karta
+          „Wybierz kandydata” czytała się jak zepsuty panel). */}
+      {selected ? (
       <aside
         aria-label="Wybrany kandydat"
         className="min-w-0 rounded-2xl border border-border bg-card p-4 lg:col-span-2 xl:col-span-1"
       >
-        {selected ? (
-          <CandidateCycleCard
-            item={selected}
-            canManageSlots={canManageSlots}
-            onAction={onAction}
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Wybierz kandydata z listy, żeby zobaczyć jego kroki.
-          </p>
-        )}
+        <CandidateCycleCard
+          item={selected}
+          canManageSlots={canManageSlots}
+          onAction={onAction}
+        />
       </aside>
+      ) : null}
     </div>
   );
 }

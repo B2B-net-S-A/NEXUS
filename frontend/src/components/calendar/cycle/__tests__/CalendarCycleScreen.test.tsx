@@ -190,6 +190,19 @@ describe("CalendarCycleScreen", () => {
     renderScreen();
     const questions = await screen.findByTestId("cycle-client-questions");
     await waitFor(() => expect(questions).toHaveTextContent("Transakcje w Spring"));
+    // Nazwa klienta nie ma rodzaju — bez „Alior pytał”.
+    expect(questions).toHaveTextContent("Pytania klienta Alior z poprzednich rozmów");
+  });
+
+  it("bez kandydatów w cyklu nie ma pustej karty kandydata", async () => {
+    mocks.get.mockImplementation((url: string) =>
+      url === "/api/interview-cycle"
+        ? Promise.resolve({ data: { ...overview(), items: [], agenda: [], todos: [] } })
+        : Promise.resolve({ data: [] }),
+    );
+    renderScreen();
+    expect(await screen.findByText(/Nic nie czeka/)).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Wybrany kandydat" })).not.toBeInTheDocument();
   });
 
   it("rekruter nie widzi „Terminy od klienta”, DL widzi", async () => {

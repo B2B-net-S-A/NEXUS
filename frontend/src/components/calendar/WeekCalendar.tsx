@@ -286,7 +286,7 @@ function CalendarPageInner() {
       {/* ── Main calendar ── */}
       <div className="flex-1 flex flex-col overflow-hidden bg-card dark:bg-muted border border-border dark:border-border rounded-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border dark:border-border shrink-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-b border-border dark:border-border shrink-0">
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-bold text-foreground dark:text-foreground capitalize">{monthLabel}</h2>
             <div className="flex items-center gap-1">
@@ -319,13 +319,8 @@ function CalendarPageInner() {
                 queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
               }}
             />
-            <button
-              onClick={() => { setPrefilledStart(""); setShowCreateModal(true); }}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors whitespace-nowrap"
-            >
-              <Plus className="w-4 h-4" />
-              Nowe wydarzenie
-            </button>
+            {/* „Nowe wydarzenie” jest w panelu bocznym — drugi przycisk w
+                nagłówku ucinał się przy węższym oknie (test na produkcji 22.09). */}
           </div>
         </div>
 
