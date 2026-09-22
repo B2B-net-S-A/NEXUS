@@ -592,8 +592,18 @@ export function VirtualTable<Row>({
             ))}
           </div>
         ) : isEmpty ? (
-          <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-            {empty ?? "Brak danych do wyświetlenia."}
+          // Pusty stan też musi być wierszem siatki: goły <div> wewnątrz
+          // role="grid" łamie aria-required-children (axe: critical).
+          <div role="rowgroup">
+            <div role="row">
+              <div
+                role="gridcell"
+                aria-colspan={columns.length + (selectable ? 1 : 0)}
+                className="px-4 py-12 text-center text-sm text-muted-foreground"
+              >
+                {empty ?? "Brak danych do wyświetlenia."}
+              </div>
+            </div>
           </div>
         ) : virtualize ? (
           <div
