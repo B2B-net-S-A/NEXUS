@@ -161,7 +161,9 @@ async def test_finance_branded_cv_lazy_preview_does_not_persist(monkeypatch):
         db=db,
     )
 
-    assert response.status == "draft"
+    # CV-01 (audyt 22.09.2026): podgląd bez zapisu mówi prawdę o stanie —
+    # szkicu nie ma, dopóki ktoś nie zacznie edycji.
+    assert response.status == "none"
     assert response.content_html == "<p>transient</p>"
     assert response.rendered_from_default is True
     assert csv.branded_status == "none"
