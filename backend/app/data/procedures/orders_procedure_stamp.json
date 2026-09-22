@@ -1,5 +1,5 @@
 {
-  "reviewed_at": "2026-09-21",
+  "reviewed_at": "2026-09-22",
   "sources": {
     "backend/app/api/admin_order_mail.py": "98b2fe2401eca9cdd4cd2c96494dd9836a3d98f5736ec4df8308b86ef9161d74",
     "backend/app/api/client_order_groups.py": "69ef022c99dbc5e390c5360f5104c6176f78a6495a8271a6f18a486a5661027f",
@@ -30,7 +30,7 @@
     "backend/app/services/order_group_materializer.py": "6bb255c01ada07de9c14a493b32c8975656828da3febc01555c2826e973cef00",
     "backend/app/services/order_mail_apply.py": "39cb8e634b6492526bab29bf8ff466cb1c67881c97b8d04caa3fe5e586dae761",
     "backend/app/services/order_mail_gate.py": "a909576e1fdfa6deb57a373675ba8a790290e19612db59589c8c38909a434c0d",
-    "backend/app/services/order_mail_ingest.py": "2819ba2771156f769171cc08d4edb5f7e8ebc9ff6ec40b8f89b2e1044e983276",
+    "backend/app/services/order_mail_ingest.py": "b4088445b1e29f96a95ae6cb4084ef53f84cc1d5d9446ca6daa2cc2a709b3434",
     "backend/app/services/order_mail_planner.py": "4f358298a212ecf305fd208691a1d400ec29dea4d149c7279939f138fb63e448",
     "backend/app/services/order_mail_recheck.py": "bc91da3d1c4db47a1fdecc1e822b0cf8cf8711467ef57724d6a822391a118833",
     "backend/app/services/order_mail_recheck_reasons.py": "78d87e80aab236b6f3aea0dafa02d9b7ccaf26b178953cd9bdef0949a1f6e19a",
@@ -71,7 +71,7 @@
     "frontend/src/components/client-profile/orders/OrderGroupCard.tsx": "2afcbb56e744474e44698253575d65a9f80b852eff427d7935e088bbb68d66ee",
     "frontend/src/components/client-profile/orders/OrderGroupFormModal.tsx": "89fb51b4940d2483c596054fa08f47ac87426ebb960e05a87b75dee3822ffe31",
     "frontend/src/components/client-profile/orders/OrderPlanLineCard.tsx": "b6e16e713c863bbb18c718d8136a5fd16e405e04fac68e5cfe84585f39725db9",
-    "frontend/src/components/order-mail/OrderMailQueue.tsx": "f1b0e102925bf99a781310e4af48d19c027d19c33549e44615bd0ea659c8a355",
+    "frontend/src/components/order-mail/OrderMailQueue.tsx": "b3971485ee659d332275eb857467b27dbec5de9c1f47c651a874f810a198e9f5",
     "frontend/src/components/orders/ExtractedConsultants.tsx": "50dcdbfbccaf08bb663a2370d61bd79155c596ed45a8ed7ec5abc8bf4974b200",
     "frontend/src/components/orders/InlineOrderFields.tsx": "6926981466f96613e9d25877bd623f6fddcef37d3bef4b3128c9525c79dcc7bf",
     "frontend/src/components/orders/OrderTypeSwitch.tsx": "c945cf8167010eaeb36f0592877127639dc86a48a98c6e1692a0df6ca6ba85a5",

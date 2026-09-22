@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 21.09.2026
+> **Zgodność z systemem sprawdzona:** 22.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -652,6 +652,11 @@ MD jest wielkością operacyjną, nie finansową.
 ---
 
 ## Zamówienia ze skrzynki — „Osoby i plan zapisu"
+
+Kolejka dokumentów z maila jest w **Kontrakty → „Skrzynka zamówień"**. Liczba
+przy „Kontraktach" w menu to dokumenty czekające na sprawdzenie. Do 22.09.2026
+kolejka miała w menu własną pozycję „Zamówienia z maila", a stare linki
+z powiadomień nadal do niej prowadzą.
 
 Automatyczny odczyt załączników ze skrzynki **zamowienia@b2bnetwork.pl**
 przygotowuje plan dla osób rozpoznanych w dokumencie. Przy dopasowaniu osoby
