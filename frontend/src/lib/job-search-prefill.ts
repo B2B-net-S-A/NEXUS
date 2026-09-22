@@ -171,11 +171,24 @@ const WORK_MODE_TOKENS = new Set([
  * tokens. ``"Warszawa / Remote"`` → ``["Warszawa"]``; ``"Kraków, Wrocław"`` →
  * ``["Kraków", "Wrocław"]``. Dedupes case-insensitively, caps at 5.
  */
+// „Warszawa lub okolice", „Kraków i okolica", „Gdańsk + okolice (hybrydowo)":
+// dopisek o okolicy i nawiasy nie są nazwą miasta — dosłowne „Warszawa lub
+// okolice" nie pasowało do żadnego kandydata (test manualny 21.09.2026).
+const NEARBY_SUFFIX = /\s*(?:(?:lub|i|oraz|albo|\+|&)\s*)?okolic[aey]?\b.*$/i;
+const PARENTHETICAL = /\([^)]*\)/g;
+// Alternatywy zapisane słowami („Warszawa lub Kraków") to kilka miast.
+const CITY_ALTERNATIVE = /\s+(?:lub|albo|oraz|i|or)\s+/i;
+
 export function parseJobLocationCities(location?: string | null): string[] {
   if (!location) return [];
   const seen = new Set<string>();
   const cities: string[] = [];
-  for (const part of location.split(/[/,;|\n]+/)) {
+  const parts = location
+    .replace(PARENTHETICAL, " ")
+    .split(/[/,;|\n]+/)
+    .map((part) => part.replace(NEARBY_SUFFIX, ""))
+    .flatMap((part) => part.split(CITY_ALTERNATIVE));
+  for (const part of parts) {
     const city = part.trim();
     if (!city) continue;
     if (WORK_MODE_TOKENS.has(city.toLowerCase())) continue;
@@ -192,8 +205,23 @@ export function parseJobLocationCities(location?: string | null): string[] {
  *  seniority. Opis i wymagania ZOSTAJĄ poza polem (przegląd UX 17.09.2026):
  *  kilkaset znaków prozy w polu „szukaj" wyglądało jak zepsuty formularz,
  *  a sygnał wymagań niesie już `skills_must`. */
+// „PKO BP: Programista Java Senior", „Nordea: BCCM …" — prefiks klienta przed
+// dwukropkiem to nie stanowisko; w polu wyszukiwania kierował ranking na nazwę
+// banku. Najwyżej trzy słowa, żeby nie ciąć tytułów typu „Rola: specjalizacja"
+// z dłuższym początkiem.
+const CLIENT_PREFIX = /^\s*[^:]{1,40}?:\s+(?=\S)/;
+
+function stripClientPrefix(title: string): string {
+  const match = CLIENT_PREFIX.exec(title);
+  if (!match) return title;
+  const prefix = match[0].replace(/:\s*$/, "").trim();
+  if (prefix.split(/\s+/).length > 3) return title;
+  const rest = title.slice(match[0].length).trim();
+  return rest || title;
+}
+
 export function buildJobSearchTitleQuery(job: JobPrefillSource): string {
-  const title = stripJobReference(job.title);
+  const title = stripClientPrefix(stripJobReference(job.title));
   const seniority = job.seniority ? String(job.seniority).trim() : "";
   return [title, seniority].filter((part) => part.length > 0).join(" ").trim();
 }

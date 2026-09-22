@@ -287,9 +287,16 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
   );
   // Pasek etapów pokazuje łączną liczbę ze wszystkich źródeł, nie samą skrzynkę.
   const totalProposals = sourceCounts.all;
+  // Publikujemy dopiero, gdy każde źródło się rozstrzygnęło — inaczej pasek
+  // etapów pokazywał przez chwilę „0" (sama skrzynka) zamiast pełnej liczby.
+  const countsSettled =
+    !inbox.isPending &&
+    !latestRun.isPending &&
+    (latestRunId === null || runData !== undefined || Boolean(fullSearch.error)) &&
+    (!secondarySourcesEnabled || (!similar.isPending && !recommendations.isPending));
   useEffect(() => {
-    if (totalProposals != null) queryClient.setQueryData(jobProposalsKeys.visibleCount(jobId), totalProposals);
-  }, [queryClient, jobId, totalProposals]);
+    if (countsSettled) queryClient.setQueryData(jobProposalsKeys.visibleCount(jobId), totalProposals);
+  }, [queryClient, jobId, totalProposals, countsSettled]);
   const entries = useMemo(
     () => filterProposals(allEntries, filters, { budgetHourly }),
     [allEntries, filters, budgetHourly],

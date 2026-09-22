@@ -91,6 +91,27 @@ function formatWhen(iso: string | null): string {
   return date.toLocaleString("pl-PL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * Liczy propozycje, gdy segment jest ZAMKNIĘTY — licznik „Propozycje z bazy"
+ * na pasku etapów sumuje wszystkie źródła (żywy przegląd, podobne projekty,
+ * rekomendacje, skrzynka), a sama skrzynka pokazywała 0 przy 35 propozycjach.
+ * Te same klucze zapytań co segment: otwarcie segmentu niczego nie pobiera
+ * drugi raz. `readOnly` — sonda nigdy nie startuje przeglądu bazy.
+ */
+export function ProposalsCountProbe({
+  jobId,
+  budgetHourly,
+  pipelineCandidateIds,
+}: Pick<ProposalsSegmentProps, "jobId" | "budgetHourly" | "pipelineCandidateIds">) {
+  useJobProposals(jobId, {
+    filters: DEFAULT_PROPOSAL_FILTERS,
+    budgetHourly,
+    pipelineCandidateIds,
+    readOnly: true,
+  });
+  return null;
+}
+
 /** Segment z prawdziwymi danymi: filtry widoku + `useJobProposals`. */
 export function ProposalsSegment(props: ProposalsSegmentProps) {
   const { jobId, budgetHourly, pipelineCandidateIds, readOnly = false } = props;

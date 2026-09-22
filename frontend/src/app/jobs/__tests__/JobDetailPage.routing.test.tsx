@@ -100,7 +100,10 @@ vi.mock("@/components/v2/recruitment/slideovers/QuestionBankSlideOver", () => ({
 vi.mock("@/components/v2/recruitment/slideovers/ManualSearchSlideOver", () => ({
   ManualSearchSlideOver: stub("manual", "manual-window"),
 }));
-vi.mock("@/components/v2/recruitment/ProposalsSegment", () => ({ ProposalsSegment: () => null }));
+vi.mock("@/components/v2/recruitment/ProposalsSegment", () => ({
+  ProposalsSegment: () => null,
+  ProposalsCountProbe: () => null,
+}));
 vi.mock("@/components/v2/recruitment/ProposalMatchDetails", () => ({ ProposalMatchDetails: () => null }));
 vi.mock("@/components/v2/recruitment/JobAIActions", () => ({
   JobAIActions: () => <div data-testid="job-ai-actions" />,

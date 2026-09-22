@@ -77,7 +77,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { RecruitmentWorkspace } from "@/components/v2/recruitment/RecruitmentWorkspace";
-import { ProposalsSegment } from "@/components/v2/recruitment/ProposalsSegment";
+import { ProposalsCountProbe, ProposalsSegment } from "@/components/v2/recruitment/ProposalsSegment";
 import { ProposalMatchDetails } from "@/components/v2/recruitment/ProposalMatchDetails";
 import { RequestRequirementsRail } from "@/components/v2/recruitment/RequestRequirementsRail";
 import { JobAIActions } from "@/components/v2/recruitment/JobAIActions";
@@ -874,6 +874,13 @@ export default function JobDetailPage() {
       />
 
       {/* ── Widok „Tabela": pasek etapów + tabela osób + panel osoby ─────── */}
+      {activeView === "people" && segment !== "proposals" && (
+        <ProposalsCountProbe
+          jobId={jobId}
+          budgetHourly={jobBudgetHourly(job)}
+          pipelineCandidateIds={pipelineCandidateIds}
+        />
+      )}
       {activeView === "people" && (
         <RecruitmentWorkspace
           jobId={jobId}

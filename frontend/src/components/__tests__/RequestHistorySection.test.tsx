@@ -292,3 +292,36 @@ describe("RequestHistorySection — zespół rekrutacji i brak dostępu", () => 
     expect(await screen.findByText(/Nie udało się pobrać historii/)).toBeInTheDocument();
   });
 });
+
+describe("RequestHistorySection — wynik zamkniętego requestu po polsku", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    signInAs("admin");
+  });
+
+  const withOutcome = (outcome: string, close_reason: string | null) => ({
+    ...RESPONSE,
+    closed: [{ ...RESPONSE.closed[0], outcome, close_reason }],
+  });
+
+  it("obsadzona rekrutacja mówi „Obsadzona”, nie „Filled”", async () => {
+    mocks.forJob.mockResolvedValue({ data: withOutcome("filled", null) });
+    renderSection(true);
+    expect(await screen.findByText("Obsadzona")).toBeInTheDocument();
+    expect(screen.queryByText("Filled")).not.toBeInTheDocument();
+  });
+
+  it("kod powodu zamknięcia dostaje polską etykietę", async () => {
+    mocks.forJob.mockResolvedValue({ data: withOutcome("cancelled", "client_ghosted") });
+    renderSection(true);
+    expect(await screen.findByText("Klient przestał odpowiadać")).toBeInTheDocument();
+    expect(screen.queryByText("client_ghosted")).not.toBeInTheDocument();
+  });
+
+  it("anulowana bez powodu mówi „Anulowana”, nie „Cancelled”", async () => {
+    mocks.forJob.mockResolvedValue({ data: withOutcome("cancelled", null) });
+    renderSection(true);
+    expect(await screen.findByText("Anulowana")).toBeInTheDocument();
+    expect(screen.queryByText("Cancelled")).not.toBeInTheDocument();
+  });
+});

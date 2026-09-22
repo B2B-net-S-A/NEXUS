@@ -360,8 +360,8 @@ describe("JobReadinessDock — dane", () => {
     expect(screen.getByText("Jan Nowak")).toBeInTheDocument();
 
     expect(
-      screen.getByRole("link", { name: /Otwórz AI Matching/ }),
-    ).toHaveAttribute("href", "/jobs/501?tab=similar");
+      screen.getByRole("link", { name: /Otwórz propozycje z bazy/ }),
+    ).toHaveAttribute("href", "/jobs/501?tab=people&seg=proposals");
   });
 
   it("bez stageBreakdown (spoza wczytanej strony) NIE renderuje sekcji Pipeline", async () => {
@@ -514,7 +514,7 @@ describe("JobReadinessDock — readOnly (RBAC)", () => {
     ).not.toBeInTheDocument();
     // Odczyt (checklista, nawigacja) NIE jest wyłączony przez readOnly.
     expect(
-      screen.getByRole("link", { name: /Otwórz AI Matching/ }),
+      screen.getByRole("link", { name: /Otwórz propozycje z bazy/ }),
     ).toBeInTheDocument();
   });
 });

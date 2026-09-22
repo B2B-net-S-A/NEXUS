@@ -1079,13 +1079,13 @@ export function JobReadinessDock({
                   dzieci (lustro `PrepInviteActions.tsx`). Nawigacja, nie mutacja —
                   zawsze aktywna, niezależnie od `canWritePipeline`. */}
               <Link
-                href={`/jobs/${jobId}?tab=similar`}
+                href={`/jobs/${jobId}?tab=people&seg=proposals`}
                 className={cn(
                   buttonVariants({ variant: "primary", size: "sm" }),
                   "col-span-2 w-full",
                 )}
               >
-                <Target className="h-3.5 w-3.5" aria-hidden="true" /> Otwórz AI Matching
+                <Target className="h-3.5 w-3.5" aria-hidden="true" /> Otwórz propozycje z bazy
               </Link>
               {/* Makieta kroku 02 ma tu jeszcze „Wzór Word (SharePoint)"
                   i „Historia requestu" — pierwszego dok nie zna (link żyje
