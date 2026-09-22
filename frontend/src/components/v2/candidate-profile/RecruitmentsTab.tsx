@@ -267,6 +267,8 @@ export function RecruitmentsTab({
           candidateId={candidateId}
           canAssign={!readOnly}
           hideWhenEmpty
+          stacked
+          maxItems={5}
           title="Pasujące otwarte rekrutacje"
         />
         <SuggestedPoolsWidget candidateId={candidateId} canAdd={!readOnly} />

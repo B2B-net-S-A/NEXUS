@@ -40,6 +40,12 @@ interface Props {
   canAssign?: boolean;
   /** Nagłówek karty (profil kandydata: „Pasujące otwarte rekrutacje”). */
   title?: string;
+  /**
+   * Wiersz zawsze w pionie (tytuł nad akcją). Dla wąskiej kolumny bocznej —
+   * układ poziomy zależy od szerokości OKNA, nie kolumny, więc w panelu
+   * 320 px tytuł rekrutacji dostawał kilkadziesiąt pikseli.
+   */
+  stacked?: boolean;
 }
 
 function ScoreChip({ score }: { score: number | null }) {
@@ -64,6 +70,7 @@ export function SuggestedJobsWidget({
   onAssigned,
   canAssign = true,
   title = "Sugerowane rekrutacje",
+  stacked = false,
 }: Props) {
   const usingExternal = externalMatches !== undefined;
   const topK = Math.max(maxItems, 10);
@@ -230,7 +237,11 @@ export function SuggestedJobsWidget({
               return (
                 <li
                   key={job.id}
-                  className="flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center"
+                  className={
+                    stacked
+                      ? "flex flex-col gap-2 py-3 first:pt-0 last:pb-0"
+                      : "flex flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center"
+                  }
                   data-testid={`suggested-job-${job.id}`}
                 >
                   <div className="flex min-w-0 flex-1 gap-3">
