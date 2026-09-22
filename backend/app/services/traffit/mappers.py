@@ -18,7 +18,9 @@ import re
 import unicodedata
 from datetime import date, datetime, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
+from app.core.scheduling import DEFAULT_TZ
 from app.services.candidate_location_writer import normalize_candidate_location
 
 # Legacy Traffit hack: recruiters flagged placed consultants by stuffing
@@ -252,26 +254,51 @@ def has_blacklist_marker(*values: Optional[str]) -> bool:
     )
 
 
+# Traffit zwraca czas LOKALNY firmy ("yyyy-MM-dd HH:mm:ss" bez strefy) —
+# audyt 22.09 r2 (INTG-04): do tej daty traktowaliśmy go jako UTC, więc każdy
+# ruch pipeline'u, data otwarcia i zamknięcia rekrutacji były przesunięte
+# o +1/+2 h (2907 ruchów z `moved_at` późniejszym niż chwila zapisu).
+_TRAFFIT_TZ = ZoneInfo(DEFAULT_TZ)
+
+
 def _parse_traffit_datetime(value: Any) -> Optional[datetime]:
-    """Parse Traffit datetime strings ('yyyy-MM-dd HH:mm:ss' or ISO) to
+    """Parse Traffit datetime strings ('yyyy-MM-dd HH:mm:ss' or ISO) to a
     timezone-aware UTC datetime. Returns None if value is None/empty/invalid.
-    asyncpg requires aware datetime for `timestamp with time zone` columns.
+
+    Wartość bez strefy to czas lokalny Traffita (Europe/Warsaw, z czasem
+    letnim), nie UTC. Wartość z jawną strefą (``Z``/``+02:00``) zostaje przy
+    swojej strefie. asyncpg wymaga wartości ze strefą dla kolumn
+    ``timestamp with time zone``.
     """
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-    if not isinstance(value, str):
+        dt = value
+    elif isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            # fromisoformat accepts both 'YYYY-MM-DD HH:MM:SS' and 'YYYY-MM-DDTHH:MM:SS'
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
         return None
-    s = value.strip()
-    if not s:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_TRAFFIT_TZ)
+    return dt.astimezone(timezone.utc)
+
+
+def _traffit_local_date(moment: Optional[datetime]) -> Optional[date]:
+    """Dzień kalendarzowy w strefie Traffita (nie w UTC).
+
+    ``closing_date = "2026-12-31 00:30:00"`` to 30.12 23:30 UTC — ``.date()``
+    na wartości UTC przesunęłoby termin rekrutacji o dzień wstecz.
+    """
+    if moment is None:
         return None
-    try:
-        # fromisoformat accepts both 'YYYY-MM-DD HH:MM:SS' and 'YYYY-MM-DDTHH:MM:SS'
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return moment.astimezone(_TRAFFIT_TZ).date()
 
 
 # Status mapping for Traffit `client.status` (free text) → Nexus ClientStatus enum.
@@ -822,7 +849,7 @@ def traffit_recruitment_to_job(
     closing_date = payload.get("closing_date")  # "yyyy-MM-dd HH:mm:ss" lub None
 
     closing_dt = _parse_traffit_datetime(closing_date)
-    deadline: Optional[date] = closing_dt.date() if closing_dt else None
+    deadline: Optional[date] = _traffit_local_date(closing_dt)
 
     # Data otwarcia rekrutacji U KLIENTA. `jobs.created_at` jest stemplowane
     # `NOW()` przy insercie, więc dla 4206 zaimportowanych wierszy opisuje

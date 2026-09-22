@@ -167,7 +167,8 @@ async def test_source_import_writes_tag_and_exactly_one_event(db) -> None:
         assert len(events) == 1
         event = events[0]
         assert event.channel is SourceChannel.aktywny_search
-        assert event.captured_at == datetime(2025, 3, 4, 10, 20, 30, tzinfo=UTC)
+        # Czas lokalny Traffita (CET) → UTC (INTG-04).
+        assert event.captured_at == datetime(2025, 3, 4, 9, 20, 30, tzinfo=UTC)
         assert event.note.startswith(traffit_source_ref(source_id))
         assert "LinkedIn" in event.note
         assert TRAFFIT_SOURCE_NO_DATE_MARK not in event.note
@@ -240,7 +241,8 @@ async def test_tag_imported_before_the_fix_still_gets_its_event(db) -> None:
         events = await _events(db, cid)
         assert len(events) == 1
         assert events[0].channel is SourceChannel.posting
-        assert events[0].captured_at == datetime(2024, 11, 1, tzinfo=UTC)
+        # Północ lokalnie (CET) = 23:00Z dnia poprzedniego (INTG-04).
+        assert events[0].captured_at == datetime(2024, 10, 31, 23, 0, tzinfo=UTC)
     finally:
         await _cleanup(db, [cid])
 
