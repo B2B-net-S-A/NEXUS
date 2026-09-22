@@ -77,6 +77,7 @@ import {
  STAGE_BADGE_LABEL,
  STAGE_BADGE_TITLE,
  foldBoardColumns,
+ impliedBadges,
  placeStage,
  type BoardColumnKey,
  type StageBadgeKey,
@@ -877,18 +878,19 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ponad budżet
  </span>
  )}
- {stageBadge && (
+ {impliedBadges(stageBadge).map((badge) => (
  <span
+ key={badge}
  className={cn(
  "inline-flex items-center rounded px-1 text-[9px] font-semibold",
- STAGE_BADGE_TONE[stageBadge],
+ STAGE_BADGE_TONE[badge],
  desktopOverview && "xl:pointer-fine:hidden"
  )}
- title={STAGE_BADGE_TITLE[stageBadge]}
+ title={STAGE_BADGE_TITLE[badge]}
  >
- {STAGE_BADGE_LABEL[stageBadge]}
+ {STAGE_BADGE_LABEL[badge]}
  </span>
- )}
+ ))}
  {/* `=== true`: odznaka obiecuje gotowy dokument (dawna odznaka
  kolumny „Następny krok" w Tabeli). */}
  {item.auto_cv_ready === true && (
@@ -1879,7 +1881,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const badge = placeStage(member).badge;
  if (!badge || !SETTABLE_BADGES.includes(badge)) continue;
  if (badge === "cpro" && !cproEnabled) continue;
- const active = colId(member) === dockItemColId;
+ const currentBadge = placeStage(
+ fold.members.find((m) => colId(m) === dockItemColId) ?? dockHost
+ ).badge;
+ // „DZ" jest aktywne także na etapie Cpro (stoi po DZ w procesie).
+ const active = impliedBadges(currentBadge).includes(badge);
  toggles.push({
  key: badge,
  label: STAGE_BADGE_LABEL[badge],
@@ -2316,7 +2322,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onClick={() => setShowClosed(true)}
  className="px-2 py-1 text-muted-foreground hover:text-foreground"
  >
- {columnLabel(c)}{" "}
+ {terminalOf(c) === "rejected"
+ ? "Odrzuceni"
+ : terminalOf(c) === "withdrawn"
+ ? "Wycofani"
+ : columnLabel(c)}{" "}
  <span className="font-semibold tabular-nums text-foreground">{c.count}</span> →
  </button>
  <div className="hidden">{provided.placeholder}</div>

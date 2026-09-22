@@ -812,7 +812,7 @@ export function PipelineCandidateDock({
                 )}
               >
                 {badge.active ? "✓ " : "+ "}
-                {badge.label}
+                {badge.label.replace(/\s*✓$/, "")}
               </button>
             ))}
           </div>
