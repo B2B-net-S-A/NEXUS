@@ -63,6 +63,11 @@ export function rateChangeSentence(
     : `od ${formatDate(change.effective_from)}`;
   const from = formatAmount(change.rate, currency, unit);
   const to = formatAmount(change.replacement_rate, currency, unit);
+  if (change.removes_revenue) {
+    // Audyt 22.09 r2 (FIN-02): ostatni krok z zamówień — kontrakt nie wraca do
+    // starej kolumny cache'u, tylko zostaje bez stawki klienta.
+    return `Okres ${window} straci stawkę klienta — kontrakt zostanie bez przychodu.`;
+  }
   if (!change.changes_amount) {
     return `Zniknie krok stawki klienta ${window} — kwota zostaje bez zmian.`;
   }

@@ -1203,3 +1203,63 @@ async def test_repair_never_blindly_activates_expired_or_duplicate_drafts():
     assert ended.end_date == date(2026, 6, 30)
     left = await _load_contract(duplicate["contract_id"])
     assert left.status == ContractStatus.draft
+
+
+# ── audyt 22.09 r2 (FIN-02): bez fantomowego przychodu ──────────────────────
+
+
+async def test_cancelled_last_order_leaves_the_contract_without_revenue():
+    """Decyzja właściciela: ostatni krok z zamówień znika → kontrakt bez przychodu."""
+    contract = _contract()
+    order = _order()
+    await sync_contract_from_orders(
+        _FakeDb(), contract, [order], actor_id=None, today=date(2026, 9, 20)
+    )
+    assert contract.rate_client == Decimal("167.5")
+    order.status = ClientOrderStatus.cancelled
+
+    await sync_contract_from_orders(
+        _FakeDb(), contract, [order], actor_id=None, today=date(2026, 9, 20)
+    )
+
+    assert contract.client_rate_schedule == []
+    assert contract.rate_client is None
+    assert contract.margin is None
+    assert contract.effective_client_rate(date(2026, 10, 1)) is None
+
+
+async def test_deleting_the_only_order_takes_its_revenue_off_the_contract(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Kaskada w bazie kasowała krok ZANIM synchronizacja go zobaczyła —
+    kolumna ``rate_client`` zostawała ze stawką usuniętego zamówienia."""
+    ids = await _seed_signed_contractor()
+    resp = await app_client.patch(
+        f"/api/clients/{ids['client_id']}/orders/{ids['order_id']}",
+        json={
+            "start_date": "2026-09-15",
+            "end_date": "2026-12-31",
+            "rate_unit": "daily",
+            "rate_client": "1340",
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    contract = await _load_contract(ids["contract_id"])
+    assert contract.rate_client == Decimal("167.5")
+
+    resp = await app_client.delete(
+        f"/api/clients/{ids['client_id']}/orders/{ids['order_id']}",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 204, resp.text
+
+    contract = await _load_contract(ids["contract_id"])
+    assert contract.client_rate_schedule == []
+    assert contract.rate_client is None
+    assert contract.margin is None
+    assert contract.effective_client_rate(date(2026, 10, 1)) is None
+    assert (contract.client_order_start_date, contract.client_order_end_date) == (
+        None,
+        None,
+    )

@@ -156,7 +156,10 @@ from app.services.cost_orders import (
     settle_group,
 )
 from app.services.contract_lifecycle import sync_contract_to_live_order
-from app.services.contract_order_sync import skip_sync_for_contract
+from app.services.contract_order_sync import (
+    detach_order_rate_steps,
+    skip_sync_for_contract,
+)
 from app.services.order_consultant_match import inactive_consultant_reason
 from app.services.order_engagement_separation import absorb_auto_draft_shells
 from app.services.cyfrowy_polsat_orders import (
@@ -3465,6 +3468,8 @@ async def _delete_line_row(db: AsyncSession, line: ClientOrder) -> str | None:
         )
     )
     file_path = line.file_path
+    # audyt 22.09 r2 (FIN-02): krok stawki zdejmowany PRZED kaskadą w bazie.
+    await detach_order_rate_steps(db, line)
     await db.delete(line)
     return file_path
 
