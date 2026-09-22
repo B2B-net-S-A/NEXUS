@@ -29,23 +29,21 @@ test.describe("Candidates flow", () => {
     expect(totalText).toBeTruthy();
   });
 
-  test("eksport wyników i import są dostępne z hierarchicznego toolbaru", async ({ page }) => {
+  test("import i eksport wyników są w menu „Importuj”", async ({ page }) => {
     await login(page);
     await page.goto("/candidates");
-    await page.getByRole("button", { name: "Więcej" }).click();
-    await expect(page.getByRole("button", { name: "Eksportuj wyniki CSV" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Eksportuj wyniki XLSX" })).toBeVisible();
-
-    await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "Importuj" }).click();
-    await expect(page.getByRole("button", { name: "Import CSV" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Bulk CV" })).toBeVisible();
+    await page.getByRole("button", { name: /Importuj/ }).click();
+    await expect(page.getByRole("menuitem", { name: "Import CSV" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Masowy import CV" })).toBeVisible();
+    // Eksport całego wyniku — tylko role z prawem eksportu.
+    await expect(page.getByRole("menuitem", { name: "Eksportuj wyniki (CSV)" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Eksportuj wyniki (XLSX)" })).toBeVisible();
   });
 
-  test("SavedSearchPicker Filtry button widoczny", async ({ page }) => {
+  test("filtry stoją na stałe w lewej kolumnie", async ({ page }) => {
     await login(page);
     await page.goto("/candidates");
-    await expect(page.getByRole("button", { name: /Filtry/i })).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "Filtry kandydatów" })).toBeVisible();
   });
 
   test("quick view zachowuje listę, przechodzi przez granicę strony i oddaje fokus", async ({ page }) => {
@@ -60,8 +58,9 @@ test.describe("Candidates flow", () => {
 
     const lastRow = page.locator('[data-testid^="candidate-row-"][data-index="49"]');
     await expect(lastRow).toBeVisible();
-    const trigger = lastRow.getByRole("button").first();
-    await trigger.click();
+    // Wiersz otwiera podgląd (klik albo Enter); nazwisko to link do profilu.
+    await lastRow.focus();
+    await lastRow.press("Enter");
 
     const quickView = page.getByTestId("candidate-quick-view");
     await expect(quickView).toBeVisible();
@@ -78,7 +77,7 @@ test.describe("Candidates flow", () => {
 
     await quickView.getByRole("button", { name: "Zamknij szybki podgląd" }).click();
     await expect(quickView).toBeHidden();
-    await expect(trigger).toBeFocused();
+    await expect(lastRow).toBeFocused();
   });
 
   test("pełny profil ma pięć sekcji i obsługuje legacy chat link", async ({ page }) => {
@@ -86,11 +85,12 @@ test.describe("Candidates flow", () => {
     await page.goto("/candidates?view=list");
 
     const firstRow = page.locator('[data-testid^="candidate-row-"]').first();
-    await firstRow.getByRole("button").first().click();
-    await page.getByTestId("candidate-quick-view").getByRole("button", { name: "Pełny profil" }).click();
+    await firstRow.focus();
+    await firstRow.press("Enter");
+    await page.getByTestId("candidate-quick-view").getByRole("button", { name: "Otwórz profil" }).click();
     await expect(page).toHaveURL(/\/candidates\/\d+\?tab=summary/);
 
-    for (const section of ["Podsumowanie", "Rekrutacje", "Aktywność", "Dopasowanie", "Pliki i umowy"]) {
+    for (const section of ["Profil", "Rekrutacje", "Historia", "Pliki i umowy"]) {
       await expect(page.getByRole("tab", { name: new RegExp(section) })).toBeVisible();
     }
 
@@ -98,7 +98,7 @@ test.describe("Candidates flow", () => {
     expect(candidateId).toBeTruthy();
     await page.goto(`/candidates/${candidateId}?tab=chat&msg=123`);
     await expect(page).toHaveURL(/tab=activity.*activity=chat|activity=chat.*tab=activity/);
-    await expect(page.getByRole("tab", { name: /Aktywność/ })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByRole("tab", { name: /Historia/ })).toHaveAttribute("aria-selected", "true");
   });
 
   test("eksportuje dokładnie zaznaczonego kandydata", async ({ page }) => {
@@ -108,7 +108,9 @@ test.describe("Candidates flow", () => {
     const firstRow = page.locator('[data-testid^="candidate-row-"]').first();
     await firstRow.getByRole("checkbox").check();
     const downloadPromise = page.waitForEvent("download");
-    await page.getByRole("button", { name: /Eksportuj zaznaczone \(1\)/ }).click();
+    const bar = page.getByRole("region", { name: "Akcje zaznaczonych kandydatów" });
+    await bar.getByRole("button", { name: /Więcej/ }).click();
+    await page.getByRole("menuitem", { name: "Eksportuj zaznaczone (CSV)" }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/\.csv$/);
   });
@@ -130,7 +132,8 @@ test.describe("Candidates flow", () => {
       await page.route(detailUrl, (route) =>
         route.fulfill({ status: scenario.status, contentType: "application/json", body: '{"detail":"test"}' }),
       );
-      await firstRow.getByRole("button").first().click();
+      await firstRow.focus();
+      await firstRow.press("Enter");
       await expect(page.getByRole("alert").getByRole("heading", { name: scenario.message })).toBeVisible();
       await page.getByRole("button", { name: "Zamknij szybki podgląd" }).click();
       await page.unroute(detailUrl);
@@ -145,7 +148,8 @@ test.describe("Candidates flow", () => {
       }
       await route.continue();
     });
-    await page.locator('[data-testid^="candidate-row-"]').first().getByRole("button").first().click();
+    await page.locator('[data-testid^="candidate-row-"]').first().focus();
+    await page.locator('[data-testid^="candidate-row-"]').first().press("Enter");
     await expect(page.getByRole("heading", { name: "Nie udało się otworzyć podglądu" })).toBeVisible();
     allowSuccess = true;
     await page.getByRole("button", { name: "Spróbuj ponownie" }).click();

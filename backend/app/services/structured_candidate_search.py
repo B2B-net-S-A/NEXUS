@@ -22,22 +22,21 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, or_
 from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import (
     Candidate,
     CandidateStatus,
 )
-from app.models.candidate_language import CandidateLanguage
 from app.schemas.candidate_search import (
     CandidateSearchRequest,
     LanguageRequirement,
 )
 from app.services import candidate_search_predicates as predicates
 
-# CEFR ordering — monotonic in ASCII so plain ``>=`` on the JSON value works.
-_LEVEL_ORDER = ["A1", "A2", "B1", "B2", "C1", "C2", "native"]
+# CEFR ordering — wspólna definicja w `candidate_search_predicates`.
+_LEVEL_ORDER = list(predicates.LANGUAGE_LEVELS)
 
 
 # Dopasowanie umiejętności mieszka w `candidate_search_predicates` — JEDNYM
@@ -84,36 +83,9 @@ def location_soft_rank(req: CandidateSearchRequest) -> Optional[ColumnElement]:
 
 
 def _language_clause(req: LanguageRequirement) -> Optional[ColumnElement]:
-    """Match an active normalized fact at/above the requested CEFR level.
-
-    ``native`` is a distinct fact and satisfies every CEFR threshold.  An
-    unknown/descriptive level deliberately satisfies none: descriptive labels
-    are suggestions, never silently promoted to CEFR.
-    """
-    code_upper = req.code.upper()
-    try:
-        min_idx = _LEVEL_ORDER.index(req.min_level)
-    except ValueError:
-        return None
-    accepted_levels = [lvl for lvl in _LEVEL_ORDER[min_idx:] if lvl != "native"]
-
-    return (
-        select(CandidateLanguage.id)
-        .where(
-            CandidateLanguage.candidate_id == Candidate.id,
-            CandidateLanguage.deleted_at.is_(None),
-            func.upper(CandidateLanguage.language_code) == code_upper,
-            and_(
-                CandidateLanguage.is_level_unknown.is_(False),
-                or_(
-                    CandidateLanguage.is_native.is_(True),
-                    CandidateLanguage.cefr_level.in_(accepted_levels),
-                ),
-            ),
-        )
-        .correlate(Candidate)
-        .exists()
-    )
+    """Filtr języka — reguła mieszka w `candidate_search_predicates.language_clause`
+    (wspólna z listą `?languages=`)."""
+    return predicates.language_clause(req.code, req.min_level)
 
 
 def _bool_eq(col: ColumnElement, value: Optional[bool]) -> Optional[ColumnElement]:

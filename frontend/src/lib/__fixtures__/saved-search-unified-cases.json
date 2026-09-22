@@ -816,14 +816,14 @@
         "tags": [
           "vip"
         ],
+        "languages": [
+          {
+            "code": "EN",
+            "min_level": "B2"
+          }
+        ],
         "search_only": {
           "open_to_sales_support": false,
-          "languages": [
-            {
-              "code": "EN",
-              "min_level": "B2"
-            }
-          ],
           "sources": [
             "traffit"
           ],
@@ -850,16 +850,13 @@
         "min_experience": 2,
         "tags": [
           "vip"
+        ],
+        "languages": [
+          "EN:B2"
         ]
       },
       "search_body": {
         "open_to_sales_support": false,
-        "languages": [
-          {
-            "code": "EN",
-            "min_level": "B2"
-          }
-        ],
         "sources": [
           "traffit"
         ],
@@ -883,11 +880,16 @@
         "experience_years_min": 2,
         "tags": [
           "vip"
+        ],
+        "languages": [
+          {
+            "code": "EN",
+            "min_level": "B2"
+          }
         ]
       },
       "list_engine_gaps": [
         "has_cv",
-        "languages",
         "open_to_sales_support",
         "sources"
       ],
@@ -916,14 +918,14 @@
           "tags": [
             "vip"
           ],
+          "languages": [
+            {
+              "code": "EN",
+              "min_level": "B2"
+            }
+          ],
           "search_only": {
             "open_to_sales_support": false,
-            "languages": [
-              {
-                "code": "EN",
-                "min_level": "B2"
-              }
-            ],
             "sources": [
               "traffit"
             ],
@@ -1096,6 +1098,98 @@
       "format": "unknown",
       "origin": null,
       "request": null
+    },
+    {
+      "name": "lista: języki — kod i kod:POZIOM (22.09.2026)",
+      "filters": {
+        "version": 2,
+        "qs": "languages=en%3AB2&languages=de&sv=2",
+        "api": {
+          "semantics_version": 2,
+          "languages": [
+            "en:b2",
+            "de",
+            "pl:native"
+          ]
+        }
+      },
+      "format": "candidates_list",
+      "origin": "candidates_list",
+      "request": {
+        "semantics_version": 2,
+        "languages": [
+          {
+            "code": "EN",
+            "min_level": "B2"
+          },
+          {
+            "code": "DE"
+          },
+          {
+            "code": "PL",
+            "min_level": "native"
+          }
+        ]
+      },
+      "list_params": {
+        "semantics_version": 2,
+        "languages": [
+          "EN:B2",
+          "DE",
+          "PL:native"
+        ]
+      },
+      "search_body": {
+        "semantics_version": 2,
+        "languages": [
+          {
+            "code": "EN",
+            "min_level": "B2"
+          },
+          {
+            "code": "DE"
+          },
+          {
+            "code": "PL",
+            "min_level": "native"
+          }
+        ]
+      },
+      "list_engine_gaps": [],
+      "payload": {
+        "version": 3,
+        "semantics_version": 2,
+        "origin": "candidates_list",
+        "request": {
+          "semantics_version": 2,
+          "languages": [
+            {
+              "code": "EN",
+              "min_level": "B2"
+            },
+            {
+              "code": "DE"
+            },
+            {
+              "code": "PL",
+              "min_level": "native"
+            }
+          ]
+        },
+        "qs": "languages=en%3AB2&languages=de&sv=2",
+        "legacy": {
+          "version": 2,
+          "qs": "languages=en%3AB2&languages=de&sv=2",
+          "api": {
+            "semantics_version": 2,
+            "languages": [
+              "en:b2",
+              "de",
+              "pl:native"
+            ]
+          }
+        }
+      }
     }
   ]
 }

@@ -27,6 +27,10 @@ import {
 
 interface CandidateRecentRecruitmentsCardProps {
   candidateId: number;
+  /** Nagłówek karty (profil kandydata: „W procesie”). */
+  title?: string;
+  /** Link „Wszystkie” do pełnej listy rekrutacji (zakładka profilu). */
+  onShowAll?: () => void;
 }
 
 function requestStatus(error: unknown): number | null {
@@ -107,6 +111,8 @@ function RecruitmentRow({
 
 export function CandidateRecentRecruitmentsCard({
   candidateId,
+  title = "Ostatnie rekrutacje",
+  onShowAll,
 }: CandidateRecentRecruitmentsCardProps) {
   const currentUser = useAuthStore((state) => state.user);
   const viewerScope = candidateViewerScopeKey(currentUser);
@@ -138,9 +144,17 @@ export function CandidateRecentRecruitmentsCard({
               aria-hidden="true"
               className="size-4 text-primary"
             />
-            Ostatnie rekrutacje
+            {title}
           </CardTitle>
-          {!query.isPending && !query.isError && items.length ? (
+          {onShowAll ? (
+            <button
+              type="button"
+              onClick={onShowAll}
+              className="inline-flex min-h-9 items-center px-1 text-xs font-medium text-primary hover:underline"
+            >
+              Wszystkie →
+            </button>
+          ) : !query.isPending && !query.isError && items.length ? (
             <Badge variant="neutral" size="sm">
               {items.length}
             </Badge>

@@ -141,7 +141,9 @@ async def _compare(
     if origin == "candidates_list":
         legacy = await _collect_list(client, headers, dict(filters.get("api") or {}))
         unified = await _collect_list(
-            client, headers, payloads.unified_to_list_params(request)
+            client,
+            headers,
+            payloads.with_literal_text(payloads.unified_to_list_params(request)),
         )
     else:
         legacy_body = {

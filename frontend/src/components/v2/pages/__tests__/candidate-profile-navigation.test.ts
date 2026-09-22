@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 describe("candidate profile navigation", () => {
-  it("reads the five canonical sections and their subviews", () => {
+  it("reads the four canonical sections and their subviews", () => {
     expect(
       parseCandidateProfileView(
         new URLSearchParams("tab=activity&activity=calls"),
@@ -35,17 +35,86 @@ describe("candidate profile navigation", () => {
     ).toMatchObject({ section: "documents", documents: "contracts" });
   });
 
-  it("keeps the emails section reachable by URL and by click (UAT M01-B03)", () => {
+  it("keeps the mail reader reachable: `tab=emails` opens Historia → Maile (UAT M01-B03)", () => {
     expect(
       parseCandidateProfileView(new URLSearchParams("tab=emails")),
-    ).toMatchObject({ section: "emails", isLegacy: false, hasExplicitTab: true });
+    ).toMatchObject({
+      section: "activity",
+      activity: "emails",
+      isLegacy: true,
+      hasExplicitTab: true,
+    });
     expect(
-      withCandidateProfileView(new URLSearchParams("nav=1"), {
-        section: "emails",
-        activity: "timeline",
-        documents: "files",
-      }).get("tab"),
-    ).toBe("emails");
+      parseCandidateProfileView(
+        new URLSearchParams("tab=activity&activity=emails"),
+      ),
+    ).toMatchObject({ section: "activity", activity: "emails", isLegacy: false });
+    const written = withCandidateProfileView(new URLSearchParams("nav=1"), {
+      section: "emails",
+      activity: "timeline",
+      documents: "files",
+    });
+    expect(written.get("tab")).toBe("activity");
+    expect(written.get("activity")).toBe("emails");
+  });
+
+  it("maps the retired Dopasowanie tab onto Rekrutacje with the matching section open", () => {
+    for (const legacy of ["matching", "dopasowanie"]) {
+      expect(
+        parseCandidateProfileView(new URLSearchParams(`tab=${legacy}`)),
+      ).toMatchObject({
+        section: "recruitments",
+        recruitments: "matching",
+        isLegacy: true,
+      });
+    }
+    // Szybki podgląd z listy nadal zapisuje `section: "matching"`.
+    const written = withCandidateProfileView(new URLSearchParams(), {
+      section: "matching",
+      activity: "timeline",
+      documents: "files",
+    });
+    expect(written.toString()).toBe("tab=recruitments&recruitments=matching");
+    expect(parseCandidateProfileView(written)).toMatchObject({
+      section: "recruitments",
+      recruitments: "matching",
+      isLegacy: false,
+    });
+  });
+
+  it("keeps every stored notification / bookmark link working", () => {
+    const cases: Array<[string, Record<string, string>]> = [
+      ["tab=chat&msg=5", { section: "activity", activity: "chat" }],
+      ["tab=notes", { section: "activity", activity: "notes" }],
+      ["tab=activity&activity=notes&note=42", { section: "activity", activity: "notes" }],
+      ["tab=activity&activity=timeline", { section: "activity", activity: "timeline" }],
+      ["tab=activity&activity=calls", { section: "activity", activity: "calls" }],
+      ["tab=activity&activity=chat", { section: "activity", activity: "chat" }],
+      ["tab=documents&documents=files", { section: "documents", documents: "files" }],
+      ["tab=documents&documents=contracts", { section: "documents", documents: "contracts" }],
+      ["tab=umowa", { section: "documents", documents: "contracts" }],
+      ["tab=pliki", { section: "documents", documents: "files" }],
+      ["tab=rekrutacje", { section: "recruitments" }],
+      ["tab=recruitments&focusJobId=42", { section: "recruitments" }],
+      ["tab=timeline", { section: "activity", activity: "timeline" }],
+      ["tab=profil", { section: "summary" }],
+      ["tab=summary", { section: "summary" }],
+      ["tab=nieznane", { section: "summary" }],
+    ];
+    for (const [query, expected] of cases) {
+      expect(
+        parseCandidateProfileView(new URLSearchParams(query)),
+        query,
+      ).toMatchObject(expected);
+    }
+  });
+
+  it("writes the recruitments sub-view only on the Rekrutacje tab", () => {
+    const next = withCandidateProfileView(
+      new URLSearchParams("recruitments=matching"),
+      { section: "summary", activity: "timeline", documents: "files" },
+    );
+    expect(next.has("recruitments")).toBe(false);
   });
 
   it("maps old deep links without losing their intent", () => {

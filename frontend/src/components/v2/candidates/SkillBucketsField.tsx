@@ -33,6 +33,11 @@ interface SkillBucketsFieldProps {
   className?: string;
   /** Etykieta pola wpisywania (dostępna nazwa). */
   inputLabel?: string;
+  /**
+   * Wąska kolumna (lista kandydatów, ~250 px): wybór kubełka pod polem,
+   * puste kubełki bez opisów — opis mówi jedno zdanie pod spodem.
+   */
+  compact?: boolean;
 }
 
 /**
@@ -49,6 +54,7 @@ export function SkillBucketsField({
   onChange,
   className,
   inputLabel = "Dodaj umiejętność",
+  compact = false,
 }: SkillBucketsFieldProps) {
   const [draft, setDraft] = useState("");
   const [bucket, setBucket] = useState<SkillBucket>("required");
@@ -125,12 +131,15 @@ export function SkillBucketsField({
           onBlur={commit}
           aria-label={inputLabel}
           placeholder="np. Java, Spring lub Java|Kotlin"
-          className="h-8 min-w-[12rem] flex-1 text-xs"
+          className={cn("h-8 flex-1 text-xs", compact ? "min-w-0 w-full" : "min-w-[12rem]")}
         />
         <div
           role="radiogroup"
           aria-label="Gdzie dodać umiejętność"
-          className="inline-flex rounded-md border border-border p-0.5"
+          className={cn(
+            "rounded-md border border-border p-0.5",
+            compact ? "grid w-full grid-cols-3" : "inline-flex",
+          )}
         >
           {BUCKETS.map((b) => (
             <button
@@ -142,7 +151,8 @@ export function SkillBucketsField({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setBucket(b)}
               className={cn(
-                "rounded px-2 py-1 text-xs transition-colors",
+                "rounded px-2 py-1 text-xs leading-tight transition-colors",
+                compact && "px-1",
                 bucket === b
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:bg-muted",
@@ -159,9 +169,14 @@ export function SkillBucketsField({
         </p>
       )}
       <dl className="space-y-1" aria-describedby={`${groupId}-hint`}>
-        {BUCKETS.map((b) => (
+        {BUCKETS.filter((b) => !compact || value[b].length > 0).map((b) => (
           <div key={b} className="flex flex-wrap items-baseline gap-1.5">
-            <dt className="w-28 shrink-0 text-xs font-medium text-muted-foreground">
+            <dt
+              className={cn(
+                "shrink-0 text-xs font-medium text-muted-foreground",
+                compact ? "w-full" : "w-28",
+              )}
+            >
               {SKILL_BUCKET_LABELS[b]}
             </dt>
             <dd className="flex min-w-0 flex-1 flex-wrap items-center gap-1">

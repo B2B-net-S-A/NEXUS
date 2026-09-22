@@ -941,6 +941,94 @@ def availability_clause(values: Optional[Sequence[Any]]) -> Optional[ColumnEleme
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Języki
+# ═══════════════════════════════════════════════════════════════════════════
+
+# CEFR w kolejności rosnącej; ``native`` jest osobnym faktem i spełnia każdy próg.
+LANGUAGE_LEVELS: tuple[str, ...] = ("A1", "A2", "B1", "B2", "C1", "C2", "native")
+# Próg, gdy żądanie podaje sam kod języka — ten sam co domyślny
+# ``LanguageRequirement.min_level`` wyszukiwarki.
+DEFAULT_LANGUAGE_LEVEL = "B2"
+_LANGUAGE_CODE_RE = re.compile(r"^[A-Za-z][A-Za-z-]{1,9}$")
+
+
+class InvalidLanguageFilter(ValueError):
+    """Wartość filtra języka nie ma kształtu ``kod`` albo ``kod:POZIOM``."""
+
+
+def language_clause(code: str, min_level: Optional[str]) -> Optional[ColumnElement]:
+    """Kandydat ma aktywny, znormalizowany fakt języka na poziomie ≥ progu.
+
+    ``native`` spełnia każdy próg CEFR. Poziom nieznany/opisowy nie spełnia
+    żadnego: etykiety opisowe są podpowiedzią, nigdy nie awansują po cichu do
+    CEFR. Wspólne dla listy (`?languages=`) i wyszukiwarki (`languages`).
+    """
+    from app.models.candidate_language import CandidateLanguage  # noqa: PLC0415
+
+    level = min_level or DEFAULT_LANGUAGE_LEVEL
+    if level not in LANGUAGE_LEVELS:
+        return None
+    min_idx = LANGUAGE_LEVELS.index(level)
+    accepted_levels = [lvl for lvl in LANGUAGE_LEVELS[min_idx:] if lvl != "native"]
+    return (
+        select(CandidateLanguage.id)
+        .where(
+            CandidateLanguage.candidate_id == Candidate.id,
+            CandidateLanguage.deleted_at.is_(None),
+            func.upper(CandidateLanguage.language_code) == code.upper(),
+            and_(
+                CandidateLanguage.is_level_unknown.is_(False),
+                or_(
+                    CandidateLanguage.is_native.is_(True),
+                    CandidateLanguage.cefr_level.in_(accepted_levels),
+                ),
+            ),
+        )
+        .correlate(Candidate)
+        .exists()
+    )
+
+
+def parse_language_filter(value: str) -> tuple[str, Optional[str]]:
+    """``"en"`` / ``"en:B2"`` / ``"de:native"`` → ``("EN", poziom albo None)``.
+
+    Kształt parametru listy (`?languages=`). ``None`` = sam kod, czyli próg
+    domyślny (``DEFAULT_LANGUAGE_LEVEL``). Błędny kształt → ``InvalidLanguageFilter``
+    z komunikatem po polsku.
+    """
+    raw = (value or "").strip()
+    code, sep, level = raw.partition(":")
+    code = code.strip()
+    level = level.strip()
+    if not _LANGUAGE_CODE_RE.match(code):
+        raise InvalidLanguageFilter(
+            f"Nieprawidłowy filtr języka „{raw}”: podaj kod języka (np. „en”) "
+            "albo kod z poziomem (np. „en:B2”)."
+        )
+    if not sep:
+        return code.upper(), None
+    normalized = "native" if level.lower() == "native" else level.upper()
+    if normalized not in LANGUAGE_LEVELS:
+        raise InvalidLanguageFilter(
+            f"Nieprawidłowy poziom języka w „{raw}”: dozwolone "
+            f"{', '.join(LANGUAGE_LEVELS)}."
+        )
+    return code.upper(), normalized
+
+
+def language_clauses(values: Optional[Iterable[str]]) -> list[ColumnElement]:
+    """Filtr języków listy: każdy wpis musi być spełniony (AND), jak w
+    wyszukiwarce. Błędny wpis → ``InvalidLanguageFilter``."""
+    clauses: list[ColumnElement] = []
+    for value in values or ():
+        code, level = parse_language_filter(value)
+        clause = language_clause(code, level)
+        if clause is not None:
+            clauses.append(clause)
+    return clauses
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Stawka, doświadczenie, tagi, lokalizacja
 # ═══════════════════════════════════════════════════════════════════════════
 

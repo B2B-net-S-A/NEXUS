@@ -2167,34 +2167,70 @@ miejsce, nie zbiór funkcji.
   `mouseleave` szyny jest ignorowany, a zamknięcie zdejmuje hover. Szuflada
   mobilna renderuje grupy w linii (`SidebarMoreInline`), bez nakładki.
 
-## Jeden ekran „Kandydaci" — trzy tryby zamiast trzech pozycji menu (21.09.2026)
+## Ekran „Kandydaci” i profil kandydata — uproszczenie (22.09.2026)
 
-Decyzja Artura 21.09.2026: Wyszukiwarka i Talent Radar były osobnymi wejściami
-do tej samej bazy obok listy kandydatów. Teraz to TRYBY jednego ekranu
-`/candidates` (`components/v2/candidates/CandidatesWorkspace.tsx`, parametr
-`?mode=` — czysty moduł `lib/candidates-mode.ts`):
+Decyzja Artura 22.09.2026 (makiety: https://claude.ai/artifact/UwUfN2BH4fgGxPWHLD1hfC,
+wariant A + „filtry na stałe po lewej” + „wybór źródła na starcie”). Zastępuje
+trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
 
-| Tryb | Adres | Punkt startu | Komponent |
-|---|---|---|---|
-| Baza | `/candidates` | filtry | `CandidatesListV2` |
-| Wyszukiwanie | `/candidates?mode=search` | nazwisko / słowa / opis (auto-rozpoznanie) | `CandidateSearchView` (`hideHeader`, `persistUrlParams`) |
-| Z treści requestu | `/candidates?mode=request` | wklejony request albo profil Championa | `TalentRadarWorkspace` (`embedded`) |
+**Lista `/candidates` = JEDEN ekran, jeden silnik (`GET /api/candidates`).**
+- Filtry stoją na stałe w lewej kolumnie (`components/v2/candidates/CandidateFilterRail.tsx`;
+  poniżej `lg` ten sam panel w arkuszu). „Kogo pokazać: Wszyscy / Moi” zastępuje
+  trzy dawne kontrolki „Moi kandydaci”. Tabela ma STAŁE kolumny — bez presetów,
+  wyboru kolumn, kafelków i gęstości (`/api/settings/candidates-columns` nie ma
+  już konsumenta na tym ekranie).
+- **Jedno pole wyszukiwania szuka też „po znaczeniu”.** Lista wysyła
+  `text_mode` (URL `tm`, domyślnie `auto`) przy niepustym `q` i v2; backend
+  (`_resolve_semantic_text` w `api/candidates.py`) idzie wtedy pulą
+  `candidate_text_retrieval.semantic_pool` — tą samą co wyszukiwarka — chyba że
+  tekst wygląda na osobę (nazwisko / e-mail / telefon → dosłownie). Pula ZAWĘŻA
+  (pusta pula = 0 wyników, nigdy cała baza), pozostałe filtry działają, a bez
+  jawnego `sort` kolejność = ranking puli. Odpowiedź niesie
+  `text_mode_applied`, `search_degraded`, `result_cap_reached`.
+  **v1 i żądania BEZ `text_mode` zostają dosłowne** — na tym stoją alerty
+  zapisanych wyszukiwań, które skaner (i porównanie migracji) odtwarza zawsze
+  dosłownie (`with_literal_text()`); semantyczne alerty gubiłyby nowych
+  kandydatów spoza puli i płaciły za embedding przy każdym przebiegu.
+- **Eksport „z filtra” używa TEJ SAMEJ decyzji** (`_resolve_semantic_text`) —
+  plik zawiera dokładnie to, co widać na ekranie (test w
+  `test_list_semantic_text_and_languages.py`).
+- **Filtr języków na liście** (`languages=kod[:POZIOM]`, URL `lang`) — ta sama
+  reguła co wyszukiwarka (`candidate_search_predicates.language_clause`);
+  w zapisanych wyszukiwaniach to pole WSPÓLNE (`[{code, min_level}]`).
+- **„Z requestu”** otwiera okno z wyborem źródła (wklej tekst / plik Championa /
+  rekrutacja z NEXUSA) + klient, budżet, dni w biurze
+  (`RequestSearchDialog.tsx`). „Dalej” prowadzi do `?mode=request`
+  (`TalentRadarWorkspace` z propem `initial`, od razu na sprawdzeniu wymagań);
+  dane idą STANEM `CandidatesWorkspace`, nigdy adresem (treść requestu jest
+  poufna).
+- **Stare adresy:** `?mode=search` bez `job` jest przepisywane na adres listy
+  (`lib/candidates-search-redirect.ts`); `?mode=search&job=` (ręczne szukanie
+  z rekrutacji) nadal renderuje `CandidateSearchView`; `/talent-radar` bez zmian.
+- **Podgląd kandydata** (`CandidateQuickView`) jest odchudzony: fakty
+  (dostępność, stawka z `quick-view` — `expected_rate_hourly`, lokalizacja),
+  kontakt, „W procesie”, ostatnia notatka, „Przypisz” i „Otwórz profil”.
+  „Oznacz jako zatrudnionego” żyje wyłącznie w jego menu „⋯”.
 
-- **Stare adresy działają**: `/candidates/search` przekierowuje serwerowo
-  z zachowaniem `?s=` i `?job=`; `/talent-radar` przekierowuje role z
-  `nav.candidates`, a rola BEZ niej (middleware nie wpuszcza jej na
-  `/candidates`) dostaje radar na miejscu — decyzja z 19.08 („radar dla każdej
-  zalogowanej roli") zostaje. Linki `/talent-radar` zapisane w powiadomieniach
-  (`candidate_search_worker`, `notification_access`) nie wymagają migracji.
-- **Tryb czyta się z WARTOŚCI parametru przy każdym renderze** — miękka
-  nawigacja przełącza widok (reguła z `useClientTab`).
-- **„Szukaj jak z requestu"**: długi wpis w wyszukiwarce (≥ 300 znaków albo
-  ≥ 3 nowe linie) proponuje przejście do trybu requestu; tekst jedzie STANEM
-  (`requestSeed` + `key` remontujący radar), nigdy adresem — to bywa pełna
-  treść requestu klienta. Radar z `initialText` czyści kryteria poprzedniego
-  wyszukiwania i nie przełącza się na zapamiętaną „Zapisaną rekrutację".
-- **Wyszukiwanie w rekrutacji** („Propozycje z bazy", „Szukaj ręcznie") zostaje
-  w rekrutacji — to ten sam `CandidateSearchView` z `addToJob`.
+**Profil `/candidates/[id]` = 4 zakładki** (`?tab=summary|recruitments|activity|documents`,
+etykiety Profil · Rekrutacje · Historia · Pliki i umowy). Treść zakładek
+w `components/v2/candidate-profile/*`; `CandidateDetailV2.tsx` jest
+orkiestratorem. Zasady, których łatwo nie zauważyć:
+- **Każdy fakt pokazany RAZ:** dostępność, stawka, lokalizacja i języki żyją
+  wyłącznie w pasku faktów (`CandidateProfileFactsBar`, edycja za
+  `candidate.profile_fact.manage`); nagłówek mówi tylko „stanowisko · lata”.
+- **Jedna karta AI** („Podsumowanie” = `CandidateActivitySummaryCard`). Wynik
+  screeningów (dane strukturalne, nie AI) to kompaktowa `ScreeningSummaryCard`
+  na zakładce Rekrutacje; potwierdzone umiejętności dostają ✓ w sekcji
+  Umiejętności.
+- **Stare klucze `?tab=` i podparametry żyją jako aliasy**
+  (`candidate-profile-navigation.ts`): `matching` → Rekrutacje z otwartym
+  „Dopasowaniem”, `emails`/`notes`/`calls`/`chat` → Historia z filtrem,
+  `documents=files|contracts` → Pliki i umowy. Linki zapisane w powiadomieniach
+  prowadzą w te miejsca — nie usuwaj aliasów.
+- Historia rekrutacji (`GET /api/candidates/{id}/history`) niesie `client_name`
+  — karta rekrutacji mówi, u kogo jest proces.
+- Harnessy wizualne (publiczne, zero zapytań): `/preview/candidates-list`
+  (`?dialog=1` otwiera okno requestu) i `/preview/candidate-profile` (`?tab=`).
 
 ## Kanban bez bramek (decyzja Artura, 17.09.2026)
 

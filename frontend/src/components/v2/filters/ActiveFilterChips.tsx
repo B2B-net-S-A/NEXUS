@@ -6,6 +6,7 @@ import { X } from"lucide-react";
 import api, { competenceCategoriesApi, type CompetenceCategoryOut } from"@/lib/api";
 import type { CandidateFilters } from"@/lib/url-filters";
 import { PIPELINE_STAGE_OPTIONS } from "@/lib/filter-options";
+import { describeLanguageFilter } from "@/lib/candidate-languages";
 import {
  parseSkillExpression,
  serializeSkillBuckets,
@@ -423,6 +424,17 @@ function collectChips(
  clear: () => onUpdate({ rateMin: null, rateMax: null, page: 1 }),
  });
  }
+ filters.languages.forEach((lang) => {
+ chips.push({
+ key: `lang:${lang}`,
+ label: `Język: ${describeLanguageFilter(lang)}`,
+ clear: () =>
+ onUpdate({
+ languages: filters.languages.filter((x) => x !== lang),
+ page: 1,
+ }),
+ });
+ });
  filters.qAll.forEach((phrase) => {
  chips.push({
  key: `q_all:${phrase}`,
@@ -597,6 +609,7 @@ export function ActiveFilterChips({
  sentToClientFrom: "",
  sentToClientTo: "",
  stageCurrentOnly: false,
+ languages: [],
  qAll: [],
  qAny: [],
  qNone: [],

@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { Radar } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
 import { hasSectionAccess } from "@/lib/section-access";
-import { SavedRequestSearch } from "./SavedRequestSearch";
+import { SavedRequestSearch, type SavedRequestJobRef } from "./SavedRequestSearch";
 import { useFullCandidateSearch } from "@/hooks/useFullCandidateSearch";
 
 import { PageHeader } from "@/components/ds";
@@ -46,27 +46,58 @@ import { useCanAddToRecruitment } from "@/components/v2/recruitment/useCanAddToR
 /** Poniżej tego progu opis roli nie niesie sygnału wartego embeddingu. */
 const MIN_QUERY_LENGTH = 30;
 
+/**
+ * Dane z okna „Szukaj z requestu" na liście kandydatów (22.09.2026). Źródło
+ * wymagań wybiera rekruter w oknie; tutaj radar startuje od razu od kroku
+ * „Sprawdź wymagania" zamiast od pustego formularza.
+ */
+export interface TalentRadarInitialRequest {
+  source: "text" | "file" | "job";
+  /** Treść requestu (źródło `text`). */
+  text?: string;
+  /** Plik profilu Championa (źródło `file`) — parsujemy go od razu. */
+  file?: File | null;
+  /** Zapisana rekrutacja (źródło `job`). */
+  job?: SavedRequestJobRef | null;
+  client?: ClientRef | null;
+  /** Pola formularza jako tekst — pusty = „nie wiem", jak w formularzu. */
+  budget?: string;
+  officeDays?: string;
+  officeCity?: string;
+}
+
 export interface TalentRadarWorkspaceProps {
-  /** W ekranie „Kandydaci" tytuł i opis daje rodzic (zakładki trybów). */
+  /** Na ekranie „Kandydaci" tytuł i link powrotu daje rodzic. */
   embedded?: boolean;
   /**
-   * Treść przeniesiona z trybu „Wyszukiwanie" („Szukaj jak z requestu").
+   * Treść przeniesiona z innego miejsca (dawniej „Szukaj jak z requestu").
    * Wygrywa ze snapshotem sesji: to nowy request, więc kryteria i podgląd
    * wymagań poprzedniego wyszukiwania są czyszczone.
    */
   initialText?: string;
+  /**
+   * Request z okna „Szukaj z requestu". Pokazuje wyłącznie wybraną ścieżkę
+   * (bez przełącznika „Nowy request / Zapisana rekrutacja") i sam uruchamia
+   * sprawdzenie wymagań.
+   */
+  initial?: TalentRadarInitialRequest;
 }
 
-export function TalentRadarWorkspace({ embedded = false, initialText }: TalentRadarWorkspaceProps = {}) {
+export function TalentRadarWorkspace({ embedded = false, initialText, initial }: TalentRadarWorkspaceProps = {}) {
   const user = useAuthStore(s => s.user);
   const canReadJobs = hasSectionAccess(user, "pipeline", "read");
-  const [mode, setMode] = useState<"adhoc" | "saved">("adhoc");
+  const [mode, setMode] = useState<"adhoc" | "saved">(initial?.source === "job" ? "saved" : "adhoc");
   useEffect(() => {
     // Tekst przeniesiony z wyszukiwarki to NOWY request — nie przełączaj na
     // zapamiętaną „Zapisaną rekrutację", bo wklejona treść by zniknęła z oczu.
-    if (!user?.id || initialText?.trim()) return;
+    if (!user?.id || initialText?.trim() || initial) return;
     try { if (sessionStorage.getItem(`nexus-radar-mode:${user.id}`) === "saved") setMode("saved"); } catch {}
-  }, [user?.id, initialText]);
+  }, [user?.id, initialText, initial]);
+  if (initial) {
+    return initial.source === "job" && initial.job && canReadJobs
+      ? <SavedRequestSearch initialJob={initial.job} hidePicker />
+      : <AdHocTalentRadarWorkspace embedded={embedded} initial={initial} />;
+  }
   const choose = (value: "adhoc" | "saved") => {
     setMode(value);
     if (user?.id) { try { sessionStorage.setItem(`nexus-radar-mode:${user.id}`, value); } catch {} }
@@ -80,7 +111,7 @@ export function TalentRadarWorkspace({ embedded = false, initialText }: TalentRa
   </div>;
 }
 
-function AdHocTalentRadarWorkspace({ embedded = false, initialText }: TalentRadarWorkspaceProps) {
+function AdHocTalentRadarWorkspace({ embedded = false, initialText, initial }: TalentRadarWorkspaceProps) {
   const { showError, showSuccess } = useToast();
   const canAddToRecruitment = useCanAddToRecruitment();
   // Radar jest dla KAŻDEJ roli, ale pełny profil kandydata pozostaje za
@@ -258,6 +289,27 @@ function AdHocTalentRadarWorkspace({ embedded = false, initialText }: TalentRada
       setRequirementsPreview(null);
       setChampionSkills(null);
     }
+    if (initial) {
+      // Nowy request z okna: nic ze snapshotu poprzedniego wyszukiwania nie
+      // może się do niego przykleić (profil, wymagania, kryteria biegu).
+      setText(initial.source === "text" ? initial.text ?? "" : "");
+      setTitle("");
+      setLocation("");
+      setClient(initial.client ?? null);
+      setBudgetMax(initial.budget ?? "");
+      setOnsiteDaysPerWeek(initial.officeDays ?? "");
+      setOfficeLocation(initial.officeCity ?? "");
+      setExcludeRemoteOnly(false);
+      setChampionProfile(null);
+      setChampionSummary(null);
+      setChampionSkills(null);
+      importedValues.current = {};
+      setRequirementsPreview(null);
+      setRunCriteria(null);
+      fullSearch.clear();
+      autoCheckPending.current = true;
+      if (initial.source === "file" && initial.file) void parseChampionFile(initial.file);
+    }
     setHydrated(true);
     // Tylko przy montowaniu: nowy tekst z wyszukiwarki montuje radar od nowa
     // (`key` w CandidatesWorkspace), więc zmiana propsa nie musi tu wracać.
@@ -384,6 +436,10 @@ function AdHocTalentRadarWorkspace({ embedded = false, initialText }: TalentRada
     // odpali onChange przy ponownym wyborze tego samego pliku (recenzja #1204).
     e.target.value = "";
     if (!f) return;
+    await parseChampionFile(f);
+  };
+
+  async function parseChampionFile(f: File) {
     setParsingChampion(true);
     try {
       const res = await talentRadarApi.parseChampion(f);
@@ -394,7 +450,25 @@ function AdHocTalentRadarWorkspace({ embedded = false, initialText }: TalentRada
     } finally {
       setParsingChampion(false);
     }
-  };
+  }
+
+  // Okno „Szukaj z requestu" prosi o wymagania od razu: gdy formularz jest
+  // kompletny (klient + treść albo zatwierdzony profil) i nic nie czeka na
+  // decyzję rekrutera (przegląd profilu z pliku), jeden raz uruchamiamy
+  // „Sprawdź wymagania". Blokada (np. za krótka treść) zostaje widoczna
+  // w formularzu — nie próbujemy jej obchodzić.
+  const autoCheckPending = useRef(false);
+  const previewRequirementsRef = useRef(previewRequirements);
+  previewRequirementsRef.current = previewRequirements;
+  useEffect(() => {
+    if (!hydrated || !autoCheckPending.current) return;
+    if (intakePreview || parsingChampion || interpreting) return;
+    autoCheckPending.current = false;
+    // Formularz niekompletny (np. przegląd profilu zamknięty bez zatwierdzenia,
+    // za krótka treść) — powód stoi przy formularzu, rekruter kończy ręcznie.
+    if (blocked !== null) return;
+    void previewRequirementsRef.current();
+  }, [hydrated, intakePreview, parsingChampion, interpreting, blocked]);
 
 
 

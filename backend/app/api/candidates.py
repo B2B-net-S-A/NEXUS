@@ -27,10 +27,13 @@ from fastapi import (
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import (
+    ARRAY,
+    Integer,
     and_,
     case,
     false,
     func,
+    literal,
     not_,
     or_,
     select,
@@ -231,6 +234,8 @@ class CandidateFilterSpec(BaseModel):
     skills_preferred: Optional[list[str]] = None
     skills_excluded: Optional[list[str]] = None
     tags: Optional[list[str]] = None
+    # Języki: "kod" albo "kod:POZIOM" (`candidate_search_predicates.language_clauses`).
+    languages: Optional[list[str]] = None
     country: Optional[list[str]] = None
     # Kilka miast naraz (którekolwiek) — kształt wyszukiwarki; `location` to
     # dotychczasowe pojedyncze pole i dokłada się do tej samej alternatywy.
@@ -826,16 +831,58 @@ def _derive_employment(candidate: Candidate) -> EmploymentInfo:
     return EmploymentInfo(state=EmploymentState.external, source="none")
 
 
+async def _resolve_semantic_text(db: AsyncSession, filters: "CandidateFilterSpec"):
+    """Czy `q` idzie retrievalem semantycznym — ``(pula | None, interpretacja)``.
+
+    Jedna decyzja dla listy i eksportu „z filtra”: WYŁĄCZNIE v2 z jawnym
+    `text_mode` auto/semantic. v1 i żądania bez `text_mode` (alerty zapisanych
+    wyszukiwań odtwarzają zapisane parametry) zostają przy dopasowaniu
+    dosłownym. Eksport musi zwracać TEN SAM zbiór, który rekruter widzi na
+    ekranie — osobna kopia tej reguły rozjechałaby się przy pierwszej zmianie.
+    """
+    from app.services import candidate_search_predicates as search_predicates
+
+    q_stripped = (filters.q or "").strip()
+    if not q_stripped:
+        return None, None
+    semantics = search_predicates.semantics_for(
+        "list", filters.semantics_version, filters.hide_unknown
+    )
+    if not (semantics.unified or filters.text_mode is not None):
+        return None, None
+    interpretation = await search_predicates.interpret_text(db, q_stripped)
+    if not semantics.unified or filters.text_mode not in ("auto", "semantic"):
+        return None, interpretation
+    forced = search_predicates.text_mode_to_apply(
+        semantics, filters.text_mode, interpretation
+    )
+    # `None` przy `auto` = tekst nie wygląda na osobę → tak jak wyszukiwarka
+    # z `search_mode="hybrid"`: retrieval semantyczny.
+    if forced == "literal":
+        return None, interpretation
+    from app.services.candidate_text_retrieval import (  # noqa: PLC0415
+        semantic_pool as retrieve_semantic_pool,
+    )
+
+    return await retrieve_semantic_pool(db, q_stripped), interpretation
+
+
 async def _build_candidate_filtered_query(
     db: AsyncSession,
     filters: CandidateFilterSpec,
     *,
     load_list_relations: bool = False,
+    semantic_pool_ids: Optional[list[int]] = None,
 ):
     """Build the canonical candidate query used by list and filtered export.
 
     The returned OR-groups are also consumed by relevance ordering and list
     snippets, keeping parsing identical across both callers.
+
+    ``semantic_pool_ids`` (lista, tryb semantyczny `q`): tekst NIE jest
+    dopasowywany dosłownie — wynik zawęża się do puli retrievalu
+    (`candidate_text_retrieval.semantic_pool`). Pusta pula = zero wyników,
+    nigdy cała baza.
     """
     f = filters
     query = select(Candidate)
@@ -891,11 +938,21 @@ async def _build_candidate_filtered_query(
         query = query.where(cc_clause)
     for tag_clause in predicates.tags_clauses(f.tags, sem):
         query = query.where(tag_clause)
+    try:
+        language_clauses = predicates.language_clauses(f.languages)
+    except predicates.InvalidLanguageFilter as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    for language_clause in language_clauses:
+        query = query.where(language_clause)
 
-    # Tekst `q`: lista zna wyłącznie dopasowanie DOSŁOWNE (nie ma retrievalu
-    # wektorowego) — `text_mode` jest przyjmowany dla zgodności kontraktu,
-    # a odpowiedź mówi uczciwie, co zrobiono (`text_mode_applied`).
-    if f.q:
+    # Tekst `q`: domyślnie dopasowanie DOSŁOWNE. W trybie semantycznym (v2 +
+    # jawne `text_mode`, decyzja w `list_candidates`) wołający podaje pulę
+    # retrievalu i to ona zastępuje dopasowanie dosłowne.
+    if semantic_pool_ids is not None:
+        query = query.where(
+            Candidate.id.in_(semantic_pool_ids) if semantic_pool_ids else false()
+        )
+    elif f.q:
         literal_clause = await predicates.prepare_literal_text(db, f.q)
         if literal_clause is not None:
             query = query.where(literal_clause)
@@ -1177,7 +1234,13 @@ def _pl_sort_key(column):
     )
 
 
-def _apply_candidate_sort(query, filters: CandidateFilterSpec, q_any_groups):
+def _apply_candidate_sort(
+    query,
+    filters: CandidateFilterSpec,
+    q_any_groups,
+    *,
+    pool_order: Optional[list[int]] = None,
+):
     """Sortowanie listy. „Mile widziane" (`skills_preferred`) prowadzi KAŻDE
     sortowanie — tak samo jak chipy podbijające ranking w wyszukiwarce
     (decyzja 17.09.2026); żądany `sort` rozstrzyga w obrębie tej samej liczby
@@ -1203,10 +1266,25 @@ def _apply_candidate_sort(query, filters: CandidateFilterSpec, q_any_groups):
         )
         if unknown_rank is not None:
             query = query.order_by(unknown_rank.asc())
-    return _apply_requested_sort(query, filters, q_any_groups)
+    return _apply_requested_sort(query, filters, q_any_groups, pool_order=pool_order)
 
 
-def _apply_requested_sort(query, filters: CandidateFilterSpec, q_any_groups):
+def _apply_requested_sort(
+    query,
+    filters: CandidateFilterSpec,
+    q_any_groups,
+    *,
+    pool_order: Optional[list[int]] = None,
+):
+    if pool_order is not None and filters.sort == "relevance":
+        # Tryb semantyczny: kolejność retrievalu (RRF / reranker) — ta sama
+        # co w wyszukiwarce; `id` tylko jako stabilny tie-break.
+        return query.order_by(
+            func.array_position(
+                literal(pool_order, type_=ARRAY(Integer)), Candidate.id
+            ).asc(),
+            Candidate.id.asc(),
+        )
     if filters.sort == "oldest":
         return query.order_by(Candidate.created_at.asc(), Candidate.id.asc())
     if filters.sort == "name":
@@ -1351,6 +1429,17 @@ async def list_candidates(
             "WHOLE-tag, case-insensitive match (`java` does not match `javascript`)."
         ),
     ),
+    languages: Optional[list[str]] = Query(
+        None,
+        description=(
+            "Languages — repeat the param; every entry required (AND). Value is "
+            "`code` (threshold B2, like the search engine default) or "
+            "`code:LEVEL` with LEVEL in A1, A2, B1, B2, C1, C2, native "
+            "(e.g. `languages=en:B2&languages=de`). `native` satisfies every "
+            "CEFR threshold; an unknown/descriptive level satisfies none. "
+            "Invalid value → 422."
+        ),
+    ),
     country: Optional[list[str]] = Query(
         None,
         description="ISO country codes (`PL`, `DE`) — any of. Case-insensitive.",
@@ -1373,9 +1462,14 @@ async def list_candidates(
     text_mode: Optional[Literal["auto", "literal", "semantic"]] = Query(
         None,
         description=(
-            "How to read `q`. The list engine only supports LITERAL matching; the "
-            "param is accepted for contract parity with the search engine and the "
-            "response reports `text_mode_applied` + `interpretation`."
+            "How to read `q`. Under `semantics_version=2`, `semantic` (and `auto` "
+            "for text that does not look like a person / e-mail / phone) runs the "
+            "search engine's hybrid retrieval (BM25 + dense + RRF + rerank) and "
+            "restricts the list to that pool (at most `SEARCH_HYBRID_POOL_SIZE` "
+            "people; `result_cap_reached` says when the cap was hit). `literal`, "
+            "person-looking text, v1 and requests WITHOUT `text_mode` keep the "
+            "literal match. The response reports `text_mode_applied`, "
+            "`interpretation` and `search_degraded`."
         ),
     ),
     hide_unknown: Optional[bool] = Query(
@@ -1754,6 +1848,8 @@ async def list_candidates(
             "'name' = name ASC, lastname ASC; 'relevance' = trigram similarity "
             "between query phrase and name+lastname+email DESC (auto-falls "
             "back to 'newest' when no `q` / `q_all` / `q_any` is provided). "
+            "In the semantic text mode 'relevance' — and an ABSENT `sort` — "
+            "order by retrieval rank; other sorts apply over the pool. "
             "All include `id` tie-breaker for 100% stable pagination across "
             "requests (required for next/prev candidate navigation in the UI)."
         ),
@@ -1792,6 +1888,7 @@ async def list_candidates(
         skills_preferred=skills_preferred,
         skills_excluded=skills_excluded,
         tags=tags,
+        languages=languages,
         country=country,
         location_cities=location_cities,
         location_scope=location_scope,
@@ -1839,11 +1936,26 @@ async def list_candidates(
     list_semantics = search_predicates.semantics_for(
         "list", semantics_version, hide_unknown
     )
+    # Tekst `q` w trybie semantycznym — WYŁĄCZNIE v2 z jawnym `text_mode`
+    # auto/semantic. v1 i żądania bez `text_mode` (alerty zapisanych wyszukiwań
+    # odtwarzają zapisane parametry) zostają przy dopasowaniu dosłownym.
+    q_stripped = (q or "").strip()
+    semantic_pool, text_interpretation = await _resolve_semantic_text(db, filters)
+    if semantic_pool is not None and "sort" not in request.query_params:
+        filters = filters.model_copy(update={"sort": "relevance"})
     query, q_any_groups = await _build_candidate_filtered_query(
-        db, filters, load_list_relations=True
+        db,
+        filters,
+        load_list_relations=True,
+        semantic_pool_ids=semantic_pool.ids if semantic_pool is not None else None,
     )
     filtered_query = query
-    query = _apply_candidate_sort(query, filters, q_any_groups)
+    query = _apply_candidate_sort(
+        query,
+        filters,
+        q_any_groups,
+        pool_order=semantic_pool.ids if semantic_pool is not None else None,
+    )
     query = query.offset((page - 1) * page_size).limit(page_size)
     # Single pass: `count(*) OVER()` carries the full (pre-LIMIT) filtered total
     # on every returned row, so the search filter executes once for both the
@@ -2185,25 +2297,30 @@ async def list_candidates(
             )
         response_items.append(payload)
 
-    # „Rozumiem to jako…": lista dopasowuje `q` wyłącznie DOSŁOWNIE, więc
-    # `text_mode_applied` mówi to wprost niezależnie od żądanego `text_mode`;
-    # `interpretation` niesie to, co wynikałoby z samego tekstu. Bazę pytamy
-    # (reguła pojedynczego słowa) tylko w v2 albo przy jawnym `text_mode`.
-    q_stripped = (q or "").strip()
+    # „Rozumiem to jako…": `text_mode_applied` mówi, co NAPRAWDĘ zrobiono
+    # (`semantic` / `literal` / `none`); `interpretation` niesie to, co wynika
+    # z samego tekstu. Bazę pytamy (reguła pojedynczego słowa) tylko w v2 albo
+    # przy jawnym `text_mode` — to samo zapytanie co przy decyzji wyżej.
     interpretation = None
-    if q_stripped and (list_semantics.unified or text_mode is not None):
-        interpretation = (
-            await search_predicates.interpret_text(db, q_stripped)
-        ).as_dict()
+    if text_interpretation is not None:
+        interpretation = text_interpretation.as_dict()
     elif q_stripped:
         interpretation = search_predicates.detect_text_mode(q_stripped).as_dict()
+    if semantic_pool is not None:
+        text_mode_applied = "semantic"
+    else:
+        text_mode_applied = "literal" if q_stripped else "none"
     return CandidateList(
         items=response_items,
         total=total,
         page=page,
         page_size=page_size,
-        text_mode_applied="literal" if q_stripped else "none",
+        text_mode_applied=text_mode_applied,
         interpretation=interpretation,
+        search_degraded=bool(semantic_pool is not None and semantic_pool.degraded),
+        result_cap_reached=bool(
+            semantic_pool is not None and semantic_pool.cap_reached
+        ),
     )
 
 
@@ -2534,7 +2651,15 @@ async def export_candidates_v2(
                 status_code=422,
                 detail="scope='filtered' does not accept candidate_ids",
             )
-        query, q_any_groups = await _build_candidate_filtered_query(db, payload.filters)
+        export_filters = payload.filters
+        export_pool, _ = await _resolve_semantic_text(db, export_filters)
+        if export_pool is not None and "sort" not in export_filters.model_fields_set:
+            export_filters = export_filters.model_copy(update={"sort": "relevance"})
+        query, q_any_groups = await _build_candidate_filtered_query(
+            db,
+            export_filters,
+            semantic_pool_ids=export_pool.ids if export_pool is not None else None,
+        )
         total_query = select(func.count()).select_from(query.order_by(None).subquery())
         total = int(await db.scalar(total_query) or 0)
         if total > payload.limit:
@@ -2545,7 +2670,12 @@ async def export_candidates_v2(
                     f"{payload.limit}. Narrow the filters or raise the limit."
                 ),
             )
-        query = _apply_candidate_sort(query, payload.filters, q_any_groups)
+        query = _apply_candidate_sort(
+            query,
+            export_filters,
+            q_any_groups,
+            pool_order=export_pool.ids if export_pool is not None else None,
+        )
 
     # Immutable audit — scope + format only, no PII / filter values.
     candidate_audit.record_candidate_audit(
@@ -3424,6 +3554,8 @@ async def get_candidate_quick_view(
             competence_category=candidate.competence_category,
             skills=candidate.skills,
             contact_case=quick_view_contact_case,
+            expected_rate_hourly=candidate.expected_rate_hourly,
+            expected_rate_currency=candidate.expected_rate_currency,
         ),
         current_position=CandidateQuickViewPosition(
             **resolve_current_position(candidate)
@@ -3697,8 +3829,10 @@ async def get_candidate_history(
             Job.title,
             Job.status.label("job_status"),
             RejectionReason.name.label("rejection_reason_name"),
+            client_display_name_expression().label("client_name"),
         )
         .join(Job, CandidateStage.job_id == Job.id)
+        .outerjoin(Client, Client.id == Job.client_id)
         .outerjoin(
             RejectionReason,
             RejectionReason.id == CandidateStage.rejection_reason_id,
@@ -3710,13 +3844,21 @@ async def get_candidate_history(
 
     # Group by job
     jobs_map: dict = {}
-    for stage, job_title, job_status, rejection_reason_name in stages_result.all():
+    for (
+        stage,
+        job_title,
+        job_status,
+        rejection_reason_name,
+        client_name,
+    ) in stages_result.all():
         job_id = stage.job_id
         if job_id not in jobs_map:
             jobs_map[job_id] = {
                 "job_id": job_id,
                 "job_title": job_title,
                 "job_status": job_status,
+                # Klient rekrutacji — karta na profilu mówi, u kogo jest proces.
+                "client_name": client_name,
                 "stages": [],
                 "latest_stage": None,
                 # latest_stage_id wskazuje na najnowszy CandidateStage row
@@ -3780,7 +3922,6 @@ async def get_candidate_history(
 
     # Contracts
     from app.models.contract import Contract
-    from app.models.client import Client
 
     contracts_result = await db.execute(
         select(Contract, client_display_name_expression().label("client_name"))

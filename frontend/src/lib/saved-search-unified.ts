@@ -50,6 +50,11 @@ export interface UnifiedCandidateSearchRequest {
   /** `location_only` = dotychczasowy zakres listy (sama kolumna `location`). */
   location_scope?: "city_or_location" | "location_only";
   hide_unknown?: boolean;
+  /**
+   * Języki (każdy wymagany) — `{code: "EN", min_level?: "B2"}`. Od 22.09.2026
+   * wspólne: lista przyjmuje je jako `languages=kod[:POZIOM]`.
+   */
+  languages?: Array<{ code: string; min_level?: string }>;
   /** Filtry, które zna tylko lista (pule, etapy, zatrudnienie…). */
   list_only?: Dict;
   /** Filtry, które zna tylko wyszukiwarka (języki, źródła, tryb…). */
@@ -126,6 +131,7 @@ const SHARED_KEYS = [
   "location_countries",
   "location_scope",
   "hide_unknown",
+  "languages",
 ] as const;
 
 const OPEN_TO_FLAGS: ReadonlyArray<readonly [string, string]> = [
@@ -133,6 +139,44 @@ const OPEN_TO_FLAGS: ReadonlyArray<readonly [string, string]> = [
   ["open_to_sales_support", "sales_support"],
   ["open_to_expert_consult", "expert_consult"],
 ];
+
+/** Lustro `_languages_from_list`: `"en:b2"` → `{code: "EN", min_level: "B2"}`. */
+function languagesFromList(value: unknown): Dict[] {
+  const out: Dict[] = [];
+  for (const entry of asList(value)) {
+    if (isDict(entry)) {
+      out.push({ ...entry });
+      continue;
+    }
+    const raw = String(entry).trim();
+    const idx = raw.indexOf(":");
+    const code = (idx >= 0 ? raw.slice(0, idx) : raw).trim();
+    if (!code) continue;
+    const item: Dict = { code: code.toUpperCase() };
+    const level = idx >= 0 ? raw.slice(idx + 1).trim() : "";
+    if (idx >= 0 && level) {
+      item.min_level = level.toLowerCase() === "native" ? "native" : level.toUpperCase();
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+/** Lustro `_languages_to_list`: `{code, min_level?}` → `kod[:POZIOM]`. */
+function languagesToList(value: unknown): string[] {
+  const out: string[] = [];
+  for (const entry of asList(value)) {
+    if (isDict(entry)) {
+      const code = String(entry.code ?? "").trim();
+      if (!code) continue;
+      const level = entry.min_level;
+      out.push(level ? `${code}:${String(level)}` : code);
+    } else if (String(entry).trim()) {
+      out.push(String(entry).trim());
+    }
+  }
+  return out;
+}
 
 const isDict = (v: unknown): v is Dict =>
   !!v && typeof v === "object" && !Array.isArray(v);
@@ -234,6 +278,7 @@ export function listApiToUnified(api: Dict): UnifiedCandidateSearchRequest {
     "country",
     "location_scope",
     "hide_unknown",
+    "languages",
   ]);
   const listOnly: Dict = {};
   for (const [k, v] of Object.entries(api)) {
@@ -263,6 +308,7 @@ export function listApiToUnified(api: Dict): UnifiedCandidateSearchRequest {
     location_countries: asList(api.country),
     location_scope: api.location_scope,
     hide_unknown: api.hide_unknown,
+    languages: languagesFromList(api.languages),
     list_only: listOnly,
   });
 }
@@ -322,6 +368,7 @@ export function searchRequestToUnified(body: Dict): UnifiedCandidateSearchReques
     "location_countries",
     "location_scope",
     "hide_unknown",
+    "languages",
     ...OPEN_TO_FLAGS.map(([flag]) => flag),
   ]);
   for (const [k, v] of Object.entries(body)) {
@@ -347,6 +394,7 @@ export function searchRequestToUnified(body: Dict): UnifiedCandidateSearchReques
     experience_years_min: body.experience_years_min,
     experience_years_max: body.experience_years_max,
     tags: asList(body.tags),
+    languages: asList(body.languages),
     location_cities: asList(body.location_cities),
     location_countries: asList(body.location_countries),
     location_scope: body.location_scope,
@@ -428,6 +476,7 @@ export function unifiedToListParams(request: UnifiedCandidateSearchRequest): Dic
   if ("q_any_groups" in req) {
     out.q_any_group = (req.q_any_groups as string[][]).map((g) => g.join("|"));
   }
+  if ("languages" in req) out.languages = languagesToList(req.languages);
   return out;
 }
 

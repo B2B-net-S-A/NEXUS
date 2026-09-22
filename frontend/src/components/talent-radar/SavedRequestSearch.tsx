@@ -14,9 +14,10 @@ import { SavedRequestRequirements } from "./SavedRequestRequirements";
 import { useCanVerifyRequirements } from "./RequirementVerificationDialog";
 import { FullCandidateSearchResults } from "./FullCandidateSearchResults";
 
-type JobRef = { id: number; title: string; client_name?: string | null };
+export type SavedRequestJobRef = { id: number; title: string; client_name?: string | null };
+type JobRef = SavedRequestJobRef;
 
-function RequestResults({ job }: { job: JobRef }) {
+function RequestResults({ job, requirementsOpen = false }: { job: JobRef; requirementsOpen?: boolean }) {
   const actorId = useAuthStore(s => s.user?.id);
   const canEdit = useCapability("job.update");
   const canVerify = useCanVerifyRequirements();
@@ -25,7 +26,7 @@ function RequestResults({ job }: { job: JobRef }) {
   return <div className="space-y-4">
     <p className="font-medium">{job.title}{job.client_name ? ` · ${job.client_name}` : ""}</p>
     <p className="text-sm text-muted-foreground">Klient, hiring manager, budżet, lokalizacja i wymagania pochodzą z zapisanej rekrutacji.</p>
-    <SavedRequestRequirements jobId={job.id} canEdit={canEdit} onSaved={search.clear} />
+    <SavedRequestRequirements jobId={job.id} canEdit={canEdit} onSaved={search.clear} defaultOpen={requirementsOpen} />
     <Button disabled={search.running} onClick={() => void search.start({ job_id: job.id })}>{search.running ? "Przegląd trwa…" : "Szukaj w całej bazie"}</Button>
     <ChampionValidationPanel validation={championErrorValidation(search.error)} />
     <FullCandidateSearchResults jobId={job.id} canVerify={canVerify} onVerified={() => { void search.refresh(); }} data={search.data} error={search.error} loading={search.loading} fetching={search.fetching} offset={search.offset} onPage={search.setOffset} canOpenProfile={canOpenProfile}
@@ -34,22 +35,32 @@ function RequestResults({ job }: { job: JobRef }) {
   </div>;
 }
 
-export function SavedRequestSearch() {
+interface SavedRequestSearchProps {
+  /** Rekrutacja wybrana wcześniej (okno „Szukaj z requestu" na liście). */
+  initialJob?: SavedRequestJobRef;
+  /** Bez wyszukiwarki rekrutacji — wybór zapadł w oknie. */
+  hidePicker?: boolean;
+}
+
+export function SavedRequestSearch({ initialJob, hidePicker = false }: SavedRequestSearchProps = {}) {
   const actorId = useAuthStore(s => s.user?.id);
   const [text, setText] = useState("");
   const [queryText, setQueryText] = useState("");
   const [page, setPage] = useState(1);
-  const [selected, setSelected] = useState<JobRef | null>(null);
+  const [selected, setSelected] = useState<JobRef | null>(initialJob ?? null);
   useEffect(() => {
-    if (!actorId) return;
+    if (!actorId || initialJob) return;
     try { const saved = JSON.parse(sessionStorage.getItem(`nexus-radar-request:${actorId}`) ?? "null"); if (saved && Number.isInteger(saved.id) && typeof saved.title === "string") setSelected(saved); } catch {}
-  }, [actorId]);
-  const jobs = useQuery({ queryKey: ["radar-request-picker", queryText, page], queryFn: () => jobsApi.list({ q: queryText || undefined, page, page_size: 20 }).then(r => r.data as { items: JobRef[]; total: number }) });
+  }, [actorId, initialJob]);
+  const jobs = useQuery({ queryKey: ["radar-request-picker", queryText, page], enabled: !hidePicker, queryFn: () => jobsApi.list({ q: queryText || undefined, page, page_size: 20 }).then(r => r.data as { items: JobRef[]; total: number }) });
   const choose = (job: JobRef) => {
     const ref = { id: job.id, title: job.title, client_name: job.client_name };
     setSelected(ref);
     if (actorId) { try { sessionStorage.setItem(`nexus-radar-request:${actorId}`, JSON.stringify(ref)); } catch {} }
   };
+  if (hidePicker) {
+    return <div className="space-y-4">{selected && <RequestResults key={selected.id} job={selected} requirementsOpen />}</div>;
+  }
   return <div className="space-y-4">
     <PageHeader title="Talent Radar" description="Wybierz tę samą rekrutację co w pipeline, aby użyć wspólnego requestu i rankingu." />
     <form className="flex gap-2" onSubmit={e => { e.preventDefault(); setQueryText(text.trim()); setPage(1); }}>

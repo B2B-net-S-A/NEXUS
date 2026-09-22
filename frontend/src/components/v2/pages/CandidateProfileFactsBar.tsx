@@ -890,7 +890,12 @@ export function CandidateProfileFactsBar({
   // globalnych) oraz `finance` (tier recruitera od 19.08), którego ręczna
   // lista tu gubiła. To NIE jest RECRUITMENT_RATE_EDIT_ROLES: tamten zbiór
   // (bez HoR i sourcera) bramkuje stawkę w pipelinie, nie fakt globalny.
+  //
+  // Ta sama capability bramkuje KAŻDĄ edycję w pasku: PUT języków i PATCH
+  // lokalizacji stoją na tym samym CandidateProfileFactsWriteAccess. Ołówek
+  // bez prawa zapisu kończył się 403 po kliknięciu „Zapisz”.
   const canViewAndEditRate = useCapability("candidate.profile_fact.manage");
+  const canEditFacts = canViewAndEditRate;
   const [languagesOpen, setLanguagesOpen] = React.useState(false);
   const [locationOpen, setLocationOpen] = React.useState(false);
   const [rateOpen, setRateOpen] = React.useState(false);
@@ -977,10 +982,12 @@ export function CandidateProfileFactsBar({
             label="Języki"
             muted={languageSummary.length === 0}
             action={
-              <EditFactButton
-                label="Edytuj języki"
-                onClick={() => setLanguagesOpen(true)}
-              />
+              canEditFacts ? (
+                <EditFactButton
+                  label="Edytuj języki"
+                  onClick={() => setLanguagesOpen(true)}
+                />
+              ) : null
             }
           >
             {languageSummary.length ? (
@@ -1012,10 +1019,12 @@ export function CandidateProfileFactsBar({
           label="Lokalizacja"
           muted={!location}
           action={
-            <EditFactButton
-              label="Edytuj lokalizację"
-              onClick={() => setLocationOpen(true)}
-            />
+            canEditFacts ? (
+              <EditFactButton
+                label="Edytuj lokalizację"
+                onClick={() => setLocationOpen(true)}
+              />
+            ) : null
           }
         >
           {location || "Nie uzupełniono"}
@@ -1070,7 +1079,7 @@ export function CandidateProfileFactsBar({
         ) : null}
       </section>
 
-      {languagesQuery.data ? (
+      {canEditFacts && languagesQuery.data ? (
         <LanguagesEditor
           open={languagesOpen}
           onOpenChange={setLanguagesOpen}
@@ -1078,11 +1087,13 @@ export function CandidateProfileFactsBar({
           queryData={languagesQuery.data}
         />
       ) : null}
-      <LocationEditor
-        open={locationOpen}
-        onOpenChange={setLocationOpen}
-        candidate={candidate}
-      />
+      {canEditFacts ? (
+        <LocationEditor
+          open={locationOpen}
+          onOpenChange={setLocationOpen}
+          candidate={candidate}
+        />
+      ) : null}
       {rateQuery.data ? (
         <RateEditor
           open={rateOpen}

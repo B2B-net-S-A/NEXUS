@@ -517,6 +517,23 @@ describe("CandidateProfileFactsBar", () => {
     expect(mockedFactsApi.getProfileRate).not.toHaveBeenCalled();
   });
 
+  // PUT języków i PATCH lokalizacji stoją na tym samym
+  // CandidateProfileFactsWriteAccess co stawka. Ołówek bez prawa zapisu
+  // otwierał okno, którego „Zapisz” kończyło się 403.
+  it("hides language and location edit buttons without the write capability", async () => {
+    auth.role = "user";
+    renderBar();
+
+    expect(await screen.findByText("Angielski · C1")).toBeInTheDocument();
+    expect(screen.getByText("Warszawa, PL")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Edytuj języki" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Edytuj lokalizację" }),
+    ).not.toBeInTheDocument();
+  });
+
   // Fakty globalne stoją na _INTERNAL_OPERATIONAL_ROLES, a nie na węższym
   // RECRUITMENT_RATE_EDIT_ROLES (bramka stawki w pipelinie, bez HoR
   // i sourcera). Ten przypadek pilnuje, żeby nikt nie „poprawił" mapowania

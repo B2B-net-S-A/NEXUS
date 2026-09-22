@@ -74,7 +74,7 @@ def test_skaner_odtwarza_v3_sciezka_wspolna_a_legacy_bez_zmian() -> None:
     }
 
     # zapis wyszukiwarki z filtrem, którego lista nie zna → nie do odtworzenia
-    search = {"skills_must": ["Python"], "languages": [{"code": "EN"}]}
+    search = {"skills_must": ["Python"], "has_cv": True}
     _fmt, origin, request = p.read_saved_search(search)
     assert (
         alert_list_params(
@@ -146,3 +146,35 @@ def test_zapis_listy_w_v2_nie_jest_neutralizowany() -> None:
     assert p.list_payload_is_unified(v1) is False
     assert p.list_payload_is_unified({"qs": "q=x"}) is False
     assert p.list_payload_is_unified(None) is False
+
+
+def test_jezyki_sa_wspolne_i_odtwarzalne_przez_liste() -> None:
+    """22.09.2026: lista zna `?languages=` — zapis wyszukiwarki z językami
+    przestaje być „luką listy", a alert odtwarza go parametrem listy."""
+    from app.tasks.saved_search_alerts import alert_list_params
+
+    search = {"skills_must": ["Python"], "languages": [{"code": "EN"}]}
+    _fmt, origin, request = p.read_saved_search(search)
+    assert request["languages"] == [{"code": "EN"}]
+    assert p.list_engine_gaps(request) == []
+    migrated = p.build_unified_payload(search, origin=origin, request=request)
+    assert alert_list_params(migrated) == {
+        "semantics_version": 2,
+        "skills_preferred": ["Python"],
+        "languages": ["EN"],
+    }
+    assert p.unified_to_search_body(request)["languages"] == [{"code": "EN"}]
+
+
+def test_skaner_czyta_tekst_doslownie() -> None:
+    """Retrieval semantyczny listy nie może trafić do alertów: pula z całej
+    bazy przecięta ze znakiem wodnym gubiłaby nowych kandydatów."""
+    from app.tasks.saved_search_alerts import alert_list_params
+
+    search = {"q": "python fintech", "text_mode": "auto"}
+    _fmt, origin, request = p.read_saved_search(search)
+    migrated = p.build_unified_payload(search, origin=origin, request=request)
+    assert alert_list_params(migrated)["text_mode"] == "literal"
+    legacy = {"version": 2, "qs": "", "api": {"q": "x", "text_mode": "semantic"}}
+    assert alert_list_params(legacy) == {"q": "x", "text_mode": "literal"}
+    assert p.with_literal_text({"q": "x"}) == {"q": "x"}

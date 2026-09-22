@@ -38,6 +38,8 @@ interface Props {
   onAssigned?: (jobId: number) => void;
   /** Keep recommendations visible while hiding assignment mutations. */
   canAssign?: boolean;
+  /** Nagłówek karty (profil kandydata: „Pasujące otwarte rekrutacje”). */
+  title?: string;
 }
 
 function ScoreChip({ score }: { score: number | null }) {
@@ -61,6 +63,7 @@ export function SuggestedJobsWidget({
   hideWhenEmpty = false,
   onAssigned,
   canAssign = true,
+  title = "Sugerowane rekrutacje",
 }: Props) {
   const usingExternal = externalMatches !== undefined;
   const topK = Math.max(maxItems, 10);
@@ -141,7 +144,7 @@ export function SuggestedJobsWidget({
           className="flex items-center gap-2 text-sm font-semibold text-foreground"
         >
           <Sparkles className="h-4 w-4 text-primary" />
-          Sugerowane rekrutacje
+          {title}
         </h3>
         <div className="flex items-center gap-2">
           {onShowAll && matches.length > 0 ? (

@@ -39,6 +39,10 @@ from app.services import candidate_search_predicates as predicates
 from app.services.ai_health import ai_status
 from app.services.eligibility_annotation import eligibility_annotation
 from app.services.candidate_profile_rate import canonical_profile_rate_amount
+from app.services.candidate_text_retrieval import (
+    HYBRID_POOL_DEFAULT,
+    hybrid_pool_size,
+)
 from app.services.client_access import resolve_client_visible_client_ids
 from app.services.client_identity import (
     client_display_name,
@@ -65,43 +69,11 @@ from app.services.structured_candidate_search import (
 router = APIRouter()
 
 
-# Ile osób ogląda tryb semantyczny na jedno zapytanie. To jest SUFIT WYNIKU,
-# nie tylko szczegół retrievalu: `total` w trybie hybrydowym nigdy nie przekroczy
-# tej liczby, bo zbiór wynikowy jest przecięciem puli z filtrami. Zmiana tej
-# wartości zmienia więc to, co rekruter widzi jako „liczbę wyników" — i koszt
-# rerankera Voyage, który dostaje CAŁĄ pulę przy KAŻDYM żądaniu strony.
-#
-# Ten koszt jest większy, niż sugeruje konfiguracja: komentarz przy
-# `RERANKER_ENABLED` budżetuje „~595 ms p95", ale docstring `reranker_service`
-# mówi, że ta liczba dotyczy ~50 dokumentów. Przy 200 wysyłamy czterokrotność
-# tego budżetu, do 200 pełnych wierszy ORM i do 800 KB tekstu — i płacimy to
-# ponownie przy każdej zmianie strony, bo endpoint jest BEZSTANOWY. Dawny
-# komentarz przy wywołaniu twierdził, że zapas 200 „oszczędza odpytywanie
-# orchestratora przy zmianie strony"; nie oszczędza — nie ma czego zapamiętać
-# między żądaniami.
-#
-# Czy 200 wygrywa ze 100, wie wyłącznie pomiar (`scripts/eval_matching.py`),
-# a nie ten komentarz. Dlatego wartość jest teraz POKRĘTŁEM, nie stałą wbitą
-# w kod: da się ją przestawić zmienną środowiskową i zmierzyć obie, bez deployu.
-_HYBRID_POOL_DEFAULT = 200
-
-
-def _hybrid_pool_size() -> int:
-    from app.core.config import settings  # noqa: PLC0415
-
-    # Wartość bezsensowna (0, ujemna, `None`) wraca do DOMYŚLNEJ, nie do 1.
-    # Pierwsza wersja robiła `max(1, raw or 200)`, co dawało dwa różne
-    # zachowania dla dwóch równie bezsensownych wejść: `0` → 200 (bo `or`
-    # zwierał się przed `max`), a `-5` → 1. Pula równa 1 nie jest zresztą
-    # sensowniejsza od zera — wyszukiwarka oglądałaby jedną osobę i wyglądałoby
-    # to jak pusta baza, czyli ta sama pomyłka, przed którą broni
-    # `search_degraded`.
-    raw = getattr(settings, "SEARCH_HYBRID_POOL_SIZE", _HYBRID_POOL_DEFAULT)
-    try:
-        parsed = int(raw)
-    except (TypeError, ValueError):
-        return _HYBRID_POOL_DEFAULT
-    return parsed if parsed > 0 else _HYBRID_POOL_DEFAULT
+# Rozmiar puli trybu semantycznego i sam retrieval mieszkają we wspólnym
+# module — od 22.09.2026 czyta je także lista `GET /api/candidates`.
+# Aliasy zostają dla istniejących importów (testy pokręteł puli).
+_HYBRID_POOL_DEFAULT = HYBRID_POOL_DEFAULT
+_hybrid_pool_size = hybrid_pool_size
 
 
 def _can_read_section(user: Any, section: ProductSection) -> bool:
