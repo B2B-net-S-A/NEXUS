@@ -171,7 +171,10 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 - **`checks.background_tasks` zna zawieszone pętle (MON-04, od 15.09.2026):**
   krytyczne pętle robią `beat.tick()` na początku iteracji
   (`services/loop_heartbeat.py`, w pamięci procesu — backend to jeden uvicorn);
-  cisza dłuższa niż próg pętli = `degraded: stalled a,b`. Nowa pętla w
+  cisza dłuższa niż próg pętli = `unhealthy: stalled a,b` (od 22.09.2026 →
+  issue z joba `health-checks` w uptime-probe; tydzień 15–22.09 w `degraded`
+  dał 0 × `stalled` na 43 odczytach; `status`/503 nadal zależy tylko od bazy;
+  wartość składa `loop_heartbeat.health_value`). Nowa pętla w
   `app.state.background_tasks` musi mieć heartbeat albo wpis w `EXEMPT`
   z powodem (`test_loop_heartbeat.py`). Progi obejmują najdłuższy bieg (Traffit
   full: 12 h ponad interwał).

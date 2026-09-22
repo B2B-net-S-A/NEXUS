@@ -211,6 +211,26 @@ def test_hard_failure_opens_the_alarm(tmp_path: Path, state: str) -> None:
 
 
 @requires_jq
+def test_stalled_background_loop_opens_the_alarm(tmp_path: Path) -> None:
+    """MON-04: wartość z `loop_heartbeat.health_value` musi trafić w regex severity.
+
+    Pętla żyje (`done() == False`), ale nie iteruje — np. zawieszony await na
+    dostawcy bez timeoutu. Bez tego alarmu synchronizacja stoi przy zielonym
+    `status`.
+    """
+    from app.services.loop_heartbeat import health_value
+
+    rc, outputs, annotations = _run(
+        tmp_path, _payload(background_tasks=health_value(["m365"]))
+    )
+    assert rc == 0
+    assert outputs["fail"] == "1"
+    assert any(
+        a.startswith("::error") and "background_tasks" in a for a in annotations
+    )
+
+
+@requires_jq
 def test_degraded_warns_but_does_not_page(tmp_path: Path) -> None:
     """`degraded` bywa stanem operacyjnym na całe dni (np. sync Traffita).
 

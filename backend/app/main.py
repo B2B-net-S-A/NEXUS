@@ -2492,13 +2492,12 @@ async def api_health_check():
                 )
             else:
                 # MON-04: zadanie żyje, ale jego pętla nie zaczęła iteracji dłużej
-                # niż próg (zawieszony await). `degraded` = ostrzeżenie w
-                # uptime-probe; podniesienie do `unhealthy` po tygodniu obserwacji.
-                from app.services.loop_heartbeat import heartbeats
+                # niż próg (zawieszony await). `unhealthy` = issue z uptime-probe
+                # (od 22.09.2026, po tygodniu `degraded` bez fałszywych alarmów).
+                from app.services.loop_heartbeat import health_value, heartbeats
 
-                _stalled = heartbeats.stalled(running=set(_cls["tasks"]))
-                checks["background_tasks"] = (
-                    f"degraded: stalled {','.join(_stalled)}" if _stalled else "healthy"
+                checks["background_tasks"] = health_value(
+                    heartbeats.stalled(running=set(_cls["tasks"]))
                 )
     except Exception as exc:
         logger.warning("[health] background_tasks check failed: %s", exc)

@@ -49,6 +49,19 @@ def test_crashed_or_finished_task_is_not_counted_as_stalled() -> None:
     assert registry.stalled(running={"dead"}) == ["dead"]
 
 
+def test_stalled_loop_is_unhealthy_after_observation_week() -> None:
+    """MON-04: tydzień 15–22.09.2026 w `degraded` bez ani jednego `stalled`.
+
+    Zawieszona pętla to awaria z właścicielem — prefiks `unhealthy` otwiera
+    issue w uptime-probe (`degraded` dawał tylko ostrzeżenie w logu runu).
+    """
+    assert loop_heartbeat.health_value([]) == "healthy"
+    assert (
+        loop_heartbeat.health_value(["m365", "traffit_sync"])
+        == "unhealthy: stalled m365,traffit_sync"
+    )
+
+
 def test_threshold_has_a_floor() -> None:
     registry = loop_heartbeat.Registry(clock=_Clock())
     assert registry.register("x", max_silence_seconds=1).max_silence_seconds == 60
