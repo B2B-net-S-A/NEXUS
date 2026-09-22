@@ -310,6 +310,27 @@ describe("PipelineCandidateDock", () => {
 
     expect(onOpenScreening).toHaveBeenCalledWith(501, "Anna Kowalska");
   });
+  it("warsztaty z dawnej Tabeli (CV do klienta, rozmowy, umowa) otwierają się z doku", async () => {
+    const user = userEvent.setup();
+    const onOpenWorkbench = vi.fn();
+    renderDock({ onOpenWorkbench, item: { ...baseItem(), stage: "new" } });
+    // Etap „Nowi" → sekcja „Teraz" to CV.
+    await user.click(
+      await screen.findByRole("button", { name: /Wysyłka CV do klienta/ }),
+    );
+    expect(onOpenWorkbench).toHaveBeenLastCalledWith("cv");
+    await user.click(screen.getByRole("button", { name: /^W procesie/ }));
+    await user.click(await screen.findByRole("button", { name: /Rozmowy i werdykt klienta/ }));
+    expect(onOpenWorkbench).toHaveBeenLastCalledWith("interviews");
+    await user.click(screen.getByRole("button", { name: /^Umowa/ }));
+    expect(onOpenWorkbench).toHaveBeenLastCalledWith("contract");
+  });
+
+  it("bez kontekstu warsztatów dok nie pokazuje ich przycisków", async () => {
+    renderDock({ item: { ...baseItem(), stage: "new" } });
+    await screen.findByRole("button", { name: /Pokaż CV oryginalne/ });
+    expect(screen.queryByRole("button", { name: /Wysyłka CV do klienta/ })).toBeNull();
+  });
 });
 
 // ── Fala 3 („parytet z makietami") ─────────────────────────────────────────

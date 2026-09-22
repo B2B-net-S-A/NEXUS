@@ -2522,26 +2522,38 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   procesu 5 min z indeksem odwróconym. Lista pokazuje „≈" tylko przy
   sugestiach z osobami u klienta. DL wskazuje podobne już przy tworzeniu
   (`POST /api/job-similarity/preview` → po zapisie `POST …/similar`).
-- **Tablica jest widokiem domyślnym** (`JOB_DETAIL_DEFAULT_VIEW = "board"`);
-  adres z `seg=`/`panel=` bez `tab=` otwiera Tabelę. Pierwsza kolumna
-  „Do przejrzenia" = `BoardReviewSection` (propozycje + przepięcia) wpięta
-  w kolumnę etapu „Ogłoszenia"; ✓ dodaje z `initial_stage_legacy: "screening"`.
+- **Tryb „Tabela" USUNIĘTY — rekrutacja to Tablica** (decyzja Artura
+  22.09.2026). Nagłówek nie ma przełącznika; z ekranów pobocznych (Champion,
+  „Do przejrzenia") wraca „← Tablica". `tab=people` żyje WYŁĄCZNIE dla ekranu
+  „Do przejrzenia" (`seg=proposals|shortlist`: pełne propozycje z bazy
+  i shortlista — makieta 4); każdy inny dawny adres Tabeli otwiera Tablicę,
+  a `?candidate=&panel=` otwiera od razu warsztat osoby. Warsztaty z dawnej
+  Tabeli (CV do klienta ze stawką/linkiem, rozmowy i werdykt HM, umowa) żyją
+  w `BoardWorkbenchDrawer` = `PersonPanel` w szerokim widoku, otwierany
+  z doku; zbiorcza wysyłka CV — pasek zaznaczenia Tablicy. Pierwsza kolumna
+  „Do przejrzenia" = `BoardReviewSection` na TEJ SAMEJ scalonej liście co
+  ekran propozycji (`useJobProposals`), wpięta w kolumnę etapu „Ogłoszenia"
+  i nigdy nie chowana przez „Ukryj puste kolumny"; ✓ dodaje
+  z `initial_stage_legacy: "screening"`.
 - **Dok osoby: sekcje zamiast zakładek** — „Teraz" wg etapu
   (`nowSectionForStage`: posting/new/verified → CV, screening → Screening,
   reszta → W procesie), główna akcja pod nazwiskiem, notatka zawsze na dole.
   **Okno Zlecenie: trzy bloki** (Co zamówił klient · Zespół · Ogłoszenie),
   priorytet/ustawienia/kompletność w „Więcej"; „Baza pytań" w menu „⋯".
 - **Filtry Tablicy = jeden pasek nad tablicą** (`PipelineFilterBar`) zamiast
-  lewej kolumny: nazwisko, „Mój ruch" (owner następnego kroku = rekruter,
-  ta sama `nextActionFor` co karta), utknęli, bez akcji, ostrzeżenia, poza
-  szablonem, rekruter, puste kolumny, SLA. Filtry PRZYGASZAJĄ karty, nigdy
+  lewej kolumny: na wierzchu nazwisko i „Mój ruch" (owner następnego kroku =
+  rekruter, ta sama `nextActionFor` co karta), reszta w „Filtry ▾" z licznikiem
+  aktywnych (utknęli, bez akcji, ostrzeżenia, poza szablonem, rekruter, puste
+  kolumny); po prawej „N w procesie · M utknęło" i SLA. Filtry PRZYGASZAJĄ karty, nigdy
   ich nie usuwają (indeksy `@hello-pangea/dnd`).
 
 ## Rekrutacja „wersja 3" — jedna tabela + panel osoby (21.09.2026, #1641 #1657 #1659)
 
 Decyzje Artura z 21.09.2026 (makiety „Wersja 3"): rekrutacja to JEDNA tabela osób
 (`components/v2/recruitment/`) z panelem osoby i oknami wysuwanymi; kanban zostaje
-jako przełącznik widoku (`?tab=board`). Włączone dla wszystkich ról, bez flagi per
+jako przełącznik widoku (`?tab=board`). **Od 22.09.2026 tabela osób jest usunięta
+— patrz „Podobne rekrutacje…" wyżej; reguły poniżej dotyczą panelu osoby,
+propozycji i ruchu etapu, które zostały.** Włączone dla wszystkich ról, bez flagi per
 użytkownik. Pulpit, lądowanie po loginie i pasek górny — bez zmian. Raport:
 `docs/recruiter-v3-completion-report.md`.
 

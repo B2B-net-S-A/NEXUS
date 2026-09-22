@@ -22,7 +22,7 @@ function renderHeader(
       referenceNumber="REF-505734"
       badges={<span>Aktywna</span>}
       metadata={<span>Warszawa</span>}
-      activeView="people"
+      activeView="board"
       onViewChange={onViewChange}
       onOpenOrder={onOpenOrder}
       onOpenHistoryChat={onOpenHistoryChat}
@@ -76,26 +76,13 @@ describe("JobDetailCompactHeader", () => {
     await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));
     const items = await screen.findAllByRole("menuitem");
     expect(items.map((i) => i.textContent?.trim())).toEqual(["Baza pytań"]);
-    // Przełącznik widoku i okna zostają także w trybie tylko-do-odczytu.
-    expect(screen.getByRole("button", { name: /Tabela/ })).toBeTruthy();
+    // Okna zostają także w trybie tylko-do-odczytu.
     expect(screen.getByRole("button", { name: /Zlecenie/ })).toBeTruthy();
   });
 
-  it("przełącznik „Tabela | Tablica” zastąpił listwę dwunastu kroków", async () => {
-    const { onViewChange } = renderHeader();
-
-    const group = screen.getByRole("group", { name: "Widok rekrutacji" });
-    const table = within(group).getByRole("button", { name: /Tabela/ });
-    const board = within(group).getByRole("button", { name: "Tablica" });
-    expect(within(group).getAllByRole("button")).toHaveLength(2);
-    expect(table).toHaveAttribute("aria-pressed", "true");
-    expect(board).toHaveAttribute("aria-pressed", "false");
-
-    await userEvent.click(board);
-    expect(onViewChange).toHaveBeenCalledWith("board");
-
-    // Dawne kroki nie są już nawigacją strony — żyją w pasku etapów tabeli.
-    for (const name of ["Pipeline", "Screening", "CV do klienta", "Umowa", "Pozyskaj kandydatów"]) {
+  it("dawne kroki nie są nawigacją strony", () => {
+    renderHeader();
+    for (const name of ["Pipeline", "Screening", "CV do klienta", "Umowa", "Pozyskaj kandydatów", "Tabela"]) {
       expect(screen.queryByRole("button", { name })).toBeNull();
     }
   });
@@ -138,23 +125,16 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.getByRole("button", { name: "Historia i czat" })).toBeTruthy();
   });
 
-  it("licznik „w procesie” przy Tabeli tylko, gdy jest policzony — zero to wynik, nie brak danych", () => {
-    const { unmount } = renderHeader();
-    expect(screen.getByTestId("view-people")).toHaveTextContent(/^Tabela$/);
-    unmount();
-
-    const counted = renderHeader({ pipelineCount: 26 });
-    expect(screen.getByTestId("view-people")).toHaveTextContent("Tabela26");
-    counted.unmount();
-
-    renderHeader({ pipelineCount: 0 });
-    expect(screen.getByTestId("view-people")).toHaveTextContent("Tabela0");
+  it("na Tablicy nie ma przełącznika widoku — tryb „Tabela” usunięty", () => {
+    renderHeader({ activeView: "board" });
+    expect(screen.queryByTestId("view-people")).toBeNull();
+    expect(screen.queryByTestId("view-board")).toBeNull();
   });
 
-  it("pełny widok „Zlecenie i Champion”: żaden widok tabeli nie jest wciśnięty, „Zlecenie” to zwykły przycisk okna", () => {
-    renderHeader({ activeView: "champion" });
-    expect(screen.getByTestId("view-people")).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByTestId("view-board")).toHaveAttribute("aria-pressed", "false");
+  it("z ekranu pobocznego (Champion, „Do przejrzenia”) wraca się jednym przyciskiem „Tablica”", async () => {
+    const { onViewChange } = renderHeader({ activeView: "champion" });
+    await userEvent.click(screen.getByTestId("view-board"));
+    expect(onViewChange).toHaveBeenCalledWith("board");
     expect(screen.getByTestId("open-order")).not.toHaveAttribute("aria-current");
   });
 

@@ -98,14 +98,11 @@ describe("/preview/contracts-consolidation zasiewa każdy stały klucz", () => {
 
 describe("/preview/recruitment-v3 zasiewa każdy stały klucz i nie ma sieci", () => {
   const harness = withoutComments(read("app/preview/recruitment-v3/page.tsx")).replace(/\s+/g, " ");
-  // Wszystko, co harness montuje (bezpośrednio albo przez panel osoby),
+  // Wszystko, co harness montuje, i to, co zasiew nadal obsługuje
+  // (panel osoby otwierany teraz z Tablicy),
   // plus `JobShortlist` — segment shortlisty produkcyjnie renderuje właśnie jego.
   const components = [
-    "components/v2/recruitment/RecruitmentWorkspace.tsx",
-    "components/v2/recruitment/StageStrip.tsx",
-    "components/v2/recruitment/QuickChips.tsx",
     "components/v2/recruitment/PeopleTable.tsx",
-    "components/v2/recruitment/BulkBar.tsx",
     "components/v2/recruitment/PersonPanel.tsx",
     "components/v2/recruitment/ProposalsSegment.tsx",
     "components/v2/recruitment/ProposalPanel.tsx",

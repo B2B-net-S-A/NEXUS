@@ -307,6 +307,32 @@ export interface PipelineCandidateDockProps {
   onMoveTo: (col: KanbanColumn) => void;
   onOpenScreening: (stageId: number, name: string) => void;
   onReject: () => void;
+  /**
+   * Pełny warsztat osoby (dawna „Tabela": CV do klienta ze stawką i linkiem,
+   * rozmowy z werdyktem HM, umowa) — szeroki panel nad Tablicą. Brak = bez
+   * przycisków warsztatu (np. harness).
+   */
+  onOpenWorkbench?: (section: WorkbenchSection) => void;
+}
+
+type WorkbenchSection = "cv" | "screening" | "interviews" | "contract";
+
+function WorkbenchLink({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+    >
+      {children} <span aria-hidden="true">→</span>
+    </button>
+  );
 }
 
 /** Rzadsze akcje osoby — CV, wiadomość, pełny profil — w menu „⋯". */
@@ -366,6 +392,7 @@ export function PipelineCandidateDock({
   onMoveTo,
   onOpenScreening,
   onReject,
+  onOpenWorkbench,
 }: PipelineCandidateDockProps) {
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
@@ -877,6 +904,16 @@ export function PipelineCandidateDock({
                 </ConditionRow>
               </div>
             </div>
+            {onOpenWorkbench ? (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border pt-2">
+                <WorkbenchLink onClick={() => onOpenWorkbench("interviews")}>
+                  Rozmowy i werdykt klienta
+                </WorkbenchLink>
+                <WorkbenchLink onClick={() => onOpenWorkbench("contract")}>
+                  Umowa
+                </WorkbenchLink>
+              </div>
+            ) : null}
           </div>
         </DockSection>
 
@@ -1021,6 +1058,11 @@ export function PipelineCandidateDock({
                 </>
               )}
             </div>
+            {onOpenWorkbench ? (
+              <WorkbenchLink onClick={() => onOpenWorkbench("cv")}>
+                Wysyłka CV do klienta (stawka, wersje)
+              </WorkbenchLink>
+            ) : null}
           </div>
         </DockSection>
 
