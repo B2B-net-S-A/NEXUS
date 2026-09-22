@@ -57,6 +57,7 @@ from app.services.delivery_alert_recipients import (
     DeliveryAlertRecipientScope,
     load_delivery_alert_recipient_scope,
 )
+from app.services.order_continuation import order_has_continuation
 from app.services.order_group_lifecycle import materialize_scheduled_order_groups
 from app.services.order_md_exhaustion import reconcile_md_exhausted_groups
 
@@ -321,6 +322,9 @@ async def _scan_orders(
                 ClientOrder.status == ClientOrderStatus.active,
                 ClientOrder.end_date >= today,
                 ClientOrder.end_date <= today + timedelta(days=_HORIZON_DAYS),
+                # Dodana kontynuacja (także szkic) = nic do zrobienia; ta sama
+                # reguła co zakładka „Kończące się 30d" i karta w panelu DL.
+                ~order_has_continuation(),
             )
         )
     )

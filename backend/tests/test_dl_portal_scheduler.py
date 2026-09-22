@@ -610,6 +610,45 @@ async def test_order_alert_dispatched():
         await _cleanup(client_id, [admin_id, dl_id], [candidate_id])
 
 
+async def test_order_with_added_continuation_gets_no_bell():
+    """Dodane przyszłe zamówienie (także szkic) = nic do zrobienia, brak dzwonka.
+
+    Ta sama reguła co zakładka „Kończące się 30d" (ticket 09.2026).
+    """
+    from app.core.scheduling import business_today
+
+    today = business_today()
+    admin_id, dl_id, client_id = await _setup_dl_with_client()
+    contract_id, candidate_id = await _new_contract(client_id)
+    try:
+        async with AsyncSessionLocal() as db:
+            ending = ClientOrder(
+                client_id=client_id,
+                contract_id=contract_id,
+                title="Kończy się, ma kontynuację",
+                status=ClientOrderStatus.active,
+                start_date=today - timedelta(days=100),
+                end_date=today + timedelta(days=7),
+            )
+            follow_up = ClientOrder(
+                client_id=client_id,
+                contract_id=contract_id,
+                title="Kontynuacja (szkic)",
+                status=ClientOrderStatus.draft,
+                start_date=today + timedelta(days=8),
+                end_date=today + timedelta(days=120),
+            )
+            db.add_all([ending, follow_up])
+            await db.commit()
+            ending_id = ending.id
+
+        await run_once()
+
+        assert await _order_notification_types(ending_id, dl_id) == []
+    finally:
+        await _cleanup(client_id, [admin_id, dl_id], [candidate_id])
+
+
 async def _order_notification_types(order_id: int, user_id: int) -> list[str]:
     async with AsyncSessionLocal() as db:
         rows = list(

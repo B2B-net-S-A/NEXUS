@@ -1000,7 +1000,7 @@ nie samą zakładkę. Karty są pogrupowane:
 
 | Sekcja | Sprawa | Kiedy powstaje | Przypomnienia |
 |---|---|---|---|
-| Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się (a u klientów z rozszerzonymi alertami — także **zamówienie MD/kosztowe**, osobno dla każdego konsultanta) | 30 dni przed datą końca — **pierwsza karta od razu z mailem** | co 7 dni bez maila; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
+| Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się (a u klientów z rozszerzonymi alertami — także **zamówienie MD/kosztowe**, osobno dla każdego konsultanta) | 30 dni przed datą końca — **pierwsza karta od razu z mailem**. **Nie powstaje, gdy do zamówienia dodano już przyszłe zamówienie** (także szkic) — wtedy nic nie trzeba robić, a otwarta karta zamyka się sama; to samo dotyczy powiadomienia w dzwonku. Samo przyszłe zamówienie dostaje kartę na tych samych zasadach | co 7 dni bez maila; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
 | | **Umowa ramowa** klienta wygasa | 30 dni przed wygaśnięciem | jak wyżej |
 | | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem | jak wyżej |
 | | **[Klient] — wygasł konflikt z kandydatem** (NDA / cooling-off, czarna lista klienta albo konkurencja z datą wygaśnięcia) | data wygaśnięcia wpisu w „Konflikty" na profilu kandydata minęła — kandydata znów można proponować temu klientowi; przycisk otwiera profil kandydata | raz; bez maila |

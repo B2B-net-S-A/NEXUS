@@ -329,6 +329,79 @@ async def test_extended_order_resolves_old_card_and_starts_new_cycle(monkeypatch
     assert (rows[1].payload or {}).get("email") is True
 
 
+async def test_order_with_added_continuation_needs_no_alert(monkeypatch):
+    """Ticket 09.2026 (kontrakt #145): dodane przyszłe zamówienie zamyka sprawę.
+
+    Szkic przyszłego zamówienia też jest kontynuacją. Samo przedłużenie, gdy
+    kończy się w oknie i nic nie ma po nim, dostaje własną kartę — ta sama
+    reguła co zakładka „Kończące się 30d" na profilu klienta.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.dl_alert import ALERT_PERIODIC_ORDER_ENDING
+    from app.tasks.dl_alerts_scanner import rule_periodic_order_ending
+
+    client_id = await _seed_client()
+    user_id, _, _ = await _seed_dl(client_id)
+    contract_id, _ = await _seed_contract(client_id)
+    current_id = await _seed_periodic_order(
+        client_id, contract_id, _TODAY + timedelta(days=10)
+    )
+
+    await _run(rule_periodic_order_ending, monkeypatch, _TODAY)
+    assert [r.status for r in await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)] == [
+        "new"
+    ]
+
+    # Szkic kontynuacji daleko w przód: karta bieżącego zamówienia się zamyka.
+    async with AsyncSessionLocal() as db:
+        nxt = ClientOrder(
+            client_id=client_id,
+            contract_id=contract_id,
+            title=f"ZAM-{uuid.uuid4().hex[:6]}",
+            status=ClientOrderStatus.draft,
+            start_date=_TODAY + timedelta(days=11),
+            end_date=_TODAY + timedelta(days=90),
+        )
+        db.add(nxt)
+        await db.commit()
+        await db.refresh(nxt)
+        next_id = nxt.id
+
+    await _run(rule_periodic_order_ending, monkeypatch, _TODAY)
+    rows = await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)
+    assert [r.status for r in rows] == ["resolved"]
+    assert rows[0].handled_by_user_id is None, "auto-zamknięcie to nie odhaczenie DL"
+
+    # Krótkie przedłużenie (koniec w oknie, nic po nim) = własna sprawa.
+    async with AsyncSessionLocal() as db:
+        nxt = await db.get(ClientOrder, next_id)
+        nxt.status = ClientOrderStatus.active
+        nxt.end_date = _TODAY + timedelta(days=22)
+        await db.commit()
+
+    await _run(rule_periodic_order_ending, monkeypatch, _TODAY)
+    rows = await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)
+    live = [r for r in rows if r.status == "new"]
+    assert len(live) == 1
+    assert f"order:{next_id}:" in live[0].event_key
+    assert f"order:{current_id}:" not in live[0].event_key
+
+    # Anulowana kontynuacja niczego nie przedłuża.
+    async with AsyncSessionLocal() as db:
+        nxt = await db.get(ClientOrder, next_id)
+        nxt.status = ClientOrderStatus.cancelled
+        await db.commit()
+
+    await _run(rule_periodic_order_ending, monkeypatch, _TODAY)
+    live = [
+        r
+        for r in await _alerts(user_id, ALERT_PERIODIC_ORDER_ENDING)
+        if r.status == "new"
+    ]
+    assert [f"order:{current_id}:" in r.event_key for r in live] == [True]
+
+
 async def test_order_entering_window_late_still_gets_the_first_mail(monkeypatch):
     """Zamówienie wpisane 20 dni przed końcem dostaje mail od razu.
 
