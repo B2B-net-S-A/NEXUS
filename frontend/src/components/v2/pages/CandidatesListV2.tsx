@@ -1301,7 +1301,12 @@ export function isHistoryNeutralChange(
  return filtersEqual({ ...previous, ...neutral }, { ...next, ...neutral });
 }
 
-export function CandidatesListV2() {
+export interface CandidatesListV2Props {
+  /** W ekranie „Kandydaci" tytuł strony daje rama z zakładkami trybów. */
+  hideTitle?: boolean;
+}
+
+export function CandidatesListV2({ hideTitle = false }: CandidatesListV2Props = {}) {
  const router = useRouter();
  const { showSuccess } = useToast();
  const searchParams = useSearchParams();
@@ -2366,7 +2371,8 @@ export function CandidatesListV2() {
  {/* Header — celowo stonowany: tytuł/licznik to nie kluczowa informacja,
  więc bez gradientu i wielkiego H1. Wizualny akcent przeniesiony na
  przycisk „Zaawansowane" w toolbarze poniżej. */}
- <div className="flex items-end justify-between flex-wrap gap-3">
+ <div className={hideTitle ?"flex items-end justify-end flex-wrap gap-3" :"flex items-end justify-between flex-wrap gap-3"}>
+ {!hideTitle && (
  <div>
  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground/60">
  Sourcing · Kandydaci
@@ -2375,6 +2381,7 @@ export function CandidatesListV2() {
  Kandydaci
  </h1>
  </div>
+ )}
 
  <div className="flex items-center gap-2">
  <Popover>

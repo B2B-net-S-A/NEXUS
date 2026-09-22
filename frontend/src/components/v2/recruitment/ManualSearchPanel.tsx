@@ -78,6 +78,9 @@ export function ManualSearchPanel({
       key={mustLabels ? `must:${mustLabels.join("|")}` : "must:fallback"}
       initial={initial}
       addToJob={{ id: jobId, title: job.title }}
+      // Okno „Szukaj ręcznie" ma własny tytuł — drugi („Wyszukiwanie
+      // kandydatów") tuż pod nim dublował nagłówek (test manualny 22.09.2026).
+      hideHeader
       onBulkAdded={onBulkAdded}
       readOnly={readOnly}
     />
