@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Briefcase,
   Building2,
-  Mail,
+  Settings,
   Plus,
   Search,
   Sparkles,
@@ -32,6 +32,7 @@ import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCapabilities } from "@/hooks/useCapability";
 import { useAuthStore } from "@/store/auth";
 import { openJarvis } from "@/lib/jarvis/events";
+import { listedSettingsItems, settingsItemHref } from "@/lib/settings-registry";
 
 interface Props {
   /** `undefined` = user nie ma capability `candidate.create` (patrz AppShellV2). */
@@ -234,6 +235,9 @@ export function CommandPaletteV2({
   const contactFeature = useCandidateContactFeature({
     queryEnabled: canSeeFeatureFlaggedEntry(user, "contactQueue"),
   });
+  // Każda pozycja Ustawień, którą ta osoba widzi — ⌘K „reguły CV" prowadzi
+  // prosto do ekranu (przebudowa Ustawień 22.09.2026).
+  const settingsItems = useMemo(() => listedSettingsItems(user), [user]);
   const visibleNav = useMemo(
     () =>
       visiblePaletteEntries(
@@ -380,11 +384,25 @@ export function CommandPaletteV2({
                 Zapytaj Jarvisa
                 <CommandShortcut>⌘J</CommandShortcut>
               </CommandItem>
-              <CommandItem onSelect={() => go("/settings?tab=szablony")}>
-                <Mail className="h-4 w-4" />
-                Szablony email
-              </CommandItem>
             </CommandGroup>
+
+            {settingsItems.length > 0 && (
+              <>
+                <CommandSeparator />
+                <CommandGroup heading="Ustawienia">
+                  {settingsItems.map((item) => (
+                    <CommandItem
+                      key={item.id}
+                      value={`Ustawienia ${item.title} ${item.keywords}`}
+                      onSelect={() => go(settingsItemHref(item))}
+                    >
+                      <Settings className="h-4 w-4" />
+                      {item.title}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            )}
 
             <CommandSeparator />
 

@@ -50,7 +50,8 @@ JOB_PAGE_TSX = FRONTEND / "app" / "jobs" / "[id]" / "page.tsx"
 CANDIDATE_NAV_TS = (
     FRONTEND / "components" / "v2" / "pages" / "candidate-profile-navigation.ts"
 )
-SETTINGS_TAB_TS = FRONTEND / "lib" / "settings-tab.ts"
+# Od 22.09.2026 stare klucze `?tab=` Ustawień mapuje rejestr (LEGACY_SETTINGS_TABS).
+SETTINGS_REGISTRY_TS = FRONTEND / "lib" / "settings-registry.ts"
 INSIGHTS_VIEW_TSX = FRONTEND / "components" / "insights" / "InsightsView.tsx"
 
 
@@ -88,8 +89,8 @@ def _candidate_activity_keys() -> set[str]:
 
 
 def _settings_tab_keys() -> set[str]:
-    return _array_literal(
-        SETTINGS_TAB_TS.read_text(encoding="utf-8"), "SETTINGS_TAB_KEYS"
+    return _object_keys(
+        SETTINGS_REGISTRY_TS.read_text(encoding="utf-8"), "LEGACY_SETTINGS_TABS"
     )
 
 

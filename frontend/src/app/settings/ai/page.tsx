@@ -3,7 +3,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import {
-  ArrowLeft,
   Sparkles,
   CheckCircle2,
   Loader2,
@@ -199,13 +198,6 @@ export default function AISettingsPage() {
   return (
     <div className="container max-w-4xl mx-auto py-8 px-4">
       <div className="mb-6">
-        <Link
-          href="/settings"
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Ustawienia
-        </Link>
         <h1 className="text-2xl font-bold text-foreground mt-2">Funkcje AI</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Wszystkie funkcje AI działają bez limitów. Poniżej zużycie i szacunkowy

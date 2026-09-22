@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { RequireRole } from "@/components/RequireRole";
-import { ArrowLeft, Plus, Trash2, Save, X, Pencil } from "lucide-react";
+import { Plus, Trash2, Save, X, Pencil } from "lucide-react";
 import { hasRole, useAuthStore } from "@/store/auth";
 
 interface ContractTemplate {
@@ -168,12 +168,6 @@ export default function ContractTemplatesPage() {
   return (
     <RequireRole roles={["admin", "finance"]}>
       <div className="space-y-4 max-w-5xl">
-        <Link
-          href="/settings"
-          className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" /> Ustawienia
-        </Link>
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Szablony kontraktów</h1>
           {!editing && canEdit && (

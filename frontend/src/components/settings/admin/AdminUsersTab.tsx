@@ -40,7 +40,16 @@ import {
   type AdminSubTab as SubTab,
 } from "@/lib/settings-admin-subtab";
 
-export function AdminUsersTab() {
+interface AdminUsersTabProps {
+  /** Ustawienia (22.09.2026): pokaż tylko te podzakładki i bez nagłówka
+   *  „Panel administracyjny" — strona ma własny. Pozostałe podzakładki dalej
+   *  otwierają się adresem `?sub=`. */
+  embedded?: boolean;
+}
+
+const EMBEDDED_SUBTABS: readonly SubTab[] = ["users", "permissions"];
+
+export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
   const { user } = useAuthStore();
   const impersonate = useAuthStore((s) => s.impersonate);
   const queryClient = useQueryClient();
@@ -183,15 +192,19 @@ export function AdminUsersTab() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Shield className="w-6 h-6 text-primary" />
-          <div>
-            <h2 className="text-xl font-bold">Panel administracyjny</h2>
-            <p className="text-sm text-muted-foreground dark:text-muted-foreground">
-              Zarządzaj użytkownikami, uprawnieniami i systemem
-            </p>
+        {embedded ? (
+          <div />
+        ) : (
+          <div className="flex items-center gap-3">
+            <Shield className="w-6 h-6 text-primary" />
+            <div>
+              <h2 className="text-xl font-bold">Panel administracyjny</h2>
+              <p className="text-sm text-muted-foreground dark:text-muted-foreground">
+                Zarządzaj użytkownikami, uprawnieniami i systemem
+              </p>
+            </div>
           </div>
-        </div>
+        )}
         {subTab === "users" && (
           <button
             onClick={() => {
@@ -215,7 +228,9 @@ export function AdminUsersTab() {
             { id: "audit" as SubTab, label: "Log aktywności", icon: Activity },
             { id: "import" as SubTab, label: "Import CV", icon: Database },
             { id: "tools" as SubTab, label: "Narzędzia", icon: Wrench },
-          ].map(({ id, label, icon: Icon }) => (
+          ]
+            .filter(({ id }) => !embedded || EMBEDDED_SUBTABS.includes(id))
+            .map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setSubTab(id)}
