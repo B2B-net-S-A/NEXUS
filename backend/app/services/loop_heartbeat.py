@@ -8,7 +8,11 @@ zielonym ``/api/health``.
 
 Każda krytyczna pętla rejestruje się tutaj po przejściu kill-switcha
 i wywołuje ``beat.tick()`` na początku każdej iteracji. Pętla, której ostatni
-tick jest starszy niż jej ``max_silence_seconds``, trafia na listę ``stalled``.
+tick jest starszy niż jej ``max_silence_seconds``, trafia na listę ``stalled``
+i ``checks.background_tasks`` zwraca ``unhealthy: stalled <pętle>`` (od
+22.09.2026; wcześniej ``degraded`` przez tydzień obserwacji bez fałszywych
+alarmów). ``unhealthy`` NIE rusza ``status`` ani kodu 503 — o tym decyduje tylko
+baza — ale otwiera issue z joba ``health-checks`` w uptime-probe.
 
 Stan żyje w pamięci procesu — wystarcza, bo backend to jeden proces uvicorn,
 a ``/api/health`` pyta ten sam proces, w którym biegną pętle. Restart zeruje
@@ -118,6 +122,11 @@ class Registry:
 
 
 heartbeats = Registry()
+
+
+def health_value(stalled: list[str]) -> str:
+    """Wartość ``checks.background_tasks``, gdy żadna pętla nie padła."""
+    return f"unhealthy: stalled {','.join(stalled)}" if stalled else "healthy"
 
 
 def register(name: str, *, max_silence_seconds: float) -> Beat:
