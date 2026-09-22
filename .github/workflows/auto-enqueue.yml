@@ -1,0 +1,62 @@
+name: Auto-enqueue
+
+# Każdy GOTOWY PR trafia do kolejki merge'ów sam — bez pilnowania przez sesję
+# ani przez człowieka (22.09.2026). Powód: przy kilkunastu równoległych
+# sesjach Claude'a zielone PR-y czekały godzinami, bo nikt ich nie wrzucił do
+# kolejki (sesje sprzed zasady `gh pr merge --auto` jej nie znają, inne czekały
+# na „merguj” od człowieka).
+#
+# „Gotowy” = nie-draft, bez etykiety `wstrzymaj`, autor nie jest botem
+# zależności (Dependabot podbija też wersje główne — to decyzja człowieka).
+# Chcesz, żeby PR NIE wszedł sam? Zostaw go jako draft albo daj `wstrzymaj`.
+#
+# TOKEN: `secrets.QUEUE_BOT_TOKEN` (fine-grained PAT: repo NEXUS, Contents
+# + Pull requests: Read and write). NIE `GITHUB_TOKEN` — zdarzenia wywołane
+# tokenem Actions nie uruchamiają innych workflowów, więc grupa w kolejce nie
+# dostałaby testów (`merge_group`), wisiałaby 60 min i wypadała. Bez sekretu
+# workflow tylko wypisuje ostrzeżenie i nic nie robi.
+#
+# `gh pr merge --auto` przy kolejce merge'ów = „dodaj do kolejki, gdy wymagane
+# testy na PR-ze będą zielone”, więc nie trzeba czekać tu na komplet checków.
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize, unlabeled]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-enqueue-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  enqueue:
+    name: Dodaj do kolejki merge'ów
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      ${{ !github.event.pull_request.draft
+      && github.event.pull_request.user.login != 'dependabot[bot]'
+      && !contains(github.event.pull_request.labels.*.name, 'wstrzymaj') }}
+    steps:
+      - name: Włącz auto-merge (kolejka)
+        env:
+          GH_TOKEN: ${{ secrets.QUEUE_BOT_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Brak sekretu QUEUE_BOT_TOKEN — PR #$PR nie został dodany do kolejki automatycznie. Instrukcja w nagłówku .github/workflows/auto-enqueue.yml."
+            exit 0
+          fi
+          if out=$(gh pr merge "$PR" --repo "$REPO" --squash --auto 2>&1); then
+            echo "PR #$PR: auto-merge włączony — wejdzie do kolejki po zielonych testach."
+            echo "$out"
+          else
+            # Najczęściej: PR już w kolejce albo ma konflikt z mainem. Nie
+            # czerwienimy PR-a z tego powodu — to informacja, nie awaria.
+            echo "::notice::PR #$PR nie został dodany do kolejki: $out"
+          fi

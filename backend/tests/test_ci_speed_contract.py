@@ -136,3 +136,18 @@ def test_selector_budget_keeps_direct_and_drops_slowest_indirect() -> None:
     kept, dropped = sel.apply_budget({"a"}, {"b", "c", "d"}, 170.0, durations)
     assert kept == ["a", "b", "c"]
     assert dropped == ["d"]
+
+
+def test_ready_prs_enter_the_queue_by_themselves_with_a_real_token() -> None:
+    """Zielony PR nie może czekać, aż ktoś go ręcznie wrzuci do kolejki."""
+    wf = _load("auto-enqueue.yml")
+    triggers = wf.get("on", wf.get(True))
+    assert "ready_for_review" in triggers["pull_request"]["types"]
+    job = wf["jobs"]["enqueue"]
+    for guard in ("draft", "dependabot[bot]", "wstrzymaj"):
+        assert guard in job["if"], f"Brak bezpiecznika {guard!r}."
+    step = job["steps"][0]
+    assert step["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}", (
+        "GITHUB_TOKEN nie uruchamia merge_group — grupa wisiałaby bez testów."
+    )
+    assert "--auto" in step["run"] and "--squash" in step["run"]
