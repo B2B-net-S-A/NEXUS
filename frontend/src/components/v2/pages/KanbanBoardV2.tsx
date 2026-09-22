@@ -73,6 +73,14 @@ import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
 import { BoardReviewSection } from "@/components/v2/jobs/BoardReviewSection";
+import {
+ BoardWorkbenchDrawer,
+ type BoardWorkbenchContext,
+} from "@/components/v2/recruitment/BoardWorkbenchDrawer";
+import type { KanbanQueryState } from "@/components/v2/recruitment/PersonPanel";
+import { buildProcessRows } from "@/components/v2/recruitment/person-rows";
+import type { PersonPanelSection } from "@/components/v2/recruitment/types";
+import { useBulkCvHandoff } from "@/components/v2/recruitment/useBulkCvHandoff";
 import { terminalOf } from"@/lib/kanban-terminal";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
@@ -93,7 +101,9 @@ import {
  type KanbanItem,
 } from "@/components/v2/pages/kanban-shared";
 import {
+ CV_SENT_STAGE,
  PIPELINE_GROUP_SHORT_LABEL,
+ findStageColumn,
  formatExpectedRate,
  groupKanbanColumns,
  moveBlockedReason,
@@ -163,8 +173,19 @@ interface KanbanBoardV2Props {
  /** Woła się raz po obsłużeniu `initialDockCandidateId` — niezależnie od tego,
   *  czy karta była na tablicy — żeby strona zdjęła parametr z adresu. */
  onInitialDockHandled?: () => void;
- /** Kto jest teraz w doku — strona przenosi tę osobę do panelu „Tabeli". */
- onDockCandidateChange?: (candidateId: number | null) => void;}
+ /** Kto jest teraz w doku — strona trzyma go w adresie (`?candidate=`). */
+ onDockCandidateChange?: (candidateId: number | null) => void;
+ /**
+ * Kontekst warsztatów osoby (dawna „Tabela": CV do klienta, rozmowy, umowa).
+ * Bez niego dok nie pokazuje przycisków warsztatu, a pasek zaznaczenia —
+ * zbiorczej wysyłki CV.
+ */
+ workbenchContext?: BoardWorkbenchContext;
+ kanbanQueryState?: KanbanQueryState;
+ /** Deep link `?candidate=&panel=` — otwiera warsztat tej osoby. */
+ initialWorkbench?: { candidateId: number; section: PersonPanelSection } | null;
+ onInitialWorkbenchHandled?: () => void;
+}
 
 const CATEGORY_COLOR: Record<string, string> = {
  internal: "bg-primary",
@@ -259,10 +280,6 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  onSetViewMode: (next: KanbanViewMode) => void;
  fullPipelineDesktop: boolean;
 }) {
- const total = cols.reduce(
- (sum, c) => sum + (c.category === "terminal" ? 0 : c.count),
- 0
- );
  const focusedIndex = Math.max(
  0,
  cols.findIndex((col) => colId(col) === focusedId)
@@ -277,9 +294,6 @@ const StageFocusNavigator = memo(function StageFocusNavigator({
  role="navigation"
  aria-label="Nawigacja etapów pipeline"
  >
- <Badge variant="soft" className="tabular-nums">
- W procesie: {total}
- </Badge>
 
  <div
  data-mobile-stage-navigation
@@ -826,6 +840,19 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ponad budżet
  </span>
  )}
+ {/* `=== true`: odznaka obiecuje gotowy dokument (dawna odznaka
+ kolumny „Następny krok" w Tabeli). */}
+ {item.auto_cv_ready === true && (
+ <span
+ className={cn(
+ "inline-flex items-center rounded px-1 text-[9px] font-semibold bg-info/15 text-info",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title="CV wygenerowane automatycznie po weryfikacji czeka w warsztacie CV — sprawdź je przed wysyłką."
+ >
+ CV gotowe w tle
+ </span>
+ )}
  {!readOnly && scorecardDue && (
  <button
  type="button"
@@ -1274,7 +1301,7 @@ const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
@@ -1331,6 +1358,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  setDockCandidateId(item.candidate_id);
  }, []);
  const closeDock = useCallback(() => setDockCandidateId(null), []);
+ // Warsztat osoby (szeroki panel z dawnej „Tabeli") — nad Tablicą.
+ const [workbench, setWorkbench] = useState<{
+ candidateId: number;
+ section: PersonPanelSection;
+ } | null>(null);
  useEffect(() => {
  onDockCandidateChange?.(dockCandidateId);
  }, [dockCandidateId, onDockCandidateChange]);
@@ -1725,6 +1757,40 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  return () => window.removeEventListener("keydown", onKey);
  }, [dockItem, closeDock]);
 
+ // Deep link `?candidate=&panel=` (dawne linki do sekcji panelu „Tabeli" —
+ // m.in. zapisane w powiadomieniach): otwiera warsztat osoby, gdy jest na
+ // tablicy. Jednorazowo na każdą nową wartość, jak dok.
+ const handledWorkbenchRef = useRef<string | null>(null);
+ useEffect(() => {
+ if (!initialWorkbench || !workbenchContext) return;
+ const key = `${initialWorkbench.candidateId}:${initialWorkbench.section}`;
+ if (handledWorkbenchRef.current === key) return;
+ const onBoard = cols.some((c) =>
+ c.items.some((i) => i.candidate_id === initialWorkbench.candidateId)
+ );
+ if (!onBoard && cols.length === 0) return;
+ handledWorkbenchRef.current = key;
+ if (onBoard) setWorkbench(initialWorkbench);
+ onInitialWorkbenchHandled?.();
+ }, [initialWorkbench, workbenchContext, cols, onInitialWorkbenchHandled]);
+
+ // Zbiorcza wysyłka CV (dawny pasek zbiorczy „Tabeli"): per osoba ruch na
+ // „CV Wysłane" → link dla klienta → stawka, na końcu jedno okno z linkami.
+ const bulkCv = useBulkCvHandoff({
+ jobId,
+ jobTitle: jobTitle ?? null,
+ columns: stageCols,
+ canWriteClientRate,
+ });
+ const cvSentColumn = useMemo(() => findStageColumn(stageCols, CV_SENT_STAGE), [stageCols]);
+ const startBulkCv = () => {
+ const rows = buildProcessRows(stageCols, { budgetHourly: jobBudgetHourlyValue ?? null }).filter(
+ (r) => selected.has(r.candidateId)
+ );
+ if (rows.length === 0) return;
+ bulkCv.start(rows, { onHandled: () => setSelected(new Set()) });
+ };
+
  // Deep link `?candidate=<id>`: jednorazowo na każdą NOWĄ wartość parametru.
  // Ref trzyma obsłużone id, żeby przebudowa `cols` (ruch, odświeżenie) nie
  // otwierała doku ponownie po tym, jak użytkownik go zamknął.
@@ -2088,6 +2154,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  slaDays={slaDays}
  slaClientName={playbookQuery.data?.client_name ?? null}
  slaLoading={playbookQuery.isLoading}
+ inProcessCount={stageCols.reduce(
+ (sum, c) => sum + (c.category === "terminal" ? 0 : c.count),
+ 0
+ )}
  />
 
  <div className={cn("min-w-0 space-y-3", dockItem && dockItemColLabel !== null &&"xl:pr-[380px]")}>
@@ -2165,6 +2235,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </SelectContent>
  </Select>
  </div>}
+ {!readOnly && workbenchContext && cvSentColumn && (
+ <Button
+ size="sm"
+ variant="secondary"
+ onClick={startBulkCv}
+ disabled={bulkCv.busy || move.isMoving || bulkDownloadBusy}
+ >
+ <Send className="h-3.5 w-3.5" />
+ Wyślij CV do klienta
+ </Button>
+ )}
  <Button
  size="sm"
  variant="secondary"
@@ -2357,9 +2438,36 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onMoveTo={handleDockMove}
  onOpenScreening={handleOpenScreening}
  onReject={handleDockReject}
+ onOpenWorkbench={
+ workbenchContext
+ ? (section) =>
+ setWorkbench({ candidateId: dockItem.candidate_id, section })
+ : undefined
+ }
  />
  </aside>
  )}
+
+ {workbench && workbenchContext && kanbanQueryState && (
+ <BoardWorkbenchDrawer
+ jobId={jobId}
+ jobTitle={jobTitle ?? null}
+ columns={stageCols}
+ candidateId={workbench.candidateId}
+ section={workbench.section}
+ onSectionChange={(section) =>
+ setWorkbench((prev) => (prev ? { ...prev, section } : prev))
+ }
+ onClose={() => setWorkbench(null)}
+ readOnly={readOnly}
+ canWriteClientRate={canWriteClientRate}
+ budgetHourly={jobBudgetHourlyValue ?? null}
+ rejectionReasons={rejectionReasons}
+ workbenchContext={workbenchContext}
+ kanbanQueryState={kanbanQueryState}
+ />
+ )}
+ {bulkCv.dialogs}
 
  {/* Modals */}
  {/* Okna ruchu (powód odrzucenia, stawki, zatrudnienie, ostrzeżenie) —

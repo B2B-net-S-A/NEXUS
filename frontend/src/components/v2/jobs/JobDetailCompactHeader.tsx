@@ -2,17 +2,16 @@
 
 import type { ReactNode } from "react";
 import {
+  ArrowLeft,
   BookOpen,
   ChevronDown,
   ChevronUp,
   ClipboardList,
   Ellipsis,
-  LayoutGrid,
   Link2,
   MessageCircle,
   PencilLine,
   Sparkles,
-  Table2,
   Target,
   Trophy,
   UserCheck,
@@ -122,8 +121,6 @@ interface JobDetailCompactHeaderProps {
    */
   onOpenAiTools?: () => void;
   chatUnreadCount?: number;
-  /** Osoby w procesie — licznik przy przełączniku widoków. `undefined` = nie policzono. */
-  pipelineCount?: number;
   /**
    * Panel „Zespół i priorytet". W widokach „Tabela"/„Tablica" żyje w oknie
    * „Zlecenie", więc strona go tu nie podaje — wtedy nie ma ani przycisku,
@@ -178,42 +175,6 @@ function JobHeaderKpiCluster({ kpis }: { kpis: JobHeaderKpi[] }) {
   );
 }
 
-function CountBadge({ value }: { value: number }) {
-  return (
-    <Badge
-      variant="outline"
-      size="sm"
-      className="tabular-nums"
-      aria-hidden="true"
-    >
-      {value > 999 ? "999+" : value}
-    </Badge>
-  );
-}
-
-/** Jedna pozycja przełącznika „Tabela | Tablica". */
-function ViewSwitchButton({
-  active,
-  children,
-  ...props
-}: React.ComponentProps<"button"> & { active: boolean }) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      className={cn(
-        "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        active
-          ? "bg-card text-foreground shadow-sm"
-          : "text-muted-foreground hover:text-foreground",
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  );
-}
-
 /**
  * Nagłówek rekrutacji (wersja 3: „rekrutacja = jedna tabela").
  *
@@ -251,7 +212,6 @@ export function JobDetailCompactHeader({
   onGenerateInviteLink,
   onOpenAiTools,
   chatUnreadCount = 0,
-  pipelineCount,
   contextOpen = false,
   onContextOpenChange,
   contextContent,
@@ -415,31 +375,21 @@ export function JobDetailCompactHeader({
             się ZŁAMAĆ, a nie schować końcówkę za niewidoczny pasek przewijania.
             Przycisk, którego nie widać, nie istnieje dla użytkownika. */}
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border px-3 py-1.5">
-          <div
-            role="group"
-            aria-label="Widok rekrutacji"
-            className="inline-flex items-center gap-0.5 rounded-lg bg-muted p-0.5"
-          >
-            <ViewSwitchButton
-              active={activeView === "people"}
-              onClick={() => onViewChange("people")}
-              data-testid="view-people"
-            >
-              <Table2 className="h-3.5 w-3.5" aria-hidden="true" />
-              Tabela
-              {typeof pipelineCount === "number" ? (
-                <CountBadge value={pipelineCount} />
-              ) : null}
-            </ViewSwitchButton>
-            <ViewSwitchButton
-              active={activeView === "board"}
+          {/* Tryb „Tabela" usunięty (22.09.2026) — rekrutacja to Tablica.
+              Z ekranów pobocznych (pełna lista „Do przejrzenia", strona
+              Championa) wraca się jednym przyciskiem. */}
+          {activeView !== "board" ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
               onClick={() => onViewChange("board")}
               data-testid="view-board"
             >
-              <LayoutGrid className="h-3.5 w-3.5" aria-hidden="true" />
+              <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
               Tablica
-            </ViewSwitchButton>
-          </div>
+            </Button>
+          ) : null}
 
           <nav
             className="flex min-w-0 flex-wrap items-center gap-1.5"

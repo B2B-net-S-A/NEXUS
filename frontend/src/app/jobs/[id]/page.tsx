@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import api, { jobChatApi, matchingApi } from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
-import { useJobPipelineTemplate } from "@/hooks/useJobPipelineTemplate";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
@@ -17,7 +16,7 @@ import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
 import { SimilarJobsDialog } from "@/components/v2/jobs/SimilarJobsDialog";
 import { CHAMPION_ROLES, requestStatusOf } from "@/lib/request-status";
 import { similarJobsApi, useSimilarJobs } from "@/lib/similar-jobs-api";
-import { countHired, countInProcess } from "@/lib/pipeline-flow";
+import { countHired } from "@/lib/pipeline-flow";
 import { buildJobHeaderKpis } from "@/lib/job-header-kpis";
 import { jobBudgetHourly } from "@/lib/job-budget";
 import { positiveIntParam } from "@/lib/client-tab";
@@ -27,7 +26,6 @@ import { buildJobHeaderSubtitle } from "@/lib/job-header-subtitle";
 import type { FullSearchSummary } from "@/lib/full-search-summary";
 import {
   JOB_DETAIL_DEFAULT_VIEW,
-  carryPersonAcrossViews,
   readJobDetailUrlState,
   resolveLegacyJobTab,
   rewriteLegacyJobParams,
@@ -37,7 +35,6 @@ import {
 } from "@/lib/job-detail-routing";
 import { jobProposalsApi, jobProposalsKeys } from "@/lib/job-proposals-api";
 import { shortlistApi } from "@/lib/candidate-search-api";
-import { useClientPlaybook } from "@/lib/client-playbooks";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { ChampionSectionNav } from "@/components/v2/jobs/ChampionSectionNav";
@@ -80,8 +77,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { RecruitmentWorkspace } from "@/components/v2/recruitment/RecruitmentWorkspace";
-import { ProposalsCountProbe, ProposalsSegment } from "@/components/v2/recruitment/ProposalsSegment";
+import { ProposalsSegment } from "@/components/v2/recruitment/ProposalsSegment";
 import { ProposalMatchDetails } from "@/components/v2/recruitment/ProposalMatchDetails";
 import { RequestRequirementsRail } from "@/components/v2/recruitment/RequestRequirementsRail";
 import { JobAIActions } from "@/components/v2/recruitment/JobAIActions";
@@ -260,31 +256,24 @@ export default function JobDetailPage() {
     urlState.orderSection,
     null,
   );
-  const [activeCandidateId, setActiveCandidateId] = useState<number | null>(null);
-  // Osoba przenoszona między „Tabelą" a „Tablicą": panel ↔ dok. Dok tablicy
-  // zgłasza bieżącą osobę (ref — nie potrzeba renderu), a prośba o otwarcie
-  // doku jest jednorazowa, jak `?candidate=`.
-  const boardDockCandidateRef = useRef<number | null>(null);
-  const [boardDockRequest, setBoardDockRequest] = useState<number | null>(null);
-  const handleBoardDockChange = useCallback((candidateId: number | null) => {
-    boardDockCandidateRef.current = candidateId;
-  }, []);
+  // Tryb „Tabela" usunięty (decyzja Artura 22.09.2026): rekrutacja to Tablica.
+  // `tab=people` zostaje wyłącznie dla pełnej listy „Do przejrzenia"
+  // (propozycje z bazy i shortlista — makieta 4). Każdy inny dawny adres
+  // Tabeli (segment etapu, sekcja panelu) otwiera Tablicę.
+  const reviewScreen =
+    activeView === "people" && (segment === "proposals" || segment === "shortlist");
+  const showBoard = activeView === "board" || (activeView === "people" && !reviewScreen);
 
   const selectView = useCallback(
     (view: JobDetailView) => {
-      const carried = carryPersonAcrossViews({
-        from: viewState ?? JOB_DETAIL_DEFAULT_VIEW,
-        to: view,
-        panelCandidateId: activeCandidateId,
-        boardDockCandidateId: boardDockCandidateRef.current,
-      });
-      setActiveCandidateId(carried.panelCandidateId);
-      setBoardDockRequest(carried.boardDockRequest);
-      if (view !== "board") boardDockCandidateRef.current = null;
       setViewState(view);
-      writeUrlParams({ tab: view === JOB_DETAIL_DEFAULT_VIEW ? null : view });
+      if (view === "board") setSegmentState(DEFAULT_SEGMENT);
+      writeUrlParams({
+        tab: view === JOB_DETAIL_DEFAULT_VIEW ? null : view,
+        ...(view === "board" ? { seg: null, panel: null } : {}),
+      });
     },
-    [setViewState, viewState, activeCandidateId],
+    [setViewState, setSegmentState],
   );
   const selectSegment = useCallback(
     (next: RecruitmentSegment) => {
@@ -385,7 +374,6 @@ export default function JobDetailPage() {
   // Parametr jest jednorazowy: po otwarciu osoby znika z adresu, żeby
   // odświeżenie strony albo zamknięcie panelu nie otwierało jej ponownie.
   const clearCandidateParam = useCallback(() => {
-    setBoardDockRequest(null);
     if (!pathname) return;
     const next = new URLSearchParams(searchParams?.toString() ?? "");
     if (!next.has("candidate")) return;
@@ -474,17 +462,6 @@ export default function JobDetailPage() {
     if (kanbanViewState === "forbidden" && linkedCandidateId != null) clearCandidateParam();
   }, [kanbanViewState, linkedCandidateId, clearCandidateParam]);
 
-  // „Tabela": link rozstrzygamy dopiero na ŚWIEŻEJ tablicy — z ciepłego cache
-  // osoba, która właśnie weszła do rekrutacji (powiadomienie), jeszcze nie
-  // istnieje, a parametr zostałby zużyty na próżno. „Tablica" robi to samo
-  // przez `initialDockCandidateId`.
-  useEffect(() => {
-    if (activeView !== "people" || linkedCandidateId == null) return;
-    if (kanbanIsFetching || !kanbanIsSuccess) return;
-    setActiveCandidateId(linkedCandidateId);
-    clearCandidateParam();
-  }, [activeView, linkedCandidateId, kanbanIsFetching, kanbanIsSuccess, clearCandidateParam]);
-
   // Tabela, tablica i panel osoby czytają TE SAME kolumny — jedno zapytanie
   // (`["kanban", id]`).
   const kanbanColumns = useMemo(
@@ -514,7 +491,7 @@ export default function JobDetailPage() {
   const { data: pipelineScores, isLoading: scoresLoading } = useQuery({
     queryKey: ["pipeline-scores", id],
     queryFn: () => matchingApi.pipelineScores(Number(id)).then((r) => r.data),
-    enabled: activeView === "board" && !!id,
+    enabled: showBoard && !!id,
     staleTime: 5 * 60_000,
   });
   const scoreMap = useMemo(() => {
@@ -526,21 +503,12 @@ export default function JobDetailPage() {
     return m;
   }, [pipelineScores]);
 
-  // Powody odrzucenia i etapy ze scorecardem z szablonu rekrutacji — ten sam
-  // hook co tablica. Tablica pyta sama (jak dotąd), więc tu tylko dla „Tabeli".
-  const pipelineTemplate = useJobPipelineTemplate(jobId, {
-    job: job ?? null,
-    enabled: activeView === "people",
-  });
-  // SLA klienta (karta klienta) — „dzień X z Y SLA" w kolumnie następnego kroku.
-  const playbookQuery = useClientPlaybook(job?.client_id ?? null);
-
-  // Liczniki paska etapów, których tablica nie niesie.
+  // Liczniki zakładek ekranu „Do przejrzenia".
   const openProposalsQuery = useQuery({
     queryKey: [...jobProposalsKeys.all(jobId), "open-count"],
     queryFn: ({ signal }) =>
       jobProposalsApi.inbox(jobId, { status: "proposed", limit: 1 }, signal),
-    enabled: activeView === "people" && Number.isFinite(jobId),
+    enabled: reviewScreen && Number.isFinite(jobId),
     staleTime: 30_000,
     retry: false,
   });
@@ -554,7 +522,7 @@ export default function JobDetailPage() {
   const shortlistCountQuery = useQuery({
     queryKey: jobShortlistQueryKey(jobId),
     queryFn: () => shortlistApi.list(jobId),
-    enabled: activeView === "people" && Number.isFinite(jobId),
+    enabled: reviewScreen && Number.isFinite(jobId),
     staleTime: 30_000,
   });
 
@@ -728,7 +696,7 @@ export default function JobDetailPage() {
             resourceId={Number.isFinite(jobId) ? jobId : null}
           />
         }
-        activeView={activeView}
+        activeView={showBoard ? "board" : activeView}
         onViewChange={selectView}
         // „Zlecenie" otwiera okno na KAŻDYM widoku — także na „Zlecenie
         // i Champion": portale, zespół i „Zamknij rekrutację" mieszkają tylko
@@ -774,10 +742,6 @@ export default function JobDetailPage() {
         onWriteAnnouncement={onWriteAnnouncement}
         onGenerateInviteLink={onGenerateInviteLink}
         chatUnreadCount={chatUnread?.unread_count ?? 0}
-        // Licznik „w procesie" — `countInProcess`, TA SAMA funkcja co KPI
-        // „w procesie" obok. `undefined`, dopóki tablica się nie wczyta: zero
-        // znaczyłoby „nikogo tu nie ma", a to jeszcze nie wiadomo.
-        pipelineCount={kanban ? countInProcess(kanbanColumns) : undefined}
         // Panel „Zespół i priorytet" żyje teraz w oknie „Zlecenie". Zostaje
         // w nagłówku wyłącznie na pełnym widoku „Zlecenie i Champion".
         {...(activeView === "champion"
@@ -930,59 +894,56 @@ export default function JobDetailPage() {
         onBulkAdded={invalidateKanban}
       />
 
-      {/* ── Widok „Tabela": pasek etapów + tabela osób + panel osoby ─────── */}
-      {activeView === "people" && segment !== "proposals" && (
-        <ProposalsCountProbe
-          jobId={jobId}
-          budgetHourly={jobBudgetHourly(job)}
-          pipelineCandidateIds={pipelineCandidateIds}
-        />
-      )}
-      {activeView === "people" && (
-        <RecruitmentWorkspace
-          jobId={jobId}
-          job={{
-            title: job.title,
-            budgetHourly: jobBudgetHourly(job),
-            rejectionReasons: pipelineTemplate.rejectionReasons,
-            slaDays: playbookQuery.data?.sla_business_days ?? null,
-            stagesWithScorecard: pipelineTemplate.stagesWithScorecard,
-          }}
-          kanban={kanban}
-          kanbanQueryState={kanbanQueryState}
-          canWritePipeline={canWritePipeline}
-          canWriteClientRate={job.can_write_client_rate === true}
-          openProposalsCount={
-            visibleProposalsQuery.data ??
-            (openProposalsQuery.isSuccess ? openProposalsQuery.data.total : null)
-          }
-          shortlistCount={
-            shortlistCountQuery.isSuccess ? (shortlistCountQuery.data?.length ?? 0) : null
-          }
-          segment={segment}
-          onSegmentChange={selectSegment}
-          activeCandidateId={activeCandidateId}
-          onActiveCandidateChange={setActiveCandidateId}
-          panelSection={panelSection}
-          onPanelSectionChange={selectPanelSection}
-          workbenchContext={{
-            clientId: job.client_id ?? null,
-            clientName: job.client_name ?? null,
-            onMoved: invalidateKanban,
-            onTabChange: handleLegacyTab,
-            canCloseJob: canUpdateJob,
-            headcount: typeof job.headcount === "number" ? job.headcount : null,
-            jobClosed: job.status === "closed",
-            onRequestCloseJob: () => openSlideOver("order", { orderSection: "close" }),
-          }}
-          onOpenSlideOver={openSlideOver}
-          headerSlot={
-            <ManagedInNexusBanner job={job} canSwitch={canEditJob} />
-          }
-          renderShortlist={() => (
+      {/* ── „Do przejrzenia" — pełna lista (makieta 4): propozycje z bazy
+          i shortlista. Wejście: „Przejrzyj wszystkich" z pierwszej kolumny
+          Tablicy; powrót: „← Tablica" w nagłówku. ─────────────────────── */}
+      {reviewScreen && (
+        <div className="space-y-3">
+          <div
+            role="tablist"
+            aria-label="Do przejrzenia"
+            className="inline-flex items-center gap-0.5 rounded-lg bg-muted p-0.5"
+          >
+            {(
+              [
+                [
+                  "proposals",
+                  "Propozycje z bazy",
+                  visibleProposalsQuery.data ??
+                    (openProposalsQuery.isSuccess ? openProposalsQuery.data.total : null),
+                ],
+                [
+                  "shortlist",
+                  "Shortlista",
+                  shortlistCountQuery.isSuccess ? (shortlistCountQuery.data?.length ?? 0) : null,
+                ],
+              ] as const
+            ).map(([value, label, count]) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={segment === value}
+                onClick={() => selectSegment(value)}
+                className={cn(
+                  "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[13px] font-medium transition-colors",
+                  segment === value
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+                {typeof count === "number" ? (
+                  <Badge variant="outline" size="sm" className="tabular-nums">
+                    {count}
+                  </Badge>
+                ) : null}
+              </button>
+            ))}
+          </div>
+          {segment === "shortlist" ? (
             <JobShortlist jobId={jobId} readOnly={!canWritePipeline} />
-          )}
-          renderProposals={() => (
+          ) : (
             <ProposalsSegment
               jobId={jobId}
               budgetHourly={jobBudgetHourly(job)}
@@ -1030,11 +991,11 @@ export default function JobDetailPage() {
               }
             />
           )}
-        />
+        </div>
       )}
 
       {/* ── Widok „Tablica": kanban bez zmian (przeciąganie, filtry, dok) ── */}
-      {activeView === "board" && (
+      {showBoard && (
         <div>
           <ManagedInNexusBanner job={job} canSwitch={canEditJob} />
           <PipelineBoardGate
@@ -1061,10 +1022,32 @@ export default function JobDetailPage() {
               // (powiadomienie), jeszcze nie istnieje, a parametr zostałby
               // zużyty na próżno.
               initialDockCandidateId={
-                kanbanIsFetching ? null : (linkedCandidateId ?? boardDockRequest)
+                kanbanIsFetching || panelSection ? null : linkedCandidateId
               }
               onInitialDockHandled={clearCandidateParam}
-              onDockCandidateChange={handleBoardDockChange}
+              // Warsztaty osoby (dawny panel „Tabeli") otwierane z doku.
+              workbenchContext={{
+                clientId: job.client_id ?? null,
+                clientName: job.client_name ?? null,
+                onMoved: invalidateKanban,
+                onTabChange: handleLegacyTab,
+                canCloseJob: canUpdateJob,
+                headcount: typeof job.headcount === "number" ? job.headcount : null,
+                jobClosed: job.status === "closed",
+                onRequestCloseJob: () => openSlideOver("order", { orderSection: "close" }),
+              }}
+              kanbanQueryState={kanbanQueryState}
+              // `?candidate=&panel=` (także linki zapisane w powiadomieniach):
+              // od razu warsztat tej osoby na właściwej sekcji.
+              initialWorkbench={
+                !kanbanIsFetching && panelSection && linkedCandidateId != null
+                  ? { candidateId: linkedCandidateId, section: panelSection }
+                  : null
+              }
+              onInitialWorkbenchHandled={() => {
+                clearCandidateParam();
+                selectPanelSection(null);
+              }}
             />
           </PipelineBoardGate>
         </div>

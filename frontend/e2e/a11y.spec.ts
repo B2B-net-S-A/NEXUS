@@ -49,18 +49,18 @@ test.describe("Dostępność @stack", () => {
     const job = await createJob(admin.api, client.id);
     await page.goto(`/jobs/${job.id}`);
     await expect(page.getByTestId("pipeline-board")).toBeVisible();
-    await expect(page.getByTestId("view-board")).toHaveAttribute("aria-pressed", "true");
+    // Tryb „Tabela" usunięty 22.09.2026 — na Tablicy nie ma przełącznika widoku.
+    await expect(page.getByTestId("view-people")).toHaveCount(0);
     await expectNoCriticalViolations(page, testInfo, "job-board");
   });
 
-  // Widokiem domyślnym jest Tablica (decyzja z 22.09.2026, JOB_DETAIL_DEFAULT_VIEW),
-  // więc do Tabeli wchodzimy jawnym `?tab=people` — tak jak przełącznik w nagłówku.
-  test("tabela rekrutacji (przełącznik Tabela)", async ({ admin, page }, testInfo) => {
+  // Tryb „Tabela" usunięty 22.09.2026 — `?tab=people&seg=proposals` to ekran
+  // „Do przejrzenia" (pełna lista propozycji z bazy i shortlista).
+  test("do przejrzenia (propozycje z bazy)", async ({ admin, page }, testInfo) => {
     const client = await createClient(admin.api);
     const job = await createJob(admin.api, client.id);
-    await page.goto(`/jobs/${job.id}?tab=people`);
-    await expect(page.getByRole("navigation", { name: "Etapy rekrutacji" })).toBeVisible();
-    await expect(page.getByTestId("view-people")).toHaveAttribute("aria-pressed", "true");
-    await expectNoCriticalViolations(page, testInfo, "job-table");
+    await page.goto(`/jobs/${job.id}?tab=people&seg=proposals`);
+    await expect(page.getByRole("tablist", { name: "Do przejrzenia" })).toBeVisible();
+    await expectNoCriticalViolations(page, testInfo, "job-review");
   });
 });

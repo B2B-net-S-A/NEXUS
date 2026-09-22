@@ -887,7 +887,7 @@ describe("KanbanBoardV2 — focus na etapie", () => {
     expect(container.querySelectorAll("[data-colid]")).toHaveLength(15);
     expect(container.querySelector('[data-colid="def:201"]')).toBeTruthy();
     expect(container.querySelector('[data-colid="def:202"]')).toBeTruthy();
-    expect(screen.getByText("W procesie: 4")).toBeTruthy();
+    expect(screen.getByText("4 w procesie")).toBeTruthy();
 
     await userEvent.click(picker);
     expect(await screen.findAllByRole("option")).toHaveLength(15);
@@ -1031,7 +1031,7 @@ describe("KanbanBoardV2 — karty poza szablonem", () => {
     // inaczej 1 009 rekrutacji dostałoby inny layout w nagrodę za bugfix.
     expect(board).toHaveAttribute("data-desktop-layout", "full-pipeline");
     // Kubełek nie dolicza się do sumy pipeline'u (to nie jest etap procesu).
-    expect(screen.getByText("W procesie: 4")).toBeTruthy();
+    expect(screen.getByText("4 w procesie")).toBeTruthy();
   });
 
   it("nie oferuje kubełka jako celu przeniesienia zbiorczego", async () => {
@@ -1329,8 +1329,9 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(screen.getByText("Brak następnej akcji")).toBeTruthy();
     // Licznik w rail'u liczy TĄ SAMĄ funkcją co karta: jedna zaległa karta
     // wejściowa. Karta ze screeningu (2 dni) ma akcję, terminalna nie liczy się.
+    await userEvent.click(screen.getByRole("button", { name: /^Filtry/ }));
     expect(
-      screen.getByRole("button", { name: "Bez następnej akcji · 1" }),
+      await screen.findByRole("button", { name: "Bez następnej akcji · 1" }),
     ).toBeTruthy();
   });
 
@@ -1338,8 +1339,9 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     const { container } = renderBoard(defaultB2BColumns());
     await screen.findByTestId("pipeline-board");
 
+    await userEvent.click(screen.getByRole("button", { name: /^Filtry/ }));
     await userEvent.click(
-      screen.getByRole("button", { name: "Ukryj puste kolumny" }),
+      await screen.findByRole("button", { name: "Ukryj puste kolumny" }),
     );
 
     expect(container.querySelectorAll("[data-collapsed-group]")).toHaveLength(0);
@@ -1376,6 +1378,9 @@ describe("KanbanBoardV2 — „Utknęli > 7 d” bez kolumn terminalnych", () =>
       items: [stuck(952, 90), stuck(953, 40)],
     };
     renderBoard(columns as never);
+    // Podsumowanie po prawej liczy to samo, co filtr w „Filtry ▾".
+    expect(await screen.findByText(/utknęło > 7 d/)).toHaveTextContent("1 utknęło > 7 d");
+    await userEvent.click(screen.getByRole("button", { name: /^Filtry/ }));
     expect(await screen.findByText("Utknęli > 7 d · 1")).toBeInTheDocument();
   });
 });

@@ -49,11 +49,8 @@ import { jobShortlistQueryKey } from "@/components/v2/jobs/JobShortlist";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { ProposalsSegmentView } from "@/components/v2/recruitment/ProposalsSegment";
-import { RecruitmentWorkspace } from "@/components/v2/recruitment/RecruitmentWorkspace";
 import type { JobProposalsState } from "@/components/v2/recruitment/useJobProposals";
 import type {
-  PersonPanelSection,
-  RecruitmentSegment,
   RecruitmentSlideOver,
 } from "@/components/v2/recruitment/types";
 
@@ -456,16 +453,11 @@ function Pill({ active, children, onClick }: { active: boolean; children: React.
 }
 
 function Harness() {
-  const [size, setSize] = useState<250 | 47>(250);
   const [scenario, setScenario] = useState<ProposalsScenario>("rows");
   const [filters, setFilters] = useState<ProposalViewFilters>(DEFAULT_PROPOSAL_FILTERS);
-  const [segment, setSegment] = useState<RecruitmentSegment>("in-process");
-  const [activeCandidateId, setActiveCandidateId] = useState<number | null>(null);
-  const [panelSection, setPanelSection] = useState<PersonPanelSection | null>(null);
   const [lastSlideOver, setLastSlideOver] = useState<RecruitmentSlideOver | null>(null);
 
-  const columns = useMemo(() => buildColumns(size), [size]);
-  // Osobny klient na rozmiar: zasiew jest per osoba.
+  const columns = useMemo(() => buildColumns(47), []);
   const client = useMemo(() => seededClient(columns), [columns]);
   const proposals = useMemo(() => proposalsState(scenario, filters), [scenario, filters]);
 
@@ -473,25 +465,15 @@ function Harness() {
     <QueryClientProvider client={client}>
       <div className="mx-auto max-w-[1500px] space-y-4 p-4">
         <header className="space-y-2">
-          <h1 className="text-lg font-semibold text-foreground">Rekrutacja v3 — jedna tabela (harness)</h1>
+          <h1 className="text-lg font-semibold text-foreground">Do przejrzenia — pełna lista (harness)</h1>
           <p className="text-sm text-muted-foreground">
-            Same mocki, zero zapytań. Ruch etapu, notatka i akcje zbiorcze otwierają prawdziwe okna, ale zapis
-            jest lokalnie odrzucany (harness nie ma sieci).
+            Same mocki, zero zapytań. Tryb „Tabela" rekrutacji usunięty 22.09.2026 — tu zostaje
+            ekran „Do przejrzenia" (propozycje z bazy) otwierany z pierwszej kolumny Tablicy.
           </p>
-          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Rozmiar rekrutacji">
-            <span className="text-xs font-semibold text-muted-foreground">Osób:</span>
-            <Pill active={size === 250} onClick={() => { setSize(250); setActiveCandidateId(null); }}>250 (grupowanie)</Pill>
-            <Pill active={size === 47} onClick={() => { setSize(47); setActiveCandidateId(null); }}>47 (płaska lista)</Pill>
-            <span className="ml-4 text-xs font-semibold text-muted-foreground">Propozycje z bazy:</span>
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Stan propozycji">
+            <span className="text-xs font-semibold text-muted-foreground">Propozycje z bazy:</span>
             {(Object.keys(SCENARIO_LABEL) as ProposalsScenario[]).map((key) => (
-              <Pill
-                key={key}
-                active={scenario === key}
-                onClick={() => {
-                  setScenario(key);
-                  setSegment("proposals");
-                }}
-              >
+              <Pill key={key} active={scenario === key} onClick={() => setScenario(key)}>
                 {SCENARIO_LABEL[key]}
               </Pill>
             ))}
@@ -503,49 +485,14 @@ function Harness() {
           </div>
         </header>
 
-        <RecruitmentWorkspace
-          key={size}
+        <ProposalsSegmentView
           jobId={JOB_ID}
-          job={{
-            title: "Senior Java Developer",
-            budgetHourly: BUDGET_HOURLY,
-            rejectionReasons: [
-              { id: "1", label: "Za wysoka stawka", applies_to: ["rejected"] },
-              { id: "2", label: "Kandydat wybrał inną ofertę", applies_to: ["withdrawn"] },
-            ],
-            slaDays: 5,
-            stagesWithScorecard: new Set([5]),
-          }}
-          kanban={{ columns, off_template: null }}
-          kanbanQueryState={{ isLoading: false, isError: false, error: null, isSuccess: true, refetch: noop }}
-          canWritePipeline
-          canWriteClientRate
-          openProposalsCount={scenario === "rows" ? INBOX_ITEMS.length : 0}
-          shortlistCount={3}
-          segment={segment}
-          onSegmentChange={setSegment}
-          activeCandidateId={activeCandidateId}
-          onActiveCandidateChange={setActiveCandidateId}
-          panelSection={panelSection}
-          onPanelSectionChange={setPanelSection}
-          workbenchContext={{ clientId: null, clientName: "Bank Alfa", onMoved: noop, canCloseJob: false }}
-          onOpenSlideOver={setLastSlideOver}
-          renderShortlist={() => (
-            <p className="rounded-lg border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
-              Shortlista (3 osoby) — w harnessie atrapa; produkcyjnie renderuje się tu `JobShortlist`.
-            </p>
-          )}
-          renderProposals={() => (
-            <ProposalsSegmentView
-              jobId={JOB_ID}
-              budgetHourly={BUDGET_HOURLY}
-              proposals={proposals}
-              filters={filters}
-              onFiltersChange={setFilters}
-              onOpenManualSearch={() => setLastSlideOver("manual-search")}
-              onOpenQuickAdd={noop}
-            />
-          )}
+          budgetHourly={BUDGET_HOURLY}
+          proposals={proposals}
+          filters={filters}
+          onFiltersChange={setFilters}
+          onOpenManualSearch={() => setLastSlideOver("manual-search")}
+          onOpenQuickAdd={noop}
         />
       </div>
     </QueryClientProvider>

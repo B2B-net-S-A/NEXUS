@@ -51,29 +51,15 @@ test.describe("Pipeline rekrutacji @stack", () => {
     );
     expect(stageOf(kanbanAfterMove, candidate.id)).toBe("screening");
 
-    // Goły adres otwiera Tablicę (widok domyślny od #1696) i osoba na niej jest.
+    // Osoba jest na Tablicy także po przeładowaniu rekrutacji. Tryb „Tabela"
+    // usunięty 22.09.2026 — rekrutacja to Tablica, a stare adresy
+    // (`?tab=people`, `?tab=pipeline`) też na nią prowadzą.
     await page.goto(`/jobs/${job.id}`);
-    await expect(page.getByTestId("view-board")).toHaveAttribute("aria-pressed", "true");
-    await expect(
-      page.getByTestId("pipeline-board").getByRole("link", { name: fullName })
-    ).toBeVisible();
-
-    // Osoba jest w tabeli także po przeładowaniu rekrutacji… Widokiem
-    // domyślnym jest Tablica (JOB_DETAIL_DEFAULT_VIEW, 22.09.2026), więc do
-    // Tabeli wchodzimy jawnym `?tab=people`.
-    await page.goto(`/jobs/${job.id}?tab=people`);
     await page.reload();
-    const table = page.getByRole("grid", { name: "Osoby w rekrutacji" });
-    await expect(table.getByText(fullName)).toBeVisible();
-    // …i na tablicy (przełącznik „Tablica"). Stary adres `?tab=pipeline`
-    // nadal prowadzi do rekrutacji — ląduje na tabeli.
-    await page.getByTestId("view-board").click();
     const board = page.getByTestId("pipeline-board");
     await expect(board.getByRole("link", { name: fullName })).toBeVisible();
     await page.goto(`/jobs/${job.id}?tab=pipeline`);
-    await expect(
-      page.getByRole("grid", { name: "Osoby w rekrutacji" }).getByText(fullName)
-    ).toBeVisible();
+    await expect(page.getByTestId("pipeline-board")).toBeVisible();
     await expect(page).not.toHaveURL(/tab=pipeline/);
 
     // Ruch z nieaktualną wersją procesu jest odrzucany bez zapisu (F05).
@@ -128,7 +114,7 @@ test.describe("Pipeline rekrutacji @stack", () => {
     expect(stageOf(kanbanAfterReject, candidate.id)).toBe("rejected");
   });
 
-  test("ruch etapu z TABELI: panel osoby → wybór etapu", async ({ admin, page }) => {
+  test("ruch etapu z panelu osoby na Tablicy: główna akcja doku", async ({ admin, page }) => {
     const client = await createClient(admin.api);
     const job = await createJob(admin.api, client.id);
     const candidate = await createCandidate(admin.api);
@@ -141,30 +127,26 @@ test.describe("Pipeline rekrutacji @stack", () => {
       "dodanie do rekrutacji",
     );
 
-    await page.goto(`/jobs/${job.id}?tab=people`);
-    const table = page.getByRole("grid", { name: "Osoby w rekrutacji" });
-    // Klik w lewą część komórki nazwiska — przy wąskim oknie reszta pola
-    // bywa przykryta przez sąsiednią kolumnę.
-    await table.getByText(fullName).click({ position: { x: 4, y: 4 } });
-    const panel = page.getByRole("complementary", { name: "Wybrana osoba" });
+    // `?candidate=` otwiera dok tej osoby na Tablicy (jak link z powiadomienia).
+    await page.goto(`/jobs/${job.id}?candidate=${candidate.id}`);
+    const panel = page.getByRole("complementary", { name: "Karta kandydata" });
     await expect(panel.getByText(fullName)).toBeVisible();
 
-    // Ten sam `usePipelineMove` co tablica — ruch na „Screening" nie otwiera okna.
-    await panel.getByLabel("Etap").selectOption({ label: "Screening" });
+    // Ten sam `usePipelineMove` co przeciąganie — ruch na „Screening" nie otwiera okna.
+    await panel.getByRole("button", { name: /Przenieś na etap: Screening/ }).click();
     await expect
       .poll(async () =>
         stageOf(
           await jsonOf<KanbanView>(
             await admin.api.get(`/api/pipeline/kanban/${job.id}`),
             200,
-            "kanban po ruchu z tabeli",
+            "kanban po ruchu z doku",
           ),
           candidate.id,
         ),
       )
       .toBe("screening");
-    // Panel zostaje otwarty na tej samej osobie i pokazuje nowy etap.
-    await expect(panel.getByLabel("Etap")).toHaveValue(/.+/);
+    // Dok zostaje otwarty na tej samej osobie.
     await expect(panel.getByText(fullName)).toBeVisible();
   });
 
@@ -201,6 +183,8 @@ test.describe("Pipeline rekrutacji @stack", () => {
     // Przełącznik „Ukryj puste kolumny" (aria-pressed = puste ukryte) wyłączamy
     // jawnie; do 22.09.2026 nazywał się „Kolumny: pokaż puste" i test po
     // zmianie nazwy nic nie klikał, więc karta nie miała dokąd pojechać.
+    // Od 22.09.2026 przełącznik siedzi w „Filtry ▾" (makieta 2).
+    await page.getByRole("button", { name: /^Filtry/ }).click();
     const hideEmpty = page.getByRole("button", { name: "Ukryj puste kolumny" });
     await expect(hideEmpty).toBeVisible();
     if ((await hideEmpty.getAttribute("aria-pressed")) === "true") await hideEmpty.click();
