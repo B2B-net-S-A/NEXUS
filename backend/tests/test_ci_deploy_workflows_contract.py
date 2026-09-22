@@ -403,7 +403,9 @@ def test_every_run_block_in_quality_workflows_is_valid_bash() -> None:
     bash = shutil.which("bash")
     assert bash, "bash jest wymagany do kontroli składni workflowów"
     broken: list[str] = []
-    for name in ("ci.yml", "e2e.yml"):
+    # Od audytu 22.09.2026 (runda 2): WSZYSTKIE workflowy — alarmy i bramki
+    # deployu siedzą też w deploy.yml, ci-gate.yml i workflowach monitoringu.
+    for name in sorted(path.name for path in _WORKFLOWS.glob("*.yml")):
         for job_id, job in _load(name)["jobs"].items():
             for step in job.get("steps", []):
                 script = step.get("run")
@@ -447,3 +449,277 @@ def test_manifest_skip_switch_is_limited_to_the_e2e_stack() -> None:
             assert "CLIENT_PORTFOLIO_MANIFEST_SKIP" not in path.read_text(
                 encoding="utf-8"
             ), name
+
+
+# ── Audyt 22.09.2026, runda 2 (OPS-N01..N08, REC-03, PROD-04) ─────────────
+
+
+def test_e2e_stack_does_not_run_after_deploy() -> None:
+    """OPS-N02: stack buduje się ze źródeł, nie z produkcji — bieg po Deploy
+    powtarzał kolejkę merge'ów (757 min w 2 dni) i nie mówił nic o prod."""
+    stack = _load("e2e.yml")["jobs"]["stack"]
+    assert stack["if"] == "${{ github.event_name != 'workflow_run' }}"
+    prod = _load("e2e.yml")["jobs"]["playwright"]
+    assert "workflow_run" in prod["if"], "Po deployu biega `prod-smoke`."
+
+
+def test_ci_gate_frontend_typecheck_skips_steps_not_the_job_on_prs() -> None:
+    """OPS-N01: „Frontend (typecheck)” jest wymaganym kontekstem — job ZAWSZE
+    się zgłasza; na PR-ze typy sprawdza „Frontend (typecheck + build)”."""
+    job = _load("ci-gate.yml")["jobs"]["frontend-fast"]
+    assert job["name"] == "Frontend (typecheck)"
+    assert "if" not in job, "`if` na jobie = `skipped` wymaganego kontekstu."
+    skip = "github.event_name != 'pull_request'"
+    for name in ("Install dependencies", "Type check"):
+        assert skip in _step(job["steps"], name)["if"]
+    checkout = next(s for s in job["steps"] if "actions/checkout" in s.get("uses", ""))
+    assert skip in checkout["if"]
+    notice = _step(job["steps"], "Typy PR-a sprawdza CI")
+    assert notice["working-directory"] == ".", "Bez checkoutu nie ma katalogu frontend."
+    # Typy PR-a naprawdę sprawdza CI — inaczej pominięcie byłoby dziurą.
+    ci_front = _load("ci.yml")["jobs"]["frontend-lint-build"]
+    assert ci_front["name"] == "Frontend (typecheck + build)"
+    _step(ci_front["steps"], "Type check")
+
+
+def _run_step_script(script: str, env: dict[str, str], files: list[str]) -> str:
+    """Wykonuje blok `run:` z atrapą `gh` zwracającą listę plików."""
+    import os
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        gh = Path(tmp) / "gh"
+        gh.write_text("#!/bin/bash\nprintf '%s\\n' $FAKE_FILES\n", encoding="utf-8")
+        gh.chmod(0o755)
+        out = Path(tmp) / "out"
+        out.write_text("", encoding="utf-8")
+        subprocess.run(
+            ["bash", "-c", script],
+            env={
+                **os.environ,
+                **env,
+                "PATH": f"{tmp}:{os.environ['PATH']}",
+                "GITHUB_OUTPUT": str(out),
+                "FAKE_FILES": " ".join(files),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return out.read_text(encoding="utf-8")
+
+
+def test_trivy_runs_only_when_dependencies_or_dockerfiles_change() -> None:
+    """OPS-N01: skan zależności na PR-ze bez zmian w zależnościach powtarza
+    wynik poprzedniego. Job nie jest wymaganym kontekstem, ale i tak się
+    zgłasza — pomijane są kroki; każda niepewność = pełny skan."""
+    job = _load("ci.yml")["jobs"]["security-scan"]
+    assert "if" not in job
+    scope = _step(job["steps"], "Czy zmieniły się zależności albo Dockerfile?")
+    for step in job["steps"][1:]:
+        assert "steps.scope.outputs.run == 'true'" in str(step.get("if")), step
+    env = {
+        "EVENT": "pull_request",
+        "REPO": "o/r",
+        "PR_NUMBER": "1",
+        "BASE_SHA": "",
+        "HEAD_SHA": "",
+    }
+    cases = {
+        ("backend/app/main.py", "frontend/src/app/page.tsx"): "run=false",
+        ("backend/requirements.txt",): "run=true",
+        ("frontend/Dockerfile",): "run=true",
+        ("frontend/package-lock.json",): "run=true",
+        (".trivyignore",): "run=true",
+        (".github/workflows/ci.yml",): "run=true",
+        (): "run=true",  # pusta lista = niepewność = pełny skan
+    }
+    for files, expected in cases.items():
+        assert expected in _run_step_script(scope["run"], env, list(files)), files
+    dispatch = {**env, "EVENT": "workflow_dispatch"}
+    assert "run=true" in _run_step_script(scope["run"], dispatch, [])
+
+
+def test_set_env_does_not_bypass_the_deploy_gates() -> None:
+    """OPS-N03: `redeploy=true` wołało webhook Coolify wprost — budowa HEAD-a
+    z pominięciem DEP-01, smoke i kontroli migracji. Teraz domyślnie brak
+    redeployu, a redeploy idzie przez workflow Deploy."""
+    wf = _load("coolify-set-env.yml")
+    inputs = _triggers(wf)["workflow_dispatch"]["inputs"]
+    assert inputs["redeploy"]["default"] == "false"
+    raw = (_WORKFLOWS / "coolify-set-env.yml").read_text(encoding="utf-8")
+    assert "/api/v1/deploy" not in raw, "Webhook Coolify omija bramki deployu."
+    job = wf["jobs"]["set-env"]
+    assert job["permissions"]["actions"] == "write"
+    deploy_step = _step(job["steps"], "Wdróż przez workflow Deploy")
+    assert deploy_step["if"] == "${{ inputs.redeploy == 'true' }}"
+    assert "gh workflow run deploy.yml" in deploy_step["run"]
+    assert "--ref main" in deploy_step["run"] and "force_rebuild" in deploy_step["run"]
+
+    deploy = _load("deploy.yml")
+    force = _triggers(deploy)["workflow_dispatch"]["inputs"]["force_rebuild"]
+    assert force["type"] == "boolean" and force["default"] is False
+    trigger = _step(deploy["jobs"]["deploy"]["steps"], "Trigger deployment")
+    assert "force=$FORCE_REBUILD" in trigger["run"]
+    assert "workflow_dispatch" in trigger["env"]["FORCE_REBUILD"], (
+        "Automatyczny deploy nigdy nie przebudowuje bez cache."
+    )
+
+
+def test_hold_label_and_draft_take_the_pr_out_of_the_queue() -> None:
+    """REC-03 / OPS-N04: `wstrzymaj` dodane po włączeniu auto-merge'a nie
+    zatrzymywało niczego — PR i tak wchodził na maina."""
+    wf = _load("auto-enqueue.yml")
+    types = _triggers(wf)["pull_request"]["types"]
+    assert {"labeled", "converted_to_draft", "unlabeled"} <= set(types)
+    enqueue = wf["jobs"]["enqueue"]
+    assert "github.event.action != 'labeled'" in enqueue["if"]
+    assert "github.event.action != 'converted_to_draft'" in enqueue["if"]
+    hold = wf["jobs"]["hold"]
+    assert "converted_to_draft" in hold["if"]
+    assert "github.event.label.name == 'wstrzymaj'" in hold["if"]
+    step = hold["steps"][0]
+    assert step["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}"
+    assert "--disable-auto" in step["run"]
+    assert "dequeuePullRequest" in step["run"], (
+        "Wyłączenie auto-merge'a nie wyjmuje PR-a z trwającej kolejki."
+    )
+
+
+def test_jobs_with_production_secrets_run_only_from_main() -> None:
+    """OPS-N05: workflow_dispatch z dowolnej gałęzi dawał jej wersji pliku
+    sekrety produkcji (coolify-ops uruchomiony z gałęzi codex/...)."""
+    import yaml as _yaml
+
+    offenders: list[str] = []
+    for path in sorted(_WORKFLOWS.glob("*.yml")):
+        wf = _load(path.name)
+        jobs = wf["jobs"]
+        guarded = {
+            job_id
+            for job_id, job in jobs.items()
+            if "github.ref == 'refs/heads/main'" in str(job.get("if", ""))
+        }
+        for job_id, job in jobs.items():
+            text = _yaml.safe_dump(job)
+            if "secrets.COOLIFY_" not in text and "secrets.BACKUP_" not in text:
+                continue
+            needs = job.get("needs") or []
+            needs = [needs] if isinstance(needs, str) else needs
+            if job_id in guarded or any(n in guarded for n in needs):
+                continue
+            offenders.append(f"{path.name}:{job_id}")
+    assert offenders == []
+
+
+def test_gitleaks_also_scans_every_commit_of_the_pr_and_merge_group() -> None:
+    """OPS-N06: sekret dodany i usunięty w kolejnych commitach PR-a zostaje na
+    GitHubie, a skan drzewa (`--no-git`) go nie widzi."""
+    job = _load("ci-gate.yml")["jobs"]["secret-scan"]
+    assert "if" not in job, "Gitleaks jest wymaganym kontekstem."
+    assert job["steps"][0]["with"]["fetch-depth"] == 0
+    tree = _step(job["steps"], "Scan working tree")
+    assert "--no-git" in tree["run"]
+    commits = _step(job["steps"], "Scan commits of this PR / merge group")
+    assert "pull_request" in commits["if"] and "merge_group" in commits["if"]
+    assert '--log-opts="${BASE_SHA}..${HEAD_SHA}"' in commits["run"]
+    assert "--no-git" not in commits["run"]
+    assert "merge_group.base_sha" in commits["env"]["BASE_SHA"]
+    assert "pull_request.base.sha" in commits["env"]["BASE_SHA"]
+    assert "exit 1" in commits["run"], "Brak zakresu = czerwień, nie cichy pass."
+
+
+def test_deploy_freezes_at_night_and_catches_up_in_the_morning() -> None:
+    """PROD-04: automatyczny deploy w oknie ciszy (domyślnie 0-7 Warszawa)
+    jest odraczany; poranny `schedule` wdraża zaległe merge'e."""
+    deploy = _load("deploy.yml")
+    crons = [entry["cron"] for entry in _triggers(deploy)["schedule"]]
+    assert crons == ["15 5,6 * * *"], "05:15Z = 07:15 latem, 06:15Z = 07:15 zimą."
+    select = deploy["jobs"]["select"]
+    assert "github.event_name == 'schedule'" in select["if"]
+    assert "github.ref == 'refs/heads/main'" in select["if"]
+    step = _step(select["steps"], "Wybierz wydanie")
+    freeze = step["env"]["FREEZE_WINDOW"]
+    assert "vars.DEPLOY_FREEZE_WINDOW" in freeze and "'0-7'" in freeze
+    assert "github.event_name != 'workflow_dispatch'" in freeze, (
+        "Ręczny deploy nie pyta o okno ciszy."
+    )
+    assert '--freeze-window "$FREEZE_WINDOW"' in step["run"]
+    assert "$SCHEDULED" in step["run"]
+    assert (
+        step["env"]["SCHEDULED"]
+        == "${{ github.event_name == 'schedule' && '--scheduled' || '' }}"
+    )
+
+
+def test_held_and_red_deploys_open_and_close_an_issue() -> None:
+    """OPS-N07: wstrzymany i czerwony deploy zostawiały tylko `::warning::`."""
+    deploy = _load("deploy.yml")
+    assert deploy["env"]["HOLD_ALERT_MARKER"] == "Deploy NEXUS wstrzymany"
+    assert deploy["env"]["RED_ALERT_MARKER"] == "Deploy NEXUS jest czerwony"
+
+    select = deploy["jobs"]["select"]
+    assert select["permissions"]["issues"] == "write"
+    hold = _step(select["steps"], "Alarm — deploy wstrzymany")
+    assert hold["if"] == "${{ steps.release_select.outputs.hold_alert != '' }}"
+    assert 'alert_issue.sh open "$HOLD_ALERT_MARKER"' in hold["run"]
+    resolve = _step(select["steps"], "Zamknij alarm wstrzymania")
+    assert resolve["if"] == "${{ steps.release_select.outputs.defer == 'false' }}"
+    assert 'alert_issue.sh resolve "$HOLD_ALERT_MARKER"' in resolve["run"]
+
+    red_gate = deploy["jobs"]["gate-red-alert"]
+    assert "workflow_run.conclusion == 'failure'" in red_gate["if"]
+    assert (
+        "hold-check"
+        in _step(red_gate["steps"], "Czy HEAD maina nadal ma czerwoną bramkę?")["run"]
+    )
+
+    job = deploy["jobs"]["deploy"]
+    assert job["permissions"]["issues"] == "write"
+    ok = _step(job["steps"], "Zamknij alarm czerwonego deployu")
+    assert ok["if"] == "${{ success() }}"
+    assert 'resolve "$RED_ALERT_MARKER"' in ok["run"]
+    red = _step(job["steps"], "Alarm — czerwony deploy")
+    assert red["if"].startswith("${{ failure()")
+    assert 'open "$RED_ALERT_MARKER"' in red["run"]
+
+
+def test_every_alert_issue_can_also_be_closed_by_a_green_run() -> None:
+    """OPS-N08: #825 i #1413 wisiały tygodniami po ustąpieniu warunku."""
+    import re
+
+    expected = {
+        "disk-alert.yml": ["NEXUS host disk high"],
+        "uptime-probe.yml": [
+            "NEXUS health checks unhealthy",
+            "NEXUS niedostępny (sonda GitHub)",
+            "Kopia off-site NEXUS nieświeża lub niekompletna",
+        ],
+        "backup-drill.yml": ["NEXUS backup drill nie przechodzi"],
+        "sentry-daily-monitor.yml": ["NEXUS dzienny monitor Sentry nie działa"],
+        "e2e.yml": [
+            "Nocny E2E przeciw produkcji jest czerwony",
+            "E2E po deployu (prod-smoke) jest czerwony",
+            "Nocny E2E na stacku testowym jest czerwony",
+        ],
+    }
+    for name, markers in expected.items():
+        wf = _load(name)
+        opening, closing = [], []
+        for job in wf["jobs"].values():
+            for step in job.get("steps", []):
+                run = str(step.get("run", ""))
+                if "alert_issue.sh resolve" in run:
+                    closing.append(run)
+                elif "gh issue create" in run or "alert_issue.sh open" in run:
+                    opening.append(run)
+        opened = "\n".join(opening)
+        closed = "\n".join(closing)
+        for marker in markers:
+            assert marker in opened, f"{name}: nikt nie otwiera alarmu {marker!r}"
+            assert marker in closed, f"{name}: nic nie zamyka alarmu {marker!r}"
+        # Każdy literał markera przy otwieraniu musi mieć swoje zamknięcie.
+        literals = set(re.findall(r'marker="([^"$][^"]*)"', opened))
+        literals |= set(re.findall(r'notify "([^"$][^"]*)"', opened))
+        assert literals <= set(markers), (name, literals - set(markers))

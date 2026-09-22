@@ -103,6 +103,32 @@ jobs:
             --redact \
             --verbose \
             --exit-code 1
+      # OPS-N06 (audyt 22.09.2026): skan drzewa nie widzi sekretu, który ktoś
+      # wypchnął w pośrednim commicie PR-a i usunął w następnym — a ten commit
+      # zostaje na GitHubie (gałąź PR-a, refs/pull/*) mimo squasha. Dlatego na
+      # PR-ze i w kolejce merge'ów skanujemy też KAŻDY commit z zakresu
+      # baza..głowa. Push na maina tego nie potrzebuje: to squash już
+      # sprawdzonego drzewa.
+      - name: Scan commits of this PR / merge group
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+        run: |
+          set -eu
+          case "$BASE_SHA$HEAD_SHA" in
+            *[!0-9a-f]*|"") echo "::error::Brak SHA zakresu commitów (base=$BASE_SHA head=$HEAD_SHA)."; exit 1 ;;
+          esac
+          if ! git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null; then
+            git fetch --no-tags origin "$HEAD_SHA"
+          fi
+          echo "Zakres: ${BASE_SHA:0:7}..${HEAD_SHA:0:7} ($(git rev-list --count "${BASE_SHA}..${HEAD_SHA}") commitów)"
+          gitleaks detect \
+            --log-opts="${BASE_SHA}..${HEAD_SHA}" \
+            --config .gitleaks.toml \
+            --redact \
+            --verbose \
+            --exit-code 1
 
   frontend-fast:
     name: Frontend (typecheck)
@@ -110,9 +136,22 @@ jobs:
     defaults:
       run:
         working-directory: frontend
+    # OPS-N01 (audyt 22.09.2026): na PR-ze ten job jest powtórzeniem.
+    # Typy PR-a sprawdza „Frontend (typecheck + build)” z ci.yml (wymagany
+    # kontekst; filtr ścieżek pomija go tylko, gdy PR nie dotyka frontendu —
+    # wtedy typy frontendu nie mogą się zmienić). Job ZAWSZE się zgłasza
+    # (wymagany kontekst rulesetu), pomijamy wyłącznie kroki. Kolejka merge'ów
+    # i push na maina (bramka deployu) sprawdzają typy jak dotąd.
     steps:
+      - name: Typy PR-a sprawdza CI
+        if: ${{ github.event_name == 'pull_request' }}
+        # Bez checkoutu nie ma katalogu `frontend` (domyślny katalog joba).
+        working-directory: .
+        run: echo "::notice::Na PR-ze type-check biegnie w „Frontend (typecheck + build)” (ci.yml) — tu pominięty. Kolejka merge'ów i push na maina sprawdzają go tutaj."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ github.event_name != 'pull_request' }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: ${{ github.event_name != 'pull_request' }}
         with:
           node-version: "20"
           cache: "npm"
@@ -120,10 +159,12 @@ jobs:
       # React 19 + kilka pakietów jeszcze na RC — bez tej flagi npm odmawia
       # instalacji (ta sama flaga co w ci.yml i w Dockerfile).
       - name: Install dependencies
+        if: ${{ github.event_name != 'pull_request' }}
         run: npm ci --legacy-peer-deps
       # Samo `tsc --noEmit`. Pełny `next build` i lint zostają w "CI" — tutaj
       # liczy się to, czego build produkcyjny NIE sprawdza, a nie powtórzenie go.
       - name: Type check
+        if: ${{ github.event_name != 'pull_request' }}
         run: npm run type-check
 
   backend-fast:
@@ -166,6 +207,8 @@ jobs:
         run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_coolify_release*.py'
       - name: Release selection tests (DEP-01, native only)
         run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_select_release_sha.py'
+      - name: Alert issue script tests (OPS-N08, native only)
+        run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_alert_issue.py'
       # Osobna bramka od `ruff check` — sam lint NIE łapie fail-i formatowania
       # (ruff 0.15.22).
       - name: Ruff format check

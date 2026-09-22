@@ -1,8 +1,15 @@
 name: Coolify set env
 
 # Manually-triggered ops helper: set a single Coolify env var on the NEXUS app
-# using the already-stored COOLIFY_* secrets, then trigger a runtime restart.
+# using the already-stored COOLIFY_* secrets.
 # Used to flip feature flags (e.g. SELF_REGISTRATION_ENABLED) without SSH/UI.
+#
+# OPS-N03 (audyt 22.09.2026): `redeploy` jest domyślnie `false`. Do 09.2026
+# domyślne `true` wołało webhook Coolify WPROST — budowa HEAD-a maina z
+# pominięciem bramki DEP-01 (zielone „CI Gate”), smoke testu, deep health
+# i kontroli migracji. Teraz `redeploy=true` uruchamia workflow „Deploy”
+# (`force_rebuild` = `is_buildtime`), który przechodzi przez wszystkie bramki.
+# Kilka zmiennych naraz: ustaw je z `redeploy=false`, a na końcu jeden Deploy.
 on:
   workflow_dispatch:
     inputs:
@@ -22,9 +29,9 @@ on:
         required: false
         default: "false"
       redeploy:
-        description: "Trigger a deploy/restart after setting the var"
+        description: "Po ustawieniu uruchom workflow Deploy (bramka CI Gate + smoke). Domyślnie NIE."
         required: false
-        default: "true"
+        default: "false"
 
 concurrency:
   group: coolify-set-env
@@ -35,7 +42,14 @@ permissions:
 
 jobs:
   set-env:
+    # OPS-N05: sekrety COOLIFY_* tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # `gh workflow run deploy.yml` — dispatch tokenem Actions JEST wyjątkiem,
+      # który uruchamia inny workflow.
+      actions: write
     steps:
       - name: Set env via Coolify API
         env:
@@ -52,9 +66,13 @@ jobs:
           VALUE_FROM_SECRET: ${{ inputs.value_from_secret }}
           VALUE_SECRET: ${{ secrets[inputs.value_from_secret] }}
           IS_BUILDTIME: ${{ inputs.is_buildtime }}
-          REDEPLOY: ${{ inputs.redeploy }}
         run: |
           set -euo pipefail
+
+          case "${IS_BUILDTIME}" in
+            true|false) ;;
+            *) echo "is_buildtime musi być true albo false." >&2; exit 1 ;;
+          esac
 
           # Jedno źródło wartości. Podanie obu jest ODRZUCANE zamiast rozstrzygane:
           # każde rozstrzygnięcie po cichu wpisałoby na produkcję coś innego, niż
@@ -118,12 +136,19 @@ jobs:
             exit 1
           fi
 
-          if [ "$REDEPLOY" = "true" ]; then
-            force="false"
-            [ "$IS_BUILDTIME" = "true" ] && force="true"
-            dcode=$(curl -s -o /tmp/dep.json -w "%{http_code}" -X GET "${auth[@]}" \
-              "${base}/api/v1/deploy?uuid=${COOLIFY_APP_UUID}&force=${force}")
-            echo "deploy trigger HTTP ${dcode} (force=${force})"
-            [ "$dcode" -ge 400 ] && { echo "deploy trigger failed"; exit 1; } || true
-          fi
-          echo "done: ${KEY} set; redeploy=${REDEPLOY}"
+          echo "done: ${KEY} set"
+
+      - name: Wdróż przez workflow Deploy
+        if: ${{ inputs.redeploy == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          FORCE_REBUILD: ${{ inputs.is_buildtime == 'true' && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          gh workflow run deploy.yml --repo "$REPO" --ref main -f force_rebuild="$FORCE_REBUILD"
+          echo "::notice::Uruchomiono workflow Deploy (force_rebuild=${FORCE_REBUILD}). Wdroży HEAD maina tylko przy zielonej bramce CI Gate — wynik w zakładce Actions."
+
+      - name: Zmiana czeka na deploy
+        if: ${{ inputs.redeploy != 'true' }}
+        run: echo "::notice::Zmienna ustawiona w Coolify, ale NIE wdrożona. Zadziała po najbliższym deployu (automatycznym albo ręcznym „Deploy”, przy zmiennej build-time z force_rebuild=true)."

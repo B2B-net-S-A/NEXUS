@@ -26,7 +26,12 @@ permissions:
 jobs:
   drill:
     name: off-site fetch + age decrypt + pg_restore + alembic
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     timeout-minutes: 45
     env:
       # Private half of an age recipient. This MUST NOT be the master key: the
@@ -311,6 +316,15 @@ jobs:
             echo "::error::A restore from this backup would produce candidates with unreadable CVs."
             exit 1
           fi
+      # OPS-N08 (audyt 22.09.2026): zielony bieg zamyka alarm, który otworzył
+      # czerwony — marker DOKŁADNIE ten sam co w kroku otwierającym.
+      - name: Zamknij alarm po zielonym biegu
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "NEXUS backup drill nie przechodzi" "Restore drill przeszedł (pobranie, odszyfrowanie, pg_restore, alembic i spot-check korpusu CV)."
 
   # ─── Alarm, gdy drill z harmonogramu padnie ──────────────────────────────
   # Do dziś czerwony drill nie wołał NIKOGO. Cztery poniedziałki z rzędu (27.07,
