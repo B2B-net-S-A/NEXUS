@@ -95,18 +95,6 @@ export function SidebarV2({
       "finance",
       "sourcer",
     );
-  const canReviewApplications =
-    hasSectionAccess(user, "sourcing", "write") &&
-    hasRole(
-      user,
-      "admin",
-      "delivery_lead",
-      "talent_community_manager",
-      "tac",
-      "recruiter",
-      "finance",
-      "sourcer",
-    );
   const canReadJobs = hasSectionAccess(user, "pipeline");
   const canUseContactQueue =
     hasSectionAccess(user, "sourcing") &&
@@ -157,13 +145,12 @@ export function SidebarV2({
       user?.id,
       canReadCandidates,
       canReadJobs,
-      canReviewApplications,
     ],
     // Czekamy na rozstrzygnięcie auth, zanim strzelimy — bez tej bramki
     // liczniki (/candidates, /jobs) lecą raz przed hydracją store'u i drugi
     // raz po niej, na każdym wejściu na stronę.
     enabled:
-      !!user && (canReadCandidates || canReadJobs || canReviewApplications),
+      !!user && (canReadCandidates || canReadJobs),
     queryFn: async () => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -189,24 +176,12 @@ export function SidebarV2({
       // Indeksy nazwane zamiast pozycyjnych: `settled[2]` wymagało ręcznego
       // śledzenia, gdzie w tablicy wylądowało dane zapytanie, więc dołożenie
       // kolejnego licznika cicho przesunęłoby odczyt o jeden.
-      // Zgłoszenia z publicznych aplikacji czekające na decyzję. Bez licznika
-      // ekran kolejki istnieje, ale nikt na niego nie wchodzi — a zgłoszenie,
-      // którego nikt nie widzi, jest tym samym co zgłoszenie utracone.
-      if (canReviewApplications) {
-        promises.push(
-          api.get("/api/application-submissions", {
-            params: { status: "pending_review", limit: 200 },
-          }),
-        );
-        slots.push("applicationSubmissions");
-      }
       const settled = await Promise.allSettled(promises);
       const bySlot = Object.fromEntries(
         slots.map((name, i) => [name, settled[i]]),
       ) as Record<string, (typeof settled)[number] | undefined>;
       const candidatesRes = bySlot.candidates;
       const jobsRes = bySlot.jobs;
-      const submissionsRes = bySlot.applicationSubmissions;
 
       return {
         candidates:
@@ -218,10 +193,6 @@ export function SidebarV2({
           jobsRes?.status === "fulfilled"
             ? ((jobsRes.value as { data?: { total?: number } }).data?.total ??
               0)
-            : 0,
-        applicationSubmissions:
-          submissionsRes && submissionsRes.status === "fulfilled"
-            ? ((submissionsRes.value as { data?: unknown[] }).data ?? []).length
             : 0,
       } as BadgeCounts;
     },

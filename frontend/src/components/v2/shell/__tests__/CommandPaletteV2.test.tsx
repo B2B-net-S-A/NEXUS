@@ -154,7 +154,6 @@ describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", (
       "Szukaj z treści requestu (Talent Radar)",
       "Generator CV",
       "Generator Umów B2B",
-      "Zgłoszenia",
       "Pomoc",
     ]) {
       expect(getByText(label)).toBeTruthy();

@@ -188,7 +188,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
   it("„Więcej” grupuje resztę; puste grupy odpadają", () => {
     const groups = visibleMoreGroups(userOf("recruiter"), opts);
     expect(groups.map((group) => [group.title, group.items.map((i) => i.label)])).toEqual([
-      ["Codzienna praca", ["Do przedzwonienia", "Zgłoszenia"]],
+      ["Codzienna praca", ["Do przedzwonienia"]],
       ["Dokumenty", ["Generator CV", "Generator Umów B2B"]],
       ["System", ["Pomoc", "Ustawienia"]],
     ]);
@@ -266,14 +266,12 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
   const EXPECTED: Partial<Record<UserRole, string[]>> = {
     recruiter: [
       ...SOURCING_OPERATIONAL,
-      "/applications",
       ...PIPELINE,
       ...INSIGHTS,
       ...SYSTEM,
     ],
     delivery_lead: [
       ...SOURCING_OPERATIONAL,
-      "/applications",
       ...PIPELINE,
       ...DELIVERY,
       ...INSIGHTS,
@@ -281,7 +279,6 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     ],
     admin: [
       ...SOURCING_OPERATIONAL,
-      "/applications",
       ...PIPELINE,
       ...DELIVERY,
       ...INSIGHTS,
@@ -290,7 +287,6 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     ],
     finance: [
       ...SOURCING_OPERATIONAL,
-      "/applications",
       ...PIPELINE,
       ...DELIVERY,
       ...INSIGHTS,

@@ -5592,9 +5592,15 @@ Reguły, które łatwo cofnąć:
   = nowa wersja, nigdy edycja w miejscu. FK CASCADE z kandydatem i ze zgłoszeniem
   (art. 17 RODO).
 - **Jedna ścieżka zapisu zgłoszenia:** `services/public_apply.submit_application`
-  (stary i nowy endpoint). Duplikat e-maila = `ApplicationSubmission` do
-  kolejki `/applications`, profil nietknięty (P0-CAND-01); pola opcjonalne
-  (stawka, dostępność, miasto, tryb pracy) lądują wtedy w `raw_payload`.
+  (stary i nowy endpoint). Duplikat e-maila (od 22.09.2026, decyzja Artura —
+  kolejka `/applications` przez całe życie nie dostała ani jednego wpisu) NIE
+  czeka na decyzję: pola profilu nietknięte (P0-CAND-01), CV dochodzi jako
+  dodatkowy, NIE główny dokument, link rekrutacji otwiera proces „Nowy”,
+  stały link przypina w „Moich ludziach”; globalna czarna lista = sam
+  dokument, bez procesu. `ApplicationSubmission` zostaje jako zapis
+  (`linked`, zgoda, pola opcjonalne w `raw_payload`), powiadomienie linkuje
+  do profilu. „Zgłoszenia” zdjęte z menu i ⌘K; strona i resolver zostają dla
+  starych wierszy i linków z powiadomień.
   Pułapka na boty `website` = cichy 201 bez zapisu. `new_application` do
   właściciela linku po commicie.
 - **Routing po hoście** (`middleware.ts`, env `NEXT_PUBLIC_CAREER_HOST`): na

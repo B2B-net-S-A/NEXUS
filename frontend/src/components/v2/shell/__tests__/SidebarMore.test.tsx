@@ -27,7 +27,26 @@ vi.mock("next/link", () => ({
 }));
 
 const recruiter = { role: "recruiter" as const, roles: ["recruiter" as const] };
-const groups = visibleMoreGroups(recruiter, { contactQueueEnabled: true });
+// Żadna pozycja „Więcej” nie ma dziś licznika (Zgłoszenia zdjęte z menu
+// 22.09.2026), więc test sumy dokłada jedną syntetyczną pozycję z licznikiem.
+const baseGroups = visibleMoreGroups(recruiter, { contactQueueEnabled: true });
+const groups = baseGroups.map((group, index) =>
+  index === 0
+    ? {
+        ...group,
+        items: [
+          ...group.items,
+          {
+            ...group.items[0],
+            id: "badge-probe",
+            href: "/badge-probe",
+            label: "Pozycja z licznikiem",
+            badgeKey: "applicationSubmissions" as const,
+          },
+        ],
+      }
+    : group,
+);
 
 function Harness({
   pathname = "/jobs",
@@ -91,7 +110,7 @@ describe("„Więcej” — panel obok szyny", () => {
       "Dokumenty",
       "System",
     ]);
-    expect(within(panel).getByRole("link", { name: /Zgłoszenia/ })).toHaveTextContent("4");
+    expect(within(panel).getByRole("link", { name: /Pozycja z licznikiem/ })).toHaveTextContent("4");
     // Fokus siedzi W panelu (pułapka fokusu trybu modalnego).
     await waitFor(() => expect(panel.contains(document.activeElement)).toBe(true));
 

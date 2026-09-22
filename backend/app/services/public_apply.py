@@ -12,10 +12,16 @@ czy e-mail już był w bazie):
   Link rekrutacji otwiera proces na etapie „Nowy"; stały link rekrutera NIE
   otwiera procesu, za to przypina osobę w „Moich ludziach" właściciela
   (lista liczy się z etapów, więc bez przypięcia kandydat by tam nie trafił);
-* **e-mail już w bazie** (P0-CAND-01) — istniejący kandydat NIE jest ruszany;
-  zgłoszenie z CV czeka w ``application_submissions`` na decyzję rekrutera.
-  Nowe pola (stawka, dostępność, miasto, tryb pracy) trafiają wtedy wyłącznie
-  do ``raw_payload`` — nic nie nadpisuje profilu.
+* **e-mail już w bazie** (P0-CAND-01) — pola profilu NIE są nadpisywane,
+  ale zgłoszenie trafia tam, gdzie trafiłoby od nowej osoby (decyzja Artura
+  22.09.2026 — kolejka „Zgłoszenia” przez całe życie nie dostała ani jednego
+  wpisu, a rekruter i tak chce tę osobę w rekrutacji): CV dochodzi do profilu
+  jako dodatkowy, NIE główny dokument, link rekrutacji otwiera proces na
+  etapie „Nowy”, stały link przypina osobę w „Moich ludziach”. Wiersz
+  ``application_submissions`` zostaje jako zapis zgłoszenia (status
+  ``linked``) — tam żyją nowe pola (stawka, dostępność, miasto, tryb pracy)
+  i zgoda. Osoba na globalnej czarnej liście nie wchodzi do procesu ani na
+  listę — zostaje sam dokument i powiadomienie.
 
 Zgoda jest zapisywana w tej samej transakcji co kandydat/zgłoszenie. Po
 commicie właściciel linku dostaje powiadomienie ``new_application`` — nigdy
@@ -241,18 +247,27 @@ async def submit_application(
     )
 
     if existing is not None:
-        submission_id = await _park_submission(
-            db, ref=ref, applicant=applicant, cv=cv, content=content, existing=existing
+        existing_id = existing.id
+        blacklisted = existing.status == CandidateStatus.blacklisted
+        await _record_duplicate_application(
+            db,
+            ref=ref,
+            applicant=applicant,
+            cv=cv,
+            content=content,
+            existing=existing,
+            blacklisted=blacklisted,
         )
         await db.commit()
         await _notify_owner(
             db,
             link=link,
             applicant=applicant,
-            related_entity_type="application_submission",
-            related_entity_id=submission_id,
-            target="/applications",
+            related_entity_type="candidate",
+            related_entity_id=existing_id,
+            target=f"/candidates/{existing_id}",
             duplicate=True,
+            blacklisted=blacklisted,
         )
         return {"ok": True, "status": "received"}
 
@@ -278,7 +293,7 @@ async def submit_application(
     return {"ok": True, "status": "received"}
 
 
-async def _park_submission(
+async def _record_duplicate_application(
     db: AsyncSession,
     *,
     ref: LinkRef,
@@ -286,8 +301,15 @@ async def _park_submission(
     cv: UploadFile,
     content: bytes,
     existing: Candidate,
+    blacklisted: bool,
 ) -> int:
     from app.api import public_share
+    from app.api.application_submissions import (
+        _attach_cv_as_document,
+        _ensure_submission_process,
+    )
+    from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
+    from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 
     link = ref.link
     object_key, cv_bytes, raw_text = await public_share._persist_submission_cv(
@@ -296,7 +318,8 @@ async def _park_submission(
     submission = ApplicationSubmission(
         invite_link_token_sha256=ref.digest,
         job_id=link.job_id,
-        status=ApplicationSubmissionStatus.pending_review.value,
+        status=ApplicationSubmissionStatus.linked.value,
+        reviewed_at=datetime.now(timezone.utc),
         submitted_first_name=applicant.first_name,
         submitted_last_name=applicant.last_name,
         submitted_email=applicant.email,
@@ -339,19 +362,55 @@ async def _park_submission(
     await db.flush()
     db.add(_consent_row(ref, application_submission_id=submission.id))
 
-    # Audyt na ZGŁOSZENIU, nie na kandydacie (ten zostaje nietknięty).
+    # CV jako dodatkowy dokument — nigdy główny: e-mail to za mało, żeby
+    # cudzy plik zastąpił CV, na którym pracuje zespół.
+    await _attach_cv_as_document(db, existing.id, submission)
+    opened_stage = None
+    if not blacklisted:
+        if link.job_id is not None:
+            opened_stage = await _ensure_submission_process(
+                db,
+                submission=submission,
+                candidate_id=existing.id,
+                actor_user_id=link.created_by,
+            )
+        else:
+            await db.execute(
+                pg_insert(MyPeopleOverride)
+                .values(
+                    user_id=link.created_by, candidate_id=existing.id, kind="pinned"
+                )
+                .on_conflict_do_nothing(
+                    constraint="uq_my_people_overrides_user_candidate"
+                )
+            )
+    if opened_stage is not None:
+        await db.flush()
+        await create_original_cv_snapshot(db, opened_stage)
+        await maybe_ensure_contact_opportunity(
+            db,
+            candidate_id=existing.id,
+            job_id=opened_stage.job_id,
+            source="pipeline",
+            occurred_at=opened_stage.moved_at,
+        )
+
     db.add(
         Activity(
-            entity_type="application_submission",
-            entity_id=submission.id,
-            action="submission_received",
+            entity_type="candidate",
+            entity_id=existing.id,
+            action="applied_via_invite",
             user_id=link.created_by,
             details={
                 "invite_token": ref.audit_prefix,
                 "invite_token_sha256": ref.digest,
                 "job_id": link.job_id,
                 "link_kind": link.kind,
-                "matched_candidate_id": existing.id,
+                "via": ref.via,
+                "was_duplicate": True,
+                "submission_id": submission.id,
+                "process_opened": opened_stage is not None,
+                "blacklisted": blacklisted,
             },
         )
     )
@@ -539,6 +598,7 @@ async def _notify_owner(
     related_entity_id: int,
     target: str,
     duplicate: bool,
+    blacklisted: bool = False,
 ) -> None:
     """Dzwonek dla właściciela linku. Po commicie, nigdy nie rzuca."""
     owner_id = link.created_by
@@ -556,10 +616,15 @@ async def _notify_owner(
             else "przez Twój stały link"
         )
         message = f"{person} wysłał(a) CV {where}."
-        if duplicate:
+        if blacklisted:
             message += (
-                " Ten adres e-mail jest już w bazie — zgłoszenie czeka w "
-                "Zgłoszeniach na decyzję."
+                " Ta osoba jest na czarnej liście — CV dołączono do profilu, "
+                "ale nie dodano jej do rekrutacji."
+            )
+        elif duplicate:
+            message += (
+                " Ta osoba była już w bazie — nowe CV dołączono do jej profilu "
+                "jako dodatkowy dokument, dane profilu bez zmian."
             )
         await emit(
             db,
