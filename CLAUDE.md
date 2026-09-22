@@ -2187,7 +2187,9 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   `CandidatePhoneCell`) · Stawka B2B · Dostępność · W procesie (skrót, a po
   najechaniu/kliknięciu lista rekrutacji w toku z klientem i etapem,
   `CandidateProcessCell` — reguła „w toku” jedna: `activeRecruitments`) · CV
-  (podgląd, `CandidateCvCell`) · Przypisz (widoczny przycisk „Rekrutacja”;
+  (podgląd, `CandidateCvCell`; przycisk tylko przy `has_cv_document` z listy —
+  NIE przy `cv_filename`, bo import Traffita wpisuje nazwę pliku, zanim faza
+  plików go pobierze) · Przypisz (widoczny przycisk „Rekrutacja”;
   hurtem przez zaznaczenie i `CandidateBulkBar`). Bez presetów, wyboru
   kolumn, kafelków i gęstości (`/api/settings/candidates-columns` nie ma już
   konsumenta na tym ekranie).

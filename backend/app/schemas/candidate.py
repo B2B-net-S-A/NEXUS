@@ -668,6 +668,11 @@ class CandidateResponse(BaseModel):
     # {rejected, withdrawn, hired}). Populated TYLKO przez list endpoint
     # z parametrem `include_active_recruitments=true` (osobny lekki query).
     active_recruitments: Optional[list[ActiveRecruitmentBrief]] = None
+    # Lista kandydatów: czy jest ZAPISANY dokument CV (`candidate_documents`,
+    # kind=cv, niewycofany). `cv_filename` tego nie mówi — import z Traffita
+    # wpisuje nazwę pliku od razu, a sam plik dociąga osobna faza. Kolumna „CV"
+    # pokazuje podgląd wyłącznie przy `True`. `None` poza listą.
+    has_cv_document: Optional[bool] = None
     # Quick-glance triage fields (Phase „Search inline visibility").
     # Populated TYLKO gdy list endpoint dostanie `include_last_activity=true`.
     # Trzy DISTINCT ON-style query'sy per page; brak N+1.

@@ -239,6 +239,8 @@ interface Candidate {
   last_contacted_at?: string | null;
   /** Nazwa pliku głównego CV — kolumna „CV” (podgląd po kliknięciu). */
   cv_filename?: string | null;
+  /** Czy jest zapisany dokument CV — to on decyduje o przycisku podglądu. */
+  has_cv_document?: boolean | null;
   created_at?: string;
   updated_at?: string;
   match_snippet?: string | null;
@@ -1702,7 +1704,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                             <CandidateCvCell
                               candidateId={candidate.id}
                               candidateName={fullName}
-                              hasCv={Boolean(candidate.cv_filename)}
+                              hasCv={candidate.has_cv_document ?? Boolean(candidate.cv_filename)}
                             />
                           </div>
                           <div className="flex">
