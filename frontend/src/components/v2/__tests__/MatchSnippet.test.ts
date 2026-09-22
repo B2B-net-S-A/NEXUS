@@ -81,3 +81,27 @@ describe("highlightTerms", () => {
     ]);
   });
 });
+
+describe("splitByRanges (wycinki po polach, v2)", () => {
+  it("pogrubia wyłącznie zakresy z serwera", async () => {
+    const { splitByRanges } = await import("@/components/v2/MatchSnippet");
+    expect(splitByRanges("Java, JavaScript", [[0, 4]])).toEqual([
+      { text: "Java", match: true },
+      { text: ", JavaScript", match: false },
+    ]);
+  });
+
+  it("pomija zakresy poza tekstem i nakładające się", async () => {
+    const { splitByRanges } = await import("@/components/v2/MatchSnippet");
+    expect(
+      splitByRanges("abc def", [
+        [4, 7],
+        [5, 6],
+        [2, 99],
+      ]),
+    ).toEqual([
+      { text: "abc ", match: false },
+      { text: "def", match: true },
+    ]);
+  });
+});

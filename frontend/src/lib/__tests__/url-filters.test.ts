@@ -72,6 +72,13 @@ describe("url-filters", () => {
         ["go", "rust"],
       ],
       qNone: ["junior", "stażysta"],
+      qScope: "cv",
+      locationRadiusKm: 50,
+      voivodeships: ["mazowieckie", "łódzkie"],
+      contacted: "no",
+      contactedFrom: "2026-08-01",
+      contactedTo: "2026-09-01",
+      contactedByIds: [4, 9],
     };
     const encoded = encodeFilters(full);
     expect(decodeFilters(encoded)).toEqual(full);
@@ -515,5 +522,57 @@ describe("lista kandydatów: tekst, sortowanie i języki (22.09.2026)", () => {
     expect(encodeFilters(decoded).get("lang")).toBe("en:B2,de");
     expect(filtersToApiParams(decoded, 1).languages).toEqual(["en:B2", "de"]);
     expect(filtersToApiParams(DEFAULT_FILTERS, 1).languages).toBeUndefined();
+  });
+});
+
+
+describe("filtry z porównania z Traffitem (22.09.2026)", () => {
+  it("wysyła zakres słów, promień, województwa i kontakt do API", () => {
+    const params = filtersToApiParams(
+      {
+        ...DEFAULT_FILTERS,
+        qAll: ["java"],
+        qScope: "title",
+        location: "Kraków",
+        locationRadiusKm: 25,
+        voivodeships: ["małopolskie"],
+        contacted: "yes",
+        contactedFrom: "2026-09-01",
+        contactedByIds: [7],
+      },
+      1,
+    );
+    expect(params).toMatchObject({
+      q_all: ["java"],
+      q_scope: "title",
+      location: "Kraków",
+      location_radius_km: 25,
+      voivodeship: ["małopolskie"],
+      contacted: "yes",
+      contacted_from: "2026-09-01",
+      contacted_by: [7],
+    });
+  });
+
+  it("nie wysyła zakresu bez słów kluczowych ani promienia bez miasta", () => {
+    const params = filtersToApiParams(
+      { ...DEFAULT_FILTERS, qScope: "cv", locationRadiusKm: 50 },
+      1,
+    );
+    expect(params.q_scope).toBeUndefined();
+    expect(params.location_radius_km).toBeUndefined();
+  });
+
+  it("zakres słów tylko we wspólnej semantyce (v2)", () => {
+    const params = filtersToApiParams(
+      { ...DEFAULT_FILTERS, qAll: ["java"], qScope: "cv", semanticsVersion: 1 },
+      1,
+    );
+    expect(params.q_scope).toBeUndefined();
+  });
+
+  it("promień spoza 1–300 km w adresie jest odrzucany", () => {
+    expect(decodeFilters(new URLSearchParams("loc=Gdańsk&radius=999")).locationRadiusKm).toBeNull();
+    expect(decodeFilters(new URLSearchParams("q_in=foo")).qScope).toBe("all");
   });
 });

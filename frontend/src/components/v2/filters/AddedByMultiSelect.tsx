@@ -27,11 +27,20 @@ interface UserBrief {
 interface AddedByMultiSelectProps {
  value: number[]; // sentinel 0 ="System import" (created_by IS NULL)
  onChange: (ids: number[]) => void;
+ /** Pozycja „Import systemowy" (tylko tam, gdzie brak autora coś znaczy). */
+ includeSystem?: boolean;
+ /** Tekst przycisku, gdy nic nie wybrano. */
+ emptyLabel?: string;
 }
 
 const SYSTEM_SENTINEL = 0;
 
-export function AddedByMultiSelect({ value, onChange }: AddedByMultiSelectProps) {
+export function AddedByMultiSelect({
+ value,
+ onChange,
+ includeSystem = true,
+ emptyLabel ="Wszyscy dodający",
+}: AddedByMultiSelectProps) {
  const [open, setOpen] = useState(false);
  const { data } = useQuery<UserBrief[]>({
  queryKey: ["users-directory"],
@@ -52,7 +61,7 @@ export function AddedByMultiSelect({ value, onChange }: AddedByMultiSelectProps)
  const pickedUser = value.find((v) => v !== SYSTEM_SENTINEL);
  const label =
  value.length === 0
- ?"Wszyscy dodający"
+ ? emptyLabel
  : value.length === 1
  ? systemSelected
  ?"Import systemowy"
@@ -78,6 +87,7 @@ export function AddedByMultiSelect({ value, onChange }: AddedByMultiSelectProps)
  <Command>
  <CommandInput placeholder="Szukaj rekrutera…" />
  <CommandList>
+ {includeSystem && (
  <CommandGroup heading="Specjalne">
  <CommandItem
  value="system-import"
@@ -91,7 +101,8 @@ export function AddedByMultiSelect({ value, onChange }: AddedByMultiSelectProps)
  <span>Import systemowy</span>
  </CommandItem>
  </CommandGroup>
- <CommandSeparator />
+ )}
+ {includeSystem && <CommandSeparator />}
  <CommandGroup heading="Użytkownicy">
  <CommandEmpty>Brak użytkowników.</CommandEmpty>
  {users.map((u) => {

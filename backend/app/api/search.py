@@ -179,7 +179,7 @@ def _boolean_clause(body: CandidateSearchRequest) -> Any:
         q_any=body.q_any,
         q_none=body.q_none,
         q_any_groups=body.q_any_groups,
-    ).clause()
+    ).clause(request_semantics(body))
 
 
 async def _text_plan(

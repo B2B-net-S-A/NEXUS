@@ -96,6 +96,7 @@ from app.schemas.candidate import (
     CandidateIdentityRestoreRequest,
     CandidateIdentitySync,
     CandidateResponse,
+    MatchSnippet,
     CandidateUpdate,
     EmploymentEngagement,
     EmploymentInfo,
@@ -274,6 +275,16 @@ class CandidateFilterSpec(BaseModel):
     q_any: Optional[list[str]] = None
     q_any_group: Optional[list[str]] = None
     q_none: Optional[list[str]] = None
+    # v2: gdzie szukać słów kluczowych (Traffit „Szukaj w”).
+    q_scope: Literal["all", "cv", "title", "skills", "notes"] = "all"
+    # Promień w km od miasta z `location` i województwa (`pl_places`).
+    location_radius_km: Optional[int] = Field(None, ge=1, le=300)
+    voivodeship: Optional[list[str]] = None
+    # Kontakt z kandydatem w okresie (notatki, rozmowy, maile z Traffita).
+    contacted: Optional[Literal["yes", "no"]] = None
+    contacted_from: Optional[date] = None
+    contacted_to: Optional[date] = None
+    contacted_by: Optional[list[int]] = None
     pipeline_stage: Optional[list[PipelineStage]] = None
     stage_category: Optional[list[StageCategory]] = None
     stage_current_only: Optional[bool] = None
@@ -291,6 +302,10 @@ class CandidateFilterSpec(BaseModel):
     sort: Literal["newest", "oldest", "name", "relevance"] = "newest"
     id_after: Optional[int] = Field(None, ge=1)
     updated_after: Optional[datetime] = None
+    # Skaner alertów zapisanych wyszukiwań: zmiana wiersza ALBO nowa notatka /
+    # dokument po tej chwili (notatka i CV potrafią zmienić dopasowanie bez
+    # ruszania `candidates.updated_at`).
+    changed_after: Optional[datetime] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -867,6 +882,38 @@ async def _resolve_semantic_text(db: AsyncSession, filters: "CandidateFilterSpec
     return await retrieve_semantic_pool(db, q_stripped), interpretation
 
 
+def _changed_after_clause(moment: datetime):
+    """Wiersz kandydata zmieniony po ``moment`` ALBO nowa/zmieniona notatka,
+    nowy dokument lub nowa rozmowa po ``moment``.
+
+    Skaner alertów zapisanych wyszukiwań sprawdza tylko kandydatów, którzy się
+    zmienili od ostatniego przebiegu. Słowa kluczowe przeszukują notatki, a
+    notatka dodana w NEXUSIE nie rusza ``candidates.updated_at`` — bez tej
+    gałęzi osoba, która zaczęła pasować po nowej notatce, nie dostawała alertu.
+    Suma zbiorów id (``UNION``), nie ``OR`` — ``OR`` wyłączał indeks
+    ``ix_candidates_updated_at``.
+    """
+    from sqlalchemy import union
+
+    from app.models.call import Call
+
+    return Candidate.id.in_(
+        union(
+            select(Candidate.id).where(Candidate.updated_at > moment),
+            select(Note.candidate_id).where(
+                Note.candidate_id.is_not(None),
+                or_(Note.created_at > moment, Note.updated_at > moment),
+            ),
+            select(CandidateDocument.candidate_id).where(
+                CandidateDocument.created_at > moment
+            ),
+            select(Call.candidate_id).where(
+                Call.candidate_id.is_not(None), Call.created_at > moment
+            ),
+        )
+    )
+
+
 async def _build_candidate_filtered_query(
     db: AsyncSession,
     filters: CandidateFilterSpec,
@@ -893,6 +940,8 @@ async def _build_candidate_filtered_query(
         query = query.where(Candidate.id > f.id_after)
     if f.updated_after:
         query = query.where(Candidate.updated_at > f.updated_after)
+    if f.changed_after:
+        query = query.where(_changed_after_clause(f.changed_after))
     from app.services import candidate_search_predicates as predicates
 
     # Filtry wspólne z `POST /api/search/candidates` czytamy WYŁĄCZNIE przez
@@ -926,13 +975,48 @@ async def _build_candidate_filtered_query(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if open_to_clause is not None:
         query = query.where(open_to_clause)
+    # Promień w km: miasto z `location` wyznacza środek, więc zwykłe
+    # dopasowanie tekstu miasta ustępuje liście miejscowości w promieniu.
+    # Zapis w formacie wspólnym (v3) przenosi `location` do `location_cities`
+    # — przy jednym mieście to ono jest środkiem (inaczej alert zapisu
+    # „Kraków + 50 km” zgłaszałby wyłącznie Kraków).
+    radius_center = f.location or (
+        f.location_cities[0]
+        if f.location_radius_km and f.location_cities and len(f.location_cities) == 1
+        else None
+    )
+    radius_active = bool(f.location_radius_km and radius_center)
+    text_cities = (
+        []
+        if radius_active
+        else ([f.location] if f.location else []) + list(f.location_cities or [])
+    )
     for location_clause in predicates.location_clauses(
-        ([f.location] if f.location else []) + list(f.location_cities or []),
+        text_cities,
         f.country,
         sem,
         scope=f.location_scope,
     ):
         query = query.where(location_clause)
+    try:
+        geo = predicates.geo_clause(
+            center=radius_center if radius_active else None,
+            radius_km=f.location_radius_km if radius_active else None,
+            voivodeships=f.voivodeship,
+            sem=sem,
+        )
+    except predicates.UnknownPlace as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if geo is not None:
+        query = query.where(geo)
+    contact = predicates.contact_clause(
+        mode=f.contacted,
+        date_from=f.contacted_from,
+        date_to=f.contacted_to,
+        by_user_ids=f.contacted_by,
+    )
+    if contact is not None:
+        query = query.where(contact)
     cc_clause = predicates.competence_category_clause(f.competence_category_id, sem)
     if cc_clause is not None:
         query = query.where(cc_clause)
@@ -961,7 +1045,7 @@ async def _build_candidate_filtered_query(
         q_all=f.q_all, q_any=f.q_any, q_none=f.q_none, q_any_groups=f.q_any_group
     )
     q_any_groups = q_groups.as_lists()
-    advanced = q_groups.clause()
+    advanced = q_groups.clause(sem, f.q_scope)
     if advanced is not None:
         query = query.where(advanced)
 
@@ -1257,7 +1341,9 @@ def _apply_candidate_sort(
     # obowiązuje żądany `sort`. Przy `hide_unknown` braków nie ma w wyniku.
     if filters.semantics_version == 2 and not filters.hide_unknown:
         unknown_rank = predicates.unknown_count_rank(
-            location_active=bool(filters.location or filters.location_cities),
+            location_active=bool(
+                filters.location or filters.location_cities or filters.voivodeship
+            ),
             country_active=bool(filters.country),
             experience_active=(
                 filters.min_experience is not None or filters.max_experience is not None
@@ -1721,6 +1807,44 @@ async def list_candidates(
             "See `q_all` for matched fields."
         ),
     ),
+    q_scope: Literal["all", "cv", "title", "skills", "notes"] = Query(
+        "all",
+        description=(
+            "v2 only. Where `q_all`/`q_any`/`q_none` look: everywhere (default), "
+            "CV text, job titles from the work history, skills, or notes. Under "
+            "v2 keywords match WHOLE words (`java` ≠ `JavaScript`); `java*` "
+            "matches word starts, `*script` word ends."
+        ),
+    ),
+    location_radius_km: Optional[int] = Query(
+        None,
+        ge=1,
+        le=300,
+        description=(
+            "Radius in km around the Polish town given in `location` "
+            "(`pl_places`). Unknown town → 422."
+        ),
+    ),
+    voivodeship: Optional[list[str]] = Query(
+        None,
+        description="Polish voivodeships (`mazowieckie`), any of. Repeat the param.",
+    ),
+    contacted: Optional[Literal["yes", "no"]] = Query(
+        None,
+        description=(
+            "`yes` — we contacted the candidate in the period (note, call, "
+            "e-mail/reply/meeting from Traffit history); `no` — we did not."
+        ),
+    ),
+    contacted_from: Optional[date] = Query(
+        None, description="Contact period start (inclusive)."
+    ),
+    contacted_to: Optional[date] = Query(
+        None, description="Contact period end (inclusive)."
+    ),
+    contacted_by: Optional[list[int]] = Query(
+        None, description="Only contacts made by these users."
+    ),
     pipeline_stage: Optional[list[PipelineStage]] = Query(
         None,
         description=(
@@ -1873,6 +1997,14 @@ async def list_candidates(
             "status), not just brand-new rows. Backed by ix_candidates_updated_at."
         ),
     ),
+    changed_after: Optional[datetime] = Query(
+        None,
+        description=(
+            "Like `updated_after`, but also candidates with a note or document "
+            "added/changed after this timestamp. Used by the saved-search alert "
+            "scanner — a new note can make a person match."
+        ),
+    ),
 ):
     _reject_retired_candidate_query(request)
     filters = CandidateFilterSpec(
@@ -1917,6 +2049,13 @@ async def list_candidates(
         q_any=q_any,
         q_any_group=q_any_group,
         q_none=q_none,
+        q_scope=q_scope,
+        location_radius_km=location_radius_km,
+        voivodeship=voivodeship,
+        contacted=contacted,
+        contacted_from=contacted_from,
+        contacted_to=contacted_to,
+        contacted_by=contacted_by,
         pipeline_stage=pipeline_stage,
         stage_category=stage_category,
         stage_current_only=stage_current_only,
@@ -1930,6 +2069,7 @@ async def list_candidates(
         sort=sort,
         id_after=id_after,
         updated_after=updated_after,
+        changed_after=changed_after,
     )
     from app.services import candidate_search_predicates as search_predicates
 
@@ -2227,11 +2367,18 @@ async def list_candidates(
     # query for the common "browse all candidates" flow. Notes are batched
     # in a single IN-query so we don't N+1 across the page.
     from app.services.candidate_snippets import (
+        extract_field_snippets,
         extract_search_terms,
         extract_snippet,
+        snippets_as_text,
     )
 
     search_terms = extract_search_terms(q, q_all, q_any, q_any_groups)
+    # v2: słowa kluczowe jako CAŁE słowa i z gwiazdką — wycinki po polach
+    # tą samą regułą co filtr. `q` (pole główne) zostaje przy starym wycinku.
+    keyword_terms_for_snippets = [
+        t for t in extract_search_terms(None, q_all, q_any, q_any_groups) if t
+    ]
     notes_by_candidate: dict[int, list[str]] = {}
     if search_terms and items:
         notes_stmt = select(Note.candidate_id, Note.content).where(
@@ -2294,7 +2441,21 @@ async def list_candidates(
                     "last_rate": last_rate_by_candidate.get(cand.id),
                 }
             )
-        if search_terms:
+        if list_semantics.unified and keyword_terms_for_snippets:
+            field_snippets = extract_field_snippets(
+                cand,
+                keyword_terms_for_snippets,
+                notes_contents=notes_by_candidate.get(cand.id),
+                whole_words=True,
+                scope=q_scope,
+            )
+            payload = payload.model_copy(
+                update={
+                    "match_snippets": [MatchSnippet(**x) for x in field_snippets],
+                    "match_snippet": snippets_as_text(field_snippets),
+                }
+            )
+        elif search_terms:
             snippet = extract_snippet(
                 cand,
                 search_terms,
@@ -2307,7 +2468,9 @@ async def list_candidates(
                 update={
                     "unknown_fields": search_predicates.unknown_fields_for(
                         cand,
-                        location_active=bool(location or location_cities),
+                        location_active=bool(
+                            location or location_cities or voivodeship
+                        ),
                         country_active=bool(country),
                         experience_active=(
                             min_experience is not None or max_experience is not None
@@ -2400,6 +2563,30 @@ class TitleSuggestion(BaseModel):
 
     name: str
     count: int
+
+
+@router.get("/places/suggest")
+async def suggest_places(
+    current_user: CandidateSearchAccess,
+    q: str = Query("", max_length=80),
+    limit: int = Query(8, ge=1, le=20),
+) -> dict:
+    """Podpowiedzi polskich miejscowości do filtra „Lokalizacja + promień”
+    (``pl_places`` — bez zapytania do bazy) oraz lista województw."""
+    from app.services import pl_places
+
+    return {
+        "items": [
+            {
+                "name": p.name,
+                "voivodeship": p.voivodeship,
+                "population": p.population,
+            }
+            for p in pl_places.suggest(q, limit)
+        ],
+        "voivodeships": list(pl_places.VOIVODESHIPS),
+        "max_radius_km": pl_places.MAX_RADIUS_KM,
+    }
 
 
 @router.get("/titles/suggest", response_model=list[TitleSuggestion])

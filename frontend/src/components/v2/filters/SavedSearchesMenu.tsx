@@ -39,6 +39,8 @@ interface SavedSearchesMenuProps {
  qs: string,
  savedSearchId: number,
  previousViewedAt: string | null,
+ /** Kto wszedł do wyniku od ostatniego otwarcia (log alertów). */
+ newCandidateIds: number[],
  ) => void;
 }
 
@@ -48,6 +50,9 @@ interface SavedSearchesMenuProps {
 export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps) {
  const [open, setOpen] = useState(false);
  const [newName, setNewName] = useState("");
+ // Dzwonek domyślnie WŁĄCZONY (22.09.2026): na produkcji żaden z zapisów nie
+ // miał dzwonka, więc nikt nie dostawał informacji o nowych pasujących osobach.
+ const [notifyOnSave, setNotifyOnSave] = useState(true);
  // Zapis wstrzymany przez migrację semantyki filtrów — panel decyzji w menu.
  const [reviewId, setReviewId] = useState<number | null>(null);
  const currentUser = useAuthStore((s) => s.user);
@@ -70,6 +75,7 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  name,
  entity: "candidates",
  filters: buildCandidateSavedSearchPayload(currentQs),
+ notify_new_matches: notifyOnSave,
  }),
  onSuccess: () => {
  invalidate();
@@ -153,16 +159,18 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  // `sv=1` (zapis przypięty do dawnych zasad) i `hu=1` (v3) nie żyją w `qs`.
  const qs = listQsFromSavedSearch(ss.filters);
  let previousViewedAt: string | null = null;
+ let newCandidateIds: number[] = [];
  if (isMine) {
  try {
  const r = await savedSearchesApi.markViewed(ss.id);
  previousViewedAt = r.data.previous_viewed_at;
+ newCandidateIds = r.data.new_candidate_ids ?? [];
  invalidate();
  } catch {
  // Badge reset jest best-effort — sam search ma się zaaplikować zawsze.
  }
  }
- onApply(qs, ss.id, previousViewedAt);
+ onApply(qs, ss.id, previousViewedAt, newCandidateIds);
  setOpen(false);
  };
 
@@ -343,10 +351,22 @@ export function SavedSearchesMenu({ currentQs, onApply }: SavedSearchesMenuProps
  <Plus className="h-3.5 w-3.5" />
  </Button>
  </form>
- <p className="mt-2 px-2 text-[10px] leading-snug text-muted-foreground">
+ <label className="mt-2 flex items-start gap-2 px-2 text-[11px] leading-snug text-foreground">
+ <input
+ type="checkbox"
+ checked={notifyOnSave}
+ onChange={(e) => setNotifyOnSave(e.target.checked)}
+ className="mt-0.5"
+ />
+ <span>
+ Powiadamiaj, gdy ktoś zacznie pasować — nowa osoba w bazie albo
+ nowe CV czy notatka u kogoś, kto już jest.
+ </span>
+ </label>
+ <p className="mt-1 px-2 text-[10px] leading-snug text-muted-foreground">
  <Bell className="inline h-3 w-3 mr-0.5 align-[-2px]" />
- Włącz dzwonek przy zapisie, aby dostawać powiadomienia o nowych
- kandydatach pasujących do wyszukiwania.
+ Dzwonek przy zapisie włącza i wyłącza powiadomienia. Liczba przy
+ nazwie = nowe osoby od ostatniego otwarcia.
  </p>
  </PopoverContent>
  </Popover>

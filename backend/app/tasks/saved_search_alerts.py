@@ -54,6 +54,7 @@ _DROPPED_PARAMS = {
     "sort",
     "id_after",
     "updated_after",
+    "changed_after",
     "include_match_stats",
     "include_active_recruitments",
     "include_last_activity",
@@ -249,7 +250,9 @@ async def _incremental_one(client, db, ss, owner) -> bool:
     )
     scan_start = datetime.now(timezone.utc)
     params = build_base_params(api_params)
-    params["updated_after"] = ss.last_scanned_at.isoformat()
+    # Zmiana wiersza ALBO nowa notatka / dokument — notatka dodana w NEXUSIE
+    # nie rusza `candidates.updated_at`, a słowa kluczowe przeszukują notatki.
+    params["changed_after"] = ss.last_scanned_at.isoformat()
     items = await _replay_match_items(client, token, params)
 
     # Advance the watermark even when nothing new — a quiet pass still moves

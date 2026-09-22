@@ -31,7 +31,7 @@ import { RequestSearchDialog } from "@/components/v2/candidates/RequestSearchDia
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { candidateContactQueryKeys } from "@/lib/candidate-contact";
 import { cloudTalkStatusQueryKey } from "@/hooks/useCloudTalkEnabled";
-import { DEFAULT_FILTERS } from "@/lib/url-filters";
+import { DEFAULT_FILTERS, decodeFilters } from "@/lib/url-filters";
 import { useAuthStore } from "@/store/auth";
 
 const daysAgo = (days: number) => {
@@ -201,6 +201,35 @@ const QUICK_VIEW = {
   },
 };
 
+/** Zakresy pogrubień wszystkich wystąpień słów (całe słowa) — tylko do danych harnessu. */
+function bold(text: string, words: string[]): number[][] {
+  const out: number[][] = [];
+  for (const word of words) {
+    const re = new RegExp(`(?<![\\p{L}\\p{N}_])${word}(?![\\p{L}\\p{N}_])`, "giu");
+    for (const m of text.matchAll(re)) out.push([m.index ?? 0, (m.index ?? 0) + m[0].length]);
+  }
+  return out.sort((x, y) => x[0] - y[0]);
+}
+
+function snippet(field: string, text: string) {
+  return { field, text, highlights: bold(text, ["java", "kafka"]) };
+}
+
+/** `?q_all=java|kafka` — wiersze z wycinkami po polach (jak w Traffit). */
+const SNIPPETS: Record<number, Array<{ field: string; text: string; highlights: number[][] }>> = {
+  501: [
+    snippet("Treść CV", "…Backend: Java 17, Spring Boot, Kafka, PostgreSQL. Projekty bankowe…"),
+    snippet("Stanowisko", "Senior Java Developer · Java Developer"),
+    snippet("Umiejętności", "Java · Spring · Kafka · Docker"),
+    snippet("Notatka", "Szuka projektu od października. Zna Kafkę produkcyjnie, Java od 8 lat."),
+  ],
+  502: [snippet("Treść CV", "…JavaScript, TypeScript i Java 11 w projektach e-commerce, Kafka Streams…")],
+};
+
+function searchParamsNow(): URLSearchParams {
+  return new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
+}
+
 function seededClient(): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
@@ -216,6 +245,23 @@ function seededClient(): QueryClient {
     candidatesListQueryKey(candidatesListApiParams(DEFAULT_FILTERS, 1, 50)),
     { items: CANDIDATES, total: 248, page: 1, page_size: 50 },
   );
+  const fromUrl = decodeFilters(searchParamsNow());
+  if (fromUrl.qAll.length || fromUrl.qAny.length) {
+    qc.setQueryData(candidatesListQueryKey(candidatesListApiParams(fromUrl, 1, 50)), {
+      items: CANDIDATES.map((c) => ({ ...c, match_snippets: SNIPPETS[c.id] ?? [] })),
+      total: 14071,
+      page: 1,
+      page_size: 50,
+    });
+  }
+  qc.setQueryData(["places-suggest", fromUrl.location.trim()], {
+    items: [
+      { name: "Warszawa", voivodeship: "mazowieckie", population: 1702139 },
+      { name: "Kraków", voivodeship: "małopolskie", population: 816614 },
+    ],
+    voivodeships: ["dolnośląskie", "małopolskie", "mazowieckie", "pomorskie", "śląskie"],
+    max_radius_km: 300,
+  });
   qc.setQueryData(CANDIDATES_BASE_TOTAL_QUERY_KEY, {
     items: [],
     total: 12481,

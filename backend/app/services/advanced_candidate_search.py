@@ -70,12 +70,29 @@ from __future__ import annotations
 import unicodedata
 from typing import Optional
 
-from sqlalchemy import Text, and_, column, func, not_, or_, select, union
+from sqlalchemy import (
+    Text,
+    and_,
+    column,
+    func,
+    literal_column,
+    not_,
+    or_,
+    select,
+    union,
+)
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import Candidate
 from app.models.note import Note
+from app.services.keyword_terms import (
+    KeywordTerm,
+    parse_keyword,
+    pg_regex,
+    tsquery_path_variants,
+    tsquery_text,
+)
 
 _MAX_PHRASES_PER_BUCKET = 20
 _MIN_PHRASE_LEN = 2
@@ -264,6 +281,112 @@ def _phrase_match(phrase: str, *, fuzzy: bool = False) -> ColumnElement:
     return Candidate.id.in_(union(*branches))
 
 
+def _experience_roles_text() -> ColumnElement:
+    """Tekst stanowisk z historii zatrudnienia (``experience[*].role``).
+
+    „Stanowisko” w zakresie słów kluczowych — ta sama kolumna, z której lista
+    pokazuje „Ostatnie stanowisko”. Nie-tablica (import) daje pusty tekst.
+    """
+    return func.coalesce(
+        func.jsonb_path_query_array(
+            Candidate.experience, literal_column("'lax $[*].role'::jsonpath")
+        ).cast(Text),
+        "",
+    )
+
+
+def _quote_sql(value: str) -> str:
+    """Apostrof w literale SQL — tekst i tak jest alfanumeryczny + `'/*-:|`."""
+    return value.replace("'", "''")
+
+
+def _skill_names_text() -> ColumnElement:
+    """Nazwy umiejętności (``skills[*].name`` i gołe napisy), bez kluczy JSON
+    — regex po ``skills::text`` trafiał „level”/„years” u każdego."""
+    return (
+        func.coalesce(
+            func.jsonb_path_query_array(
+                Candidate.skills,
+                literal_column("'lax $[*] ? (@.type() == \"string\")'::jsonpath"),
+            ).cast(Text),
+            "",
+        )
+        + " "
+        + func.coalesce(
+            func.jsonb_path_query_array(
+                Candidate.skills, literal_column("'lax $[*].name'::jsonpath")
+            ).cast(Text),
+            "",
+        )
+    )
+
+
+def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:
+    """Całe słowo / fraza / gwiazdka (``keyword_terms``) w wybranym zakresie.
+
+    ``all`` (domyślnie) ma te same pola co dopasowanie podłańcuchowe:
+    indeks pełnotekstowy (``search_fts`` — wszystkie pola z CV) albo regex
+    z granicą słowa po trzech gałęziach, do tego wariant bez polskich znaków
+    i notatki. Zmierzone na produkcji 22.09.2026: „java” 14 071 osób w 0,7 s
+    (dotychczasowe ``java:*`` + podłańcuch: 22 384, w tym JavaScript).
+
+    Zakres zawęża do jednego pola. Dla słów z indeksem pełnotekstowym warunek
+    pola jest DOKŁADANY do dopasowania z indeksu (to ono wybiera wiersze), więc
+    regex czyta tylko kandydatów, którzy i tak mają to słowo.
+    """
+    pattern = pg_regex(term)
+    folded_pattern = pg_regex(
+        KeywordTerm(
+            raw=term.raw,
+            text=fold_polish(term.text),
+            open_end=term.open_end,
+            open_start=term.open_start,
+        )
+    )
+    tsq = tsquery_text(term)
+    fts = None
+    if tsq is not None:
+        query = func.to_tsquery(_FTS_CONFIG, tsq)
+        variants = tsquery_path_variants(term)
+        if variants is not None:
+            query = query.op("||")(literal_column(f"'{_quote_sql(variants)}'::tsquery"))
+        fts = _SEARCH_FTS.op("@@")(query)
+    notes_branch = select(Note.candidate_id).where(
+        Note.candidate_id.is_not(None),
+        Note.content.op("~*")(pattern),
+    )
+    if scope == "notes":
+        return Candidate.id.in_(notes_branch)
+    if scope in ("cv", "title", "skills"):
+        field = {
+            "cv": Candidate.raw_cv_text,
+            "title": _experience_roles_text(),
+            "skills": _skill_names_text(),
+        }[scope]
+        conditions = [field.op("~*")(pattern)]
+        if fts is not None:
+            conditions.insert(0, fts)
+        return Candidate.id.in_(select(Candidate.id).where(*conditions))
+
+    folded_branch = select(Candidate.id).where(
+        _SEARCH_DOC_UNACCENT.op("~*")(folded_pattern)
+    )
+    if fts is not None:
+        branches = [
+            select(Candidate.id).where(fts),
+            folded_branch,
+            notes_branch,
+        ]
+    else:
+        branches = [
+            select(Candidate.id).where(_SEARCH_DOC.op("~*")(pattern)),
+            folded_branch,
+            select(Candidate.id).where(Candidate.raw_cv_text.op("~*")(pattern)),
+            notes_branch,
+        ]
+    return Candidate.id.in_(union(*branches))
+
+
 def _clean(phrases: Optional[list[str]]) -> list[str]:
     """Strip, drop blanks / too-short / duplicates (case-insensitive), cap at limit."""
     if not phrases:
@@ -305,6 +428,9 @@ def build_advanced_filter(
     q_any: Optional[list[str]],
     q_none: Optional[list[str]],
     q_any_groups: Optional[list[list[str]]] = None,
+    *,
+    whole_words: bool = False,
+    scope: str = "all",
 ) -> Optional[ColumnElement]:
     """
     Combine the buckets into a single SQLAlchemy expression.
@@ -336,13 +462,31 @@ def build_advanced_filter(
     any_groups = [cleaned for group in raw_groups if (cleaned := _clean(group))]
     any_groups = any_groups[:_MAX_ANY_GROUPS]
 
+    def match(phrase: str) -> ColumnElement:
+        # v1 (alerty zapisanych wyszukiwań) — dotychczasowy podłańcuch/prefiks.
+        if not whole_words:
+            return _phrase_match(phrase)
+        term = parse_keyword(phrase)
+        assert term is not None  # odsiane niżej (`usable`)
+        return _whole_word_match(term, scope)
+
+    if whole_words:
+        # Same gwiazdki („**”) nie są słowem — pomijamy je, zamiast szukać
+        # dosłownego „**” podłańcuchem.
+        def usable(phrases: list[str]) -> list[str]:
+            return [p for p in phrases if parse_keyword(p) is not None]
+
+        all_phrases = usable(all_phrases)
+        none_phrases = usable(none_phrases)
+        any_groups = [g for g in (usable(g) for g in any_groups) if g]
+
     clauses: list[ColumnElement] = []
     if all_phrases:
-        clauses.append(and_(*(_phrase_match(p) for p in all_phrases)))
+        clauses.append(and_(*(match(p) for p in all_phrases)))
     for group in any_groups:
-        clauses.append(or_(*(_phrase_match(p) for p in group)))
+        clauses.append(or_(*(match(p) for p in group)))
     if none_phrases:
-        clauses.extend(not_(_phrase_match(p)) for p in none_phrases)
+        clauses.extend(not_(match(p)) for p in none_phrases)
 
     if not clauses:
         return None

@@ -382,11 +382,30 @@ async def mark_saved_search_viewed(
     )
     if not ss:
         raise HTTPException(status_code=404, detail="Search not found")
+    from app.models.saved_search_alert_log import SavedSearchAlertLog
+
     previous = ss.last_viewed_at.isoformat() if ss.last_viewed_at else None
+    # Kto WSZEDŁ do wyniku od ostatniego otwarcia — także osoba, która była w
+    # bazie wcześniej, a zaczęła pasować po nowym CV albo notatce (log skanera
+    # alertów). Samo `created_at` gubiło właśnie tych ludzi.
+    new_rows = select(SavedSearchAlertLog.candidate_id).where(
+        SavedSearchAlertLog.saved_search_id == ss.id,
+        SavedSearchAlertLog.notified_at.is_not(None),
+    )
+    if ss.last_viewed_at is not None:
+        new_rows = new_rows.where(SavedSearchAlertLog.notified_at > ss.last_viewed_at)
+    new_ids = [
+        row[0]
+        for row in (
+            await db.execute(
+                new_rows.order_by(SavedSearchAlertLog.notified_at.desc()).limit(500)
+            )
+        ).all()
+    ]
     ss.last_viewed_at = datetime.now(timezone.utc)
     ss.unseen_count = 0
     await db.commit()
-    return {"previous_viewed_at": previous}
+    return {"previous_viewed_at": previous, "new_candidate_ids": new_ids}
 
 
 @router.delete("/saved-searches/{search_id}", status_code=status.HTTP_204_NO_CONTENT)

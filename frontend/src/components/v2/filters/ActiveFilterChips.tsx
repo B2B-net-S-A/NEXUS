@@ -4,7 +4,7 @@ import { useMemo } from"react";
 import { useQuery } from"@tanstack/react-query";
 import { X } from"lucide-react";
 import api, { competenceCategoriesApi, type CompetenceCategoryOut } from"@/lib/api";
-import type { CandidateFilters } from"@/lib/url-filters";
+import { KEYWORD_SCOPE_OPTIONS, type CandidateFilters } from"@/lib/url-filters";
 import { PIPELINE_STAGE_OPTIONS } from "@/lib/filter-options";
 import { describeLanguageFilter } from "@/lib/candidate-languages";
 import {
@@ -227,10 +227,40 @@ function collectChips(
  });
  }
  if (filters.location) {
+ const radius = filters.locationRadiusKm;
  chips.push({
  key: "loc",
- label: `📍 ${filters.location}`,
- clear: () => onUpdate({ location: "", page: 1 }),
+ label: radius ? `📍 ${filters.location} + ${radius} km` : `📍 ${filters.location}`,
+ clear: () => onUpdate({ location: "", locationRadiusKm: null, page: 1 }),
+ });
+ }
+ (filters.voivodeships ?? []).forEach((v) => {
+ chips.push({
+ key: `woj:${v}`,
+ label: `Woj. ${v}`,
+ clear: () =>
+ onUpdate({
+ voivodeships: filters.voivodeships.filter((x) => x !== v),
+ page: 1,
+ }),
+ });
+ });
+ if (filters.contacted) {
+ const range =
+ filters.contactedFrom || filters.contactedTo
+ ? ` (${filters.contactedFrom || "…"} – ${filters.contactedTo || "…"})`
+ : "";
+ chips.push({
+ key: "contacted",
+ label: `${filters.contacted === "yes" ? "Był kontakt" : "Bez kontaktu"}${range}`,
+ clear: () =>
+ onUpdate({
+ contacted: null,
+ contactedFrom: "",
+ contactedTo: "",
+ contactedByIds: [],
+ page: 1,
+ }),
  });
  }
  filters.remote.forEach((mode) => {
@@ -475,6 +505,14 @@ function collectChips(
  }),
  });
  });
+ const scope = KEYWORD_SCOPE_OPTIONS.find((o) => o.value === filters.qScope);
+ if (scope && filters.qScope !== "all") {
+ chips.push({
+ key: "q_scope",
+ label: `Słowa tylko w: ${scope.label}`,
+ clear: () => onUpdate({ qScope: "all", page: 1 }),
+ });
+ }
  return chips;
 }
 
@@ -613,6 +651,13 @@ export function ActiveFilterChips({
  qAll: [],
  qAny: [],
  qNone: [],
+ qScope: "all",
+ locationRadiusKm: null,
+ voivodeships: [],
+ contacted: null,
+ contactedFrom: "",
+ contactedTo: "",
+ contactedByIds: [],
  page: 1,
  });
 

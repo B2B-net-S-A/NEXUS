@@ -832,13 +832,22 @@ class QGroups:
         head = (self.q_any,) if self.q_any else ()
         return head + self.extra_any_groups
 
-    def clause(self) -> Optional[ColumnElement]:
-        """``AND(all…, OR(grupa)…, NOT none…)`` albo ``None``, gdy pusto."""
+    def clause(
+        self, sem: Optional["Semantics"] = None, scope: Optional[str] = None
+    ) -> Optional[ColumnElement]:
+        """``AND(all…, OR(grupa)…, NOT none…)`` albo ``None``, gdy pusto.
+
+        v2: CAŁE słowa (``java`` ≠ ``JavaScript``), gwiazdka i zakres pola
+        (``keyword_terms``). v1 / brak semantyki: dotychczasowy podłańcuch.
+        """
+        unified = bool(sem is not None and sem.unified)
         return build_advanced_filter(
             list(self.q_all),
             list(self.q_any),
             list(self.q_none),
             [list(g) for g in self.extra_any_groups],
+            whole_words=unified,
+            scope=(scope or "all") if unified else "all",
         )
 
     def as_lists(self) -> Optional[list[list[str]]]:
@@ -1362,3 +1371,147 @@ def unknown_fields_for(
     ):
         out.append("rate")
     return out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Promień w km i województwo (lista) — ``pl_places``
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class UnknownPlace(ValueError):
+    """Miasta w promieniu nie da się ustalić: nazwy nie ma w spisie miejscowości."""
+
+
+def geo_clause(
+    *,
+    center: Optional[str],
+    radius_km: Optional[int],
+    voivodeships: Optional[Sequence[str]],
+    sem: Semantics,
+) -> Optional[ColumnElement]:
+    """Kandydat mieszka w promieniu ``radius_km`` od ``center`` i/lub
+    w jednym z województw. Porównanie po nazwie miejscowości (``city`` albo
+    pierwszy człon ``location``) z listą nazw wyliczoną z ``pl_places`` —
+    kandydaci nie mają współrzędnych. Kandydat z innym krajem niż PL odpada:
+    zagraniczna nazwa bywa równa polskiej wsi. Osoba bez lokalizacji: jak
+    w filtrze miasta (``sem.unknown``).
+    """
+    from sqlalchemy import Text, any_
+    from sqlalchemy.dialects.postgresql import ARRAY
+
+    from app.services import pl_places
+
+    key_sets: list[set[str]] = []
+    if radius_km:
+        place = pl_places.resolve(center)
+        if place is None:
+            raise UnknownPlace(
+                f"Nie znam miejscowości „{(center or '').strip()}” — wybierz ją "
+                "z podpowiedzi albo usuń promień."
+            )
+        key_sets.append(
+            set(pl_places.keys_within(place, min(radius_km, pl_places.MAX_RADIUS_KM)))
+        )
+    wanted_voivodeships = [
+        v.strip().lower() for v in (voivodeships or []) if v and v.strip()
+    ]
+    unknown_voivodeships = sorted(
+        set(wanted_voivodeships) - set(pl_places.VOIVODESHIPS)
+    )
+    if unknown_voivodeships:
+        raise UnknownPlace(f"Nie znam województwa: {', '.join(unknown_voivodeships)}.")
+    if wanted_voivodeships:
+        key_sets.append(set(pl_places.keys_in_voivodeships(wanted_voivodeships)))
+    if not key_sets:
+        return None
+    # Promień i województwo naraz = część wspólna (np. „Kraków + 100 km”,
+    # ale tylko małopolskie).
+    keys = sorted(set.intersection(*key_sets))
+    arr = literal(keys, type_=ARRAY(Text))
+    matched = and_(
+        or_(
+            pl_places.place_key_sql(Candidate.city) == any_(arr),
+            pl_places.place_key_sql(Candidate.location) == any_(arr),
+        ),
+        or_(
+            Candidate.country.is_(None),
+            Candidate.country == "",
+            func.upper(Candidate.country) == "PL",
+        ),
+    )
+    if sem.unknown == "include":
+        nowhere = and_(
+            func.coalesce(Candidate.city, "") == "",
+            func.coalesce(Candidate.location, "") == "",
+        )
+        return or_(nowhere, matched)
+    return matched
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Kontakt z kandydatem (lista) — notatki, rozmowy, maile z Traffita
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def contact_clause(
+    *,
+    mode: Optional[str],
+    date_from: Optional[Any],
+    date_to: Optional[Any],
+    by_user_ids: Optional[Sequence[int]],
+) -> Optional[ColumnElement]:
+    """„Kontaktowaliśmy się” (``mode='yes'``) albo „nie kontaktowaliśmy się”
+    (``'no'``) w okresie ``[date_from, date_to]`` (daty włącznie, w strefie
+    biznesowej), opcjonalnie tylko przez wskazane osoby.
+
+    Kontakt = notatka o kandydacie albo rozmowa telefoniczna. Maile,
+    odpowiedzi, rozmowy i spotkania z Traffita import i tak promuje do notatek
+    (``TraffitImporter.promote_notes``), więc osobna gałąź aktywności byłaby
+    duplikatem — i kosztowała 3 s na skanie indeksu aktywności (zmierzone
+    22.09.2026). ``NOT EXISTS`` na źródło, nie ``NOT IN`` na sumie zbiorów.
+    """
+    if mode not in ("yes", "no"):
+        return None
+    from datetime import datetime, time, timedelta
+    from zoneinfo import ZoneInfo
+
+    from app.core.scheduling import DEFAULT_TZ
+    from app.models.call import Call
+    from app.models.note import Note
+
+    zone = ZoneInfo(DEFAULT_TZ)
+    start = datetime.combine(date_from, time.min, tzinfo=zone) if date_from else None
+    end = (
+        datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=zone)
+        if date_to
+        else None
+    )
+    users = list(dict.fromkeys(by_user_ids or []))
+
+    def window(at_col, user_col) -> list[ColumnElement]:
+        conds: list[ColumnElement] = []
+        if start is not None:
+            conds.append(at_col >= start)
+        if end is not None:
+            conds.append(at_col < end)
+        if users:
+            conds.append(user_col.in_(users))
+        return conds
+
+    call_at = func.coalesce(Call.started_at, Call.created_at)
+    note_exists = (
+        select(Note.id)
+        .where(
+            Note.candidate_id == Candidate.id, *window(Note.created_at, Note.author_id)
+        )
+        .correlate(Candidate)
+        .exists()
+    )
+    call_exists = (
+        select(Call.id)
+        .where(Call.candidate_id == Candidate.id, *window(call_at, Call.user_id))
+        .correlate(Candidate)
+        .exists()
+    )
+    contacted = or_(note_exists, call_exists)
+    return contacted if mode == "yes" else not_(contacted)

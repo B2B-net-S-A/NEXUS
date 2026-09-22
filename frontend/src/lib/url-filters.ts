@@ -190,7 +190,32 @@ export interface CandidateFilters {
   // round-trips from legacy `?q_any=a|b` URLs (decoded as one group).
   qAny: string[][];
   qNone: string[]; // none of these phrases may match (NOT)
+  /**
+   * Gdzie szukać słów kluczowych (Traffit „Szukaj w”, 22.09.2026) — tylko v2.
+   * W adresie `q_in`; `all` = wszędzie (domyślnie, bez parametru).
+   */
+  qScope: KeywordScope;
+  /** Promień w km od miasta z `location` (`pl_places`); `null` = samo miasto. */
+  locationRadiusKm: number | null;
+  /** Województwa (małymi literami, np. „mazowieckie”) — którekolwiek. */
+  voivodeships: string[];
+  /** Kontakt w okresie: `yes` był, `no` nie było; `null` = bez filtra. */
+  contacted: "yes" | "no" | null;
+  contactedFrom: string;
+  contactedTo: string;
+  contactedByIds: number[];
 }
+
+export type KeywordScope = "all" | "cv" | "title" | "skills" | "notes";
+export const KEYWORD_SCOPE_OPTIONS: ReadonlyArray<{ value: KeywordScope; label: string }> = [
+  { value: "all", label: "Wszędzie" },
+  { value: "cv", label: "Treść CV" },
+  { value: "title", label: "Stanowisko" },
+  { value: "skills", label: "Umiejętności" },
+  { value: "notes", label: "Notatki" },
+];
+const KEYWORD_SCOPES = new Set<string>(KEYWORD_SCOPE_OPTIONS.map((o) => o.value));
+export const RADIUS_OPTIONS_KM: readonly number[] = [10, 25, 50, 100];
 
 export const DEFAULT_FILTERS: CandidateFilters = {
   q: "",
@@ -236,6 +261,13 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   qAll: [],
   qAny: [],
   qNone: [],
+  qScope: "all",
+  locationRadiusKm: null,
+  voivodeships: [],
+  contacted: null,
+  contactedFrom: "",
+  contactedTo: "",
+  contactedByIds: [],
 };
 
 const CSV = (xs: Array<string | number>): string => xs.join(",");
@@ -347,6 +379,13 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
     if (group.length) p.append("q_any", PIPE(group));
   }
   if (f.qNone.length) p.set("q_none", PIPE(f.qNone));
+  if (f.qScope !== "all") p.set("q_in", f.qScope);
+  if (f.locationRadiusKm !== null) p.set("radius", String(f.locationRadiusKm));
+  if (f.voivodeships.length) p.set("woj", CSV(f.voivodeships));
+  if (f.contacted) p.set("contact", f.contacted);
+  if (f.contactedFrom) p.set("contact_from", f.contactedFrom);
+  if (f.contactedTo) p.set("contact_to", f.contactedTo);
+  if (f.contactedByIds.length) p.set("contact_by", CSV(f.contactedByIds));
   if (f.view !== "list") p.set("view", f.view);
   if (f.savedSearchId !== null) p.set("ss", String(f.savedSearchId));
   return p;
@@ -447,7 +486,23 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     // Each repeated `q_any` value is one pipe-joined OR-group. Drop empties.
     qAny: sp.getAll("q_any").map(parsePipe).filter((g) => g.length > 0),
     qNone: parsePipe(sp.get("q_none")),
+    qScope: KEYWORD_SCOPES.has(sp.get("q_in") ?? "")
+      ? (sp.get("q_in") as KeywordScope)
+      : "all",
+    locationRadiusKm: parseRadiusKm(sp.get("radius")),
+    voivodeships: parseCsv(sp.get("woj")).map((v) => v.toLowerCase()),
+    contacted:
+      sp.get("contact") === "yes" ? "yes" : sp.get("contact") === "no" ? "no" : null,
+    contactedFrom: parseIsoDate(sp.get("contact_from")),
+    contactedTo: parseIsoDate(sp.get("contact_to")),
+    contactedByIds: parseCsvInt(sp.get("contact_by")),
   };
+}
+
+/** Promień w km z adresu: 1–300, reszta = brak promienia. */
+export function parseRadiusKm(raw: string | null): number | null {
+  const n = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(n) && n >= 1 && n <= 300 ? n : null;
 }
 
 export function filtersEqual(a: CandidateFilters, b: CandidateFilters): boolean {
@@ -638,8 +693,32 @@ export function filtersToApiParams(
       ? filters.qAny.filter((g) => g.length).map((g) => g.join("|"))
       : undefined,
     q_none: filters.qNone.length ? filters.qNone : undefined,
+    // Zakres słów kluczowych i promień — tylko wspólna semantyka (v2).
+    q_scope:
+      v2 && filters.qScope !== "all" && keywordCount(filters) > 0
+        ? filters.qScope
+        : undefined,
+    location_radius_km:
+      filters.location && filters.locationRadiusKm !== null
+        ? filters.locationRadiusKm
+        : undefined,
+    voivodeship: filters.voivodeships.length ? filters.voivodeships : undefined,
+    contacted: filters.contacted ?? undefined,
+    contacted_from: filters.contacted ? filters.contactedFrom || undefined : undefined,
+    contacted_to: filters.contacted ? filters.contactedTo || undefined : undefined,
+    contacted_by:
+      filters.contacted && filters.contactedByIds.length
+        ? filters.contactedByIds
+        : undefined,
     ...extras,
   };
+}
+
+/** Ile słów kluczowych (wszystkie + którekolwiek + wykluczone) jest ustawionych. */
+export function keywordCount(
+  filters: Pick<CandidateFilters, "qAll" | "qAny" | "qNone">,
+): number {
+  return filters.qAll.length + filters.qAny.flat().length + filters.qNone.length;
 }
 
 /**
@@ -767,4 +846,54 @@ function parseIdList(raw: string | null): number[] {
     if (Number.isFinite(n) && n > 0) seen.add(n);
   }
   return Array.from(seen);
+}
+
+/** Filtry dodane po porównaniu z Traffitem (22.09.2026) — lista trzyma je
+ * w jednym stanie, bo zawsze chodzą razem przez adres, „Wyczyść” i „Wstecz”. */
+export type TraffitExtraFilters = Pick<
+  CandidateFilters,
+  | "qScope"
+  | "locationRadiusKm"
+  | "voivodeships"
+  | "contacted"
+  | "contactedFrom"
+  | "contactedTo"
+  | "contactedByIds"
+>;
+
+const TRAFFIT_EXTRA_KEYS = [
+  "qScope",
+  "locationRadiusKm",
+  "voivodeships",
+  "contacted",
+  "contactedFrom",
+  "contactedTo",
+  "contactedByIds",
+] as const satisfies ReadonlyArray<keyof TraffitExtraFilters>;
+
+export function pickTraffitExtras(filters: CandidateFilters): TraffitExtraFilters {
+  return {
+    qScope: filters.qScope,
+    locationRadiusKm: filters.locationRadiusKm,
+    voivodeships: filters.voivodeships,
+    contacted: filters.contacted,
+    contactedFrom: filters.contactedFrom,
+    contactedTo: filters.contactedTo,
+    contactedByIds: filters.contactedByIds,
+  };
+}
+
+/** Pola z `TraffitExtraFilters` obecne w łatce albo `null`, gdy żadnego nie ma. */
+export function pickTraffitExtrasPatch(
+  patch: Partial<CandidateFilters>,
+): Partial<TraffitExtraFilters> | null {
+  const out: Partial<TraffitExtraFilters> = {};
+  let any = false;
+  for (const key of TRAFFIT_EXTRA_KEYS) {
+    if (patch[key] !== undefined) {
+      (out as Record<string, unknown>)[key] = patch[key];
+      any = true;
+    }
+  }
+  return any ? out : null;
 }

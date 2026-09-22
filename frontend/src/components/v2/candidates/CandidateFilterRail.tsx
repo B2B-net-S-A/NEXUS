@@ -43,13 +43,17 @@ import type { SkillBucketsValue } from "@/lib/candidate-search-semantics";
 import { PillGroup, toggleInList } from "@/components/v2/candidates/filters/FilterPillGroup";
 import { SkillBucketsField } from "@/components/v2/candidates/SkillBucketsField";
 import { HideUnknownToggle } from "@/components/v2/candidates/UnknownFieldBadges";
-import { LocationInput } from "@/components/v2/filters/LocationInput";
+import {
+  ContactFields,
+  KeywordFields,
+  LocationFields,
+} from "@/components/v2/candidates/CandidateSearchFields";
 import { TalentPoolMultiSelect } from "@/components/v2/filters/TalentPoolMultiSelect";
 import { AddedByMultiSelect } from "@/components/v2/filters/AddedByMultiSelect";
 import { CompanyAutocomplete } from "@/components/v2/filters/CompanyAutocomplete";
 import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
 import { RecruitmentMultiSelect } from "@/components/v2/filters/RecruitmentMultiSelect";
-import { AdvancedSearchPopover, ChipField } from "@/components/v2/filters/AdvancedSearchPopover";
+import { AdvancedSearchPopover } from "@/components/v2/filters/AdvancedSearchPopover";
 import {
   StageFilterPanel,
   type StageFilterValue,
@@ -289,7 +293,9 @@ export function LanguageFilterField({
 /**
  * Lewa kolumna filtrów listy kandydatów (decyzja Artura 22.09.2026: „szukamy
  * głównie ręcznie po słowach kluczowych i wykluczeniach, stawce, lokalizacji
- * i trybie pracy"). Na wierzchu WYŁĄCZNIE te pięć rzeczy; wszystko inne —
+ * i trybie pracy"). Na wierzchu WYŁĄCZNIE te rzeczy — słowa kluczowe jak
+ * w Traffit (wszystkie / którekolwiek / żadne + „Szukaj w”), stawka,
+ * lokalizacja z promieniem i województwem, tryb pracy; wszystko inne —
  * historia z nami (rekrutacje, etapy, klienci), umiejętności, dostępność,
  * języki, firma, źródło — siedzi w szufladzie „Zaawansowane". Jej przycisk
  * niesie licznik ustawionych w środku filtrów: ukryty aktywny filtr nie może
@@ -344,8 +350,10 @@ export function CandidateFilterRail({
     filters.status.length +
     filters.openTo.length +
     (filters.hideUnknown ? 1 : 0) +
-    filters.qAny.flat().length;
+    filters.qAny.slice(1).flat().length;
+  const contactCount = filters.contacted ? 1 + filters.contactedByIds.length : 0;
   const moreCount =
+    contactCount +
     historyCount +
     skillsCount +
     availabilityCount +
@@ -369,33 +377,7 @@ export function CandidateFilterRail({
         )}
       </div>
 
-      <div className="space-y-1.5">
-        <SectionTitle>Słowa kluczowe</SectionTitle>
-        <ChipField
-          chips={filters.qAll}
-          onChange={(next) => onPatch({ qAll: next })}
-          placeholder="np. Java, bankowość, Kafka"
-          tone="emerald"
-          ariaLabel="Słowa kluczowe — muszą być wszystkie"
-        />
-        <p className="text-[11px] text-muted-foreground">
-          Każde słowo musi być w CV, notatkach albo profilu. Enter dodaje słowo.
-        </p>
-      </div>
-
-      <div className="space-y-1.5">
-        <SectionTitle>Wyklucz słowa</SectionTitle>
-        <ChipField
-          chips={filters.qNone}
-          onChange={(next) => onPatch({ qNone: next })}
-          placeholder="np. junior, stażysta"
-          tone="rose"
-          ariaLabel="Wyklucz słowa"
-        />
-        <p className="text-[11px] text-muted-foreground">
-          Kandydat z którymkolwiek z tych słów znika z listy.
-        </p>
-      </div>
+      <KeywordFields filters={filters} onPatch={onPatch} />
 
       <div className="space-y-1.5">
         <SectionTitle>Stawka B2B</SectionTitle>
@@ -410,10 +392,7 @@ export function CandidateFilterRail({
         />
       </div>
 
-      <div className="space-y-1.5">
-        <SectionTitle>Lokalizacja</SectionTitle>
-        <LocationInput value={filters.location} onChange={(v) => onPatch({ location: v })} />
-      </div>
+      <LocationFields filters={filters} onPatch={onPatch} />
 
       <PillGroup
         label="Tryb pracy"
@@ -454,7 +433,7 @@ export function CandidateFilterRail({
                 onPatch={onPatch}
                 stage={stage}
                 onStageChange={onStageChange}
-                activeCount={historyCount}
+                activeCount={historyCount + contactCount}
               />
               <RailGroup title="Umiejętności" activeCount={skillsCount}>
                 <SkillBucketsField value={skills} onChange={onSkillsChange} compact />
@@ -538,12 +517,16 @@ export function CandidateFilterRail({
               </RailGroup>
               <RailGroup title="Inne" activeCount={otherCount}>
                 <div className="space-y-1">
-                  <FieldLabel>Którekolwiek ze słów (LUB)</FieldLabel>
+                  <FieldLabel>Kolejne grupy „którekolwiek” (LUB)</FieldLabel>
+                  <p className="text-[11px] text-muted-foreground">
+                    Każda grupa musi mieć co najmniej jedno trafienie, np. (React lub Vue) i (Java lub Kotlin).
+                    Pierwsza grupa to pole „Którekolwiek” na górze.
+                  </p>
                   <AdvancedSearchPopover
-                    value={phrases}
+                    value={{ ...phrases, any: phrases.any.slice(1) }}
                     hideHeader
                     sections={["any"]}
-                    onChange={(next) => onPatch({ qAny: next.any })}
+                    onChange={(next) => onPatch({ qAny: [filters.qAny[0] ?? [], ...next.any] })}
                   />
                 </div>
                 <CompactPills
@@ -663,6 +646,7 @@ function HistoryGroup({
           onChange={(v) => onPatch({ workedAtClientIds: v })}
         />
       </div>
+      <ContactFields filters={filters} onPatch={onPatch} />
     </RailGroup>
   );
 }
