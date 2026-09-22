@@ -49,6 +49,8 @@ from app.schemas.invite_link import (
 )
 from app.services import job_public_profile as jpp
 from app.services.career_slugs import (
+    career_base_url,
+    recruiter_base_url,
     recruiter_link_url,
     recruiter_slug_problem,
     suggest_recruiter_slug,
@@ -140,15 +142,19 @@ async def _career_jobs(db: AsyncSession, user_id: int) -> list[CareerLinkJob]:
     ).all()
     out: list[CareerLinkJob] = []
     seen: set[int] = set()
+    names_cache: dict[Optional[int], list[str]] = {}
     for link, job, profile in rows:
         if job.id in seen or not _active(link) or not jpp.job_is_open(job):
             continue
         seen.add(job.id)
+        status_value, _default, title = await jpp.resolve_status(
+            db, job, profile, names_cache=names_cache
+        )
         out.append(
             CareerLinkJob(
                 job_id=job.id,
-                title=job.title,
-                profile_status=jpp.profile_status(profile),
+                title=title,
+                profile_status=status_value,
                 show_on_recruiter_page=(
                     profile.show_on_recruiter_page if profile is not None else True
                 ),
@@ -172,6 +178,8 @@ async def _career_link_response(db: AsyncSession, user: User) -> CareerLinkRespo
     )
     return CareerLinkResponse(
         link=brief,
+        base_url=career_base_url(),
+        recruiter_base_url=recruiter_base_url(),
         stats=await _stats(db, link),
         suggested_slug=link.slug
         if link is not None and link.slug
@@ -310,8 +318,12 @@ async def _profile_response(
     subtitle = profile.subtitle if profile else None
     about = profile.about if profile else None
     sections = jpp.normalize_sections(profile.sections if profile else None)
+    status_value, default_title, effective_title = await jpp.resolve_status(
+        db, job, profile
+    )
     preview = jpp.public_job_payload(
         job,
+        title=effective_title,
         link_slug=await _preview_slug(db, user, job.id),
         subtitle=subtitle,
         about=about,
@@ -325,7 +337,10 @@ async def _profile_response(
         )
     return PublicProfileResponse(
         job_id=job.id,
-        status=jpp.profile_status(profile),
+        status=status_value,
+        public_title=profile.public_title if profile else None,
+        default_title=default_title,
+        effective_title=effective_title,
         subtitle=subtitle,
         about=about,
         sections=PublicSections(**sections),
@@ -366,6 +381,9 @@ async def put_public_profile(
         profile = JobPublicProfile(job_id=job_id)
         db.add(profile)
     fields = data.model_fields_set
+    if "public_title" in fields:
+        title = " ".join((data.public_title or "").split())
+        profile.public_title = title[: jpp.PUBLIC_TITLE_MAX] or None
     if "subtitle" in fields:
         profile.subtitle = (data.subtitle or "").strip() or None
     if "about" in fields:
@@ -444,8 +462,10 @@ async def approve_public_profile(
                 "findings": [],
             },
         )
+    _default_title, effective_title = await jpp.public_titles(db, job, profile)
     preview = jpp.public_job_payload(
         job,
+        title=effective_title,
         link_slug=None,
         subtitle=profile.subtitle,
         about=profile.about,
@@ -467,7 +487,7 @@ async def approve_public_profile(
     profile.approved_at = _now()
     profile.approved_by = current_user.id
     profile.approved_hash = jpp.content_hash(
-        profile.subtitle, profile.about, profile.sections
+        profile.subtitle, profile.about, profile.sections, effective_title
     )
     profile.updated_by = current_user.id
     await db.commit()

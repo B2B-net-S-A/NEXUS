@@ -111,10 +111,11 @@ async def get_career_job(
     if link is None or link.job_id is None:
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
     profile = await db.get(JobPublicProfile, link.job_id)
-    if jpp.profile_status(profile) != jpp.STATUS_APPROVED:
-        raise HTTPException(status_code=404, detail=_NOT_FOUND)
     job = await db.get(Job, link.job_id)
-    if job is None:
+    if job is None or profile is None:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    status_value, _default, title = await jpp.resolve_status(db, job, profile)
+    if status_value != jpp.STATUS_APPROVED:
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
 
     recruiter = await _recruiter_brief(db, link.created_by)
@@ -123,11 +124,12 @@ async def get_career_job(
         return {
             "status": "closed",
             "recruiter": recruiter,
-            "job": jpp.closed_job_payload(job, link.slug),
+            "job": jpp.closed_job_payload(title, link.slug),
         }
 
     payload = jpp.public_job_payload(
         job,
+        title=title,
         link_slug=link.slug,
         subtitle=profile.subtitle,
         about=profile.about,
@@ -168,17 +170,21 @@ async def get_career_recruiter(
     ).all()
     jobs: list[dict] = []
     seen: set[int] = set()
+    names_cache: dict[Optional[int], list[str]] = {}
     for job_link, job, profile in rows:
         if job.id in seen or not _link_active(job_link) or not jpp.job_is_open(job):
             continue
-        if jpp.profile_status(profile) != jpp.STATUS_APPROVED:
+        status_value, _default, title = await jpp.resolve_status(
+            db, job, profile, names_cache=names_cache
+        )
+        if status_value != jpp.STATUS_APPROVED:
             continue
         seen.add(job.id)
         params = jpp.public_params(job)
         jobs.append(
             {
                 "slug": job_link.slug,
-                "title": job.title,
+                "title": title,
                 "city": params["city"],
                 "remote_policy": params["remote_policy"],
             }
@@ -200,7 +206,8 @@ async def _apply_link(db: AsyncSession, slug: str) -> CandidateInviteLink:
         if not jpp.job_is_open(job):
             raise HTTPException(status_code=404, detail=_NOT_FOUND)
         profile = await db.get(JobPublicProfile, link.job_id)
-        if jpp.profile_status(profile) != jpp.STATUS_APPROVED:
+        status_value, _default, _title = await jpp.resolve_status(db, job, profile)
+        if status_value != jpp.STATUS_APPROVED:
             raise HTTPException(status_code=404, detail=_NOT_FOUND)
     return link
 

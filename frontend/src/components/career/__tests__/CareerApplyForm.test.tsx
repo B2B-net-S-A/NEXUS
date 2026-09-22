@@ -76,6 +76,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("CareerApplyForm — przycisk", () => {
+  it("plakietka ENTER jest ukryta poniżej sm (telefon)", () => {
+    renderForm();
+    const kbd = screen.getByText("ENTER");
+    expect(kbd).toHaveClass("kr-kbd", "hidden", "sm:inline-block");
+  });
+});
+
 describe("CareerApplyForm — walidacja", () => {
   it("wymaga imienia, nazwiska, e-maila, CV i zgody — podsumowanie z liczbą pól", () => {
     const { container } = renderForm();

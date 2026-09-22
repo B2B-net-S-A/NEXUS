@@ -154,11 +154,21 @@ def test_career_url_falls_back_to_kariera_path_on_app_host(monkeypatch):
     assert career_slugs.job_link_url("a-1b2c") == (
         "https://nexus.example/kariera/r/a-1b2c"
     )
+    # Na hoście aplikacji strona rekrutera leży pod /kariera/p/<slug> —
+    # /kariera/<slug> to 404 (błąd z testu na produkcji 22.09).
+    assert career_slugs.recruiter_link_url("marta-n") == (
+        "https://nexus.example/kariera/p/marta-n"
+    )
+    assert career_slugs.recruiter_base_url() == "https://nexus.example/kariera/p/"
     monkeypatch.setattr(
         settings, "CAREER_PUBLIC_BASE_URL", "https://kariera.dynaminds.pl"
     )
     assert career_slugs.recruiter_link_url("marta-n") == (
         "https://kariera.dynaminds.pl/marta-n"
+    )
+    assert career_slugs.recruiter_base_url() == "https://kariera.dynaminds.pl/"
+    assert career_slugs.job_link_url("a-1b2c") == (
+        "https://kariera.dynaminds.pl/r/a-1b2c"
     )
 
 
@@ -206,3 +216,128 @@ def test_optional_fields_reject_with_field_loc(kwargs, field):
         parse_optional_fields(**{**base, **kwargs})
     assert exc.value.status_code == 422
     assert exc.value.detail[0]["loc"] == ["body", field]
+
+
+# ── Tytuł publiczny (0340) ─────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("title", "clients", "expected"),
+    [
+        (
+            "Nordea: ESG Regulatory Reporting Pillar 3 (42835)",
+            ["Nordea Bank Abp"],
+            "ESG Regulatory Reporting Pillar 3",
+        ),
+        (
+            "Nordea: ESG Regulatory Reporting Pillar 3 (42835)",
+            ["Nordea Bank Abp", "Nordea"],
+            "ESG Regulatory Reporting Pillar 3",
+        ),
+        ("Tester Manualny (ZOB-3003)", [], "Tester Manualny"),
+        ("Test Automation Engineer RITM0857078", [], "Test Automation Engineer"),
+        ("Java Developer - REQ12345", [], "Java Developer"),
+        (
+            "PL - CBP - Solution Architecture - SENIOR T24 ARCHITECT, Pep: 4979 (42827)",
+            [],
+            "PL - CBP - Solution Architecture - SENIOR T24 ARCHITECT",
+        ),
+        ("Senior Data Architect", ["Nordea Bank Abp"], "Senior Data Architect"),
+        ("NORDEA BANK ABP – Java Dev", ["Nordea Bank Abp"], "Java Dev"),
+        ("mBank | Analityk Biznesowy", ["mBank S.A.", "mBank"], "Analityk Biznesowy"),
+        # Pierwsze słowo nazwy klienta krótsze niż 4 litery nie jest prefiksem.
+        ("ING: Tester", ["ING Bank Śląski"], "ING: Tester"),
+        ("ING: Tester", ["ING Bank Śląski", "ING"], "Tester"),
+        ("Tester (m/k)", [], "Tester (m/k)"),
+        ("  Java   17   Developer  ", [], "Java 17 Developer"),
+    ],
+)
+def test_default_public_title(title, clients, expected):
+    from app.services.job_public_profile import default_public_title
+
+    assert default_public_title(title, clients) == expected
+
+
+def test_default_public_title_never_empty():
+    from app.services.job_public_profile import default_public_title
+
+    assert default_public_title("(42835)", []) == "(42835)"
+    assert default_public_title("Nordea:", ["Nordea Bank Abp"]) == "Nordea"
+    assert default_public_title("RITM0857078", []) == "RITM0857078"
+    assert default_public_title("", []) == ""
+    assert default_public_title(None, []) == ""
+
+
+def test_client_prefix_needs_a_separator_and_whole_words():
+    from app.services.job_public_profile import default_public_title
+
+    # Bez separatora to może być zwykłe słowo tytułu — zostaje.
+    assert default_public_title("Nordea Java Developer", ["Nordea Bank Abp"]) == (
+        "Nordea Java Developer"
+    )
+    assert default_public_title("Nordeax: Tester", ["Nordea Bank Abp"]) == (
+        "Nordeax: Tester"
+    )
+
+
+def test_trim_subtitle_cuts_on_word_boundary_without_period():
+    from app.services.job_public_profile import DRAFT_SUBTITLE_MAX, trim_subtitle
+
+    long = (
+        "rozwój platformy płatności w sektorze bankowym dla dużej organizacji "
+        "z wieloma zespołami rozproszonymi po Europie i Azji."
+    )
+    out = trim_subtitle(long)
+    assert len(out) <= DRAFT_SUBTITLE_MAX
+    assert long.startswith(out)
+    assert not out.endswith(" ") and not out.endswith(".")
+    assert trim_subtitle("rozwój platformy płatności.") == "rozwój platformy płatności"
+
+
+def test_content_hash_includes_the_title():
+    from app.services.job_public_profile import content_hash
+
+    a = content_hash("s", "a", None, "Tytuł A")
+    assert a != content_hash("s", "a", None, "Tytuł B")
+    assert a != content_hash("s", "a", None)
+
+
+def test_job_is_open_means_published_regardless_of_handoff():
+    from types import SimpleNamespace
+
+    from app.models.job import JobStatus
+    from app.services.job_public_profile import job_is_open
+
+    assert job_is_open(SimpleNamespace(status=JobStatus.published, is_open=False))
+    assert not job_is_open(SimpleNamespace(status=JobStatus.closed, is_open=True))
+    assert not job_is_open(SimpleNamespace(status=JobStatus.draft, is_open=True))
+    assert not job_is_open(None)
+
+
+def test_draft_material_uses_given_title_and_falls_back_to_description():
+    from types import SimpleNamespace
+
+    from app.services.job_public_profile import draft_material
+
+    job = SimpleNamespace(
+        title="Nordea: Data Engineer (42835)",
+        champion_profile={},
+        description="Budowa hurtowni danych w chmurze.",
+        requirements="3 lata z Pythonem.",
+        must_skills=None,
+        nice_skills=None,
+        remote_policy=None,
+        onsite_days_per_week=None,
+        location=None,
+        seniority=None,
+        recruitment_type=None,
+    )
+    out = draft_material(job, "Data Engineer")
+    assert out["title"] == "Data Engineer"
+    assert out["description"] == "Budowa hurtowni danych w chmurze."
+    assert out["requirements"] == "3 lata z Pythonem."
+    job.champion_profile = {"project": {"about": "Hurtownia", "responsibilities": ""}}
+    out = draft_material(job)
+    assert out["description"] == "brak" and out["requirements"] == "brak"
+    # Bez podanego tytułu: domyślny bez znajomości klienta (kody zdjęte).
+    assert out["title"] == "Nordea: Data Engineer"

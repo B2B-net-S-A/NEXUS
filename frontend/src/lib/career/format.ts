@@ -75,7 +75,8 @@ export function splitTitle(title: string): { first: string; second: string } {
   const last = words[words.length - 1] ?? "";
   return {
     first: words.slice(0, -1).join(" "),
-    second: /[.!?]$/.test(last) ? last : `${last}.`,
+    // Kropka tylko po literze/cyfrze — nie po „)", „.", „?" itd. („(ZOB-3003)." wyglądało jak błąd).
+    second: /[\p{L}\p{N}]$/u.test(last) ? `${last}.` : last,
   };
 }
 

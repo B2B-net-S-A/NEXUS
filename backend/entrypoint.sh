@@ -4886,6 +4886,10 @@ _COLUMN_STATEMENTS = [
     "ON candidate_consents (candidate_id)",
     "CREATE INDEX IF NOT EXISTS ix_candidate_consents_application_submission_id "
     "ON candidate_consents (application_submission_id)",
+    # 0340: tytuł na stronie kariery ustawiany przez rekrutera (pusty = tytuł
+    # domyślny bez nazwy klienta i kodów). Lustro 1:1 z migracją.
+    "ALTER TABLE job_public_profiles "
+    "ADD COLUMN IF NOT EXISTS public_title VARCHAR(200) NULL",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

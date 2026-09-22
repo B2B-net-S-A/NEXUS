@@ -6,9 +6,14 @@ import type { InviteLink } from "@/lib/api/careerLinks";
 import { findingsFromApproveError, normalizePublicProfile } from "@/lib/api/careerLinks";
 
 import {
+  absoluteUrl,
   activeLinkForJob,
   approveBlockedReason,
+  careerPreviewHost,
+  displayUrl,
+  effectivePublicTitle,
   hostFromUrl,
+  recruiterLinkPrefix,
   isSlugFormatValid,
   liveFindings,
   paramsTagline,
@@ -82,7 +87,9 @@ describe("share-utils", () => {
 
   it("host i parametry podglądu", () => {
     expect(hostFromUrl("https://kariera.dynaminds.pl/marta-n")).toBe("kariera.dynaminds.pl");
-    expect(hostFromUrl(null)).toBe("kariera.dynaminds.pl");
+    expect(hostFromUrl(null)).toBe("");
+    // Adres względny = host bieżącej strony (jsdom: localhost:3000).
+    expect(hostFromUrl("/kariera/p/marta-n")).toBe(window.location.host);
     expect(
       paramsTagline({
         city: "Warszawa",
@@ -135,5 +142,60 @@ describe("/preview/career-share zasiewa klucze funkcjami z careerLinks.ts", () =
 
   it("nie zasiewa kluczy literałami (rozjechałyby się z hookami)", () => {
     expect(src).not.toMatch(/setQueryData\(\s*\[/);
+  });
+});
+
+describe("adresy strony kariery — z API, nie ze stałej domeny", () => {
+  const here = window.location.host;
+
+  it("prefiks stałego linku: recruiter_base_url → adres linku bez sluga → bieżący host", () => {
+    expect(
+      recruiterLinkPrefix({ link: null, recruiter_base_url: "https://kariera.dynaminds.pl/" }),
+    ).toBe("kariera.dynaminds.pl/");
+    expect(
+      recruiterLinkPrefix({ link: null, recruiter_base_url: "https://nexus.dynaminds.pl/kariera/p" }),
+    ).toBe("nexus.dynaminds.pl/kariera/p/");
+    expect(
+      recruiterLinkPrefix({
+        link: { slug: "marta-n", public_url: "https://kariera.dynaminds.pl/marta-n", created_at: "", visit_count: 0 },
+      }),
+    ).toBe("kariera.dynaminds.pl/");
+    expect(
+      recruiterLinkPrefix({
+        link: { slug: "marta-n", public_url: "/kariera/p/marta-n", created_at: "", visit_count: 0 },
+      }),
+    ).toBe(`${here}/kariera/p/`);
+    expect(recruiterLinkPrefix({ link: null })).toBe(`${here}/kariera/p/`);
+  });
+
+  it("host podglądu: adres linku → base_url → bieżący host", () => {
+    expect(careerPreviewHost("https://kariera.dynaminds.pl/r/x", "https://nexus.dynaminds.pl")).toBe(
+      "kariera.dynaminds.pl",
+    );
+    expect(careerPreviewHost(null, "https://nexus.dynaminds.pl")).toBe("nexus.dynaminds.pl");
+    expect(careerPreviewHost(null, null)).toBe(here);
+  });
+
+  it("adres do wyświetlenia bez protokołu, do skopiowania — bezwzględny", () => {
+    expect(displayUrl("https://nexus.dynaminds.pl/kariera/p/")).toBe("nexus.dynaminds.pl/kariera/p/");
+    expect(absoluteUrl("/kariera/p/marta-n")).toBe(`${window.location.origin}/kariera/p/marta-n`);
+    expect(absoluteUrl("https://kariera.dynaminds.pl/marta-n")).toBe(
+      "https://kariera.dynaminds.pl/marta-n",
+    );
+  });
+
+  it("tytuł efektywny: wpisany → domyślny → tytuł rekrutacji", () => {
+    expect(effectivePublicTitle("  Java Dev ", "Senior Java", "Nordea: Senior Java")).toBe("Java Dev");
+    expect(effectivePublicTitle("  ", "Senior Java", "Nordea: Senior Java")).toBe("Senior Java");
+    expect(effectivePublicTitle(null, null, "Nordea: Senior Java")).toBe("Nordea: Senior Java");
+    expect(effectivePublicTitle(undefined, undefined, undefined)).toBe("Rekrutacja");
+  });
+
+  it("normalizacja profilu toleruje brak pól tytułu (starszy backend)", () => {
+    const p = normalizePublicProfile(1, {});
+    expect(p.public_title).toBeNull();
+    expect(p.default_title).toBeNull();
+    expect(p.effective_title).toBeNull();
+    expect(normalizePublicProfile(1, { public_title: "  " }).public_title).toBeNull();
   });
 });

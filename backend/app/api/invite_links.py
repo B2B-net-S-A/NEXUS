@@ -23,6 +23,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
+from app.models.job_public_profile import JobPublicProfile
 from app.models.recruitment_priority import PriorityChannel, PriorityMemberStatus
 from app.models.user import User, UserRole
 from app.schemas.invite_link import (
@@ -37,7 +38,7 @@ from app.services.priority_work_policy import (
     current_priority_assignment,
 )
 from app.services.career_slugs import generate_job_slug, job_link_url
-from app.services.job_public_profile import job_is_open
+from app.services.job_public_profile import job_is_open, public_titles
 from app.services.priority_work_service import audit_event
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -136,13 +137,12 @@ async def create_invite_link(
     job = await db.scalar(select(Job).where(Job.id == data.job_id))
     if job is None:
         raise HTTPException(status_code=404, detail="Nie znaleziono rekrutacji")
-    if not job.is_open:
+    # Link żyje do zamknięcia rekrutacji — wystarczy, że jest opublikowana
+    # (flaga ``is_open`` „przekazana do searchu" miała 14 z 306 rekrutacji).
+    if not job_is_open(job):
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Link aplikacyjny można wygenerować dopiero po przekazaniu "
-                "rekrutacji do searchu"
-            ),
+            detail="Link aplikacyjny można utworzyć tylko dla opublikowanej rekrutacji.",
         )
 
     decision = await assert_priority_work_access(
@@ -182,7 +182,10 @@ async def create_invite_link(
         if data.expires_in_days
         else None
     )
-    slug = await generate_job_slug(db, job.title)
+    # Slug z tytułu publicznego — surowy tytuł niesie nazwę klienta i kody.
+    profile = await db.get(JobPublicProfile, job.id)
+    _default_title, public_title = await public_titles(db, job, profile)
+    slug = await generate_job_slug(db, public_title)
     # v2 when an encryption key is configured: PK = non-secret revoke key, the
     # secret lives only as a SHA-256 (for lookup) and Fernet ciphertext (so the
     # list can rebuild the URL). Fall back to the legacy plaintext PK if no key

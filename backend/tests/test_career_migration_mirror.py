@@ -13,6 +13,9 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parents[1]
 ENTRYPOINT = (BACKEND / "entrypoint.sh").read_text()
 MIGRATION = (BACKEND / "alembic" / "versions" / "0339_career_links.py").read_text()
+MIGRATION_0340 = (
+    BACKEND / "alembic" / "versions" / "0340_career_public_title.py"
+).read_text()
 
 
 def _collapse(sql: str) -> str:
@@ -94,3 +97,15 @@ def test_migration_is_the_single_alembic_head():
     assert parent in revisions, f"{ours} wskazuje na nieistniejącą migrację {parent}"
     siblings = [r for r, d in revisions.items() if d == parent and r != ours]
     assert not siblings, f"dwie migracje na {parent}: {ours} i {siblings}"
+
+
+def test_public_title_column_is_mirrored():
+    from app.models.job_public_profile import JobPublicProfile
+
+    needle = "ADD COLUMN IF NOT EXISTS public_title VARCHAR(200) NULL"
+    flat = _collapse(ENTRYPOINT)
+    assert needle in flat
+    assert '"ALTER TABLE job_public_profiles " "' + needle in flat
+    assert needle in _collapse(MIGRATION_0340)
+    column = JobPublicProfile.__table__.c.public_title
+    assert column.nullable and column.type.length == 200

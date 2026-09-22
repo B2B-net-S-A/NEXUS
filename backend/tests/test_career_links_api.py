@@ -62,7 +62,13 @@ async def _seed_user(label: str = "career") -> tuple[int, str, str]:
         return user.id, email, password
 
 
-async def _seed_job(owner_id: int, *, client_name: str | None = None) -> int:
+async def _seed_job(
+    owner_id: int,
+    *,
+    client_name: str | None = None,
+    title: str | None = None,
+    is_open: bool = True,
+) -> int:
     from app.models.client import Client
 
     # Same litery: sufiks nie może przypadkiem zawierać „175"/„180", które
@@ -73,10 +79,10 @@ async def _seed_job(owner_id: int, *, client_name: str | None = None) -> int:
         db.add(client)
         await db.flush()
         job = Job(
-            title=f"Senior Java Developer {unique}",
+            title=title or f"Senior Java Developer {unique}",
             location="Warszawa",
             status=JobStatus.published,
-            is_open=True,
+            is_open=is_open,
             remote_policy=RemotePolicy.hybrid,
             onsite_days_per_week=2,
             recruitment_type=RecruitmentType.body_leasing,
@@ -702,3 +708,107 @@ async def test_draft_prompt_carries_no_client_or_rate(monkeypatch):
     prompt = _DRAFT_PROMPT.format(**draft_material(job))
     assert "Kwarcowy" not in prompt and "175" not in prompt
     assert "Nowy system rozliczeń" in prompt and "Java" in prompt
+
+
+# ── Poprawki po teście na produkcji (0340) ─────────────────────────────────
+
+
+async def test_published_job_not_handed_off_gets_a_link_and_an_open_page(api):
+    """Link żyje do zamknięcia rekrutacji — ``is_open`` nie jest warunkiem."""
+    uid, email, password = await _seed_user("notopen")
+    headers = await _login(api, email, password)
+    job_id = await _seed_job(uid, is_open=False)
+    link = await _create_job_link(api, headers, job_id)
+    assert link["status"] == "active"
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    put = await api.put(
+        "/api/me/career-link",
+        json={"slug": f"marta-{uuid.uuid4().hex[:6]}"},
+        headers=headers,
+    )
+    assert put.status_code == 200, put.text
+
+    page = await api.get(f"/api/public/career/r/{link['slug']}")
+    assert page.status_code == 200, page.text
+    assert page.json()["status"] == "open"
+    recruiter = await api.get(f"/api/public/career/p/{put.json()['link']['slug']}")
+    assert recruiter.status_code == 200
+    assert [j["slug"] for j in recruiter.json()["jobs"]] == [link["slug"]]
+    mine = await api.get("/api/me/career-link", headers=headers)
+    assert [j["job_id"] for j in mine.json()["jobs"]] == [job_id]
+
+
+async def test_public_title_strips_client_and_codes_and_drives_the_slug(api):
+    unique = "".join(c for c in uuid.uuid4().hex if c.isalpha())[:6] or "abcdef"
+    client_name = f"Kwarcowy Bank {unique}"
+    uid, email, password = await _seed_user("title")
+    headers = await _login(api, email, password)
+    job_id = await _seed_job(
+        uid,
+        client_name=client_name,
+        title="Kwarcowy: Data Engineer Platformy (ZOB-3003)",
+    )
+    link = await _create_job_link(api, headers, job_id)
+    assert link["slug"].startswith("data-engineer-platformy-"), link["slug"]
+    assert "kwarcowy" not in link["slug"] and "zob" not in link["slug"]
+
+    profile = await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
+    body = profile.json()
+    assert body["public_title"] is None
+    assert body["default_title"] == "Data Engineer Platformy"
+    assert body["effective_title"] == "Data Engineer Platformy"
+    assert body["preview"]["title"] == "Data Engineer Platformy"
+
+    approved = await _approve(api, headers, job_id)
+    assert approved.status_code == 200, approved.text
+    page = await api.get(f"/api/public/career/r/{link['slug']}")
+    assert page.json()["job"]["title"] == "Data Engineer Platformy"
+    assert "Kwarcowy" not in page.text
+
+    # Własny tytuł = zmiana treści publicznej → powrót do szkicu.
+    put = await api.put(
+        f"/api/jobs/{job_id}/public-profile",
+        json={"public_title": "  Data Engineer   (Azure) "},
+        headers=headers,
+    )
+    assert put.status_code == 200, put.text
+    assert put.json()["public_title"] == "Data Engineer (Azure)"
+    assert put.json()["effective_title"] == "Data Engineer (Azure)"
+    assert put.json()["status"] == "draft"
+    assert (await api.get(f"/api/public/career/r/{link['slug']}")).status_code == 404
+
+    # Pusty tytuł własny = powrót do domyślnego.
+    clear = await api.put(
+        f"/api/jobs/{job_id}/public-profile",
+        json={"public_title": ""},
+        headers=headers,
+    )
+    assert clear.json()["public_title"] is None
+    assert clear.json()["effective_title"] == "Data Engineer Platformy"
+
+
+async def test_legacy_approval_without_title_in_hash_stays_approved(api):
+    """Opis zatwierdzony przed 0340 (skrót bez tytułu) nie wraca do szkicu."""
+    from app.models.job_public_profile import JobPublicProfile
+    from app.services import job_public_profile as jpp
+
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    async with AsyncSessionLocal() as db:
+        profile = await db.get(JobPublicProfile, job_id)
+        profile.approved_hash = jpp.content_hash(
+            profile.subtitle, profile.about, profile.sections
+        )
+        await db.commit()
+    page = await api.get(f"/api/public/career/r/{link['slug']}")
+    assert page.status_code == 200 and page.json()["status"] == "open"
+
+
+async def test_career_link_exposes_base_urls(api):
+    _, headers, _job = await _owner_with_job(api)
+    resp = await api.get("/api/me/career-link", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["base_url"]
+    assert body["recruiter_base_url"].endswith("/")

@@ -209,7 +209,9 @@ async def test_create_invite_link_rejects_draft_job(inv_client: AsyncClient):
     # Odmowa trafia wprost do okna „Linki aplikacyjne” — musi być po polsku
     # i mówić, co zrobić (UAT M12-B03: surowe angielskie zdanie).
     detail = resp.json()["detail"]
-    assert "przekazaniu rekrutacji do searchu" in detail
+    assert detail == (
+        "Link aplikacyjny można utworzyć tylko dla opublikowanej rekrutacji."
+    )
     assert "handed off" not in detail
 
 
@@ -802,3 +804,35 @@ async def test_post_apply_task_auto_assigns_competence_category(
         assert cand is not None
         assert cand.competence_category == cc_slug
         assert cand.competence_category_id == cc_id
+
+
+@pytest.mark.asyncio
+async def test_published_job_without_handoff_gets_a_link(inv_client: AsyncClient):
+    """Link żyje do zamknięcia rekrutacji: ``is_open`` („przekazana do
+    searchu") nie jest warunkiem — wystarczy status ``published``."""
+    _, email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(inv_client, email, password)
+    job_id = await _seed_job()
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.is_open = False
+        await db.commit()
+
+    resp = await inv_client.post(
+        "/api/invite-links", json={"job_id": job_id}, headers=headers
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["status"] == "active"
+    meta = await inv_client.get(f"/api/public/apply/{resp.json()['token']}")
+    assert meta.status_code == 200, meta.text
+
+
+@pytest.mark.asyncio
+async def test_closed_job_cannot_get_a_link(inv_client: AsyncClient):
+    _, email, password = await _seed_user(UserRole.recruiter)
+    headers = await _login(inv_client, email, password)
+    job_id = await _seed_job(JobStatus.closed)
+    resp = await inv_client.post(
+        "/api/invite-links", json={"job_id": job_id}, headers=headers
+    )
+    assert resp.status_code == 400

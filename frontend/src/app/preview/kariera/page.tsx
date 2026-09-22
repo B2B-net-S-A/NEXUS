@@ -22,7 +22,8 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-const HOST = "kariera.dynaminds.pl";
+// Harness działa na hoście aplikacji (BASE `/kariera`), więc i stopka pokazuje taki adres.
+const HOST = "nexus.dynaminds.pl";
 const BASE = "/kariera" as const;
 
 const OPEN_JOB: CareerJobResponse = {

@@ -1,9 +1,10 @@
+import { headers } from "next/headers";
 import { ImageResponse } from "next/og";
 
 import { OG_COLORS, OG_SIZE, OgFrame, ogFontsOrDefault } from "@/components/career/og";
 import { fetchCareerRecruiter } from "@/lib/career/api";
 import { recruiterLogin } from "@/lib/career/format";
-import { primaryCareerHost } from "@/lib/career/host";
+import { requestDisplayHost } from "@/lib/career/host";
 
 export const size = OG_SIZE;
 export const contentType = "image/png";
@@ -13,6 +14,8 @@ export const dynamic = "force-dynamic";
 /** Grafika posta dla stałego linku rekrutera (makieta OgGeneral). */
 export default async function Image({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+  // Host z żądania, nie stała domena — grafika pokazuje adres, pod którym link działa.
+  const host = requestDisplayHost(await headers());
   const result = await fetchCareerRecruiter(slug.toLowerCase());
   const firstName = result.ok ? result.data.recruiter.first_name : "";
   const recruiterSlug = result.ok ? result.data.recruiter.slug : slug;
@@ -34,7 +37,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
         titleSecond="projektu IT?"
         footLeft="// zostaw CV — odezwę się z konkretem"
         footLeftItalic
-        host={primaryCareerHost()}
+        host={host}
       />
     ),
     { ...OG_SIZE, fonts: await ogFontsOrDefault() },

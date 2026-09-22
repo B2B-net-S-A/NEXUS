@@ -42,6 +42,7 @@ import {
   findingsFromApproveError,
   inviteLinksQueryKey,
   jobPublicProfileQueryKey,
+  useCareerLink,
   useInviteLinks,
   useJobPublicProfile,
   useShareablePublishedJobs,
@@ -57,9 +58,10 @@ import {
   PROFILE_STATUS_VARIANT,
   activeLinkForJob,
   approveBlockedReason,
+  careerPreviewHost,
+  effectivePublicTitle,
   expiryToDays,
   formatDate,
-  hostFromUrl,
   linkUrl,
   liveFindings,
   paramsTagline,
@@ -68,6 +70,8 @@ import {
 } from "./share-utils";
 
 interface FormState {
+  /** „Tytuł na stronie"; pusty = tytuł domyślny z backendu. */
+  public_title: string;
   subtitle: string;
   about: string;
   sections: PublicProfileSections;
@@ -83,6 +87,7 @@ const SECTION_LABELS: { key: keyof PublicProfileSections; label: string }[] = [
 
 function formFromProfile(profile: JobPublicProfile): FormState {
   return {
+    public_title: profile.public_title ?? "",
     subtitle: profile.subtitle ?? "",
     about: profile.about ?? "",
     sections: { ...profile.sections },
@@ -92,6 +97,7 @@ function formFromProfile(profile: JobPublicProfile): FormState {
 
 function toInput(form: FormState): JobPublicProfileInput {
   return {
+    public_title: form.public_title.trim() || null,
     subtitle: form.subtitle.trim() || null,
     about: form.about.trim() || null,
     sections: form.sections,
@@ -128,6 +134,8 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
   const jobsQuery = useShareablePublishedJobs(enabled);
   const linksQuery = useInviteLinks(enabled);
   const profileQuery = useJobPublicProfile(enabled ? jobId : null);
+  // Tylko po adres strony kariery (`base_url`) do podglądu posta.
+  const careerQuery = useCareerLink(enabled);
   const profile = profileQuery.data ?? null;
 
   const jobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data]);
@@ -161,7 +169,8 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
     [freshLink, linksQuery.data, jobId],
   );
 
-  const text = form ? `${form.subtitle}\n${form.about}` : "";
+  // Tytuł na stronie też jest publiczny — znaleziska (np. nazwa klienta) go obejmują.
+  const text = form ? `${form.public_title}\n${form.subtitle}\n${form.about}` : "";
   const shownFindings = liveFindings(blockedFindings ?? profile?.findings ?? [], text);
 
   const update = (patch: Partial<FormState>) => {
@@ -295,8 +304,17 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
     isEmpty: jobs.length === 0,
   });
 
-  const host = hostFromUrl(existingLink ? linkUrl(existingLink) : null);
-  const previewTitle = jobTitle ?? "Rekrutacja";
+  const host = careerPreviewHost(
+    existingLink ? linkUrl(existingLink) : null,
+    careerQuery.data?.base_url,
+  );
+  // Starszy backend nie zwraca `default_title` — wtedy `effective_title`, potem tytuł rekrutacji.
+  const defaultTitle = profile?.default_title ?? profile?.effective_title ?? null;
+  const previewTitle = effectivePublicTitle(
+    form ? form.public_title : profile?.public_title,
+    defaultTitle,
+    profile?.preview?.title ?? jobTitle,
+  );
 
   return (
     <>
@@ -395,6 +413,19 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                   />
                 ) : form ? (
                   <>
+                    <FormField
+                      label="Tytuł na stronie"
+                      htmlFor="pp-public-title"
+                      description="Puste = tytuł domyślny, bez nazwy klienta i kodów wewnętrznych."
+                    >
+                      <Input
+                        id="pp-public-title"
+                        value={form.public_title}
+                        maxLength={200}
+                        onChange={(e) => update({ public_title: e.target.value })}
+                        placeholder={defaultTitle ?? jobTitle ?? "np. Senior Java Developer"}
+                      />
+                    </FormField>
                     <FormField label="Podtytuł (linia komentarza pod tytułem)" htmlFor="pp-subtitle">
                       <Input
                         id="pp-subtitle"
@@ -486,6 +517,10 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                                   className="h-auto p-0 align-baseline"
                                   onClick={() =>
                                     update({
+                                      public_title: removeExcerpt(
+                                        form.public_title,
+                                        f.excerpt as string,
+                                      ),
                                       subtitle: removeExcerpt(form.subtitle, f.excerpt as string),
                                       about: removeExcerpt(form.about, f.excerpt as string),
                                     })

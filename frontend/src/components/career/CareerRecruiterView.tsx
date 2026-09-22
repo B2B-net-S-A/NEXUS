@@ -1,6 +1,6 @@
 import type { CareerRecruiterResponse } from "@/lib/career/api";
 import { jobHandle, recruiterLogin, remoteLabel } from "@/lib/career/format";
-import { careerHref, type CareerBase } from "@/lib/career/host";
+import { careerHref, careerVisibleUrl, type CareerBase } from "@/lib/career/host";
 
 import { CareerApplyForm, type CareerApplyFormProps } from "./CareerApplyForm";
 import { CareerFooter } from "./CareerFooter";
@@ -122,7 +122,10 @@ export function CareerRecruiterView({
           />
         </aside>
       </main>
-      <CareerFooter rodoHref={rodoHref} hostLabel={`${host}/${recruiter.slug}`} />
+      <CareerFooter
+        rodoHref={rodoHref}
+        hostLabel={careerVisibleUrl(host, base, { to: "recruiter", slug: recruiter.slug })}
+      />
     </CareerSubmitGate>
   );
 }

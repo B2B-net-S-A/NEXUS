@@ -1,24 +1,27 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 
 import { CareerTheme } from "@/components/career/CareerTheme";
-import { careerHosts } from "@/lib/career/host";
-
-const host = careerHosts()[0];
+import { careerMetadataBase } from "@/lib/career/host";
 
 /**
  * Strona kariery dla kandydatów (`kariera.dynaminds.pl`, w NEXUSIE `/kariera`).
  *
  * `noindex`: dzielimy się linkiem na LinkedInie, a zamknięte rekrutacje nie
- * mają wisieć w Google. `metadataBase` = host kariery, żeby adres grafiki Open
- * Graph był absolutny i wskazywał domenę publiczną (LinkedIn nie pójdzie za
- * adresem względnym).
+ * mają wisieć w Google. `metadataBase` = pochodzenie ŻĄDANIA (nagłówki
+ * `x-forwarded-proto`/`x-forwarded-host` od Traefika), żeby adres grafiki Open
+ * Graph był absolutny i wskazywał host, pod którym strona naprawdę działa.
+ * Statyczna wartość z env dawała na produkcji `http://localhost:3000/...`.
  */
-export const metadata: Metadata = {
-  ...(host ? { metadataBase: new URL(`https://${host}`) } : {}),
-  title: { default: "Kariera — Dynaminds", template: "%s — Dynaminds" },
-  description: "Rekrutacje IT prowadzone przez zespół Dynaminds (B2B.NET S.A.).",
-  robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const metadataBase = careerMetadataBase(await headers());
+  return {
+    ...(metadataBase ? { metadataBase } : {}),
+    title: { default: "Kariera — Dynaminds", template: "%s — Dynaminds" },
+    description: "Rekrutacje IT prowadzone przez zespół Dynaminds (B2B.NET S.A.).",
+    robots: { index: false, follow: false, googleBot: { index: false, follow: false } },
+  };
+}
 
 export default function CareerLayout({ children }: { children: React.ReactNode }) {
   return <CareerTheme>{children}</CareerTheme>;

@@ -83,6 +83,12 @@ export interface PublicJobPreview {
 export interface JobPublicProfile {
   job_id: number;
   status: PublicProfileStatus;
+  /** Tytuł na stronie ustawiony przez rekrutera; `null` = domyślny. */
+  public_title: string | null;
+  /** Tytuł rekrutacji oczyszczony z nazwy klienta i kodów (liczy backend). */
+  default_title: string | null;
+  /** `public_title` albo `default_title` — to widzi kandydat. */
+  effective_title: string | null;
   subtitle: string | null;
   about: string | null;
   sections: PublicProfileSections;
@@ -94,6 +100,8 @@ export interface JobPublicProfile {
 }
 
 export interface JobPublicProfileInput {
+  /** Pusty → `null` = tytuł domyślny. */
+  public_title: string | null;
   subtitle: string | null;
   about: string | null;
   sections: PublicProfileSections;
@@ -127,6 +135,10 @@ export interface CareerLinkState {
   } | null;
   suggested_slug: string | null;
   jobs: CareerLinkJob[];
+  /** Adres strony kariery, np. `https://kariera.dynaminds.pl` (starszy backend: brak). */
+  base_url?: string | null;
+  /** Prefiks stałego linku, np. `https://kariera.dynaminds.pl/` albo `…/kariera/p/`. */
+  recruiter_base_url?: string | null;
 }
 
 export interface SlugAvailability {
@@ -176,6 +188,10 @@ export function normalizePublicProfile(
     job_id: typeof r.job_id === "number" ? r.job_id : jobId,
     status:
       r.status === "draft" || r.status === "approved" ? r.status : "none",
+    public_title: typeof r.public_title === "string" && r.public_title.trim() ? r.public_title : null,
+    default_title: typeof r.default_title === "string" && r.default_title.trim() ? r.default_title : null,
+    effective_title:
+      typeof r.effective_title === "string" && r.effective_title.trim() ? r.effective_title : null,
     subtitle: typeof r.subtitle === "string" ? r.subtitle : null,
     about: typeof r.about === "string" ? r.about : null,
     sections: { ...DEFAULT_SECTIONS, ...(r.sections ?? {}) },
@@ -217,6 +233,11 @@ export const careerLinksApi = {
       stats: d.stats ?? null,
       suggested_slug: d.suggested_slug ?? null,
       jobs: Array.isArray(d.jobs) ? d.jobs : [],
+      base_url: typeof d.base_url === "string" && d.base_url ? d.base_url : null,
+      recruiter_base_url:
+        typeof d.recruiter_base_url === "string" && d.recruiter_base_url
+          ? d.recruiter_base_url
+          : null,
     };
   },
   saveCareerLink: async (slug: string): Promise<void> => {

@@ -27,8 +27,10 @@ import { LinkedInPreviewCard } from "./LinkedInPreviewCard";
 import {
   PROFILE_STATUS_LABEL,
   PROFILE_STATUS_VARIANT,
-  hostFromUrl,
+  absoluteUrl,
+  careerPreviewHost,
   isSlugFormatValid,
+  recruiterLinkPrefix,
 } from "./share-utils";
 
 /** Opóźnienie sprawdzania dostępności adresu (ms) — eksport dla testów. */
@@ -162,7 +164,7 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
 
   const handleCopy = async () => {
     if (!link) return;
-    const ok = await copyTextToClipboard(link.public_url);
+    const ok = await copyTextToClipboard(absoluteUrl(link.public_url));
     if (ok) showSuccess("Skopiowano link.");
     else showError("Nie udało się skopiować — zaznacz adres i skopiuj ręcznie.");
   };
@@ -174,7 +176,9 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
     isSuccess: careerQuery.isSuccess,
   });
 
-  const host = hostFromUrl(link?.public_url);
+  // Adresy z API (`recruiter_base_url`, `base_url`); starszy backend → z adresu linku.
+  const prefix = recruiterLinkPrefix(data);
+  const host = careerPreviewHost(link?.public_url, data?.base_url);
   const jobs = data?.jobs ?? [];
 
   return (
@@ -200,8 +204,12 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
                 Twój adres
               </label>
               <div className="flex h-10 items-stretch overflow-hidden rounded-md border border-border bg-card focus-within:ring-2 focus-within:ring-ring">
-                <span className="flex items-center border-r border-border bg-muted px-3 font-mono text-xs text-muted-foreground">
-                  {host}/
+                <span
+                  className="flex max-w-[60%] items-center truncate border-r border-border bg-muted px-3 font-mono text-xs text-muted-foreground"
+                  data-testid="career-slug-prefix"
+                  title={prefix}
+                >
+                  {prefix}
                 </span>
                 <input
                   id="career-slug"
@@ -254,7 +262,7 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
                       <Copy className="h-3.5 w-3.5" aria-hidden="true" /> Kopiuj link
                     </Button>
                     <Button variant="outline" asChild>
-                      <a href={link.public_url} target="_blank" rel="noopener noreferrer">
+                      <a href={absoluteUrl(link.public_url)} target="_blank" rel="noopener noreferrer">
                         Otwórz stronę
                       </a>
                     </Button>

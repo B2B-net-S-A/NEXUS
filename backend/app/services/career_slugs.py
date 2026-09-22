@@ -160,8 +160,20 @@ def job_link_url(slug: str) -> str:
     return f"{career_base_url()}/r/{slug}"
 
 
+def recruiter_base_url() -> str:
+    """Prefiks stałego linku rekrutera (z końcowym ``/``).
+
+    Na domenie kariery stały link to ``/<slug>``; na hoście aplikacji strona
+    rekrutera leży pod ``/kariera/p/<slug>`` (``/kariera/<slug>`` = 404).
+    """
+    base = (settings.CAREER_PUBLIC_BASE_URL or "").strip()
+    if base:
+        return f"{base.rstrip('/')}/"
+    return f"{career_base_url()}/p/"
+
+
 def recruiter_link_url(slug: str) -> str:
-    return f"{career_base_url()}/{slug}"
+    return f"{recruiter_base_url()}{slug}"
 
 
 def first_name(full_name: str | None) -> str:
