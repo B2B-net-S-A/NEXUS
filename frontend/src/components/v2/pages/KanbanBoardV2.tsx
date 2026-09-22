@@ -1054,6 +1054,8 @@ interface ColProps {
  prepend?: React.ReactNode;
  /** Odznaki kart z etapów złożonych w tę kolumnę (klucz: id karty). */
  badgeByItemId?: ReadonlyMap<number, StageBadgeKey>;
+ /** Dolicz do licznika w nagłówku (propozycje w „Do przejrzenia"). */
+ extraCount?: number;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -1081,7 +1083,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  titleOverride,
  prepend,
  badgeByItemId,
+ extraCount = 0,
 }: ColProps) {
+ const headerCount = col.count + extraCount;
  const dropId = colId(col);
  // `Boolean(...)` obowiązkowo — @hello-pangea/dnd ma twardy invariant
  // („isDropDisabled must be a boolean"), a `undefined` wywala całą tablicę.
@@ -1103,7 +1107,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  data-colid={dropId}
  data-drop-disabled={noDrop}
  role="group"
- aria-label={`${titleOverride ?? columnLabel(col)}, liczba kandydatów: ${col.count}`}
+ aria-label={`${titleOverride ?? columnLabel(col)}, liczba kandydatów: ${headerCount}`}
  className={cn(
  "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-border bg-background/60 sm:min-w-[19rem]",
  prepend != null && "border-dashed border-primary/40",
@@ -1136,8 +1140,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <h3 className={cn("text-foreground flex-1 truncate", density === "compact" ?"text-sm font-medium" :"text-xl font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)}>
  {titleOverride ?? columnLabel(col)}
  </h3>
- <Badge size="sm" variant={col.count > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[9px]")}>
- {col.count}
+ <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[9px]")}>
+ {headerCount}
  </Badge>
  </div>
 
@@ -1312,6 +1316,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  );
  // Odrzuceni / wycofani / rezerwa — pasek pod tablicą, rozwijany na kolumny.
  const [showClosed, setShowClosed] = useState(false);
+ // Propozycje z bazy i przepięcia w „Do przejrzenia" — licznik kolumny liczy
+ // je razem z kartami etapu „Ogłoszenia" (do 23.09 nagłówek mówił „0" nad
+ // czternastoma propozycjami).
+ const [reviewTotal, setReviewTotal] = useState<number | null>(null);
  const authUser = useAuthStore((st) => st.user);
  const canSetDzBadge =
  hasRole(authUser, "admin") ||
@@ -2387,11 +2395,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  <div className="flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-dashed border-primary/40 bg-background/60 sm:min-w-[19rem] xl:pointer-fine:min-w-[12.5rem]">
  <div className="flex items-center gap-2 border-b border-border px-3 py-2">
  <h3 className="flex-1 truncate text-sm font-medium text-foreground">Do przejrzenia</h3>
+ {reviewTotal != null && (
+ <Badge size="sm" variant={reviewTotal > 0 ? "soft" : "outline"}>
+ {reviewTotal}
+ </Badge>
+ )}
  </div>
  <BoardReviewSection
  jobId={jobId}
  readOnly={readOnly}
  showPostingHeading={false}
+ onTotalChange={setReviewTotal}
  pipelineCandidateIds={boardCandidateIds}
  budgetHourly={jobBudgetHourlyValue ?? null}
  />
@@ -2448,10 +2462,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  {...(boardKeyByColId.get(entry.key) === "review"
  ? {
  titleOverride: "Do przejrzenia",
+ extraCount: reviewTotal ?? 0,
  prepend: (
  <BoardReviewSection
  jobId={jobId}
  readOnly={readOnly}
+ onTotalChange={setReviewTotal}
  pipelineCandidateIds={boardCandidateIds}
  budgetHourly={jobBudgetHourlyValue ?? null}
  />

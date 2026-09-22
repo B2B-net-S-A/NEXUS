@@ -15,6 +15,7 @@
  * pokazywała „0 — nikt nie czeka" obok „20 propozycji z bazy" w Tabeli.
  */
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { Check, X } from "lucide-react";
 
@@ -32,6 +33,7 @@ export function BoardReviewSection({
   showPostingHeading = true,
   pipelineCandidateIds,
   budgetHourly = null,
+  onTotalChange,
 }: {
   jobId: number;
   readOnly: boolean;
@@ -40,6 +42,9 @@ export function BoardReviewSection({
   /** Osoby już w rekrutacji (z tablicy) — bez nich hook pyta osobno. */
   pipelineCandidateIds?: readonly number[];
   budgetHourly?: number | null;
+  /** Ile propozycji czeka — nagłówek kolumny „Do przejrzenia" liczy je razem
+   *  z kartami etapu „Ogłoszenia". `null` = jeszcze nie wiadomo. */
+  onTotalChange?: (total: number | null) => void;
 }) {
   const proposals = useJobProposals(jobId, {
     filters: DEFAULT_PROPOSAL_FILTERS,
@@ -52,6 +57,10 @@ export function BoardReviewSection({
   const total = entries.length;
   const busy = proposals.adding || proposals.dismissing;
   const loading = status.inbox.isLoading;
+  const known = !loading && !status.inbox.isError;
+  useEffect(() => {
+    onTotalChange?.(known ? total : null);
+  }, [onTotalChange, known, total]);
 
   return (
     <div className="space-y-1.5 border-b border-border p-2" data-testid="board-review">

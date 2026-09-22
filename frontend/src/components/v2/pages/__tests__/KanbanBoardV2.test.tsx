@@ -11,7 +11,7 @@
  */
 
 import * as React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup as rtlCleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -54,6 +54,20 @@ vi.mock("@/components/Toast", () => ({
 }));
 
 vi.mock("@/lib/celebrate", () => ({ celebrate: vi.fn() }));
+// „Do przejrzenia": propozycje liczy własny hak (`useJobProposals`) — tu
+// podstawiamy ich liczbę, żeby sprawdzić nagłówek kolumny.
+const reviewTotal = { value: 0 };
+vi.mock("@/components/v2/jobs/BoardReviewSection", async () => {
+  const { useEffect } = await import("react");
+  return {
+    BoardReviewSection: ({ onTotalChange }: { onTotalChange?: (n: number | null) => void }) => {
+      useEffect(() => {
+        onTotalChange?.(reviewTotal.value);
+      }, [onTotalChange]);
+      return <div data-testid="board-review" />;
+    },
+  };
+});
 
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -1256,6 +1270,38 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
         name: /Gotowy do Cpro/,
       }),
     ).toBeTruthy();
+  });
+
+  it("licznik „Do przejrzenia” liczy propozycje z bazy razem z kartami z ogłoszeń", async () => {
+    reviewTotal.value = 14;
+    try {
+      // Szablon bez etapu „Ogłoszenia" — kolumna „Do przejrzenia" stoi sama.
+      renderBoard(defaultB2BColumns());
+      const heading = await screen.findByRole("heading", { name: "Do przejrzenia" });
+      await waitFor(() => expect(heading.parentElement).toHaveTextContent("Do przejrzenia14"));
+
+      // Z etapem „Ogłoszenia" (1 karta) nagłówek liczy 1 + 14.
+      rtlCleanup();
+      const withPosting = [
+        {
+          stage: "posting",
+          name: "Ogłoszenia",
+          category: "internal",
+          stage_def_id: 299,
+          count: 1,
+          items: [{ id: 7001, candidate_id: 8001, stage: "posting", name: "Ada", lastname: "Z Ogłoszenia", days_in_stage: 0 }],
+        },
+        ...(defaultB2BColumns() as unknown as Array<Record<string, unknown>>),
+      ];
+      const { container } = renderBoard(withPosting as never);
+      await waitFor(() =>
+        expect(
+          container.querySelector('[aria-label="Do przejrzenia, liczba kandydatów: 15"]'),
+        ).toBeTruthy(),
+      );
+    } finally {
+      reviewTotal.value = 0;
+    }
   });
 
   it("„Gotowy do Cpro” pyta, kto wyśle, i przesuwa z wytypowaną osobą; u Nordei kolumna to „Wysłane do Cpro”", async () => {

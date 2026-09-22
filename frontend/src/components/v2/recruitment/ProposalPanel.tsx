@@ -23,6 +23,7 @@ import {
   type ProposalRequirement,
 } from "@/lib/proposals-merge";
 import { PROPOSAL_SOURCE_LABEL } from "./types";
+import { stageLabel } from "@/components/v2/candidates/candidate-row-format";
 
 export interface ProposalPanelProps {
   jobId: number;
@@ -259,7 +260,7 @@ export function ProposalPanel({
             {detail.similarProjects.map((p) => (
               <li key={`${p.jobId}-${p.stage}`} className="truncate">
                 <Link href={`/jobs/${p.jobId}`} className="text-primary hover:underline">{p.title}</Link>
-                <span className="text-muted-foreground"> · etap: {p.stage}</span>
+                <span className="text-muted-foreground"> · etap: {stageLabel(p.stage)}</span>
               </li>
             ))}
           </ul>
