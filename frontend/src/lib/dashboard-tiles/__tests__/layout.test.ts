@@ -40,19 +40,25 @@ describe("appendTemplates", () => {
     expect(next[1]).toMatchObject({ x: 0, y: 3, type: "metric_number" });
   });
 
-  it("pakuje wierszami od lewej i łamie wiersz, gdy brakuje kolumn", () => {
+  it("wypełnia pierwsze wolne miejsce — od góry, od lewej", () => {
     const next = appendTemplates([], [
-      byKey("cv_sent_week"), // 3 kolumny
-      byKey("hired_month"), // 3
-      byKey("my_recruitments"), // 6
-      byKey("calendar_today"), // 4 → nowy wiersz
+      byKey("cv_sent_week"), // 3×2
+      byKey("hired_month"), // 3×2
+      byKey("my_recruitments"), // 6×5
+      byKey("calendar_today"), // 4×3 → pod dwiema liczbami
     ]);
     expect(next.map((t) => [t.x, t.y])).toEqual([
       [0, 0],
       [3, 0],
       [6, 0],
-      [0, 5],
+      [0, 2],
     ]);
+  });
+
+  it("wchodzi w pustą prawą połowę zamiast pod spód", () => {
+    const existing = [tile({ id: "a", x: 0, y: 0, w: 6, h: 3 })];
+    const [, added] = appendTemplates(existing, [byKey("funnel")]); // 6×3
+    expect([added.x, added.y]).toEqual([6, 0]);
   });
 
   it("kopiuje ustawienia szablonu, a nie współdzieli obiektu", () => {
@@ -63,12 +69,17 @@ describe("appendTemplates", () => {
 });
 
 describe("duplikacja, usuwanie, pozycje z siatki", () => {
-  it("duplikat ląduje na dole z nowym id", () => {
+  it("duplikat ląduje w pierwszym wolnym miejscu z nowym id", () => {
     const tiles = [tile({ id: "a", h: 3 })];
     const next = duplicateTile(tiles, "a");
     expect(next).toHaveLength(2);
     expect(next[1].id).not.toBe("a");
-    expect(next[1].y).toBe(bottomRow(tiles));
+    expect([next[1].x, next[1].y]).toEqual([4, 0]);
+  });
+
+  it("duplikat szerokiego kafelka idzie pod spód", () => {
+    const tiles = [tile({ id: "a", w: 12, h: 3 })];
+    expect(duplicateTile(tiles, "a")[1]).toMatchObject({ x: 0, y: bottomRow(tiles) });
   });
 
   it("usuwa tylko wskazany kafelek", () => {
