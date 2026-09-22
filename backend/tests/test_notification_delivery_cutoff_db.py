@@ -57,6 +57,7 @@ async def test_activation_and_reactivation_exclude_backlog_without_erasing_histo
                 user_id=user_id,
                 notification_type=NotificationType.job_chat_message,
                 title="Fresh test",
+                message="New chat notification",
                 created_at=activation + timedelta(seconds=1),
                 is_read=False,
             )
@@ -78,6 +79,7 @@ async def test_activation_and_reactivation_exclude_backlog_without_erasing_histo
                 user_id=user_id,
                 notification_type=NotificationType.job_chat_message,
                 title="Disabled period",
+                message="No replay after reactivation",
                 created_at=disabled_event_at,
                 is_read=False,
             )

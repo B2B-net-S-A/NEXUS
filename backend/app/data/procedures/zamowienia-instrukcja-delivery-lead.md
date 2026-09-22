@@ -976,6 +976,12 @@ Sprawy zamówień i kontraktów Twoich klientów mają **własny panel „Moi kl
 na pulpicie Delivery Leada, zaraz pod „Moje zadania". W „Moje zadania →
 Powiadomienia" zostają wyłącznie zdarzenia rekrutacyjne (np. nowy kandydat).
 
+Maile wymienione poniżej wychodzą tylko wtedy, gdy administrator włączy
+automatyczną wysyłkę oraz typ „Alerty klientów i umów" w **Ustawienia → System →
+Powiadomienia**. Karty w panelu powstają niezależnie od tych przełączników.
+Po włączeniu mail przychodzi wyłącznie dla nowych zdarzeń; wcześniejsze karty
+i sprawy z okresu wyłączenia nie uruchamiają zaległej wysyłki.
+
 ### Panel „Moi klienci" — co w nim jest
 
 Każda karta to **jedna sprawa**: nazwa klienta, pigułka (ile dni zostało albo

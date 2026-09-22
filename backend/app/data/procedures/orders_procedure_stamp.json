@@ -14,7 +14,7 @@
     "backend/app/services/cost_orders.py": "e092ebefe4ba313f8f359c4d5cb28efc10da657eb3da035c73953b1c1eef2bd8",
     "backend/app/services/cv_text_extractor.py": "55a5ac1cdd4d72d029bf875527e1f6e5875386ac1f90946708868edd77f5ecf2",
     "backend/app/services/cyfrowy_polsat_orders.py": "0578823b1ce18e93af95cd386a6cc60d999c6c28d9c8cb209491c5b78cc88e50",
-    "backend/app/services/dl_alerts.py": "464c6914d22718fcdd6375d96643ee611e82794ec1eccde4317ffe94e6d99e4c",
+    "backend/app/services/dl_alerts.py": "2c5de402b6dff09d93e677f6c96ebfc5a3f453d50a9c7c8a782f2d225a810848",
     "backend/app/services/ezdrowie.py": "3b51e3f0fa19b894094ecb9f4dd9a61c31bc4c3175b6f9ed82470b373c2e7639",
     "backend/app/services/finance_order_matching.py": "17eb4961d6dd78814869686367b66ea37cfb9cfda424fa70785e9c62e3475c13",
     "backend/app/services/lotte_wedel_orders.py": "0c9bfa1fb232f154f66ce894c5861b62c831a2c847df273b32550ff4194275e2",
