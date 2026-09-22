@@ -2482,6 +2482,11 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   reszta → W procesie), główna akcja pod nazwiskiem, notatka zawsze na dole.
   **Okno Zlecenie: trzy bloki** (Co zamówił klient · Zespół · Ogłoszenie),
   priorytet/ustawienia/kompletność w „Więcej"; „Baza pytań" w menu „⋯".
+- **Filtry Tablicy = jeden pasek nad tablicą** (`PipelineFilterBar`) zamiast
+  lewej kolumny: nazwisko, „Mój ruch" (owner następnego kroku = rekruter,
+  ta sama `nextActionFor` co karta), utknęli, bez akcji, ostrzeżenia, poza
+  szablonem, rekruter, puste kolumny, SLA. Filtry PRZYGASZAJĄ karty, nigdy
+  ich nie usuwają (indeksy `@hello-pangea/dnd`).
 
 ## Rekrutacja „wersja 3" — jedna tabela + panel osoby (21.09.2026, #1641 #1657 #1659)
 

@@ -234,7 +234,7 @@
    "opis": "Filtry: utknęli / bez akcji / ostrzeżenia / rekruter / SLA",
    "file": "components/v2/jobs/PipelineFiltersRail.tsx",
    "marker": "Bez następnej akcji",
-   "v3_home": "chipy nad tabelą"
+   "v3_home": "pasek filtrów nad Tablicą"
   },
   {
    "id": "kanban.off-template",
@@ -763,6 +763,14 @@
    "file": "components/v2/recruitment/slideovers/OrderSlideOver.tsx",
    "marker": "OrderBlock",
    "v3_home": "okno Zlecenie"
+  },
+  {
+   "id": "board.filter-bar",
+   "area": "pipeline",
+   "opis": "Pasek filtrów Tablicy zamiast lewej kolumny: nazwisko, Mój ruch, utknęli, bez akcji, ostrzeżenia, poza szablonem, rekruter, puste kolumny, SLA",
+   "file": "components/v2/jobs/PipelineFiltersRail.tsx",
+   "marker": "PipelineFilterBar",
+   "v3_home": "Tablica → pasek filtrów"
   }
  ]
 }

@@ -80,7 +80,7 @@ import {
  usePipelineMove,
  type PipelineMoveConfirmedPatch,
 } from "@/hooks/usePipelineMove";
-import { PipelineFiltersRail } from "@/components/v2/jobs/PipelineFiltersRail";
+import { PipelineFilterBar } from "@/components/v2/jobs/PipelineFiltersRail";
 import {
  PipelineCandidateDock,
  type PipelineMoveTarget,
@@ -1312,7 +1312,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const {
  rejectionReasons,
  stagesWithScorecard,
- templateName,
  budgetHourly: jobBudgetHourlyValue,
  canWriteClientRate,
  } = useJobPipelineTemplate(jobId);
@@ -1340,6 +1339,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const [blockedFilter, setBlockedFilter] = useState(false);
  const [noActionFilter, setNoActionFilter] = useState(false);
  const [recruiterFilter, setRecruiterFilter] = useState<string | null>(null);
+ // Pasek filtrów (22.09.2026): „Mój ruch" i szukanie po nazwisku.
+ const [myMoveFilter, setMyMoveFilter] = useState(false);
+ const [nameQuery, setNameQuery] = useState("");
 
  // Grupy etapów — jedno źródło dla lewej kolumny, zwijania pustych grup na
  // tablicy i „następnej akcji" na karcie (bez grupy własny etap wewnętrzny po
@@ -1881,6 +1883,20 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  }
  return ids;
  }, [cols, groupByColId, slaDays]);
+ // „Mój ruch" — następny krok należy do rekrutera (ta sama funkcja co karta).
+ const myMoveIds = useMemo(() => {
+ const ids = new Set<number>();
+ for (const col of cols) {
+ if (col.category === "terminal") continue;
+ const group = groupByColId.get(colId(col));
+ for (const item of col.items) {
+ if (nextActionFor(item, col, { slaDays, group }).owner === "recruiter") {
+ ids.add(item.id);
+ }
+ }
+ }
+ return ids;
+ }, [cols, groupByColId, slaDays]);
  // „Ostrzeżenia" = weto hiring managera. Od 17.09.2026 nic nie BLOKUJE ruchu
  // (karta „Oczekuje" nie powstaje), więc filtr pokazuje karty z ostrzeżeniem.
  const blockedCount = useMemo(
@@ -1907,9 +1923,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (recruiterFilter && item.added_to_job_by_name !== recruiterFilter) {
  return true;
  }
+ if (myMoveFilter && !myMoveIds.has(item.id)) return true;
+ const q = nameQuery.trim().toLocaleLowerCase("pl");
+ if (q && !`${item.name ?? ""} ${item.lastname ?? ""}`.toLocaleLowerCase("pl").includes(q)) {
+ return true;
+ }
  return false;
  },
- [stuckFilter, stuckIds, blockedFilter, noActionFilter, noActionIds, recruiterFilter]
+ [stuckFilter, stuckIds, blockedFilter, noActionFilter, noActionIds, recruiterFilter, myMoveFilter, myMoveIds, nameQuery]
  );
 
  // „Ukryj puste kolumny" usuwa CAŁE kolumny bez kandydatów z renderu — to
@@ -2031,13 +2052,13 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  kandydata" NIE zajmuje kolumny siatki — wysuwa się z prawej dopiero po
  kliknięciu karty (przegląd UX 17.09.2026: stała trzecia kolumna zjadała
  tablicy 360 px nawet wtedy, gdy nic nie było wybrane). */}
- <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)]">
- <PipelineFiltersRail
- stageCols={stageCols}
- groups={stageGroups}
- templateName={templateName}
- focusedColId={focusedColId}
- onFocusColumn={focusColumn}
+ <div className="space-y-3">
+ <PipelineFilterBar
+ nameQuery={nameQuery}
+ onNameQueryChange={setNameQuery}
+ myMoveFilter={myMoveFilter}
+ onToggleMyMoveFilter={() => setMyMoveFilter((v) => !v)}
+ myMoveCount={myMoveIds.size}
  offTemplateCount={offTemplate?.count ?? 0}
  onFocusOffTemplate={() => focusColumn(`stage:${OFF_TEMPLATE_STAGE}`)}
  stuckFilter={stuckFilter}
