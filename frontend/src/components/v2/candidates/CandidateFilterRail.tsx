@@ -17,9 +17,11 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { competenceCategoriesApi, type CompetenceCategoryOut } from "@/lib/api";
 import {
-  AVAILABILITY_OPTIONS,
+  AVAILABILITY_CHOICES,
+  availabilityChoiceFor,
+} from "@/lib/candidate-quick-filters";
+import {
   CANDIDATE_STATUS_OPTIONS,
-  EMPLOYMENT_OPTIONS,
   OPEN_TO_OPTIONS,
 } from "@/lib/filter-options";
 import {
@@ -319,32 +321,29 @@ export function CandidateFilterRail({
     stage.clientIds.length +
     stage.movedByIds.length +
     (stage.movedAfter || stage.movedBefore ? 1 : 0);
+  const aboutCount =
+    (filters.experienceMin !== null || filters.experienceMax !== null ? 1 : 0) +
+    filters.languages.length +
+    filters.competenceCategoryIds.length;
   const historyCount =
-    stageCount +
     (filters.sentToClientFrom || filters.sentToClientTo ? 1 : 0) +
     filters.workedAtClientIds.length +
     filters.recruitmentIds.length;
-  const companyCount =
+  const phraseCount =
+    filters.qAll.length + filters.qAny.flat().length + filters.qNone.length;
+  const advancedCount =
+    stageCount +
+    filters.status.length +
+    filters.openTo.length +
+    (filters.hideUnknown ? 1 : 0) +
     filters.currentCompany.length +
     filters.pastCompany.length +
     filters.currentTitle.length +
-    (filters.recentlyChangedJobs ? 1 : 0);
-  const sourceCount = filters.poolIds.length + (mine ? 0 : filters.addedByIds.length);
-  const statusCount = filters.status.length + filters.employment.length + filters.openTo.length;
-  const experienceCount =
-    (filters.experienceMin !== null || filters.experienceMax !== null ? 1 : 0) +
-    (filters.hideUnknown ? 1 : 0) +
-    filters.languages.length;
-  const phraseCount =
-    filters.qAll.length + filters.qAny.flat().length + filters.qNone.length;
-  const moreCount =
-    statusCount +
-    experienceCount +
-    filters.competenceCategoryIds.length +
-    historyCount +
-    companyCount +
-    sourceCount +
+    (filters.recentlyChangedJobs ? 1 : 0) +
+    filters.poolIds.length +
+    (mine ? 0 : filters.addedByIds.length) +
     phraseCount;
+  const moreCount = aboutCount + historyCount + advancedCount;
 
   return (
     <aside aria-label="Filtry kandydatów" className={cn("space-y-5 text-sm", className)}>
@@ -394,12 +393,7 @@ export function CandidateFilterRail({
         <p className="text-[11px] text-muted-foreground">„Moi” = dodani przez Ciebie.</p>
       </div>
 
-      <PillGroup
-        label="Dostępność"
-        options={AVAILABILITY_OPTIONS}
-        value={filters.availability}
-        onToggle={(v) => onPatch({ availability: toggleInList(filters.availability, v) })}
-      />
+      <AvailabilityChoiceField filters={filters} onPatch={onPatch} />
 
       <div className="space-y-1.5">
         <SectionTitle>Stawka B2B</SectionTitle>
@@ -445,7 +439,7 @@ export function CandidateFilterRail({
           )}
         </Button>
         <p className="mt-1.5 text-[11px] text-muted-foreground">
-          Status, doświadczenie, języki, kategoria, historia z nami, firma, źródło, frazy w CV.
+          Doświadczenie, języki, kategoria, historia z nami i zaawansowane.
         </p>
       </div>
 
@@ -457,27 +451,7 @@ export function CandidateFilterRail({
           </SheetHeader>
           <SheetBody>
             <div className="text-sm" data-testid="candidate-more-filters">
-              <RailGroup title="Status i zatrudnienie" activeCount={statusCount} defaultOpen>
-                <CompactPills
-                  label="Status"
-                  options={CANDIDATE_STATUS_OPTIONS}
-                  value={filters.status}
-                  onToggle={(v) => onPatch({ status: toggleInList(filters.status, v) })}
-                />
-                <CompactPills
-                  label="Zatrudnienie"
-                  options={EMPLOYMENT_OPTIONS}
-                  value={filters.employment}
-                  onToggle={(v) => onPatch({ employment: toggleInList(filters.employment, v) })}
-                />
-                <CompactPills
-                  label="Otwarty na dodatkowe"
-                  options={OPEN_TO_OPTIONS}
-                  value={filters.openTo}
-                  onToggle={(v) => onPatch({ openTo: toggleInList(filters.openTo, v) })}
-                />
-              </RailGroup>
-              <RailGroup title="Doświadczenie i języki" activeCount={experienceCount} defaultOpen>
+              <RailGroup title="O kandydacie" activeCount={aboutCount} defaultOpen>
                 <RangeInputs
                   label="Lata doświadczenia"
                   unit="lat"
@@ -487,10 +461,6 @@ export function CandidateFilterRail({
                   parse={parseYearBound}
                   onChange={({ min, max }) => onPatch({ experienceMin: min, experienceMax: max })}
                 />
-                <HideUnknownToggle
-                  checked={filters.hideUnknown}
-                  onChange={(next) => onPatch({ hideUnknown: next })}
-                />
                 <div className="space-y-1">
                   <FieldLabel>Języki</FieldLabel>
                   <LanguageFilterField
@@ -498,28 +468,32 @@ export function CandidateFilterRail({
                     onChange={(next) => onPatch({ languages: next })}
                   />
                 </div>
+                <div className="space-y-1">
+                  <FieldLabel>Kategoria kompetencji</FieldLabel>
+                  <CompetenceCategoryPills
+                    value={filters.competenceCategoryIds}
+                    onChange={(ids) => onPatch({ competenceCategoryIds: ids })}
+                  />
+                </div>
               </RailGroup>
-              <RailGroup
-                title="Kategoria kompetencji"
-                activeCount={filters.competenceCategoryIds.length}
-                defaultOpen
-              >
-                <CompetenceCategoryPills
-                  value={filters.competenceCategoryIds}
-                  onChange={(ids) => onPatch({ competenceCategoryIds: ids })}
-                />
-              </RailGroup>
-              <HistoryGroup
-                filters={filters}
-                onPatch={onPatch}
-                stage={stage}
-                onStageChange={onStageChange}
-                activeCount={historyCount}
-              />
-              <RailGroup title="Firma i stanowisko" activeCount={companyCount}>
+              <HistoryGroup filters={filters} onPatch={onPatch} activeCount={historyCount} />
+              <RailGroup title="Zaawansowane" activeCount={advancedCount}>
+                <p className="text-[11px] text-muted-foreground">
+                  Rzadziej używane filtry. Większość wyszukiwań nie potrzebuje żadnego z nich.
+                </p>
+                <div className="space-y-1">
+                  <FieldLabel>Frazy w CV (wszystkie / którakolwiek / żadna)</FieldLabel>
+                  <AdvancedSearchPopover
+                    value={phrases}
+                    hideHeader
+                    onChange={(next) => onPatch({ qAll: next.all, qAny: next.any, qNone: next.none })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <FieldLabel>Etap w rekrutacji</FieldLabel>
+                  <StageFilterPanel value={stage} onChange={onStageChange} />
+                </div>
                 <CompanyFields filters={filters} onPatch={onPatch} />
-              </RailGroup>
-              <RailGroup title="Źródło" activeCount={sourceCount}>
                 <div className="space-y-1">
                   <FieldLabel>Pula talentów</FieldLabel>
                   <TalentPoolMultiSelect value={filters.poolIds} onChange={(v) => onPatch({ poolIds: v })} />
@@ -528,16 +502,27 @@ export function CandidateFilterRail({
                   <FieldLabel>Dodany przez</FieldLabel>
                   <AddedByMultiSelect value={filters.addedByIds} onChange={(v) => onPatch({ addedByIds: v })} />
                 </div>
-              </RailGroup>
-              <RailGroup title="Frazy w CV" activeCount={phraseCount}>
-                <p className="text-[11px] text-muted-foreground">
-                  Szukane w CV, notatkach i profilu. Enter lub przecinek dodaje frazę.
-                </p>
-                <AdvancedSearchPopover
-                  value={phrases}
-                  hideHeader
-                  onChange={(next) => onPatch({ qAll: next.all, qAny: next.any, qNone: next.none })}
+                <CompactPills
+                  label="Status w bazie"
+                  options={CANDIDATE_STATUS_OPTIONS}
+                  value={filters.status}
+                  onToggle={(v) => onPatch({ status: toggleInList(filters.status, v) })}
                 />
+                <CompactPills
+                  label="Otwarty na dodatkowe"
+                  options={OPEN_TO_OPTIONS}
+                  value={filters.openTo}
+                  onToggle={(v) => onPatch({ openTo: toggleInList(filters.openTo, v) })}
+                />
+                <div className="space-y-1">
+                  <HideUnknownToggle
+                    checked={filters.hideUnknown}
+                    onChange={(next) => onPatch({ hideUnknown: next })}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Bez zaznaczenia osoby bez miasta, stażu albo stawki zostają na liście.
+                  </p>
+                </div>
               </RailGroup>
             </div>
           </SheetBody>
@@ -545,20 +530,37 @@ export function CandidateFilterRail({
             {moreCount > 0 && (
               <Button
                 variant="ghost"
-                onClick={() =>
+                onClick={() => {
                   onPatch({
                     status: [],
-                    employment: [],
                     openTo: [],
                     experienceMin: null,
                     experienceMax: null,
                     hideUnknown: false,
                     languages: [],
                     competenceCategoryIds: [],
+                    sentToClientFrom: "",
+                    sentToClientTo: "",
+                    workedAtClientIds: [],
+                    recruitmentIds: [],
+                    currentCompany: [],
+                    pastCompany: [],
+                    currentTitle: [],
+                    recentlyChangedJobs: null,
+                    poolIds: [],
                     qAll: [],
                     qAny: [],
                     qNone: [],
-                  })
+                  });
+                  onStageChange({
+                    stages: [],
+                    currentOnly: false,
+                    clientIds: [],
+                    movedByIds: [],
+                    movedAfter: "",
+                    movedBefore: "",
+                  });
+                }
                 }
               >
                 Wyczyść te filtry
@@ -577,22 +579,14 @@ export function CandidateFilterRail({
 function HistoryGroup({
   filters,
   onPatch,
-  stage,
-  onStageChange,
   activeCount,
 }: {
   filters: CandidateFilters;
   onPatch: (patch: Partial<CandidateFilters>) => void;
-  stage: StageFilterValue;
-  onStageChange: (patch: Partial<StageFilterValue>) => void;
   activeCount: number;
 }) {
   return (
-    <RailGroup title="Historia z nami" activeCount={activeCount}>
-      <div className="space-y-1">
-        <FieldLabel>Etap w rekrutacji</FieldLabel>
-        <StageFilterPanel value={stage} onChange={onStageChange} />
-      </div>
+    <RailGroup title="Historia z nami" activeCount={activeCount} defaultOpen>
       <div className="space-y-1">
         <FieldLabel>Wysłany do klienta</FieldLabel>
         <div className="flex items-center gap-1.5">
@@ -799,6 +793,71 @@ function CompetenceCategoryPills({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * „Czy można go teraz zaproponować?" — jedna odpowiedź zamiast trzech grup
+ * (Dostępność, Zatrudnienie, Status). Ustawienie spoza pytania (stary link,
+ * zapisane wyszukiwanie) nie zaznacza żadnej odpowiedzi i mówi o tym wprost.
+ */
+function AvailabilityChoiceField({
+  filters,
+  onPatch,
+}: {
+  filters: CandidateFilters;
+  onPatch: (patch: Partial<CandidateFilters>) => void;
+}) {
+  const current = availabilityChoiceFor(filters);
+  const labelId = useId();
+  return (
+    <div className="space-y-1.5">
+      <p id={labelId} className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        Czy można go teraz zaproponować?
+      </p>
+      <div role="radiogroup" aria-labelledby={labelId} className="space-y-0.5">
+        {AVAILABILITY_CHOICES.map((choice) => {
+          const checked = current === choice.id;
+          return (
+            <button
+              key={choice.id}
+              type="button"
+              role="radio"
+              aria-checked={checked}
+              onClick={() => onPatch({ ...choice.patch })}
+              className={cn(
+                "flex w-full items-start gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition-colors",
+                "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                checked
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-transparent text-foreground hover:bg-accent",
+              )}
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border-2",
+                  checked ? "border-primary" : "border-muted-foreground/40",
+                )}
+              >
+                {checked && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+              </span>
+              <span className="min-w-0">
+                <span className="block font-medium">{choice.label}</span>
+                {choice.hint && (
+                  <span className="block text-[11px] text-muted-foreground">{choice.hint}</span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {current === null && (
+        <p className="text-[11px] text-muted-foreground">
+          Ustawione własne połączenie (np. z zapisanego wyszukiwania). Wybierz odpowiedź, żeby je zastąpić.
+        </p>
+      )}
     </div>
   );
 }

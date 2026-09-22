@@ -165,12 +165,14 @@ function rail() {
   return screen.getByRole("complementary", { name: "Filtry kandydatów" });
 }
 
-/** Status żyje w szufladzie „Więcej filtrów” (wariant B). */
+/** Status żyje w „Zaawansowanych” szuflady „Więcej filtrów”. */
 async function pickStatus(option: string) {
   if (!screen.queryByTestId("candidate-more-filters")) {
     fireEvent.click(within(rail()).getByRole("button", { name: /Więcej filtrów/ }));
   }
   const more = await screen.findByTestId("candidate-more-filters");
+  const advanced = within(more).getByRole("button", { name: /Zaawansowane/ });
+  if (advanced.getAttribute("aria-expanded") === "false") fireEvent.click(advanced);
   fireEvent.click(within(more).getByRole("button", { name: option }));
 }
 
@@ -249,15 +251,24 @@ describe("CandidatesListV2", () => {
       // Sekcje zawsze widoczne w kolumnie filtrów.
       expect(within(rail()).getByRole("radiogroup", { name: "Kogo pokazać" })).toBeTruthy();
       // Wariant B: pięć grup na wierzchu, reszta w szufladzie „Więcej filtrów”.
-      expect(within(rail()).getByText("Dostępność")).toBeTruthy();
+      expect(
+        within(rail()).getByRole("radiogroup", { name: "Czy można go teraz zaproponować?" }),
+      ).toBeTruthy();
+      // Gotowe skróty nad listą.
+      expect(screen.getByRole("group", { name: "Gotowe skróty" })).toBeTruthy();
       expect(within(rail()).getByText("Stawka B2B")).toBeTruthy();
       expect(within(rail()).getByText("Umiejętności")).toBeTruthy();
       expect(within(rail()).getByText("Lokalizacja")).toBeTruthy();
       expect(within(rail()).queryByText("Status")).toBeNull();
       fireEvent.click(within(rail()).getByRole("button", { name: /Więcej filtrów/ }));
       const more = await screen.findByTestId("candidate-more-filters");
-      expect(within(more).getByText("Status")).toBeTruthy();
       expect(within(more).getByText("Języki")).toBeTruthy();
+      // Rzadkie filtry schowane w zwiniętych „Zaawansowanych”.
+      expect(within(more).getByRole("button", { name: /Zaawansowane/ })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+      expect(within(more).queryByText("Status w bazie")).toBeNull();
       // Bez konfiguracji kolumn, gęstości i widoku kafelków.
       expect(screen.queryByLabelText("Konfiguracja kolumn")).toBeNull();
       expect(screen.queryByLabelText("Widok kafelków")).toBeNull();
@@ -314,6 +325,32 @@ describe("CandidatesListV2", () => {
       expect(
         within(empty).getByRole("button", { name: "Przypisz Tomasz Nowicki do rekrutacji" }),
       ).toBeTruthy();
+    });
+
+    it("„Czy można go teraz zaproponować?” łączy dostępność i zatrudnienie jedną odpowiedzią", async () => {
+      renderList();
+      const group = within(rail()).getByRole("radiogroup", {
+        name: "Czy można go teraz zaproponować?",
+      });
+      fireEvent.click(within(group).getByRole("radio", { name: /Tak — szuka pracy/ }));
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({
+          availability: ["actively_looking", "open_to_offers"],
+          employment: ["available"],
+        });
+      });
+      // Skrót nad listą świeci, bo opisuje to samo ustawienie.
+      expect(screen.getByRole("button", { name: "Do zaproponowania teraz" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      // Drugi klik w skrót zdejmuje jego filtry.
+      fireEvent.click(screen.getByRole("button", { name: "Do zaproponowania teraz" }));
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)?.availability).toBeUndefined();
+      });
     });
 
     it("zapytanie prosi o aktywne rekrutacje (kolumna „W procesie”), bez statystyk dopasowania", async () => {

@@ -2185,10 +2185,18 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   rozwiniętych grup (Kogo pokazać, Dostępność, Stawka B2B, Umiejętności,
   Lokalizacja z trybem pracy), reszta (status, zatrudnienie, otwarty na, lata,
   języki, kategoria, historia z nami, frazy w CV) w szufladzie „Więcej filtrów”
-  z licznikiem ustawionych w niej filtrów. Szuflada = jednakowe zwijane
-  sekcje (`RailGroup`): krótkie (Status i zatrudnienie, Doświadczenie i języki,
-  Kategoria — pigułki) otwarte, długie (Historia z nami, Firma i stanowisko,
-  Źródło, Frazy w CV) zwinięte, póki nic w nich nie ustawiono. Nie przenoś grup z powrotem na
+  z licznikiem ustawionych w niej filtrów. **Uproszczenie 22.09.2026**
+  (makieta https://claude.ai/artifact/FZL7d1BycnJ4vXWB6ncf1s, logika
+  `lib/candidate-quick-filters.ts`): nad listą **gotowe skróty**
+  (`CandidateQuickFilters` — świecą, dopóki ich filtry są ustawione, drugi
+  klik zdejmuje WYŁĄCZNIE ich pola), a w panelu JEDNO pytanie „Czy można go
+  teraz zaproponować?” zamiast grup Dostępność/Zatrudnienie/Status — jedna
+  odpowiedź ustawia `availability` + `employment` naraz (samo „szuka pracy”
+  zostawiałoby konsultantów u klienta); połączenie spoza odpowiedzi = żadna
+  zaznaczona + zdanie „własne połączenie”. Szuflada: O kandydacie, Historia
+  z nami (otwarte) i ZWINIĘTE „Zaawansowane” (frazy LUB/ORAZ, etap, firma,
+  stanowisko, LinkedIn, pula, dodany przez, status w bazie, otwarty na,
+  ukryj bez danych). Nie przenoś grup z powrotem na
   wierzch — za dużo opcji naraz było powodem przebudowy. Tabela ma STAŁE
   kolumny: Kandydat (pod nazwiskiem miasto) · Ostatnie stanowisko (+ firma,
   `getCurrentTitle`/`getCurrentCompany`) · Telefon (`tel:` + kopiuj,
