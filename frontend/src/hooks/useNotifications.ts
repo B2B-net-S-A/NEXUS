@@ -130,6 +130,8 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           queryClient.invalidateQueries({ queryKey: ["pipeline-scores", String(jobId)] });
           queryClient.invalidateQueries({ queryKey: ["pipeline-scores", jobId] });
           queryClient.invalidateQueries({ queryKey: ["my-next-steps"] });
+          // Kolejka „Czeka na Ciebie" (DZ, Cpro) liczy się z ruchów na tablicach.
+          queryClient.invalidateQueries({ queryKey: ["board-tasks"] });
           // „Moi ludzie": lista i zakładka rekrutacji zależą od ruchów na
           // tablicy (kto jest w procesie, kto już w tej rekrutacji). Podsumowania
           // awatara NIE ruszamy — liczy całą listę, a ruchy go nie zmieniają.

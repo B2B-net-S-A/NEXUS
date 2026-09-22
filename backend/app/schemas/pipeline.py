@@ -71,6 +71,12 @@ class StageMove(BaseModel):
     # z `True` — ruch przechodzi i zostaje `Activity(eligibility_acknowledged)`.
     acknowledge_eligibility: bool = False
 
+    # ── Kto wysyła do Cpro (0346, Nordea) ─────────────────────────────────
+    # Wyłącznie przy ruchu na etap „Wysłać do Cpro" (odznaka „Gotowy do
+    # Cpro"): za każdym razem wysyła ktoś inny, więc osobę typuje ten, kto
+    # oznacza gotowość. Przy innym etapie → 422.
+    task_assignee_id: Optional[int] = Field(None, ge=1)
+
 
 class ClientRateUpdate(BaseModel):
     """Body dla PATCH /candidates/{id}/recruitments/{job_id}/client-rate.
@@ -150,6 +156,10 @@ class CandidateStageResponse(BaseModel):
     # kandydata do rekrutacji. `moved_by` to mover BIEŻĄCEGO etapu — co innego.
     recruiter_id: Optional[int] = None
     recruiter_name: Optional[str] = None
+    # 0346: kto wysyła osobę do Cpro — tylko na wierszu „Wysłać do Cpro".
+    # Nazwisko wypełnia tablica.
+    task_assignee_id: Optional[int] = None
+    task_assignee_name: Optional[str] = None
     # Dostępność z profilu kandydata — te same nazwy pól co w wynikach
     # wyszukiwania (`availability_status` / `availability_date`).
     availability_status: Optional[str] = None

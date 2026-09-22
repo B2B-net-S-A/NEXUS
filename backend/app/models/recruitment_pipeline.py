@@ -216,6 +216,16 @@ class CandidateStage(Base, TimestampMixin):
     )
     rejection_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # ── Kto wysyła osobę do Cpro (0346, Nordea) ─────────────────────────────
+    # Wypełniane WYŁĄCZNIE na wierszu etapu „Wysłać do Cpro" (odznaka „Gotowy
+    # do Cpro"): za każdym razem ktoś inny, więc osobę typuje ten, kto
+    # oznacza gotowość. Zadanie kończy ruch na „CV wysłane" (u Nordei
+    # „Wysłane do Cpro"). Wiersze z importu Traffita mają NULL — kolejka
+    # pokazuje je jako „nieprzypisane".
+    task_assignee_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     # ── Candidate offer response (migracja 0066) ───────────────────────────
     # Tylko ma znaczenie gdy stage ∈ {acceptance, negotiation, onboarding}.
     # `declined` na późniejszym `withdrawn` = post-accept dropout (10pt).

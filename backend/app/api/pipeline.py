@@ -27,7 +27,8 @@ from app.models.recruitment_process import RecruitmentProcess
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
-from app.services.board_stage_badges import ensure_badge_stage_allowed
+from app.services import board_tasks as board_tasks_svc
+from app.services.board_stage_badges import ensure_badge_stage_allowed, is_cpro_stage
 from app.services import champion_view
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
@@ -300,6 +301,7 @@ def _stage_response(
         "screening_done": _sheet_filled(stage.screening_answers),
         "scorecard_done": _sheet_filled(stage.scorecard_answers),
         "candidate_expected_rate_hourly": candidate_expected_rate_hourly,
+        "task_assignee_id": stage.task_assignee_id,
     }
 
 
@@ -525,6 +527,19 @@ async def move_candidate(
         ensure_badge_stage_allowed(
             current_user, stage_name=stage_def.name, client_id=job.client_id
         )
+    # 0346: osoba, która wyśle kandydata do Cpro — typowana przy oznaczeniu
+    # gotowości. Na każdym innym etapie pole nie ma znaczenia, więc 422.
+    cpro_assignee: Optional[User] = None
+    if data.task_assignee_id is not None:
+        if stage_def is None or not is_cpro_stage(stage_def.name):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Osobę wysyłającą wybiera się tylko przy oznaczeniu "
+                    "„Gotowy do Cpro”."
+                ),
+            )
+        cpro_assignee = await board_tasks_svc.load_assignee(db, data.task_assignee_id)
 
     # Use the same first lock as the signed-contract automation. Besides
     # serializing two pipeline moves, this prevents the inverse
@@ -811,6 +826,12 @@ async def move_candidate(
         expected_state_version=data.expected_state_version,
     )
     await create_original_cv_snapshot(db, stage)
+    cpro_assignee_added_to_team = False
+    if cpro_assignee is not None:
+        stage.task_assignee_id = cpro_assignee.id
+        cpro_assignee_added_to_team = await board_tasks_svc.ensure_assignee_can_move(
+            db, job_id=job.id, assignee=cpro_assignee, added_by=current_user.id
+        )
     if is_terminal_target:
         await maybe_close_contact_opportunity(
             db,
@@ -1211,6 +1232,41 @@ async def move_candidate(
             await db.rollback()
         except Exception:  # noqa: BLE001
             pass
+
+    # 0346: dzwonek dla osoby wytypowanej do wysłania do Cpro. Best-effort.
+    if cpro_assignee is not None:
+        try:
+            cand_for_notice = await db.scalar(
+                select(Candidate).where(Candidate.id == data.candidate_id)
+            )
+            await board_tasks_svc.notify_cpro_assignment(
+                db,
+                stage_id=stage.id,
+                candidate_name=(
+                    " ".join(
+                        p for p in (cand_for_notice.name, cand_for_notice.lastname) if p
+                    )
+                    if cand_for_notice
+                    else "Kandydat"
+                ),
+                job_id=job.id,
+                job_title=job.title,
+                candidate_id=data.candidate_id,
+                assignee_id=cpro_assignee.id,
+                actor=current_user,
+            )
+            await db.commit()
+        except Exception as _exc:  # noqa: BLE001
+            logger.warning(
+                "cpro assignment notice failed stage=%s: %s (added_to_team=%s)",
+                stage.id,
+                _exc,
+                cpro_assignee_added_to_team,
+            )
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
 
     # Phase 10 A1: auto-add candidate to a talent pool when CV is sent to
     # the client. Best-effort — po commicie ruchu.
@@ -1655,6 +1711,10 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
     process_cards = await _process_cards(db, job_id=job_id, candidate_ids=candidate_ids)
     process_versions = {cid: card[0] for cid, card in process_cards.items()}
     owner_ids = {card[1] for card in process_cards.values() if card[1] is not None}
+    # 0346: wytypowani do wysłania do Cpro — ta sama paczka nazwisk.
+    owner_ids |= {
+        s.task_assignee_id for s in seen.values() if s.task_assignee_id is not None
+    }
     missing_owner_names = owner_ids - set(user_name_by_id)
     if missing_owner_names:
         orows = await db.execute(
@@ -1701,6 +1761,8 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
         payload["recruiter_name"] = (
             user_name_by_id.get(recruiter_id) if recruiter_id is not None else None
         )
+        if e.task_assignee_id is not None:
+            payload["task_assignee_name"] = user_name_by_id.get(e.task_assignee_id)
         availability = availability_by_id.get(e.candidate_id, (None, None))
         payload["availability_status"] = availability[0]
         payload["availability_date"] = availability[1]

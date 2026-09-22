@@ -71,6 +71,13 @@ describe("foldBoardColumns", () => {
     expect(folded.closed.map((c) => c.label)).toEqual(["Odrzucony", "Wycofany"]);
   });
 
+  it("u Nordei „CV wysłane” nazywa się „Wysłane do Cpro” — ta sama kolumna", () => {
+    const nordea = foldBoardColumns(template, { cproEnabled: true });
+    const sent = nordea.columns.find((c) => c.key === "cv_sent")!;
+    expect(sent.label).toBe("Wysłane do Cpro");
+    expect(nordea.columns.map((c) => c.key)).toEqual(BOARD_COLUMN_ORDER);
+  });
+
   it("kolumna-host to etap bez odznaki; karty z etapów-odznak są w tej samej kolumnie", () => {
     const verified = folded.columns.find((c) => c.key === "verified")!;
     expect(verified.host.label).toBe("Zweryfikowany");
