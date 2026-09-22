@@ -175,12 +175,6 @@ def assert_finance_manager_touches_only_amounts(
         )
 
 
-ExecutiveUser = Annotated[
-    User,
-    Depends(require_capability(AnalyticsCapability.VIEW_EXECUTIVE)),
-]
-
-
 def _is_financial_key(key: str) -> bool:
     normalized = key.lower()
     return (

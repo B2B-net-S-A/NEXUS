@@ -167,11 +167,9 @@ async def apply_contract_legal_client_scope(
     return statement.where(client_column.in_(sorted(client_ids) or [-1]))
 
 
-# Write/render/generate tools keep their historical legal-team gate. Finance's
-# organization-wide authority is deliberately provided only by the GET alias
-# below, never through this mutation-capable dependency.
-ContractLegalAccess = Annotated[User, Depends(require_contract_legal_access)]
-
+# Organizacyjny odczyt Finansów daje wyłącznie alias GET poniżej — nigdy
+# bramka zdolna do mutacji (``require_contract_legal_access``).
+#
 # GET-only counterpart.  Never use this alias on render/generate/mutation
 # commands; entity writes still resolve ``can_edit_legal_documents``.
 ContractLegalReadAccess = Annotated[

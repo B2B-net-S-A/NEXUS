@@ -157,15 +157,15 @@ router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 # The combined export can contain group cards. The section gate narrows this
 # legacy role alias to Admin, Finance and Delivery Lead; standalone order items
 # still pass their own client-aware guards inside the handler below.
+# HoR i TAC zdjęci 22.09.2026 (audyt U7): nie mają sekcji Delivery, więc bramka
+# routera i tak ich odcinała — lista ról mówiła coś, czego kod nie robił.
 UnifiedOrderExportReader = Annotated[
     User,
     Depends(
         require_roles(
             UserRole.admin,
-            UserRole.head_of_recruitment,
             UserRole.delivery_lead,
             UserRole.finance,
-            UserRole.tac,
         )
     ),
 ]
@@ -178,11 +178,9 @@ OrderSafeReadUser = Annotated[
     Depends(
         require_roles(
             UserRole.admin,
-            UserRole.head_of_recruitment,
             UserRole.delivery_lead,
             UserRole.talent_community_manager,
             UserRole.finance,
-            UserRole.tac,
         )
     ),
 ]
@@ -900,11 +898,13 @@ def _can_manage_order_finance(user, *, dl_assigned: bool) -> bool:
     Predykat CELOWO sprawdza rolę i przypisanie niezależnie. TAC, HoR, TCM,
     recruiter i sourcer: zawsze False.
 
-    Od 22.09.2026 (decyzja Artura) kwoty zapisuje też osoba z
-    ``MANAGE_FINANCE`` (Finanse) — u każdego klienta.
+    Tego predykatu używa też kolejka poczty zamówień (zapis CAŁEGO zamówienia
+    z maila), więc NIE jest poszerzony o Finanse. Zapis samych kwot przez
+    ``MANAGE_FINANCE`` (decyzja 22.09.2026) rozstrzyga
+    ``_assert_order_finance_write_allowed``.
     """
 
-    if can_manage_finance_amounts(user):
+    if user.has_role(UserRole.admin):
         return True
     return user.has_role(UserRole.delivery_lead) and dl_assigned
 
@@ -1447,10 +1447,8 @@ async def export_client_orders(
         # passes the normal client-assignment resolver inside the list handler.
         if not user.has_any_role(
             UserRole.admin,
-            UserRole.head_of_recruitment,
             UserRole.delivery_lead,
             UserRole.finance,
-            UserRole.tac,
         ):
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,

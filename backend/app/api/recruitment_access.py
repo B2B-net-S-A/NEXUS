@@ -18,17 +18,18 @@ Capability → allowed roles:
   reports, screening notes, calendar, feedback, rejection-email timeline) —
   all internal operational roles; ``user`` (viewer) excluded everywhere.
 - **transition** (non-terminal stage moves) — parity with the existing
-  ``RecruiterPlus`` contract (admin, delivery_lead,
+  ``RecruiterPlus`` contract (admin, head_of_recruitment, delivery_lead,
   talent_community_manager, tac, recruiter, finance, sourcer).
   Do not widen or narrow in a containment PR.
 - **terminal transition** (``hired``/``rejected``/``withdrawn`` or a
-  stage-def with terminal semantics) — sourcer intentionally excluded
+  stage-def with terminal semantics) — the transition set minus sourcer
   (audit P0.3: "terminalny hired nie ma ownership scope"; sourcing persona
   must not close recruitments).
 - **rate edit** (candidate expected rate: PATCH expected-rate and the
-  rate-bearing move to ``verified``) — admin, delivery_lead, tac, recruiter.
-  Sourcer intentionally excluded (audit P0.3: expected rate używa zbyt
-  szerokiego CandidateWriteAccess obejmującego sourcera).
+  rate-bearing move to ``verified``) — admin, head_of_recruitment,
+  delivery_lead, tac, recruiter, finance. Sourcer and TCM intentionally
+  excluded (audit P0.3: expected rate używa zbyt szerokiego
+  CandidateWriteAccess obejmującego sourcera).
 - **assessment write** (scorecard answers, screening notes, interview
   feedback) — RecruiterPlus parity, w tym TCM (prep-call screening is sourcer
   work); viewer excluded (was: bare ``CurrentUser``).
@@ -38,6 +39,8 @@ Capability → allowed roles:
   rejection email incl. recipient/subject/body/last_error) — admin,
   delivery_lead, head_of_recruitment; the owning recruiter always retains
   access to their own rows (checked in-endpoint, not here).
+- **job edit** (opis, ogłoszenia, Champion — decyzja 22.09.2026) — admin,
+  Delivery Lead, TAC albo członek zespołu rekrutacji (``ensure_job_editor``).
 
 Resource scope for the *pipeline* surfaces is enforced by
 ``ensure_job_membership`` below (P1-PIPE-01). The role guards above answer

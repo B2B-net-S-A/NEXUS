@@ -669,15 +669,15 @@ OrderLifecycleUser = Annotated[User, Depends(require_roles(*_ORDER_LIFECYCLE_ROL
 
 #: Zależność odczytu surowych zamówień i plików. Granica sekcji jest
 #: nakładana na routerze; zawężenie do klienta robi `_require_group_read`.
+#: HoR i TAC zdjęci 22.09.2026 (audyt U7) — bez sekcji Delivery i tak nie
+#: przechodzili bramki routera.
 OrderGroupReader = Annotated[
     User,
     Depends(
         require_roles(
             UserRole.admin,
-            UserRole.head_of_recruitment,
             UserRole.delivery_lead,
             UserRole.finance,
-            UserRole.tac,
         )
     ),
 ]
@@ -691,11 +691,9 @@ OrderGroupSafeReadUser = Annotated[
     Depends(
         require_roles(
             UserRole.admin,
-            UserRole.head_of_recruitment,
             UserRole.delivery_lead,
             UserRole.talent_community_manager,
             UserRole.finance,
-            UserRole.tac,
         )
     ),
 ]

@@ -71,13 +71,14 @@ router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 #: routera — dokładnie to wychwycił `test_route_authz_contract`. Lista ról jest
 #: wąska celowo: alert dostaje wyłącznie Delivery Lead przypisany do klienta
 #: (`dl_user_ids_for_client`), a eksport zbiorczy admin i Finanse. Recruiter,
-#: sourcer, TAC i deprecated `user` nie mają tu czego szukać.
+#: sourcer, TAC i deprecated `user` nie mają tu czego szukać. Head of
+#: Recruitment zdjęty 22.09.2026 (audyt U7): nie ma sekcji Delivery, więc
+#: bramka routera i tak go odcinała.
 DlAlertsUser = Annotated[
     User,
     Depends(
         require_roles(
             UserRole.admin,
-            UserRole.head_of_recruitment,
             UserRole.delivery_lead,
             UserRole.finance,
         )
