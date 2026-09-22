@@ -38,7 +38,16 @@ def hash_password(password: str) -> str:
     ).decode("utf-8")
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
+def has_usable_password(hashed_password: Optional[str]) -> bool:
+    """Czy konto ma hasło, którym da się zalogować (hash bcrypta).
+
+    ``None`` = konto tylko SSO (Microsoft), placeholder importu Traffita
+    (``!imported-from-traffit-no-login!``) też nie jest hasłem.
+    """
+    return bool(hashed_password) and hashed_password.startswith("$2")
+
+
+def verify_password(plain_password: str, hashed_password: Optional[str]) -> bool:
     """Verify a plain-text password against a hash.
 
     Nie-bcryptowy ``hashed_password`` zwraca ``False`` zamiast rzucać.
@@ -47,7 +56,14 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     ``!imported-from-traffit-no-login!``, więc próba logowania na nie
     kończyła się nieobsłużonym wyjątkiem (500) w ``auth.py`` zamiast
     zwykłego 401 „Invalid credentials".
+
+    Brak hasha (konto tylko SSO, ``password_hash IS NULL``) też daje
+    ``False`` — do 09.2026 kończył się ``AttributeError`` i 500 (AUTH-04).
     """
+    if not hashed_password:
+        # Spal koszt bcrypta, żeby odpowiedź trwała tyle co zwykły verify.
+        bcrypt.checkpw(_bcrypt_secret(plain_password), _DUMMY_HASH)
+        return False
     try:
         return bcrypt.checkpw(
             _bcrypt_secret(plain_password), hashed_password.encode("utf-8")

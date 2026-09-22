@@ -11,6 +11,7 @@ from app.core.rate_limit import limiter
 from app.core.security import (
     create_access_token,
     create_refresh_token,
+    has_usable_password,
     hash_password,
     verify_password,
     decode_token,
@@ -86,6 +87,11 @@ _EMAIL_NOT_VERIFIED_DETAIL = (
 # i tak nie da się zalogować, tylko myli i generuje niepotrzebne maile.
 _PASSWORD_LOGIN_DISABLED_DETAIL = (
     "Logowanie hasłem jest wyłączone. Zaloguj się przez Microsoft."
+)
+
+#: Zmiana hasła na koncie bez hasła (tylko SSO) — AUTH-04.
+SSO_ONLY_PASSWORD_DETAIL = (
+    "To konto loguje się przez Microsoft — hasłem zarządza Microsoft."
 )
 
 logger = logging.getLogger(__name__)
@@ -572,6 +578,13 @@ async def change_password(
     Po sukcesie: clear ``force_password_change`` flag (jeśli była ustawiona
     przez admin-reset) + audit log + email notification.
     """
+    # Konto tylko SSO nie ma hasła do zmiany (AUTH-04). Do 09.2026 formularz
+    # kończył się tu 500 (``AttributeError`` na ``None.encode``).
+    if not has_usable_password(current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=SSO_ONLY_PASSWORD_DETAIL,
+        )
     if not verify_password(data.current_password, current_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

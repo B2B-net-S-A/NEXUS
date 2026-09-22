@@ -157,6 +157,13 @@ export default function ProfilePage() {
     enabled: !!user,
   });
 
+  // Konto tylko Microsoft nie ma hasła do zmiany (AUTH-04) — formularz
+  // kończył się błędem serwera. Chowamy go tylko przy jawnym `false`;
+  // brak pola (stara sesja) zostawia formularz jak dotąd.
+  const hasPassword: boolean | null | undefined =
+    profile?.has_password ?? user?.has_password;
+  const passwordManagedByMicrosoft = hasPassword === false;
+
   // Fetch activity stats (30 days)
   const { data: activityStats } = useQuery({
     queryKey: ["activity-stats-profile"],
@@ -391,6 +398,11 @@ export default function ProfilePage() {
           <h2 className="text-xl font-semibold text-foreground dark:text-foreground">Zmień hasło</h2>
         </div>
 
+        {passwordManagedByMicrosoft ? (
+          <p className="text-sm text-muted-foreground">
+            To konto loguje się przez Microsoft — hasłem zarządza Microsoft.
+          </p>
+        ) : (
         <form onSubmit={handlePasswordSubmit} className="space-y-4 max-w-md" aria-label="Formularz zmiany hasła">
           <Input
             label="Aktualne hasło"
@@ -446,6 +458,7 @@ export default function ProfilePage() {
             {pwSaving ? "Zapisywanie…" : "Zmień hasło"}
           </button>
         </form>
+        )}
       </div>
     </div>
   );

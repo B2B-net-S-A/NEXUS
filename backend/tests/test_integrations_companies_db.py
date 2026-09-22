@@ -30,7 +30,8 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
+import pytest_asyncio
+from sqlalchemy import delete, select
 
 import app.models  # noqa: F401  (zarejestruj wszystkie mappery)
 from app.api import integrations_companies
@@ -40,13 +41,40 @@ from app.models.candidate import Candidate, CandidateStatus
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
+from app.models.oauth_client import OAuthClient
 
 URL = "/api/integrations/companies/people"
 
 
+ATLAS_CLIENT_ID = f"atlas-test-{uuid.uuid4().hex[:8]}"
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _atlas_client():
+    """``require_scope`` czyta klienta z bazy przy każdym żądaniu (AUTH-02)."""
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            OAuthClient(
+                name="ATLAS (test)",
+                client_id=ATLAS_CLIENT_ID,
+                secret_hash="!test-no-secret!",
+                scopes=["candidate:read"],
+                enabled=True,
+            )
+        )
+        await db.commit()
+    yield
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(OAuthClient).where(OAuthClient.client_id == ATLAS_CLIENT_ID)
+        )
+        await db.commit()
+
+
 def _headers() -> dict[str, str]:
     token = _create_client_token(
-        SimpleNamespace(client_id=f"atlas-test-{uuid.uuid4().hex[:6]}"),
+        SimpleNamespace(client_id=ATLAS_CLIENT_ID),
         ["candidate:read"],
     )
     return {"Authorization": f"Bearer {token}"}

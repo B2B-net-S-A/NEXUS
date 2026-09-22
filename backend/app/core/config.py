@@ -715,6 +715,15 @@ class Settings(BaseSettings):
     # wyklikać rewokację.
     SERVICE_ACCOUNTS_ENABLED: bool = True
 
+    # ── Zakres OAuth zależny od trasy (audyt 22.09.2026, AUTH-01) ────────────
+    # Mapa trasa → zasób żyje w `services/oauth_route_scopes.py`. Domyślnie
+    # tryb CIENIA: decyzja „odmówiłbym" trafia do logu (WARNING z client_id,
+    # metodą, szablonem trasy i wymaganym scope'em), a żądanie przechodzi jak
+    # dotąd — kodu scraperów nie ma w repo, więc mapę uzupełniamy z logów.
+    # `true` = trasa spoza mapy → 403 `route_not_exposed_to_clients`, trasa
+    # z mapy bez właściwego scope'u → 403 `insufficient_scope`.
+    OAUTH_ROUTE_SCOPES_ENFORCE: bool = False
+
     # Domyślny okres ważności nowego klucza i twardy sufit. Klucz bez terminu
     # nie jest nigdy oglądany ponownie, więc terminu nie da się tu pominąć —
     # żądanie dłuższego niż sufit jest PRZYCINANE do sufitu (patrz

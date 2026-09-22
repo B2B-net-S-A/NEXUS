@@ -119,6 +119,10 @@ export interface User {
    *  Backend czyści flagę po sukcesie self-service change-password. */
   force_password_change: boolean
   force_password_change_at: string | null
+  /** Czy konto ma własne hasło (AUTH-04, GET /api/auth/me). `false` = konto
+   *  tylko Microsoft — profil nie pokazuje formularza zmiany hasła.
+   *  `null`/brak = nie wiadomo (stara sesja), formularz zostaje. */
+  has_password?: boolean | null
   /** DynaReporter per-module access list (migracja 0112). Pusta lista
    *  domyślnie — userzy ATS nie mają automatycznie dostępu do raportów
    *  KPI; admin nadaje sekcję per użytkownik. Backend filter point.
