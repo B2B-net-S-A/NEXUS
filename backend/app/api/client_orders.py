@@ -42,6 +42,11 @@ from app.api.contracts import (
     _reject_b2b_end_date,
 )
 from app.api.deps import DeliveryLeadOrAdmin, require_roles
+from app.api.financial_access import (
+    assert_finance_manager_touches_only_amounts,
+    can_manage_finance_amounts,
+    require_roles_or_finance_manager,
+)
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.contract_lifecycle import sync_contract_to_live_order
 from app.services.critical_events import audited_deletion
@@ -895,11 +900,11 @@ def _can_manage_order_finance(user, *, dl_assigned: bool) -> bool:
     Predykat CELOWO sprawdza rolę i przypisanie niezależnie. TAC, HoR, TCM,
     recruiter i sourcer: zawsze False.
 
-    Odczyt ma osobny predykat ``_order_finance_visible``: Finance widzi kwoty
-    przez ``VIEW_FINANCE``, ale nie przechodzi przez ten guard zapisu.
+    Od 22.09.2026 (decyzja Artura) kwoty zapisuje też osoba z
+    ``MANAGE_FINANCE`` (Finanse) — u każdego klienta.
     """
 
-    if user.has_role(UserRole.admin):
+    if can_manage_finance_amounts(user):
         return True
     return user.has_role(UserRole.delivery_lead) and dl_assigned
 
@@ -926,18 +931,17 @@ def _assert_order_finance_write_allowed(
     zamówień historycznych.
     """
 
-    is_admin = user.has_role(UserRole.admin)
+    full_finance = can_manage_finance_amounts(user)
     allowed = (
         _ORDER_FINANCE_WRITE_FIELDS
-        if is_admin
+        if full_finance
         else (_DL_ORDER_FINANCE_WRITE_FIELDS if can_finance else frozenset())
     )
     forbidden = sorted(
         set(supplied_fields).intersection(_ORDER_FINANCE_WRITE_FIELDS) - allowed
     )
-    # Orders are candidate-bearing. Finance works through person-free finance
-    # APIs; only Admin and the client's assigned Delivery Lead may mutate
-    # amounts on this mixed operational resource.
+    # Kwoty zamówienia zmieniają admin, Finanse (MANAGE_FINANCE, 22.09.2026)
+    # i przypisany Delivery Lead (węższa lista pól).
     if forbidden:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -2195,14 +2199,27 @@ async def extract_order_pdf(
     return result
 
 
+# PATCH zamówienia: admin / Delivery Lead jak dotąd albo Finanse
+# z MANAGE_FINANCE — te ostatnie wyłącznie dla pól kwot (22.09.2026).
+OrderPatchUser = Annotated[
+    User, Depends(require_roles_or_finance_manager(UserRole.delivery_lead))
+]
+
+
 @router.patch("/{client_id}/orders/{order_id}", response_model=ClientOrderRead)
 async def update_order(
     client_id: int,
     order_id: int,
     payload: ClientOrderUpdate,
-    user: DeliveryLeadOrAdmin,
+    user: OrderPatchUser,
     db: AsyncSession = Depends(get_db),
 ):
+    assert_finance_manager_touches_only_amounts(
+        user,
+        payload.model_fields_set,
+        _ORDER_FINANCE_WRITE_FIELDS,
+        operational_roles=(UserRole.delivery_lead,),
+    )
     await _assert_client(db, client_id)
     can_finance = _can_manage_order_finance(
         user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)

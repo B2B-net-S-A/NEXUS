@@ -161,9 +161,12 @@ from app.tasks.contract_alerts import run_contract_alerts_cycle
 from app.api.deps import AdminUser, TacPlus, get_current_user, require_roles
 from app.api.financial_access import (
     FinanceReadUser,
+    assert_finance_manager_touches_only_amounts,
+    can_manage_finance_amounts,
     can_read_client_finance,
     has_financial_access,
     require_financial_access,
+    require_roles_or_finance_manager,
     redact_feed_activity,
     redact_financial_fields,
 )
@@ -1466,9 +1469,9 @@ def _assert_contract_finance_write_allowed(
     forbidden = sorted(
         set(supplied_fields).intersection(_CONTRACT_FINANCE_WRITE_FIELDS)
     )
-    # Contract write routes carry candidate identity. Even the Finance persona
-    # is excluded here; it operates through person-free finance endpoints.
-    if forbidden and not current_user.has_role(UserRole.admin):
+    # Kwoty kontraktu zmienia admin albo osoba z MANAGE_FINANCE (Finanse,
+    # decyzja Artura 22.09.2026). Delivery Lead, TCM, TAC i reszta — nie.
+    if forbidden and not can_manage_finance_amounts(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -3311,13 +3314,28 @@ async def contract_rate_history(
     ]
 
 
+# PATCH kontraktu: role operacyjne jak dotąd (admin / DL / TAC) albo Finanse
+# z MANAGE_FINANCE — te ostatnie wyłącznie dla pól kwot (22.09.2026).
+_CONTRACT_PATCH_OPERATIONAL_ROLES = (UserRole.delivery_lead, UserRole.tac)
+ContractPatchUser = Annotated[
+    User,
+    Depends(require_roles_or_finance_manager(*_CONTRACT_PATCH_OPERATIONAL_ROLES)),
+]
+
+
 @router.patch("/{contract_id}", response_model=ContractDetailResponse)
 async def update_contract(
     contract_id: int,
     data: ContractUpdate,
-    current_user: TacPlus,
+    current_user: ContractPatchUser,
     db: AsyncSession = Depends(get_db),
 ):
+    assert_finance_manager_touches_only_amounts(
+        current_user,
+        data.model_fields_set,
+        _CONTRACT_FINANCE_WRITE_FIELDS,
+        operational_roles=_CONTRACT_PATCH_OPERATIONAL_ROLES,
+    )
     _assert_contract_finance_write_allowed(current_user, data.model_fields_set)
     # FOR UPDATE na rodzicu — ta sama racja co w `update_contract_status`
     # (ocena statusu z pamięci obchodziła `void`), ten sam porządek blokad.

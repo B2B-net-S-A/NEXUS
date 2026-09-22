@@ -48,7 +48,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
-from app.api.financial_access import has_financial_access
+from app.api.financial_access import (
+    assert_finance_manager_touches_only_amounts,
+    can_manage_finance_amounts,
+    has_financial_access,
+    require_roles_or_finance_manager,
+)
 from app.api.deps import (
     DeliveryLeadOrAdmin,
     get_current_user,
@@ -414,8 +419,9 @@ def _has_md_line_management_role(user: User) -> bool:
       ``_has_md_line_management_access`` w guardzie pola,
     * **head_of_recruitment NIE** — bramka sekcji Delivery odcina tę rolę,
       a przy powierzchniach finansowych repo konsekwentnie trzyma ją poza,
-    * rola ``finance`` NIE zapisuje stawek linii MD, ale widzi je przez osobny
-      ``_can_see_finance`` i capability ``VIEW_FINANCE``.
+    * rola ``finance`` zapisuje stawki linii MD przez ``MANAGE_FINANCE``
+      (decyzja 22.09.2026) — wyłącznie kwoty, pilnuje tego
+      ``assert_finance_manager_touches_only_amounts`` na trasach PATCH.
 
     Odczyt i zapis są celowo rozdzielone: role zapisujące nadal widzą stawki,
     a Finance ma wyłącznie organizacyjny odczyt.
@@ -429,9 +435,12 @@ async def _has_md_line_management_access(
     user: User,
     client_id: int,
 ) -> bool:
-    """Keep the MD-rate exception inside the DL's assigned finance portfolio."""
+    """Keep the MD-rate exception inside the DL's assigned finance portfolio.
 
-    if user.has_role(UserRole.admin):
+    Admin i Finanse z ``MANAGE_FINANCE`` (decyzja 22.09.2026) — u każdego klienta.
+    """
+
+    if can_manage_finance_amounts(user):
         return True
     if not user.has_role(UserRole.delivery_lead):
         return False
@@ -2968,15 +2977,32 @@ async def create_order_group(
     )
 
 
+# PATCH grupy i linii: admin / Delivery Lead jak dotąd albo Finanse
+# z MANAGE_FINANCE — te ostatnie wyłącznie dla kwot (22.09.2026).
+OrderAmountUser = Annotated[
+    User, Depends(require_roles_or_finance_manager(UserRole.delivery_lead))
+]
+
+
+def _assert_finance_manager_amounts_only(user: User, supplied) -> None:
+    assert_finance_manager_touches_only_amounts(
+        user,
+        supplied,
+        _GROUP_FINANCE_FIELDS,
+        operational_roles=(UserRole.delivery_lead,),
+    )
+
+
 @router.patch("/{client_id}/order-groups/{group_id}", response_model=OrderGroupRead)
 async def update_order_group(
     client_id: int,
     group_id: int,
     payload: OrderGroupUpdate,
-    user: DeliveryLeadOrAdmin,
+    user: OrderAmountUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Edycja numeru i okresu zamówienia (bez dotykania linii)."""
+    _assert_finance_manager_amounts_only(user, payload.model_fields_set)
     await _assert_client(db, client_id)
     _assert_multi_client(client_id)
     group = await _load_group(db, client_id, group_id)
@@ -4174,11 +4200,12 @@ async def update_line(
     group_id: int,
     line_id: int,
     payload: OrderLineUpdate,
-    user: DeliveryLeadOrAdmin,
+    user: OrderAmountUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Edycja linii: stawki, budżet albo ręczna korekta pozostałych MD."""
     supplied = payload.model_fields_set
+    _assert_finance_manager_amounts_only(user, supplied)
     await _assert_line_finance_write_allowed(db, user, client_id, set(supplied))
     await _assert_client(db, client_id)
     _assert_multi_client(client_id)
