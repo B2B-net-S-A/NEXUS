@@ -5372,8 +5372,9 @@ _DATA_STATEMENTS = [
                WHERE other.template_id = sd.template_id
                  AND other.legacy_enum_value = 'interview'
           )""",
-    # 0273: mirror the migration defaults. These values preserve the existing
-    # generator behavior; only TCM and the legacy viewer start view-only.
+    # 0273 + 0344: domyślne wartości akcji (recovery tylko przy pustej macierzy).
+    # TCM ma pełny generator od decyzji z 22.09.2026 (0344); tylko legacy
+    # viewer zaczyna od podglądu.
     """INSERT INTO rbac_role_action_permissions (role, action, access)
        SELECT defaults.role, defaults.action, defaults.access
        FROM (VALUES
@@ -5381,7 +5382,7 @@ _DATA_STATEMENTS = [
            ('finance', 'b2b_contract_generator', 'manage'),
            ('head_of_recruitment', 'b2b_contract_generator', 'manage'),
            ('delivery_lead', 'b2b_contract_generator', 'manage'),
-           ('talent_community_manager', 'b2b_contract_generator', 'view'),
+           ('talent_community_manager', 'b2b_contract_generator', 'manage'),
            ('tac', 'b2b_contract_generator', 'manage'),
            ('recruiter', 'b2b_contract_generator', 'manage'),
            ('sourcer', 'b2b_contract_generator', 'manage'),

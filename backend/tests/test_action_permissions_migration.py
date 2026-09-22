@@ -74,9 +74,24 @@ def test_entrypoint_recovery_seed_is_complete_and_fail_closed() -> None:
     assert "ON CONFLICT (role, action) DO NOTHING" in seed
     assert "DO UPDATE" not in seed
     assert "SELECT 1 FROM rbac_role_action_permissions" in seed
+    # Recovery seed odtwarza stan PO 0344 — czyli aktualne domyślne z kodu.
     for role in UserRole:
-        access = _seeded_generator_access(role)
+        access = DEFAULT_ROLE_ACTION_ACCESS[role][
+            ProductAction.b2b_contract_generator
+        ].name
         assert f"('{role.value}', 'b2b_contract_generator', '{access}')" in seed
+
+
+def test_0344_closes_the_tcm_seed_divergence_only_for_untouched_rows() -> None:
+    path = MIGRATION_PATH.parent / "0344_tcm_b2b_generator_manage.py"
+    source = path.read_text()
+    assert 'down_revision = "0343_kpi_catalog_unification"' in source
+    for role, (seeded, current) in SEED_DIVERGENCE_AFTER_0273.items():
+        assert f"role = '{role}'" in source
+        assert f"access = '{seeded}'" in source
+        assert f"SET access = '{current}'" in source
+    # Decyzja administratora z panelu RBAC (updated_by) zostaje nietknięta.
+    assert source.count("updated_by IS NULL") == 2
 
 
 def test_signature_recovery_uses_migration_only_when_policy_is_missing() -> None:
