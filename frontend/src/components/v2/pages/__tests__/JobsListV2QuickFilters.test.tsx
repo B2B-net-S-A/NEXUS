@@ -22,6 +22,9 @@ const getMock = vi.fn();
 
 const quickCountsMock = vi.fn();
 
+// Te scenariusze opisują listę z WŁĄCZONĄ funkcją TAC (dziś wyłączona — lib/tac-ui.ts).
+vi.mock("@/lib/tac-ui", () => ({ TAC_UI_ENABLED: true }));
+
 vi.mock("@/lib/api", () => ({
   default: {
     get: (...args: unknown[]) => getMock(...args),

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -647,7 +648,7 @@ function JobsTable({
                   <Badge size="sm" variant={statusVariant}>
                     {statusLabel}
                   </Badge>
-                  {job.tac_id == null && (
+                  {TAC_UI_ENABLED && job.tac_id == null && (
                     <span title="Rekrutacja nie ma jawnie wybranego opiekuna TAC">
                       <Badge size="sm" variant="warning">
                         Brak opiekuna TAC
@@ -801,8 +802,10 @@ export function JobsListV2() {
   // `tac_id IS NULL`). Wcześniej zawężał wyłącznie już wczytaną stronę, więc
   // „63" obok nazwy filtra opisywało dwadzieścia widocznych wierszy, a nie
   // bazę — i paginacja pokazywała strony, na których nie było czego zawężać.
-  const [noOwnerOnly, setNoOwnerOnly] = useState(() =>
-    initialFlagFromUrl(searchParams, "no_owner"),
+  // Przy wyłączonej funkcji TAC stary link z `?no_owner=1` nie może zawężać
+  // listy ukrytym filtrem, którego nie da się zobaczyć ani zdjąć.
+  const [noOwnerOnly, setNoOwnerOnly] = useState(
+    () => TAC_UI_ENABLED && initialFlagFromUrl(searchParams, "no_owner"),
   );
   const [sortOverride, setSort] = useState<JobSortValue | null>(() =>
     sortOverrideFromUrl(searchParams),
@@ -1247,6 +1250,7 @@ export function JobsListV2() {
               count={quickCounts?.active_in_search}
               title="Rekruter aktywnie szuka"
             />
+            {TAC_UI_ENABLED && (
             <QuickFilterRow
               active={noOwnerOnly}
               onClick={() => {
@@ -1258,6 +1262,7 @@ export function JobsListV2() {
               tone="danger"
               title="Bez opiekuna TAC"
             />
+            )}
             <QuickFilterRow
               active={deadlinePreset === "next7"}
               onClick={() => {
@@ -1765,7 +1770,7 @@ export function JobsListV2() {
                           <Badge size="sm" variant={statusVariant}>
                             {statusLabel}
                           </Badge>
-                          {job.tac_id == null && (
+                          {TAC_UI_ENABLED && job.tac_id == null && (
                             <span title="Rekrutacja nie ma jawnie wybranego opiekuna TAC">
                               <Badge size="sm" variant="warning">
                                 Brak opiekuna TAC
