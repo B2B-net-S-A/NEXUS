@@ -885,6 +885,8 @@ export interface CandidateNotesFacts {
     raw: string | null;
     as_of: string | null;
     hourly_pln: string | null;
+    /** CAND-04: dlaczego serwer nie przeliczył (np. miesięczna bez B2B). */
+    note?: string | null;
     flexibility: string | null;
     profile_amount: string | null;
     profile_rate_version: number;
