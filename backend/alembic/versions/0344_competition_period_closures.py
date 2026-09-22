@@ -1,7 +1,7 @@
 """Zamknięcia okresów konkursów płatnych (frozen / no_winner / tie_pending).
 
 Revision ID: 0344_competition_period_closures
-Revises: 0341_job_champion_similar
+Revises: 0343_placement_exclusions
 
 Wiersz na (typ konkursu, okres) — także gdy nikt nie wygrał albo remis na
 płatnym miejscu czeka na decyzję admina. Bez niego autofreeze liczył taki okres
@@ -12,7 +12,7 @@ osierocony).
 from alembic import op
 
 revision = "0344_competition_period_closures"
-down_revision = "0341_job_champion_similar"
+down_revision = "0343_placement_exclusions"
 branch_labels = None
 depends_on = None
 

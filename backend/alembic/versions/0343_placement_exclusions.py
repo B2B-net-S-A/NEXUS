@@ -1,7 +1,7 @@
 """Wykluczone placementy: tabela, zasianie reguły i widok bez nich (0343).
 
 Revision ID: 0343_placement_exclusions
-Revises: 0341_job_champion_similar
+Revises: 0342_email_send_state
 
 24–25.09.2025 jedno konto ustawiło 45 parom „Zatrudniony" w dwa dni (wiersze
 z importu Traffita; 35 z nich nigdy nie miało „CV wysłane"). Dawało to
@@ -42,7 +42,7 @@ from app.services.placement_exclusions import (
 )
 
 revision = "0343_placement_exclusions"
-down_revision = "0341_job_champion_similar"
+down_revision = "0342_email_send_state"
 branch_labels = None
 depends_on = None
 
