@@ -56,6 +56,21 @@ def test_budget_is_derived_from_the_quote_not_from_the_model() -> None:
     assert intake.MISSING_BUDGET in result.missing
 
 
+def test_bare_number_without_unit_is_not_a_budget() -> None:
+    """REC-07: „1100” bez waluty i jednostki to często stawka za MD —
+    nie wolno zapisać jej jako 1100 PLN/h."""
+    text = REQUEST + "\nStawka: 1100"
+    result = normalize_model_output({"rate_quote": "1100"}, text)
+    assert result.rate_budget_hourly is None
+    assert result.rate_note and "1100" in result.rate_note
+
+
+def test_unit_and_currency_still_give_a_budget() -> None:
+    text = REQUEST + "\nBudżet 150 PLN/h netto"
+    result = normalize_model_output({"rate_quote": "150 PLN/h netto"}, text)
+    assert result.rate_budget_hourly == 150
+
+
 def test_quote_absent_from_the_request_is_ignored() -> None:
     result = normalize_model_output({"rate_quote": "do 200 zł/h"}, REQUEST)
     assert result.rate_budget_hourly is None
