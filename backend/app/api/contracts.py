@@ -3345,7 +3345,11 @@ async def update_contract(
     await _ensure_delivery_lead_contract_visible(contract, current_user, db)
     previous_end_date = contract.end_date
     previous_start_date = contract.start_date
-    previous_rate_client = contract.rate_client
+    # Audyt 22.09 r2 (FIN-03): formularz pokazuje stawkę EFEKTYWNĄ z
+    # harmonogramu (``GET /contracts/{id}`` → ``effective_rate_fields``), nie
+    # kolumnę cache'u. Porównanie z kolumną robiło z „zmiany na wartość starej
+    # kolumny” cichy no-op, a z nieruszonej stawki — fałszywą zmianę.
+    previous_rate_client = contract.effective_client_rate(business_today())
     was_incomplete_draft = contract.status == ContractStatus.draft and bool(
         validate_ready_for_activation(contract)
     )
@@ -3527,10 +3531,9 @@ async def update_contract(
         )
     # Ręczna stawka przychodowa w kontrakcie z harmonogramem — krok od dziś,
     # inaczej resolver (czytający harmonogram, nie kolumnę) by ją zignorował.
-    # Tylko gdy wartość RÓŻNI SIĘ od tej, którą formularz pokazał (kolumna
-    # sprzed zapisu): formularz odsyła całą stawkę przy każdej edycji, a
-    # kolumna bywa o krok w tyle za harmonogramem — porównanie z „dziś"
-    # zamieniłoby edycję nazwiska PM-a w obniżkę przychodu.
+    # Tylko gdy wartość RÓŻNI SIĘ od tej, którą formularz pokazał (stawka
+    # efektywna na dziś sprzed zapisu): formularz odsyła całą stawkę przy
+    # każdej edycji, więc nieruszona stawka nie może dopisać kroku.
     if "rate_client" in data.model_fields_set and not _same_rate(
         previous_rate_client, data.rate_client
     ):

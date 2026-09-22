@@ -432,3 +432,49 @@ async def test_activate_409_on_non_draft_status(
     )
     assert activate.status_code == 409, activate.text
     assert "already" in str(activate.json()["detail"]).lower()
+
+
+def test_contractor_item_reads_rates_from_the_schedule_not_the_cache():
+    """Audyt 22.09 r2 (FIN-03): kontrakt 116 (Nordea) — lista pokazywała
+    220 / 175 / marża 45 z kolumn cache'u, a obowiązywało 213 / 165 / 48."""
+    from decimal import Decimal
+
+    from app.models.contract_client_rate import ContractClientRate
+
+    contract = Contract(
+        id=921,
+        candidate_id=922,
+        client_id=923,
+        status=ContractStatus.active,
+        contract_type=ContractType.b2b,
+        rate_client=Decimal("220"),
+        rate_candidate=Decimal("175"),
+        margin=Decimal("45"),
+        currency="PLN",
+        rate_candidate_currency="PLN",
+    )
+    contract.__dict__.update(
+        candidate=Candidate(id=922, name="Jan", lastname="Kowalski"),
+        client=Client(id=923, name="Nordea"),
+        job=None,
+        client_orders=[],
+        client_rate_schedule=[
+            ContractClientRate(
+                rate=Decimal("213"),
+                effective_from=date.today() - timedelta(days=1),
+            )
+        ],
+        candidate_rate_schedule=[
+            ContractCandidateRate(
+                rate=Decimal("165"),
+                effective_from=date.today() - timedelta(days=1),
+            )
+        ],
+        framework_rate_schedule=[],
+    )
+
+    item = _to_item(contract)
+
+    assert item.rate_client == Decimal("213")
+    assert item.rate_candidate == Decimal("165")
+    assert item.margin == Decimal("48")

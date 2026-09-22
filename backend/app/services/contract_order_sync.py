@@ -1247,27 +1247,37 @@ async def backfill_missing_order_periods(
 
 
 async def _refresh_revenue_caches(db: AsyncSession, *, today: date) -> int:
-    """Przestaw cache ``rate_client``/``margin`` kontraktów, którym właśnie wszedł krok.
+    """Przestaw cache ``rate_client``/``rate_candidate``/``margin`` na stawki na dziś.
 
     Odczyty pieniędzy idą przez harmonogram, ale kolumna jest tym, co widzi
     formularz kontraktu i filtr „marża od" w rejestrze. Kolumna nieodświeżona
     po wejściu przyszłej stawki (130 zł od 01.10) wracałaby z formularza jako
-    „zmiana" i dopisywała krok ze starą kwotą. Okno 31 dni łapie przebiegi
-    pominięte przez restarty.
-    """
-    from datetime import timedelta
+    „zmiana" i dopisywała krok ze starą kwotą.
 
+    Audyt 22.09 r2 (FIN-03): dawniej tylko strona przychodu i tylko kroki
+    z ostatnich 31 dni — cache kosztu nie odświeżał się nigdy, a kontrakt,
+    którego krok wszedł wcześniej (przebieg pominięty dłużej niż miesiąc),
+    zostawał z nieaktualną kolumną na zawsze (kontrakt 116). Teraz przebieg
+    bierze KAŻDY kontrakt z krokiem klienta albo kandydata obowiązującym
+    dziś i porównuje z kolumną — zapis tylko przy różnicy, więc jest
+    idempotentny i sam naprawia zaległy rozjazd.
+    """
+    from sqlalchemy import union
+
+    from app.models.contract_candidate_rate import ContractCandidateRate
     from app.services.contract_rates import RATE_SCHEDULE_LOADS
 
-    ids = list(
+    ids = sorted(
         (
             await db.scalars(
-                select(ContractClientRate.contract_id)
-                .where(
-                    ContractClientRate.effective_from <= today,
-                    ContractClientRate.effective_from > today - timedelta(days=31),
+                union(
+                    select(ContractClientRate.contract_id).where(
+                        ContractClientRate.effective_from <= today
+                    ),
+                    select(ContractCandidateRate.contract_id).where(
+                        ContractCandidateRate.effective_from <= today
+                    ),
                 )
-                .distinct()
             )
         ).all()
     )
@@ -1283,9 +1293,16 @@ async def _refresh_revenue_caches(db: AsyncSession, *, today: date) -> int:
                 .options(*RATE_SCHEDULE_LOADS)
             )
         ).all():
-            current = contract.effective_client_rate(today)
-            if not _same_amount(contract.rate_client, current):
-                contract.rate_client = current
+            changed = False
+            current_client = contract.effective_client_rate(today)
+            if not _same_amount(contract.rate_client, current_client):
+                contract.rate_client = current_client
+                changed = True
+            current_candidate = contract.effective_candidate_rate(today)
+            if not _same_amount(contract.rate_candidate, current_candidate):
+                contract.rate_candidate = current_candidate
+                changed = True
+            if changed:
                 contract.margin = contract.calculate_margin()
                 refreshed += 1
         await db.flush()
