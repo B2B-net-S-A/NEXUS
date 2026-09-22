@@ -39,6 +39,8 @@ import {
   type LegacyClientOrderType,
   type OrderListFilters,
   contractorMatchesPill,
+  daysUntil,
+  endingOrderWithoutSuccessor,
   lacksCurrentOrder,
 } from "@/lib/client-order-list";
 import type {
@@ -1050,10 +1052,14 @@ function ContractorCard({
     return () => window.clearTimeout(timer);
   }, [highlighted]);
 
-  const expiringWarn =
-    contractor.days_to_latest_end !== null &&
-    contractor.days_to_latest_end >= 0 &&
-    contractor.days_to_latest_end <= 30;
+  // Ta sama reguła co zakładka „Kończące się" (`contractorMatchesPill`):
+  // zamówienie z dodaną kontynuacją nie ostrzega. Plakietka mówi, KTÓRE
+  // zamówienie się kończy — przy dodanym przyszłym zamówieniu, które samo
+  // zbliża się do końca, ostrzeżenie dotyczy jego, nie bieżącego okresu.
+  const endingOrder = endingOrderWithoutSuccessor(contractor.orders, 30);
+  const endingDays = endingOrder ? daysUntil(endingOrder.end_date) : null;
+  const endingIsFuture =
+    endingOrder !== null && endingOrder.id !== activeOrder?.id;
   // Okres zamówienia minął, a umowa trwa: osoba zostaje w „Aktywnych"
   // z dopiskiem — do „Zakończonych" przenosi wyłącznie umowa z modułu
   // Kontrakty (reguła 09.2026, `contractClosed`).
@@ -1120,10 +1126,15 @@ function ContractorCard({
               Kontrakt #{contractor.contract_id}
             </span>
             <OrderTypeBadge type={cardOrderType} />
-            {expiringWarn && (
-              <span className="text-[11px] text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded flex items-center gap-1">
+            {endingOrder && endingDays !== null && (
+              <span
+                className="text-[11px] text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded flex items-center gap-1"
+                data-testid="order-ending-badge"
+              >
                 <AlertTriangle className="w-3 h-3" />
-                kończy się za {contractor.days_to_latest_end} dni
+                {endingIsFuture
+                  ? `przyszłe zamówienie ${endingOrder.title} kończy się za ${endingDays} dni`
+                  : `kończy się za ${endingDays} dni`}
               </span>
             )}
             {noCurrentOrder && (

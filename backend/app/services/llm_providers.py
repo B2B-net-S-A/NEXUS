@@ -349,12 +349,15 @@ def parse_response(provider: str, model: str, data: dict[str, Any]) -> ProviderM
         ) from exc
     usage = data.get("usage") or {}
     prompt = int(usage.get("prompt_tokens") or 0)
+    written = 0
     if provider == DEEPSEEK:
         cached = int(usage.get("prompt_cache_hit_tokens") or 0)
     else:
-        cached = int(
-            (usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
-        )
+        details = usage.get("prompt_tokens_details") or {}
+        cached = int(details.get("cached_tokens") or 0)
+        # OpenAI od GPT-5.6: zapis do cache jest częścią `prompt_tokens`
+        # i ma własną stawkę (1,25× wejścia) — odejmowany jak odczyt.
+        written = int(details.get("cache_write_tokens") or 0)
     finish = choice.get("finish_reason")
     text = (choice.get("message") or {}).get("content") or ""
     return ProviderMessage(
@@ -364,9 +367,10 @@ def parse_response(provider: str, model: str, data: dict[str, Any]) -> ProviderM
         content=[TextBlock(text=text)],
         stop_reason="max_tokens" if finish == "length" else "end_turn",
         usage=Usage(
-            input_tokens=max(prompt - cached, 0),
+            input_tokens=max(prompt - cached - written, 0),
             output_tokens=int(usage.get("completion_tokens") or 0),
             cache_read_input_tokens=cached,
+            cache_creation_input_tokens=written,
         ),
         finish_reason=str(finish) if finish is not None else None,
     )

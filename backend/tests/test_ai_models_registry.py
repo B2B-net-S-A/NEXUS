@@ -58,7 +58,7 @@ def test_empty_env_override_is_ignored(monkeypatch):
     monkeypatch.setenv("UOP_CHECK_MODEL", "   ")
     # resolve() czyta env przy KAŻDYM wywołaniu — bez reloadu (reload config/rejestru
     # podmieniłby globalny singleton settings i zatruł kolejne testy w tym biegu).
-    assert ai_models.model_for(AIFeatureKey.uop_check) == "gpt-5.6-luna"
+    assert ai_models.model_for(AIFeatureKey.uop_check) == "gpt-6-luna"
 
 
 def test_narrow_override_splits_cv_parser_from_mindy(monkeypatch):
@@ -90,24 +90,25 @@ def test_legacy_claude_model_cv_drives_the_cv_parser_but_no_longer_mindy(monkeyp
     monkeypatch.setattr(settings, "CLAUDE_MODEL_CV", "claude-opus-4-8")
     assert ai_models.model_for(AIFeatureKey.cv_parser) == "claude-opus-4-8"
     assert ai_models.model_for(AIFeatureKey.cv_name_backfill) == "claude-opus-4-8"
-    assert ai_models.model_for(AIFeatureKey.mindy_chat) == "gpt-5.6-luna"
+    assert ai_models.model_for(AIFeatureKey.mindy_chat) == "gpt-6-luna"
 
 
 # Decyzja Artura z 16.09.2026 po badaniu modeli na danych produkcyjnych
 # (outputs/model-matrix-2026-09-15/RAPORT-KONCOWY.md, identyfikatory F1–F15).
 # Test czyta model przez resolve(), więc env-override w środowisku testowym
 # (np. UOP_CHECK_MODEL z .env) zmieniłby wynik — dlatego zdejmujemy każdy.
+# Luna = GPT-6 Luna od 22.09.2026 (następca GPT-5.6 Luna z badania 16.09).
 DECISION_2026_09_16 = {
     AIFeatureKey.scoring: ("F1", "claude-sonnet-5"),
     AIFeatureKey.champion_profile_parse: ("F2", "claude-sonnet-5"),
     AIFeatureKey.cv_requirement_map: ("F3", "claude-sonnet-5"),
     AIFeatureKey.cv_generator: ("F4", "claude-sonnet-5"),
-    AIFeatureKey.cv_interactive_chat: ("F5", "gpt-5.6-luna"),
+    AIFeatureKey.cv_interactive_chat: ("F5", "gpt-6-luna"),
     AIFeatureKey.job_description_generator: ("F6", "claude-sonnet-5"),
     # F7 — powrót na Sonneta 5 decyzją 21.09.2026 (GPT Luna flagowała
     # poprawne odczyty jako niepewne).
     AIFeatureKey.order_parser: ("F7", "claude-sonnet-5"),
-    AIFeatureKey.uop_check: ("F8", "gpt-5.6-luna"),
+    AIFeatureKey.uop_check: ("F8", "gpt-6-luna"),
     AIFeatureKey.cv_parser: ("F9", "claude-sonnet-5"),
     AIFeatureKey.cv_backfill: ("F10", "claude-sonnet-5"),
     AIFeatureKey.cv_name_backfill: ("F10", "claude-sonnet-5"),
@@ -118,11 +119,11 @@ DECISION_2026_09_16 = {
     AIFeatureKey.candidate_summary: ("F12", "deepseek-v4-pro"),
     AIFeatureKey.champion_draft: ("F13", "claude-sonnet-5"),
     AIFeatureKey.cv_rule_lint: ("F14", "claude-sonnet-5"),
-    AIFeatureKey.mindy_chat: ("F15", "gpt-5.6-luna"),
+    AIFeatureKey.mindy_chat: ("F15", "gpt-6-luna"),
     # F18 — decyzja 18.09.2026, POZA badaniem 16.09: recenzent gotowego CV
     # musi być INNYM modelem niż generator (F4), bo sędzia LLM faworyzuje
     # własne wyjście. Zmiana tego wpisu na model generatora cofa sens funkcji.
-    AIFeatureKey.cv_factual_verification: ("F18", "gpt-5.6-luna"),
+    AIFeatureKey.cv_factual_verification: ("F18", "gpt-6-luna"),
     # F19 — decyzja 21.09.2026: Jarvis woła `tools`, więc tylko Anthropic.
     AIFeatureKey.jarvis: ("F19", "claude-sonnet-5"),
     # F20 — decyzja 21.09.2026: szkic opisu na stronę kariery, jak F6.

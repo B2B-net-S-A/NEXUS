@@ -912,6 +912,15 @@ describe("OrdersAndContractsTab — liczniki filtrów", () => {
       contract_id: 601,
       candidate_name: "Anna Kowalska",
       days_to_latest_end: 10,
+      orders: [
+        makeOrder({
+          id: 51,
+          title: "E-1",
+          status: "active",
+          start_date: localISO(-20),
+          end_date: localISO(10),
+        }),
+      ],
     };
     const openEnded = {
       ...structuredClone(CONTRACTOR),
@@ -944,6 +953,71 @@ describe("OrdersAndContractsTab — liczniki filtrów", () => {
     expect(screen.getByText(/Aktywni \(2\)/)).toBeInTheDocument();
     expect(screen.getByText(/Kończące się 30d \(1\)/)).toBeInTheDocument();
     expect(screen.getByText(/Zakończeni \(1\)/)).toBeInTheDocument();
+  });
+
+  it("zamówienie z dodanym przyszłym zamówieniem nie liczy się do „Kończące się 30d”", async () => {
+    // Ticket 09.2026 (kontrakt #145): 282129 kończy się za 8 dni, ale ma już
+    // dodane przyszłe zamówienie 286699 (szkic). Nie wymaga działania.
+    const continued = {
+      ...structuredClone(CONTRACTOR),
+      contract_id: 145,
+      candidate_name: "Marek Urbański",
+      days_to_latest_end: 69,
+      orders: [
+        makeOrder({
+          id: 654,
+          title: "286699",
+          status: "draft",
+          start_date: localISO(9),
+          end_date: localISO(69),
+        }),
+        makeOrder({
+          id: 308,
+          title: "282129",
+          status: "active",
+          start_date: localISO(-176),
+          end_date: localISO(8),
+        }),
+      ],
+    };
+    // Przyszłe zamówienie, które samo kończy się w oknie — to ono ostrzega.
+    const futureEnding = {
+      ...structuredClone(CONTRACTOR),
+      contract_id: 146,
+      candidate_name: "Jan Następca",
+      orders: [
+        makeOrder({
+          id: 656,
+          title: "NEXT-1",
+          status: "active",
+          start_date: localISO(9),
+          end_date: localISO(22),
+        }),
+        makeOrder({
+          id: 655,
+          title: "CUR-1",
+          status: "active",
+          start_date: localISO(-100),
+          end_date: localISO(8),
+        }),
+      ],
+    };
+    vi.mocked(dlPortalApi.listContractorsWithOrders).mockResolvedValue({
+      data: {
+        contractors: [continued, futureEnding],
+        total_contractors: 2,
+        can_manage_finance: true,
+      },
+    } as never);
+
+    renderTab();
+
+    expect(await screen.findByText(/Kończące się 30d \(1\)/)).toBeInTheDocument();
+    const badges = screen.getAllByTestId("order-ending-badge");
+    expect(badges).toHaveLength(1);
+    expect(badges[0]).toHaveTextContent(
+      "przyszłe zamówienie NEXT-1 kończy się za 22 dni",
+    );
   });
 
   it("zakończony kontrakt z wiszącym aktywnym zamówieniem NIE wchodzi do Aktywnych", async () => {

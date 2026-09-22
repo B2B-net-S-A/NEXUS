@@ -247,13 +247,21 @@ export function JobDetailCompactHeader({
                 // nagłówek na dwa wiersze. Tytuł zostaje w całości, klient się
                 // ucina (pełna nazwa w `title`).
                 <span className="flex min-w-0 items-baseline gap-x-2">
-                  <span className="shrink-0">{title}</span>
+                  {/* Tytuł też się ucina (pełny w `title`): bardzo długa nazwa
+                      rekrutacji Nordei wjeżdżała pod liczniki i „Dodaj
+                      kandydata". Klient kurczy się pierwszy (`shrink-[4]`). */}
+                  <span
+                    className="min-w-0 truncate"
+                    title={typeof title === "string" ? title : undefined}
+                  >
+                    {title}
+                  </span>
                   {/* Separator i nazwa klienta w JEDNYM węźle tekstowym —
                       `{" · "}{clientName}` rozpadało się na trzy węzły, przez
                       co spacja przy kropce ginęła przy pierwszej zmianie
                       formatowania. */}
                   <span
-                    className="min-w-0 truncate text-lg font-normal text-muted-foreground"
+                    className="min-w-0 shrink-[4] truncate text-lg font-normal text-muted-foreground"
                     title={clientName}
                   >
                     {` · ${clientName}`}

@@ -5,6 +5,7 @@ import {
   BOARD_COLUMN_ORDER,
   foldBoardColumns,
   isCproStageName,
+  impliedBadges,
   isDzStageName,
   placeStage,
 } from "@/lib/board-stages";
@@ -148,5 +149,13 @@ describe("foldBoardColumns", () => {
     const interview = traffit.columns.find((c) => c.key === "client_interview")!;
     expect(interview.items.map((i) => i.id)).toEqual([3, 4]);
     expect(traffit.closed).toHaveLength(2);
+  });
+});
+
+describe("impliedBadges", () => {
+  it("Cpro stoi po DZ w procesie — karta niesie obie odznaki", () => {
+    expect(impliedBadges("cpro")).toEqual(["dz", "cpro"]);
+    expect(impliedBadges("dz")).toEqual(["dz"]);
+    expect(impliedBadges(null)).toEqual([]);
   });
 });

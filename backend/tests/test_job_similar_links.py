@@ -461,3 +461,41 @@ async def test_job_detail_carries_request_status(
     response = await app_client.get(f"/api/jobs/{world['b']}", headers=app_auth_headers)
     assert response.status_code == 200, response.text
     assert response.json()["request_status"] == "searching"
+
+
+@pytest.fixture
+def _tech_taxonomy():
+    from app.services import skill_normalize as sn
+
+    saved = (
+        set(sn.TECH_CANONICALS),
+        dict(sn.ALIAS_TO_CANONICAL),
+        dict(sn.CANONICAL_TO_ALIASES),
+    )
+    sn.set_tech_taxonomy(
+        tech_canonicals=["react", "java", "selenium"],
+        alias_to_canonical={"reactjs": "react", "react.js": "react"},
+    )
+    yield
+    sn.set_tech_taxonomy(
+        tech_canonicals=saved[0],
+        alias_to_canonical=saved[1],
+        canonical_to_aliases=saved[2],
+    )
+
+
+def test_skill_set_reads_champion_stack_and_canonical_tech_names(_tech_taxonomy):
+    """22.09.2026: silnik podobnych czyta stack Championa, a nie tylko kolumnę.
+
+    Aliasy technologii są jednym wymaganiem, a zdania opisowe z profilu nie
+    zaniżają podobieństwa rekrutacji, które wymagają tych samych technologii.
+    """
+    profile = {
+        "stack": {"must": [{"name": "React.js"}, {"name": "10 lat doświadczenia w IT"}]}
+    }
+    from_champion = sim.skill_set([], profile)
+    from_column = sim.skill_set([{"name": "ReactJS"}])
+    assert from_champion == from_column == frozenset({"react"})
+    assert sim.skill_set(
+        [{"name": "Java"}], {"stack": {"must": ["Selenium"]}}
+    ) == frozenset({"java", "selenium"})

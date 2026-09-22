@@ -64,7 +64,7 @@ function Harness({
         collapsed={collapsed}
         open={open}
         onOpenChange={setOpen}
-        badgeCounts={{ applicationSubmissions: 4, candidates: 9 }}
+        badgeCounts={{ applicationSubmissions: 4, orderMail: 9 }}
         isActive={(entry: NavEntry) => pathname.startsWith(entry.href)}
       />
     </TooltipProvider>
@@ -73,9 +73,9 @@ function Harness({
 
 describe("„Więcej” — logika", () => {
   it("sumuje WYŁĄCZNIE liczniki pozycji schowanych w panelu", () => {
-    // `candidates` należy do pozycji szyny — nie wchodzi do sumy.
+    // `orderMail` nie ma pozycji w tym panelu — nie wchodzi do sumy.
     expect(
-      moreBadgeTotal(groups, { applicationSubmissions: 4, candidates: 9 }),
+      moreBadgeTotal(groups, { applicationSubmissions: 4, orderMail: 9 }),
     ).toBe(4);
     expect(moreBadgeTotal(groups, {})).toBe(0);
   });

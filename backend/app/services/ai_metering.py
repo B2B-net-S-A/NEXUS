@@ -22,7 +22,7 @@ from sqlalchemy.engine import make_url
 from app.models.ai_metering import AIOperation, AIProviderCall
 
 logger = logging.getLogger(__name__)
-PRICE_VERSION = "multi-provider-2026-09-16"
+PRICE_VERSION = "multi-provider-2026-09-22"
 
 # Cennik wyszukiwarki Anthropic (`web_search_*`): 10 USD / 1000 wyszukiwań.
 WEB_SEARCH_USD_PER_REQUEST = Decimal("0.01")
@@ -31,9 +31,13 @@ WEB_SEARCH_USD_PER_REQUEST = Decimal("0.01")
 #   dwójka (wejście, wyjście); odczyt cache = 10% wejścia, zapis 125% / 2×
 #   (formuła niżej — bez zmian).
 # * OpenAI / DeepSeek (cenniki z badania modeli 16.09.2026, `catalog.py`
-#   harnessu): trójka (wejście, wyjście, odczyt cache) — ci dostawcy nie
-#   rozliczają zapisu cache, a odczyt ma WŁASNĄ stawkę (DeepSeek: 1/30, nie 1/10).
-#   DeepSeek w oknie szczytu liczy 2× — wycena tutaj jest standardowa.
+#   harnessu): trójka (wejście, wyjście, odczyt cache) — odczyt ma WŁASNĄ
+#   stawkę (DeepSeek: 1/30, nie 1/10). DeepSeek w oknie szczytu liczy 2× —
+#   wycena tutaj jest standardowa.
+# * OpenAI od GPT-5.6 liczy też ZAPIS cache (1,25× wejścia, verified
+#   2026-09-22: https://developers.openai.com/api/docs/guides/prompt-caching)
+#   i zgłasza go w `prompt_tokens_details.cache_write_tokens` — czwórka
+#   (wejście, wyjście, odczyt, zapis). Do 22.09 zapis szedł po stawce wejścia.
 _PRICES = {
     "claude-sonnet-5": (2, 10),
     "claude-sonnet-4-6": (3, 15),
@@ -44,8 +48,25 @@ _PRICES = {
     "claude-opus-4-5": (5, 25),
     "claude-opus-5": (5, 25),
     "claude-haiku-4-5": (1, 5),
-    "gpt-5.6-luna": (Decimal("0.20"), Decimal("1.20"), Decimal("0.02")),
-    "gpt-5.6-terra": (Decimal("2.00"), Decimal("12.00"), Decimal("0.20")),
+    # https://developers.openai.com/api/docs/models/gpt-6-luna (verified 2026-09-22)
+    "gpt-6-luna": (
+        Decimal("0.10"),
+        Decimal("0.50"),
+        Decimal("0.01"),
+        Decimal("0.125"),
+    ),
+    "gpt-5.6-luna": (
+        Decimal("0.20"),
+        Decimal("1.20"),
+        Decimal("0.02"),
+        Decimal("0.25"),
+    ),
+    "gpt-5.6-terra": (
+        Decimal("2.00"),
+        Decimal("12.00"),
+        Decimal("0.20"),
+        Decimal("2.50"),
+    ),
     "deepseek-v4-pro": (Decimal("0.66"), Decimal("1.98"), Decimal("0.022")),
     "deepseek-flash": (Decimal("0.15"), Decimal("0.60"), Decimal("0.003")),
 }
@@ -123,9 +144,13 @@ def response_event(
         and counts[4] <= counts[3]
     ):
         tin, tout, read, write, hour = map(Decimal, counts)
-        if len(prices) == 3:
-            base, output, cache_read = map(Decimal, prices)
-            cost = (base * tin + cache_read * read + output * tout) / 1_000_000
+        if len(prices) >= 3:
+            base, output, cache_read = map(Decimal, prices[:3])
+            # Trójka (DeepSeek) nie zgłasza zapisu cache, więc `write` = 0.
+            cache_write = Decimal(prices[3]) if len(prices) == 4 else base
+            cost = (
+                base * tin + cache_read * read + cache_write * write + output * tout
+            ) / 1_000_000
         else:
             base, output = map(Decimal, prices)
             cost = (

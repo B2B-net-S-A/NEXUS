@@ -105,7 +105,6 @@ export function QuickActionsV2({ externalModal, onExternalModalClear }: Props) {
     queryClient.invalidateQueries({ queryKey: ["client-contacts"] });
     queryClient.invalidateQueries({ queryKey: ["calendar"] });
     queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-    queryClient.invalidateQueries({ queryKey: ["sidebar-badges-v2"] });
   };
 
   // Zero uprawnień do tworzenia czegokolwiek (np. rola `user` — read-only

@@ -2604,6 +2604,12 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   procesu 5 min z indeksem odwróconym. Lista pokazuje „≈" tylko przy
   sugestiach z osobami u klienta. DL wskazuje podobne już przy tworzeniu
   (`POST /api/job-similarity/preview` → po zapisie `POST …/similar`).
+  **Must-have = kolumna ∪ stack MUST Championa, jako KANONICZNE nazwy
+  technologii z taksonomii** (`skill_set`, od 22.09.2026): surowe napisy
+  z samej kolumny dawały podpowiedź 92 z 326 otwartym rekrutacjom, ten zbiór —
+  195. Bez wczytanej taksonomii działa stara reguła (surowe napisy kolumny).
+  Profile Championa z plików Traffita wypełnia `scripts/champion_backfill.py`
+  (paczka z `scripts/champion_bundle_collector.js`, GPT Luna).
 - **Tryb „Tabela" USUNIĘTY — rekrutacja to Tablica** (decyzja Artura
   22.09.2026). Nagłówek nie ma przełącznika; z ekranów pobocznych (Champion,
   „Do przejrzenia") wraca „← Tablica". `tab=people` żyje WYŁĄCZNIE dla ekranu
@@ -3959,6 +3965,21 @@ bezterminowe) została w „Aktywnych". Jedna reguła w trzech miejscach:
   wskrzeszenie wciągnęłoby do MRR osoby, które faktycznie odeszły
   (dwie z trzech u VeloBanku nie są na nowym zamówieniu).
 
+## Zakładka „Kończące się 30d" — tylko zamówienia bez kontynuacji (22.09.2026)
+
+Jedna reguła, `endingOrderWithoutSuccessor` / `endingGroupWithoutSuccessor`
+w `lib/client-order-list.ts`, zasila pigułkę, jej licznik, filtr „kończy się
+w ciągu N dni" i plakietkę karty. Zamówienie kończące się w oknie odpada, gdy
+inne zamówienie tego kontraktu (grupy MD: tej samej rodziny przedłużeń po
+`predecessor_group_id`, spłaszczonej z `future_orders`) trwa po jego końcu —
+lustro `covers_after` z `order_facts.py` (szkic się liczy, anulowane nie,
+zamknięte bez daty nie). Każde zamówienie w łańcuchu ocenia się osobno, więc
+krótkie przedłużenie kończące się w oknie zostawia kartę z plakietką
+„przyszłe zamówienie … kończy się za N dni". **`days_to_latest_end` z API nie
+jest już czytany przez tę zakładkę** — liczył po zamówieniu z najpóźniejszym
+startem i wskazywał plakietką złe zamówienie. Rodzinę grup buduj z PEŁNEJ listy
+(`buildOrderGroupFamilies`), nie z podzbioru po filtrze pigułki.
+
 ## Umowa B2B jest bezterminowa, dopóki ktoś jej ręcznie nie zakończy (11.09.2026)
 
 Data zakończenia umów B2B była przepisywana z końca ZAMÓWIENIA (pole
@@ -5296,12 +5317,22 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
 | F2 | champion_profile_parse | Sonnet 5 (z Haiku) | F10 | cv_backfill, cv_name_backfill | Sonnet 5 (z Haiku) |
 | F3 | cv_requirement_map | Sonnet 5 | F11 | notes_extraction | DeepSeek V4 Pro (z Haiku) |
 | F4 | cv_generator | Sonnet 5 (z 4.6) | F12 | candidate_summary | DeepSeek V4 Pro |
-| F5 | cv_interactive_chat | GPT Luna (z Haiku) | F13 | champion_draft | Sonnet 5 |
+| F5 | cv_interactive_chat | GPT-6 Luna (z Sonnet 5) | F13 | champion_draft | Sonnet 5 |
 | F6 | job_description_generator | Sonnet 5 | F14 | cv_rule_lint | Sonnet 5 (z Haiku) |
-| F7 | order_parser | **Sonnet 5** (od 21.09) | F15 | mindy_chat | GPT Luna |
-| F8 | uop_check | GPT Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
-| F18 | cv_factual_verification | GPT Luna (z Sonnet 5) | | | |
+| F7 | order_parser | **Sonnet 5** (od 21.09) | F15 | mindy_chat | GPT-6 Luna |
+| F8 | uop_check | GPT-6 Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
+| F18 | cv_factual_verification | GPT-6 Luna (z Sonnet 5) | | | |
 
+- **„Luna" to od 22.09.2026 GPT-6 Luna (`gpt-6-luna`)**, nie GPT-5.6 Luna,
+  na której robiono badanie 16.09 — liczby F5/F8/F15/F18 pochodzą z wersji
+  5.6. Kształt żądania bez zmian (sprawdzone żądaniem z produkcji), cena
+  0,10/0,50 USD za 1M zamiast 0,20/1,20. Powrót bez deployu: env funkcji
+  (np. `UOP_CHECK_MODEL=gpt-5.6-luna`). Przeniesienie na Lunę KOLEJNEJ funkcji
+  wymaga pomiaru jak w badaniu — nie samej zmiany wersji.
+- **OpenAI od GPT-5.6 liczy ZAPIS do cache (1,25× wejścia)** i zgłasza go
+  w `prompt_tokens_details.cache_write_tokens`; `parse_response` odejmuje go
+  od wejścia, a `_PRICES` dla OpenAI to czwórka (wejście, wyjście, odczyt,
+  zapis). Do 22.09 zapis był wyceniany jak zwykłe wejście.
 - **F7 wrócił na Sonneta 5 (decyzja Artura, 21.09.2026).** GPT Luna czytała
   zamówienia poprawnie, ale oznaczała odczyt jako `uncertain` bez konkretnego
   powodu („oznaczony przez model jako niepewny", echo instrukcji promptu), a

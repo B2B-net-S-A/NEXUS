@@ -28,6 +28,7 @@ import { countPl } from "@/lib/plural-pl";
 import {
   DEFAULT_ORDER_LIST_FILTERS,
   ORDER_TYPE_ORDER,
+  buildOrderGroupFamilies,
   contractorMatchesPill,
   contractorOrderType,
   effectiveClientOrderType,
@@ -732,25 +733,34 @@ export function MultiConsultantOrdersTab({
       ),
     [contractorQuery.data, groups],
   );
+  // Rodziny przedłużeń liczone z PEŁNEJ listy: pigułka i filtr dostają już
+  // przefiltrowane grupy, a następca zamówienia może w tym podzbiorze nie być.
+  const groupFamilies = useMemo(() => buildOrderGroupFamilies(groups), [groups]);
   const counts = useMemo(() => {
     const byStatus = {} as Record<UnifiedOrderPill, number>;
     for (const entry of PILLS) {
       byStatus[entry.key] =
-        groups.filter((group) => orderGroupMatchesPill(group, entry.key)).length +
+        groups.filter((group) =>
+          orderGroupMatchesPill(group, entry.key, undefined, groupFamilies),
+        ).length +
         contractors.filter((contractor) =>
           contractorMatchesPill(contractor, entry.key),
         ).length;
     }
     return byStatus;
-  }, [contractors, groups]);
+  }, [contractors, groups, groupFamilies]);
   const visibleGroups = useMemo(
     () =>
       filterAndSortOrderGroups(
-        groups.filter((group) => orderGroupMatchesPill(group, pill)),
+        groups.filter((group) =>
+          orderGroupMatchesPill(group, pill, undefined, groupFamilies),
+        ),
         search,
         filters,
+        undefined,
+        groupFamilies,
       ),
-    [filters, groups, pill, search],
+    [filters, groups, groupFamilies, pill, search],
   );
   const visibleContractors = useMemo(
     () =>

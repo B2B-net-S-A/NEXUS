@@ -126,6 +126,7 @@ from app.services.order_burn_rate import (
     high_priority_threshold,
     md_burn_rate,
 )
+from app.services.order_continuation import order_has_continuation
 from app.services.shared_md_orders import uses_shared_md_pool
 from app.services import loop_heartbeat
 
@@ -863,6 +864,10 @@ async def rule_periodic_order_ending(
             ClientOrder.end_date.isnot(None),
             ClientOrder.end_date >= start,
             ClientOrder.end_date <= stop,
+            # Zamówienie z już dodaną kontynuacją (także szkicem) nie wymaga
+            # działania — ta sama reguła co zakładka „Kończące się 30d".
+            # Otwarte karty takich zamówień zamyka `resolve_stale` niżej.
+            ~order_has_continuation(),
         )
     )
     orders = list(result.scalars())
