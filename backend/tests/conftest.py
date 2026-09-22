@@ -18,6 +18,7 @@ schema is ready.
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import os
 import statistics
@@ -84,15 +85,22 @@ def routine_notification_email_enabled(monkeypatch):
     async def enabled_policy(_db):
         return policy
 
-    monkeypatch.setattr(delivery, "load_policy", enabled_policy)
-    monkeypatch.setattr(delivery, "load_policy_sync", lambda: policy)
-    for module in (
+    consumers = (
         "app.tasks.chat_email_fallback",
         "app.tasks.job_deadline_alerts",
         "app.tasks.app_mail_monitor",
         "app.services.stage_notification_emitter",
         "app.services.mention_dispatch",
-    ):
+    )
+    # Import konsumentów PRZED podmianą: moduł importowany pierwszy raz w trakcie
+    # podmiany wiąże `from … import load_policy` z włączoną polityką, a
+    # monkeypatch zapamiętuje ją jako „oryginał" i przywraca po teście —
+    # polityka zostawała włączona na stałe dla kolejnych plików.
+    for module in consumers:
+        importlib.import_module(module)
+    monkeypatch.setattr(delivery, "load_policy", enabled_policy)
+    monkeypatch.setattr(delivery, "load_policy_sync", lambda: policy)
+    for module in consumers:
         monkeypatch.setattr(f"{module}.load_policy", enabled_policy, raising=False)
     return policy
 
