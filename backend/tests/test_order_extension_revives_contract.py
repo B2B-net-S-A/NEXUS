@@ -229,6 +229,9 @@ async def test_daily_reconciler_catches_up_after_a_missed_day_but_skips_cutover_
                 missed_contract.status,
                 missed_contract.end_date,
                 missed_contract.client_order_end_date,
+                ContractType.b2b,
+                None,
+                None,
             )
 
     class _FakeDb:
@@ -292,7 +295,14 @@ async def test_live_order_sync_refreshes_under_lock_and_preserves_concurrent_voi
                 )
             )
             return SimpleNamespace(
-                one_or_none=lambda: (ContractStatus.void, original_end, None)
+                one_or_none=lambda: (
+                    ContractStatus.void,
+                    original_end,
+                    None,
+                    ContractType.b2b,
+                    None,
+                    None,
+                )
             )
 
         def add(self, value):
@@ -338,6 +348,9 @@ async def test_live_order_sync_noops_for_missing_or_fresh_draft_contract():
                     self.result.status,
                     self.result.end_date,
                     self.result.client_order_end_date,
+                    ContractType.b2b,
+                    None,
+                    None,
                 )
             return SimpleNamespace(one_or_none=lambda: row)
 
@@ -1020,3 +1033,108 @@ async def test_new_periodic_order_normalizes_end_date(
     async with AsyncSessionLocal() as db:
         saved = await db.get(ClientOrder, response.json()["id"])
         assert saved.status.value == expected
+
+
+# --- audyt 22.09 r2 (FIN-01) -------------------------------------------------
+
+
+async def _sync_live_order(contract_id: int, *, today: date) -> bool:
+    from app.services.contract_lifecycle import sync_contract_to_live_order
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract is not None
+        changed = await sync_contract_to_live_order(
+            db,
+            contract,
+            order_start=today - timedelta(days=20),
+            order_end=None,
+            actor_id=None,
+            today=today,
+        )
+        await db.commit()
+        return changed
+
+
+async def test_terminated_contract_with_future_end_is_not_revived():
+    """Wypowiedzenie z przyszłą datą wygrywa z trwającym zamówieniem."""
+    from datetime import datetime, timezone
+
+    today = date.today()
+    planned_end = today + timedelta(days=20)
+    _, contract_id = await _seed_ended_contract(
+        end_date=planned_end, status=ContractStatus.ending
+    )
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        contract.terminated_at = datetime.now(timezone.utc)
+        contract.termination_reason = "consultant_resigned"
+        await db.commit()
+
+    assert await _sync_live_order(contract_id, today=today) is False
+    status, end_date = await _contract_state(contract_id)
+    assert status == ContractStatus.ending
+    assert end_date == planned_end
+
+
+async def test_early_termination_amendment_blocks_revival():
+    from app.models.contract_amendment import (
+        ContractAmendment,
+        ContractAmendmentType,
+    )
+
+    today = date.today()
+    planned_end = today + timedelta(days=10)
+    _, contract_id = await _seed_ended_contract(
+        end_date=planned_end, status=ContractStatus.ending
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ContractAmendment(
+                contract_id=contract_id,
+                amendment_type=ContractAmendmentType.early_termination,
+                effective_date=today,
+            )
+        )
+        await db.commit()
+
+    assert await _sync_live_order(contract_id, today=today) is False
+    status, end_date = await _contract_state(contract_id)
+    assert status == ContractStatus.ending
+    assert end_date == planned_end
+
+
+async def test_non_b2b_contract_keeps_its_end_date():
+    """Umowa zlecenie: data końca jest częścią umowy — zamówienie jej nie zeruje."""
+    today = date.today()
+    planned_end = today + timedelta(days=15)
+    _, contract_id = await _seed_ended_contract(
+        end_date=planned_end, status=ContractStatus.ending
+    )
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        contract.contract_type = ContractType.uzlecenie
+        await db.commit()
+
+    assert await _sync_live_order(contract_id, today=today) is False
+    status, end_date = await _contract_state(contract_id)
+    assert status == ContractStatus.ending
+    assert end_date == planned_end
+
+
+async def test_ended_terminated_contract_still_returns_with_a_new_order():
+    """Decyzja: umowa już zakończona (data < dziś) wraca NOWYM zamówieniem."""
+    from datetime import datetime, timezone
+
+    today = date.today()
+    _, contract_id = await _seed_ended_contract(end_date=today - timedelta(days=40))
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        contract.terminated_at = datetime.now(timezone.utc)
+        contract.termination_reason = "consultant_resigned"
+        await db.commit()
+
+    assert await _sync_live_order(contract_id, today=today) is True
+    status, end_date = await _contract_state(contract_id)
+    assert status == ContractStatus.active
+    assert end_date is None

@@ -577,6 +577,9 @@ async def sync_contract_to_live_order(
                     Contract.status,
                     Contract.end_date,
                     Contract.client_order_end_date,
+                    Contract.contract_type,
+                    Contract.terminated_at,
+                    Contract.termination_reason,
                 )
                 .where(Contract.id == contract.id)
                 .with_for_update()
@@ -584,6 +587,7 @@ async def sync_contract_to_live_order(
         ).one_or_none()
     if locked_row is None:
         return False
+    locked_type, locked_terminated_at, locked_termination_reason = locked_row[3:6]
 
     # Copy only the lifecycle scalars read under the row lock. Refreshing the
     # ORM entity with ``populate_existing`` expires eager-loaded relationships
@@ -595,7 +599,7 @@ async def sync_contract_to_live_order(
         contract.status,
         contract.end_date,
         contract.client_order_end_date,
-    ) = locked_row
+    ) = locked_row[:3]
 
     # WYŁĄCZNIE kontrakt zakończony/kończący się. Trzy powody, każdy osobny:
     #
@@ -618,7 +622,37 @@ async def sync_contract_to_live_order(
     if contract.status not in (ContractStatus.ended, ContractStatus.ending):
         return False
 
-    if not order_period_covers(order_start, order_end, today or date.today()):
+    today_ = today or date.today()
+    if not order_period_covers(order_start, order_end, today_):
+        return False
+
+    # audyt 22.09 r2 (FIN-01): zaplanowane zakończenie wygrywa z zamówieniem.
+    # ``/terminate`` z przyszłą datą przycina zamówienia do tej daty, więc
+    # zamówienie dalej obejmuje dziś; nocny cron przestawia umowę na
+    # ``ending``, a nocny reconcile wołał tu i zerował datę — wypowiedziana
+    # umowa wracała jako bezterminowa (bez offboardingu, dalej w MRR). Umowa
+    # już ZAKOŃCZONA (data < dziś) nadal może wrócić NOWYM zamówieniem.
+    # Import lokalny: ``b2b_contract_end_date`` stoi niżej w grafie importów.
+    from app.services.b2b_contract_end_date import (
+        has_early_termination_amendment,
+        is_b2b,
+    )
+
+    if contract.end_date is not None and contract.end_date >= today_:
+        manually_terminated = (
+            locked_terminated_at is not None or locked_termination_reason is not None
+        )
+        if not manually_terminated:
+            with db.no_autoflush:
+                manually_terminated = await has_early_termination_amendment(
+                    db, contract.id
+                )
+        if manually_terminated:
+            return False
+    # Umowa zlecenie / o pracę: data końca jest częścią umowy, nie prognozą —
+    # zamówienie jej nie zeruje (reguła „umowa B2B bezterminowa” dotyczy
+    # wyłącznie B2B).
+    if contract.end_date is not None and not is_b2b(locked_type):
         return False
 
     changed = False
