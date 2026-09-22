@@ -223,6 +223,9 @@ _VIEWER_REDACTED_JOB_FIELDS: tuple[str, ...] = (
     # Viewer i tak dostaje `False`, ale pole mówi o uprawnieniach do stawek —
     # trzymamy je w tej samej rodzinie co kwoty (17.09.2026).
     "can_write_client_rate",
+    # Kiedy DL oznaczył „Mamy championa" — informacja wewnętrzna; status
+    # requestu (`request_status`) viewer widzi i bez tego znacznika (22.09.2026).
+    "champion_found_at",
 )
 
 
