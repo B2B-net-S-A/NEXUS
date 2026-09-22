@@ -224,6 +224,41 @@ def parse_money_value(raw: Any) -> Optional[Decimal]:
         return None
 
 
+# Sufity wartości z arkusza (audyt SCV-04). ``Decimal("NaN")``/``Infinity``
+# przechodzą przez ``Decimal(str(...))`` bez wyjątku — Excel oddaje je jako
+# float ``nan``/``inf``, a napis „NaN" też jest poprawnym literałem Decimal.
+# NaN w liczbie MD rozlewał się dalej na pozostałość wspólnej puli (każde
+# działanie z NaN daje NaN), a nieskończoność wywracała zapis do kolumny
+# ``NUMERIC``. Jeden konsultant w jednym miesiącu nie przepracuje więcej niż
+# kilkadziesiąt dni — 1000 MD to już literówka albo pomylona kolumna.
+MAX_MD_PER_ROW = Decimal("1000")
+# Kolumna ``invoice_amount`` to ``NUMERIC(17, 3)``; kwota powyżej miliarda
+# złotych za jeden wiersz to pomyłka, nie faktura.
+MAX_INVOICE_PER_ROW = Decimal("1000000000")
+
+
+def md_value_problem(value: Decimal) -> Optional[str]:
+    """Powód odrzucenia liczby MD albo ``None``, gdy jest poprawna."""
+    if not value.is_finite():
+        return "liczba MD nie jest skończoną liczbą"
+    if value < 0:
+        return "ujemna liczba MD"
+    if value > MAX_MD_PER_ROW:
+        return f"liczba MD powyżej {MAX_MD_PER_ROW} w jednym wierszu"
+    return None
+
+
+def invoice_value_problem(value: Optional[Decimal]) -> Optional[str]:
+    """Powód odrzucenia kwoty faktury albo ``None`` (pusta kwota jest poprawna)."""
+    if value is None:
+        return None
+    if not value.is_finite():
+        return "kwota faktury nie jest skończoną liczbą"
+    if abs(value) > MAX_INVOICE_PER_ROW:
+        return "kwota faktury poza dopuszczalnym zakresem"
+    return None
+
+
 @dataclass(frozen=True)
 class ParsedRow:
     row_number: int
@@ -366,6 +401,16 @@ def parse_md_sheet(content: bytes) -> ParsedSheet:
                         }
                     )
                     continue
+                md_problem = md_value_problem(md_value)
+                if md_problem is not None:
+                    parsed.skipped_rows.append(
+                        {
+                            "row": row_idx,
+                            "reason": f"{md_problem} ({md_raw!r})",
+                            "consultant_name": name,
+                        }
+                    )
+                    continue
                 notes_raw: Optional[str] = None
                 if notes_col is not None and notes_col < len(cells):
                     notes_text = str(cells[notes_col] or "").strip()
@@ -373,6 +418,18 @@ def parse_md_sheet(content: bytes) -> ParsedSheet:
                 invoice_value: Optional[Decimal] = None
                 if invoice_col is not None and invoice_col < len(cells):
                     invoice_value = parse_money_value(cells[invoice_col])
+                    invoice_problem = invoice_value_problem(invoice_value)
+                    if invoice_problem is not None:
+                        parsed.skipped_rows.append(
+                            {
+                                "row": row_idx,
+                                "reason": (
+                                    f"{invoice_problem} ({cells[invoice_col]!r})"
+                                ),
+                                "consultant_name": name,
+                            }
+                        )
+                        continue
 
                 parsed.rows.append(
                     ParsedRow(

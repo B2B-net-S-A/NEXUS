@@ -77,9 +77,10 @@ async def _seed_contractor_two_currencies(
 
     GBP@today = 4.1234. Returns (candidate_id, client_id). ``margin`` is derived
     by the model (rate_client - rate_candidate), so both rates are set.
-    Expected PLN-normalised totals:
-      margin  = 80000 + 2000 * 4.1234 = 88246.8
-      revenue = 200000 + 5000 * 4.1234 = 220617.0
+    Expected PLN-normalised totals (każda kwota kontraktu zaokrąglona do
+    pełnych złotych PRZED sumowaniem — ta sama reguła co kokpit Rady):
+      margin  = 80000 + round(5000 * 4.1234 - 3000 * 4.1234) = 80000 + 8247
+      revenue = 200000 + 5000 * 4.1234 = 220617
     Nominal (buggy) sums would be 82000 / 205000.
 
     ``anchor`` dokłada trzeci, czysto złotówkowy kontrakt (``margin`` marży,
@@ -210,15 +211,15 @@ async def test_margin_by_contractor_converts_currencies_to_pln(
     # PLN-converted totals, NOT the nominal add. Kotwica jest całkowita i czysto
     # złotówkowa, więc wchodzi do obu stron równania bez zmiany arytmetyki FX.
     base = float(anchor)
-    assert margin == pytest.approx(base + 88246.8, abs=0.05)
-    assert revenue == pytest.approx(base + 220617.0, abs=0.05)
+    assert margin == pytest.approx(base + 88247, abs=0.05)
+    assert revenue == pytest.approx(base + 220617, abs=0.05)
     assert margin != pytest.approx(base + 82000, abs=0.5), "nominal cross-currency sum"
     assert revenue != pytest.approx(base + 205000, abs=0.5), (
         "nominal cross-currency sum"
     )
 
-    # Fractional result proves the value wasn't truncated back to int.
-    assert margin != int(margin)
+    # Pełne złote, jak na każdym innym ekranie pieniędzy (to_whole_pln).
+    assert margin == int(margin)
     assert row["active_contracts"] == 3  # PLN + GBP + kotwica
     assert row["fx_missing"] is False
 
@@ -237,8 +238,8 @@ async def test_margin_by_client_converts_currencies_to_pln(
     row = _find(resp.json(), "client_id", client_id)
 
     base = float(anchor)
-    assert row["total_monthly_margin"] == pytest.approx(base + 88246.8, abs=0.05)
-    assert row["total_monthly_revenue"] == pytest.approx(base + 220617.0, abs=0.05)
+    assert row["total_monthly_margin"] == pytest.approx(base + 88247, abs=0.05)
+    assert row["total_monthly_revenue"] == pytest.approx(base + 220617, abs=0.05)
     assert row["total_monthly_margin"] != pytest.approx(base + 82000, abs=0.5)
     assert row["fx_missing"] is False
 
@@ -266,8 +267,8 @@ async def test_margin_endpoints_convert_revenue_and_cost_independently(
     contractor_row = _find(contractor_response.json(), "candidate_id", candidate_id)
     client_row = _find(client_response.json(), "client_id", client_id)
     base = float(anchor)
-    expected_revenue = base + 5000 * 4.1234
-    expected_margin = base + 5000 * 4.1234 - 3000
+    expected_revenue = base + round(5000 * 4.1234)
+    expected_margin = base + round(5000 * 4.1234 - 3000)
     for row in (contractor_row, client_row):
         assert row["total_monthly_revenue"] == pytest.approx(expected_revenue, abs=0.05)
         assert row["total_monthly_margin"] == pytest.approx(expected_margin, abs=0.05)
@@ -290,8 +291,8 @@ async def test_revenue_forecast_converts_split_currency_margin_per_leg(
     await _seed_split_currency_contract(currency=fake_currency)
     after = await _forecast()
 
-    expected_revenue = 5000 * 4.1234
-    expected_margin = expected_revenue - 3000
+    expected_revenue = round(5000 * 4.1234)
+    expected_margin = round(5000 * 4.1234 - 3000)
     assert after["revenue"] - before["revenue"] == pytest.approx(
         expected_revenue, abs=0.05
     )

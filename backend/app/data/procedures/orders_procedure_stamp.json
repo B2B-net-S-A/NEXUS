@@ -18,7 +18,7 @@
     "backend/app/services/ezdrowie.py": "3b51e3f0fa19b894094ecb9f4dd9a61c31bc4c3175b6f9ed82470b373c2e7639",
     "backend/app/services/finance_order_matching.py": "17eb4961d6dd78814869686367b66ea37cfb9cfda424fa70785e9c62e3475c13",
     "backend/app/services/lotte_wedel_orders.py": "0c9bfa1fb232f154f66ce894c5861b62c831a2c847df273b32550ff4194275e2",
-    "backend/app/services/md_import_parser.py": "6fadd0d81ec5c0a4351ec8962b5d4d12f3ad18159876881d0f54e7a7091bdda2",
+    "backend/app/services/md_import_parser.py": "9c4d1c7a158d85c4b3715971e6c7e0a33ac3151251c95c120f2e6f1583d76cc3",
     "backend/app/services/multi_consultant_orders.py": "a821c44be74a7d87e12030adcb8425df7eb3b8e1287ce002881c350ee7e9201f",
     "backend/app/services/nordea_order_import.py": "17870aa06dd9e6d7aba1919a6414687a5ebec295439bc5f51d555230a5d4a7c1",
     "backend/app/services/order_burn_rate.py": "213b6bd7fba6d86d9eb9e4e90d02fc36477044c87595d6117b0894ff8711a2ec",

@@ -135,3 +135,64 @@ def test_corrupt_file_is_rejected_with_a_readable_message():
     with pytest.raises(MdSheetFormatError) as exc:
         parse_md_sheet(b"to nie jest xlsx")
     assert "XLSX" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "md_cell,reason_fragment",
+    [
+        ("NaN", "nie jest skończoną liczbą"),
+        ("Infinity", "nie jest skończoną liczbą"),
+        ("-inf", "nie jest skończoną liczbą"),
+        (-3, "ujemna liczba MD"),
+        (5000, "powyżej 1000"),
+    ],
+)
+def test_non_finite_or_absurd_md_goes_to_skipped_rows(md_cell, reason_fragment):
+    """SCV-04: `Decimal("NaN")` przechodził przez parser bez wyjątku.
+
+    NaN rozlewał się na pozostałość wspólnej puli MD (każde działanie z NaN
+    daje NaN), a nieskończoność wywracała zapis do kolumny NUMERIC. Wiersz ma
+    trafić do pominiętych z numerem i powodem, a nie do rozliczenia.
+    """
+    content = _book(
+        [
+            ["Konsultant", "MD"],
+            ["Jan Kowalski", 10],
+            ["Anna Nowak", md_cell],
+        ]
+    )
+    parsed = parse_md_sheet(content)
+    assert [row.consultant_name for row in parsed.rows] == ["Jan Kowalski"]
+    assert all(row.md_reported.is_finite() for row in parsed.rows)
+    assert len(parsed.skipped_rows) == 1
+    skipped = parsed.skipped_rows[0]
+    assert skipped["row"] == 3
+    assert skipped["consultant_name"] == "Anna Nowak"
+    assert reason_fragment in skipped["reason"]
+
+
+def test_non_finite_invoice_amount_goes_to_skipped_rows():
+    content = _book(
+        [
+            ["Konsultant", "MD", "Uwagi", "Faktura"],
+            ["Jan Kowalski", 10, "SAP 4500719650", "1 000,00 zł"],
+            ["Anna Nowak", 5, "SAP 4500719650", "NaN"],
+        ]
+    )
+    parsed = parse_md_sheet(content)
+    assert [row.consultant_name for row in parsed.rows] == ["Jan Kowalski"]
+    assert parsed.rows[0].invoice_amount == Decimal("1000.00")
+    assert parsed.skipped_rows == [
+        {
+            "row": 3,
+            "reason": "kwota faktury nie jest skończoną liczbą ('NaN')",
+            "consultant_name": "Anna Nowak",
+        }
+    ]
+
+
+def test_md_boundaries_are_inclusive():
+    content = _book([["Konsultant", "MD"], ["Jan Kowalski", 0], ["Anna Nowak", 1000]])
+    parsed = parse_md_sheet(content)
+    assert [row.md_reported for row in parsed.rows] == [Decimal("0"), Decimal("1000")]
+    assert parsed.skipped_rows == []

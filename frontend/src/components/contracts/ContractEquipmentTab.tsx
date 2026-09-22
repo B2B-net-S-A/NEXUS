@@ -10,6 +10,11 @@ import {
   type EquipmentReturnStatus,
 } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
+import { apiErrorMessage } from "@/lib/api-error";
+import { warsawToday } from "@/lib/warsaw-date";
+import { useToast } from "@/components/Toast";
+import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { resolveViewState } from "@/lib/view-state";
 import { Laptop, Plus, Trash2, Check, AlertTriangle } from "lucide-react";
 
 interface Props {
@@ -49,16 +54,6 @@ const STATUS_LABELS: Record<EquipmentReturnStatus, string> = {
   written_off: "Spisany",
 };
 
-/** Dzisiejsza data w strefie firmy, jako "YYYY-MM-DD". */
-function warsawToday(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Warsaw",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
-
 function isOverdue(item: ContractEquipmentItem): boolean {
   if (item.return_status !== "pending" || !item.return_due_date) return false;
   // Porównujemy DNI KALENDARZOWE, nie chwile. `new Date("2026-08-20")`
@@ -75,12 +70,23 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
 
-  const { data: items = [], isLoading } = useQuery({
+  const { showToast } = useToast();
+  const onMutationError = (fallback: string) => (err: unknown) =>
+    showToast(apiErrorMessage(err, fallback), "error");
+
+  const equipmentQuery = useQuery({
     queryKey: ["contract-equipment", contractId],
     queryFn: async () => {
       const res = await contractEquipmentApi.list(contractId);
       return res.data as ContractEquipmentItem[];
     },
+  });
+  const items = equipmentQuery.data ?? [];
+  const viewState = resolveViewState({
+    isLoading: equipmentQuery.isLoading,
+    error: equipmentQuery.error,
+    isSuccess: equipmentQuery.isSuccess,
+    isEmpty: items.length === 0,
   });
 
   const createMut = useMutation({
@@ -90,6 +96,7 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
       qc.invalidateQueries({ queryKey: ["contract-equipment", contractId] });
       setAdding(false);
     },
+    onError: onMutationError("Nie udało się dodać sprzętu."),
   });
 
   const updateMut = useMutation({
@@ -102,12 +109,14 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
     }) => contractEquipmentApi.update(contractId, id, payload),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["contract-equipment", contractId] }),
+    onError: onMutationError("Nie udało się zapisać zmiany sprzętu."),
   });
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => contractEquipmentApi.delete(contractId, id),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ["contract-equipment", contractId] }),
+    onError: onMutationError("Nie udało się usunąć pozycji sprzętu."),
   });
 
   return (
@@ -136,8 +145,15 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
         />
       )}
 
-      {isLoading ? (
+      {viewState === "loading" ? (
         <p className="text-sm text-muted-foreground">Ładowanie…</p>
+      ) : viewState === "forbidden" ||
+        viewState === "not_found" ||
+        viewState === "error" ? (
+        <QueryStateNotice
+          state={viewState}
+          onRetry={() => void equipmentQuery.refetch()}
+        />
       ) : items.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">
           Brak pozycji. Dodaj laptop, telefon, token itp. aby śledzić zwrot.
@@ -210,9 +226,7 @@ export function ContractEquipmentTab({ contractId, readOnly = false }: Props) {
                                 id: item.id,
                                 payload: {
                                   return_status: "returned",
-                                  returned_date: new Date()
-                                    .toISOString()
-                                    .slice(0, 10),
+                                  returned_date: warsawToday(),
                                 },
                               })
                             }
@@ -257,7 +271,7 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
     owner: "ours" as EquipmentOwner,
     brand_model: "",
     serial_number: "",
-    handed_over_date: new Date().toISOString().slice(0, 10),
+    handed_over_date: warsawToday(),
     return_due_date: "",
     description: "",
   });

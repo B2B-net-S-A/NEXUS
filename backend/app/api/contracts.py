@@ -4744,6 +4744,20 @@ async def create_contract_amendment(
         new_values["status"] = contract.status.value
 
     elif data.amendment_type == ContractAmendmentType.rate_change:
+        # Jednostka i liczba godzin nie mają harmonogramu — zapis zmienia je
+        # NATYCHMIAST. Aneks z datą przyszłą przeliczałby więc dzisiejsze
+        # kwoty nową jednostką przed dniem jej wejścia w życie (audyt AN-03).
+        if (
+            data.new_rate_unit is not None
+            or data.new_billing_hours_per_month is not None
+        ) and data.effective_date > business_today():
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Zmianę jednostki lub liczby godzin wpisz w dniu jej wejścia "
+                    "w życie — nie da się jej zaplanować z wyprzedzeniem."
+                ),
+            )
         if data.new_rate_candidate is not None:
             # The candidate rate lives in the schedule. Seed a baseline step
             # (the contract's current rate from its start) the first time we
@@ -4934,6 +4948,56 @@ async def create_onboarding_item(
     await db.flush()
     await db.refresh(item)
     return item
+
+
+# Domyślna lista onboardingowa. Mieszka po stronie serwera, bo front wysyłał ją
+# kiedyś jako OSIEM osobnych POST-ów bez blokady: podwójne kliknięcie albo dwie
+# karty dawały zdublowaną listę (audyt FE-04).
+DEFAULT_ONBOARDING_ITEMS: tuple[str, ...] = (
+    "BHP — szkolenie",
+    "Podpisana umowa",
+    "Sprzęt (laptop)",
+    "Dostępy do VPN klienta",
+    "Konto w Slacku klienta",
+    "Onboarding u PM klienta",
+    "Email firmowy",
+    "Dostęp do repozytorium",
+)
+
+
+@router.post(
+    "/{contract_id}/onboarding/seed",
+    response_model=List[OnboardingItemResponse],
+)
+async def seed_onboarding_items(
+    contract_id: int,
+    current_user: TacPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Załóż domyślną listę onboardingową — atomowo i idempotentnie.
+
+    Blokada ``FOR UPDATE`` na wierszu kontraktu serializuje równoległe
+    wywołania: drugie widzi pozycje założone przez pierwsze i zwraca je
+    zamiast dopisywać drugi komplet. Lista niepusta = nic nie jest dodawane.
+    """
+    await _assert_contract(db, contract_id, current_user)
+    await db.execute(
+        select(Contract.id).where(Contract.id == contract_id).with_for_update()
+    )
+    existing_query = (
+        select(ContractOnboardingItem)
+        .where(ContractOnboardingItem.contract_id == contract_id)
+        .order_by(ContractOnboardingItem.order, ContractOnboardingItem.id)
+    )
+    existing = list((await db.execute(existing_query)).scalars().all())
+    if existing:
+        return existing
+    db.add_all(
+        ContractOnboardingItem(contract_id=contract_id, label=label, order=idx)
+        for idx, label in enumerate(DEFAULT_ONBOARDING_ITEMS)
+    )
+    await db.flush()
+    return list((await db.execute(existing_query)).scalars().all())
 
 
 @router.patch(
