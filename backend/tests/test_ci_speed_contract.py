@@ -101,6 +101,11 @@ def test_deploys_are_batched_but_manual_deploy_does_not_wait() -> None:
     assert "900" in wait["run"], (
         "Ciągły strumień merge'ów nie może blokować deployu bez końca."
     )
+    assert "ci-gate.yml/runs?branch=main&event=push" in wait["run"], (
+        "Ciszę liczymy od pusha na maina (start „CI Gate”), nie od daty commita — "
+        "kolejka merge'ów stempluje commit chwilą dodania do kolejki."
+    )
+    assert "commits/main" not in wait["run"]
     names = [s.get("name") for s in select["steps"]]
     assert names.index(wait["name"]) < names.index("Wybierz wydanie"), (
         "Wybór wydania po ciszy — inaczej deploy bierze HEAD sprzed serii."
