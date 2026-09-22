@@ -4396,14 +4396,25 @@ zakresem świadomie:** Sales, AI Analytics, Przetargi, Premie (moduł sprzedaży
 Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-plan.md`
 §0 oraz `docs/insights-etap0-specs.md`.
 
-- **TRZY zakładki, nazwane jak w DynaReporterze: `rekrutacja` ·
-  `delivery-lead` · `rada`** (dawniej `rekrutacja` · `klienci` · `zarzad`).
-  Podział jest treściowy, nie kosmetyczny: **ranking klientów i MRR mieszkają
-  w RADZIE** (pytanie o pieniądze firmy), a Delivery Lead odpowiada za obsadę
-  i hit ratio; **Liga Mistrzów i linki aplikacyjne przeniesione do
-  REKRUTACJI** (gamifikacja i źródła kandydatów to rozmowa o zespole, nie
-  o kokpicie Rady). Dokładając sekcję, zacznij od pytania, na czyje pytanie
-  odpowiada — nie od tego, gdzie jest wolne miejsce.
+- **DWIE zakładki od 21.09.2026: `body-leasing` (3 rozdziały w `?ch=`) i
+  `rada`** (makiety: https://claude.ai/artifact/3JijNAob8Vc1d53NgBGMJb, runda F).
+  Dawne Rekrutacja i Delivery Lead zlane w **Body Leasing** — jeden rozdział
+  widać naraz (`BodyLeasingPanel.tsx`, pliki w `components/insights/chapters/`):
+  **Rywalizacja** (domyślny; kampania, Liga, wyścigi, ścieżka rozwoju jako
+  tablica Junior / Senior / Expert, Hall of Fame — BEZ paska okresu),
+  **Wyniki** (Wynik · Dziś i w miesiącu · Zespół · Praca w toku · Dopływ
+  kandydatów; miesiąc) i **Klienci** (portfele DL — jedna tabela, DL jako
+  nagłówek grupy; rok). **Rada** (rok do roku NA GÓRZE jako karty metryk, pod
+  nimi kokpit i ranking klientów) widzą WYŁĄCZNIE admin, Finanse i HoR —
+  `RADA_ROLES` we froncie i `BoardReader` na `/api/insights/board`,
+  `/board/yoy`, `/clients/ranking`. **Usunięte z UI:** Power Calling, LinkedIn
+  (endpointy zostają bez konsumenta) oraz cztery sekcje DL zastąpione
+  portfelami. Z pulpitu przeszły: aktywność dnia/miesiąca
+  (`RecruitmentActivityDashboard showNextSteps={false}`, tylko z dostępem do
+  sekcji Rekrutacje), obłożenie (`AllocationWorkloadBoard`, tylko admin/HoR —
+  endpoint `HeadOfRecruitmentOnly`) i kompetencje jako agregat
+  (`/api/insights/recruitment/competence-matrix`). Dokładając sekcję, zacznij
+  od pytania, na czyje pytanie odpowiada — nie od tego, gdzie jest wolne miejsce.
 - **Tabele rok-do-roku Rady (`GET /api/insights/board/yoy`)** — dwanaście
   miesięcy × trzy lata, z deltą i kolumną „Ocena". Endpoint świadomie NIE
   przyjmuje paska okresu: patrzy na pełne lata kalendarzowe, a wpuszczenie tam
@@ -4482,18 +4493,23 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
     wszystkich 36 miesiącach. Tabela rok-do-roku NIE wchodzi też do eksportu
     CSV zakładki: tamten jest przycinany oknem z paska, a ta siatka jest
     latami — jeden plik pod jedną nazwą oznaczałby dwa różne zakresy.
-- **Stare identyfikatory zakładek ŻYJĄ jako aliasy** (`LEGACY_TAB_ALIASES`
-  w `InsightsView.tsx`): `?tab=klienci` → `delivery-lead`, `?tab=zarzad` →
-  `rada`. Nie kasuj ich: te linki są w zakładkach przeglądarki i na stronie
-  `/dynareporter`, a bez mapy wpadałyby w gałąź „nieznany tab" i po cichu
-  lądowały na Rekrutacji — link do kokpitu Rady otwierałby co innego bez
-  słowa wyjaśnienia. Rozstrzyga czysta `resolveInsightsTab` (testowalna bez
-  montowania widoku), a nie warunek zaszyty w efekcie.
-- **Domyślne okno Delivery Leada to ROK, nie miesiąc.** Ranking stoi na
-  rekrutacjach ZAMKNIĘTYCH w oknie, a tych w miesiącu jest kilkanaście na cały
-  zespół — hit ratio z takiej próbki skacze o dziesiątki punktów i czyta się
-  jak awaria. Trzy zakładki mają trzy różne domyślne okna (Rekrutacja:
-  poprzedni miesiąc, Delivery Lead: rok, Rada: kwartał) i to NIE jest dług.
+- **Stare identyfikatory zakładek i kotwic ŻYJĄ jako aliasy**
+  (`LEGACY_TAB_ALIASES`, `LEGACY_ANCHOR_CHAPTER` w `InsightsView.tsx`):
+  `rekrutacja` → Body Leasing / Wyniki, `delivery-lead` i `klienci` → Body
+  Leasing / Klienci, `zarzad` → Rada; stara kotwica (`#liga`, `#zrodla`…)
+  wybiera rozdział dokładniej niż alias. Nie kasuj ich: te linki są
+  w zakładkach przeglądarki, w zapisanych powiadomieniach i w przekierowaniach
+  `/dynareporter/*`. Rozstrzygają czyste `resolveInsightsTab`
+  i `resolveChapter` (testowalne bez montowania widoku).
+- **Każdy rozdział ma własny domyślny okres i zmiana rozdziału go zeruje**
+  (Wyniki: poprzedni miesiąc, Klienci: rok, Rada: kwartał). Klienci stoją na
+  roku, bo hit ratio stoi na rekrutacjach ZAMKNIĘTYCH w oknie, a tych
+  w miesiącu jest kilkanaście na cały zespół — wskaźnik z takiej próbki
+  skacze o dziesiątki punktów i czyta się jak awaria.
+- **Portfele DL (`/api/insights/delivery-leads/portfolio`) liczą nagłówek DL
+  i wiersze klientów TĄ SAMĄ definicją co `/delivery-leads`** — suma wierszy
+  zgadza się z nagłówkiem. Nie mieszaj z `/clients/hit-ratio` (inna definicja
+  hit ratio, bez filtra body_leasing).
 - **Sekcje mają kotwice** (`InsightsSection` + `InsightsSectionNav`): tablica
   `SECTIONS` w panelu jest jednocześnie spisem treści i kontraktem `id`.
   Dokładając sekcję, dopisz ją do tablicy — inaczej pasek sekcji obiecuje
@@ -4525,7 +4541,8 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   z `isSuccess`). Bez tego przerwa między ponowieniami react-query pokazuje
   awarię jako „brak danych". Dotyczy też 403: pustka czyta się jak utrata
   danych, nie jak brak uprawnień.
-- **D7: `/insights` widzi KAŻDA zalogowana rola.** Guard rolowy zdjęty
+- **D7: `/insights` widzi KAŻDA zalogowana rola — poza zakładką Rada
+  (21.09.2026, patrz wyżej).** Guard rolowy zdjęty
   z sześciu luster; `ROLE_CAPABILITIES` i middleware nietknięte. Poszerzone do
   `CurrentUser`: `/api/competitions/current`, `/monthly-races` oraz `/history`
   (ta ostatnia dopiero wtedy, gdy zyskała konsumenta — sekcję „Hall of Fame").
@@ -5196,5 +5213,227 @@ w `entrypoint.sh`, sondy w `/api/health/deep`). Raport:
   przy otwartym panelu i po „Ukryj postać" (`useUiStore.hideMyPeopleBuddy`,
   przywracane checkboxem w stopce panelu). Główne, dostępne wejście to
   przycisk w topbarze.
-- **Poza zakresem świadomie:** czat AI o liście, widok HoR „czyja lista leży",
-  poranny digest, zmiana atrybucji wyścigów.
+- **Jarvis przypomina o przepinaniu** (21.09.2026): narzędzia odczytu
+  `my_people` i `my_people_for_job` (tylko osoby do przepięcia; brak wyniku =
+  `"niepoliczony"`, weto HM = `nie_mozna_dodac`), sekcja „PRZEPINANIE" w
+  prompcie, poranny skrót dnia dostaje `briefFragments` (nowe dopasowania,
+  czekający > 30 dni), a dzwonek `my_people_match` → zdarzenie okna
+  `nexus:my-people-match` (z `useNotifications`) → dymek Jarvisa, którego
+  kliknięcie wysyła `reassignPrompt(jobId)` i kończy się kartą
+  `add_candidates_to_job` do potwierdzenia. Świadomie tylko DWA momenty
+  (poranek + nowa rekrutacja) — częstsze przypomnienia uczą ignorowania.
+  Działa dopiero przy `JARVIS_ENABLED=true`.
+- **Poza zakresem świadomie:** widok HoR „czyja lista leży", zmiana atrybucji
+  wyścigów.
+
+## Kalendarz = „Rozmowy u klienta” (0338, 22.09.2026)
+
+`/calendar` był kopią Outlooka trzech osób: 10 wydarzeń założonych w NEXUSIE
+w całej historii, 0 w ostatnich 90 dniach, 0 feedbacków. Zespół nie umawia
+w NEXUSIE screeningów ani rozmów. Planuje prep i drugi prep oraz musi znać
+termin rozmowy kandydata U KLIENTA, żeby zadzwonić ≤30 min po niej. Ekran
+prowadzi teraz jeden cykl per para (kandydat, rekrutacja):
+`Terminy od klienta (DL) → Wybór terminu (rekruter) → Prep → Prep 2 →
+Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
+`docs/calendar-client-interview-cycle-completion-report.md`.
+
+- **Trzy widoki tych samych danych** (`?view=agenda|week|board`, domyślnie
+  agenda): Agenda („Do zrobienia” + dziś/jutro + karta kandydata z 7 krokami
+  i pytaniami klienta), Tydzień (dawna siatka, `components/calendar/WeekCalendar.tsx`,
+  zachowanie `?event=`/`action=feedback` bez zmian) i Tablica (7 kolumn).
+  `?event=` zawsze otwiera Tydzień. Zakres `?scope=mine|jobs|all`: DL/TAC
+  domyślnie `jobs`, reszta `mine`, `all` tylko admin/HoR (403).
+- **Kroki i zadania liczy SERWER** (`services/interview_cycle.py`, czyste
+  `compute_steps`/`compute_todos` + hurtowe `load_overview`, stała liczba
+  zapytań). Front (`lib/interview-cycle.ts`) tylko prezentuje. Para jest „w cyklu”,
+  gdy ma otwarty wniosek o terminy, prep/rozmowę u klienta w oknie −14/+30 dni
+  albo najnowszy etap „Rozmowa z klientem” z ostatnich 30 dni.
+- **Terminy od klienta = `client_interview_slot_requests`** (`services/interview_slots.py`):
+  `awaiting_recruiter → awaiting_dl → confirmed | cancelled`, przejścia pod
+  `FOR UPDATE`, jeden OTWARTY wniosek na parę (częściowy UNIQUE → 409). Dodaje
+  i potwierdza WYŁĄCZNIE admin/HoR/DL/TAC z członkostwem w rekrutacji; wybiera
+  rekruter wniosku (domyślnie: właściciel procesu → pierwszy weryfikator →
+  `job.recruiter_id`) albo członek zespołu. Potwierdzenie zakłada wydarzenie
+  `EventType.client_interview` z `operational_owner_id` = rekruter i opcjonalnie
+  blokadę w JEGO Outlooku bez uczestników (kandydata zaprasza klient; awaria
+  Grapha nie blokuje potwierdzenia: `outlook="failed"`).
+- **Telefon po rozmowie = istniejące wyzwalacze `post_interview_*`**, poszerzone
+  o `client_interview` (`_POST_INTERVIEW_EVENT_TYPES`). Dla rozmowy u klienta:
+  strona KANDYDATA (dzwoni rekruter, nie zbiera feedbacku klienta), odbiorca =
+  właściciel wydarzenia, link `/calendar?cycle=c-j&debrief=<id>` (ekran otwiera
+  okno debriefu). `calendar_auto_complete` też kończy `client_interview`.
+  Okno na agendzie: `POST_INTERVIEW_CALL_WINDOW_MINUTES` (30).
+- **Debrief = `InterviewFeedback(candidate_side)` pod wydarzeniem rozmowy**
+  (`PUT /api/interview-cycle/events/{id}/debrief`, upsert): jak poszło
+  (`overall_impression` 5/3/1), komentarz (`concerns`), pytania klienta
+  (`client_questions` + bank `InterviewQuestion(source=client_debrief, client_id)`
+  + pin `JobQuestion`), `offer_acceptance` (yes/likely/no/unknown) i
+  `acceptance_condition` (nowe kolumny). Pytanie bez klienta NIE trafia do
+  banku — globalny bank wyciekłby do prepów innych klientów.
+- **Prep-kit ma warstwę `client_debrief`** (zaraz po przypiętych, filtrowana
+  `_fits_job`) — pytania tego klienta z poprzednich rozmów. Prep z ekranu to
+  `ScheduleInterviewModal` z `defaultEventType="prep_call"`; `prep_call`
+  domyślnie dostaje Teams (lustro `_TEAMS_DEFAULT_EVENT_TYPES` ↔ `TEAMS_DEFAULT_FOR`).
+- **„Oba kierunki” z Outlookiem:** PATCH terminu/tytułu/miejsca/opisu wydarzenia
+  z Outlooka idzie NAJPIERW do Grapha organizatora (`update_graph_event`,
+  czas w `BUSINESS_TZ` bez przesunięcia — `_graph_datetime`), dopiero potem do
+  bazy. Brak połączenia twórcy / 400/403/404 = 409 i ZERO zmian lokalnie
+  (zapis tylko w NEXUSIE sync by cofnął). Uczestnicy, cały dzień i link Teams
+  zostają Outlookowi. Synchronizacja działa tylko dla osób z połączonym M365.
+- Harness `/preview/calendar-cycle` (`?as=dl`) — dane fikcyjne, zero zapytań
+  (dane agendy przez `dataOverride`, reszta zasiana w cache).
+
+## Dwa silniki wyszukiwania — jedna semantyka filtrów (09.2026)
+
+NEXUS ma DWA silniki wyszukiwania kandydatów, które UI połączy w jeden ekran
+„Kandydaci": **L** = `GET /api/candidates` (lista, ⌘K, eksport, alerty
+zapisanych wyszukiwań) i **S** = `POST /api/search/candidates` (+ `/diagnostics`;
+`/candidates/search` i ręczne szukanie w rekrutacji). Do 09.2026 rozjeżdżały się
+w 11 miejscach (`docs/sesja-2026-07-28-completion-report.md`). Filtry wspólne
+buduje WYŁĄCZNIE `app/services/candidate_search_predicates.py` — oba endpointy
+czytają je stamtąd (także warianty legacy), prywatne kopie są zakazane
+(`test_candidate_search_predicates.py` czyta źródła). Sortowanie, stronicowanie,
+retrieval hybrydowy i diagnostyka zostają przy endpointach.
+
+- **`semantics_version` rozstrzyga WSZYSTKO. Brak pola = v1 = DOKŁADNIE
+  dotychczasowe wyniki każdego endpointu, łącznie z rozjazdami** (lista wycina
+  osoby bez stawki/lokalizacji/stażu i czyta samą kolumnę `location`;
+  wyszukiwarka dopasowuje tag podłańcuchem, liczy tylko kategorię główną, łączy
+  „Otwarty na" koniunkcją, nie czyta koszyka Traffita i nie przełącza `q`
+  wyglądającego na osobę). Całe nowe zachowanie jest opt-in: `semantics_version: 2`
+  (pole w S, parametr w L) — wtedy oba silniki odpowiadają identycznie.
+  Dowody: `test_saved_search_legacy_replay.py` (31 ładunków legacy; ten sam plik
+  przechodzi na `origin/main` sprzed zmiany i po niej) oraz
+  `test_search_engines_contract.py` (każda decyzja w v2: ten sam zbiór id z L i S).
+  **Nie zmieniaj zachowania v1 „przy okazji" — na nim stoją alerty.**
+
+Semantyka v2 (decyzje właściciela produktu, wiążące dla OBU endpointów):
+
+| Filtr | Reguła v2 |
+|---|---|
+| Umiejętności | trzy kubełki: „Musi mieć" = TWARDO · „Mile widziane" = tylko ranking (także na liście — prowadzi każde sortowanie) · „Wyklucz" = TWARDO; bez kubełka → „Musi mieć". Jawne pola: `skills_required[]`, `skills_required_any_groups` (S: lista list; L: powtarzany parametr `a\|b`), `skills_preferred[]`, `skills_excluded[]`. `a\|b` = grupa LUB w KAŻDYM polu. Tag „java" nadal spełnia umiejętność „Java" (tagi są częścią zrzutu). |
+| Tekst `q` | `text_mode: auto\|literal\|semantic`. Auto: e-mail, telefon, 2–3 wyrazy wyglądające na osobę → dopasowanie DOSŁOWNE (to samo w L i S: `literal_text_clause`); JEDNO słowo dosłownie TYLKO, gdy istnieje kandydat o takim imieniu, nazwisku albo członie nazwiska dwuczłonowego („Kowalska" → „Nowak-Kowalska") (`person_token_exists`: jedno `LIMIT 1` po indeksie trigramowym `search_doc_unaccented`, pamięć 60 s); reszta → tryb wybrany przez rekrutera. `interpretation.rule` mówi, która reguła zadziałała. W v1 auto działa tylko przy jawnym `text_mode`. |
+| Brak danych | osoba BEZ lokalizacji / stażu / stawki ZOSTAJE i jest oznaczona w `unknown_fields: ["location","experience","rate"]` (tylko dla AKTYWNYCH filtrów); `hide_unknown: true` ją ukrywa. Stawka w walucie innej niż PLN = nieznana. |
+| „Otwarty na" | LUB; `open_to_*: false` zostaje osobnym, twardym warunkiem |
+| Kategoria kompetencji | główna LUB poboczna (M2M) LUB legacy FK |
+| Lata doświadczenia | jedna reguła przedziału: dokładna liczba, a gdy jej brak — koszyk Traffita |
+| Tagi | cały tag (token JSON, bez wielkości liter), nie podłańcuch |
+| Lokalizacja | `city` LUB `location`, `%`/`_` dosłownie, bez polskich znaków; kilka miast (`location_cities`) i kraj w obu |
+| `q_all`/`q_any`/`q_none` | jeden parser (`parse_q_groups`; grupa jako lista albo `a\|b`) |
+| status / dostępność | zgodne w obu wersjach — przypięte testem |
+
+- **Pola legacy umiejętności znaczą w L i S co innego — w OBU wersjach.** L:
+  `skills` (+`skill_combine`), `skills_any`, `skills_none` są TWARDE. S:
+  `skills_must` + `skills_any` to „Mile widziane" (SEARCH-P0-03), twarde jest
+  tylko `skills_none`. Zgodne są dopiero pola jawne.
+- **Lista nie ma retrievalu wektorowego** (do połączenia ekranów): przyjmuje
+  `text_mode`, ale zawsze dopasowuje dosłownie i mówi to w `text_mode_applied`.
+- **Diagnostyka zna twarde kubełki**: grupa `skills_required` („Musi mieć") obok
+  `skills` („Wyklucz"); nowa grupa filtrów = wpis w `NULL_POLICY`.
+- **Parser wyrażenia umiejętności ma port w Pythonie** (`parse_skill_expression`)
+  i WSPÓLNY plik przypadków `frontend/src/lib/__fixtures__/skill-expression-cases.json`.
+- **Nowy wspólny filtr:** builder w `candidate_search_predicates` (z wariantem
+  v1, jeśli filtr już istniał), wpięcie w OBU endpointach, przypadek w obu
+  plikach testów. Kanoniczny fit (`canonical_fit`, `scoring_service`) NIE jest
+  tą zmianą dotykany.
+
+### Zapisane wyszukiwania: format v3 i migracja na wspólną semantykę
+
+- **Jeden format zapisu** (`version: 3`, `semantics_version: 2`, `origin`,
+  `request`, `qs` z `sv=2`, `legacy`, `migration`) i adapter czytający OBA
+  formaty legacy: `app/services/saved_search_payload.py` ↔
+  `frontend/src/lib/saved-search-unified.ts`, wspólny plik przypadków
+  `__fixtures__/saved-search-unified-cases.json`. `request` ma kształt wspólny
+  + `list_only` / `search_only` dla filtrów jednego silnika. Najstarszy format
+  listy `{qs}` bez `api` jest nieczytelny po stronie Pythona — zostaje nietknięty.
+- **Migracja (`services/saved_search_migration.py`)** porównuje wynik v1 i v2
+  przez PRAWDZIWE endpointy (token właściciela, do 500 id + `total`).
+  **Zapis z LISTY migruje z flagami neutralizującymi** (`neutralise_list_request`:
+  `hide_unknown: true` + `location_scope: "location_only"`), więc zwraca
+  DOKŁADNIE to, co dotąd, i alerty się nie poszerzają; zapis z WYSZUKIWARKI
+  zostawia osoby bez danych widoczne (tak działał zawsze). Nowo tworzone zapisy
+  biorą zwykłe domyślne v2. Identyczny wynik → po cichu; inny (to, czego flaga
+  nie wyrazi: `%`/`_` w lokalizacji, cały tag, kategoria poboczna, „Otwarty na"
+  = LUB, koszyk Traffita, `q`-osoba) → `requires_reapproval=true`, alert
+  WSTRZYMANY (`filters.migration.alert_was_on`), `diff` z samych LICZB + kody
+  reguł `diff.rules` (`saved_search_payload.RULE_*`; statyczne „reguły, które
+  dotyczą tego zapisu", nie atrybucja per osoba) i JEDNO powiadomienie
+  `saved_search_reapproval` (migracja `0336_saved_search_reapproval_notif` +
+  lustro w `entrypoint.sh`). Idempotentna (v3 i zapisy przypięte do v1 są
+  pomijane). Tryb hybrydowy z `q` nie jest odtwarzany (embeddingi). Nieaktywny
+  właściciel → do akceptacji bez powiadomienia. Najstarsze `{qs}` bez `api` są
+  tylko liczone (`unreadable_ids`).
+- **Decyzja właściciela zapisu = istniejące `confirm_reapproval`**
+  (`PATCH /api/saved-searches/{id}`) + `reapproval_choice`: `accept`
+  („Zatwierdź nowe wyniki") wznawia alert i ZERUJE linię bazową
+  (`last_scanned_at`) — pierwszy przebieg skanera zasiewa dziennik nowym zbiorem
+  bez alertu, zero burzy `saved_search_match`; `keep_legacy` („Zostaw po
+  staremu") przywraca ORYGINALNY ładunek z `filters.legacy` ze znacznikiem
+  `keep_legacy_semantics` — zapis zostaje przy v1 (jedyny sposób na te same
+  wyniki, gdy różnicy nie wyraża żadna flaga), linia bazowa zostaje, a kolejne
+  przebiegi migracji go omijają (`pinned`). UI: panel w `SavedSearchesMenu`
+  („Zmieniły się zasady wyszukiwania", liczby przed/po, kody przetłumaczone
+  w `lib/saved-search-reapproval.ts`) — osobny od plakietki po wycofaniu
+  stawek miesięcznych (tamten zapis nie ma `filters.migration`).
+- **Uruchomienie:** `POST /api/saved-searches/migrate-semantics[?dry_run=true]`
+  (admin; odpowiedź = liczniki + id) albo przy starcie skanera alertów, gdy
+  `SAVED_SEARCH_SEMANTICS_MIGRATION_AUTORUN=true` (domyślnie OFF — migracja
+  wstrzymuje alerty i powiadamia ludzi, moment wybiera człowiek). Paragon:
+  `app_settings['saved_search_semantics_migration_v3']`.
+- **Skaner alertów** (`alert_list_params`): v3 → ścieżka wspólna
+  (`unified_to_list_params`, `semantics_version=2`), legacy → `filters.api` bez
+  zmian. Zapis v3 z filtrami, których lista nie zna (`list_engine_gaps`: języki,
+  źródła…), NIE jest odtwarzany — alert byłby szerszy niż zapis.
+- **UI do połączenia ekranów:** lista czyta `sv=2` z querystringu zapisu
+  (`CandidateFilters.semanticsVersion` → `semantics_version=2`), widok
+  wyszukiwarki otwiera v3 przez `savedSearchToSearchViewRequest`. Stary ekran
+  nadal ZAPISUJE formaty legacy (v1) — kolejny przebieg migracji je podniesie.
+## Własny pulpit startowy (0337, 21.09.2026)
+
+`/dashboard` to od 21.09.2026 pulpit, który każdy układa sam z kafelków
+(decyzje Artura: start od PUSTEGO pulpitu z poleceniami dla roli, katalog
+gotowych kafelków + kreator własnej metryki, siatka 12 kolumn z przeciąganiem
+i zmianą rozmiaru, JEDEN pulpit na osobę, stare presety ról usunięte od razu,
+finanse w kreatorze od razu). Raport: `docs/custom-dashboard-completion-report.md`.
+
+- **Układ = `user_dashboards` (0337)**, jeden wiersz na osobę, `layout` JSONB +
+  `version`. `GET/PUT /api/users/me/dashboard`; PUT wymaga `expected_version`
+  (409 `DASHBOARD_VERSION_CONFLICT` = inna karta zapisała wcześniej). Kształt
+  pilnuje `services/dashboard_tiles.py` — ściśle przy zapisie (422 po polsku),
+  łagodnie przy odczycie (nieznany typ odpada do `dropped_tiles`, pulpit się
+  otwiera). Linki w notatce: tylko `https://` i ścieżki `/…` (XSS).
+- **Nowy kafelek = cztery miejsca:** `TileType` (backend), `TILE_TYPES`
+  (`lib/api/userDashboard.ts`), definicja w `lib/dashboard-tiles/catalog.ts`
+  i `case` w `components/v2/dashboard/custom/TileContent.tsx`. Pierwsze dwa
+  pilnuje `test_dashboard_tile_types_mirror.py`.
+- **Gotowe kafelki to widżety ze starego pulpitu ról OPAKOWANE, nie przepisane**
+  (każdy sam pobiera dane i ma swoje bramki). Dostępność w katalogu jest lustrem
+  dawnych bramek `RoleDashboard` (sekcja, nie sama rola). `PriorityWorkIsMounted`
+  pilnuje, że Priority Work ma wejście z katalogu.
+- **Kreator metryki: `POST /api/dashboard-metrics/evaluate`** (POST tylko do
+  odczytu — w `READ_ONLY_POST_ROUTE_TEMPLATES`; limit 60/min per użytkownik;
+  katalog źródeł `GET /catalog`). Definicja deklaratywna
+  (`services/custom_metrics/definition.py`) — zamknięte słowniki miar,
+  podziałów i filtrów per źródło, zero SQL od użytkownika. **Uprawnienia liczone
+  przy KAŻDYM zapytaniu** (`engine.py`): sekcja źródła
+  (`section_access_for_user`), „czyje dane” z `resolve_dashboard_scope`
+  (self → tylko „moje”, recruitment_org → + zespół, delivery_clients/organization
+  → + cała firma). Za szeroka prośba = 403 `metric_scope_denied` ze zdaniem —
+  kafelek mówi „Brak dostępu”, nigdy nie pokazuje zera.
+- **Ruchy w pipeline liczą WYŁĄCZNIE kamienie milowe z
+  `analytics_first_milestones`** (reguła D2, jak Insights) — inne etapy świadomie
+  poza kreatorem, bo surowe `candidate_stages` dubluje powroty na etap.
+- **Kwoty = `insights_board_money.fold_money`** (ta sama funkcja co kafle Rady),
+  kontrakty z `RATE_SCHEDULE_LOADS`. Redakcja całościowa: Finanse/admin — wszyscy
+  klienci; Delivery Lead — wyłącznie klienci z
+  `resolve_delivery_lead_finance_client_ids`; klient spoza portfela w filtrze =
+  odmowa całości, nie częściowa suma. Wynik niesie notę o młodszej ewidencji
+  kontraktów.
+- **Zapis na froncie:** menu kafelka i dodanie z katalogu zapisują od razu;
+  przeciąganie/rozmiar pracują na szkicu z „Cofnij” i idą jednym PUT po
+  „Zapisz układ”. Na telefonie (< 768 px) lista w kolejności wiersz→kolumna,
+  bez edycji układu.
+- **`/dashboard#nadzor-kontaktu`** (link alertów SLA z `dashboard_v2.py`)
+  pokazuje panel nadzoru tymczasowo, gdy ktoś nie ma tego kafelka, z „Dodaj na
+  stałe”. `?preset=` jest ignorowane; `dashboardHref()` zawsze zwraca `/dashboard`.
+- Harness: `/preview/custom-dashboard` (pusty i pełny pulpit, zero zapytań).

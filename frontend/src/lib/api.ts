@@ -3095,6 +3095,8 @@ export const savedSearchesApi = {
       description: string;
       notify_new_matches: boolean;
       confirm_reapproval: boolean;
+      /** Zapis wstrzymany przez migrację semantyki: zatwierdź albo zostaw v1. */
+      reapproval_choice: "accept" | "keep_legacy";
     }>,
   ) => api.patch<SavedSearchRow>(`/api/saved-searches/${id}`, data),
   delete: (id: number) => api.delete(`/api/saved-searches/${id}`),
@@ -5057,7 +5059,8 @@ export const userEmailTemplatesApi = {
 export type InterviewQuestionSource =
   | "manual"
   | "auto_generated"
-  | "imported_from_champion";
+  | "imported_from_champion"
+  | "client_debrief";
 
 export type InterviewQuestionTypeLiteral =
   | "technical"
@@ -5082,6 +5085,7 @@ export type QuestionRating = "up" | "down";
 export type SuggestionTier =
   | "pinned"
   | "legacy_champion"
+  | "client_debrief"
   | "tier_1_same_cc"
   | "tier_2_secondary_cc"
   | "tier_3_client_knowledge"

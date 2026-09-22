@@ -36,7 +36,11 @@ async def mark_ended_interviews_completed(db: AsyncSession, now: datetime) -> in
     stmt = (
         update(CalendarEvent)
         .where(
-            CalendarEvent.event_type == EventType.interview,
+            # 0338: rozmowa u klienta też się „kończy” — od jej końca liczy się
+            # telefon do kandydata (T+15) i debrief.
+            CalendarEvent.event_type.in_(
+                (EventType.interview, EventType.client_interview)
+            ),
             CalendarEvent.status == EventStatus.scheduled,
             CalendarEvent.end_time.isnot(None),
             CalendarEvent.end_time < threshold,

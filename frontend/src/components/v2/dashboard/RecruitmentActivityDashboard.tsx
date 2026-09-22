@@ -410,7 +410,21 @@ function ComparisonCard({
   )
 }
 
-export function RecruitmentActivityDashboard() {
+export function RecruitmentActivityDashboard({
+  showNextSteps = true,
+  embedded = false,
+}: {
+  /**
+   * Osadzone w Insights — tytuł i opis daje nagłówek części rozdziału, więc
+   * własny nagłówek widżetu byłby drugim tytułem tej samej treści.
+   */
+  embedded?: boolean
+  /**
+   * „Moje następne kroki" należą do pulpitu. Insights montuje tę sekcję jako
+   * statystykę, więc lista zadań nad nią byłaby tam obcym ciałem.
+   */
+  showNextSteps?: boolean
+} = {}) {
   const authUser = useAuthStore((state) => state.user)
   const scopeCacheKey = `${authUser?.id ?? "anonymous"}:${authUser?.authorization_version ?? "none"}`
   const initialDay = useMemo(() => warsawToday(), [])
@@ -506,14 +520,14 @@ export function RecruitmentActivityDashboard() {
 
   return (
     <>
-    {canReadPipeline ? <MyNextStepsSection /> : null}
+    {canReadPipeline && showNextSteps ? <MyNextStepsSection /> : null}
     <section
       aria-labelledby="recruitment-activity-heading"
       data-testid="recruitment-activity-dashboard"
       className="space-y-3"
     >
       <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div>
+        <div className={embedded ? "sr-only" : undefined}>
           <h2
             id="recruitment-activity-heading"
             className="text-lg font-semibold text-foreground"

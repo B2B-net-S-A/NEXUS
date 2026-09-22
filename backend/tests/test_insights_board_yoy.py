@@ -91,6 +91,7 @@ async def _seed_user(role: UserRole) -> tuple[str, str]:
                 password_hash=hash_password(password),
                 role=role,
                 is_active=True,
+                profile_completed=True,
             )
         )
         await db.commit()
@@ -582,16 +583,23 @@ def test_money_is_the_same_function_as_the_board_tiles_not_a_copy():
 
 
 @pytest.mark.asyncio
-async def test_yoy_is_reachable_for_every_logged_in_role(yoy_client: AsyncClient):
-    """D7: /insights widzi KAŻDA zalogowana rola, bez redakcji kwot."""
-    for role in (UserRole.admin, UserRole.finance, UserRole.sourcer, UserRole.tac):
+async def test_yoy_is_reachable_only_for_admin_finance_and_hor(
+    yoy_client: AsyncClient,
+):
+    """Zakładka Rada: admin · finance · HoR (21.09.2026), bez redakcji kwot."""
+    params = {"end_year": BASE_YEAR, "years": 2}
+    for role in (UserRole.admin, UserRole.finance, UserRole.head_of_recruitment):
         email, password = await _seed_user(role)
         headers = await _login(yoy_client, email, password)
-        resp = await yoy_client.get(
-            YOY_URL, headers=headers, params={"end_year": BASE_YEAR, "years": 2}
-        )
+        resp = await yoy_client.get(YOY_URL, headers=headers, params=params)
         assert resp.status_code == 200, f"{role.value}: {resp.text}"
         assert _metric(resp.json(), "margin_monthly_pln")["series"] is not None
+
+    for role in (UserRole.sourcer, UserRole.tac, UserRole.recruiter):
+        email, password = await _seed_user(role)
+        headers = await _login(yoy_client, email, password)
+        resp = await yoy_client.get(YOY_URL, headers=headers, params=params)
+        assert resp.status_code == 403, f"{role.value}: {resp.text}"
 
 
 @pytest.mark.asyncio

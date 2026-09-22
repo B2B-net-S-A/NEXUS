@@ -42,6 +42,15 @@ export const EVENT_TYPE_CONFIG: Record<
     borderColor: "border-border",
     dotColor: "bg-gray-400",
   },
+  // 0338: rozmowa kandydata U KLIENTA — rekruter jej nie prowadzi, ale od jej
+  // końca liczy się „zadzwoń ≤30 min po” i debrief.
+  client_interview: {
+    label: "Rozmowa u klienta",
+    color: "text-warning-muted-foreground",
+    bgColor: "bg-warning-muted",
+    borderColor: "border-warning",
+    dotColor: "bg-warning",
+  },
   deadline: {
     label: "Deadline",
     color: "text-destructive",

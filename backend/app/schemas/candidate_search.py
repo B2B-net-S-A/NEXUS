@@ -68,6 +68,18 @@ class CandidateSearchRequest(BaseModel):
     skills_must: list[str] = Field(default_factory=list, max_length=20)
     skills_any: list[str] = Field(default_factory=list, max_length=20)
     skills_none: list[str] = Field(default_factory=list, max_length=20)
+    # Trzy JAWNE kubełki (decyzja 09.2026) — to samo znaczenie co w
+    # `GET /api/candidates`: „Musi mieć" (twardo), „którakolwiek z grupy"
+    # (twardo), „Mile widziane" (tylko ranking), „Wyklucz" (twardo). Każda
+    # pozycja może być grupą LUB w formacie `a|b`. Pola legacy wyżej zachowują
+    # dotychczasowe znaczenie: `skills_must`/`skills_any` = „Mile widziane",
+    # `skills_none` = „Wyklucz" — zapisane wyszukiwania zwracają to samo.
+    skills_required: list[str] = Field(default_factory=list, max_length=20)
+    skills_required_any_groups: list[list[str]] = Field(
+        default_factory=list, max_length=10
+    )
+    skills_preferred: list[str] = Field(default_factory=list, max_length=20)
+    skills_excluded: list[str] = Field(default_factory=list, max_length=20)
     experience_years_min: Optional[int] = Field(default=None, ge=0, le=60)
     experience_years_max: Optional[int] = Field(default=None, ge=0, le=60)
     languages: list[LanguageRequirement] = Field(default_factory=list, max_length=10)
@@ -90,6 +102,22 @@ class CandidateSearchRequest(BaseModel):
     open_to_side_projects: Optional[bool] = None
     open_to_sales_support: Optional[bool] = None
     open_to_expert_consult: Optional[bool] = None
+    # „Otwarty na" — KTÓRYKOLWIEK z zaznaczonych (LUB), jak na liście. Pola
+    # `open_to_*: true` wyżej dokładają się do tej samej alternatywy.
+    open_to: list[Literal["side_projects", "sales_support", "expert_consult"]] = Field(
+        default_factory=list
+    )
+    # v2: "location_only" zawęża dopasowanie miasta do samej kolumny `location`
+    # (dotychczasowy zakres listy; ustawia je migracja zapisów z listy).
+    location_scope: Optional[Literal["city_or_location", "location_only"]] = None
+    # Ukryj osoby BEZ danych dla aktywnych filtrów lokalizacji / stażu / stawki.
+    # Domyślnie (v2) takie osoby ZOSTAJĄ i są oznaczane w `unknown_fields`.
+    hide_unknown: Optional[bool] = None
+    # Wersja semantyki filtrów. Brak pola (v1) = DOKŁADNIE dotychczasowe wyniki
+    # tego endpointu — zapisane wyszukiwania nie zmieniają się bez zgody
+    # właściciela. `2` = jedna semantyka wspólna z `GET /api/candidates`
+    # (`candidate_search_predicates.Semantics`).
+    semantics_version: Optional[Literal[1, 2]] = None
     cv_parsed_after: Optional[date] = None
 
     # === Job-context exclusion ================================================
@@ -114,6 +142,18 @@ class CandidateSearchRequest(BaseModel):
     #             fusion (k=60) + Voyage Rerank 2.5 on top-100 → top-K.
     # Hybrid only kicks in when `q` is non-empty; otherwise behaves as boolean.
     search_mode: Literal["boolean", "hybrid"] = "boolean"
+
+    # === Tryb tekstu `q` ======================================================
+    # "auto"     — `q` wyglądające na osobę (dwa–trzy wyrazy, e-mail, telefon
+    #              albo JEDNO słowo będące czyimś imieniem/nazwiskiem w bazie)
+    #              jest dopasowywane DOSŁOWNIE, tak samo jak `?q=` na liście;
+    #              każdy inny tekst idzie ścieżką wg `search_mode`.
+    # "literal"  — zawsze dosłownie, bez retrievalu wektorowego.
+    # "semantic" — zawsze hybryda (BM25 + wektor), niezależnie od `search_mode`.
+    # Brak pola: v2 zachowuje się jak "auto"; v1 zostaje przy dotychczasowym
+    # `q` (bez automatycznego przełączania). Co faktycznie zrobiono, mówi
+    # `meta.text_mode_applied` + `meta.interpretation`.
+    text_mode: Optional[Literal["auto", "literal", "semantic"]] = None
 
     @model_validator(mode="after")
     def ranges_are_ordered(self) -> "CandidateSearchRequest":
@@ -184,6 +224,9 @@ class CandidateSearchItem(BaseModel):
     # hiring managera blokuje (``False``). ``None`` bez kontekstu rekrutacji
     # albo bez przeciwwskazań.
     eligibility: Optional[dict[str, Any]] = None
+    # v2: które AKTYWNE filtry („location", „experience", „rate") ta osoba
+    # przeszła wyłącznie dlatego, że nie mamy o niej danych — do plakietki w UI.
+    unknown_fields: list[str] = Field(default_factory=list)
 
 
 class CompetenceCategoryFacet(BaseModel):
@@ -219,6 +262,12 @@ class SearchMeta(BaseModel):
     # „200 najtrafniejszych". Zawsze False w trybie boolowskim, gdzie `total`
     # naprawdę zlicza całą bazę.
     result_cap_reached: bool = False
+    # Jak potraktowano `q`: "literal" (dopasowanie dosłowne — osoba albo jawny
+    # przełącznik), "keywords" (FTS słów kluczowych, tryb boolowski),
+    # "semantic" (hybryda BM25 + wektor), "none" (bez `q`).
+    text_mode_applied: Literal["literal", "keywords", "semantic", "none"] = "none"
+    # „Rozumiem to jako…" — patrz `candidate_search_predicates.TextInterpretation`.
+    interpretation: Optional[dict[str, Any]] = None
 
 
 class CandidateSearchResponse(BaseModel):

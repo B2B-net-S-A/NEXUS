@@ -16,6 +16,9 @@ class EventType(str, enum.Enum):
     prep_call = "prep_call"
     meeting = "meeting"
     deadline = "deadline"
+    # 0338: rozmowa kandydata U KLIENTA — rekruter jej nie prowadzi, ale musi
+    # znać termin: od jej końca liczy się „zadzwoń ≤30 min po” i debrief.
+    client_interview = "client_interview"
 
 
 class EventStatus(str, enum.Enum):

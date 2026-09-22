@@ -74,6 +74,10 @@ interface ScheduleInterviewModalProps {
   onOpenChange: (open: boolean) => void;
   /** Rekrutacja podpowiadana przy otwarciu (np. z karty rekrutacji). */
   defaultJobId?: number | null;
+  /** Typ przy otwarciu — „Zaplanuj prep” z ekranu „Rozmowy u klienta”. */
+  defaultEventType?: EventType;
+  /** Tytuł przy otwarciu (domyślnie „Interview: …”). */
+  defaultTitle?: string;
 }
 
 type EventType = "interview" | "screening" | "prep_call" | "meeting";
@@ -91,6 +95,8 @@ const EVENT_TYPE_LABELS: Record<EventType, string> = {
 const TEAMS_DEFAULT_FOR: ReadonlySet<EventType> = new Set<EventType>([
   "interview",
   "screening",
+  // 0338: prep z kandydatem to call na Teams (tak planuje go zespół).
+  "prep_call",
 ]);
 
 export default function ScheduleInterviewModal({
@@ -100,12 +106,15 @@ export default function ScheduleInterviewModal({
   open,
   onOpenChange,
   defaultJobId = null,
+  defaultEventType = "interview",
+  defaultTitle,
 }: ScheduleInterviewModalProps) {
   const queryClient = useQueryClient();
 
-  const [title, setTitle] = useState(`Interview: ${candidateName}`);
+  const initialTitle = defaultTitle ?? `Interview: ${candidateName}`;
+  const [title, setTitle] = useState(initialTitle);
   const [description, setDescription] = useState("");
-  const [eventType, setEventType] = useState<EventType>("interview");
+  const [eventType, setEventType] = useState<EventType>(defaultEventType);
   // Liczone przy otwarciu (efekt niżej), nie raz na życie komponentu: okno
   // jest stale zamontowane na profilu kandydata, więc `useMemo([])`
   // proponowało godzinę sprzed kilku godzin.
@@ -129,9 +138,9 @@ export default function ScheduleInterviewModal({
   // uczestnicy" i termin z poprzedniej rozmowy (wzorzec z InterviewFeedbackModal).
   useEffect(() => {
     if (!open) return;
-    setTitle(`Interview: ${candidateName}`);
+    setTitle(initialTitle);
     setDescription("");
-    setEventType("interview");
+    setEventType(defaultEventType);
     setStart(nextHourIso());
     setDuration(45);
     setInviteCandidate(true);
@@ -143,7 +152,7 @@ export default function ScheduleInterviewModal({
     setError(null);
     setJobId(defaultJobId);
     setReminderMinutes(15);
-  }, [open, candidateId, candidateName, defaultJobId]);
+  }, [open, candidateId, candidateName, defaultJobId, defaultEventType, initialTitle]);
 
   useEffect(() => {
     if (!teamsTouched) {
@@ -302,6 +311,7 @@ export default function ScheduleInterviewModal({
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
       queryClient.invalidateQueries({ queryKey: ["calendar-upcoming"] });
       queryClient.invalidateQueries({ queryKey: ["calendar-conflicts-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["interview-cycle"] });
       // Linger on a confirmation step when Graph returned a Teams join URL —
       // recruiter wants to copy it into the candidate ping. When no URL is
       // present (non-Teams event or older backend) we close immediately.

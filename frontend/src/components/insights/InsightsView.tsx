@@ -2,14 +2,18 @@
 
 import { useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BarChart3, Landmark, Target } from "lucide-react";
+import { Landmark, Lock, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAuthStore, type UserRole } from "@/store/auth";
-import { RekrutacjaPanel } from "@/components/insights/RekrutacjaPanel";
-import { DeliveryLeadPanel } from "@/components/insights/DeliveryLeadPanel";
+import { hasRole, useAuthStore, type UserRole } from "@/store/auth";
+import {
+  BodyLeasingPanel,
+  DEFAULT_CHAPTER,
+  isChapterId,
+  type ChapterId,
+} from "@/components/insights/BodyLeasingPanel";
 import { RadaNadzorczaPanel } from "@/components/insights/RadaNadzorczaPanel";
 
-export type TabId = "rekrutacja" | "delivery-lead" | "rada";
+export type TabId = "body-leasing" | "rada";
 
 type TabDef = {
   id: TabId;
@@ -18,98 +22,144 @@ type TabDef = {
   roles: UserRole[] | null;
 };
 
-// Decyzja D7 (Artur, 2026-08-31): /insights widzi KAŻDA zalogowana rola —
-// łącznie z kwotami i danymi imiennymi. Konsekwencję zgłoszono i została
-// potwierdzona; patrz docs/insights-dynareporter-migration-plan.md §0 D7.
-//
-// `roles: null` we wszystkich trzech NIE jest przeoczeniem. Zawężenie
-// którejkolwiek zakładki wymaga zmiany TEJ decyzji, nie cichej poprawki tutaj,
-// i musi iść w parze z guardem backendu — inaczej robi się split-brain: albo
-// front chowa sekcję, której API i tak by nie odmówiło, albo menu jest
-// widoczne, a klik kończy się 403 (tak ugryzło przy Talent Radarze, #1215).
-//
-// Trójka zakładek jest lustrem DynaReportera (Rekrutacja / Delivery Lead /
-// Rada Nadzorcza), bo zespół zna tamten podział i tamtą kolejność sekcji.
-// Skutek dla zawartości, o którym trzeba pamiętać przy dokładaniu sekcji:
-// ranking klientów i MRR mieszkają w RADZIE (to pytanie o pieniądze firmy),
-// a Delivery Lead odpowiada za obsadę i hit ratio.
+/**
+ * Role, które widzą zakładkę Rada.
+ *
+ * Decyzja Artura z 21.09.2026 zawęża D7 (2026-08-31) WYŁĄCZNIE dla Rady:
+ * pieniądze firmy, rok do roku i ranking klientów z MRR widzą admin, Finanse
+ * i Head of Recruitment. Body Leasing zostaje otwarte dla każdej roli.
+ *
+ * Lustro po stronie API to `BoardReader` (`backend/app/api/deps.py`) na
+ * `/api/insights/board`, `/board/yoy` i `/clients/ranking`. Bez niego front
+ * chowałby zakładkę, której API i tak by nie odmówiło — split-brain, który
+ * ugryzł przy Talent Radarze (#1215).
+ */
+export const RADA_ROLES: UserRole[] = [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+];
+
+// Dwie zakładki zamiast trzech (21.09.2026): Rekrutacja i Delivery Lead
+// połączone w „Body Leasing" z trzema rozdziałami, Rada osobno.
 const TABS: TabDef[] = [
-  { id: "rekrutacja", label: "Rekrutacja", icon: BarChart3, roles: null },
-  { id: "delivery-lead", label: "Delivery Lead", icon: Target, roles: null },
-  { id: "rada", label: "Rada Nadzorcza", icon: Landmark, roles: null },
+  { id: "body-leasing", label: "Body Leasing", icon: Users, roles: null },
+  { id: "rada", label: "Rada", icon: Landmark, roles: RADA_ROLES },
 ];
 
 /**
- * Stare identyfikatory zakładek → nowe.
+ * Stare identyfikatory zakładek → nowa zakładka i rozdział.
  *
- * `?tab=klienci` i `?tab=zarzad` żyją w linkach, których nie kontrolujemy:
- * w zakładkach przeglądarki, w notatkach zespołu i na stronie `/dynareporter`.
- * Bez tej mapy trafiałyby w gałąź „nieznany tab" i lądowały na Rekrutacji —
- * czyli link do kokpitu zarządu po cichu otwierałby coś innego, bez słowa
- * wyjaśnienia. Mapowanie przepisuje URL na nowy identyfikator, więc kolejne
- * odświeżenie i udostępnienie linku niosą już aktualny adres.
+ * Wszystkie żyją w linkach, których nie kontrolujemy: zakładki przeglądarki,
+ * notatki zespołu, przekierowania `/dynareporter/*`. Bez mapy trafiałyby
+ * w gałąź „nieznany tab" i lądowały na domyślnym rozdziale — link do
+ * rankingu Delivery Leadów otwierałby Ligę Mistrzów bez słowa wyjaśnienia.
  */
-export const LEGACY_TAB_ALIASES: Record<string, TabId> = {
-  klienci: "delivery-lead",
-  zarzad: "rada",
+export const LEGACY_TAB_ALIASES: Record<
+  string,
+  { tab: TabId; chapter?: ChapterId }
+> = {
+  rekrutacja: { tab: "body-leasing", chapter: "wyniki" },
+  "delivery-lead": { tab: "body-leasing", chapter: "klienci" },
+  klienci: { tab: "body-leasing", chapter: "klienci" },
+  zarzad: { tab: "rada" },
+};
+
+/**
+ * Stare kotwice sekcji → rozdział, w którym dziś mieszkają.
+ *
+ * `#liga` na starej zakładce Rekrutacja to dziś rozdział Rywalizacja, a
+ * `#zrodla` — Wyniki. Bez tej mapy link z kotwicą otwierałby rozdział
+ * z aliasu, w którym takiej sekcji nie ma, i przewijanie nie robiłoby nic.
+ */
+export const LEGACY_ANCHOR_CHAPTER: Record<string, ChapterId> = {
+  liga: "rywalizacja",
+  "sciezka-rozwoju": "rywalizacja",
+  podsumowanie: "wyniki",
+  lejek: "wyniki",
+  zespol: "wyniki",
+  trendy: "wyniki",
+  placementy: "wyniki",
+  zrodla: "wyniki",
+  integracje: "wyniki",
+  ranking: "klienci",
+  "hit-ratio": "klienci",
+  "hiring-managerowie": "klienci",
 };
 
 type AuthUser = ReturnType<typeof useAuthStore.getState>["user"];
 
-// Jedna zakładka domyślna dla wszystkich (D7). Rozgałęzianie po roli nie ma
-// już czego chronić, a dawało dwóm osobom różny ekran pod tym samym linkiem.
-export const DEFAULT_INSIGHTS_TAB: TabId = "rekrutacja";
+export const DEFAULT_INSIGHTS_TAB: TabId = "body-leasing";
 
-// Sygnatury zostają (konsumuje je test kontraktowy InsightsAccess.test.ts),
-// ale przestają zależeć od roli. Parametr jest celowo nieużywany — gdy ktoś
-// będzie chciał go znów użyć, zobaczy tę uwagę i decyzję D7 nad TABS.
 export function getDefaultTabForUser(_user: AuthUser): TabId {
   return DEFAULT_INSIGHTS_TAB;
 }
 
-export function getVisibleInsightTabIds(_user: AuthUser): TabId[] {
-  return TABS.map((tab) => tab.id);
+/**
+ * Zakładki widoczne dla użytkownika.
+ *
+ * Przed hydracją auth store (`user === null`) zwraca pełną listę: brak
+ * użytkownika to „jeszcze nie wiemy", nie „nie wolno" — inaczej pierwsze
+ * wejście na `?tab=rada` przepisałoby adres na Body Leasing, zanim store
+ * zdąży powiedzieć, że to admin.
+ */
+export function getVisibleInsightTabIds(user: AuthUser): TabId[] {
+  return TABS.filter(
+    (tab) => !user || !tab.roles || hasRole(user, ...tab.roles),
+  ).map((tab) => tab.id);
 }
 
 export function isTabId(v: string | null): v is TabId {
-  return v === "rekrutacja" || v === "delivery-lead" || v === "rada";
+  return v === "body-leasing" || v === "rada";
 }
 
 /**
- * Rozstrzyga, którą zakładkę pokazać dla wartości z URL-a.
+ * Rozstrzyga, którą zakładkę (i rozdział) pokazać dla wartości z URL-a.
  *
- * Zwraca też `rewrite`: `true` znaczy „adres w pasku mówi co innego niż ekran"
- * i musi skończyć się podmianą URL-a. Trzy różne przyczyny są tu celowo
- * rozdzielone od siebie, bo prowadzą do różnych adresów końcowych: brak
- * parametru (wstaw domyślny), stary identyfikator (przepisz na nowy),
- * literówka (wróć na domyślny).
+ * `rewrite: true` znaczy „adres w pasku mówi co innego niż ekran" i musi
+ * skończyć się podmianą URL-a. `chapter` jest ustawiony tylko wtedy, gdy
+ * alias go wskazuje — wtedy zapisujemy go do `?ch=`.
  *
- * Funkcja jest czysta, żeby dało się ją przetestować bez montowania widoku —
- * to ta sama lekcja co przy martwych przyciskach paska okresu (PR #1316):
- * test kończący się na argumencie callbacka nie dowodzi, że nawigacja działa.
+ * Funkcja jest czysta, żeby dało się ją przetestować bez montowania widoku.
  */
 export function resolveInsightsTab(
   rawTab: string | null,
-  /**
-   * Zakładki, które wolno pokazać. Pod D7 to zawsze komplet, ale parametr
-   * ZOSTAJE: gdyby ktoś kiedyś zawęził `getVisibleInsightTabIds`, bez tego
-   * filtra `activeTab` wskazywałby zakładkę, której nie ma w pasku — a wtedy
-   * kontener treści renderuje pustkę i wygląda to jak utrata danych, nie jak
-   * brak dostępu.
-   */
-  allowed: readonly TabId[] = ["rekrutacja", "delivery-lead", "rada"],
+  allowed: readonly TabId[] = ["body-leasing", "rada"],
 ): {
   tab: TabId;
   rewrite: boolean;
+  chapter?: ChapterId;
 } {
   const ok = (t: TabId) => allowed.includes(t);
   if (isTabId(rawTab) && ok(rawTab)) return { tab: rawTab, rewrite: false };
   const alias = rawTab ? LEGACY_TAB_ALIASES[rawTab] : undefined;
-  if (alias && ok(alias)) return { tab: alias, rewrite: true };
+  if (alias && ok(alias.tab)) {
+    return alias.chapter
+      ? { tab: alias.tab, rewrite: true, chapter: alias.chapter }
+      : { tab: alias.tab, rewrite: true };
+  }
   const fallback = ok(DEFAULT_INSIGHTS_TAB)
     ? DEFAULT_INSIGHTS_TAB
     : (allowed[0] ?? DEFAULT_INSIGHTS_TAB);
   return { tab: fallback, rewrite: true };
+}
+
+/**
+ * Rozdział z URL-a z uwzględnieniem starej kotwicy.
+ *
+ * Kolejność: jawne `?ch=` → rozdział starej kotwicy (`#zrodla`) → rozdział
+ * z aliasu zakładki → domyślny. Kotwica wygrywa z aliasem, bo jest
+ * dokładniejsza: `?tab=rekrutacja#liga` znaczy Ligę, nie Wyniki.
+ */
+export function resolveChapter(
+  rawChapter: string | null,
+  hash: string,
+  aliasChapter?: ChapterId,
+): ChapterId {
+  if (isChapterId(rawChapter)) return rawChapter;
+  const anchor = decodeURIComponent(hash.replace(/^#/, ""));
+  const fromAnchor = anchor ? LEGACY_ANCHOR_CHAPTER[anchor] : undefined;
+  return fromAnchor ?? aliasChapter ?? DEFAULT_CHAPTER;
 }
 
 export function InsightsView() {
@@ -118,14 +168,10 @@ export function InsightsView() {
   const user = useAuthStore((s) => s.user);
   const hydrated = useAuthStore((s) => s.hydrated);
 
+  const visibleTabIds = useMemo(() => getVisibleInsightTabIds(user), [user]);
   const visibleTabs = useMemo(
-    () => TABS.filter((t) => getVisibleInsightTabIds(user).includes(t.id)),
-    [user],
-  );
-
-  const visibleTabIds = useMemo(
-    () => visibleTabs.map((t) => t.id),
-    [visibleTabs],
+    () => TABS.filter((t) => visibleTabIds.includes(t.id)),
+    [visibleTabIds],
   );
 
   const rawTab = searchParams.get("tab");
@@ -134,61 +180,85 @@ export function InsightsView() {
     [rawTab, visibleTabIds],
   );
 
-  // Po hydration auth store: URL ma nieść dokładnie to, co widać na ekranie —
-  // brakujący `?tab=`, stary identyfikator i literówkę doprowadzamy do postaci
-  // kanonicznej. `replace`, nie `push`: korekta adresu nie jest krokiem
-  // nawigacji, więc nie może zapychać przycisku Wstecz.
+  // Po hydracji auth store: URL ma nieść dokładnie to, co widać na ekranie.
+  // `replace`, nie `push` — korekta adresu nie jest krokiem nawigacji.
   useEffect(() => {
     if (!hydrated || !user) return;
-    const { tab, rewrite } = resolveInsightsTab(rawTab, visibleTabIds);
-    if (!rewrite) return;
+    const { tab, rewrite, chapter } = resolveInsightsTab(rawTab, visibleTabIds);
+    const hash = typeof window === "undefined" ? "" : window.location.hash;
     const params = new URLSearchParams(searchParams.toString());
+    let changed = rewrite;
     params.set("tab", tab);
-    router.replace(`/insights?${params.toString()}`, { scroll: false });
+    if (tab === "body-leasing") {
+      const rawChapter = searchParams.get("ch");
+      const ch = resolveChapter(rawChapter, hash, chapter);
+      if (rawChapter !== ch) {
+        params.set("ch", ch);
+        changed = true;
+      }
+    } else if (params.has("ch")) {
+      params.delete("ch");
+      changed = true;
+    }
+    if (!changed) return;
+    router.replace(`/insights?${params.toString()}${hash}`, { scroll: false });
   }, [hydrated, user, rawTab, visibleTabIds, router, searchParams]);
 
   const handleTabChange = (next: TabId) => {
-    const params = new URLSearchParams(searchParams.toString());
+    // Zakładki mają różne domyślne okresy — przeniesiony okres Body Leasing
+    // (miesiąc) udawałby, że to wybór Rady (kwartał).
+    const params = new URLSearchParams();
     params.set("tab", next);
     router.push(`/insights?${params.toString()}`, { scroll: false });
   };
 
+  const radaLocked = !visibleTabIds.includes("rada");
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Insights</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Analityka, raporty i dashboardy w jednym miejscu
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border">
+        <div className="flex flex-wrap items-baseline gap-x-8 gap-y-2">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground pb-3">
+            Insights
+          </h1>
+          <nav className="flex gap-6" aria-label="Zakładki Insights">
+            {visibleTabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => handleTabChange(tab.id)}
+                  className={cn(
+                    "pb-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap inline-flex items-center gap-2",
+                    activeTab === tab.id
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
+                  )}
+                  aria-current={activeTab === tab.id ? "page" : undefined}
+                >
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                  {tab.roles ? (
+                    <Lock
+                      className="w-3 h-3 opacity-70"
+                      aria-label="Zakładka z ograniczonym dostępem"
+                    />
+                  ) : null}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+        {radaLocked ? null : (
+          <p className="pb-3 text-xs text-muted-foreground">
+            Rada: widzą admin, Finanse i Head of Recruitment
+          </p>
+        )}
       </div>
 
-      <div className="border-b border-border">
-        <nav className="flex gap-6" aria-label="Tabs">
-          {visibleTabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => handleTabChange(tab.id)}
-                className={cn(
-                  "pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap inline-flex items-center gap-2",
-                  activeTab === tab.id
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
-                )}
-                aria-current={activeTab === tab.id ? "page" : undefined}
-              >
-                <Icon className="w-4 h-4" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
-
       <div>
-        {activeTab === "rekrutacja" && <RekrutacjaPanel />}
-        {activeTab === "delivery-lead" && <DeliveryLeadPanel />}
+        {activeTab === "body-leasing" && <BodyLeasingPanel />}
         {activeTab === "rada" && <RadaNadzorczaPanel />}
       </div>
     </div>

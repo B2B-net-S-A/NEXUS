@@ -535,7 +535,9 @@ async def check_powercalling_kpi(db: AsyncSession, now: datetime) -> int:
                 user_id=hr_id,
                 title="Raport PowerCalling 11:45",
                 message=message,
-                link="/insights?tab=rekrutacja",
+                # Sekcja Power Calling zniknęła z Insights (21.09.2026) — raport
+                # prowadzi do zespołu w rozdziale Wyniki.
+                link="/insights?tab=body-leasing&ch=wyniki#zespol",
                 ntype=NotificationType.powercalling_kpi,
                 related_entity_type="daily_kpi_report",
                 related_entity_id=day_id,
@@ -712,6 +714,39 @@ def _warsaw_week_start_utc(now: datetime) -> datetime:
 # rekrutera. T+2h zawsze eskaluje do DL i flaguje event `needs_attention`.
 
 _POST_INTERVIEW_WINDOW_MINUTES = 7.5  # half-window przy 5-min loopie
+# 0338: rozmowa kandydata U KLIENTA (cykl „Rozmowy u klienta”). Po niej rekruter
+# dzwoni do KANDYDATA ≤30 min — to debrief strony kandydata, nie feedback klienta.
+_POST_INTERVIEW_EVENT_TYPES = (EventType.interview, EventType.client_interview)
+
+
+def _post_interview_side(event: CalendarEvent, stage: "LatestStage | None") -> bool:
+    """Czy po tym wydarzeniu zbieramy feedback KLIENTA (True) czy kandydata."""
+    if event.event_type == EventType.client_interview:
+        return False
+    return _is_client_side(stage)
+
+
+def _post_interview_recipients(
+    event: CalendarEvent, job: "Job | None", *, client_side: bool
+) -> list[int]:
+    """Kto dzwoni: przy rozmowie u klienta — rekruter kandydata (właściciel
+    wydarzenia z cyklu), w pozostałych — rekruter rekrutacji jak dotąd."""
+    recipients: list[int] = []
+    if event.event_type == EventType.client_interview:
+        owner = event.operational_owner_id or event.created_by
+        if owner:
+            recipients.append(owner)
+        elif job and job.recruiter_id:
+            recipients.append(job.recruiter_id)
+        return recipients
+    if job and job.recruiter_id:
+        recipients.append(job.recruiter_id)
+    if client_side and job and job.delivery_lead_id:
+        recipients.append(job.delivery_lead_id)
+    if not recipients and event.created_by:
+        # Fallback: twórca eventu, jeśli nie ma job.recruiter_id
+        recipients.append(event.created_by)
+    return recipients
 
 
 async def _events_in_post_interview_window(
@@ -722,7 +757,7 @@ async def _events_in_post_interview_window(
     lower = now_utc - timedelta(minutes=offset_minutes + _POST_INTERVIEW_WINDOW_MINUTES)
     rows = await db.execute(
         select(CalendarEvent).where(
-            CalendarEvent.event_type == EventType.interview,
+            CalendarEvent.event_type.in_(_POST_INTERVIEW_EVENT_TYPES),
             CalendarEvent.status == EventStatus.completed,
             CalendarEvent.end_time.isnot(None),
             CalendarEvent.end_time >= lower,
@@ -751,6 +786,18 @@ def _is_client_side(stage: LatestStage | None) -> bool:
     return stage is not None and stage.stage == PipelineStage.client_interview
 
 
+def _post_interview_link(event: CalendarEvent) -> str:
+    """Rozmowa u klienta → debrief na ekranie „Rozmowy u klienta” (0338);
+    pozostałe rozmowy → dotychczasowe okno feedbacku w siatce tygodnia."""
+    if (
+        event.event_type == EventType.client_interview
+        and event.candidate_id is not None
+        and event.job_id is not None
+    ):
+        return f"/calendar?cycle={event.candidate_id}-{event.job_id}&debrief={event.id}"
+    return f"/calendar?event={event.id}&action=feedback"
+
+
 async def _post_interview_emit(
     db: AsyncSession,
     *,
@@ -769,7 +816,7 @@ async def _post_interview_emit(
             user_id=uid,
             title=title,
             message=message,
-            link=f"/calendar?event={event.id}&action=feedback",
+            link=_post_interview_link(event),
             ntype=ntype,
             related_entity_type="calendar_event",
             related_entity_id=event.id,
@@ -794,7 +841,7 @@ async def check_post_interview_t15(
     emitted = 0
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))
-        client_side = _is_client_side(stage)
+        client_side = _post_interview_side(event, stage)
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
         )
@@ -802,26 +849,29 @@ async def check_post_interview_t15(
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None
-        recipients: list[int] = []
-        if job and job.recruiter_id:
-            recipients.append(job.recruiter_id)
-        if client_side and job and job.delivery_lead_id:
-            recipients.append(job.delivery_lead_id)
-        if not recipients and event.created_by:
-            # Fallback: twórca eventu, jeśli nie ma job.recruiter_id
-            recipients.append(event.created_by)
+        recipients = _post_interview_recipients(event, job, client_side=client_side)
 
-        side_label = "klienta" if client_side else "kandydata"
+        if event.event_type == EventType.client_interview:
+            title = "Zadzwoń do kandydata po rozmowie u klienta"
+            message = (
+                f"Rozmowa „{event.title}” skończyła się 15 min temu. Zadzwoń do "
+                "kandydata i zapisz debrief: jak poszło, jakie były pytania, czy "
+                "przyjmie ofertę."
+            )
+        else:
+            side_label = "klienta" if client_side else "kandydata"
+            title = "Zadzwoń i zbierz feedback"
+            message = (
+                f"15 min temu skończył się interview z kandydatem #{event.candidate_id}. "
+                f"Zadzwoń do {side_label} i zbierz feedback + pytania."
+            )
         emitted += await _post_interview_emit(
             db,
             event=event,
             recipients=recipients,
             ntype=NotificationType.post_interview_t15,
-            title="Zadzwoń i zbierz feedback",
-            message=(
-                f"15 min temu skończył się interview z kandydatem #{event.candidate_id}. "
-                f"Zadzwoń do {side_label} i zbierz feedback + pytania."
-            ),
+            title=title,
+            message=message,
         )
     return emitted
 
@@ -841,7 +891,7 @@ async def check_post_interview_t45(
     emitted = 0
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))
-        client_side = _is_client_side(stage)
+        client_side = _post_interview_side(event, stage)
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
         )
@@ -849,13 +899,7 @@ async def check_post_interview_t45(
             continue
 
         job = jobs.get(event.job_id) if event.job_id else None
-        recipients: list[int] = []
-        if job and job.recruiter_id:
-            recipients.append(job.recruiter_id)
-        if client_side and job and job.delivery_lead_id:
-            recipients.append(job.delivery_lead_id)
-        if not recipients and event.created_by:
-            recipients.append(event.created_by)
+        recipients = _post_interview_recipients(event, job, client_side=client_side)
 
         side_label = "klienta" if client_side else "kandydata"
         emitted += await _post_interview_emit(
@@ -887,7 +931,7 @@ async def check_post_interview_t2h_escalation(
     emitted = 0
     for event in events:
         stage = latest.get((event.candidate_id, event.job_id))
-        client_side = _is_client_side(stage)
+        client_side = _post_interview_side(event, stage)
         source = (
             FeedbackSource.client_side if client_side else FeedbackSource.candidate_side
         )

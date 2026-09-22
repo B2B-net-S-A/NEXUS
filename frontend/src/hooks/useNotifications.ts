@@ -11,6 +11,7 @@ import {
   clearWsSender,
   setWsSender,
 } from "@/lib/wsBus";
+import { MY_PEOPLE_MATCH_EVENT, type MyPeopleMatchEventDetail } from "@/lib/my-people-summary";
 
 const WS_BASE =
   (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000")
@@ -240,8 +241,16 @@ export function useNotifications({ onNotification }: UseNotificationsOptions = {
           // Update react-query cache
           queryClient.invalidateQueries({ queryKey: ["notifications"] });
           if (notif.notification_type === "my_people_match") {
-            // Nowa rekrutacja pasuje do „Moich ludzi" — licznik awatara od razu.
+            // Nowa rekrutacja pasuje do „Moich ludzi" — licznik od razu, a Jarvis
+            // dostaje sygnał do dymka „kogo przepiąć" (JarvisRoot nasłuchuje).
             queryClient.invalidateQueries({ queryKey: ["my-people"] });
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(
+                new CustomEvent<MyPeopleMatchEventDetail>(MY_PEOPLE_MATCH_EVENT, {
+                  detail: { title: notif.title, link: notif.link ?? null },
+                }),
+              );
+            }
           }
           setUnreadCount((c) => c + 1);
           // Call external handler (for toast)

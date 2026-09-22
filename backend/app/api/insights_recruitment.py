@@ -36,6 +36,7 @@ from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
 from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
+from app.services.insights_competence_matrix import compute_competence_matrix
 from app.services.insights_invite_links import (
     compute_invite_link_channels,
     count_invite_link_candidates,
@@ -647,6 +648,21 @@ async def insights_team_activity(
         }
         await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
         return result
+
+
+@router.get("/competence-matrix")
+async def insights_competence_matrix(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Otwarte rekrutacje per kategoria kompetencji × etap — stan na dziś.
+
+    Bez okresu: to migawka (``as_of``), nie przepływ w oknie. Liczniki etapów
+    to te same liczby co na pulpicie procesów rekrutacji, bo liczy je ta sama
+    funkcja (``recruitment_operations.dashboard_stage_counts_by_job``).
+    Dostęp jak reszta /insights (D7).
+    """
+    return await compute_competence_matrix(db)
 
 
 @router.get("/invite-links")

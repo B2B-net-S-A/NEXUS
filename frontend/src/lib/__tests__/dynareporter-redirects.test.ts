@@ -18,8 +18,26 @@ describe("przekierowania /dynareporter/* (UAT M10-B03)", () => {
 
   it("żadne przekierowanie nie celuje w stary alias zakładki", async () => {
     for (const r of await redirects()) {
-      expect(r.destination).not.toMatch(/tab=(klienci|zarzad)\b/);
+      expect(r.destination).not.toMatch(
+        /tab=(klienci|zarzad|rekrutacja|delivery-lead)\b/,
+      );
     }
+  });
+
+  it("stare raporty Delivery Leada lądują w rozdziale Klienci", async () => {
+    const rule = (await redirects()).find(
+      (r) => r.source === "/dynareporter/delivery-lead",
+    );
+    expect(rule?.destination).toBe("/insights?tab=body-leasing&ch=klienci");
+  });
+
+  it("Liga Mistrzów ląduje w rozdziale Rywalizacja", async () => {
+    const rule = (await redirects()).find(
+      (r) => r.source === "/dynareporter/competitions",
+    );
+    expect(rule?.destination).toBe(
+      "/insights?tab=body-leasing&ch=rywalizacja",
+    );
   });
 });
 

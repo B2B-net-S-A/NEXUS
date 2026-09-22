@@ -63,7 +63,7 @@ describe("dashboard presets — legacy session fallback", () => {
     const user = legacyUser("finance", ["finance", "recruiter"])
     expect(getAvailableDashboardPresets(user)).toEqual(["finance"])
     expect(dashboardHref(user)).toBe(
-      "/dashboard?preset=finance&period=quarter",
+      "/dashboard",
     )
   })
 
@@ -79,7 +79,7 @@ describe("dashboard presets — legacy session fallback", () => {
       "head-of-recruitment",
     ])
     expect(dashboardHref(user)).toBe(
-      "/dashboard?preset=head-of-recruitment&period=week",
+      "/dashboard",
     )
   })
 
@@ -89,14 +89,14 @@ describe("dashboard presets — legacy session fallback", () => {
         "my-work",
       ])
       expect(dashboardHref(legacyUser(role))).toBe(
-        "/dashboard?preset=my-work&period=day",
+        "/dashboard",
       )
     }
   })
 
-  it("uses one canonical URL without dashboard tabs", () => {
+  it("every role lands on its own /dashboard (custom tiles, no presets in URL)", () => {
     expect(dashboardHref(legacyUser("delivery_lead"))).toBe(
-      "/dashboard?preset=delivery-lead&period=month",
+      "/dashboard",
     )
   })
 

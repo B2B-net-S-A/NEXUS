@@ -31,28 +31,28 @@ const MODULES: ModuleCard[] = [
     label: "KPI Body Leasing",
     description:
       "Weryfikacje, rekomendacje, interview, placementy tygodniowo per rekruter",
-    href: "/insights?tab=rekrutacja",
+    href: "/insights?tab=body-leasing&ch=wyniki",
     enabled: true, // B.2.1 deployed
   },
   {
     section: "sales",
     label: "KPI Sales",
     description: "Leady, oferty, wygrane / przegrane per sprzedawca",
-    href: "/insights?tab=delivery-lead",
+    href: "/insights?tab=body-leasing&ch=klienci",
     enabled: true, // B.2.2 deployed
   },
   {
     section: "delivery-lead",
     label: "KPI Delivery Lead",
     description: "Requesty, placementy, vacancy per DL miesięcznie",
-    href: "/insights?tab=delivery-lead",
+    href: "/insights?tab=body-leasing&ch=klienci",
     enabled: true, // B.2.3 deployed
   },
   {
     section: "placements",
     label: "Placementy",
     description: "Szczegółowe placementy per user × klient",
-    href: "/insights?tab=rekrutacja",
+    href: "/insights?tab=body-leasing&ch=wyniki",
     enabled: true, // B.2.4 deployed
   },
   {
@@ -66,7 +66,7 @@ const MODULES: ModuleCard[] = [
     section: "competitions",
     label: "Liga Mistrzów",
     description: "Kwartalny ranking + nagrody miesięczne",
-    href: "/insights?tab=rekrutacja",
+    href: "/insights?tab=body-leasing&ch=rywalizacja",
     enabled: true, // B.2.6 deployed
   },
   {
@@ -87,7 +87,7 @@ const MODULES: ModuleCard[] = [
     section: "sales-mgmt",
     label: "Sales — Zarządzanie",
     description: "Projekty, leady, oferty, aktywność tygodniowa",
-    href: "/insights?tab=delivery-lead",
+    href: "/insights?tab=body-leasing&ch=klienci",
     enabled: true, // B.2.9 deployed
   },
   {

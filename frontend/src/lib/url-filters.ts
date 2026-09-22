@@ -147,6 +147,13 @@ export interface CandidateFilters {
   openTo: OpenToValue[];
   // Zmiana pracodawcy wykryta przez synchronizację LinkedIn: 1/2/3 miesiące.
   recentlyChangedJobs: RecentlyChangedJobs;
+  /**
+   * Wersja semantyki filtrów (`sv=2` w URL → `semantics_version=2` w API).
+   * Ustawia ją WYŁĄCZNIE zapisane wyszukiwanie po migracji (format v3), żeby
+   * lista pokazywała ten sam zbiór, który liczy alert. `null` = dotychczasowe
+   * zachowanie listy (v1).
+   */
+  semanticsVersion: 2 | null;
   view: CandidatesView;
   savedSearchId: number | null;
   // Traffit-style advanced search buckets. Each phrase matches ILIKE
@@ -193,6 +200,7 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   stageCurrentOnly: false,
   openTo: [],
   recentlyChangedJobs: null,
+  semanticsVersion: null,
   view: "list",
   savedSearchId: null,
   qAll: [],
@@ -293,6 +301,7 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
   if (f.recentlyChangedJobs !== null) {
     p.set("rcj", String(f.recentlyChangedJobs));
   }
+  if (f.semanticsVersion === 2) p.set("sv", "2");
   if (f.qAll.length) p.set("q_all", PIPE(f.qAll));
   // One repeated `q_any` param per OR-group (each pipe-joined). Empty groups
   // are skipped. Legacy single-param `?q_any=a|b` decodes back to one group.
@@ -381,6 +390,7 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
     stageCurrentOnly: sp.get("stage_current") === "1",
     openTo,
     recentlyChangedJobs,
+    semanticsVersion: sp.get("sv") === "2" ? 2 : null,
     view,
     savedSearchId,
     qAll: parsePipe(sp.get("q_all")),
@@ -554,6 +564,7 @@ export function filtersToApiParams(
     stage_current_only: filters.stageCurrentOnly ? true : undefined,
     open_to: filters.openTo.length ? filters.openTo : undefined,
     recently_changed_jobs: filters.recentlyChangedJobs ?? undefined,
+    semantics_version: filters.semanticsVersion ?? undefined,
     q_all: filters.qAll.length ? filters.qAll : undefined,
     // ANY OR-groups → one repeated `q_any_group` value per group (pipe-joined).
     q_any_group: filters.qAny.some((g) => g.length)
@@ -562,6 +573,35 @@ export function filtersToApiParams(
     q_none: filters.qNone.length ? filters.qNone : undefined,
     ...extras,
   };
+}
+
+/**
+ * Nowe, OPCJONALNE parametry `GET /api/candidates` wspólne z wyszukiwarką
+ * (`POST /api/search/candidates`) — jedna semantyka filtrów w obu silnikach
+ * (backend: `app/services/candidate_search_predicates.py`). UI jeszcze ich nie
+ * wysyła; `filtersToApiParams` nadal emituje pola legacy, które zachowują
+ * dotychczasowe (twarde) znaczenie, więc zapisane wyszukiwania się nie zmieniają.
+ */
+export interface CandidateListSharedFilterParams {
+  /** „Musi mieć" — twardo, każda; pozycja może być grupą `a|b`. */
+  skills_required?: string[];
+  /** Grupy „którakolwiek" — powtarzany parametr, każda wartość `a|b`. */
+  skills_required_any_groups?: string[];
+  /** „Mile widziane" — tylko ranking. */
+  skills_preferred?: string[];
+  /** „Wyklucz" — twardo. */
+  skills_excluded?: string[];
+  /** Tagi — cały tag, każdy wymagany. */
+  tags?: string[];
+  /** Kody ISO krajów — którykolwiek. */
+  country?: string[];
+  /** Kilka miast naraz (którekolwiek) — kształt wyszukiwarki. */
+  location_cities?: string[];
+  text_mode?: "auto" | "literal" | "semantic";
+  /** Ukryj osoby bez danych dla aktywnych filtrów lokalizacji/stażu/stawki. */
+  hide_unknown?: boolean;
+  /** Brak = dotychczasowe wyniki listy (v1); 2 = semantyka wspólna. */
+  semantics_version?: 1 | 2;
 }
 
 /**

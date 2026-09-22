@@ -64,73 +64,22 @@ from app.api.deps import CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
+from app.services.insights_dl_scope import (
+    CLIENT_DISPLAY_NAME_SQL as _CLIENT_DISPLAY_NAME_SQL,
+    CLIENT_VISIBLE_SQL as _CLIENT_VISIBLE_SQL,
+    DL_HEAD_CTE as _DL_HEAD_CTE,
+    HIT_RATIO_TARGET_PCT,
+    JOBS_SCOPED_CTE as _JOBS_SCOPED_CTE,
+    RECRUITMENT_TYPE,
+)
+from app.services.insights_dl_scope import ratio_pct as _ratio
+from app.services.insights_dl_portfolio import compute_dl_portfolio
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
-# Nazwa klienta i widocznosc — LUSTRO `app/services/client_identity.py`
-# w surowym SQL-u (te zapytania sa tekstowe, wiec nie moga wolac helperow ORM).
-#
-# Bez tego ten sam klient wystepowalby na jednym ekranie pod DWIEMA nazwami:
-# zakladka Klienci uzywa `client_display_name_expression()` (czyli recznej
-# korekty nazwy z Traffita), a Delivery Lead pokazywalby surowe `clients.name`.
-# Gorzej z `merged_into_client_id`: klient wchloniety w innego wciaz ma wlasne
-# wiersze `jobs`, wiec renderowalby sie jako osobny kawalek donuta, podczas gdy
-# Klienci juz go zwineli — dwoch sum nie dalo by sie uzgodnic wzrokiem.
-_CLIENT_DISPLAY_NAME_SQL = "COALESCE(NULLIF(BTRIM(c.display_name), ''), c.name)"
-_CLIENT_VISIBLE_SQL = (
-    "c.hidden IS FALSE AND c.archived_at IS NULL AND c.merged_into_client_id IS NULL"
-)
-
-
 CACHE_TTL_SECONDS = 300
-
-# Próg wejścia do „Ligi Mistrzów DL" (InfraReporter). Ta sama wartość co
-# `reports.HIT_RATIO_TARGET_PCT` — powielona świadomie, bo import z `reports`
-# wciągnąłby tamten moduł (z jego guardami) w zależności /insights.
-HIT_RATIO_TARGET_PCT = 30.0
-
-# Ranking DL dotyczy WYŁĄCZNIE ofert body_leasing — `sales_project` i `tender`
-# mają inny cykl życia i nie mają Delivery Leada. Konsekwencja: liczby nie
-# zsumują się do lejka org-level, który typu nie filtruje. Koperta to mówi.
-RECRUITMENT_TYPE = "body_leasing"
-
-# Rozwiązanie DL dla oferty: własny `delivery_lead_id`, a gdy pusty — główny
-# opiekun klienta (`is_head`). Jedno źródło dla wszystkich trzech zapytań.
-_DL_HEAD_CTE = """
-    dl_head AS (
-        SELECT client_id, delivery_lead_user_id
-        FROM delivery_lead_client_assignments
-        WHERE is_head IS TRUE
-    )
-"""
-
-_JOBS_SCOPED_CTE = f"""
-    jobs_scoped AS (
-        SELECT j.id,
-               j.created_at,
-               j.status,
-               j.client_id,
-               COALESCE(j.headcount, 1) AS headcount,
-               COALESCE(j.delivery_lead_id, h.delivery_lead_user_id) AS dl_id
-        FROM jobs j
-        LEFT JOIN dl_head h ON h.client_id = j.client_id
-        WHERE j.recruitment_type = '{RECRUITMENT_TYPE}'
-    )
-"""
-
-
-def _ratio(numerator: int, denominator: int) -> float | None:
-    """Udział procentowy albo ``None`` przy zerowym mianowniku.
-
-    NIE zwraca 0.0 — konsument musi móc odróżnić „policzone, wyszło zero" od
-    „nie było czego dzielić". Bez przycinania do 100%: wynik powyżej stu
-    procent jest realnym sygnałem (placementy z zapytań spoza okna).
-    """
-    if denominator <= 0:
-        return None
-    return round(numerator / denominator * 100, 1)
 
 
 def _resolve(kind: str, offset: int, anchor: date | None, date_from, date_to) -> Period:
@@ -380,6 +329,35 @@ async def insights_delivery_leads(
             ),
         },
     }
+    await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+    return result
+
+
+@router.get("/portfolio")
+async def insights_dl_portfolio(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("month", pattern="^(day|week|month|quarter|year|custom)$"),
+    offset: int = Query(0, description="0 = bieżący okres, -1 = poprzedni zamknięty"),
+    anchor: date | None = Query(None, description="dowolny dzień wewnątrz okresu"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+):
+    """Portfel DL: wiersz rankingu rozbity na klientów, z alertem spadku.
+
+    Dostęp jak reszta zakładki Delivery Lead (D7). Niezmiennik: suma wierszy
+    klientów = nagłówek DL = wiersz ``GET /delivery-leads`` dla tego okna
+    (szczegóły w ``app/services/insights_dl_portfolio.py``). Procenty (hit
+    ratio, fill rate) w skali 0–100, ``delta_pp`` w punktach procentowych.
+    """
+    resolved = _resolve(period, offset, anchor, date_from, date_to)
+
+    cache_key = f"insights:delivery-leads-portfolio:v1:{resolved.cache_suffix}"
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    result = await compute_dl_portfolio(db, resolved)
     await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
     return result
 

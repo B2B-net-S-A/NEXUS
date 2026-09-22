@@ -1,8 +1,10 @@
 """Insights → Klienci / MRR: ranking klientów i skuteczność per klient.
 
 D7: /insights jest jawnie otwarte dla KAŻDEJ zalogowanej roli (decyzja Artura
-2026-08-31, plan §0 D7). Kwoty NIE są tu redagowane. Nie zastępuj guardu
-``CurrentUser`` żadną capability — ``VIEW_FINANCE`` steruje 40+ innymi
+2026-08-31, plan §0 D7) — z wyjątkiem ``/ranking`` (przychody i MRR, zakładka
+Rada): od 21.09.2026 tylko admin · finance · Head of Recruitment
+(``BoardReader``). Kwoty NIE są tu redagowane. Nie zastępuj guardów
+``CurrentUser``/``BoardReader`` żadną capability — ``VIEW_FINANCE`` steruje 40+ innymi
 powierzchniami (``analytics/capabilities.py:64-115``) i jego poszerzenie
 wyciekłoby stawki konsultantów daleko poza Insights.
 
@@ -39,7 +41,7 @@ from app.analytics.periods import (
     PeriodKind,
     resolve_period,
 )
-from app.api.deps import CurrentUser
+from app.api.deps import BoardReader, CurrentUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
@@ -168,7 +170,7 @@ def _hit_ratio_payload(row: ClientHitRatioRow) -> dict:
 
 @router.get("/ranking")
 async def insights_clients_ranking(
-    current_user: CurrentUser,
+    current_user: BoardReader,
     db: AsyncSession = Depends(get_db),
     period: str = Query("month", pattern="^(day|week|month|quarter|year|custom)$"),
     offset: int = Query(0, description="0 = bieżący okres, -1 = poprzedni zamknięty"),
@@ -178,7 +180,9 @@ async def insights_clients_ranking(
 ):
     """Ranking klientów: przychód lifetime, aktywne MRR, marża/mc, Head DL.
 
-    Dostępne dla KAŻDEGO zalogowanego (decyzja D7).
+    Zakładka Rada: tylko admin · finance · Head of Recruitment (``BoardReader``,
+    decyzja Artura 21.09.2026). Skuteczność per klient (``/hit-ratio``)
+    i hiring managerowie zostają otwarci dla każdej roli (D7).
 
     Okres steruje wyłącznie DNIEM WYCENY — którym krokiem harmonogramu stawek
     i którym kursem NBP liczymy marżę. Zbiór kontraktów to zawsze dzisiejsze

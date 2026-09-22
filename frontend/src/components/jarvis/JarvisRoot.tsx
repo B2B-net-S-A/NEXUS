@@ -38,6 +38,15 @@ import { JarvisHttpError, streamJarvisChat } from "@/lib/jarvis/stream";
 import type { JarvisAction, JarvisPrefs, JarvisPrefsResponse } from "@/lib/jarvis/types";
 import { playPetSound } from "@/lib/kidsSound";
 import { hasSectionAccess } from "@/lib/section-access";
+import { hasCapability } from "@/lib/capabilities";
+import type { MyPeopleSummary } from "@/lib/api/myPeople";
+import {
+  MY_PEOPLE_MATCH_EVENT,
+  briefFragments,
+  jobIdFromMatchLink,
+  reassignPrompt,
+  type MyPeopleMatchEventDetail,
+} from "@/lib/my-people-summary";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { useThemeStore } from "@/store/theme";
 import { JarvisAppearanceDialog } from "./JarvisAppearanceDialog";
@@ -126,6 +135,9 @@ export function JarvisRoot() {
   const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [brief, setBrief] = useState<string | null>(null);
+  // Przypomnienie „Moi ludzie": dymek z gotowym pytaniem o przepięcie. Ma
+  // pierwszeństwo przed porannym skrótem — dotyczy rekrutacji z tej chwili.
+  const [nudge, setNudge] = useState<{ text: string; prompt: string } | null>(null);
   const [webMode, setWebMode] = useState(false);
   const loadedConversation = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -324,6 +336,25 @@ export function JarvisRoot() {
     return () => window.removeEventListener(JARVIS_OPEN_EVENT, onOpen);
   }, [active, send]);
 
+  // Dzwonek `my_people_match` (useNotifications → zdarzenie okna): Jarvis mówi
+  // o nowej rekrutacji i po kliknięciu pyta sam siebie, kogo przepiąć. Tylko
+  // gdy działa (bez modelu kliknięcie nie miałoby czego zrobić) i na żywo —
+  // przegapione dopasowania zbiera poranny skrót.
+  useEffect(() => {
+    if (!active || !available || !prefs.enabled) return;
+    const onMatch = (e: Event) => {
+      const detail = (e as CustomEvent<MyPeopleMatchEventDetail>).detail;
+      if (!detail) return;
+      const jobId = jobIdFromMatchLink(detail.link);
+      setNudge({
+        text: `${detail.title}. Kliknij, podpowiem, kogo przepiąć.`,
+        prompt: reassignPrompt(jobId),
+      });
+    };
+    window.addEventListener(MY_PEOPLE_MATCH_EVENT, onMatch);
+    return () => window.removeEventListener(MY_PEOPLE_MATCH_EVENT, onMatch);
+  }, [active, available, prefs.enabled]);
+
   // Poranny skrót dnia — BEZ modelu: liczby z istniejących tras, raz dziennie.
   const briefKey = storageKey(user?.id, "brief");
   useEffect(() => {
@@ -356,6 +387,14 @@ export function JarvisRoot() {
         try {
           const { data } = await api.get<{ total: number }>("/api/dl-alerts/cards");
           if (data.total > 0) parts.push(`${data.total} ${data.total === 1 ? "sprawa klienta" : "sprawy klientów"}`);
+        } catch {
+          /* jw. */
+        }
+      }
+      if (hasCapability(user, "nav.my_people")) {
+        try {
+          const { data } = await api.get<MyPeopleSummary>("/api/my-people/summary");
+          parts.push(...briefFragments(data));
         } catch {
           /* jw. */
         }
@@ -398,7 +437,7 @@ export function JarvisRoot() {
       ? "Dzisiejszy limit wyszukiwań w internecie jest wyczerpany"
       : null;
   const mood = kids.mood ?? turn.mood;
-  const bubble = brief ?? kids.bubble;
+  const bubble = nudge?.text ?? brief ?? kids.bubble;
 
   return (
     <>
@@ -411,16 +450,20 @@ export function JarvisRoot() {
           minimized={prefs.minimized}
           open={open}
           bubble={bubble}
-          attention={Boolean(brief)}
+          attention={Boolean(brief || nudge)}
           onToggle={() => setOpen((v) => !v)}
           onBubbleClick={() => {
             const wasBrief = Boolean(brief);
+            const pending = nudge;
+            setNudge(null);
             setBrief(null);
             kids.dismiss();
             setOpen(true);
-            if (wasBrief && available) void send("Co mam dziś do zrobienia? Zacznij od najpilniejszego.");
+            if (pending && available) void send(pending.prompt);
+            else if (wasBrief && available) void send("Co mam dziś do zrobienia? Zacznij od najpilniejszego.");
           }}
           onDismissBubble={() => {
+            setNudge(null);
             setBrief(null);
             kids.dismiss();
           }}

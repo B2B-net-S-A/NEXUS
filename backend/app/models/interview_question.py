@@ -45,6 +45,8 @@ class InterviewQuestionSource(str, enum.Enum):
     manual = "manual"
     auto_generated = "auto_generated"
     imported_from_champion = "imported_from_champion"
+    # 0338: pytanie, które klient zadał kandydatowi na rozmowie (z debriefu).
+    client_debrief = "client_debrief"
 
 
 class InterviewQuestionType(str, enum.Enum):

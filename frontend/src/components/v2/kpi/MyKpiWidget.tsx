@@ -46,11 +46,8 @@ function stateEmoji(state: KpiResult["state"]): string {
  *
  * - Role nieoperacyjne dostają pustą listę z backendu → widget zwraca null.
  * - Compact: 3 progress bary w linii + mini-popover na hover.
- * - Dashboard: pełny grid z tytułami i labelami. UWAGA: ten wariant nie ma
- *   dziś ŻADNEGO wywołania w repo. Docstring wskazywał na `DashboardV2`, ale
- *   tamten plik nigdy tego widgetu nie importował (i został usunięty jako
- *   sierota 2026-08-20). Zanim go użyjesz, sprawdź, czy preset `RoleDashboard`
- *   nie pokazuje już tych samych liczb.
+ * - Dashboard: pełny grid z tytułami i labelami — kafelek „Moje KPI dziś"
+ *   na własnym pulpicie (`components/v2/dashboard/custom/TileContent.tsx`).
  */
 export function MyKpiWidget({ variant ="compact", className }: Props) {
  const { data, isLoading, error } = useMyKpis();

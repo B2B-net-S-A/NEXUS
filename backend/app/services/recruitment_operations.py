@@ -397,13 +397,47 @@ def _overlap_candidate_ids(rows: Iterable[_LatestStage]) -> set[int]:
     }
 
 
-def _stage_counts(rows: Iterable[_LatestStage]) -> RecruitmentOperationsStageCounts:
+def fold_stage_counts(
+    pairs: Iterable[tuple[PipelineStage | str, int]],
+) -> RecruitmentOperationsStageCounts:
+    """(etap bieżący, liczba) → pięć liczników pulpitu; inne etapy pomijamy.
+
+    Jedyne miejsce mapowania etapu na licznik — czyta je pulpit procesów
+    i macierz kompetencji w /insights (``dashboard_stage_counts_by_job``).
+    """
     counts = {field: 0 for field in _DASHBOARD_STAGE_FIELDS.values()}
-    for row in rows:
-        field = _DASHBOARD_STAGE_FIELDS.get(row.stage)
+    for stage, count in pairs:
+        field = _DASHBOARD_STAGE_FIELDS.get(_pipeline_stage(stage))
         if field is not None:
-            counts[field] += 1
+            counts[field] += int(count)
     return RecruitmentOperationsStageCounts(**counts)
+
+
+def _stage_counts(rows: Iterable[_LatestStage]) -> RecruitmentOperationsStageCounts:
+    return fold_stage_counts((row.stage, 1) for row in rows)
+
+
+async def dashboard_stage_counts_by_job(
+    db: AsyncSession, job_ids: Select
+) -> dict[int, RecruitmentOperationsStageCounts]:
+    """Liczniki etapów pulpitu per oferta — agregat po stronie bazy.
+
+    To samo źródło (``analytics_current_pipeline``) i to samo mapowanie co
+    ``_stage_counts`` w wierszu procesu, tylko zliczone ``GROUP BY`` zamiast
+    ładowania każdego kandydata — dla przeglądu całej organizacji.
+    """
+    latest = _current_pipeline_subquery(job_ids=job_ids)
+    rows = (
+        await db.execute(
+            select(latest.c.job_id, latest.c.stage, func.count().label("cnt"))
+            .where(latest.c.stage.in_(list(_DASHBOARD_STAGE_FIELDS)))
+            .group_by(latest.c.job_id, latest.c.stage)
+        )
+    ).all()
+    pairs_by_job: dict[int, list[tuple[PipelineStage | str, int]]] = defaultdict(list)
+    for row in rows:
+        pairs_by_job[int(row.job_id)].append((row.stage, int(row.cnt)))
+    return {job_id: fold_stage_counts(pairs) for job_id, pairs in pairs_by_job.items()}
 
 
 def _candidate_name(candidate: Candidate) -> str:

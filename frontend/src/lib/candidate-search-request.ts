@@ -90,6 +90,10 @@ const URL_REQUEST_KEYS = [
   "page",
   "page_size",
   "search_mode",
+  // Zapis v3 (po migracji semantyki) niesie `semantics_version: 2` — musi
+  // przeżyć Wstecz z profilu, inaczej ten sam zapis pokazałby inny zbiór.
+  "semantics_version",
+  "hide_unknown",
 ] as const satisfies readonly (keyof CandidateSearchRequest)[];
 
 type UrlRequestKey = (typeof URL_REQUEST_KEYS)[number];

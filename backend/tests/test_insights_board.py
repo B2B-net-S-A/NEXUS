@@ -118,6 +118,9 @@ async def _seed_user(role: UserRole, label: str) -> tuple[int, str, str]:
             password_hash=hash_password(password),
             role=role,
             is_active=True,
+            # Bez tego rekruter/DL odbija się od bramki onboardingu (też 403)
+            # i test roli niczego by nie dowodził.
+            profile_completed=True,
         )
         db.add(u)
         await db.commit()
@@ -222,19 +225,19 @@ async def _board(
 
 
 @pytest.mark.asyncio
-async def test_board_is_reachable_for_every_logged_in_role(board_client: AsyncClient):
-    """D7: kokpit zarządu widzi KAŻDA zalogowana rola, bez redakcji kwot.
+async def test_board_is_reachable_only_for_admin_finance_and_hor(
+    board_client: AsyncClient,
+):
+    """Zakładka Rada: admin · finance · Head of Recruitment (decyzja 21.09.2026).
 
-    `finance` i `sourcer` to dwa końce spektrum uprawnień finansowych, a legacy
-    `user` jest wycofywany — gdyby któryś guard rolowy wrócił tu cichym
-    refaktorem, najpierw odbiłby się właśnie któryś z tych trzech.
+    Wcześniej (D7) kokpit widziała każda zalogowana rola. Po zawężeniu kwoty
+    nadal NIE są redagowane dla ról z dostępem, a pozostałe role dostają 403
+    — nie pustkę, która czytałaby się jak utrata danych.
     """
     for role in (
         UserRole.admin,
-        UserRole.sourcer,
         UserRole.finance,
-        UserRole.recruiter,
-        UserRole.user,
+        UserRole.head_of_recruitment,
     ):
         _, email, password = await _seed_user(role, "rbac")
         headers = await _login(board_client, email, password)
@@ -243,6 +246,18 @@ async def test_board_is_reachable_for_every_logged_in_role(board_client: AsyncCl
         body = resp.json()
         # Brak redakcji: kwoty są obecne jako pola, nie wycięte dla roli.
         assert "revenue_monthly_pln" in body["kpis"]["finance"], role.value
+
+    for role in (
+        UserRole.sourcer,
+        UserRole.recruiter,
+        UserRole.delivery_lead,
+        UserRole.tac,
+        UserRole.user,
+    ):
+        _, email, password = await _seed_user(role, "rbac-denied")
+        headers = await _login(board_client, email, password)
+        resp = await board_client.get(BOARD_URL, headers=headers)
+        assert resp.status_code == 403, f"{role.value}: {resp.text}"
 
 
 @pytest.mark.asyncio

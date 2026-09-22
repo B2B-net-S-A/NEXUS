@@ -634,6 +634,18 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'auto_match_proposals'",
     # 0335: seria 3 awarii tego samego automatu rekrutacji (tylko admini).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'automation_failing'",
+    # 0336: zapisane wyszukiwanie wymaga ponownej akceptacji po migracji semantyki.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'saved_search_reapproval'",
+    # 0338: cykl rozmowy u klienta — typ wydarzenia, źródło pytań z debriefu
+    # i trzy przekazania DL ↔ rekruter. Bez wartości INSERT wydarzenia
+    # `client_interview` / pytania `client_debrief` / dzwonka =>
+    # InvalidTextRepresentationError.
+    "ALTER TYPE eventtype ADD VALUE IF NOT EXISTS 'client_interview'",
+    "ALTER TYPE interviewquestionsource ADD VALUE IF NOT EXISTS 'client_debrief'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_slots_requested'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_slot_chosen'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_slot_confirmed'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_debrief_saved'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -2650,6 +2662,52 @@ _COLUMN_STATEMENTS = [
     # kolumna ma FK na `rejection_reasons` — ta tabela musi już istnieć.
     'ALTER TABLE interview_feedback ALTER COLUMN calendar_event_id DROP NOT NULL',
     'ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS rejection_reason_id INTEGER NULL REFERENCES rejection_reasons(id) ON DELETE SET NULL',
+    # 0338: debrief po rozmowie u klienta — „czy przyjmie ofertę”. ORM wybiera
+    # wszystkie kolumny, więc bez nich KAŻDY odczyt feedbacku => UndefinedColumn.
+    "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS offer_acceptance VARCHAR(16)",
+    "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS acceptance_condition TEXT",
+    """DO $$ BEGIN
+        ALTER TABLE interview_feedback
+            ADD CONSTRAINT ck_interview_feedback_offer_acceptance
+            CHECK (offer_acceptance IS NULL OR offer_acceptance IN
+                   ('yes', 'likely', 'no', 'unknown'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    # 0338: terminy rozmów od klienta (cykl rozmowy u klienta). Lustro 1:1
+    # z migracją — pilnuje `test_client_interview_cycle_migration_mirror.py`.
+    """CREATE TABLE IF NOT EXISTS client_interview_slot_requests (
+        id SERIAL PRIMARY KEY,
+        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        client_id INTEGER NULL REFERENCES clients(id) ON DELETE SET NULL,
+        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        recruiter_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        slots JSONB NOT NULL,
+        duration_minutes INTEGER NOT NULL DEFAULT 60,
+        respond_by TIMESTAMPTZ NULL,
+        note VARCHAR(1000) NULL,
+        status VARCHAR(24) NOT NULL DEFAULT 'awaiting_recruiter',
+        chosen_index INTEGER NULL,
+        chosen_at TIMESTAMPTZ NULL,
+        chosen_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        confirmed_at TIMESTAMPTZ NULL,
+        confirmed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        event_id INTEGER NULL REFERENCES calendar_events(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_interview_slot_requests_status CHECK (
+            status IN ('awaiting_recruiter', 'awaiting_dl', 'confirmed', 'cancelled')),
+        CONSTRAINT ck_interview_slot_requests_duration CHECK (
+            duration_minutes BETWEEN 15 AND 480)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_interview_slot_requests_candidate_job "
+    "ON client_interview_slot_requests (candidate_id, job_id)",
+    "CREATE INDEX IF NOT EXISTS ix_interview_slot_requests_status "
+    "ON client_interview_slot_requests (status)",
+    "CREATE INDEX IF NOT EXISTS ix_interview_slot_requests_recruiter "
+    "ON client_interview_slot_requests (recruiter_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_interview_slot_requests_open_pair "
+    "ON client_interview_slot_requests (candidate_id, job_id) "
+    "WHERE status IN ('awaiting_recruiter', 'awaiting_dl')",
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_at TIMESTAMPTZ',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_external_id VARCHAR(255)',
     'ALTER TABLE traffit_sync_state ADD COLUMN IF NOT EXISTS cursor_payload JSONB',
@@ -4772,6 +4830,16 @@ _COLUMN_STATEMENTS = [
     "ON my_people_job_matches (user_id, seen_at)",
     "CREATE INDEX IF NOT EXISTS ix_my_people_job_matches_job "
     "ON my_people_job_matches (job_id)",
+    # 0337: własny pulpit startowy — jeden układ kafelków na osobę. Sonda
+    # `/api/health/deep` ją czyta; lustro pilnuje
+    # `test_user_dashboard_migration_mirror.py`.
+    """CREATE TABLE IF NOT EXISTS user_dashboards (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        layout JSONB NOT NULL DEFAULT '{"tiles": []}'::jsonb,
+        version INTEGER NOT NULL DEFAULT 0,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_user_dashboards_version CHECK (version >= 0)
+    )""",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

@@ -22,7 +22,7 @@ Reguły:
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
@@ -58,6 +58,9 @@ router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 # ─── Schemas ─────────────────────────────────────────────────────────────────
 
 
+OfferAcceptance = Literal["yes", "likely", "no", "unknown"]
+
+
 class InterviewFeedbackCreate(BaseModel):
     calendar_event_id: int
     candidate_id: int
@@ -70,6 +73,9 @@ class InterviewFeedbackCreate(BaseModel):
     candidate_questions: Optional[str] = Field(None, max_length=4000)
     concerns: Optional[str] = Field(None, max_length=4000)
     next_step_preference: Optional[NextStepPreference] = None
+    # 0338: debrief po rozmowie u klienta.
+    offer_acceptance: Optional[OfferAcceptance] = None
+    acceptance_condition: Optional[str] = Field(None, max_length=2000)
 
     # client_side
     technical_fit: Optional[int] = Field(None, ge=1, le=5)
@@ -91,6 +97,8 @@ class InterviewFeedbackUpdate(BaseModel):
     candidate_questions: Optional[str] = Field(None, max_length=4000)
     concerns: Optional[str] = Field(None, max_length=4000)
     next_step_preference: Optional[NextStepPreference] = None
+    offer_acceptance: Optional[OfferAcceptance] = None
+    acceptance_condition: Optional[str] = Field(None, max_length=2000)
     technical_fit: Optional[int] = Field(None, ge=1, le=5)
     soft_fit: Optional[int] = Field(None, ge=1, le=5)
     overall_fit: Optional[int] = Field(None, ge=1, le=5)
@@ -115,6 +123,8 @@ class InterviewFeedbackOut(BaseModel):
     candidate_questions: Optional[str]
     concerns: Optional[str]
     next_step_preference: Optional[str]
+    offer_acceptance: Optional[str] = None
+    acceptance_condition: Optional[str] = None
     technical_fit: Optional[int]
     soft_fit: Optional[int]
     overall_fit: Optional[int]
@@ -139,6 +149,8 @@ def _to_out(fb: InterviewFeedback) -> InterviewFeedbackOut:
         candidate_questions=fb.candidate_questions,
         concerns=fb.concerns,
         next_step_preference=_enum_value(fb.next_step_preference),
+        offer_acceptance=fb.offer_acceptance,
+        acceptance_condition=fb.acceptance_condition,
         technical_fit=fb.technical_fit,
         soft_fit=fb.soft_fit,
         overall_fit=fb.overall_fit,
@@ -259,6 +271,8 @@ async def create_feedback(
         candidate_questions=payload.candidate_questions,
         concerns=payload.concerns,
         next_step_preference=payload.next_step_preference,
+        offer_acceptance=payload.offer_acceptance,
+        acceptance_condition=payload.acceptance_condition,
         technical_fit=payload.technical_fit,
         soft_fit=payload.soft_fit,
         overall_fit=payload.overall_fit,

@@ -1,7 +1,7 @@
 /**
  * Pasek sekcji musi obiecywać dokładnie to, co jest na stronie.
  *
- * Każda z trzech zakładek /insights ma tablicę `SECTIONS` (spis treści paska
+ * Każdy rozdział Body Leasing i zakładka Rada mają tablicę `SECTIONS` (spis treści paska
  * nawigacyjnego) i zestaw `<InsightsSection id="…">` (kotwice, do których ten
  * pasek skacze). To są DWA lustra tej samej listy i rozjeżdżają się w obie
  * strony, obie ciche:
@@ -25,9 +25,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+// Rozdziały Body Leasing (21.09.2026) + panel Rady — każdy ma własny pasek.
 const PANELS = [
-  "RekrutacjaPanel.tsx",
-  "DeliveryLeadPanel.tsx",
+  "chapters/RywalizacjaChapter.tsx",
+  "chapters/WynikiChapter.tsx",
+  "chapters/KlienciChapter.tsx",
   "RadaNadzorczaPanel.tsx",
 ] as const;
 

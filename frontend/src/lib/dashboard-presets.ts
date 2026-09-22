@@ -136,8 +136,14 @@ export function getDefaultDashboardPreset(
   return requested && available.includes(requested) ? requested : available[0]
 }
 
+/**
+ * Adres pulpitu. Od 21.09.2026 każdy ma WŁASNY pulpit (kafelki), więc adres
+ * nie zależy już od roli — parametr zostaje dla zgodności wołających
+ * (pasek boczny, paleta ⌘K). Presety ról karmią dziś wyłącznie serwerowe
+ * zakresy procesów (`default_dashboard_preset`) w kafelkach rekrutacji.
+ */
 export function dashboardHref(
-  user:
+  _user?:
     | Pick<
         User,
         | "role"
@@ -145,11 +151,7 @@ export function dashboardHref(
         | "available_dashboard_presets"
         | "default_dashboard_preset"
       >
-    | null
-    | undefined,
+    | null,
 ): string {
-  const preset = getDefaultDashboardPreset(user)
-  if (!preset) return "/dashboard"
-  const period = DASHBOARD_PRESETS[preset].defaultPeriod
-  return `/dashboard?preset=${preset}&period=${period}`
+  return "/dashboard"
 }

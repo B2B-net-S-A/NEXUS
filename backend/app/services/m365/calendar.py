@@ -27,11 +27,12 @@ logger = logging.getLogger(__name__)
 M365_SOURCE = "microsoft365"
 
 # Event types that default to including a Teams online-meeting link. Other
-# types (deadline, prep_call, generic meeting) skip the meeting unless the
+# types (deadline, generic meeting) skip the meeting unless the
 # caller asks explicitly. Keeping the set narrow avoids spamming users with
 # join URLs for events they never intended to hold over Teams.
 _TEAMS_DEFAULT_EVENT_TYPES: frozenset[EventType] = frozenset(
-    {EventType.interview, EventType.screening}
+    # 0338: prep z kandydatem przed rozmową u klienta to call na Teams.
+    {EventType.interview, EventType.screening, EventType.prep_call}
 )
 
 FreeBusyStatus = Literal[
@@ -64,6 +65,21 @@ _MAX_SCHEDULES = 20
 _DEFAULT_INTERVAL_MINUTES = 30
 
 
+def _graph_datetime(value: datetime) -> dict:
+    """`{dateTime, timeZone}` dla Grapha: czas LOKALNY strefy biznesowej.
+
+    Graph czyta `dateTime` jako czas w podanej `timeZone`; ISO z przesunięciem
+    (`…+00:00`) przy `timeZone=Europe/Warsaw` to niejednoznaczność, którą
+    lepiej rozstrzygnąć po naszej stronie. Naiwny czas traktujemy jak UTC
+    (tak zapisuje go reszta NEXUSA).
+    """
+    from zoneinfo import ZoneInfo
+
+    aware = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    local = aware.astimezone(ZoneInfo(settings.BUSINESS_TZ)).replace(tzinfo=None)
+    return {"dateTime": local.isoformat(), "timeZone": settings.BUSINESS_TZ}
+
+
 def _resolve_with_teams(
     with_teams_meeting: Optional[bool], event_type: EventType
 ) -> bool:
@@ -92,8 +108,8 @@ def _build_event_payload(
     payload: dict = {
         "subject": title,
         "body": {"contentType": "HTML", "content": body_html},
-        "start": {"dateTime": start.isoformat(), "timeZone": settings.BUSINESS_TZ},
-        "end": {"dateTime": end.isoformat(), "timeZone": settings.BUSINESS_TZ},
+        "start": _graph_datetime(start),
+        "end": _graph_datetime(end),
         "attendees": [
             {
                 "emailAddress": {"address": a},
@@ -174,6 +190,57 @@ async def create_event(
     db.add(row)
     await db.flush()
     return row
+
+
+# ── Update ──────────────────────────────────────────────────────────────────
+
+
+def build_update_payload(
+    *,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    location: Optional[str] = None,
+    set_location: bool = False,
+) -> dict:
+    """Częściowe ciało `PATCH /me/events/{id}` — tylko pola, które się zmieniły.
+
+    Czysta funkcja, żeby kontrakt (strefa czasowa, HTML opisu, zerowanie
+    miejsca) dało się sprawdzić bez Grapha.
+    """
+    payload: dict = {}
+    if title is not None:
+        payload["subject"] = title
+    if description is not None:
+        payload["body"] = {"contentType": "HTML", "content": sanitize_html(description)}
+    if start is not None:
+        payload["start"] = _graph_datetime(start)
+    if end is not None:
+        payload["end"] = _graph_datetime(end)
+    if set_location:
+        payload["location"] = {"displayName": location or ""}
+    return payload
+
+
+async def update_graph_event(
+    db: AsyncSession,
+    connection: M365Connection,
+    graph_event_id: str,
+    payload: dict,
+) -> Optional[str]:
+    """Zmień wydarzenie w Outlooku właściciela połączenia (organizatora).
+
+    Graph sam wysyła uczestnikom aktualizację. Zwraca nowy `changeKey`, żeby
+    najbliższa synchronizacja nie nadpisała lokalnego wiersza tym samym stanem
+    jeszcze raz. Błędy (`GraphRequestError`) lecą wyżej — wołający decyduje,
+    czy to „nie jesteś organizatorem” (400/403), czy awaria.
+    """
+    async with GraphClient(connection, db) as gc:
+        result = await gc.patch(f"/me/events/{graph_event_id}", json=payload)
+    if isinstance(result, dict):
+        return result.get("changeKey")
+    return None
 
 
 # ── Cancel ──────────────────────────────────────────────────────────────────

@@ -374,6 +374,7 @@ def _maximal_request() -> CandidateSearchRequest:
     return CandidateSearchRequest(
         competence_category_ids=[1],
         skills_none=["COBOL"],
+        skills_required=["Python"],
         experience_years_min=2,
         experience_years_max=6,
         languages=[LanguageRequirement(code="en", min_level="B2")],
@@ -475,6 +476,28 @@ def test_experience_bound_no_longer_excludes_unstated_experience():
     sql = _compile(build_structured_filter(req))
     assert "years_it_experience IS NULL" in sql
     assert ">= 2" in sql and "<= 6" in sql
+    assert "traffit_experience" not in sql  # v1: DOKŁADNIE dotychczasowa reguła
+
+
+def test_experience_v2_uses_the_traffit_fallback_shared_with_the_list():
+    """`semantics_version=2`: jedna reguła przedziału z zapasem Traffita
+    (`candidate_search_predicates.experience_clause`) — „brak sygnału" to brak
+    liczby ORAZ brak koszyka."""
+    req = CandidateSearchRequest(
+        experience_years_min=2, experience_years_max=6, semantics_version=2
+    )
+    sql = _compile(build_structured_filter(req))
+    assert "traffit_experience" in sql and "IS NULL" in sql
+
+
+def test_hide_unknown_drops_the_null_arm():
+    keep = CandidateSearchRequest(experience_years_min=2, semantics_version=2)
+    drop = CandidateSearchRequest(
+        experience_years_min=2, semantics_version=2, hide_unknown=True
+    )
+    assert _compile(build_structured_filter(keep)).count("IS NULL") > _compile(
+        build_structured_filter(drop)
+    ).count("IS NULL")
 
 
 def test_location_chip_keeps_candidates_with_no_location_at_all():

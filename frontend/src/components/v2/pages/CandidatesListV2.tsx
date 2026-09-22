@@ -1546,6 +1546,12 @@ export function CandidatesListV2() {
  const raw = Number.parseInt(searchParams.get("rcj") ?? "", 10);
  return raw === 1 || raw === 2 || raw === 3 ? raw : null;
  });
+ // Wersja semantyki filtrów (`sv=2`): ustawia ją zapisane wyszukiwanie po
+ // migracji (format v3), żeby lista pokazywała ten sam zbiór, który liczy alert.
+ // Bez kontrolki w UI — ręczna zmiana filtrów jej nie dotyka, „Wyczyść" zeruje.
+ const [semanticsVersion, setSemanticsVersion] = useState<2 | null>(
+ searchParams.get("sv") === "2" ? 2 : null,
+ );
  // Engagement openness — any of {side_projects, sales_support, expert_consult}, OR-combined.
  const [openToFilter, setOpenToFilter] = useState<OpenToValue[]>(
  searchParams
@@ -1680,6 +1686,7 @@ export function CandidatesListV2() {
  stageCurrentOnly,
  openTo: openToFilter,
  recentlyChangedJobs,
+ semanticsVersion,
  view: effectiveCandidatesView,
  savedSearchId: activeSavedSearchId,
  qAll,
@@ -1719,6 +1726,7 @@ export function CandidatesListV2() {
  stageCurrentOnly,
  openToFilter,
  recentlyChangedJobs,
+ semanticsVersion,
  effectiveCandidatesView,
  activeSavedSearchId,
  qAll,
@@ -2134,6 +2142,8 @@ export function CandidatesListV2() {
  if (patch.openTo !== undefined) setOpenToFilter(patch.openTo);
  if (patch.recentlyChangedJobs !== undefined)
  setRecentlyChangedJobs(patch.recentlyChangedJobs);
+ if (patch.semanticsVersion !== undefined)
+ setSemanticsVersion(patch.semanticsVersion);
  if (patch.view !== undefined) setCandidatesView(patch.view);
  if (patch.savedSearchId !== undefined)
  setActiveSavedSearchId(patch.savedSearchId);
@@ -2228,6 +2238,7 @@ export function CandidatesListV2() {
  setSentToClientTo("");
  setStageCurrentOnly(false);
  setRecentlyChangedJobs(null);
+ setSemanticsVersion(null);
  setQAll([]);
  setQAny([]);
  setQNone([]);

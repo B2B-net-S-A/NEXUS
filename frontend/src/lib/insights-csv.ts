@@ -15,7 +15,7 @@
 import type {
   InsightsBoardResponse,
   InsightsClientsRankingResponse,
-  InsightsDeliveryLeadsResponse,
+  InsightsDlPortfolioResponse,
   RecruitmentFunnelResponse,
 } from "@/lib/insights-api";
 import type { InsightsCsvExport } from "@/components/insights/PeriodPicker";
@@ -52,53 +52,70 @@ export function buildFunnelCsvExport(
 }
 
 /**
- * Ranking Delivery Leadów — jeden wiersz na osobę plus wiersz org-level.
+ * Portfele Delivery Leadów — wiersz DL (nagłówek), pod nim jego klienci,
+ * na końcu wiersz org-level.
  *
  * Wiersz „Bez przypisanego DL" MUSI trafić do arkusza: bez niego kolumny nie
- * sumują się do wartości, którą pokazuje kokpit, i ktoś liczący średnią
- * z eksportu dostanie inną liczbę niż z ekranu. To ta sama reguła co przy
- * wierszu „Nieprzypisane" w tabeli zespołu — brak atrybucji jest faktem
- * o danych, nie wierszem do pominięcia.
+ * sumują się do wartości z ekranu, a ktoś liczący średnią z eksportu dostanie
+ * inną liczbę niż z ekranu. Brak atrybucji jest faktem o danych, nie wierszem
+ * do pominięcia.
  */
-export function buildDeliveryLeadsCsvExport(
-  dls: InsightsDeliveryLeadsResponse | undefined,
+export function buildDlPortfolioCsvExport(
+  data: InsightsDlPortfolioResponse | undefined,
 ): InsightsCsvExport | null {
-  if (!dls) return null;
-  const u = dls.unattributed;
+  if (!data) return null;
+  const rows: InsightsCsvExport["rows"] = [];
+  for (const lead of data.leads) {
+    rows.push([
+      lead.dl_name,
+      "(razem DL)",
+      lead.requests,
+      lead.vacancies,
+      lead.placements,
+      lead.hit_ratio,
+      lead.fill_rate,
+      null,
+      "",
+    ]);
+    for (const c of lead.clients) {
+      rows.push([
+        lead.dl_name,
+        c.client_name,
+        c.requests,
+        c.vacancies,
+        c.placements,
+        c.hit_ratio,
+        c.fill_rate,
+        c.open_jobs,
+        c.alert === "hit_ratio_drop" ? `spadek hit ratio ${c.delta_pp ?? ""} pp` : "",
+      ]);
+    }
+  }
+  rows.push([
+    "Bez przypisanego DL",
+    "",
+    data.unattributed.requests,
+    null,
+    data.unattributed.placements,
+    null,
+    null,
+    null,
+    "",
+  ]);
   return {
-    filename: "insights-delivery-lead-ranking",
+    filename: "insights-portfele-dl",
     headers: [
       "Delivery Lead",
-      "Aktywny",
+      "Klient",
       "Zapytania",
       "Wakaty",
       "Placementy",
       "Hit ratio %",
       "Fill rate %",
-      "Otwarte zapytania",
+      "Otwarte rekrutacje",
+      "Uwaga",
     ],
-    rows: [
-      ...dls.per_dl.map((d) => [
-        d.name,
-        d.is_active ? "tak" : "nie",
-        d.total_requests,
-        d.total_vacancies,
-        d.placements,
-        d.hit_ratio,
-        d.fill_rate,
-        d.open_requests,
-      ]),
-      [
-        "Bez przypisanego DL",
-        "",
-        u.requests,
-        u.vacancies,
-        u.placements,
-        null,
-        null,
-        u.open_requests,
-      ],
-    ],
+    rows,
   };
 }
 

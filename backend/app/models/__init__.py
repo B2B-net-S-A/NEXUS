@@ -684,3 +684,7 @@ from app.models.jarvis import (  # noqa: F401
 from app.models.mail_delivery import MailDeliveryState  # noqa: F401
 from app.models.job_proposal import JobProposal  # noqa: F401
 from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride  # noqa: F401
+from app.models.user_dashboard import UserDashboard  # noqa: F401
+from app.models.client_interview_slot_request import (  # noqa: F401
+    ClientInterviewSlotRequest,
+)

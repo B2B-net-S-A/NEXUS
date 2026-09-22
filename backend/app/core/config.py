@@ -441,6 +441,12 @@ class Settings(BaseSettings):
     # (endpoint jest bezstanowy). Pokrętło istnieje, żeby dało się zmierzyć
     # 200 vs 100 evalem bez deployu — patrz `_hybrid_pool_size` w api/search.py.
     SEARCH_HYBRID_POOL_SIZE: int = 200
+    # Jednorazowa migracja zapisanych wyszukiwań kandydatów na wspólną semantykę
+    # filtrów (`services/saved_search_migration.py`) przy starcie skanera alertów.
+    # Domyślnie OFF: migracja wstrzymuje alerty zapisów, których wynik się
+    # zmienia, i powiadamia właścicieli — moment wybiera człowiek (albo admin
+    # woła `POST /api/saved-searches/migrate-semantics`). Marker w `app_settings`.
+    SAVED_SEARCH_SEMANTICS_MIGRATION_AUTORUN: bool = False
     # Talent Radar: wymagania MUST/NICE podane WPROST (z `parse-champion`)
     # zamiast wywodzonych regexem z prozy. Flip zmienia CZTERY rzeczy naraz,
     # nie jedną warstwę punktową:
@@ -805,6 +811,9 @@ class Settings(BaseSettings):
     POST_INTERVIEW_T15_MINUTES: int = 15
     POST_INTERVIEW_T45_MINUTES: int = 45
     POST_INTERVIEW_T2H_MINUTES: int = 120
+    # 0338: okno „zadzwoń do kandydata po rozmowie u klienta” (min od końca).
+    # Agenda „Rozmowy u klienta” pokazuje odliczanie do jego końca.
+    POST_INTERVIEW_CALL_WINDOW_MINUTES: int = 30
     # Po ilu minutach od end_time interview z status=scheduled → auto-flip na
     # completed (sygnał, że event się odbył, nawet jeśli nikt go ręcznie nie
     # oznaczył). 10 min grace period absorbuje opóźnienia.

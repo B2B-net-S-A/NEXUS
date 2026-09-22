@@ -1,0 +1,31 @@
+{
+  "_comment": "Wspólne przypadki dla parsera wyrażenia umiejętności: frontend (lib/skill-expression.ts, vitest) i backend (app/services/candidate_search_predicates.py, pytest). Zmiana gramatyki = zmiana TEGO pliku i obu parserów.",
+  "cases": [
+    { "expr": "", "must": [], "anyGroups": [], "none": [] },
+    { "expr": "   ", "must": [], "anyGroups": [], "none": [] },
+    { "expr": "Python", "must": ["Python"], "anyGroups": [], "none": [] },
+    { "expr": "Python AND React", "must": ["Python", "React"], "anyGroups": [], "none": [] },
+    { "expr": "Python React", "must": ["Python", "React"], "anyGroups": [], "none": [] },
+    { "expr": "Python, React,Vue", "must": ["Python", "React", "Vue"], "anyGroups": [], "none": [] },
+    { "expr": "Python OR Java", "must": [], "anyGroups": [["Python", "Java"]], "none": [] },
+    { "expr": "python or java or kotlin", "must": [], "anyGroups": [["python", "java", "kotlin"]], "none": [] },
+    { "expr": "Python NOT PHP", "must": ["Python"], "anyGroups": [], "none": ["PHP"] },
+    { "expr": "React Vue -PHP", "must": ["React", "Vue"], "anyGroups": [], "none": ["PHP"] },
+    { "expr": "A OR B AND C", "must": ["C"], "anyGroups": [["A", "B"]], "none": [] },
+    { "expr": "A OR B AND C OR D", "must": [], "anyGroups": [["A", "B"], ["C", "D"]], "none": [] },
+    { "expr": "\"Spring Boot\" AND Java", "must": ["Spring Boot", "Java"], "anyGroups": [], "none": [] },
+    { "expr": "-\"Spring Boot\" Java", "must": ["Java"], "anyGroups": [], "none": ["Spring Boot"] },
+    { "expr": "\"and\" OR \"not\"", "must": [], "anyGroups": [["and", "not"]], "none": [] },
+    { "expr": "Python python PYTHON", "must": ["Python"], "anyGroups": [], "none": [] },
+    { "expr": "Java OR java", "must": ["Java"], "anyGroups": [], "none": [] },
+    { "expr": "NOT PHP NOT php -Perl", "must": [], "anyGroups": [], "none": ["PHP", "Perl"] },
+    { "expr": "Python OR NOT PHP Java", "must": ["Python", "Java"], "anyGroups": [], "none": ["PHP"] },
+    { "expr": "OR Python", "must": ["Python"], "anyGroups": [], "none": [] },
+    { "expr": "Python OR", "must": ["Python"], "anyGroups": [], "none": [] },
+    { "expr": "Python - Java", "must": ["Python", "Java"], "anyGroups": [], "none": [] },
+    { "expr": "C++ OR C# .NET", "must": [".NET"], "anyGroups": [["C++", "C#"]], "none": [] },
+    { "expr": "\"  Spring   Boot  \"", "must": ["Spring Boot"], "anyGroups": [], "none": [] },
+    { "expr": "\"unterminated quote", "must": ["unterminated quote"], "anyGroups": [], "none": [] },
+    { "expr": "node.js\tOR\nDeno", "must": [], "anyGroups": [["node.js", "Deno"]], "none": [] }
+  ]
+}
