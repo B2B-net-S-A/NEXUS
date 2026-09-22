@@ -648,7 +648,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_slot_chosen'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_slot_confirmed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_debrief_saved'",
-    # 0346: kolejka „Czeka na Ciebie" — poranny skrót i wytypowanie do Cpro.
+    # 0348: kolejka „Czeka na Ciebie" — poranny skrót i wytypowanie do Cpro.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_tasks_digest'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_send_assigned'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
@@ -931,7 +931,7 @@ _COLUMN_STATEMENTS = [
        ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ NULL""",
     """ALTER TABLE candidate_stages
        ADD COLUMN IF NOT EXISTS sla_alerted_at TIMESTAMPTZ NULL""",
-    # 0346: kto wysyła osobę do Cpro (wiersz etapu „Wysłać do Cpro").
+    # 0348: kto wysyła osobę do Cpro (wiersz etapu „Wysłać do Cpro").
     """ALTER TABLE candidate_stages
        ADD COLUMN IF NOT EXISTS task_assignee_id INTEGER NULL
        REFERENCES users(id) ON DELETE SET NULL""",

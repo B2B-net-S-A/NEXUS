@@ -2647,7 +2647,7 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   = HoR), „Gotowy do Cpro" tylko u klienta z `NORDEA_ORDER_NUMBER_CLIENT_IDS`
   (`job.cpro_enabled`). Reguła nazw DZ/Cpro ma lustro front↔back na wspólnym
   `__fixtures__/board-stage-cases.json` (prawdziwe nazwy z 3 szablonów).
-- **Kolejka „Czeka na Ciebie” (0346, decyzje Artura 22.09.2026)** —
+- **Kolejka „Czeka na Ciebie” (0348, decyzje Artura 22.09.2026)** —
   `services/board_tasks.py`, `GET /api/board-tasks`, panel `BoardTasksPanel`
   nad układem pulpitu (nie kafelek: ma dotrzeć do osoby, która pulpitu nie
   układała). Liczona z NAJNOWSZEGO wiersza pary w opublikowanych rekrutacjach,

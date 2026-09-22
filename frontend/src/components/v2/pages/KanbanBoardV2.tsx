@@ -1887,7 +1887,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  });
  }, [dockItem, dockItemColId, moveTargetCols, dockHost, readOnly]);
 
- // „Gotowy do Cpro" (0346): za każdym razem wysyła ktoś inny, więc włączenie
+ // „Gotowy do Cpro" (0348): za każdym razem wysyła ktoś inny, więc włączenie
  // odznaki najpierw pyta, kto wyśle — ruch idzie dopiero z wytypowaną osobą.
  const [cproPrompt, setCproPrompt] = useState<{
  item: KanbanItem;

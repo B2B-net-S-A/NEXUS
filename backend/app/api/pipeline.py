@@ -527,7 +527,7 @@ async def move_candidate(
         ensure_badge_stage_allowed(
             current_user, stage_name=stage_def.name, client_id=job.client_id
         )
-    # 0346: osoba, która wyśle kandydata do Cpro — typowana przy oznaczeniu
+    # 0348: osoba, która wyśle kandydata do Cpro — typowana przy oznaczeniu
     # gotowości. Na każdym innym etapie pole nie ma znaczenia, więc 422.
     cpro_assignee: Optional[User] = None
     cpro_assignee_added_to_team = False
@@ -1235,7 +1235,7 @@ async def move_candidate(
         except Exception:  # noqa: BLE001
             pass
 
-    # 0346: dzwonek dla osoby wytypowanej do wysłania do Cpro. Best-effort.
+    # 0348: dzwonek dla osoby wytypowanej do wysłania do Cpro. Best-effort.
     if cpro_assignee is not None:
         try:
             cand_for_notice = await db.scalar(
@@ -1713,7 +1713,7 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
     process_cards = await _process_cards(db, job_id=job_id, candidate_ids=candidate_ids)
     process_versions = {cid: card[0] for cid, card in process_cards.items()}
     owner_ids = {card[1] for card in process_cards.values() if card[1] is not None}
-    # 0346: wytypowani do wysłania do Cpro — ta sama paczka nazwisk.
+    # 0348: wytypowani do wysłania do Cpro — ta sama paczka nazwisk.
     owner_ids |= {
         s.task_assignee_id for s in seen.values() if s.task_assignee_id is not None
     }

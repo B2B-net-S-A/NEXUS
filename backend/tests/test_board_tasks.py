@@ -1,4 +1,4 @@
-"""Kolejka „Czeka na Ciebie" (0346): DZ, do wysłania do Cpro, wysłane do Cpro.
+"""Kolejka „Czeka na Ciebie" (0348): DZ, do wysłania do Cpro, wysłane do Cpro.
 
 Decyzje Artura 22.09.2026: DZ zatwierdza każdy DL i Dominik (Head of
 Recruitment); u Nordei „CV wysłane" = wysłane do Cpro; osobę, która wysyła do

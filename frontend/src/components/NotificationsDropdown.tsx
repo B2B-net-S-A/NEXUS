@@ -406,7 +406,7 @@ const TYPE_CONFIG: Record<
     color: "text-primary",
     bgColor: "bg-primary/15",
   },
-  // 0346: kolejka „Czeka na Ciebie" — poranny skrót i wytypowanie do Cpro.
+  // 0348: kolejka „Czeka na Ciebie" — poranny skrót i wytypowanie do Cpro.
   board_tasks_digest: {
     icon: <ListChecks className="w-3.5 h-3.5" />,
     color: "text-primary",

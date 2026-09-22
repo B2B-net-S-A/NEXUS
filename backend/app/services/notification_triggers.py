@@ -605,7 +605,7 @@ async def check_candidate_feedback_1h(db: AsyncSession, now: datetime) -> int:
     return emitted
 
 
-# ── Trigger: poranny skrót kolejki „Czeka na Ciebie" (0346) ──────────────────
+# ── Trigger: poranny skrót kolejki „Czeka na Ciebie" (0348) ──────────────────
 
 # Pierwszy dzień (lokalny), dla którego skrót już policzono w tym procesie.
 # Migawka kolejki to jeden przebieg po etapach opublikowanych rekrutacji —

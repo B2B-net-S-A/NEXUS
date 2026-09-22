@@ -1,4 +1,4 @@
-"""Kolejka „Czeka na Ciebie" — praca na Tablicach, której nikt nie widzi (0346).
+"""Kolejka „Czeka na Ciebie" — praca na Tablicach, której nikt nie widzi (0348).
 
 Odznaki „DZ ✓" i „Gotowy do Cpro" są etapami szablonu
 (`services/board_stage_badges.py`), więc to, co czeka, wylicza się

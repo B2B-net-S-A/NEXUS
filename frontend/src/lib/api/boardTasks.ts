@@ -1,4 +1,4 @@
-// Kolejka „Czeka na Ciebie" (0346) — praca na Tablicach, której nikt nie widzi.
+// Kolejka „Czeka na Ciebie" (0348) — praca na Tablicach, której nikt nie widzi.
 //
 // Typy są lustrem `backend/app/api/board_tasks.py`. Serwer rozstrzyga, co
 // należy do danej osoby (DZ: Delivery Lead w swoim portfelu, Head of

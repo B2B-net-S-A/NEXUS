@@ -216,7 +216,7 @@ class CandidateStage(Base, TimestampMixin):
     )
     rejection_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # ── Kto wysyła osobę do Cpro (0346, Nordea) ─────────────────────────────
+    # ── Kto wysyła osobę do Cpro (0348, Nordea) ─────────────────────────────
     # Wypełniane WYŁĄCZNIE na wierszu etapu „Wysłać do Cpro" (odznaka „Gotowy
     # do Cpro"): za każdym razem ktoś inny, więc osobę typuje ten, kto
     # oznacza gotowość. Zadanie kończy ruch na „CV wysłane" (u Nordei

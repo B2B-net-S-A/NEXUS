@@ -1,7 +1,7 @@
 """Kolejka „Czeka na Ciebie": kto wysyła do Cpro + dwa typy powiadomień.
 
-Revision ID: 0346_board_tasks
-Revises: 0345_billing_hours_168
+Revision ID: 0348_board_tasks
+Revises: 0347_tcm_b2b_generator_manage
 
 Odznaki DZ i Cpro są etapami szablonu (import z Traffita zapisuje ruch na
 dokładny stan), więc „co czeka" wylicza się z najnowszego wiersza pary.
@@ -15,8 +15,8 @@ Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony).
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0346_board_tasks"
-down_revision = "0345_billing_hours_168"
+revision = "0348_board_tasks"
+down_revision = "0347_tcm_b2b_generator_manage"
 branch_labels = None
 depends_on = None
 

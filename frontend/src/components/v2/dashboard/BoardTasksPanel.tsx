@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * „Czeka na Ciebie" — praca na Tablicach, której nikt nie widzi (0346).
+ * „Czeka na Ciebie" — praca na Tablicach, której nikt nie widzi (0348).
  *
  * Trzy listy z `GET /api/board-tasks`:
  *  - „Czeka na DZ" — osoby w „Zweryfikowany" bez odznaki DZ; „✓ DZ" to ten

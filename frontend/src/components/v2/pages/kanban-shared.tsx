@@ -82,7 +82,7 @@ export interface KanbanItem {
  // kandydata do rekrutacji.
  recruiter_id?: number | null;
  recruiter_name?: string | null;
- // 0346: kto wysyła osobę do Cpro — tylko na etapie „Wysłać do Cpro".
+ // 0348: kto wysyła osobę do Cpro — tylko na etapie „Wysłać do Cpro".
  task_assignee_id?: number | null;
  task_assignee_name?: string | null;
  // Postawa kandydata wobec nowych projektów (`AvailabilityStatus`) i data,

@@ -1,4 +1,4 @@
-"""Router `/api/board-tasks` — kolejka „Czeka na Ciebie" (0346).
+"""Router `/api/board-tasks` — kolejka „Czeka na Ciebie" (0348).
 
 Odczyt listy (DZ, do wysłania do Cpro, wysłane do Cpro) i zmiana osoby, która
 wysyła kandydata do Cpro. Samo zatwierdzenie DZ i oznaczenie „wysłane" to

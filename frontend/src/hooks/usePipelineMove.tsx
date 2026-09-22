@@ -163,7 +163,7 @@ interface SendMoveOptions {
   checkVersion?: boolean;
   // 17.09.2026: powtórka po 409 ELIGIBILITY_WARNING („Przenieś mimo to").
   acknowledgeEligibility?: boolean;
-  // 0346: osoba, która wyśle kandydata do Cpro — tylko przy „Gotowy do Cpro".
+  // 0348: osoba, która wyśle kandydata do Cpro — tylko przy „Gotowy do Cpro".
   taskAssigneeId?: number;
 }
 
