@@ -475,7 +475,11 @@ async def test_delivery_scope_preserves_exact_client_tac_relationships() -> None
             self.tac_user_id = tac_user_id
 
     class _Database:
-        async def scalars(self, _statement):
+        async def scalars(self, statement):
+            # Pierwsze zapytanie: klienci. Drugie: ludzie rekrutacji DL
+            # (`_delivery_lead_operator_ids`) — zespół bez ClientTacAssignment.
+            if "users" in str(statement):
+                return _Values([303])
             return _Values([10, 20])
 
         async def execute(self, _statement):
@@ -491,6 +495,7 @@ async def test_delivery_scope_preserves_exact_client_tac_relationships() -> None
 
     assert scope.allowed_client_ids == frozenset({10, 20})
     assert scope.allowed_tac_user_ids == frozenset({101, 202})
+    assert scope.allowed_operator_user_ids == frozenset({101, 202, 303})
     assert scope.allowed_client_tac_pairs == frozenset({(10, 101), (20, 202)})
     assert scope.as_payload()["allowed_client_tac_pairs"] == [
         {"client_id": 10, "tac_user_id": 101},
