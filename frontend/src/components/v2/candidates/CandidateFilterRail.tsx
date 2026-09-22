@@ -17,9 +17,11 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { competenceCategoriesApi, type CompetenceCategoryOut } from "@/lib/api";
 import {
-  AVAILABILITY_OPTIONS,
+  AVAILABILITY_CHOICES,
+  availabilityChoiceFor,
+} from "@/lib/candidate-availability-choice";
+import {
   CANDIDATE_STATUS_OPTIONS,
-  EMPLOYMENT_OPTIONS,
   OPEN_TO_OPTIONS,
 } from "@/lib/filter-options";
 import {
@@ -47,7 +49,7 @@ import { AddedByMultiSelect } from "@/components/v2/filters/AddedByMultiSelect";
 import { CompanyAutocomplete } from "@/components/v2/filters/CompanyAutocomplete";
 import { ClientMultiSelect } from "@/components/v2/filters/ClientMultiSelect";
 import { RecruitmentMultiSelect } from "@/components/v2/filters/RecruitmentMultiSelect";
-import { AdvancedSearchPopover } from "@/components/v2/filters/AdvancedSearchPopover";
+import { AdvancedSearchPopover, ChipField } from "@/components/v2/filters/AdvancedSearchPopover";
 import {
   StageFilterPanel,
   type StageFilterValue,
@@ -285,12 +287,13 @@ export function LanguageFilterField({
 }
 
 /**
- * Lewa kolumna filtrów listy kandydatów — wariant B (makieta 22.09.2026,
- * https://claude.ai/artifact/BmwbMSuaR1stDk8G4kJVoQ). Na wierzchu tylko pięć
- * grup używanych codziennie, wszystkie rozwinięte: Kogo pokazać, Dostępność,
- * Stawka, Umiejętności, Lokalizacja. Resztę trzyma szuflada „Więcej filtrów”;
- * jej licznik mówi, ile filtrów ustawiono w środku — ukryty aktywny filtr
- * nie może wyglądać, jakby go nie było.
+ * Lewa kolumna filtrów listy kandydatów (decyzja Artura 22.09.2026: „szukamy
+ * głównie ręcznie po słowach kluczowych i wykluczeniach, stawce, lokalizacji
+ * i trybie pracy"). Na wierzchu WYŁĄCZNIE te pięć rzeczy; wszystko inne —
+ * historia z nami (rekrutacje, etapy, klienci), umiejętności, dostępność,
+ * języki, firma, źródło — siedzi w szufladzie „Zaawansowane". Jej przycisk
+ * niesie licznik ustawionych w środku filtrów: ukryty aktywny filtr nie może
+ * wyglądać, jakby go nie było.
  */
 export function CandidateFilterRail({
   filters,
@@ -320,31 +323,36 @@ export function CandidateFilterRail({
     stage.movedByIds.length +
     (stage.movedAfter || stage.movedBefore ? 1 : 0);
   const historyCount =
+    filters.recruitmentIds.length +
     stageCount +
     (filters.sentToClientFrom || filters.sentToClientTo ? 1 : 0) +
-    filters.workedAtClientIds.length +
-    filters.recruitmentIds.length;
+    filters.workedAtClientIds.length;
+  const skillsCount =
+    skills.required.length + skills.preferred.length + skills.excluded.length;
+  const availabilityCount = filters.availability.length + filters.employment.length;
+  const aboutCount =
+    (filters.experienceMin !== null || filters.experienceMax !== null ? 1 : 0) +
+    filters.languages.length +
+    filters.competenceCategoryIds.length;
   const companyCount =
     filters.currentCompany.length +
     filters.pastCompany.length +
     filters.currentTitle.length +
     (filters.recentlyChangedJobs ? 1 : 0);
-  const sourceCount = filters.poolIds.length + (mine ? 0 : filters.addedByIds.length);
-  const statusCount = filters.status.length + filters.employment.length + filters.openTo.length;
-  const experienceCount =
-    (filters.experienceMin !== null || filters.experienceMax !== null ? 1 : 0) +
+  const sourceCount = filters.poolIds.length + filters.addedByIds.length;
+  const otherCount =
+    filters.status.length +
+    filters.openTo.length +
     (filters.hideUnknown ? 1 : 0) +
-    filters.languages.length;
-  const phraseCount =
-    filters.qAll.length + filters.qAny.flat().length + filters.qNone.length;
+    filters.qAny.flat().length;
   const moreCount =
-    statusCount +
-    experienceCount +
-    filters.competenceCategoryIds.length +
     historyCount +
+    skillsCount +
+    availabilityCount +
+    aboutCount +
     companyCount +
     sourceCount +
-    phraseCount;
+    otherCount;
 
   return (
     <aside aria-label="Filtry kandydatów" className={cn("space-y-5 text-sm", className)}>
@@ -362,44 +370,32 @@ export function CandidateFilterRail({
       </div>
 
       <div className="space-y-1.5">
-        <SectionTitle>Kogo pokazać</SectionTitle>
-        <div role="radiogroup" aria-label="Kogo pokazać" className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">
-          {[
-            { key: "all", label: "Wszyscy", active: everyone, onClick: () => onPatch({ addedByIds: [] }) },
-            {
-              key: "mine",
-              label: "Moi kandydaci",
-              active: mine,
-              onClick: () => currentUserId !== null && onPatch({ addedByIds: [currentUserId] }),
-            },
-          ].map((opt) => (
-            <button
-              key={opt.key}
-              type="button"
-              role="radio"
-              aria-checked={opt.active}
-              disabled={opt.key === "mine" && currentUserId === null}
-              onClick={opt.onClick}
-              className={cn(
-                "rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50",
-                opt.active
-                  ? "bg-card text-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <p className="text-[11px] text-muted-foreground">„Moi” = dodani przez Ciebie.</p>
+        <SectionTitle>Słowa kluczowe</SectionTitle>
+        <ChipField
+          chips={filters.qAll}
+          onChange={(next) => onPatch({ qAll: next })}
+          placeholder="np. Java, bankowość, Kafka"
+          tone="emerald"
+          ariaLabel="Słowa kluczowe — muszą być wszystkie"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Każde słowo musi być w CV, notatkach albo profilu. Enter dodaje słowo.
+        </p>
       </div>
 
-      <PillGroup
-        label="Dostępność"
-        options={AVAILABILITY_OPTIONS}
-        value={filters.availability}
-        onToggle={(v) => onPatch({ availability: toggleInList(filters.availability, v) })}
-      />
+      <div className="space-y-1.5">
+        <SectionTitle>Wyklucz słowa</SectionTitle>
+        <ChipField
+          chips={filters.qNone}
+          onChange={(next) => onPatch({ qNone: next })}
+          placeholder="np. junior, stażysta"
+          tone="rose"
+          ariaLabel="Wyklucz słowa"
+        />
+        <p className="text-[11px] text-muted-foreground">
+          Kandydat z którymkolwiek z tych słów znika z listy.
+        </p>
+      </div>
 
       <div className="space-y-1.5">
         <SectionTitle>Stawka B2B</SectionTitle>
@@ -415,20 +411,16 @@ export function CandidateFilterRail({
       </div>
 
       <div className="space-y-1.5">
-        <SectionTitle>Umiejętności</SectionTitle>
-        <SkillBucketsField value={skills} onChange={onSkillsChange} compact />
-      </div>
-
-      <div className="space-y-2">
         <SectionTitle>Lokalizacja</SectionTitle>
         <LocationInput value={filters.location} onChange={(v) => onPatch({ location: v })} />
-        <PillGroup
-          label="Tryb pracy"
-          options={REMOTE_OPTIONS}
-          value={filters.remote}
-          onToggle={(v) => onPatch({ remote: toggleInList(filters.remote, v) })}
-        />
       </div>
+
+      <PillGroup
+        label="Tryb pracy"
+        options={REMOTE_OPTIONS}
+        value={filters.remote}
+        onToggle={(v) => onPatch({ remote: toggleInList(filters.remote, v) })}
+      />
 
       <div className="border-t border-border pt-4">
         <Button
@@ -438,46 +430,39 @@ export function CandidateFilterRail({
         >
           <span className="flex items-center gap-2">
             <SlidersHorizontal className="h-4 w-4" aria-hidden />
-            Więcej filtrów
+            Zaawansowane
           </span>
           {moreCount > 0 && (
             <span className="rounded-full bg-primary-foreground/20 px-1.5 text-xs">{moreCount}</span>
           )}
         </Button>
         <p className="mt-1.5 text-[11px] text-muted-foreground">
-          Status, doświadczenie, języki, kategoria, historia z nami, firma, źródło, frazy w CV.
+          Poprzednie rekrutacje, etapy, klienci, umiejętności, dostępność, języki i inne.
         </p>
       </div>
 
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent side="right" size="sm">
           <SheetHeader>
-            <SheetTitle>Więcej filtrów</SheetTitle>
+            <SheetTitle>Zaawansowane</SheetTitle>
             <SheetDescription>Wyniki aktualizują się na bieżąco.</SheetDescription>
           </SheetHeader>
           <SheetBody>
             <div className="text-sm" data-testid="candidate-more-filters">
-              <RailGroup title="Status i zatrudnienie" activeCount={statusCount} defaultOpen>
-                <CompactPills
-                  label="Status"
-                  options={CANDIDATE_STATUS_OPTIONS}
-                  value={filters.status}
-                  onToggle={(v) => onPatch({ status: toggleInList(filters.status, v) })}
-                />
-                <CompactPills
-                  label="Zatrudnienie"
-                  options={EMPLOYMENT_OPTIONS}
-                  value={filters.employment}
-                  onToggle={(v) => onPatch({ employment: toggleInList(filters.employment, v) })}
-                />
-                <CompactPills
-                  label="Otwarty na dodatkowe"
-                  options={OPEN_TO_OPTIONS}
-                  value={filters.openTo}
-                  onToggle={(v) => onPatch({ openTo: toggleInList(filters.openTo, v) })}
-                />
+              <HistoryGroup
+                filters={filters}
+                onPatch={onPatch}
+                stage={stage}
+                onStageChange={onStageChange}
+                activeCount={historyCount}
+              />
+              <RailGroup title="Umiejętności" activeCount={skillsCount}>
+                <SkillBucketsField value={skills} onChange={onSkillsChange} compact />
               </RailGroup>
-              <RailGroup title="Doświadczenie i języki" activeCount={experienceCount} defaultOpen>
+              <RailGroup title="Dostępność" activeCount={availabilityCount}>
+                <AvailabilityChoiceField filters={filters} onPatch={onPatch} />
+              </RailGroup>
+              <RailGroup title="Doświadczenie, języki, kategoria" activeCount={aboutCount}>
                 <RangeInputs
                   label="Lata doświadczenia"
                   unit="lat"
@@ -487,10 +472,6 @@ export function CandidateFilterRail({
                   parse={parseYearBound}
                   onChange={({ min, max }) => onPatch({ experienceMin: min, experienceMax: max })}
                 />
-                <HideUnknownToggle
-                  checked={filters.hideUnknown}
-                  onChange={(next) => onPatch({ hideUnknown: next })}
-                />
                 <div className="space-y-1">
                   <FieldLabel>Języki</FieldLabel>
                   <LanguageFilterField
@@ -498,72 +479,98 @@ export function CandidateFilterRail({
                     onChange={(next) => onPatch({ languages: next })}
                   />
                 </div>
+                <div className="space-y-1">
+                  <FieldLabel>Kategoria kompetencji</FieldLabel>
+                  <CompetenceCategoryPills
+                    value={filters.competenceCategoryIds}
+                    onChange={(ids) => onPatch({ competenceCategoryIds: ids })}
+                  />
+                </div>
               </RailGroup>
-              <RailGroup
-                title="Kategoria kompetencji"
-                activeCount={filters.competenceCategoryIds.length}
-                defaultOpen
-              >
-                <CompetenceCategoryPills
-                  value={filters.competenceCategoryIds}
-                  onChange={(ids) => onPatch({ competenceCategoryIds: ids })}
-                />
-              </RailGroup>
-              <HistoryGroup
-                filters={filters}
-                onPatch={onPatch}
-                stage={stage}
-                onStageChange={onStageChange}
-                activeCount={historyCount}
-              />
               <RailGroup title="Firma i stanowisko" activeCount={companyCount}>
                 <CompanyFields filters={filters} onPatch={onPatch} />
               </RailGroup>
-              <RailGroup title="Źródło" activeCount={sourceCount}>
+              <RailGroup title="Kto dodał, pule" activeCount={sourceCount}>
                 <div className="space-y-1">
-                  <FieldLabel>Pula talentów</FieldLabel>
-                  <TalentPoolMultiSelect value={filters.poolIds} onChange={(v) => onPatch({ poolIds: v })} />
+                  <FieldLabel>Kogo pokazać</FieldLabel>
+                  <div
+                    role="radiogroup"
+                    aria-label="Kogo pokazać"
+                    className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1"
+                  >
+                    {[
+                      { key: "all", label: "Wszyscy", active: everyone, onClick: () => onPatch({ addedByIds: [] }) },
+                      {
+                        key: "mine",
+                        label: "Moi kandydaci",
+                        active: mine,
+                        onClick: () => currentUserId !== null && onPatch({ addedByIds: [currentUserId] }),
+                      },
+                    ].map((opt) => (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        role="radio"
+                        aria-checked={opt.active}
+                        disabled={opt.key === "mine" && currentUserId === null}
+                        onClick={opt.onClick}
+                        className={cn(
+                          "rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50",
+                          opt.active
+                            ? "bg-card text-foreground shadow-xs"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">„Moi” = dodani przez Ciebie.</p>
                 </div>
                 <div className="space-y-1">
                   <FieldLabel>Dodany przez</FieldLabel>
                   <AddedByMultiSelect value={filters.addedByIds} onChange={(v) => onPatch({ addedByIds: v })} />
                 </div>
+                <div className="space-y-1">
+                  <FieldLabel>Pula talentów</FieldLabel>
+                  <TalentPoolMultiSelect value={filters.poolIds} onChange={(v) => onPatch({ poolIds: v })} />
+                </div>
               </RailGroup>
-              <RailGroup title="Frazy w CV" activeCount={phraseCount}>
-                <p className="text-[11px] text-muted-foreground">
-                  Szukane w CV, notatkach i profilu. Enter lub przecinek dodaje frazę.
-                </p>
-                <AdvancedSearchPopover
-                  value={phrases}
-                  hideHeader
-                  onChange={(next) => onPatch({ qAll: next.all, qAny: next.any, qNone: next.none })}
+              <RailGroup title="Inne" activeCount={otherCount}>
+                <div className="space-y-1">
+                  <FieldLabel>Którekolwiek ze słów (LUB)</FieldLabel>
+                  <AdvancedSearchPopover
+                    value={phrases}
+                    hideHeader
+                    sections={["any"]}
+                    onChange={(next) => onPatch({ qAny: next.any })}
+                  />
+                </div>
+                <CompactPills
+                  label="Status w bazie"
+                  options={CANDIDATE_STATUS_OPTIONS}
+                  value={filters.status}
+                  onToggle={(v) => onPatch({ status: toggleInList(filters.status, v) })}
                 />
+                <CompactPills
+                  label="Otwarty na dodatkowe"
+                  options={OPEN_TO_OPTIONS}
+                  value={filters.openTo}
+                  onToggle={(v) => onPatch({ openTo: toggleInList(filters.openTo, v) })}
+                />
+                <div className="space-y-1">
+                  <HideUnknownToggle
+                    checked={filters.hideUnknown}
+                    onChange={(next) => onPatch({ hideUnknown: next })}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Bez zaznaczenia osoby bez miasta, stażu albo stawki zostają na liście.
+                  </p>
+                </div>
               </RailGroup>
             </div>
           </SheetBody>
           <SheetFooter>
-            {moreCount > 0 && (
-              <Button
-                variant="ghost"
-                onClick={() =>
-                  onPatch({
-                    status: [],
-                    employment: [],
-                    openTo: [],
-                    experienceMin: null,
-                    experienceMax: null,
-                    hideUnknown: false,
-                    languages: [],
-                    competenceCategoryIds: [],
-                    qAll: [],
-                    qAny: [],
-                    qNone: [],
-                  })
-                }
-              >
-                Wyczyść te filtry
-              </Button>
-            )}
             <Button variant="primary" onClick={() => setMoreOpen(false)}>
               {resultLabel ? `Pokaż ${resultLabel}` : "Gotowe"}
             </Button>
@@ -588,7 +595,42 @@ function HistoryGroup({
   activeCount: number;
 }) {
   return (
-    <RailGroup title="Historia z nami" activeCount={activeCount}>
+    <RailGroup title="Historia z nami" activeCount={activeCount} defaultOpen>
+      <p className="text-[11px] text-muted-foreground">
+        Poprzednie rekrutacje, etapy i klienci, u których kandydat był.
+      </p>
+      <div className="space-y-1">
+        <FieldLabel>Brał udział w rekrutacji</FieldLabel>
+        <RecruitmentMultiSelect
+          value={filters.recruitmentIds}
+          onChange={(v) => onPatch({ recruitmentIds: v })}
+        />
+        {filters.recruitmentIds.length > 0 && (
+          <div className="flex gap-1.5 pt-1">
+            {(
+              [
+                { value: "assigned", label: "Przypisani" },
+                { value: "not_assigned", label: "Nieprzypisani" },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                aria-pressed={filters.recruitmentMatch === opt.value}
+                onClick={() => onPatch({ recruitmentMatch: opt.value })}
+                className={cn(
+                  "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
+                  filters.recruitmentMatch === opt.value
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card text-foreground hover:bg-accent",
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="space-y-1">
         <FieldLabel>Etap w rekrutacji</FieldLabel>
         <StageFilterPanel value={stage} onChange={onStageChange} />
@@ -620,38 +662,6 @@ function HistoryGroup({
           value={filters.workedAtClientIds}
           onChange={(v) => onPatch({ workedAtClientIds: v })}
         />
-      </div>
-      <div className="space-y-1">
-        <FieldLabel>Rekrutacja</FieldLabel>
-        <RecruitmentMultiSelect
-          value={filters.recruitmentIds}
-          onChange={(v) => onPatch({ recruitmentIds: v })}
-        />
-        {filters.recruitmentIds.length > 0 && (
-          <div className="flex gap-1.5 pt-1">
-            {(
-              [
-                { value: "assigned", label: "Przypisani" },
-                { value: "not_assigned", label: "Nieprzypisani" },
-              ] as const
-            ).map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                aria-pressed={filters.recruitmentMatch === opt.value}
-                onClick={() => onPatch({ recruitmentMatch: opt.value })}
-                className={cn(
-                  "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
-                  filters.recruitmentMatch === opt.value
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card text-foreground hover:bg-accent",
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     </RailGroup>
   );
@@ -799,6 +809,71 @@ function CompetenceCategoryPills({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * „Czy można go teraz zaproponować?" — jedna odpowiedź zamiast trzech grup
+ * (Dostępność, Zatrudnienie, Status). Ustawienie spoza pytania (stary link,
+ * zapisane wyszukiwanie) nie zaznacza żadnej odpowiedzi i mówi o tym wprost.
+ */
+function AvailabilityChoiceField({
+  filters,
+  onPatch,
+}: {
+  filters: CandidateFilters;
+  onPatch: (patch: Partial<CandidateFilters>) => void;
+}) {
+  const current = availabilityChoiceFor(filters);
+  const labelId = useId();
+  return (
+    <div className="space-y-1.5">
+      <p id={labelId} className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        Czy można go teraz zaproponować?
+      </p>
+      <div role="radiogroup" aria-labelledby={labelId} className="space-y-0.5">
+        {AVAILABILITY_CHOICES.map((choice) => {
+          const checked = current === choice.id;
+          return (
+            <button
+              key={choice.id}
+              type="button"
+              role="radio"
+              aria-checked={checked}
+              onClick={() => onPatch({ ...choice.patch })}
+              className={cn(
+                "flex w-full items-start gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition-colors",
+                "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                checked
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-transparent text-foreground hover:bg-accent",
+              )}
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border-2",
+                  checked ? "border-primary" : "border-muted-foreground/40",
+                )}
+              >
+                {checked && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+              </span>
+              <span className="min-w-0">
+                <span className="block font-medium">{choice.label}</span>
+                {choice.hint && (
+                  <span className="block text-[11px] text-muted-foreground">{choice.hint}</span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {current === null && (
+        <p className="text-[11px] text-muted-foreground">
+          Ustawione własne połączenie (np. z zapisanego wyszukiwania). Wybierz odpowiedź, żeby je zastąpić.
+        </p>
+      )}
     </div>
   );
 }

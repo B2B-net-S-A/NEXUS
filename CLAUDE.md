@@ -2181,15 +2181,19 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
 
 **Lista `/candidates` = JEDEN ekran, jeden silnik (`GET /api/candidates`).**
 - Filtry stoją na stałe w lewej kolumnie (`components/v2/candidates/CandidateFilterRail.tsx`;
-  poniżej `lg` ten sam panel w arkuszu) — **wariant B z makiety 22.09.2026**
-  (https://claude.ai/artifact/BmwbMSuaR1stDk8G4kJVoQ): na wierzchu tylko pięć
-  rozwiniętych grup (Kogo pokazać, Dostępność, Stawka B2B, Umiejętności,
-  Lokalizacja z trybem pracy), reszta (status, zatrudnienie, otwarty na, lata,
-  języki, kategoria, historia z nami, frazy w CV) w szufladzie „Więcej filtrów”
-  z licznikiem ustawionych w niej filtrów. Szuflada = jednakowe zwijane
-  sekcje (`RailGroup`): krótkie (Status i zatrudnienie, Doświadczenie i języki,
-  Kategoria — pigułki) otwarte, długie (Historia z nami, Firma i stanowisko,
-  Źródło, Frazy w CV) zwinięte, póki nic w nich nie ustawiono. Nie przenoś grup z powrotem na
+  poniżej `lg` ten sam panel w arkuszu) — **decyzja Artura 22.09.2026: „szukamy
+  głównie ręcznie po słowach kluczowych i wykluczeniach, stawce, lokalizacji
+  i trybie pracy”.** Na wierzchu WYŁĄCZNIE: Słowa kluczowe (`q_all`, wszystkie
+  muszą być w CV/notatkach/profilu) · Wyklucz słowa (`q_none`) · Stawka B2B ·
+  Lokalizacja · Tryb pracy. Reszta w szufladzie „Zaawansowane” z licznikiem
+  ustawionych w niej filtrów: Historia z nami (otwarta — brał udział
+  w rekrutacji, etap, wysłany do klienta, pracował u klienta), Umiejętności,
+  Dostępność (jedno pytanie „Czy można go teraz zaproponować?” —
+  `lib/candidate-availability-choice.ts` ustawia `availability` + `employment`
+  naraz), Doświadczenie/języki/kategoria, Firma i stanowisko, Kto dodał/pule
+  (w tym „Moi kandydaci”), Inne (słowa LUB, status w bazie, otwarty na, ukryj
+  bez danych). Gotowych skrótów nad listą świadomie NIE ma („za bardzo
+  kombinujesz”). Nie przenoś grup z powrotem na
   wierzch — za dużo opcji naraz było powodem przebudowy. Tabela ma STAŁE
   kolumny: Kandydat (pod nazwiskiem miasto) · Ostatnie stanowisko (+ firma,
   `getCurrentTitle`/`getCurrentCompany`) · Telefon (`tel:` + kopiuj,

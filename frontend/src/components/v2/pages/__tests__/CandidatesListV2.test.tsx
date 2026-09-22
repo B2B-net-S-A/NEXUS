@@ -165,12 +165,20 @@ function rail() {
   return screen.getByRole("complementary", { name: "Filtry kandydatów" });
 }
 
-/** Status żyje w szufladzie „Więcej filtrów” (wariant B). */
-async function pickStatus(option: string) {
+/** Otwiera szufladę „Zaawansowane” i rozwija wskazaną sekcję. */
+async function openAdvanced(section: RegExp) {
   if (!screen.queryByTestId("candidate-more-filters")) {
-    fireEvent.click(within(rail()).getByRole("button", { name: /Więcej filtrów/ }));
+    fireEvent.click(within(rail()).getByRole("button", { name: /Zaawansowane/ }));
   }
   const more = await screen.findByTestId("candidate-more-filters");
+  const toggle = within(more).getByRole("button", { name: section });
+  if (toggle.getAttribute("aria-expanded") === "false") fireEvent.click(toggle);
+  return more;
+}
+
+/** Status żyje w sekcji „Inne” szuflady „Zaawansowane”. */
+async function pickStatus(option: string) {
+  const more = await openAdvanced(/^Inne/);
   fireEvent.click(within(more).getByRole("button", { name: option }));
 }
 
@@ -246,18 +254,26 @@ describe("CandidatesListV2", () => {
         "CV",
         "Przypisz",
       ]);
-      // Sekcje zawsze widoczne w kolumnie filtrów.
-      expect(within(rail()).getByRole("radiogroup", { name: "Kogo pokazać" })).toBeTruthy();
-      // Wariant B: pięć grup na wierzchu, reszta w szufladzie „Więcej filtrów”.
-      expect(within(rail()).getByText("Dostępność")).toBeTruthy();
+      // Na wierzchu tylko to, czym zespół szuka (decyzja 22.09.2026).
+      expect(within(rail()).getByLabelText("Słowa kluczowe — muszą być wszystkie")).toBeTruthy();
+      expect(within(rail()).getByLabelText("Wyklucz słowa")).toBeTruthy();
       expect(within(rail()).getByText("Stawka B2B")).toBeTruthy();
-      expect(within(rail()).getByText("Umiejętności")).toBeTruthy();
       expect(within(rail()).getByText("Lokalizacja")).toBeTruthy();
-      expect(within(rail()).queryByText("Status")).toBeNull();
-      fireEvent.click(within(rail()).getByRole("button", { name: /Więcej filtrów/ }));
+      expect(within(rail()).getByText("Tryb pracy")).toBeTruthy();
+      expect(within(rail()).queryByText("Umiejętności")).toBeNull();
+      expect(within(rail()).queryByRole("radiogroup", { name: "Kogo pokazać" })).toBeNull();
+      // Reszta w szufladzie „Zaawansowane”; historia z nami otwarta na starcie.
+      fireEvent.click(within(rail()).getByRole("button", { name: /Zaawansowane/ }));
       const more = await screen.findByTestId("candidate-more-filters");
-      expect(within(more).getByText("Status")).toBeTruthy();
-      expect(within(more).getByText("Języki")).toBeTruthy();
+      expect(within(more).getByRole("button", { name: /Historia z nami/ })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(within(more).getByText("Brał udział w rekrutacji")).toBeTruthy();
+      expect(within(more).getByRole("button", { name: /^Inne/ })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
       // Bez konfiguracji kolumn, gęstości i widoku kafelków.
       expect(screen.queryByLabelText("Konfiguracja kolumn")).toBeNull();
       expect(screen.queryByLabelText("Widok kafelków")).toBeNull();
@@ -314,6 +330,36 @@ describe("CandidatesListV2", () => {
       expect(
         within(empty).getByRole("button", { name: "Przypisz Tomasz Nowicki do rekrutacji" }),
       ).toBeTruthy();
+    });
+
+    it("słowa kluczowe i wykluczenia z panelu idą do API", async () => {
+      renderList();
+      const must = within(rail()).getByLabelText("Słowa kluczowe — muszą być wszystkie");
+      fireEvent.change(must, { target: { value: "Kafka" } });
+      fireEvent.keyDown(must, { key: "Enter" });
+      const exclude = within(rail()).getByLabelText("Wyklucz słowa");
+      fireEvent.change(exclude, { target: { value: "junior" } });
+      fireEvent.keyDown(exclude, { key: "Enter" });
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ q_all: ["Kafka"], q_none: ["junior"] });
+      });
+    });
+
+    it("dostępność w „Zaawansowanych” łączy dostępność i zatrudnienie jedną odpowiedzią", async () => {
+      renderList();
+      const more = await openAdvanced(/Dostępność/);
+      const group = within(more).getByRole("radiogroup", {
+        name: "Czy można go teraz zaproponować?",
+      });
+      fireEvent.click(within(group).getByRole("radio", { name: /Tak — szuka pracy/ }));
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({
+          availability: ["actively_looking", "open_to_offers"],
+          employment: ["available"],
+        });
+      });
     });
 
     it("zapytanie prosi o aktywne rekrutacje (kolumna „W procesie”), bez statystyk dopasowania", async () => {
@@ -383,30 +429,36 @@ describe("CandidatesListV2", () => {
   describe("kolumna filtrów", () => {
     it("„Moi kandydaci” zawęża do dodanych przez zalogowaną osobę", async () => {
       renderList();
-      fireEvent.click(within(rail()).getByRole("radio", { name: "Moi kandydaci" }));
+      const more = await openAdvanced(/Kto dodał/);
+      fireEvent.click(within(more).getByRole("radio", { name: "Moi kandydaci" }));
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ added_by_user_id: [7] });
       });
-      expect(within(rail()).getByRole("radio", { name: "Moi kandydaci" })).toHaveAttribute(
+      expect(within(more).getByRole("radio", { name: "Moi kandydaci" })).toHaveAttribute(
         "aria-checked",
         "true",
       );
-      fireEvent.click(within(rail()).getByRole("radio", { name: "Wszyscy" }));
-      await waitFor(async () => {
-        const calls = await candidateCalls();
-        expect(calls.at(-1)?.added_by_user_id).toBeUndefined();
-      });
+      const drawer = screen.getByTestId("candidate-more-filters");
+      fireEvent.click(within(drawer).getByRole("radio", { name: "Wszyscy" }));
+      // Powrót do parametrów z pierwszego zapytania trafia w cache react-query,
+      // więc sprawdzamy stan przełącznika, nie kolejne wywołanie API.
+      await waitFor(() =>
+        expect(within(drawer).getByRole("radio", { name: "Wszyscy" })).toHaveAttribute(
+          "aria-checked",
+          "true",
+        ),
+      );
     });
 
-    it("języki z adresu idą do API i podbijają licznik „Więcej filtrów”", async () => {
+    it("języki z adresu idą do API i podbijają licznik „Zaawansowane”", async () => {
       urlParams = new URLSearchParams("lang=en:B2");
       renderList();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ languages: ["en:B2"] });
       });
-      expect(within(rail()).getByRole("button", { name: /Więcej filtrów\s*1/ })).toBeTruthy();
+      expect(within(rail()).getByRole("button", { name: /Zaawansowane\s*1/ })).toBeTruthy();
       expect(screen.getByText("Język: angielski min. B2")).toBeTruthy();
     });
 
