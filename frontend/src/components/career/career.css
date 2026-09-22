@@ -216,13 +216,13 @@
     border-bottom: 1px solid var(--kr-line);
   }
   .kr-hero {
-    padding: 72px 80px 64px;
+    padding: 56px 40px 48px;
     gap: 10px;
     font-size: 18px;
   }
   .kr-title {
     margin: 18px 0 14px;
-    font-size: 96px;
+    font-size: 72px;
     line-height: 0.96;
   }
   .kr-cursor { margin-left: 10px; }
@@ -306,10 +306,13 @@
 }
 .kr-desktop-only { display: none; }
 @media (min-width: 1024px) {
+  /* 1024–1279 px: węższy formularz i marginesy — przy 500 px formularza i
+     80 px marginesów kolumna treści miała ~290 px, a kroki procesu łamały się
+     w czterech kolumnach (wykryte na produkcji 22.09.2026). */
   .kr-main {
-    padding: 64px 80px;
-    grid-template-columns: minmax(0, 1fr) 500px;
-    gap: 72px;
+    padding: 48px 40px;
+    grid-template-columns: minmax(0, 1fr) 420px;
+    gap: 40px;
     align-items: start;
   }
   .kr-col {
@@ -319,12 +322,19 @@
   .kr-cmd { margin-bottom: 14px; font-size: 16px; }
   .kr-para { font-size: 16px; line-height: 1.8; }
   .kr-ok { font-size: 17px; }
+  .kr-manifesto { font-size: 40px; }
+  .kr-desktop-only { display: block; }
+}
+@media (min-width: 1280px) {
+  .kr-main {
+    padding: 64px 80px;
+    grid-template-columns: minmax(0, 1fr) 500px;
+    gap: 72px;
+  }
   .kr-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .kr-step { border-bottom: 0; }
   .kr-step:nth-child(2n) { border-right: 1px solid var(--kr-line); }
   .kr-step:last-child { border-right: 0; }
-  .kr-manifesto { font-size: 40px; }
-  .kr-desktop-only { display: block; }
 }
 
 /* ── formularz ─────────────────────────────────────────────────── */
@@ -699,8 +709,16 @@ a.kr-row:hover { background: #0e0406; color: var(--kr-white) !important; }
 /* ── strona stałego linku rekrutera: hero wewnątrz kolumny ─────── */
 .kr-main-general .kr-hero { padding: 32px 0 0; }
 @media (min-width: 1024px) {
-  .kr-main-general { padding: 72px 80px 64px; }
+  .kr-main-general { padding: 48px 40px; }
   .kr-main-general .kr-col { gap: 52px; }
   .kr-main-general .kr-hero { padding: 0; }
-  .kr-main-general .kr-title { font-size: 76px; line-height: 0.98; }
+  .kr-main-general .kr-title { font-size: 60px; line-height: 0.98; }
+}
+
+/* 1280 px+: pełne marginesy i wielkości z makiety (1024–1279 ma węższe). */
+@media (min-width: 1280px) {
+  .kr-hero { padding: 72px 80px 64px; }
+  .kr-title { font-size: 96px; }
+  .kr-main-general { padding: 72px 80px 64px; }
+  .kr-main-general .kr-title { font-size: 76px; }
 }
