@@ -240,6 +240,151 @@ function isEndingSoon(
   return endDate >= todayIso && endDate <= addDays(todayIso, days);
 }
 
+function normalizedEndingDays(days: number): number {
+  return Number.isFinite(days) ? Math.max(0, Math.trunc(days)) : 30;
+}
+
+/**
+ * Czy zamówienie trwa (albo dopiero się zacznie) po `endedOn` — czyli czy jest
+ * zaplanowaną kontynuacją zamówienia, które kończy się tego dnia.
+ *
+ * Lustro backendowego `covers_after` (`services/order_facts.py`), z którego
+ * liczą się „Kończące się zamówienia" w Finansach — oba ekrany mają mówić to
+ * samo o tym samym zamówieniu. Szkic się liczy (ticket 09.2026: niedokończone
+ * przyszłe zamówienie to też zaplanowana kontynuacja). Zamówienie bez daty
+ * końca liczy się, dopóki nie jest zamknięte — zamknięty wiersz bez daty to
+ * historia, nie następca.
+ */
+function coversAfter(
+  status: string,
+  endDate: string | null | undefined,
+  endedOn: string,
+): boolean {
+  if (status === "cancelled" || status === "exhausted") return false;
+  const end = dateOnly(endDate);
+  if (end === null) return status !== "completed";
+  return end > endedOn;
+}
+
+/**
+ * Zamówienie kontraktora, które kończy się w ciągu `days` dni i NIE ma
+ * dodanego zamówienia, które przejmuje po nim okres.
+ *
+ * To jest reguła zakładki „Kończące się" (ticket 09.2026). Do tej zmiany karta
+ * trafiała tam po `days_to_latest_end`, a filtr „kończy się w ciągu N dni" po
+ * zamówieniu bieżącym — zamówienie z już dodaną kontynuacją wisiało na liście,
+ * choć nie wymaga działania. Ocena idzie po KAŻDYM zamówieniu niezależnie:
+ * przyszłe zamówienie, które samo zbliża się do końca (i nie ma następnego),
+ * też się kwalifikuje. Z kilku zwraca to, które kończy się najwcześniej.
+ */
+export function endingOrderWithoutSuccessor<
+  T extends Pick<ClientOrderRead, "id" | "status" | "start_date" | "end_date">,
+>(orders: readonly T[], days: number, todayIso = localTodayIso()): T | null {
+  const horizon = normalizedEndingDays(days);
+  let found: T | null = null;
+  for (const order of orders) {
+    if (order.status === "completed" || order.status === "cancelled") continue;
+    const end = dateOnly(order.end_date);
+    if (!isEndingSoon(end, horizon, todayIso)) continue;
+    const continued = orders.some(
+      (other) =>
+        other.id !== order.id && coversAfter(other.status, other.end_date, end!),
+    );
+    if (continued) continue;
+    if (found === null || end! < dateOnly(found.end_date)!) found = order;
+  }
+  return found;
+}
+
+/** Dni do końca zamówienia z `endingOrderWithoutSuccessor` (0 = dziś). */
+export function daysUntil(endDate: string | null, todayIso = localTodayIso()): number | null {
+  if (!endDate) return null;
+  const end = new Date(`${endDate.slice(0, 10)}T12:00:00`);
+  const today = new Date(`${todayIso}T12:00:00`);
+  return Math.round((end.getTime() - today.getTime()) / 86_400_000);
+}
+
+/**
+ * Rodziny zamówień MD/kosztowych: łańcuch przedłużeń po `predecessor_group_id`.
+ *
+ * Lista grup przychodzi z serwera z przedłużeniami ZAGNIEŻDŻONYMI w
+ * `future_orders` karty poprzednika, więc najpierw spłaszczamy całe drzewo —
+ * inaczej następca nie byłby widoczny dla swojego poprzednika. Klucz rodziny
+ * to korzeń łańcucha, jak `_group_family_root_id` na backendzie.
+ */
+export interface OrderGroupFamilies {
+  membersByGroupId: Map<number, OrderGroupRead[]>;
+}
+
+function flattenOrderGroups(groups: readonly OrderGroupRead[]): OrderGroupRead[] {
+  return groups.flatMap((group) => [
+    group,
+    ...flattenOrderGroups(group.future_orders ?? []),
+  ]);
+}
+
+export function buildOrderGroupFamilies(
+  groups: readonly OrderGroupRead[],
+): OrderGroupFamilies {
+  const all = flattenOrderGroups(groups);
+  const byId = new Map(all.map((group) => [group.id, group]));
+  const rootOf = (group: OrderGroupRead): number => {
+    let current = group;
+    const seen = new Set([group.id]);
+    while (
+      current.predecessor_group_id !== null &&
+      byId.has(current.predecessor_group_id) &&
+      !seen.has(current.predecessor_group_id)
+    ) {
+      current = byId.get(current.predecessor_group_id)!;
+      seen.add(current.id);
+    }
+    return current.id;
+  };
+  const byRoot = new Map<number, OrderGroupRead[]>();
+  const rootByGroupId = new Map<number, number>();
+  for (const group of byId.values()) {
+    const root = rootOf(group);
+    rootByGroupId.set(group.id, root);
+    byRoot.set(root, [...(byRoot.get(root) ?? []), group]);
+  }
+  const membersByGroupId = new Map<number, OrderGroupRead[]>();
+  for (const [groupId, root] of rootByGroupId) {
+    membersByGroupId.set(groupId, byRoot.get(root) ?? []);
+  }
+  return { membersByGroupId };
+}
+
+const GROUP_ENDING_STATUSES = new Set(["draft", "active", "scheduled"]);
+
+/**
+ * Zamówienie MD/kosztowe z drzewa karty (ona sama + zagnieżdżone przedłużenia),
+ * które kończy się w ciągu `days` dni bez przedłużenia po sobie. Ta sama reguła
+ * co `endingOrderWithoutSuccessor`, z rodziną przedłużeń zamiast kontraktu.
+ */
+export function endingGroupWithoutSuccessor(
+  group: OrderGroupRead,
+  days: number,
+  todayIso = localTodayIso(),
+  families: OrderGroupFamilies = buildOrderGroupFamilies([group]),
+): OrderGroupRead | null {
+  const horizon = normalizedEndingDays(days);
+  let found: OrderGroupRead | null = null;
+  for (const candidate of flattenOrderGroups([group])) {
+    if (!GROUP_ENDING_STATUSES.has(candidate.status)) continue;
+    const end = dateOnly(candidate.end_date);
+    if (!isEndingSoon(end, horizon, todayIso)) continue;
+    const family = families.membersByGroupId.get(candidate.id) ?? [candidate];
+    const continued = family.some(
+      (other) =>
+        other.id !== candidate.id && coversAfter(other.status, other.end_date, end!),
+    );
+    if (continued) continue;
+    if (found === null || end! < dateOnly(found.end_date)!) found = candidate;
+  }
+  return found;
+}
+
 function compareNullable(
   left: number | null,
   right: number | null,
@@ -331,10 +476,9 @@ export function filterAndSortOrderGroups(
   query: string,
   filters: OrderListFilters,
   todayIso = localTodayIso(),
+  families: OrderGroupFamilies = buildOrderGroupFamilies(groups),
 ): OrderGroupRead[] {
-  const endingDays = Number.isFinite(filters.endingDays)
-    ? Math.max(0, Math.trunc(filters.endingDays))
-    : 30;
+  const endingDays = normalizedEndingDays(filters.endingDays);
   const filtered = groups.filter((group) => {
     if (!orderGroupMatchesQuery(group, query)) return false;
     if (
@@ -361,7 +505,7 @@ export function filterAndSortOrderGroups(
     }
     if (
       filters.endingSoon &&
-      !isEndingSoon(dateOnly(group.end_date), endingDays, todayIso)
+      !endingGroupWithoutSuccessor(group, endingDays, todayIso, families)
     ) {
       return false;
     }
@@ -685,11 +829,7 @@ export function contractorMatchesPill(
     );
   }
   if (pill === "ending_30d") {
-    return (
-      contractor.days_to_latest_end !== null &&
-      contractor.days_to_latest_end >= 0 &&
-      contractor.days_to_latest_end <= 30
-    );
+    return endingOrderWithoutSuccessor(contractor.orders, 30, todayIso) !== null;
   }
   if (pill === "completed") {
     return contractClosed(contractor, todayIso);
@@ -704,20 +844,11 @@ export function contractorMatchesPill(
   return false;
 }
 
-function groupDaysToEnd(
-  endDate: string | null,
-  todayIso: string,
-): number | null {
-  if (!endDate) return null;
-  const end = new Date(`${endDate.slice(0, 10)}T12:00:00`);
-  const today = new Date(`${todayIso}T12:00:00`);
-  return Math.round((end.getTime() - today.getTime()) / 86_400_000);
-}
-
 export function orderGroupMatchesPill(
   group: OrderGroupRead,
   pill: UnifiedOrderPill,
   todayIso = localTodayIso(),
+  families?: OrderGroupFamilies,
 ): boolean {
   if (pill === "all") return true;
   if (pill === "draft") return group.status === "draft";
@@ -725,10 +856,7 @@ export function orderGroupMatchesPill(
   if (pill === "completed") return group.status === "completed";
   if (pill === "exhausted") return group.status === "exhausted";
   if (pill === "ending_30d") {
-    const days = groupDaysToEnd(group.end_date, todayIso);
-    return (
-      group.status === "active" && days !== null && days >= 0 && days <= 30
-    );
+    return endingGroupWithoutSuccessor(group, 30, todayIso, families) !== null;
   }
   // Szkice grupowe pochodzą z tej samej populacji ClientOrder co `/orders`.
   // Liczymy/renderujemy je wyłącznie po stronie kontraktorów, bez duplikatu.
@@ -755,9 +883,7 @@ export function filterAndSortContractors(
   filters: OrderListFilters,
   todayIso = localTodayIso(),
 ): ContractWithOrdersRead[] {
-  const endingDays = Number.isFinite(filters.endingDays)
-    ? Math.max(0, Math.trunc(filters.endingDays))
-    : 30;
+  const endingDays = normalizedEndingDays(filters.endingDays);
   const filtered = contractors.filter((contractor) => {
     if (!contractorMatchesQuery(contractor, query)) return false;
     const order = representativeOrder(contractor, todayIso);
@@ -781,7 +907,8 @@ export function filterAndSortContractors(
     }
     return (
       !filters.endingSoon ||
-      isEndingSoon(dateOnly(order?.end_date), endingDays, todayIso)
+      endingOrderWithoutSuccessor(contractor.orders, endingDays, todayIso) !==
+        null
     );
   });
 
