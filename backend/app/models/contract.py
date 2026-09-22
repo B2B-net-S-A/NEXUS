@@ -184,7 +184,7 @@ class Contract(Base, TimestampMixin):
     # dziedziczące z niego stawki zostają w MD (``order_unit_for_contract``).
     # Do 22.09.2026 znacznikiem było 176 h/mc — po ujednoliceniu miesiąca do
     # 168 h liczba godzin przestała go odróżniać, więc fakt ma własną kolumnę
-    # (migracja 0343).
+    # (migracja 0345).
     orders_in_md: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

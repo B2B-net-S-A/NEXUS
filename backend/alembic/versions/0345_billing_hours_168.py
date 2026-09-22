@@ -1,7 +1,7 @@
 """Jeden miesiąc roboczy: godziny rozliczeniowe 160/176 → 168 (22.09.2026).
 
-Revision ID: 0343_billing_hours_168
-Revises: 0342_email_send_state
+Revision ID: 0345_billing_hours_168
+Revises: 0344_competition_period_closures
 
 Decyzja Artura po audycie statystyk: stawkę godzinową i dzienną przeliczamy
 na kwotę miesięczną ZAWSZE miesiącem 21 MD × 8 h = 168 h
@@ -25,8 +25,8 @@ from alembic import op
 
 from app.services.billing_hours_unification import BILLING_HOURS_UNIFICATION_SQL
 
-revision = "0343_billing_hours_168"
-down_revision = "0342_email_send_state"
+revision = "0345_billing_hours_168"
+down_revision = "0344_competition_period_closures"
 branch_labels = None
 depends_on = None
 
@@ -51,7 +51,7 @@ def downgrade() -> None:
         "WHERE orders_in_md AND rate_unit = 'hourly' "
         "AND billing_hours_per_month = 168"
     )
-    op.execute("DELETE FROM app_settings WHERE key = '0343_billing_hours_168'")
+    op.execute("DELETE FROM app_settings WHERE key = '0345_billing_hours_168'")
     op.execute(
         "ALTER TABLE client_orders ALTER COLUMN billing_hours_per_month SET DEFAULT 160"
     )

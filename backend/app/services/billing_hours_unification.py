@@ -1,4 +1,4 @@
-"""Jednorazowe ujednolicenie godzin rozliczeniowych do 168 h/mc (0343, 22.09.2026).
+"""Jednorazowe ujednolicenie godzin rozliczeniowych do 168 h/mc (0345, 22.09.2026).
 
 Audyt statystyk (22.09.2026, zmierzone na produkcji): aktywne kontrakty miały
 ``billing_hours_per_month`` 160 (domyślne — 443 kontrakty) albo 176 (39
@@ -8,7 +8,7 @@ raporty i analityka — 22 MD. Ta sama stawka godzinowa dawała więc MRR różn
 o ~10%. Decyzja Artura: JEDEN miesiąc roboczy — 21 MD × 8 h = 168 h
 (``app.core.work_time``).
 
-Korekta (jedno źródło SQL-a dla migracji 0343 i lustra w ``entrypoint.sh``):
+Korekta (jedno źródło SQL-a dla migracji 0345 i lustra w ``entrypoint.sh``):
 
 1. **znacznik „zamówienia w MD"** — kontrakt godzinowy ze 176 h był
    rozpoznawany jako przeliczony z MD (zamówienia dziedziczące z niego zostają
@@ -43,7 +43,7 @@ from typing import Any, Mapping, Optional
 
 from app.core.work_time import HOURS_PER_MONTH
 
-BILLING_HOURS_MARKER = "0343_billing_hours_168"
+BILLING_HOURS_MARKER = "0345_billing_hours_168"
 LOCK_TIMEOUT = "15s"
 # Liczby godzin, które powstały jako DOMYŚLNE (160) albo jako znacznik
 # kontraktu przeliczonego z MD (176). Tylko one są przepisywane.
@@ -135,7 +135,7 @@ BEGIN
     ON CONFLICT (key) DO NOTHING;
 
     PERFORM set_config('lock_timeout', v_previous_lock_timeout, true);
-    RAISE NOTICE '0343 billing hours: contracts 160=% 176=%, orders 160=% 176=%',
+    RAISE NOTICE '0345 billing hours: contracts 160=% 176=%, orders 160=% 176=%',
         v_contracts_from_160, v_contracts_from_176,
         v_orders_from_160, v_orders_from_176;
 END

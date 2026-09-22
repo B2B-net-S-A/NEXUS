@@ -6867,7 +6867,7 @@ _CONSTRAINT_STATEMENTS = [
     # rolling legacy writers; NOT NULL matches the ORM snapshot invariant.
     "ALTER TABLE client_orders ALTER COLUMN rate_unit SET DEFAULT 'monthly'",
     "ALTER TABLE client_orders ALTER COLUMN rate_unit SET NOT NULL",
-    # 0343: domyślny miesiąc roboczy 168 h (do 22.09.2026: 160) — ta lista
+    # 0345: domyślny miesiąc roboczy 168 h (do 22.09.2026: 160) — ta lista
     # wykonuje się przy KAŻDYM starcie, więc stara liczba cofałaby migrację.
     "ALTER TABLE client_orders ALTER COLUMN billing_hours_per_month SET DEFAULT 168",
     "ALTER TABLE client_orders ALTER COLUMN billing_hours_per_month SET NOT NULL",
@@ -8708,7 +8708,7 @@ PY
 
 # Stawki w Kontraktach godzinowe (09.2026, ticket „Ujednolicenie stawek") —
 # jednorazowo: każdy kontrakt w MD przechodzi na zł/h (stawki, harmonogramy,
-# stawka ramowa, widełki ÷ 8; standardowy miesiąc roboczy — od 0343 168 h/mc
+# stawka ramowa, widełki ÷ 8; standardowy miesiąc roboczy — od 0345 168 h/mc
 # i `orders_in_md`, wcześniej 176 h/mc — więc kwoty miesięczne bez zmian).
 # Kontrakty godzinowe i ryczałtowe zostają nietknięte, zamówień korekta nie
 # rusza (suma kontrolna przed i po, różnica = rollback). Czeka na poszerzone
@@ -8745,11 +8745,11 @@ async def repair():
 asyncio.run(repair())
 PY
 
-# Jeden miesiąc roboczy 168 h (0343, decyzja 22.09.2026) — jednorazowo:
+# Jeden miesiąc roboczy 168 h (0345, decyzja 22.09.2026) — jednorazowo:
 # znacznik 176 h/mc przechodzi do `contracts.orders_in_md`, a godziny
 # rozliczeniowe 160/176 kontraktów i zamówień → 168 (inna, jawnie wybrana
 # liczba zostaje). Żadna stawka nie jest przepisywana. Safety-net dla
-# migracji 0343 (alembic na prodzie bywa osierocony). Jedno źródło SQL-a
+# migracji 0345 (alembic na prodzie bywa osierocony). Jedno źródło SQL-a
 # w `app/services/billing_hours_unification.py`; marker + advisory lock,
 # `lock_timeout` 15 s — po przekroczeniu nic nie zapisuje, następny start
 # ponawia. Log: wyłącznie liczby (paragon w `app_settings`).
