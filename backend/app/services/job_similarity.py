@@ -122,10 +122,34 @@ def title_tokens(title: Optional[str]) -> frozenset[str]:
     return frozenset(out)
 
 
-def skill_set(raw: Any) -> frozenset[str]:
-    from app.services.skill_normalize import iter_skill_names  # noqa: PLC0415
+def skill_set(raw: Any, champion_profile: Any = None) -> frozenset[str]:
+    """Must-have rekrutacji do porównania: kolumna ∪ stack MUST z profilu Championa.
 
-    return frozenset(n.strip().casefold() for n in iter_skill_names(raw) if n.strip())
+    Przy wczytanej taksonomii zbiór to KANONICZNE nazwy technologii
+    (``ReactJS`` i ``React`` to jedno, a zdania opisowe jak „10 lat w IT"
+    odpadają). Do 22.09.2026 porównywaliśmy surowe napisy z samej kolumny —
+    dwie rekrutacje testerskie z listami „Testy manualne" / „testowanie
+    manualne" miały Jaccard 0, a stack z 1137 profili Championa nie trafiał do
+    silnika wcale. Zmierzone na produkcji: podpowiedź dla 195 z 326 otwartych
+    rekrutacji zamiast 92, przy tym samym wzorze i progu.
+
+    Bez taksonomii (testy, start przed jej wczytaniem) — surowe napisy
+    kolumny, jak przedtem.
+    """
+    from app.services import champion_view  # noqa: PLC0415
+    from app.services.skill_normalize import (  # noqa: PLC0415
+        TECH_CANONICALS,
+        canonical_of,
+        is_taxonomy_technology,
+        iter_skill_names,
+    )
+
+    column = [n for n in iter_skill_names(raw) if n.strip()]
+    if not TECH_CANONICALS:
+        return frozenset(n.strip().casefold() for n in column)
+    stack = champion_view.stack(champion_profile or {}).get("must")
+    names = column + [n for n in iter_skill_names(stack) if n.strip()]
+    return frozenset(canonical_of(n) for n in names if is_taxonomy_technology(n))
 
 
 def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
@@ -196,6 +220,7 @@ async def _load_pool(db: AsyncSession) -> _Pool:
                 Job.status,
                 Job.competence_category_id,
                 Job.must_skills,
+                Job.champion_profile,
                 Job.created_at,
             ).where(Job.client_id.is_not(None), Job.created_at >= since)
         )
@@ -211,7 +236,7 @@ async def _load_pool(db: AsyncSession) -> _Pool:
             if hasattr(row.status, "value")
             else str(row.status),
             competence_category_id=row.competence_category_id,
-            skills=skill_set(row.must_skills),
+            skills=skill_set(row.must_skills, row.champion_profile),
             tokens=title_tokens(row.title),
             created_at=row.created_at,
         )
@@ -254,7 +279,9 @@ def _as_pool_job(job: Any) -> PoolJob:
         reference_number=getattr(job, "reference_number", None),
         status=status.value if hasattr(status, "value") else str(status or ""),
         competence_category_id=getattr(job, "competence_category_id", None),
-        skills=skill_set(getattr(job, "must_skills", None)),
+        skills=skill_set(
+            getattr(job, "must_skills", None), getattr(job, "champion_profile", None)
+        ),
         tokens=title_tokens(getattr(job, "title", None)),
         created_at=getattr(job, "created_at", None),
     )

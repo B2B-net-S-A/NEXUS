@@ -2560,6 +2560,12 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   procesu 5 min z indeksem odwróconym. Lista pokazuje „≈" tylko przy
   sugestiach z osobami u klienta. DL wskazuje podobne już przy tworzeniu
   (`POST /api/job-similarity/preview` → po zapisie `POST …/similar`).
+  **Must-have = kolumna ∪ stack MUST Championa, jako KANONICZNE nazwy
+  technologii z taksonomii** (`skill_set`, od 22.09.2026): surowe napisy
+  z samej kolumny dawały podpowiedź 92 z 326 otwartym rekrutacjom, ten zbiór —
+  195. Bez wczytanej taksonomii działa stara reguła (surowe napisy kolumny).
+  Profile Championa z plików Traffita wypełnia `scripts/champion_backfill.py`
+  (paczka z `scripts/champion_bundle_collector.js`, GPT Luna).
 - **Tryb „Tabela" USUNIĘTY — rekrutacja to Tablica** (decyzja Artura
   22.09.2026). Nagłówek nie ma przełącznika; z ekranów pobocznych (Champion,
   „Do przejrzenia") wraca „← Tablica". `tab=people` żyje WYŁĄCZNIE dla ekranu
