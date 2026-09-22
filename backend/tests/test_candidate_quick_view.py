@@ -202,6 +202,39 @@ def test_bullet_formatter_omits_unknown_facts():
     assert bullets == ["Technologie: Python."]
 
 
+def test_bullet_formatter_does_not_repeat_years_and_declines_them():
+    already = format_cv_highlight_bullets(
+        {
+            "profile": "Analityczka danych z ponad 4-letnim doświadczeniem w SQL.",
+            "years_experience": 4,
+            "current_role": None,
+            "technologies": [],
+            "sectors": [],
+        }
+    )
+    assert already == ["Analityczka danych z ponad 4-letnim doświadczeniem w SQL."]
+
+    added = format_cv_highlight_bullets(
+        {
+            "profile": "Analityczka danych.",
+            "years_experience": 4,
+            "current_role": None,
+            "technologies": [],
+            "sectors": ["logistics"],
+        }
+    )
+    assert added == [
+        "Analityczka danych · 4 lata doświadczenia.",
+        "Sektory: Logistyka.",
+    ]
+    assert format_cv_highlight_bullets(
+        {"profile": None, "years_experience": 1, "current_role": None}
+    ) == ["1 rok doświadczenia w IT."]
+    assert format_cv_highlight_bullets(
+        {"profile": None, "years_experience": 12, "current_role": None}
+    ) == ["12 lat doświadczenia w IT."]
+
+
 def test_bullet_formatter_normalizes_common_sector_labels_to_polish():
     bullets = format_cv_highlight_bullets(
         {

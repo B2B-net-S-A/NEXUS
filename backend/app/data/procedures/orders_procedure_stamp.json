@@ -1,5 +1,5 @@
 {
-  "reviewed_at": "2026-09-22",
+  "reviewed_at": "2026-09-23",
   "sources": {
     "backend/app/api/admin_order_mail.py": "98b2fe2401eca9cdd4cd2c96494dd9836a3d98f5736ec4df8308b86ef9161d74",
     "backend/app/api/client_order_groups.py": "d770a307bbf742c40ea7367cffbcd5a817e34053f6de052defa42b7cda9fd79e",
@@ -55,9 +55,9 @@
     "backend/app/services/order_types.py": "1133905f88c1dc5a8b66c0f5dcb32f2d1548f9bcdae037ea87b1fc05f795cfd9",
     "backend/app/services/periodic_order_lifecycle.py": "77b974360f2cb322f33329d3c33cfc2e9fbe2c9672390f8855bdf09073bf17d1",
     "backend/app/services/shared_md_orders.py": "5f043db87c75a8b22d7f1e0f8cfca7b38560c6a3bb043aba0d39d2bdc362803f",
-    "backend/app/tasks/contract_alerts.py": "3ef9f61dc63b69514953d205fbdefdac3498be0d9eff86f483c0d06d6b960f53",
+    "backend/app/tasks/contract_alerts.py": "dfb708e9e8756ba7a68e0b19f2923a08f3385e6c43b9b9eb14486854be644500",
     "backend/app/tasks/dl_alerts_scanner.py": "34947cf01e0ac741f6fd2699683fbf3f350b984051205f00f27c8fce30d7b5aa",
-    "backend/app/tasks/dl_portal_expiry_scanner.py": "4ab1adb30bde9cdb26d2156984e3119a60559b74d0e724e963da9ddc0240cedc",
+    "backend/app/tasks/dl_portal_expiry_scanner.py": "0bdef5182c9f041d52cdcbf7271ac02c3467c84f8ae861200ee86b6e94bc4bb9",
     "backend/app/tasks/order_mail_ingest.py": "3474dcc51762114d33abacc2fa51e1343dd1808b4d00e6399c64fe2734d34eee",
     "frontend/src/components/EditOrderDialog.tsx": "36af245698454ac580771e66f7395e3ae252028736ef4d387343ca11b0177546",
     "frontend/src/components/ExtendOrderDialog.tsx": "9463b60af53e128a30c46ee35a1f3de8c1345453630cd1e4cc0eadedc95b1897",

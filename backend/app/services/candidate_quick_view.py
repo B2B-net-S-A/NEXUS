@@ -56,6 +56,14 @@ _SECTOR_LABELS = {
     "telekomunikacja": "Telekomunikacja",
     "ecommerce": "E-commerce",
     "e-commerce": "E-commerce",
+    "logistics": "Logistyka",
+    "logistyka": "Logistyka",
+    "insurance": "Ubezpieczenia",
+    "healthcare": "Ochrona zdrowia",
+    "energy": "Energetyka",
+    "retail": "Handel",
+    "manufacturing": "Produkcja",
+    "it": "IT",
 }
 
 
@@ -267,6 +275,16 @@ def _first_sentence(value: Any) -> Optional[str]:
     return sentence
 
 
+def _years_phrase(years: int) -> str:
+    """„1 rok", „4 lata", „5 lat", „22 lata" — polska odmiana liczebnika."""
+
+    if years == 1:
+        return "1 rok"
+    if 2 <= years % 10 <= 4 and not 12 <= years % 100 <= 14:
+        return f"{years} lata"
+    return f"{years} lat"
+
+
 def format_cv_highlight_bullets(highlights: dict[str, Any]) -> list[str]:
     """Format at most four Polish bullets from CV facts, without inference."""
 
@@ -278,18 +296,23 @@ def format_cv_highlight_bullets(highlights: dict[str, Any]) -> list[str]:
 
     valid_years = isinstance(years, int) and 0 < years <= 60
     if profile:
+        # „4-letnim", „4 lata", „4 lat" — liczba lat już jest w zdaniu, nie
+        # dopisujemy jej drugi raz (do 23.09.2026 „4-letnim" nie było
+        # rozpoznawane i profil kończył się „· 4 lat doświadczenia").
         if valid_years and not re.search(
-            rf"\b{years}(?:[- ]let|\s+lat)\b",
+            rf"\b{years}(?:\s*-\s*|\s+)(?:let|lat|rok)",
             profile,
             flags=re.IGNORECASE,
         ):
-            bullets.append(f"{profile.rstrip('.')} · {years} lat doświadczenia.")
+            bullets.append(
+                f"{profile.rstrip('.')} · {_years_phrase(years)} doświadczenia."
+            )
         else:
             bullets.append(profile)
     elif role and valid_years:
         bullets.append(f"{role} z {years}-letnim doświadczeniem.")
     elif valid_years:
-        bullets.append(f"{years} lat doświadczenia w IT.")
+        bullets.append(f"{_years_phrase(years)} doświadczenia w IT.")
 
     if role:
         if started_at:

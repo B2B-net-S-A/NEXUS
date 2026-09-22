@@ -341,6 +341,17 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     expect(multiGroup).not.toHaveTextContent(/2026/);
   });
 
+  it("marża ma tę samą jednostkę co stawki obok (zł/h)", async () => {
+    const { container } = renderList();
+    await screen.findByText("Paweł Małek");
+    const margins = Array.from(container.querySelectorAll('[data-label="Marża"]'));
+    const priced = margins.find((cell) => /42,50/.test(cell.textContent ?? ""));
+    expect(priced).toBeDefined();
+    expect(priced).toHaveTextContent(/42,50\s*zł\s*\/h/);
+    // Brak marży zostaje kreską — bez samotnej jednostki.
+    expect(margins.find((cell) => /—/.test(cell.textContent ?? ""))).not.toHaveTextContent("/h");
+  });
+
   it("koniec zamówienia ma własną kolumnę: data, bezterminowo albo brak", async () => {
     getMock.mockImplementation((url: string) => {
       if (url === "/api/contracts") {

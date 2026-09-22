@@ -89,6 +89,20 @@ describe("ProposalPanel", () => {
     expect(screen.queryByText(/Bramka must-have/)).toBeNull();
   });
 
+  it("kontekst podobnych projektów nazywa etap po polsku, nie kodem", () => {
+    const base = entry();
+    const withHistory = {
+      ...base,
+      detail: {
+        ...base.detail,
+        similarProjects: [{ jobId: 9, title: "PL - IT Operations - Senior", stage: "client_interview" }],
+      },
+    } as typeof base;
+    render(<ProposalPanel jobId={42} entry={withHistory} budgetHourly={150} onAdd={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} />);
+    expect(screen.getByText(/etap: Rozmowa u klienta/)).toBeTruthy();
+    expect(screen.queryByText(/client_interview/)).toBeNull();
+  });
+
   it("bez aktywnej osoby pokazuje podpowiedź", () => {
     render(<ProposalPanel jobId={42} entry={null} budgetHourly={null} onAdd={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} />);
     expect(screen.getByText(/Wybierz osobę z listy/)).toBeInTheDocument();

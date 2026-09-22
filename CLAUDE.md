@@ -2647,6 +2647,23 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   = HoR), „Gotowy do Cpro" tylko u klienta z `NORDEA_ORDER_NUMBER_CLIENT_IDS`
   (`job.cpro_enabled`). Reguła nazw DZ/Cpro ma lustro front↔back na wspólnym
   `__fixtures__/board-stage-cases.json` (prawdziwe nazwy z 3 szablonów).
+- **Kolejka „Czeka na Ciebie” (0348, decyzje Artura 22.09.2026)** —
+  `services/board_tasks.py`, `GET /api/board-tasks`, panel `BoardTasksPanel`
+  nad układem pulpitu (nie kafelek: ma dotrzeć do osoby, która pulpitu nie
+  układała). Liczona z NAJNOWSZEGO wiersza pary w opublikowanych rekrutacjach,
+  ruchy z ostatnich 14 dni: „Czeka na DZ” (etap `verified`-gospodarz w szablonie
+  z etapem DZ; Delivery Lead widzi swój portfel + rekrutacje, w których jest
+  DL-em, HoR i admin — wszystko), „Do wysłania do Cpro” i „Wysłane do Cpro”
+  (Nordea: „CV wysłane” TO JEST wysłanie do Cpro — kolumna nazywa się tak
+  u Nordei, `foldBoardColumns(…, { cproEnabled })`). Osobę, która wysyła,
+  typuje się przy „Gotowy do Cpro” (`StageMove.task_assignee_id` →
+  `candidate_stages.task_assignee_id` na wierszu etapu Cpro; inny etap = 422);
+  osoba spoza zespołu rekrutacji zostaje dopisana jako collaborator, bo
+  inaczej dostałaby 403 przy własnym zadaniu. Zmiana osoby:
+  `PATCH /api/board-tasks/cpro/{stage_id}/assignee` (tylko bieżący wiersz, inaczej
+  409). „✓ DZ” z pulpitu to zwykły `/move` z wersją procesu — kolejka nie ma
+  własnej ścieżki zapisu etapu. Rano (8–17, pierwszy tick) JEDEN dzwonek
+  `board_tasks_digest` na osobę; wytypowanie = dzwonek `cpro_send_assigned`.
 - **Filtry Tablicy = jeden pasek nad tablicą** (`PipelineFilterBar`) zamiast
   lewej kolumny: na wierzchu nazwisko i „Mój ruch" (owner następnego kroku =
   rekruter, ta sama `nextActionFor` co karta), reszta w „Filtry ▾" z licznikiem

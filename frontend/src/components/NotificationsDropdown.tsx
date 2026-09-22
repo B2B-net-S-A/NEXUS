@@ -49,6 +49,7 @@ import {
   ListChecks,
   Workflow,
   ClipboardList,
+  Send,
 } from "lucide-react";
 import { notificationsApi } from "@/lib/api";
 import {
@@ -402,6 +403,17 @@ const TYPE_CONFIG: Record<
   },
   interview_debrief_saved: {
     icon: <CalendarClock className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  // 0348: kolejka „Czeka na Ciebie" — poranny skrót i wytypowanie do Cpro.
+  board_tasks_digest: {
+    icon: <ListChecks className="w-3.5 h-3.5" />,
+    color: "text-primary",
+    bgColor: "bg-primary/15",
+  },
+  cpro_send_assigned: {
+    icon: <Send className="w-3.5 h-3.5" />,
     color: "text-primary",
     bgColor: "bg-primary/15",
   },

@@ -1328,6 +1328,10 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  ? formatCurrency(comparableMargin, clientCurrency(m))
  :"—"}
  </span>
+ {/* Marża = różnica stawek w jednostce kontraktu — ta sama
+ końcówka co przy stawkach obok (bez niej „43 zł” czytało
+ się jak kwota miesięczna). */}
+ {comparableMargin != null && <RateUnitSuffix unit={m.rate_unit} />}
  {marginPct && (
  <span className="block text-[10px] font-sans text-muted-foreground">
  {marginPct}
