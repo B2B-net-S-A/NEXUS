@@ -1022,14 +1022,17 @@ async def preview_document(data, filename, *, db=None, model=None):
                 f"Dokument przekracza limit {MAX_TEXT} znaków odczytu przez AI. "
                 "Skróć treść albo użyj wzoru Word v4; niczego nie zaimportowano."
             )
+        # `model` idzie dalej WYŁĄCZNIE, gdy przebieg go ustawia (backfill):
+        # zwykła ścieżka woła parser dokładnie tak jak przed 22.09.2026.
+        parse_kwargs = {"model": model} if model else {}
         if db is None:
-            parsed = await parse_champion_document(text, model=model)
+            parsed = await parse_champion_document(text, **parse_kwargs)
         else:
             from app.models.ai_feature import AIFeatureKey
             from app.services.ai_quota import ai_feature
 
             async with ai_feature(db, AIFeatureKey.champion_profile_parse):
-                parsed = await parse_champion_document(text, model=model)
+                parsed = await parse_champion_document(text, **parse_kwargs)
         from app.services.champion_profile_ingest import build_champion_dict
 
         cp = prepare_profile(build_champion_dict(parsed, file_id=None))
