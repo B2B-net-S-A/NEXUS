@@ -811,7 +811,7 @@ export function PersonPanel({
         tabs={PERSON_PANEL_SECTIONS.map(({ value, label }) => ({ value, label }))}
         value={section}
         onValueChange={(value) => changeSection(value as PersonPanelSection)}
-        overflow="scroll"
+        overflow="wrap"
         dense
       />
 

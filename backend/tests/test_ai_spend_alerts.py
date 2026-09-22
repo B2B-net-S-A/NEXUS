@@ -85,3 +85,11 @@ async def test_loop_does_not_exit_when_slack_is_missing(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await mod.ai_spend_alerts_loop()
     assert scan.await_args.args[1] == ""
+
+
+def test_alert_numbers_are_formatted_in_polish() -> None:
+    """Dzwonek pokazywal „1,099,201.00 tokeny" — zapis angielski, z groszami tokenow."""
+    nbsp = " "
+    assert mod._pl_number(1_099_201.0, 0) == f"1{nbsp}099{nbsp}201"
+    assert mod._pl_number(12.5, 2) == "12,50"
+    assert mod._pl_number(1234.567, 2) == f"1{nbsp}234,57"

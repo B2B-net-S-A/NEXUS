@@ -654,7 +654,8 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
 
       <DialogFooter className="sm:items-center sm:justify-between">
         <span className="text-sm text-warning-muted-foreground" data-testid="approve-disabled-reason">
-          {approveDisabledReason ?? ""}
+          {/* Bez wybranej rekrutacji treść okna mówi to samo — bez powtórki w stopce. */}
+          {jobId == null ? "" : (approveDisabledReason ?? "")}
         </span>
         <div className="flex flex-col-reverse gap-2 sm:flex-row">
           <Button

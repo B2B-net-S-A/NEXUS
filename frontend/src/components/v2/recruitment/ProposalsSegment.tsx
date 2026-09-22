@@ -309,7 +309,7 @@ export function ProposalsSegmentView({
           <p className="mr-auto text-sm text-muted-foreground">
             {status.latestRun
               ? `Ostatni przegląd: ${formatWhen(status.latestRun.completed_at)} · ${status.latestRun.origin === "auto" ? "automatyczny" : status.latestRun.own ? "Twój" : "ręczny"}${status.latestRun.state === "partial" ? " · niepełny" : ""}`
-              : "Ostatni przegląd: jeszcze nie było"}
+              : "Całej bazy jeszcze nie przeszukano"}
           </p>
           {!readOnly && (
             <Button size="sm" loading={run.starting} disabled={run.running} onClick={status.startRun}>

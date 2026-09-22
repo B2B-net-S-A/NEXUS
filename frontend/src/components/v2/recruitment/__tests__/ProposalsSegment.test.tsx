@@ -74,7 +74,7 @@ describe("ProposalsSegment — stany", () => {
     const s = state();
     mocks.state.current = s;
     render(<ProposalsSegment {...props} />);
-    expect(screen.getByText("Ostatni przegląd: jeszcze nie było")).toBeInTheDocument();
+    expect(screen.getByText("Całej bazy jeszcze nie przeszukano")).toBeInTheDocument();
     expect(s.status.startRun).not.toHaveBeenCalled();
     fireEvent.click(within(screen.getByTestId("empty")).getByRole("button", { name: "Uruchom przegląd bazy" }));
     expect(s.status.startRun).toHaveBeenCalledTimes(1);
