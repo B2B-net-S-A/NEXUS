@@ -17,6 +17,7 @@ import {
 } from "@/components/ds/WorkspaceModeTabs";
 import { useCapability } from "@/hooks/useCapability";
 import { resolveContractsView, type ContractsView } from "@/lib/clients-workspace";
+import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 
 type ViewMode = ContractsView;
@@ -105,7 +106,10 @@ function ContractsWorkspace({
   const [appliedNavigationSearch, setAppliedNavigationSearch] =
     useState(navigationSearch);
   const { user } = useAuthStore();
-  const canSeeOperations = hasRole(user, ...OPERATIONS_ROLES);
+  // Rola + sufit sekcji Delivery (U8): odebrana sekcja = brak widoku, nie 403.
+  const canSeeOperations =
+    hasRole(user, ...OPERATIONS_ROLES) &&
+    hasSectionAccess(user, "delivery", "read");
   const canSeeOrderMail = useCapability("nav.order_mail");
   const orderMailPending = useOrderMailPendingCount(canSeeOrderMail);
 

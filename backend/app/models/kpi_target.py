@@ -1,12 +1,14 @@
 """KPI Coach — targety (per-rola default + per-user override).
 
-Definicje KPI (kpi_id → liczy jakich akcji, jakie okno) żyją w kodzie
-(`app/services/kpi_catalog.py`). W DB trzymamy tylko parametry liczbowe,
-żeby admin mógł zmieniać targety bez deploya.
+Definicje KPI i domyślne liczby żyją w kodzie (`app/services/kpi_catalog.py`,
+jedyny katalog od 22.09.2026). Tabele trzymają wyłącznie ODSTĘPSTWA od katalogu
+(po migracji 0343 `kpi_role_defaults` jest pusta). W aplikacji nie ma ekranu,
+który je zapisuje (audyt T5) — zmiana celu to dziś zmiana katalogu albo wiersz
+wpisany ręcznie.
 
-Precedencja przy resolve targetu dla usera:
-  user_kpi_targets (jeśli jest) → kpi_role_defaults (dla jego roli) →
-  KpiDef.default_targets[role] (hardcoded w katalogu) → 0.
+Precedencja (`app/services/kpi_targets.py`):
+  user_kpi_targets → dla KAŻDEJ roli osoby kpi_role_defaults albo
+  KpiDef.default_targets[rola] → maksimum z ról → 0.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ from app.models.user import UserRole
 
 
 class KpiRoleDefault(Base, TimestampMixin):
-    """Default target_value dla pary (role, kpi_id). Seed z migracji 0033."""
+    """Odstępstwo od domyślnego celu katalogu dla pary (role, kpi_id)."""
 
     __tablename__ = "kpi_role_defaults"
     __table_args__ = (

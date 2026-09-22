@@ -109,10 +109,70 @@ FinanceApproveUser = Annotated[
     User,
     Depends(require_capability(AnalyticsCapability.APPROVE_FINANCE)),
 ]
-ExecutiveUser = Annotated[
-    User,
-    Depends(require_capability(AnalyticsCapability.VIEW_EXECUTIVE)),
-]
+
+
+# ── Zapis kwot kontraktów i zamówień (decyzja Artura 22.09.2026) ────────────
+#
+# Finanse zmieniają kwoty kontraktów i zamówień przez ``MANAGE_FINANCE``
+# (rola ``finance`` z zapisem w sekcji Finanse). Do 22.09 te pola zapisywał
+# wyłącznie admin (plus przypisany DL na zamówieniach), mimo że capability
+# istniała. Trasy mieszane (kontrakt, zamówienie, linia MD) wpuszczają osobę
+# z samym ``MANAGE_FINANCE`` wyłącznie po to, żeby zmieniła KWOTY — reszta
+# pól zostaje przy rolach operacyjnych danej trasy.
+
+
+def can_manage_finance_amounts(user: User) -> bool:
+    """Zapis kwot kontraktu i zamówienia: admin albo ``MANAGE_FINANCE``."""
+
+    return user.has_role(UserRole.admin) or user_has_capability(
+        user, AnalyticsCapability.MANAGE_FINANCE
+    )
+
+
+def require_roles_or_finance_manager(*roles: UserRole):
+    """Bramka trasy mieszanej: role operacyjne trasy albo ``MANAGE_FINANCE``.
+
+    Samo ``MANAGE_FINANCE`` daje wyłącznie zapis kwot — handler MUSI wołać
+    ``assert_finance_manager_touches_only_amounts``.
+    """
+
+    from app.api.deps import ROLE_DENIED_DETAIL, require_onboarded_user
+
+    async def _check(current_user: User = Depends(require_onboarded_user)) -> User:
+        if (
+            current_user.has_role(UserRole.admin)
+            or current_user.has_any_role(*roles)
+            or user_has_capability(current_user, AnalyticsCapability.MANAGE_FINANCE)
+        ):
+            return current_user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=ROLE_DENIED_DETAIL
+        )
+
+    return _check
+
+
+def assert_finance_manager_touches_only_amounts(
+    user: User,
+    supplied_fields,
+    amount_fields,
+    *,
+    operational_roles: tuple[UserRole, ...],
+) -> None:
+    """Osoba wpuszczona wyłącznie przez ``MANAGE_FINANCE`` zmienia tylko kwoty."""
+
+    if user.has_role(UserRole.admin) or user.has_any_role(*operational_roles):
+        return
+    extra = sorted(set(supplied_fields) - set(amount_fields))
+    if extra:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "finance_amounts_only",
+                "message": "Finanse zmieniają tutaj wyłącznie kwoty.",
+                "fields": extra,
+            },
+        )
 
 
 def _is_financial_key(key: str) -> bool:

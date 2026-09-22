@@ -5,6 +5,7 @@ import {
   BOARD_COLUMN_ORDER,
   foldBoardColumns,
   isCproStageName,
+  impliedBadges,
   isDzStageName,
   placeStage,
 } from "@/lib/board-stages";
@@ -68,6 +69,13 @@ describe("foldBoardColumns", () => {
     ]);
     expect(folded.columns.map((c) => c.key)).toEqual(BOARD_COLUMN_ORDER);
     expect(folded.closed.map((c) => c.label)).toEqual(["Odrzucony", "Wycofany"]);
+  });
+
+  it("u Nordei „CV wysłane” nazywa się „Wysłane do Cpro” — ta sama kolumna", () => {
+    const nordea = foldBoardColumns(template, { cproEnabled: true });
+    const sent = nordea.columns.find((c) => c.key === "cv_sent")!;
+    expect(sent.label).toBe("Wysłane do Cpro");
+    expect(nordea.columns.map((c) => c.key)).toEqual(BOARD_COLUMN_ORDER);
   });
 
   it("kolumna-host to etap bez odznaki; karty z etapów-odznak są w tej samej kolumnie", () => {
@@ -148,5 +156,13 @@ describe("foldBoardColumns", () => {
     const interview = traffit.columns.find((c) => c.key === "client_interview")!;
     expect(interview.items.map((i) => i.id)).toEqual([3, 4]);
     expect(traffit.closed).toHaveLength(2);
+  });
+});
+
+describe("impliedBadges", () => {
+  it("Cpro stoi po DZ w procesie — karta niesie obie odznaki", () => {
+    expect(impliedBadges("cpro")).toEqual(["dz", "cpro"]);
+    expect(impliedBadges("dz")).toEqual(["dz"]);
+    expect(impliedBadges(null)).toEqual([]);
   });
 });

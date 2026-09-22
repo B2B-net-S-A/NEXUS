@@ -10,12 +10,13 @@ from dataclasses import dataclass
 from enum import Enum
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, union
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
 from app.models.client import Client
-from app.models.job import Job
+from app.models.job import Job, JobStatus
+from app.models.job_collaborator import JobCollaborator
 from app.models.team_structure import (
     ClientTacAssignment,
     DeliveryLeadClientAssignment,
@@ -86,7 +87,9 @@ async def resolve_dashboard_scope(
     capability matrix still limiting the domains/fields they may consume.
     Head of Recruitment and Talent Community Manager see active recruitment
     operators. Delivery Lead sees every client and the authoritative TAC
-    relationships attached to those clients. Operators see only their own work.
+    relationships attached to those clients; its operator team is built from
+    the people on its recruitments (``_delivery_lead_operator_ids``).
+    Operators see only their own work.
     ``delivery_lead_persona=True`` lets a recruitment+DL hybrid explicitly
     select its DL dashboard without inheriting the wider recruitment
     precedence; admin remains organization-wide.
@@ -155,7 +158,8 @@ async def resolve_dashboard_scope(
             user_id=user.id,
             allowed_client_ids=client_ids,
             allowed_tac_user_ids=tac_ids,
-            allowed_operator_user_ids=tac_ids,
+            allowed_operator_user_ids=tac_ids
+            | await _delivery_lead_operator_ids(user, db),
             allowed_client_tac_pairs=client_tac_pairs,
         )
 
@@ -170,6 +174,49 @@ async def resolve_dashboard_scope(
         user_id=user.id,
         allowed_tac_user_ids=frozenset({user.id}),
         allowed_operator_user_ids=frozenset({user.id}),
+    )
+
+
+async def _delivery_lead_operator_ids(user: User, db: AsyncSession) -> frozenset[int]:
+    """Zespół Delivery Leada = ludzie jego otwartych rekrutacji.
+
+    Do 22.09.2026 zespół DL liczył się wyłącznie z ``ClientTacAssignment``,
+    a funkcji TAC nie używamy — więc „zespół" był pusty u każdego DL. Teraz
+    to osoby prowadzące rekrutacje, które DL prowadzi (``jobs.delivery_lead_id``)
+    albo które należą do jego klientów (``DeliveryLeadClientAssignment``):
+    rekruter prowadzący, TAC i aktywni współpracownicy. Tylko aktywne konta.
+    Zakres DANYCH (pary klient×TAC, klienci) zostaje bez zmian — to wyłącznie
+    lista ludzi do atrybucji w pulpitach.
+    """
+
+    assigned_clients = select(DeliveryLeadClientAssignment.client_id).where(
+        DeliveryLeadClientAssignment.delivery_lead_user_id == user.id
+    )
+    led_jobs = select(Job.id).where(
+        Job.status != JobStatus.closed,
+        or_(
+            Job.delivery_lead_id == user.id,
+            Job.client_id.in_(assigned_clients),
+        ),
+    )
+    people = union(
+        select(Job.recruiter_id.label("user_id")).where(Job.id.in_(led_jobs)),
+        select(Job.tac_id.label("user_id")).where(Job.id.in_(led_jobs)),
+        select(JobCollaborator.user_id.label("user_id")).where(
+            JobCollaborator.job_id.in_(led_jobs),
+            JobCollaborator.removed_from_auto_cc.is_(False),
+        ),
+    ).subquery()
+    return frozenset(
+        int(user_id)
+        for user_id in (
+            await db.scalars(
+                select(User.id).where(
+                    User.id.in_(select(people.c.user_id)),
+                    User.is_active.is_(True),
+                )
+            )
+        ).all()
     )
 
 

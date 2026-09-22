@@ -51,7 +51,7 @@ class NotificationResponse(BaseModel):
     # właściciela, żeby dzwonek mówił „w zastępstwie za …" zamiast udawać,
     # że to Twoja sprawa. ``None`` = powiadomienie własne.
     on_behalf_of_name: Optional[str] = None
-    # Kategoria z „Moje konto → Powiadomienia" (0348) — dzwonek pokazuje przy
+    # Kategoria z „Moje konto → Powiadomienia" (0349) — dzwonek pokazuje przy
     # pozycji „Nie pokazuj takich" tylko dla kategorii, które wolno wyciszyć.
     category: Optional[str] = None
     category_label: Optional[str] = None
@@ -351,7 +351,7 @@ async def mark_all_read(
     )
 
 
-# ── Własne ustawienia: które kategorie powiadomień przychodzą (0348) ─────────
+# ── Własne ustawienia: które kategorie powiadomień przychodzą (0349) ─────────
 
 
 class NotificationCategoryPreference(BaseModel):

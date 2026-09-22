@@ -1,4 +1,4 @@
-"""Kategorie powiadomień i wyciszenia per użytkownik (0348, 22.09.2026).
+"""Kategorie powiadomień i wyciszenia per użytkownik (0349, 22.09.2026).
 
 Powiadomień jest ~60 typów, więc każdy użytkownik wybiera w „Moje konto →
 Powiadomienia" jedną z ~11 kategorii, nie typ techniczny. Mapa typ →
@@ -51,7 +51,7 @@ class CategoryInfo:
 CATEGORY_INFO: dict[NotificationCategory, CategoryInfo] = {
     NotificationCategory.mentions: CategoryInfo(
         "Wzmianki (@)",
-        "Ktoś oznaczył Cię w notatce albo na czacie.",
+        "Ktoś oznaczył Cię w notatce lub na czacie albo wytypował Cię do zadania.",
         mandatory=True,
     ),
     NotificationCategory.interviews: CategoryInfo(
@@ -106,6 +106,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # Wzmianki
     _T.job_chat_mention: _C.mentions,
     _T.note_mention: _C.mentions,
+    # Ktoś wytypował Cię do wysłania osoby do Cpro — imienne zadanie, jak wzmianka.
+    _T.cpro_send_assigned: _C.mentions,
     # Czat
     _T.job_chat_message: _C.chat,
     # Ruchy w rekrutacjach
@@ -121,6 +123,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.candidate_feedback_1h: _C.reminders,
     _T.suggest_next_step: _C.reminders,
     _T.recruitment_allocation_alert: _C.reminders,
+    _T.board_tasks_digest: _C.reminders,
     # Terminy rekrutacji
     _T.job_deadline_7d: _C.deadlines,
     _T.job_deadline_3d: _C.deadlines,

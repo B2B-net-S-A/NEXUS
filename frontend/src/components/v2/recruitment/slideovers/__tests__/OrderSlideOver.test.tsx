@@ -201,6 +201,26 @@ describe("OrderSlideOver", () => {
     expect(screen.getByTestId("hm-picker")).toHaveAttribute("data-can-edit", "false");
   });
 
+  it("rekruter prowadzący (canEditContent): edycja treści i ogłoszeń, bez zespołu i zamknięcia", async () => {
+    setup({ canEdit: false, canEditContent: true, initialSection: "portals" });
+    expect(await screen.findByTestId("postings")).toHaveAttribute(
+      "data-read-only",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "Edytuj rekrutację" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zamknij rekrutację" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Zmień zespół i hiring managera/ }));
+    expect(screen.getByTestId("hm-picker")).toHaveAttribute("data-can-edit", "false");
+  });
+
+  it("bez prawa edycji treści ogłoszenia są tylko do odczytu", async () => {
+    setup({ canEdit: false, initialSection: "portals" });
+    expect(await screen.findByTestId("postings")).toHaveAttribute(
+      "data-read-only",
+      "true",
+    );
+  });
+
   it("„Zamknij rekrutację” otwiera istniejący dialog z podpowiedzią powodu", async () => {
     setup({ hiredCount: 1 });
     fireEvent.click(await screen.findByRole("button", { name: "Zamknij rekrutację" }));

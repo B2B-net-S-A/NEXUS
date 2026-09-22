@@ -30,7 +30,8 @@ export function ScoringConfig() {
   const [prize2, setPrize2] = useState(3000);
   const [prize3, setPrize3] = useState(2000);
   // Business thresholds — previously hardcoded w Rekrutacja page.tsx.
-  const [pcMinPerDay, setPcMinPerDay] = useState(3);
+  // Próg Power Calling zniknął stąd 22.09.2026: nic go nie czytało, a próg
+  // to cel KPI „Weryfikacje dziś" z katalogu KPI.
   const [linkedinTarget, setLinkedinTarget] = useState(5);
   const [saveStatus, setSaveStatus] = useState<{
     type: "success" | "error";
@@ -53,7 +54,6 @@ export function ScoringConfig() {
       setPrize1(scoringQuery.data.prize_1 ?? 5000);
       setPrize2(scoringQuery.data.prize_2 ?? 3000);
       setPrize3(scoringQuery.data.prize_3 ?? 2000);
-      setPcMinPerDay(scoringQuery.data.power_calling_min_per_day ?? 3);
       setLinkedinTarget(scoringQuery.data.linkedin_cv_per_md_target ?? 5);
     }
   }, [scoringQuery.data]);
@@ -68,7 +68,6 @@ export function ScoringConfig() {
         prize_1: prize1,
         prize_2: prize2,
         prize_3: prize3,
-        power_calling_min_per_day: pcMinPerDay,
         linkedin_cv_per_md_target: linkedinTarget,
       }),
     onSuccess: () => {
@@ -161,20 +160,13 @@ export function ScoringConfig() {
         </div>
 
         <h4 className="text-base font-semibold mt-6 mb-2 flex items-center gap-2">
-          📞 Progi business (Power Calling + LinkedIn)
+          🔗 Próg business (LinkedIn)
         </h4>
         <p className="text-sm text-muted-foreground mb-3">
-          Wartości progów wyświetlanych w Rekrutacja sekcjach Power Calling +
-          LinkedIn Performance. Wcześniej hardcoded w kodzie, teraz editable.
+          Próg wyświetlany w sekcji LinkedIn Performance. Próg Power Calling to
+          cel KPI „Weryfikacje dziś” — ustawiany w katalogu KPI, nie tutaj.
         </p>
         <div className="grid grid-cols-2 gap-3">
-          <PointsInput
-            label="📞 Power Calling min/dzień"
-            value={pcMinPerDay}
-            onChange={setPcMinPerDay}
-            color="emerald"
-            hint="Min. weryfikacji/dzień roboczy"
-          />
           <PointsInput
             label="🔗 LinkedIn CV/MD target"
             value={linkedinTarget}

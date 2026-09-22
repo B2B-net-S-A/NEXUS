@@ -380,20 +380,9 @@ CandidateExportAccess = Annotated[
     User, Depends(require_candidate_roles(*CANDIDATE_EXPORT_ROLES))
 ]
 
-# Candidate-specific pricing/conflict reads.  Mutations keep the narrower alias
-# below so Finance cannot write candidate rates by gaining read access.
+# Candidate-specific pricing/conflict reads.  Zapis stawki do klienta ma własną
+# bramkę (``resolve_client_rate_write``), więc odczyt nie nadaje tu zapisu.
 CandidateFinanceReadAccess = Annotated[User, Depends(require_candidate_finance_read)]
-
-# Client-facing pricing mutations („stawka do klienta").
-CandidateFinanceAccess = Annotated[
-    User,
-    Depends(
-        require_candidate_roles(
-            *CANDIDATE_FINANCE_ROLES,
-            required_access=SectionAccess.write,
-        )
-    ),
-]
 
 # Typed global profile facts are readable by every internal operational role.
 CandidateProfileFactsReadAccess = Annotated[

@@ -104,6 +104,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.interview_slot_chosen: ProductSection.pipeline,
     NotificationType.interview_slot_confirmed: ProductSection.pipeline,
     NotificationType.interview_debrief_saved: ProductSection.pipeline,
+    NotificationType.board_tasks_digest: ProductSection.pipeline,
+    NotificationType.cpro_send_assigned: ProductSection.pipeline,
 }
 
 CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
@@ -183,7 +185,7 @@ def user_can_receive_notification(
 
     if not user.is_active:
         return False
-    # Wyciszenie kategorii (0348) jest decyzją samego odbiorcy, więc obowiązuje
+    # Wyciszenie kategorii (0349) jest decyzją samego odbiorcy, więc obowiązuje
     # także administratora. Kategorie obowiązkowe nigdy nie trafiają do zbioru.
     if notification_type in user_muted_types(user):
         return False
@@ -245,7 +247,7 @@ def user_may_receive_type(
 def notification_visibility_predicate(user: User) -> Any:
     """SQL predicate shared by list/count/read/update notification routes.
 
-    Łączy politykę sekcji z wyciszeniami użytkownika (0348): wyciszona
+    Łączy politykę sekcji z wyciszeniami użytkownika (0349): wyciszona
     kategoria znika z listy i z licznika nieprzeczytanych.
     """
 

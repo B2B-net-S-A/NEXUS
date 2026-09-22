@@ -1,13 +1,15 @@
 """Endpoints for reviewing & applying Champion Profile AI suggestions.
 
-Write endpoints require TacPlus (admin + delivery_lead + tac). Finance receives
-GET-only organization oversight. Matching router prefix is
+Zapis (apply / reject / rate): admin, Delivery Lead w swoim zakresie oraz zespół
+rekrutacji — osoba, która ją prowadzi, i współpracownicy, TAC tylko we własnych
+ofertach (decyzja Artura 22.09.2026). Finance receives GET-only organization
+oversight. Matching router prefix is
 `/champion-suggestions` — the suggestions carry their own `job_id` so operations
 do not need to walk through the Jobs router.
 
-Rola nie wystarcza za zakres zapisu: `ensure_champion_job_visible` zawęża
-Delivery Leada do jego par klient×TAC, a TAC-a do ofert, w których `Job.tac_id`
-wskazuje na niego. Osobny read guard omija ten membership wyłącznie dla Finance.
+Rola nie wystarcza za zakres zapisu: `ensure_champion_job_editor` zawęża
+Delivery Leada do jego zakresu, a pozostałe role (TAC-a też) do rekrutacji,
+których są członkami. Osobny read guard omija ten membership wyłącznie dla Finance.
 """
 
 from __future__ import annotations
@@ -19,10 +21,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import TacPlus, require_roles
+from app.api.deps import require_roles
 from app.api.recruitment_access import (
-    ensure_champion_job_read_visible,
-    ensure_champion_job_visible,
+    JOB_EDIT_ROLES,
+    JobEditUser,
+    ensure_champion_job_editor,
+    ensure_champion_job_reader,
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -46,16 +50,11 @@ router = APIRouter(
 )
 
 
+# Odczyt: każda rola, która może redagować rekrutację (zakres rozstrzyga
+# `ensure_champion_job_reader`), plus Finance z odczytem organizacyjnym.
 ChampionSuggestionReadUser = Annotated[
     User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.tac,
-            UserRole.finance,
-        )
-    ),
+    Depends(require_roles(*JOB_EDIT_ROLES, UserRole.finance)),
 ]
 
 
@@ -104,9 +103,9 @@ async def _load_scoped_suggestion(
         raise HTTPException(status_code=404, detail="Suggestion not found")
     try:
         if read_only:
-            await ensure_champion_job_read_visible(job, current_user, db)
+            await ensure_champion_job_reader(job, current_user, db)
         else:
-            await ensure_champion_job_visible(job, current_user, db)
+            await ensure_champion_job_editor(job, current_user, db)
     except HTTPException as exc:
         if exc.status_code == 403:
             raise HTTPException(status_code=404, detail="Suggestion not found") from exc
@@ -133,7 +132,7 @@ async def get_suggestion(
 async def apply_suggestion_endpoint(
     suggestion_id: int,
     payload: ApplyPayload,
-    current_user: TacPlus,
+    current_user: JobEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionProfileSuggestionOut:
     """Merge the accepted sections into `jobs.champion_profile` and finalise.
@@ -154,7 +153,7 @@ async def apply_suggestion_endpoint(
 @router.post("/{suggestion_id}/reject", response_model=ChampionProfileSuggestionOut)
 async def reject_suggestion_endpoint(
     suggestion_id: int,
-    current_user: TacPlus,
+    current_user: JobEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionProfileSuggestionOut:
     await _load_scoped_suggestion(db, suggestion_id, current_user)
@@ -170,7 +169,7 @@ async def reject_suggestion_endpoint(
 async def rate_suggestion_endpoint(
     suggestion_id: int,
     payload: RatePayload,
-    current_user: TacPlus,
+    current_user: JobEditUser,
     db: AsyncSession = Depends(get_db),
 ) -> ChampionProfileSuggestionOut:
     """Phase 15 / Phase C — persist DL feedback on a terminated suggestion.

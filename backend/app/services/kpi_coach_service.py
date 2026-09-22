@@ -47,16 +47,17 @@ from app.services.kpi_engine import (
     period_bucket_label,
 )
 from app.services.kpi_messages import render, select_reminder_variant
+from app.services.kpi_targets import KPI_BEARING_ROLES, user_kpi_roles_clause
 
 logger = logging.getLogger(__name__)
 
 
 # ── Config values (hardcoded — not worth making everyone overridable) ──────
 
-# Tylko te role dostają KPI Coach.
-_OPERATIONAL_ROLES: frozenset[UserRole] = frozenset(
-    {UserRole.tac, UserRole.recruiter, UserRole.sourcer}
-)
+# Tylko te role dostają KPI Coach — główna ALBO dodatkowa (22.09.2026).
+# Do tej daty sweep filtrował po roli głównej, więc DL z rolą TAC nie dostawał
+# nudge'y, choć widget pokazywał mu (po tej samej regule) jego cele.
+_OPERATIONAL_ROLES: frozenset[UserRole] = frozenset(KPI_BEARING_ROLES)
 
 # Od jakiej części okresu zaczynamy remindować (0.35 = ~11:00 przy daily).
 _REMIND_MIN_RATIO = 0.35
@@ -455,7 +456,7 @@ async def _fetch_eligible_users(db: AsyncSession) -> list[User]:
             and_(
                 User.is_active.is_(True),
                 User.kpi_coach_enabled.is_(True),
-                User.role.in_(tuple(_OPERATIONAL_ROLES)),
+                user_kpi_roles_clause(tuple(_OPERATIONAL_ROLES)),
             )
         )
     )

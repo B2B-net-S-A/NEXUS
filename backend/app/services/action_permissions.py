@@ -40,9 +40,12 @@ def _policy(**overrides: ActionAccess) -> dict[ProductAction, ActionAccess]:
     return policy
 
 
-# Preserve the pre-cutover behavior for every role except the intentionally
-# read-only TCM persona. The legacy viewer remains view-only because its
-# Sourcing section ceiling is also read-only.
+# Pełny generator dla każdej roli operacyjnej. TCM ma „manage" od decyzji
+# Artura z 22.09.2026 (na produkcji ustawione w panelu RBAC 03–04.09) — seed
+# migracji 0273 i lustro w entrypoint.sh nadal zasiewają dla TCM „view", więc
+# świeże środowisko wymaga osobnej migracji danych (patrz
+# test_action_permissions_migration.SEED_DIVERGENCE_AFTER_0273). Legacy viewer
+# zostaje przy podglądzie, bo jego sufit Sourcing też jest tylko do odczytu.
 DEFAULT_ROLE_ACTION_ACCESS: dict[UserRole, dict[ProductAction, ActionAccess]] = {
     UserRole.admin: _policy(
         b2b_contract_generator=ActionAccess.manage,
@@ -55,7 +58,7 @@ DEFAULT_ROLE_ACTION_ACCESS: dict[UserRole, dict[ProductAction, ActionAccess]] = 
         b2b_signature_confirmation=ActionAccess.manage,
     ),
     UserRole.talent_community_manager: _policy(
-        b2b_contract_generator=ActionAccess.view,
+        b2b_contract_generator=ActionAccess.manage,
         b2b_signature_confirmation=ActionAccess.manage,
     ),
     UserRole.tac: _policy(

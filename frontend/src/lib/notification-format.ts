@@ -2,6 +2,12 @@ import { countPl } from "@/lib/plural-pl";
 
 const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
 
+// Klucz epizodu alertów kontraktowych na początku tytułu: „[7d|2026-09-30] ",
+// „[compliance|…] ", „[client_order|…] ", starsze „[30d] ". Backend czyta go
+// z tytułu przy deduplikacji (`_end_date_from_title`), więc zostaje w bazie —
+// odbiorca go nie potrzebuje, a na liście wyglądał jak błąd.
+const EPISODE_KEY_PREFIX = /^\[[a-z0-9_]+(?:\|[^\]]*)?\]\s*/i;
+
 /**
  * Daty w tytułach i treściach powiadomień przychodzą z backendu jako
  * RRRR-MM-DD (UAT M00-B05). Treści NIE zmieniamy w bazie — skaner wygasania
@@ -10,7 +16,9 @@ const ISO_DATE = /\b(\d{4})-(\d{2})-(\d{2})\b/g;
  */
 export function formatNotificationText(text: string | null | undefined): string {
   if (!text) return "";
-  return text.replace(ISO_DATE, (_match, year, month, day) => `${day}.${month}.${year}`);
+  return text
+    .replace(EPISODE_KEY_PREFIX, "")
+    .replace(ISO_DATE, (_match, year, month, day) => `${day}.${month}.${year}`);
 }
 
 /** „Przed chwilą” / „5 min temu” / „3 h temu” / „1 dzień temu” / „5 dni temu”. */

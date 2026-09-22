@@ -9,21 +9,17 @@ import {
 const ACTION = "b2b_contract_generator" as const;
 
 describe("action access", () => {
-  it("preserves existing operators and keeps TCM view-only by default", () => {
+  it("preserves existing operators and gives TCM the full generator (U1, 22.09)", () => {
     expect(actionAccessForRoles(["recruiter"], ACTION)).toBe("manage");
     expect(actionAccessForRoles(["delivery_lead"], ACTION)).toBe("manage");
     expect(
       actionAccessForRoles(["talent_community_manager"], ACTION),
-    ).toBe("view");
+    ).toBe("manage");
+    expect(actionAccessForRoles(["user"], ACTION)).toBe("view");
   });
 
   it("uses the strongest role in a multi-role account", () => {
-    expect(
-      actionAccessForRoles(
-        ["talent_community_manager", "recruiter"],
-        ACTION,
-      ),
-    ).toBe("manage");
+    expect(actionAccessForRoles(["user", "recruiter"], ACTION)).toBe("manage");
   });
 
   it("treats an authoritative per-user snapshot as a replacement", () => {

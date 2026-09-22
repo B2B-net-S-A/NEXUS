@@ -2228,7 +2228,8 @@ async def test_tcm_confirms_without_document_management_and_override_revokes(
     )
     assert item["can_confirm_signed"] is True
     assert item["can_edit"] is False
-    assert item["can_change_status"] is False
+    # Pełny generator TCM (22.09.2026) daje też zmianę statusu handlowego.
+    assert item["can_change_status"] is True
 
     async with AsyncSessionLocal() as db:
         db.add(

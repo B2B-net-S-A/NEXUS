@@ -62,6 +62,7 @@ import { DeleteClientDialog } from "@/components/client-profile/DeleteClientDial
 import { ClientConflictsSection } from "@/components/client-profile/ClientConflictsSection";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
+import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
@@ -764,7 +765,11 @@ export default function ClientDetailPage() {
   const isReadOnlyTcm =
     hasRole(user, "talent_community_manager") &&
     !hasRole(user, "admin", "delivery_lead", "finance");
-  const canEditDelivery = hasRole(user, "admin", "delivery_lead");
+  // Rola + zapis w sekcji Delivery (U8): DL z odebraną sekcją nie widzi
+  // przycisków, które kończą się 403.
+  const canEditDelivery =
+    hasRole(user, "admin", "delivery_lead") &&
+    hasSectionAccess(user, "delivery", "write");
   const canViewDeliveryLegal = hasRole(
     user,
     "admin",

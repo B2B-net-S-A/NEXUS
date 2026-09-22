@@ -61,4 +61,15 @@ __all__ = [
     "TOP_CLIENT_SHARE",
     "FIRST_HIRED_PER_CANDIDATE_JOB",
     "VERIFIER_ANCHORED_MILESTONES",
+    "DL_HIT_RATIO_TARGET_PCT",
 ]
+
+
+# ── Progi, nie kody ───────────────────────────────────────────────────────
+#
+# Próg hit ratio Delivery Leada (InfraReporter, Liga Mistrzów DL). Do 22.09.2026
+# ta sama liczba była wpisana w SZEŚCIU plikach (liga, raport DL, Insights,
+# ranking klientów, dashboard DynaReportera, schemat odpowiedzi) — zmiana
+# w jednym miejscu dawała ekrany, które się ze sobą nie zgadzają. Ten moduł
+# jest liściem grafu importów, więc każdy może go czytać bez cyklu.
+DL_HIT_RATIO_TARGET_PCT = 30.0

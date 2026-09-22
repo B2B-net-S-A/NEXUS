@@ -58,7 +58,7 @@ from app.api import (
     reports,
     signing,
 )
-from app.api.deps import AdminUser, DeliveryLeadPlus, HeadOfRecruitmentPlus, TacPlus
+from app.api.deps import AdminUser, DeliveryLeadPlus, HeadOfRecruitmentPlus
 from app.api.financial_access import (
     FinanceApproveUser,
     FinanceManageUser,
@@ -244,13 +244,49 @@ def test_contract_amount_write_guard_allows_admin():
     )
 
 
-def test_contract_amount_write_guard_rejects_finance_to_avoid_candidate_pii():
+def test_contract_amount_write_guard_allows_finance_manager():
+    """Decyzja Artura 22.09.2026: Finanse zmieniają kwoty przez MANAGE_FINANCE."""
+
+    contracts._assert_contract_finance_write_allowed(
+        _user(UserRole.finance),
+        {"rate_candidate", "rate_client", "candidate_rate_schedule"},
+    )
+
+
+def test_contract_amount_write_guard_rejects_finance_without_finance_write():
+    finance = _user(UserRole.finance)
+    finance.effective_section_access = {"finance": "read", "insights": "read"}
     with pytest.raises(HTTPException) as exc_info:
-        contracts._assert_contract_finance_write_allowed(
-            _user(UserRole.finance),
-            {"rate_candidate"},
+        contracts._assert_contract_finance_write_allowed(finance, {"rate_candidate"})
+    assert exc_info.value.status_code == 403
+
+
+def test_finance_manager_on_mixed_routes_touches_only_amounts():
+    from app.api.financial_access import assert_finance_manager_touches_only_amounts
+
+    finance = _user(UserRole.finance)
+    assert_finance_manager_touches_only_amounts(
+        finance,
+        {"rate_client"},
+        contracts._CONTRACT_FINANCE_WRITE_FIELDS,
+        operational_roles=(UserRole.delivery_lead, UserRole.tac),
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        assert_finance_manager_touches_only_amounts(
+            finance,
+            {"rate_client", "status", "end_date"},
+            contracts._CONTRACT_FINANCE_WRITE_FIELDS,
+            operational_roles=(UserRole.delivery_lead, UserRole.tac),
         )
     assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["fields"] == ["end_date", "status"]
+    # Rola operacyjna trasy nie jest zawężana do kwot.
+    assert_finance_manager_touches_only_amounts(
+        _user(UserRole.delivery_lead),
+        {"status"},
+        contracts._CONTRACT_FINANCE_WRITE_FIELDS,
+        operational_roles=(UserRole.delivery_lead, UserRole.tac),
+    )
 
 
 @pytest.mark.parametrize(
@@ -280,13 +316,32 @@ def test_order_amount_write_guard_allows_admin():
     )
 
 
-def test_order_amount_write_guard_rejects_finance_to_avoid_candidate_pii():
-    with pytest.raises(HTTPException) as exc_info:
-        client_orders._assert_order_finance_write_allowed(
-            _user(UserRole.finance),
-            {"rate_client"},
-        )
-    assert exc_info.value.status_code == 403
+def test_order_amount_write_guard_allows_finance_manager():
+    """Decyzja Artura 22.09.2026: Finanse zmieniają kwoty zamówień."""
+
+    client_orders._assert_order_finance_write_allowed(
+        _user(UserRole.finance),
+        {"rate_client", "rate_candidate", "total_value"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_md_line_rates_are_writable_by_finance_manager():
+    assert await client_order_groups._has_md_line_management_access(
+        None, _user(UserRole.finance), 1
+    )
+
+
+def test_amount_routes_admit_finance_manager_at_the_role_gate():
+    assert _current_user_annotation(contracts.update_contract) == (
+        contracts.ContractPatchUser
+    )
+    assert _user_annotation(client_orders.update_order) == client_orders.OrderPatchUser
+    for endpoint in (
+        client_order_groups.update_order_group,
+        client_order_groups.update_line,
+    ):
+        assert _user_annotation(endpoint) == client_order_groups.OrderAmountUser
 
 
 def test_flow_b_delivery_lead_can_create_operational_records_without_finance():
@@ -576,7 +631,6 @@ async def test_finance_draft_print_preview_does_not_persist_default_template(
     "endpoint",
     [
         contracts.create_contract,
-        contracts.update_contract,
         contracts.delete_contract,
         contracts.upload_contract_document,
         contracts.create_contract_amendment,
@@ -584,8 +638,9 @@ async def test_finance_draft_print_preview_does_not_persist_default_template(
         contracts.create_contract_equipment,
     ],
 )
-def test_contract_mutations_keep_tac_plus(endpoint):
-    assert _current_user_annotation(endpoint) == TacPlus
+def test_contract_mutations_are_delivery_lead_plus(endpoint):
+    # Do 22.09.2026 TacPlus — TAC i tak odcinała sekcja Delivery (audyt U7).
+    assert _current_user_annotation(endpoint) == DeliveryLeadPlus
 
 
 def test_candidate_finance_read_is_split_from_candidate_finance_write():
@@ -873,7 +928,7 @@ def test_recruitment_history_gets_use_finance_extended_reader_only():
     assert _current_user_annotation(jobs.add_candidate_from_history) == DeliveryLeadPlus
 
 
-def test_champion_suggestion_detail_is_finance_read_but_actions_stay_tac_plus():
+def test_champion_suggestion_detail_is_finance_read_and_actions_are_job_editors():
     assert (
         _current_user_annotation(champion_suggestions.get_suggestion)
         == champion_suggestions.ChampionSuggestionReadUser
@@ -883,7 +938,8 @@ def test_champion_suggestion_detail_is_finance_read_but_actions_stay_tac_plus():
         champion_suggestions.reject_suggestion_endpoint,
         champion_suggestions.rate_suggestion_endpoint,
     ):
-        assert _current_user_annotation(endpoint) == TacPlus
+        # Od 22.09.2026 zespół rekrutacji też (zakres: ensure_champion_job_editor).
+        assert _current_user_annotation(endpoint) == champion_suggestions.JobEditUser
 
 
 def test_contract_signature_reads_include_finance_without_signature_actions():
@@ -901,7 +957,7 @@ def test_contract_signature_reads_include_finance_without_signature_actions():
         signing.send_for_signature,
         signing.withdraw_signature,
     ):
-        assert _current_user_annotation(endpoint) == TacPlus
+        assert _current_user_annotation(endpoint) == DeliveryLeadPlus
 
 
 def test_finance_calendar_oversight_is_read_only():

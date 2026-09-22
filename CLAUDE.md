@@ -77,6 +77,50 @@ Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) �
 - **Gotchas:** (1) NIE `npx shadcn add` — przeformatowuje `tailwind.config`, remapuje `--sidebar`→`--sidebar-background`, bumpuje deps; pobieraj pliki z rejestru bezpośrednio (`add-block.sh`). (2) Jeśli bump radix wywali type-check na `@hello-pangea/dnd` „`--radix-${string}`" → `"overrides": {"@radix-ui/react-primitive":"2.1.4"}` + **pełny** `rm -rf node_modules package-lock.json && npm install`. (3) **NIE** odpalaj `build` równolegle z `dev`/`start` (oba piszą `.next` → korupcja: unstyled/500).
 - **Weryfikacja:** type-check/lint/build zielone + screenshot przez Chrome MCP. Publiczne ekrany (login) renderują się lokalnie; authed → harness `/preview/*` z mock danymi (middleware waliduje JWT, fake-auth nie przejdzie).
 
+## Role, uprawnienia i cele — audyt 22.09.2026
+
+Raport i decyzje Artura: `docs/roles-permissions-targets-audit-2026-09-22.md`.
+Cztery warstwy dostępu: sekcja (`rbac_role_section_permissions`, sufit) → akcja
+(`rbac_role_action_permissions`) → guard roli na trasie → capability analityczne.
+Reguły, które łatwo cofnąć:
+
+- **Funkcji TAC nie używamy, ale konta zostają** — kod nie może WYMAGAĆ roli
+  `tac` do pracy, którą robi rekruter. Mutacje kontraktów/klientów/podpisów to
+  `DeliveryLeadPlus` (nie `TacPlus`); zakres „zespołu DL" liczy się z rekrutacji
+  DL (`recruiter_id`, `tac_id`, współpracownicy), nie tylko z `ClientTacAssignment`.
+- **Rekrutację ZAKŁADA admin/DL** (`/jobs/new`, capability `job.create`),
+  **EDYTUJE też rekruter prowadzący i współpracownicy** — ale tylko treść (opis,
+  ogłoszenia, Champion). `GET /api/jobs/{id}` niesie `can_edit` (treść) i
+  `can_manage` (status, klient, właściciele, widełki, cykl życia); jedna reguła
+  `recruitment_access.job_edit_level`. Front: `lib/job-edit-access.ts`.
+- **Stawki w generatorze B2B**: wszystkie widzi admin i Finanse; DL — swój
+  portfel; pozostali — tylko umowy, które sami wygenerowali albo z rekrutacji,
+  którą prowadzą. Cudzy DOCX = 403. Legacy `user` nie wchodzi do generatora.
+- **Finanse zmieniają kwoty** kontraktów, zamówień i linii MD przez
+  `MANAGE_FINANCE`; osoba wpuszczona WYŁĄCZNIE przez tę capability dostaje 403
+  `finance_amounts_only` na każde pole niebędące kwotą
+  (`financial_access.assert_finance_manager_touches_only_amounts`). Front:
+  „Edytuj stawki" na kontrakcie wysyła tylko pola kwot.
+- **TCM**: Delivery = odczyt, generator B2B = `manage` (0347 dla świeżej bazy).
+- **Cele KPI: jeden katalog** `services/kpi_catalog.py` (stare id panelu „Moje
+  KPI" to aliasy). Precedencja: osobisty cel → dla KAŻDEJ roli osoby wiersz
+  `kpi_role_defaults` albo domyślna z katalogu → MAKSIMUM z ról
+  (`services/kpi_targets.py`). Po 0346 tabela ról trzyma tylko świadome
+  odstępstwa. Liczby: placementy/mc 1, nowi kandydaci/dzień 5, weryfikacje/dzień 4,
+  precyzja 75%, rekomendacje/tydzień rekruter 15 / TAC 12. Edytora w aplikacji
+  nie ma — zmiana liczby = zmiana katalogu.
+- **Wyścig miesięczny (1500 zł)**: weryfikacje/dzień i precyzja czytane z celów
+  KPI; minimum placementów = `insights_scoring_config.monthly_race_min_placements`
+  (2, świadomie wyżej niż cel). Raport Power Calling używa celu weryfikacji.
+- **PowerCalling 11:45 i KPI rozmów milczą przy `CLOUDTALK_ENABLED=false`**
+  (do 22.09 HoR dostawał codziennie tabelę „0/15 ❌").
+- **Cele liderów**: `GET /api/kpis/me/goals` — DL: kwartalne hit ratio (30%) i
+  placementy portfela liczone tą samą funkcją co liga DL
+  (`competitions.dl_portfolio_counts`); HoR/TCM: cele zespołu (suma celów ludzi).
+  Hit ratio bez rekrutacji = `null` („niepoliczony"), nigdy 0.
+  `DL_HIT_RATIO_TARGET_PCT` żyje w `metric_definitions` (jedna stała).
+- DL ma `VIEW_RECRUITMENT_RANKING`; TCM nie ma już „własnych KPI".
+
 ## Deploy
 
 - **Hosting:** Coolify v4 self-hosted on Hetzner **CCX33 x86** (8 vCPU / 32 GB, 91.99.199.112). Zweryfikowane w konsoli Hetznera 20.07.2026 — wcześniejszy wpis „CAX21 ARM" był błędny i wysłał audyt 13.09 w niepotrzebne zastrzeżenia o typie hosta.
@@ -1464,7 +1508,7 @@ w jednej zakładce i puste w sąsiedniej.
   (`assert_delivery_lead_client_visible` / `require_dl_assigned_or_admin` → 403),
   ale finanse nie mogą wisieć na tym, że wcześniejsza linijka nie rzuciła wyjątku.
 - **Na LIŚCIE granicy nie sprawdza się per wiersz, tylko per gałąź.**
-  `list_my_clients` ma dwie: organizacyjną (admin/HoR/finance — WSZYSCY klienci)
+  `list_my_clients` ma dwie: organizacyjną (admin/finance/TCM — WSZYSCY klienci)
   i DL-ową (filtr po własnych przypisaniach). Flaga
   `rows_are_callers_own_portfolio` ustawiana w obu gałęziach jest tym, co wiąże
   kwoty z zakresem wierszy. Sam `has_role(delivery_lead)` rozdałby hybrydzie
@@ -1741,7 +1785,7 @@ dniami roboczymi z D5. **Kod wdrożony (#1368), aktywacja częściowo credential
 serwisowego wydaje admin przez Ustawienia → Konta serwisowe (mintuje żywe
 poświadczenie — nie da się z CI: `coolify-ops.yml` świadomie nie ma `command`).
 
-## Moje powiadomienia — kategorie i wyciszenia per osoba (0348, 22.09.2026)
+## Moje powiadomienia — kategorie i wyciszenia per osoba (0349, 22.09.2026)
 
 Każdy sam wybiera w **Ustawienia → Moje konto → Moje powiadomienia** (albo ikoną
 dzwonka z kreską prosto w dzwonku), które KATEGORIE powiadomień do niego trafiają.
@@ -2624,6 +2668,23 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   = HoR), „Gotowy do Cpro" tylko u klienta z `NORDEA_ORDER_NUMBER_CLIENT_IDS`
   (`job.cpro_enabled`). Reguła nazw DZ/Cpro ma lustro front↔back na wspólnym
   `__fixtures__/board-stage-cases.json` (prawdziwe nazwy z 3 szablonów).
+- **Kolejka „Czeka na Ciebie” (0348, decyzje Artura 22.09.2026)** —
+  `services/board_tasks.py`, `GET /api/board-tasks`, panel `BoardTasksPanel`
+  nad układem pulpitu (nie kafelek: ma dotrzeć do osoby, która pulpitu nie
+  układała). Liczona z NAJNOWSZEGO wiersza pary w opublikowanych rekrutacjach,
+  ruchy z ostatnich 14 dni: „Czeka na DZ” (etap `verified`-gospodarz w szablonie
+  z etapem DZ; Delivery Lead widzi swój portfel + rekrutacje, w których jest
+  DL-em, HoR i admin — wszystko), „Do wysłania do Cpro” i „Wysłane do Cpro”
+  (Nordea: „CV wysłane” TO JEST wysłanie do Cpro — kolumna nazywa się tak
+  u Nordei, `foldBoardColumns(…, { cproEnabled })`). Osobę, która wysyła,
+  typuje się przy „Gotowy do Cpro” (`StageMove.task_assignee_id` →
+  `candidate_stages.task_assignee_id` na wierszu etapu Cpro; inny etap = 422);
+  osoba spoza zespołu rekrutacji zostaje dopisana jako collaborator, bo
+  inaczej dostałaby 403 przy własnym zadaniu. Zmiana osoby:
+  `PATCH /api/board-tasks/cpro/{stage_id}/assignee` (tylko bieżący wiersz, inaczej
+  409). „✓ DZ” z pulpitu to zwykły `/move` z wersją procesu — kolejka nie ma
+  własnej ścieżki zapisu etapu. Rano (8–17, pierwszy tick) JEDEN dzwonek
+  `board_tasks_digest` na osobę; wytypowanie = dzwonek `cpro_send_assigned`.
 - **Filtry Tablicy = jeden pasek nad tablicą** (`PipelineFilterBar`) zamiast
   lewej kolumny: na wierzchu nazwisko i „Mój ruch" (owner następnego kroku =
   rekruter, ta sama `nextActionFor` co karta), reszta w „Filtry ▾" z licznikiem
@@ -3611,15 +3672,12 @@ Migracja `0233`. Trzy obszary, jedna rewizja — spotykają się na jednym wiers
   zsynchronizowałyby się w jeden dzień). Powtórki ustają po `handled` **albo** gdy warunek
   ustąpi. Wpisy nie są kasowane — log JEST raportem.
 - **Uprawnienia cyklu życia są SZERSZE niż uprawnienia do stawek i to jest świadome.**
-  `_ORDER_LIFECYCLE_ROLES` = admin + head_of_recruitment + delivery_lead (przypisany)
-  + finance; `_has_md_line_management_role` (stawki) zostaje przy admin + DL. Dwie
-  konsekwencje do zapamiętania: **HoR dostaje te akcje u WSZYSTKICH klientów** (przechodzi
-  guardy globalnie, bez przypisania), a **rola `finance` widzi tu nazwiska konsultantów**,
-  od czego repo konsekwentnie ją odcina. Test `test_rate_gate_did_not_leak_to_lifecycle_roles`
-  broni granicy przed „uproszczeniem" obu list do jednej.
-  **Uwaga:** `finance` nie ma dziś ŻADNEGO wejścia nawigacyjnego do modułu Klienci
-  (`nav.clients` = role operacyjne), więc w praktyce przyciski klikną admin, HoR
-  i przypisany DL. Otwarcie modułu dla Finansów to osobna zmiana RBAC.
+  `_ORDER_LIFECYCLE_ROLES` = admin + delivery_lead (przypisany) + finance (z
+  `MANAGE_FINANCE`); HoR NIE (nie ma sekcji Delivery — audyt 22.09.2026 sprostował
+  wcześniejszy opis). Stawki linii MD: admin + przypisany DL + `MANAGE_FINANCE`
+  (decyzja 22.09: Finanse zmieniają kwoty). Test
+  `test_rate_gate_did_not_leak_to_lifecycle_roles` broni granicy przed
+  „uproszczeniem" obu list do jednej.
 - **Kontraktor bez zamówienia w widoku jednoosobowym** ma teraz edytowalne numer, okres
   i obie stawki; pierwszy zapis zakłada szkic `ClientOrder`. To była przyczyna zgłoszenia
   „u Banku Pocztowego nie da się nic wpisać" — u Aliora pola działały wyłącznie dlatego,
@@ -5297,12 +5355,22 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
 | F2 | champion_profile_parse | Sonnet 5 (z Haiku) | F10 | cv_backfill, cv_name_backfill | Sonnet 5 (z Haiku) |
 | F3 | cv_requirement_map | Sonnet 5 | F11 | notes_extraction | DeepSeek V4 Pro (z Haiku) |
 | F4 | cv_generator | Sonnet 5 (z 4.6) | F12 | candidate_summary | DeepSeek V4 Pro |
-| F5 | cv_interactive_chat | GPT Luna (z Haiku) | F13 | champion_draft | Sonnet 5 |
+| F5 | cv_interactive_chat | GPT-6 Luna (z Sonnet 5) | F13 | champion_draft | Sonnet 5 |
 | F6 | job_description_generator | Sonnet 5 | F14 | cv_rule_lint | Sonnet 5 (z Haiku) |
-| F7 | order_parser | **Sonnet 5** (od 21.09) | F15 | mindy_chat | GPT Luna |
-| F8 | uop_check | GPT Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
-| F18 | cv_factual_verification | GPT Luna (z Sonnet 5) | | | |
+| F7 | order_parser | **Sonnet 5** (od 21.09) | F15 | mindy_chat | GPT-6 Luna |
+| F8 | uop_check | GPT-6 Luna | F16/F17 | `VOYAGE_MODEL` / `RERANKER_ENABLED` | voyage-3 / wyłączony |
+| F18 | cv_factual_verification | GPT-6 Luna (z Sonnet 5) | | | |
 
+- **„Luna" to od 22.09.2026 GPT-6 Luna (`gpt-6-luna`)**, nie GPT-5.6 Luna,
+  na której robiono badanie 16.09 — liczby F5/F8/F15/F18 pochodzą z wersji
+  5.6. Kształt żądania bez zmian (sprawdzone żądaniem z produkcji), cena
+  0,10/0,50 USD za 1M zamiast 0,20/1,20. Powrót bez deployu: env funkcji
+  (np. `UOP_CHECK_MODEL=gpt-5.6-luna`). Przeniesienie na Lunę KOLEJNEJ funkcji
+  wymaga pomiaru jak w badaniu — nie samej zmiany wersji.
+- **OpenAI od GPT-5.6 liczy ZAPIS do cache (1,25× wejścia)** i zgłasza go
+  w `prompt_tokens_details.cache_write_tokens`; `parse_response` odejmuje go
+  od wejścia, a `_PRICES` dla OpenAI to czwórka (wejście, wyjście, odczyt,
+  zapis). Do 22.09 zapis był wyceniany jak zwykłe wejście.
 - **F7 wrócił na Sonneta 5 (decyzja Artura, 21.09.2026).** GPT Luna czytała
   zamówienia poprawnie, ale oznaczała odczyt jako `uncertain` bez konkretnego
   powodu („oznaczony przez model jako niepewny", echo instrukcji promptu), a

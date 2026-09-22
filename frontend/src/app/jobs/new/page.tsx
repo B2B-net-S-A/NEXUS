@@ -5,24 +5,21 @@ import { useRouter } from "next/navigation";
 
 import { NewJobPage } from "@/components/v2/jobs/new/NewJobPage";
 import { hasCapability } from "@/lib/capabilities";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { useAuthStore } from "@/store/auth";
 
 /**
  * `/jobs/new` — nowa rekrutacja z requestu klienta.
  *
- * Bramka to najwęższe ogniwo zapisu: `POST /api/jobs` wystarcza `job.create`
- * (TacPlus), ale odczyt requestu, zapis Championa i „Przekaż do searchu" to
- * `DeliveryLeadPlus` (admin + Delivery Lead). TAC bez roli DL wracałby z 403
- * w połowie zapisu, więc wraca na listę od razu (funkcja TAC i tak jest
- * wyłączona w UI od 22.09.2026).
+ * Bramka to capability `job.create` — ta sama, która pokazuje przycisk „Nowa
+ * rekrutacja" i skróty `j` / ⌘⇧J. Liczona z najwęższego ogniwa zapisu: odczyt
+ * requestu, zapis Championa i „Przekaż do searchu" to `DeliveryLeadPlus`
+ * (admin + Delivery Lead). Jedna reguła w obu miejscach = przycisk nigdy nie
+ * prowadzi na stronę, która odsyła na listę (audyt ról 22.09, U4).
  */
 export default function NewJobRoute() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
-  const allowed =
-    !!user &&
-    hasCapability(user, "job.create") &&
-    (hasRole(user, "admin") || hasRole(user, "delivery_lead"));
+  const allowed = !!user && hasCapability(user, "job.create");
 
   useEffect(() => {
     if (user && !allowed) router.replace("/jobs");

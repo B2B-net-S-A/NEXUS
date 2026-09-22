@@ -20,6 +20,7 @@ import {
   type MetricResult,
 } from "@/lib/api/dashboardMetrics";
 import { myPeopleSummaryQueryKey } from "@/lib/api/myPeople";
+import { BOARD_TASKS_QUERY_KEY, type BoardTasksResponse } from "@/lib/api/boardTasks";
 import {
   USER_DASHBOARD_QUERY_KEY,
   type DashboardTile,
@@ -98,6 +99,41 @@ const CATALOG: MetricCatalog = {
   ],
 };
 
+// Przykładowa kolejka „Czeka na Ciebie" (dane fikcyjne).
+const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
+const taskRow = (over: Partial<BoardTasksResponse["dz"][number]>): BoardTasksResponse["dz"][number] => ({
+  kind: "dz",
+  stage_id: 1,
+  candidate_id: 1,
+  candidate_name: "Kandydat",
+  job_id: 1,
+  job_title: "Senior Java Developer",
+  client_id: 11,
+  client_name: "Nordea",
+  since: daysAgo(1),
+  process_state_version: 1,
+  target_stage_def_id: 5,
+  assignee_id: null,
+  assignee_name: null,
+  ...over,
+});
+const BOARD_TASKS: BoardTasksResponse = {
+  window_days: 14,
+  can_approve_dz: true,
+  dz: [
+    taskRow({ stage_id: 101, candidate_id: 201, candidate_name: "Joanna Wiśniewska", since: daysAgo(4) }),
+    taskRow({ stage_id: 102, candidate_id: 202, candidate_name: "Tomasz Lewandowski", job_title: "Data Engineer", client_name: "PKO BP", since: daysAgo(2) }),
+    taskRow({ stage_id: 103, candidate_id: 203, candidate_name: "Karolina Dąbrowska", job_title: "Tester Manualny", client_name: "Tauron", since: daysAgo(0) }),
+  ],
+  cpro_to_send: [
+    taskRow({ kind: "cpro_to_send", stage_id: 111, candidate_id: 211, candidate_name: "Michał Wójcik", assignee_id: 1, assignee_name: "Artur Twardowski", since: daysAgo(1) }),
+    taskRow({ kind: "cpro_to_send", stage_id: 112, candidate_id: 212, candidate_name: "Agnieszka Kamińska", job_title: "Business Analyst", since: daysAgo(3) }),
+  ],
+  cpro_sent: [
+    taskRow({ kind: "cpro_sent", stage_id: 121, candidate_id: 221, candidate_name: "Paweł Zając", job_title: "PEGA Lead System Architect", since: daysAgo(6), target_stage_def_id: null }),
+  ],
+};
+
 function seededClient(tiles: DashboardTile[]): QueryClient {
   const qc = new QueryClient({
     defaultOptions: {
@@ -110,6 +146,12 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
     dropped_tiles: [],
   });
   qc.setQueryData(METRIC_CATALOG_QUERY_KEY, CATALOG);
+  qc.setQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY, BOARD_TASKS);
+  qc.setQueryData(["users-directory", "cpro-assignees"], [
+    { id: 1, name: "Artur Twardowski" },
+    { id: 7, name: "Marta Kowalczyk" },
+    { id: 8, name: "Piotr Zieliński" },
+  ]);
   qc.setQueryData(metricQueryKey(tpl("cv_sent_week").config.metric!), metricResult({ value: 14, previous_value: 10, series: [] }));
   qc.setQueryData(metricQueryKey(tpl("hired_month").config.metric!), metricResult({ value: 2, previous_value: 3 }));
   qc.setQueryData(metricQueryKey(tpl("active_contracts").config.metric!), metricResult({ value: 318, scope_applied: "all" }));

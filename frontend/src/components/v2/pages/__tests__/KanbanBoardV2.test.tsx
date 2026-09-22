@@ -11,7 +11,7 @@
  */
 
 import * as React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup as rtlCleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -54,6 +54,20 @@ vi.mock("@/components/Toast", () => ({
 }));
 
 vi.mock("@/lib/celebrate", () => ({ celebrate: vi.fn() }));
+// „Do przejrzenia": propozycje liczy własny hak (`useJobProposals`) — tu
+// podstawiamy ich liczbę, żeby sprawdzić nagłówek kolumny.
+const reviewTotal = { value: 0 };
+vi.mock("@/components/v2/jobs/BoardReviewSection", async () => {
+  const { useEffect } = await import("react");
+  return {
+    BoardReviewSection: ({ onTotalChange }: { onTotalChange?: (n: number | null) => void }) => {
+      useEffect(() => {
+        onTotalChange?.(reviewTotal.value);
+      }, [onTotalChange]);
+      return <div data-testid="board-review" />;
+    },
+  };
+});
 
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -1209,10 +1223,10 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(within(verified as HTMLElement).getByText("DZ ✓")).toBeTruthy();
     // Odrzuceni i wycofani nie zajmują kolumn — pasek z celami upuszczenia.
     const bar = screen.getByTestId("board-closed-bar");
-    expect(bar).toHaveTextContent("Odrzucony 1");
-    expect(bar).toHaveTextContent("Wycofany 0");
+    expect(bar).toHaveTextContent("Odrzuceni 1");
+    expect(bar).toHaveTextContent("Wycofani 0");
     expect(container.querySelector('[data-colid="def:313"]')).toBeNull();
-    await userEvent.click(within(bar).getByRole("button", { name: /Odrzucony/ }));
+    await userEvent.click(within(bar).getByRole("button", { name: /Odrzuceni/ }));
     expect(container.querySelector('[data-colid="def:313"]')).toBeTruthy();
   });
 
@@ -1236,7 +1250,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
     const group = within(dock).getByRole("group", { name: "Odznaki etapu" });
     expect(within(group).queryByRole("button", { name: /Gotowy do Cpro/ })).toBeNull();
-    await userEvent.click(within(group).getByRole("button", { name: /DZ ✓/ }));
+    await userEvent.click(within(group).getByRole("button", { name: "+ DZ" }));
     await waitFor(() =>
       expect(post.mock.calls.find((c) => c[0] === "/api/pipeline/move")?.[1]).toMatchObject({
         candidate_id: 8201,
@@ -1258,6 +1272,147 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     ).toBeTruthy();
   });
 
+  it("licznik „Do przejrzenia” liczy propozycje z bazy razem z kartami z ogłoszeń", async () => {
+    reviewTotal.value = 14;
+    try {
+      // Szablon bez etapu „Ogłoszenia" — kolumna „Do przejrzenia" stoi sama.
+      renderBoard(defaultB2BColumns());
+      const heading = await screen.findByRole("heading", { name: "Do przejrzenia" });
+      await waitFor(() => expect(heading.parentElement).toHaveTextContent("Do przejrzenia14"));
+
+      // Z etapem „Ogłoszenia" (1 karta) nagłówek liczy 1 + 14.
+      rtlCleanup();
+      const withPosting = [
+        {
+          stage: "posting",
+          name: "Ogłoszenia",
+          category: "internal",
+          stage_def_id: 299,
+          count: 1,
+          items: [{ id: 7001, candidate_id: 8001, stage: "posting", name: "Ada", lastname: "Z Ogłoszenia", days_in_stage: 0 }],
+        },
+        ...(defaultB2BColumns() as unknown as Array<Record<string, unknown>>),
+      ];
+      const { container } = renderBoard(withPosting as never);
+      await waitFor(() =>
+        expect(
+          container.querySelector('[aria-label="Do przejrzenia, liczba kandydatów: 15"]'),
+        ).toBeTruthy(),
+      );
+    } finally {
+      reviewTotal.value = 0;
+    }
+  });
+
+  it("„Gotowy do Cpro” pyta, kto wyśle, i przesuwa z wytypowaną osobą; u Nordei kolumna to „Wysłane do Cpro”", async () => {
+    get.mockImplementation((url: string) =>
+      url === "/api/users"
+        ? Promise.resolve({ data: [{ id: 1, name: "Artur" }, { id: 44, name: "Marta Rekruter" }] })
+        : Promise.resolve({ data: {} }),
+    );
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[2] = {
+      ...columns[2],
+      count: 1,
+      items: [{ id: 7202, candidate_id: 8202, stage: "verified", name: "Ola", lastname: "Gotowa", days_in_stage: 1 }],
+    };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2 columns={columns as never} jobId={10} cproEnabled />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Ola Gotowa");
+    const headers = Array.from(container.querySelectorAll("[data-colid] h3")).map((h) => h.textContent);
+    expect(headers).toContain("Wysłane do Cpro");
+    expect(headers).not.toContain("CV wysłane");
+
+    fireEvent.click(document.querySelector('[data-candidate-id="8202"]') as HTMLElement);
+    const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
+    await userEvent.click(
+      within(within(dock).getByRole("group", { name: "Odznaki etapu" })).getByRole("button", {
+        name: /Gotowy do Cpro/,
+      }),
+    );
+    // Najpierw okno — bez ruchu.
+    const dialog = await screen.findByRole("dialog", { name: "Gotowy do Cpro" });
+    expect(post.mock.calls.some((c) => c[0] === "/api/pipeline/move")).toBe(false);
+    const select = within(dialog).getByLabelText("Wysyła");
+    await waitFor(() => expect(within(select).getByRole("option", { name: "Marta Rekruter" })).toBeTruthy());
+    await userEvent.selectOptions(select, "44");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Oznacz „Gotowy do Cpro”" }));
+    await waitFor(() =>
+      expect(post.mock.calls.find((c) => c[0] === "/api/pipeline/move")?.[1]).toMatchObject({
+        candidate_id: 8202,
+        stage_def_id: 304,
+        task_assignee_id: 44,
+      }),
+    );
+  });
+
+  it("karta na etapie Cpro pokazuje, kto wysyła", async () => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[4] = {
+      ...columns[4],
+      count: 1,
+      items: [
+        {
+          id: 7402,
+          candidate_id: 8402,
+          stage: "new",
+          name: "Jan",
+          lastname: "Wysyłany",
+          days_in_stage: 1,
+          task_assignee_id: 44,
+          task_assignee_name: "Marta Rekruter",
+        },
+      ],
+    };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2 columns={columns as never} jobId={10} cproEnabled />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Jan Wysyłany");
+    const card = document.querySelector('[data-candidate-id="8402"]') as HTMLElement;
+    expect(within(card).getByText("Wysyła: Marta Rekruter")).toBeTruthy();
+  });
+
+  it("osoba na etapie Cpro ma na karcie obie odznaki, a w doku „DZ” jest włączone", async () => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[4] = {
+      ...columns[4],
+      count: 1,
+      items: [{ id: 7401, candidate_id: 8401, stage: "new", name: "Ewa", lastname: "Cpro", days_in_stage: 1 }],
+    };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TooltipProvider>
+          <KanbanBoardV2 columns={columns as never} jobId={10} cproEnabled />
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Ewa Cpro");
+    const card = document.querySelector('[data-candidate-id="8401"]') as HTMLElement;
+    expect(within(card).getByText("DZ ✓")).toBeTruthy();
+    expect(within(card).getByText("Gotowy do Cpro")).toBeTruthy();
+    fireEvent.click(card);
+    const group = within(
+      await screen.findByRole("complementary", { name: "Karta kandydata" }),
+    ).getByRole("group", { name: "Odznaki etapu" });
+    expect(within(group).getByRole("button", { name: "✓ DZ" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(group).getByRole("button", { name: "✓ Gotowy do Cpro" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   it("„DZ ✓” jest wyłączone dla rekrutera — ustawia je DL albo Head of Recruitment", async () => {
     useAuthStore.setState({ user: { id: 2, role: "recruiter", roles: ["recruiter"] } } as never);
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
@@ -1270,7 +1425,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     await screen.findByText("Olek Nowy");
     fireEvent.click(document.querySelector('[data-candidate-id="8201"]') as HTMLElement);
     const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
-    expect(within(dock).getByRole("button", { name: /DZ ✓/ })).toBeDisabled();
+    expect(within(dock).getByRole("button", { name: "+ DZ" })).toBeDisabled();
   });
 
   it("nagłówek kolumny niesie drugą linię o SLA i najstarszej karcie", async () => {

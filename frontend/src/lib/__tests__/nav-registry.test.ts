@@ -300,11 +300,12 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       ...INSIGHTS,
       ...SYSTEM,
     ],
+    // Legacy viewer (0 kont): Kalendarz i Generator CV zdjęte 22.09.2026 —
+    // backend (RecruitmentReadAccess / CandidateWriteAccess) i tak go odcina.
     user: [
       "/dashboard",
-      "/cv-generator",
       "/contracts/b2b-generator",
-      ...PIPELINE,
+      "/jobs",
       "/insights",
       ...SYSTEM,
     ],
@@ -379,22 +380,13 @@ describe("paleta ⌘K ⊆ sidebar", () => {
     }
   }
 
-  it("Panel managera zostaje w palecie dla ról z nav.manager, ale nie w menu", () => {
+  it("Panel managera nie wraca do palety — `/manager` przekierowuje na pulpit", () => {
     const admin = userOf("admin");
     const palette = visiblePaletteEntries(admin, { contactQueueEnabled: false }, (c) =>
       hasCapability(admin, c),
     );
-    expect(palette.some((entry) => entry.href === "/manager")).toBe(true);
-    expect(sidebarHrefs("admin", false)).not.toContain("/manager");
-    const recruiter = userOf("recruiter");
-    const recruiterPalette = visiblePaletteEntries(
-      recruiter,
-      { contactQueueEnabled: false },
-      (c) => hasCapability(recruiter, c),
-    );
-    expect(recruiterPalette.some((entry) => entry.href === "/manager")).toBe(
-      hasCapability(recruiter, "nav.manager"),
-    );
+    expect(palette.some((entry) => entry.href === "/manager")).toBe(false);
+    expect(NAV_REGISTRY.some((entry) => entry.href === "/manager")).toBe(false);
   });
 
   const paletteHref = (role: UserRole, id: string) => {

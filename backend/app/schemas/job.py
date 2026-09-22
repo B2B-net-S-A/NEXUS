@@ -261,6 +261,13 @@ class JobResponse(BaseModel):
     # twórca rekrutacji). Ustawiane tylko przez `GET /api/jobs/{id}`; tablica
     # pipeline i warsztat CV pokazują modal/pole stawki wyłącznie przy `True`.
     can_write_client_rate: Optional[bool] = None
+    # Czy bieżący użytkownik redaguje treść rekrutacji (opis, ogłoszenia,
+    # Champion) — admin, Delivery Lead, TAC albo osoba prowadząca rekrutację
+    # i jej współpracownicy (decyzja 22.09.2026). `can_manage` = także cykl
+    # życia i pola zablokowane dla zespołu (status, klient, obsada, widełki).
+    # Ustawiane tylko przez `GET /api/jobs/{id}`.
+    can_edit: Optional[bool] = None
+    can_manage: Optional[bool] = None
     created_at: datetime
     updated_at: datetime
 

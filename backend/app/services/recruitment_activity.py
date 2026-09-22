@@ -29,7 +29,8 @@ from app.schemas.recruitment_activity import (
     RecruitmentActivityWindow,
 )
 from app.services.kpi_engine import WARSAW
-from app.services.kpi_panel import VERIFIER_ANCHORED_CTE, _resolve_target
+from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+from app.services.kpi_targets import resolve_kpi_target
 
 
 _KPI_ROLES = frozenset({UserRole.sourcer, UserRole.tac, UserRole.recruiter})
@@ -326,10 +327,10 @@ async def build_recruitment_activity_summary(
 
     progress: RecruitmentActivityProgress | None = None
     if audience.selected is not None and selected_day == today_value:
-        target = await _resolve_target(
+        target = await resolve_kpi_target(
             db,
             user=audience.selected,
-            kpi_id="verifications_daily",
+            kpi_id="daily_first_verifications",
         )
         if target > 0:
             current = counts["verification"]["day"]

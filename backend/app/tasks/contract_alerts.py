@@ -225,6 +225,47 @@ async def _contract_ids_already_notified(
     return episodes
 
 
+async def _contract_labels(
+    db: AsyncSession, contracts: list[Contract]
+) -> dict[int, str]:
+    """„Imię Nazwisko (Klient)" dla alertów — jedno zapytanie na próg."""
+
+    if not contracts:
+        return {}
+    from app.models.candidate import Candidate  # noqa: PLC0415
+    from app.models.client import Client  # noqa: PLC0415
+
+    cand_ids = {c.candidate_id for c in contracts if c.candidate_id is not None}
+    client_ids = {c.client_id for c in contracts if c.client_id is not None}
+    people: dict[int, str] = {}
+    if cand_ids:
+        for cid, name, lastname in (
+            await db.execute(
+                select(Candidate.id, Candidate.name, Candidate.lastname).where(
+                    Candidate.id.in_(cand_ids)
+                )
+            )
+        ).all():
+            people[cid] = " ".join(p for p in (name, lastname) if p)
+    clients: dict[int, str] = {}
+    if client_ids:
+        for cid, name in (
+            await db.execute(
+                select(Client.id, Client.name).where(Client.id.in_(client_ids))
+            )
+        ).all():
+            clients[cid] = name
+    labels: dict[int, str] = {}
+    for c in contracts:
+        person = people.get(c.candidate_id) if c.candidate_id is not None else None
+        client = clients.get(c.client_id) if c.client_id is not None else None
+        if person and client:
+            labels[c.id] = f"{person} ({client})"
+        elif person or client:
+            labels[c.id] = person or client or ""
+    return labels
+
+
 async def _contracts_at_threshold(db: AsyncSession, threshold: int) -> list[Contract]:
     """Contracts whose end_date falls within (threshold-1, threshold] days from today.
 
@@ -463,6 +504,7 @@ async def run_contract_alerts_cycle() -> dict:
                 if threshold == 90
                 else NotificationType.contract_ending
             )
+            labels = await _contract_labels(db, fresh)
             for c in fresh:
                 recipient_ids = recipient_scope.for_client(c.client_id)
                 if not recipient_ids:
@@ -473,11 +515,15 @@ async def run_contract_alerts_cycle() -> dict:
                     db, f"ending:{threshold}:{c.id}:{c.end_date.isoformat()}"
                 ):
                     continue
+                # Prefiks `[Nd|<end_date>]` jest kluczem epizodu (dedup czyta go
+                # z tytułu) — dzwonek go chowa. Dalej osoba i klient: sam numer
+                # kontraktu nie mówił odbiorcy, czyja umowa się kończy.
+                label = labels.get(c.id, f"Kontrakt #{c.id}")
                 title = (
-                    f"[{threshold}d|{c.end_date.isoformat()}] Kontrakt #{c.id} wygasa"
+                    f"[{threshold}d|{c.end_date.isoformat()}] Kontrakt wygasa: {label}"
                 )
                 message = (
-                    f"Kontrakt #{c.id} kończy się {c.end_date} — "
+                    f"Kontrakt #{c.id} ({label}) kończy się {c.end_date} — "
                     f"zostało {threshold} dni. Rozważ przedłużenie lub kontakt z klientem."
                 )
                 link = f"/contracts/{c.id}"

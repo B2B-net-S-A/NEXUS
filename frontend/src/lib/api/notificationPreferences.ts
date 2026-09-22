@@ -1,4 +1,4 @@
-// Własne ustawienia powiadomień (0348): które KATEGORIE trafiają do dzwonka.
+// Własne ustawienia powiadomień (0349): które KATEGORIE trafiają do dzwonka.
 // Kategorie, ich nazwy i to, które są obowiązkowe, zna wyłącznie backend
 // (`services/notification_categories.py`) — front niczego tu nie powtarza.
 import {

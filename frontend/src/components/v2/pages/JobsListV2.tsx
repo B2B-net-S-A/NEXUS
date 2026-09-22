@@ -1571,8 +1571,11 @@ export function JobsListV2() {
               return withSuggestions > 0 ? (
                 <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-dashed border-primary/40 px-2 py-1 text-xs font-medium text-primary">
                   ≈ {withSuggestions}{" "}
-                  {pluralPl(withSuggestions, "rekrutacja ma", "rekrutacje mają", "rekrutacji ma")} podobne
-                  z osobami u klienta — przepnij je
+                  {pluralPl(withSuggestions, "rekrutacja", "rekrutacje", "rekrutacji")}
+                  {/* Liczone z wierszy na ekranie — przy wielu stronach mówimy to
+                      wprost, inaczej liczba wyglądała na sumę całej listy. */}
+                  {total > visibleItems.length ? " na tej stronie" : ""}{" "}
+                  {pluralPl(withSuggestions, "ma", "mają", "ma")} podobne z osobami u klienta — przepnij je
                 </span>
               ) : null;
             })()}

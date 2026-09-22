@@ -8,6 +8,8 @@ składają zapytania z TYCH SAMYCH fragmentów: rozwiązanie DL per oferta, typ
 rekrutacji i definicja placementu (D2) nie mogą mieć dwóch kopii.
 """
 
+from app.services.metric_definitions import DL_HIT_RATIO_TARGET_PCT
+
 # Nazwa klienta i widocznosc — LUSTRO `app/services/client_identity.py`
 # w surowym SQL-u (te zapytania sa tekstowe, wiec nie moga wolac helperow ORM).
 #
@@ -23,10 +25,9 @@ CLIENT_VISIBLE_SQL = (
 )
 
 
-# Próg wejścia do „Ligi Mistrzów DL" (InfraReporter). Ta sama wartość co
-# `reports.HIT_RATIO_TARGET_PCT` — powielona świadomie, bo import z `reports`
-# wciągnąłby tamten moduł (z jego guardami) w zależności /insights.
-HIT_RATIO_TARGET_PCT = 30.0
+# Próg wejścia do „Ligi Mistrzów DL" (InfraReporter) — jedna stała w repo
+# (`metric_definitions`, liść grafu importów, więc bez wciągania `reports`).
+HIT_RATIO_TARGET_PCT = DL_HIT_RATIO_TARGET_PCT
 
 # Ranking DL dotyczy WYŁĄCZNIE ofert body_leasing — `sales_project` i `tender`
 # mają inny cykl życia i nie mają Delivery Leada. Konsekwencja: liczby nie

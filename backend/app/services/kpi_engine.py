@@ -24,12 +24,17 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.models.call import Call, CallStatus
 from app.models.candidate import Candidate
-from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
 from app.models.user import User, UserRole
-from app.services.kpi_catalog import KPI_CATALOG, KpiDef, KpiMetric, KpiPeriod
+from app.services.kpi_catalog import (
+    KPI_CATALOG,
+    KpiDef,
+    KpiMetric,
+    KpiPeriod,
+    kpi_available,
+)
+from app.services.kpi_targets import resolve_kpi_target, resolve_kpi_targets_bulk
 
 WARSAW = ZoneInfo("Europe/Warsaw")
 
@@ -203,35 +208,11 @@ def derive_state(*, current: int, target: int, expected_ratio: float) -> KpiStat
 
 
 async def resolve_target(db: AsyncSession, *, user: User, kpi_def: KpiDef) -> int:
-    """Zwraca efektywny target dla (user, kpi_def):
-    user_kpi_targets → kpi_role_defaults → kpi_def.default_targets → 0.
+    """Efektywny cel (user, kpi_def) — reguła w `app.services.kpi_targets`:
+    osobisty cel → dla KAŻDEJ roli osoby wiersz `kpi_role_defaults` albo
+    domyślna z katalogu → maksimum z ról → 0.
     """
-    # 1) Per-user override
-    row = await db.scalar(
-        select(UserKpiTarget.target_value).where(
-            and_(
-                UserKpiTarget.user_id == user.id,
-                UserKpiTarget.kpi_id == kpi_def.kpi_id,
-            )
-        )
-    )
-    if row is not None:
-        return int(row)
-
-    # 2) Role default w DB
-    row = await db.scalar(
-        select(KpiRoleDefault.target_value).where(
-            and_(
-                KpiRoleDefault.role == user.role,
-                KpiRoleDefault.kpi_id == kpi_def.kpi_id,
-            )
-        )
-    )
-    if row is not None:
-        return int(row)
-
-    # 3) Code-level fallback z katalogu
-    return int(kpi_def.default_targets.get(user.role, 0))
+    return await resolve_kpi_target(db, user=user, kpi_id=kpi_def.kpi_id)
 
 
 # Mapowanie metryki milestone'owej na stage w kanonicznym view.
@@ -356,16 +337,18 @@ async def evaluate_user_kpis(
     if now is None:
         now = datetime.now(WARSAW)
 
+    # CloudTalk off/misconfigured ⇒ metryka rozmów jest NIEDOSTĘPNA,
+    # nie zerowa (plan §3.3) — pomijamy KPI zamiast straszyć "behind".
+    # Precyzja (`in_coach=False`) to wskaźnik jakości z okna kroczącego, nie
+    # licznik narastający w okresie — widget i nudge'e jej nie pokazują.
+    coach_kpis = [k for k in KPI_CATALOG if k.in_coach and kpi_available(k)]
+    targets = (
+        await resolve_kpi_targets_bulk(db, [user], [k.kpi_id for k in coach_kpis])
+    )[user.id]
+
     results: list[KpiResult] = []
-    for kpi_def in KPI_CATALOG:
-        # CloudTalk off/misconfigured ⇒ metryka rozmów jest NIEDOSTĘPNA,
-        # nie zerowa (plan §3.3) — pomijamy KPI zamiast straszyć "behind".
-        if (
-            kpi_def.metric is KpiMetric.completed_calls
-            and not settings.CLOUDTALK_ENABLED
-        ):
-            continue
-        target = await resolve_target(db, user=user, kpi_def=kpi_def)
+    for kpi_def in coach_kpis:
+        target = targets[kpi_def.kpi_id]
         start, end = period_bounds(kpi_def.period, now)
         current = await count_canonical_metric(
             db,

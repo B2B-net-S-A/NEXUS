@@ -27,22 +27,28 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F2  | champion_profile_parse           | claude-sonnet-5 (z Haiku)|
 | F3  | cv_requirement_map               | claude-sonnet-5          |
 | F4  | cv_generator                     | claude-sonnet-5 (z 4.6)  |
-| F5  | cv_interactive_chat              | gpt-5.6-luna (z Haiku)   |
+| F5  | cv_interactive_chat              | gpt-6-luna (z Sonnet 5)  |
 | F6  | job_description_generator        | claude-sonnet-5          |
 | F7  | order_parser                     | claude-sonnet-5 (21.09)  |
-| F8  | uop_check                        | gpt-5.6-luna             |
+| F8  | uop_check                        | gpt-6-luna (z Sonnet 5)  |
 | F9  | cv_parser                        | claude-sonnet-5          |
 | F10 | cv_backfill + cv_name_backfill   | claude-sonnet-5 (z Haiku)|
 | F11 | notes_extraction                 | deepseek-v4-pro (z Haiku)|
 | F12 | candidate_summary                | deepseek-v4-pro          |
 | F13 | champion_draft                   | claude-sonnet-5          |
 | F14 | cv_rule_lint                     | claude-sonnet-5 (z Haiku)|
-| F15 | mindy_chat                       | gpt-5.6-luna             |
-| F18 | cv_factual_verification          | gpt-5.6-luna (z Sonnet 5)|
+| F15 | mindy_chat                       | gpt-6-luna (z Sonnet 5)  |
+| F18 | cv_factual_verification          | gpt-6-luna (z Sonnet 5)  |
 | F19 | jarvis                           | claude-sonnet-5 (z Haiku)|
 | F20 | job_public_description           | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
+
+Luna to od 22.09.2026 GPT-6 Luna (``gpt-6-luna``, wydana tego dnia) zamiast
+GPT-5.6 Luna, z której pochodzą liczby badania 16.09 — ta sama rodzina
+i ten sam kształt żądania (``reasoning_effort=none``, JSON schema, ``store``),
+dwa razy tańsze wejście i 2,4× tańsze wyjście. Powrót bez deployu: env
+funkcji (np. ``CV_FACTUAL_VERIFICATION_MODEL=gpt-5.6-luna``).
 
 Funkcje na GPT/DeepSeek mają fallback na Sonneta 5: przeciążenie albo 429
 u dostawcy nie zdejmuje funkcji. Brak klucza dostawcy to 401 NIEPONAWIALNE
@@ -64,7 +70,7 @@ from app.models.ai_feature import AIFeatureKey
 from app.services.llm_providers import ANTHROPIC, api_key_for, provider_of
 
 SONNET_5 = "claude-sonnet-5"
-GPT_LUNA = "gpt-5.6-luna"
+GPT_LUNA = "gpt-6-luna"
 DEEPSEEK_PRO = "deepseek-v4-pro"
 
 

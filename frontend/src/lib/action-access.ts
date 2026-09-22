@@ -37,8 +37,10 @@ export const ROLE_ACTION_ACCESS: Record<
     b2b_contract_generator: "manage",
     b2b_signature_confirmation: "manage",
   },
+  // Decyzja Artura 22.09.2026 (audyt ról U1): pełny generator B2B dla TCM —
+  // zapisane w kodzie, nie tylko w panelu RBAC produkcji.
   talent_community_manager: {
-    b2b_contract_generator: "view",
+    b2b_contract_generator: "manage",
     b2b_signature_confirmation: "manage",
   },
   tac: {

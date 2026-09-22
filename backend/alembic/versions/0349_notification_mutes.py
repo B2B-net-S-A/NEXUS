@@ -1,7 +1,7 @@
 """Wyciszone kategorie powiadomień per użytkownik (22.09.2026).
 
-Revision ID: 0348_notification_mutes
-Revises: 0345_billing_hours_168
+Revision ID: 0349_notification_mutes
+Revises: 0348_board_tasks
 
 ``users.muted_notification_categories`` = ``{kategoria: czas wyciszenia}``.
 Kategorie i reguły: ``app/services/notification_categories.py``. Lustro
@@ -11,8 +11,8 @@ pilnuje ``test_notification_categories.py``.
 
 from alembic import op
 
-revision = "0348_notification_mutes"
-down_revision = "0345_billing_hours_168"
+revision = "0349_notification_mutes"
+down_revision = "0348_board_tasks"
 branch_labels = None
 depends_on = None
 

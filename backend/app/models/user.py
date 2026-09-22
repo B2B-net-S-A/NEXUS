@@ -126,7 +126,7 @@ class User(Base, TimestampMixin):
         JSONB, default=dict, server_default="{}", nullable=False
     )
 
-    # Wyciszone kategorie powiadomień (0348): ``{kategoria: ISO czasu
+    # Wyciszone kategorie powiadomień (0349): ``{kategoria: ISO czasu
     # wyciszenia}``. Kategorie i reguły: ``services/notification_categories``;
     # stosuje je ``services/notification_access`` przy każdym odczycie
     # dzwonka, wypchnięciu przez WebSocket i decyzji „czy wysłać".

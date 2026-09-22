@@ -1,4 +1,4 @@
-"""Kategorie powiadomień i wyciszenia per użytkownik (0348)."""
+"""Kategorie powiadomień i wyciszenia per użytkownik (0349)."""
 
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -56,8 +56,8 @@ def test_mandatory_categories_are_the_agreed_ones():
 def test_entrypoint_mirrors_the_migration():
     import importlib.util
 
-    path = _BACKEND / "alembic" / "versions" / "0348_notification_mutes.py"
-    spec = importlib.util.spec_from_file_location("m0348", path)
+    path = _BACKEND / "alembic" / "versions" / "0349_notification_mutes.py"
+    spec = importlib.util.spec_from_file_location("m0349", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     entrypoint = (_BACKEND / "entrypoint.sh").read_text(encoding="utf-8")

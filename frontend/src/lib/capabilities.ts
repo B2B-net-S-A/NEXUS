@@ -66,8 +66,6 @@ export type Capability =
   | "nav.order_mail"
   | "nav.my_relationships"
   | "nav.contracts"
-  | "nav.cortex"
-  | "nav.manager"
   | "nav.finance";
 
 /** Wszystkie role operacyjne — czyli wszyscy POZA read-only viewerem `user`.
@@ -119,9 +117,6 @@ const ALL_ROLES: readonly UserRole[] = [
 
 const DELIVERY_READ = rolesWithSectionAccess("delivery");
 const DELIVERY_TAC_WRITERS: readonly UserRole[] = ["admin", "delivery_lead"];
-const CORTEX_READ = rolesWithSectionAccess("insights").filter(
-  (role) => role !== "user",
-);
 
 export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // POST /api/candidates → RecruiterPlus (backend/app/api/candidates.py)
@@ -132,11 +127,19 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // profilu kandydata — dotąd profil liczył je z sekcji (`canMutateSection`),
   // a backend z roli, i te dwie listy się rozjeżdżały.
   "candidate.write": RECRUITER_PLUS,
-  // POST /api/jobs → TacPlus (backend/app/api/jobs.py)
-  "job.create": TAC_PLUS,
-  // PATCH /api/jobs/{id} → TacPlus (backend/app/api/jobs.py). Uwaga: TacPlus
-  // NIE obejmuje head_of_recruitment, więc inline-edycja pól oferty (np.
-  // hiring manager) musi być dla HoR ukryta — inaczej dostanie 403 na zapisie.
+  // Nowa rekrutacja powstaje WYŁĄCZNIE na stronie `/jobs/new` (22.09.2026):
+  // odczyt requestu (`POST /api/job-intake/read`), zapis Championa i handoff
+  // to `DeliveryLeadPlus` (backend/app/api/job_request_intake.py). TAC bez
+  // roli DL przechodził `POST /api/jobs`, ale strona odsyłała go na listę —
+  // przycisk „Nowa rekrutacja" i skróty `j` / ⌘⇧J prowadziły donikąd (audyt
+  // ról 22.09, U4). Decyzja Artura 22.09: rekrutacje zakłada admin i DL.
+  "job.create": ["admin", "delivery_lead"],
+  // PATCH /api/jobs/{id} → TacPlus (backend/app/api/jobs.py) — PEŁNA edycja
+  // (klient, budżet, właściciele, HM, termin, cykl życia). Od 22.09.2026
+  // rekruter prowadzący i współpracownicy edytują TREŚĆ swojej rekrutacji
+  // (opis, ogłoszenia, Champion) — o tym decyduje per rekrutacja pole
+  // `can_edit` z `GET /api/jobs/{id}` (`lib/job-edit-access.ts`), nie ta
+  // capability. HoR nadal poza: inline-edycja pól oferty dostałaby 403.
   "job.update": TAC_PLUS,
   // POST /api/clients → TacPlus narrowed by the Delivery section write gate.
   "client.create": DELIVERY_TAC_WRITERS,
@@ -216,8 +219,6 @@ export const CAPABILITY_ROLES: Record<Capability, readonly UserRole[]> = {
   // Odczyt kontraktów jest szerszy niż `contract.create`: Finance ma pełny
   // business-read, ale nie dziedziczy przez to mutacji z `TAC_PLUS`.
   "nav.contracts": DELIVERY_READ,
-  "nav.cortex": CORTEX_READ,
-  "nav.manager": ["admin", "delivery_lead"],
   // /api/finance/* → FinanceModuleUser = require_roles(admin, finance)
   // (backend/app/api/deps.py). Rola `finance` jest WYŁĄCZNA (CHECK
   // ck_users_exclusive_finance_viewer_roles), więc to dwie rozłączne
@@ -265,10 +266,8 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "nav.order_mail": { section: "delivery", required: "read" },
   "nav.my_relationships": { section: "delivery", required: "read" },
   "nav.contracts": { section: "delivery", required: "read" },
-  "nav.cortex": { section: "insights", required: "read" },
   // `/api/dashboard/v2/recruitment-stats` wymaga Insights (F02).
   "dashboard.recruitment_stats.view": { section: "insights", required: "read" },
-  "nav.manager": { section: "delivery", required: "read" },
   "nav.finance": { section: "finance", required: "read" },
 };
 
