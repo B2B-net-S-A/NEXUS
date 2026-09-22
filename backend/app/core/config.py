@@ -755,6 +755,9 @@ class Settings(BaseSettings):
     # File uploads
     UPLOAD_DIR: str = "/tmp/nexus/uploads"
     MAX_UPLOAD_SIZE_MB: int = 10
+    # audyt 22.09 r2 (SEC-03): limit CAŁEGO ciała żądania (POST/PUT/PATCH),
+    # sprawdzany przed handlerem (app/core/body_size_limit.py).
+    MAX_REQUEST_BODY_MB: int = 30
 
     # ── Phase 13: notification triggers ──────────────────────────────────────
     BUSINESS_TZ: str = "Europe/Warsaw"

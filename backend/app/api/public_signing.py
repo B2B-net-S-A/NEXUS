@@ -150,7 +150,8 @@ async def submit_signed_pdf(
     link = await _load_valid_link(db, token, require_unused=True)
     sig = await _load_signature(db, link.signature_id)
 
-    pdf_bytes = await file.read()
+    # audyt 22.09 r2 (SEC-03): najwyżej limit + 1 bajt w RAM.
+    pdf_bytes = await file.read(_MAX_UPLOAD_BYTES + 1)
     if not pdf_bytes:
         raise HTTPException(status_code=422, detail="Pusty plik")
     if len(pdf_bytes) > _MAX_UPLOAD_BYTES:

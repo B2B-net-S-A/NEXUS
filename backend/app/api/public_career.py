@@ -236,7 +236,7 @@ async def submit_career_apply(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Zgłoszenie ze strony kariery (link rekrutacji albo stały link)."""
-    from app.api.public_share import _validate_cv_file
+    from app.api.public_share import _MAX_CV_BYTES, _validate_cv_file
     from app.services import public_apply
 
     # Pułapka na boty: ukryte pole wypełnione = cichy sukces, zero zapisu.
@@ -251,7 +251,8 @@ async def submit_career_apply(
         city=city,
         work_mode=work_mode,
     )
-    content = await cv.read()
+    # audyt 22.09 r2 (SEC-03): najwyżej limit + 1 bajt w RAM.
+    content = await cv.read(_MAX_CV_BYTES + 1)
     _validate_cv_file(cv, content)
 
     applicant = public_apply.ApplicantInput(

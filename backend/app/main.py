@@ -16,6 +16,7 @@ from app.core.http_headers import apply_credentialed_cache_policy
 from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
 from app.core.null_character_guard import NullCharacterGuardMiddleware
+from app.core.body_size_limit import BodySizeLimitMiddleware
 from app.core.request_correlation import RequestCorrelationMiddleware
 from app.core.sentry_privacy import scrub_event
 
@@ -938,6 +939,14 @@ app.add_middleware(UnhandledErrorMiddleware)
 # Nad `UnhandledErrorMiddleware`, ale pod CORS: odrzucenie musi dostać nagłówki
 # CORS i x-request-id, inaczej przeglądarka pokaże „Network Error".
 app.add_middleware(NullCharacterGuardMiddleware)
+# audyt 22.09 r2 (SEC-03): limit ciała żądania — NAD strażnikiem NUL (ten
+# buforuje JSON), pod CORS. Generator CV z uploadem przyjmuje dwa pliki po
+# 50 MB, więc ma własny, wyższy sufit.
+app.add_middleware(
+    BodySizeLimitMiddleware,
+    max_bytes=settings.MAX_REQUEST_BODY_MB * 1024 * 1024,
+    path_limits={"/api/cv-generator/generate-upload": 101 * 1024 * 1024},
+)
 app.add_middleware(RequestCorrelationMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LegacyStatsDeprecationMiddleware)

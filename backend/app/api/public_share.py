@@ -874,7 +874,8 @@ async def submit_public_apply(
     if phone and not _PHONE_RE.match(phone.strip()):
         raise HTTPException(status_code=422, detail="Invalid phone format")
 
-    content = await cv.read()
+    # audyt 22.09 r2 (SEC-03): najwyżej limit + 1 bajt w RAM.
+    content = await cv.read(_MAX_CV_BYTES + 1)
     _validate_cv_file(cv, content)
 
     # Identifies the link in rows that must not carry the raw secret. A v2
