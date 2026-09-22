@@ -926,8 +926,7 @@ const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
   "/candidates": "nav.candidates",
   // Wyszukiwarka i Talent Radar od 21.09.2026 nie stoją w menu (tryby ekranu
   // „Kandydaci”, wejście z ⌘K) — ich role pilnuje `nav-registry.test.ts`.
-  "/talents": "nav.talents",
-  "/sourcing/marketplace": "nav.sourcing",
+  // Talenty i Targ zdjęte z menu i palety 21.09.2026.
   "/clients": "nav.clients",
   "/my-clients": "nav.my_clients",
   "/order-mail": "nav.order_mail",

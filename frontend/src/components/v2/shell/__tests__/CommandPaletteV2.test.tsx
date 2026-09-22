@@ -154,7 +154,6 @@ describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", (
       "Szukaj z treści requestu (Talent Radar)",
       "Generator CV",
       "Generator Umów B2B",
-      "Targ / Dostępni",
       "Zgłoszenia",
       "Pomoc",
     ]) {
@@ -165,6 +164,9 @@ describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", (
     expect(getByText("Panel managera")).toBeTruthy();
     // Flaga kolejki telefonów wyłączona (i admin nie jest w jej rolach).
     expect(queryByText("Do przedzwonienia")).toBeNull();
+    // Talenty i Targ zdjęte z nawigacji 21.09.2026.
+    expect(queryByText("Targ / Dostępni")).toBeNull();
+    expect(queryByText("Talenty")).toBeNull();
   });
 
   it("dopasowanie ignoruje polskie znaki i wielkość liter", async () => {
