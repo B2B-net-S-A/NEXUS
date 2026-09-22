@@ -512,6 +512,13 @@ def _phase_plan(
         ("contacts", importer.import_contacts),
         ("workflows", importer.import_workflows),
         ("candidates", lambda: importer.import_candidates(since=since)),
+        # Pliki CV ZARAZ po kandydatach (od 22.09.2026, wcześniej 9. z 15 faz,
+        # za 25-minutowym cortexem): deploye co 30–60 min zabijały dzienny bieg
+        # przed tą fazą, więc CV nowych kandydatów nie docierały całymi dniami.
+        # Cortex i pola z CV i tak czytają zapisane CV, więc zyskują na tej
+        # kolejności.
+        ("candidates_cv", lambda: importer.import_candidates_cv(since=files_since)),
+        ("candidate_files", lambda: importer.import_candidate_files(since=files_since)),
         # Cortex re-ekstrahuje fakty skilli tuż po upsercie kandydatów. W delcie
         # używa ``files_since`` (=run_start) — tylko kandydaci dotknięci w tym
         # runie (updated_at >= run_start), tak jak faza plików. Reconcile +
@@ -523,8 +530,6 @@ def _phase_plan(
         ),
         ("jobs", lambda: importer.import_jobs(since=since)),
         ("talents", importer.import_talents),
-        ("candidates_cv", lambda: importer.import_candidates_cv(since=files_since)),
-        ("candidate_files", lambda: importer.import_candidate_files(since=files_since)),
         (
             "candidates_enrich_names",
             lambda: importer.enrich_missing_names(since=files_since),
@@ -576,11 +581,11 @@ PHASE_NAMES: tuple[str, ...] = (
     "contacts",
     "workflows",
     "candidates",
+    "candidates_cv",
+    "candidate_files",
     "cortex",
     "jobs",
     "talents",
-    "candidates_cv",
-    "candidate_files",
     "candidates_enrich_names",
     "candidates_cv_fields",
     "pipelines",
@@ -838,7 +843,7 @@ async def run_traffit_sync(
     """Run the phase plan once. ``mode`` = "delta" (incremental) | "full" (reconcile).
 
     ``phases`` zawęża bieg do wskazanych faz. Powstało, bo `candidate_files`
-    jest DZIEWIĄTĄ z piętnastu faz, a `candidates` przed nią trwa godzinami:
+    była DZIEWIĄTĄ z piętnastu faz (do 22.09.2026 — dziś idzie zaraz po `candidates`), a `candidates` przed nią trwa godzinami:
     Coolify restartuje kontener przy każdym pushu na main, więc bieg ginie,
     zanim dojdzie do zamiatania plików. Na prodzie 11.08 kursor plików nie
     drgnął przez 2,5 h mimo trzech uruchomionych biegów, a `__full__` stał na
