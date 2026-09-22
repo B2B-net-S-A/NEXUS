@@ -20,7 +20,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, RecruiterPlus, get_db
@@ -33,8 +33,69 @@ router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 # Lustro CHECK-a `ck_job_proposals_source` (`JOB_PROPOSAL_SOURCES`).
 ProposalSource = Literal[
-    "full_base", "new_cv", "similar_projects", "recommendation", "marketplace"
+    "full_base",
+    "new_cv",
+    "similar_projects",
+    "recommendation",
+    "marketplace",
+    "reassign",
 ]
+
+
+async def _reassign_sources(db, job_id: int, candidate_ids: list[int]) -> dict:
+    """Przepięcie: skąd osoba przychodzi (rekrutacja, etap, data wysłania)."""
+    from app.models.client import Client  # noqa: PLC0415
+    from app.models.job import Job  # noqa: PLC0415
+    from app.models.job_proposal import JobProposal  # noqa: PLC0415
+
+    if not candidate_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(JobProposal.candidate_id, JobProposal.evidence).where(
+                JobProposal.job_id == job_id,
+                JobProposal.source == "reassign",
+                JobProposal.candidate_id.in_(candidate_ids),
+            )
+        )
+    ).all()
+    info = {
+        cid: (ev or {}).get("reassign") or {}
+        for cid, ev in rows
+        if isinstance((ev or {}).get("reassign"), dict)
+    }
+    source_ids = {v.get("job_id") for v in info.values() if v.get("job_id")}
+    jobs = {}
+    if source_ids:
+        for jid, title, ref, client in (
+            await db.execute(
+                select(
+                    Job.id,
+                    Job.title,
+                    Job.reference_number,
+                    func.coalesce(Client.display_name, Client.name),
+                )
+                .outerjoin(Client, Client.id == Job.client_id)
+                .where(Job.id.in_(source_ids))
+            )
+        ).all():
+            jobs[jid] = {
+                "job_id": jid,
+                "title": title,
+                "reference_number": ref,
+                "client_name": client,
+            }
+    out = {}
+    for cid, value in info.items():
+        base = jobs.get(value.get("job_id"))
+        if base is None:
+            continue
+        out[cid] = {
+            **base,
+            "stage": value.get("stage"),
+            "sent_at": value.get("sent_at"),
+        }
+    return out
 
 
 async def _job(db, user, job_id: int):
@@ -121,6 +182,7 @@ async def list_job_proposals(
         else {}
     )
     include_finance = user_has_capability(user, AnalyticsCapability.VIEW_FINANCE)
+    reassign_from = await _reassign_sources(db, job_id, ids)
     items = []
     hidden = 0
     for row in rows:
@@ -147,6 +209,7 @@ async def list_job_proposals(
                 "eligibility": (
                     eligibility_annotation(decision) if decision is not None else None
                 ),
+                "reassign_from": reassign_from.get(row.candidate_id),
             }
         )
     return {

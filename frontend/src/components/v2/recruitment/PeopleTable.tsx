@@ -121,6 +121,7 @@ const STAGE_PILL_CLASS: Record<PipelineGroupKey, string> = {
 };
 
 const SOURCE_PILL_CLASS: Record<ProposalSource, string> = {
+  reassign: "border border-primary/40 bg-primary/5 font-semibold text-primary",
   full_base: "bg-muted text-muted-foreground",
   new_cv: "bg-primary/10 text-primary",
   similar_projects: "bg-info-muted text-info-muted-foreground",

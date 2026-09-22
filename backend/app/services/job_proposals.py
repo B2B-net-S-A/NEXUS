@@ -107,6 +107,19 @@ def sanitize_evidence(raw: Any) -> Optional[dict]:
         }
         if numbers:
             out["counts"] = numbers
+    reassign = raw.get("reassign")
+    if isinstance(reassign, Mapping):
+        # 0341: przepięcie — skąd (id rekrutacji), na jakim etapie i kiedy
+        # osoba była u klienta. Same identyfikatory i data, bez treści.
+        clean_reassign: dict[str, Any] = {}
+        source_job = reassign.get("job_id")
+        if isinstance(source_job, int) and not isinstance(source_job, bool):
+            clean_reassign["job_id"] = source_job
+        for key in ("stage", "sent_at"):
+            if (value := _short(reassign.get(key))) is not None:
+                clean_reassign[key] = value[:32]
+        if clean_reassign.get("job_id") is not None:
+            out["reassign"] = clean_reassign
     if raw.get(PREVIOUSLY_DISMISSED_KEY) is True:
         out[PREVIOUSLY_DISMISSED_KEY] = True
     return out or None
@@ -507,6 +520,9 @@ async def list_for_job(
             func.min(JobProposal.first_seen_at).label("first_seen_at"),
             func.max(JobProposal.first_seen_at).label("newest_seen_at"),
             func.max(JobProposal.last_seen_at).label("last_seen_at"),
+            # 0341: przepięcia (osoby już wysłane do klienta przy podobnym
+            # requeście) stoją w kolejce przed resztą propozycji.
+            func.bool_or(JobProposal.source == "reassign").label("is_reassign"),
         )
         .where(JobProposal.job_id == job_id)
         .group_by(JobProposal.candidate_id)
@@ -523,6 +539,7 @@ async def list_for_job(
         await db.execute(
             select(sub)
             .order_by(
+                sub.c.is_reassign.desc(),
                 sub.c.score.desc().nullslast(),
                 sub.c.newest_seen_at.desc(),
                 sub.c.candidate_id,

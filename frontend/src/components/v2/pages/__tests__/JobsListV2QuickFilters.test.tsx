@@ -466,59 +466,76 @@ describe("JobsListV2 — liczby per grupa etapów w wierszu", () => {
   });
 });
 
-describe("JobsListV2 — „Wymaga ruchu” i propozycje", () => {
+describe("JobsListV2 — status requestu i podobne rekrutacje (lista v4)", () => {
   beforeEach(() => {
     getMock.mockReset();
     quickCountsMock.mockReset();
     mockQuickCounts();
     useUiStore.setState({ jobsView: "list" });
+    window.history.replaceState(null, "", "/jobs");
   });
 
-  it("ton pigułki zależy od liczby, a zero to wyszarzone „na bieżąco”", async () => {
+  it("kolumna „Status” nazywa status liczony przez serwer, nieznany = kreska", async () => {
     mockJobsResponse([
-      jobRow({ id: 1, title: "Zero", needs_action_count: 0 }),
-      jobRow({ id: 2, title: "Kilka", needs_action_count: 3 }),
-      jobRow({ id: 3, title: "Zaległość", needs_action_count: 7 }),
+      jobRow({ id: 1, title: "Szuka", request_status: "searching" }),
+      jobRow({ id: 2, title: "Champion", request_status: "champion" }),
+      jobRow({ id: 3, title: "Stary backend" }),
     ]);
     renderJobs();
-    await screen.findByText("Zero");
-    const pills = screen.getAllByTestId("job-needs-action");
-    expect(pills.map((p) => [p.textContent, p.dataset.tone])).toEqual([
-      ["na bieżąco", "muted"],
-      ["3 do ruchu", "warning"],
-      ["7 do ruchu", "danger"],
-    ]);
-  });
-
-  it("bez pola w odpowiedzi pokazuje kreskę, nie „na bieżąco” (brak wiedzy ≠ zero)", async () => {
-    mockJobsResponse([jobRow({ title: "Stary backend" })]);
-    renderJobs();
-    await screen.findByText("Stary backend");
+    await screen.findByText("Szuka");
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("Szukamy")).toBeInTheDocument();
+    expect(within(table).getByText("Mamy championa")).toBeInTheDocument();
     expect(screen.queryByTestId("job-needs-action")).not.toBeInTheDocument();
   });
 
-  it("„do przejrzenia” (stos wejściowy) stoi osobno od „do ruchu” i znika przy zerze", async () => {
-    mockJobsResponse([
-      jobRow({ id: 1, title: "Stos", needs_action_count: 2, review_count: 431 }),
-      jobRow({ id: 2, title: "Pusto", needs_action_count: 1, review_count: 0 }),
-    ]);
+  it("pigułka statusu wysyła `request_status` i zapisuje go w adresie", async () => {
+    const user = userEvent.setup();
+    mockJobsResponse([jobRow()]);
     renderJobs();
-    await screen.findByText("Stos");
-    const review = await screen.findAllByTestId("job-review-count");
-    expect(review).toHaveLength(1);
-    expect(review[0]).toHaveTextContent("431 do przejrzenia");
-    expect(screen.getAllByTestId("job-needs-action")[0]).toHaveTextContent("2 do ruchu");
+    await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    await user.click(
+      within(screen.getByRole("group", { name: "Status requestu" })).getByRole("button", {
+        name: "Mamy championa",
+      }),
+    );
+    await waitFor(() => expect(latestParams().request_status).toEqual(["champion"]));
+    expect(window.location.search).toContain("rs=champion");
   });
 
-  it("„+N propozycji” linkuje do segmentu propozycji i znika przy zerze", async () => {
+  it("„≈ podobne” otwiera okno przepięć, „↻” pokazuje połączoną rekrutację", async () => {
+    const user = userEvent.setup();
     mockJobsResponse([
-      jobRow({ id: 11, title: "Z propozycjami", open_proposals_count: 3 }),
-      jobRow({ id: 12, title: "Bez propozycji", open_proposals_count: 0 }),
+      jobRow({
+        id: 21,
+        title: "Z sugestią",
+        similar: {
+          linked_count: 0,
+          linked_first: null,
+          reassigned_count: 0,
+          suggested: { count: 2, sent_count: 5, first: { id: 9, title: "Kotlin", reference_number: "#4588" } },
+        },
+      }),
+      jobRow({
+        id: 22,
+        title: "Połączona",
+        similar: {
+          linked_count: 1,
+          linked_first: { id: 9, title: "Kotlin", reference_number: "#4588" },
+          reassigned_count: 3,
+          suggested: null,
+        },
+      }),
     ]);
     renderJobs();
-    const link = await screen.findByRole("link", { name: "+3 propozycje" });
-    expect(link).toHaveAttribute("href", "/jobs/11?tab=people&seg=proposals");
-    expect(screen.queryByText(/\+0 propozycj/)).not.toBeInTheDocument();
+    await screen.findByText("Z sugestią");
+    expect(screen.getByText("↻ #4588")).toBeInTheDocument();
+    expect(screen.getByText("przepięto 3")).toBeInTheDocument();
+    getMock.mockResolvedValueOnce({
+      data: { job_id: 21, reassigned_count: 0, linked: [], suggestions: [] },
+    });
+    await user.click(screen.getByText("≈ 2 podobne"));
+    expect(await screen.findByRole("dialog", { name: "Podobne rekrutacje" })).toBeInTheDocument();
   });
 });
 
@@ -670,16 +687,20 @@ describe("JobsListV2 — zwijana kolumna filtrów", () => {
     ).toHaveClass("hidden");
   });
 
-  it("bez zapisanego wyboru kolumna idzie za szerokością okna (CSS `2xl`)", async () => {
+  it("bez zapisanego wyboru kolumna filtrów jest zwinięta (lista v4)", async () => {
     useUiStore.setState({ jobsFiltersCollapsed: null });
     renderJobs();
     await waitFor(() => expect(jobsCalls()).toHaveLength(1));
+    expect(screen.getByRole("button", { name: "Filtry" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     expect(
       screen.getByRole("complementary", {
         name: "Filtry listy rekrutacji",
         hidden: true,
       }),
-    ).toHaveClass("hidden", "2xl:block");
+    ).toHaveClass("hidden");
   });
 });
 

@@ -8,7 +8,13 @@
  * własną logikę tonu i odmiany — testowalną bez montowania całej listy.
  */
 import Link from "next/link";
+import type { MouseEvent } from "react";
 
+import {
+  REQUEST_STATUS_META,
+  requestStatusOf,
+  type RequestStatusTone,
+} from "@/lib/request-status";
 import { cn } from "@/lib/utils";
 import {
   buildStageFunnel,
@@ -180,5 +186,105 @@ export function JobProposalsLink({
     >
       {label}
     </Link>
+  );
+}
+
+// ── Lista v4 (0341): status requestu i podobne rekrutacje ────────────────────
+
+const REQUEST_TONE_CLASS: Record<RequestStatusTone, string> = {
+  search: "bg-primary/10 text-primary",
+  client: "bg-success-muted text-success-muted-foreground",
+  need: "bg-warning-muted text-warning-muted-foreground",
+  done: "bg-muted text-muted-foreground",
+};
+
+/** Status requestu liczony przez serwer; nieznana wartość = kreska, nie zgadywanie. */
+export function RequestStatusBadge({ status }: { status: unknown }) {
+  const value = requestStatusOf(status);
+  if (!value) return <span className="text-xs text-muted-foreground">—</span>;
+  const meta = REQUEST_STATUS_META[value];
+  return (
+    <span
+      title={meta.hint}
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs font-semibold",
+        REQUEST_TONE_CLASS[meta.tone],
+      )}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+      {meta.label}
+    </span>
+  );
+}
+
+export interface JobSimilarSummary {
+  linked_count: number;
+  linked_first: { id: number; title: string; reference_number: string | null } | null;
+  reassigned_count: number;
+  suggested: {
+    count: number;
+    sent_count: number;
+    first: { id: number; title: string; reference_number: string | null };
+  } | null;
+}
+
+/**
+ * „↻" = rekrutacje połączone (osoby przepinają się same), „≈" = system
+ * sugeruje podobne z osobami wysłanymi do klienta. Brak obu = kreska.
+ */
+export function SimilarJobsCell({
+  similar,
+  disabled,
+  onOpen,
+}: {
+  similar: JobSimilarSummary | null | undefined;
+  disabled?: boolean;
+  onOpen: () => void;
+}) {
+  if (!similar || (similar.linked_count === 0 && !similar.suggested)) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const open = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!disabled) onOpen();
+  };
+  if (similar.linked_count > 0) {
+    const first = similar.linked_first;
+    const more = similar.linked_count > 1 ? ` +${similar.linked_count - 1}` : "";
+    return (
+      <button
+        type="button"
+        onClick={open}
+        disabled={disabled}
+        className="block max-w-full text-left"
+        title="Połączone rekrutacje — otwórz, żeby zmienić"
+      >
+        <span className="inline-flex max-w-full items-center gap-1 truncate rounded-md border border-primary/30 bg-primary/5 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
+          ↻ {first?.reference_number ?? first?.title ?? "Połączone"}
+          {more}
+        </span>
+        <span className="mt-0.5 block text-[11px] text-muted-foreground">
+          przepięto {similar.reassigned_count}
+        </span>
+      </button>
+    );
+  }
+  const suggested = similar.suggested!;
+  return (
+    <button
+      type="button"
+      onClick={open}
+      disabled={disabled}
+      className="block max-w-full text-left"
+      title="System znalazł podobne rekrutacje z osobami wysłanymi do klienta"
+    >
+      <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-primary/40 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
+        ≈ {suggested.count} {suggested.count === 1 ? "podobna" : "podobne"}
+      </span>
+      <span className="mt-0.5 block text-[11px] text-muted-foreground">
+        {suggested.sent_count} wysłanych ·{" "}
+        <span className="font-semibold text-primary">Przepnij →</span>
+      </span>
+    </button>
   );
 }

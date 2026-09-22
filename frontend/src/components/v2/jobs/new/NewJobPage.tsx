@@ -45,6 +45,9 @@ import {
 import { cn } from "@/lib/utils";
 import { NewJobRequestStep } from "./NewJobRequestStep";
 import { NewJobReviewForm } from "./NewJobReviewForm";
+import { SimilarJobsPicker } from "./SimilarJobsPicker";
+import { plural } from "@/components/v2/jobs/SimilarJobsDialog";
+import { similarJobsApi } from "@/lib/similar-jobs-api";
 
 interface RecruiterOption {
   id: number;
@@ -114,6 +117,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     preview?.recruiterId ?? null,
   );
   const [saving, setSaving] = useState<"handoff" | "draft" | null>(null);
+  // 0341: podobne rekrutacje zaznaczone przy tworzeniu — łączone po zapisie.
+  const [similarJobIds, setSimilarJobIds] = useState<number[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   // „Skopiuj jako template” z historii requestów: `?from=<id>` otwiera od
@@ -275,6 +280,23 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       router.push(championTab);
       return;
     }
+    // Połączenie z podobnymi rekrutacjami i przepięcie osób wysłanych do
+    // klienta. Dodatek — jego awaria nie cofa rekrutacji (da się to zrobić
+    // później oknem „Podobne rekrutacje").
+    if (similarJobIds.length > 0) {
+      try {
+        const linked = await similarJobsApi.link(jobId, similarJobIds);
+        if (linked.reassigned_now > 0) {
+          showSuccess(
+            `Przepięto ${linked.reassigned_now} ${plural(linked.reassigned_now)} z podobnych rekrutacji do „Do przejrzenia”.`,
+          );
+        }
+      } catch (e) {
+        showError(
+          `Rekrutacja zapisana, ale nie połączono podobnych: ${apiErrorMessage(e, "błąd")}. Zrób to w rekrutacji („Podobne rekrutacje”).`,
+        );
+      }
+    }
     if (mode === "draft") {
       showSuccess("Szkic rekrutacji zapisany.");
       router.push(championTab);
@@ -390,12 +412,21 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
             )}
           </section>
 
-          <NewJobReviewForm
-            form={form}
-            onChange={setForm}
-            missing={missing}
-            highlightMissing={readByAi || templateJobId != null}
-          />
+          <div className="flex flex-col gap-4">
+            <NewJobReviewForm
+              form={form}
+              onChange={setForm}
+              missing={missing}
+              highlightMissing={readByAi || templateJobId != null}
+            />
+            {!preview && (
+              <SimilarJobsPicker
+                title={form.title}
+                must={form.must}
+                onChange={setSimilarJobIds}
+              />
+            )}
+          </div>
         </div>
       )}
 

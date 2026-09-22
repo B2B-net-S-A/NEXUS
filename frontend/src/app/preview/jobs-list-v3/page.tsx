@@ -69,6 +69,13 @@ const inDays = (days: number) => {
 const MINE = [
   {
     id: 901,
+    request_status: "champion",
+    similar: {
+      linked_count: 1,
+      linked_first: { id: 7712, title: "Java Developer (Spring)", reference_number: "REF-2026-0712" },
+      reassigned_count: 3,
+      suggested: null,
+    },
     title: "Senior Java Developer",
     reference_number: "REF-2026-0901",
     recruitment_type: "body_leasing",
@@ -89,6 +96,13 @@ const MINE = [
   },
   {
     id: 902,
+    request_status: "searching",
+    similar: {
+      linked_count: 0,
+      linked_first: null,
+      reassigned_count: 0,
+      suggested: { count: 2, sent_count: 5, first: { id: 7690, title: "Platform Engineer", reference_number: "REF-2026-0690" } },
+    },
     title: "DevOps Engineer (Azure)",
     reference_number: "REF-2026-0902",
     recruitment_type: "body_leasing",
@@ -110,6 +124,8 @@ const MINE = [
   },
   {
     id: 903,
+    request_status: "contract",
+    similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Analityk biznesowy",
     reference_number: "REF-2026-0903",
     recruitment_type: "sales_project",
@@ -132,6 +148,8 @@ const ALL = [
   ...MINE,
   {
     id: 904,
+    request_status: "incomplete",
+    similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Tester automatyzujący",
     reference_number: "REF-2026-0904",
     recruitment_type: "tender",
@@ -150,6 +168,8 @@ const ALL = [
   },
   {
     id: 905,
+    request_status: "searching",
+    similar: { linked_count: 0, linked_first: null, reassigned_count: 0, suggested: null },
     title: "Architekt rozwiązań (cudza, bez dostępu)",
     reference_number: "REF-2026-0905",
     recruitment_type: "body_leasing",

@@ -2,6 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { TAC_UI_ENABLED } from "@/lib/tac-ui";
+import {
+  REQUEST_STATUS_FILTER_ORDER,
+  REQUEST_STATUS_META,
+  requestStatusOf,
+  type RequestStatus,
+} from "@/lib/request-status";
+import { SimilarJobsDialog } from "@/components/v2/jobs/SimilarJobsDialog";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -53,9 +60,8 @@ import {
 import { OwnerBadge } from "@/components/v2/jobs/OwnerBadge";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import {
-  JobNeedsActionPill,
-  JobReviewCount,
-  JobProposalsLink,
+  RequestStatusBadge,
+  SimilarJobsCell,
   JobStageCounts,
   STAGE_COUNTS_LEGEND,
 } from "@/components/v2/jobs/JobListCells";
@@ -90,7 +96,6 @@ import { extractSkills } from "@/lib/job-skills";
 import { classifyJobDeadline, formatDateOnly } from "@/lib/job-deadline";
 import { shortenPersonName } from "@/lib/job-header-subtitle";
 import { stageSummaryOf } from "@/lib/job-pipeline-funnel";
-import { RECRUITMENT_TYPE_LABEL } from "@/lib/recruitment-type";
 import type {
   PriorityChannel,
   PriorityRank,
@@ -304,6 +309,8 @@ export interface JobsListQueryState {
   sort: JobSortFilterValue;
   priorityWork: "any" | "assigned" | "carry_over" | "either";
   page: number;
+  /** Status requestu (0341) — pusty/brak = wszystkie. */
+  requestStatuses?: readonly RequestStatus[];
 }
 
 export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
@@ -324,6 +331,7 @@ export function jobsListQueryKey(state: JobsListQueryState): unknown[] {
     state.sort,
     state.priorityWork,
     state.page,
+    state.requestStatuses ?? [],
   ];
 }
 
@@ -478,6 +486,7 @@ function JobsTable({
   onOpen,
   onPreview,
   onInvite,
+  onSimilar,
 }: {
   items: any[];
   /** Rekrutacja otwarta w doku podglądu — jej wiersz jest podświetlony. */
@@ -487,30 +496,29 @@ function JobsTable({
   onPreview: (id: number) => void;
   /** `undefined` = brak capability `invite_link.create` — nie renderujemy akcji. */
   onInvite?: (id: number) => void;
+  /** Okno „Podobne rekrutacje" (0341). */
+  onSimilar: (id: number) => void;
 }) {
   return (
     <Table>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          {/* Klient wrócił POD tytuł (makieta „01 Lista") — własna kolumna
-              zabierała szerokość tytułowi, a to on jest tym, po czym skanuje
-              się listę. Nic nie znika: nazwa klienta jest w tej samej komórce,
-              z tą samą ikoną. */}
+          {/* Lista v4 (22.09.2026): status requestu, etapy i podobne
+              rekrutacje. „Wymaga ruchu" i „W bazie" zdjęte decyzją Artura —
+              kolejność nadal daje sortowanie „Wymaga uwagi". */}
           <TableHead>Rekrutacja</TableHead>
+          <TableHead className="w-[150px]">Status</TableHead>
           <TableHead className="w-[200px]" title={STAGE_COUNTS_LEGEND}>
             Etapy
           </TableHead>
-          <TableHead className="w-[120px]">Wymaga ruchu</TableHead>
-          <TableHead className="w-[130px]">Właściciel</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead className="w-[112px]">Deadline</TableHead>
+          <TableHead className="w-[210px]">Podobne rekrutacje</TableHead>
+          <TableHead className="w-[104px]">Termin</TableHead>
+          <TableHead className="w-[120px]">Prowadzi</TableHead>
           <TableHead className="w-[64px]" />
         </TableRow>
       </TableHeader>
       <TableBody>
         {items.map((job: any) => {
-          const statusVariant = STATUS_VARIANT[job.status] ?? "neutral";
-          const statusLabel = STATUS_LABEL[job.status] ?? job.status;
           const deadlineInfo = classifyJobDeadline(job.deadline);
           // `stage_columns`/`stage_breakdown` przychodzą z
           // `GET /api/jobs?include_stage_counts=true` — JEDNO zapytanie GROUP BY
@@ -546,7 +554,7 @@ function JobsTable({
               }
               className={locked ? "opacity-60" : undefined}
             >
-              <TableCell className="max-w-[300px]">
+              <TableCell className="max-w-[320px]">
                 {/* `can_open === false` — ta sama reguła co kafelki: rekrutacja
                     jest w rejestrze, ale detal odpowie 403, więc tytuł nie
                     udaje linku (tabela do 09.2026 prowadziła prosto w ścianę). */}
@@ -567,48 +575,29 @@ function JobsTable({
                     {job.title}
                   </Link>
                 )}
-                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                  {job.reference_number && (
-                    <span
-                      className="font-mono text-[10px] text-muted-foreground/80"
-                      title="Numer referencyjny"
-                    >
-                      {job.reference_number}
-                    </span>
-                  )}
-                  {job.recruitment_type && (
-                    <Badge size="sm" variant="neutral">
-                      {RECRUITMENT_TYPE_LABEL[job.recruitment_type] ??
-                        job.recruitment_type}
-                    </Badge>
-                  )}
-                  {/* Lokalizacja i seniority — dawna kolumna „Lokalizacja";
-                      wracają pod tytułem, żeby nic z inwentarza nie zniknęło
-                      (kontrakt programu C2). */}
-                  {job.location && (
-                    <span
-                      className="inline-flex min-w-0 items-center gap-0.5 text-[11px] text-muted-foreground"
-                      title="Lokalizacja"
-                    >
-                      <MapPin className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{job.location}</span>
-                    </span>
-                  )}
-                  {job.seniority && (
-                    <Badge size="sm" variant="outline" title="Seniority">
-                      {job.seniority}
-                    </Badge>
-                  )}
+                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
                   {job.client_name && (
-                    <span
-                      className="inline-flex min-w-0 items-center gap-0.5 text-[11px] text-muted-foreground"
-                      title="Klient"
-                    >
+                    <span className="inline-flex min-w-0 items-center gap-0.5" title="Klient">
                       <Building2 className="h-3 w-3 shrink-0" />
                       <span className="truncate">{job.client_name}</span>
                     </span>
                   )}
+                  {job.reference_number && (
+                    <span className="font-mono text-[10px]" title="Numer referencyjny">
+                      {job.reference_number}
+                    </span>
+                  )}
+                  {job.location && (
+                    <span className="inline-flex min-w-0 items-center gap-0.5" title="Lokalizacja">
+                      <MapPin className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{job.location}</span>
+                    </span>
+                  )}
+                  <JobPriorityWorkBadges job={job} />
                 </div>
+              </TableCell>
+              <TableCell>
+                <RequestStatusBadge status={job.request_status} />
               </TableCell>
               <TableCell>
                 {stageSummary ? (
@@ -628,40 +617,11 @@ function JobsTable({
                 )}
               </TableCell>
               <TableCell>
-                <div className="flex flex-col items-start gap-1">
-                  <JobNeedsActionPill count={job.needs_action_count} />
-                  <JobReviewCount count={job.review_count} />
-                  <JobProposalsLink
-                    jobId={job.id}
-                    count={job.open_proposals_count}
-                    disabled={locked}
-                  />
-                </div>
-              </TableCell>
-              <TableCell>
-                <JobOwnerCell user={job.primary_owner ?? null} />
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap items-center gap-1">
-                  <Badge size="sm" variant={statusVariant}>
-                    {statusLabel}
-                  </Badge>
-                  {TAC_UI_ENABLED && job.tac_id == null && (
-                    <span title="Rekrutacja nie ma jawnie wybranego opiekuna TAC">
-                      <Badge size="sm" variant="warning">
-                        Brak opiekuna TAC
-                      </Badge>
-                    </span>
-                  )}
-                  {job.needs_sourcing && (
-                    <span title="Rekrutacja oznaczona jako wymagająca sourcingu">
-                      <Badge size="sm" variant="info">
-                        Search
-                      </Badge>
-                    </span>
-                  )}
-                  <JobPriorityWorkBadges job={job} />
-                </div>
+                <SimilarJobsCell
+                  similar={job.similar}
+                  disabled={locked}
+                  onOpen={() => onSimilar(job.id)}
+                />
               </TableCell>
               <TableCell>
                 {deadlineInfo.urgency === "none" ? (
@@ -676,22 +636,16 @@ function JobsTable({
                           ? "text-warning"
                           : "text-muted-foreground",
                     )}
+                    title={job.created_at ? `Dodano ${formatDate(job.created_at)}` : undefined}
                   >
-                    {formatDateOnly(job.deadline)} ·{" "}
                     {deadlineInfo.urgency === "overdue"
                       ? "po terminie"
-                      : `${deadlineInfo.daysLeft} d`}
+                      : formatDateOnly(job.deadline)}
                   </span>
                 )}
-                {/* Dawna kolumna „Dodano" — zostaje jako druga linia. */}
-                {job.created_at && (
-                  <div
-                    className="mt-0.5 whitespace-nowrap text-[10px] text-muted-foreground"
-                    title={`Dodano ${formatDate(job.created_at)}`}
-                  >
-                    dodano {formatRelativeTime(job.created_at)}
-                  </div>
-                )}
+              </TableCell>
+              <TableCell>
+                <JobOwnerCell user={job.primary_owner ?? null} />
               </TableCell>
               <TableCell>
                 <div className="flex items-center justify-end gap-0.5">
@@ -812,6 +766,14 @@ export function JobsListV2() {
   const [priorityWorkFilter, setPriorityWorkFilter] =
     useState<PriorityWorkFilter>(() => initialPriorityWorkFromUrl(searchParams));
   const [page, setPage] = useState(1);
+  // Status requestu (0341) — adres `rs=` (powtarzalny), jak pozostałe filtry.
+  const [requestStatuses, setRequestStatuses] = useState<RequestStatus[]>(() =>
+    searchParams
+      .getAll("rs")
+      .map(requestStatusOf)
+      .filter((s): s is RequestStatus => s !== null),
+  );
+  const [similarForJob, setSimilarForJob] = useState<number | null>(null);
   const [inviteModalForJob, setInviteModalForJob] = useState<number | null>(null);
   // Dok podglądu (gotowość rekrutacji) otwiera ikona „Podgląd" w wierszu —
   // klik w wiersz OTWIERA rekrutację (rekrutacja v3). `null` = dok zamknięty,
@@ -835,8 +797,12 @@ export function JobsListV2() {
     media.addEventListener("change", sync);
     return () => media.removeEventListener("change", sync);
   }, []);
-  const filtersMode: FiltersMode =
-    filtersPref == null ? "auto" : filtersPref ? "collapsed" : "expanded";
+  // Lista v4: kolumna filtrów domyślnie ZWINIĘTA — codzienne zawężenia
+  // (status, zakres, szukanie) stoją nad tabelą. Rozwinięcie zapamiętuje się.
+  // `as FiltersMode`: tryb „auto" zostaje w typie dla gałęzi układu (dok).
+  const filtersMode = (
+    filtersPref === false ? "expanded" : "collapsed"
+  ) as FiltersMode;
   // Sortowanie bez jawnego wyboru samo idzie za zakresem; jawnie wybrane
   // zostaje. `null` = powrót do domyślnego zakresu roli („Wyczyść").
   const changeScope = (nextMine: boolean | null) => {
@@ -872,7 +838,13 @@ export function JobsListV2() {
       },
       new URLSearchParams(window.location.search),
     );
-    const target = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    const withStatus = new URLSearchParams(qs);
+    withStatus.delete("rs");
+    for (const s of requestStatuses) withStatus.append("rs", s);
+    const qsFull = withStatus.toString();
+    const target = qsFull
+      ? `${window.location.pathname}?${qsFull}`
+      : window.location.pathname;
     if (target !== `${window.location.pathname}${window.location.search}`) {
       window.history.replaceState(window.history.state, "", target);
     }
@@ -892,6 +864,7 @@ export function JobsListV2() {
     openOnly,
     noOwnerOnly,
     priorityWorkFilter,
+    requestStatuses,
   ]);
 
   const dl = deadlineParams(deadlinePreset);
@@ -929,6 +902,7 @@ export function JobsListV2() {
       sort,
       priorityWork: priorityWorkFilter,
       page,
+      requestStatuses,
     }),
     queryFn: () =>
       api
@@ -947,6 +921,7 @@ export function JobsListV2() {
             owner_missing: noOwnerOnly ? true : undefined,
             priority_work:
               priorityWorkFilter === "any" ? undefined : priorityWorkFilter,
+            request_status: requestStatuses.length ? requestStatuses : undefined,
             sort,
             ...dl,
             page,
@@ -1069,7 +1044,8 @@ export function JobsListV2() {
     (priorityWorkFilter !== "any" ? 1 : 0) +
     clientIds.length +
     ccIds.length +
-    responsibleIds.length;
+    responsibleIds.length +
+    requestStatuses.length;
 
   // „4 241 · pokazuję 12 moich" (makieta). Pierwsza liczba to ZAWSZE `total`
   // z API — czyli ile rekrutacji pasuje do filtrów, nie ile widać. Druga mówi,
@@ -1107,6 +1083,7 @@ export function JobsListV2() {
   const resetFilters = () => {
     setTypeFilter("all");
     setStatusFilter([]);
+    setRequestStatuses([]);
     // „Wyczyść" wraca do domyślnego zakresu ROLI (`defaultMineForUser`).
     changeScope(null);
     setResponsibleIds([]);
@@ -1553,6 +1530,53 @@ export function JobsListV2() {
             </div>
           </div>
 
+          {/* Status requestu (0341) — codzienne zawężenie, zawsze na wierzchu.
+              Klik przełącza; kilka naraz = LUB (serwer: `request_status`). */}
+          <div
+            className="flex flex-wrap items-center gap-1.5"
+            role="group"
+            aria-label="Status requestu"
+          >
+            <span className="mr-1 text-xs text-muted-foreground">Status:</span>
+            {REQUEST_STATUS_FILTER_ORDER.map((value) => {
+              const on = requestStatuses.includes(value);
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={on}
+                  title={REQUEST_STATUS_META[value].hint}
+                  onClick={() => {
+                    setRequestStatuses((prev) =>
+                      on ? prev.filter((s) => s !== value) : [...prev, value],
+                    );
+                    setPage(1);
+                  }}
+                  className={cn(
+                    "h-7 rounded-full border px-3 text-xs transition-colors",
+                    on
+                      ? "border-primary/40 bg-primary/10 font-semibold text-primary"
+                      : "border-border text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  {REQUEST_STATUS_META[value].label}
+                </button>
+              );
+            })}
+            {(() => {
+              const withSuggestions = visibleItems.filter(
+                (j: any) => j.similar?.suggested && j.can_open !== false,
+              ).length;
+              return withSuggestions > 0 ? (
+                <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-dashed border-primary/40 px-2 py-1 text-xs font-medium text-primary">
+                  ≈ {withSuggestions}{" "}
+                  {withSuggestions === 1 ? "rekrutacja ma" : "rekrutacje mają"} podobne
+                  z osobami u klienta — przepnij je
+                </span>
+              ) : null;
+            })()}
+          </div>
+
           {/* Wyniki — kafelki lub lista */}
           {isLoading ? (
             jobsView === "list" ? (
@@ -1645,6 +1669,7 @@ export function JobsListV2() {
                 setPreviewJobId((current) => (current === id ? null : id))
               }
               onInvite={canInvite ? (id) => setInviteModalForJob(id) : undefined}
+              onSimilar={(id) => setSimilarForJob(id)}
             />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1920,6 +1945,16 @@ export function JobsListV2() {
         )}
       </div>
 
+
+      {similarForJob !== null && (
+        <SimilarJobsDialog
+          jobId={similarForJob}
+          open
+          onOpenChange={(v) => {
+            if (!v) setSimilarForJob(null);
+          }}
+        />
+      )}
 
       <GenerateInviteLinkV2
         open={inviteModalForJob !== null}

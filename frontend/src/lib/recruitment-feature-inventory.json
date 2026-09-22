@@ -675,6 +675,54 @@
    "file": "components/v2/recruitment/PersonPanel.tsx",
    "marker": "AutoCvSkipNotice",
    "v3_home": "panel → CV"
+  },
+  {
+   "id": "list.request-status",
+   "area": "lista",
+   "opis": "Status requestu (Szukamy / Mamy championa / Umowa / Obsadzona / Do uzupełnienia) — kolumna i filtr `rs=`",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "RequestStatusBadge",
+   "v3_home": "lista → kolumna Status"
+  },
+  {
+   "id": "list.similar-jobs",
+   "area": "lista",
+   "opis": "Kolumna „Podobne rekrutacje”: ↻ połączone (przepięto N), ≈ sugestie z osobami u klienta → okno przepięć",
+   "file": "components/v2/pages/JobsListV2.tsx",
+   "marker": "SimilarJobsCell",
+   "v3_home": "lista → kolumna Podobne rekrutacje"
+  },
+  {
+   "id": "header.similar-jobs",
+   "area": "naglowek",
+   "opis": "Okno „Podobne rekrutacje”: sugestie, dodanie własnej, połącz i przepnij osoby wysłane do klienta",
+   "file": "app/jobs/[id]/page.tsx",
+   "marker": "SimilarJobsDialog",
+   "v3_home": "nagłówek → Podobne rekrutacje"
+  },
+  {
+   "id": "header.champion-found",
+   "area": "naglowek",
+   "opis": "„Mamy championa” — Delivery Lead zatrzymuje szukanie (status requestu)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "toggle-champion",
+   "v3_home": "nagłówek"
+  },
+  {
+   "id": "src.reassign",
+   "area": "pozyskiwanie",
+   "opis": "Przepięcia: osoby wysłane do klienta w podobnej rekrutacji na górze „Do przejrzenia”, z informacją skąd i kiedy",
+   "file": "components/v2/recruitment/ProposalPanel.tsx",
+   "marker": "reassignFrom",
+   "v3_home": "propozycje → źródło ↻ Przepięcie"
+  },
+  {
+   "id": "new.similar-jobs",
+   "area": "zlecenie",
+   "opis": "Podobne rekrutacje przy tworzeniu — zaznaczone łączą się po zapisie i przepinają osoby",
+   "file": "components/v2/jobs/new/NewJobPage.tsx",
+   "marker": "SimilarJobsPicker",
+   "v3_home": "nowa rekrutacja"
   }
  ]
 }

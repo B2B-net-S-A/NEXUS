@@ -4789,7 +4789,7 @@ _COLUMN_STATEMENTS = [
             UNIQUE (job_id, candidate_id, source),
         CONSTRAINT ck_job_proposals_source CHECK (
             source IN ('full_base', 'new_cv', 'similar_projects',
-                       'recommendation', 'marketplace')),
+                       'recommendation', 'marketplace', 'reassign')),
         CONSTRAINT ck_job_proposals_status CHECK (
             status IN ('proposed', 'dismissed', 'added'))
     )""",
@@ -4890,6 +4890,23 @@ _COLUMN_STATEMENTS = [
     # domyślny bez nazwy klienta i kodów). Lustro 1:1 z migracją.
     "ALTER TABLE job_public_profiles "
     "ADD COLUMN IF NOT EXISTS public_title VARCHAR(200) NULL",
+    # 0341: „Mamy championa" (Delivery Lead zatrzymuje szukanie) i podobne
+    # rekrutacje, z których osoby wysłane do klienta przepinają się same.
+    # Lustro 1:1 z migracją — pilnuje `test_job_similar_links.py`.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS champion_found_at TIMESTAMPTZ NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS champion_found_by INTEGER NULL "
+    "REFERENCES users(id) ON DELETE SET NULL",
+    """CREATE TABLE IF NOT EXISTS job_similar_links (
+        id BIGSERIAL PRIMARY KEY,
+        job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        similar_job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_job_similar_links_pair UNIQUE (job_id, similar_job_id),
+        CONSTRAINT ck_job_similar_links_not_self CHECK (job_id <> similar_job_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_job_similar_links_similar_job_id "
+    "ON job_similar_links (similar_job_id)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -6763,6 +6780,14 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
+    # 0341: przepięcie (`reassign`) jako źródło propozycji. DROP+ADD w jednym
+    # bloku — timeout zamka wycofuje oba, następny start ponawia.
+    """DO $$ BEGIN
+        ALTER TABLE job_proposals DROP CONSTRAINT IF EXISTS ck_job_proposals_source;
+        ALTER TABLE job_proposals ADD CONSTRAINT ck_job_proposals_source CHECK (
+            source IN ('full_base', 'new_cv', 'similar_projects',
+                       'recommendation', 'marketplace', 'reassign'));
+    END $$""",
     # 0339: kształt linku aplikacyjnego — `job` wymaga rekrutacji, `recruiter`
     # (stały link) nie ma rekrutacji i ma slug. DROP+ADD w jednym bloku.
     """DO $$ BEGIN

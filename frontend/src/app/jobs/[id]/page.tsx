@@ -13,6 +13,10 @@ import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
 import { EditJobModal } from "@/components/AppShell";
 import { AIJobWriterModal } from "@/components/v2/jobs/AIJobWriterModal";
+import { RequestStatusBadge } from "@/components/v2/jobs/JobListCells";
+import { SimilarJobsDialog } from "@/components/v2/jobs/SimilarJobsDialog";
+import { CHAMPION_ROLES, requestStatusOf } from "@/lib/request-status";
+import { similarJobsApi, useSimilarJobs } from "@/lib/similar-jobs-api";
 import { countHired, countInProcess } from "@/lib/pipeline-flow";
 import { buildJobHeaderKpis } from "@/lib/job-header-kpis";
 import { jobBudgetHourly } from "@/lib/job-budget";
@@ -195,6 +199,12 @@ export default function JobDetailPage() {
   // PATCH /api/jobs/{id} to TacPlus — a TacPlus nie obejmuje HoR. Przez rejestr,
   // żeby nie hodować drugiej listy ról obok niego (F-19).
   const canUpdateJob = useCapability("job.update");
+  // 0341: „Mamy championa" oznacza Delivery Lead (lustro `_CHAMPION_ROLES`).
+  const canMarkChampion =
+    canWritePipeline && CHAMPION_ROLES.some((role) => hasRole(authUser, role));
+  const [similarOpen, setSimilarOpen] = useState(false);
+  const [championPending, setChampionPending] = useState(false);
+  const similarJobs = useSimilarJobs(jobId, canWritePipeline);
   // POST /api/invite-links → RecruiterPlus. Ta sama capability bramkuje akcję
   // na liście ofert — bez niej read-only `user` widział tu przycisk wiodący
   // prosto w 403 (audyt F-19).
@@ -671,21 +681,27 @@ export default function JobDetailPage() {
                 {RECRUITMENT_TYPE_CONFIG[job.recruitment_type].label}
               </Badge>
             ) : null}
-            <Badge
-              variant={
-                job.status === "published"
-                  ? "success"
+            {/* Status requestu (0341) zastępuje techniczny „Aktywna/Szkic" —
+                ta sama reguła co kolumna „Status" na liście. */}
+            {requestStatusOf(job.request_status) ? (
+              <RequestStatusBadge status={job.request_status} />
+            ) : (
+              <Badge
+                variant={
+                  job.status === "published"
+                    ? "success"
+                    : job.status === "draft"
+                      ? "neutral"
+                      : "danger"
+                }
+              >
+                {job.status === "published"
+                  ? "Aktywna"
                   : job.status === "draft"
-                    ? "neutral"
-                    : "danger"
-              }
-            >
-              {job.status === "published"
-                ? "Aktywna"
-                : job.status === "draft"
-                  ? "Szkic"
-                  : job.status}
-            </Badge>
+                    ? "Szkic"
+                    : job.status}
+              </Badge>
+            )}
             {!canWritePipeline ? (
               <Badge variant="info">Tylko odczyt</Badge>
             ) : null}
@@ -722,6 +738,32 @@ export default function JobDetailPage() {
         orderMissingCount={orderMissingCount}
         onOpenHistoryChat={() => openSlideOver("history-chat")}
         onOpenQuestions={() => openSlideOver("questions")}
+        onOpenSimilar={canWritePipeline ? () => setSimilarOpen(true) : undefined}
+        similarLinkedCount={similarJobs.data?.linked.length ?? null}
+        similarSuggestedCount={
+          similarJobs.data
+            ? similarJobs.data.suggestions.filter((s) => s.sent_count > 0).length
+            : null
+        }
+        championFound={job.champion_found_at != null}
+        championPending={championPending}
+        onToggleChampion={
+          canMarkChampion
+            ? async () => {
+                setChampionPending(true);
+                try {
+                  await similarJobsApi.setChampionFound(
+                    jobId,
+                    job.champion_found_at == null,
+                  );
+                  await queryClient.invalidateQueries({ queryKey: ["job", id] });
+                  void queryClient.invalidateQueries({ queryKey: ["jobs-v2"] });
+                } finally {
+                  setChampionPending(false);
+                }
+              }
+            : undefined
+        }
         onAddCandidate={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
         onEdit={onEdit}
         onWriteAnnouncement={onWriteAnnouncement}
@@ -773,6 +815,16 @@ export default function JobDetailPage() {
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ["job", id] });
             setShowEditJob(false);
+          }}
+        />
+      )}
+
+      {similarOpen && (
+        <SimilarJobsDialog
+          jobId={jobId}
+          open
+          onOpenChange={(v) => {
+            if (!v) setSimilarOpen(false);
           }}
         />
       )}

@@ -2444,6 +2444,36 @@ template” → `/jobs/new?from=<id>`) prowadzi na stronę.
   Champion i handoff to `DeliveryLeadPlus`. Harness `/preview/new-job`
   (`?state=request|review|gaps`, zero zapytań).
 
+## Podobne rekrutacje, przepięcia i status requestu (0341, 22.09.2026)
+
+Decyzje Artura z 22.09.2026 (makiety: https://claude.ai/artifact/PGkKkGFSug8KUpB7n5T9Wn).
+Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
+
+- **Status requestu jest LICZONY, jedną regułą** (`request_status_expr`):
+  `closed` → `filled` (zatrudnionych ≥ headcount) → `contract` (bieżący etap
+  acceptance/negotiation/onboarding albo etap szablonu „Umowa…") → `champion`
+  → `incomplete` (szkic) → `searching`. Filtr listy (`?request_status=`, front
+  `rs=`) i pole wiersza/szczegółów czytają TO SAMO wyrażenie.
+- **„Szukamy" trwa, dopóki Delivery Lead nie oznaczy „Mamy championa"**
+  (`POST /api/jobs/{id}/champion-found`, admin/DL/HoR + członkostwo;
+  `jobs.champion_found_at/by`). Liczby „w bazie" świadomie NIE pokazujemy —
+  rekruterzy oceniają sami; „Wymaga ruchu" zdjęte z wiersza listy (sortowanie
+  „Wymaga uwagi" zostaje).
+- **Przepięcie = osoba wysłana do klienta (cv_sent…negotiation, nie
+  zatrudniona w źródle) w rekrutacji wskazanej jako podobna.** Trafia do
+  „Do przejrzenia" jako propozycja `source='reassign'` (nigdy wprost do
+  pipeline'u), na górze kolejki, z `reassign_from` (rekrutacja, etap, data).
+- **Połączenie jest symetryczne i trwałe** (`job_similar_links`, oba kierunki
+  naraz): `link_jobs` przepina od razu w obie strony, a hak
+  `on_candidate_sent` w `/move` i `/bulk-move` przepina każdą kolejną osobę
+  wysłaną do klienta (savepoint, nigdy nie rzuca). Zamknięta rekrutacja nie
+  przyjmuje przepięć, ale jest źródłem.
+- **Sugestie są deterministyczne**: must-have (Jaccard) 0,55 + tytuł 0,30 +
+  ta sama kategoria 0,15, próg 55, pula 18 miesięcy (także zamknięte) w pamięci
+  procesu 5 min z indeksem odwróconym. Lista pokazuje „≈" tylko przy
+  sugestiach z osobami u klienta. DL wskazuje podobne już przy tworzeniu
+  (`POST /api/job-similarity/preview` → po zapisie `POST …/similar`).
+
 ## Rekrutacja „wersja 3" — jedna tabela + panel osoby (21.09.2026, #1641 #1657 #1659)
 
 Decyzje Artura z 21.09.2026 (makiety „Wersja 3"): rekrutacja to JEDNA tabela osób
