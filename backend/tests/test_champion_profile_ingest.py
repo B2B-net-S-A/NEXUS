@@ -605,3 +605,30 @@ def test_backfill_bundle_reads_gzip(tmp_path):
     with gzip.open(bundle, "wt", encoding="utf-8") as handle:
         handle.write('{"rid": 7, "file": 4, "name": "p.docx", "b64": "QQ=="}\n')
     assert [r["rid"] for r in read_bundle(bundle)] == [7]
+
+
+@pytest.mark.asyncio
+async def test_backfill_can_raise_the_text_limit_without_changing_the_default(
+    monkeypatch,
+):
+    import app.services.champion_profile_ingest as m
+
+    seen = {}
+
+    class _Block:
+        type = "text"
+        text = '{"basics": {"role_name": "Dev"}}'
+
+    class _Msg:
+        content = [_Block()]
+
+    async def fake_thread(fn, **kw):
+        seen.update(kw)
+        return _Msg()
+
+    monkeypatch.setattr(m, "run_in_threadpool", fake_thread)
+    long_text = "x" * 20_000
+    with pytest.raises(ValueError, match="14000"):
+        await m.parse_champion_document(long_text)
+    await m.parse_champion_document(long_text, max_chars=40_000)
+    assert seen["max_tokens"] == 12_000

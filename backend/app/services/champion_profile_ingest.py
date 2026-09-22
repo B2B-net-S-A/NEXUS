@@ -141,7 +141,9 @@ def extract_document_text(file_bytes: bytes, filename: str) -> Optional[str]:
     return None
 
 
-async def parse_champion_document(text: str, *, model: Optional[str] = None) -> dict:
+async def parse_champion_document(
+    text: str, *, model: Optional[str] = None, max_chars: int = 14_000
+) -> dict:
     """LLM parse tekstu profilu → dict schematu v3. Rzuca ValueError na śmieci.
 
     ``model`` nadpisuje model z rejestru dla jednego przebiegu (backfill
@@ -151,14 +153,16 @@ async def parse_champion_document(text: str, *, model: Optional[str] = None) -> 
     from app.services.ai_models import SONNET_5
     from app.services.claude_client import call_claude
 
-    if len(text) > 14_000:
-        raise ValueError("Dokument przekracza limit 14000 znaków; skróć treść.")
+    if len(text) > max_chars:
+        raise ValueError(f"Dokument przekracza limit {max_chars} znaków; skróć treść.")
     chosen = model or PARSE_MODEL
     msg = await run_in_threadpool(
         call_claude,
         model=chosen,
         fallback_models=[SONNET_5] if chosen != SONNET_5 else None,
-        max_tokens=6000,
+        # Dokument ponad limit ekranu importu (backfill) niesie więcej pytań
+        # i obowiązków do przepisania — 6000 tokenów ucięłoby odpowiedź.
+        max_tokens=6000 if len(text) <= 14_000 else 12_000,
         temperature=0,
         thinking={"type": "disabled"},
         messages=[{"role": "user", "content": PROMPT + text}],

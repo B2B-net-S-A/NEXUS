@@ -68,6 +68,7 @@ async def process_one(
     model: str,
     merge_existing: bool,
     dry_run: bool,
+    max_chars: Optional[int] = None,
 ) -> dict[str, Any]:
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job
@@ -110,9 +111,11 @@ async def process_one(
         if not text or len(text) < 200:
             return {**base, "outcome": "no_text"}
         try:
-            parsed = (await preview_document(content, row["name"], db=db, model=model))[
-                "champion_profile"
-            ]
+            parsed = (
+                await preview_document(
+                    content, row["name"], db=db, model=model, max_text=max_chars
+                )
+            )["champion_profile"]
         except ValueError as exc:
             return {**base, "outcome": "parse_failed", "detail": str(exc)[:200]}
 
@@ -143,6 +146,7 @@ async def run(
     limit: Optional[int],
     only_rids: Optional[set[int]],
     concurrency: int,
+    max_chars: Optional[int] = None,
 ) -> dict[str, int]:
     rows = read_bundle(bundle)
     if only_rids:
@@ -156,7 +160,11 @@ async def run(
         async with gate:
             try:
                 return await process_one(
-                    row, model=model, merge_existing=merge_existing, dry_run=dry_run
+                    row,
+                    model=model,
+                    merge_existing=merge_existing,
+                    dry_run=dry_run,
+                    max_chars=max_chars,
                 )
             except Exception as exc:  # jeden plik nie zatrzymuje przebiegu
                 logger.exception("champion_backfill: rid=%s padł", row["rid"])
@@ -190,6 +198,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--rids", help="lista rid po przecinku (próbka)")
     parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument(
+        "--max-chars",
+        type=int,
+        help="podnieś limit znaków odczytu (dokumenty ponad 14 000 znaków)",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING)
     only = {int(x) for x in args.rids.split(",")} if args.rids else None
@@ -203,6 +216,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             limit=args.limit,
             only_rids=only,
             concurrency=args.concurrency,
+            max_chars=args.max_chars,
         )
     )
     return 0
