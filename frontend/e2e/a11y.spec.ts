@@ -42,11 +42,14 @@ test.describe("Dostępność @stack", () => {
     await expectNoCriticalViolations(page, testInfo, "candidates");
   });
 
-  test("tablica rekrutacji", async ({ admin, page }, testInfo) => {
+  // Tablica jest widokiem domyślnym (#1696) — badamy ją pod gołym adresem,
+  // czyli tam, gdzie ląduje każdy, kto otwiera rekrutację.
+  test("tablica rekrutacji (widok domyślny)", async ({ admin, page }, testInfo) => {
     const client = await createClient(admin.api);
     const job = await createJob(admin.api, client.id);
-    await page.goto(`/jobs/${job.id}?tab=board`);
+    await page.goto(`/jobs/${job.id}`);
     await expect(page.getByTestId("pipeline-board")).toBeVisible();
+    await expect(page.getByTestId("view-board")).toHaveAttribute("aria-pressed", "true");
     await expectNoCriticalViolations(page, testInfo, "job-board");
   });
 
@@ -57,6 +60,7 @@ test.describe("Dostępność @stack", () => {
     const job = await createJob(admin.api, client.id);
     await page.goto(`/jobs/${job.id}?tab=people`);
     await expect(page.getByRole("navigation", { name: "Etapy rekrutacji" })).toBeVisible();
+    await expect(page.getByTestId("view-people")).toHaveAttribute("aria-pressed", "true");
     await expectNoCriticalViolations(page, testInfo, "job-table");
   });
 });
