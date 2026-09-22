@@ -22,6 +22,20 @@ it('captures first session occurrence and preserves a different signature', () =
   expect(firstInSession('hydration-test:2')).toBe(true)
 })
 
+it('retains only numeric React diagnostics through repeated privacy scrubbing', () => {
+  const event: Event = {
+    message: 'Minified React error #419; visit https://react.dev/errors/419?args[]=private@example.com',
+    tags: { react_error_code: 'private-tag' },
+    exception: { values: [{ type: 'Error', value: 'Minified React error #419; secret-value' }] },
+  }
+  const result = scrubSentryEvent(scrubSentryEvent(event))
+  expect(result.message).toBe('React error #419 (private details omitted)')
+  expect(result.exception?.values?.[0].value).toBe('React error #419 (private details omitted)')
+  expect(result.tags?.react_error_code).toBe('419')
+  expect(JSON.stringify(result)).not.toMatch(/private@example.com|secret-value|private-tag|args\[\]/)
+  expect(scrubSentryEvent({ tags: { react_error_code: 'private-tag' } }).tags).toEqual({})
+})
+
 it('redacts capabilities and query data from stack URLs while retaining file and line', () => {
   const result = scrubSentryEvent({ exception: { values: [{ stacktrace: { frames: [
     { filename: 'https://nexus.dynaminds.pl/cv/synthetic-private-token?email=private@example.com', lineno: 8 },

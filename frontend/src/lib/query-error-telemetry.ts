@@ -15,7 +15,12 @@
  * axios: nie niesie treści odpowiedzi, nagłówków ani parametrów zapytania
  * (dane kandydatów, tokeny), a filtr `beforeSend` nie odrzuca go jako
  * timeoutu. Zapisy są raportowane deterministycznie; odczyty są próbkowane.
+ * Wyjątki spoza axios w mutacjach mają osobną klasę klienta i zachowują
+ * oczyszczone miejsca źródłowe; nie dowodzą błędu HTTP ani awarii backendu.
  */
+
+import { defaultStackParser } from '@sentry/nextjs';
+import { reactErrorCode, scrubSentryEvent } from './sentry-privacy';
 
 export type QueryFailureKind = "network" | "timeout" | "server";
 
@@ -86,6 +91,22 @@ export type CaptureFn = (
   context: { tags: Record<string, string>; fingerprint: string[]; contexts: { correlation: Record<string, string> } },
 ) => void;
 
+/** Rebuild only parsed, scrubbed source frames; raw stack text may contain PII. */
+function privateMutationError(error: Error): Error {
+  const code = reactErrorCode(error.message);
+  const reported = new Error(`Client mutation failed${code ? ` (React error #${code})` : ''}`);
+  const event = scrubSentryEvent({
+    exception: { values: [{ stacktrace: { frames: defaultStackParser(error.stack ?? '') } }] },
+  });
+  const frames = event.exception.values[0].stacktrace.frames;
+  reported.stack = [
+    `${reported.name}: ${reported.message}`,
+    ...frames.slice().reverse().filter(frame => frame.filename).map(frame =>
+      `    at ${frame.filename}:${frame.lineno ?? 0}:${frame.colno ?? 0}`),
+  ].join('\n');
+  return reported;
+}
+
 export function createQueryFailureReporter({
   capture,
   random = Math.random,
@@ -98,12 +119,25 @@ export function createQueryFailureReporter({
   const lastReported = new Map<string, number>();
   const reportedWrites = new WeakSet<object>();
   return (error: unknown, mutationIdentity?: object) => {
-    const failure = classifyQueryError(error) ?? (
-      mutationIdentity && error instanceof Error && !(error as AxiosLikeError).isAxiosError
-        ? { kind: "server" as const, status: null, method: "MUTATION", path: "unknown" }
-        : null
-    );
-    if (!failure) return;
+    const failure = classifyQueryError(error);
+    if (!failure) {
+      if (!mutationIdentity || !(error instanceof Error) || (error as AxiosLikeError).isAxiosError) return;
+      if (reportedWrites.has(mutationIdentity)) return;
+      reportedWrites.add(mutationIdentity);
+      const code = reactErrorCode(error.message);
+      capture(privateMutationError(error), {
+        contexts: { correlation: {} },
+        tags: {
+          terminal: 'true',
+          operation: 'client-mutation',
+          failure_kind: 'client',
+          sampling_policy: 'all-terminal-writes',
+          ...(code ? { react_error_code: code } : {}),
+        },
+        fingerprint: ['client-mutation-failure', '{{ default }}', ...(code ? [`react-${code}`] : [])],
+      });
+      return;
+    }
     const err = error as AxiosLikeError;
     const write = !!mutationIdentity || !["GET", "HEAD", "OPTIONS"].includes(failure.method);
     const identity = mutationIdentity ?? err.config ?? err;
