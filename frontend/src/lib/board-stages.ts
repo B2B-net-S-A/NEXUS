@@ -300,3 +300,14 @@ export function foldBoardColumns<C extends FoldableColumn>(
  * regułę sprawdza serwer przy ruchu.
  */
 export const SETTABLE_BADGES: readonly StageBadgeKey[] = ["dz", "cpro", "contract_signed"];
+
+/**
+ * Odznaki widoczne na karcie dla etapu-odznaki. „Wysłać do Cpro" stoi w procesie
+ * PO „Przepuszczony przez DZ" — osoba gotowa do Cpro jest też zweryfikowana
+ * przez DZ, więc karta pokazuje obie odznaki (inaczej ustawienie Cpro
+ * „zabierało" DZ).
+ */
+export function impliedBadges(badge: StageBadgeKey | null | undefined): StageBadgeKey[] {
+  if (!badge) return [];
+  return badge === "cpro" ? ["dz", "cpro"] : [badge];
+}
