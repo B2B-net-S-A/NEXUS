@@ -2245,6 +2245,20 @@ async def list_candidates(
     contact_case_by_candidate = await load_contact_case_summaries(
         db, [candidate.id for candidate in items]
     )
+    # Jedno zapytanie na stronę: kto ma zapisany dokument CV (ten sam filtr co
+    # `GET /{id}/documents?kind=cv`, z którego czyta podgląd).
+    candidates_with_cv: set[int] = set()
+    if items:
+        cv_rows = await db.execute(
+            select(CandidateDocument.candidate_id)
+            .where(
+                CandidateDocument.candidate_id.in_([c.id for c in items]),
+                CandidateDocument.source_deleted_at.is_(None),
+                CandidateDocument.document_kind == CandidateDocumentKind.cv,
+            )
+            .distinct()
+        )
+        candidates_with_cv = {row[0] for row in cv_rows.all()}
     response_items: list[CandidateResponse] = []
     for cand in items:
         payload = _candidate_to_response(cand)
@@ -2255,7 +2269,11 @@ async def list_candidates(
         # ownership carries source values used by the editor and would only
         # bloat every candidate tile; detail/mutation responses keep it.
         payload = payload.model_copy(
-            update={"linkedin_snapshots": None, "identity_sync": None}
+            update={
+                "linkedin_snapshots": None,
+                "identity_sync": None,
+                "has_cv_document": cand.id in candidates_with_cv,
+            }
         )
         stats = match_stats_by_candidate.get(cand.id)
         if stats is not None:
