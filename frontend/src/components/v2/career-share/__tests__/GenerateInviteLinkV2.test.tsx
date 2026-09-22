@@ -202,6 +202,85 @@ describe("GenerateInviteLinkV2 — Udostępnij rekrutację", () => {
     expect(await screen.findByText("Skopiowano link.")).toBeInTheDocument();
   });
 
+  it("„Tytuł na stronie”: placeholder = tytuł domyślny, wpis idzie w PUT i do podglądu posta", async () => {
+    const user = userEvent.setup();
+    routeGet({
+      ...baseRoutes,
+      "/api/jobs": { items: [{ ...JOB, title: "Nordea: Senior Java Developer (ZOB-3003)" }] },
+      "/api/jobs/101/public-profile": profile({
+        public_title: null,
+        default_title: "Senior Java Developer",
+        effective_title: "Senior Java Developer",
+      }),
+      "/api/me/career-link": {
+        link: null,
+        stats: null,
+        suggested_slug: "marta-n",
+        jobs: [],
+        base_url: "https://nexus.dynaminds.pl",
+        recruiter_base_url: "https://nexus.dynaminds.pl/kariera/p/",
+      },
+    });
+    vi.mocked(api.put).mockImplementation(async (_url: string, body: unknown) => ({
+      data: profile({
+        ...(body as Record<string, unknown>),
+        default_title: "Senior Java Developer",
+        effective_title: (body as { public_title: string | null }).public_title ?? "Senior Java Developer",
+      }),
+    }));
+    renderDialog();
+
+    const title = await screen.findByLabelText("Tytuł na stronie");
+    expect(title).toHaveValue("");
+    expect(title).toHaveAttribute("placeholder", "Senior Java Developer");
+    const preview = screen.getByTestId("linkedin-preview");
+    // Podgląd bierze tytuł domyślny, nie surowy tytuł z nazwą klienta.
+    expect(preview).toHaveTextContent("Senior Java Developer — Dynaminds");
+    expect(preview).not.toHaveTextContent("Nordea");
+    await waitFor(() => expect(preview).toHaveTextContent("nexus.dynaminds.pl"));
+
+    await user.type(title, "Java Developer w bankowości");
+    expect(screen.getByText(/niezapisane zmiany/)).toBeInTheDocument();
+    expect(preview).toHaveTextContent("Java Developer w bankowości — Dynaminds");
+
+    await user.click(screen.getByRole("button", { name: "Zapisz szkic" }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenCalledWith(
+        "/api/jobs/101/public-profile",
+        expect.objectContaining({ public_title: "Java Developer w bankowości" }),
+      ),
+    );
+
+    // Wyczyszczenie pola = tytuł domyślny (null), nie pusty napis.
+    await user.clear(screen.getByLabelText("Tytuł na stronie"));
+    await user.click(screen.getByRole("button", { name: "Zapisz szkic" }));
+    await waitFor(() =>
+      expect(api.put).toHaveBeenLastCalledWith(
+        "/api/jobs/101/public-profile",
+        expect.objectContaining({ public_title: null }),
+      ),
+    );
+  });
+
+  it("znalezisko w tytule na stronie znika po usunięciu fragmentu z tytułu", async () => {
+    const user = userEvent.setup();
+    routeGet({
+      ...baseRoutes,
+      "/api/jobs/101/public-profile": profile({
+        public_title: "Nordea — Java Developer",
+        about: "Zespół przebudowuje platformę płatności.",
+        findings: [
+          { code: "client_name", message: "Wykryto nazwę klienta: „Nordea”.", excerpt: "Nordea" },
+        ],
+      }),
+    });
+    renderDialog();
+    expect(await screen.findByText(/Wykryto nazwę klienta/)).toBeInTheDocument();
+    await user.clear(screen.getByLabelText("Tytuł na stronie"));
+    await user.type(screen.getByLabelText("Tytuł na stronie"), "Java Developer");
+    expect(screen.queryByText(/Wykryto nazwę klienta/)).not.toBeInTheDocument();
+  });
+
   it("awaria wczytania opisu nie wygląda jak pusty opis", async () => {
     routeGet({
       ...baseRoutes,
@@ -258,6 +337,34 @@ describe("GenerateInviteLinkV2 — Mój link ogólny", () => {
     expect(screen.getByRole("switch", { name: `Pokaż na stronie: ${JOB.title}` })).toBeEnabled();
     expect(screen.getByRole("switch", { name: "Pokaż na stronie: Analityk biznesowy" })).toBeDisabled();
     expect(screen.getByText("Najpierw zatwierdź opis publiczny tej rekrutacji.")).toBeInTheDocument();
+  });
+
+  it("prefiks adresu idzie z `recruiter_base_url` (bez protokołu), nie ze stałej domeny", async () => {
+    await openGeneral({
+      "/api/me/career-link": {
+        ...careerLink,
+        link: { ...careerLink.link, public_url: "https://nexus.dynaminds.pl/kariera/p/marta-n" },
+        base_url: "https://nexus.dynaminds.pl",
+        recruiter_base_url: "https://nexus.dynaminds.pl/kariera/p/",
+      },
+    });
+    expect(await screen.findByTestId("career-slug-prefix")).toHaveTextContent(
+      "nexus.dynaminds.pl/kariera/p/",
+    );
+    expect(screen.getByTestId("linkedin-preview")).toHaveTextContent("nexus.dynaminds.pl");
+    expect(screen.getByTestId("linkedin-preview")).not.toHaveTextContent("kariera.dynaminds.pl");
+  });
+
+  it("starszy backend bez `recruiter_base_url`: prefiks z adresu linku bez sluga", async () => {
+    await openGeneral({
+      "/api/me/career-link": {
+        ...careerLink,
+        link: { ...careerLink.link, public_url: "https://nexus.dynaminds.pl/kariera/p/marta-n" },
+      },
+    });
+    expect(await screen.findByTestId("career-slug-prefix")).toHaveTextContent(
+      "nexus.dynaminds.pl/kariera/p/",
+    );
   });
 
   it("sprawdza dostępność adresu z opóźnieniem i pokazuje powód zajętości", async () => {

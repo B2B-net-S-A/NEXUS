@@ -4,9 +4,13 @@ import {
   careerBase,
   careerHosts,
   careerHref,
+  careerMetadataBase,
+  careerVisibleUrl,
   isCareerHost,
   normalizeHost,
+  requestDisplayHost,
   requestHost,
+  requestOrigin,
   resolveCareerRoute,
 } from "@/lib/career/host";
 
@@ -73,5 +77,56 @@ describe("careerHref", () => {
     expect(careerHref(base, { to: "recruiter", slug: "marta-n" })).toBe("/kariera/p/marta-n");
     expect(careerHref(base, { to: "rodo" })).toBe("/kariera/rodo");
     expect(careerHref(base, { to: "home" })).toBe("/kariera");
+  });
+});
+
+describe("adresy z nagłówków żądania (metadataBase, stopka, grafika OG)", () => {
+  const h = (values: Record<string, string>) => ({
+    get: (name: string) => values[name.toLowerCase()] ?? null,
+  });
+
+  it("pochodzenie z x-forwarded-proto/x-forwarded-host ma pierwszeństwo przed host", () => {
+    const headers = h({
+      host: "localhost:3000",
+      "x-forwarded-host": "kariera.dynaminds.pl",
+      "x-forwarded-proto": "https",
+    });
+    expect(requestOrigin(headers)).toBe("https://kariera.dynaminds.pl");
+    expect(careerMetadataBase(headers)?.href).toBe("https://kariera.dynaminds.pl/");
+  });
+
+  it("bez x-forwarded-proto: https dla domeny, http dla localhost", () => {
+    expect(requestOrigin(h({ host: "nexus.dynaminds.pl" }))).toBe("https://nexus.dynaminds.pl");
+    expect(requestOrigin(h({ host: "localhost:3000" }))).toBe("http://localhost:3000");
+  });
+
+  it("brak hosta = brak metadataBase (nie zgadujemy domeny)", () => {
+    expect(requestOrigin(h({}))).toBeNull();
+    expect(careerMetadataBase(h({}))).toBeUndefined();
+  });
+
+  it("host widoczny zachowuje port dev, ale nie domyślny", () => {
+    expect(requestDisplayHost(h({ host: "localhost:3000" }))).toBe("localhost:3000");
+    expect(requestDisplayHost(h({ "x-forwarded-host": "Kariera.Dynaminds.pl:443" }))).toBe(
+      "kariera.dynaminds.pl",
+    );
+  });
+
+  it("adres widoczny: bez prefiksu na hoście kariery, z /kariera/p i /kariera/r na hoście aplikacji", () => {
+    expect(careerVisibleUrl("kariera.dynaminds.pl", "", { to: "recruiter", slug: "marta-n" })).toBe(
+      "kariera.dynaminds.pl/marta-n",
+    );
+    expect(careerVisibleUrl("kariera.dynaminds.pl", "", { to: "job", slug: "java-ab12" })).toBe(
+      "kariera.dynaminds.pl/r/java-ab12",
+    );
+    expect(
+      careerVisibleUrl("nexus.dynaminds.pl", "/kariera", { to: "recruiter", slug: "marta-n" }),
+    ).toBe("nexus.dynaminds.pl/kariera/p/marta-n");
+    expect(careerVisibleUrl("nexus.dynaminds.pl", "/kariera", { to: "job", slug: "java-ab12" })).toBe(
+      "nexus.dynaminds.pl/kariera/r/java-ab12",
+    );
+    expect(careerVisibleUrl("nexus.dynaminds.pl", "/kariera", { to: "home" })).toBe(
+      "nexus.dynaminds.pl",
+    );
   });
 });

@@ -4,21 +4,28 @@ import {
   careerBase,
   careerHosts,
   isCareerHost,
-  primaryCareerHost,
+  requestDisplayHost,
   requestHost,
+  requestOrigin,
   type CareerBase,
 } from "@/lib/career/host";
 
 /**
  * Kontekst żądania strony kariery: czy jesteśmy na hoście kariery (linki bez
- * prefiksu `/kariera`) i jaki host pokazać w stopce.
+ * prefiksu `/kariera`), host widoczny dla odwiedzającego (stopka) i pochodzenie
+ * żądania. Host bierzemy z nagłówków — nigdy stała domena: na hoście aplikacji
+ * strona działa pod `<host>/kariera/...` i taki adres ma widzieć kandydat.
  */
-export async function careerRequestContext(): Promise<{ base: CareerBase; host: string }> {
+export async function careerRequestContext(): Promise<{
+  base: CareerBase;
+  host: string;
+  origin: string | null;
+}> {
   const h = await headers();
-  const host = requestHost(h);
-  const onCareerHost = isCareerHost(host, careerHosts());
+  const onCareerHost = isCareerHost(requestHost(h), careerHosts());
   return {
     base: careerBase(onCareerHost),
-    host: onCareerHost ? host : primaryCareerHost(),
+    host: requestDisplayHost(h),
+    origin: requestOrigin(h),
   };
 }

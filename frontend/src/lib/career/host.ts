@@ -139,3 +139,74 @@ export function careerHref(base: CareerBase, target: CareerLinkTarget): string {
 export function primaryCareerHost(): string {
   return careerHosts()[0] ?? "kariera.dynaminds.pl";
 }
+
+type HeaderReader = { get(name: string): string | null };
+
+/** Host lokalny (dev) — tu domyślnym protokołem jest http, nie https. */
+function isLocalHost(host: string): boolean {
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "[::1]" ||
+    /^127\.\d+\.\d+\.\d+$/.test(host) ||
+    /^0\.0\.0\.0$/.test(host)
+  );
+}
+
+/**
+ * Host WIDOCZNY dla odwiedzającego — z portem, jeśli był (dev `localhost:3000`).
+ * `requestHost` go obcina, bo służy do porównań z listą hostów kariery.
+ */
+export function requestDisplayHost(headers: HeaderReader): string {
+  const raw = (headers.get("x-forwarded-host") || headers.get("host") || "")
+    .split(",")[0]
+    ?.trim()
+    .toLowerCase();
+  // Porty domyślne nic nie mówią kandydatowi („kariera.dynaminds.pl:443").
+  return (raw ?? "").replace(/:(80|443)$/, "");
+}
+
+/**
+ * Pochodzenie żądania (`https://kariera.dynaminds.pl`) z nagłówków proxy.
+ *
+ * Za Traefikiem Next.js widzi `localhost:3000`, więc bez tego `metadataBase`
+ * i adresy grafik Open Graph wskazywały `http://localhost:3000/...` — LinkedIn
+ * nie pobierze takiej grafiki. `null` = brak hosta (nie zgadujemy domeny).
+ */
+export function requestOrigin(headers: HeaderReader): string | null {
+  const host = requestDisplayHost(headers);
+  if (!host) return null;
+  const forwarded = headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  const proto =
+    forwarded === "http" || forwarded === "https"
+      ? forwarded
+      : isLocalHost(normalizeHost(host))
+        ? "http"
+        : "https";
+  return `${proto}://${host}`;
+}
+
+/** `metadataBase` stron kariery — z nagłówków żądania, nigdy stały adres. */
+export function careerMetadataBase(headers: HeaderReader): URL | undefined {
+  const origin = requestOrigin(headers);
+  if (!origin) return undefined;
+  try {
+    return new URL(origin);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Adres do pokazania kandydatowi (bez protokołu): na hoście kariery
+ * `kariera.dynaminds.pl/marta-n`, na hoście aplikacji
+ * `nexus.dynaminds.pl/kariera/p/marta-n` — ten sam, pod którym strona działa.
+ */
+export function careerVisibleUrl(
+  host: string,
+  base: CareerBase,
+  target: CareerLinkTarget,
+): string {
+  if (target.to === "home") return host;
+  return `${host}${careerHref(base, target)}`;
+}

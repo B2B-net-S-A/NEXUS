@@ -83,6 +83,10 @@ class CareerLinkJob(BaseModel):
 
 class CareerLinkResponse(BaseModel):
     link: Optional[CareerLinkBrief] = None
+    # Adres strony kariery i prefiks stałego linku (z końcowym „/") — front
+    # nie zgaduje domeny ani ścieżki.
+    base_url: str
+    recruiter_base_url: str
     stats: CareerLinkStats
     suggested_slug: str
     jobs: list[CareerLinkJob] = Field(default_factory=list)
@@ -111,6 +115,7 @@ class PublicProfileFinding(BaseModel):
 
 
 class PublicProfileUpdate(BaseModel):
+    public_title: Optional[str] = Field(default=None, max_length=200)
     subtitle: Optional[str] = Field(default=None, max_length=300)
     about: Optional[str] = Field(default=None, max_length=4000)
     sections: Optional[PublicSections] = None
@@ -124,6 +129,9 @@ class PublicProfileVisibility(BaseModel):
 class PublicProfileResponse(BaseModel):
     job_id: int
     status: Literal["none", "draft", "approved"]
+    public_title: Optional[str] = None
+    default_title: str
+    effective_title: str
     subtitle: Optional[str] = None
     about: Optional[str] = None
     sections: PublicSections

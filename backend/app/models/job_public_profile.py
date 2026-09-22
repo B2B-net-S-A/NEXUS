@@ -30,6 +30,9 @@ class JobPublicProfile(Base):
     job_id: Mapped[int] = mapped_column(
         ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True
     )
+    # 0340: tytuł na stronie ustawiony przez rekrutera; NULL = tytuł domyślny
+    # (``job_public_profile.default_public_title``).
+    public_title: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     subtitle: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     about: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sections: Mapped[dict] = mapped_column(

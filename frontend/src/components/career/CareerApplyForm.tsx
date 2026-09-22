@@ -528,7 +528,8 @@ export function CareerApplyForm({
       </div>
 
       <button type="submit" className="kr-submit" disabled={busy}>
-        <span className="kr-kbd" aria-hidden="true">
+        {/* Plakietka klawisza nie ma sensu na telefonie — chowamy poniżej `sm`. */}
+        <span className="kr-kbd hidden sm:inline-block" aria-hidden="true">
           ENTER
         </span>
         {busy

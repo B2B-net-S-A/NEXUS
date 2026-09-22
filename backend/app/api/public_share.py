@@ -683,11 +683,17 @@ async def get_public_apply_meta(
 
     # Use only the first name of the recruiter for the hero line.
     recruiter_first_name = (recruiter.name or "").strip().split(" ", 1)[0]
+    # 0340: tytuł publiczny — surowy `jobs.title` niesie nazwę klienta i kody.
+    from app.models.job_public_profile import JobPublicProfile
+    from app.services.job_public_profile import public_titles
+
+    profile = await db.get(JobPublicProfile, job.id)
+    _default_title, public_title = await public_titles(db, job, profile)
 
     return {
         "recruiter": {"first_name": recruiter_first_name or "Zespół"},
         "job": {
-            "title": job.title,
+            "title": public_title,
             "location": job.location,
             "seniority": job.seniority.value if job.seniority else None,
             "remote_policy": (job.remote_policy.value if job.remote_policy else None),

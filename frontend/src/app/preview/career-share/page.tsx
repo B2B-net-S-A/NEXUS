@@ -35,7 +35,8 @@ import {
 } from "@/lib/api/careerLinks";
 
 const JOBS: PublishedJobLite[] = [
-  { id: 101, title: "Senior Java Developer", status: "published" },
+  // Surowy tytuł z nazwą klienta i kodem — na stronie ma wyjść tytuł domyślny.
+  { id: 101, title: "Nordea: Senior Java Developer (ZOB-3003)", status: "published" },
   { id: 102, title: "DevOps Engineer (Azure)", status: "published" },
   { id: 103, title: "Analityk biznesowy", status: "published" },
 ];
@@ -43,6 +44,9 @@ const JOBS: PublishedJobLite[] = [
 const PROFILE_WITH_FINDING: JobPublicProfile = {
   job_id: 101,
   status: "draft",
+  public_title: null,
+  default_title: "Senior Java Developer",
+  effective_title: "Senior Java Developer",
   subtitle: "rozwój platformy płatności w dużym projekcie z sektora bankowego",
   about:
     "Dołączysz do zespołu, który przebudowuje platformę obsługującą płatności kartowe i przelewy natychmiastowe. System przechodzi z monolitu na architekturę mikroserwisów opartą o zdarzenia. Budżet do 180 zł/h.\n\nZespół liczy 8 osób, dwutygodniowe sprinty.",
@@ -120,6 +124,8 @@ const CAREER_LINK: CareerLinkState = {
   },
   stats: { days: 30, applications: 9, new_candidates: 6 },
   suggested_slug: "marta-n",
+  base_url: "https://kariera.dynaminds.pl",
+  recruiter_base_url: "https://kariera.dynaminds.pl/",
   jobs: [
     { job_id: 101, title: "Senior Java Developer", profile_status: "draft", show_on_recruiter_page: true, has_link: false },
     { job_id: 102, title: "DevOps Engineer (Azure)", profile_status: "approved", show_on_recruiter_page: true, has_link: true },

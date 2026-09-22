@@ -1,6 +1,7 @@
 // Czyste pomocniki okna „Udostępnij rekrutację" — testowalne bez montowania.
 
 import type {
+  CareerLinkState,
   ExpiryChoice,
   InviteLink,
   InviteLinkStatus,
@@ -8,8 +9,6 @@ import type {
   PublicProfileFinding,
   PublicProfileStatus,
 } from "@/lib/api/careerLinks";
-
-export const DEFAULT_CAREER_HOST = "kariera.dynaminds.pl";
 
 export const EXPIRY_OPTIONS: { value: ExpiryChoice; label: string }[] = [
   { value: "none", label: "Do zamknięcia rekrutacji" },
@@ -57,7 +56,22 @@ export const PROFILE_STATUS_VARIANT: Record<
 
 /** Adres publiczny linku — nowe linki mają `public_url`, stare tylko `url`. */
 export function linkUrl(link: Pick<InviteLink, "url" | "public_url">): string {
-  return link.public_url || link.url;
+  return absoluteUrl(link.public_url || link.url);
+}
+
+/**
+ * Adres bezwzględny do skopiowania: backend bez domeny kariery może zwrócić
+ * ścieżkę (`/kariera/p/marta-n`) — kandydat na LinkedInie potrzebuje pełnego.
+ */
+export function absoluteUrl(url: string): string {
+  if (!url || /^https?:\/\//i.test(url)) return url;
+  const origin = typeof window !== "undefined" ? window.location.origin : undefined;
+  if (!origin) return url;
+  try {
+    return new URL(url, origin).href;
+  } catch {
+    return url;
+  }
 }
 
 export function isLinkLive(link: InviteLink): boolean {
@@ -77,14 +91,73 @@ export function activeLinkForJob(
   );
 }
 
-/** „kariera.dynaminds.pl" z pełnego adresu; fallback na domyślny host. */
-export function hostFromUrl(url: string | null | undefined): string {
-  if (!url) return DEFAULT_CAREER_HOST;
+// ── Adresy ───────────────────────────────────────────────────────────────
+//
+// Domena strony kariery zależy od konfiguracji serwera (z domeną kariery:
+// `kariera.dynaminds.pl/marta-n`, bez niej: `nexus.dynaminds.pl/kariera/p/marta-n`),
+// więc NIGDY nie zaszywamy jej w oknie — adresy idą z API, a gdy starszy
+// backend ich nie zwraca, wyprowadzamy je z adresu linku albo z bieżącego hosta.
+
+function currentOrigin(): string | undefined {
+  return typeof window !== "undefined" ? window.location.origin : undefined;
+}
+
+function parseUrl(url: string | null | undefined): URL | null {
+  if (!url) return null;
   try {
-    return new URL(url).host || DEFAULT_CAREER_HOST;
+    return new URL(url, currentOrigin());
   } catch {
-    return DEFAULT_CAREER_HOST;
+    return null;
   }
+}
+
+/** Adres bez protokołu, do wyświetlenia: „kariera.dynaminds.pl/marta-n". */
+export function displayUrl(url: string | null | undefined): string {
+  const parsed = parseUrl(url);
+  if (!parsed) return (url ?? "").replace(/^https?:\/\//, "");
+  return `${parsed.host}${parsed.pathname}${parsed.search}`;
+}
+
+/** Host z adresu (także względnego — wtedy host bieżącej strony); "" gdy nie da się. */
+export function hostFromUrl(url: string | null | undefined): string {
+  return parseUrl(url)?.host ?? "";
+}
+
+/** Host bieżącej strony — ostatnia deska ratunku, gdy API nie podało adresu. */
+function currentHost(): string {
+  return typeof window !== "undefined" ? window.location.host : "";
+}
+
+/**
+ * Prefiks stałego linku rekrutera do wyświetlenia (bez protokołu, z „/" na
+ * końcu): `recruiter_base_url` z API → adres istniejącego linku bez sluga →
+ * bieżący host + `/kariera/p/` (tam strona rekrutera leży na hoście aplikacji).
+ */
+export function recruiterLinkPrefix(
+  state: Pick<CareerLinkState, "link"> &
+    Partial<Pick<CareerLinkState, "base_url" | "recruiter_base_url">> | null | undefined,
+): string {
+  const withSlash = (v: string) => (v.endsWith("/") ? v : `${v}/`);
+  if (state?.recruiter_base_url) return withSlash(displayUrl(state.recruiter_base_url));
+  const linkUrlValue = state?.link?.public_url;
+  if (linkUrlValue) {
+    const shown = displayUrl(linkUrlValue).replace(/\/+$/, "");
+    const cut = shown.lastIndexOf("/");
+    if (cut > 0) return shown.slice(0, cut + 1);
+  }
+  const host = currentHost();
+  return host ? `${host}/kariera/p/` : "";
+}
+
+/**
+ * Host w podglądzie posta (LinkedIn pokazuje samą domenę): adres linku, jeśli
+ * jest → `base_url` z API → bieżący host.
+ */
+export function careerPreviewHost(
+  linkAddress: string | null | undefined,
+  baseUrl: string | null | undefined,
+): string {
+  return hostFromUrl(linkAddress) || hostFromUrl(baseUrl) || currentHost();
 }
 
 /** Reguła sluga z backendu: a-z0-9 i myślnik, 3–40 znaków, bez myślnika na końcach. */
@@ -214,4 +287,16 @@ export function slugifyTitle(title: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
+}
+
+/**
+ * Tytuł, który zobaczy kandydat: wpisany „Tytuł na stronie" → domyślny tytuł
+ * publiczny z backendu (bez nazwy klienta i kodów) → tytuł rekrutacji.
+ */
+export function effectivePublicTitle(
+  publicTitle: string | null | undefined,
+  defaultTitle: string | null | undefined,
+  jobTitle: string | null | undefined,
+): string {
+  return publicTitle?.trim() || defaultTitle?.trim() || jobTitle?.trim() || "Rekrutacja";
 }

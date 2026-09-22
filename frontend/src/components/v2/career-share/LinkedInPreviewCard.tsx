@@ -1,3 +1,5 @@
+import { splitTitle } from "@/lib/career/format";
+
 /**
  * Podgląd posta na LinkedInie — miniatura grafiki Open Graph strony kariery.
  *
@@ -11,7 +13,7 @@
 export interface LinkedInPreviewCardProps {
   /** Linia komendy nad nagłówkiem, bez znaku `$`. */
   command: string;
-  /** Nagłówek grafiki; ostatnie słowo dostaje bordo i kropkę. */
+  /** Nagłówek grafiki; ostatnie słowo dostaje bordo (kropkę — tylko po literze/cyfrze). */
   headline: string;
   /** Linia pod nagłówkiem, np. „[warszawa · hybryda · b2b]". */
   tagline?: string | null;
@@ -21,12 +23,6 @@ export interface LinkedInPreviewCardProps {
   host: string;
 }
 
-function splitHeadline(headline: string): { lead: string; last: string } {
-  const trimmed = headline.trim().replace(/[.!?]+$/, "");
-  const idx = trimmed.lastIndexOf(" ");
-  if (idx < 0) return { lead: "", last: trimmed };
-  return { lead: trimmed.slice(0, idx), last: trimmed.slice(idx + 1) };
-}
 
 export function LinkedInPreviewCard({
   command,
@@ -35,7 +31,8 @@ export function LinkedInPreviewCard({
   cardTitle,
   host,
 }: LinkedInPreviewCardProps) {
-  const { lead, last } = splitHeadline(headline);
+  // Ta sama reguła co na stronie i grafice OG — podgląd ma wyglądać jak post.
+  const { first: lead, second: last } = splitTitle(headline);
   return (
     <figure
       className="overflow-hidden rounded-lg border border-border bg-card"
@@ -64,7 +61,7 @@ export function LinkedInPreviewCard({
             className="line-clamp-2 font-sans text-[28px] font-extrabold leading-[0.95] tracking-[-0.04em]"
           >
             {lead ? <span style={{ color: "#FFFFFF" }}>{lead} </span> : null}
-            <span style={{ color: "#9A142D" }}>{last}.</span>
+            <span style={{ color: "#9A142D" }}>{last}</span>
           </span>
           <span className="truncate text-[9px]" style={{ color: "#8B8B8B" }}>
             {tagline ?? " "}

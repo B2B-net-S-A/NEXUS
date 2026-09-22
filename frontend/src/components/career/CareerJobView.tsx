@@ -7,7 +7,7 @@ import {
   recruiterLogin,
   splitTitle,
 } from "@/lib/career/format";
-import { careerHref, type CareerBase } from "@/lib/career/host";
+import { careerHref, careerVisibleUrl, type CareerBase } from "@/lib/career/host";
 
 import { CareerApplyForm, type CareerApplyFormProps } from "./CareerApplyForm";
 import { CareerFooter } from "./CareerFooter";
@@ -35,7 +35,7 @@ export function CareerJobView({
 }: {
   data: CareerJobResponse;
   base: CareerBase;
-  /** Host do stopki („kariera.dynaminds.pl"). */
+  /** Host żądania do stopki („kariera.dynaminds.pl", „nexus.dynaminds.pl"). */
   host: string;
   formPreview?: CareerApplyFormProps["preview"];
 }) {
@@ -45,6 +45,7 @@ export function CareerJobView({
     ? careerHref(base, { to: "recruiter", slug: recruiter.slug })
     : null;
   const rodoHref = careerHref(base, { to: "rodo" });
+  const visibleUrl = careerVisibleUrl(host, base, { to: "job", slug: job.slug });
 
   if (data.status === "closed") {
     return (
@@ -55,7 +56,7 @@ export function CareerJobView({
           recruiterPageHref={recruiterHref}
           recruiterSlug={recruiter.slug}
         />
-        <CareerFooter rodoHref={rodoHref} hostLabel={host} />
+        <CareerFooter rodoHref={rodoHref} hostLabel={visibleUrl} />
       </>
     );
   }
@@ -153,7 +154,7 @@ export function CareerJobView({
         </aside>
       </main>
 
-      <CareerFooter rodoHref={rodoHref} hostLabel={host} />
+      <CareerFooter rodoHref={rodoHref} hostLabel={visibleUrl} />
     </CareerSubmitGate>
   );
 }
