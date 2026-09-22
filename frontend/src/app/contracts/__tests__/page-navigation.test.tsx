@@ -20,6 +20,14 @@ vi.mock("@/components/contracts/ContractsClientPicker", () => ({
   ContractsClientPicker: () => <div>Wybór klienta</div>,
 }));
 
+vi.mock("@/components/order-mail/OrderMailQueue", () => ({
+  OrderMailQueue: () => <div>Skrzynka zamówień z maila</div>,
+}));
+
+vi.mock("@/components/order-mail/useOrderMailPendingCount", () => ({
+  useOrderMailPendingCount: () => 3,
+}));
+
 vi.mock("@/components/contracts/ClientContractRegister", () => ({
   ClientContractRegister: () => <div>Rejestr klienta</div>,
 }));
@@ -117,5 +125,26 @@ describe("ContractsPage — przełączanie widoków", () => {
     view.rerender(<ContractsPage />);
     expect(await screen.findByText("Globalny rejestr")).toBeInTheDocument();
     expect(screen.queryByText("Widok operacyjny")).not.toBeInTheDocument();
+  });
+
+  it("Skrzynka zamówień jest trybem Kontraktów z licznikiem, a ?view=order-mail ją otwiera", async () => {
+    window.history.replaceState({}, "", "/contracts?view=order-mail&doc=5");
+    render(<ContractsPage />);
+    expect(await screen.findByText("Skrzynka zamówień z maila")).toBeInTheDocument();
+    const tab = screen.getByRole("tab", { name: /Skrzynka zamówień/ });
+    expect(tab).toHaveAttribute("aria-selected", "true");
+    expect(tab).toHaveTextContent("3");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Rejestr kontraktów" }));
+    expect(await screen.findByText("Globalny rejestr")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(`${window.location.pathname}${window.location.search}`).toBe("/contracts"),
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /Skrzynka zamówień/ }));
+    await waitFor(() =>
+      expect(`${window.location.pathname}${window.location.search}`).toBe(
+        "/contracts?view=order-mail",
+      ),
+    );
   });
 });

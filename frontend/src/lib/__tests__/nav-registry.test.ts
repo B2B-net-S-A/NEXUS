@@ -91,8 +91,8 @@ describe("rejestr nawigacji — spójność wpisów", () => {
       NAV_PRIMARY_GROUPS.map((group) => [group.title, [...group.ids]]),
     ).toEqual([
       ["Praca", ["dashboard", "jobs", "candidates", "calendar"]],
-      ["Klienci i umowy", ["clients", "contracts", "order-mail"]],
-      ["Firma", ["finance", "insights"]],
+      ["Klienci i umowy", ["clients", "contracts", "finance"]],
+      ["Firma", ["insights"]],
     ]);
   });
 });
@@ -125,13 +125,13 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
   it("Delivery Lead: klienci i umowy bez Finansów; finance i admin: wszystkie trzy grupy", () => {
     expect(groupsOf("delivery_lead")).toEqual([
       ["Praca", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
-      ["Klienci i umowy", ["/clients", "/contracts", "/order-mail"]],
+      ["Klienci i umowy", ["/clients", "/contracts"]],
       ["Firma", ["/insights"]],
     ]);
     const full = [
       ["Praca", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
-      ["Klienci i umowy", ["/clients", "/contracts", "/order-mail"]],
-      ["Firma", ["/finance", "/insights"]],
+      ["Klienci i umowy", ["/clients", "/contracts", "/finance"]],
+      ["Firma", ["/insights"]],
     ];
     expect(groupsOf("finance")).toEqual(full);
     expect(groupsOf("admin")).toEqual(full);
@@ -139,6 +139,18 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       for (const group of visiblePrimaryGroups(userOf(role), opts)) {
         expect(group.items.length).toBeGreaterThan(0);
       }
+    }
+  });
+
+  it("Panel klientów, Moje relacje i Zamówienia z maila są trybami, nie pozycjami menu", () => {
+    for (const role of ALL_ROLES) {
+      const hrefs = visibleNavHrefs(userOf(role), opts);
+      for (const legacy of ["/my-clients", "/my-relationships", "/order-mail"]) {
+        expect(hrefs).not.toContain(legacy);
+      }
+      expect(
+        hrefs.some((href) => href.startsWith("/clients?") || href.startsWith("/contracts?")),
+      ).toBe(false);
     }
   });
 
@@ -153,10 +165,10 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
 
   it("persony Delivery / Finanse / admin zachowują swój rdzeń na szynie", () => {
     expect(primaryHrefs("delivery_lead")).toEqual(
-      expect.arrayContaining(["/clients", "/contracts", "/order-mail", "/insights"]),
+      expect.arrayContaining(["/clients", "/contracts", "/insights"]),
     );
     expect(primaryHrefs("finance")).toEqual(
-      expect.arrayContaining(["/clients", "/contracts", "/order-mail", "/finance"]),
+      expect.arrayContaining(["/clients", "/contracts", "/finance"]),
     );
     expect(primaryHrefs("admin")).toEqual([
       "/dashboard",
@@ -165,7 +177,6 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       "/calendar",
       "/clients",
       "/contracts",
-      "/order-mail",
       "/finance",
       "/insights",
     ]);
@@ -182,9 +193,11 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       ["System", ["Pomoc", "Ustawienia"]],
     ]);
     const admin = visibleMoreGroups(userOf("admin"), opts);
+    // „Baza i źródła” opustoszała: Talenty i Targ ukryte (21.09), Panel
+    // klientów i Moje relacje to od 22.09 tryby ekranu Klienci.
     expect(
-      admin.find((group) => group.key === "sources")?.items.map((i) => i.href),
-    ).toEqual(["/my-clients", "/my-relationships"]);
+      admin.find((group) => group.key === "sources"),
+    ).toBeUndefined();
     for (const role of ALL_ROLES) {
       for (const group of visibleMoreGroups(userOf(role), opts)) {
         expect(group.items.length).toBeGreaterThan(0);
@@ -246,13 +259,7 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     // „/talents" i „/sourcing/marketplace" zdjęte z menu 21.09.2026.
   ];
   const PIPELINE = ["/jobs", "/calendar"];
-  const DELIVERY = [
-    "/clients",
-    "/my-clients",
-    "/order-mail",
-    "/my-relationships",
-    "/contracts",
-  ];
+  const DELIVERY = ["/clients", "/contracts"];
   const INSIGHTS = ["/insights"];
   const SYSTEM = ["/help", "/settings"];
 

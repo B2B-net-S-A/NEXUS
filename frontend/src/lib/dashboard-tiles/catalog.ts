@@ -432,7 +432,7 @@ export const TILE_TEMPLATES: TileTemplate[] = [
     config: {
       title: "Kończące się zamówienia",
       chart: "table",
-      link_to: "/my-clients",
+      link_to: "/clients?mine=1",
       metric: {
         source: "orders",
         measure: "ending_30_days",

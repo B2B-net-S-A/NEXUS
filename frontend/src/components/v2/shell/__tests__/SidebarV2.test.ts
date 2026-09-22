@@ -30,9 +30,6 @@ describe("visibleNavSections", () => {
         "/candidates",
         "/jobs",
         "/clients",
-        "/my-clients",
-        "/order-mail",
-        "/my-relationships",
         "/contracts",
         "/insights",
         "/finance",
@@ -121,9 +118,6 @@ describe("visibleNavSections", () => {
     );
     for (const route of [
       "/clients",
-      "/my-clients",
-      "/order-mail",
-      "/my-relationships",
       "/contracts",
       "/finance",
     ]) {
@@ -138,9 +132,6 @@ describe("visibleNavSections", () => {
         "/candidates",
         "/jobs",
         "/clients",
-        "/my-clients",
-        "/order-mail",
-        "/my-relationships",
         "/contracts",
         "/insights",
       ]),
@@ -153,8 +144,6 @@ describe("visibleNavSections", () => {
     expect(dl).toEqual(
       expect.arrayContaining([
         "/clients",
-        "/my-clients",
-        "/order-mail",
         "/contracts",
       ]),
     );

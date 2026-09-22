@@ -31,6 +31,8 @@ import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { dashboardHref } from "@/lib/dashboard-presets";
 import { useSidebarPinned } from "./useSidebarPinned";
 import { hasSectionAccess } from "@/lib/section-access";
+import { hasCapability } from "@/lib/capabilities";
+import { useOrderMailPendingCount } from "@/components/order-mail/useOrderMailPendingCount";
 import {
   resolveNavHref,
   visibleMoreGroups,
@@ -227,7 +229,14 @@ export function SidebarV2({
     refetchInterval: 5 * 60_000,
   });
 
-  const badgeCounts = stats ?? {};
+  // Skrzynka zamówień jest trybem Kontraktów — jej licznik stoi przy nich.
+  const orderMailPending = useOrderMailPendingCount(
+    hasCapability(user, "nav.order_mail"),
+  );
+  const badgeCounts: BadgeCounts = {
+    ...(stats ?? {}),
+    ...(orderMailPending ? { orderMail: orderMailPending } : {}),
+  };
   const isActive = (href: string) => isNavItemActive(pathname, href);
   const isEntryActive = (entry: NavEntry) =>
     isActive(resolveNavHref(entry, user));

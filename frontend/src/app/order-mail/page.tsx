@@ -1,18 +1,14 @@
-"use client";
-
-import { Suspense } from "react";
-import { OrderMailQueue } from "@/components/order-mail/OrderMailQueue";
+import { redirect } from "next/navigation";
+import { legacyRedirectTarget } from "@/lib/clients-workspace";
 
 /**
- * Dostęp: admin, finance oraz delivery_lead (wszyscy klienci) — zakres
- * wylicza BACKEND (`_visible_client_ids`), a
- * middleware pilnuje wejścia z paska adresu. „Zastosuj" jest osobno bramkowane
- * (`can_apply`): TCM widzi kolejkę bez przycisku.
+ * „Zamówienia z maila" to od 22.09.2026 tryb „Skrzynka zamówień" w Kontraktach.
+ * Stary adres przekierowuje na stałe (zapisane linki, powiadomienia w bazie).
  */
-export default function OrderMailPage() {
-  return (
-    <Suspense fallback={<div className="p-6 text-muted-foreground">Ładowanie…</div>}>
-      <OrderMailQueue />
-    </Suspense>
-  );
+export default async function OrderMailRedirect({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  redirect(legacyRedirectTarget("/contracts", { view: "order-mail" }, await searchParams));
 }

@@ -43,7 +43,11 @@ import { hasRole, type User, type UserRole } from "@/store/auth";
 
 export type NavIcon = ComponentType<{ className?: string }>;
 
-export type NavBadgeKey = "candidates" | "jobs" | "applicationSubmissions";
+export type NavBadgeKey =
+  | "candidates"
+  | "jobs"
+  | "applicationSubmissions"
+  | "orderMail";
 
 export type NavFeatureFlag = "contactQueue";
 
@@ -108,8 +112,8 @@ export type NavEntry = {
    * roli: o tym, KTO co widzi, decyduje wyłącznie bramka widoczności (sekcja /
    * role / akcja / flaga). Rdzeń pracy każdej persony jest `primary` — „Praca"
    * (Dashboard, Rekrutacje, Kandydaci, Kalendarz), „Klienci i umowy" (Klienci,
-   * Kontrakty, Zamówienia z maila) i „Firma" (Finanse, Insights) — więc
-   * rekruter widzi pięć pozycji, a admin dziewięć, bez osobnych drzew per rola.
+   * Kontrakty, Finanse) i „Firma" (Insights) — więc rekruter widzi pięć
+   * pozycji, a admin osiem, bez osobnych drzew per rola.
    */
   placement: "primary" | "more";
   /** Wymagane dla `placement: "more"` (pilnuje test) — grupa w panelu. */
@@ -119,9 +123,11 @@ export type NavEntry = {
   paletteKeywords?: string[];
   inPalette: boolean;
   /**
-   * `false` = pozycja istnieje WYŁĄCZNIE w palecie ⌘K. Dziś trzy: „Panel
-   * managera" (z menu zdjęty dawno, ale paleta nadal do niego prowadziła) oraz
-   * Wyszukiwarka i Talent Radar (od 21.09.2026 tryby ekranu „Kandydaci").
+   * `false` = pozycja istnieje WYŁĄCZNIE w palecie ⌘K. Dziś sześć: „Panel
+   * managera" (z menu zdjęty dawno, ale paleta nadal do niego prowadziła),
+   * Wyszukiwarka i Talent Radar (od 21.09.2026 tryby ekranu „Kandydaci") oraz
+   * Moi klienci, Kluczowe relacje i Skrzynka zamówień (od 22.09.2026 tryby
+   * ekranów Klienci i Kontrakty).
    * Przebudowa nawigacji nie może po cichu zabierać wejść. Brak pola = w menu.
    */
   inSidebar?: boolean;
@@ -394,41 +400,47 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "primary",
     inPalette: true,
   },
+  // Od 22.09.2026 „Panel klientów", „Moje relacje" i „Zamówienia z maila"
+  // nie stoją w menu — to tryby ekranów Klienci i Kontrakty
+  // (`lib/clients-workspace.ts`). Zostają w palecie ⌘K, bo wpisane tam nazwy
+  // mają dalej prowadzić do tych widoków; stare adresy przekierowują.
   {
     id: "my-clients",
-    moreHint: "Klienci z mojego portfela",
-    href: "/my-clients",
-    label: "Panel klientów",
+    href: "/clients?mine=1",
+    label: "Moi klienci",
     icon: Briefcase,
     section: "delivery",
     capability: "nav.my_clients",
-    placement: "more",
-    moreGroup: "sources",
+    placement: "primary",
+    paletteKeywords: ["panel klientów", "portfel", "moi klienci"],
     inPalette: true,
+    inSidebar: false,
   },
   {
     // Zamówienia z maila są częścią Delivery. Backend daje TCM wyłącznie
     // bezpieczny odczyt, a DL widzi wszystkich klientów bez obcych kwot.
     id: "order-mail",
-    href: "/order-mail",
-    label: "Zamówienia z maila",
+    href: "/contracts?view=order-mail",
+    label: "Skrzynka zamówień (zamówienia z maila)",
     icon: Inbox,
     section: "delivery",
     capability: "nav.order_mail",
     placement: "primary",
+    paletteKeywords: ["zamówienia z maila", "skrzynka", "order mail"],
     inPalette: true,
+    inSidebar: false,
   },
   {
     id: "my-relationships",
-    moreHint: "Kontakty i relacje z klientami",
-    href: "/my-relationships",
-    label: "Moje relacje",
+    href: "/clients?view=contacts",
+    label: "Kluczowe relacje z klientami",
     icon: Heart,
     section: "delivery",
     capability: "nav.my_relationships",
-    placement: "more",
-    moreGroup: "sources",
+    placement: "primary",
+    paletteKeywords: ["moje relacje", "kontakty", "relacje"],
     inPalette: true,
+    inSidebar: false,
   },
   // „Kontrakty" to jeden workspace z dwoma trybami (Obsługa kontraktorów /
   // Rejestr kontraktów); dawna pozycja „Kontraktorzy" została wchłonięta —
@@ -443,6 +455,9 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     icon: FileText,
     section: "delivery",
     capability: "nav.contracts",
+    // Plakietka = dokumenty w Skrzynce zamówień czekające na sprawdzenie
+    // (skrzynka jest trybem Kontraktów, nie ma własnej pozycji).
+    badgeKey: "orderMail",
     placement: "primary",
     inPalette: true,
   },
@@ -518,8 +533,8 @@ export const NAV_PRIMARY_GROUPS: readonly {
   ids: readonly string[];
 }[] = [
   { key: "work", title: "Praca", ids: ["dashboard", "jobs", "candidates", "calendar"] },
-  { key: "clients", title: "Klienci i umowy", ids: ["clients", "contracts", "order-mail"] },
-  { key: "company", title: "Firma", ids: ["finance", "insights"] },
+  { key: "clients", title: "Klienci i umowy", ids: ["clients", "contracts", "finance"] },
+  { key: "company", title: "Firma", ids: ["insights"] },
 ];
 
 /** Kolejność pozycji na szynie (id wpisów) — spłaszczone `NAV_PRIMARY_GROUPS`. */

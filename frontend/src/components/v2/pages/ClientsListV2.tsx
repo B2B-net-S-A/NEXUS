@@ -44,6 +44,11 @@ import {
   type ViewState,
 } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
+import { hasRole, useAuthStore } from "@/store/auth";
+import {
+  CLIENTS_MINE_ROLES,
+  resolveClientsMine,
+} from "@/lib/clients-workspace";
 import { AddClientModal } from "@/components/AppShell";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -198,6 +203,11 @@ export function ClientsListV2() {
   const urlCategory = parseCategory(searchParams.get("category"));
   const urlSearch = searchParams.get("q") ?? "";
   const urlPage = parsePage(searchParams.get("page"));
+  const user = useAuthStore((state) => state.user);
+  // „Moi / Wszyscy" (dawny osobny „Panel klientów"). Tylko osoby z
+  // przypisaniem klienta (DL, TAC) mają „Moich"; dla nich to widok domyślny.
+  const mineAvailable = hasRole(user, ...CLIENTS_MINE_ROLES);
+  const mine = resolveClientsMine(mineAvailable, searchParams.get("mine"));
 
   const [category, setCategory] =
     useState<ClientDirectoryCategory>(urlCategory);
@@ -284,7 +294,7 @@ export function ClientsListV2() {
     refetch,
     isFetching,
   } = useQuery({
-    queryKey: ["clients-directory", category, querySearch, page],
+    queryKey: ["clients-directory", category, querySearch, page, mine],
     queryFn: ({ signal }) =>
       clientsDirectoryApi
         .list(
@@ -293,6 +303,7 @@ export function ClientsListV2() {
             q: querySearch || undefined,
             page,
             page_size: PAGE_SIZE,
+            ...(mine ? { mine: true } : {}),
           },
           signal,
         )
@@ -301,7 +312,8 @@ export function ClientsListV2() {
       const previousKey = previousQuery?.queryKey;
       if (
         previousKey?.[1] === category &&
-        previousKey?.[2] === querySearch
+        previousKey?.[2] === querySearch &&
+        previousKey?.[4] === mine
       ) {
         return previousData;
       }
@@ -366,6 +378,19 @@ export function ClientsListV2() {
     document.getElementById(`clients-category-${next}`)?.focus();
   };
 
+  // Do adresu trafia tylko wybór INNY niż domyślny (dla DL/TAC „Moi").
+  const selectMine = (next: boolean) => {
+    if (next === mine) return;
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === mineAvailable) params.delete("mine");
+    else params.set("mine", next ? "1" : "0");
+    params.set("page", "1");
+    setPage(1);
+    router.replace(`${pathname || "/clients"}?${params.toString()}`, {
+      scroll: false,
+    });
+  };
+
   const goToPage = (next: number) => {
     setPage(next);
     replaceUrl({ category, q: search, page: next }, "push");
@@ -405,6 +430,7 @@ export function ClientsListV2() {
       const params = new URLSearchParams();
       params.set("category", category);
       if (querySearch) params.set("q", querySearch);
+      if (mine) params.set("mine", "true");
       params.set("format", format);
       const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
       const res = await fetch(
@@ -520,7 +546,36 @@ export function ClientsListV2() {
         </div>
       </div>
 
-      <div className="max-w-lg">
+      <div className="flex flex-wrap items-end gap-4">
+      {mineAvailable ? (
+        <div
+          role="radiogroup"
+          aria-label="Zakres listy klientów"
+          className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/40 p-1"
+        >
+          {([
+            [true, "Moi klienci"],
+            [false, "Wszyscy"],
+          ] as const).map(([value, label]) => (
+            <button
+              key={label}
+              type="button"
+              role="radio"
+              aria-checked={mine === value}
+              onClick={() => selectMine(value)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                mine === value
+                  ? "bg-background text-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="w-full max-w-lg">
         <label
           htmlFor="client-directory-search"
           className="mb-1.5 block text-sm font-medium text-foreground"
@@ -558,6 +613,7 @@ export function ClientsListV2() {
         >
           Wyszukiwanie obejmuje tylko aktualnie wybraną kategorię.
         </p>
+      </div>
       </div>
 
       <div
@@ -716,7 +772,30 @@ export function ClientsListV2() {
               ) : viewState === "empty" ? (
                 <TableRow>
                   <TableCell colSpan={columnCount} className="py-12 text-center">
-                    {querySearch ? (
+                    {mine && !querySearch ? (
+                      <>
+                        <Building2
+                          className="mx-auto mb-3 h-10 w-10 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                        <p className="text-sm font-medium text-foreground">
+                          Nie masz przypisanych klientów w kategorii „
+                          {CATEGORY_META[category].title}”
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          „Moi klienci” to klienci, do których jesteś
+                          przypisany w zespole klienta.
+                        </p>
+                        <Button
+                          className="mt-4"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => selectMine(false)}
+                        >
+                          Pokaż wszystkich klientów
+                        </Button>
+                      </>
+                    ) : querySearch ? (
                       <>
                         <SearchX
                           className="mx-auto mb-3 h-10 w-10 text-muted-foreground"

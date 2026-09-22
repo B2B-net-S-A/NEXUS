@@ -1441,7 +1441,10 @@ SCREENS: dict[str, tuple[str, str]] = {
     "calendar": ("/calendar", "Kalendarz"),
     "cv_generator": ("/cv-generator", "Generator CV"),
     "b2b_generator": ("/contracts/b2b-generator", "Generator umów B2B"),
-    "order_mail": ("/order-mail", "Kolejka zamówień z maila"),
+    "order_mail": (
+        "/contracts?view=order-mail",
+        "Skrzynka zamówień (zamówienia z maila)",
+    ),
     "finance_order_changes": (
         "/finance?view=order-changes",
         "Finanse — zmiany w zamówieniach",

@@ -1405,7 +1405,7 @@ async def notify_review(
         entity_key=entity_key,
         title=f"Sprawdź zamówienie z maila: {title}"[:255],
         message=message[:2000],
-        link=f"/order-mail?doc={row.id}",
+        link=f"/contracts?view=order-mail&doc={row.id}",
         payload={
             "document_id": row.id,
             "outcome": row.outcome,

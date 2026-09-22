@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import MyRelationshipsPage from "./page";
+import { KeyRelationshipsPanel } from "./KeyRelationshipsPanel";
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -36,12 +36,12 @@ function renderPage() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MyRelationshipsPage />
+      <KeyRelationshipsPanel />
     </QueryClientProvider>,
   );
 }
 
-describe("MyRelationshipsPage — Finance read-only", () => {
+describe("KeyRelationshipsPanel — Finance read-only", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.get.mockResolvedValue({
