@@ -30,13 +30,15 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.activity import Activity
 from app.models.contract_document import ContractDocument, ContractDocumentType
 from app.models.document_signature import DocumentSignature, SignatureStatus
 from app.models.document_signature_event import DocumentSignatureEvent
 from app.models.notification import NotificationType
 from app.schemas.document_signature import serialize_payload_safely
 from app.services import storage_service
+from app.services.autenti.activity_log import (
+    add_autenti_activity,
+)
 from app.services.autenti.client import AutentiClient, AutentiConfig, AutentiError
 from app.services.notification_triggers import emit as emit_notification
 
@@ -262,16 +264,14 @@ async def _on_signing_completed(db: AsyncSession, sig: DocumentSignature) -> Non
             db, sig.contract_id, actor_id=sig.sender_user_id
         )
         # Original candidate-contract flow
-        db.add(
-            Activity(
-                entity_type="contract",
-                entity_id=sig.contract_id,
-                action="signature_completed",
-                user_id=sig.sender_user_id,
-                external_source="autenti",
-                external_id=sig.autenti_process_id,
-                details={"signer_email": sig.signer_email},
-            )
+        await add_autenti_activity(
+            db,
+            process_id=sig.autenti_process_id,
+            action="signature_completed",
+            entity_type="contract",
+            entity_id=sig.contract_id,
+            user_id=sig.sender_user_id,
+            details={"signer_email": sig.signer_email},
         )
         await emit_notification(
             db,
@@ -301,19 +301,17 @@ async def _on_signing_completed(db: AsyncSession, sig: DocumentSignature) -> Non
         if fc is not None:
             fc.status = FrameworkContractStatus.active
             client_id = fc.client_id
-            db.add(
-                Activity(
-                    entity_type="client",
-                    entity_id=client_id,
-                    action="framework_contract_signed",
-                    user_id=sig.sender_user_id,
-                    external_source="autenti",
-                    external_id=sig.autenti_process_id,
-                    details={
-                        "framework_contract_id": fc.id,
-                        "signer_email": sig.signer_email,
-                    },
-                )
+            await add_autenti_activity(
+                db,
+                process_id=sig.autenti_process_id,
+                action="framework_contract_signed",
+                entity_type="client",
+                entity_id=client_id,
+                user_id=sig.sender_user_id,
+                details={
+                    "framework_contract_id": fc.id,
+                    "signer_email": sig.signer_email,
+                },
             )
             await emit_notification(
                 db,
@@ -348,16 +346,14 @@ async def _on_signing_completed(db: AsyncSession, sig: DocumentSignature) -> Non
                 )
             )
             client_id = fc.client_id if fc else 0
-            db.add(
-                Activity(
-                    entity_type="client",
-                    entity_id=client_id,
-                    action="amendment_signed",
-                    user_id=sig.sender_user_id,
-                    external_source="autenti",
-                    external_id=sig.autenti_process_id,
-                    details={"amendment_id": a.id},
-                )
+            await add_autenti_activity(
+                db,
+                process_id=sig.autenti_process_id,
+                action="amendment_signed",
+                entity_type="client",
+                entity_id=client_id,
+                user_id=sig.sender_user_id,
+                details={"amendment_id": a.id},
             )
             await emit_notification(
                 db,
@@ -429,16 +425,14 @@ async def _on_rejected(db: AsyncSession, sig: DocumentSignature) -> None:
             msg_target = f"aneksu '{a.name}'"
 
     if entity_id is not None:
-        db.add(
-            Activity(
-                entity_type=entity_type,
-                entity_id=entity_id,
-                action="signature_rejected",
-                user_id=sig.sender_user_id,
-                external_source="autenti",
-                external_id=sig.autenti_process_id,
-                details={"signer_email": sig.signer_email},
-            )
+        await add_autenti_activity(
+            db,
+            process_id=sig.autenti_process_id,
+            action="signature_rejected",
+            entity_type=entity_type,
+            entity_id=entity_id,
+            user_id=sig.sender_user_id,
+            details={"signer_email": sig.signer_email},
         )
     await emit_notification(
         db,
@@ -480,15 +474,15 @@ async def _on_withdrawn(db: AsyncSession, sig: DocumentSignature) -> None:
         entity_id = None  # nie znamy client_id bez extra query — pomiń
 
     if entity_id is not None:
-        db.add(
-            Activity(
-                entity_type=entity_type,
-                entity_id=entity_id,
-                action="signature_withdrawn",
-                user_id=sig.sender_user_id,
-                external_source="autenti",
-                external_id=sig.autenti_process_id,
-            )
+        # Ten sam klucz co wycofanie z API (`api/autenti.py`) — webhook
+        # potwierdzający wycofanie zrobione w NEXUSIE nie dubluje wpisu.
+        await add_autenti_activity(
+            db,
+            process_id=sig.autenti_process_id,
+            action="signature_withdrawn",
+            entity_type=entity_type,
+            entity_id=entity_id,
+            user_id=sig.sender_user_id,
         )
 
 

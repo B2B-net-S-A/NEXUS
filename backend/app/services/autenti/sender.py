@@ -47,6 +47,7 @@ from app.services.autenti.client import (
     AutentiConfig,
     AutentiError,
 )
+from app.services.autenti.activity_log import add_autenti_activity
 from app.services.autenti.pdf_renderer import render_contract_pdf
 from app.services.notification_triggers import emit as emit_notification
 
@@ -407,16 +408,14 @@ async def send_to_autenti(signature_id: int) -> None:
 
             sig.status = SignatureStatus.sent
             sig.sent_at = datetime.now(timezone.utc)
-            db.add(
-                Activity(
-                    entity_type="contract",
-                    entity_id=sig.contract_id,
-                    action="signature_sent",
-                    user_id=sig.sender_user_id,
-                    external_source="autenti",
-                    external_id=str(process_id),
-                    details={"signature_type": sig.autenti_signature_type},
-                )
+            await add_autenti_activity(
+                db,
+                process_id=process_id,
+                action="signature_sent",
+                entity_type="contract",
+                entity_id=sig.contract_id,
+                user_id=sig.sender_user_id,
+                details={"signature_type": sig.autenti_signature_type},
             )
             await emit_notification(
                 db,

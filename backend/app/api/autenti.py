@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -40,6 +40,7 @@ from app.schemas.document_signature import (
     DocumentSignatureDetailResponse,
     DocumentSignatureResponse,
 )
+from app.services.autenti.activity_log import add_autenti_activity, autenti_remind_key
 from app.services.autenti.client import AutentiClient, AutentiConfig, AutentiError
 from app.services.autenti.sender import prepare_send, send_to_autenti
 from app.services.autenti.webhook_handler import handle_event
@@ -210,15 +211,13 @@ async def withdraw_signature(
         )
 
     sig.status = SignatureStatus.withdrawn
-    db.add(
-        Activity(
-            entity_type="contract",
-            entity_id=sig.contract_id,
-            action="signature_withdrawn",
-            user_id=current_user.id,
-            external_source="autenti",
-            external_id=sig.autenti_process_id,
-        )
+    await add_autenti_activity(
+        db,
+        process_id=sig.autenti_process_id,
+        action="signature_withdrawn",
+        entity_type="contract",
+        entity_id=sig.contract_id,
+        user_id=current_user.id,
     )
     await db.commit()
     await db.refresh(sig)
@@ -271,7 +270,15 @@ async def remind_signer(
             Activity.entity_type == "contract",
             Activity.entity_id == sig.contract_id,
             Activity.action == "signature_remind_sent",
-            Activity.external_id == sig.autenti_process_id,
+            Activity.external_source == "autenti",
+            # INT-09: przypomnienie ma klucz „{process}:signature_remind_sent:
+            # {czas}”; stare wiersze niosą sam process_id — oba się liczą.
+            or_(
+                Activity.external_id == sig.autenti_process_id,
+                Activity.external_id.startswith(
+                    f"{sig.autenti_process_id}:signature_remind_sent", autoescape=True
+                ),
+            ),
             Activity.created_at >= one_hour_ago,
         )
         .limit(1)
@@ -292,15 +299,14 @@ async def remind_signer(
             detail=f"Autenti remind failed: {exc}",
         )
 
-    db.add(
-        Activity(
-            entity_type="contract",
-            entity_id=sig.contract_id,
-            action="signature_remind_sent",
-            user_id=current_user.id,
-            external_source="autenti",
-            external_id=sig.autenti_process_id,
-        )
+    await add_autenti_activity(
+        db,
+        process_id=sig.autenti_process_id,
+        action="signature_remind_sent",
+        entity_type="contract",
+        entity_id=sig.contract_id,
+        user_id=current_user.id,
+        external_id=autenti_remind_key(sig.autenti_process_id),
     )
     await db.commit()
     await db.refresh(sig)
