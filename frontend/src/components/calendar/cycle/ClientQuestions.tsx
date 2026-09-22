@@ -15,7 +15,10 @@ export function ClientQuestions({
   clientName: string | null;
 }) {
   const query = useClientQuestions(jobId);
-  const who = clientName ?? "Klient";
+  // „Nordea pytał” — nazwa klienta nie ma rodzaju, więc zdanie bez czasownika.
+  const heading = clientName
+    ? `Pytania klienta ${clientName} z poprzednich rozmów`
+    : "Pytania klienta z poprzednich rozmów";
   if (query.isPending) {
     return <p className="text-xs text-muted-foreground">Wczytuję pytania klienta…</p>;
   }
@@ -30,7 +33,7 @@ export function ClientQuestions({
   return (
     <div className="rounded-lg bg-muted/50 p-3" data-testid="cycle-client-questions">
       <div className="mb-1.5 text-xs font-semibold text-foreground">
-        {who} pytał poprzednich kandydatów
+        {heading}
       </div>
       {questions.length === 0 ? (
         <p className="text-xs text-muted-foreground">

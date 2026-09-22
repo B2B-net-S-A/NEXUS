@@ -447,7 +447,7 @@ describe("CalendarPage — kandydat w nowym wydarzeniu (audyt B07)", () => {
     });
     renderPage();
 
-    // Dwa przyciski „Nowe wydarzenie" (nagłówek + szyna boczna) — bierzemy pierwszy.
+    // „Nowe wydarzenie" jest w szynie bocznej (nagłówek go nie powtarza od 22.09).
     fireEvent.click((await screen.findAllByRole("button", { name: /Nowe wydarzenie/ }))[0]);
     // Lista nie jest pobierana „na zapas" przy otwarciu formularza.
     expect(mocks.listCandidates).not.toHaveBeenCalled();
