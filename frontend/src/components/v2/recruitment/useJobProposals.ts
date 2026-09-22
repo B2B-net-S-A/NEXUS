@@ -74,6 +74,8 @@ export interface UseJobProposalsOptions {
 
 export interface AddToJobOptions {
   stageDefId?: number | null;
+  /** Etap po kodzie (np. „screening" z kolumny „Do przejrzenia" Tablicy). */
+  initialStageLegacy?: string | null;
   note?: string | null;
   tags?: string[];
 }
@@ -334,6 +336,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       for (const group of groupAddsByOrigin(picked)) {
         const body: BulkProposalsRequest = { candidate_ids: group.ids };
         if (opts.stageDefId != null) body.initial_stage_def_id = opts.stageDefId;
+        else if (opts.initialStageLegacy) body.initial_stage_legacy = opts.initialStageLegacy;
         if (opts.note) body.note = opts.note;
         if (opts.tags?.length) body.tags = opts.tags;
         if (group.source) body.source = group.source;

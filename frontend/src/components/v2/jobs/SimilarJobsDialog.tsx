@@ -239,9 +239,9 @@ export function SimilarJobsDialog({
                         ) : (
                           <span className="ml-auto text-xs text-muted-foreground">dodana</span>
                         )}
-                        <span className="w-32 text-right text-xs text-muted-foreground">
+                        <span className="w-24 whitespace-nowrap text-right text-xs text-muted-foreground">
                           <b className="font-semibold text-foreground">{item.sent_count}</b>{" "}
-                          wysłanych do klienta
+                          u klienta
                         </span>
                       </label>
                     </li>
