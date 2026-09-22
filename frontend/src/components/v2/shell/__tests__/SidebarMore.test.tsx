@@ -90,7 +90,6 @@ describe("„Więcej” — panel obok szyny", () => {
       "Codzienna praca",
       "Dokumenty",
       "Baza i źródła",
-      "Wiedza i raporty",
       "System",
     ]);
     expect(within(panel).getByRole("link", { name: /Zgłoszenia/ })).toHaveTextContent("4");

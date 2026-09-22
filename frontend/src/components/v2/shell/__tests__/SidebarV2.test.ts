@@ -34,13 +34,12 @@ describe("visibleNavSections", () => {
         "/order-mail",
         "/my-relationships",
         "/contracts",
-        "/cortex",
         "/insights",
         "/finance",
       ]),
     );
     expect(recruiter).not.toContain("/contracts");
-    expect(recruiter).toContain("/cortex");
+    expect(recruiter).not.toContain("/cortex"); // Cortex ukryty w UI (21.09.2026)
   });
 
   it("moduł Finanse zostaje zamknięty przed rolami operacyjnymi", () => {
@@ -118,7 +117,7 @@ describe("visibleNavSections", () => {
   ] as UserRole[])("%s nie widzi sekcji Delivery ani Finansów", (role) => {
     const visible = hrefs(role);
     expect(visible).toEqual(
-      expect.arrayContaining(["/candidates", "/jobs", "/insights", "/cortex"]),
+      expect.arrayContaining(["/candidates", "/jobs", "/insights"]),
     );
     for (const route of [
       "/clients",
@@ -144,7 +143,6 @@ describe("visibleNavSections", () => {
         "/my-relationships",
         "/contracts",
         "/insights",
-        "/cortex",
       ]),
     );
     expect(tcm).not.toContain("/finance");
@@ -217,7 +215,6 @@ describe("szyna vs „Więcej”", () => {
       "/talents",
       "/sourcing/marketplace",
       "/applications",
-      "/cortex",
       "/help",
       "/settings",
     ]) {

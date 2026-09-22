@@ -156,7 +156,6 @@ describe("CommandPaletteV2 — nawigacja po wpisaniu zapytania (UAT M00-B03)", (
       "Generator Umów B2B",
       "Targ / Dostępni",
       "Zgłoszenia",
-      "Cortex",
       "Pomoc",
     ]) {
       expect(getByText(label)).toBeTruthy();

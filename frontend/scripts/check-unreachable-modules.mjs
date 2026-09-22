@@ -76,6 +76,18 @@ const EXTRA_ENTRIES = new Set([
  * w przekonaniu, że dotyka żywej powierzchni.
  */
 const BASELINE = new Set([
+  // Cortex ukryty w UI (decyzja 21.09.2026): `/cortex` przekierowuje na
+  // Insights, widok zostaje na powrót. Przy przywróceniu strony zdejmij te wpisy.
+  "components/cortex/ClientStackPanel.tsx",
+  "components/cortex/CortexView.tsx",
+  "components/cortex/CoveragePanel.tsx",
+  "components/cortex/CurationPanel.tsx",
+  "components/cortex/SkillCandidatesDrawer.tsx",
+  "components/cortex/SkillSearchPanel.tsx",
+  "components/cortex/SuccessorsPanel.tsx",
+  "components/cortex/SupplyDemandPanel.tsx",
+  "components/cortex/TechMapPanel.tsx",
+  "components/cortex/shared.tsx",
   // Moduł poczty (4 pliki): kompletna powierzchnia bez trasy. Do włączenia albo
   // do usunięcia razem z decyzją, czy NEXUS ma własnego klienta mailowego.
   // Stary dashboard Delivery Leada: `app/dashboard/delivery-lead/page.tsx` to

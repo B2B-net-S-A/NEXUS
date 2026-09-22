@@ -180,7 +180,6 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       ["Codzienna praca", ["Do przedzwonienia", "Zgłoszenia"]],
       ["Dokumenty", ["Generator CV", "Generator Umów B2B"]],
       ["Baza i źródła", ["Talenty", "Targ / Dostępni"]],
-      ["Wiedza i raporty", ["Cortex"]],
       ["System", ["Pomoc", "Ustawienia"]],
     ]);
     const admin = visibleMoreGroups(userOf("admin"), opts);
@@ -256,7 +255,7 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
     "/my-relationships",
     "/contracts",
   ];
-  const INSIGHTS = ["/insights", "/cortex"];
+  const INSIGHTS = ["/insights"];
   const SYSTEM = ["/help", "/settings"];
 
   const EXPECTED: Partial<Record<UserRole, string[]>> = {

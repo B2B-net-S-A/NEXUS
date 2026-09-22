@@ -8,7 +8,6 @@
  * żeby widoczność pozycji dało się udowodnić testem bez montowania shellu.
  */
 import {
-  Brain,
   Briefcase,
   Building2,
   Calendar,
@@ -38,7 +37,6 @@ import { hasCapability, type Capability } from "@/lib/capabilities";
 import { dashboardHref } from "@/lib/dashboard-presets";
 import {
   hasSectionAccess,
-  rolesWithSectionAccess,
   type ProductSection,
 } from "@/lib/section-access";
 import { hasRole, type User, type UserRole } from "@/store/auth";
@@ -164,10 +162,6 @@ export const NAV_SECTION_META: readonly NavSectionMeta[] = [
   { key: "finance", title: "Finanse", icon: Wallet, section: "finance" },
   { key: "system", title: "System", icon: Settings },
 ];
-
-const CORTEX_ROLES = rolesWithSectionAccess("insights").filter(
-  (role) => role !== "user",
-);
 
 /** Moduł kandydatów — rola `user` (viewer/klient) nie ma dostępu. */
 const CANDIDATES_NAV_ROLES: UserRole[] = [
@@ -453,19 +447,8 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "primary",
     inPalette: true,
   },
-  {
-    id: "cortex",
-    moreHint: "Wiedza o klientach i rynku",
-    href: "/cortex",
-    label: "Cortex",
-    icon: Brain,
-    section: "insights",
-    roles: CORTEX_ROLES,
-    capability: "nav.cortex",
-    placement: "more",
-    moreGroup: "knowledge",
-    inPalette: true,
-  },
+  // Cortex ukryty w UI (decyzja Artura 21.09.2026) — strona `/cortex` przekierowuje
+  // na Insights, komponenty w `components/cortex/` i API zostają na powrót.
   {
     id: "finance",
     href: "/finance",
