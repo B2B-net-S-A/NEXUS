@@ -406,6 +406,29 @@ describe("usePipelineMove — ruch zbiorczy", () => {
     expect(controls.isMoving).toBe(false);
   });
 
+  it("ruch zbiorczy mówi, kogo nie przeniesiono i dlaczego (REC-06)", async () => {
+    const items = [1, 2].map((n) => card({ id: 50 + n, candidate_id: 500 + n }));
+    const b = board({ fresh: items });
+    post
+      .mockRejectedValueOnce(
+        conflict("ELIGIBILITY_WARNING", {
+          reason_code: "rejected_by_hiring_manager",
+          reason: "Odrzucony przez Annę Nowak 12.08.2026.",
+          can_acknowledge: true,
+        }),
+      )
+      .mockResolvedValueOnce({ data: { id: 702 } });
+    mount(b.all);
+    await React.act(async () => {
+      await controls.requestBulkMove(items, b.screening);
+    });
+    expect(showError).toHaveBeenCalledWith(
+      "Nie udało się przenieść 1 z 2 kandydatów: Jan Kowalski501 — Odrzucony przez Annę Nowak 12.08.2026.",
+    );
+    // Bez okna „Przenieś mimo to" w ruchu zbiorczym.
+    expect(screen.queryByRole("button", { name: "Przenieś mimo to" })).toBeNull();
+  });
+
   it("„Zatrudniony” zbiorczo jest odmawiany bez żadnego ruchu", async () => {
     const items = [card({ id: 41, candidate_id: 401 })];
     const b = board({ fresh: items });
