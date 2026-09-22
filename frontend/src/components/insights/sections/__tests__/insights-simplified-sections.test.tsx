@@ -19,11 +19,13 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import {
+  SENIORITY_COLUMN_LIMIT,
   SeniorityBoard,
   progressCaption,
 } from "@/components/insights/sections/SeniorityBoard";
 import {
   CompetenceMatrix,
+  formatAsOf,
   heatLevel,
 } from "@/components/insights/sections/CompetenceMatrix";
 import {
@@ -118,6 +120,31 @@ describe("SeniorityBoard", () => {
   });
 });
 
+describe("SeniorityBoard — długa kolumna", () => {
+  it("pokazuje limit kart, resztę pod „Pokaż wszystkich”", async () => {
+    const juniors = Array.from({ length: SENIORITY_COLUMN_LIMIT + 4 }, (_, i) =>
+      entry({ user_id: 100 + i, name: `Junior ${i}` }),
+    );
+    respond({
+      "/api/insights/recruitment/seniority": {
+        as_of: "2026-09-21",
+        thresholds: {},
+        window: {},
+        entries: juniors,
+        totals: { users: juniors.length, levels: { junior: juniors.length, senior: 0, expert: 0 } },
+        coverage: {},
+      },
+    });
+    renderSection(<SeniorityBoard />);
+    const junior = await screen.findByTestId("seniority-column-junior");
+    expect(within(junior).queryByText(`Junior ${SENIORITY_COLUMN_LIMIT}`)).toBeNull();
+    await userEvent.click(
+      within(junior).getByRole("button", { name: `Pokaż wszystkich (${juniors.length})` }),
+    );
+    expect(within(junior).getByText(`Junior ${SENIORITY_COLUMN_LIMIT + 3}`)).toBeInTheDocument();
+  });
+});
+
 describe("CompetenceMatrix", () => {
   it("zero zawsze najjaśniejsze, reszta względem maksimum", () => {
     expect(heatLevel(0, 100)).toBe(0);
@@ -126,6 +153,11 @@ describe("CompetenceMatrix", () => {
     expect(heatLevel(20, 100)).toBe(2);
     expect(heatLevel(50, 100)).toBe(3);
     expect(heatLevel(100, 100)).toBe(4);
+  });
+
+  it("data „stan na” jest po polsku, nie surowym ISO", () => {
+    expect(formatAsOf("2026-09-22T00:27:43.971047+00:00")).toMatch(/22 września 2026/);
+    expect(formatAsOf("nie-data")).toBe("nie-data");
   });
 
   it("renderuje kategorie i liczbę otwartych rekrutacji", async () => {

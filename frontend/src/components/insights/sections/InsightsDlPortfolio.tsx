@@ -103,6 +103,13 @@ export function InsightsDlPortfolio({
       )
     : 0;
   const target = data?.hit_ratio_target_pct ?? 30;
+  // Kolumna HM tylko gdy ktokolwiek ją ma — na produkcji (09.2026) żadna
+  // rekrutacja body leasing nie ma przypisanego hiring managera, a kolumna
+  // samych myślników udawałaby, że dane są, tylko puste.
+  const showHm = leads.some((l) =>
+    l.clients.some((c) => c.top_hiring_manager !== null),
+  );
+  const columns = showHm ? 8 : 7;
 
   return (
     <section className="bg-card rounded-xl border border-border p-6 shadow-xs space-y-4">
@@ -175,7 +182,9 @@ export function InsightsDlPortfolio({
                     <th scope="col" className="px-3 py-2.5 text-right">Placementy</th>
                     <th scope="col" className="px-3 py-2.5">Hit ratio</th>
                     <th scope="col" className="px-3 py-2.5">6 mies.</th>
-                    <th scope="col" className="px-3 py-2.5">Hiring manager</th>
+                    {showHm ? (
+                      <th scope="col" className="px-3 py-2.5">Hiring manager</th>
+                    ) : null}
                     <th scope="col" className="px-3 py-2.5">Uwaga</th>
                   </tr>
                 </thead>
@@ -183,7 +192,7 @@ export function InsightsDlPortfolio({
                   {leads.map((lead) => (
                     <Fragment key={lead.dl_id}>
                       <tr className="border-t border-border bg-muted/60">
-                        <td colSpan={8} className="px-4 py-3">
+                        <td colSpan={columns} className="px-4 py-3">
                           <div className="flex flex-wrap items-center gap-3">
                             <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
                               {initials(lead.dl_name)}
@@ -247,6 +256,7 @@ export function InsightsDlPortfolio({
                           <td className="px-3 py-3">
                             <Sparkline values={c.monthly_placements.map((m) => m.placements)} />
                           </td>
+                          {showHm ? (
                           <td className="px-3 py-3 text-xs">
                             {c.top_hiring_manager ? (
                               <>
@@ -262,6 +272,7 @@ export function InsightsDlPortfolio({
                               <span className="text-muted-foreground">—</span>
                             )}
                           </td>
+                          ) : null}
                           <td className="px-3 py-3">
                             {c.alert === "hit_ratio_drop" ? (
                               <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-destructive/10 px-2.5 py-1 text-xs font-semibold text-destructive">
