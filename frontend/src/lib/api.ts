@@ -364,6 +364,8 @@ export interface ClientDirectoryParams {
   q?: string;
   page: number;
   page_size: number;
+  /** `true` = tylko klienci z przypisaniem DL/TAC osoby („Moi klienci"). */
+  mine?: boolean;
 }
 
 /**

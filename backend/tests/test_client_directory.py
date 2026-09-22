@@ -1001,3 +1001,66 @@ async def test_directory_export_flags_truncation_at_limit(
         assert "x-export-truncated" not in full.headers
     finally:
         await _cleanup_directory(seed)
+
+
+async def test_directory_mine_filters_to_dl_and_tac_assignments(
+    app_client: AsyncClient,
+) -> None:
+    """„Moi" (dawny Panel klientów) = klienci z przypisaniem DL albo TAC."""
+    from app.models.team_structure import (
+        ClientTacAssignment,
+        DeliveryLeadClientAssignment,
+    )
+
+    seed = await _seed_directory()
+    alpha_id, zulu_id = seed["client_ids"][0], seed["client_ids"][1]
+    user_id, headers = await _seed_role_user(UserRole.delivery_lead)
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                DeliveryLeadClientAssignment(
+                    delivery_lead_user_id=user_id, client_id=alpha_id
+                )
+            )
+            await db.commit()
+
+        async def names(mine: bool) -> set[str]:
+            response = await app_client.get(
+                "/api/clients/directory",
+                params={"category": "active", "q": seed["suffix"], "mine": mine},
+                headers=headers,
+            )
+            assert response.status_code == 200, response.text
+            return {
+                item["display_name"].split()[0] for item in response.json()["items"]
+            }
+
+        assert await names(False) == {"Alpha", "Zulu"}
+        assert await names(True) == {"Alpha"}
+
+        async with AsyncSessionLocal() as db:
+            db.add(ClientTacAssignment(tac_user_id=user_id, client_id=zulu_id))
+            await db.commit()
+        assert await names(True) == {"Alpha", "Zulu"}
+
+        export = await app_client.get(
+            "/api/clients/directory/export",
+            params={"category": "active", "q": seed["suffix"], "mine": True},
+            headers=headers,
+        )
+        assert export.status_code == 200, export.text
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(DeliveryLeadClientAssignment).where(
+                    DeliveryLeadClientAssignment.delivery_lead_user_id == user_id
+                )
+            )
+            await db.execute(
+                delete(ClientTacAssignment).where(
+                    ClientTacAssignment.tac_user_id == user_id
+                )
+            )
+            await db.commit()
+        await _delete_user(user_id)
+        await _cleanup_directory(seed)

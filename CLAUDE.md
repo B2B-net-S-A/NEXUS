@@ -1489,9 +1489,10 @@ w jednej zakładce i puste w sąsiedniej.
   samego** `resolve_dashboard_scope`, którego używa backend. Nie z roli:
   hybryda HoR+DL dostaje `recruitment_org` i kwot nie widzi po obu stronach.
 - **Kwoty na LIŚCIE `/api/my-clients` nie mają dziś konsumenta w UI** —
-  `my-clients/page.tsx` i `MyClientsTab.tsx` czytają tylko pola operacyjne.
+  `MyClientsTab.tsx` czyta tylko pola operacyjne (`/my-clients` to od
+  22.09.2026 przekierowanie na `/clients?mine=1`).
   Reguła obejmuje je dla spójności kontraktu API; nie szukaj tam efektu wizualnego.
-  Efekt widać w zakładce **Analityka** (karta z listy linkuje wprost tam).
+  Efekt widać w zakładce **Analityka** profilu klienta.
 
 ## Analityka kontraktów: utylizacja i kafle sum (18.09.2026)
 
@@ -2124,12 +2125,24 @@ miejsce, nie zbiór funkcji.
   `placement` w `lib/nav-registry.ts` jest PER WPIS, niezależne od roli (kto
   co widzi, rozstrzyga wyłącznie bramka widoczności). Szyna to
   `NAV_PRIMARY_GROUPS`: **„Praca"** (Dashboard, Rekrutacje, Kandydaci,
-  Kalendarz) · **„Klienci i umowy"** (Klienci, Kontrakty, Zamówienia z maila)
-  · **„Firma"** (Finanse, Insights); `NAV_PRIMARY_ORDER` jest ich
+  Kalendarz) · **„Klienci i umowy"** (Klienci, Kontrakty, Finanse)
+  · **„Firma"** (Insights); `NAV_PRIMARY_ORDER` jest ich
   spłaszczeniem, `visiblePrimaryGroups` zwraca grupy danej roli i odrzuca
   PUSTE (rekruter nie widzi nagłówka „Klienci i umowy"). Reszta w grupach
   `NAV_MORE_GROUPS`. Nowy wpis `more` MUSI mieć `moreGroup`, nowy `primary` —
   miejsce w dokładnie jednej grupie szyny (pilnuje `nav-registry.test.ts`).
+  **Panel klientów, Moje relacje i Zamówienia z maila NIE stoją w menu
+  (22.09.2026)** — to tryby ekranów (`lib/clients-workspace.ts`): „Moi
+  klienci" = przełącznik „Moi / Wszyscy" na liście `/clients` (`?mine=0/1`,
+  domyślnie „Moi" dla DL/TAC; backend `GET /api/clients/directory?mine=true`
+  zawęża do przypisań DL ∪ TAC — to filtr widoku, nie granica dostępu),
+  „Kluczowe relacje" = `/clients?view=contacts`, „Skrzynka zamówień" =
+  `/contracts?view=order-mail` z licznikiem „Do weryfikacji" przy trybie
+  i przy „Kontraktach" w menu (`useOrderMailPendingCount`, `badgeKey:
+  "orderMail"`). Stare adresy (`/my-clients`, `/my-relationships`,
+  `/order-mail`) przekierowują serwerowo z zachowaniem parametrów —
+  powiadomienia w bazie niosą `link="/order-mail?doc=…"`, nie kasuj tych
+  stron. Wpisy zostają w palecie ⌘K (`inSidebar: false`).
   **Wyszukiwarka i Talent Radar NIE stoją w menu** — to tryby ekranu
   „Kandydaci" (`/candidates?mode=search`, `?mode=request`); oba wpisy mają
   `inSidebar: false` i żyją w palecie ⌘K („Wyszukiwarka kandydatów",
@@ -2634,7 +2647,7 @@ nie ma żadnej reguły do utrzymania.
   konsekwencje, na których stoi ticket: bieg ręczny przesuwa zegar (nie ma
   dwóch biegów tuż po sobie), a bieg przerwany restartem końca NIE zapisuje,
   więc po deployu skrzynka jest sprawdzana od razu, nie za godzinę.
-- **„Pobierz zamówienia z maila" jest w kolejce `/order-mail`**, nie tylko
+- **„Pobierz zamówienia z maila" jest w kolejce (`/contracts?view=order-mail`, dawniej `/order-mail`)**, nie tylko
   w API admina: `POST /api/order-mail/sync` (admin / finance / delivery_lead —
   bramka ROLOWA, bo dotyczy całej skrzynki, nie dokumentu; TCM ma sam odczyt)
   i `GET /api/order-mail/sync/status` (każda rola kolejki; TCM bez treści

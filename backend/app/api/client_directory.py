@@ -41,6 +41,7 @@ from app.schemas.client_directory import (
     ClientPortfolioScopeResponse,
     ClientPortfolioScopeUpdate,
 )
+from app.models.team_structure import ClientTacAssignment, DeliveryLeadClientAssignment
 from app.services.access_scope import resolve_delivery_lead_client_ids
 from app.services.client_identity import (
     client_display_name_expression,
@@ -255,6 +256,37 @@ def _directory_counts_statement(
     return statement
 
 
+async def _own_client_ids(user: User, db: AsyncSession) -> frozenset[int]:
+    """Klienci, za których osoba odpowiada: przypisanie DL albo TAC.
+
+    Zasila przełącznik „Moi / Wszyscy" w katalogu (dawny „Panel klientów").
+    To FILTR widoku, nie granica dostępu — zakres danych nadal wyznacza
+    ``resolve_delivery_lead_client_ids``.
+    """
+
+    dl_ids = await db.scalars(
+        select(DeliveryLeadClientAssignment.client_id).where(
+            DeliveryLeadClientAssignment.delivery_lead_user_id == user.id
+        )
+    )
+    tac_ids = await db.scalars(
+        select(ClientTacAssignment.client_id).where(
+            ClientTacAssignment.tac_user_id == user.id
+        )
+    )
+    return frozenset(int(i) for i in [*dl_ids.all(), *tac_ids.all()])
+
+
+async def _directory_client_scope(
+    user: User, db: AsyncSession, *, mine: bool
+) -> frozenset[int] | None:
+    allowed = await resolve_delivery_lead_client_ids(user, db)
+    if not mine:
+        return allowed
+    own = await _own_client_ids(user, db)
+    return own if allowed is None else own & allowed
+
+
 @router.get("/directory", response_model=ClientDirectoryResponse)
 async def list_client_directory(
     current_user: OperationalUser,
@@ -263,8 +295,12 @@ async def list_client_directory(
     q: Optional[str] = Query(None, max_length=200),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
+    mine: bool = Query(False),
 ):
     """Return one row per portfolio scope for the selected category.
+
+    ``mine=true`` zawęża listę (i liczniki zakładek) do klientów, do których
+    osoba jest przypisana jako Delivery Lead albo TAC.
 
     Search is intentionally limited to the selected category.  Tile counts are
     not affected by search and represent unique visible clients in every
@@ -272,7 +308,7 @@ async def list_client_directory(
     """
 
     as_of = date.today()
-    allowed_client_ids = await resolve_delivery_lead_client_ids(current_user, db)
+    allowed_client_ids = await _directory_client_scope(current_user, db, mine=mine)
     rows_statement = _directory_rows_statement(
         category=category,
         q=q,
@@ -442,6 +478,7 @@ async def export_client_directory(
     category: PortfolioCategory = Query(PortfolioCategory.active),
     q: Optional[str] = Query(None, max_length=200),
     limit: int = Query(10000, ge=1, le=50000),
+    mine: bool = Query(False),
 ):
     """Export the client directory to CSV or Excel — one row per portfolio scope.
 
@@ -455,7 +492,7 @@ async def export_client_directory(
         category=category,
         q=q,
         as_of=date.today(),
-        allowed_client_ids=await resolve_delivery_lead_client_ids(current_user, db),
+        allowed_client_ids=await _directory_client_scope(current_user, db, mine=mine),
     ).limit(limit)
     rows = (await db.execute(statement)).all()
     # Hitting ``limit`` means the file may be a partial view. Signal it in a

@@ -296,7 +296,7 @@ export function RecheckHistoryPanel(p: RecheckHistoryProps) {
                                     ? "Błąd"
                                     : "Wstrzymane"}
                                 </Badge>
-                                <Link href={`/order-mail?doc=${e.document_id}`} className="font-medium text-primary underline-offset-2 hover:underline">
+                                <Link href={`/contracts?view=order-mail&doc=${e.document_id}`} className="font-medium text-primary underline-offset-2 hover:underline">
                                   {recheckEntryLabel(e)}
                                 </Link>
                                 {e.client_name && (
@@ -353,7 +353,7 @@ export interface OrderMailQueueViewProps {
 export function OrderMailQueueView(p: OrderMailQueueViewProps) {
   const selected = p.items.find((i) => i.id === p.selectedId) ?? p.items[0] ?? null;
   return (
-    <div className="mx-auto max-w-7xl p-6">
+    <div className="mx-auto max-w-7xl">
       <PageHeader
         eyebrow="Zamówienia"
         title="Zamówienia z maila"

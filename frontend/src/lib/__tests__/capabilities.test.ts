@@ -928,9 +928,8 @@ const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
   // „Kandydaci”, wejście z ⌘K) — ich role pilnuje `nav-registry.test.ts`.
   // Talenty i Targ zdjęte z menu i palety 21.09.2026.
   "/clients": "nav.clients",
-  "/my-clients": "nav.my_clients",
-  "/order-mail": "nav.order_mail",
-  "/my-relationships": "nav.my_relationships",
+  // Panel klientów, Moje relacje i Zamówienia z maila od 22.09.2026 to tryby
+  // ekranów Klienci / Kontrakty (wejście z ⌘K), więc nie mają pozycji menu.
   "/contracts": "nav.contracts",
   // "/cortex": "nav.cortex" — Cortex ukryty w UI (21.09.2026); wróci razem z wpisem w nav-registry.
   "/finance": "nav.finance",

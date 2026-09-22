@@ -685,7 +685,7 @@ async def test_order_mail_review_names_client_and_candidate():
     assert rows, "DL klienta nie dostał karty"
     assert "Maria Fikcyjna" in rows[-1].message
     assert "Panel-" in rows[-1].message, "brak nazwy klienta w treści"
-    assert rows[-1].link == f"/order-mail?doc={doc_id}"
+    assert rows[-1].link == f"/contracts?view=order-mail&doc={doc_id}"
 
 
 # ── „Moje zadania" bez spraw klientów ───────────────────────────────────────

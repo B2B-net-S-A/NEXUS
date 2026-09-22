@@ -308,7 +308,7 @@ describe("Historia automatycznej weryfikacji", () => {
     expect(entries).toHaveTextContent("Wstrzymane");
     expect(entries).toHaveTextContent("Czeka na podpis umowy");
     expect(entries).toHaveTextContent("bez trwającej współpracy");
-    expect(screen.getByRole("link", { name: "8/2031" })).toHaveAttribute("href", "/order-mail?doc=12");
+    expect(screen.getByRole("link", { name: "8/2031" })).toHaveAttribute("href", "/contracts?view=order-mail&doc=12");
   });
 
   it("awaria historii renderuje się jako awaria, nie jako brak biegów", () => {

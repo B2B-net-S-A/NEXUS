@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ContractsListV2 } from "@/components/v2/pages/ContractsListV2";
 import { ContractorsListV2 } from "@/components/v2/pages/ContractorsListV2";
@@ -9,13 +9,20 @@ import {
   type ClientRef,
 } from "@/components/contracts/ContractsClientPicker";
 import { ClientContractRegister } from "@/components/contracts/ClientContractRegister";
-import { cn } from "@/lib/utils";
+import { OrderMailQueue } from "@/components/order-mail/OrderMailQueue";
+import { useOrderMailPendingCount } from "@/components/order-mail/useOrderMailPendingCount";
+import {
+  WorkspaceModeTabs,
+  type WorkspaceMode,
+} from "@/components/ds/WorkspaceModeTabs";
+import { useCapability } from "@/hooks/useCapability";
+import { resolveContractsView, type ContractsView } from "@/lib/clients-workspace";
 import { hasRole, useAuthStore } from "@/store/auth";
 
-type ViewMode = "operations" | "register";
+type ViewMode = ContractsView;
 
 /**
- * /contracts is one workspace with two modes:
+ * /contracts is one workspace with three modes:
  *  - "register"   — the full contract register (global list or per-client),
  *                   financial-gated. Default; visible to everyone who can open
  *                   /contracts today.
@@ -24,6 +31,10 @@ type ViewMode = "operations" | "register";
  *                   standalone "Kontraktorzy" nav item used. The backend
  *                   enforces access independently (403 for viewers), so the
  *                   toggle is UX, not the security boundary.
+ *  - "order-mail" — the order-mail queue („Skrzynka zamówień"). Until
+ *                   22.09.2026 a separate nav item „Zamówienia z maila";
+ *                   `/order-mail` now redirects here (stored notification
+ *                   links keep working, `?doc=` is preserved).
  *
  * The former /contractors route now redirects here with ?view=operations.
  *
@@ -63,8 +74,9 @@ function selectionFromSearch(search: string): {
   client: ClientRef | null;
 } {
   const params = new URLSearchParams(search);
-  if (params.get("view") === "operations") {
-    return { view: "operations", client: null };
+  const view = resolveContractsView(params.get("view"));
+  if (view !== "register") {
+    return { view, client: null };
   }
   const clientId = Number(params.get("client"));
   return {
@@ -94,6 +106,8 @@ function ContractsWorkspace({
     useState(navigationSearch);
   const { user } = useAuthStore();
   const canSeeOperations = hasRole(user, ...OPERATIONS_ROLES);
+  const canSeeOrderMail = useCapability("nav.order_mail");
+  const orderMailPending = useOrderMailPendingCount(canSeeOrderMail);
 
   useEffect(() => {
     setMounted(true);
@@ -113,10 +127,31 @@ function ContractsWorkspace({
   // Guard: a non-operational role that deep-links ?view=operations falls back
   // to the register (and the backend would 403 the roster fetch anyway).
   const showOperations = view === "operations" && canSeeOperations;
+  const showOrderMail = view === "order-mail" && canSeeOrderMail;
+  const activeView: ViewMode = showOperations
+    ? "operations"
+    : showOrderMail
+      ? "order-mail"
+      : "register";
+  const modes: WorkspaceMode<ViewMode>[] = [
+    ...(canSeeOperations
+      ? [{ value: "operations" as const, label: "Obsługa kontraktorów" }]
+      : []),
+    { value: "register", label: "Rejestr kontraktów" },
+    ...(canSeeOrderMail
+      ? [
+          {
+            value: "order-mail" as const,
+            label: "Skrzynka zamówień",
+            count: orderMailPending,
+          },
+        ]
+      : []),
+  ];
 
   const changeView = (next: ViewMode) => {
     setView(next);
-    if (next === "operations") {
+    if (next !== "register") {
       // Client scope is a register-only concept.
       setClient(null);
     }
@@ -126,7 +161,9 @@ function ContractsWorkspace({
     const target =
       next === "operations"
         ? "/contracts?view=operations&tab=active"
-        : "/contracts";
+        : next === "order-mail"
+          ? "/contracts?view=order-mail"
+          : "/contracts";
     window.history.replaceState(
       window.history.state,
       "",
@@ -166,19 +203,13 @@ function ContractsWorkspace({
 
   return (
     <div className="max-w-[1400px] mx-auto space-y-4">
-      {canSeeOperations && (
-        <div
-          role="tablist"
-          aria-label="Tryb modułu Kontrakty"
-          className="inline-flex items-center gap-1 rounded-lg border border-[hsl(var(--border))] bg-muted/40 p-1"
-        >
-          <ModeButton active={showOperations} onClick={() => changeView("operations")}>
-            Obsługa kontraktorów
-          </ModeButton>
-          <ModeButton active={!showOperations} onClick={() => changeView("register")}>
-            Rejestr kontraktów
-          </ModeButton>
-        </div>
+      {modes.length > 1 && (
+        <WorkspaceModeTabs
+          label="Tryb modułu Kontrakty"
+          modes={modes}
+          value={activeView}
+          onChange={changeView}
+        />
       )}
 
       {showOperations ? (
@@ -191,6 +222,8 @@ function ContractsWorkspace({
         >
           <ContractorsListV2 />
         </Suspense>
+      ) : showOrderMail ? (
+        <OrderMailQueue />
       ) : (
         <>
           <ContractsClientPicker value={client} onChange={handleClientChange} />
@@ -222,32 +255,5 @@ function ContractsWorkspace({
         </>
       )}
     </div>
-  );
-}
-
-function ModeButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={cn(
-        "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
-        active
-          ? "bg-background text-foreground shadow-xs"
-          : "text-muted-foreground hover:text-foreground"
-      )}
-    >
-      {children}
-    </button>
   );
 }
