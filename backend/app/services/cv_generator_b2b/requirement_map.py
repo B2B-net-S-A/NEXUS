@@ -70,26 +70,61 @@ def _normalize_for_match(text: str) -> str:
 def build_requirements(job: Job) -> list[dict[str, str]]:
     """Lista wymagań na kafelki: ``[{"name", "kind": "must"|"nice"}]``.
 
-    Źródło pierwsze: strukturalne ``Job.must_skills``/``nice_skills``
-    (przez ``iter_skill_names`` — obsługuje wszystkie legacy kształty JSONB).
-    Fallback (must_skills puste — ~88% prod jobów): regexowa ekstrakcja
-    z Championa/JD, ta sama co w scoringu (implicit must).
+    SCV-03: wymagania idą z TEGO SAMEGO źródła co wyszukiwanie —
+    ``requirement_contract.requirements_for_job`` (zapisany kontrakt
+    ``matching_requirements``, a bez niego ``job_skill_requirements``: kolumny,
+    stack Championa, klasyfikacja prozy). Do 09.2026 kafelki czytały surowe
+    ``must_skills``/``nice_skills``, więc klient widział inne wymagania niż te,
+    po których szukano kandydata. Zapisany, ale PUSTY kontrakt jest decyzją
+    (wymagań nie ma) — nie wskrzeszamy wtedy starych kolumn. Awaryjnie (brak
+    kontraktu i zero etykiet albo nieczytelny kontrakt) stack Championa
+    must + nice.
     """
-    must = iter_skill_names(job.must_skills)[:_MAX_MUST]
-    nice = iter_skill_names(job.nice_skills)[:_MAX_NICE]
+    from app.services import champion_view
+    from app.services.requirement_contract import (
+        requirement_labels,
+        requirements_for_job,
+        stored_contract,
+    )
 
-    if not must:
+    must: list[str] = []
+    nice: list[str] = []
+    has_stored = False
+    try:
+        has_stored = stored_contract(job) is not None
+        labels = requirement_labels(requirements_for_job(job))
+        must = list(labels.get("must") or [])
+        nice = list(labels.get("nice") or [])
+    except Exception as exc:  # noqa: BLE001 — mapa jest fail-open
+        logger.warning("[cv_req_map] requirement contract unreadable: %s", exc)
+        has_stored = False
+
+    if not has_stored and not must and not nice:
         try:
-            from app.services.scoring_service import _extract_skills_from_champion
-
-            extracted = _extract_skills_from_champion(job)
-            must = [
-                str(s.get("name"))
-                for s in extracted
-                if isinstance(s, dict) and s.get("name")
-            ][:_MAX_MUST]
+            stack = champion_view.stack(job)
+            must = iter_skill_names(stack.get("must"))
+            nice = iter_skill_names(stack.get("nice"))
         except Exception as exc:  # noqa: BLE001 — fallback nie może psuć mapy
             logger.warning("[cv_req_map] champion fallback failed: %s", exc)
+
+    # Kontrakt trzyma nazwy małymi literami — kafelki widzi klient, więc
+    # przywracamy pisownię z danych rekrutacji („Python”, nie „python”).
+    display: dict[str, str] = {}
+    try:
+        stack = champion_view.stack(job)
+        sources = (
+            getattr(job, "must_skills", None),
+            getattr(job, "nice_skills", None),
+            stack.get("must"),
+            stack.get("nice"),
+        )
+    except Exception:  # noqa: BLE001
+        sources = (getattr(job, "must_skills", None), getattr(job, "nice_skills", None))
+    for source in sources:
+        for name in iter_skill_names(source):
+            display.setdefault(name.casefold(), name)
+    must = [display.get(n.casefold(), n) for n in must][:_MAX_MUST]
+    nice = [display.get(n.casefold(), n) for n in nice][:_MAX_NICE]
 
     seen: set[str] = set()
     requirements: list[dict[str, str]] = []
