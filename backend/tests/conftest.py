@@ -18,9 +18,12 @@ schema is ready.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import statistics
 import uuid
 from datetime import date, datetime, time
+from pathlib import Path
 from typing import AsyncIterator
 from zoneinfo import ZoneInfo
 
@@ -536,16 +539,60 @@ async def app_auth_headers(app_client: AsyncClient) -> dict[str, str]:
 
 
 # Skip live-server tests when RUN_LIVE_TESTS is not set
+_CI_DURATIONS_FILE = Path(__file__).with_name("ci_test_durations.json")
+
+
+def _ci_file_durations() -> dict[str, float]:
+    """Zmierzony czas każdego pliku testowego z CI (sekundy, klucz ``tests/…``).
+
+    Brak albo zepsuty plik to NIE błąd: podział wraca wtedy do równych wag
+    i dalej jest partycją zupełną — gorzej wyważoną, nigdy dziurawą.
+    """
+    try:
+        raw = json.loads(_CI_DURATIONS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {
+        str(name): float(seconds)
+        for name, seconds in raw.items()
+        if isinstance(seconds, (int, float)) and seconds >= 0
+    }
+
+
+def ci_shard_assignment(
+    files: list[str], count: int, durations: dict[str, float]
+) -> dict[str, int]:
+    """Przypisuje pliki do shardów tak, żeby każdy shard trwał podobnie długo.
+
+    Zachłanny podział LPT: pliki od najdłuższego, każdy do shardu z najmniejszą
+    sumą. Deterministyczny (remisy po nazwie pliku i numerze shardu), więc każdy
+    shard, licząc niezależnie na tej samej liście, dostaje TĘ SAMĄ partycję —
+    zupełną i rozłączną bez żadnej koordynacji między jobami. Plik bez pomiaru
+    (nowy) waży medianę zmierzonych.
+    """
+    known = [durations[f] for f in files if f in durations]
+    fallback = statistics.median(known) if known else 1.0
+    loads = [0.0] * count
+    assignment: dict[str, int] = {}
+    for name in sorted(files, key=lambda f: (-durations.get(f, fallback), f)):
+        target = min(range(count), key=lambda i: (loads[i], i))
+        assignment[name] = target
+        loads[target] += durations.get(name, fallback)
+    return assignment
+
+
 def _apply_ci_shard_filter(config, items) -> None:
-    """CI-only podział kolekcji na shardy: całe PLIKI, round-robin po
-    posortowanej liście ścieżek.
+    """CI-only podział kolekcji na shardy: całe PLIKI, wyważone zmierzonym czasem.
 
     Sterowane wyłącznie przez env (CI_SHARD_COUNT/CI_SHARD_INDEX ustawia
     matrix w ci.yml); bez nich twardy no-op, więc lokalny `pytest tests/`
     zachowuje się jak dotąd. Dzielimy po plikach, nie po testach — testy
-    wewnątrz pliku bywają zależne od kolejności. Identyczna posortowana
-    lista w każdym shardzie + modulo = partycja zupełna i rozłączna
-    z konstrukcji, bez żadnej koordynacji między jobami.
+    wewnątrz pliku bywają zależne od kolejności.
+
+    Do 09.2026 podział był round-robin po posortowanej liście: shardy trwały
+    od 5,6 do 9,8 min, a całość czekała na najwolniejszy. Teraz wagi idą
+    z ``ci_test_durations.json`` (odświeżanie: `.github/scripts/
+    build_test_durations.py`). Nieaktualna mapa pogarsza tylko równowagę.
 
     To NIE jest xdist (wdrożony i wycofany — patrz komentarz przy pytest
     w ci.yml): każdy shard to osobny runner z własnym postgresem
@@ -558,14 +605,20 @@ def _apply_ci_shard_filter(config, items) -> None:
     index = int(os.environ.get("CI_SHARD_INDEX", "0") or "0")
     if not 0 <= index < count:
         raise pytest.UsageError(f"CI_SHARD_INDEX={index} poza zakresem 0..{count - 1}")
-    ordered_files = sorted({str(item.path) for item in items})
-    shard_of = {path: pos % count for pos, path in enumerate(ordered_files)}
-    kept = [item for item in items if shard_of[str(item.path)] == index]
+    backend_root = Path(__file__).resolve().parent.parent
+    key_of = {
+        str(item.path): Path(item.path).resolve().relative_to(backend_root).as_posix()
+        for item in items
+    }
+    shard_of = ci_shard_assignment(
+        sorted(set(key_of.values())), count, _ci_file_durations()
+    )
+    kept = [item for item in items if shard_of[key_of[str(item.path)]] == index]
     if not kept:
         raise pytest.UsageError(
             f"Shard {index}/{count} nie dostał żadnego pliku — błędna konfiguracja"
         )
-    deselected = [item for item in items if shard_of[str(item.path)] != index]
+    deselected = [item for item in items if shard_of[key_of[str(item.path)]] != index]
     if deselected:
         items[:] = kept
         config.hook.pytest_deselected(items=deselected)
@@ -574,7 +627,7 @@ def _apply_ci_shard_filter(config, items) -> None:
         kept_files = len({str(item.path) for item in kept})
         reporter.write_line(
             f"[ci-shard] shard {index}/{count}: "
-            f"{kept_files}/{len(ordered_files)} plików, {len(kept)} testów"
+            f"{kept_files}/{len(shard_of)} plików, {len(kept)} testów"
         )
 
 
