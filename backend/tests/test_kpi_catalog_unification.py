@@ -132,12 +132,12 @@ async def _seed_user(
         return user.id
 
 
-# ── Migracja 0343 / lustro entrypointu ──────────────────────────────────────
+# ── Migracja 0346 / lustro entrypointu ──────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_normalization_sql_renames_retires_and_drops_seed_copies():
-    """Blok SQL na bazie w stanie sprzed 0343 — w transakcji wycofanej na końcu."""
+    """Blok SQL na bazie w stanie sprzed 0346 — w transakcji wycofanej na końcu."""
     user_id = await _seed_user(UserRole.recruiter, label="norm")
     async with AsyncSessionLocal() as db:
         await db.execute(

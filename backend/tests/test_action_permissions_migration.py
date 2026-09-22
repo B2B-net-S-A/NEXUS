@@ -74,7 +74,7 @@ def test_entrypoint_recovery_seed_is_complete_and_fail_closed() -> None:
     assert "ON CONFLICT (role, action) DO NOTHING" in seed
     assert "DO UPDATE" not in seed
     assert "SELECT 1 FROM rbac_role_action_permissions" in seed
-    # Recovery seed odtwarza stan PO 0344 — czyli aktualne domyślne z kodu.
+    # Recovery seed odtwarza stan PO 0347 — czyli aktualne domyślne z kodu.
     for role in UserRole:
         access = DEFAULT_ROLE_ACTION_ACCESS[role][
             ProductAction.b2b_contract_generator
@@ -82,10 +82,10 @@ def test_entrypoint_recovery_seed_is_complete_and_fail_closed() -> None:
         assert f"('{role.value}', 'b2b_contract_generator', '{access}')" in seed
 
 
-def test_0344_closes_the_tcm_seed_divergence_only_for_untouched_rows() -> None:
-    path = MIGRATION_PATH.parent / "0344_tcm_b2b_generator_manage.py"
+def test_0347_closes_the_tcm_seed_divergence_only_for_untouched_rows() -> None:
+    path = MIGRATION_PATH.parent / "0347_tcm_b2b_generator_manage.py"
     source = path.read_text()
-    assert 'down_revision = "0343_kpi_catalog_unification"' in source
+    assert 'down_revision = "0346_kpi_catalog_unification"' in source
     for role, (seeded, current) in SEED_DIVERGENCE_AFTER_0273.items():
         assert f"role = '{role}'" in source
         assert f"access = '{seeded}'" in source

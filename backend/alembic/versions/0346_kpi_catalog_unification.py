@@ -15,8 +15,8 @@ Audyt ról, uprawnień i targetów (T1/T4, decyzje Artura 22.09.2026):
    placementów Wyścigu Placementów (1 500 PLN) z konfiguracji, a nie ze stałej
    w kodzie. `ON CONFLICT DO NOTHING`, więc strojenie admina zostaje.
 
-Revision ID: 0343_kpi_catalog_unification
-Revises: 0342_email_send_state
+Revision ID: 0346_kpi_catalog_unification
+Revises: 0345_billing_hours_168
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ from app.services.kpi_target_normalization import (
     KPI_TARGET_NORMALIZATION_SQL,
 )
 
-revision = "0343_kpi_catalog_unification"
-down_revision = "0342_email_send_state"
+revision = "0346_kpi_catalog_unification"
+down_revision = "0345_billing_hours_168"
 branch_labels = None
 depends_on = None
 
@@ -41,7 +41,7 @@ _RACE_DEFAULTS: list[tuple[str, int]] = [
     ("monthly_race_min_placements", 2),
 ]
 
-# Downgrade przywraca DOKŁADNIE seed 0124 (panel „Moje KPI" sprzed 0343).
+# Downgrade przywraca DOKŁADNIE seed 0124 (panel „Moje KPI" sprzed 0346).
 _SEED_0124: list[tuple[str, str, int]] = [
     ("sourcer", "verifications_daily", 4),
     ("tac", "verifications_daily", 4),
@@ -73,7 +73,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Przywraca seed 0124 pod starymi id i zdejmuje marker.
 
-    Wiersze pod kanonicznymi id zostają — kod sprzed 0343 i tak czytał je
+    Wiersze pod kanonicznymi id zostają — kod sprzed 0346 i tak czytał je
     w widgecie KPI Coach (id widgetu się nie zmieniły).
     """
     conn = op.get_bind()

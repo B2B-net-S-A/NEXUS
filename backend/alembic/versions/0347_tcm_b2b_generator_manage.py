@@ -9,8 +9,8 @@ Zmieniamy WYŁĄCZNIE wiersz z seeda (``updated_by IS NULL`` i ``view``): decyzj
 administratora zapisana w panelu RBAC zostaje nietknięta. Na produkcji to
 no-op (wiersz ma autora i już ``manage``).
 
-Revision ID: 0344_tcm_b2b_generator_manage
-Revises: 0343_kpi_catalog_unification
+Revision ID: 0347_tcm_b2b_generator_manage
+Revises: 0346_kpi_catalog_unification
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0344_tcm_b2b_generator_manage"
-down_revision = "0343_kpi_catalog_unification"
+revision = "0347_tcm_b2b_generator_manage"
+down_revision = "0346_kpi_catalog_unification"
 branch_labels = None
 depends_on = None
 

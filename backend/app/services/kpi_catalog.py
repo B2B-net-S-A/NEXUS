@@ -9,7 +9,7 @@ panel, widget, nudge'e, wyścig miesięczny, panel zespołu i raport Power
 Calling czytają cele przez `app.services.kpi_targets`.
 
 Identyfikatory panelu (`verifications_daily`, `cv_added_daily`,
-`placements_monthly`, `precision_monthly`) są ALIASAMI — migracja 0343
+`placements_monthly`, `precision_monthly`) są ALIASAMI — migracja 0346
 przepisała na kanoniczne id wiersze `kpi_role_defaults` / `user_kpi_targets`,
 a `get_kpi` i resolver targetów nadal rozumieją stare id (zapisane gdzieś
 w historii albo wołane przez starszy kod).
@@ -18,7 +18,7 @@ Liczby (decyzje Artura 22.09.2026): placementy / miesiąc = 1, nowi kandydaci /
 dzień = 5 (rekruter, sourcer, TAC); weryfikacje / dzień = 4; precision = 75%;
 rekomendacje / tydzień — rekruter 15, TAC 12 (sourcer bez celu — nie
 zdecydowano). Wiersz w `kpi_role_defaults` albo `user_kpi_targets` nadal
-NADPISUJE domyślną liczbę z katalogu (precedencja w `kpi_targets`), ale po 0343
+NADPISUJE domyślną liczbę z katalogu (precedencja w `kpi_targets`), ale po 0346
 tabela ról jest pusta — obowiązuje katalog. Edytora targetów w aplikacji nie ma
 (audyt T5), więc zmiana liczby = zmiana tego pliku.
 
@@ -171,7 +171,7 @@ KPI_ID_ALIASES: dict[str, str] = {
 }
 
 # Identyfikatory zasiane przez 0034 i od dawna martwe (UserActivity).
-# Migracja 0343 kasuje ich wiersze z `kpi_role_defaults`.
+# Migracja 0346 kasuje ich wiersze z `kpi_role_defaults`.
 RETIRED_KPI_IDS: tuple[str, ...] = ("daily_activity_count", "weekly_screenings")
 
 

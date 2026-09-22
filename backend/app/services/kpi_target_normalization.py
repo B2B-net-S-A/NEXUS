@@ -1,6 +1,6 @@
-"""Jednorazowe uporządkowanie `kpi_role_defaults` / `user_kpi_targets` (0343).
+"""Jednorazowe uporządkowanie `kpi_role_defaults` / `user_kpi_targets` (0346).
 
-Jedno źródło SQL-a dla migracji 0343 i lustra w `entrypoint.sh` (prod alembic
+Jedno źródło SQL-a dla migracji 0346 i lustra w `entrypoint.sh` (prod alembic
 bywa osierocony). Moduł celowo NIE importuje kodu aplikacji — migracja biegnie
 też na starym obrazie. Zgodność stałych z katalogiem (`kpi_catalog`) pilnuje
 `tests/test_kpi_catalog_unification.py`.
@@ -24,7 +24,7 @@ równy domyślnemu jest nadal decyzją o tej osobie.
 
 from __future__ import annotations
 
-KPI_TARGET_NORMALIZATION_MARKER = "0343_kpi_catalog_unification"
+KPI_TARGET_NORMALIZATION_MARKER = "0346_kpi_catalog_unification"
 
 # Stary id → kanoniczny id (lustro `kpi_catalog.KPI_ID_ALIASES`).
 KPI_ID_RENAMES: tuple[tuple[str, str], ...] = (

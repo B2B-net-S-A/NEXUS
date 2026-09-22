@@ -5372,8 +5372,8 @@ _DATA_STATEMENTS = [
                WHERE other.template_id = sd.template_id
                  AND other.legacy_enum_value = 'interview'
           )""",
-    # 0273 + 0344: domyślne wartości akcji (recovery tylko przy pustej macierzy).
-    # TCM ma pełny generator od decyzji z 22.09.2026 (0344); tylko legacy
+    # 0273 + 0347: domyślne wartości akcji (recovery tylko przy pustej macierzy).
+    # TCM ma pełny generator od decyzji z 22.09.2026 (0347); tylko legacy
     # viewer zaczyna od podglądu.
     """INSERT INTO rbac_role_action_permissions (role, action, access)
        SELECT defaults.role, defaults.action, defaults.access
@@ -8289,10 +8289,10 @@ async def repair():
 asyncio.run(repair())
 PY
 
-# Jeden katalog KPI (0343, 22.09.2026) — stare id panelu „Moje KPI" na
+# Jeden katalog KPI (0346, 22.09.2026) — stare id panelu „Moje KPI" na
 # kanoniczne id katalogu, martwe id z 0034 i wiersze równe domyślnym z
 # `kpi_role_defaults` usunięte (katalog = jedyne źródło liczb). Safety-net dla
-# migracji 0343: ten sam blok SQL z `app/services/kpi_target_normalization.py`,
+# migracji 0346: ten sam blok SQL z `app/services/kpi_target_normalization.py`,
 # marker w `app_settings` + advisory lock → drugi start kończy się natychmiast.
 startup_phase "repair-kpi-catalog-unification"
 echo "KPI targets: unify panel and coach ids (one-shot, idempotent)..."
