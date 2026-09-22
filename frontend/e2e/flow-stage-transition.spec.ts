@@ -51,6 +51,13 @@ test.describe("Pipeline rekrutacji @stack", () => {
     );
     expect(stageOf(kanbanAfterMove, candidate.id)).toBe("screening");
 
+    // Goły adres otwiera Tablicę (widok domyślny od #1696) i osoba na niej jest.
+    await page.goto(`/jobs/${job.id}`);
+    await expect(page.getByTestId("view-board")).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.getByTestId("pipeline-board").getByRole("link", { name: fullName })
+    ).toBeVisible();
+
     // Osoba jest w tabeli także po przeładowaniu rekrutacji… Widokiem
     // domyślnym jest Tablica (JOB_DETAIL_DEFAULT_VIEW, 22.09.2026), więc do
     // Tabeli wchodzimy jawnym `?tab=people`.
@@ -64,7 +71,9 @@ test.describe("Pipeline rekrutacji @stack", () => {
     const board = page.getByTestId("pipeline-board");
     await expect(board.getByRole("link", { name: fullName })).toBeVisible();
     await page.goto(`/jobs/${job.id}?tab=pipeline`);
-    await expect(page.getByRole("grid", { name: "Osoby w rekrutacji" })).toBeVisible();
+    await expect(
+      page.getByRole("grid", { name: "Osoby w rekrutacji" }).getByText(fullName)
+    ).toBeVisible();
     await expect(page).not.toHaveURL(/tab=pipeline/);
 
     // Ruch z nieaktualną wersją procesu jest odrzucany bez zapisu (F05).
@@ -78,6 +87,13 @@ test.describe("Pipeline rekrutacji @stack", () => {
     });
     await expectStatus(stale, 409, "ruch z nieaktualną wersją");
     expect((await stale.json()).detail.code).toBe("PIPELINE_VERSION_CONFLICT");
+    // …i naprawdę nic nie zapisał: osoba dalej stoi na screeningu.
+    const kanbanAfterStale = await jsonOf<KanbanView>(
+      await admin.api.get(`/api/pipeline/kanban/${job.id}`),
+      200,
+      "kanban po odmowie ruchu"
+    );
+    expect(stageOf(kanbanAfterStale, candidate.id)).toBe("screening");
 
     const template = await jsonOf<{
       rejection_reasons: Array<{ id: number; category: string }>;
