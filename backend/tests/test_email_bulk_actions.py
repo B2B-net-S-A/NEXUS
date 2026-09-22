@@ -336,7 +336,7 @@ async def test_bulk_archive_hides_email_from_default_thread_view(
         f"/api/candidates/{candidate.id}/emails", headers=app_auth_headers
     )
     assert r.status_code == 200, r.text
-    threads = r.json()
+    threads = r.json()["items"]
     ids_before = {t["latest"]["id"] for t in threads}
     assert e1.id in ids_before
 
@@ -353,7 +353,7 @@ async def test_bulk_archive_hides_email_from_default_thread_view(
         f"/api/candidates/{candidate.id}/emails", headers=app_auth_headers
     )
     assert r.status_code == 200
-    threads_after = r.json()
+    threads_after = r.json()["items"]
     ids_after = {t["latest"]["id"] for t in threads_after}
     assert e1.id not in ids_after
 
@@ -363,6 +363,6 @@ async def test_bulk_archive_hides_email_from_default_thread_view(
         headers=app_auth_headers,
     )
     assert r.status_code == 200
-    threads_with_archived = r.json()
+    threads_with_archived = r.json()["items"]
     ids_with_archived = {t["latest"]["id"] for t in threads_with_archived}
     assert e1.id in ids_with_archived

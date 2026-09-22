@@ -4896,6 +4896,14 @@ export interface EmailThreadPreview {
   unread_count: number;
 }
 
+/** Strona wątków kandydata — `total` pozwala napisać „Pokazano X z Y". */
+export interface EmailThreadPage {
+  items: EmailThreadPreview[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export type FreeBusyStatus =
   | "free"
   | "tentative"
@@ -4943,15 +4951,28 @@ export const microsoft365Api = {
   disconnect: () => api.delete("/api/microsoft365/connection"),
   triggerSync: () => api.post("/api/microsoft365/sync/trigger"),
 
-  listCandidateThreads: (candidateId: number) =>
-    api.get<EmailThreadPreview[]>(`/api/candidates/${candidateId}/emails`),
+  listCandidateThreads: (candidateId: number, limit = 50, offset = 0) =>
+    api.get<EmailThreadPage>(`/api/candidates/${candidateId}/emails`, {
+      params: { limit, offset },
+    }),
   listThreadMessages: (candidateId: number, conversationId: string) =>
     api.get<EmailMessage[]>(
       `/api/candidates/${candidateId}/emails/thread/${encodeURIComponent(conversationId)}`,
     ),
-  searchEmails: (q: string, limit = 50, offset = 0) =>
+  /** `candidateId` zawęża trafienia do maili tego kandydata (FE-08). */
+  searchEmails: (
+    q: string,
+    limit = 50,
+    offset = 0,
+    candidateId?: number,
+  ) =>
     api.get<EmailSearchResponse>("/api/microsoft365/emails/search", {
-      params: { q, limit, offset },
+      params: {
+        q,
+        limit,
+        offset,
+        ...(candidateId ? { candidate_id: candidateId } : {}),
+      },
     }),
   getEmail: (emailId: number) =>
     api.get<EmailMessage>(`/api/emails/${emailId}`),

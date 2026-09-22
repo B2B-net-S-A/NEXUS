@@ -45,8 +45,12 @@ import {
   useCareerLink,
   useInviteLinks,
   useJobPublicProfile,
+  jobIsNotPublished,
+  useShareableJob,
   useShareablePublishedJobs,
+  type PublishedJobLite,
 } from "@/lib/api/careerLinks";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -131,7 +135,15 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
     if (defaultJobId) setJobId(defaultJobId);
   }, [defaultJobId]);
 
-  const jobsQuery = useShareablePublishedJobs(enabled);
+  // Szukanie rekrutacji po stronie serwera + status wskazanej rekrutacji
+  // jednym GET-em. Dawniej lista „pierwsze 100" i „nie ma jej na liście =
+  // nieopublikowana" myliły rekrutację spoza setki z nieopublikowaną (FE-13).
+  const [jobSearch, setJobSearch] = useState("");
+  const debouncedJobSearch = useDebouncedValue(jobSearch.trim(), 300);
+  const jobsQuery = useShareablePublishedJobs(enabled, debouncedJobSearch);
+  const defaultJobQuery = useShareableJob(enabled && defaultJobId ? defaultJobId : null);
+  // Rekrutacja wybrana z przefiltrowanej listy — jej tytuł zostaje po zmianie frazy.
+  const [pickedJob, setPickedJob] = useState<PublishedJobLite | null>(null);
   const linksQuery = useInviteLinks(enabled);
   const profileQuery = useJobPublicProfile(enabled ? jobId : null);
   // Tylko po adres strony kariery (`base_url`) do podglądu posta.
@@ -139,9 +151,24 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
   const profile = profileQuery.data ?? null;
 
   const jobs = useMemo(() => jobsQuery.data ?? [], [jobsQuery.data]);
-  const selectedJob = jobs.find((j) => j.id === jobId) ?? null;
-  const jobTitle = selectedJob?.title ?? profile?.preview?.title ?? null;
-  const jobNotListed = jobsQuery.isSuccess && jobId != null && !selectedJob;
+  const defaultJob =
+    defaultJobQuery.data && defaultJobQuery.data.id === jobId ? defaultJobQuery.data : null;
+  const selectedJob =
+    jobs.find((j) => j.id === jobId) ??
+    (pickedJob?.id === jobId ? pickedJob : null) ??
+    defaultJob;
+  const jobTitle = selectedJob?.title || profile?.preview?.title || null;
+  // Opcje selecta: wynik wyszukiwania + wybrana rekrutacja, jeśli fraza ją ukryła.
+  const jobOptions = useMemo(
+    () =>
+      selectedJob && !jobs.some((j) => j.id === selectedJob.id) && !jobIsNotPublished(selectedJob)
+        ? [selectedJob, ...jobs]
+        : jobs,
+    [jobs, selectedJob],
+  );
+  const defaultJobClosed = defaultJob != null && jobIsNotPublished(defaultJob);
+  const defaultJobFailed =
+    defaultJobQuery.isError && defaultJobId != null && jobId === defaultJobId;
 
   useEffect(() => {
     onJobChange?.(jobTitle);
@@ -301,7 +328,7 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
     isError: jobsQuery.isError,
     error: jobsQuery.error,
     isSuccess: jobsQuery.isSuccess,
-    isEmpty: jobs.length === 0,
+    isEmpty: jobs.length === 0 && !debouncedJobSearch,
   });
 
   const host = careerPreviewHost(
@@ -328,9 +355,21 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
               onRetry={() => jobsQuery.refetch()}
             />
           ) : (
+            <div className="space-y-2">
+            <Input
+              type="search"
+              value={jobSearch}
+              onChange={(e) => setJobSearch(e.target.value)}
+              placeholder="Szukaj opublikowanej rekrutacji…"
+              aria-label="Szukaj rekrutacji"
+            />
             <Select
               value={jobId != null ? String(jobId) : ""}
-              onValueChange={(v) => setJobId(Number(v))}
+              onValueChange={(v) => {
+                const id = Number(v);
+                setJobId(id);
+                setPickedJob(jobOptions.find((j) => j.id === id) ?? null);
+              }}
               disabled={jobsState === "loading"}
             >
               <SelectTrigger aria-label="Rekrutacja">
@@ -347,18 +386,28 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {jobs.map((j) => (
+                {jobOptions.length === 0 && debouncedJobSearch ? (
+                  <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                    Brak opublikowanych rekrutacji pasujących do «{debouncedJobSearch}».
+                  </p>
+                ) : null}
+                {jobOptions.map((j) => (
                   <SelectItem key={j.id} value={String(j.id)}>
                     {j.title}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            </div>
           )}
-          {jobNotListed ? (
+          {defaultJobClosed ? (
             <p className="text-xs text-warning-muted-foreground">
               Ta rekrutacja nie jest opublikowana — link publiczny działa tylko dla
               opublikowanych rekrutacji.
+            </p>
+          ) : defaultJobFailed ? (
+            <p className="text-xs text-destructive">
+              {apiErrorMessage(defaultJobQuery.error, "Nie udało się wczytać tej rekrutacji.")}
             </p>
           ) : null}
         </FormField>

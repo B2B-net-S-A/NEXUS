@@ -31,6 +31,7 @@ import {
   careerLinkQueryKey,
   inviteLinksQueryKey,
   jobPublicProfileQueryKey,
+  shareableJobQueryKey,
   shareablePublishedJobsQueryKey,
 } from "@/lib/api/careerLinks";
 
@@ -163,6 +164,7 @@ export default function CareerSharePreviewPage() {
     });
     const future = { updatedAt: Date.now() + 1_000 * 60 * 60 * 24 * 365 };
     qc.setQueryData(shareablePublishedJobsQueryKey(), JOBS, future);
+    qc.setQueryData(shareableJobQueryKey(101), JOBS[0], future);
     qc.setQueryData(inviteLinksQueryKey(), INVITE_LINKS, future);
     qc.setQueryData(jobPublicProfileQueryKey(101), PROFILE_WITH_FINDING, future);
     qc.setQueryData(careerLinkQueryKey(), CAREER_LINK, future);

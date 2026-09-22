@@ -92,6 +92,17 @@ class ThreadPreview(BaseModel):
     unread_count: int
 
 
+class ThreadListResponse(BaseModel):
+    """Strona wątków kandydata. ``total`` = wszystkie widoczne wątki, żeby UI
+    mogło napisać „Pokazano X z Y" i zaproponować „Pokaż więcej" zamiast
+    urywać historię na pierwszej stronie."""
+
+    items: list[ThreadPreview]
+    total: int
+    limit: int
+    offset: int
+
+
 class EmailSearchHit(BaseModel):
     """Single hit on the FTS endpoint.
 
@@ -182,14 +193,15 @@ def _to_email_out(email: Email) -> EmailOut:
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 
-@router.get("/candidates/{candidate_id}/emails", response_model=list[ThreadPreview])
+@router.get("/candidates/{candidate_id}/emails", response_model=ThreadListResponse)
 async def list_candidate_emails(
     candidate_id: int,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     include_archived: bool = Query(False),
-) -> list[ThreadPreview]:
+) -> ThreadListResponse:
     """Return conversation previews for a candidate, most-recent first.
 
     Groups by `m365_conversation_id`. Each preview carries the latest message
@@ -224,20 +236,26 @@ async def list_candidate_emails(
             if e.received_at > slot["latest"].received_at:
                 slot["latest"] = e
 
-    previews = sorted(
+    ordered = sorted(
         threads.values(), key=lambda t: t["latest"].received_at, reverse=True
-    )[:limit]
+    )
+    page = ordered[offset : offset + limit]
 
-    return [
-        ThreadPreview(
-            conversation_id=t["latest"].m365_conversation_id,
-            subject=t["latest"].subject,
-            latest=_to_email_out(t["latest"]),
-            message_count=t["count"],
-            unread_count=t["unread"],
-        )
-        for t in previews
-    ]
+    return ThreadListResponse(
+        items=[
+            ThreadPreview(
+                conversation_id=t["latest"].m365_conversation_id,
+                subject=t["latest"].subject,
+                latest=_to_email_out(t["latest"]),
+                message_count=t["count"],
+                unread_count=t["unread"],
+            )
+            for t in page
+        ],
+        total=len(ordered),
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get(
@@ -359,6 +377,7 @@ async def search_emails(
     q: str = Query(..., min_length=2, max_length=200),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    candidate_id: Optional[int] = Query(None, ge=1),
     db: AsyncSession = Depends(get_db),
 ) -> EmailSearchResponse:
     """Full-text search over the caller's own emails (Phase 4.4).
@@ -372,6 +391,11 @@ async def search_emails(
 
     Ranking: ``ts_rank`` desc with ``received_at`` desc as tiebreaker — when
     two emails match equally, newest wins.
+
+    ``candidate_id`` zawęża trafienia do maili przypisanych temu kandydatowi —
+    wyszukiwarka w profilu kandydata inaczej pokazywała maile innych osób,
+    a kliknięcie takiego wyniku otwierało pusty wątek (para kandydat A +
+    rozmowa kandydata B nie ma wiadomości).
     """
     # Single CTE-style query to share the same `:q` binding for filter,
     # ranking and snippet. asyncpg's prepared-statement cache handles repeats.
@@ -392,6 +416,10 @@ async def search_emails(
             FROM emails e
             WHERE e.user_id = :user_id
               AND e.search_vector @@ plainto_tsquery('simple', :q)
+              AND (
+                  CAST(:candidate_id AS integer) IS NULL
+                  OR e.candidate_id = CAST(:candidate_id AS integer)
+              )
         )
         SELECT id, m365_conversation_id, candidate_id, subject,
                from_address, from_name, received_at,
@@ -404,7 +432,13 @@ async def search_emails(
     )
     result = await db.execute(
         sql,
-        {"q": q, "user_id": current_user.id, "limit": limit, "offset": offset},
+        {
+            "q": q,
+            "user_id": current_user.id,
+            "candidate_id": candidate_id,
+            "limit": limit,
+            "offset": offset,
+        },
     )
     rows = result.mappings().all()
 

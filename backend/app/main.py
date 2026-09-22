@@ -962,8 +962,15 @@ app.add_middleware(
     ],
     # `Content-Disposition` carries server-generated export filenames. Without
     # exposing it, cross-origin frontend fetches can download the bytes but
-    # cannot read the required client/date filename.
-    expose_headers=["ETag", "Content-Disposition", "X-Request-Id"],
+    # cannot read the required client/date filename. `X-Export-Truncated`
+    # tells the clients export that the file was cut at the row limit —
+    # without exposing it the "partial export" warning never shows (FE-01).
+    expose_headers=[
+        "ETag",
+        "Content-Disposition",
+        "X-Request-Id",
+        "X-Export-Truncated",
+    ],
 )
 
 # Register routers

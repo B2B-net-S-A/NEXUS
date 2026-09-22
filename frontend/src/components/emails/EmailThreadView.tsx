@@ -275,7 +275,12 @@ export default function EmailThreadView({
 }: EmailThreadViewProps) {
   const [replyTarget, setReplyTarget] = useState<EmailMessage | null>(null);
 
-  const { data: messages, isLoading } = useQuery({
+  const {
+    data: messages,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["email-thread", candidateId, conversationId],
     queryFn: () =>
       microsoft365Api
@@ -289,7 +294,9 @@ export default function EmailThreadView({
     return flattenThread(buildThreadTree(messages));
   }, [messages]);
 
-  const subject = messages?.[messages.length - 1]?.subject ?? "(bez tematu)";
+  const subject = isLoading
+    ? "Wątek email"
+    : (messages?.[messages.length - 1]?.subject ?? "(bez tematu)");
   const latestId = flatNodes[flatNodes.length - 1]?.email.id ?? null;
 
   const messageCount = messages?.length ?? 0;
@@ -321,10 +328,24 @@ export default function EmailThreadView({
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Wczytuję wątek...</p>
+          ) : isError ? (
+            <div className="space-y-2">
+              <Alert
+                variant="error"
+                description="Nie udało się wczytać wątku."
+              />
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="text-sm font-medium text-primary hover:text-primary/80"
+              >
+                Ponów
+              </button>
+            </div>
           ) : flatNodes.length === 0 ? (
             <Alert
               variant="info"
-              description="Brak wiadomości w tym wątku."
+              description="Ten wątek nie ma wiadomości przypisanych do tego kandydata albo nie masz do nich dostępu."
             />
           ) : (
             flatNodes.map((node) => (

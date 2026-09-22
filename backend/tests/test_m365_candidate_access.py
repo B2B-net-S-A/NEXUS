@@ -81,6 +81,8 @@ def test_email_search_openapi_keeps_current_user_as_dependency() -> None:
         "q",
         "limit",
         "offset",
+        # FE-08: zawężenie trafień do maili jednego kandydata.
+        "candidate_id",
     }
 
 

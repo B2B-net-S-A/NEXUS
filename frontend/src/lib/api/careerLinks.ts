@@ -6,7 +6,7 @@
 // zmiana klucza w hooku nie może się rozjechać z zasiewem (niezasiany klucz =
 // zapytanie → 401 → przerzut na /login).
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
 
@@ -158,8 +158,12 @@ export const careerLinkQueryKey = () => ["career-link", "me"] as const;
 export const jobPublicProfileQueryKey = (jobId: number) =>
   ["job-public-profile", jobId] as const;
 export const inviteLinksQueryKey = () => ["invite-links", "mine"] as const;
-export const shareablePublishedJobsQueryKey = () =>
-  ["career-share", "published-jobs"] as const;
+/** `q` pusty = pierwsza strona bez filtra (to ją zasiewa harness). */
+export const shareablePublishedJobsQueryKey = (q = "") =>
+  ["career-share", "published-jobs", q] as const;
+/** Jedna rekrutacja wskazana z kontekstu (`defaultJobId`) — jej status, nie obecność na liście. */
+export const shareableJobQueryKey = (jobId: number) =>
+  ["career-share", "job", jobId] as const;
 export const slugAvailabilityQueryKey = (slug: string) =>
   ["career-link", "slug-available", slug] as const;
 
@@ -206,13 +210,32 @@ export function normalizePublicProfile(
 // ── Klient ───────────────────────────────────────────────────────────────
 
 export const careerLinksApi = {
-  listPublishedJobs: async (): Promise<PublishedJobLite[]> => {
+  /**
+   * Opublikowane rekrutacje z wyszukiwaniem PO STRONIE SERWERA (`q`). Lista
+   * „pierwsze 100" gubiła każdą rekrutację za pierwszą setką (FE-13).
+   */
+  listPublishedJobs: async (q = ""): Promise<PublishedJobLite[]> => {
+    const query = q.trim();
     const res = await api.get("/api/jobs", {
-      params: { status: "published", page_size: 100 },
+      params: {
+        status: "published",
+        page_size: 50,
+        ...(query ? { q: query } : {}),
+      },
     });
     return asArray<PublishedJobLite>(res.data).filter(
       (j) => !j.status || j.status === "published",
     );
+  },
+  /** Jedna rekrutacja z jej statusem — `GET /api/jobs/{id}`. */
+  getJob: async (jobId: number): Promise<PublishedJobLite> => {
+    const res = await api.get(`/api/jobs/${jobId}`);
+    const d = (res.data ?? {}) as Partial<PublishedJobLite>;
+    return {
+      id: typeof d.id === "number" ? d.id : jobId,
+      title: typeof d.title === "string" ? d.title : "",
+      status: typeof d.status === "string" ? d.status : undefined,
+    };
   },
   listInviteLinks: async (): Promise<InviteLink[]> => {
     const res = await api.get("/api/invite-links", { params: { mine: true } });
@@ -299,13 +322,29 @@ export function findingsFromApproveError(
 
 // ── Hooki ────────────────────────────────────────────────────────────────
 
-export function useShareablePublishedJobs(enabled: boolean) {
+export function useShareablePublishedJobs(enabled: boolean, q = "") {
+  const query = q.trim();
   return useQuery({
-    queryKey: shareablePublishedJobsQueryKey(),
-    queryFn: careerLinksApi.listPublishedJobs,
+    queryKey: shareablePublishedJobsQueryKey(query),
+    queryFn: () => careerLinksApi.listPublishedJobs(query),
     enabled,
     staleTime: 30_000,
+    placeholderData: keepPreviousData,
   });
+}
+
+export function useShareableJob(jobId: number | null) {
+  return useQuery({
+    queryKey: shareableJobQueryKey(jobId ?? 0),
+    queryFn: () => careerLinksApi.getJob(jobId as number),
+    enabled: jobId != null,
+    staleTime: 30_000,
+  });
+}
+
+/** Wskazana rekrutacja nie jest opublikowana — link publiczny nie zadziała. */
+export function jobIsNotPublished(job: PublishedJobLite | null | undefined): boolean {
+  return !!job && !!job.status && job.status !== "published";
 }
 
 export function useInviteLinks(enabled: boolean) {

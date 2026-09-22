@@ -132,6 +132,7 @@ describe("/preview/career-share zasiewa klucze funkcjami z careerLinks.ts", () =
   it("każdy klucz ładowany przy montowaniu jest zasiany", () => {
     for (const fn of [
       "shareablePublishedJobsQueryKey()",
+      "shareableJobQueryKey(101)",
       "inviteLinksQueryKey()",
       "jobPublicProfileQueryKey(101)",
       "careerLinkQueryKey()",

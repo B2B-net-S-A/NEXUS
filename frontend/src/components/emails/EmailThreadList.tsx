@@ -31,7 +31,7 @@
  */
 
 import { Fragment, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import {
   Mail,
   Paperclip,
@@ -46,6 +46,7 @@ import {
   type EmailSearchHit,
   type EmailThreadPreview,
 } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -62,6 +63,21 @@ interface EmailThreadListProps {
 }
 
 const MIN_SEARCH_LEN = 2;
+/** Rozmiar strony listy wątków i wyników wyszukiwania. */
+export const EMAIL_PAGE_SIZE = 50;
+
+interface PageLike {
+  total: number;
+  offset: number;
+  limit: number;
+  items: unknown[];
+}
+
+/** Offset następnej strony albo `undefined`, gdy wczytano już wszystko. */
+export function nextEmailPageOffset<T extends PageLike>(last: T): number | undefined {
+  const next = last.offset + last.items.length;
+  return last.items.length > 0 && next < last.total ? next : undefined;
+}
 
 export default function EmailThreadList({
   candidateId,
@@ -79,28 +95,42 @@ export default function EmailThreadList({
   // (non-search) view to keep selection state coherent across query churn.
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
-  const { data, isLoading, error } = useQuery({
+  const threadsQuery = useInfiniteQuery({
     queryKey: ["candidate-emails", candidateId],
-    queryFn: () =>
-      microsoft365Api.listCandidateThreads(candidateId).then((r) => r.data),
+    queryFn: ({ pageParam }) =>
+      microsoft365Api
+        .listCandidateThreads(candidateId, EMAIL_PAGE_SIZE, pageParam)
+        .then((r) => r.data),
+    initialPageParam: 0,
+    getNextPageParam: nextEmailPageOffset,
     enabled: !!candidateId && !isSearching,
     staleTime: 30_000,
   });
 
-  const {
-    data: searchData,
-    isLoading: isSearchLoading,
-    error: searchError,
-  } = useQuery({
-    queryKey: ["m365-emails-search", debouncedQuery],
-    queryFn: () =>
-      microsoft365Api.searchEmails(debouncedQuery).then((r) => r.data),
+  // Wyszukiwarka w profilu kandydata szuka WYŁĄCZNIE w jego mailach —
+  // trafienie z maila innego kandydata otwierało pusty wątek (FE-08).
+  const searchQuery = useInfiniteQuery({
+    queryKey: ["m365-emails-search", candidateId, debouncedQuery],
+    queryFn: ({ pageParam }) =>
+      microsoft365Api
+        .searchEmails(debouncedQuery, EMAIL_PAGE_SIZE, pageParam, candidateId)
+        .then((r) => r.data),
+    initialPageParam: 0,
+    getNextPageParam: nextEmailPageOffset,
     enabled: isSearching,
     staleTime: 10_000,
   });
 
-  const threads: EmailThreadPreview[] = data ?? [];
-  const hits: EmailSearchHit[] = searchData?.items ?? [];
+  const threads: EmailThreadPreview[] = useMemo(
+    () => threadsQuery.data?.pages.flatMap((p) => p.items) ?? [],
+    [threadsQuery.data],
+  );
+  const threadsTotal = threadsQuery.data?.pages[0]?.total ?? 0;
+  const hits: EmailSearchHit[] = useMemo(
+    () => searchQuery.data?.pages.flatMap((p) => p.items) ?? [],
+    [searchQuery.data],
+  );
+  const hitsTotal = searchQuery.data?.pages[0]?.total ?? 0;
 
   const visibleIds = useMemo(
     () => threads.map((t) => t.latest.id),
@@ -166,25 +196,47 @@ export default function EmailThreadList({
       />
 
       {isSearching ? (
-        <SearchResults
-          hits={hits}
-          isLoading={isSearchLoading}
-          error={searchError}
-          query={debouncedQuery}
-          onOpen={(conversationId) => setOpenConversation(conversationId)}
-        />
+        <>
+          <SearchResults
+            hits={hits}
+            isLoading={searchQuery.isLoading}
+            isSuccess={searchQuery.isSuccess}
+            error={searchQuery.error}
+            query={debouncedQuery}
+            onOpen={(conversationId) => setOpenConversation(conversationId)}
+          />
+          <LoadMore
+            shown={hits.length}
+            total={hitsTotal}
+            noun="wyników"
+            hasMore={!!searchQuery.hasNextPage}
+            loading={searchQuery.isFetchingNextPage}
+            onMore={() => void searchQuery.fetchNextPage()}
+          />
+        </>
       ) : (
-        <ThreadResults
-          threads={threads}
-          isLoading={isLoading}
-          error={error}
-          onOpen={(conversationId) => setOpenConversation(conversationId)}
-          selectedIds={selectedIds}
-          allSelected={allSelected}
-          someSelected={someSelected}
-          onToggleOne={toggleOne}
-          onToggleAll={toggleAll}
-        />
+        <>
+          <ThreadResults
+            threads={threads}
+            isLoading={threadsQuery.isLoading}
+            isSuccess={threadsQuery.isSuccess}
+            error={threadsQuery.error}
+            onOpen={(conversationId) => setOpenConversation(conversationId)}
+            selectedIds={selectedIds}
+            allSelected={allSelected}
+            someSelected={someSelected}
+            onToggleOne={toggleOne}
+            onToggleAll={toggleAll}
+          />
+          <LoadMore
+            shown={threads.length}
+            total={threadsTotal}
+            noun="wątków"
+            hasMore={!!threadsQuery.hasNextPage}
+            loading={threadsQuery.isFetchingNextPage}
+            onMore={() => void threadsQuery.fetchNextPage()}
+          />
+        </>
       )}
 
       <EmailBulkActionBar
@@ -214,11 +266,45 @@ export default function EmailThreadList({
   );
 }
 
+// ── „Pokazano X z Y" + „Pokaż więcej" ───────────────────────────────────────
+
+interface LoadMoreProps {
+  shown: number;
+  total: number;
+  noun: string;
+  hasMore: boolean;
+  loading: boolean;
+  onMore: () => void;
+}
+
+function LoadMore({ shown, total, noun, hasMore, loading, onMore }: LoadMoreProps) {
+  if (shown === 0 || total === 0) return null;
+  return (
+    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+      <span>
+        Pokazano {shown} z {total} {noun}
+      </span>
+      {hasMore && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onMore}
+          disabled={loading}
+        >
+          {loading ? "Wczytuję…" : "Pokaż więcej"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // ── Thread list (default view) ───────────────────────────────────────────────
 
 interface ThreadResultsProps {
   threads: EmailThreadPreview[];
   isLoading: boolean;
+  isSuccess: boolean;
   error: unknown;
   onOpen: (conversationId: string) => void;
   selectedIds: Set<number>;
@@ -231,6 +317,7 @@ interface ThreadResultsProps {
 function ThreadResults({
   threads,
   isLoading,
+  isSuccess,
   error,
   onOpen,
   selectedIds,
@@ -253,6 +340,7 @@ function ThreadResults({
       </div>
     );
   }
+  if (!isSuccess) return null;
   if (threads.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border p-8 text-center">
@@ -373,6 +461,7 @@ function ThreadResults({
 interface SearchResultsProps {
   hits: EmailSearchHit[];
   isLoading: boolean;
+  isSuccess: boolean;
   error: unknown;
   query: string;
   onOpen: (conversationId: string) => void;
@@ -381,6 +470,7 @@ interface SearchResultsProps {
 function SearchResults({
   hits,
   isLoading,
+  isSuccess,
   error,
   query,
   onOpen,
@@ -399,12 +489,13 @@ function SearchResults({
       </div>
     );
   }
+  if (!isSuccess) return null;
   if (hits.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border p-8 text-center">
         <Mail className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
         <p className="text-sm text-muted-foreground">
-          Brak wyników dla «{query}».
+          Brak wyników dla «{query}» w mailach tego kandydata.
         </p>
       </div>
     );

@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { DollarSign, Loader2, Plus, Trash2 } from "lucide-react";
 import { phase5Api, RateHistoryRow } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { hasRole, useAuthStore } from "@/store/auth";
+import { useToast } from "@/components/Toast";
 
 interface Props {
   candidateId: number;
@@ -20,6 +22,11 @@ const CONTRACT_LABEL: Record<string, string> = {
 };
 
 export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props) {
+  // Zapis i usuwanie stawek to `AdminUser` w `api/phase5.py` — pozostałe role
+  // dostawały formularz, którego zapis zawsze kończył się 403 (FE-10).
+  const user = useAuthStore((s) => s.user);
+  const canEdit = hasRole(user, "admin");
+  const { showError } = useToast();
   const [rows, setRows] = useState<RateHistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<{ id: number; name: string }[]>([]);
@@ -56,7 +63,7 @@ export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props)
 
   const handleCreate = async () => {
     if (!form.rate || !form.start_date) {
-      alert("Stawka i data startu są wymagane.");
+      showError("Stawka i data startu są wymagane.");
       return;
     }
     setSaving(true);
@@ -72,20 +79,19 @@ export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props)
       setShowForm(false);
       await load();
     } catch (e: unknown) {
-      const msg = apiErrorMessage(e, "Błąd");
-      alert(`Nie zapisano: ${msg}`);
+      showError(`Nie zapisano stawki: ${apiErrorMessage(e, "spróbuj ponownie")}`);
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Usunąć rekord stawki ? ")) return;
+    if (!confirm("Usunąć rekord stawki?")) return;
     try {
       await phase5Api.rateHistory.delete(id);
       await load();
-    } catch (e) {
-      console.error(e);
+    } catch (e: unknown) {
+      showError(`Nie usunięto stawki: ${apiErrorMessage(e, "spróbuj ponownie")}`);
     }
   };
 
@@ -95,6 +101,8 @@ export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props)
   // Collapsed empty state for the candidate-panel footer: a single slim link
   // that opens the add-form, instead of a full "Brak zapisanych stawek." card.
   if (hideWhenEmpty && !loading && rows.length === 0 && !showForm) {
+    // Bez prawa zapisu nie ma czego proponować — pusty widżet znika.
+    if (!canEdit) return null;
     return (
       <button
         type="button"
@@ -114,17 +122,19 @@ export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props)
           <DollarSign className="w-4 h-4 text-emerald-500" />
           Historia stawek ({rows.length})
         </h3>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="text-xs text-primary hover:underline flex items-center gap-1"
-          data-testid="rate-history-add-toggle"
-        >
-          <Plus className="w-3 h-3" />
-          {showForm ? "Anuluj" : "Dodaj stawkę"}
-        </button>
+        {canEdit && (
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="text-xs text-primary hover:underline flex items-center gap-1"
+            data-testid="rate-history-add-toggle"
+          >
+            <Plus className="w-3 h-3" />
+            {showForm ? "Anuluj" : "Dodaj stawkę"}
+          </button>
+        )}
       </div>
 
-      {showForm && (
+      {canEdit && showForm && (
         <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-3 p-3 rounded bg-muted dark:bg-card/40">
           <input
             type="number"
@@ -190,7 +200,7 @@ export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props)
               <th className="text-left">Klient</th>
               <th className="text-right">Stawka</th>
               <th className="text-left pl-4">Kontrakt</th>
-              <th />
+              {canEdit && <th />}
             </tr>
           </thead>
           <tbody>
@@ -205,15 +215,17 @@ export function RateHistoryWidget({ candidateId, hideWhenEmpty = false }: Props)
                   {r.rate.toLocaleString()} {r.currency}
                 </td>
                 <td className="pl-4">{CONTRACT_LABEL[r.contract_type] ?? r.contract_type}</td>
-                <td className="text-right">
-                  <button
-                    onClick={() => handleDelete(r.id)}
-                    className="text-red-400 hover:text-destructive"
-                    aria-label="Usuń"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </td>
+                {canEdit && (
+                  <td className="text-right">
+                    <button
+                      onClick={() => handleDelete(r.id)}
+                      className="text-destructive/70 hover:text-destructive"
+                      aria-label="Usuń stawkę"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
