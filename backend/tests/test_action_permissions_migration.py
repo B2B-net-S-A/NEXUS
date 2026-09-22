@@ -16,6 +16,31 @@ from app.services.action_permissions import (
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_PATH = BACKEND_ROOT / "alembic/versions/0273_action_permissions.py"
 
+# Seed 0273 (i jego lustro w entrypoint.sh) opisuje macierz z dnia migracji.
+# Późniejsze decyzje zmieniają DEFAULT_ROLE_ACTION_ACCESS, a nie historyczny
+# seed — każde takie odejście musi być wpisane tutaj jawnie (rola → wartość
+# w seedzie, wartość w kodzie). Świeże środowisko dostaje wartość z seedu,
+# więc wpis tutaj oznacza też potrzebę migracji danych.
+#
+# 22.09.2026 (decyzja Artura): TCM ma pełny generator B2B. Produkcja ma
+# „manage" od 03–04.09 (panel RBAC); świeża baza z seedu 0273 da „view".
+SEED_DIVERGENCE_AFTER_0273: dict[str, tuple[str, str]] = {
+    UserRole.talent_community_manager.value: ("view", "manage"),
+}
+
+
+def _seeded_generator_access(role: UserRole) -> str:
+    current = DEFAULT_ROLE_ACTION_ACCESS[role][ProductAction.b2b_contract_generator]
+    divergence = SEED_DIVERGENCE_AFTER_0273.get(role.value)
+    if divergence is None:
+        return current.name
+    seeded, expected_current = divergence
+    assert current.name == expected_current, (
+        f"{role.value}: kod ma {current.name}, a rozbieżność z seedem opisuje "
+        f"{expected_current} — zaktualizuj SEED_DIVERGENCE_AFTER_0273"
+    )
+    return seeded
+
 
 def _migration_module():
     spec = importlib.util.spec_from_file_location("action_rbac_0273", MIGRATION_PATH)
@@ -28,9 +53,7 @@ def _migration_module():
 def test_migration_seed_exactly_matches_bootstrap_matrix() -> None:
     migration = _migration_module()
     action = ProductAction.b2b_contract_generator
-    expected = {
-        role.value: DEFAULT_ROLE_ACTION_ACCESS[role][action].name for role in UserRole
-    }
+    expected = {role.value: _seeded_generator_access(role) for role in UserRole}
     assert migration.ACTION == action.value
     assert migration.ROLE_DEFAULTS == expected
     upgrade_source = inspect.getsource(migration.upgrade)
@@ -52,9 +75,7 @@ def test_entrypoint_recovery_seed_is_complete_and_fail_closed() -> None:
     assert "DO UPDATE" not in seed
     assert "SELECT 1 FROM rbac_role_action_permissions" in seed
     for role in UserRole:
-        access = DEFAULT_ROLE_ACTION_ACCESS[role][
-            ProductAction.b2b_contract_generator
-        ].name
+        access = _seeded_generator_access(role)
         assert f"('{role.value}', 'b2b_contract_generator', '{access}')" in seed
 
 

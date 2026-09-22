@@ -30,7 +30,7 @@ def test_action_matrix_is_closed_over_every_role_and_action() -> None:
         assert set(policy) == set(ProductAction)
 
 
-def test_generator_defaults_preserve_operators_and_keep_tcm_view_only() -> None:
+def test_generator_defaults_give_every_operator_full_generator() -> None:
     for role in (
         UserRole.admin,
         UserRole.finance,
@@ -39,21 +39,17 @@ def test_generator_defaults_preserve_operators_and_keep_tcm_view_only() -> None:
         UserRole.tac,
         UserRole.recruiter,
         UserRole.sourcer,
+        # Decyzja Artura 22.09.2026: TCM ma pełny generator B2B.
+        UserRole.talent_community_manager,
     ):
         assert action_access_for_roles([role], ACTION) is ActionAccess.manage
 
-    assert (
-        action_access_for_roles([UserRole.talent_community_manager], ACTION)
-        is ActionAccess.view
-    )
     assert action_access_for_roles([UserRole.user], ACTION) is ActionAccess.view
 
 
 def test_multi_role_union_uses_strongest_action_access() -> None:
     assert (
-        action_access_for_roles(
-            [UserRole.talent_community_manager, UserRole.recruiter], ACTION
-        )
+        action_access_for_roles([UserRole.user, UserRole.recruiter], ACTION)
         is ActionAccess.manage
     )
 
