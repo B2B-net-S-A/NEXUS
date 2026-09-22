@@ -202,6 +202,20 @@ SCORING_FIELDS: tuple[ScoringField, ...] = (
         label="Ścieżka rozwoju — alternatywne okno dla Eksperta",
         unit="miesięcy",
     ),
+    # Wyścig Placementów (nagroda 1 500 PLN). Do 22.09.2026 stała w kodzie
+    # (`competitions.MONTHLY_RACE_MIN_PLACEMENTS`). Świadomie WYŻSZY niż cel KPI
+    # „1 placement / miesiąc" (decyzja Artura 22.09.2026): cel to norma, nagroda
+    # to wynik ponad normę. Pozostałe progi wyścigów (weryfikacje / dzień,
+    # precision) czytają cele KPI z `kpi_catalog`, więc nie mają tu klucza.
+    ScoringField(
+        key="monthly_race_min_placements",
+        default=2,
+        minimum=0,
+        maximum=100,
+        group="monthly_race",
+        label="Wyścig Placementów — minimum placementów w miesiącu",
+        unit="placementów",
+    ),
 )
 
 SCORING_FIELDS_BY_KEY: dict[str, ScoringField] = {f.key: f for f in SCORING_FIELDS}

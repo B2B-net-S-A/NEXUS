@@ -84,22 +84,41 @@ def _deterministic_variant(
 # ── praise_hit ─────────────────────────────────────────────────────────────
 
 _PRAISE_HIT_PER_KPI: dict[str, tuple[MessageTemplate, ...]] = {
-    "daily_activity_count": (
+    "daily_first_verifications": (
         MessageTemplate(
-            title="🔥 Daily activity HIT!",
-            body="{name}, rozbiłeś dzisiejsze aktywności ({current}/{target}). "
+            title="🔥 Weryfikacje dobite!",
+            body="{name}, {current}/{target} weryfikacji dziś — target zamknięty. "
             "Tak trzymaj!",
             emoji="🔥",
         ),
         MessageTemplate(
             title="👏 Brawo, target wyrobiony",
-            body="{name}, daily activity na {current} — minąłeś target. "
+            body="{name}, weryfikacje na {current} — minąłeś target {target}. "
             "Kawa zasłużona ☕",
             emoji="👏",
         ),
         MessageTemplate(
             title="🚀 Jedziesz z koksem",
-            body="{name}, {current}/{target} aktywności dziś — HIT! Szacun.",
+            body="{name}, {current}/{target} zweryfikowanych kandydatów dziś — HIT! "
+            "Szacun.",
+            emoji="🚀",
+        ),
+    ),
+    "daily_completed_calls": (
+        MessageTemplate(
+            title="📞 Rozmowy dobite!",
+            body="{name}, {current}/{target} rozmów dziś — target zamknięty. "
+            "Dobra robota!",
+            emoji="📞",
+        ),
+        MessageTemplate(
+            title="👏 Telefon się nagrzał",
+            body="{name}, rozmowy na {current} — minąłeś target {target}. Szacun!",
+            emoji="👏",
+        ),
+        MessageTemplate(
+            title="🚀 Power calling HIT",
+            body="{name}, {current}/{target} rozmów — dzienny cel zrobiony.",
             emoji="🚀",
         ),
     ),
@@ -140,24 +159,6 @@ _PRAISE_HIT_PER_KPI: dict[str, tuple[MessageTemplate, ...]] = {
             body="{name}, {current} wysłane, target {target} zrealizowany. "
             "Tydzień kończysz z głową.",
             emoji="✅",
-        ),
-    ),
-    "weekly_screenings": (
-        MessageTemplate(
-            title="🎙️ Screeningi HIT!",
-            body="{name}, {current}/{target} screeningów w tygodniu — target zamknięty.",
-            emoji="🎙️",
-        ),
-        MessageTemplate(
-            title="🧠 Rozmowy zrobione",
-            body="{name}, screeningi wyrobione ({current}/{target}). Trzymaj tempo!",
-            emoji="🧠",
-        ),
-        MessageTemplate(
-            title="⚡ Screening target",
-            body="{name}, {current} screeningów w tym tygodniu — minąłeś {target}. "
-            "Kandydaci idą jak z nut.",
-            emoji="⚡",
         ),
     ),
     "monthly_placements": (
@@ -226,23 +227,62 @@ _REMIND_BEHIND_ESCALATION_GENERIC: tuple[MessageTemplate, ...] = (
 )
 
 _REMIND_BEHIND_PER_KPI: dict[str, tuple[MessageTemplate, ...]] = {
-    "daily_activity_count": (
+    "daily_first_verifications": (
         MessageTemplate(
             title="💡 Delikatne przypomnienie",
-            body="{name}, aktywności dziś {current}/{target}. "
+            body="{name}, weryfikacje dziś {current}/{target}. "
             "Jeszcze {remaining} do hit'u — dasz radę!",
             emoji="💡",
         ),
         MessageTemplate(
-            title="⏰ Daily activity czeka",
-            body="{name}, wciąż {current}/{target} aktywności dzisiaj. "
+            title="⏰ Weryfikacje czekają",
+            body="{name}, wciąż {current}/{target} weryfikacji dzisiaj. "
             "Zostało {remaining} do targetu — czas ruszyć z koksem.",
             emoji="⏰",
         ),
         MessageTemplate(
             title="🚨 Ostatni dzwonek dnia",
             body="{name}, zostało niewiele czasu — {current}/{target} "
-            "aktywności. Brakuje {remaining}, last call!",
+            "weryfikacji. Brakuje {remaining}, last call!",
+            emoji="🚨",
+        ),
+    ),
+    "daily_completed_calls": (
+        MessageTemplate(
+            title="💡 Rozmowy do dobicia",
+            body="{name}, rozmowy dziś {current}/{target}. Brakuje {remaining}.",
+            emoji="💡",
+        ),
+        MessageTemplate(
+            title="⏰ Telefon czeka",
+            body="{name}, {current}/{target} rozmów dziś — jeszcze {remaining} "
+            "do targetu.",
+            emoji="⏰",
+        ),
+        MessageTemplate(
+            title="🚨 Ostatni moment na rozmowy",
+            body="{name}, brakuje {remaining} rozmów do targetu "
+            "({current}/{target}). Ostatnia godzina dnia!",
+            emoji="🚨",
+        ),
+    ),
+    "monthly_placements": (
+        MessageTemplate(
+            title="💡 Placement miesiąca",
+            body="{name}, placementy w tym miesiącu {current}/{target}. "
+            "Jeszcze {remaining} — kandydaci w procesie czekają na domknięcie.",
+            emoji="💡",
+        ),
+        MessageTemplate(
+            title="⏰ Miesiąc mija",
+            body="{name}, {current}/{target} placementów w miesiącu. Brakuje "
+            "{remaining} — sprawdź, kto jest najbliżej akceptacji.",
+            emoji="⏰",
+        ),
+        MessageTemplate(
+            title="🚨 Końcówka miesiąca",
+            body="{name}, placementy {current}/{target}, zostało {remaining}. "
+            "Ostatnie dni miesiąca — domknij, co się da.",
             emoji="🚨",
         ),
     ),

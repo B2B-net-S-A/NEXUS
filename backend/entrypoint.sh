@@ -5409,7 +5409,8 @@ _DATA_STATEMENTS = [
            ('seniority_senior_alt_placements', 12),
            ('seniority_senior_alt_window_months', 12),
            ('seniority_expert_alt_placements', 24),
-           ('seniority_expert_alt_window_months', 12)
+           ('seniority_expert_alt_window_months', 12),
+           ('monthly_race_min_placements', 2)
        ON CONFLICT (key) DO NOTHING""",
     # 0260: korekta okna Eksperta 12 -> 6 miesięcy. Seed wyżej NIE naprawi
     # istniejącej instalacji (`DO NOTHING` omija wiersz zasiany przez 0256),
@@ -8283,6 +8284,34 @@ async def repair():
             {"key": SEPARATE_MD_PERIODIC_MARKER},
         )
     print(f"md/periodic separation: {receipt}")
+
+asyncio.run(repair())
+PY
+
+# Jeden katalog KPI (0343, 22.09.2026) — stare id panelu „Moje KPI" na
+# kanoniczne id katalogu, martwe id z 0034 i wiersze równe domyślnym z
+# `kpi_role_defaults` usunięte (katalog = jedyne źródło liczb). Safety-net dla
+# migracji 0343: ten sam blok SQL z `app/services/kpi_target_normalization.py`,
+# marker w `app_settings` + advisory lock → drugi start kończy się natychmiast.
+startup_phase "repair-kpi-catalog-unification"
+echo "KPI targets: unify panel and coach ids (one-shot, idempotent)..."
+python - <<'PY' || echo "kpi catalog unification skipped; continuing"
+import asyncio
+from sqlalchemy import text
+from app.core.database import engine
+from app.services.kpi_target_normalization import (
+    KPI_TARGET_NORMALIZATION_MARKER,
+    KPI_TARGET_NORMALIZATION_SQL,
+)
+
+async def repair():
+    async with engine.begin() as conn:
+        await conn.execute(text(KPI_TARGET_NORMALIZATION_SQL))
+        done = await conn.scalar(
+            text("SELECT 1 FROM app_settings WHERE key = :key"),
+            {"key": KPI_TARGET_NORMALIZATION_MARKER},
+        )
+    print(f"kpi catalog unification: {'done' if done else 'not applied'}")
 
 asyncio.run(repair())
 PY

@@ -85,8 +85,10 @@ async def test_power_calling_reports_no_daily_denominator(pc_client: AsyncClient
         assert body["met_target"] == []
         assert body["not_assessable_count"] == len(body["entries"])
 
-    # Próg zostaje, ale jako TYGODNIOWY (3/dzień x 5 dni) — jedyna uczciwa
-    # miara bez danych o nieobecnościach.
+    # Próg zostaje, ale jako TYGODNIOWY (cel dzienny x 5 dni) — jedyna uczciwa
+    # miara bez danych o nieobecnościach. Cel dzienny to cel KPI „Weryfikacje
+    # dziś" z katalogu (22.09.2026: do tej daty raport miał własne „3").
+    assert body["target_per_day"] == 4
     assert body["weekly_target"] == body["target_per_day"] * 5
     assert "dzień roboczy" not in body["requirement_text"]
     assert "nieobecnoś" in body["requirement_text"]

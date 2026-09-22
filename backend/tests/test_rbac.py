@@ -235,6 +235,7 @@ ROLE_SETS = {
     "recruitment_ranking": {
         UserRole.admin,
         UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
         UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,
