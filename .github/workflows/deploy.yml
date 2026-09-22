@@ -137,6 +137,11 @@ jobs:
       # naraz kolejka merge'ów wypuszcza merge'e seriami, a każdy deploy to
       # ~7 min budowy i ~1,5 min przerwy dla użytkowników. Czekamy, aż na mainie
       # będzie cisza przez DEPLOY_QUIET_SECONDS (zmienna repo, domyślnie 300 s),
+      # licząc od OSTATNIEGO PUSHA na maina = startu przebiegu „CI Gate”
+      # (event=push). NIE od daty commita: kolejka merge'ów stempluje commit
+      # chwilą dodania PR-a do kolejki, ~10–15 min przed wejściem na maina,
+      # więc cisza liczona od niej była zawsze „spełniona” i nic nie czekało
+      # (pierwsze wdrożenie 22.09: „ostatni merge 910 s temu” 2 min po merge'u).
       # najwyżej 15 min, żeby ciągły strumień nie wstrzymał wdrożeń na zawsze.
       # Wybór wydania niżej bierze HEAD maina, więc cała seria jedzie jednym
       # deployem; kolejne przebiegi tej serii pomija krok koalescencji.
@@ -150,9 +155,10 @@ jobs:
           set -u
           deadline=$(( $(date +%s) + 900 ))
           while :; do
-            last=$(gh api "repos/${{ github.repository }}/commits/main" --jq '.commit.committer.date' 2>/dev/null || true)
+            last=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-gate.yml/runs?branch=main&event=push&per_page=1" \
+              --jq '.workflow_runs[0].created_at // empty' 2>/dev/null || true)
             if [ -z "$last" ]; then
-              echo "::warning::Nie udało się odczytać ostatniego commitu maina — deploy bez grupowania."
+              echo "::warning::Nie udało się odczytać chwili ostatniego pusha na maina — deploy bez grupowania."
               break
             fi
             age=$(( $(date +%s) - $(date -d "$last" +%s) ))
