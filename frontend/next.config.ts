@@ -3,6 +3,11 @@ import { withSentryConfig } from "@sentry/nextjs";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Grafiki OG strony kariery czytają TTF z src/app/fonts przez fs — obraz
+  // standalone kopiuje tylko pliki, które widzi tracing, więc je dopisujemy.
+  outputFileTracingIncludes: {
+    "/kariera/**": ["./src/app/fonts/*.ttf"],
+  },
   reactStrictMode: true,
   // In production Docker, API calls go through direct fetch (no rewrites needed)
   // Browser calls go to NEXT_PUBLIC_API_URL directly

@@ -163,3 +163,31 @@ kontury i szerokości** wszystkich wspólnych glifów (po dekompozycji glifów
 złożonych) — dla fontów zmiennych sprawdzone na wielu pozycjach osi `wght`.
 Zasięg znaków lokalnych plików jest nadzbiorem tego, co gstatic serwuje w
 plastrach latin + latin-ext.
+
+## Strona kariery (`kariera.dynaminds.pl`) — Geist + JetBrains Mono
+
+Wpinane **wyłącznie** w `src/app/kariera/layout.tsx` (nie w root layoucie —
+aplikacja wewnętrzna ich nie potrzebuje, więc nie płaci za nie ani bajta).
+
+| Plik                              | Rodzina        | Waga / styl | Źródło                                          |
+| --------------------------------- | -------------- | ----------- | ----------------------------------------------- |
+| `Geist-700.woff2`, `Geist-800.woff2` | Geist       | 700, 800    | npm `geist@1.7.2`, `Geist-Variable.ttf` instancjonowany na `wght` |
+| `JetBrainsMono-{400,500,700}.woff2` | JetBrains Mono | 400/500/700 | npm `jetbrains-mono@1.0.6` (webfonts v2.242) |
+| `JetBrainsMono-400-Italic.woff2`  | JetBrains Mono | 400 italic  | jw.                                             |
+| `Geist-800.ttf`, `JetBrainsMono-400.ttf` | —       | —           | te same źródła, **TTF** dla grafik Open Graph (`next/og` / satori nie czyta woff2) |
+
+Licencje: `Geist-OFL.txt`, `JetBrainsMono-OFL.txt` (obie SIL OFL 1.1).
+Subset jak wyżej: latin + latin-ext w jednym pliku, bez hintingu, ten sam
+zestaw feature'ów; do zakresu dołożone strzałki i znaki `▶ ● ○ █ →` używane
+w terminalowym motywie strony. Odtworzenie:
+
+```python
+G = "Geist-Variable.ttf"
+build(G, "Geist-700.woff2", pin={"wght": 700})
+build(G, "Geist-800.woff2", pin={"wght": 800})
+build(G, "Geist-800.ttf",   pin={"wght": 800}, flavor=None)
+for w, style in [(400, "Regular"), (500, "Medium"), (700, "Bold")]:
+    build(f"JetBrainsMono-{style}.woff2", f"JetBrainsMono-{w}.woff2")
+build("JetBrainsMono-Italic.woff2",  "JetBrainsMono-400-Italic.woff2")
+build("JetBrainsMono-Regular.woff2", "JetBrainsMono-400.ttf", flavor=None)
+```

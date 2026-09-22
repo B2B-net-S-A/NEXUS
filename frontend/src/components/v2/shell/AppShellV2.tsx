@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSelectedLayoutSegment } from "next/navigation";
+import { isCareerHost } from "@/lib/career/host";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { useCapabilities } from "@/hooks/useCapability";
@@ -48,6 +49,17 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const isCvPreviewPage = pathname?.startsWith("/cv/") ?? false;
   // `/engagement/{token}` — public magic-link engagement page, no internal shell.
   const isEngagementPage = pathname?.startsWith("/engagement/") ?? false;
+  // Strona kariery dla kandydatów (`/kariera/*`, host `kariera.dynaminds.pl`).
+  // Na hoście kariery middleware PRZEPISUJE adres (`/r/x` → `/kariera/r/x`),
+  // a `usePathname()` zwraca adres WIDOCZNY — samo `startsWith("/kariera")`
+  // zamontowałoby tam pełny shell z zapytaniami kończącymi się 401. Segment
+  // layoutu pochodzi z dopasowanej trasy (po rewrite), więc działa także w SSR;
+  // host okna to zabezpieczenie po stronie przeglądarki.
+  const topSegment = useSelectedLayoutSegment();
+  const isCareerPage =
+    topSegment === "kariera" ||
+    (pathname === "/kariera" || (pathname?.startsWith("/kariera/") ?? false)) ||
+    (typeof window !== "undefined" && isCareerHost(window.location.hostname));
 
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [pendingModal, setPendingModal] = useState<QuickActionModal>(null);
@@ -137,6 +149,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   if (isRegisterPage) return <>{children}</>;
   if (isCvPreviewPage) return <>{children}</>;
   if (isEngagementPage) return <>{children}</>;
+  if (isCareerPage) return <>{children}</>;
   // /preview/* — design-system prototype pages, rendered bare (no shell/auth).
   if (pathname?.startsWith("/preview")) return <>{children}</>;
 

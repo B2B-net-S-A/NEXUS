@@ -738,6 +738,11 @@ class Settings(BaseSettings):
     # runs on (default http://localhost:3000).
     PUBLIC_BASE_URL: str = "http://localhost:3000"
 
+    # Adres publicznej strony kariery (kariera.dynaminds.pl). Z niego budowane
+    # są linki rekrutacji (`/r/<slug>`) i stały link rekrutera (`/<slug>`).
+    # Pusty = fallback na PUBLIC_BASE_URL (dev/CI bez osobnej domeny).
+    CAREER_PUBLIC_BASE_URL: str = ""
+
     # File uploads
     UPLOAD_DIR: str = "/tmp/nexus/uploads"
     MAX_UPLOAD_SIZE_MB: int = 10

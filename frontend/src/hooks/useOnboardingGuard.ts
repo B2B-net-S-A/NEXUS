@@ -9,7 +9,7 @@ import {
 } from "@/store/auth"
 
 /** Ścieżki wyłączone z guarda — login + same /onboarding + share portal. */
-const EXEMPT_PREFIXES = ["/login", "/onboarding", "/share/", "/apply/", "/403"]
+const EXEMPT_PREFIXES = ["/login", "/onboarding", "/share/", "/apply/", "/kariera", "/403"]
 
 function isExempt(pathname: string | null): boolean {
   if (!pathname) return false

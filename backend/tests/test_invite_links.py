@@ -183,7 +183,12 @@ async def test_create_invite_link_happy_path(inv_client: AsyncClient):
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["token"]
-    assert "/apply/" in body["url"]
+    # 0339: nowy link ma slug i prowadzi na stronę kariery (`/r/<slug>`);
+    # stary formularz `/apply/{token}` nadal przyjmuje ten sam token.
+    assert body["kind"] == "job"
+    assert body["slug"]
+    assert body["url"] == body["public_url"]
+    assert body["url"].endswith(f"/r/{body['slug']}")
     assert body["job"]["id"] == job_id
     assert body["status"] == "active"
     assert body["created_by_user"]["id"] == uid
@@ -271,6 +276,7 @@ async def test_public_apply_creates_candidate_with_ownership(inv_client: AsyncCl
     resp = await inv_client.post(
         f"/api/public/apply/{token}",
         data={
+            "consent": "true",
             "first_name": "Jan",
             "last_name": "Kowalski",
             "email": applicant_email,
@@ -350,6 +356,7 @@ async def test_public_apply_duplicate_email_parks_submission_without_mutation(
     resp = await inv_client.post(
         f"/api/public/apply/{token}",
         data={
+            "consent": "true",
             "first_name": "Attacker",
             "last_name": "Overwrite",
             "email": applicant_email,
@@ -413,6 +420,7 @@ async def test_public_apply_is_multi_use_until_expiry(inv_client: AsyncClient):
         resp = await inv_client.post(
             f"/api/public/apply/{token}",
             data={
+                "consent": "true",
                 "first_name": f"Applicant{i}",
                 "last_name": "X",
                 "email": f"multi-{i}-{uuid.uuid4().hex[:6]}@example.com",
@@ -500,6 +508,7 @@ async def test_public_apply_schedules_enrichment(inv_client: AsyncClient, monkey
     resp = await inv_client.post(
         f"/api/public/apply/{token}",
         data={
+            "consent": "true",
             "first_name": "Ewa",
             "last_name": "Nowak",
             "email": f"ewa-{uuid.uuid4().hex[:6]}@example.com",
@@ -540,6 +549,7 @@ async def test_get_candidate_returns_invite_source(inv_client: AsyncClient):
     apply_resp = await inv_client.post(
         f"/api/public/apply/{token}",
         data={
+            "consent": "true",
             "first_name": "Anna",
             "last_name": "Linkowa",
             "email": applicant_email,
@@ -616,6 +626,7 @@ async def test_invite_source_label_resolves_on_encrypted_v2_path(
     apply_resp = await inv_client.post(
         f"/api/public/apply/{token}",
         data={
+            "consent": "true",
             "first_name": "Ewa",
             "last_name": "Szyfrowana",
             "email": applicant_email,
@@ -680,6 +691,7 @@ async def test_reapply_audits_submission_not_candidate(
     resp = await inv_client.post(
         f"/api/public/apply/{token}",
         data={
+            "consent": "true",
             "first_name": "Old",
             "last_name": "Name",
             "email": applicant_email,

@@ -11,7 +11,7 @@
  *   1. nic prywatnego nie przechodzi bez ważnego tokenu (bezpieczeństwo),
  *   2. linki publiczne i zalogowani użytkownicy NIE zostają zablokowani (regresja UX).
  */
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NextRequest } from "next/server"
 
 import { middleware } from "@/middleware"
@@ -191,6 +191,13 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/jarvis",
     "/preview/recruitment-v3",
     "/preview/calendar-cycle",
+    "/preview/kariera",
+    "/preview/career-share",
+    "/kariera",
+    "/kariera/r/senior-java-developer-7kq2",
+    "/kariera/p/marta-n",
+    "/kariera/rodo",
+    "/kariera/r/senior-java-developer-7kq2/opengraph-image",
   ])("%s przechodzi", (route) => {
     expect(destination(route)).toBe("pass")
   })
@@ -598,5 +605,121 @@ describe("wymuszona zmiana hasła", () => {
   it("wygasła sesja ma pierwszeństwo przed fpc", () => {
     const expiredFpc = makeToken({ role: "admin", exp: now() - HOUR, fpc: true })
     expect(destination("/dashboard", expiredFpc)).toBe("/login")
+  })
+})
+
+
+// ── Host strony kariery (kariera.dynaminds.pl) ─────────────────────────────
+//
+// Ta sama aplikacja obsługuje NEXUSA i stronę kariery. Granica ma być
+// domyślnie zamknięta w OBIE strony: host kariery nie może dosięgnąć żadnej
+// trasy aplikacji, a host aplikacji ma działać dokładnie jak wcześniej.
+const CAREER = "kariera.dynaminds.pl"
+
+function careerRequest(
+  pathname: string,
+  headers: Record<string, string> = { host: CAREER },
+): NextRequest {
+  return new NextRequest(new URL(pathname, `https://${CAREER}`), { headers })
+}
+
+/** „rewrite:<ścieżka>", „pass", „redirect:<ścieżka>". */
+function careerOutcome(pathname: string, headers?: Record<string, string>): string {
+  const res = middleware(careerRequest(pathname, headers))
+  const rewrite = res.headers.get("x-middleware-rewrite")
+  if (rewrite) {
+    const url = new URL(rewrite)
+    return `rewrite:${url.pathname}${url.search}`
+  }
+  const location = res.headers.get("location")
+  if (location) return `redirect:${new URL(location).pathname}`
+  return "pass"
+}
+
+describe("host kariery — routing po domenie", () => {
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_CAREER_HOST", `${CAREER},kariera.example.test`)
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it.each([
+    ["/", "rewrite:/kariera"],
+    ["/rodo", "rewrite:/kariera/rodo"],
+    ["/r/senior-java-developer-7kq2", "rewrite:/kariera/r/senior-java-developer-7kq2"],
+    ["/marta-n", "rewrite:/kariera/p/marta-n"],
+    // Link przepisany ręcznie z posta bywa pisany wielkimi literami.
+    ["/Marta-N", "rewrite:/kariera/p/marta-n"],
+  ])("%s → %s", (path, expected) => {
+    expect(careerOutcome(path)).toBe(expected)
+  })
+
+  it("zachowuje UTM z linku z LinkedIna", () => {
+    expect(careerOutcome("/r/senior-java-developer-7kq2?utm_source=linkedin")).toBe(
+      "rewrite:/kariera/r/senior-java-developer-7kq2?utm_source=linkedin",
+    )
+  })
+
+  it("czyta host z x-forwarded-host (Traefik) i ignoruje port", () => {
+    expect(
+      careerOutcome("/marta-n", { host: "frontend:3000", "x-forwarded-host": `${CAREER}:443` }),
+    ).toBe("rewrite:/kariera/p/marta-n")
+    expect(careerOutcome("/marta-n", { host: "kariera.example.test:8443" })).toBe(
+      "rewrite:/kariera/p/marta-n",
+    )
+  })
+
+  it("przepuszcza grafiki OG (adres z metadataBase to /kariera/...)", () => {
+    // Assety `/_next/static`, `/_next/image` i pliki z kropką wyklucza matcher.
+    expect(careerOutcome("/kariera/r/senior-java-developer-7kq2/opengraph-image")).toBe("pass")
+    expect(careerOutcome("/kariera/p/marta-n/opengraph-image")).toBe("pass")
+  })
+
+  it.each([
+    "/candidates/123",
+    "/settings/ai",
+    "/login/forgot-password",
+    "/share/champion-card/abc",
+    "/apply/abc123",
+    "/preview/shell",
+    "/r/x",
+    "/r/senior-java/extra",
+    "/a/b",
+    "/ab",
+  ])("%s → terminalowe 404 kariery, nigdy trasa aplikacji", (path) => {
+    expect(careerOutcome(path)).toBe("rewrite:/kariera/nie-znaleziono")
+  })
+
+  it("pojedynczy segment aplikacji staje się slugiem rekrutera, nie trasą NEXUSA", () => {
+    // `/dashboard` pasuje do wzorca sluga — trafia na stronę rekrutera (API da
+    // 404), a nie na pulpit. Zastrzeżone słowa pilnuje backend.
+    expect(careerOutcome("/dashboard")).toBe("rewrite:/kariera/p/dashboard")
+    expect(careerOutcome("/jobs")).toBe("rewrite:/kariera/p/jobs")
+  })
+
+  it("na hoście kariery nie działa logika logowania (brak przekierowań na /login)", () => {
+    const token = makeToken({ role: "admin", roles: ["admin"], exp: now() + HOUR })
+    const res = middleware(
+      careerRequest("/dashboard", { host: CAREER, cookie: `nexus_access=${token}` }),
+    )
+    expect(res.headers.get("location")).toBeNull()
+    expect(careerOutcome("/settings")).toBe("rewrite:/kariera/p/settings")
+  })
+
+  it("host aplikacji działa jak wcześniej, także przy ustawionym hoście kariery", () => {
+    expect(destination("/dashboard")).toBe("/login")
+    expect(destination("/candidates")).toBe("/login")
+    expect(destination("/dashboard", validAdmin)).toBe("pass")
+    expect(destination("/kariera/r/senior-java-developer-7kq2")).toBe("pass")
+    // Na hoście aplikacji `/r/<slug>` NIE jest przepisywane — to nie jego domena.
+    expect(destination("/r/senior-java-developer-7kq2")).toBe("/login")
+    // Prefiks `/kariera` bez ukośnika nie otwiera tras o podobnej nazwie.
+    expect(destination("/kariera-cokolwiek")).toBe("/login")
+  })
+
+  it("bez NEXT_PUBLIC_CAREER_HOST routing po domenie jest wyłączony", () => {
+    vi.stubEnv("NEXT_PUBLIC_CAREER_HOST", "")
+    expect(careerOutcome("/dashboard")).toBe("redirect:/login")
   })
 })

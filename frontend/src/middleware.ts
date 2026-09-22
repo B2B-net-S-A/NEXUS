@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import {
+  CAREER_NOT_FOUND_PATH,
+  isCareerHost,
+  requestHost,
+  resolveCareerRoute,
+} from "@/lib/career/host";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
 import {
   rolesWithSectionAccess,
@@ -392,10 +398,44 @@ const PUBLIC_PATHS = [
   "/preview/my-people",
   "/preview/custom-dashboard",
   "/preview/calendar-cycle",
+  "/preview/kariera",
+  "/preview/career-share",
+  // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
+  // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
+  // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki
+  // OG). Ukośnik na końcu obowiązkowy — samo `/kariera` łapałoby każdą trasę
+  // zaczynającą się tym ciągiem. Goły `/kariera` jest w `PUBLIC_EXACT_PATHS`.
+  "/kariera/",
 ];
 
+// Ścieżki publiczne dopasowywane DOKŁADNIE (bez `startsWith`).
+const PUBLIC_EXACT_PATHS = ["/kariera"];
+
 function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  return (
+    PUBLIC_EXACT_PATHS.includes(pathname) ||
+    PUBLIC_PATHS.some((p) => pathname.startsWith(p))
+  );
+}
+
+/**
+ * Host strony kariery: żadnej logiki logowania, tylko przepisanie widocznych
+ * adresów na trasy `/kariera/*`. Wszystko spoza listy (w tym każda trasa
+ * aplikacji) dostaje terminalowe 404 kariery — granica jest domyślnie zamknięta,
+ * więc nowa trasa NEXUSA nie wycieknie na domenę publiczną.
+ */
+function careerHostResponse(request: NextRequest): NextResponse {
+  const route = resolveCareerRoute(request.nextUrl.pathname);
+  if (route.kind === "pass") return NextResponse.next();
+  const url = request.nextUrl.clone();
+  if (route.kind === "rewrite") {
+    url.pathname = route.path;
+    return NextResponse.rewrite(url);
+  }
+  url.pathname = CAREER_NOT_FOUND_PATH;
+  url.search = "";
+  // Trasa-łapacz pod /kariera wywołuje notFound() → status 404 + terminalowe 404.
+  return NextResponse.rewrite(url);
 }
 
 function resolveAccessRule(pathname: string): RouteAccessRule | undefined {
@@ -433,6 +473,10 @@ function hasSignedSectionAccess(
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  if (isCareerHost(requestHost(request.headers))) {
+    return careerHostResponse(request);
+  }
 
   if (isPublicPath(pathname)) {
     return NextResponse.next();

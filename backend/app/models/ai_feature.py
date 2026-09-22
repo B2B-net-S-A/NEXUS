@@ -113,6 +113,10 @@ class AIFeatureKey(str, enum.Enum):
     # jedną operację. Osobny kubełek, bo to inny strumień wydatku niż MINDY
     # (każda rola, każdy ekran) i musi dać się policzyć i zgasić osobno.
     jarvis = "jarvis"
+    # Szkic publicznego opisu rekrutacji na stronę kariery (0339). Osobny
+    # kubełek: inny strumień wydatku (rekruter przy udostępnianiu linku) i inny
+    # prompt (zakaz nazwy klienta i kwot).
+    job_public_description = "job_public_description"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -137,6 +141,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.cv_factual_verification: "Generator CV B2B — niezależna kontrola AI treści CV (drugi model)",
     AIFeatureKey.experience_dates_on_demand: "Daty zatrudnienia z CV (kartoteka firmy w ATLAS-ie)",
     AIFeatureKey.jarvis: "Jarvis — asystent i wykonawca zadań w aplikacji",
+    AIFeatureKey.job_public_description: "Opis rekrutacji na stronę kariery",
 }
 
 
@@ -229,6 +234,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Wyniki narzędzi — dokładnie to, co użytkownik widzi w NEXUSIE przez API "
         "(kandydaci, rekrutacje, klienci, kontrakty; kwoty tylko przy uprawnieniu)",
         "Ekran, na którym użytkownik jest (ścieżka i ID rekordu)",
+    ],
+    AIFeatureKey.job_public_description: [
+        "Tytuł rekrutacji, opis projektu i stack z Profilu Championa",
+        "(bez nazwy klienta, stawek i danych kandydatów)",
     ],
 }
 

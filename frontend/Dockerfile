@@ -23,10 +23,13 @@ WORKDIR /app
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ARG NEXT_PUBLIC_SENTRY_DSN
 ARG NEXT_PUBLIC_GIT_SHA
+# Host strony kariery — middleware czyta go z bundla (inline w czasie builda).
+ARG NEXT_PUBLIC_CAREER_HOST
 ARG SENTRY_AUTH_TOKEN
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN}
 ENV NEXT_PUBLIC_GIT_SHA=${NEXT_PUBLIC_GIT_SHA}
+ENV NEXT_PUBLIC_CAREER_HOST=${NEXT_PUBLIC_CAREER_HOST}
 # SENTRY_AUTH_TOKEN is consumed by withSentryConfig at build time only.
 # Not exported to runtime image (omitted from `runner` stage env block).
 ENV SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN}

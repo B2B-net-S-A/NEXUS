@@ -44,3 +44,4 @@ services:
     ports: []
     environment:
       NODE_ENV: production
+      NEXT_PUBLIC_CAREER_HOST: ${NEXT_PUBLIC_CAREER_HOST:-}

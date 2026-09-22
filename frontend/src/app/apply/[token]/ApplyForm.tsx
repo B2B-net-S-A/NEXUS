@@ -6,6 +6,7 @@ import { z } from"zod";
 
 import { messageFromApiResponse } from"@/lib/api-error";
 import { applyFieldErrors } from"@/lib/apply-form-errors";
+import { CONSENT_TEXT } from "@/lib/career/apply";
 
 // UTM query params we forward to the apply endpoint (Traffit gap #4).
 // Standard Google Analytics dimensions; backend stores these on the
@@ -52,7 +53,11 @@ const schema = z.object({
  message: z.string().trim().max(2000).optional(),
 });
 
-type FieldErrors = Partial<Record<keyof z.infer<typeof schema> |"cv", string>>;
+type FieldErrors = Partial<
+ Record<keyof z.infer<typeof schema> | "cv" | "consent", string>
+>;
+
+const CONSENT_REQUIRED = "Zaznacz zgodę na przetwarzanie danych — bez niej nie możemy przyjąć zgłoszenia.";
 type FormStatus ="idle" |"submitting" |"success" |"error";
 
 function apiBase(): string {
@@ -122,6 +127,8 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  }
  }
  if (cvError) nextErrors.cv = cvError;
+ // Zgoda jest wymagana przez API (422 bez niej) — checkbox wysyła `consent=true`.
+ if (fd.get("consent") !== "true") nextErrors.consent = CONSENT_REQUIRED;
  if (Object.keys(nextErrors).length > 0) {
  setErrors(nextErrors);
  return;
@@ -309,6 +316,34 @@ export default function ApplyForm({ token, recruiterFirstName }: ApplyFormProps)
  placeholder="Kilka zdań o sobie, motywacji, dostępności…"
  />
  </Field>
+
+ <div className="space-y-1.5">
+ <label className="flex items-start gap-3 cursor-pointer">
+ <input
+ type="checkbox"
+ name="consent"
+ value="true"
+ disabled={busy}
+ required
+ aria-invalid={errors.consent ? true : undefined}
+ className="mt-0.5 h-5 w-5 shrink-0 accent-primary"
+ />
+ <span className="text-xs leading-relaxed text-muted-foreground">
+ {CONSENT_TEXT}{" "}
+ <a
+ href="/kariera/rodo"
+ target="_blank"
+ rel="noopener noreferrer"
+ className="text-primary underline underline-offset-2"
+ >
+ Klauzula informacyjna
+ </a>
+ </span>
+ </label>
+ {errors.consent && (
+ <span className="block text-xs text-destructive">{errors.consent}</span>
+ )}
+ </div>
 
  {submitError && (
  <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2">

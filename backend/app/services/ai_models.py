@@ -40,6 +40,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F15 | mindy_chat                       | gpt-5.6-luna             |
 | F18 | cv_factual_verification          | gpt-5.6-luna (z Sonnet 5)|
 | F19 | jarvis                           | claude-sonnet-5 (z Haiku)|
+| F20 | job_public_description           | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -232,6 +233,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         rationale="F19 (decyzja 21.09.2026, POZA badaniem 16.09). Jarvis wymaga tool-use, "
         "który w NEXUSIE obsługuje tylko dostawca Anthropic; Sonnet 5 jak reszta funkcji "
         "rozumujących, Haiku jako tańszy fallback przy przeciążeniu.",
+    ),
+    AIFeatureKey.job_public_description: ModelChoice(
+        default=SONNET_5,
+        env_vars=("JOB_PUBLIC_DESCRIPTION_MODEL",),
+        fallbacks=("claude-haiku-4-5",),
+        rationale="F20 (decyzja 21.09.2026, POZA badaniem 16.09). Publiczny opis rekrutacji "
+        "na stronę kariery to ta sama robota co F6 (generator ogłoszeń), a tam Sonnet 5 był "
+        "jedynym modelem z językiem OK w 100%. Tekst i tak przechodzi deterministyczną "
+        "kontrolę (klient, kwoty, kontakty) i zatwierdzenie człowieka.",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
         default=SONNET_5,

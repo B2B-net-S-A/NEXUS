@@ -191,6 +191,8 @@ from app.api import hiring_manager_feedback as hiring_manager_feedback_api
 from app.api import proposals_bulk as proposals_bulk_api
 from app.api import job_proposals as job_proposals_api
 from app.api import invite_links as invite_links_api
+from app.api import career_links as career_links_api
+from app.api import public_career as public_career_api
 from app.api import application_submissions as application_submissions_api
 from app.api import users as users_api
 from app.api import user_dashboard as user_dashboard_api
@@ -1486,6 +1488,11 @@ app.include_router(
     tags=["public-share"],
 )
 app.include_router(
+    public_career_api.router,
+    prefix="/api/public/career",
+    tags=["public-career"],
+)
+app.include_router(
     pipeline_templates.router,
     prefix="/api/pipeline-templates",
     tags=["pipeline-templates"],
@@ -1557,6 +1564,7 @@ app.include_router(
 app.include_router(
     invite_links_api.router, prefix="/api/invite-links", tags=["invite-links"]
 )
+app.include_router(career_links_api.router, prefix="/api", tags=["career-links"])
 app.include_router(
     application_submissions_api.router,
     prefix="/api/application-submissions",
@@ -2674,6 +2682,8 @@ async def api_health_deep_check():
     from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride
     from app.models.user_dashboard import UserDashboard
     from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+    from app.models.job_public_profile import JobPublicProfile
+    from app.models.candidate_consent import CandidateConsent
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2834,6 +2844,10 @@ async def api_health_deep_check():
         # 0338: terminy rozmów od klienta — agenda kalendarza czyta je przy
         # każdym wejściu, więc brak tabeli = pusty ekran „Rozmowy u klienta”.
         ("client_interview_slot_requests", ClientInterviewSlotRequest),
+        # 0339: strona kariery — opis publiczny (strona `/r/<slug>` 404 bez
+        # niego) i zgody z formularza (brak tabeli = każde zgłoszenie 500).
+        ("job_public_profiles", JobPublicProfile),
+        ("candidate_consents", CandidateConsent),
     ]
 
     checks: dict[str, str] = {}

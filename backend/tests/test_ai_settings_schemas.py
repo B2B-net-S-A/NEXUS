@@ -37,6 +37,7 @@ class TestFeatureKeyEnum:
         assert keys == {
             "scoring",
             "job_description_generator",
+            "job_public_description",
             "cv_parser",
             "candidate_summary",
             "champion_draft",

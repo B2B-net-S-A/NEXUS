@@ -56,4 +56,25 @@ describe("applyFieldErrors", () => {
     expect(applyFieldErrors(null)).toEqual([]);
     expect(applyFieldErrors("")).toEqual([]);
   });
+
+  it("strona kariery: zgoda i pola opcjonalne dostają zdanie zależne od pola", () => {
+    const errors = applyFieldErrors({
+      detail: [
+        { loc: ["body", "consent"], msg: "Field required" },
+        { loc: ["body", "expected_rate_hourly"], msg: "Input should be less than or equal to 10000" },
+        { loc: ["body", "availability_date"], msg: "Input should be a valid date" },
+        { loc: ["body", "work_mode"], msg: "Input should be 'remote', 'hybrid', 'onsite' or 'any'" },
+        { loc: ["body", "city"], msg: "String should have at most 120 characters" },
+        { loc: ["body", "link_slug"], msg: "Field required" },
+      ],
+    });
+    expect(Object.fromEntries(errors.map((e) => [e.field, e.message]))).toEqual({
+      consent: "Bez zgody nie możemy przyjąć zgłoszenia.",
+      expected_rate_hourly: "Podaj stawkę godzinową netto od 1 do 10 000 zł.",
+      availability_date: "Podaj datę dostępności (dzień, miesiąc, rok).",
+      work_mode: "Wybierz tryb pracy z listy.",
+      city: "Nazwa miasta może mieć najwyżej 120 znaków.",
+      link_slug: "Ten link wygasł albo rekrutacja jest zamknięta.",
+    });
+  });
 });

@@ -59,6 +59,7 @@ function fillValid(container: HTMLElement) {
     target: { value: "anna@example.com" },
   });
   pickCv(container, pdf());
+  fireEvent.click(field(container, "consent"));
 }
 
 function submit() {
@@ -171,6 +172,48 @@ describe("ApplyForm — walidacja", () => {
   });
 });
 
+describe("ApplyForm — zgoda na przetwarzanie danych", () => {
+  it("bez zaznaczonej zgody nie wysyła i mówi dlaczego", () => {
+    const { container } = renderForm();
+    fillValid(container);
+    // fillValid zaznacza zgodę — odznaczamy.
+    fireEvent.click(field(container, "consent"));
+
+    submit();
+
+    expect(screen.getByText(/Zaznacz zgodę na przetwarzanie danych/)).toBeInTheDocument();
+    expect(field(container, "consent")).toHaveAttribute("aria-invalid", "true");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("wysyła consent=true i pokazuje treść zgody z linkiem do klauzuli", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201));
+    const { container } = renderForm();
+    expect(screen.getByText(/B2B\.NET S\.A\. z siedzibą w Warszawie/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Klauzula informacyjna" })).toHaveAttribute(
+      "href",
+      "/kariera/rodo",
+    );
+    fillValid(container);
+    submit();
+    await screen.findByText("Dziękujemy!");
+    const body = (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as FormData;
+    expect(body.get("consent")).toBe("true");
+  });
+
+  it("422 na zgodzie trafia przy polu, nie do ogólnego banera", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(422, { detail: [{ loc: ["body", "consent"], msg: "Field required" }] }),
+    );
+    const { container } = renderForm();
+    fillValid(container);
+    submit();
+    expect(
+      await screen.findByText("Bez zgody nie możemy przyjąć zgłoszenia."),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("ApplyForm — wysyłka", () => {
   it("wysyła FormData na publiczny endpoint z UTM odczytanymi raz i przyciętymi do 120 znaków", async () => {
     const longCampaign = "c".repeat(130);
@@ -215,7 +258,7 @@ describe("ApplyForm — wysyłka", () => {
 
     const button = await screen.findByRole("button", { name: /Wysyłanie/ });
     expect(button).toBeDisabled();
-    for (const name of ["first_name", "last_name", "email", "phone", "linkedin", "cv", "message"]) {
+    for (const name of ["first_name", "last_name", "email", "phone", "linkedin", "cv", "message", "consent"]) {
       expect(field(container, name)).toBeDisabled();
     }
 

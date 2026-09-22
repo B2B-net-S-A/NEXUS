@@ -257,6 +257,8 @@ services:
         # vault with is_buildtime=true.
         NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
         NEXT_PUBLIC_GIT_SHA: ${GIT_SHA:-unknown}  # bez zagnieżdżonych domyślnych — patrz backend
+        # Host strony kariery (routing po domenie w middleware) — wklejany w build.
+        NEXT_PUBLIC_CAREER_HOST: ${NEXT_PUBLIC_CAREER_HOST:-}
         SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
     restart: unless-stopped
     mem_limit: 1g
@@ -265,6 +267,7 @@ services:
       - .env
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_CAREER_HOST: ${NEXT_PUBLIC_CAREER_HOST:-}
       # Server-side (RSC) fetches need the compose-internal URL. Browser
       # requests continue to use NEXT_PUBLIC_API_URL (inlined at build time).
       INTERNAL_API_URL: http://backend:8000

@@ -153,7 +153,7 @@ async def _apply(
     phone: Optional[str] = None,
     cv_name: str = "cv.pdf",
 ) -> None:
-    data = {"first_name": first, "last_name": last, "email": email}
+    data = {"first_name": first, "last_name": last, "email": email, "consent": "true"}
     if phone:
         data["phone"] = phone
     resp = await client.post(
@@ -338,6 +338,7 @@ async def test_resolve_merge_fills_only_empty_fields(sub_client: AsyncClient):
     resp0 = await sub_client.post(
         f"/api/public/apply/{token}",
         data={
+            "consent": "true",
             "first_name": "Sub",
             "last_name": "Merge",
             "email": dup_email,

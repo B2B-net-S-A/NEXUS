@@ -36,16 +36,26 @@ from app.services.priority_work_policy import (
     assert_priority_work_access,
     current_priority_assignment,
 )
+from app.services.career_slugs import generate_job_slug, job_link_url
+from app.services.job_public_profile import job_is_open
 from app.services.priority_work_service import audit_event
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
-def _resolve_status(link: CandidateInviteLink) -> InviteLinkStatus:
-    """Derive UI status from link state. Priority: revoked > expired > used > active."""
+def _resolve_status(
+    link: CandidateInviteLink, job: Optional[Job] = None
+) -> InviteLinkStatus:
+    """Derive UI status from link state. Priority: revoked > expired > used > active.
+
+    0339: link bez terminu (``expires_at IS NULL``) wygasa razem z rekrutacją —
+    zamknięta rekrutacja = ``expired``.
+    """
     if link.revoked:
         return "revoked"
-    if link.expires_at < datetime.now(timezone.utc):
+    if link.expires_at is not None and link.expires_at < datetime.now(timezone.utc):
+        return "expired"
+    if job is not None and link.kind == "job" and not job_is_open(job):
         return "expired"
     if link.use_count > 0:
         return "used"
@@ -81,9 +91,19 @@ def _to_response(
     creator: Optional[User],
 ) -> InviteLinkResponse:
     raw = _invite_raw_token(link)
+    # Link ze slugiem prowadzi na stronę kariery; stary link bez sluga — na
+    # dotychczasowy formularz `/apply/{token}`.
+    if link.slug:
+        public_url = job_link_url(link.slug)
+    else:
+        public_url = _build_url(raw) if raw else ""
     return InviteLinkResponse(
         token=raw or "",
-        url=_build_url(raw) if raw else "",
+        url=public_url,
+        public_url=public_url,
+        kind=link.kind or "job",
+        slug=link.slug,
+        visit_count=link.visit_count or 0,
         job=InviteLinkJobBrief(id=job.id, title=job.title),
         label=link.label,
         expires_at=link.expires_at,
@@ -91,7 +111,7 @@ def _to_response(
         use_count=link.use_count,
         last_used_at=link.last_used_at,
         created_at=link.created_at,
-        status=_resolve_status(link),
+        status=_resolve_status(link, job),
         origin_assignment_id=link.origin_assignment_id,
         priority_compliant_at_create=link.priority_compliant_at_create,
         created_by_user=(
@@ -157,7 +177,12 @@ async def create_invite_link(
     from app.core.encryption import TokenCipherNotConfigured, get_token_cipher
 
     raw_token = secrets.token_urlsafe(36)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=data.expires_in_days)
+    expires_at = (
+        datetime.now(timezone.utc) + timedelta(days=data.expires_in_days)
+        if data.expires_in_days
+        else None
+    )
+    slug = await generate_job_slug(db, job.title)
     # v2 when an encryption key is configured: PK = non-secret revoke key, the
     # secret lives only as a SHA-256 (for lookup) and Fernet ciphertext (so the
     # list can rebuild the URL). Fall back to the legacy plaintext PK if no key
@@ -169,6 +194,8 @@ async def create_invite_link(
             token_sha256=hashlib.sha256(raw_token.encode()).hexdigest(),
             token_ct=ciphertext,
             created_by=current_user.id,
+            kind="job",
+            slug=slug,
             job_id=job.id,
             origin_assignment_id=origin_assignment_id,
             priority_compliant_at_create=priority_compliant,
@@ -179,6 +206,8 @@ async def create_invite_link(
         link = CandidateInviteLink(
             token=raw_token,
             created_by=current_user.id,
+            kind="job",
+            slug=slug,
             job_id=job.id,
             origin_assignment_id=origin_assignment_id,
             priority_compliant_at_create=priority_compliant,
@@ -194,7 +223,8 @@ async def create_invite_link(
         job_id=job.id,
         assignment_id=origin_assignment_id,
         payload={
-            "expires_at": expires_at.isoformat(),
+            "expires_at": expires_at.isoformat() if expires_at else None,
+            "slug": slug,
             "priority_mode": decision.mode.value,
             "priority_compliant": priority_compliant,
         },
@@ -225,6 +255,7 @@ async def list_invite_links(
             selectinload(CandidateInviteLink.job),
             selectinload(CandidateInviteLink.creator),
         )
+        .where(CandidateInviteLink.kind == "job")
         .order_by(CandidateInviteLink.created_at.desc())
     )
     if mine or not is_privileged:
