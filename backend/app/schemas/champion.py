@@ -582,7 +582,7 @@ def migrate_legacy_champion_shape(data: Any) -> Any:
     out["client"] = client
 
     provenance = dict(out.get("provenance") or {})
-    for key in ("_source", "_parsed_at", "_parser"):
+    for key in ("_source", "_parsed_at", "_parser", "_enriched"):
         value = out.pop(key, None)
         if value is not None and key not in provenance:
             provenance[key] = value

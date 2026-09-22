@@ -988,7 +988,7 @@ def response_context(job):
     }
 
 
-async def preview_document(data, filename, *, db=None):
+async def preview_document(data, filename, *, db=None, model=None):
     from app.services.champion_profile_ingest import (
         extract_document_text,
         parse_champion_document,
@@ -1023,13 +1023,13 @@ async def preview_document(data, filename, *, db=None):
                 "Skróć treść albo użyj wzoru Word v4; niczego nie zaimportowano."
             )
         if db is None:
-            parsed = await parse_champion_document(text)
+            parsed = await parse_champion_document(text, model=model)
         else:
             from app.models.ai_feature import AIFeatureKey
             from app.services.ai_quota import ai_feature
 
             async with ai_feature(db, AIFeatureKey.champion_profile_parse):
-                parsed = await parse_champion_document(text)
+                parsed = await parse_champion_document(text, model=model)
         from app.services.champion_profile_ingest import build_champion_dict
 
         cp = prepare_profile(build_champion_dict(parsed, file_id=None))

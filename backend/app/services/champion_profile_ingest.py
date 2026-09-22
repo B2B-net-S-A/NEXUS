@@ -141,15 +141,23 @@ def extract_document_text(file_bytes: bytes, filename: str) -> Optional[str]:
     return None
 
 
-async def parse_champion_document(text: str) -> dict:
-    """LLM parse tekstu profilu → dict schematu v3. Rzuca ValueError na śmieci."""
+async def parse_champion_document(text: str, *, model: Optional[str] = None) -> dict:
+    """LLM parse tekstu profilu → dict schematu v3. Rzuca ValueError na śmieci.
+
+    ``model`` nadpisuje model z rejestru dla jednego przebiegu (backfill
+    plików z Traffita idzie GPT Luną — decyzja Artura 22.09.2026). Model spoza
+    Anthropic dostaje Sonneta 5 jako zapas na 429/5xx, jak funkcje rejestru.
+    """
+    from app.services.ai_models import SONNET_5
     from app.services.claude_client import call_claude
 
     if len(text) > 14_000:
         raise ValueError("Dokument przekracza limit 14000 znaków; skróć treść.")
+    chosen = model or PARSE_MODEL
     msg = await run_in_threadpool(
         call_claude,
-        model=PARSE_MODEL,
+        model=chosen,
+        fallback_models=[SONNET_5] if chosen != SONNET_5 else None,
         max_tokens=6000,
         temperature=0,
         thinking={"type": "disabled"},
@@ -282,8 +290,82 @@ def _is_empty_skills(value: Any) -> bool:
     return not (isinstance(value, list) and len(value) > 0)
 
 
+# Akcje, po których profil nosi decyzję człowieka (edytor, akceptacja szkicu).
+# Uzupełnianie po polu takiego profilu mogłoby wpisać z powrotem coś, co
+# Delivery Lead świadomie wyczyścił — dlatego merge go pomija.
+HUMAN_EDIT_ACTIONS = (
+    "champion_profile_updated",
+    "champion_profile_applied_from_suggestion",
+)
+
+# Sekcje-słowniki scalane po polu. `screening_questions` jest listą i scala się
+# w całości (tylko gdy w profilu nie ma żadnego pytania); `documents` od v6 żyje
+# w karcie klienta, więc nie ma czego uzupełniać.
+_MERGE_SECTIONS = ("basics", "search", "stack", "project", "client")
+
+
+def _blank(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, dict)):
+        return not value
+    return False
+
+
+def merge_missing_fields(old: dict, new: dict) -> tuple[dict, list[str]]:
+    """FILL_EMPTY po POLU: profil ``old`` dostaje z ``new`` tylko to, czego nie ma.
+
+    Oba profile są najpierw normalizowane do siedmiu sekcji — stary płaski
+    kształt z importu sierpniowego (v3) i nowy sekcyjny porównywane wprost
+    wyglądałyby na rozłączne, więc „puste" znaczyłoby coś innego po każdej
+    stronie. Wartość niepusta w ``old`` NIGDY nie jest zmieniana.
+    """
+    from app.schemas.champion import ChampionProfile
+
+    merged = ChampionProfile.model_validate(old or {}).model_dump(mode="json")
+    fresh = ChampionProfile.model_validate(new or {}).model_dump(mode="json")
+    filled: list[str] = []
+    for section in _MERGE_SECTIONS:
+        target = dict(merged.get(section) or {})
+        for key, value in (fresh.get(section) or {}).items():
+            if _blank(target.get(key)) and not _blank(value):
+                target[key] = value
+                filled.append(f"{section}.{key}")
+        merged[section] = target
+    if _blank(merged.get("screening_questions")) and not _blank(
+        fresh.get("screening_questions")
+    ):
+        merged["screening_questions"] = fresh["screening_questions"]
+        filled.append("screening_questions")
+    return merged, filled
+
+
+async def has_human_edit(db: AsyncSession, job_id: int) -> bool:
+    from app.models.activity import Activity
+
+    found = await db.scalar(
+        select(Activity.id)
+        .where(
+            Activity.entity_type == "job",
+            Activity.entity_id == job_id,
+            Activity.action.in_(HUMAN_EDIT_ACTIONS),
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
 async def ingest_parsed_profile(
-    db: AsyncSession, *, external_rid: int, file_id: int, parsed: dict
+    db: AsyncSession,
+    *,
+    external_rid: int,
+    file_id: int,
+    parsed: dict,
+    merge_existing: bool = False,
+    model: Optional[str] = None,
+    commit: bool = True,
 ) -> dict:
     """Zapis FILL_EMPTY do oferty (traffit, rid) + reindeks + stale.
 
@@ -315,7 +397,32 @@ async def ingest_parsed_profile(
     changed = False
     existing = job.champion_profile
     champion_present = isinstance(existing, dict) and bool(existing)
-    if not champion_present:
+    if champion_present and merge_existing:
+        # Profil już jest (np. import sierpniowy starszym parserem). Uzupełniamy
+        # wyłącznie puste pola i tylko w profilu, którego nikt nie edytował.
+        if await has_human_edit(db, job.id):
+            outcome["outcome"] = "champion_human_edited"
+            return outcome
+        from app.services.champion_intake import prepare_profile
+        from app.services.requirement_contract import apply_requirement_source_update
+        from app.schemas.champion import ChampionProfile
+
+        fresh = prepare_profile(build_champion_dict(parsed, file_id))
+        merged, filled_fields = merge_missing_fields(existing, fresh)
+        if filled_fields:
+            previous = ChampionProfile.model_validate(existing).model_dump(mode="json")
+            merged = prepare_profile(merged, previous=previous)
+            merged["_enriched"] = {
+                "parser": PARSER_VERSION,
+                "model": model or PARSE_MODEL,
+                "file_id": file_id,
+                "at": datetime.now(timezone.utc).isoformat(),
+                "fields": filled_fields,
+            }
+            apply_requirement_source_update(job, "champion_profile", merged)
+            outcome["champion_merged_fields"] = filled_fields
+            changed = True
+    elif not champion_present:
         from app.services.requirement_contract import apply_requirement_source_update
 
         from app.services.champion_intake import prepare_profile
@@ -390,7 +497,8 @@ async def ingest_parsed_profile(
         # Outbox NIE robi stale dla ofert (robi dla kandydatów) — bez tego
         # cache serwowałby score'y liczone na ofercie sprzed Championa.
         await mark_stale_for_job(db, job.id)
-        await db.commit()
+        if commit:
+            await db.commit()
     return outcome
 
 
