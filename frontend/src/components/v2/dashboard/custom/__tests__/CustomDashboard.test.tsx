@@ -11,6 +11,11 @@ import { CustomDashboard as CustomDashboardLazy } from "../CustomDashboard"
 
 const getMock = vi.fn()
 const saveMock = vi.fn()
+let searchParams = new URLSearchParams()
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => searchParams,
+}))
 
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api")
@@ -69,6 +74,7 @@ beforeEach(() => {
   saveMock.mockReset()
   useAuthStore.setState({ user: recruiter, hydrated: true })
   window.location.hash = ""
+  searchParams = new URLSearchParams()
 })
 
 describe("własny pulpit", () => {
@@ -192,6 +198,30 @@ describe("własny pulpit", () => {
     expect(
       await screen.findByText(/Jeden kafelek nie jest już dostępny/),
     ).toBeInTheDocument()
+  })
+
+  it("link z alertu SLA w parametrze ?panel= (FE-N09) też pokazuje nadzór", async () => {
+    useAuthStore.setState({
+      user: { ...recruiter, role: "head_of_recruitment", roles: ["head_of_recruitment"] } as User,
+      hydrated: true,
+    })
+    getMock.mockResolvedValue({ tiles: [], version: 0, dropped_tiles: [] })
+    const view = renderDashboard()
+    await screen.findByText("Twój pulpit jest pusty")
+    expect(screen.queryByText("panel nadzoru")).toBeNull()
+    // Miękka nawigacja: ten sam pulpit, nowy parametr w adresie.
+    searchParams = new URLSearchParams("panel=nadzor-kontaktu")
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <ToastProvider>
+          <CustomDashboardLazy />
+        </ToastProvider>
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByText("panel nadzoru")).toBeInTheDocument()
   })
 
   it("link z alertu SLA pokazuje nadzór kontaktów, choć nie ma go na pulpicie", async () => {

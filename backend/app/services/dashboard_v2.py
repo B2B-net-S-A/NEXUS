@@ -961,8 +961,11 @@ async def build_head_of_recruitment_dashboard(
                     # `ContactCaller` = tylko role wykonawcze), więc odbiorca
                     # TEGO alertu, klikając własny alert, lądował na /403.
                     # Powierzchnią nadzoru dla HoR jest panel na jego własnym
-                    # dashboardzie — kotwica prowadzi wprost do niego.
-                    href="/dashboard?preset=head-of-recruitment#nadzor-kontaktu",
+                    # dashboardzie — parametr prowadzi wprost do niego.
+                    # Audyt 22.09 r2 (FE-N09): `?panel=` zamiast `#`, bo pulpit
+                    # czyta parametr także przy miękkiej nawigacji (klik
+                    # w alert przy otwartym pulpicie); `preset` jest ignorowany.
+                    href="/dashboard?panel=nadzor-kontaktu",
                 )
             )
     alerts.sort(

@@ -12,7 +12,8 @@
 // Zapis niesie `expected_version`: dwie karty z otwartą edycją nie nadpisują
 // sobie układu po cichu — 409 przeładowuje pulpit i mówi to wprost.
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { Check, LayoutGrid, Plus, Undo2 } from "lucide-react"
 
@@ -51,6 +52,24 @@ import { TileCatalogSheet } from "./TileCatalogSheet"
 import { TileSettingsDialog } from "./TileSettingsDialog"
 
 const CONTACT_OVERSIGHT_HASH = "#nadzor-kontaktu"
+/** `?panel=nadzor-kontaktu` — link alertów SLA (FE-N09); hash zostaje dla starych. */
+export const CONTACT_OVERSIGHT_PANEL = "nadzor-kontaktu"
+
+/**
+ * FE-N09: parametr czytany z `useSearchParams`, więc działa też przy MIĘKKIEJ
+ * nawigacji (klik w alert, gdy pulpit jest już otwarty) — sam odczyt
+ * `window.location` przy montowaniu tego nie widział. Efekt zależy od
+ * WARTOŚCI parametru. Osobny komponent w `Suspense`, bo `useSearchParams`
+ * wymusza granicę Suspense w Next 15.
+ */
+function OversightLinkSync({ onOpen }: { onOpen: () => void }) {
+  const searchParams = useSearchParams()
+  const panel = searchParams?.get("panel") ?? null
+  useEffect(() => {
+    if (panel === CONTACT_OVERSIGHT_PANEL) onOpen()
+  }, [panel, onOpen])
+  return null
+}
 const UNDO_LIMIT = 30
 
 type Dialog =
@@ -91,25 +110,32 @@ export function CustomDashboard() {
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [dialog, setDialog] = useState<Dialog>(null)
   const [oversightFromAlert, setOversightFromAlert] = useState(false)
+  // Każde kliknięcie alertu przewija do panelu na nowo.
+  const [oversightRequest, setOversightRequest] = useState(0)
+  const openOversight = useCallback(() => {
+    setOversightFromAlert(true)
+    setOversightRequest((n) => n + 1)
+  }, [])
 
   const saved = query.data?.tiles ?? []
   const version = query.data?.version ?? 0
   const tiles = editing ? draft : saved
 
-  // Alerty SLA kontaktów linkują do `/dashboard#nadzor-kontaktu`. Kafelek
+  // Alerty SLA kontaktów linkują do `/dashboard?panel=nadzor-kontaktu`
+  // (dawniej `#nadzor-kontaktu` — stare linki działają nadal). Kafelek
   // na pulpicie ma tę kotwicę sam; bez niego pokazujemy panel tymczasowo,
   // żeby kliknięcie alertu nigdy nie kończyło się pustym ekranem.
   useEffect(() => {
     if (typeof window === "undefined") return
-    if (window.location.hash === CONTACT_OVERSIGHT_HASH) setOversightFromAlert(true)
-  }, [])
+    if (window.location.hash === CONTACT_OVERSIGHT_HASH) openOversight()
+  }, [openOversight])
   const oversightAvailable = TILE_DEFINITIONS.contact_oversight.availability(user).ok
   const oversightOnDashboard = saved.some((t) => t.type === "contact_oversight")
   useEffect(() => {
     if (!oversightFromAlert || !query.isSuccess) return
     const el = document.getElementById("nadzor-kontaktu")
     el?.scrollIntoView({ behavior: "smooth", block: "start" })
-  }, [oversightFromAlert, query.isSuccess])
+  }, [oversightFromAlert, oversightRequest, query.isSuccess])
 
   // FE-N07: akcja z menu kafelka w trakcie zapisu szła ze STARĄ wersją
   // i starym układem → 409 „zmieniono w innej karcie" i utrata pierwszej
@@ -265,6 +291,9 @@ export function CustomDashboard() {
 
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6">
+      <Suspense fallback={null}>
+        <OversightLinkSync onOpen={openOversight} />
+      </Suspense>
       <PageHeader
         title="Mój pulpit"
         description={
