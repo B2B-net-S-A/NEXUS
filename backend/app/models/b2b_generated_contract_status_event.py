@@ -71,7 +71,7 @@ class B2BGeneratedContractStatusEvent(Base):
     changed_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    # 0357: zmiana wykonana przez zakończenie kontraktu niesie tu kontrakt,
+    # 0358: zmiana wykonana przez zakończenie kontraktu niesie tu kontrakt,
     # datę zakończenia projektu i dane rozwiązania umowy (tryb, strona, daty).
     # NULL dla ręcznych zmian w Generatorze.
     details: Mapped[Optional[dict]] = mapped_column(

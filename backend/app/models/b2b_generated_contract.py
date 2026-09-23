@@ -221,7 +221,7 @@ class B2BGeneratedContract(Base, TimestampMixin):
         JSON().with_variant(JSONB(), "postgresql"), nullable=True
     )
 
-    # Zakończenie projektu po stronie Kontraktów (0357). Wypełniane, gdy
+    # Zakończenie projektu po stronie Kontraktów (0358). Wypełniane, gdy
     # kontrakt powiązany z umową przechodzi na „Zakończony":
     # * `termination_mode`/`termination_party`/`termination_signed_on` —
     #   rozwiązanie umowy z okna „Zakończ współpracę" (tryb: `notice` |

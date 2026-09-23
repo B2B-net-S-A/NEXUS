@@ -249,7 +249,7 @@ class Contract(Base, TimestampMixin):
     termination_lessons: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     terminated_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
-    # Rozwiązanie UMOWY B2B (0357) — osobne od końca projektu. Projekt kończy
+    # Rozwiązanie UMOWY B2B (0358) — osobne od końca projektu. Projekt kończy
     # się `terminated_at`/`end_date` i to on rządzi statusem kontraktu; umowa
     # może obowiązywać dłużej (okres wypowiedzenia). Komplet albo nic
     # (`ck_contracts_agreement_termination_coherence`). Tryb: `notice`
@@ -277,6 +277,16 @@ class Contract(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     voided_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # „Usuń szkic" na pustej karcie zakładki Zamówienia (0357, ticket 09.2026).
+    # Kontrakt i rekrutacja zostają — chowa się tylko karta bez zamówienia.
+    # Zamówienie założone PÓŹNIEJ przywraca kartę (`client_orders`).
+    orders_card_dismissed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    orders_card_dismissed_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 

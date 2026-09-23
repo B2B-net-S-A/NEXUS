@@ -145,6 +145,8 @@ ORDERS_LOGIC_SOURCES: tuple[str, ...] = (
     "backend/app/services/cost_orders.py",
     "backend/app/services/shared_md_orders.py",
     "backend/app/services/client_order_lines.py",
+    # Przejęcie pozostałych MD przy zastępstwie (ticket 09.2026).
+    "backend/app/services/order_line_takeover.py",
     "backend/app/services/md_import_parser.py",
     # Import zużycia MD i rozliczeń kosztowych: to on decyduje, czy wiersz
     # z arkusza w ogóle zejdzie z budżetu, a instrukcja opisuje jego trzy

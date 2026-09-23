@@ -48,6 +48,7 @@ from app.services.delivery_alert_recipients import (
     load_delivery_alert_recipient_scope,
 )
 from app.services import loop_heartbeat
+from app.services.order_line_takeover import activate_due_takeovers
 
 logger = logging.getLogger(__name__)
 
@@ -506,7 +507,18 @@ async def run_contract_alerts_cycle() -> dict:
             db
         )
         await db.commit()
-
+    # Zaplanowane „Wejdź za konsultanta" (ticket 09.2026): wejście PO
+    # promocji statusów — terminacja odchodzącego musi najpierw domknąć jego
+    # linię i założyć sprawę, którą zastępstwo rozstrzyga. Osobna sesja: awaria
+    # nie może wycofać promocji ani zatrzymać alertów.
+    async with AsyncSessionLocal() as db:
+        try:
+            stats["md_takeovers_activated"] = await activate_due_takeovers(db)
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+            logger.exception("contract_alerts: scheduled MD takeovers failed")
+    async with AsyncSessionLocal() as db:
         recipient_scope = await load_delivery_alert_recipient_scope(db)
         if recipient_scope.is_empty:
             logger.info(

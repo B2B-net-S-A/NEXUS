@@ -187,6 +187,10 @@ class ContractWithOrdersRead(BaseModel):
     latest_order_rate_client: Optional[Decimal] = None
     latest_order_monthly_margin: Optional[Decimal] = None
     days_to_latest_end: Optional[int] = None
+    draft_card: bool = False
+    """Karta „szkicu" (ticket 09.2026): żywy kontrakt bez zamówień poza
+    szkicami. Taką kartę da się usunąć („Usuń szkic"), a u Centrum e-Zdrowia
+    przypisać do zamówienia."""
 
     orders: list[ClientOrderRead] = []
 

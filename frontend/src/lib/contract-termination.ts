@@ -186,7 +186,7 @@ function plDate(iso: string | null | undefined): string {
 
 /**
  * Linia historii umowy w Generatorze dla zmian wykonanych przez zakończenie
- * kontraktu (0357). `null` = ręczna zmiana w Generatorze — bez dodatkowej linii.
+ * kontraktu (0358). `null` = ręczna zmiana w Generatorze — bez dodatkowej linii.
  */
 export function statusEventDetailsText(
   details: StatusEventDetails | null | undefined,
