@@ -742,7 +742,26 @@ _PROFILE_RATE_ALTER_SQL = (
     "TYPE NUMERIC(10,2) USING expected_rate_hourly::numeric(10,2)"
 )
 
+# Korpus słów kluczowych (migracja 0350): kolumny + trigger z JEDNEGO źródła
+# (`app/services/keyword_corpus.py`). Bez kolumn lista kandydatów pada na
+# UndefinedColumn. Import w try: jego awaria nie może zdjąć reszty tej siatki.
+try:
+    from app.services import keyword_corpus as _kc
+
+    _KEYWORD_CORPUS_DDL = [
+        *_kc.COLUMN_DDL,
+        _kc.JSON_TEXT_FUNCTION_DDL,
+        _kc.TRIGGER_FUNCTION_DDL,
+        _kc.TRIGGER_DDL,
+    ]
+    _KEYWORD_CORPUS_INDEXES = _kc.index_ddl(concurrently=True)
+except Exception as _kc_err:  # noqa: BLE001
+    print(f"keyword corpus DDL unavailable: {_kc_err!r}")
+    _KEYWORD_CORPUS_DDL = []
+    _KEYWORD_CORPUS_INDEXES = []
+
 _COLUMN_STATEMENTS = [
+    *_KEYWORD_CORPUS_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -4978,7 +4997,7 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS orders_in_md "
     "BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE contracts ALTER COLUMN billing_hours_per_month SET DEFAULT 168",
-    # 0350 (audyt 22.09, druga runda): snapshot CV etapu jako wskaźnik do
+    # 0351 (audyt 22.09, druga runda): snapshot CV etapu jako wskaźnik do
     # object storage (PROD-02) i pamięć przypięcia przy uśpieniu (CAND-07).
     "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS "
     "original_cv_storage_key VARCHAR(512) NULL",
@@ -7267,7 +7286,7 @@ _CONSTRAINT_STATEMENTS = [
     END $$""",
     "ALTER TABLE md_consumption_import_rows "
     "DROP CONSTRAINT IF EXISTS ck_md_import_rows_cost_status",
-    # 0350: 'non_positive_amount' — korekta faktury / kwota ≤ 0 (FIN-MD-06).
+    # 0351: 'non_positive_amount' — korekta faktury / kwota ≤ 0 (FIN-MD-06).
     """DO $$ BEGIN
         ALTER TABLE md_consumption_import_rows
             ADD CONSTRAINT ck_md_import_rows_cost_status
@@ -7276,7 +7295,7 @@ _CONSTRAINT_STATEMENTS = [
                 'non_positive_amount'
             )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0350: 'cost_only' — wiersz arkusza z samą fakturą, bez liczby MD.
+    # 0351: 'cost_only' — wiersz arkusza z samą fakturą, bez liczby MD.
     "ALTER TABLE md_consumption_import_rows "
     "DROP CONSTRAINT IF EXISTS ck_md_import_rows_status",
     """DO $$ BEGIN
@@ -7546,6 +7565,7 @@ _CONSTRAINT_STATEMENTS = [
 # ix_delivery_lead_client_assignments_delivery_lead_user_id. Dopisywanie ich
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
+    *_KEYWORD_CORPUS_INDEXES,
     # 0339: slug linku unikalny; jeden nieodwołany stały link na rekrutera.
     "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_candidate_invite_links_slug "
     "ON candidate_invite_links (slug) WHERE slug IS NOT NULL",

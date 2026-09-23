@@ -103,7 +103,7 @@ async def test_published_recruitment_from_traffit_gets_an_event_and_an_owner():
                 pytest.skip(f"status mapping gives {status!r}, not published")
             assert first.job_events == 1
             assert await _events(db, job_id) == 1
-            assert first.owners_filled == 1
+            assert first.recruiter_resolved == 1
             owner = (
                 await db.execute(
                     text("SELECT recruiter_id FROM jobs WHERE id = :i"), {"i": job_id}
@@ -114,7 +114,7 @@ async def test_published_recruitment_from_traffit_gets_an_event_and_an_owner():
             # Ten sam payload drugi raz = brak zmian = brak nowego zdarzenia.
             second = await _run(db, _FakeTraffit([raw]), client.id, {"43": user.id})
             assert second.job_events == 0
-            assert second.owners_filled == 0
+            assert second.recruiter_resolved == 0
         finally:
             if job_id is not None:
                 await db.execute(

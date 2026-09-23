@@ -14,13 +14,14 @@ stoją alerty zapisanych wyszukiwań):
 * ``bankow*``  — odmiana: „bankowość”, „bankowego”, „bankowym”.
 * ``spring boot`` — fraza: słowa obok siebie, w tej kolejności.
 * ``c++``, ``.net``, ``node.js`` — dosłownie; granica słowa tylko po stronie
-  litery/cyfry (``c++`` znajduje „C++17”, ``.net`` znajduje „ASP.NET”).
+  litery/cyfry (``c++`` znajduje „C++17”). Kropka na początku ma granicę jak
+  litera (``.net`` nie znajduje „B2B.net”), poza ``DOT_PREFIXES`` („ASP.NET”).
 
 Granica słowa: znak, który NIE jest literą/cyfrą/podkreśleniem. Postgres na
 produkcji ma ctype ``C`` (musl), więc ``[[:alnum:]]`` zna tylko ASCII — polskie,
 niemieckie i cyrylickie litery dopisujemy jawnie, inaczej „zażółć” miałoby
-granicę słowa w środku. Ta sama klasa jest w ``WORD_CHARS_PY`` (wycinki) i we
-froncie (``lib/keyword-terms.ts``) — trzy lustra jednej reguły.
+granicę słowa w środku. Ta sama klasa jest w ``WORD_CHARS_PY`` (wycinki pod
+wynikiem liczy serwer) — dwa lustra jednej reguły.
 """
 
 from __future__ import annotations
@@ -118,6 +119,20 @@ def _is_word_char(ch: str) -> bool:
     return ch.isalnum() or ch == "_"
 
 
+# Słowo zaczynające się kropką (``.net``) — bez granicy z lewej łapało każdą
+# domenę i nazwę firmy: prawie każde CV ma klauzulę „zgodę na przetwarzanie
+# przez B2B.net S.A.”, do tego behance.net, adresy e-mail. Zmierzone na
+# produkcji 22.09.2026: 59 z 60 osób, które „.net” znajdowało tylko w NEXUSIE,
+# miało wyłącznie takie trafienie (9 098 osób vs 5 043 w Trafficie). Kropka ma
+# więc granicę słowa jak litera — z wyjątkiem nazw technologii, w których kropkę
+# poprzedza przedrostek (ASP.NET, ADO.NET, VB.NET).
+DOT_PREFIXES: tuple[str, ...] = ("asp", "ado", "vb")
+
+
+def _dot_left(term: KeywordTerm) -> bool:
+    return not term.open_start and term.text.startswith(".")
+
+
 def _needs_left(term: KeywordTerm) -> bool:
     """Granica z lewej tylko, gdy słowo zaczyna się literą/cyfrą: `.net` ma
     znaleźć „ASP.NET”, a `java` nie ma znaleźć „JavaScript”."""
@@ -132,7 +147,11 @@ def _needs_right(term: KeywordTerm) -> bool:
 
 def pg_regex(term: KeywordTerm) -> str:
     """Wzorzec POSIX (Postgres ARE) do ``~*`` z granicami słowa."""
-    left = _LEFT_PG if _needs_left(term) else ""
+    if _dot_left(term):
+        prefixes = "|".join(DOT_PREFIXES)
+        left = f"(^|[^{WORD_CLASS_PG}]|{prefixes})"
+    else:
+        left = _LEFT_PG if _needs_left(term) else ""
     right = _RIGHT_PG if _needs_right(term) else ""
     return f"{left}{_core_pg(term.text)}{right}"
 
@@ -143,6 +162,9 @@ def py_regex(term: KeywordTerm) -> re.Pattern[str]:
     # Gwiazdka: podświetlamy całe słowo („JavaScript” dla `java*`), nie kawałek.
     if term.open_start:
         prefix = f"[{WORD_CHARS_PY}]*"
+    elif _dot_left(term):
+        allowed = "|".join(f"(?<={p})" for p in DOT_PREFIXES)
+        prefix = f"(?:{_LEFT_PY}|{allowed})"
     else:
         prefix = _LEFT_PY if _needs_left(term) else ""
     if term.open_end:

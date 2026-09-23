@@ -1,7 +1,7 @@
 """Audyt 22.09.2026, druga runda: schemat dla trzech poprawek.
 
-Revision ID: 0350_audit_round2
-Revises: 0349_notification_mutes
+Revision ID: 0351_audit_round2
+Revises: 0350_candidate_keyword_corpus
 
 * ``candidate_stage_cvs.original_cv_storage_key`` / ``original_cv_sha256`` —
   snapshot CV etapu może wskazywać plik w object storage zamiast kopiować
@@ -16,8 +16,8 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 
 from alembic import op
 
-revision = "0350_audit_round2"
-down_revision = "0349_notification_mutes"
+revision = "0351_audit_round2"
+down_revision = "0350_candidate_keyword_corpus"
 branch_labels = None
 depends_on = None
 

@@ -158,3 +158,71 @@ def test_normalize_drops_nul_bytes():
     from app.services.cv_text_extractor import _normalize
 
     assert _normalize("Jan\x00 Kowalski\x00\n\x00Python") == "Jan Kowalski\nPython"
+
+
+# ── Format from the bytes, not the name (2026-09-22) ─────────────────────────
+
+
+def _write(suffix: str, data: bytes) -> str:
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+        f.write(data)
+        return f.name
+
+
+def test_pdf_saved_as_docx_is_read_as_pdf(monkeypatch):
+    from app.services import cv_text_extractor as cte
+
+    monkeypatch.setattr(cte, "_extract_pdf", lambda _p: "PDF text")
+    monkeypatch.setattr(cte, "_extract_docx", lambda _p: "docx text")
+    path = _write(".docx", b"%PDF-1.7\n...")
+    try:
+        assert cte.extract_text(path, "CV Jan.docx") == "PDF text"
+    finally:
+        os.unlink(path)
+
+
+def test_pdf_saved_as_odt_is_read_instead_of_rejected(monkeypatch):
+    from app.services import cv_text_extractor as cte
+
+    monkeypatch.setattr(cte, "_extract_pdf", lambda _p: "PDF text")
+    path = _write(".odt", b"%PDF-1.4\n...")
+    try:
+        assert cte.extract_text(path, "cv.odt") == "PDF text"
+    finally:
+        os.unlink(path)
+
+
+def test_real_docx_and_unknown_bytes_keep_the_declared_format(monkeypatch):
+    import io
+    import zipfile
+
+    from app.services import cv_text_extractor as cte
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("word/document.xml", "<w:document/>")
+    docx = _write(".docx", buf.getvalue())
+    txt = _write(".txt", b"plain text CV")
+    try:
+        assert cte.sniff_extension(docx) == ".docx"
+        assert cte.sniff_extension(txt) is None
+        assert cte.extract_text(txt, "cv.txt") == "plain text CV"
+    finally:
+        os.unlink(docx)
+        os.unlink(txt)
+
+
+def test_zip_that_is_not_word_is_not_called_docx():
+    import io
+    import zipfile
+
+    from app.services import cv_text_extractor as cte
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("content.xml", "<office/>")
+    path = _write(".odt", buf.getvalue())
+    try:
+        assert cte.sniff_extension(path) is None
+    finally:
+        os.unlink(path)

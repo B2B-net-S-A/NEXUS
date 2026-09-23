@@ -840,6 +840,11 @@ def responsible_user_id(
     return None
 
 
+# #1728 (23.09.2026) nazwał tę samą regułę po swojemu — jedna implementacja,
+# dwie nazwy, żeby testy i wołający obu zmian czytali to samo.
+traffit_responsible_user_id = responsible_user_id
+
+
 def traffit_recruitment_to_job(
     payload: dict[str, Any],
     client_external_id_to_nexus_id: dict[str, int],
@@ -869,9 +874,7 @@ def traffit_recruitment_to_job(
     if workflow_id is not None:
         pipeline_template_id = workflow_external_id_to_template_id.get(str(workflow_id))
 
-    recruiter_id: Optional[int] = None
-    if user_id_map:
-        recruiter_id = responsible_user_id(payload, user_id_map)
+    recruiter_id = traffit_responsible_user_id(payload, user_id_map)
 
     is_closed = bool(payload.get("is_closed") or False)
     closing_date = payload.get("closing_date")  # "yyyy-MM-dd HH:mm:ss" lub None

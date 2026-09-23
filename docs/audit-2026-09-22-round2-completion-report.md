@@ -1,7 +1,7 @@
 # Naprawa audytu NEXUS z 22.09.2026 — druga runda
 
 Źródło ustaleń: raport audytu (11 obszarów) https://claude.ai/artifact/E5hzhpxZDVF5zC571WBtM7
-oraz kontrola naprawy audytu Codexa (#1700). Plan: jeden PR, migracja `0350_audit_round2`.
+oraz kontrola naprawy audytu Codexa (#1700). Plan: jeden PR, migracja `0351_audit_round2`.
 
 ## Status ustaleń
 
@@ -64,6 +64,6 @@ oraz kontrola naprawy audytu Codexa (#1700). Plan: jeden PR, migracja `0350_audi
 
 ## Weryfikacja
 
-- Backend: testy obszarów uruchomione na zmigrowanym Postgresie (0350) przez 7 wykonawców — łącznie ok. 3,8 tys. testów zielonych; pełny bieg przez `gh workflow run CI` na gałęzi.
+- Backend: testy obszarów uruchomione na zmigrowanym Postgresie (0351) przez 7 wykonawców — łącznie ok. 3,8 tys. testów zielonych; pełny bieg przez `gh workflow run CI` na gałęzi.
 - Frontend: `tsc --noEmit` bez błędów, lint bez błędów, pełny vitest.
 - Instrukcja zamówień w Pomocy zaktualizowana i ostemplowana.

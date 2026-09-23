@@ -65,20 +65,64 @@ def test_extension_resolution(filename, key, expected):
     assert _extension_of(filename, key) == expected
 
 
-def test_legacy_doc_is_skipped_before_download(monkeypatch):
-    """The image ships neither libreoffice nor antiword, so `.doc` always fails.
+_OLE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 64
+_PDF = b"%PDF-1.4\n%fake"
 
-    Classifying it up front saves thousands of pointless S3 GETs — and, more
-    usefully, turns "77% success" into a number that says whether the remainder
-    is fixable.
+
+def test_legacy_doc_is_recognised_by_its_bytes(monkeypatch):
+    """The image ships neither libreoffice nor antiword, so real OLE2 Word
+    always fails — classified as `legacy_doc` from the BYTES, not the name."""
+    monkeypatch.setattr(svc, "download_cv", lambda key: _OLE)
+
+    assert extract_one("cv/2026/01/abc", "stary.doc").outcome == "legacy_doc"
+    # A `.docx` name does not rescue binary Word either.
+    assert extract_one("cv/2026/01/abc", "cv.docx").outcome == "legacy_doc"
+
+
+def test_pdf_named_docx_is_read_as_pdf(monkeypatch):
+    """Measured on prod 2026-09-22: 3 320 Traffit CVs named `*.docx` are PDFs.
+
+    By name they went to python-docx, failed and got a terminal `empty`.
     """
-    called = []
-    monkeypatch.setattr(svc, "download_cv", lambda key: called.append(key) or b"x")
+    from app.services import cv_text_extractor as cte
 
-    result = extract_one("cv/2026/01/abc", "stary.doc")
+    monkeypatch.setattr(svc, "download_cv", lambda key: _PDF)
+    monkeypatch.setattr(cte, "_extract_pdf", lambda _p: "Senior QA Engineer, Selenium")
+    monkeypatch.setattr(
+        cte, "_extract_docx", lambda _p: pytest.fail("PDF bytes sent to python-docx")
+    )
 
-    assert result.outcome == "legacy_doc"
-    assert called == [], "must not download a file we cannot read"
+    result = extract_one("cv/2026/01/abc", "Tester_Jan Kowalski.docx")
+
+    assert result.outcome == "extracted"
+    assert "Senior QA Engineer" in result.text
+
+
+def test_pre_sniff_empty_marker_gets_exactly_one_more_attempt():
+    stale = _candidate(
+        cv_extracted_data={"_cv_text_extraction": {"outcome": "empty", "chars": 0}}
+    )
+    assert _terminal_marker(stale) is None, "recorded before format sniffing"
+
+    fresh = _candidate(cv_extracted_data={})
+    _record_marker(fresh, "empty", 0)
+    assert _terminal_marker(fresh) == "empty", "the new marker is final again"
+
+    junk = _candidate(
+        cv_extracted_data={"_cv_text_extraction": {"outcome": "junk", "chars": 0}}
+    )
+    assert _terminal_marker(junk) == "junk", "junk did not depend on the name"
+
+
+def test_pre_sniff_markers_are_reopened_in_sql():
+    from sqlalchemy.dialects import postgresql
+
+    sql = str(
+        svc._pending_candidates_stmt(10).compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert "sniffed" in sql
 
 
 def test_download_failure_is_retryable_not_terminal(monkeypatch):
@@ -264,7 +308,13 @@ def test_retry_outcomes_open_the_loop_guard_not_just_sql():
 
     candidate = SimpleNamespace(
         cv_extracted_data={
-            svc._EXTRACTION_MARKER_KEY: {"outcome": "empty", "chars": 0}
+            # `sniffed`: znacznik po rozpoznawaniu formatu po bajtach — bez
+            # flagi `empty` dostaje jedną ponowną próbę niezależnie od retry.
+            svc._EXTRACTION_MARKER_KEY: {
+                "outcome": "empty",
+                "chars": 0,
+                "sniffed": True,
+            }
         },
     )
 

@@ -1,4 +1,4 @@
-"""0350 (audyt 22.09, druga runda): schemat ma lustro w entrypoincie.
+"""0351 (audyt 22.09, druga runda): schemat ma lustro w entrypoincie.
 
 Prod alembic bywa osierocony — `entrypoint.sh` JEST wdrożeniem. Kolumna
 w modelu bez lustra = 500 na prodzie przy zielonym CI.
@@ -11,7 +11,7 @@ from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parents[1]
 ENTRYPOINT = re.sub(r"\s+", " ", (BACKEND / "entrypoint.sh").read_text())
-MIGRATION = (BACKEND / "alembic" / "versions" / "0350_audit_round2.py").read_text()
+MIGRATION = (BACKEND / "alembic" / "versions" / "0351_audit_round2.py").read_text()
 
 
 def test_columns_are_mirrored():
@@ -34,6 +34,6 @@ def test_checks_are_mirrored_with_the_new_values():
         assert name in ENTRYPOINT, name
 
 
-def test_migration_chains_after_0349():
-    assert 'revision = "0350_audit_round2"' in MIGRATION
-    assert 'down_revision = "0349_notification_mutes"' in MIGRATION
+def test_migration_chains_after_0350():
+    assert 'revision = "0351_audit_round2"' in MIGRATION
+    assert 'down_revision = "0350_candidate_keyword_corpus"' in MIGRATION

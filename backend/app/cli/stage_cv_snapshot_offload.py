@@ -18,7 +18,7 @@ Zasady:
 * bajty w bazie są zerowane DOPIERO po ponownym pobraniu obiektu i zgodności
   skrótu — przerwany bieg niczego nie traci, kolejny bieg zaczyna od
   wierszy, które nadal mają bajty;
-* paragon w ``app_settings['0350_stage_cv_offload']`` niesie wyłącznie liczniki
+* paragon w ``app_settings['0351_stage_cv_offload']`` niesie wyłącznie liczniki
   (bez nazw plików i identyfikatorów osób).
 
 Po ``--apply`` miejsce w pliku tabeli zwalnia dopiero ``VACUUM FULL
@@ -41,7 +41,7 @@ from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
-RECEIPT_KEY = "0350_stage_cv_offload"
+RECEIPT_KEY = "0351_stage_cv_offload"
 
 
 async def summarize(db) -> dict[str, int]:

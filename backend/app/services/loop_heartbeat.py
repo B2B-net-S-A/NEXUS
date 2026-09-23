@@ -56,6 +56,7 @@ EXEMPT: dict[str, str] = {
     "m365_recording_discovery": "nagrania spotkań; dodatek, nie ścieżka krytyczna",
     "marketplace_sweeper": "sprzątanie Targu; opóźnienie nieszkodliwe",
     "saved_search_alerts": "alerty zapisanych wyszukiwań; nie ścieżka krytyczna",
+    "keyword_corpus_backfill": "jednorazowe uzupełnienie korpusu; do końca zapytania używają starych kolumn",
     "chat_email_fallback": "fallback mailowy czatu; nie ścieżka krytyczna",
     "signature_reconciler": "uzgadnianie podpisów; sweeper podpisów jest objęty",
     "dl_portal_expiry": "dzienny skaner; zastępowany przez objęte dl_alerts",

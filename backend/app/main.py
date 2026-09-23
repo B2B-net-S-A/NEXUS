@@ -706,6 +706,7 @@ async def lifespan(app: FastAPI):
     )
     from app.tasks.marketplace_sweeper import marketplace_sweeper_loop
     from app.tasks.saved_search_alerts import saved_search_alerts_loop
+    from app.tasks.keyword_corpus_backfill import keyword_corpus_backfill_loop
     from app.tasks.chat_email_fallback import chat_email_fallback_loop
     from app.tasks.autenti_expiry_sweeper import autenti_sweeper_loop
     from app.tasks.signing_sweeper import signing_sweeper_loop
@@ -815,6 +816,9 @@ async def lifespan(app: FastAPI):
         ),
         "marketplace_sweeper": asyncio.create_task(marketplace_sweeper_loop()),
         "saved_search_alerts": asyncio.create_task(saved_search_alerts_loop()),
+        # Korpus słów kluczowych (0346) dla wierszy sprzed migracji; kończy się
+        # sama, gdy nie zostaje nic do policzenia.
+        "keyword_corpus_backfill": asyncio.create_task(keyword_corpus_backfill_loop()),
         "chat_email_fallback": asyncio.create_task(chat_email_fallback_loop()),
         "autenti_sweeper": asyncio.create_task(autenti_sweeper_loop()),
         "signing_sweeper": asyncio.create_task(signing_sweeper_loop()),

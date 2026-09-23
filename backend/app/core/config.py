@@ -1463,6 +1463,9 @@ class Settings(BaseSettings):
     # kandydatów dotkniętych w biegu; ~$0,008/CV na Haiku). Nocna delta to
     # zwykle dziesiątki wierszy — 200 ogranicza patologiczny bieg do ~$1,6.
     TRAFFIT_SYNC_CV_FIELDS_LIMIT: int = 200
+    # Faza `candidates_cv_text`: ile zapisanych CV bez tekstu odczytać w jednym
+    # biegu (ekstrakcja lokalna: pdfplumber/python-docx, OCR tylko dla skanów).
+    TRAFFIT_SYNC_CV_TEXT_LIMIT: int = 1000
 
     # audyt 22.09 r2 (INTG-01/02, INTG-03, DATA-01/PROD-03, REC-01, DATA-03/04,
     # PROD-01) — jeden blok ustawień obszaru „Traffit, automaty, dane".
@@ -1474,10 +1477,6 @@ class Settings(BaseSettings):
     # (`id DESC`) i kończy na stronie, na której pojawił się wpis starszy niż
     # `since` — zamiast pełnego przeglądu ~200 tys. wierszy w każdej delcie.
     TRAFFIT_PIPELINES_DELTA_TAIL: bool = True
-    # DATA-01: ile opublikowanych rekrutacji bez opiekuna (`recruiter_id`
-    # i `tac_id` puste) dopytujemy o `responsible_person` w jednym biegu fazy
-    # `jobs` (jedno wywołanie /recruitments/{id} na rekrutację).
-    TRAFFIT_SYNC_JOB_OWNER_LOOKUPS: int = 400
     # REC-01: przepięcia podobnych rekrutacji dla etapów wstawionych przez import
     # (99,6% ruchów). Tylko wiersze z ostatnich tylu dni — import historii nie
     # może przepinać ludzi wysłanych do klienta rok temu.

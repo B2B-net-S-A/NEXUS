@@ -542,6 +542,53 @@ async def _cv_fields_phase(files_since: Optional[datetime]) -> _CvFieldsPhaseRes
     return _CvFieldsPhaseResult(stats, started, datetime.now(timezone.utc))
 
 
+class _CvTextPhaseResult:
+    """Adapter ``cv_text_backfill.run_backfill`` na kontrakt fazy.
+
+    CELOWO ``errors = 0``: nieudany plik dostaje znacznik w
+    ``cv_extracted_data._cv_text_extraction`` i wraca w następnym biegu
+    (``download_failed``/``error``) albo zostaje opisany jako beznadziejny
+    (``junk``/``legacy_doc``) — nic tu nie wymaga wstrzymywania watermarku, a
+    wstrzymany watermark i tak niczego by w tej fazie nie ponowił.
+    """
+
+    def __init__(
+        self, stats: dict[str, Any], started_at: datetime, finished_at: datetime
+    ):
+        self._stats = stats
+        self.started_at = started_at
+        self.finished_at = finished_at
+        self.errors = 0
+
+    def as_dict(self) -> dict[str, Any]:
+        return dict(self._stats)
+
+
+async def _cv_text_phase() -> _CvTextPhaseResult:
+    """Tekst z CV, które import już zapisał, a których nikt jeszcze nie przeczytał.
+
+    Fazy ``candidates_cv``/``candidate_files`` pobierają pliki, ale TEKSTU
+    z nich nie wyciąga żadna faza: robił to jednorazowy skrypt
+    ``backfill_cv_text`` (10.08.2026), więc każde CV pobrane później zostawało
+    niewidoczne dla wyszukiwania słów kluczowych. Zmierzone 22.09.2026: 3 731
+    kandydatów z Traffita z plikiem PDF i bez tekstu, do tego 3 320 z PDF-em
+    zapisanym pod nazwą ``.docx`` (oznaczonych ``empty`` przed rozpoznawaniem
+    formatu po bajtach). Obie grupy Traffit przeszukuje, NEXUS nie.
+
+    Bez ``since``: backfill bierze wiersze bez tekstu w kolejności id, a wiersz
+    z odczytanym tekstem albo znacznikiem terminalnym sam wypada z zakresu, więc
+    kolejne noce kończą zaległość. Budżet ``TRAFFIT_SYNC_CV_TEXT_LIMIT`` na bieg
+    (ekstrakcja lokalna, bez AI; OCR tylko dla skanów).
+    """
+    from app.services.cv_text_backfill import run_backfill
+
+    started = datetime.now(timezone.utc)
+    stats = await run_backfill(
+        commit=True, limit=max(1, int(settings.TRAFFIT_SYNC_CV_TEXT_LIMIT))
+    )
+    return _CvTextPhaseResult(stats.as_dict(), started, datetime.now(timezone.utc))
+
+
 class _ReconcilePhaseResult:
     """Adapter raportu `reconcile()` na kontrakt fazy.
 
@@ -645,6 +692,8 @@ def _phase_plan(
         # czyta zapisane CV.
         ("candidates_cv", lambda: importer.import_candidates_cv(since=files_since)),
         ("candidate_files", lambda: importer.import_candidate_files(since=files_since)),
+        # Tekst z pobranych CV — zanim cortex i pola z CV zaczną go czytać.
+        ("candidates_cv_text", _cv_text_phase),
         (
             "candidate_activities",
             lambda: importer.import_candidate_activities(since=since),
@@ -708,6 +757,7 @@ PHASE_NAMES: tuple[str, ...] = (
     "pipelines",
     "candidates_cv",
     "candidate_files",
+    "candidates_cv_text",
     "candidate_activities",
     "candidate_sources",
     "talents",
@@ -889,12 +939,13 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         # sprzed `since` pominięte przez deltę ogonową.
         "unchanged",
         "skipped_before_since",
-        # Audyt 22.09 r2 (DATA-01): zdarzenia rekrutacji dla automatów
-        # i opiekunowie uzupełnieni z /recruitments/{id}.
+        # Audyt 22.09 r2 (DATA-01): zdarzenia rekrutacji dla automatów.
         "job_events",
-        "owners_filled",
         # Audyt 22.09 r2 (REC-01): przepięcia z etapów wstawionych przez import.
         "reassigned",
+        # 23.09.2026: rekruterzy dopełnieni z detalu `/recruitments/{id}`.
+        "recruiter_resolved",
+        "recruiter_detail_failed",
         "drifted_entities",
         "drift",
         "total_source",
