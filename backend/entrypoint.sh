@@ -253,6 +253,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'jarvis'",
     # 0339: szkic publicznego opisu rekrutacji na stronę kariery.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'job_public_description'",
+    # 0352: podpowiedzi Luny do pytań screeningu przy przepięciu.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'screening_reassign_suggest'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -651,6 +653,9 @@ _ENUM_STATEMENTS = [
     # 0348: kolejka „Czeka na Ciebie" — poranny skrót i wytypowanie do Cpro.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_tasks_digest'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_send_assigned'",
+    # 0352: pipeline v4 — przejęta blokada 12 h i zatrudniony bez zamówienia.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_claim_taken'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hired_order_missing'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -5005,6 +5010,17 @@ _COLUMN_STATEMENTS = [
     "original_cv_sha256 VARCHAR(64) NULL",
     "ALTER TABLE my_people_overrides ADD COLUMN IF NOT EXISTS "
     "restore_kind VARCHAR(16) NULL",
+    # 0352 (pipeline v4): blokada 12 h osoby dodanej ręcznie, źródło wejścia
+    # do rekrutacji i kto zakończył proces.
+    "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS "
+    "claimed_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS "
+    "claimed_until TIMESTAMPTZ NULL",
+    "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS "
+    "entry_source VARCHAR(24) NULL",
+    "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS "
+    "reassign_from_job_id INTEGER NULL REFERENCES jobs(id) ON DELETE SET NULL",
+    "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS ended_by VARCHAR(16) NULL",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -5612,6 +5628,12 @@ _DATA_STATEMENTS = [
     "SELECT 'job_public_description', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'job_public_description')",
+    # 0352: seed feature'a AI `screening_reassign_suggest` (podpowiedzi
+    # odpowiedzi przy przepięciu; wywołanie wyłącznie z warsztatu rekrutera).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'screening_reassign_suggest', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'screening_reassign_suggest')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.
@@ -7311,6 +7333,29 @@ _CONSTRAINT_STATEMENTS = [
         ALTER TABLE my_people_overrides
             ADD CONSTRAINT ck_my_people_overrides_restore_kind
             CHECK (restore_kind IS NULL OR restore_kind IN ('pinned'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE recruitment_processes "
+    "DROP CONSTRAINT IF EXISTS ck_recruitment_processes_entry_source",
+    """DO $$ BEGIN
+        ALTER TABLE recruitment_processes
+            ADD CONSTRAINT ck_recruitment_processes_entry_source
+            CHECK (entry_source IS NULL OR entry_source IN (
+                'added_manual', 'application', 'proposal', 'reassign',
+                'auto_match', 'import'
+            ));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+        ALTER TABLE recruitment_processes
+            ADD CONSTRAINT ck_recruitment_processes_claim_pair
+            CHECK ((claimed_by_user_id IS NULL) = (claimed_until IS NULL));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "ALTER TABLE candidate_stages DROP CONSTRAINT IF EXISTS ck_candidate_stages_ended_by",
+    """DO $$ BEGIN
+        ALTER TABLE candidate_stages
+            ADD CONSTRAINT ck_candidate_stages_ended_by
+            CHECK (ended_by IS NULL OR ended_by IN (
+                'candidate', 'recruiter', 'delivery_lead', 'client'
+            )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE finance_monthly_results DROP CONSTRAINT IF EXISTS ck_finance_monthly_results_row_number",
     """DO $$ BEGIN

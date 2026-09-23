@@ -166,6 +166,27 @@ class RecruitmentProcess(Base, TimestampMixin):
         String(30), nullable=False, default="backfill", server_default="backfill"
     )
 
+    # ── Pipeline v4 (0352, 23.09.2026) ──────────────────────────────────
+    # Osoba dodana ręcznie jest przez 12 h na wyłączność dodającego w tej
+    # rekrutacji (kolumna „Nowi"); potem każdy może ją przejąć. Obie kolumny
+    # puste albo obie ustawione (CHECK). Wyjście poza „Nowych" czyści blokadę.
+    claimed_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    claimed_until: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Skąd osoba weszła do rekrutacji: added_manual | application | proposal |
+    # reassign | auto_match | import. NULL = proces sprzed 0352.
+    entry_source: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    # Przepięcie: rekrutacja, z której osoba przyszła (jej odpowiedzi ze
+    # screeningu podpowiada Luna). FK istnieje w bazie (ON DELETE SET NULL,
+    # 0352), ale NIE w modelu: druga ścieżka processes → jobs robi z każdego
+    # `select(...).join(Job)` bez warunku AmbiguousForeignKeysError.
+    reassign_from_job_id: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+
     opened_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

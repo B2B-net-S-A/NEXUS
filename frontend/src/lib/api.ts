@@ -5887,7 +5887,9 @@ export type AIFeatureKey =
   | "cv_name_backfill"
   | "experience_dates_on_demand"
   | "cv_factual_verification"
-  | "jarvis";
+  | "jarvis"
+  | "job_public_description"
+  | "screening_reassign_suggest";
 
 export interface AIFeatureConfigDto {
   feature: AIFeatureKey;

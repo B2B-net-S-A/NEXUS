@@ -117,6 +117,9 @@ class AIFeatureKey(str, enum.Enum):
     # kubełek: inny strumień wydatku (rekruter przy udostępnianiu linku) i inny
     # prompt (zakaz nazwy klienta i kwot).
     job_public_description = "job_public_description"
+    # Podpowiedzi odpowiedzi na pytania screeningu przy przepięciu (0352).
+    # Wyłącznie przyciskiem z warsztatu rekrutera; wynik nic nie zapisuje.
+    screening_reassign_suggest = "screening_reassign_suggest"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -142,6 +145,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.experience_dates_on_demand: "Daty zatrudnienia z CV (kartoteka firmy w ATLAS-ie)",
     AIFeatureKey.jarvis: "Jarvis — asystent i wykonawca zadań w aplikacji",
     AIFeatureKey.job_public_description: "Opis rekrutacji na stronę kariery",
+    AIFeatureKey.screening_reassign_suggest: "Przepięcie — podpowiedzi odpowiedzi na pytania screeningu",
 }
 
 
@@ -238,6 +242,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.job_public_description: [
         "Tytuł rekrutacji, opis projektu i stack z Profilu Championa",
         "(bez nazwy klienta, stawek i danych kandydatów)",
+    ],
+    AIFeatureKey.screening_reassign_suggest: [
+        "Pytania screeningowe nowej rekrutacji (Profil Championa)",
+        "Odpowiedzi kandydata ze screeningu w poprzedniej rekrutacji",
+        "Ostatnie notatki rekruterów o kandydacie",
     ],
 }
 
