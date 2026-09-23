@@ -1339,12 +1339,10 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     );
     await user.selectOptions(
       screen.getByLabelText("Konsultant przejmujący *"),
-      "2",
+      "line:2",
     );
-    await user.selectOptions(
-      screen.getByLabelText("Przelicz po stawce *"),
-      "recipient",
-    );
+    // Wspólna pula nie ma puli osoby — nie ma czego przeliczać (ticket 09.2026).
+    expect(screen.queryByLabelText("Przelicz po stawce *")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Zapisz decyzję" }));
 
     await waitFor(() =>
