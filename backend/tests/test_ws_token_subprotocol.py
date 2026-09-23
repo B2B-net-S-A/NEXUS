@@ -292,3 +292,16 @@ async def test_non_integer_authorization_version_is_rejected() -> None:
     malformed_token = jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)
 
     assert await _authenticate_ws_token(malformed_token) is None
+
+
+async def test_force_password_change_token_is_rejected() -> None:
+    """FIX-09: token z ``fpc`` nie otwiera kanału powiadomień."""
+    uid = await _seed_user_with_authorization_version("fpc-ws", 3)
+    token = create_access_token(
+        uid,
+        UserRole.admin.value,
+        authorization_version=3,
+        force_password_change=True,
+    )
+    assert decode_token(token).get("fpc") is True
+    assert await _authenticate_ws_token(token) is None

@@ -10,6 +10,7 @@
  */
 import { PublicLinkUnavailable } from "@/components/public/PublicLinkUnavailable";
 import { publicLinkFailure } from "@/lib/public-link-state";
+import { forwardedClientHeaders } from "@/lib/server-forwarded";
 import { FileSignature } from "lucide-react";
 
 import SignForm from "./SignForm";
@@ -43,6 +44,8 @@ async function fetchMeta(
   try {
     const res = await fetch(`${apiBase()}/api/public/sign/${token}`, {
       cache: "no-store",
+      // FE-N01: limit zapytań per odwiedzający, nie per kontener frontu.
+      headers: await forwardedClientHeaders(),
     });
     if (!res.ok) return { status: res.status };
     return { meta: (await res.json()) as SignMeta };

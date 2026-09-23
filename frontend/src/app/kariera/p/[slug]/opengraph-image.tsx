@@ -16,7 +16,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   const { slug } = await params;
   // Host z żądania, nie stała domena — grafika pokazuje adres, pod którym link działa.
   const host = requestDisplayHost(await headers());
-  const result = await fetchCareerRecruiter(slug.toLowerCase());
+  const result = await fetchCareerRecruiter(slug.toLowerCase(), false);
   const firstName = result.ok ? result.data.recruiter.first_name : "";
   const recruiterSlug = result.ok ? result.data.recruiter.slug : slug;
   return new ImageResponse(

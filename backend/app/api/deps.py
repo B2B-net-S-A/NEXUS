@@ -30,7 +30,10 @@ from app.services.oauth_route_scopes import (
     decide,
     route_template,
 )
-from app.services.request_semantics import is_read_only_http_request
+from app.services.request_semantics import (
+    is_read_only_http_request,
+    is_read_only_post_path,
+)
 from app.services.section_permissions import resolve_effective_section_access
 from app.services.service_account_auth import (
     API_KEY_HEADER,
@@ -215,6 +218,27 @@ def _enforce_route_scope(request: Request, client_id: str, scopes: set[str]) -> 
     )
     if decision.allowed:
         return
+    # audyt 22.09 r2 (FIX-01): POST „tylko do odczytu” (eksport, masowe
+    # pobranie CV, wyszukiwarka) przed #1700 wymagał ``*:write``. #1700
+    # przepuścił go z samym ``*:read`` — w trybie cienia klient odczytowy
+    # mógł więc wyeksportować bazę. Taki POST spoza mapy tras klienta bez
+    # ``*:write`` odrzucamy ZAWSZE, niezależnie od flagi egzekwowania.
+    if (
+        decision.reason == ROUTE_NOT_EXPOSED
+        and request.method.upper() == "POST"
+        and is_read_only_post_path(path)
+        and not any(scope.endswith(":write") for scope in scopes)
+    ):
+        logger.warning(
+            "oauth route scope denied (read-only POST outside client map) "
+            "oauth_client_id=%s route=%s",
+            client_id,
+            template or path,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ROUTE_NOT_EXPOSED,
+        )
     enforce = settings.OAUTH_ROUTE_SCOPES_ENFORCE
     logger.warning(
         "oauth route scope %s oauth_client_id=%s method=%s route=%s "

@@ -10,5 +10,7 @@
 export type PublicLinkFailure = "invalid" | "unavailable";
 
 export function publicLinkFailure(status: number | null): PublicLinkFailure {
+  // 429 (limit zapytań) i 408 to też chwilowe — ponowienie pomoże (FE-N01).
+  if (status === 429 || status === 408) return "unavailable";
   return status !== null && status >= 400 && status < 500 ? "invalid" : "unavailable";
 }

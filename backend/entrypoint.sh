@@ -8892,8 +8892,15 @@ startup_phase "mail-delivery-schema"
 python -m app.services.m365.mail_delivery_schema
 
 startup_phase "seed"
-echo "Running seed data..."
-python seed.py || echo "seed.py failed (likely pre-existing schema drift from unmerged branches); continuing"
+# audyt 22.09 r2 (PROD-08): dane demo (konta, kandydaci, rekrutacje) tylko
+# na jawne życzenie — na produkcji seed.py nie ma czego szukać. Tabele i tak
+# zakłada wcześniejszy krok „metadata-create-all”.
+if [ "${NEXUS_DEMO_SEED:-false}" = "true" ]; then
+  echo "Running seed data..."
+  python seed.py || echo "seed.py failed (likely pre-existing schema drift from unmerged branches); continuing"
+else
+  echo "seed skipped (NEXUS_DEMO_SEED != true)"
+fi
 
 # Apply the checked-in client-portfolio manifest exactly once per source hash.
 # This command is intentionally fail-closed on first apply and has no

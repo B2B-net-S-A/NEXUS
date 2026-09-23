@@ -8,6 +8,7 @@ import api, { extractErrorMsg } from "@/lib/api";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
 import { clearSessionArtifacts, getAccessToken, hasAuthCookie } from "@/lib/session";
 import { ssoErrorMessage } from "@/lib/sso-error";
+import { safeInternalPath } from "@/lib/safe-href";
 import { postLoginDestination, useAuthStore } from "@/store/auth";
 import { AlertCircle, ArrowRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,9 +17,7 @@ import { FormField } from "@/components/ui/form-field";
 import { AuthShell } from "@/components/blocks/AuthShell";
 
 function safeNextPath(raw: string | null): string {
-  if (!raw) return "/";
-  if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
-  return raw;
+  return safeInternalPath(raw) ?? "/";
 }
 
 // `?reason=session_expired` is set by the axios interceptor in lib/api.ts when

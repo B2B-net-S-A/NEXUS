@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.candidate import Candidate, CandidateStatus
 from app.models.activity import Activity
@@ -39,6 +40,9 @@ from app.services.candidate_location_writer import normalize_candidate_location
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# audyt 22.09 r2 (SEC-03): górna granica wczytywanego CSV.
+MAX_CSV_BYTES = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 # Expected CSV columns (case-insensitive, order flexible)
 EXPECTED_COLUMNS = {
@@ -89,7 +93,13 @@ async def import_candidates(
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Plik musi być w formacie CSV")
 
-    raw_bytes = await file.read()
+    # audyt 22.09 r2 (SEC-03): najwyżej limit + 1 bajt w RAM.
+    raw_bytes = await file.read(MAX_CSV_BYTES + 1)
+    if len(raw_bytes) > MAX_CSV_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Plik CSV przekracza limit {settings.MAX_UPLOAD_SIZE_MB} MB",
+        )
 
     # Detect and strip BOM if present
     if raw_bytes.startswith(codecs.BOM_UTF8):

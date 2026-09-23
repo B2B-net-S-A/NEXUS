@@ -30,6 +30,7 @@ from datetime import date
 from io import BytesIO
 from pathlib import Path
 
+from app.services.prompt_fencing import fence
 from app.services.cv_generator_b2b.champion_builder import (
     ChampionProfileForPrompt,
     build_screening_notes_section,
@@ -176,12 +177,10 @@ def run_legacy_generation(
     mode = normalize_content_mode(content_mode)
     system_prompt = get_prompt(language, blind_cv, mode)
 
-    user_parts = [f"<cv>\n{cv_text.strip()}\n</cv>"]
+    user_parts = [fence("cv", cv_text)]
     screening_section = build_screening_notes_section(screening_notes_text, language)
     if screening_section.strip():
-        user_parts.append(
-            f"<screening_notes>\n{screening_section.strip()}\n</screening_notes>"
-        )
+        user_parts.append(fence("screening_notes", screening_section))
     # Only "tailored" gets the client's requirements in front of the model.
     champion_section = (
         build_champion_section(champion_dto, language)
@@ -201,9 +200,7 @@ def run_legacy_generation(
             PIPELINE_ID,
         )
     if champion_section.strip():
-        user_parts.append(
-            f"<champion_profile>\n{champion_section.strip()}\n</champion_profile>"
-        )
+        user_parts.append(fence("champion_profile", champion_section))
     client_rules_block = build_prompt_blocks(client_rule, language)
     if client_rules_block:
         user_parts.append(client_rules_block)

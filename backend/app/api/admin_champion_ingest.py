@@ -28,6 +28,7 @@ from app.core.rate_limit import limiter
 from app.models.job import Job
 from app.services.ai_quota import AIQuotaExceeded
 from app.services.champion_profile_ingest import (
+    MAX_FILE_BYTES,
     extract_document_text,
     ingest_parsed_profile,
     oversize_precheck,
@@ -100,7 +101,8 @@ async def champion_ingest(
     too_big = oversize_precheck(getattr(file, "size", None))
     if too_big:
         return _json({"detail": too_big}, status_code=413)
-    content = await file.read()
+    # audyt 22.09 r2 (SEC-03): najwyżej limit + 1 bajt w RAM.
+    content = await file.read(MAX_FILE_BYTES + 1)
     error = validate_upload(file.filename or "", len(content), external_rid)
     if error:
         return _json({"detail": error}, status_code=422)

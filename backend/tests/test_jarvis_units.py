@@ -276,3 +276,28 @@ async def test_preferences_round_trip_and_locked_character(app_client):
         headers=headers,
     )
     assert bad.status_code == 422
+
+
+# ── SEC-07: karta notatki pokazuje pełną treść ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_note_card_carries_the_full_content_not_just_the_clipped_sentence():
+    from app.services.jarvis.agent import prepare_proposal
+    from app.services.jarvis.transport import ToolResponse
+
+    class _Transport:
+        async def call(self, spec):
+            return ToolResponse(status=404, data=None)
+
+    content = "Początek notatki. " + ("x" * 3000) + " KONIEC-NOTATKI"
+    args, preview = await prepare_proposal(
+        _Transport(),
+        TOOLS_BY_NAME["create_note"],
+        {"candidate_id": 1, "content": content},
+    )
+    assert "KONIEC-NOTATKI" not in preview["text"], "zdanie karty jest skrótem"
+    assert preview["body"] == content, (
+        "karta musi nieść dokładnie to, co zostanie zapisane"
+    )
+    assert args["content"] == content

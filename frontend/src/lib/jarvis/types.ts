@@ -55,7 +55,13 @@ export interface JarvisAction {
   id: string;
   tool: string;
   status: JarvisActionStatus;
-  preview: { text: string; tool_label?: string; warning?: string };
+  preview: {
+    text: string;
+    tool_label?: string;
+    warning?: string;
+    /** Pełna treść zapisu (np. notatki) — renderowana jako zwykły tekst. */
+    body?: string;
+  };
   result?: { ok?: boolean; error?: string } | null;
 }
 

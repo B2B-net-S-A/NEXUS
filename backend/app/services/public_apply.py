@@ -600,15 +600,30 @@ async def _notify_owner(
     duplicate: bool,
     blacklisted: bool = False,
 ) -> None:
-    """Dzwonek dla właściciela linku. Po commicie, nigdy nie rzuca."""
+    """Dzwonek dla właściciela linku. Po commicie, nigdy nie rzuca.
+
+    audyt 22.09 r2 (SEC-06): gdy właściciel linku do rekrutacji jest już
+    nieaktywny, zgłoszenie dostaje rekruter i Delivery Lead tej rekrutacji —
+    ``emit`` pomija konta nieaktywne, więc dzwonek przepadał w ciszy.
+    """
     owner_id = link.created_by
     job_id = link.job_id
     try:
+        from app.models.user import User
         from app.services.notification_triggers import emit
 
         job_title: Optional[str] = None
+        recipients: list[int] = [owner_id] if owner_id is not None else []
         if job_id is not None:
-            job_title = await db.scalar(select(Job.title).where(Job.id == job_id))
+            job = await db.get(Job, job_id)
+            job_title = job.title if job else None
+            owner = await db.get(User, owner_id) if owner_id is not None else None
+            if job is not None and not (owner and owner.is_active):
+                recipients = [
+                    uid
+                    for uid in dict.fromkeys((job.recruiter_id, job.delivery_lead_id))
+                    if uid is not None and uid != owner_id
+                ]
         person = f"{applicant.first_name} {applicant.last_name}".strip()
         where = (
             f"przez link do rekrutacji „{job_title}”"
@@ -626,16 +641,17 @@ async def _notify_owner(
                 " Ta osoba była już w bazie — nowe CV dołączono do jej profilu "
                 "jako dodatkowy dokument, dane profilu bez zmian."
             )
-        await emit(
-            db,
-            user_id=owner_id,
-            title="Nowe zgłoszenie z linku aplikacyjnego",
-            message=message,
-            ntype=NotificationType.new_application,
-            related_entity_type=related_entity_type,
-            related_entity_id=related_entity_id,
-            link=target,
-        )
+        for recipient_id in recipients:
+            await emit(
+                db,
+                user_id=recipient_id,
+                title="Nowe zgłoszenie z linku aplikacyjnego",
+                message=message,
+                ntype=NotificationType.new_application,
+                related_entity_type=related_entity_type,
+                related_entity_id=related_entity_id,
+                link=target,
+            )
         await db.commit()
     except Exception as exc:  # noqa: BLE001 — powiadomienie nie cofa zgłoszenia
         logger.warning(

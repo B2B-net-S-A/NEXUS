@@ -43,6 +43,7 @@ import {
   highlightDocumentMatches,
 } from "@/lib/document-text-search";
 import { useDocumentFindShortcut } from "@/lib/use-document-find-shortcut";
+import { renderDocxSafely } from "@/lib/docx-preview-safe";
 import {
   DocumentSearchBar,
   EMPTY_FIND_RESULT,
@@ -301,11 +302,10 @@ export function FilePreviewContent({
 
     (async () => {
       try {
-        const { renderAsync } = await import("docx-preview");
         const host = docxHostRef.current;
         if (cancelled || !host) return;
         host.innerHTML = "";
-        await renderAsync(docxBlob, host, undefined, {
+        await renderDocxSafely(docxBlob, host, {
           className: "docx",
           inWrapper: true,
           ignoreWidth: false,

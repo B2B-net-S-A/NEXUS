@@ -755,6 +755,9 @@ class Settings(BaseSettings):
     # File uploads
     UPLOAD_DIR: str = "/tmp/nexus/uploads"
     MAX_UPLOAD_SIZE_MB: int = 10
+    # audyt 22.09 r2 (SEC-03): limit CAŁEGO ciała żądania (POST/PUT/PATCH),
+    # sprawdzany przed handlerem (app/core/body_size_limit.py).
+    MAX_REQUEST_BODY_MB: int = 30
 
     # ── Phase 13: notification triggers ──────────────────────────────────────
     BUSINESS_TZ: str = "Europe/Warsaw"
@@ -1987,6 +1990,36 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+
+
+# audyt 22.09 r2 (SEC-02): SECRET_KEY, który trafił do historii gita
+# (commit bf5cb10f8). Trzymamy WYŁĄCZNIE prefiks skrótu SHA-256, nie klucz.
+# Start z tym kluczem loguje błąd (main.py) — celowo NIE rzuca: odmowa startu
+# położyłaby produkcję przy pierwszym auto-merge'u, a termin rotacji wybiera
+# właściciel. Po rotacji ostrzeżenie znika samo.
+LEAKED_SECRET_KEY_SHA256_PREFIXES = frozenset({"e76920d40b5cd73d"})
+
+
+def secret_key_is_known_leaked(value: str | None) -> bool:
+    if not value:
+        return False
+    import hashlib
+
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+    return digest in LEAKED_SECRET_KEY_SHA256_PREFIXES
+
+
+def log_if_secret_key_leaked(value: str | None) -> bool:
+    """Loguje ERROR (→ Sentry), gdy działa klucz z historii gita. Nigdy nie rzuca."""
+    if not secret_key_is_known_leaked(value):
+        return False
+    import logging
+
+    logging.getLogger("app.core.config").error(
+        "SECRET_KEY is the one leaked in git history — rotate it "
+        "(procedure: new GH secret -> 'Coolify set env' redeploy=false -> Deploy)"
+    )
+    return True
 
 
 settings = Settings()

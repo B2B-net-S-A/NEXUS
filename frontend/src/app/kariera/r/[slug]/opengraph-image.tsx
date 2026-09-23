@@ -16,7 +16,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   const { slug } = await params;
   // Host z żądania, nie stała domena — grafika pokazuje adres, pod którym link działa.
   const host = requestDisplayHost(await headers());
-  const result = await fetchCareerJob(slug.toLowerCase());
+  const result = await fetchCareerJob(slug.toLowerCase(), false);
   const job = result.ok ? result.data.job : { slug, title: "Rekrutacja IT" };
   const closed = result.ok && result.data.status === "closed";
   const title = splitTitle(job.title);

@@ -16,8 +16,10 @@ import Link from "next/link";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { safeInternalPath } from "@/lib/safe-href";
+
 export function isInternalHref(href: string | undefined): href is string {
-  return typeof href === "string" && /^\/(?!\/)[^\s]*$/.test(href);
+  return safeInternalPath(href) !== null;
 }
 
 const COMPONENTS: Components = {
