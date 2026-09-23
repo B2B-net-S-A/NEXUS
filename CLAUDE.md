@@ -1477,7 +1477,12 @@ Wzór Word i edytor mają OSIEM sekcji: 1 Podstawy · 2 Search · 3 Stack ·
 - **Wzór Word v5** (`app/assets/champion/Profil_Championa_v5.0.docx`) budowany
   skryptem `scripts/build_champion_template_v5.py` z v4 — zmieniasz wzór =
   zmieniasz skrypt i budujesz ponownie. v4 nadal się wczytuje (etykiety,
-  sekcja projektu po nazwie `[45]. O projekcie`). Parser AI v8.
+  sekcja projektu po nazwie `[45]. O projekcie`). Parser AI v8. **Jeden wzór**
+  (decyzja 23.09.2026): `generate_champion_template.py` tylko KOPIUJE v5 na
+  SharePoint — osobno składany wzór szedł przy imporcie przez płatne AI.
+  Okno „Uzgodnij profil” pokazuje sekcję 4 jako tekst ze znacznikami
+  „(min. N lat)”/„(mile)” — `normalize_experience_items` czyta tekst gramatyką
+  `experience_from_text`, inaczej przejście przez okno gubiło poziom i lata.
 - UI: `components/champion/*` (sekcje, skrót dla rekrutera, plakietki),
   `ds/RequirementChipInput`, harness `/preview/champion-profile` (przypadek 3).
 
