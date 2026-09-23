@@ -140,6 +140,12 @@ export interface UsePipelineMoveOptions {
   optimistic?: PipelineMoveOptimisticAdapter;
   /** Rekrutacja Nordei: „CV wysłane" = „Wysłane do Cpro", bez przeglądu DL. */
   cproEnabled?: boolean;
+  /**
+   * 409 `CV_QC_FAILED` (Rekrutacja v5): bramka QC odmówiła wysłania CV.
+   * Wołający otwiera okno QC CV dla `stageId`; bez tej opcji hook pokazuje
+   * sam komunikat serwera.
+   */
+  onCvQcFailed?: (failure: CvQcFailure, item: KanbanItem) => void;
 }
 
 interface MoveEntry {
@@ -195,7 +201,32 @@ function debriefRequiredEventId(error: unknown): number | null {
 const CLIENT_SEND_ROLES = new Set(["admin", "delivery_lead"]);
 const DL_REJECT_ROLES = new Set(["admin", "delivery_lead", "head_of_recruitment"]);
 export const CLIENT_SEND_DENIED_MESSAGE =
-  "Do klienta wysyła Delivery Lead — osoba czeka w „Zweryfikowanym” na jego przegląd.";
+  "Do klienta wysyła Delivery Lead — osoba czeka w „QC CV” na jego przegląd.";
+
+/** 409 `CV_QC_FAILED` (Rekrutacja v5): CV nie przeszło kontroli przed wysłaniem. */
+export interface CvQcFailure {
+  /** Wiersz etapu, dla którego trzeba otworzyć okno QC CV. */
+  stageId: number | null;
+  message: string;
+  blockingFailed: number | null;
+}
+
+export function cvQcFailureOf(error: unknown): CvQcFailure | null {
+  const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })
+    ?.response;
+  const detail = response?.data?.detail as
+    | { code?: unknown; stage_id?: unknown; message?: unknown; blocking_failed?: unknown }
+    | undefined;
+  if (response?.status !== 409 || !detail || detail.code !== "CV_QC_FAILED") return null;
+  return {
+    stageId: typeof detail.stage_id === "number" ? detail.stage_id : null,
+    message:
+      typeof detail.message === "string" && detail.message.trim()
+        ? detail.message
+        : "CV nie przeszło QC.",
+    blockingFailed: typeof detail.blocking_failed === "number" ? detail.blocking_failed : null,
+  };
+}
 
 export interface PipelineMoveControls {
   /** Ta sama decyzja co przeciągnięcie karty na tablicy. */
@@ -236,6 +267,7 @@ export function usePipelineMove({
   canWriteClientRate,
   optimistic,
   cproEnabled = false,
+  onCvQcFailed,
 }: UsePipelineMoveOptions): PipelineMoveControls {
   const queryClient = useQueryClient();
   const { showActionToast, showSuccess, showError } = useToast();
@@ -250,6 +282,8 @@ export function usePipelineMove({
   // renderze wołającego, a callbacki ruchu mają zostać stabilne.
   const optimisticRef = useRef(optimistic);
   optimisticRef.current = optimistic;
+  const onCvQcFailedRef = useRef(onCvQcFailed);
+  onCvQcFailedRef.current = onCvQcFailed;
 
   const [bulkBusy, setBulkBusy] = useState(false);
   // M4 PR-03 (audyt P1.6): potwierdzenie przed hired — ruch tworzy draft
@@ -437,6 +471,8 @@ export function usePipelineMove({
           opts.onFailure?.(
             isEligibilityWarning(e)
               ? (eligibilityWarningReason(e) ?? "serwer ostrzega przed tym ruchem")
+              : cvQcFailureOf(e)
+                ? (cvQcFailureOf(e) as CvQcFailure).message
               : isPipelineVersionConflict(e)
                 ? PIPELINE_VERSION_CONFLICT_MESSAGE
                 : assignErrorMessage(e),
@@ -472,6 +508,15 @@ export function usePipelineMove({
               await sendMoveRef.current?.(item, dst, reason, opts);
             },
           });
+          return false;
+        }
+        const qcFailure = cvQcFailureOf(e);
+        if (!opts?.silent && qcFailure) {
+          // Bramka QC CV: karta wraca na miejsce (prawda serwera), a wołający
+          // otwiera okno QC — tam są poprawki i obejście DL/admina.
+          showError(qcFailure.message);
+          await refreshAfterMove();
+          onCvQcFailedRef.current?.(qcFailure, item);
           return false;
         }
         if (!opts?.silent && isPipelineVersionConflict(e)) {

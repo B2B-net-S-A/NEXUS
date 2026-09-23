@@ -1,4 +1,5 @@
-"""Blokada 12 h osoby w kolumnie „Nowi" (Pipeline v4, decyzja Artura 23.09.2026).
+"""Blokada 12 h osoby w kolumnach „Nowi" i „Screening" (Pipeline v4, decyzja
+Artura 23.09.2026; Screening od 24.09.2026).
 
 Osoba, którą rekruter sam dodał do rekrutacji (albo wziął z propozycji
 przyciskiem „Biorę"), jest przez ``CLAIM_HOURS`` na jego wyłączność W TEJ
@@ -6,8 +7,10 @@ rekrutacji. Chodzi o chaos: dwóch rekruterów dzwoniących do tej samej osoby
 w sprawie tej samej rekrutacji. Po upływie blokady każdy z zespołu może osobę
 przejąć; wcześniej — wyłącznie admin, Delivery Lead albo Head of Recruitment.
 
-Blokada dotyczy tylko kolumny „Nowi" (rozmowa i pytania z Championa). Ruch
-dalej ją zdejmuje — wtedy osoba ma już właściciela procesu.
+Blokada dotyczy tylko kolumn „Nowi" i „Screening" (rozmowa i pytania
+z Championa — od 24.09.2026 Screening jest osobną kolumną, a rozmowa trwa
+w nim dalej). Ruch na „Zweryfikowany" i dalej ją zdejmuje — wtedy osoba ma już
+właściciela procesu.
 
 Stan żyje na ``RecruitmentProcess`` (``claimed_by_user_id`` + ``claimed_until``,
 CHECK: oba albo żadne). Wygaśnięcie jest liczone przy odczycie — bez pętli.
@@ -28,12 +31,14 @@ from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
+from app.services.board_stage_badges import CLAIM_COLUMNS as _CLAIM_COLUMNS
 from app.services.board_stage_badges import NEW_COLUMN as _NEW_COLUMN
 from app.services.board_stage_badges import board_column_for
 
 CLAIM_HOURS = 12
-# Kolumna Tablicy, w której obowiązuje blokada.
 NEW_COLUMN = _NEW_COLUMN
+# Kolumny Tablicy, w których obowiązuje blokada.
+CLAIM_COLUMNS = _CLAIM_COLUMNS
 
 # Kto może przejąć cudzą osobę przed upływem blokady.
 CLAIM_OVERRIDE_ROLES: tuple[UserRole, ...] = (
@@ -179,7 +184,7 @@ async def assert_can_act(
     moment = now or utcnow()
     if not state.active(moment) or state.user_id == user.id or can_override(user):
         return
-    # Blokada dotyczy wyłącznie „Nowych". Import z Traffita i synchronizacja
+    # Blokada dotyczy wyłącznie „Nowych" i „Screeningu". Import z Traffita i synchronizacja
     # procesów przesuwają osobę bez `transition_process`, więc blokada może
     # przeżyć wyjście z kolumny — wtedy nie wiąże nikogo (przegląd 23.09.2026).
     latest = await db.scalar(
@@ -191,7 +196,7 @@ async def assert_can_act(
         .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
         .limit(1)
     )
-    if latest is None or await stage_column(db, latest) != NEW_COLUMN:
+    if latest is None or await stage_column(db, latest) not in CLAIM_COLUMNS:
         return
     holder = await db.get(User, state.user_id)
     raise HTTPException(

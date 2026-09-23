@@ -1,8 +1,9 @@
 /**
- * Odznaki karty na Tablicy — Pipeline v4 (decyzja Artura 23.09.2026, makiety
- * https://claude.ai/artifact/JQ8qdz16J6wG24WKTSgv6i).
+ * Odznaki karty na Tablicy — Pipeline v4 (decyzja Artura 23.09.2026), od
+ * Rekrutacji v5 na 8 kolumnach (makiety
+ * https://claude.ai/artifact/CG4mBk9xcHZAn3y9jcmMeW).
  *
- * Tablica ma 6 kolumn, więc to, czego nie widać z kolumny, mówi karta:
+ * To, czego nie widać z kolumny, mówi karta:
  * skąd osoba przyszła, kto ją ma na 12 h, że czeka na przegląd DL, za ile
  * poszła do klienta, co się dzieje z rozmową u klienta i czy po zatrudnieniu
  * jest zamówienie. Wszystko liczy się z pól tablicy — tu tylko prezentacja,
@@ -33,7 +34,7 @@ export interface CardBadge {
 
 export interface CardBadgeContext {
   column: BoardColumnKey | null;
-  /** Rekrutacja Nordei — przegląd DL zastępuje ścieżka DZ → Cpro. */
+  /** Rekrutacja Nordei — przegląd DL zastępuje kolejka Cpro. */
   cproEnabled: boolean;
   viewerId: number | null;
   now: Date;
@@ -152,18 +153,20 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
       title: "Osoba była już wysłana do klienta przy podobnej rekrutacji.",
     });
   }
-  if (column === "new") {
+  if (column === "new" || column === "screening") {
     const source = sourceBadge(item, ctx);
     const duplicatesStage = ctx.stageBadge === "posting" && item.entry_source === "application";
     if (source && !duplicatesStage) out.push(source);
     out.push(claimBadge(item, ctx));
   }
-  if (column === "verified" && !ctx.cproEnabled) {
+  // Przegląd DL (Rekrutacja v5): osoby w „QC CV" poza Nordeą — Delivery Lead
+  // sprawdza CV, wpisuje stawkę do klienta i wysyła.
+  if (column === "cv_qc" && !ctx.cproEnabled) {
     out.push({
       key: "dl_review",
       label: `Czeka na DL · ${daysLabel(item.days_in_stage ?? 0)}`,
       tone: "wait",
-      title: "Delivery Lead przegląda osobę i wpisuje stawkę do klienta przed wysłaniem CV.",
+      title: "Delivery Lead przegląda CV i wpisuje stawkę do klienta przed wysłaniem.",
     });
   }
   const rate = formatClientRate(item);
@@ -207,13 +210,112 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   return out;
 }
 
-/** Przycisk na karcie w „Nowych": „Biorę" (wolna) / „Przejmij" (cudza, DL). */
+/** Przycisk na karcie w „Nowych"/„Screeningu": „Biorę" (wolna) / „Przejmij" (cudza, DL). */
 export function claimAction(
   item: KanbanItem,
   ctx: CardBadgeContext,
 ): "take" | "takeover" | null {
-  if (ctx.column !== "new" || !item.can_take) return null;
+  if ((ctx.column !== "new" && ctx.column !== "screening") || !item.can_take) return null;
   const heldByOther =
     item.claim_user_id != null && item.claim_user_id !== ctx.viewerId && Boolean(item.claim_until);
   return heldByOther ? "takeover" : "take";
+}
+
+// ── Rekrutacja v5: chip QC, strzałka „→" i „kto ma ruch" na karcie ─────────
+
+export type QcChipTone = "ok" | "urgent" | "wait" | "neutral";
+
+export interface QcChip {
+  label: string;
+  tone: QcChipTone;
+  title: string;
+}
+
+/** Chip QC na karcie w kolumnie „QC CV" (`item.qc` z tablicy). */
+export function qcChip(item: KanbanItem): QcChip {
+  const qc = item.qc ?? null;
+  if (!qc || qc.status === "unchecked") {
+    return {
+      label: "QC nie sprawdzone",
+      tone: "neutral",
+      title: "Nikt jeszcze nie uruchomił kontroli CV — kliknij, żeby sprawdzić.",
+    };
+  }
+  if (qc.status === "passed") {
+    return { label: "QC ✓", tone: "ok", title: "CV przeszło kontrolę przed wysłaniem." };
+  }
+  if (qc.status === "overridden") {
+    return {
+      label: "QC przepuszczone",
+      tone: "wait",
+      title: "Delivery Lead albo admin przepuścił CV mimo uwag QC (z powodem).",
+    };
+  }
+  const n = qc.blocking_failed;
+  return {
+    label: `QC: ${n} do poprawy`,
+    tone: "urgent",
+    title: "CV ma braki, które blokują wysłanie — kliknij, żeby zobaczyć poprawki.",
+  };
+}
+
+/**
+ * Znany z karty brak przed przejściem do NASTĘPNEJ kolumny — strzałka jest
+ * wtedy szara (ale klikalna: okno „Przesuń dalej" mówi, co zrobić). `null` =
+ * karta nie zna braku; pełną listę liczy serwer w oknie.
+ */
+export function knownForwardGap(
+  item: KanbanItem,
+  from: BoardColumnKey | null,
+): string | null {
+  if (from === "screening" && item.screening_done === false) {
+    return "Brak arkusza screeningu";
+  }
+  if (from === "cv_qc" && item.qc?.status === "failed") {
+    return `QC: ${item.qc.blocking_failed} do poprawy`;
+  }
+  return null;
+}
+
+export interface CardNextStep {
+  /** „Ty", „DL", „Klient"… — kto ma ruch. */
+  who: string;
+  /** Ruch należy do patrzącego (podświetlenie tokenem primary). */
+  mine: boolean;
+  label: string;
+}
+
+const OWNER_WHO: Record<string, string> = {
+  recruiter: "Ty",
+  review: "Ty",
+  client: "Klient",
+  candidate: "Kandydat",
+  delivery: "Delivery",
+};
+
+/**
+ * Dół karty: kto ma ruch i co zrobić. Opiera się na `nextActionFor` (lustro
+ * backendu), a w kolumnie „QC CV" — której tamta reguła nie zna — mówi, czy
+ * ruch jest po stronie rekrutera (poprawki), Delivery Leada (przegląd
+ * i wysłanie poza Nordeą) czy osoby od Cpro.
+ */
+export function cardNextStep(
+  action: { label: string; owner: string; kind: string },
+  item: KanbanItem,
+  ctx: { column: BoardColumnKey | null; cproEnabled: boolean; stageBadge?: string | null },
+): CardNextStep | null {
+  if (ctx.column === "cv_qc") {
+    if (item.qc?.status === "failed") {
+      return { who: "Ty", mine: true, label: "Popraw CV wg QC" };
+    }
+    if (ctx.cproEnabled) {
+      return ctx.stageBadge === "cpro"
+        ? { who: "Osoba od Cpro", mine: false, label: "Wrzuć CV do Cpro" }
+        : { who: "Ty", mine: true, label: "Przekaż do Cpro" };
+    }
+    return { who: "DL", mine: false, label: "Przegląd CV i wysłanie do klienta" };
+  }
+  if (action.kind === "none" || action.owner === "none" || !action.label) return null;
+  const who = OWNER_WHO[action.owner] ?? "Ty";
+  return { who, mine: who === "Ty", label: action.label };
 }
