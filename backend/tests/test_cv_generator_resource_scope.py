@@ -4,8 +4,11 @@
   rekrutacji (#1448 to wymuszał; cofnięte). Poprawność zostaje: etap musi
   należeć do kandydata (404).
 * Autor zawsze ma dostęp do własnego dokumentu.
-* Cudzy dokument związany z rekrutacją: odczyt i działania tylko w zakresie
-  odczytu tej rekrutacji — obcy dostaje 403 przed renderem i przed zapisem.
+* Cudzy dokument związany z rekrutacją: odczyt i działania w zakresie odczytu
+  tej rekrutacji. Od 23.09.2026 (decyzja Artura: „wszystko w rekrutacji widzi
+  każdy”) ten zakres ma każda rola wewnętrzna bez przypisania; poza nim zostaje
+  stara rola podglądu ``user`` spoza zespołu — ta dostaje 403 przed renderem
+  i przed zapisem.
 """
 
 from types import SimpleNamespace
@@ -44,7 +47,9 @@ def user(role=UserRole.recruiter):
         "list_generated_cv_share_tokens",
     ],
 )
-async def test_outsider_rejected_on_someone_elses_document(monkeypatch, endpoint):
+async def test_legacy_viewer_outside_team_rejected_on_someone_elses_document(
+    monkeypatch, endpoint
+):
     row = SimpleNamespace(
         id=12,
         job_id=45,
@@ -59,7 +64,9 @@ async def test_outsider_rejected_on_someone_elses_document(monkeypatch, endpoint
         recruitment_access, "is_member_of_job", AsyncMock(return_value=False)
     )
     with pytest.raises(HTTPException) as exc:
-        await getattr(api, endpoint)(generated_id=12, current_user=user(), db=db)
+        await getattr(api, endpoint)(
+            generated_id=12, current_user=user(UserRole.user), db=db
+        )
     assert exc.value.status_code == 403
     db.commit.assert_not_awaited()
 
@@ -75,7 +82,9 @@ async def test_revoke_checks_scope_even_when_already_revoked(monkeypatch):
         recruitment_access, "is_member_of_job", AsyncMock(return_value=False)
     )
     with pytest.raises(HTTPException) as exc:
-        await api.revoke_generated_cv_share_token("v2$fixture", user(), db=db)
+        await api.revoke_generated_cv_share_token(
+            "v2$fixture", user(UserRole.user), db=db
+        )
     assert exc.value.status_code == 403
 
 
@@ -105,12 +114,26 @@ async def test_author_keeps_own_document_outside_the_recruitment_team(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_team_member_acts_on_colleagues_document(monkeypatch):
+async def test_recruiter_outside_team_acts_on_colleagues_document(monkeypatch):
+    """Od 23.09.2026 rekruter spoza zespołu działa na cudzym CV rekrutacji —
+    członkostwo nie jest nawet sprawdzane."""
+    row = SimpleNamespace(id=12, job_id=45, created_by=OTHER_AUTHOR)
+    membership = AsyncMock(return_value=False)
+    monkeypatch.setattr(recruitment_access, "is_member_of_job", membership)
+    db = SimpleNamespace(get=AsyncMock(return_value=row))
+    assert await api._load_generated_document(db, 12, user()) is row
+    membership.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_role_outside_bypass_set_still_consults_membership(monkeypatch):
+    """Rola spoza zbioru ról wewnętrznych (stary podgląd ``user``) nie omija
+    bramki — o dostępie do cudzego CV rekrutacji rozstrzyga członkostwo."""
     row = SimpleNamespace(id=12, job_id=45, created_by=OTHER_AUTHOR)
     membership = AsyncMock(return_value=True)
     monkeypatch.setattr(recruitment_access, "is_member_of_job", membership)
     db = SimpleNamespace(get=AsyncMock(return_value=row))
-    assert await api._load_generated_document(db, 12, user()) is row
+    assert await api._load_generated_document(db, 12, user(UserRole.user)) is row
     membership.assert_awaited_once()
 
 
@@ -178,9 +201,13 @@ async def test_generation_rejects_stage_of_another_candidate(monkeypatch):
         UserRole.admin,
         UserRole.delivery_lead,
         UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
+        UserRole.tac,
+        UserRole.recruiter,
+        UserRole.sourcer,
     ],
 )
-async def test_existing_org_read_scope_preserved(monkeypatch, role):
+async def test_every_internal_role_reads_without_membership(monkeypatch, role):
     row = SimpleNamespace(job_id=45, created_by=OTHER_AUTHOR)
     db = SimpleNamespace(get=AsyncMock(return_value=row))
     membership = AsyncMock(return_value=False)

@@ -534,7 +534,7 @@ async def check_board_tasks_digest(db: AsyncSession, now: datetime) -> int:
     return emitted
 
 
-# ── Trigger: prep wymaga uwagi (0355) ────────────────────────────────────────
+# ── Trigger: prep wymaga uwagi (0358) ────────────────────────────────────────
 
 # Migawka par z rozmową u klienta w najbliższym tygodniu — liczona najwyżej
 # raz na kwadrans, nie co tick.

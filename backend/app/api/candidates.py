@@ -152,6 +152,7 @@ from app.api.candidate_access import (
     CandidateWriteAccess,
     CANDIDATE_DOCUMENT_ROLES,
     CANDIDATE_WRITE_ROLES,
+    client_rate_write_allowed,
     resolve_client_rate_write,
     user_can_view_client_rate,
 )
@@ -202,11 +203,25 @@ router = APIRouter(dependencies=SOURCING_SECTION_DEPENDENCIES)
 
 
 def _candidate_history_response_for_user(response: dict, current_user) -> dict:  # type: ignore[no-untyped-def]
-    """Return history with rate fields absent for non-finance roles."""
+    """Historia rekrutacji z redakcją stawek wg roli (23.09.2026).
 
-    if has_financial_access(current_user):
-        return response
-    return redact_financial_fields(response)
+    - stawka KANDYDATA w rekrutacji (``jobs[].expected_rate``) — widzą wszyscy,
+    - stawka DO KLIENTA (``jobs[].client_rate``) — ``user_can_view_client_rate``
+      (bez rekrutera, sourcera i TAC),
+    - kwoty kontraktów (``contracts``) — jak dotąd tylko z dostępem finansowym.
+    """
+    can_view_client_rate = user_can_view_client_rate(current_user)
+    if not can_view_client_rate:
+        for entry in response.get("jobs", []):
+            entry["client_rate"] = None
+    if not has_financial_access(current_user):
+        response["contracts"] = [
+            redact_financial_fields(contract)
+            for contract in response.get("contracts", [])
+        ]
+    response["can_view_client_rate"] = can_view_client_rate
+    response["can_write_client_rate"] = client_rate_write_allowed(current_user)
+    return response
 
 
 class DuplicateCheckPayload(BaseModel):
@@ -4059,7 +4074,7 @@ async def get_candidate_history(
     )
 
     # Group by job
-    # Decyzja 23.09.2026: stawka do klienta tylko dla DL/admina/Finansów.
+    # Decyzja 23.09.2026: stawki do klienta nie widzą rekruter, sourcer i TAC.
     show_client_rate = user_can_view_client_rate(current_user)
     jobs_map: dict = {}
     for (
@@ -4197,8 +4212,6 @@ async def get_candidate_history(
         "jobs": list(jobs_map.values()),
         "contracts": contracts_history,
         "risk_summary": risk_summary,
-        # Front chowa wiersz „Stawka do klienta" rekruterowi (23.09.2026).
-        "can_view_client_rate": show_client_rate,
     }
 
     return _candidate_history_response_for_user(response, current_user)
@@ -4222,30 +4235,19 @@ async def set_recruitment_client_rate(
     `rate_value=None` czyści stawkę. Każdy ruch na nowy etap startuje z pustą
     stawką — wtedy wystarczy uzupełnić ją ponownie.
     """
-    # Bramka (decyzja Artura 2026-09-17): role zarządcze/Finanse
-    # (`CLIENT_RATE_WRITE_ROLES`) ALBO właściciel/twórca tej rekrutacji —
-    # `user_can_write_client_rate`, ta sama funkcja, która zasila
-    # `can_write_client_rate` w `GET /api/jobs/{id}`. Do tej pory admin-only,
-    # a tablica pytała o stawkę każdego. Zmiana audytowana old→new poniżej.
-    #
-    # Resource scope: rola mówi tylko „wolno ci ustawiać stawki do klienta",
-    # nie „wolno ci ustawiać je w TEJ rekrutacji". Cena wysyłki kandydata do
-    # klienta to dane finansowe konkretnej oferty — bez tej bramki TAC spoza
-    # zespołu oferty mógł je odczytać (przez odpowiedź) i nadpisać.
+    # Bramka: `resolve_client_rate_write` — admin albo Delivery Lead z zapisem
+    # w sekcji (decyzja Artura 23.09.2026; do tej daty także TAC, HoR, TCM,
+    # Finanse i właściciel rekrutacji). Ta sama funkcja zasila
+    # `can_write_client_rate` w `GET /api/jobs/{id}`. Zmiana audytowana
+    # old→new poniżej.
     job = await db.scalar(select(Job).where(Job.id == job_id))
     if job is None:
         raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
     if not await resolve_client_rate_write(db, current_user, job):
         raise HTTPException(
             status_code=403,
-            detail=(
-                "Stawkę do klienta zapisuje Delivery Lead, TAC, TCM, Head of "
-                "Recruitment, Finanse albo admin z zespołu tej rekrutacji — "
-                "albo jej właściciel."
-            ),
+            detail="Stawkę do klienta zapisuje Delivery Lead albo admin.",
         )
-    # Zakres rekrutacji rozstrzyga `resolve_client_rate_write` (członkostwo
-    # albo własność) — ten sam wynik, który widzi front w `can_write_client_rate`.
 
     latest, previous_rate = await update_latest_client_rate(
         db,
@@ -5346,7 +5348,7 @@ async def delete_candidate(
             sa_delete(JobProposal).where(JobProposal.candidate_id == candidate_id)
         )
     ).rowcount or 0
-    # Prepy w Teams (0355): transkrypty i oceny idą kaskadą z kandydatem —
+    # Prepy w Teams (0358): transkrypty i oceny idą kaskadą z kandydatem —
     # kasujemy je jawnie, żeby liczba trafiła do dowodu wykonania art. 17.
     # Kopia nagrania/transkryptu w M365 organizatora podlega retencji tenanta.
     from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript

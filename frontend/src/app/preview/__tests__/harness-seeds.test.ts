@@ -228,3 +228,12 @@ describe("/preview/new-job zasiewa każdy stały klucz", () => {
     );
   });
 });
+
+describe("/preview/kpi-targets zasiewa każdy stały klucz", () => {
+  it("nie zostawia klucza, który uruchomiłby zapytanie i przerzucił na /login", () => {
+    const harness = withoutComments(read("app/preview/kpi-targets/page.tsx")).replace(/\s+/g, " ");
+    const keys = literalQueryKeys(read("lib/api/kpiTargets.ts"));
+    expect(keys).toEqual(['["kpi-targets"]', '["kpi-targets", "history"]']);
+    for (const key of keys) expect(harness).toContain(key);
+  });
+});

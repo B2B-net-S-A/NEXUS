@@ -7,6 +7,7 @@ import { apiSupportsCorrelation, probeTelemetryCapability } from "./telemetry-ca
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, getAccessToken } from "./session";
 import type { WorkMode } from "./work-mode";
+import { recordRefusal, refusalCode } from "./help/refusal-tracker";
 import type {
   RoleActionPermissionChange,
   RoleSectionPermissionChange,
@@ -304,6 +305,20 @@ api.interceptors.response.use(
     if (typeof window === "undefined") return Promise.reject(err);
     if (err.response?.status === 401 || isMissingCredentials403(err)) {
       triggerSessionExpiredRedirect();
+    }
+    return Promise.reject(err);
+  },
+);
+
+// Powtarzające się odmowy z tym samym kodem (409/422…) → Jarvis wyjaśnia je po
+// ludzku (`lib/help`). Wyłącznie obserwuje: błąd zawsze leci dalej do
+// wołającego, a licznik żyje tylko w pamięci karty.
+api.interceptors.response.use(
+  (res) => res,
+  (err: AxiosError) => {
+    if (typeof window !== "undefined") {
+      const code = refusalCode(err.response?.status, err.response?.data);
+      if (code) recordRefusal(code);
     }
     return Promise.reject(err);
   },

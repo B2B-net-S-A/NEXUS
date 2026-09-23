@@ -56,7 +56,36 @@ DEFAULT_PREFS: dict[str, Any] = {
     "minimized": False,
     "sound": False,
     "daily_brief": True,
+    "screen_tips": True,
+    "notes": [],
 }
+
+# „Co Jarvis o mnie wie” — preferencje wpisane przez samego użytkownika.
+# Trafiają do bloku kontekstu każdej wiadomości (nie do promptu systemowego,
+# który musi zostać bajt w bajt ten sam dla cache), więc są krótkie i policzone.
+MAX_NOTES = 10
+MAX_NOTE_CHARS = 200
+_FORBIDDEN_NOTE_CHARS = "<>{}[]`"
+
+
+def _clean_notes(value: Optional[list[str]]) -> Optional[list[str]]:
+    if value is None:
+        return None
+    if len(value) > MAX_NOTES:
+        raise ValueError(f"Jarvis pamięta najwyżej {MAX_NOTES} rzeczy — usuń którąś")
+    cleaned: list[str] = []
+    for note in value:
+        text = " ".join(str(note).split())
+        if not text:
+            continue
+        if len(text) > MAX_NOTE_CHARS:
+            raise ValueError(
+                f"Jedna pozycja może mieć najwyżej {MAX_NOTE_CHARS} znaków"
+            )
+        if any(ch in text for ch in _FORBIDDEN_NOTE_CHARS):
+            raise ValueError("Pozycja pamięci nie może zawierać znaków < > { } [ ] `")
+        cleaned.append(text)
+    return cleaned
 
 
 class JarvisPrefs(BaseModel):
@@ -67,6 +96,13 @@ class JarvisPrefs(BaseModel):
     minimized: bool = False
     sound: bool = False
     daily_brief: bool = True
+    screen_tips: bool = True
+    notes: list[str] = Field(default_factory=list)
+
+    @field_validator("notes")
+    @classmethod
+    def _check_notes(cls, value: list[str]) -> list[str]:
+        return _clean_notes(value) or []
 
     @field_validator("name")
     @classmethod
@@ -89,6 +125,13 @@ class JarvisPrefsUpdate(BaseModel):
     minimized: Optional[bool] = None
     sound: Optional[bool] = None
     daily_brief: Optional[bool] = None
+    screen_tips: Optional[bool] = None
+    notes: Optional[list[str]] = None
+
+    @field_validator("notes")
+    @classmethod
+    def _check_notes(cls, value: Optional[list[str]]) -> Optional[list[str]]:
+        return _clean_notes(value)
 
 
 def effective_prefs(raw: Any) -> JarvisPrefs:

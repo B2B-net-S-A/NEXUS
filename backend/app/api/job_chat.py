@@ -15,13 +15,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
+from app.api.candidate_access import (
+    CandidatePIIAccess,
+    CandidateWriteAccess,
+    user_can_access_candidate_domain,
+)
 from app.api.deps import DeliveryLeadPlus
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.ws import notify_user
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.chat_reaction import JobChatMessageReaction
+from app.models.job import Job
 from app.models.job_chat import JobChatMention, JobChatMessage, JobChatReadState
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
@@ -58,13 +63,21 @@ MAX_PAGE_LIMIT = 200
 
 
 async def _require_member(db: AsyncSession, user: User, job_id: int) -> None:
-    """Raise 403 jeśli user nie jest członkiem projektu (po sprawdzeniu 404)."""
-    # Krótki path: sprawdza istnienie joba przy okazji
-    is_member = await is_member_of_job(db, user, job_id)
-    if not is_member:
-        # Rozróżniamy 404 (job nie istnieje) od 403 (nie jesteś członkiem) —
-        # leak'ujemy tylko binarne info "nie masz dostępu" w obu przypadkach
-        # (security: nie ujawniamy istnienia jobów do których user nie ma wglądu).
+    """Dostęp do czatu rekrutacji: każda rola wewnętrzna czyta i pisze.
+
+    Decyzja Artura 23.09.2026 — czat to rozmowa o rekrutacji, a pytanie osoby
+    spoza zespołu też ma wartość. Do tej daty wpuszczał wyłącznie zespół
+    (nawet DL i HoR spoza zespołu dostawali 403). Stara rola podglądu
+    ``user`` i konta nieaktywne nadal przechodzą wyłącznie przez członkostwo.
+    """
+    if user_can_access_candidate_domain(user):
+        if await db.get(Job, job_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rekrutacja nie istnieje.",
+            )
+        return
+    if not await is_member_of_job(db, user, job_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Brak dostępu do czatu tego projektu.",
@@ -72,9 +85,7 @@ async def _require_member(db: AsyncSession, user: User, job_id: int) -> None:
 
 
 async def _require_read_access(db: AsyncSession, user: User, job_id: int) -> None:
-    """GET-only organization oversight for Finance; membership for everyone else."""
-    if user.has_role(UserRole.finance):
-        return
+    """Odczyt czatu — ta sama reguła co zapis (patrz ``_require_member``)."""
     await _require_member(db, user, job_id)
 
 

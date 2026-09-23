@@ -1,12 +1,12 @@
-"""P0-A: assign-to-job enforces job membership.
+"""Assign-to-job and the job-membership gate.
 
 `POST /api/candidates/{candidate_id}/assign-to-job/{job_id}`
 (recommendations.assign_candidate_to_job) writes a CandidateStage — a pipeline
-mutation — so the caller must belong to the job, exactly like the shortlist and
-pipeline-move ingresses. Previously it only checked the role
-(CandidateWriteAccess), so a recruiter who is NOT on a recruitment could push a
-candidate straight into its pipeline from the recommendations widget. Now a
-non-member gets a uniform 403; a member (recruiter_id owner) can assign.
+mutation — and runs the same job-membership gate as the shortlist and
+pipeline-move ingresses. Since 23.09.2026 (decyzja Artura: „wszystko w
+rekrutacji robi każdy, nie musisz być przypisany") every internal role passes
+that gate, so a recruiter outside the team assigns like a member. The legacy
+viewer role ``user`` is still refused.
 
 Uses the in-process ``app_client`` fixture (real postgres in CI).
 """
@@ -20,7 +20,9 @@ from httpx import AsyncClient
 from app.core.database import AsyncSessionLocal
 
 
-async def _seed_recruiter(app_client: AsyncClient) -> tuple[dict[str, str], int]:
+async def _seed_recruiter(
+    app_client: AsyncClient, role: str = "recruiter"
+) -> tuple[dict[str, str], int]:
     from app.core.security import hash_password
     from app.models.user import User, UserRole
 
@@ -32,8 +34,8 @@ async def _seed_recruiter(app_client: AsyncClient) -> tuple[dict[str, str], int]
             email=email,
             password_hash=hash_password(password),
             name="Assign Gate Recruiter",
-            role=UserRole.recruiter,
-            roles=["recruiter"],
+            role=UserRole(role),
+            roles=[role],
             is_active=True,
         )
         db.add(user)
@@ -89,14 +91,45 @@ def _url(candidate_id: int, job_id: int) -> str:
     return f"/api/candidates/{candidate_id}/assign-to-job/{job_id}"
 
 
-async def test_assign_blocked_for_non_member_recruiter(app_client: AsyncClient):
+async def _stage_rows(candidate_id: int, job_id: int) -> list[int]:
+    from sqlalchemy import select
+
+    from app.models.recruitment_pipeline import CandidateStage
+
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(CandidateStage.id).where(
+                        CandidateStage.candidate_id == candidate_id,
+                        CandidateStage.job_id == job_id,
+                    )
+                )
+            ).all()
+        )
+
+
+async def test_assign_allowed_for_non_member_recruiter(app_client: AsyncClient):
     headers, _uid = await _seed_recruiter(app_client)
     job_id = await _seed_job(owner_id=None)  # unowned → recruiter is not a member
     candidate_id = await _seed_candidate()
 
     resp = await app_client.post(_url(candidate_id, job_id), headers=headers)
 
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "assigned"
+    assert resp.json()["stage_id"] in await _stage_rows(candidate_id, job_id)
+
+
+async def test_assign_refused_for_legacy_viewer(app_client: AsyncClient):
+    headers, _uid = await _seed_recruiter(app_client, role="user")
+    job_id = await _seed_job(owner_id=None)
+    candidate_id = await _seed_candidate()
+
+    resp = await app_client.post(_url(candidate_id, job_id), headers=headers)
+
     assert resp.status_code == 403, resp.text
+    assert await _stage_rows(candidate_id, job_id) == []
 
 
 async def test_assign_allowed_for_member_recruiter(app_client: AsyncClient):

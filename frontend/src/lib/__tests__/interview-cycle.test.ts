@@ -192,7 +192,7 @@ describe("debrief dopiero od rozpoczęcia rozmowy", () => {
   });
 });
 
-describe("interview-cycle — prepy w Teams (0355)", () => {
+describe("interview-cycle — prepy w Teams (0358)", () => {
   it("słaby prep i prep bez nagrania otwierają ocenę prepu, nie planowanie", () => {
     for (const kind of ["prep_weak", "prep_unrecorded"] as const) {
       const todo: TodoEntry = { ...PAIR, kind, priority: 6, due: null, event_id: 71, slot_request_id: null };

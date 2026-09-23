@@ -616,7 +616,7 @@ export function CandidateDetailV2({
         }}
       />
 
-      <Card variant="default" size="md" className="overflow-hidden p-0!">
+      <Card variant="default" size="md" className="overflow-hidden p-0!" data-help="candidate.profile.tabs">
         <TabbedNav
           value={activeTab}
           onValueChange={(value) => goToSection(value as CandidateProfileView["section"])}

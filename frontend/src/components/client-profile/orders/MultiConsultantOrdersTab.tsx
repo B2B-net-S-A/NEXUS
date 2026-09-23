@@ -14,14 +14,16 @@ import {
 } from "@/components/OrdersAndContractsTab";
 import { useToast } from "@/components/Toast";
 import { useClientDefaultRateUnit } from "@/hooks/useClientDefaultRateUnit";
-import { dlPortalApi } from "@/lib/api/dlPortal";
+import { dlPortalApi, type ContractWithOrdersRead } from "@/lib/api/dlPortal";
 import { orderMailApi } from "@/lib/api/orderMail";
 import {
   orderGroupsApi,
   type OrderGroupExtendInput,
   type OrderGroupInput,
   type OrderGroupRead,
+  type OrderLineInput,
   type OrderLineRead,
+  type OrderLineTakeoverInput,
   type OrderOffboardingResolutionInput,
   type OrderType,
   type SwapConsultantInput,
@@ -42,6 +44,7 @@ import {
   resolveOrderFocus,
   orderGroupMatchesPill,
   sortUnifiedOrderItems,
+  usesSharedMdPool,
   visibleLegacyOrderIds,
   type LegacyClientOrderType,
   type OrderListFilters,
@@ -53,6 +56,7 @@ import {
   postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
 import { hasSectionAccess } from "@/lib/section-access";
+import { isEzdrowieClient } from "@/lib/ezdrowie";
 import {
   canViewClientFinance,
   canManageMultiConsultantOrders,
@@ -61,6 +65,7 @@ import {
   useAuthStore,
 } from "@/store/auth";
 
+import { AssignToOrderModal } from "./AssignToOrderModal";
 import {
   ConsultantLineModal,
   type LineFormValues,
@@ -73,6 +78,7 @@ import { OrderGroupCard, type OrderGroupFocusRequest } from "./OrderGroupCard";
 import { OrderGroupFormModal } from "./OrderGroupFormModal";
 import { OrderListControls } from "./OrderListControls";
 import { OrderTypeBadge, orderTypeLabel } from "./OrderTypeBadge";
+import { ReplaceWithTakeoverModal } from "./ReplaceWithTakeoverModal";
 import { SwapConsultantModal } from "./SwapConsultantModal";
 
 /** Wyciąga czytelny komunikat z odpowiedzi API (detail bywa stringiem lub obiektem). */
@@ -241,6 +247,16 @@ export function MultiConsultantOrdersTab({
   const [deleteGroupTarget, setDeleteGroupTarget] =
     useState<OrderGroupRead | null>(null);
   const [mailSource, setMailSource] = useState<MailSource | null>(null);
+  // „Przypisz do zamówienia" z karty szkicu (CeZ) i „Zastąp kimś innym"
+  // z przejęciem pozostałych MD (ticket 09.2026).
+  const [assignModal, setAssignModal] = useState<{
+    contractor: ContractWithOrdersRead;
+    openCompleteOrder: () => void;
+  } | null>(null);
+  const [replaceModal, setReplaceModal] = useState<{
+    group: OrderGroupRead;
+    line: OrderLineRead;
+  } | null>(null);
   // Przejście z wpisu „transfer_md" do zamówienia powiązanego. Żądanie leci do
   // WSZYSTKICH kart, bo cel bywa zagnieżdżony w przyszłych zamówieniach innej
   // karty — tylko ona wie, że go zawiera, i tylko ona umie się rozwinąć.
@@ -645,6 +661,48 @@ export function MultiConsultantOrdersTab({
     },
   });
 
+  const joinOrder = useMutation({
+    mutationFn: async ({ groupId, values }: { groupId: number; values: OrderLineInput }) =>
+      (await orderGroupsApi.addLine(clientId, groupId, values)).data,
+    onSuccess: () => {
+      setAssignModal(null);
+      setFormError(null);
+      invalidate();
+      showToast("Osoba dołączyła do zamówienia", "success");
+    },
+    onError: (err) =>
+      setFormError(apiError(err, "Nie udało się dopisać osoby do zamówienia.")),
+  });
+
+  // Jedna mutacja dla trzech wejść: karta szkicu, decyzja o MD z nową osobą
+  // i „Zastąp kimś innym". Po sukcesie zamyka każde z tych okien.
+  const takeover = useMutation({
+    mutationFn: async ({
+      groupId,
+      values,
+    }: {
+      groupId: number;
+      values: OrderLineTakeoverInput;
+    }) => (await orderGroupsApi.takeover(clientId, groupId, values)).data,
+    onSuccess: (line) => {
+      setAssignModal(null);
+      setReplaceModal(null);
+      setOffboardingModal({ open: false, group: null, line: null });
+      setFormError(null);
+      invalidate();
+      showToast(
+        line.status === "draft"
+          ? `Zaplanowano zastępstwo od ${line.start_date ?? "dnia wejścia"}`
+          : "Zapisano zastępstwo — pozostałe MD przeszły na nową osobę",
+        "success",
+      );
+    },
+    onError: (err) => {
+      setFormError(apiError(err, "Nie udało się zapisać zastępstwa."));
+      queryClient.invalidateQueries({ queryKey: ["client-order-groups", clientId] });
+    },
+  });
+
   // ── Cykl życia ────────────────────────────────────────────────────────────
 
   const removeLine = useMutation({
@@ -742,6 +800,11 @@ export function MultiConsultantOrdersTab({
         groups,
       ),
     [contractorQuery.data, groups],
+  );
+  // Osoby z kart szkicu — „Nowe osoby u klienta" w decyzji o MD.
+  const draftPeople = useMemo(
+    () => contractors.filter((contractor) => contractor.draft_card === true),
+    [contractors],
   );
   // Rodziny przedłużeń liczone z PEŁNEJ listy: pigułka i filtr dostają już
   // przefiltrowane grupy, a następca zamówienia może w tym podzbiorze nie być.
@@ -947,6 +1010,16 @@ export function MultiConsultantOrdersTab({
         }}
         onReplaceLine={(selected, line) => {
           setFormError(null);
+          // Pula per osoba z pozostałymi MD: nowa osoba je przejmuje (B1).
+          // Kosztowe i wspólna pula nie mają puli osoby — zwykłe dodanie.
+          if (
+            !selected.is_cost_based &&
+            !usesSharedMdPool(selected) &&
+            line.takeover_source
+          ) {
+            setReplaceModal({ group: selected, line });
+            return;
+          }
           setLineModal({ open: true, group: selected, line: null, replaces: line });
         }}
         onKeepHistory={(selected, line) =>
@@ -1025,6 +1098,7 @@ export function MultiConsultantOrdersTab({
               type="button"
               disabled={!query.isSuccess || !contractorQuery.isSuccess}
               onClick={() => openNewOrderForm(suggestedOrderType)}
+              data-help="client.orders.new"
               className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
             >
               <Plus className="h-4 w-4" aria-hidden="true" /> Nowe zamówienie
@@ -1038,7 +1112,7 @@ export function MultiConsultantOrdersTab({
           zweryfikowania wzrokiem. Renderujemy je dopiero przy `isSuccess`,
           żeby „(0)" nie udawało wyniku, zanim cokolwiek wiadomo. */}
       {query.isSuccess && contractorQuery.isSuccess ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" data-help="client.orders.pills">
           {PILLS.map((entry) => (
             <button
               key={entry.key}
@@ -1144,6 +1218,14 @@ export function MultiConsultantOrdersTab({
                         : null
                     }
                     onFocusOrderServed={clearContractorFocus}
+                    onAssignToOrder={
+                      isEzdrowieClient(clientId) && canManage
+                        ? (contractor, openCompleteOrder) => {
+                            setFormError(null);
+                            setAssignModal({ contractor, openCompleteOrder });
+                          }
+                        : undefined
+                    }
                   />
                 ),
               )}
@@ -1252,9 +1334,44 @@ export function MultiConsultantOrdersTab({
         }
         group={offboardingModal.group}
         line={offboardingModal.line}
-        submitting={resolveOffboarding.isPending}
+        submitting={resolveOffboarding.isPending || takeover.isPending}
         error={formError}
         onSubmit={(values) => resolveOffboarding.mutate(values)}
+        newPeople={draftPeople}
+        onTakeover={(values) => {
+          const group = offboardingModal.group;
+          if (group) takeover.mutate({ groupId: group.id, values });
+        }}
+      />
+
+      <AssignToOrderModal
+        open={assignModal !== null}
+        onOpenChange={(open) => {
+          if (!open) setAssignModal(null);
+        }}
+        contractor={assignModal?.contractor ?? null}
+        groups={groups}
+        submitting={joinOrder.isPending || takeover.isPending}
+        error={formError}
+        onJoin={(groupId, values) => joinOrder.mutate({ groupId, values })}
+        onTakeover={(groupId, values) => takeover.mutate({ groupId, values })}
+        onNewOrder={() => assignModal?.openCompleteOrder()}
+      />
+
+      <ReplaceWithTakeoverModal
+        open={replaceModal !== null}
+        onOpenChange={(open) => {
+          if (!open) setReplaceModal(null);
+        }}
+        clientId={clientId}
+        group={replaceModal?.group ?? null}
+        line={replaceModal?.line ?? null}
+        submitting={takeover.isPending}
+        error={formError}
+        onSubmit={(values) => {
+          const group = replaceModal?.group;
+          if (group) takeover.mutate({ groupId: group.id, values });
+        }}
       />
 
       <EndOrderGroupModal

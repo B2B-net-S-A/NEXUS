@@ -94,7 +94,7 @@ class CycleStep(BaseModel):
     at: Optional[datetime] = None
     event_id: Optional[int] = None
     meta: Optional[str] = None
-    # 0355: jakość odbytego prepu — good | ok | weak | unrecorded | pending.
+    # 0358: jakość odbytego prepu — good | ok | weak | unrecorded | pending.
     quality: Optional[str] = None
 
 
@@ -153,7 +153,7 @@ class AgendaEntry(PairInfo):
     slot_request_id: Optional[int] = None
     online_meeting_url: Optional[str] = None
     done: bool = False
-    # 0355: prep założony z NEXUSA (Teams) i jego ocena po spotkaniu.
+    # 0358: prep założony z NEXUSA (Teams) i jego ocena po spotkaniu.
     from_nexus: bool = False
     prep_quality: Optional[str] = None
     prep_meta: Optional[str] = None
@@ -165,7 +165,7 @@ class TodoEntry(PairInfo):
     due: Optional[datetime] = None
     event_id: Optional[int] = None
     slot_request_id: Optional[int] = None
-    # 0355: brak prepu na dobę przed rozmową u klienta.
+    # 0358: brak prepu na dobę przed rozmową u klienta.
     urgent: bool = False
 
 

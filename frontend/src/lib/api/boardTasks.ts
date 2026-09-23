@@ -46,7 +46,7 @@ export interface BoardTaskRow {
   job_sender_name?: string | null;
 }
 
-/** 0355: prep przed rozmową u klienta, który wymaga uwagi. Widzi go
+/** 0358: prep przed rozmową u klienta, który wymaga uwagi. Widzi go
  *  organizator prepu, admin i Head of Recruitment. */
 export type PrepAttentionReason = "missing" | "weak" | "unrecorded";
 
@@ -92,7 +92,7 @@ export interface BoardTasksResponse {
   can_approve_dz: boolean;
   /** Ruch na „CV wysłane" ze stawką do klienta — admin i Delivery Lead. */
   can_send_to_client?: boolean;
-  /** 0355: brak prepu, prep słaby albo bez nagrania. Opcjonalne w typie —
+  /** 0358: brak prepu, prep słaby albo bez nagrania. Opcjonalne w typie —
    *  harnessy zasiewają kolejkę sprzed 0355 (brak = pusta lista). */
   prep_attention?: PrepAttentionRow[];
 }

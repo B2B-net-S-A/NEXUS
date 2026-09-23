@@ -161,8 +161,10 @@ from app.api import phase5
 from app.api import candidate_conflicts as candidate_conflicts_api
 from app.api import admin_import
 from app.api import kpis as kpis_api
+from app.api import kpi_targets_admin as kpi_targets_admin_api
 from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
+from app.api import help_screens as help_screens_api
 from app.api import help_materials as help_materials_api
 from app.api import proposals as proposals_api
 from app.api import job_shortlist as job_shortlist_api
@@ -626,6 +628,7 @@ async def lifespan(app: FastAPI):
         insights_seniority_journal_loop,
     )
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
+    from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
@@ -730,6 +733,9 @@ async def lifespan(app: FastAPI):
         "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
+        # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
+        # Rodzaje domyślnie OFF w Ustawieniach → Powiadomienia; znacznik w bazie.
+        "kpi_email_reports": asyncio.create_task(kpi_email_reports_loop()),
         # Powiadomienia Delivery Leada (0233). Kill-switch sprawdzany PRZED
         # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
         # 24 h po to, żeby sprawdzić tę samą flagę.
@@ -751,7 +757,7 @@ async def lifespan(app: FastAPI):
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
         "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
-        # 0355: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
+        # 0358: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
         # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
         "teams_prep_transcripts": asyncio.create_task(teams_prep_transcripts_loop()),
         # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
@@ -1053,7 +1059,7 @@ app.include_router(
     prefix="/api",
     tags=["interview-cycle"],
 )
-# 0355: prepy w Teams — planowanie Prep 1/2, transkrypt i ocena prepu.
+# 0358: prepy w Teams — planowanie Prep 1/2, transkrypt i ocena prepu.
 app.include_router(
     prep_meetings_api.router,
     prefix="/api",
@@ -1386,6 +1392,10 @@ app.include_router(
 )
 app.include_router(admin_import.router, prefix="/api", tags=["admin-import"])
 app.include_router(kpis_api.router, prefix="/api/kpis", tags=["kpis"])
+# Ustawienia → Cele KPI (plan PR3): edytor odstępstw ról i osobistych celów.
+app.include_router(
+    kpi_targets_admin_api.router, prefix="/api/kpi-targets", tags=["kpis"]
+)
 # Analytics v1 (plan 2026-07-16, PR 3) — wersjonowany kontrakt statystyk.
 # Endpointy 503 przy ANALYTICS_V1_MODE=off; RBAC/capabilities niezależnie.
 app.include_router(
@@ -1414,6 +1424,7 @@ app.include_router(
 )
 app.include_router(users_api.router, prefix="/api/users", tags=["users"])
 app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
+app.include_router(help_screens_api.router, prefix="/api", tags=["help"])
 app.include_router(help_materials_api.router, prefix="/api", tags=["help-materials"])
 app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
@@ -1917,7 +1928,7 @@ async def api_health_check():
     # bieg nie przełącza na `degraded`, trzy z rzędu — tak. `running` w
     # kolumnie NIE jest awarią: to bieg w toku albo przerwany restartem
     # (deploy), a o świeżości i tak mówi data ostatniego końca.
-    # 0355: prepy w Teams — app-only kalendarz i transkrypty. Informacyjna.
+    # 0358: prepy w Teams — app-only kalendarz i transkrypty. Informacyjna.
     # `degraded` = w ostatnich 48 h aplikacja dostała 403 (polityka dostępu nie
     # obejmuje organizatora) albo pobranie padło.
     try:
@@ -2456,6 +2467,8 @@ async def api_health_deep_check():
     from app.models.client import Client
     from app.models.client_cv_rule import ClientCvRule
     from app.models.client_cv_rule_event import ClientCvRuleEvent
+    from app.models.kpi_email_report_run import KpiEmailReportRun
+    from app.models.kpi_target_event import KpiTargetEvent
     from app.models.client_cv_rule_preview import ClientCvRulePreview
     from app.models.client_cv_rule_publication import ClientCvRulePublication
     from app.models.cv_document_version import CvDocumentVersion
@@ -2536,6 +2549,7 @@ async def api_health_deep_check():
         JarvisConversation,
         JarvisConversationEntity,
         JarvisMessage,
+        JarvisUiEvent,
     )
     from app.models.job_proposal import JobProposal
     from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride
@@ -2620,6 +2634,10 @@ async def api_health_deep_check():
         # „Zrobione” i każde pobranie PDF-u zamówienia.
         ("order_change_checks", OrderChangeCheck),
         ("order_pdf_downloads", OrderPdfDownload),
+        # 0355: historia „Cele KPI" (bez tabeli pada każdy zapis celu)
+        # i znacznik raportów KPI mailem (bez niego pętla raportów stoi).
+        ("kpi_target_events", KpiTargetEvent),
+        ("kpi_email_report_runs", KpiEmailReportRun),
         # 0256: konfigurowalna punktacja Insights. Brak tabeli NIE wywraca
         # Ligi — `get_scoring_config` degraduje się do wartości domyślnych
         # z kodu — więc bez tej sondy jedynym objawem byłby zapis wagi,
@@ -2696,6 +2714,8 @@ async def api_health_deep_check():
         ("jarvis_messages", JarvisMessage),
         ("jarvis_actions", JarvisAction),
         ("jarvis_conversation_entities", JarvisConversationEntity),
+        # 0355: telemetria pomocy na ekranie — brak tabeli = 500 na każdym dymku.
+        ("jarvis_ui_events", JarvisUiEvent),
         # 0333: skrzynka „Propozycje". Lista rekrutacji liczy z niej
         # `open_proposals_count`, a dodanie kandydata do rekrutacji ją stempluje.
         ("job_proposals", JobProposal),
@@ -2714,7 +2734,7 @@ async def api_health_deep_check():
         # 0343: wykluczone placementy — czyta je widok analytics_first_milestones
         # i VERIFIER_ANCHORED_CTE, więc brak tabeli = KPI i Insights 500.
         ("placement_exclusions", PlacementExclusion),
-        # 0355: prepy w Teams — agenda „Rozmowy u klienta” czyta je przy
+        # 0358: prepy w Teams — agenda „Rozmowy u klienta” czyta je przy
         # każdym wejściu, więc brak tabeli = pusty ekran kalendarza.
         ("prep_meetings", PrepMeeting),
         ("prep_transcripts", PrepTranscript),

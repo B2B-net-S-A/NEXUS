@@ -1,4 +1,4 @@
-// Insights → Wyniki → „Jakość prepów" (0355, prepy w Teams).
+// Insights → Wyniki → „Jakość prepów" (0358, prepy w Teams).
 //
 // Typy są lustrem `GET /api/interview-cycle/prep-quality`
 // (`backend/app/api/prep_meetings.py`). Raport ocenia pracę konkretnych osób,

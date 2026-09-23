@@ -705,7 +705,6 @@
 "tests/test_matching_containment.py": 6.4,
 "tests/test_matching_degraded_semantics.py": 0.0,
 "tests/test_matching_location.py": 0.1,
-"tests/test_matching_orchestrator.py": 0.0,
 "tests/test_matching_request_parity.py": 0.1,
 "tests/test_matching_skill_sources.py": 0.1,
 "tests/test_matching_skills.py": 0.1,

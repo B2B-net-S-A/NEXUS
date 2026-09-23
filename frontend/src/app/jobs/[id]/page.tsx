@@ -930,6 +930,7 @@ export default function JobDetailPage() {
           <div
             role="tablist"
             aria-label="Do przejrzenia"
+            data-help="jobs.proposals.tabs"
             className="inline-flex items-center gap-0.5 rounded-lg bg-muted p-0.5"
           >
             {(
@@ -1138,7 +1139,7 @@ export default function JobDetailPage() {
             />
           </div>
 
-          <aside className="xl:sticky xl:top-4 xl:self-start">
+          <aside className="xl:sticky xl:top-4 xl:self-start" data-help="job.champion.readiness">
             <JobReadinessDock
               jobId={Number(id)}
               variant="champion"

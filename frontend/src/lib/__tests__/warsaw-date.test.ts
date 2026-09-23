@@ -37,7 +37,8 @@ describe("formularze z domyślną datą „dziś”", () => {
     "src/components/client-profile/actions/TerminateContractModal.tsx",
     "src/components/client-profile/orders/SwapConsultantModal.tsx",
     "src/components/contracts/FinancialRatesCard.tsx",
-    "src/components/jarvis/JarvisRoot.tsx",
+    // Dzień Jarvisa (skrót, budżet dymków) liczy wspólne `todayKey` stąd.
+    "src/lib/jarvis/storage.ts",
     "src/components/contracts/ContractTerminationDialog.tsx",
     "src/components/contracts/ContractRegisterDialog.tsx",
     "src/components/contracts/AddProjectDialog.tsx",

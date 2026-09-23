@@ -2470,7 +2470,13 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   jako `*.docx` dostało terminalny znacznik `empty`. Format rozpoznaje
   `cv_text_extractor.sniff_extension` (pierwsze bajty); znaczniki
   `empty/unsupported_format/legacy_doc` bez flagi `sniffed` dostają jedną
-  ponowną próbę.
+  ponowną próbę. **Tekst SKLEJONY** (średnia „słowa” > 12 znaków,
+  `cv_text_extractor.looks_glued`; 1 581 CV 23.09.2026, prawie same PDF-y
+  z ciasnym kerningiem) PDF czyta drugi raz z `x_tolerance=1` — tylko jako
+  ścieżka zapasowa, bo niższy próg dla wszystkich rozcinałby rozstrzelone
+  nagłówki. Te same CV czyta ponownie drugi przebieg fazy
+  (`run_backfill(glued=True)`, CLI `--glued`); gorszy odczyt nie nadpisuje
+  tekstu i dostaje znacznik `still_glued`, błąd pobrania — nie.
 - **Lokalizacja z promieniem i województwo** (`services/pl_places.py`, dane
   `app/data/pl_places.json` z GeoNames, CC BY 4.0, 3 331 miejscowości,
   pokrycie 95% kandydatów z miastem). Kandydaci NIE mają współrzędnych, więc
@@ -2934,8 +2940,9 @@ przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
   „przez nas”; „przez DL” tylko admin/DL/HoR (403).
 - **Stawka do klienta = sprawa DL** (decyzja 23.09.2026, `candidate_access`):
   zapisuje WYŁĄCZNIE admin i Delivery Lead (`CLIENT_RATE_WRITE_ROLES`, bez
-  wyjątku dla właściciela rekrutacji), widzą dodatkowo Finanse
-  (`CLIENT_RATE_VIEW_ROLES`). Rekruterowi serwer redaguje ją na tablicy,
+  wyjątku dla właściciela rekrutacji), widzą dodatkowo HoR, TCM i Finanse
+  (`CLIENT_RATE_VIEW_ROLES`, doprecyzowane tego samego dnia: nie widzą jej
+  rekruter, sourcer i TAC). Rekruterowi serwer redaguje ją na tablicy,
   w historii etapów i w historii kandydata (`can_view_client_rate`) — widzi
   tylko oczekiwania kandydata i budżet Championa. Front: `lib/client-rate-access.ts`.
   Przegląd DL (pulpit i ruch „Zweryfikowany → CV wysłane” na tablicy)
@@ -2949,6 +2956,51 @@ przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
 - **„+ DZ” tylko u Nordei** (poza nią wysyła DL z przeglądu). **Integracja
   (token klienta OAuth, np. scraper pracuj.pl/JJIT) nie zakłada blokady** —
   wejście `auto_match` (`candidate_claim.is_integration_request`).
+
+## Rekrutacje i kandydatów widzą wszyscy; stawki do klienta nie widzi rekruter (23.09.2026)
+
+Decyzje Artura: „notatki i wszystkie elementy w panelu rekrutacji i kandydata
+widzą wszyscy — nie musisz być przypisany do rekrutacji”; zapis też („każdy
+może wszystko”); czaty czyta i pisze każdy; „tylko rekruterzy mają nie widzieć
+stawki, za jaką osoby są wysyłane do klienta”.
+
+- **Bramka zespołu jest otwarta dla każdej roli wewnętrznej**
+  (`_JOB_MEMBERSHIP_BYPASS_ROLES = _INTERNAL_OPERATIONAL_ROLES` w
+  `recruitment_access.py`). `ensure_job_membership`, `ensure_job_read_access`
+  i `job_scope_clause` przepuszczają admin/HoR/DL/TCM/TAC/rekrutera/sourcera/
+  Finanse — tablica, historia etapów, screening, CV etapu, feedback, werdykt HM,
+  shortlista, propozycje, cudze CV z generatora i profil kandydata nie ukrywają
+  już niczego przed osobą spoza zespołu. Stara rola podglądu `user` nadal
+  przechodzi wyłącznie przez członkostwo. Zostają bramki RÓL (zatrudnienie bez
+  sourcera, „CV wysłane” poza Nordeą tylko DL/admin, sekcje `allowed_sections`,
+  pola cyklu życia rekrutacji `JOB_MEMBER_LOCKED_FIELDS` tylko DL/admin).
+- **`oversight_bypass=False` = widok OSOBISTY i tak ma zostać** („Moja praca”
+  rekrutera w operacjach rekrutacji, zakres „moje” w cyklu rozmów u klienta) —
+  liczy przypisanie, nie dostęp. `is_member_of_job` i
+  `is_member_of_candidate_chat` zostają listami ODBIORCÓW powiadomień, nie
+  bramkami.
+- **Treść rekrutacji (opis, ogłoszenia, Champion) redaguje każda rola
+  wewnętrzna** (`job_edit_level` → `member` bez członkostwa).
+- **Czat rekrutacji i czat kandydata** (`_require_member` w `job_chat.py`,
+  `candidate_chat.py`): każda rola wewnętrzna czyta i pisze; nieistniejąca
+  rekrutacja/kandydat = 404.
+- **Podsumowanie aktywności AI** bierze też notatki, screeningi i feedback bez
+  rekrutacji (`null_ok=True`, `VISIBILITY_SCOPE_VERSION` v2 unieważnia cache).
+- **Stawka do klienta** (`CandidateStage.client_rate_*`): czytają
+  `CLIENT_RATE_VIEW_ROLES` (admin, HoR, DL, TCM, Finanse; `has_any_role`, więc
+  rekruter z dodatkową rolą DL widzi), zapisują `CLIENT_RATE_WRITE_ROLES`
+  (admin, DL) — `candidate_access.py`, front `lib/client-rate-access.ts`.
+  Własność rekrutacji nie daje zapisu, członkostwo też nie jest potrzebne.
+  Redakcja na serwerze: `_stage_response(show_client_rate=…)` — argument BEZ
+  wartości domyślnej, każdy wołający liczy go `user_can_view_client_rate`
+  (tablica, „moje następne kroki”, historia etapów, odpowiedź `/move`) — oraz
+  `_candidate_history_response_for_user` (profil → Rekrutacje), który niesie
+  `can_view_client_rate`/`can_write_client_rate`. **Stawkę KANDYDATA
+  (`expected_rate`) widzą wszyscy** — do 23.09 profil chował ją każdemu bez
+  `VIEW_FINANCE`. Kwoty KONTRAKTÓW w `/history` zostają przy dostępie
+  finansowym. Nowa powierzchnia niosąca `client_rate_*` = `user_can_view_client_rate`.
+- Wzmianki w starszych sekcjach o „członkostwie w zespole rekrutacji” jako
+  bramce odczytu/zapisu opisują stan sprzed 23.09.2026.
 
 ## Rekrutacja „wersja 3" — jedna tabela + panel osoby (21.09.2026, #1641 #1657 #1659)
 
@@ -4187,6 +4239,41 @@ poszerzenie CHECK-a na prodzie WYMAGA jawnego DROP+ADD):
 - **Osobny CHECK `ck_..._restore_target`**: dwa istniejące guardy używają
   `IS DISTINCT FROM`, więc trzecia wartość omijała OBA i mogłaby nieść
   `target_order_id`/`rate_basis` bez żadnego ograniczenia.
+
+## Przejęcie pozostałych MD i karta szkicu (ticket 09.2026, migracja 0357)
+
+Serwis `app/services/order_line_takeover.py`, trasa
+`POST /api/clients/{id}/order-groups/{g}/takeover`, front `lib/order-takeover.ts`
+(podgląd tą samą regułą), okna `AssignToOrderModal` (CeZ),
+`ReplaceWithTakeoverModal`, `TakeoverTermsFields`, `MdTransferChoice`.
+
+- **Sposób przeniesienia zależy od puli osoby odchodzącej** (`md_input_mode`):
+  pula w MD → 1:1, bez przelicznika; pula w kwocie → DL wybiera `departing_rate`
+  (X MD) albo `incoming_rate` (X × stawka odchodzącego ÷ stawka przychodzącego,
+  0,1 MD). Żadnej opcji nie wybieramy domyślnie. Ta sama reguła w „Wejdź za
+  konsultanta", decyzji o MD (`md_transfer_method`), „Zastąp kimś innym" i zamianie
+  kontraktora. Zamiana/decyzja BEZ `md_transfer_method` zachowuje stare
+  przeliczenie (klienci API sprzed 09.2026) — ekrany wysyłają metodę zawsze.
+- **Przejęcie = rozstrzygnięta sprawa offboardingu `transfer` na nową linię**
+  (istniejąca albo założona przez serwis): budżet odchodzącego zdejmowany o pulę
+  (`_reduce_legacy_md_budget`), więc nie pokazuje już „pozostało" (B2), a korekta
+  FIN-MD-02 działa bez zmian. `replaced_by_kind = "takeover"` liczy się w sumie
+  pozycji jak zamiana (poprzednik wnosi zużycie). `rate_basis` sprawy jest
+  WYPROWADZANY z metody (`stored_rate_basis`) — CHECK zna tylko dwie wartości.
+- **Zastępstwo za osobę z przyszłą datą zakończenia jest zaplanowane:** nowa linia
+  `draft` z `predecessor_order_id`, plan w payloadzie zdarzenia „dodanie
+  konsultanta" (`assignment=takeover`, `scheduled`). `activate_due_takeovers`
+  w cyklu `contract_alerts` (PO `_promote_statuses`) przenosi pulę z dnia wejścia,
+  gdy odchodzący już nie pracuje. Do tego czasu ręczna decyzja o MD odchodzącego
+  → 409. Data wejścia musi być po ostatnim dniu odchodzącego.
+- **Karta szkicu** (`ContractWithOrdersRead.draft_card`: żywy kontrakt bez zamówień
+  poza szkicami) stoi w pigułce Draft, nie w Aktywnych. „Usuń szkic"
+  (`POST …/contractors/{id}/dismiss-draft`, każdy klient) kasuje szkice zamówień
+  i stempluje `contracts.orders_card_dismissed_at`; kontrakt zostaje, a zamówienie
+  założone później przywraca kartę. „Przypisz do zamówienia" tylko CeZ (front).
+- **Dołączenie** idzie zwykłym `POST …/lines` z `assignment: "join"` (plakietka
+  „Dołączona"); „wolna pula" = MD czekających spraw offboardingu w zamówieniu —
+  ostrzeżenie, nie blokada.
 
 ## Zapis zamówienia: „Network Error" znaczy nieobsłużone 500
 
@@ -5870,9 +5957,9 @@ cofnąć „przy okazji”:
   cudze werdykty HM i feedback z rozmów (jak DL). W kalendarzu HoR edytuje cudze
   wydarzenia, ale **odwołać/usunąć** (także PATCH `status=cancelled`) może tylko
   właściciel albo admin — `user_can_remove_event`, flaga `can_remove` w odpowiedzi.
-- **Stawka do klienta** (`PATCH …/client-rate`): role admin/HoR/DL/TCM/TAC/finance
-  z członkostwem w rekrutacji ALBO właściciel/twórca rekrutacji niezależnie od
-  roli. Jedna funkcja `resolve_client_rate_write` zasila bramkę i
+- **Stawka do klienta** (`PATCH …/client-rate`): od 23.09.2026 wyłącznie
+  admin i Delivery Lead (sekcja „Rekrutacje i kandydatów widzą wszyscy”).
+  Jedna funkcja `resolve_client_rate_write` zasila bramkę i
   `can_write_client_rate` w `GET /api/jobs/{id}`; tablica i warsztat CV pytają
   o stawkę tylko przy `true`.
 - **Wyszukiwarka, tryb semantyczny:** sort i chipy „podbijające ranking” działają
@@ -5998,6 +6085,69 @@ Backend: `app/api/jarvis.py` + `app/services/jarvis/`; front: `components/jarvis
   przycinający wynik; zapis: `preview` + `done` + `invalidates`), test kontraktowy
   przechodzi sam, jeśli trasa istnieje i poziom się zgadza. Dokładając trasę
   pod `/api/jarvis/*` — wpis w `_BARE_BASELINE` i `_SECTIONLESS_ALLOWLIST`.
+
+## Jarvis 2 — pomoc na ekranie, dzień pracy, pamięć (0355, 23.09.2026)
+
+Pomiar 21–23.09: 3 realne osoby, 18 tur, 0 akcji zapisu, 0 kliknięć podpowiedzi,
+żaden DL. Diagnoza: Jarvisowi nie brakowało narzędzi, tylko obecności w pracy.
+Decyzje Artura 23.09: dymek domyślnie ON (raz na ekran), 12 ekranów, treść
+przewodników bez przeglądu człowieka (pilnuje test świeżości), bez głosu (RODO).
+
+- **Przewodniki ekranów: `backend/app/data/screen_guides/guides.json`**
+  (12 kluczy `SCREEN_KEYS`, lustro `lib/help/screen-key.ts`). Front czyta je
+  z `GET /api/help/screens` (obrazy Dockera nie widzą swoich katalogów), Jarvis
+  narzędziem `get_screen_guide`. Każdy wpis ma `sources` — zmiana któregoś pliku
+  albo samego wpisu = czerwony `test_screen_guides_freshness.py`; po przeglądzie
+  `cd backend && python scripts/stamp_screen_guides.py`. Treść jest dla
+  rekrutera: bez ścieżek, tras i nazw tabel (test to sprawdza). Stary
+  `OnboardingWalkthrough` usunięty — zgnił dokładnie tak („Ogłoszenia").
+- **Kotwice `data-help="<klucz>.<nazwa>"`** na istniejących elementach 12
+  ekranów, zamknięta lista w `anchors` przewodnika. Model NIE podaje selektora:
+  `show_on_screen` (tier `link`) przyjmuje tylko id z przewodnika BIEŻĄCEGO
+  ekranu, a `requires` odfiltrowuje przyciski, których ta rola nie widzi.
+  `HelpSpotlight` szuka elementu 1,5 s, brak = komunikat, nigdy cisza.
+  Test `lib/help/__tests__/help-mode.test.ts` wymaga zgodności w obie strony
+  (kotwica bez `data-help` i `data-help` bez kotwicy = czerwień). Nowa kotwica =
+  wpis w JSON-ie + atrybut + przestemplowanie. Dok osoby nie stoi w adresie —
+  `jobs.person` rozpoznaje `context.ts` po otwartym `[data-help="jobs.person.dock"]`.
+- **Dymki nieproszone mają JEDEN budżet: 3 dziennie** (`lib/jarvis/bubble-budget.ts`),
+  wspólny dla dymka ekranu i „utknięcia”; nigdy przy otwartym oknie Radix ani
+  panelu. Poranny skrót i „Moi ludzie” mają własne reguły. Nie dokładaj źródła
+  dymków obok budżetu.
+- **„Utknięcie”**: interceptor w `lib/api.ts` tylko obserwuje odmowy
+  403/409/412/422/423 z `detail.code`/`detail.reason`; trzecia taka sama w 2 min →
+  dymek z tekstem z `lib/help/error-explainers.ts` (bez modelu). Każdy kod musi
+  istnieć w backendzie (test grepuje `backend/app`).
+- **„Zatrzymaj”**: `POST /api/jarvis/conversations/{id}/cancel` → zbiór w pamięci
+  procesu (backend = jeden uvicorn), pętla sprawdza go przed krokiem modelu
+  i przed każdym narzędziem; każdy `tool_use` dostaje wynik (inaczej historia
+  psuje następną turę). Wywołania modelu w wątku nie da się przerwać w połowie.
+- **`stop_reason=max_tokens`**: ucięty `tool_use` jest wyrzucany, tekst dostaje
+  dopisek „napisz «dalej»”. Krótkie odpowiedzi wymusza prompt, nie limit tokenów.
+- **Strumieniowanie**: `call_claude(..., stream_response=True, on_text_delta=…)`
+  (tylko Anthropic; ponowienie wysyła `None` → `delta_reset`); agent przekazuje
+  delty kolejką z wątku (`loop.call_soon_threadsafe`). `message` na końcu kroku
+  ZASTĘPUJE tekst pisany na żywo w reduktorze — nie dokładaj drugiej wiadomości.
+- **Pamięć „Co Jarvis o mnie wie”**: `jarvis_prefs.notes` (≤10 × 200 zn., bez
+  `<>{}[]\``), w bloku kontekstu każdej wiadomości — nigdy w `SYSTEM_PROMPT`
+  (cache). `remember_preference` składa pełną listę serwerowo (`_notes`, którego
+  model nie poda — `sanitize_args`). Prompt zakazuje zapamiętywania danych
+  kandydatów.
+- **Nowe narzędzia** (wszystkie na istniejących trasach): `get_contract`,
+  `my_board_tasks`, `my_interview_cycle`, `prep_for_interview`,
+  `client_questions`, `get_debrief`, `list_job_proposals`, `get_hm_feedback`,
+  `order_mail_queue`, `metric_catalog`/`evaluate_metric`, `explain_match` (BEZ
+  `refresh` — pierwsze pytanie o parę i tak płaci), `get_screen_guide`; zapisy
+  `save_interview_debrief`, `dismiss_job_proposal`, `record_hm_feedback`,
+  `claim_candidate`, `snooze_my_person`/`pin_my_person`, `remember_preference`.
+  Terminy od klienta zostają linkiem (`POST /slots` sam przesuwa kartę).
+- **`search_help` pyta `GET /api/procedures?ranked=true`** (`services/help_search.py`:
+  punkty zamiast AND słów, bez polskich znaków, prefiks 5 znaków, fragment
+  treści). Ekran Pomocy woła bez `ranked` — jego zachowanie się nie zmienia.
+- **Telemetria `jarvis_ui_events` (0355)** + lustro w `entrypoint.sh`: tylko klucz
+  ekranu i kod, retencja 90 dni w `jarvis_retention`. Liczniki:
+  `GET /api/jarvis/ui-events/summary?days=14` (admin). Typ dymka albo przewodnik
+  z kliknięciami <25% po 2 tygodniach — do wyłączenia, nie do wzmacniania.
 
 ## „Moi ludzie" — lista rekrutera, dzwonek przy nowej rekrutacji, postać w rogu (21.09.2026)
 
@@ -6136,7 +6286,7 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
 - Harness `/preview/calendar-cycle` (`?as=dl`) — dane fikcyjne, zero zapytań
   (dane agendy przez `dataOverride`, reszta zasiana w cache).
 
-## Prepy w Teams → transkrypt, notatka i ocena prepu (0355, 23.09.2026)
+## Prepy w Teams → transkrypt, notatka i ocena prepu (0358, 23.09.2026)
 
 Zastępuje martwą integrację Fireflies (klucz pusty na prodzie, 0 notatek).
 Przed każdą rozmową u klienta są DWA prepy z kandydatem przez Teams: Prep 1

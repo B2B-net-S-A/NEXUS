@@ -1,4 +1,4 @@
-# Prepy w Teams — transkrypt, notatka i ocena prepu (0355) — raport
+# Prepy w Teams — transkrypt, notatka i ocena prepu (0358) — raport
 
 Data: 23.09.2026. Zastępuje integrację z Fireflies.
 
@@ -27,7 +27,7 @@ ma podłączone 2 z ~30 osób (rekruterzy 0/16).
 ## Co zmieniono
 
 **Backend**
-- Migracja `0355_teams_prep_transcripts` i lustro w `entrypoint.sh`:
+- Migracja `0358_teams_prep_transcripts` i lustro w `entrypoint.sh`:
   tabele `prep_meetings`, `prep_transcripts`, `prep_reviews`, klucz AI
   `prep_review`, typ powiadomienia `prep_attention`, sondy w `/api/health/deep`.
 - `services/m365/teams_prep_auth.py`: osobna rejestracja aplikacji

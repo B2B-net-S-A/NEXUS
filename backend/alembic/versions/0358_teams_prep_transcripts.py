@@ -1,7 +1,7 @@
 """Prepy w Teams: spotkanie, transkrypt, ocena prepu (zastępuje Fireflies).
 
-Revision ID: 0355_teams_prep_transcripts
-Revises: 0354_order_change_checks
+Revision ID: 0358_teams_prep_transcripts
+Revises: 0357_contract_orders_card_dismissed
 
 Decyzje Artura 23.09.2026: przed rozmową u klienta są zawsze dwa prepy
 (Prep 1 — Delivery Lead, Prep 2 — rekruter), zakładane z NEXUSA w kalendarzu
@@ -15,8 +15,8 @@ Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony) — pilnuje
 
 from alembic import op
 
-revision = "0355_teams_prep_transcripts"
-down_revision = "0354_order_change_checks"
+revision = "0358_teams_prep_transcripts"
+down_revision = "0357_contract_orders_card_dismissed"
 branch_labels = None
 depends_on = None
 

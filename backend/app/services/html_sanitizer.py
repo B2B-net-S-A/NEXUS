@@ -12,9 +12,11 @@ Polityka: allowlist (bleach), NIE blocklist:
   (bleach wycina wszystko spoza listy),
 - protokoły: https/mailto/tel + data: (inline logo w img); javascript: jest
   poza listą → wycięte,
-- CSS w ``style=`` filtrowany przez CSSSanitizer (bez url(), position:fixed
-  itp. nie ma potrzeby blokować — brak skryptów; tniemy tylko do bezpiecznych
-  własności prezentacyjnych).
+- CSS w ``style=`` filtrowany przez CSSSanitizer (position:fixed itp. nie ma
+  potrzeby blokować — brak skryptów; tniemy tylko do bezpiecznych własności
+  prezentacyjnych) i bez wartości ładujących zasób (url(), image-set()) —
+  inaczej CV otwarte przez klienta wysyła żądanie na adres wpisany w treść.
+  Arkusz szablonu dokłada ``cv_public_document`` z kodu, nie z treści.
 
 Sanityzujemy NA WYJŚCIU (public share + printable), nie w storage — treść
 źródłowa zostaje nienaruszona dla edytora, a polityka może się zaostrzać bez
@@ -26,12 +28,14 @@ from __future__ import annotations
 from html.parser import HTMLParser
 
 import bleach
+import tinycss2
 from bleach.css_sanitizer import CSSSanitizer
 
 ALLOWED_TAGS = [
     "a",
     "abbr",
     "article",
+    "aside",
     "b",
     "blockquote",
     "br",
@@ -89,7 +93,50 @@ ALLOWED_ATTRIBUTES = {
 # file: są poza listą → bleach usuwa cały atrybut.
 ALLOWED_PROTOCOLS = ["https", "http", "mailto", "tel", "data"]
 
-_CSS_SANITIZER = CSSSanitizer(
+# Funkcje CSS, którymi przeglądarka pobiera zasób z sieci.
+_FETCHING_FUNCTIONS = {
+    "url",
+    "src",
+    "image",
+    "image-set",
+    "-webkit-image-set",
+    "cross-fade",
+    "element",
+}
+
+
+def _fetches(tokens) -> bool:
+    for token in tokens:
+        if token.type == "url":
+            return True
+        if token.type == "function" and (
+            token.lower_name in _FETCHING_FUNCTIONS or _fetches(token.arguments)
+        ):
+            return True
+        if token.type in ("() block", "[] block", "{} block") and _fetches(
+            token.content
+        ):
+            return True
+    return False
+
+
+class _NoFetchCSSSanitizer(CSSSanitizer):
+    """Allowlista własności + odrzucenie deklaracji, które pobierają zasób.
+
+    Bleach sprawdza tylko nazwę własności, więc ``background:url(https://…)``
+    przechodził w całości.
+    """
+
+    def sanitize_css(self, style):
+        kept = [
+            token
+            for token in tinycss2.parse_declaration_list(style)
+            if not (token.type == "declaration" and _fetches(token.value))
+        ]
+        return super().sanitize_css(tinycss2.serialize(kept))
+
+
+_CSS_SANITIZER = _NoFetchCSSSanitizer(
     allowed_css_properties=[
         "background",
         "background-color",

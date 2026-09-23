@@ -8,6 +8,7 @@ poniżej odpowiada za część tego czasu i łatwo ją cofnąć „przy okazji�
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 import yaml
@@ -91,6 +92,63 @@ def test_flaky_tests_are_retried_once_and_reported() -> None:
     assert "GITHUB_STEP_SUMMARY" in report["run"]
     requirements = (_REPO / "backend" / "requirements-testing.txt").read_text("utf-8")
     assert "pytest-rerunfailures==" in requirements
+
+
+_PIPEFAIL = re.compile(r"^\s*set\s+-[a-z]*o\s+pipefail\b", re.M)
+
+
+def _tee_without_pipefail(workflow: dict) -> list[str]:
+    """Kroki, w których `| tee` ukrywa status komendy stojącej przed nim.
+
+    Krok bez `shell:` biegnie jako `bash -e {0}` — bez pipefail, więc
+    `pytest … | tee plik` kończy się statusem `tee` (0) także przy czerwonych
+    testach. `shell: bash` (krok albo `defaults.run`) daje `-eo pipefail`;
+    inaczej `set -o pipefail` musi stać przed pierwszym `tee`.
+    """
+    top_shell = ((workflow.get("defaults") or {}).get("run") or {}).get("shell")
+    bad: list[str] = []
+    for job_id, job in (workflow.get("jobs") or {}).items():
+        job_shell = ((job.get("defaults") or {}).get("run") or {}).get("shell")
+        for step in job.get("steps") or []:
+            run = step.get("run") or ""
+            tee = re.search(r"\|\s*tee\b", run)
+            if not tee or (step.get("shell") or job_shell or top_shell) == "bash":
+                continue
+            guard = _PIPEFAIL.search(run)
+            if not guard or guard.start() > tee.start():
+                bad.append(f"{job_id}: {step.get('name')}")
+    return bad
+
+
+def test_shard_pytest_fails_the_step_when_tests_fail() -> None:
+    # 22–23.09.2026: shardy z `1 failed` kończyły się sukcesem (status tee = 0),
+    # a na main weszły dwa czerwone testy.
+    run = _step(
+        _load("ci.yml")["jobs"]["backend-lint-test"]["steps"],
+        "Pytest (unit + in-process integration)",
+    )["run"]
+    guard = _PIPEFAIL.search(run)
+    assert guard and guard.start() < run.index("pytest tests/")
+
+
+def test_no_workflow_pipes_into_tee_without_pipefail() -> None:
+    bad = {
+        path.name: steps
+        for path in sorted(_WORKFLOWS.glob("*.yml"))
+        if (steps := _tee_without_pipefail(_load(path.name)))
+    }
+    assert bad == {}
+
+
+def test_tee_detector_catches_the_22_09_shape() -> None:
+    def wf(run: str, **step: str) -> dict:
+        return {"jobs": {"j": {"steps": [{"name": "s", "run": run, **step}]}}}
+
+    assert _tee_without_pipefail(wf("pytest 2>&1 | tee out")) == ["j: s"]
+    assert _tee_without_pipefail(wf("pytest | tee out\nset -o pipefail")) == ["j: s"]
+    assert _tee_without_pipefail(wf("set -o pipefail\npytest | tee out")) == []
+    assert _tee_without_pipefail(wf("set -euo pipefail\npytest | tee out")) == []
+    assert _tee_without_pipefail(wf("pytest | tee out", shell="bash")) == []
 
 
 def test_deploys_are_batched_but_manual_deploy_does_not_wait() -> None:

@@ -65,6 +65,7 @@ export function ChampionSectionNav({ jobId }: ChampionSectionNavProps) {
   return (
     <nav
       aria-label="Sekcje Profilu Championa"
+      data-help="job.champion.sections"
       className="space-y-2 self-start rounded-xl border border-border bg-card p-3"
     >
       <h3 className="px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

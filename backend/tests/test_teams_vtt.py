@@ -1,4 +1,4 @@
-"""Parser transkryptu Teams (VTT) i rozpoznanie mówców prepu (0355)."""
+"""Parser transkryptu Teams (VTT) i rozpoznanie mówców prepu (0358)."""
 
 from app.services.teams_vtt import (
     classify_speakers,

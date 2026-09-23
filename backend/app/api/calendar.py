@@ -783,7 +783,7 @@ async def _push_outlook_changes(
     if new_end is not None and new_start is not None and new_end <= new_start:
         raise HTTPException(status_code=422, detail=_END_BEFORE_START)
 
-    # 0355: prep z NEXUSA żyje w kalendarzu organizatora, który zwykle nie ma
+    # 0358: prep z NEXUSA żyje w kalendarzu organizatora, który zwykle nie ma
     # połączonego konta M365 — zmieniamy go tą samą aplikacją, która go założyła.
     from app.services import prep_meetings as prep_meetings_svc
 
@@ -868,7 +868,7 @@ async def _push_prep_changes(
     new_start: Optional[datetime],
     new_end: Optional[datetime],
 ) -> None:
-    """Zmiana prepu z NEXUSA w kalendarzu organizatora (app-only, 0355)."""
+    """Zmiana prepu z NEXUSA w kalendarzu organizatora (app-only, 0358)."""
     from app.services import prep_meetings as prep_meetings_svc
     from app.services.m365 import teams_prep_graph
     from app.services.m365.calendar import build_update_payload

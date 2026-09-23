@@ -587,7 +587,7 @@ export function B2BContractGeneratorV2() {
           ) : null}
 
           <Tabs value={activeTab} onValueChange={selectTab}>
-            <TabsList className="mb-4">
+            <TabsList className="mb-4" data-help="contracts.b2b_generator.tabs">
               {canGenerate ? (
                 <TabsTrigger value="generator">Generator</TabsTrigger>
               ) : null}
@@ -2213,6 +2213,7 @@ export function GeneratedContractsTab({
                 className="pl-9"
                 placeholder="Szukaj: numer umowy albo imię i nazwisko…"
                 aria-label="Szukaj wygenerowanych umów"
+                data-help="contracts.b2b_generator.search"
               />
             </div>
             <Select
@@ -4779,7 +4780,7 @@ export function GeneratorForm({
         {/* Jeden przycisk w języku z „Język umowy”. Dwa (PL/EN) zakładały dwa
             wiersze rejestru i dwa numery dla jednej umowy; teraz druga wersja
             językowa to poprawka zapisanej umowy pod tym samym numerem. */}
-        <Button disabled={docxMut.isPending} onClick={onDocx}>
+        <Button disabled={docxMut.isPending} onClick={onDocx} data-help="contracts.b2b_generator.docx">
           {docxMut.isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (

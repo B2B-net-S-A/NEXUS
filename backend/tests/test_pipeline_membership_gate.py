@@ -2,13 +2,13 @@
 
 Two contracts, wired into every pipeline stage-writing / reading ingress:
 
-* **Membership** — a recruiter who is NOT a member of a job (owner /
-  delivery_lead / TAC / active collaborator) may not read or mutate that job's
-  pipeline. Non-members get a **uniform 403** on kanban read, stage history,
-  ``/move``, ``/bulk-move`` and job-scoped interview feedback. Members (here:
-  the job owner) and oversight roles (admin) are not blocked. The gate is
-  multi-role aware via ``has_any_role`` (delegated to
-  ``services.job_membership.is_member_of_job``).
+* **Membership** — since 23.09.2026 (decyzja Artura: „wszystko w rekrutacji
+  widzi i robi każdy, nie musisz być przypisany") every internal role passes
+  the job-membership gate: a recruiter who is NOT on the job's team reads the
+  kanban and stage history, moves, bulk-moves, records feedback and screening
+  exactly like a member. The legacy viewer role ``user`` is outside that set
+  and is refused. Assignment still matters for PERSONAL views, which call the
+  gate with ``oversight_bypass=False`` — pinned here at service level.
 
 * **Eligibility** — a hard-blocked candidate (global blacklist; a hiring-manager
   veto is covered in ``test_manager_rejection_gate.py``) is rejected **identically**
@@ -21,10 +21,10 @@ Two contracts, wired into every pipeline stage-writing / reading ingress:
   the candidate like anyone else.
 
 * **Carry-over scope** — when Priority Work is active, owning an OPEN
-  ``RecruitmentProcess`` widens job scope. Ownership alone is self-grantable
-  (a recruiter can open a process on any job through an ingress that runs no
-  membership check), so it only counts when the process was opened in
-  compliance with a published plan.
+  ``RecruitmentProcess`` widens job scope for the membership path
+  (``oversight_bypass=False`` or the legacy ``user`` role). Ownership alone is
+  self-grantable, so it only counts when the process was opened in compliance
+  with a published plan.
 
 Uses the in-process ``app_client`` / ``app_auth_headers`` fixtures (real
 postgres in CI). ``app_auth_headers`` logs in an admin, so it is used both as
@@ -50,8 +50,10 @@ SCREENING = "/api/pipeline/stages/{stage_id}/screening"
 # ── seed helpers ─────────────────────────────────────────────────────────────
 
 
-async def _seed_recruiter(app_client: AsyncClient) -> tuple[dict[str, str], int]:
-    """Seed a recruiter and return (auth headers, user id)."""
+async def _seed_recruiter(
+    app_client: AsyncClient, role: str = "recruiter"
+) -> tuple[dict[str, str], int]:
+    """Seed a user (recruiter by default) and return (auth headers, user id)."""
     from app.core.security import hash_password
     from app.models.user import User, UserRole
 
@@ -63,8 +65,8 @@ async def _seed_recruiter(app_client: AsyncClient) -> tuple[dict[str, str], int]
             email=email,
             password_hash=hash_password(password),
             name="Pipe Gate Recruiter",
-            role=UserRole.recruiter,
-            roles=["recruiter"],
+            role=UserRole(role),
+            roles=[role],
             is_active=True,
         )
         db.add(user)
@@ -190,37 +192,49 @@ def _feedback_body(candidate_id: int, job_id: int) -> dict:
     }
 
 
-# ── membership: non-member recruiter gets a uniform 403 ──────────────────────
+# ── membership: a recruiter outside the team works like a member (23.09.2026) ─
 
 
-async def test_non_member_recruiter_blocked_on_kanban_read(app_client: AsyncClient):
+async def test_non_member_recruiter_reads_the_kanban(app_client: AsyncClient):
     headers, _uid = await _seed_recruiter(app_client)
-    # Job owned by someone else → the recruiter is not a member.
+    # Job owned by nobody → the recruiter is not a member.
     job_id, _client_id = await _seed_job(owner_id=None)
+    cand = await _seed_candidate()
+    await _seed_stage(cand, job_id, "new")
 
     r = await app_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["job_id"] == job_id
+    on_board = {
+        item["candidate_id"] for col in body["columns"] for item in col["items"]
+    }
+    assert cand in on_board
 
 
-async def test_non_member_recruiter_blocked_on_history_read(app_client: AsyncClient):
+async def test_non_member_recruiter_reads_the_history(app_client: AsyncClient):
     headers, _uid = await _seed_recruiter(app_client)
     cand = await _seed_candidate()
     job_id, _client_id = await _seed_job(owner_id=None)
+    stage_id = await _seed_stage(cand, job_id, "new")
 
     r = await app_client.get(f"/api/pipeline/history/{cand}/{job_id}", headers=headers)
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
+    assert [row["id"] for row in r.json()] == [stage_id]
 
 
-async def test_non_member_recruiter_blocked_on_move(app_client: AsyncClient):
-    headers, _uid = await _seed_recruiter(app_client)
+async def test_non_member_recruiter_moves(app_client: AsyncClient):
+    headers, uid = await _seed_recruiter(app_client)
     cand = await _seed_candidate()
     job_id, _client_id = await _seed_job(owner_id=None)
 
     r = await app_client.post(MOVE, json=_move_body(cand, job_id), headers=headers)
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
+    assert r.json()["stage"] == "screening"
+    assert r.json()["moved_by"] == uid
 
 
-async def test_non_member_recruiter_blocked_on_bulk_move(app_client: AsyncClient):
+async def test_non_member_recruiter_bulk_moves(app_client: AsyncClient):
     headers, _uid = await _seed_recruiter(app_client)
     cand = await _seed_candidate()
     job_id, _client_id = await _seed_job(owner_id=None)
@@ -230,10 +244,13 @@ async def test_non_member_recruiter_blocked_on_bulk_move(app_client: AsyncClient
         json={"candidate_ids": [cand], "job_id": job_id, "stage": "screening"},
         headers=headers,
     )
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
+    assert r.json()["moved"] == 1
 
 
-async def test_non_member_recruiter_blocked_on_feedback(app_client: AsyncClient):
+async def test_non_member_recruiter_passes_the_gate_on_feedback(
+    app_client: AsyncClient,
+):
     headers, _uid = await _seed_recruiter(app_client)
     cand = await _seed_candidate()
     job_id, _client_id = await _seed_job(owner_id=None)
@@ -241,7 +258,21 @@ async def test_non_member_recruiter_blocked_on_feedback(app_client: AsyncClient)
     r = await app_client.post(
         FEEDBACK, json=_feedback_body(cand, job_id), headers=headers
     )
-    assert r.status_code == 403, r.text
+    # Past the membership gate: the bogus calendar event is what refuses it.
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"] == "Nie znaleziono eventu"
+
+
+async def test_legacy_viewer_role_is_still_refused(app_client: AsyncClient):
+    """Rola podglądu ``user`` nie jest rolą wewnętrzną — tablica i ruch 403."""
+    headers, _uid = await _seed_recruiter(app_client, role="user")
+    cand = await _seed_candidate()
+    job_id, _client_id = await _seed_job(owner_id=None)
+
+    kanban = await app_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
+    assert kanban.status_code == 403, kanban.text
+    move = await app_client.post(MOVE, json=_move_body(cand, job_id), headers=headers)
+    assert move.status_code == 403, move.text
 
 
 # ── membership: member (job owner) and admin are NOT blocked ─────────────────
@@ -293,16 +324,33 @@ async def test_admin_bypasses_membership_on_move(
 
 
 # ── carry-over scope: ownership alone must not grant it ──────────────────────
-# A recruiter with no relationship to a job can make themselves the owner of an
-# OPEN process on it: `POST /api/candidates/from-linkedin` runs no membership
-# check, and in shadow mode the policy admits the open (allowed=True) while
-# recording the violation as `priority_compliant_at_open=False`. If ownership
-# alone widened job scope, that one call would hand the caller the whole
-# pipeline — plus CV files, rates, the B2B generator and interview feedback.
+# Since 23.09.2026 internal roles bypass membership on the shared surfaces, so
+# the carry-over path only matters where assignment is still counted: personal
+# views (``oversight_bypass=False``) and the legacy ``user`` role. It is pinned
+# at service level. A recruiter can make themselves the owner of an OPEN
+# process on any job (`POST /api/candidates/from-linkedin` runs no membership
+# check, and in shadow mode the policy records the violation as
+# `priority_compliant_at_open=False`) — ownership alone must not count.
+
+
+async def _personal_scope_status(user_id: int, job_id: int) -> int:
+    """HTTP status ``ensure_job_membership(oversight_bypass=False)`` answers with."""
+    from fastapi import HTTPException
+
+    from app.api.recruitment_access import ensure_job_membership
+    from app.models.user import User
+
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        try:
+            await ensure_job_membership(db, user, job_id, oversight_bypass=False)
+        except HTTPException as exc:
+            return exc.status_code
+    return 200
 
 
 @pytest.mark.parametrize("compliant", [False, None])
-async def test_self_opened_carry_over_does_not_grant_job_scope(
+async def test_self_opened_carry_over_does_not_grant_personal_job_scope(
     app_client: AsyncClient, monkeypatch, compliant: bool | None
 ):
     """False = shadow-mode violation, NULL = legacy/backfill. Both fail closed."""
@@ -312,19 +360,15 @@ async def test_self_opened_carry_over_does_not_grant_job_scope(
     monkeypatch.setattr(
         settings, "RECRUITMENT_PRIORITY_MODE", PriorityMode.shadow.value
     )
-    headers, uid = await _seed_recruiter(app_client)
+    _headers, uid = await _seed_recruiter(app_client)
     cand = await _seed_candidate()
     job_id, _client_id = await _seed_job(owner_id=None)  # recruiter is no member
     await _seed_open_process(cand, job_id, uid, compliant=compliant)
 
-    kanban = await app_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
-    assert kanban.status_code == 403, kanban.text
-
-    move = await app_client.post(MOVE, json=_move_body(cand, job_id), headers=headers)
-    assert move.status_code == 403, move.text
+    assert await _personal_scope_status(uid, job_id) == 403
 
 
-async def test_compliant_carry_over_still_grants_job_scope(
+async def test_compliant_carry_over_still_grants_personal_job_scope(
     app_client: AsyncClient, monkeypatch
 ):
     """The capability itself stays intact for a plan-backed open.
@@ -339,30 +383,38 @@ async def test_compliant_carry_over_still_grants_job_scope(
     monkeypatch.setattr(
         settings, "RECRUITMENT_PRIORITY_MODE", PriorityMode.shadow.value
     )
-    headers, uid = await _seed_recruiter(app_client)
+    _headers, uid = await _seed_recruiter(app_client)
     cand = await _seed_candidate()
     job_id, _client_id = await _seed_job(owner_id=None)
     await _seed_open_process(cand, job_id, uid, compliant=True)
 
-    kanban = await app_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
-    assert kanban.status_code == 200, kanban.text
+    assert await _personal_scope_status(uid, job_id) == 200
 
 
 async def test_carry_over_scope_is_inert_when_priority_mode_is_off(
     app_client: AsyncClient, monkeypatch
 ):
-    """Pre-PR behaviour: with the module off, no process grants job scope."""
+    """With the module off, no process grants job scope."""
     from app.core.config import settings
     from app.models.recruitment_priority import PriorityMode
 
     monkeypatch.setattr(settings, "RECRUITMENT_PRIORITY_MODE", PriorityMode.off.value)
-    headers, uid = await _seed_recruiter(app_client)
+    _headers, uid = await _seed_recruiter(app_client)
     cand = await _seed_candidate()
     job_id, _client_id = await _seed_job(owner_id=None)
     await _seed_open_process(cand, job_id, uid, compliant=True)
 
-    kanban = await app_client.get(f"/api/pipeline/kanban/{job_id}", headers=headers)
-    assert kanban.status_code == 403, kanban.text
+    assert await _personal_scope_status(uid, job_id) == 403
+
+
+async def test_personal_scope_counts_ownership(app_client: AsyncClient):
+    """Widok osobisty liczy przypisanie: właściciel przechodzi, nieistniejąca
+    rekrutacja to 404."""
+    _headers, uid = await _seed_recruiter(app_client)
+    job_id, _client_id = await _seed_job(owner_id=uid)
+
+    assert await _personal_scope_status(uid, job_id) == 200
+    assert await _personal_scope_status(uid, 2_000_000_000) == 404
 
 
 # ── eligibility: hard-blocked candidate rejected identically at every ingress ─
@@ -469,24 +521,27 @@ async def test_clean_candidate_not_blocked_by_eligibility(
 # ── membership: screening answers follow the job's pipeline scope ────────────
 
 
-async def test_non_member_recruiter_blocked_on_screening(app_client: AsyncClient):
-    """Odpowiedzi screeningu i profil Championa należą do rekrutacji — do
-    09.2026 wystarczała sama rola, więc rekruter spoza zespołu czytał i pisał
-    screening cudzej rekrutacji po samym `stage_id`."""
+async def test_non_member_recruiter_reads_and_writes_screening(
+    app_client: AsyncClient,
+):
+    """Od 23.09.2026 screening cudzej rekrutacji czyta i zapisuje każdy
+    rekruter — do tej daty rekruter spoza zespołu dostawał 403."""
     headers, _uid = await _seed_recruiter(app_client)
     job_id, _client_id = await _seed_job(owner_id=None)
     cand_id = await _seed_candidate()
     stage_id = await _seed_stage(cand_id, job_id, "screening")
 
     r = await app_client.get(SCREENING.format(stage_id=stage_id), headers=headers)
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
+    assert r.json()["stage_id"] == stage_id
 
     r = await app_client.post(
         SCREENING.format(stage_id=stage_id),
         headers=headers,
         json={"overall_fit": "fit"},
     )
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
+    assert r.json()["stage_id"] == stage_id
 
 
 async def test_member_recruiter_allowed_on_screening(app_client: AsyncClient):

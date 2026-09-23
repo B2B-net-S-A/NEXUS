@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { JarvisActionCard } from "../JarvisActionCard";
 import { JarvisMarkdown, isInternalHref } from "../JarvisMarkdown";
 import { JarvisPanel, type JarvisPanelProps } from "../JarvisPanel";
+import { JarvisGuideCard } from "../JarvisGuideCard";
+import { HelpSpotlight, showHelpAnchor } from "../HelpSpotlight";
+import { act } from "@testing-library/react";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -156,6 +159,8 @@ describe("okno wyglądu (zgłoszenie 21.09: „Zapisz” ucięty na niskim ekran
           minimized: false,
           sound: false,
           daily_brief: true,
+          screen_tips: true,
+          notes: [],
           unlocked_characters: ["robot", "owl"],
           locked_characters: {},
         }}
@@ -187,6 +192,8 @@ describe("okno wyglądu (zgłoszenie 21.09: „Zapisz” ucięty na niskim ekran
           minimized: false,
           sound: false,
           daily_brief: true,
+          screen_tips: true,
+          notes: [],
           unlocked_characters: ["robot"],
           locked_characters: {},
         }}
@@ -231,5 +238,79 @@ describe("internet (21.09)", () => {
       <JarvisPanel {...panelProps({ onToggleWeb, webUnavailableReason: "Dzisiejszy limit wyczerpany" })} />,
     );
     expect(screen.getByTestId("jarvis-web-toggle")).toBeDisabled();
+  });
+});
+
+
+const GUIDE = {
+  key: "jobs.board",
+  title: "Tablica rekrutacji",
+  roles: [],
+  what: "Tu prowadzisz kandydatów przez 6 kolumn.",
+  tasks: [
+    { q: "Jak przesunąć kandydata?", a: "Przeciągnij kartę.", anchor: "jobs.board.columns" },
+    { q: "Gdzie są odrzuceni?", a: "Na pasku nad tablicą." },
+    { q: "Co to Mój ruch?", a: "Filtr." },
+  ],
+  pitfalls: ["Uwaga na debrief."],
+  anchors: [{ id: "jobs.board.columns", label: "Kolumny", describe: "x" }],
+};
+
+describe("przewodnik ekranu", () => {
+  it("karta pokazuje zadania, a „Pokaż na ekranie” tylko tam, gdzie jest kotwica", () => {
+    const onTask = vi.fn();
+    const onShow = vi.fn();
+    render(<JarvisGuideCard guide={GUIDE} onTask={onTask} onShow={onShow} />);
+    fireEvent.click(screen.getByRole("button", { name: "Gdzie są odrzuceni?" }));
+    expect(onTask).toHaveBeenCalledWith(GUIDE.tasks[1]);
+    const show = screen.getAllByRole("button", { name: /Pokaż na ekranie/ });
+    expect(show).toHaveLength(1);
+    fireEvent.click(show[0]);
+    expect(onShow).toHaveBeenCalledWith("jobs.board.columns");
+    expect(screen.getByText("Uwaga na debrief.")).toBeInTheDocument();
+  });
+
+  it("panel ma przycisk „Jak działa ten ekran”, gdy jest przewodnik", () => {
+    const onOpenGuide = vi.fn();
+    render(<JarvisPanel {...panelProps({ onOpenGuide, guideTitle: "Tablica rekrutacji" })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Jak działa ten ekran" }));
+    expect(onOpenGuide).toHaveBeenCalled();
+  });
+});
+
+describe("Zatrzymaj", () => {
+  it("w trakcie odpowiedzi zamiast „Wyślij” jest „Zatrzymaj odpowiedź”", () => {
+    const onStop = vi.fn();
+    render(<JarvisPanel {...panelProps({ streaming: true, onStop })} />);
+    expect(screen.queryByRole("button", { name: "Wyślij" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Zatrzymaj odpowiedź" }));
+    expect(onStop).toHaveBeenCalled();
+  });
+});
+
+describe("podświetlenie elementu", () => {
+  it("brak elementu na ekranie kończy się onMissing, nie ciszą", () => {
+    vi.useFakeTimers();
+    const onMissing = vi.fn();
+    render(<HelpSpotlight onMissing={onMissing} />);
+    act(() => showHelpAnchor("jobs.board.columns"));
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(onMissing).toHaveBeenCalledWith("jobs.board.columns");
+    vi.useRealTimers();
+  });
+
+  it("widoczny element dostaje obrys", () => {
+    const onShown = vi.fn();
+    const target = document.createElement("div");
+    target.setAttribute("data-help", "jobs.board.columns");
+    target.getBoundingClientRect = () => ({ top: 10, left: 10, width: 100, height: 40, right: 110, bottom: 50, x: 10, y: 10, toJSON: () => ({}) });
+    document.body.appendChild(target);
+    render(<HelpSpotlight onShown={onShown} />);
+    act(() => showHelpAnchor("jobs.board.columns"));
+    expect(onShown).toHaveBeenCalledWith("jobs.board.columns");
+    expect(screen.getByTestId("help-spotlight")).toBeInTheDocument();
+    target.remove();
   });
 });

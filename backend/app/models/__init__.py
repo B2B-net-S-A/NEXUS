@@ -167,6 +167,8 @@ from app.models.champion_suggestion import (
 )
 from app.models.app_setting import AppSetting
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
+from app.models.kpi_target_event import KpiTargetEvent
+from app.models.kpi_email_report_run import KpiEmailReportRun
 from app.models.kpi_nudge_log import KpiNudgeLog, KpiNudgeType, KpiNudgeChannel
 from app.models.team_structure import (
     ClientTacAssignment,
@@ -469,6 +471,8 @@ __all__ = [
     "AppSetting",
     "KpiRoleDefault",
     "UserKpiTarget",
+    "KpiTargetEvent",
+    "KpiEmailReportRun",
     "KpiNudgeLog",
     "KpiNudgeType",
     "KpiNudgeChannel",
@@ -683,6 +687,7 @@ from app.models.jarvis import (  # noqa: F401
     JarvisConversation,
     JarvisConversationEntity,
     JarvisMessage,
+    JarvisUiEvent,
 )
 from app.models.mail_delivery import MailDeliveryState  # noqa: F401
 from app.models.job_proposal import JobProposal  # noqa: F401
@@ -700,7 +705,7 @@ from app.models.candidate_consent import CandidateConsent  # noqa: F401
 from app.models.placement_exclusion import PlacementExclusion  # noqa: F401
 from app.models.dz_review_hint import DzReviewHint  # noqa: F401
 
-# 0355: prepy w Teams — spotkanie, transkrypt i ocena prepu.
+# 0358: prepy w Teams — spotkanie, transkrypt i ocena prepu.
 from app.models.prep_meeting import (  # noqa: F401
     PrepMeeting,
     PrepReview,

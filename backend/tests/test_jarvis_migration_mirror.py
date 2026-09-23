@@ -83,3 +83,33 @@ def test_help_procedure_is_seeded_by_migration_and_entrypoint():
         JARVIS_PROCEDURE.sort_order,
         JARVIS_PROCEDURE.filename,
     )
+
+
+MIGRATION_0355 = BACKEND / "alembic" / "versions" / "0355_jarvis_ui_events.py"
+
+
+def _module_0355():
+    spec = importlib.util.spec_from_file_location("m0355", MIGRATION_0355)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_ui_events_migration_is_mirrored_and_matches_the_model():
+    """0355: telemetria pomocy na ekranie — lustro w entrypoincie i ta sama
+    lista zdarzeń w migracji, modelu i CHECK-u."""
+    from app.models.jarvis import JARVIS_UI_EVENTS
+
+    module = _module_0355()
+    assert module.down_revision == "0354_order_change_checks"
+    entrypoint = _entrypoint_text()
+    for statement in module.DDL_STATEMENTS:
+        collapsed = _collapse(statement)
+        assert "IF NOT EXISTS" in collapsed, collapsed
+        assert collapsed in entrypoint, statement
+    assert tuple(module.UI_EVENT_NAMES) == JARVIS_UI_EVENTS
+    for event in JARVIS_UI_EVENTS:
+        assert f"'{event}'" in module.CREATE_UI_EVENTS
+    source = (BACKEND / "app" / "main.py").read_text()
+    assert '("jarvis_ui_events", ' in source

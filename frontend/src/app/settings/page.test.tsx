@@ -31,8 +31,8 @@ vi.mock("@/components/settings/EmailTemplatesCard", () => ({
 vi.mock("@/components/settings/NotificationDeliverySettings", () => ({
   default: () => <div>Konfiguracja wysyłki powiadomień</div>,
 }));
-vi.mock("@/lib/onboarding-storage", () => ({
-  clearOnboardingCompleted: vi.fn(),
+vi.mock("@/lib/jarvis/bubble-budget", () => ({
+  resetScreenSeen: vi.fn(),
 }));
 
 vi.mock("@/store/auth", () => ({

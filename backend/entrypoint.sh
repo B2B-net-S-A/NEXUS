@@ -257,7 +257,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'screening_reassign_suggest'",
     # 0353: podpowiedzi Luny w przeglądzie DZ (Dominik porównuje CV).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'dz_review'",
-    # 0355: ocena prepu z transkryptu Teams (GPT-6 Luna).
+    # 0358: ocena prepu z transkryptu Teams (GPT-6 Luna).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'prep_review'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
@@ -660,7 +660,7 @@ _ENUM_STATEMENTS = [
     # 0352: pipeline v4 — przejęta blokada 12 h i zatrudniony bez zamówienia.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_claim_taken'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hired_order_missing'",
-    # 0355: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
+    # 0358: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_attention'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
@@ -4568,6 +4568,38 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_order_pdf_downloads_kind
             CHECK (file_kind IN ('order', 'group', 'amendment'))
     )""",
+    # 0355: historia edytora „Cele KPI" i znacznik raportów KPI mailem
+    # (UNIQUE kind+period_key = raport wychodzi najwyżej raz, także po restarcie).
+    """CREATE TABLE IF NOT EXISTS kpi_target_events (
+        id SERIAL PRIMARY KEY,
+        scope VARCHAR(8) NOT NULL,
+        role VARCHAR(40),
+        subject_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        subject_name VARCHAR(255),
+        kpi_id VARCHAR(64) NOT NULL,
+        action VARCHAR(16) NOT NULL,
+        changes JSONB,
+        actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        actor_name VARCHAR(255),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_kpi_target_events_scope CHECK (scope IN ('role', 'user')),
+        CONSTRAINT ck_kpi_target_events_action CHECK (action IN ('set', 'reset'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_kpi_target_events_created "
+    "ON kpi_target_events (created_at)",
+    """CREATE TABLE IF NOT EXISTS kpi_email_report_runs (
+        id SERIAL PRIMARY KEY,
+        kind VARCHAR(32) NOT NULL,
+        period_key VARCHAR(16) NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'claimed',
+        recipients INTEGER NOT NULL DEFAULT 0,
+        sent INTEGER NOT NULL DEFAULT 0,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        finished_at TIMESTAMPTZ,
+        CONSTRAINT uq_kpi_email_report_runs UNIQUE (kind, period_key),
+        CONSTRAINT ck_kpi_email_report_runs_status
+            CHECK (status IN ('claimed', 'sent', 'skipped', 'failed'))
+    )""",
     # 0320: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
     # Kody powodow sa rownolegle do `gate_reasons` — recheck rozstrzyga po
     # kodzie, czy zamowienie czeka na podpis umowy, czy utknelo na czyms innym.
@@ -4882,6 +4914,21 @@ _COLUMN_STATEMENTS = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_jarvis_conversation_entities_entity "
     "ON jarvis_conversation_entities (entity_type, entity_id)",
+    # 0355: Jarvis — telemetria pomocy na ekranie (dymki, przewodniki,
+    # podświetlenia). Lustro 1:1 z migracją — `test_jarvis_migration_mirror.py`.
+    """CREATE TABLE IF NOT EXISTS jarvis_ui_events (
+        id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        event VARCHAR(40) NOT NULL,
+        screen_key VARCHAR(60) NULL,
+        detail VARCHAR(60) NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_jarvis_ui_events_event CHECK (
+            event IN ('bubble_shown', 'bubble_clicked', 'bubble_dismissed', 'guide_opened', 'guide_task', 'highlight_shown', 'highlight_missing', 'stuck_shown', 'stuck_clicked')
+        )
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_jarvis_ui_events_event_created "
+    "ON jarvis_ui_events (event, created_at)",
     # 0333: skrzynka „Propozycje" rekrutacji. `run_id` bez FK (przeglądy kasuje
     # retencja); kandydat i rekrutacja CASCADE (twarde usunięcie kandydata
     # zabiera jego propozycje). Lustro 1:1 z migracją — `test_job_proposals.py`.
@@ -5086,7 +5133,13 @@ _COLUMN_STATEMENTS = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_dz_review_hints_stage_hash UNIQUE (candidate_stage_id, input_hash)
 )""",
-    # 0355: prepy w Teams — spotkanie, transkrypt i ocena. Lustro 1:1 z
+    # 0357: „Usuń szkic" chowa pustą kartę kontraktora w zakładce Zamówienia.
+    # Lustro 1:1 z migracją — pilnuje `test_order_line_takeover.py`.
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
+    "orders_card_dismissed_at TIMESTAMPTZ NULL",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
+    "orders_card_dismissed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    # 0358: prepy w Teams — spotkanie, transkrypt i ocena. Lustro 1:1 z
     # migracją — pilnuje `test_prep_meetings_schema.py`.
     """CREATE TABLE IF NOT EXISTS prep_meetings (
     id BIGSERIAL PRIMARY KEY,
@@ -5773,7 +5826,7 @@ _DATA_STATEMENTS = [
     "SELECT 'dz_review', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'dz_review')",
-    # 0355: seed feature'a AI `prep_review` (ocena prepu z transkryptu Teams).
+    # 0358: seed feature'a AI `prep_review` (ocena prepu z transkryptu Teams).
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'prep_review', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

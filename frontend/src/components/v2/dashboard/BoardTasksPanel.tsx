@@ -16,7 +16,7 @@
  *    wysyła wszystkich kandydatów procesu (decyzja Artura 23.09.2026), a
  *    „Wysyłaj z rekrutacji" prowadzi na Tablicę, gdzie się to robi,
  *  - „Wysłane do Cpro" — od ilu dni czekamy na Nordeę,
- *  - „Prepy przed rozmową u klienta" (0355) — brak prepu, prep słaby albo bez
+ *  - „Prepy przed rozmową u klienta" (0358) — brak prepu, prep słaby albo bez
  *    nagrania; wiersz prowadzi do karty kandydata w kalendarzu. Nic nie
  *    blokuje — to przypomnienie, nie bramka.
  *

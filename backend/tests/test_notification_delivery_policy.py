@@ -362,7 +362,9 @@ async def test_catalog_off_preserves_real_provider_and_channel_information(
     )
     assert result["backlog"]["scope"] == "chat_unread"
     types = {item["id"]: item for item in result["types"]}
-    assert len(types) == 8
+    assert len(types) == 10
+    assert types["kpi_weekly_report"]["channels"] == ["email"]
+    assert types["board_monthly_report"]["channels"] == ["email"]
     assert all(not types[kind]["effective_enabled"] for kind in delivery.ROUTINE_KINDS)
     assert types["chat_unread"]["sender"] == "app@example.invalid"
     assert types["chat_unread"]["channels"] == ["in_app", "email"]
