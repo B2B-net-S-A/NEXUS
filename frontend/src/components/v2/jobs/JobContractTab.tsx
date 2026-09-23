@@ -51,6 +51,10 @@ import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { terminalOf } from "@/lib/kanban-terminal";
 import { isContractStage } from "@/lib/job-flow-stages";
 import {
+  generatorPrefillHref,
+  registerSearchHref,
+} from "@/lib/b2b-generator-register";
+import {
   columnLabel,
   type KanbanColumn,
   type KanbanItem,
@@ -220,6 +224,21 @@ export function JobContractTab({
 
   const primaryContract = contractsForSelected[0] ?? null;
 
+  // Formularz generatora wybiera tę osobę i tę rekrutację sam (`?candidate=`,
+  // `?job=`) — wcześniej link prowadził na pusty formularz i rekruter szukał
+  // kandydata drugi raz.
+  const generatorHref = generatorPrefillHref(
+    selected?.item.candidate_id ?? null,
+    jobId,
+  );
+  // Potwierdzenie podpisu mieszka w rejestrze — link od razu z wyszukaną umową.
+  const confirmSignedHref = primaryContract
+    ? registerSearchHref(
+        primaryContract.contract_number,
+        primaryContract.contract_status,
+      )
+    : "/contracts/b2b-generator?tab=generated";
+
   const contractsViewState = resolveViewState({
     isLoading: contractsQuery.isLoading,
     isError: contractsQuery.isError,
@@ -261,7 +280,7 @@ export function JobContractTab({
   const headActions = (
                 <>
                   <ModuleLink
-                    href="/contracts/b2b-generator"
+                    href={generatorHref}
                     label="Otwórz w Generatorze B2B"
                     variant="button"
                   />
@@ -324,8 +343,8 @@ export function JobContractTab({
             ) : !primaryContract && contractsViewState !== "loading" ? (
               <p className="rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">
                 Dla tej rekrutacji nie wygenerowano jeszcze umowy B2B. Dokument
-                tworzy Generator Umów B2B — hooki podpisu same przeniosą
-                kandydata na „Umowa wysłana” i „Umowa podpisana”.
+                tworzy Generator Umów B2B, a potwierdzenie podpisu obustronnego
+                w jego rejestrze przeniesie kandydata na „Zatrudniony”.
               </p>
             ) : selected &&
               primaryContract &&
@@ -363,18 +382,16 @@ export function JobContractTab({
   );
   const alternativesBody = (
     <>
+          {/* „Oznacz wysłaną” i „Wgraj podpisaną (PDF)” zniknęły 17.09.2026
+              razem z akcjami w generatorze (umowy podpisujemy offline) — chip
+              prowadzący do nieistniejącej akcji to martwy link. */}
           <div className="flex flex-wrap gap-1">
-            {["Oznacz wysłaną", "Wgraj podpisaną (PDF)", "Potwierdź w pełni podpisaną"].map(
-              (label) => (
-                <Link
-                  key={label}
-                  href="/contracts/b2b-generator"
-                  className="inline-flex h-6 items-center rounded-full border border-border px-2 text-[11px] text-foreground hover:border-primary hover:bg-primary/5"
-                >
-                  {label}
-                </Link>
-              ),
-            )}
+            <Link
+              href={confirmSignedHref}
+              className="inline-flex h-6 items-center rounded-full border border-border px-2 text-[11px] text-foreground hover:border-primary hover:bg-primary/5"
+            >
+              Potwierdź w pełni podpisaną
+            </Link>
           </div>
     </>
   );
@@ -627,8 +644,8 @@ export function JobContractTab({
           {primaryContract && <SigningStatusHistory contract={primaryContract} />}
           {alternativesBody}
           <p className="text-[10.5px] text-muted-foreground">
-            Wszystkie trzy akcje mieszkają w Generatorze Umów B2B — tu jest do
-            nich wejście, nie ich kopia.
+            Potwierdzenie podpisu mieszka w rejestrze Generatora Umów B2B — tu
+            jest do niego wejście, nie jego kopia.
           </p>
         </section>
 
@@ -727,8 +744,8 @@ export function JobContractTab({
         </RailSection>
 
         <RailSection
-          label="Alternatywy (jak dziś)"
-          note="Wszystkie trzy akcje mieszkają w Generatorze Umów B2B — tu jest do nich wejście, nie ich kopia."
+          label="Potwierdzenie podpisu"
+          note="Potwierdzenie podpisu mieszka w rejestrze Generatora Umów B2B — tu jest do niego wejście, nie jego kopia."
         >
           {alternativesBody}
         </RailSection>
@@ -738,7 +755,7 @@ export function JobContractTab({
           note="Te moduły nie zmieniają miejsca — ta zakładka czyta ich stan."
         >
           <div className="flex flex-col gap-1">
-            <ModuleLink href="/contracts/b2b-generator" label="Generator Umów B2B" />
+            <ModuleLink href={generatorHref} label="Generator Umów B2B" />
             <ModuleLink href="/contracts" label="Kontrakty" />
             {clientId != null && (
               <ModuleLink

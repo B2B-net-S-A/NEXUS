@@ -3429,6 +3429,27 @@ export const b2bGeneratorApi = {
       params: { format: "docx" },
       responseType: "blob",
     }),
+  /**
+   * Poprawka niepodpisanej umowy „W trakcie" POD TYM SAMYM numerem — ten sam
+   * payload co `/render`. Nie zakłada nowego wiersza rejestru; 409, gdy umowa
+   * jest już podpisana albo zmieniła status, 422 przy innym kandydacie
+   * albo rekrutacji (to już nowa umowa).
+   */
+  /**
+   * Zapisany payload umowy do wczytania w formularz („Popraw umowę” z wiersza
+   * rejestru). Bramka jak przy `/rerender`: autor albo admin, tylko umowa
+   * „W trakcie” i niepodpisana (403/409); umowa sprzed zapisu danych — 422.
+   */
+  generatedForm: (id: number) =>
+    api
+      .get<{ id: number; contract_number: string; form: B2BRenderPayload }>(
+        `/api/b2b-generator/generated/${id}/form`,
+      )
+      .then((r) => r.data),
+  rerenderGenerated: (id: number, body: B2BRenderPayload) =>
+    api.post(`/api/b2b-generator/generated/${id}/rerender`, body, {
+      responseType: "blob",
+    }),
   renderHtml: (body: B2BRenderPayload) =>
     api
       .post<{ html: string; contract_number: string | null }>(
@@ -3478,6 +3499,7 @@ export const b2bGeneratorApi = {
           ...(params.startFrom ? { start_from: params.startFrom } : {}),
           ...(params.startTo ? { start_to: params.startTo } : {}),
           ...(params.jobId ? { job_id: params.jobId } : {}),
+          ...(params.offset ? { offset: params.offset } : {}),
         },
         // `repeat`, nie domyślny `brackets`: FastAPI czyta listę wyłącznie jako
         // powtórzony parametr. Axios domyślnie wysłałby `contract_status[]=…`,
@@ -3538,7 +3560,10 @@ export type B2BSignatureSource =
  *
  * `in_progress` ustawia system automatycznie przy generowaniu umowy, a `active`
  * przy potwierdzeniu podpisu obustronnego. Użytkownik może wybrać `in_progress`
- * WYŁĄCZNIE jako powrót z `cancelled` — każde inne źródło backend odrzuca 422.
+ * WYŁĄCZNIE jako powrót z `cancelled` albo cofnięcie pomyłkowego zamknięcia
+ * NIEPODPISANEJ umowy (`closed`) — każde inne źródło backend odrzuca 422.
+ * `active` ręcznie tylko dla umowy podpisanej obustronnie (poza powrotem
+ * z `suspended`).
  *
  * `cancelled` = umowa nie doszła do skutku (Partner wycofał się przed
  * podpisem). To NIE `closed`: tam skończył się projekt, tu umowa nigdy nie
@@ -3591,6 +3616,11 @@ export interface B2BGeneratedListParams {
    * i gubiła umowę starszą niż widoczna strona.
    */
   jobId?: number;
+  /**
+   * „Pokaż więcej" — okno po `created_at DESC`. Bez niego rejestr cicho
+   * kończył się na `limit` najnowszych wierszach.
+   */
+  offset?: number;
 }
 
 /** Wpis dziennika zmian statusu — dialog „Historia statusów". */
@@ -3673,6 +3703,14 @@ export interface B2BGeneratedContractRow {
   can_delete: boolean;
   can_edit: boolean;
   can_download: boolean;
+  /**
+   * Stan powiązanego kontraktu (`draft|ready_for_signature|active|ending|ended|void`)
+   * i jego data końca — rejestr sam nie wie, że kontrakt się skończył albo
+   * został usunięty, więc wiersz pokazuje ostrzeżenie. Opcjonalne, bo starszy
+   * backend (rollback jednej strony) ich nie wysyła.
+   */
+  linked_contract_status?: string | null;
+  linked_contract_end_date?: string | null;
 }
 
 export interface B2BConfirmFullySignedRequest {

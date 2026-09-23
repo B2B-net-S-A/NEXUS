@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import * as React from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   Calendar,
   Check,
@@ -15,6 +21,7 @@ import {
   Download,
   Eye,
   ExternalLink,
+  FilePen,
   FileSignature,
   Loader2,
   History,
@@ -81,7 +88,6 @@ import api, {
   type B2BGeneratedContractRow,
   type B2BGeneratedContractUpdate,
   type B2BGeneratedListParams,
-  type B2BGeneratePayload,
   type B2BRenderPayload,
   type B2BRole,
   type B2BUopCheckResult,
@@ -94,6 +100,23 @@ import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
+import { countPl } from "@/lib/plural-pl";
+import { positiveIntParam } from "@/lib/client-tab";
+import {
+  B2B_CURRENCIES,
+  B2B_REGISTER_PAGE_SIZE,
+  canCorrectInForm,
+  contractStatusOptions,
+  existingContractFor,
+  generatedIdFromHeaders,
+  generatorEditHref,
+  generatorTabFromParam,
+  mergeRegisterPages,
+  nextRegisterOffset,
+  registerRowWarnings,
+  registerSearchHref,
+  type GeneratorTab,
+} from "@/lib/b2b-generator-register";
 
 // Router generatora ma szeroką bramkę Sourcing, ale operacje na dokumentach
 // ze stawką mają osobne, konfigurowalne uprawnienie. Poziom `view` dostaje
@@ -490,6 +513,47 @@ export function B2BContractGeneratorV2() {
     hasSectionAccess(user, "sourcing", "write") &&
     hasActionAccess(user, "b2b_contract_generator", "generate");
 
+  // Zakładka, fraza rejestru i para (kandydat, rekrutacja) żyją w adresie:
+  // link z kroku „Umowa” rekrutacji i ostrzeżenie „popraw ją w rejestrze”
+  // prowadzą wprost na miejsce, a F5 nie wraca na „Generator”.
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const tabParam = searchParams?.get("tab") ?? null;
+  const qParam = searchParams?.get("q") ?? null;
+  const candidateParam = positiveIntParam(searchParams?.get("candidate") ?? null);
+  const jobParam = positiveIntParam(searchParams?.get("job") ?? null);
+  // `?edit=<id>` — „Popraw umowę” z wiersza rejestru: formularz wczytuje
+  // zapisany payload i poprawia ten sam wiersz pod tym samym numerem.
+  const editParam = positiveIntParam(searchParams?.get("edit") ?? null);
+  const defaultTab: GeneratorTab = canGenerate ? "generator" : "generated";
+  const allowedTab = (tab: GeneratorTab | null): GeneratorTab | null => {
+    if (!tab) return null;
+    if (tab === "generator" && !canGenerate) return null;
+    if (tab === "roles" && !isAdmin) return null;
+    return tab;
+  };
+  const requestedTab = allowedTab(generatorTabFromParam(tabParam));
+  const [activeTab, setActiveTab] = useState<GeneratorTab>(
+    requestedTab ?? defaultTab,
+  );
+  // Efekt na WARTOŚCI parametru — sam inicjalizator useState nie zobaczy
+  // miękkiej nawigacji (link na tej samej stronie nie odmontowuje komponentu).
+  useEffect(() => {
+    if (requestedTab) setActiveTab(requestedTab);
+  }, [requestedTab]);
+  const selectTab = (value: string) => {
+    const tab = allowedTab(generatorTabFromParam(value));
+    if (!tab) return;
+    setActiveTab(tab);
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.set("tab", tab);
+    // Fraza dotyczy zakładki, z której przyszła — w innej zawęziłaby listę
+    // po cichu. Para (kandydat, rekrutacja) należy do formularza i zostaje.
+    params.delete("q");
+    router.replace(`${pathname ?? ""}?${params.toString()}`, { scroll: false });
+  };
+
   return (
     // max-w-7xl (nie 4xl): zakładka „Wygenerowane umowy" ma szeroką tabelę
     // (9 kolumn + akcje: status podpisu / status umowy / Edytuj / Pobierz /
@@ -522,7 +586,7 @@ export function B2BContractGeneratorV2() {
             />
           ) : null}
 
-          <Tabs defaultValue={canGenerate ? "generator" : "generated"}>
+          <Tabs value={activeTab} onValueChange={selectTab}>
             <TabsList className="mb-4">
               {canGenerate ? (
                 <TabsTrigger value="generator">Generator</TabsTrigger>
@@ -546,17 +610,55 @@ export function B2BContractGeneratorV2() {
                 forceMount
                 className="data-[state=inactive]:hidden"
               >
-                <GeneratorForm />
+                <GeneratorForm
+                  prefillCandidateId={candidateParam}
+                  prefillJobId={jobParam}
+                  editGeneratedId={editParam}
+                  onEditConsumed={() => {
+                    // Po wczytaniu (albo odmowie) parametr znika — F5 nie może
+                    // nadpisać poprawek wczytanym ponownie stanem z serwera.
+                    const params = new URLSearchParams(
+                      searchParams?.toString() ?? "",
+                    );
+                    if (!params.has("edit")) return;
+                    params.delete("edit");
+                    const query = params.toString();
+                    router.replace(
+                      query ? `${pathname ?? ""}?${query}` : (pathname ?? ""),
+                      { scroll: false },
+                    );
+                  }}
+                  onClearPrefill={() => {
+                    if (!candidateParam && !jobParam) return;
+                    const params = new URLSearchParams(
+                      searchParams?.toString() ?? "",
+                    );
+                    params.delete("candidate");
+                    params.delete("job");
+                    const query = params.toString();
+                    router.replace(
+                      query ? `${pathname ?? ""}?${query}` : (pathname ?? ""),
+                      { scroll: false },
+                    );
+                  }}
+                />
               </TabsContent>
             ) : null}
             <TabsContent value="generated">
-              <GeneratedContractsTab />
+              <GeneratedContractsTab
+                searchParam={activeTab === "generated" ? qParam : null}
+                canCorrect={canGenerate}
+              />
             </TabsContent>
             <TabsContent value="no-project">
-              <NoProjectContractsTab />
+              <NoProjectContractsTab
+                searchParam={activeTab === "no-project" ? qParam : null}
+              />
             </TabsContent>
             <TabsContent value="closed">
-              <ClosedContractsTab />
+              <ClosedContractsTab
+                searchParam={activeTab === "closed" ? qParam : null}
+              />
             </TabsContent>
             {isAdmin ? (
               <TabsContent value="roles">
@@ -607,12 +709,14 @@ function ConfirmFullySignedDialog({
   }, [open, row.id]);
 
   const effectiveCandidateId = row.candidate_id ?? candidate?.id ?? null;
+  // Debounce jak w szukajce rejestru — bez niego każda litera to zapytanie.
+  const debouncedCandidateQuery = useDebouncedValue(candidateQuery, 300);
 
   const candidatesQuery = useQuery({
-    queryKey: ["b2b-signature-candidates", candidateQuery],
+    queryKey: ["b2b-signature-candidates", debouncedCandidateQuery],
     queryFn: async () => {
       const res = await api.get<CandidateOption[]>("/api/cv-generator/candidates", {
-        params: { q: candidateQuery, limit: 20 },
+        params: { q: debouncedCandidateQuery, limit: 20 },
       });
       return res.data;
     },
@@ -1005,8 +1109,9 @@ function ConfirmFullySignedDialog({
                 uzupełnieniu zamówienia,
               </li>
               <li>
-                • NIE zmieni etapu kandydata w pipeline — „Zatrudniony” ustawiasz
-                na tablicy rekrutacji,
+                • przesunie kandydata w pipeline tej rekrutacji na „Zatrudniony”
+                (chyba że kandydat nie ma w niej procesu, a nowy blokuje
+                Priority Work — wtedy etap uzupełnia Head of Recruitment),
               </li>
               <li>• zapisze pełny ślad audytowy.</li>
             </ul>
@@ -1331,7 +1436,9 @@ export function ContractStatusDialog({
             : updated.contract_status === "cancelled"
               ? "Umowa anulowana — wpis zostaje w rejestrze, numer nie wraca do puli."
               : updated.contract_status === "in_progress"
-                ? "Umowa wróciła do podpisu — możesz ją oznaczyć jako podpisaną."
+                ? row.contract_status === "closed"
+                  ? "Zakończenie cofnięte — umowa wróciła do „Umowy bieżące” jako „W trakcie”."
+                  : "Umowa wróciła do podpisu — możesz ją oznaczyć jako podpisaną."
                 : "Umowa oznaczona jako aktywna.",
       );
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
@@ -1345,16 +1452,14 @@ export function ContractStatusDialog({
   // kończy — przy zawieszeniu projekt (umowa trwa), przy zakończeniu umowa.
   const closing = status === "closed" || status === "suspended";
   const subject = status === "suspended" ? "projektu" : "umowy";
-  // „Zawieszona" pokazuje się wyłącznie dla umowy już obowiązującej. Backend
-  // odrzuca inne przejścia 422; ukrycie opcji oszczędza użytkownikowi wysyłki,
-  // która i tak nie ma prawa się udać.
-  const canSuspend = row.contract_status === "active";
-  // „Anulowana" = umowa nie doszła do skutku. Podpisana obustronnie doszła, więc
-  // jej koniec to „Zakończona" — backend odrzuca tamto przejście 409.
-  const canCancel = row.signature_status !== "signed_both";
-  // Jedyny ręczny wybór „W trakcie": powrót z „Anulowanej" (Partner jednak
-  // wraca do podpisu). Wszędzie indziej ten status ustawia system.
-  const canReturnToProgress = row.contract_status === "cancelled";
+  // Backend odrzuca niedozwolone przejścia 422/409; ukrycie opcji oszczędza
+  // użytkownikowi wysyłki, która i tak nie ma prawa się udać.
+  const statusOptions = contractStatusOptions(row);
+  // Ręczny wybór „W trakcie": powrót z „Anulowanej" (Partner jednak wraca do
+  // podpisu) albo cofnięcie pomyłkowego zakończenia NIEPODPISANEJ umowy.
+  const canReturnToProgress = statusOptions.some(
+    (o) => o.value === "in_progress" && !o.disabled,
+  );
   const submit = () => {
     if (!closing) {
       // `status`, nie sztywne „active": ten sam przycisk obsługuje teraz
@@ -1405,50 +1510,20 @@ export function ContractStatusDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {/* Dla wiersza ZAWIESZONEGO „Aktywna" nie jest tu opcją: powrót
-                    do gry wymaga wskazania projektu, więc backend odrzuciłby
-                    taki zapis 422. Opcja, która zawsze kończy się błędem, jest
-                    gorsza niż jej brak — od tego jest przycisk „Przywróć",
-                    który pyta o projekt. */}
-                {/* Dla wiersza ANULOWANEGO „Aktywna" odpada z tego samego
-                    powodu co dla zawieszonego, choć innego: ta umowa jest
-                    niepodpisana, a `active` ustawia wyłącznie potwierdzenie
-                    podpisu. Droga wiedzie przez „W trakcie". */}
-                {row.contract_status !== "suspended" &&
-                row.contract_status !== "cancelled" ? (
-                  <SelectItem value="active">
-                    {B2B_CONTRACT_STATUS_LABEL.active}
+                {/* Pozycje liczy `contractStatusOptions` — lustro reguł PATCH-a.
+                    Opcja, która zawsze kończy się błędem, jest gorsza niż jej
+                    brak: „Aktywna" tylko dla podpisanej obustronnie (zawieszona
+                    wraca „Przywróć", bo wymaga projektu). Bieżący status zostaje
+                    na liście zawsze, inaczej Radix wyrenderowałby pusty trigger. */}
+                {statusOptions.map((option) => (
+                  <SelectItem
+                    key={option.value}
+                    value={option.value}
+                    disabled={option.disabled}
+                  >
+                    {B2B_CONTRACT_STATUS_LABEL[option.value]}
                   </SelectItem>
-                ) : null}
-                {/* „W trakcie" MUSI być na liście, ale zwykle wyszarzone.
-                    Widoczne, bo bez tej pozycji Radix wyrenderowałby pusty
-                    trigger dla umowy, która właśnie w tym stanie jest.
-                    Wybieralne DOKŁADNIE dla umowy anulowanej — to jedyny
-                    ręczny wybór tego statusu (Partner wraca do podpisu);
-                    każde inne źródło backend odrzuca 422. */}
-                <SelectItem value="in_progress" disabled={!canReturnToProgress}>
-                  {B2B_CONTRACT_STATUS_LABEL.in_progress}
-                </SelectItem>
-                {/* Anulować da się każdą umowę niepodpisaną — patrz
-                    `canCancel`. Dla wiersza JUŻ anulowanego pozycja musi
-                    zostać (reguła pustego triggera, jak przy „Zawieszona"). */}
-                {canCancel || row.contract_status === "cancelled" ? (
-                  <SelectItem value="cancelled">
-                    {B2B_CONTRACT_STATUS_LABEL.cancelled}
-                  </SelectItem>
-                ) : null}
-                {/* Widoczna tylko dla umowy obowiązującej — patrz `canSuspend`.
-                    Dla wiersza JUŻ zawieszonego pozycja musi zostać, inaczej
-                    Radix wyrenderowałby pusty trigger dla stanu, w którym umowa
-                    właśnie jest. */}
-                {canSuspend || row.contract_status === "suspended" ? (
-                  <SelectItem value="suspended">
-                    {B2B_CONTRACT_STATUS_LABEL.suspended}
-                  </SelectItem>
-                ) : null}
-                <SelectItem value="closed">
-                  {B2B_CONTRACT_STATUS_LABEL.closed}
-                </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             {status === "suspended" ? (
@@ -1467,8 +1542,9 @@ export function ContractStatusDialog({
             ) : null}
             {status === "in_progress" && canReturnToProgress ? (
               <p className="text-xs text-muted-foreground">
-                Umowa wraca do podpisu — przycisk „Oznacz jako podpisaną”
-                pojawi się ponownie.
+                {row.contract_status === "closed"
+                  ? "Cofa pomyłkowe zakończenie niepodpisanej umowy — wpis wróci do „Umowy bieżące”, a powód i data zakończenia zostaną wyczyszczone (zostają w historii statusów)."
+                  : "Umowa wraca do podpisu — przycisk „Oznacz jako podpisaną” pojawi się ponownie."}
               </p>
             ) : null}
           </div>
@@ -1878,7 +1954,82 @@ export function StatusHistoryDialog({
   );
 }
 
-export function GeneratedContractsTab() {
+/**
+ * Stopka rejestru: ile wierszy widać i „Pokaż więcej”. Do 23.09.2026 rejestr
+ * cicho kończył się na 100 najnowszych umowach — bez licznika lista przycięta
+ * limitem czytała się jak komplet.
+ */
+export function RegisterPager({
+  shown,
+  hasMore,
+  loading,
+  failed = false,
+  onMore,
+}: {
+  shown: number;
+  hasMore: boolean;
+  loading: boolean;
+  failed?: boolean;
+  onMore: () => void;
+}) {
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+      <span>Pokazano {countPl(shown, "umowę", "umowy", "umów")}</span>
+      {failed ? (
+        <span className="text-destructive" role="alert">
+          Nie udało się wczytać kolejnych umów.
+        </span>
+      ) : null}
+      {hasMore ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={loading}
+          onClick={onMore}
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          {failed ? "Ponów" : "Pokaż więcej"}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/** Plakietki rozjazdu rejestru z modułem Kontrakty — patrz `registerRowWarnings`. */
+function RegisterRowWarnings({ row }: { row: B2BGeneratedContractRow }) {
+  const warnings = registerRowWarnings(row);
+  if (warnings.length === 0) return null;
+  return (
+    <div className="flex flex-col items-start gap-1">
+      {warnings.map((w) => (
+        // `h-auto` + `whitespace-normal`: zdanie z datą nie mieści się w jednej
+        // linii wąskiej kolumny statusu, a stała wysokość badge'a ucinała je.
+        <Badge
+          key={w.text}
+          variant={w.tone}
+          size="md"
+          className="h-auto max-w-56 whitespace-normal rounded-md text-left leading-snug"
+        >
+          {w.text}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+export function GeneratedContractsTab({
+  searchParam = null,
+  canCorrect = true,
+}: {
+  /** `?q=` z adresu — link „popraw ją w rejestrze” z formularza. */
+  searchParam?: string | null;
+  /**
+   * „Popraw umowę” otwiera zakładkę Generator — bez prawa generowania tej
+   * zakładki nie ma, więc akcja prowadziłaby donikąd.
+   */
+  canCorrect?: boolean;
+} = {}) {
   const toast = useToast();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -1890,7 +2041,12 @@ export function GeneratedContractsTab() {
   const [historyRow, setHistoryRow] = useState<B2BGeneratedContractRow | null>(
     null,
   );
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(searchParam ?? "");
+  // Efekt na WARTOŚCI parametru, nie sam inicjalizator: link z formularza to
+  // miękka nawigacja, a zakładka bywa już zamontowana.
+  useEffect(() => {
+    if (searchParam) setSearch(searchParam);
+  }, [searchParam]);
   // „all" w TEJ zakładce znaczy „bieżące" (aktywne, w trakcie podpisu
   // i anulowane), nie „wszystkie umowy w systemie": zamknięte i zawieszone mają
   // własne zakładki i nie mogą się tu pojawić, inaczej wiersz byłby widoczny
@@ -1906,12 +2062,27 @@ export function GeneratedContractsTab() {
   const dateFilterActive = Boolean(startFrom || startTo);
   // Debounce, żeby nie strzelać zapytaniem na każdą literę wpisaną w szukajkę.
   const debouncedSearch = useDebouncedValue(search, 300);
-  const q = useQuery({
+  const q = useInfiniteQuery({
     // Filtr daty MUSI być w kluczu — bez tego react-query oddaje wynik
-    // poprzedniego zakresu z cache i zmiana granic „nic nie robi".
-    queryKey: ["b2b-generated", debouncedSearch, statusFilter, startFrom, startTo],
-    queryFn: () =>
-      b2bGeneratorApi.generated(100, {
+    // poprzedniego zakresu z cache i zmiana granic „nic nie robi". Filtry
+    // w kluczu resetują też stronicowanie: nowy klucz = od pierwszej strony.
+    // „register" odróżnia ten kształt (strony) od listy rekrutacji
+    // (`["b2b-generated", "job", id]`, zwykła tablica) pod tym samym prefiksem.
+    queryKey: [
+      "b2b-generated",
+      "register",
+      debouncedSearch,
+      statusFilter,
+      startFrom,
+      startTo,
+    ],
+    initialPageParam: 0,
+    getNextPageParam: (
+      lastPage: B2BGeneratedContractRow[],
+      allPages: B2BGeneratedContractRow[][],
+    ) => nextRegisterOffset(lastPage, allPages.length),
+    queryFn: ({ pageParam }: { pageParam: number }) =>
+      b2bGeneratorApi.generated(B2B_REGISTER_PAGE_SIZE, {
         q: debouncedSearch,
         // „Wszystkie" w tej zakładce znaczy „bieżące": trzy statusy sprzed
         // zakładek terminalnych. `cancelled` zostaje tutaj świadomie — wiersz
@@ -1922,17 +2093,19 @@ export function GeneratedContractsTab() {
             : [statusFilter],
         startFrom: startFrom || undefined,
         startTo: startTo || undefined,
+        ...(pageParam ? { offset: pageParam } : {}),
       }),
     staleTime: 10_000,
   });
   const deleteMut = useMutation({
     mutationFn: (id: number) => b2bGeneratorApi.deleteGenerated(id),
     onSuccess: () => {
-      toast.showSuccess("Umowa usunięta — numer zwolniony do ponownego użycia.");
+      // Od 23.09.2026 numer usuniętej umowy NIE wraca do puli — usunięty
+      // DOCX mógł już trafić do Partnera (1518 i 1522/2026 wydane dwa razy).
+      toast.showSuccess(
+        "Umowa usunięta z rejestru — jej numer nie wraca do puli.",
+      );
       queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
-      // Numeracja to max(numer)+1 liczone na żywo z listy → skasowanie
-      // najnowszej umowy zwalnia jej numer. Odśwież podpowiedź „następny wolny
-      // numer" w generatorze, by od razu cofnęła się do zwolnionego numeru.
       queryClient.invalidateQueries({ queryKey: ["b2b-next-number"] });
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
@@ -1961,7 +2134,10 @@ export function GeneratedContractsTab() {
     },
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
-  const rows = q.data ?? [];
+  const rows = useMemo(
+    () => mergeRegisterPages(q.data?.pages ?? []),
+    [q.data],
+  );
 
   const handleConfirmed = (result: B2BConfirmFullySignedResult) => {
     const fallbackMessage =
@@ -2003,7 +2179,7 @@ export function GeneratedContractsTab() {
       : r.contract_number;
     if (
       window.confirm(
-        `Usunąć umowę „${label}” z listy? Tej operacji nie można cofnąć.`,
+        `Usunąć umowę „${label}” z listy? Tej operacji nie można cofnąć, a numer nie wróci do puli.`,
       )
     ) {
       deleteMut.mutate(r.id);
@@ -2092,7 +2268,7 @@ export function GeneratedContractsTab() {
             title={NO_ACCESS_TITLE}
             description={NO_ACCESS_DESC}
           />
-        ) : q.error ? (
+        ) : q.error && !q.data ? (
           /* Awaria ≠ pustka — lustro zakładek „bez projektu” i „zakończone”.
              Bez tej gałęzi padnięte zapytanie wpadało w `rows = q.data ?? []`
              i renderowało się jako „Brak umów bieżących”, czyli jako fakt. */
@@ -2272,6 +2448,7 @@ export function GeneratedContractsTab() {
                               {r.closure_date ? ` · ${formatIsoDatePl(r.closure_date)}` : ""}
                             </span>
                           ) : null}
+                          <RegisterRowWarnings row={r} />
 
                           <div className="flex items-center gap-1">
                             {r.can_change_status ? (
@@ -2282,6 +2459,7 @@ export function GeneratedContractsTab() {
                                 className="h-8 px-2"
                                 onClick={() => setStatusRow(r)}
                                 title="Zmień status umowy"
+                                aria-label={`Zmień status umowy ${r.contract_number}`}
                               >
                                 <Pencil className="h-4 w-4" />
                                 <span className="ml-1">Zmień status</span>
@@ -2428,6 +2606,26 @@ export function GeneratedContractsTab() {
                             </>
                           ) : (
                             <>
+                              {canCorrect && canCorrectInForm(r) ? (
+                                // Poprawka treści pod tym samym numerem. Do
+                                // 23.09.2026 działała tylko w karcie, w której
+                                // umowę pobrano; po odświeżeniu zostawało
+                                // „Usuń”, a usunięcie trwale zużywa numer.
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() =>
+                                    router.replace(generatorEditHref(r.id), {
+                                      scroll: false,
+                                    })
+                                  }
+                                  title="Popraw umowę (ten sam numer)"
+                                  aria-label={`Popraw umowę ${r.contract_number}`}
+                                >
+                                  <FilePen className="h-4 w-4" />
+                                </Button>
+                              ) : null}
                               {!signed && r.can_edit ? (
                                 <Button
                                   variant="ghost"
@@ -2492,6 +2690,18 @@ export function GeneratedContractsTab() {
             </table>
           </div>
         )}
+        {/* `!(error && !data)`, nie `!error`: nieudane „Pokaż więcej” ustawia
+            `error`, a pierwsza strona zostaje — bez stopki 100 wierszy
+            wyglądałoby na komplet, a komunikat i „Ponów” by znikły. */}
+        {rows.length > 0 && !(q.error && !q.data) ? (
+          <RegisterPager
+            shown={rows.length}
+            hasMore={q.hasNextPage}
+            loading={q.isFetchingNextPage}
+            failed={q.isFetchNextPageError}
+            onMore={() => void q.fetchNextPage()}
+          />
+        ) : null}
       </CardContent>
       {signatureRow ? (
         <ConfirmFullySignedDialog
@@ -2539,16 +2749,30 @@ function LifecycleContractsTab({
   description,
   dateColumnLabel,
   allowActions,
+  allowStatusChange = allowActions,
   emptyLabel,
+  searchParam = null,
 }: {
   status: Extract<B2BContractStatus, "suspended" | "closed">;
   title: string;
   description: string;
   dateColumnLabel: string;
+  /** „Przywróć” — tylko umowa zawieszona wraca do gry z nowym projektem. */
   allowActions: boolean;
+  /**
+   * „Zmień status” — w „Zakończonych” po to, żeby dało się cofnąć pomyłkowe
+   * zakończenie (niepodpisana → „W trakcie”). Do 23.09.2026 zakładka była
+   * tylko do odczytu i taki wiersz utykał w niej na zawsze.
+   */
+  allowStatusChange?: boolean;
   emptyLabel: string;
+  /** `?q=` z adresu — link do umowy z formularza generatora. */
+  searchParam?: string | null;
 }) {
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(searchParam ?? "");
+  useEffect(() => {
+    if (searchParam) setSearch(searchParam);
+  }, [searchParam]);
   const [reasonFilter, setReasonFilter] = useState<B2BClosureReason | "all">(
     "all",
   );
@@ -2572,19 +2796,34 @@ function LifecycleContractsTab({
     startFrom: startFrom || undefined,
     startTo: startTo || undefined,
   };
-  const q = useQuery({
+  const q = useInfiniteQuery({
+    // Filtry w kluczu = zmiana filtra zaczyna stronicowanie od początku.
     queryKey: [
       "b2b-generated",
+      "lifecycle",
       status,
       debouncedSearch,
       reasonFilter,
       startFrom,
       startTo,
     ],
-    queryFn: () => b2bGeneratorApi.generated(100, params),
+    initialPageParam: 0,
+    getNextPageParam: (
+      lastPage: B2BGeneratedContractRow[],
+      allPages: B2BGeneratedContractRow[][],
+    ) => nextRegisterOffset(lastPage, allPages.length),
+    queryFn: ({ pageParam }: { pageParam: number }) =>
+      b2bGeneratorApi.generated(B2B_REGISTER_PAGE_SIZE, {
+        ...params,
+        ...(pageParam ? { offset: pageParam } : {}),
+      }),
     staleTime: 10_000,
   });
-  const rows = q.data ?? [];
+  const rows = useMemo(
+    () => mergeRegisterPages(q.data?.pages ?? []),
+    [q.data],
+  );
+  const showActionsColumn = allowActions || allowStatusChange;
   const filtersActive =
     Boolean(debouncedSearch.trim()) || reasonFilter !== "all" || dateFilterActive;
 
@@ -2654,7 +2893,7 @@ function LifecycleContractsTab({
             title={NO_ACCESS_TITLE}
             description={NO_ACCESS_DESC}
           />
-        ) : q.error ? (
+        ) : q.error && !q.data ? (
           /* Awaria ≠ pustka. Bez tej gałęzi padnięte zapytanie renderowałoby
              się jako „brak umów", czyli jako fakt o świecie. */
           <div className="space-y-2">
@@ -2703,7 +2942,7 @@ function LifecycleContractsTab({
                   <th className="py-2 pr-4 font-medium">
                     Powód zakończenia projektu
                   </th>
-                  {allowActions ? (
+                  {showActionsColumn ? (
                     <th className="sticky right-0 z-10 bg-card py-2 pl-2 text-right font-medium shadow-[inset_1px_0_0_hsl(var(--border))]">
                       Akcje
                     </th>
@@ -2739,13 +2978,16 @@ function LifecycleContractsTab({
                     </td>
                     <td className="py-2 pr-4">{r.client_name || "—"}</td>
                     <td className="py-2 pr-4">
-                      <Badge
-                        variant={B2B_CONTRACT_STATUS_VARIANT[r.contract_status]}
-                        size="md"
-                      >
-                        <StatusIcon status={r.contract_status} />
-                        {B2B_CONTRACT_STATUS_LABEL[r.contract_status]}
-                      </Badge>
+                      <div className="flex flex-col items-start gap-1">
+                        <Badge
+                          variant={B2B_CONTRACT_STATUS_VARIANT[r.contract_status]}
+                          size="md"
+                        >
+                          <StatusIcon status={r.contract_status} />
+                          {B2B_CONTRACT_STATUS_LABEL[r.contract_status]}
+                        </Badge>
+                        <RegisterRowWarnings row={r} />
+                      </div>
                     </td>
                     <td className="py-2 pr-4">
                       {closureReasonText(
@@ -2753,10 +2995,10 @@ function LifecycleContractsTab({
                         r.closure_reason_other,
                       ) || "—"}
                     </td>
-                    {allowActions ? (
+                    {showActionsColumn ? (
                       <td className="sticky right-0 z-10 bg-card py-2 pl-2 text-right shadow-[inset_1px_0_0_hsl(var(--border))]">
                         <div className="flex items-center justify-end gap-1">
-                          {r.can_change_status ? (
+                          {r.can_change_status && allowActions ? (
                             <>
                               <Button
                                 type="button"
@@ -2775,10 +3017,24 @@ function LifecycleContractsTab({
                                 className="h-8 px-2"
                                 onClick={() => setStatusRow(r)}
                                 title="Zakończ umowę"
+                                aria-label={`Zakończ umowę ${r.contract_number}`}
                               >
                                 <CircleSlash className="h-4 w-4" />
                               </Button>
                             </>
+                          ) : r.can_change_status && allowStatusChange ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2"
+                              onClick={() => setStatusRow(r)}
+                              title="Zmień status umowy"
+                              aria-label={`Zmień status umowy ${r.contract_number}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                              <span className="ml-1">Zmień status</span>
+                            </Button>
                           ) : null}
                           <Button
                             type="button"
@@ -2800,6 +3056,15 @@ function LifecycleContractsTab({
             </table>
           </div>
         )}
+        {rows.length > 0 && !(q.error && !q.data) ? (
+          <RegisterPager
+            shown={rows.length}
+            hasMore={q.hasNextPage}
+            loading={q.isFetchingNextPage}
+            failed={q.isFetchNextPageError}
+            onMore={() => void q.fetchNextPage()}
+          />
+        ) : null}
       </CardContent>
 
       {statusRow ? (
@@ -2833,9 +3098,12 @@ function LifecycleContractsTab({
   );
 }
 
-export function NoProjectContractsTab() {
+export function NoProjectContractsTab({
+  searchParam = null,
+}: { searchParam?: string | null } = {}) {
   return (
     <LifecycleContractsTab
+      searchParam={searchParam}
       status="suspended"
       title="Umowy bez projektu"
       description={
@@ -2851,17 +3119,21 @@ export function NoProjectContractsTab() {
   );
 }
 
-export function ClosedContractsTab() {
+export function ClosedContractsTab({
+  searchParam = null,
+}: { searchParam?: string | null } = {}) {
   return (
     <LifecycleContractsTab
+      searchParam={searchParam}
       status="closed"
       title="Zakończone umowy"
       description={
-        "Umowy, które przestały obowiązywać. Widok informacyjny — zmiana " +
-        "statusu odbywa się w zakładkach, z których umowa tu trafiła."
+        "Umowy, które przestały obowiązywać. Pomyłkowo zakończoną, " +
+        "niepodpisaną umowę cofniesz na „W trakcie” przyciskiem „Zmień status”."
       }
       dateColumnLabel="Data zakończenia umowy"
       allowActions={false}
+      allowStatusChange
       emptyLabel="Brak zakończonych umów."
     />
   );
@@ -2911,8 +3183,61 @@ export function RecruitmentOptionsNotice({
   return null;
 }
 
-function GeneratorForm() {
+/**
+ * Umowa, którą formularz właśnie opisuje — po pierwszym „Pobierz DOCX”.
+ * Dopóki jest ustawiona, pobranie POPRAWIA ten wiersz rejestru pod tym samym
+ * numerem (`/rerender`) zamiast zakładać kolejny: do 23.09.2026 każda
+ * poprawka literówki albo zmiana języka dawała nowy numer (15 usunięć na
+ * ~104 generacje).
+ */
+type SavedContract = {
+  id: number;
+  number: string;
+  candidateId: number | null;
+  jobId: number | null;
+};
+
+/** Telefon z payloadu („+48 600 100 200”) → prefiks z listy + numer. */
+function splitPhone(value: string | null | undefined): {
+  prefix: string;
+  number: string;
+} {
+  const v = (value ?? "").trim();
+  const prefix = PHONE_PREFIXES.find((p) => v.startsWith(`${p} `));
+  // Numer bez znanego prefiksu zostaje w całości — `buildPayload` wysyła
+  // wartość zaczynającą się od „+” bez doklejania prefiksu z listy.
+  return prefix
+    ? { prefix, number: v.slice(prefix.length + 1).trim() }
+    : { prefix: "+48", number: v };
+}
+
+export function GeneratorForm({
+  prefillCandidateId = null,
+  prefillJobId = null,
+  editGeneratedId = null,
+  onClearPrefill,
+  onEditConsumed,
+}: {
+  /** `?candidate=` z adresu — link „Otwórz w Generatorze” z kroku „Umowa”. */
+  prefillCandidateId?: number | null;
+  /** `?job=` — rekrutacja do wybrania, gdy kandydat w niej jest. */
+  prefillJobId?: number | null;
+  /** `?edit=` — zapisana umowa do wczytania i poprawy pod tym samym numerem. */
+  editGeneratedId?: number | null;
+  /** „Nowa umowa” zdejmuje parę z adresu, żeby F5 nie wypełnił jej znowu. */
+  onClearPrefill?: () => void;
+  /** Zdejmuje `?edit=` z adresu po wczytaniu albo odmowie. */
+  onEditConsumed?: () => void;
+}) {
   const toast = useToast();
+  const queryClient = useQueryClient();
+  const currencyId = useId();
+  const clientPickerId = useId();
+  const phoneId = useId();
+  const startDateId = useId();
+  const candidatePickerId = useId();
+  const recruitmentId = useId();
+  const roleSelectId = useId();
 
   const [language, setLanguage] = useState<Lang>("pl");
 
@@ -2920,6 +3245,8 @@ function GeneratorForm() {
   const [candidate, setCandidate] = useState<CandidateOption | null>(null);
   const [candidateOpen, setCandidateOpen] = useState(false);
   const [candidateQuery, setCandidateQuery] = useState("");
+  // Debounce jak w rejestrze — bez niego każda litera to osobne zapytanie.
+  const debouncedCandidateQuery = useDebouncedValue(candidateQuery, 300);
   const [stageId, setStageId] = useState<string>("");
 
   // Rola + zakres
@@ -2983,15 +3310,22 @@ function GeneratorForm() {
   // Typ podmiotu z rejestru (CEIDG → JDG, KRS → spółka). Nie jest polem
   // formularza — użytkownik go nie widzi ani nie edytuje; jedzie do backendu
   // jako podpowiedź, czy lista ma pokazywać drugą linię z osobą kontaktową.
+  // Lista punktów zakresu z zapisanej umowy. Formularz jej nie edytuje, ale
+  // poprawka wczytanej umowy nie może jej po cichu zgubić.
+  const [scopeItemsOverride, setScopeItemsOverride] = useState<string[] | null>(
+    null,
+  );
+  // NIP wczytany z zapisanej umowy — lookup rejestru go pomija, bo nadpisałby
+  // zapisaną nazwę firmy, REGON i adres danymi z dziś (a to tylko poprawka).
+  const nipLookupSkip = useRef<string | null>(null);
   const [partnerEntityType, setPartnerEntityType] = useState<
     "sole_trader" | "company" | null
   >(null);
 
   const [previewHtml, setPreviewHtml] = useState<string>("");
-  // Cache is keyed by candidate + recruitment and includes the in-flight
-  // promise. This makes rapid double actions single-flight; after a remount
-  // the backend's candidate row lock and pair-based lookup remain the durable
-  // idempotency layer.
+  const [savedContract, setSavedContract] = useState<SavedContract | null>(
+    null,
+  );
 
   // Pre-fill „raz na kandydata / ofertę" — nie nadpisuje ręcznych zmian.
   const prefilledCand = useRef<number | null>(null);
@@ -3000,12 +3334,24 @@ function GeneratorForm() {
   const descTouched = useRef(false);
   // Użytkownik ręcznie poprawił narzędnik → nie nadpisuj auto-odmianą.
   const instrTouched = useRef(false);
+  // Pola klienta/projektu pochodzą z rekrutacji — kolejna rekrutacja podmienia
+  // je w całości, także na puste (inaczej miasto z poprzedniej zostawało).
+  const jobFieldsFromJob = useRef(false);
+  // Rekrutacja z adresu, wybierana, gdy dojdzie lista rekrutacji kandydata.
+  // Para z kandydatem, bo lista rekrutacji poprzedniej osoby nie może jej
+  // „zużyć”, zanim dojdzie lista nowej.
+  const [pendingPrefill, setPendingPrefill] = useState<{
+    candidateId: number;
+    jobId: number;
+    /** Wczytana umowa — brak jej rekrutacji na liście trzeba powiedzieć. */
+    fromSaved?: boolean;
+  } | null>(null);
 
   const candidatesQuery = useQuery({
-    queryKey: ["b2b-gen-candidates", candidateQuery],
+    queryKey: ["b2b-gen-candidates", debouncedCandidateQuery],
     queryFn: async () => {
       const res = await api.get<CandidateOption[]>("/api/cv-generator/candidates", {
-        params: { q: candidateQuery, limit: 20 },
+        params: { q: debouncedCandidateQuery, limit: 20 },
       });
       return res.data;
     },
@@ -3104,13 +3450,30 @@ function GeneratorForm() {
     )
       return;
     prefilledJob.current = selectedRecruitment.job_id;
+    // Pierwsza rekrutacja uzupełnia tylko to, co ma; każda KOLEJNA podmienia
+    // pola w całości — pusta wartość nowej rekrutacji czyści pole po starej,
+    // inaczej umowa dostawała miasto i klienta z poprzednio wybranej.
+    const replace = jobFieldsFromJob.current;
+    jobFieldsFromJob.current = true;
     if (j.description) {
       setProjectDescription(j.description);
       descTouched.current = true; // opis z rekrutacji ma priorytet nad smart-prefillem
+    } else if (replace) {
+      descTouched.current = false;
+      setProjectDescription(
+        areaPrefillDescription({
+          role: selectedRole,
+          language,
+          clientName: j.client_name ?? "",
+          descTouched: false,
+        }) ?? "",
+      );
     }
     if (j.location) setProjectCity(j.location);
+    else if (replace) setProjectCity("");
     if (j.client_name) setClientName(j.client_name);
-  }, [jobQuery.data, selectedRecruitment]);
+    else if (replace) setClientName("");
+  }, [jobQuery.data, selectedRecruitment, selectedRole, language]);
 
   // Smart-prefill opisu projektu z wybranego OBSZARU (roli). Opis z oferty ma
   // priorytet, a ręcznych zmian nie nadpisujemy — jedno i drugie ustawia
@@ -3145,6 +3508,11 @@ function GeneratorForm() {
   // Auto-uzupełnianie danych Partnera z rejestru po NIP (Biała Lista, debounced).
   useEffect(() => {
     const nip = partnerNip.replace(/\D/g, "");
+    if (nipLookupSkip.current !== null && nipLookupSkip.current === nip) {
+      setPartnerLookup("idle");
+      return;
+    }
+    nipLookupSkip.current = null;
     // Klasyfikacja MUSI zniknąć razem z NIP-em, do którego należała. Bez tego
     // scenariusz „wpisz NIP spółki → popraw na NIP JDG, lookup padnie" zapisuje
     // w snapshocie `company` dla JDG — TRWALE, bo snapshot się nie przelicza.
@@ -3209,6 +3577,183 @@ function GeneratorForm() {
     return list.slice(0, 200);
   }, [clientsQuery.data, clientQuery]);
 
+  /**
+   * Wybór innego kandydata to inna osoba w umowie: pola Partnera z profilu
+   * poprzedniego kandydata nie mogą przetrwać (prefill nowego nadpisuje tylko
+   * to, co ma w profilu — reszta zostawała po starym), a flagi „dotknięcia”
+   * blokowałyby auto-odmianę narzędnika i opis dla nowej osoby.
+   * Zmiana pary kończy też poprawianie zapisanej umowy — to już nowa umowa.
+   */
+  const selectCandidate = (next: CandidateOption | null) => {
+    const changed = (candidate?.id ?? null) !== (next?.id ?? null);
+    setCandidate(next);
+    setStageId("");
+    if (!changed) return;
+    prefilledCand.current = null;
+    prefilledJob.current = null;
+    instrTouched.current = false;
+    descTouched.current = false;
+    if (candidate) {
+      setPartnerName("");
+      setPartnerInstrumental("");
+      setPartnerLegalName("");
+      setPartnerNip("");
+      setPartnerRegon("");
+      setPartnerBusinessAddress("");
+      setPartnerCorrespondenceAddress("");
+      setPartnerEmail("");
+      setPartnerPhone("");
+      setPartnerEntityType(null);
+    }
+    setScopeItemsOverride(null);
+    nipLookupSkip.current = null;
+    leaveSavedContract();
+  };
+
+  const selectStage = (value: string) => {
+    if (value !== stageId) leaveSavedContract();
+    setStageId(value);
+  };
+
+  /** Koniec poprawiania zapisanej umowy — następne pobranie to nowy numer. */
+  const leaveSavedContract = () => {
+    if (!savedContract) return;
+    setSavedContract(null);
+    void nextNumberQuery.refetch().then((r) => {
+      if (r.data) setContractNumber(r.data.contract_number);
+    });
+  };
+
+  // Para (kandydat, rekrutacja) z adresu — link z kroku „Umowa” rekrutacji.
+  // Efekt na WARTOŚCI parametrów: miękka nawigacja nie odmontowuje formularza.
+  useEffect(() => {
+    if (!prefillCandidateId) return;
+    let cancelled = false;
+    const pending = prefillJobId
+      ? { candidateId: prefillCandidateId, jobId: prefillJobId }
+      : null;
+    if (candidate?.id === prefillCandidateId) {
+      setPendingPrefill(pending);
+      return;
+    }
+    api
+      .get<CandidateDetail>(`/api/candidates/${prefillCandidateId}`)
+      .then((res) => {
+        if (cancelled) return;
+        const d = res.data;
+        const fullName =
+          d.full_name || `${d.name ?? ""} ${d.lastname ?? ""}`.trim();
+        selectCandidate({
+          id: prefillCandidateId,
+          name: d.name ?? "",
+          lastname: d.lastname ?? "",
+          full_name: fullName || `Kandydat #${prefillCandidateId}`,
+          email: d.email ?? null,
+        });
+        // selectCandidate czyści etap — rekrutację wybierze efekt niżej.
+        setPendingPrefill(pending);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) toast.showError(extractErrorMsg(e));
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Tylko na zmianę parametrów adresu — reszta to stan chwili wyboru.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillCandidateId, prefillJobId]);
+
+  useEffect(() => {
+    if (
+      !pendingPrefill ||
+      candidate?.id !== pendingPrefill.candidateId ||
+      !recruitmentsQuery.data
+    )
+      return;
+    const match = recruitmentsQuery.data.find(
+      (r) => r.job_id === pendingPrefill.jobId,
+    );
+    setPendingPrefill(null);
+    if (match) setStageId(String(match.stage_id));
+    else if (pendingPrefill.fromSaved) {
+      // Bez rekrutacji formularz nie przejdzie walidacji, a poprawka wymaga
+      // tej samej pary — cisza zostawiłaby zablokowany przycisk bez powodu.
+      toast.showError(
+        "Rekrutacji tej umowy nie ma już na liście rekrutacji kandydata — " +
+          "poprawka pod tym samym numerem wymaga tej samej rekrutacji.",
+      );
+    }
+    // `toast` ze stabilnego kontekstu — nie jest sygnałem do ponownego wyboru.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingPrefill, candidate?.id, recruitmentsQuery.data]);
+
+  // `?edit=<id>` — „Popraw umowę” z wiersza rejestru albo z ostrzeżenia
+  // o istniejącej umowie. Efekt na WARTOŚCI parametru (miękka nawigacja nie
+  // odmontowuje formularza). Wczytuje zapisany payload do KAŻDEGO pola
+  // i przełącza w tryb poprawki: pobranie idzie do `/rerender` tego wiersza.
+  useEffect(() => {
+    if (!editGeneratedId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { id, contract_number, form } =
+          await b2bGeneratorApi.generatedForm(editGeneratedId);
+        let candidateOption: CandidateOption | null = null;
+        if (form.candidate_id) {
+          const res = await api.get<CandidateDetail>(
+            `/api/candidates/${form.candidate_id}`,
+          );
+          const d = res.data;
+          const fullName =
+            d.full_name || `${d.name ?? ""} ${d.lastname ?? ""}`.trim();
+          candidateOption = {
+            id: form.candidate_id,
+            name: d.name ?? "",
+            lastname: d.lastname ?? "",
+            full_name: fullName || `Kandydat #${form.candidate_id}`,
+            email: d.email ?? null,
+          };
+        }
+        if (cancelled) return;
+        applySavedForm(id, contract_number, form, candidateOption);
+      } catch (e: unknown) {
+        if (!cancelled) toast.showError(extractErrorMsg(e));
+      } finally {
+        if (!cancelled) onEditConsumed?.();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Tylko na zmianę parametru — reszta to stan chwili wczytania.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editGeneratedId]);
+
+  // Żywa umowa tej osoby w tej rekrutacji — ostrzeżenie przed drugą. Ten sam
+  // klucz i kształt co krok „Umowa” rekrutacji (`JobContractTab`), więc
+  // unieważnienie `["b2b-generated"]` po pobraniu odświeża oba miejsca.
+  const selectedJobId = selectedRecruitment?.job_id ?? null;
+  const jobContractsQuery = useQuery({
+    queryKey: ["b2b-generated", "job", selectedJobId],
+    queryFn: () =>
+      b2bGeneratorApi.generated(50, { jobId: selectedJobId ?? undefined }),
+    enabled: !!candidate && !!selectedJobId,
+    staleTime: 60_000,
+  });
+  // Zapisana umowa obowiązuje tylko dla tej samej pary — inna osoba albo
+  // rekrutacja to nowa umowa (backend i tak odrzuciłby poprawkę 422).
+  const activeSaved =
+    savedContract &&
+    savedContract.candidateId === (candidate?.id ?? null) &&
+    savedContract.jobId === selectedJobId
+      ? savedContract
+      : null;
+  const existingContract = existingContractFor(
+    jobContractsQuery.data ?? [],
+    candidate?.id,
+    savedContract?.id ?? null,
+  );
+
   const buildPayload = (lang: Lang): B2BRenderPayload => ({
     candidate_id: candidate?.id ?? null,
     job_id: selectedRecruitment?.job_id ?? null,
@@ -3252,7 +3797,15 @@ function GeneratorForm() {
           }))
         : null,
     currency: currency.trim() || "PLN",
+    ...(scopeItemsOverride ? { scope_items_override: scopeItemsOverride } : {}),
   });
+
+  // Podgląd opisuje dane z chwili kliknięcia — po każdej zmianie formularza
+  // znika, zamiast udawać aktualny dokument.
+  const previewKey = JSON.stringify(buildPayload(language));
+  useEffect(() => {
+    setPreviewHtml("");
+  }, [previewKey]);
 
   const validate = (): boolean => {
     const missing: string[] = [];
@@ -3309,32 +3862,193 @@ function GeneratorForm() {
   };
 
   const docxMut = useMutation({
-    mutationFn: async (lang: Lang) => {
-      const res = await b2bGeneratorApi.renderDocx(buildPayload(lang));
+    mutationFn: async () => {
+      const payload = buildPayload(language);
+      // Formularz opisuje zapisaną umowę → poprawka tego samego wiersza pod
+      // tym samym numerem. Inaczej — nowy wpis w rejestrze.
+      const saved = activeSaved;
+      const res = saved
+        ? await b2bGeneratorApi.rerenderGenerated(saved.id, payload)
+        : await b2bGeneratorApi.renderDocx(payload);
+      const number = saved?.number ?? contractNumber.trim();
       const filename = parseDispositionFilename(
         res.headers["content-disposition"] || "",
-        `Umowa B2B ${contractNumber.trim().replaceAll("/", "-")}.docx`,
+        `Umowa B2B ${number.replaceAll("/", "-")}.docx`,
       );
       downloadBlob(res.data as Blob, filename);
+      return {
+        id: generatedIdFromHeaders(res.headers) ?? saved?.id ?? null,
+        number,
+        rerender: !!saved,
+      };
     },
-    onSuccess: () => {
-      toast.showSuccess("Umowa pobrana (DOCX).");
-      // Formularz nadal opisuje właśnie pobrany dokument. Nie podmieniamy
-      // numeru na N+1, bo kolejne „Wyślij/Oznacz wysłaną/Wgraj” muszą
-      // zaktualizować szkic dla tego samego numeru N.
-      nextNumberQuery.refetch();
-    },
-    onError: (e) => {
-      toast.showError(extractErrorMsg(e));
-      // Numer zajęty (409) → podstaw kolejny wolny, by można było od razu ponowić.
-      const status = (e as { response?: { status?: number } })?.response?.status;
-      if (status === 409) {
-        nextNumberQuery.refetch().then((r) => {
-          if (r.data) setContractNumber(r.data.contract_number);
+    onSuccess: (result) => {
+      toast.showSuccess(
+        result.rerender
+          ? `Umowa ${result.number} poprawiona i pobrana (ten sam numer).`
+          : `Umowa ${result.number} pobrana (DOCX) i zapisana w rejestrze.`,
+      );
+      if (result.id !== null) {
+        setSavedContract({
+          id: result.id,
+          number: result.number,
+          candidateId: candidate?.id ?? null,
+          jobId: selectedRecruitment?.job_id ?? null,
         });
       }
+      queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
+      // Podpowiedź „następny wolny numer” w polu numeru; samego numeru nie
+      // podmieniamy — formularz nadal opisuje właśnie zapisaną umowę.
+      void nextNumberQuery.refetch();
+    },
+    onError: (e) => {
+      const status = (e as { response?: { status?: number } })?.response?.status;
+      // 409 przy PIERWSZYM pobraniu = numer zajęty. Nie podmieniamy go po
+      // cichu: komunikat mówi, jaki numer podstawiono, i prosi o ponowne
+      // kliknięcie — użytkownik musi wiedzieć, pod jakim numerem wyjdzie umowa.
+      if (status === 409 && !activeSaved) {
+        const taken = contractNumber.trim();
+        void nextNumberQuery.refetch().then((r) => {
+          const next = r.data?.contract_number;
+          if (next && next !== taken) {
+            setContractNumber(next);
+            toast.showError(
+              `${extractErrorMsg(e)} Podstawiono numer ${next} — sprawdź go i kliknij „Pobierz DOCX” ponownie.`,
+            );
+          } else {
+            toast.showError(extractErrorMsg(e));
+          }
+        });
+        return;
+      }
+      toast.showError(extractErrorMsg(e));
     },
   });
+
+  /**
+   * Zapisany payload umowy → pola formularza + tryb poprawki. Flagi prefillu
+   * i „dotknięcia” są ustawiane PRZED renderem, żeby żaden efekt (profil
+   * kandydata, oferta, obszar, auto-odmiana, lookup NIP-u) nie nadpisał
+   * wczytanych wartości tym, co jest w bazie dziś.
+   */
+  const applySavedForm = (
+    id: number,
+    number: string,
+    form: B2BRenderPayload,
+    candidateOption: CandidateOption | null,
+  ) => {
+    const candidateId = candidateOption?.id ?? null;
+    const jobId = form.job_id ?? null;
+    prefilledCand.current = candidateId;
+    prefilledJob.current = jobId;
+    jobFieldsFromJob.current = true;
+    descTouched.current = true;
+    instrTouched.current = true;
+    const nipDigits = (form.partner_nip ?? "").replace(/\D/g, "");
+    nipLookupSkip.current = nipDigits || null;
+
+    setCandidate(candidateOption);
+    setCandidateQuery("");
+    setStageId("");
+    setPendingPrefill(
+      candidateId && jobId ? { candidateId, jobId, fromSaved: true } : null,
+    );
+    setLanguage(form.language === "en" ? "en" : "pl");
+    setGender(form.gender === "k" ? "k" : "m");
+    setRoleId(form.role_id ? String(form.role_id) : "");
+    setPartnerName(form.partner_name ?? "");
+    setPartnerInstrumental(form.partner_instrumental ?? "");
+    setPartnerLegalName(form.partner_legal_name ?? "");
+    setPartnerNip(form.partner_nip ?? "");
+    setPartnerRegon(form.partner_regon ?? "");
+    setPartnerBusinessAddress(form.partner_business_address ?? "");
+    setPartnerCorrespondenceAddress(form.partner_correspondence_address ?? "");
+    setPartnerEntityType(form.partner_entity_type ?? null);
+    setPartnerEmail(form.partner_email ?? "");
+    const phone = splitPhone(form.partner_phone);
+    setPhonePrefix(phone.prefix);
+    setPartnerPhone(phone.number);
+    setClientName(form.client_name ?? "");
+    setClientQuery("");
+    setProjectCity(form.project_city ?? "");
+    setProjectDescription(form.project_description ?? "");
+    setContractNumber(number);
+    setSigningDate(form.signing_date ?? "");
+    setStartDate(form.start_date ?? "");
+    setStartDateMode(
+      form.start_date_mode === "not_earlier" ||
+        form.start_date_mode === "not_later"
+        ? form.start_date_mode
+        : "exact",
+    );
+    const stages = form.rate_stages ?? [];
+    setRateStages(
+      stages.length > 1
+        ? stages.map((st) => ({
+            rate: String(st.rate),
+            from: st.effective_from ?? "",
+            to: st.effective_to ?? "",
+          }))
+        : [
+            {
+              rate:
+                form.rate_candidate != null ? String(form.rate_candidate) : "",
+              from: "",
+              to: "",
+            },
+          ],
+    );
+    setCurrency(form.currency || "PLN");
+    setScopeItemsOverride(form.scope_items_override ?? null);
+    setUop(null);
+    setPreviewHtml("");
+    setSavedContract({ id, number, candidateId, jobId });
+  };
+
+  /** „Nowa umowa” — pusty formularz i kolejny wolny numer. */
+  const resetForm = () => {
+    setSavedContract(null);
+    setCandidate(null);
+    setCandidateQuery("");
+    setStageId("");
+    setPendingPrefill(null);
+    setRoleId("");
+    setPartnerName("");
+    setPartnerLegalName("");
+    setPartnerNip("");
+    setPartnerRegon("");
+    setPartnerBusinessAddress("");
+    setPartnerCorrespondenceAddress("");
+    setPartnerEmail("");
+    setPartnerPhone("");
+    setPhonePrefix("+48");
+    setClientName("");
+    setClientQuery("");
+    setProjectCity("");
+    setProjectDescription("");
+    setSigningDate(todayISO());
+    setStartDate(todayISO());
+    setStartDateMode("exact");
+    setRateStages([emptyRateStage()]);
+    setCurrency("PLN");
+    setUop(null);
+    setGender("m");
+    setPartnerInstrumental("");
+    setPartnerEntityType(null);
+    setScopeItemsOverride(null);
+    nipLookupSkip.current = null;
+    setPreviewHtml("");
+    prefilledCand.current = null;
+    prefilledJob.current = null;
+    descTouched.current = false;
+    instrTouched.current = false;
+    jobFieldsFromJob.current = false;
+    setContractNumber("");
+    void nextNumberQuery.refetch().then((r) => {
+      if (r.data) setContractNumber(r.data.contract_number);
+    });
+    onClearPrefill?.();
+  };
 
   const previewMut = useMutation({
     mutationFn: () => b2bGeneratorApi.renderHtml(buildPayload(language)),
@@ -3352,43 +4066,11 @@ function GeneratorForm() {
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });
 
-  const onDocx = (lang: Lang) => {
-    if (validate()) docxMut.mutate(lang);
+  const onDocx = () => {
+    if (validate()) docxMut.mutate();
   };
   const onPreview = () => {
     if (validate()) previewMut.mutate();
-  };
-
-  // ── Wyślij do podpisu (in-house QES) ──────────────────────────────────────
-
-  const buildGeneratePayload = (): B2BGeneratePayload | null => {
-    if (!selectedRole || !candidate || !selectedRecruitment || !startDate) {
-      return null;
-    }
-    return {
-      role_id: selectedRole.id,
-      language,
-      candidate_id: candidate.id,
-      job_id: selectedRecruitment.job_id,
-      contract_number: contractNumber.trim() || null,
-      signing_date: signingDate || null,
-      start_date: startDate,
-      project_city: projectCity.trim() || null,
-      project_description: projectDescription.trim() || null,
-      correspondence_address: partnerCorrespondenceAddress.trim() || null,
-      rate_candidate: parseRate(rateStages[0]?.rate ?? ""),
-      // Etapy stawki trafiają też do harmonogramu kontraktu
-      // (candidate_rate_schedule) przy promocji draftu.
-      rate_stages:
-        rateStages.length > 1
-          ? rateStages.map((s) => ({
-              rate: parseRate(s.rate) ?? 0,
-              effective_from: s.from || null,
-              effective_to: s.to || null,
-            }))
-          : null,
-      currency: currency.trim() || "PLN",
-    };
   };
 
   // Bez roli legal-team każdy endpoint generatora zwraca 403: lista obszarów
@@ -3408,6 +4090,79 @@ function GeneratorForm() {
 
   return (
     <div className="space-y-4">
+      {activeSaved ? (
+        <Alert
+          variant="success"
+          title={`Umowa ${activeSaved.number} zapisana w rejestrze (W trakcie)`}
+        >
+          <p className="mt-0.5 text-xs opacity-90">
+            Poprawki zapiszesz pod tym samym numerem — także w drugim języku
+            (przełącz „Język umowy”). Zmiana kandydata albo rekrutacji zaczyna
+            nową umowę.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={docxMut.isPending}
+              onClick={onDocx}
+            >
+              {docxMut.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4" />
+              )}
+              Popraw i pobierz ponownie
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={docxMut.isPending}
+              onClick={resetForm}
+            >
+              <Plus className="h-4 w-4" />
+              Nowa umowa
+            </Button>
+          </div>
+        </Alert>
+      ) : null}
+
+      {existingContract ? (
+        /* Nie blokuje generowania: druga umowa bywa świadoma (aneks, nowy
+           zakres). Mówi tylko, że poprawka pierwszej jest w rejestrze. */
+        <Alert
+          variant="warning"
+          title={`Ta osoba ma już umowę ${existingContract.contract_number} (${
+            B2B_CONTRACT_STATUS_LABEL[existingContract.contract_status]
+          }) w tej rekrutacji`}
+        >
+          <p className="mt-0.5 text-xs opacity-90">
+            {canCorrectInForm(existingContract)
+              ? "Popraw ją pod tym samym numerem zamiast generować nową — każde pobranie tutaj zajmuje kolejny numer."
+              : "Sprawdź ją w rejestrze, zanim wygenerujesz nową — każde pobranie tutaj zajmuje kolejny numer."}{" "}
+            {/* Link obiecuje tylko to, co da się zrobić: poprawkę w formularzu
+                dla autora/admina i umowy „W trakcie”, w innym razie rejestr
+                z wyszukaną umową. */}
+            <Link
+              href={
+                canCorrectInForm(existingContract)
+                  ? generatorEditHref(existingContract.id)
+                  : registerSearchHref(
+                      existingContract.contract_number,
+                      existingContract.contract_status,
+                    )
+              }
+              className="font-semibold underline underline-offset-2"
+            >
+              {canCorrectInForm(existingContract)
+                ? `Popraw umowę ${existingContract.contract_number}`
+                : `Otwórz umowę ${existingContract.contract_number} w rejestrze`}
+            </Link>
+          </p>
+        </Alert>
+      ) : null}
+
       {/* Źródło danych */}
       <Card>
         <CardHeader>
@@ -3421,14 +4176,17 @@ function GeneratorForm() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <Label className="mb-1.5 block">
+              <Label className="mb-1.5 block" htmlFor={candidatePickerId}>
                 Kandydat <span className="text-destructive">*</span>
               </Label>
               <div className="flex gap-2">
                 <Popover open={candidateOpen} onOpenChange={setCandidateOpen}>
                   <PopoverTrigger asChild>
                     <Button
+                      id={candidatePickerId}
                       variant="outline"
+                      role="combobox"
+                      aria-expanded={candidateOpen}
                       className="w-full justify-between font-normal"
                     >
                       <span className="flex items-center gap-2 truncate">
@@ -3462,8 +4220,7 @@ function GeneratorForm() {
                               key={c.id}
                               value={String(c.id)}
                               onSelect={() => {
-                                setCandidate(c);
-                                setStageId("");
+                                selectCandidate(c);
                                 setCandidateOpen(false);
                               }}
                             >
@@ -3495,12 +4252,8 @@ function GeneratorForm() {
                     variant="ghost"
                     size="icon"
                     title="Wyczyść kandydata"
-                    onClick={() => {
-                      setCandidate(null);
-                      setStageId("");
-                      prefilledCand.current = null;
-                      prefilledJob.current = null;
-                    }}
+                    aria-label="Wyczyść kandydata"
+                    onClick={() => selectCandidate(null)}
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -3509,20 +4262,20 @@ function GeneratorForm() {
             </div>
 
             <div>
-              <Label className="mb-1.5 block">
+              <Label className="mb-1.5 block" htmlFor={recruitmentId}>
                 Rekrutacja (klient z rekrutacji){" "}
                 <span className="text-destructive">*</span>
               </Label>
               <Select
                 value={stageId}
-                onValueChange={setStageId}
+                onValueChange={selectStage}
                 disabled={
                   !candidate ||
                   !recruitmentsQuery.isSuccess ||
                   recruitmentsQuery.data.length === 0
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger id={recruitmentId}>
                   <SelectValue
                     placeholder={
                       !candidate
@@ -3562,6 +4315,7 @@ function GeneratorForm() {
                   type="button"
                   size="sm"
                   variant={language === l ? "primary" : "outline"}
+                  aria-pressed={language === l}
                   onClick={() => setLanguage(l)}
                 >
                   {l === "pl" ? "Polski" : "English"}
@@ -3600,6 +4354,7 @@ function GeneratorForm() {
                   type="button"
                   size="sm"
                   variant={gender === v ? "primary" : "outline"}
+                  aria-pressed={gender === v}
                   onClick={() => setGender(v)}
                 >
                   {lbl}
@@ -3671,7 +4426,7 @@ function GeneratorForm() {
               onChange={(e) => setPartnerEmail(e.target.value)}
             />
           </Field>
-          <Field label="Telefon" required>
+          <Field label="Telefon" required htmlFor={phoneId}>
             <div className="flex gap-2">
               <Select value={phonePrefix} onValueChange={setPhonePrefix}>
                 <SelectTrigger className="w-[92px] shrink-0">
@@ -3686,6 +4441,7 @@ function GeneratorForm() {
                 </SelectContent>
               </Select>
               <Input
+                id={phoneId}
                 value={partnerPhone}
                 onChange={(e) => setPartnerPhone(e.target.value)}
                 placeholder="600 100 200"
@@ -3701,11 +4457,14 @@ function GeneratorForm() {
           <CardTitle className="text-base">Klient i projekt</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          <Field label="Pełna nazwa Klienta" required>
+          <Field label="Pełna nazwa Klienta" required htmlFor={clientPickerId}>
             <Popover open={clientOpen} onOpenChange={setClientOpen}>
               <PopoverTrigger asChild>
                 <Button
+                  id={clientPickerId}
                   variant="outline"
+                  role="combobox"
+                  aria-expanded={clientOpen}
                   className="w-full justify-between font-normal"
                 >
                   <span className="truncate">
@@ -3831,9 +4590,11 @@ function GeneratorForm() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Label className="mb-1.5 block">Obszar *</Label>
+          <Label className="mb-1.5 block" htmlFor={roleSelectId}>
+            Obszar *
+          </Label>
           <Select value={roleId} onValueChange={setRoleId}>
-            <SelectTrigger>
+            <SelectTrigger id={roleSelectId}>
               <SelectValue placeholder="Wybierz obszar…" />
             </SelectTrigger>
             <SelectContent>
@@ -3860,16 +4621,22 @@ function GeneratorForm() {
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <Field label="Numer umowy (auto)" required>
             <Input
-              value={contractNumber}
+              value={activeSaved ? activeSaved.number : contractNumber}
               onChange={(e) => setContractNumber(e.target.value)}
               placeholder="np. 1435/2026"
+              // Numer zapisanej umowy jest już wydany — poprawka idzie pod
+              // ten sam numer, więc edycja pola nic by nie zmieniła.
+              readOnly={!!activeSaved}
+              disabled={!!activeSaved}
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              Format: liczba/rok. System podpowiada kolejny wolny numer
-              {nextNumberQuery.data?.contract_number
-                ? ` (${nextNumberQuery.data.contract_number})`
-                : ""}
-              ; ten sam numer nie może być użyty dwa razy.
+              {activeSaved
+                ? "Numer zapisanej umowy — nowy numer dostaniesz przyciskiem „Nowa umowa”."
+                : `Format: liczba/rok. System podpowiada kolejny wolny numer${
+                    nextNumberQuery.data?.contract_number
+                      ? ` (${nextNumberQuery.data.contract_number})`
+                      : ""
+                  }; ten sam numer nie może być użyty dwa razy, także po usunięciu umowy.`}
             </p>
           </Field>
           <Field label="Data podpisania" required>
@@ -3879,7 +4646,7 @@ function GeneratorForm() {
               onChange={(e) => setSigningDate(e.target.value)}
             />
           </Field>
-          <Field label="Data rozpoczęcia usług" required>
+          <Field label="Data rozpoczęcia usług" required htmlFor={startDateId}>
             <div className="flex gap-2">
               <Select
                 value={startDateMode}
@@ -3897,6 +4664,7 @@ function GeneratorForm() {
                 </SelectContent>
               </Select>
               <Input
+                id={startDateId}
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
@@ -3914,10 +4682,11 @@ function GeneratorForm() {
                     placeholder="np. 150"
                   />
                 </Field>
-                <Field label="Waluta">
-                  <Input
+                <Field label="Waluta" htmlFor={currencyId}>
+                  <CurrencySelect
+                    id={currencyId}
                     value={currency}
-                    onChange={(e) => setCurrency(e.target.value)}
+                    onChange={setCurrency}
                   />
                 </Field>
               </div>
@@ -3957,16 +4726,18 @@ function GeneratorForm() {
                       className="shrink-0 text-muted-foreground hover:text-destructive"
                       onClick={() => removeRateStage(i)}
                       title="Usuń etap stawki"
+                      aria-label={`Usuń etap stawki ${i + 1}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 ))}
                 <div className="grid grid-cols-3 gap-3">
-                  <Field label="Waluta">
-                    <Input
+                  <Field label="Waluta" htmlFor={currencyId}>
+                    <CurrencySelect
+                      id={currencyId}
                       value={currency}
-                      onChange={(e) => setCurrency(e.target.value)}
+                      onChange={setCurrency}
                     />
                   </Field>
                 </div>
@@ -4005,41 +4776,57 @@ function GeneratorForm() {
           )}
           Podgląd
         </Button>
-        <Button disabled={docxMut.isPending} onClick={() => onDocx("pl")}>
+        {/* Jeden przycisk w języku z „Język umowy”. Dwa (PL/EN) zakładały dwa
+            wiersze rejestru i dwa numery dla jednej umowy; teraz druga wersja
+            językowa to poprawka zapisanej umowy pod tym samym numerem. */}
+        <Button disabled={docxMut.isPending} onClick={onDocx}>
           {docxMut.isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <Download className="mr-2 h-4 w-4" />
           )}
-          Pobierz DOCX (PL)
+          {activeSaved
+            ? "Popraw i pobierz ponownie"
+            : `Pobierz DOCX (${language === "pl" ? "PL" : "EN"})`}
         </Button>
-        <Button
-          variant="outline"
-          disabled={docxMut.isPending}
-          onClick={() => onDocx("en")}
-        >
-          <Download className="mr-2 h-4 w-4" />
-          DOCX (EN)
-        </Button>
+        {activeSaved ? (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={docxMut.isPending}
+            onClick={resetForm}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Nowa umowa
+          </Button>
+        ) : null}
       </div>
 
       {/* Podgląd */}
       {previewHtml ? (
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0">
-            <CardTitle className="text-base">Podgląd umowy</CardTitle>
+            {/* Podgląd nie zapisuje umowy — numer w nim to tylko propozycja,
+                a wydruk nie jest dokumentem z rejestru. */}
+            <CardTitle className="text-base">
+              Podgląd (bez numeru w rejestrze)
+            </CardTitle>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => printHtml(previewHtml, "Umowa B2B")}
+              onClick={() => printHtml(previewHtml, "Podgląd umowy B2B")}
             >
               <Printer className="mr-2 h-4 w-4" />
-              Drukuj / PDF
+              Drukuj podgląd
             </Button>
           </CardHeader>
           <CardContent>
+            {/* `sandbox=""`: treść idzie z danych wpisanych w formularz (opis
+                projektu, nazwy), więc ramka nie wykonuje skryptów ani nie ma
+                dostępu do strony. Style inline działają i bez uprawnień. */}
             <iframe
               title="Podgląd umowy"
+              sandbox=""
               className="h-[520px] w-full rounded-lg border bg-white"
               srcDoc={`<style>${PREVIEW_STYLE}</style>${previewHtml}`}
             />
@@ -4100,6 +4887,8 @@ function UopPanel({
           size="icon"
           className="h-6 w-6 shrink-0"
           onClick={onClose}
+          aria-label="Zamknij wynik sprawdzenia AI"
+          title="Zamknij"
         >
           <X className="h-4 w-4" />
         </Button>
@@ -4132,25 +4921,80 @@ function UopPanel({
   );
 }
 
+/**
+ * Etykieta pola powiązana z kontrolką (`htmlFor`) — bez tego czytnik ekranu
+ * ogłaszał „pole edycji” bez nazwy, a klik w etykietę nie ustawiał kursora.
+ *
+ * Pojedyncze `Input`/`Textarea` dostaje id automatycznie; złożone pola (select
+ * z prefiksem, wybór klienta) przekazują `htmlFor` i same nadają id kontrolce.
+ */
 function Field({
   label,
   full,
   required,
+  htmlFor,
   children,
 }: {
   label: string;
   full?: boolean;
   required?: boolean;
+  htmlFor?: string;
   children: React.ReactNode;
 }) {
+  const autoId = useId();
+  let linkedId = htmlFor;
+  let assigned = false;
+  const content = htmlFor
+    ? children
+    : React.Children.map(children, (child) => {
+        if (
+          assigned ||
+          !React.isValidElement<{ id?: string }>(child) ||
+          (child.type !== Input && child.type !== Textarea)
+        ) {
+          return child;
+        }
+        assigned = true;
+        linkedId = child.props.id ?? autoId;
+        return child.props.id ? child : React.cloneElement(child, { id: autoId });
+      });
   return (
     <div className={full ? "sm:col-span-2" : undefined}>
-      <Label className="mb-1.5 block">
+      <Label className="mb-1.5 block" htmlFor={linkedId}>
         {label}
         {required ? <span className="text-destructive"> *</span> : null}
       </Label>
-      {children}
+      {content}
     </div>
+  );
+}
+
+/** Waluta stawki — zamknięta lista zamiast wolnego tekstu („pln”, „zł”). */
+function CurrencySelect({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const options = (B2B_CURRENCIES as readonly string[]).includes(value)
+    ? B2B_CURRENCIES
+    : [...B2B_CURRENCIES, value];
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger id={id}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((code) => (
+          <SelectItem key={code} value={code}>
+            {code}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 

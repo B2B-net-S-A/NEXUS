@@ -585,7 +585,8 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
     WYŁĄCZNIE potwierdzenie podpisu obustronnego. Droga wiedzie przez „W trakcie".
   - **Ręczny wybór „W trakcie" zszedł z walidatora DTO do handlera PATCH-a.**
     `B2BGeneratedContractUpdate` odrzucało ten status bezwarunkowo; od 0328 ma
-    dokładnie jeden legalny wybór ręczny (powrót z „Anulowanej"), a ten warunek
+    dwa legalne wybory ręczne — powrót z „Anulowanej" i (od 23.09.2026)
+    cofnięcie pomyłkowego zamknięcia NIEPODPISANEJ umowy — a ten warunek
     zależy od BIEŻĄCEGO statusu wiersza, którego DTO nie widzi. Komunikat dla
     przypadku niedozwolonego (`_IN_PROGRESS_IS_AUTOMATIC`) jest ten sam co był.
   - **Status podpisu zostaje „Niepodpisana"**, zmienia się tylko kolor wskaźnika
@@ -717,7 +718,8 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   MUSI wyczyścić `closure_*` (wymusza to CHECK), więc bez dziennika data i powód
   zakończenia poprzedniego projektu przepadałyby. `GET /generated/{id}/status-history`
   + dialog „Historia statusów". FK z **ON DELETE CASCADE** — `DELETE /generated/{id}`
-  zwalnia numer umowy, RESTRICT zamieniłby dziennik w blokadę tej operacji.
+  usuwa wpis (numer i tak nie wraca do puli — patrz niżej), RESTRICT
+  zamieniłby dziennik w blokadę tej operacji.
 - **Status handlowy ≠ status podpisu.** `contract_status` jest **niezależny** od
   `signature_status`. Podpisaną umowę też się wypowiada, więc PATCH statusu **nie
   jest** blokowany po podpisaniu — blokada 409 obejmuje wyłącznie treść dokumentu
@@ -772,6 +774,43 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   wyłącznie `EXCEPTION WHEN duplicate_object`, więc poszerzenie katalogu nigdy by na
   prodzie nie zadziałało — dołożony DROP przed ADD. Obie tabele B2B są w `core_checks`
   `/api/health/deep`.
+- **Poprawki po audycie 23.09.2026** (`test_b2b_generator_audit_2026_09_23.py`):
+  - **Numer nigdy nie wraca do puli.** Usunięty wpis zostawia `Activity`
+    `deleted` z numerem (`_deleted_contract_numbers`): `/render` odmawia 409
+    dokładnie tego numeru, a `_next_seq` go POMIJA (max żywych + 1, dalej
+    przeskok usuniętych) — nie liczy z usuniętych maksimum, bo jedna usunięta
+    literówka („15190/2026”) zawyżyłaby numerację na zawsze. 1518 i 1522/2026
+    zostały wydane dwóm różnym Partnerom, a usunięty DOCX mógł już wyjść mailem.
+    Numeracja jest **ciągła między latami** (zmienia się tylko rok), więc
+    `_next_seq` liczy maksimum po wszystkich latach — z filtrem po roku
+    1 stycznia sugestią byłoby „1/2027”.
+  - **„Aktywna” wyłącznie po podpisie obustronnym.** PATCH odrzuca 422 każde
+    przejście na `active` niepodpisanej umowy (poza powrotem z `suspended`);
+    pomyłkowo zamkniętą niepodpisaną umowę cofa się na „W trakcie”.
+  - **Poprawka = ten sam numer:** `POST /generated/{id}/rerender` (autor albo
+    admin, tylko `in_progress` i niepodpisana, bez zmiany kandydata/rekrutacji)
+    nadpisuje `render_payload` i snapshot. Do 23.09 jedyną drogą była
+    „usuń i wygeneruj” (15 usunięć na ~104 generacje), a wersja EN dostawała
+    drugi numer. `/render` i `/rerender` zwracają `X-Generated-Contract-Id`.
+    `GET /generated/{id}/form` (ta sama bramka, `_load_row_for_correction`)
+    oddaje zapisany formularz — „Popraw umowę” z wiersza rejestru działa też
+    po odświeżeniu, a nie tylko w karcie, w której umowę pobrano.
+  - **DOCX renderuje się PRZED zapisem wiersza** — błąd renderu nie zużywa
+    numeru.
+  - **Rejestr stronicuje** (`offset`, okno po `created_at DESC, id DESC`) —
+    front ładował 100 wierszy bez „Pokaż więcej”. Wiersz niesie
+    `linked_contract_status`/`linked_contract_end_date`: rejestr NIE zmienia
+    się sam, gdy kontrakt się kończy albo znika, więc lista ostrzega.
+  - **`POST /generate` nie nadpisuje stawki kontraktu, który istniał przed
+    wywołaniem**, jeśli wołający jej nie widzi (`_require_generator_rate_content`).
+  - **Front:** formularz po pobraniu pamięta wiersz (baner „Umowa N zapisana”,
+    „Popraw i pobierz ponownie” / „Nowa umowa”), jeden przycisk DOCX w języku
+    z przełącznika, ostrzeżenie o istniejącej umowie tej osoby w tej
+    rekrutacji, plakietki kontraktu zakończonego/kończącego się/usuniętego,
+    „Pokaż więcej”, `?tab=`/`?q=`/`?candidate=&job=` w adresie, „Zmień status”
+    w „Zakończonych”. Reguły: `lib/b2b-generator-register.ts`.
+  - Stawka zaokrąglana do groszy w schemacie (jedna reguła dla kwoty i kwoty
+    słownie); nazwy Partnera/Klienta ≤ 255 znaków (422, nie 500).
 - **Kontener listy:** `max-w-6xl` → `max-w-7xl` (9 kolumn + akcje).
 
 ## Centrum e-Zdrowia: umowy ramowe (części) → umowy wykonawcze + zamówienia MD (09.2026)
