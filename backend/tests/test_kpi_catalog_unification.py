@@ -14,17 +14,15 @@ from zoneinfo import ZoneInfo
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
-from app.models.call import Call, CallStatus
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, RecruitmentType
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
-from app.models.notification import Notification, NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services import kpi_target_normalization as norm

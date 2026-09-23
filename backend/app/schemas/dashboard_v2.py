@@ -12,7 +12,7 @@ must therefore never be serialized as a numeric zero.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field

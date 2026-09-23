@@ -51,7 +51,7 @@ from app.api import (
     reports,
     signing,
 )
-from app.api.deps import AdminUser, DeliveryLeadPlus, HeadOfRecruitmentPlus
+from app.api.deps import AdminUser, DeliveryLeadPlus
 from app.api.financial_access import (
     FinanceApproveUser,
     FinanceManageUser,

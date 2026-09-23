@@ -179,5 +179,3 @@ async def test_missing_person_has_no_default_denominator():
             db, [user_id], date(1999, 1, 1), date(1999, 1, 31)
         )
     assert got == {}
-
-

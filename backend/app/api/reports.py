@@ -34,9 +34,7 @@ from app.models.user import User, UserRole
 from app.services.client_identity import client_display_name_expression
 from app.services.contractor_identity import summarize_active_contracts
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
-from app.services.insights_workdays import working_days_for
 from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
-from app.services.kpi_targets import resolve_org_target
 from app.services.metric_definitions import (
     DL_HIT_RATIO_TARGET_PCT,
     VERIFIER_ANCHORED_MILESTONES,

@@ -42,7 +42,9 @@ class _Item:
 
 def test_local_asgi_override_is_not_treated_as_live_server():
     """Fixture zdefiniowany w PLIKU testowym → in-process, nie skipujemy."""
-    item = _Item(("client",), [_FixtureDef("tests/test_local_client_fixture_override.py")])
+    item = _Item(
+        ("client",), [_FixtureDef("tests/test_local_client_fixture_override.py")]
+    )
     assert _client_fixture_is_live_server(item) is False
 
 

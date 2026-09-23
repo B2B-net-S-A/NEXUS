@@ -323,5 +323,3 @@ def test_all_chat_routes_declare_candidate_read_or_write_guards() -> None:
             get_type_hints(handler, include_extras=True)["current_user"]
             == CandidateWriteAccess
         )
-
-
