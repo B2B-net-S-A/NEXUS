@@ -45,10 +45,13 @@ async def get_reassign_context(
 ) -> dict:
     stage = await _stage_or_404(db, stage_id)
     await ensure_job_read_access(db, current_user, stage.job_id)
-    ctx = await screening_reassign.reassign_context(
-        db, candidate_id=stage.candidate_id, job_id=stage.job_id
+    ctx, denied = await screening_reassign.accessible_context(
+        db, candidate_id=stage.candidate_id, job_id=stage.job_id, user=current_user
     )
-    return {"stage_id": stage.id, **screening_reassign.context_payload(ctx)}
+    return {
+        "stage_id": stage.id,
+        **screening_reassign.context_payload(ctx, denied=denied),
+    }
 
 
 @router.post("/stages/{stage_id}/screening/reassign-suggestions")

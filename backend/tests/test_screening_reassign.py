@@ -224,7 +224,7 @@ async def _seed_recruiter(app_client: AsyncClient) -> tuple[dict[str, str], int]
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}, uid
 
 
-async def _seed_pair(owner_id: int | None) -> dict:
+async def _seed_pair(owner_id: int | None, source_owner_id: int | None = None) -> dict:
     """Rekrutacja źródłowa z arkuszem screeningu + rekrutacja docelowa."""
     from app.models.candidate import Candidate, CandidateStatus
     from app.models.client import Client
@@ -242,6 +242,7 @@ async def _seed_pair(owner_id: int | None) -> dict:
             title=f"Java Source {tag}",
             status=JobStatus.published,
             client_id=cli.id,
+            recruiter_id=source_owner_id,
             champion_profile={
                 "screening_questions": [
                     {"id": "s1", "question": "Ile lat z Kafką?"},
@@ -310,7 +311,15 @@ async def _seed_pair(owner_id: int | None) -> dict:
         db.add(
             Note(
                 candidate_id=cand.id,
+                job_id=source.id,
                 content="Dostępny od października. Oczekuje 160 zł/h.",
+            )
+        )
+        # Notatka spoza obu rekrutacji przepięcia — NIE może trafić do modelu.
+        db.add(
+            Note(
+                candidate_id=cand.id,
+                content="Prywatnie: rozwód, negocjuje z konkurencją NIEZWIĄZANE.",
             )
         )
         await db.commit()
@@ -416,6 +425,9 @@ async def test_suggest_success_keeps_only_grounded_suggestions(monkeypatch) -> N
     assert "160" not in captured["prompt"]
     assert "tajne" not in captured["prompt"]
     assert "<previous_screening>" in captured["prompt"]
+    # Notatka z niezwiązanej rekrutacji zostaje poza modelem (przegląd
+    # bezpieczeństwa 23.09.2026).
+    assert "NIEZWIĄZANE" not in captured["prompt"]
 
 
 async def test_model_error_is_graceful(monkeypatch) -> None:
@@ -463,9 +475,36 @@ async def test_routes_require_job_membership(app_client: AsyncClient, monkeypatc
     assert r.status_code == 403, r.text
 
 
-async def test_routes_for_a_member(app_client: AsyncClient, monkeypatch):
+async def test_member_of_target_only_gets_no_source_answers(
+    app_client: AsyncClient, monkeypatch
+):
+    """Członkostwo w docelowej rekrutacji nie otwiera odpowiedzi z tamtej."""
     headers, uid = await _seed_recruiter(app_client)
     seed = await _seed_pair(owner_id=uid)
+    called = {"n": 0}
+
+    def fake(system: str, prompt: str) -> str:
+        called["n"] += 1
+        return '{"suggestions": []}'
+
+    monkeypatch.setattr(svc, "_call_model", fake)
+    r = await app_client.get(CONTEXT.format(stage_id=seed["stage_id"]), headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["available"] is False
+    assert r.json()["source"] is None
+    assert r.json()["message"] == svc.MSG_NO_SOURCE_ACCESS
+    r = await app_client.post(
+        SUGGEST.format(stage_id=seed["stage_id"]), headers=headers
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["message"] == svc.MSG_NO_SOURCE_ACCESS
+    assert r.json()["source"] is None
+    assert called["n"] == 0
+
+
+async def test_routes_for_a_member(app_client: AsyncClient, monkeypatch):
+    headers, uid = await _seed_recruiter(app_client)
+    seed = await _seed_pair(owner_id=uid, source_owner_id=uid)
     r = await app_client.get(CONTEXT.format(stage_id=seed["stage_id"]), headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()

@@ -32,7 +32,10 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.recruitment_access import user_can_edit_rates
+from fastapi import HTTPException
+from sqlalchemy import text
+
+from app.api.recruitment_access import ensure_job_read_access, user_can_edit_rates
 from app.models.ai_feature import AIFeatureKey
 from app.models.job import Job
 from app.models.job_proposal import JobProposal
@@ -43,18 +46,24 @@ from app.services import champion_view
 from app.services.ai_models import fallbacks_for, model_for
 from app.services.ai_quota import ai_feature
 from app.services.llm_prompts import SCREENING_REASSIGN_SUGGEST
-from app.services.notes_insights_extractor import build_notes_blob, load_note_rows
+from app.services.notes_insights_extractor import build_notes_blob
 from app.services.prompt_fencing import fence, json_for_prompt, neutralize_tags
 
 logger = logging.getLogger(__name__)
 
 FEATURE = AIFeatureKey.screening_reassign_suggest
+# Najwyżej tyle notatek (z dwóch rekrutacji przepięcia) idzie do modelu.
+NOTES_ROW_LIMIT = 20
 
 MSG_NOT_REASSIGNED = (
     "Ta osoba nie przyszła z przepięcia — nie ma poprzedniej rekrutacji, "
     "z której Luna mogłaby podpowiedzieć odpowiedzi."
 )
 MSG_NO_QUESTIONS = "Ta rekrutacja nie ma pytań screeningowych w profilu Championa."
+MSG_NO_SOURCE_ACCESS = (
+    "Nie masz dostępu do rekrutacji, z której przyszło przepięcie — "
+    "uzupełnij odpowiedzi ręcznie."
+)
 MSG_NO_MATERIAL = (
     "Z poprzedniej rekrutacji nie ma ani odpowiedzi ze screeningu, ani notatek "
     "— uzupełnij odpowiedzi ręcznie."
@@ -288,6 +297,46 @@ def validate_suggestions(
     return out
 
 
+async def accessible_context(
+    db: AsyncSession, *, candidate_id: int, job_id: int, user: User
+) -> tuple[Optional[ReassignContext], bool]:
+    """Kontekst przepięcia, o ile ``user`` może czytać rekrutację źródłową.
+
+    Zwraca ``(ctx, denied)``. Odpowiedzi ze screeningu i tytuł rekrutacji
+    źródłowej należą do TAMTEJ rekrutacji — członkostwo w docelowej nie daje
+    do nich wglądu (przegląd bezpieczeństwa 23.09.2026).
+    """
+    ctx = await reassign_context(db, candidate_id=candidate_id, job_id=job_id)
+    if ctx is None:
+        return None, False
+    try:
+        await ensure_job_read_access(db, user, ctx.source_job_id)
+    except HTTPException:
+        return None, True
+    return ctx, False
+
+
+async def _job_scoped_notes(
+    db: AsyncSession, *, candidate_id: int, job_ids: tuple[int, int]
+) -> str:
+    """Notatki kandydata WYŁĄCZNIE z tych dwóch rekrutacji (źródłowej
+    i docelowej) — nie ze wszystkich jego procesów. Notatka z niezwiązanej
+    rekrutacji (negocjacje, sprawy osobiste) nie może trafić do modelu ani
+    wrócić w cytacie podpowiedzi."""
+
+    rows = (
+        await db.execute(
+            text(
+                "SELECT id, updated_at, created_at::date AS d, content FROM notes "
+                "WHERE candidate_id = :c AND job_id = ANY(:jobs) "
+                "ORDER BY created_at DESC LIMIT :lim"
+            ),
+            {"c": candidate_id, "jobs": list(job_ids), "lim": NOTES_ROW_LIMIT},
+        )
+    ).all()
+    return build_notes_blob(list(rows))
+
+
 async def suggest_answers(
     db: AsyncSession, *, stage: CandidateStage, user: User
 ) -> dict:
@@ -301,7 +350,11 @@ async def suggest_answers(
     user_id = user.id
     include_rates = user_can_edit_rates(user)
 
-    ctx = await reassign_context(db, candidate_id=candidate_id, job_id=job_id)
+    ctx, denied = await accessible_context(
+        db, candidate_id=candidate_id, job_id=job_id, user=user
+    )
+    if denied:
+        return _unavailable(MSG_NO_SOURCE_ACCESS)
     if ctx is None:
         return _unavailable(MSG_NOT_REASSIGNED)
 
@@ -319,7 +372,11 @@ async def suggest_answers(
     if not questions:
         return _unavailable(MSG_NO_QUESTIONS, ctx)
 
-    notes = build_notes_blob(await load_note_rows(db, candidate_id))[:NOTES_CHAR_LIMIT]
+    notes = (
+        await _job_scoped_notes(
+            db, candidate_id=candidate_id, job_ids=(ctx.source_job_id, job_id)
+        )
+    )[:NOTES_CHAR_LIMIT]
     previous = "\n\n".join(
         f"P: {a['question']}\nO: {a['answer']}"
         if a["question"]
@@ -376,8 +433,15 @@ async def suggest_answers(
     }
 
 
-def context_payload(ctx: Optional[ReassignContext]) -> dict:
+def context_payload(ctx: Optional[ReassignContext], *, denied: bool = False) -> dict:
     """Odpowiedź `GET …/reassign-context` — bez wywołania modelu."""
+    if denied:
+        return {
+            "available": False,
+            "source": None,
+            "previous_answers_count": 0,
+            "message": MSG_NO_SOURCE_ACCESS,
+        }
     if ctx is None:
         return {"available": False, "source": None, "previous_answers_count": 0}
     return {
