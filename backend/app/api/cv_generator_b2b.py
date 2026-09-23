@@ -4034,8 +4034,10 @@ async def attach_generated_cv_consent(
 
     row = await _load_generated_document(db, generated_id, current_user)
     # Dołączenie zgody ponownie ZATWIERDZA wersje (także CV etapu), więc
-    # bramka jest taka jak przy zatwierdzaniu: autor CV, admin albo członek
-    # zespołu rekrutacji. Sam odczyt (np. Finanse spoza zespołu) nie wystarcza.
+    # bramka jest taka jak przy zatwierdzaniu: autor CV, admin albo bramka
+    # zespołu rekrutacji (od 23.09.2026 przepuszcza każdą rolę wewnętrzną,
+    # #1742). CV bez rekrutacji — tylko autor albo admin. Zrzut i tak musi
+    # należeć do osoby, która go dołącza (pokwitowanie, 422).
     if row.created_by != current_user.id and not current_user.has_role(UserRole.admin):
         if row.job_id is None:
             raise HTTPException(

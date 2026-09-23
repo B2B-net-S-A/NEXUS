@@ -523,11 +523,13 @@ async def _version_count(world: dict) -> int:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role_name", ["finance", "recruiter"])
-async def test_outsider_cannot_attach_consent(
+async def test_outsider_cannot_attach_someone_elses_consent_screenshot(
     pv_client: AsyncClient, storage, monkeypatch, role_name
 ):
-    """Dołączenie zgody ponownie ZATWIERDZA wersje — bramka jak przy
-    zatwierdzaniu (autor, admin, zespół rekrutacji). Sam odczyt nie wystarcza."""
+    """Od 23.09.2026 bramka zespołu rekrutacji przepuszcza każdą rolę wewnętrzną
+    (#1742), więc osoba spoza zespołu przechodzi przez bramkę — ale pokwitowanie
+    zrzutu jest przypięte do osoby, która go wgrała. Cudzym zrzutem nie dołączy
+    zgody i nic się nie zmienia."""
     from app.models.user import UserRole
 
     world = await _package()
@@ -542,7 +544,7 @@ async def test_outsider_cannot_attach_consent(
         headers=_role_headers(outsider, role),
         json={"consent_screenshot_token": upload.json()["consent_token"]},
     )
-    assert response.status_code == 403, response.text
+    assert response.status_code == 422, response.text
     assert await _version_count(world) == before
     [primary, _second] = await _rows(world)
     assert primary.consent_content is None
@@ -553,6 +555,27 @@ async def test_outsider_cannot_attach_consent(
     )
     assert author.status_code == 200, author.text
     assert await _version_count(world) > before
+
+
+@pytest.mark.asyncio
+async def test_legacy_viewer_cannot_attach_consent(pv_client: AsyncClient, storage):
+    """Stara rola podglądu ``user`` nie pisze w rekrutacjach — ani bramka roli,
+    ani członkostwo jej nie przepuszczają."""
+    from app.models.user import UserRole
+
+    world = await _package()
+    await _approve(world)
+    before = await _version_count(world)
+    upload = await _upload_consent(pv_client, world, _png("white"))
+    assert upload.status_code == 200, upload.text
+    viewer = await _user(UserRole.user)
+    response = await pv_client.post(
+        f"/api/cv-generator/generated/{world['primary_id']}/consent",
+        headers=_role_headers(viewer, UserRole.user),
+        json={"consent_screenshot_token": upload.json()["consent_token"]},
+    )
+    assert response.status_code == 403, response.text
+    assert await _version_count(world) == before
 
 
 @pytest.mark.asyncio
