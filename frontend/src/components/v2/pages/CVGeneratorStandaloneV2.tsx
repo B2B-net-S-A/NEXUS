@@ -2,6 +2,7 @@
 
 import { useCentralPolicy } from "@/components/cv-rules/CentralPolicyView";
 import { CvPackagePanel } from "@/components/v2/cv-generator/CvPackagePanel";
+import { CvSourceTiles } from "@/components/v2/cv-generator/CvSourceTiles";
 import { withCvGenerationRequest } from "@/lib/cv-generation-request";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
@@ -940,8 +941,8 @@ export function CVGeneratorStandaloneV2({
           <div>
             <h1 className="text-2xl font-bold text-foreground">Generator CV</h1>
             <p className="text-sm text-muted-foreground">
-              Wygeneruj CV w szablonie B2B Network z danych procesu w NEXUSie.
-              Masz tylko plik CV? Przełącz się na upload poniżej.
+              Wygeneruj CV w szablonie B2B Network — z danych procesu w NEXUSie
+              albo z samego pliku CV.
             </p>
           </div>
         </div>
@@ -949,22 +950,10 @@ export function CVGeneratorStandaloneV2({
 
       {canWriteSourcing ? (
         <>
-      {/* Domyślna ścieżka to generacja z procesu. Upload samego pliku jest
-          wyjątkiem, więc zamiast dwóch równorzędnych kafelków „New / Old"
-          jest jeden dyskretny przełącznik — mniej decyzji na starcie. */}
-      <div className="mb-3 flex justify-end">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-auto px-0 text-xs text-muted-foreground hover:text-foreground"
-          onClick={() => handleModeChange(mode === "new" ? "old" : "new")}
-        >
-          {mode === "new"
-            ? "Mam tylko plik CV (bez procesu)"
-            : "Wróć do generowania z procesu"}
-        </Button>
-      </div>
+      {/* Dwa równorzędne kafelki źródła CV. Do 09.2026 upload był dyskretnym
+          linkiem w prawym rogu i zespół go nie zauważał — szukał kandydata
+          w procesie, choć miał w ręku sam plik. */}
+      <CvSourceTiles className="mb-4" value={mode} onChange={handleModeChange} />
       <FieldMarksLegend className="mb-3" />
 
       {mode === "new" ? (
