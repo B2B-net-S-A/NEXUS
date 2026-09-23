@@ -628,6 +628,7 @@ async def lifespan(app: FastAPI):
         insights_seniority_journal_loop,
     )
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
+    from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
@@ -731,6 +732,9 @@ async def lifespan(app: FastAPI):
         "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
+        # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
+        # Rodzaje domyślnie OFF w Ustawieniach → Powiadomienia; znacznik w bazie.
+        "kpi_email_reports": asyncio.create_task(kpi_email_reports_loop()),
         # Powiadomienia Delivery Leada (0233). Kill-switch sprawdzany PRZED
         # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
         # 24 h po to, żeby sprawdzić tę samą flagę.
