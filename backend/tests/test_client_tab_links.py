@@ -166,7 +166,10 @@ def test_backend_page_links_use_real_frontend_tab_keys() -> None:
         for match in _CANDIDATE_ACTIVITY.finditer(text):
             if match.group(1) not in activity_keys:
                 offenders.append(f"{where}: activity={match.group(1)}")
-    assert all(seen.values()), f"Wzorzec linku przestał cokolwiek dopasowywać: {seen}"
+    # `/insights?tab=` nie ma dziś żadnego linku w backendzie (jedyny niósł
+    # usunięty alert Power Calling) — wzorzec zostaje, żeby sprawdzić następny.
+    required = {page: count for page, count in seen.items() if page != "insights"}
+    assert all(required.values()), f"Wzorzec linku przestał cokolwiek dopasowywać: {seen}"
     assert not offenders, offenders
 
 
