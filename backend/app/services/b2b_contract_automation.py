@@ -995,6 +995,15 @@ async def ensure_b2b_employment_draft(
                 else "pipeline"
             ),
         )
+        if created_order and order is not None:
+            # audyt 22.09 r2 (FIN-CHG-2): zamówienie z podpisu zamyka brak od
+            # razu — inaczej moment uzupełnienia brał czas nocnej pętli.
+            from app.services.order_gaps import refresh_order_gaps_safely
+
+            await db.flush()
+            await refresh_order_gaps_safely(
+                db, contract_ids=[contract.id], actor_id=actor_id
+            )
 
     created_hired_stage = False
     if ensure_hired:

@@ -17,7 +17,7 @@ from decimal import Decimal
 import pytest
 from httpx import AsyncClient
 from openpyxl import load_workbook
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus, ContractType, RateUnit
@@ -362,6 +362,36 @@ async def test_rate_reverted_by_contract_sync_in_the_same_request_is_not_a_chang
     assert resp.status_code == 200, resp.text
     assert Decimal(str(resp.json()["rate_candidate"])) == Decimal("960")
     assert [event.field for event in await _events(ids["order_id"])] == []
+
+
+async def test_rolled_back_savepoint_does_not_drop_earlier_changes_of_the_transaction():
+    """FIN-CHG-3 (audyt 22.09): wycofany SAVEPOINT nie kasuje zmian sprzed niego.
+
+    Writerzy (poczta zamówień, synchronizacja) otwierają ``begin_nested`` i przy
+    odmowie wycofują savepoint. Dziennik zapamiętywał stare wartości dla całej
+    transakcji, a wycofanie savepointu czyściło je w całości — zmiana stawki
+    zapisana PRZED savepointem ginęła z „Zmian w zamówieniach".
+    """
+    from app.core.database import AsyncSessionLocal
+
+    day = _far_day(2081, 2084)
+    ids = await _seed(start=day, end=day + timedelta(days=90))
+    async with AsyncSessionLocal() as db:
+        order = await db.get(ClientOrder, ids["order_id"])
+        order.rate_candidate = Decimal("1000")
+        await db.flush()
+        async with db.begin_nested() as savepoint:
+            order.end_date = day + timedelta(days=120)
+            await db.flush()
+            await savepoint.rollback()
+        await db.commit()
+
+    events = await _events(ids["order_id"])
+    assert [event.field for event in events] == ["rate_cost"], events
+    assert (events[0].old_amount, events[0].new_amount) == (
+        Decimal("960"),
+        Decimal("1000"),
+    )
 
 
 # ── Braki ───────────────────────────────────────────────────────────────────
@@ -1200,6 +1230,80 @@ async def test_md_line_still_billing_after_its_end_date_is_not_a_gap(monkeypatch
     assert await _gap_for(ids["order_id"]) is None
 
 
+async def _as_md_line(order_id: int, **extra) -> None:
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        order = await db.get(ClientOrder, order_id)
+        order.md_total = Decimal("100")
+        order.md_remaining = Decimal("20")
+        order.md_rate_revenue = Decimal("1340")
+        order.md_input_mode = "md"
+        order.md_input_value = Decimal("100")
+        for key, value in extra.items():
+            setattr(order, key, value)
+        await db.commit()
+
+
+async def test_md_line_closed_forward_is_completed_once_its_day_passed():
+    """FIN-CHG-1 (audyt 22.09): linia MD zamknięta „w przód" nie wisi ``active``.
+
+    Zamiana kontraktora z datą w przyszłości i zamknięcie grupy z przyszłą datą
+    zostawiały poprzednika ``active`` na zawsze — skaner celowo nie domyka linii
+    MD po dacie. Świadomy koniec (następca, zakończona grupa) domyka ją teraz;
+    linia z samą datą nadal pracuje do wyczerpania budżetu.
+    """
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.client_order_group import ClientOrderGroup
+    from app.tasks.dl_portal_expiry_scanner import _promote_statuses
+
+    today = business_today()
+    end = today - timedelta(days=3)
+    swapped = await _seed(start=end - timedelta(days=60), end=end)
+    await _as_md_line(swapped["order_id"])
+    await _add_order(
+        swapped,
+        start=end + timedelta(days=1),
+        end=today + timedelta(days=60),
+        predecessor_order_id=swapped["order_id"],
+    )
+    still_billing = await _seed(start=end - timedelta(days=60), end=end)
+    await _as_md_line(still_billing["order_id"])
+    closed = await _seed(start=end - timedelta(days=60), end=end)
+    async with AsyncSessionLocal() as db:
+        group = ClientOrderGroup(
+            client_id=closed["client_id"],
+            order_number=f"G-{uuid.uuid4().hex[:6]}",
+            order_type="md",
+            status="completed",
+            start_date=end - timedelta(days=60),
+            end_date=end,
+            closure_date=end,
+        )
+        db.add(group)
+        await db.commit()
+        group_id = group.id
+    await _as_md_line(closed["order_id"], order_group_id=group_id)
+
+    async with AsyncSessionLocal() as db:
+        await _promote_statuses(db)
+        await db.commit()
+        statuses = {
+            key: (await db.get(ClientOrder, ids["order_id"])).status
+            for key, ids in (
+                ("swapped", swapped),
+                ("still_billing", still_billing),
+                ("closed", closed),
+            )
+        }
+    assert statuses == {
+        "swapped": ClientOrderStatus.completed,
+        "still_billing": ClientOrderStatus.active,
+        "closed": ClientOrderStatus.completed,
+    }
+
+
 async def test_successor_on_a_contract_without_a_person_is_seen(monkeypatch):
     from app.core.database import AsyncSessionLocal
 
@@ -1353,3 +1457,101 @@ async def test_reminders_stop_and_card_closes_once_cooperation_ended(monkeypatch
         ).all()
     assert alerts and all(a.status == DL_ALERT_STATUS_HANDLED for a in alerts)
     assert all(a.handled_by_user_id is None for a in alerts)
+
+
+async def test_gap_resolved_by_a_later_run_keeps_the_successor_creation_time(
+    monkeypatch,
+):
+    """FIN-CHG-2: moment uzupełnienia = założenie następcy, nie przebieg pętli."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.order_gap import GAP_STATUS_FILLED_LATE
+    from app.services.order_gaps import resolve_order_gaps
+
+    end = _far_day(2085, 2088)
+    ids = await _seed(start=end - timedelta(days=60), end=end)
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=1))
+    successor_id = await _add_order(
+        ids, start=end + timedelta(days=1), end=end + timedelta(days=90)
+    )
+    async with AsyncSessionLocal() as db:
+        successor = await db.get(ClientOrder, successor_id)
+        created = successor.created_at
+        await resolve_order_gaps(
+            db,
+            contract_ids=[ids["contract_id"]],
+            now=created + timedelta(days=5),
+        )
+        await db.commit()
+    gap = await _gap_for(ids["order_id"])
+    assert gap.status == GAP_STATUS_FILLED_LATE
+    assert gap.resolved_at == created
+
+
+async def test_deleted_order_leaves_no_gap_in_the_report_and_closes_the_card(
+    monkeypatch, app_client: AsyncClient, app_auth_headers: dict
+):
+    """FIN-CHG-5: brak usuniętego zamówienia nie jest pokazywany ani przypominany."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.dl_alert import (
+        ALERT_ORDER_MISSING_SUCCESSOR,
+        DL_ALERT_STATUS_NEW,
+        DlAlert,
+    )
+
+    end = _far_day(2085, 2088)
+    ids = await _seed(start=end - timedelta(days=60), end=end)
+    await _seed_dl(ids["client_id"])
+    await _detect(monkeypatch, tracking_start=end, today=end + timedelta(days=1))
+    gap = await _gap_for(ids["order_id"])
+    assert gap is not None
+
+    resp = await app_client.delete(
+        f"/api/clients/{ids['client_id']}/orders/{ids['order_id']}",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code in (200, 204), resp.text
+
+    async with AsyncSessionLocal() as db:
+        open_cards = await db.scalar(
+            select(func.count())
+            .select_from(DlAlert)
+            .where(
+                DlAlert.alert_type == ALERT_ORDER_MISSING_SUCCESSOR,
+                DlAlert.client_id == ids["client_id"],
+                DlAlert.status == DL_ALERT_STATUS_NEW,
+            )
+        )
+    assert open_cards == 0
+    body = await _month(
+        app_client,
+        app_auth_headers,
+        end + timedelta(days=1),
+        client_id=ids["client_id"],
+    )
+    assert _gap_order_ids(body, ids["client_id"]) == set()
+
+
+async def test_md_line_billing_at_another_client_is_an_additional_project():
+    """FIN-CHG-6: linia MD z budżetem po dacie końca to równoległa praca."""
+    from app.services.finance_order_changes import _runs_on
+
+    md = _fact(1, md_total=Decimal("100"), md_remaining=Decimal("10"))
+    assert _runs_on(md, date(2026, 12, 1))
+    assert not _runs_on(_fact(2), date(2026, 12, 1))
+
+
+async def test_draft_and_order_of_the_same_person_are_one_entry(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """FIN-CHG-7: szkic + zamówienie tej samej współpracy = jedno Wejście."""
+    day = _far_day(2081, 2084).replace(day=10)
+    ids = await _seed(start=day, end=day + timedelta(days=90))
+    await _add_order(
+        ids,
+        start=day + timedelta(days=5),
+        end=day + timedelta(days=60),
+        status=ClientOrderStatus.draft,
+    )
+    body = await _month(app_client, app_auth_headers, day, client_id=ids["client_id"])
+    entries = [e for e in body["entries"] if e["client_id"] == ids["client_id"]]
+    assert [e["order_id"] for e in entries] == [ids["order_id"]]

@@ -67,6 +67,17 @@ _ORDER_FIELDS = (
     "end_date",
 )
 _GROUP_FIELDS = ("status", "end_date")
+#: Pola czytane przy budowie zdarzenia (poza śledzonymi) — zapamiętywane po
+#: flushu, bo wycofany savepoint wygasza obiekt (FIN-CHG-3).
+_CONTEXT_FIELDS = (
+    *_ORDER_FIELDS,
+    "order_group_id",
+    "contract_id",
+    "client_id",
+    "currency",
+    "rate_client_currency",
+    "rate_candidate_currency",
+)
 
 # Grupy, których zmiana daty nie jest jeszcze zmianą obowiązującego
 # zamówienia (odpowiednik szkicu zamówienia samodzielnego).
@@ -93,14 +104,27 @@ def _amount(value: Any) -> Optional[Decimal]:
 class _Snapshot:
     """Obiekt z pierwszymi starymi wartościami pól z tej transakcji."""
 
-    __slots__ = ("obj", "old")
+    __slots__ = ("obj", "old", "flushed")
 
     def __init__(self, obj: object) -> None:
         self.obj = obj
         self.old: dict[str, Any] = {}
+        #: Wartość po ostatnim flushu. Wycofany SAVEPOINT wygasza obiekty
+        #: zmienione w jego trakcie — wtedy bieżąca wartość jest nieznana, a ta
+        #: (odtworzona sprzed savepointu) nadal mówi, co zapisano wcześniej.
+        self.flushed: dict[str, Any] = {}
+
+    def copy(self) -> "_Snapshot":
+        clone = _Snapshot(self.obj)
+        clone.old = dict(self.old)
+        clone.flushed = dict(self.flushed)
+        return clone
 
     def current(self, key: str) -> Any:
-        return inspect(self.obj).dict.get(key, NO_VALUE)
+        value = inspect(self.obj).dict.get(key, NO_VALUE)
+        if value is NO_VALUE:
+            return self.flushed.get(key, NO_VALUE)
+        return value
 
     def initial(self, key: str) -> Any:
         """Wartość z początku transakcji (bieżąca, gdy pole się nie zmieniło)."""
@@ -245,11 +269,59 @@ def _capture_before_flush(
     _capture(session)
 
 
+@event.listens_for(Session, "after_flush")
+def _remember_flushed_values(session: Session, _flush_context: object) -> None:
+    for snap in (session.info.get(_PENDING_KEY) or {}).values():
+        state = inspect(snap.obj).dict
+        for key in (*snap.old, *_CONTEXT_FIELDS):
+            if key in state:
+                snap.flushed[key] = state[key]
+
+
+# ── SAVEPOINT-y (audyt 22.09, FIN-CHG-3) ─────────────────────────────────────
+# ``before_commit``/``after_commit``/``after_rollback`` odpalają się także dla
+# transakcji ZAGNIEŻDŻONEJ. Dawniej wycofanie savepointu czyściło zapamiętane
+# zmiany CAŁEJ transakcji (zmiana sprzed savepointu znikała z dziennika),
+# a zatwierdzenie savepointu zapisywało stan pośredni. Teraz: savepoint
+# zapamiętuje stan dziennika na starcie, wycofanie go odtwarza, a zapis
+# i czyszczenie dzieją się wyłącznie w transakcji głównej.
+_SAVEPOINTS_KEY = "order_change_audit.savepoints"
+
+
+@event.listens_for(Session, "after_transaction_create")
+def _remember_state_at_savepoint(session: Session, transaction: Any) -> None:
+    if not getattr(transaction, "nested", False):
+        return
+    pending: dict = session.info.get(_PENDING_KEY) or {}
+    session.info.setdefault(_SAVEPOINTS_KEY, {})[id(transaction)] = {
+        key: snap.copy() for key, snap in pending.items()
+    }
+
+
+@event.listens_for(Session, "after_soft_rollback")
+def _forget_after_rollback(session: Session, previous_transaction: Any) -> None:
+    # Uwaga: ``after_transaction_end`` odpala się PRZED tym zdarzeniem, więc
+    # zapamiętany stan savepointu zdejmujemy dopiero tutaj.
+    if getattr(previous_transaction, "nested", False):
+        saved = (session.info.get(_SAVEPOINTS_KEY) or {}).pop(
+            id(previous_transaction), None
+        )
+        if saved is not None:
+            session.info[_PENDING_KEY] = saved
+        return
+    session.info.pop(_PENDING_KEY, None)
+    session.info.pop(_SAVEPOINTS_KEY, None)
+
+
 @event.listens_for(Session, "before_commit")
 def _record_order_changes(session: Session) -> None:
     # Zmiany, które nie przeszły jeszcze przez flush, też należą do tej
     # transakcji — commit sflushuje je dopiero po tym zdarzeniu.
     _capture(session)
+    if session.in_nested_transaction():
+        # Zatwierdzenie SAVEPOINT-u nie kończy transakcji — zmiany zapisze
+        # commit główny (jedna zmiana na transakcję, nie na savepoint).
+        return
     pending: dict = session.info.pop(_PENDING_KEY, None) or {}
     if not pending:
         return
@@ -272,12 +344,10 @@ def _record_order_changes(session: Session) -> None:
             )
 
 
-@event.listens_for(Session, "after_rollback")
-def _forget_after_rollback(session: Session) -> None:
-    session.info.pop(_PENDING_KEY, None)
-
-
 @event.listens_for(Session, "after_commit")
 def _forget_after_commit(session: Session) -> None:
+    if session.in_nested_transaction():
+        return
     # Flush wewnątrz commitu łapie te same obiekty jeszcze raz — już zapisane.
     session.info.pop(_PENDING_KEY, None)
+    session.info.pop(_SAVEPOINTS_KEY, None)

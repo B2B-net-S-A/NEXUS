@@ -86,6 +86,7 @@ from app.schemas.new_contractor_order import (
     NewContractorOrderResponse,
 )
 from app.services import storage_service
+from app.services.order_gaps import close_gaps_of_deleted_orders
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.client_access import deny, resolve_client_access
 from app.services.client_default_rate_unit import default_rate_unit_for_client
@@ -2678,6 +2679,8 @@ async def delete_order(
         if deleted:
             po_path = order.file_path
             was_draft = order.status == ClientOrderStatus.draft
+            # audyt 22.09 r2 (FIN-CHG-5): karty DL braku tego zamówienia.
+            await close_gaps_of_deleted_orders(db, [order.id], actor_id=user.id)
             await db.delete(order)
             audit.result_note = (
                 "Szkic zamówienia usunięty trwale."
