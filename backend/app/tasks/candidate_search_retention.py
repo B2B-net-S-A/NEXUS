@@ -41,6 +41,7 @@ from app.models.job import Job, JobStatus
 from app.services.candidate_search_store import (
     FINISHED_STATES,
     RESULT_STATES,
+    auto_origin_clause,
     manual_origin_clause,
 )
 
@@ -98,18 +99,39 @@ def protected_run_ids(*, protect_after: datetime):
     )
 
 
-async def expired_run_ids(
-    db, *, cutoff: datetime, limit: int, protect_after: datetime | None = None
-) -> list[str]:
-    if protect_after is None:
-        protect_after = datetime.now(timezone.utc) - _protect_max_age()
-    finished_before = or_(
+def _finished_before(cutoff: datetime):
+    return or_(
         CandidateSearchRun.completed_at < cutoff,
         and_(
             CandidateSearchRun.completed_at.is_(None),
             CandidateSearchRun.created_at < cutoff,
         ),
     )
+
+
+async def expired_run_ids(
+    db,
+    *,
+    cutoff: datetime,
+    limit: int,
+    protect_after: datetime | None = None,
+    auto_cutoff: datetime | None = None,
+) -> list[str]:
+    """Przeglądy do skasowania.
+
+    ``auto_cutoff`` (audyt 22.09 r2, DATA-04/PROD-10): przeglądy AUTOMATYCZNE
+    (~190 MB każdy) żyją krócej — ``AUTO_FULL_REVIEW_RETENTION_DAYS`` (2 dni).
+    Ich wynik jest już w skrzynce „Propozycje", a surowe wiersze trzymane
+    tydzień przy 5 przeglądach/noc to ~7 GB. Nigdy nie są chronione.
+    """
+    if protect_after is None:
+        protect_after = datetime.now(timezone.utc) - _protect_max_age()
+    finished_before = _finished_before(cutoff)
+    if auto_cutoff is not None:
+        finished_before = or_(
+            finished_before,
+            and_(auto_origin_clause(), _finished_before(auto_cutoff)),
+        )
     rows = await db.scalars(
         select(CandidateSearchRun.id)
         .where(
@@ -168,6 +190,8 @@ async def prune_once(*, days: int, now: datetime | None = None) -> dict[str, int
             cutoff=cutoff,
             limit=RUNS_PER_CYCLE,
             protect_after=now - _protect_max_age(),
+            auto_cutoff=now
+            - timedelta(days=max(1, int(settings.AUTO_FULL_REVIEW_RETENTION_DAYS))),
         )
     rows = 0
     for run_id in run_ids:

@@ -732,6 +732,9 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
+
+    # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
+    from app.tasks.queue_retention import queue_retention_loop
     from app.tasks.priority_work import priority_work_loop
     from app.tasks.recruitment_allocation import (
         availability_loop,
@@ -776,6 +779,8 @@ async def lifespan(app: FastAPI):
         ),
         # Jarvis (0330): retencja rozmów (dane osobowe) i wygaszanie propozycji.
         "jarvis_retention": asyncio.create_task(jarvis_retention_loop()),
+        # audyt 22.09 r2 (DATA-03/04/PROD-10): dziennik auto-matcha, kolejki.
+        "queue_retention": asyncio.create_task(queue_retention_loop()),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
         "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
         "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
