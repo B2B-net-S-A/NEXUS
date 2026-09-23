@@ -502,7 +502,9 @@ function OrderLineRow({
             ) : null}
             {line.replaced_by_order_id != null ? (
               <span className="rounded-full bg-warning-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-muted-foreground">
-                Zastąpiony
+                {line.replaced_by_scheduled
+                  ? `Zastępstwo od ${formatDate(line.replaced_by_start_date ?? null)}`
+                  : "Zastąpiony"}
               </span>
             ) : null}
           </p>
@@ -524,7 +526,7 @@ function OrderLineRow({
                     ? "Konsultant"
                     : "Zakończony"}
             {line.start_date
-              ? line.is_active
+              ? line.is_active || scheduledTakeover
                 ? ` · od ${formatDate(line.start_date)}`
                 : ` · był na zamówieniu od ${formatDate(line.start_date)}`
               : ""}
@@ -574,7 +576,7 @@ function OrderLineRow({
           {line.replaced_by_order_id != null &&
           (line.replaced_by_kind === "takeover" || line.replaced_by_kind === "swap") ? (
             <p className="truncate text-xs text-muted-foreground">
-              Zastąpiony przez:{" "}
+              {line.replaced_by_scheduled ? "Zastąpi go" : "Zastąpiony przez"}:{" "}
               <button
                 type="button"
                 onClick={() => focusOrderLine(line.replaced_by_order_id as number)}
@@ -848,7 +850,11 @@ function OrderLineRow({
         id={orderLineAnchorId(line.id)}
         className={cn(
           "rounded-xl border border-border bg-card px-4 py-3",
-          !line.is_active && !pendingOffboarding && !needsDecision && "opacity-60",
+          !line.is_active &&
+            !pendingOffboarding &&
+            !needsDecision &&
+            !scheduledTakeover &&
+            "opacity-60",
           searchQuery.trim() &&
             consultantMatchesQuery(line.consultant_name, searchQuery) &&
             "bg-primary/10 ring-1 ring-inset ring-primary/20",
@@ -896,7 +902,11 @@ function OrderLineRow({
       className={cn(
         "flex flex-wrap items-center gap-x-5 gap-y-2 py-2",
         cardSurface && "rounded-xl border border-border bg-card px-4",
-        !line.is_active && !pendingOffboarding && !needsDecision && "opacity-60",
+        !line.is_active &&
+            !pendingOffboarding &&
+            !needsDecision &&
+            !scheduledTakeover &&
+            "opacity-60",
         searchQuery.trim() &&
           consultantMatchesQuery(line.consultant_name, searchQuery) &&
           "rounded-md bg-primary/10 px-2 ring-1 ring-inset ring-primary/20",
