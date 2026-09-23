@@ -56,7 +56,10 @@ def table_profile(data: bytes) -> dict | None:
     from docx.text.paragraph import Paragraph
 
     doc = Document(io.BytesIO(data))
-    profile = {key: {} for key in ("basics", "search", "stack", "project", "client")}
+    profile = {
+        key: {}
+        for key in ("basics", "search", "stack", "experience", "project", "client")
+    }
     profile["screening_questions"] = []
     raw = {}
     document_context = {}
@@ -82,20 +85,41 @@ def table_profile(data: bytes) -> dict | None:
         ("co przekona", "client.selling_points"),
         ("insight od", "client.consultant_insight"),
         ("historyczne pytania", "client.historical_questions"),
+        # Wzór v5 (09.2026): sekcja 4 i 8.
+        ("dziedzina", "experience.domains"),
+        ("certyfikaty", "experience.certifications"),
+        ("regulacje", "experience.regulations"),
+        ("od klienta", "insights.client"),
     )
 
     def put(path, value):
         found.add(path)
         raw[path] = value
         group, key = path.split(".")
+        if group == "experience":
+            value = experience_from_text(value, with_years=key == "domains")
+        if group == "insights":
+            if meaningful(value):
+                profile.setdefault("insights", []).append(
+                    {
+                        "id": f"new-doc-{key}",
+                        "source": key,
+                        "topic": "other",
+                        "audience": "team",
+                        "text": value.strip(),
+                        "origin": "document",
+                    }
+                )
+            return
         profile[group][key] = value
 
     for block in doc.iter_inner_content():
         if isinstance(block, Paragraph):
             heading = folded(block.text).strip()
-            if re.match(r"4[.)]\s*o projekcie", heading):
+            # „O projekcie” to sekcja 4 we wzorze v4 i 5 we wzorze v5 (09.2026).
+            if re.match(r"[45][.)]\s*o projekcie", heading):
                 section = "project"
-            elif re.match(r"[2356][.)]", heading):
+            elif re.match(r"[2-8][.)]", heading):
                 section = heading[0]
             elif heading.startswith("uwagi / standardy"):
                 section = "standards"
@@ -167,6 +191,44 @@ def table_profile(data: bytes) -> dict | None:
         "document_context": document_context,
         "template_version": version.group(1) if version else None,
     }
+
+
+_NICE_MARK = re.compile(r"\(\s*mile[^)]*\)", re.I)
+# „lata” przed „lat”: alternatywa bierze pierwsze trafienie, a „lat” zostawiłoby
+# z „2 lata” samo „a” w nazwie dziedziny.
+_YEARS_MARK = re.compile(
+    r"(?:min\.?|minimum)\s*(\d{1,2})\s*(?:lata|lat|roku|rok|l\.)", re.I
+)
+
+
+def experience_from_text(value: str, *, with_years: bool) -> list[dict]:
+    """Komórka sekcji 4 wzoru v5 → pozycje: „płatności (min. 2 lata), e-commerce (mile)”.
+
+    „(mile)” oznacza mile widziane, „min. N lat” — lata (tylko dziedzina).
+    Znaczniki są wycinane z nazwy; reszta normalizacji jest w
+    `champion_intake.normalize_experience_items`.
+    """
+    items: list[dict] = []
+    for part in re.split(r"[\n;,]+", value or ""):
+        text = part.strip()
+        if not meaningful(text):
+            continue
+        level = "nice" if _NICE_MARK.search(text) else "must"
+        years = _YEARS_MARK.search(text) if with_years else None
+        name = _NICE_MARK.sub("", text)
+        if with_years:
+            name = _YEARS_MARK.sub("", name)
+        name = re.sub(r"\(\s*\)", "", name)
+        name = re.sub(r"\s+", " ", name).strip(" -–—:()")
+        if name:
+            items.append(
+                {
+                    "name": name,
+                    "level": level,
+                    "min_years": int(years.group(1)) if years else None,
+                }
+            )
+    return items
 
 
 def _split_skills(raw: str) -> list[str]:

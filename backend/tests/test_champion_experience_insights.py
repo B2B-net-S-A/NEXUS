@@ -393,3 +393,28 @@ async def test_recommended_searches_prompt_puts_experience_before_prose(
         )
     # Długi opis projektu nie wypycha certyfikatu z przyciętego wycinka.
     assert "ISTQB Foundation" in captured["prompt"]
+
+
+def test_screening_experience_checks_are_recorded_but_do_not_score() -> None:
+    from app.schemas.champion import ScreeningAnswers
+
+    base = {
+        "answers": [{"question_id": "q1", "response": "tak", "deal_breaker_hit": False}],
+        "overall_fit": "fit",
+    }
+    with_checks = ScreeningAnswers.model_validate(
+        {
+            **base,
+            "experience_checks": [
+                {"kind": "domains", "name": "płatności", "status": "not_confirmed"},
+                {"kind": "certifications", "name": "ISTQB", "status": "confirmed"},
+            ],
+        }
+    )
+    dumped = with_checks.model_dump(mode="json")
+    assert dumped["experience_checks"][0]["status"] == "not_confirmed"
+    # Zapis rozmowy, nie punktacja: „nie ma dziedziny” nie zmienia wyniku.
+    assert (
+        with_checks.match_percent()
+        == ScreeningAnswers.model_validate(base).match_percent()
+    )

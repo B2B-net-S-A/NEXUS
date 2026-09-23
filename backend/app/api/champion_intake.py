@@ -28,7 +28,7 @@ TEMPLATE = (
     Path(__file__).resolve().parents[1]
     / "assets"
     / "champion"
-    / "Profil_Championa_v4.0.docx"
+    / "Profil_Championa_v5.0.docx"
 )
 
 

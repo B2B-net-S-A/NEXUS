@@ -592,29 +592,42 @@ def test_template_has_no_client_standards_box_and_points_to_nexus() -> None:
     Do 09.2026 ramka „STANDARDY TEGO KLIENTA" pod tytułem i sekcja 7 „Dokumenty"
     niosły treść per KLIENT, kopiowaną do każdej rekrutacji (14 wzorów Word).
     Ta treść ma od teraz jedno miejsce (`client_playbooks`), więc wzór jest
-    jeden, sześciosekcyjny, a pod sekcją 6 stoi odsyłacz zamiast kopii.
+    jeden, a pod sekcją „O kliencie” (od 09.2026 — 7) stoi odsyłacz zamiast
+    kopii.
     """
     gen = _generator()
     text = _template_text(gen.build())
     assert "STANDARDY TEGO KLIENTA" not in text
-    assert "7. DOKUMENTY" not in text
-    assert "6. O KLIENCIE" in text
+    assert "DOKUMENTY" not in text
+    assert "7. O KLIENCIE" in text
     assert "Zasady współpracy" in text
-    assert len(gen.SECTION_TITLES) == 6
+    assert len(gen.SECTION_TITLES) == 8
 
 
-def test_section_six_carries_only_role_level_client_fields() -> None:
-    """Sekcja 6 zostaje z tym, co zależy od TEJ roli, nie od klienta.
+def test_section_seven_carries_only_role_level_client_fields() -> None:
+    """Sekcja 7 zostaje z tym, co zależy od TEJ roli, nie od klienta.
 
     „Co powiedzieć o Kliencie" i „Reguły priorytetu" przeszły na kartę klienta;
-    zostały atuty tej oferty, insight konsultanta i historyczne pytania —
-    dokładnie te pola, które czytają wektor oferty i prompt generatora CV.
+    zostały atuty tej oferty i historyczne pytania. Insight konsultanta jest od
+    09.2026 w sekcji 8 „Wiedza z rozmów”, razem z notatkami od klienta.
     """
     text = _template_text(_generator().build())
     assert "Co przekona kandydata do tej oferty" in text
     assert "Co powiedzieć o Kliencie" not in text
     assert "Reguły priorytetu" not in text
-    section_six_at = text.find("6. O KLIENCIE")
-    assert section_six_at != -1
-    assert section_six_at < text.find("Insight od naszego konsultanta u klienta")
-    assert section_six_at < text.find("Historyczne pytania klienta")
+    section_seven_at = text.find("7. O KLIENCIE")
+    section_eight_at = text.find("8. WIEDZA Z ROZMÓW")
+    assert -1 < section_seven_at < text.find("Historyczne pytania klienta")
+    assert section_eight_at > section_seven_at
+    assert section_eight_at < text.find("Insight od naszego konsultanta u klienta")
+    assert section_eight_at < text.find("Od klienta:")
+
+
+def test_section_four_experience_sits_between_stack_and_project() -> None:
+    text = _template_text(_generator().build())
+    stack_at = text.find("3. STACK TECHNOLOGICZNY")
+    experience_at = text.find("4. DOŚWIADCZENIE POZA STACKIEM")
+    project_at = text.find("5. O PROJEKCIE")
+    assert -1 < stack_at < experience_at < project_at
+    for label in ("Dziedzina:", "Certyfikaty:", "Regulacje / standardy:"):
+        assert experience_at < text.find(label) < project_at

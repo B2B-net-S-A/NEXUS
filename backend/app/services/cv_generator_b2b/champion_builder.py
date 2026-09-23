@@ -435,6 +435,16 @@ _HEADINGS: tuple[tuple[str, str | None], ...] = (
     (rf"{_NUM}Stack\s+technologiczny\b[^\n]*", None),
     (rf"{_NUM}O\s+kliencie\b[^\n]*", None),
     (rf"{_NUM}Dokumenty\b[^\n]*", None),
+    # Wzór v5 (09.2026): sekcje 4 i 8. Formularz Word v5 czyta ścieżka
+    # tabelowa (`table_profile` → `from_nexus_job`), więc tu wystarczą
+    # GRANICE — bez nich „Certyfikaty" z tekstu wklejonego poza tabelą
+    # wpadałyby do NICE-TO-HAVE jako technologie.
+    (rf"{_NUM}Doswiadczenie\s+poza\s+stackiem\b[^\n]*", None),
+    (rf"{_NUM}Dziedzina\b[^\n:]*:", None),
+    (rf"{_NUM}Certyfikaty\b[^\n:]*:", None),
+    (rf"{_NUM}Regulacje\b[^\n:]*:", None),
+    (rf"{_NUM}Wiedza\s+z\s+rozmow\b[^\n]*", None),
+    (rf"{_NUM}Od\s+klienta\b[^\n:]*:", None),
 )
 #
 # DELIBERATELY NOT headings: "Pytanie 1:", "Idealna odpowiedź:", "Deal breaker:".

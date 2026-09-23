@@ -77,7 +77,7 @@ async def test_blank_and_two_question_template_without_ai(monkeypatch):
             "Rekruter"
             in valid["champion_profile"]["intake"]["document_context"]["prep_owner"]
         )
-        assert valid["champion_profile"]["_parser"].startswith("champion_parse:v7:")
+        assert valid["champion_profile"]["_parser"].startswith("champion_parse:v8:")
 
 
 def test_order_merged_cells_and_empty_rows():
