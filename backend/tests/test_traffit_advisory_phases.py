@@ -23,7 +23,6 @@ from types import SimpleNamespace
 
 import pytest
 
-import app.services.cortex.extractor_traffit as cortex_extractor
 import app.services.cv_field_backfill as cv_fields
 import tests.test_traffit_error_ids_sources as sources
 from app.tasks import traffit_sync
@@ -47,7 +46,6 @@ def test_advisory_phases_are_real_phase_names() -> None:
     assert ADVISORY_PHASES == {
         "candidates_enrich_names",
         "candidates_cv_fields",
-        "cortex",
     }
 
 
@@ -138,7 +136,7 @@ async def test_run_summary_reports_a_crashed_enrichment_phase_as_errors(monkeypa
         "_phase_plan",
         lambda importer, since, files_since: [
             ("candidates_cv_fields", _raising_phase()),
-            ("cortex", _row_error_phase(1)),
+            ("candidates_enrich_names", _row_error_phase(1)),
         ],
     )
     monkeypatch.setattr(traffit_sync, "TraffitImporter", lambda *a, **k: object())
@@ -153,7 +151,7 @@ async def test_run_summary_reports_a_crashed_enrichment_phase_as_errors(monkeypa
     assert summary["status"] == "errors"
     assert "error" in summary["phases"]["candidates_cv_fields"]
     # Only the row-level errors are advisory; the crash is not listed there.
-    assert summary["advisory_failures"] == ["cortex"]
+    assert summary["advisory_failures"] == ["candidates_enrich_names"]
 
 
 async def test_import_phase_errors_still_freeze_it(monkeypatch):
@@ -185,7 +183,9 @@ async def test_run_summary_names_the_advisory_failures(monkeypatch):
     monkeypatch.setattr(
         traffit_sync,
         "_phase_plan",
-        lambda importer, since, files_since: [("cortex", _row_error_phase(2))],
+        lambda importer, since, files_since: [
+            ("candidates_enrich_names", _row_error_phase(2))
+        ],
     )
     monkeypatch.setattr(traffit_sync, "TraffitImporter", lambda *a, **k: object())
     monkeypatch.setattr(traffit_sync, "TraffitClient", _FakeClient)
@@ -197,7 +197,7 @@ async def test_run_summary_names_the_advisory_failures(monkeypatch):
     summary = await traffit_sync.run_traffit_sync("delta")
 
     assert summary["status"] == "ok"
-    assert summary["advisory_failures"] == ["cortex"]
+    assert summary["advisory_failures"] == ["candidates_enrich_names"]
 
 
 # ── The exception class travels into the error sample ────────────────────────
@@ -233,33 +233,16 @@ async def test_enrich_names_sample_carries_the_exception_class(monkeypatch):
 def test_adapter_sample_carries_the_exception_class() -> None:
     progress = traffit_sync._attributed_progress(
         {"errors": 1, "error_ids": [7], "error_types": {7: "KeyError"}},
-        phase="cortex",
-        verb="extract",
-        entity="candidate_facts",
-        detail="cortex extraction failed",
+        phase="candidates_cv_fields",
+        verb="parse",
+        entity="candidate_cv_fields",
+        detail="cv field parse failed",
     )
 
     assert progress.error_samples == [
-        "extract candidate_facts id=7: cortex extraction failed (KeyError)"
+        "parse candidate_cv_fields id=7: cv field parse failed (KeyError)"
     ]
-    assert progress.error_refs == {"candidate_facts:7"}
-
-
-async def test_cortex_source_records_the_exception_class(monkeypatch):
-    async def _taxonomy(db):
-        return {}
-
-    def _explode(*a, **k):
-        raise LookupError("normalize boom")
-
-    monkeypatch.setattr(cortex_extractor, "load_taxonomy", _taxonomy)
-    monkeypatch.setattr(cortex_extractor, "normalize_and_upsert", _explode)
-
-    stats = await cortex_extractor.run_traffit_backfill(
-        sources._CortexDb([(41, "Python")])
-    )
-
-    assert stats["error_types"] == {41: "LookupError"}
+    assert progress.error_refs == {"candidate_cv_fields:7"}
 
 
 async def test_cv_fields_source_records_the_exception_class(cv_fields_env):

@@ -153,7 +153,7 @@ def test_annotate_writes_verdicts_and_collects_only_stale_non_advisory():
             "last_run_finished_at": (_NOW - timedelta(hours=5)).isoformat(),
         },
         {
-            "phase": "cortex",
+            "phase": "candidates_cv_fields",
             "last_run_finished_at": (_NOW - timedelta(days=30)).isoformat(),
         },
         {"phase": "talents", "last_run_finished_at": None},
@@ -163,10 +163,10 @@ def test_annotate_writes_verdicts_and_collects_only_stale_non_advisory():
     by_phase = {s["phase"]: s for s in states}
     assert by_phase["users"]["freshness"] == "stale"
     assert by_phase["clients"]["freshness"] == "fresh"
-    assert by_phase["cortex"]["freshness"] == "advisory"
+    assert by_phase["candidates_cv_fields"]["freshness"] == "advisory"
     assert by_phase["talents"]["freshness"] == "never"
     assert by_phase["users"]["stale_after_hours"] == 36
-    assert by_phase["cortex"]["stale_after_hours"] == 36
+    assert by_phase["candidates_cv_fields"]["stale_after_hours"] == 36
 
 
 # ── endpoint (na bazie) ─────────────────────────────────────────────────────
