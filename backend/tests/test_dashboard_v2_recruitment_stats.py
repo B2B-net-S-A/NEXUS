@@ -30,7 +30,6 @@ EXPECTED_SECTIONS = {
     "quarterly_league",
     "monthly_races",
     "hall_of_fame",
-    "linkedin",
     "trend",
 }
 

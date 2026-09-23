@@ -19,11 +19,10 @@ import pytest_asyncio
 from app.services import notification_triggers as nt
 
 
-def test_exports_all_five_triggers():
+def test_exports_the_core_triggers():
     names = {
         "check_dl_stage_stale_6h",
         "check_client_feedback_eobd",
-        "check_powercalling_kpi",
         "check_candidate_feedback_1h",
         "check_stage_stuck_7d",
     }
@@ -45,14 +44,6 @@ def test_emit_signature_is_keyword_only_after_db():
     assert params["user_id"].kind == inspect.Parameter.KEYWORD_ONLY
     assert params["ntype"].kind == inspect.Parameter.KEYWORD_ONLY
     assert params["related_entity_id"].kind == inspect.Parameter.KEYWORD_ONLY
-
-
-def test_date_as_int_packing():
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
-    moment = datetime(2026, 4, 21, 12, 0, tzinfo=ZoneInfo("Europe/Warsaw"))
-    assert nt._date_as_int(moment) == 20260421
 
 
 @pytest_asyncio.fixture
@@ -77,12 +68,11 @@ async def test_all_triggers_return_zero_when_no_data(empty_db):
     now = datetime(2026, 4, 21, 21, 0, tzinfo=ZoneInfo("Europe/Warsaw"))
     results = await nt.run_all_triggers(empty_db, now)
     # Nie zakładamy że baza jest pusta (test może lecieć na shared instance),
-    # ale zwrócony słownik musi mieć wszystkie 9 kluczy z int values.
+    # ale zwrócony słownik musi mieć wszystkie 8 kluczy z int values.
     assert set(results.keys()) == {
         "dl_stage_stale_6h",
         "stage_stuck_7d",
         "candidate_feedback_1h",
-        "powercalling_kpi",
         "client_feedback_eobd",
         "post_interview_t15",
         "post_interview_t45",
@@ -90,8 +80,7 @@ async def test_all_triggers_return_zero_when_no_data(empty_db):
         "board_tasks_digest",
     }
     assert all(isinstance(v, int) and v >= 0 for v in results.values())
-    # Time-gated triggers muszą zwrócić 0 o 21:00.
-    assert results["powercalling_kpi"] == 0
+    # Time-gated trigger musi zwrócić 0 o 21:00.
     assert results["client_feedback_eobd"] == 0
 
 

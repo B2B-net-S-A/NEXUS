@@ -140,11 +140,6 @@ OPERATIONAL_ENDPOINTS = [
     ("GET", "/api/dashboard/recent-activity"),
 ]
 
-# Pipeline endpoints requiring TacPlus (admin/delivery_lead/tac):
-TAC_PLUS_ENDPOINTS = [
-    ("POST", "/api/jobs"),
-]
-
 # Delivery mutations additionally pass through the section boundary. Od
 # 22.09.2026 alias trasy to DeliveryLeadPlus (TAC i tak nie miał sekcji).
 DELIVERY_WRITE_ENDPOINTS = [
@@ -177,6 +172,8 @@ RECRUITER_PLUS_ENDPOINTS = [
 # Guard odpala się przed body/path validation, więc nieistniejące ID daje 403
 # dla niedozwolonej roli i 4xx (nie 403) dla dozwolonej.
 DELIVERY_LEAD_PLUS_ENDPOINTS = [
+    # Rekrutację zakłada admin/DL (od 23.09.2026 bez roli TAC — `TacPlus` usunięty).
+    ("POST", "/api/jobs"),
     ("POST", "/api/pipeline-templates"),
     ("POST", "/api/embed-init"),
 ]
@@ -197,7 +194,6 @@ ADMIN_ONLY_ENDPOINTS = [
 ROLE_SETS = {
     "admin_only": {UserRole.admin},
     "delivery_lead_plus": {UserRole.admin, UserRole.delivery_lead},
-    "tac_plus": {UserRole.admin, UserRole.delivery_lead, UserRole.tac},
     # Od 2026-09-17 head_of_recruitment ma parytet z rekruterem (decyzja Artura).
     "recruiter_plus": {
         UserRole.admin,
@@ -396,33 +392,6 @@ async def test_client_deletion_requires_the_named_permission_for_every_role(
         ("DELETE", "/api/clients/99999?confirmation=0"),
     ):
         resp = await rbac_client.request(method, path, headers=headers)
-        assert resp.status_code == 403, (
-            f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
-        )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("method,path", TAC_PLUS_ENDPOINTS)
-async def test_tac_plus_endpoints_reject_below_tac(
-    rbac_client: AsyncClient,
-    role_headers: tuple[UserRole, dict[str, str]],
-    method: str,
-    path: str,
-):
-    """Endpointy TacPlus: 403 dla recruiter/sourcer/user; admin/DL/TAC przepuszczone."""
-    role, headers = role_headers
-    # POST-owy endpoint bez body da 422, ale guard odpala wcześniej niż walidacja body
-    # dla TacPlus w FastAPI — więc 403 nadal trafi przed 422.
-    resp = await rbac_client.request(method, path, headers=headers, json={})
-    if role in ROLE_SETS["tac_plus"]:
-        assert resp.status_code != 403, (
-            f"[{role.value}] {method} {path} got 403 but should be allowed"
-        )
-        assert resp.status_code < 500, (
-            f"[{role.value}] {method} {path} returned {resp.status_code} — "
-            "5xx nie jest akceptowalną odpowiedzią (R0)"
-        )
-    else:
         assert resp.status_code == 403, (
             f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
         )
@@ -753,93 +722,6 @@ async def test_activity_stats_foreign_user_requires_team_kpi(
     assert resp.status_code == 403, resp.text
 
 
-# ── R0: DynaReporter — capability ∩ allowed_sections (fail-closed) ───────────
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/api/dynareporter/clients-mrr/summary",
-        "/api/dynareporter/przetargi/project-summary",
-        "/api/dynareporter/board/months",
-    ],
-)
-async def test_dynareporter_finance_bypasses_business_section_narrowing(
-    rbac_client: AsyncClient,
-    role_headers: tuple[UserRole, dict[str, str]],
-    path: str,
-):
-    """Finance widzi sekcje biznesowe bez niemożliwej dla tej roli allowlisty.
-
-    Pozostałe role nadal wymagają capability oraz wpisu w ``allowed_sections``;
-    admin i Finance przechodzą bez zawężenia dopiero po capability checku.
-    """
-    role, headers = role_headers
-    resp = await rbac_client.get(path, headers=headers)
-    if role in {UserRole.admin, UserRole.finance}:
-        assert resp.status_code != 403, (
-            f"[{role.value}] GET {path} got 403 but should be allowed"
-        )
-        assert resp.status_code < 500
-    else:
-        assert resp.status_code == 403, (
-            f"[{role.value}] GET {path} expected 403 (brak sekcji), "
-            f"got {resp.status_code}"
-        )
-
-
-@pytest.mark.asyncio
-async def test_dynareporter_section_does_not_widen_role(rbac_client: AsyncClient):
-    """TAC z przyznaną sekcją clients-mrr nadal NIE widzi MRR (brak VIEW_FINANCE)."""
-    email, password = await _seed_user(UserRole.tac)
-    async with AsyncSessionLocal() as db:
-        u = await db.scalar(select(User).where(User.email == email))
-        u.allowed_sections = ["clients-mrr", "przetargi", "board"]
-        await db.commit()
-
-    headers = await _login(rbac_client, email, password)
-    for path in (
-        "/api/dynareporter/clients-mrr/summary",
-        "/api/dynareporter/przetargi/project-summary",
-        "/api/dynareporter/board/months",
-    ):
-        resp = await rbac_client.get(path, headers=headers)
-        assert resp.status_code == 403, (
-            f"[tac+sekcja] GET {path} expected 403 (sekcja nie poszerza roli), "
-            f"got {resp.status_code}"
-        )
-
-
-@pytest.mark.asyncio
-async def test_dynareporter_finance_without_section_allowed(rbac_client: AsyncClient):
-    """Finance nie potrzebuje ``allowed_sections``, których nie może dostać."""
-    email, password = await _seed_user(UserRole.finance)
-    headers = await _login(rbac_client, email, password)
-    resp = await rbac_client.get(
-        "/api/dynareporter/clients-mrr/summary", headers=headers
-    )
-    assert resp.status_code not in (401, 403), resp.text
-    assert resp.status_code < 500
-
-
-# ── R0: upload XLSX wycofany — 410 Gone ──────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_dynareporter_upload_gone(rbac_client: AsyncClient):
-    """POST /excel: 410 dla uprawnionych, 403 dla viewera."""
-    email, password = await _seed_user(UserRole.recruiter)
-    headers = await _login(rbac_client, email, password)
-    resp = await rbac_client.post("/api/dynareporter/upload/excel", headers=headers)
-    assert resp.status_code == 410, resp.text
-
-    email_v, pass_v = await _seed_user(UserRole.user)
-    headers_v = await _login(rbac_client, email_v, pass_v)
-    resp_v = await rbac_client.post("/api/dynareporter/upload/excel", headers=headers_v)
-    assert resp_v.status_code == 403, resp_v.text
-
-
 # ── R0: /api/auth/me zwraca analytics_capabilities ───────────────────────────
 
 
@@ -948,62 +830,6 @@ async def test_secondary_admin_role_passes_admin_guards(rbac_client: AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_rekrutacja_dashboard_requires_ranking_capability(
-    rbac_client: AsyncClient,
-    role_headers: tuple[UserRole, dict[str, str]],
-):
-    """P0.2: imienny dashboard rekrutacji → VIEW_RECRUITMENT_RANKING (bez sekcji).
-
-    My Work, HoR, Finance i Admin przechodzą; Delivery Lead i legacy viewer
-    dostają 403 także przez direct API. Sekcja nie poszerza capability.
-    """
-    role, headers = role_headers
-    # available-weeks: prosty SELECT (pusta lista na testowej DB) — ten sam
-    # router-level guard co /dashboard, ale odporny na 5xx z pustych danych.
-    resp = await rbac_client.get(
-        "/api/dynareporter/rekrutacja/available-weeks", headers=headers
-    )
-    if role in ROLE_SETS["recruitment_ranking"]:
-        assert resp.status_code != 403, (
-            f"[{role.value}] rekrutacja got 403 but should be allowed"
-        )
-        assert resp.status_code < 500, (
-            f"[{role.value}] rekrutacja returned {resp.status_code} — 5xx (R0)"
-        )
-    else:
-        assert resp.status_code == 403, (
-            f"[{role.value}] rekrutacja expected 403 (P0.2), got {resp.status_code}"
-        )
-
-
-@pytest.mark.asyncio
-async def test_board_dashboard_monthly_requires_view_finance(
-    rbac_client: AsyncClient,
-    role_headers: tuple[UserRole, dict[str, str]],
-):
-    """P0.1: board-dashboard/monthly to pełny P&L → Finance/Admin.
-
-    Delivery Lead i Head of Recruitment nie mają VIEW_FINANCE.
-    """
-    role, headers = role_headers
-    resp = await rbac_client.get(
-        "/api/dynareporter/board-dashboard/monthly", headers=headers
-    )
-    if role in {UserRole.admin, UserRole.finance}:
-        assert resp.status_code != 403, (
-            f"[{role.value}] board-dashboard got 403 but should be allowed"
-        )
-        assert resp.status_code < 500, (
-            f"[{role.value}] board-dashboard returned {resp.status_code} — 5xx (R0)"
-        )
-    else:
-        assert resp.status_code == 403, (
-            f"[{role.value}] board-dashboard expected 403 (P0.1), "
-            f"got {resp.status_code}"
-        )
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "path",
     ["/api/admin/clients-overview", "/api/admin/clients-overview/by-dl"],
@@ -1029,66 +855,3 @@ async def test_clients_overview_requires_view_finance(
         )
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/api/dynareporter/sales-mgmt/projects",
-        "/api/dynareporter/competitions/winners",
-    ],
-)
-async def test_dyna_section_gated_routers_fail_closed_without_section(
-    rbac_client: AsyncClient,
-    role_headers: tuple[UserRole, dict[str, str]],
-    path: str,
-):
-    """P0.2: sales-mgmt/competitions egzekwują sekcję backendowo (GET).
-
-    Seeded userzy mają allowed_sections=[] → przechodzą admin i Finance.
-    Pozostałe role nadal nie omijają allowlisty przez direct API.
-    """
-    role, headers = role_headers
-    resp = await rbac_client.get(path, headers=headers)
-    if role in {UserRole.admin, UserRole.finance}:
-        assert resp.status_code != 403, (
-            f"[{role.value}] GET {path} got 403 but should be allowed"
-        )
-        assert resp.status_code < 500, (
-            f"[admin] GET {path} returned {resp.status_code} — 5xx (R0)"
-        )
-    else:
-        assert resp.status_code == 403, (
-            f"[{role.value}] GET {path} expected 403 (fail-closed bez sekcji), "
-            f"got {resp.status_code}"
-        )
-
-
-@pytest.mark.asyncio
-async def test_viewer_with_sections_still_blocked_from_recruitment_ranking(
-    rbac_client: AsyncClient,
-):
-    """P0.2 (obrona w głąb): nawet gdyby admin nadał viewerowi sekcje, imienny
-    ranking rekrutacji/konkursów pozostaje niedostępny (brak VIEW_RECRUITMENT_
-    RANKING). Sekcja nigdy nie poszerza roli."""
-    email, password = await _seed_user(UserRole.user)
-    async with AsyncSessionLocal() as db:
-        u = await db.scalar(select(User).where(User.email == email))
-        u.allowed_sections = ["competitions", "sales-mgmt", "mindy"]
-        await db.commit()
-    headers = await _login(rbac_client, email, password)
-
-    # rekrutacja: brak sekcji w modelu, ale i tak wymaga RANKING → 403
-    r1 = await rbac_client.get(
-        "/api/dynareporter/rekrutacja/available-weeks", headers=headers
-    )
-    assert r1.status_code == 403, (
-        f"viewer z sekcjami nadal 403 na rekrutacji, got {r1.status_code}"
-    )
-    # competitions winners: sekcja competitions JEST, ale RANKING brak → 403
-    r2 = await rbac_client.get(
-        "/api/dynareporter/competitions/winners", headers=headers
-    )
-    assert r2.status_code == 403, (
-        f"viewer z sekcją competitions nadal 403 na winners (imienny ranking), "
-        f"got {r2.status_code}"
-    )

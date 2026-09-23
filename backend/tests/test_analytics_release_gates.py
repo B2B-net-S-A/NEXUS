@@ -122,27 +122,24 @@ _WRITE_DECORATOR = re.compile(
     re.S,
 )
 
-# Wyjątki świadome: self-scoped stan usera (read-marker notyfikacji).
-# UWAGA (audyt M7 PR-01): mindy commentary/chat zeszły z allowlisty — mają
-# teraz router-level guard (require_dynareporter_section), wykrywany niżej.
-_ALLOWED_CURRENTUSER_WRITES = {
-    ("dynareporter_competitions.py", "mark_read"),
-}
+# Wyjątki świadome: self-scoped stan usera. Pusta od 23.09.2026 — jedyny wpis
+# (read-marker powiadomień konkursu DynaReportera) zniknął razem z modułem.
+_ALLOWED_CURRENTUSER_WRITES: set[tuple[str, str]] = set()
 
 # Router-level guard: `APIRouter(dependencies=[Depends(require_...)])` chroni
 # wszystkie endpointy pliku, mimo że nie widać go w sygnaturze handlera.
 _ROUTER_LEVEL_GUARD = re.compile(
     r"APIRouter\(\s*dependencies=\[.*?"
-    r"(?:require_capability|require_dynareporter_section|AdminUser|DlAssignedOrAdmin)"
+    r"(?:require_capability|AdminUser|DlAssignedOrAdmin)"
     r".*?\]",
     re.S,
 )
 
 
-def test_no_currentuser_only_mutations_in_analytics_and_dyna():
+def test_no_currentuser_only_mutations_in_analytics():
     api_dir = BACKEND / "app" / "api"
     offenders: list[str] = []
-    for f in list(api_dir.glob("dynareporter_*.py")) + [
+    for f in [
         api_dir / "analytics_v1.py",
         api_dir / "financial_adjustments.py",
     ]:
@@ -156,13 +153,12 @@ def test_no_currentuser_only_mutations_in_analytics_and_dyna():
                 router_level_guard
                 or "AdminUser" in params
                 or "require_capability" in params
-                or "require_dynareporter_section" in params
                 or "DlAssignedOrAdmin" in params
             )
             if "CurrentUser" in params and not protected:
                 offenders.append(f"{f.name}::{handler}")
     assert not offenders, (
-        f"Mutacje chronione tylko CurrentUser w analytics/Dyna (plan §PR8): {offenders}"
+        f"Mutacje chronione tylko CurrentUser w analytics (plan §PR8): {offenders}"
     )
 
 
