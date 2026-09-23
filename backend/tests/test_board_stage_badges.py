@@ -28,6 +28,10 @@ def _is_qc_host(case: dict) -> bool:
 
 @pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
 def test_qc_and_cpro_names_agree_with_the_frontend(case: dict) -> None:
+    if case["category"] == "terminal":
+        # Reguła nazw nie zna kategorii — etap końcowy rozstrzyga
+        # `board_column_for` (test niżej), jak `placeStage` we froncie.
+        return
     assert badges.is_qc_stage(case["name"]) is _is_qc_host(case)
     assert badges.is_cpro_stage(case["name"]) is (case["badge"] == "cpro")
 
@@ -97,6 +101,8 @@ _ENUM_BADGES = {"posting", "acceptance"}
 
 @pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
 def test_badge_kind_agrees_with_the_frontend(case: dict) -> None:
+    if case["category"] == "terminal" and case["column"] == "closed":
+        return
     if _is_qc_host(case):
         expected = "qc"
     else:

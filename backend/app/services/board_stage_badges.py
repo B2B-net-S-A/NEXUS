@@ -225,6 +225,10 @@ def board_column_for(
     """
 
     kind = stage_badge_kind(name)
+    # Etap końcowy z „QC”/„Cpro” w nazwie to zamknięcie, nie kolumna QC CV —
+    # lustro warunku `category !== "terminal"` w `placeStage`.
+    if kind in ("qc", "cpro") and category == "terminal":
+        kind = None
     if kind is not None:
         return _COLUMN_BY_NAME_BADGE[kind]
     if "rezerw" in normalize_stage_name(name):

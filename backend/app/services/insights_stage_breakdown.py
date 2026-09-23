@@ -139,6 +139,10 @@ def def_override(
     """
 
     kind = stage_badge_kind(name)
+    # Etap końcowy z „QC”/„Cpro” w nazwie to zamknięcie — lustro
+    # `board_column_for`.
+    if kind in ("qc", "cpro") and category == "terminal":
+        kind = None
     if kind is not None:
         return kind
     if "rezerw" in normalize_stage_name(name):

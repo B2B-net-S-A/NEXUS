@@ -222,8 +222,14 @@ async def get_cpro_queue(
     „✓ Wrzucone" i „Zwróć do rekrutera" to zwykłe `POST /api/pipeline/move`.
     """
 
-    del current_user
     now = datetime.now(timezone.utc)
+    # Stawkę do klienta widzą role z `CLIENT_RATE_VIEW_ROLES` (decyzja
+    # 23.09.2026, #1742) oraz osoba od Cpro — to ona wpisuje ją do Cpro.
+    from app.api.candidate_access import user_can_view_client_rate
+
+    show_rate = user_can_view_client_rate(current_user) or (
+        (await cpro_sender.effective_sender(db, now)).user_id == current_user.id
+    )
     snapshot = await svc.load_snapshot(db, now=now)
     to_send = [t for t in snapshot.tasks if t.kind == svc.KIND_CPRO_TO_SEND]
     pairs = [(t.candidate_id, t.job_id) for t in to_send]
@@ -234,7 +240,7 @@ async def get_cpro_queue(
     jobs: dict[int, CproQueueJob] = {}
     for t in to_send:
         pair = (t.candidate_id, t.job_id)
-        rate = rates.get(pair)
+        rate = rates.get(pair) if show_rate else None
         cv = cvs.get(pair)
         item = CproQueueItem(
             stage_id=t.stage_id,

@@ -5,16 +5,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.fn();
 const toastSuccess = vi.fn();
+const toastError = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: { get: (...a: unknown[]) => get(...a) },
 }));
 vi.mock("@/components/Toast", () => ({
-  useToast: () => ({ showSuccess: toastSuccess, showError: vi.fn(), showToast: vi.fn() }),
+  useToast: () => ({ showSuccess: toastSuccess, showError: toastError, showToast: vi.fn() }),
 }));
 
-import { HAND_TO_DL_MESSAGE, MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
+import {
+  HAND_TO_DL_MESSAGE,
+  MoveNextDialog,
+  NO_QC_STAGE_MESSAGE,
+} from "@/components/v2/recruitment/MoveNextDialog";
 import type { MoveRequirementsResponse } from "@/lib/api/moveRequirements";
 
 const item = { id: 11, candidate_id: 7, stage: "verified", name: "Anna", lastname: "Kowalczyk" };
@@ -150,6 +155,31 @@ describe("MoveNextDialog", () => {
     expect(toastSuccess).toHaveBeenCalledWith(HAND_TO_DL_MESSAGE);
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
     expect(props.onMove).not.toHaveBeenCalled();
+  });
+
+  it("hand_to_dl ze „Zweryfikowanego”: przesuwa na QC CV, żeby DL ją zobaczył", async () => {
+    respond({
+      from_column: "verified",
+      to_column: "cv_sent",
+      primary: { kind: "hand_to_dl", label: "Przekaż do Delivery Leada", target_stage_def_id: 41 },
+    });
+    const props = renderDialog({ targetKey: "cv_sent", fromKey: "verified" });
+    await userEvent.click(await screen.findByTestId("move-next-primary"));
+    expect(props.onHandToCpro).toHaveBeenCalledWith(41);
+    expect(toastSuccess).toHaveBeenCalledWith(HAND_TO_DL_MESSAGE);
+  });
+
+  it("hand_to_dl bez etapu QC w szablonie: mówi to wprost, nie udaje przekazania", async () => {
+    respond({
+      from_column: "verified",
+      to_column: "cv_sent",
+      primary: { kind: "hand_to_dl", label: "Przekaż do Delivery Leada", target_stage_def_id: null },
+    });
+    const props = renderDialog({ targetKey: "cv_sent", fromKey: "verified" });
+    await userEvent.click(await screen.findByTestId("move-next-primary"));
+    expect(props.onHandToCpro).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledWith(NO_QC_STAGE_MESSAGE);
+    expect(toastSuccess).not.toHaveBeenCalledWith(HAND_TO_DL_MESSAGE);
   });
 
   it("hand_to_cpro: ruch na etap Cpro wskazany przez serwer", async () => {

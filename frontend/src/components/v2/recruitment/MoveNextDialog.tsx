@@ -49,6 +49,9 @@ import { cn } from "@/lib/utils";
 export const HAND_TO_DL_MESSAGE =
   "Osoba czeka na Delivery Leada w jego kolejce »Czeka na Ciebie«";
 
+export const NO_QC_STAGE_MESSAGE =
+  "Szablon tej rekrutacji nie ma etapu „QC CV” — poproś Delivery Leada, żeby przesunął osobę dalej.";
+
 export interface MoveNextDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -169,7 +172,7 @@ export function MoveNextDialog({
   onHandToCpro,
   onAction,
 }: MoveNextDialogProps) {
-  const { showSuccess } = useToast();
+  const { showSuccess, showError } = useToast();
   const params = useMemo(
     () =>
       item && target
@@ -198,6 +201,18 @@ export function MoveNextDialog({
   const runPrimary = () => {
     if (!item || !target || !primary || readOnly) return;
     if (primary.kind === "hand_to_dl") {
+      // Przegląd DL czyta WYŁĄCZNIE kolumnę „QC CV” — osoba spoza niej nie
+      // czeka u nikogo, więc „przekazanie” = ruch na etap QC CV szablonu.
+      if (primary.target_stage_def_id != null) {
+        close();
+        onHandToCpro(primary.target_stage_def_id);
+        showSuccess(HAND_TO_DL_MESSAGE);
+        return;
+      }
+      if (data?.from_column !== "cv_qc") {
+        showError(NO_QC_STAGE_MESSAGE);
+        return;
+      }
       showSuccess(HAND_TO_DL_MESSAGE);
       close();
       return;

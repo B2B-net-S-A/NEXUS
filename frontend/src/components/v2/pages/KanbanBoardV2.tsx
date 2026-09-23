@@ -2490,7 +2490,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (!moveNext) return;
  const cpro = stageCols.find((c) => c.stage_def_id === stageDefId);
  if (!cpro) {
- showError("Nie znaleziono etapu „Wysłać do Cpro” w szablonie tej rekrutacji.");
+ showError("Nie znaleziono tego etapu w szablonie tej rekrutacji.");
  return;
  }
  requestMove(moveNext.item, moveNext.srcColId, cpro);

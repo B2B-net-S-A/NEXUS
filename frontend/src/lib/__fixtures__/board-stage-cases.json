@@ -35,6 +35,7 @@
     {"name": "Rozmowa telefoniczna", "stage": "screening", "category": "internal", "column": "screening", "badge": null},
     {"name": "Spotkanie", "stage": "client_interview", "category": "external", "column": "client_interview", "badge": null},
     {"name": "Oferta", "stage": "acceptance", "category": "external", "column": "contract", "badge": "acceptance"},
+    {"name": "Odrzucony przez DZ", "stage": "rejected", "category": "terminal", "column": "closed", "badge": null},
     {"name": "Lista rezerwowa", "stage": "new", "category": "internal", "column": "closed", "badge": null},
     {"name": "Rozmowa wstępna", "stage": "prep_call", "category": "internal", "column": "screening", "badge": null}
   ]

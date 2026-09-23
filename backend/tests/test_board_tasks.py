@@ -383,6 +383,7 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    other_id, other_creds = await _seed_user(UserRole.recruiter)
     hor = await _login(api_client, hor_creds)
     rec = await _login(api_client, rec_creds)
     cid, defs = world["candidate_id"], world["defs"]
@@ -436,6 +437,31 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
             assert item["client_rate_value"] is None
             before_sent = cpro["sent_today"]
 
+            # Stawkę do klienta widzi HoR i osoba od Cpro, inny rekruter nie
+            # (decyzja 23.09.2026 — rekruter nie widzi stawki do klienta).
+            async with AsyncSessionLocal() as session:
+                row = await session.scalar(
+                    select(CandidateStage)
+                    .where(
+                        CandidateStage.candidate_id == cid,
+                        CandidateStage.job_id == world["job_id"],
+                    )
+                    .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+                    .limit(1)
+                )
+                row.client_rate_value = 158
+                await session.commit()
+            other = await _login(api_client, other_creds)
+            for headers, expected in ((hor, 158.0), (rec, 158.0), (other, None)):
+                queue_view = (
+                    await api_client.get("/api/board-tasks/cpro/queue", headers=headers)
+                ).json()
+                group = next(
+                    g for g in queue_view["jobs"] if g["job_id"] == world["job_id"]
+                )
+                item = next(i for i in group["items"] if i["candidate_id"] == cid)
+                assert item["client_rate_value"] == expected
+
             # „✓ Wrzucone” = zwykły ruch na „CV wysłane” (u Nordei = Cpro).
             await _move(api_client, rec, world, "cv_sent")
             rec_queue = (await api_client.get("/api/board-tasks", headers=rec)).json()
@@ -446,7 +472,7 @@ async def test_nordea_cpro_queue_with_one_sender_for_the_company(
             ).json()
             assert cpro["sent_today"] == before_sent + 1
     finally:
-        await _cleanup(world, [hor_id, rec_id])
+        await _cleanup(world, [hor_id, rec_id, other_id])
 
 
 def test_removed_dz_routes_are_gone() -> None:
