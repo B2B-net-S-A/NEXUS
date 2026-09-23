@@ -68,3 +68,72 @@ def test_ordinary_stages_are_not_gated() -> None:
         badges.ensure_badge_stage_allowed(
             _user(UserRole.recruiter), stage_name=name, client_id=None
         )
+
+
+@pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
+def test_badge_kind_agrees_with_the_frontend(case: dict) -> None:
+    assert badges.stage_badge_kind(case["name"]) == case["badge"]
+
+
+def _sd(id_: int, name: str, enum: str | None, terminal: bool = False):
+    return SimpleNamespace(
+        id=id_, name=name, legacy_enum_value=enum, is_terminal=terminal
+    )
+
+
+# Szablon „Default B2B" z produkcji (rekrutacje bez własnego szablonu).
+DEFAULT_B2B = [
+    _sd(10763, "Ogłoszenia", "posting"),
+    _sd(1, "Nowi / Analiza CV", "new"),
+    _sd(3, "Screening", "screening"),
+    _sd(13, "Zweryfikowany", "verified"),
+    _sd(823, "Przepuszczony przez DZ", "interview"),
+    _sd(824, "Wysłać do Cpro", None),
+    _sd(5, "CV Wysłane", "cv_sent"),
+    _sd(752, "Preparation Meeting", None),
+    _sd(6, "Interview Klient", "client_interview"),
+    _sd(7, "Akceptacja", "acceptance"),
+    _sd(753, "Umowa wysłana", None),
+    _sd(1032, "Umowa podpisana", None),
+    _sd(10, "Zatrudniony", "hired", terminal=True),
+    _sd(9, "Onboarding", "onboarding"),
+    _sd(11, "Odrzucony", "rejected", terminal=True),
+    _sd(12, "Wycofany", "withdrawn", terminal=True),
+]
+
+
+@pytest.mark.parametrize(
+    ("traffit_name", "enum", "expected"),
+    [
+        # Etapy szablonu Traffita „B2B" → kolumna tablicy „Default B2B".
+        ("Kandydat Zweryfikowany", "verified", 13),
+        ("Przepuszczony przez DZ", "interview", 823),
+        ("NORDEA: Wysłać do Cpro", "screening", 824),
+        ("Wysłany do Klienta", "cv_sent", 5),
+        # Do 23.09.2026 te pięć (kod `interview`) dostawało „DZ ✓".
+        ("Interview - Prep", "interview", 752),
+        ("Prep - Followup", "interview", 752),
+        ("Weryfikacja techniczna / Pre-Interview", "interview", 752),
+        ("Kandydat przygotowany do spotkania z klientem", "interview", 752),
+        ("Po Interview", "interview", 6),
+        ("Interview u klienta", "client_interview", 6),
+        ("Zaakceptowany (#41)", "acceptance", 7),
+        ("Współpraca zakończona", "withdrawn", 12),
+    ],
+)
+def test_traffit_stages_land_on_the_column_of_their_meaning(
+    traffit_name: str, enum: str, expected: int
+) -> None:
+    target = badges.foreign_stage_target(traffit_name, enum, DEFAULT_B2B)
+    assert target is not None and target.id == expected
+
+
+def test_unknown_interview_stage_never_becomes_dz() -> None:
+    # Obcy etap z kodem `interview` bez znanego znaczenia nie jest „DZ ✓” —
+    # idzie do kubełka „poza szablonem” zamiast udawać zatwierdzenie.
+    assert (
+        badges.foreign_stage_target("Rozmowa techniczna", "interview", DEFAULT_B2B)
+        is None
+    )
+    # Wiersz BEZ etapu zostaje przy starej regule (sam kod).
+    assert badges.foreign_stage_target(None, "interview", DEFAULT_B2B).id == 823

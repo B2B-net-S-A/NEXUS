@@ -311,7 +311,9 @@ def test_bucket_partition_is_exhaustive_and_disjoint():
             candidate_id=12, stage_def_id=None, stage=PipelineStage.screening
         ),
         # Sierota: def spoza szablonu, a enum bez kolumny.
-        SimpleNamespace(candidate_id=13, stage_def_id=99, stage=PipelineStage.interview),
+        SimpleNamespace(
+            candidate_id=13, stage_def_id=99, stage=PipelineStage.interview
+        ),
         # Sierota: brak def, enum bez kolumny.
         SimpleNamespace(
             candidate_id=14, stage_def_id=None, stage=PipelineStage.acceptance
@@ -327,3 +329,45 @@ def test_bucket_partition_is_exhaustive_and_disjoint():
     assert columns_map[1] == [entries[0]]
     assert columns_map[2] == [entries[2]]
     assert columns_map[3] == [entries[1]]
+
+
+def test_foreign_stage_is_placed_by_name_before_code():
+    """Rekrutacja bez własnego szablonu (tablica = „Default B2B"), ruch z
+    szablonu Traffita: „Interview - Prep" ma kod `interview` jak „Przepuszczony
+    przez DZ", ale należy do przygotowania do rozmowy — nie do „DZ ✓"."""
+    from types import SimpleNamespace
+
+    from app.api.pipeline import _bucket_by_stage_def
+    from app.models.recruitment_pipeline import PipelineStage
+
+    def sd(id_, name, enum, terminal=False):
+        return SimpleNamespace(
+            id=id_, name=name, legacy_enum_value=enum, is_terminal=terminal
+        )
+
+    template = [
+        sd(13, "Zweryfikowany", "verified"),
+        sd(823, "Przepuszczony przez DZ", "interview"),
+        sd(824, "Wysłać do Cpro", None),
+        sd(752, "Preparation Meeting", None),
+        sd(6, "Interview Klient", "client_interview"),
+    ]
+    traffit = {
+        38: sd(38, "Przepuszczony przez DZ", "interview"),
+        39: sd(39, "NORDEA: Wysłać do Cpro", "screening"),
+        6687: sd(6687, "Interview - Prep", "interview"),
+    }
+    entries = [
+        SimpleNamespace(candidate_id=1, stage_def_id=38, stage=PipelineStage.interview),
+        SimpleNamespace(candidate_id=2, stage_def_id=39, stage=PipelineStage.screening),
+        SimpleNamespace(
+            candidate_id=3, stage_def_id=6687, stage=PipelineStage.interview
+        ),
+    ]
+
+    columns_map, off_template = _bucket_by_stage_def(entries, template, traffit)
+
+    assert off_template == []
+    assert [e.candidate_id for e in columns_map[823]] == [1]
+    assert [e.candidate_id for e in columns_map[824]] == [2]
+    assert [e.candidate_id for e in columns_map[752]] == [3]

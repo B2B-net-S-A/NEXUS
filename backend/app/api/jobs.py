@@ -979,21 +979,30 @@ async def list_jobs(
             if tid is not None
         }
         defs_by_template: dict[int, list[PipelineStageDef]] = {}
+        # Wszystkie definicje (kilkadziesiąt wierszy): etapy z innych szablonów
+        # (import Traffita) trafiają do kolumn tą samą regułą co na tablicy.
+        all_defs: dict[int, PipelineStageDef] = {}
         if template_ids:
             def_rows = (
                 await db.execute(
-                    select(PipelineStageDef)
-                    .where(PipelineStageDef.template_id.in_(template_ids))
-                    .order_by(PipelineStageDef.template_id, PipelineStageDef.order)
+                    select(PipelineStageDef).order_by(
+                        PipelineStageDef.template_id, PipelineStageDef.order
+                    )
                 )
             ).scalars()
             for sd in def_rows:
-                defs_by_template.setdefault(sd.template_id, []).append(sd)
+                all_defs[sd.id] = sd
+                if sd.template_id in template_ids:
+                    defs_by_template.setdefault(sd.template_id, []).append(sd)
         for j in jobs:
             tid = j.pipeline_template_id or default_template_id
             entries = tallies.get(j.id, [])
             if tid is not None and defs_by_template.get(tid):
-                cols, off = stage_column_summaries(defs_by_template[tid], entries)
+                cols, off = stage_column_summaries(
+                    defs_by_template[tid],
+                    entries,
+                    {i: d for i, d in all_defs.items() if d.template_id != tid},
+                )
             else:
                 cols, off = legacy_stage_column_summaries(entries)
             stage_columns[j.id] = [
