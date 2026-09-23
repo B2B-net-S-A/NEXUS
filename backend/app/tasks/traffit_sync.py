@@ -579,14 +579,19 @@ async def _cv_text_phase() -> _CvTextPhaseResult:
     z odczytanym tekstem albo znacznikiem terminalnym sam wypada z zakresu, więc
     kolejne noce kończą zaległość. Budżet ``TRAFFIT_SYNC_CV_TEXT_LIMIT`` na bieg
     (ekstrakcja lokalna, bez AI; OCR tylko dla skanów).
+
+    Drugi przebieg z tym samym budżetem czyta ponownie CV SKLEJONE (słowa bez
+    przerw, 1 581 na produkcji 23.09.2026) — ``run_backfill(glued=True)``.
     """
     from app.services.cv_text_backfill import run_backfill
 
     started = datetime.now(timezone.utc)
-    stats = await run_backfill(
-        commit=True, limit=max(1, int(settings.TRAFFIT_SYNC_CV_TEXT_LIMIT))
-    )
-    return _CvTextPhaseResult(stats.as_dict(), started, datetime.now(timezone.utc))
+    limit = max(1, int(settings.TRAFFIT_SYNC_CV_TEXT_LIMIT))
+    stats = await run_backfill(commit=True, limit=limit)
+    glued = await run_backfill(commit=True, limit=limit, glued=True)
+    summary = stats.as_dict()
+    summary["glued"] = glued.as_dict()
+    return _CvTextPhaseResult(summary, started, datetime.now(timezone.utc))
 
 
 class _ReconcilePhaseResult:

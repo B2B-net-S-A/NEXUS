@@ -2463,7 +2463,13 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   jako `*.docx` dostało terminalny znacznik `empty`. Format rozpoznaje
   `cv_text_extractor.sniff_extension` (pierwsze bajty); znaczniki
   `empty/unsupported_format/legacy_doc` bez flagi `sniffed` dostają jedną
-  ponowną próbę.
+  ponowną próbę. **Tekst SKLEJONY** (średnia „słowa” > 12 znaków,
+  `cv_text_extractor.looks_glued`; 1 581 CV 23.09.2026, prawie same PDF-y
+  z ciasnym kerningiem) PDF czyta drugi raz z `x_tolerance=1` — tylko jako
+  ścieżka zapasowa, bo niższy próg dla wszystkich rozcinałby rozstrzelone
+  nagłówki. Te same CV czyta ponownie drugi przebieg fazy
+  (`run_backfill(glued=True)`, CLI `--glued`); gorszy odczyt nie nadpisuje
+  tekstu i dostaje znacznik `still_glued`, błąd pobrania — nie.
 - **Lokalizacja z promieniem i województwo** (`services/pl_places.py`, dane
   `app/data/pl_places.json` z GeoNames, CC BY 4.0, 3 331 miejscowości,
   pokrycie 95% kandydatów z miastem). Kandydaci NIE mają współrzędnych, więc

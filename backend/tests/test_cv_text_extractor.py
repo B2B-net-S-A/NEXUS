@@ -226,3 +226,64 @@ def test_zip_that_is_not_word_is_not_called_docx():
         assert cte.sniff_extension(path) is None
     finally:
         os.unlink(path)
+
+
+# ── Sklejony tekst (słowa bez przerw) ─────────────────────────────────────────
+
+_GLUED = "ledtheqainitiativeandthedevelopmentofunittestingtoolforcobolprograms " * 8
+_SPACED = "led the qa initiative and the development of unit testing tool " * 8
+
+
+class _FakePage:
+    def __init__(self, default):
+        self.default = default
+
+    def extract_text(self, **kwargs):
+        return _SPACED if kwargs.get("x_tolerance") == 1 else self.default
+
+
+class _FakePdf:
+    def __init__(self, default):
+        self.pages = [_FakePage(default)]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _fake_pdfplumber(monkeypatch, default):
+    import sys
+    import types
+
+    module = types.ModuleType("pdfplumber")
+    module.open = lambda _path: _FakePdf(default)  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pdfplumber", module)
+
+
+def test_looks_glued_is_about_word_length_not_text_length():
+    from app.services.cv_text_extractor import looks_glued
+
+    assert looks_glued(_GLUED)
+    assert not looks_glued(_SPACED)
+    assert not looks_glued("krótkiCVbezprzerw"), "krótkich tekstów nie oceniamy"
+    assert not looks_glued(None)
+
+
+def test_glued_pdf_is_read_again_with_tighter_letter_gap(monkeypatch):
+    """Produkcja 23.09.2026: 1 581 CV z tekstem bez spacji — domyślny próg
+    pdfplumbera (3 pt) nie widział odstępu między słowami w ciasnym kerningu."""
+    from app.services import cv_text_extractor as cte
+
+    _fake_pdfplumber(monkeypatch, _GLUED)
+    out = cte._extract_pdf_native("/tmp/x.pdf")
+    assert "the qa initiative" in out
+
+
+def test_well_spaced_pdf_keeps_the_default_read(monkeypatch):
+    from app.services import cv_text_extractor as cte
+
+    normal = "Senior QA Engineer with Selenium and Python experience. " * 10
+    _fake_pdfplumber(monkeypatch, normal)
+    assert cte._extract_pdf_native("/tmp/x.pdf") == normal
