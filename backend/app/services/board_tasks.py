@@ -1,34 +1,29 @@
 """Kolejka „Czeka na Ciebie" — praca na Tablicach, której nikt nie widzi (0348).
 
-Odznaki „DZ ✓" i „Gotowy do Cpro" są etapami szablonu
-(`services/board_stage_badges.py`), więc to, co czeka, wylicza się
-z NAJNOWSZEGO wiersza każdej pary (kandydat, opublikowana rekrutacja):
+Kolumny Tablicy wynikają z etapów szablonu (`services/board_stage_badges.py`),
+więc to, co czeka, wylicza się z NAJNOWSZEGO wiersza każdej pary (kandydat,
+opublikowana rekrutacja). Od 24.09.2026 (Rekrutacja v5) kolejki DZ nie ma —
+przed wysłaniem CV liczy się QC CV (`services/cv_qc.py`), a nie zatwierdzenie
+Delivery Leada:
 
-* **Czeka na DZ** — osoba stoi na etapie „Zweryfikowany" (kod ``verified``,
-  nie etap-odznaka) w rekrutacji, której szablon MA etap DZ. Zatwierdza admin,
-  Delivery Lead albo Head of Recruitment (decyzja Artura: „każdy DL i
-  Dominik"). Delivery Lead widzi rekrutacje klientów ze swojego portfela i te,
-  w których jest DL-em; Head of Recruitment i admin — wszystkie.
 * **Do wysłania do Cpro** (tylko Nordea) — osoba stoi na etapie „Wysłać do
-  Cpro". Wysyła JEDNA osoba na całą rekrutację (``jobs.cpro_sender_id``,
-  decyzja Artura 23.09.2026); typowanie per kandydat z 0348
-  (``candidate_stages.task_assignee_id``) jest zapasem, gdy rekrutacja nie ma
-  jeszcze osoby. Nieprzypisane widzą osoby z prawem DZ.
+  Cpro" (kolumna QC CV, znacznik „w kolejce Cpro"). Wysyła JEDNA osoba na
+  całą firmę (`services/cpro_sender.py`, decyzja Artura 23.09.2026). Osoba
+  per rekrutacja (``jobs.cpro_sender_id``, 0353) i per kandydat
+  (``candidate_stages.task_assignee_id``, 0348) są zapasem wyłącznie wtedy,
+  gdy nikt nie jest ustawiony na firmę.
 * **Wysłane do Cpro** — u Nordei „CV wysłane" TO JEST wysłanie do Cpro
   (decyzja Artura 22.09.2026); lista mówi, od ilu dni czekamy na Nordeę.
-* **Czeka na przegląd DL** (pipeline v4, decyzja Artura 23.09.2026) — u
-  klientów INNYCH niż Nordea osoba w kolumnie „Zweryfikowany" (etap
-  ``verified`` albo etap DZ) czeka, aż Delivery Lead obejrzy stawkę, CV
-  i odpowiedzi ze screeningu i wyśle ją do klienta (ruch na „CV wysłane" ze
-  stawką do klienta) albo odrzuci. Kolejka DZ zostaje wyłącznie u Nordei
-  (DZ → Cpro bez zmian) — u pozostałych klientów przegląd DL ją zastępuje,
-  inaczej ta sama osoba czekałaby w dwóch listach na tę samą decyzję.
+* **Czeka na przegląd DL** — u klientów INNYCH niż Nordea osoba w kolumnie
+  „QC CV" (etap QC, nie etap Cpro) czeka, aż Delivery Lead obejrzy stawkę,
+  CV i wynik QC i wyśle ją do klienta (ruch na „CV wysłane" ze stawką do
+  klienta) albo odrzuci. Osoby w „Zweryfikowanym" nie są już w przeglądzie —
+  ich CV nie przeszło jeszcze przez QC, więc DL nie ma czego oglądać.
 
-Okno: ruch z ostatnich ``WINDOW_DAYS`` dni (przegląd DL:
-``DL_REVIEW_WINDOW_DAYS`` — zweryfikowany kandydat bez decyzji DL to praca
-do zrobienia dłużej niż odznaka). Import z Traffita zostawia na
-opublikowanych rekrutacjach setki osób „zweryfikowanych" rok temu — kolejka
-z nimi byłaby listą, której nikt nie przeczyta.
+Okno: ruch z ostatnich ``WINDOW_DAYS`` dni (wysłane do Cpro), a praca do
+zrobienia (przegląd DL, do wysłania do Cpro) — ``DL_REVIEW_WINDOW_DAYS``.
+Import z Traffita zostawia na opublikowanych rekrutacjach setki osób sprzed
+roku — kolejka z nimi byłaby listą, której nikt nie przeczyta.
 """
 
 from __future__ import annotations
@@ -45,26 +40,33 @@ from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
+from app.services import cpro_sender
 from app.services.board_stage_badges import (
-    DZ_BADGE_ROLES,
     cpro_enabled_for_client,
     foreign_stage_target,
     is_cpro_stage,
-    is_dz_stage,
+    is_qc_stage,
 )
 
 WINDOW_DAYS = 14
 DL_REVIEW_WINDOW_DAYS = 30
 
-KIND_DZ = "dz"
 KIND_CPRO_TO_SEND = "cpro_to_send"
 KIND_CPRO_SENT = "cpro_sent"
 KIND_DL_REVIEW = "dl_review"
 
-# Role, które dostają kolejkę DZ w porannym skrócie. Admin może zatwierdzać,
-# ale skrót dostaje tylko wtedy, gdy ma też jedną z tych ról — konto
+# Kto widzi przegląd DL i kolejkę Cpro całej firmy (Delivery Lead — w swoim
+# portfelu). Wysyłkę do klienta i tak rozstrzyga serwer przy ruchu.
+REVIEW_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.delivery_lead,
+    UserRole.head_of_recruitment,
+)
+
+# Role, które dostają przegląd DL w porannym skrócie. Admin przegląda, ale
+# skrót dostaje tylko wtedy, gdy ma też jedną z tych ról — konto
 # administracyjne nie jest osobą, która przegląda kandydatów.
-_DZ_DIGEST_ROLES: tuple[UserRole, ...] = (
+_REVIEW_DIGEST_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.head_of_recruitment,
 )
@@ -75,7 +77,8 @@ class TemplateStages:
     """Etapy szablonu, między którymi chodzi kolejka."""
 
     verified_ids: frozenset[int]
-    dz_id: Optional[int]
+    qc_ids: frozenset[int]
+    qc_id: Optional[int]
     cpro_ids: frozenset[int]
     cpro_id: Optional[int]
     cv_sent_ids: frozenset[int]
@@ -112,10 +115,15 @@ class BoardTask:
     expected_rate_unit: Optional[str] = None
     expected_rate_currency: Optional[str] = None
     screening_stage_id: Optional[int] = None
-    # 0353: osoba ustawiona dla CAŁEJ rekrutacji (`jobs.cpro_sender_id`).
-    # `assignee_id` = ona albo, gdy jej brak, typowanie per kandydat z 0348.
+    # 0353: osoba ustawiona dla CAŁEJ rekrutacji (`jobs.cpro_sender_id`) —
+    # od 24.09.2026 tylko zapas, gdy nikt nie wysyła do Cpro na firmę.
     job_sender_id: Optional[int] = None
     job_sender_name: Optional[str] = None
+    # Etap QC CV szablonu rekrutacji — „Zwróć do rekrutera" z kolejki Cpro.
+    return_stage_def_id: Optional[int] = None
+    # Wynik QC CV pary (`cv_qc.pair_statuses`): passed|failed|overridden|unchecked.
+    qc_status: Optional[str] = None
+    qc_blocking_failed: int = 0
 
     def as_dict(self) -> dict:
         return {
@@ -142,6 +150,9 @@ class BoardTask:
             "screening_stage_id": self.screening_stage_id,
             "job_sender_id": self.job_sender_id,
             "job_sender_name": self.job_sender_name,
+            "return_stage_def_id": self.return_stage_def_id,
+            "qc_status": self.qc_status,
+            "qc_blocking_failed": self.qc_blocking_failed,
         }
 
 
@@ -153,16 +164,17 @@ class BoardTaskSnapshot:
 
 
 def classify_template(defs: Iterable[PipelineStageDef]) -> TemplateStages:
-    """Rozpoznaje etapy kolejki po nazwie (odznaki) i kodzie (reszta).
+    """Rozpoznaje etapy kolejki po nazwie (QC, Cpro) i kodzie (reszta).
 
-    Etap-odznaka nigdy nie jest „gospodarzem": „Przepuszczony przez DZ" ma
-    w szablonie domyślnym kod ``interview``, a „NORDEA: Wysłać do Cpro"
-    w szablonie z Traffita kod ``screening``.
+    Etap rozpoznawany po nazwie nigdy nie jest mylony z kodem: „QC CV"
+    (dawniej „Przepuszczony przez DZ") ma w szablonie domyślnym kod
+    ``interview``, a „NORDEA: Wysłać do Cpro" w szablonie z Traffita kod
+    ``screening``.
     """
 
     ordered = sorted(defs, key=lambda d: (d.order, d.id))
     verified: list[int] = []
-    dz: list[int] = []
+    qc: list[int] = []
     cpro: list[int] = []
     cv_sent: list[int] = []
     rejected: list[int] = []
@@ -171,8 +183,8 @@ def classify_template(defs: Iterable[PipelineStageDef]) -> TemplateStages:
             if _terminal_type(d) == "rejected":
                 rejected.append(d.id)
             continue
-        if is_dz_stage(d.name):
-            dz.append(d.id)
+        if is_qc_stage(d.name):
+            qc.append(d.id)
         elif is_cpro_stage(d.name):
             cpro.append(d.id)
         elif d.legacy_enum_value == "verified":
@@ -181,7 +193,8 @@ def classify_template(defs: Iterable[PipelineStageDef]) -> TemplateStages:
             cv_sent.append(d.id)
     return TemplateStages(
         verified_ids=frozenset(verified),
-        dz_id=dz[0] if dz else None,
+        qc_ids=frozenset(qc),
+        qc_id=qc[0] if qc else None,
         cpro_ids=frozenset(cpro),
         cpro_id=cpro[0] if cpro else None,
         cv_sent_ids=frozenset(cv_sent),
@@ -276,9 +289,7 @@ async def load_snapshot(
     templates = catalog.stages
     targets: set[int] = set()
     for stages in templates.values():
-        targets |= stages.verified_ids | stages.cpro_ids | stages.cv_sent_ids
-        if stages.dz_id is not None:
-            targets.add(stages.dz_id)
+        targets |= stages.qc_ids | stages.cpro_ids | stages.cv_sent_ids
     if not targets:
         return BoardTaskSnapshot()
     # Wiersze, które w KTÓRYMKOLWIEK szablonie trafiają na etap kolejki
@@ -305,7 +316,9 @@ async def load_snapshot(
         )
     ).all()
 
-    badge_since = now - timedelta(days=WINDOW_DAYS)
+    sent_since = now - timedelta(days=WINDOW_DAYS)
+    # Jedna osoba na firmę; stare typowania są zapasem, gdy nikogo nie ma.
+    firm_sender_id = (await cpro_sender.effective_sender(db, now)).user_id
     tasks: list[BoardTask] = []
     for r in rows:
         stages = templates.get(r.template_id)
@@ -332,11 +345,9 @@ async def load_snapshot(
             template_id=r.template_id,
         )
         nordea = cpro_enabled_for_client(r.client_id)
+        in_qc = effective in stages.qc_ids
         if not nordea:
-            in_verified_column = effective in stages.verified_ids or (
-                stages.dz_id is not None and effective == stages.dz_id
-            )
-            if in_verified_column:
+            if in_qc:
                 tasks.append(
                     BoardTask(
                         kind=KIND_DL_REVIEW,
@@ -346,28 +357,26 @@ async def load_snapshot(
                     )
                 )
             continue
-        if r.moved_at < badge_since:
-            continue
-        if effective in stages.verified_ids and stages.dz_id is not None:
-            tasks.append(
-                BoardTask(kind=KIND_DZ, target_stage_def_id=stages.dz_id, **base)
-            )
-        elif effective in stages.cpro_ids and nordea:
+        if effective in stages.cpro_ids:
             tasks.append(
                 BoardTask(
                     kind=KIND_CPRO_TO_SEND,
                     target_stage_def_id=stages.cv_sent_id,
-                    assignee_id=r.cpro_sender_id or r.task_assignee_id,
+                    return_stage_def_id=stages.qc_id,
+                    assignee_id=(
+                        firm_sender_id or r.cpro_sender_id or r.task_assignee_id
+                    ),
                     job_sender_id=r.cpro_sender_id,
                     **base,
                 )
             )
-        elif effective in stages.cv_sent_ids and nordea:
+        elif effective in stages.cv_sent_ids and r.moved_at >= sent_since:
             tasks.append(
                 BoardTask(kind=KIND_CPRO_SENT, target_stage_def_id=None, **base)
             )
 
     await _attach_dl_review_details(db, catalog, tasks)
+    await _attach_qc_statuses(db, tasks)
     await _attach_versions_and_names(db, tasks)
     tasks.sort(key=lambda t: t.since)
     return BoardTaskSnapshot(tasks=tasks)
@@ -420,13 +429,26 @@ async def _attach_versions_and_names(db: AsyncSession, tasks: list[BoardTask]) -
             t.verified_by_name = names.get(t.verified_by_id)
 
 
+async def _attach_qc_statuses(db: AsyncSession, tasks: list[BoardTask]) -> None:
+    wanted = [t for t in tasks if t.kind in (KIND_DL_REVIEW, KIND_CPRO_TO_SEND)]
+    if not wanted:
+        return
+    from app.services.move_requirements import qc_statuses  # noqa: PLC0415
+
+    statuses = await qc_statuses(db, ((t.candidate_id, t.job_id) for t in wanted))
+    for t in wanted:
+        status = statuses.get((t.candidate_id, t.job_id)) or {}
+        t.qc_status = status.get("status") or "unchecked"
+        t.qc_blocking_failed = int(status.get("blocking_failed") or 0)
+
+
 async def _attach_dl_review_details(
     db: AsyncSession, catalog: _Catalog, tasks: list[BoardTask]
 ) -> None:
     """Dla przeglądu DL: wiersz weryfikacji (kto, kiedy, stawka) i screening.
 
-    Najnowszy wiersz pary bywa etapem DZ (odznaka w kolumnie „Zweryfikowany"),
-    więc weryfikację szukamy wstecz w historii pary — ostatni wiersz, który na
+    Najnowszy wiersz pary to etap QC CV, więc weryfikację szukamy wstecz
+    w historii pary — ostatni wiersz, który na
     tablicy tej rekrutacji stoi na etapie ``verified``. Arkusz screeningu leży
     na wierszu, na którym go wypełniono (zwykle „Screening").
     """
@@ -510,31 +532,30 @@ def tasks_for_user(
 ) -> dict[str, list[BoardTask]]:
     """Co z migawki należy do tej osoby.
 
-    * DZ i przegląd DL: role z prawem DZ; Delivery Lead tylko w swoim
-      portfelu.
-    * Do wysłania do Cpro: wytypowany zawsze; role DZ — także nieprzypisane
-      i cudze (ktoś musi je przydzielić albo zastąpić nieobecnego).
-    * Wysłane: kto przesunął na „Wysłane do Cpro", albo role DZ.
+    * Przegląd DL: admin, Delivery Lead i Head of Recruitment; Delivery Lead
+      tylko w swoim portfelu.
+    * Do wysłania do Cpro: osoba od Cpro zawsze; role przeglądu — także
+      nieprzypisane i cudze (ktoś musi zastąpić nieobecnego).
+    * Wysłane: kto przesunął na „Wysłane do Cpro", albo role przeglądu.
     """
 
-    can_dz = user.has_any_role(*DZ_BADGE_ROLES)
+    can_review = user.has_any_role(*REVIEW_ROLES)
     sees_all = _sees_all(user)
     out: dict[str, list[BoardTask]] = {
-        KIND_DZ: [],
         KIND_CPRO_TO_SEND: [],
         KIND_CPRO_SENT: [],
         KIND_DL_REVIEW: [],
     }
     for t in snapshot.tasks:
         scoped = sees_all or _in_portfolio(t, user, portfolio)
-        if t.kind in (KIND_DZ, KIND_DL_REVIEW):
-            if can_dz and scoped:
+        if t.kind == KIND_DL_REVIEW:
+            if can_review and scoped:
                 out[t.kind].append(t)
         elif t.kind == KIND_CPRO_TO_SEND:
-            if t.assignee_id == user.id or (can_dz and scoped):
+            if t.assignee_id == user.id or (can_review and scoped):
                 out[KIND_CPRO_TO_SEND].append(t)
         elif t.kind == KIND_CPRO_SENT:
-            if t.moved_by == user.id or (can_dz and scoped):
+            if t.moved_by == user.id or (can_review and scoped):
                 out[KIND_CPRO_SENT].append(t)
     # Moje zadania Cpro na górze, potem nieprzypisane, potem cudze.
     out[KIND_CPRO_TO_SEND].sort(
@@ -548,14 +569,13 @@ def tasks_for_user(
 
 @dataclass(frozen=True)
 class DigestLine:
-    dz: int = 0
     cpro_mine: int = 0
     cpro_unassigned: int = 0
     dl_review: int = 0
 
     @property
     def total(self) -> int:
-        return self.dz + self.cpro_mine + self.cpro_unassigned + self.dl_review
+        return self.cpro_mine + self.cpro_unassigned + self.dl_review
 
 
 async def digest_counts(
@@ -564,8 +584,9 @@ async def digest_counts(
     """Poranny skrót: kto ma co do zrobienia (tylko to, co wymaga ruchu).
 
     Wysłane do Cpro nie są zadaniem — czekamy na Nordeę — więc skrót ich nie
-    liczy. Nieprzypisane zadania Cpro trafiają do Head of Recruitment i do
-    Delivery Leadów, w których portfelu jest klient.
+    liczy. Osoba od Cpro dostaje liczbę osób w kolejce; kolejka bez nikogo
+    ustawionego trafia do Head of Recruitment i do Delivery Leadów, w których
+    portfelu jest klient.
     """
 
     if not snapshot.tasks:
@@ -575,8 +596,8 @@ async def digest_counts(
             select(User).where(
                 User.is_active.is_(True),
                 or_(
-                    User.role.in_(_DZ_DIGEST_ROLES),
-                    *(User.roles.contains([r.value]) for r in _DZ_DIGEST_ROLES),
+                    User.role.in_(_REVIEW_DIGEST_ROLES),
+                    *(User.roles.contains([r.value]) for r in _REVIEW_DIGEST_ROLES),
                 ),
             )
         )
@@ -589,18 +610,17 @@ async def digest_counts(
     counts: dict[int, dict[str, int]] = {}
 
     def bump(uid: int, key: str) -> None:
-        counts.setdefault(
-            uid, {"dz": 0, "cpro_mine": 0, "cpro_unassigned": 0, "dl_review": 0}
-        )[key] += 1
+        counts.setdefault(uid, {"cpro_mine": 0, "cpro_unassigned": 0, "dl_review": 0})[
+            key
+        ] += 1
 
     for t in snapshot.tasks:
         if t.kind == KIND_CPRO_TO_SEND and t.assignee_id is not None:
             bump(t.assignee_id, "cpro_mine")
             continue
-        if t.kind not in (KIND_DZ, KIND_CPRO_TO_SEND, KIND_DL_REVIEW):
+        if t.kind not in (KIND_CPRO_TO_SEND, KIND_DL_REVIEW):
             continue
         key = {
-            KIND_DZ: "dz",
             KIND_CPRO_TO_SEND: "cpro_unassigned",
             KIND_DL_REVIEW: "dl_review",
         }[t.kind]
@@ -616,12 +636,15 @@ def digest_message(line: DigestLine) -> str:
         parts.append(
             f"{_people(line.dl_review)} {_waits(line.dl_review)} na Twój przegląd"
         )
-    if line.dz:
-        parts.append(f"{_people(line.dz)} {_waits(line.dz)} na DZ")
     if line.cpro_mine:
-        parts.append(f"{line.cpro_mine} do wysłania przez Ciebie do Cpro")
+        parts.append(
+            f"{_people(line.cpro_mine)} w kolejce Cpro do wysłania przez Ciebie"
+        )
     if line.cpro_unassigned:
-        parts.append(f"{line.cpro_unassigned} do Cpro bez wytypowanej osoby")
+        parts.append(
+            f"{_people(line.cpro_unassigned)} w kolejce Cpro — "
+            "nikt nie jest ustawiony do wysyłki"
+        )
     return " · ".join(parts)
 
 
@@ -646,7 +669,7 @@ __all__ = [
     "KIND_CPRO_SENT",
     "KIND_CPRO_TO_SEND",
     "KIND_DL_REVIEW",
-    "KIND_DZ",
+    "REVIEW_ROLES",
     "WINDOW_DAYS",
     "BoardTask",
     "BoardTaskSnapshot",
@@ -702,11 +725,11 @@ async def ensure_assignee_can_move(
 ) -> bool:
     """Wytypowana osoba musi móc przesunąć kartę na „Wysłane do Cpro".
 
-    Rekrutacje z Traffita zwykle nie mają w NEXUSIE rekrutera ani zespołu,
-    więc rekruter spoza zespołu dostałby 403 przy własnym zadaniu. Dopisać go
-    do zespołu może jednak tylko ktoś, kto i tak zmienia zespoły (admin,
-    Delivery Lead, Head of Recruitment — role DZ); zwykły członek zespołu nie
-    może tą drogą wprowadzać do rekrutacji innych osób (lustro bramki
+    Od 23.09.2026 bramka zespołu przepuszcza każdą rolę operacyjną, więc
+    zwykle nie ma czego dopisywać. Gdy jednak trzeba, dopisać osobę do zespołu
+    może tylko admin, Delivery Lead, Head of Recruitment albo osoba od Cpro
+    (`cpro_sender.can_send_to_cpro`); zwykły członek zespołu nie może tą drogą
+    wprowadzać do rekrutacji innych osób (lustro bramki
     `POST /api/jobs/{id}/collaborators`). Zwraca, czy dopisano.
     """
 
@@ -721,7 +744,7 @@ async def ensure_assignee_can_move(
         return False
     except HTTPException:
         pass
-    if not actor.has_any_role(*DZ_BADGE_ROLES):
+    if not await cpro_sender.can_send_to_cpro(db, actor):
         raise HTTPException(
             status_code=422,
             detail=(

@@ -69,6 +69,12 @@ vi.mock("@/components/v2/jobs/BoardReviewSection", async () => {
   };
 });
 
+// Okno QC CV (F2) ma własne zapytania — tu sprawdzamy tylko, KTÓRY etap otwiera.
+vi.mock("@/components/v2/recruitment/CvQcDialog", () => ({
+  CvQcDialog: ({ stageId, open }: { stageId: number | null; open: boolean }) =>
+    open ? <div data-testid="cv-qc-dialog" data-stage-id={String(stageId)} /> : null,
+}));
+
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/store/auth";
@@ -1230,9 +1236,9 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(screen.getByRole("textbox", { name: "Filtruj po nazwisku" })).toHaveValue("zzz");
   });
 
-  it("Tablica: jeden etap = jedna kolumna, etapy-odznaki na kartach, zamknięci na pasku", async () => {
+  it("Tablica: 8 kolumn z numerem kroku, „QC CV” gospodarzem etapu DZ, zamknięci na pasku", async () => {
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
-    // Osoba na etapie „Przepuszczony przez DZ" (index 3) — w kolumnie „Zweryfikowany".
+    // Osoba na etapie „Przepuszczony przez DZ" (index 3) — gospodarz kolumny „QC CV".
     columns[3] = {
       ...columns[3],
       count: 1,
@@ -1244,19 +1250,26 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     const headers = Array.from(container.querySelectorAll("[data-colid] h3")).map((h) => h.textContent);
     expect(headers).toEqual([
       "Nowi",
+      "Screening",
       "Zweryfikowany",
+      "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
       "Umowa",
       "Zatrudniony",
     ]);
-    // Karta z etapu-odznaki stoi w kolumnie gospodarza i niesie odznakę.
-    const verified = container.querySelector('[data-colid="def:302"]')!;
-    expect(within(verified as HTMLElement).getByText("Iga Mazur")).toBeTruthy();
-    expect(within(verified as HTMLElement).getByText("DZ ✓")).toBeTruthy();
+    const steps = Array.from(container.querySelectorAll('[data-testid="column-step"]')).map(
+      (el) => el.textContent,
+    );
+    expect(steps).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
+    // Karta z etapu DZ stoi w „QC CV” — bez dawnej odznaki „DZ ✓”, z chipem QC.
+    const qcCol = container.querySelector('[data-colid="def:303"]') as HTMLElement;
+    expect(within(qcCol).getByText("Iga Mazur")).toBeTruthy();
+    expect(within(qcCol).queryByText("DZ ✓")).toBeNull();
+    expect(within(qcCol).getByTestId("card-qc-chip")).toHaveTextContent("QC nie sprawdzone");
+    // Poza Nordeą osoba w QC CV czeka na przegląd DL.
+    expect(within(qcCol).getByTestId("card-next-who")).toHaveTextContent("DL");
     // Odrzuceni i wycofani nie zajmują kolumn — pasek z celami upuszczenia.
-    // Pipeline v4: odrzuceni w trzech grupach „kto kończy" (bez `ended_by`
-    // = „przez nas"), rezygnacje osobno.
     const bar = screen.getByTestId("board-closed-bar");
     expect(bar).toHaveTextContent("Odrzucony przez nas 1");
     expect(bar).toHaveTextContent("Odrzucony przez DL 0");
@@ -1267,58 +1280,62 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(container.querySelector('[data-colid="def:313"]')).toBeTruthy();
   });
 
-  it("odznaki w doku: poza Nordeą bez DZ i Cpro, u Nordei „DZ ✓” przesuwa na etap DZ", async () => {
+  it("chip QC mówi wynik ostatniej kontroli i otwiera okno QC CV tej karty", async () => {
+    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
+    columns[3] = {
+      ...columns[3],
+      count: 1,
+      items: [
+        {
+          id: 7302,
+          candidate_id: 8302,
+          stage: "new",
+          name: "Kuba",
+          lastname: "Braki",
+          days_in_stage: 1,
+          qc: { status: "failed", blocking_failed: 3 },
+        },
+      ],
+    };
+    renderBoard(columns as never);
+    const chip = await screen.findByRole("button", { name: /QC: 3 do poprawy — otwórz QC CV dla Kuba Braki/ });
+    // Znany brak — strzałka jest szara, ale klikalna.
+    const card = document.querySelector('[data-candidate-id="8302"]') as HTMLElement;
+    expect(within(card).getByTestId("card-advance")).toHaveAttribute("data-gap", "true");
+    expect(within(card).getByTestId("card-next-who")).toHaveTextContent("Ty");
+    await userEvent.click(chip);
+    expect(await screen.findByTestId("cv-qc-dialog")).toHaveAttribute("data-stage-id", "7302");
+  });
+
+  it("dok nie ma już przełączników DZ ani Cpro (także u Nordei)", async () => {
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
     columns[2] = {
       ...columns[2],
       count: 1,
       items: [{ id: 7201, candidate_id: 8201, stage: "verified", name: "Olek", lastname: "Nowy", days_in_stage: 1 }],
     };
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const { rerender } = render(
-      <QueryClientProvider client={qc}>
-        <TooltipProvider>
-          <KanbanBoardV2 columns={columns as never} jobId={10} />
-        </TooltipProvider>
-      </QueryClientProvider>,
-    );
+    renderBoard(columns as never, undefined, false, true);
     await screen.findByText("Olek Nowy");
     fireEvent.click(document.querySelector('[data-candidate-id="8201"]') as HTMLElement);
     const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
-    // Pipeline v4 (23.09.2026): DZ → Cpro to ścieżka Nordei.
-    expect(within(dock).queryByRole("button", { name: "+ DZ" })).toBeNull();
-    expect(within(dock).queryByRole("button", { name: /Gotowy do Cpro/ })).toBeNull();
-
-    rerender(
-      <QueryClientProvider client={qc}>
-        <TooltipProvider>
-          <KanbanBoardV2 columns={columns as never} jobId={10} cproEnabled />
-        </TooltipProvider>
-      </QueryClientProvider>,
-    );
-    const group = screen.getByRole("group", { name: "Odznaki etapu" });
-    expect(within(group).getByRole("button", { name: /Gotowy do Cpro/ })).toBeTruthy();
-    await userEvent.click(within(group).getByRole("button", { name: "+ DZ" }));
-    await waitFor(() =>
-      expect(post.mock.calls.find((c) => c[0] === "/api/pipeline/move")?.[1]).toMatchObject({
-        candidate_id: 8201,
-        stage_def_id: 303,
-      }),
-    );
+    expect(within(dock).queryByRole("group", { name: "Odznaki etapu" })).toBeNull();
+    expect(within(dock).queryByRole("button", { name: /DZ/ })).toBeNull();
+    expect(within(dock).queryByRole("button", { name: /Cpro/ })).toBeNull();
   });
 
-  it("licznik „Nowi” liczy propozycje z bazy razem z kartami (Nowi, Screening, ogłoszenia)", async () => {
+  it("licznik „Nowi” liczy propozycje z bazy razem z kartami — bez panelu dodawania", async () => {
     reviewTotal.value = 14;
     try {
-      // „Default B2B": 2 karty w „Nowi / Analiza CV" + 1 w Screeningu + 14 propozycji.
+      // „Default B2B": 2 karty w „Nowi / Analiza CV" + 14 propozycji
+      // (Screening to od v5 osobna kolumna).
       const { container: base } = renderBoard(defaultB2BColumns());
       await waitFor(() =>
         expect(
-          base.querySelector('[aria-label="Nowi, liczba kandydatów: 17"]'),
+          base.querySelector('[aria-label="Nowi, liczba kandydatów: 16"]'),
         ).toBeTruthy(),
       );
 
-      // Z etapem „Ogłoszenia" (1 karta) nagłówek liczy 1 + 3 + 14.
+      // Z etapem „Ogłoszenia" (1 karta) nagłówek liczy 1 + 2 + 14.
       rtlCleanup();
       const withPosting = [
         {
@@ -1334,7 +1351,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
       const { container } = renderBoard(withPosting as never);
       await waitFor(() =>
         expect(
-          container.querySelector('[aria-label="Nowi, liczba kandydatów: 18"]'),
+          container.querySelector('[aria-label="Nowi, liczba kandydatów: 17"]'),
         ).toBeTruthy(),
       );
     } finally {
@@ -1342,88 +1359,88 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     }
   });
 
-  it("„Gotowy do Cpro” przesuwa od razu, bez pytania o osobę; u Nordei kolumna to „Wysłane do Cpro”", async () => {
-    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
-    columns[2] = {
-      ...columns[2],
-      count: 1,
-      items: [{ id: 7202, candidate_id: 8202, stage: "verified", name: "Ola", lastname: "Gotowa", days_in_stage: 1 }],
-    };
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const { container } = render(
-      <QueryClientProvider client={qc}>
-        <TooltipProvider>
-          <KanbanBoardV2 columns={columns as never} jobId={10} cproEnabled />
-        </TooltipProvider>
-      </QueryClientProvider>,
-    );
-    await screen.findByText("Ola Gotowa");
-    const headers = Array.from(container.querySelectorAll("[data-colid] h3")).map((h) => h.textContent);
-    expect(headers).toContain("Wysłane do Cpro");
-    expect(headers).not.toContain("CV wysłane");
-
-    fireEvent.click(document.querySelector('[data-candidate-id="8202"]') as HTMLElement);
-    const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
-    await userEvent.click(
-      within(within(dock).getByRole("group", { name: "Odznaki etapu" })).getByRole("button", {
-        name: /Gotowy do Cpro/,
-      }),
-    );
-    // 0353: jedna osoba wysyła całą rekrutację — ruch bez okna i bez osoby.
-    await waitFor(() =>
-      expect(post.mock.calls.find((c) => c[0] === "/api/pipeline/move")?.[1]).toMatchObject({
-        candidate_id: 8202,
-        stage_def_id: 304,
-      }),
-    );
-    const body = post.mock.calls.find((c) => c[0] === "/api/pipeline/move")?.[1] as Record<string, unknown>;
-    expect(body.task_assignee_id).toBeUndefined();
-    expect(screen.queryByRole("dialog", { name: "Gotowy do Cpro" })).toBeNull();
+  it("z panelem „Dodaj kandydatów” nagłówek „Nowi” liczy tylko karty", async () => {
+    reviewTotal.value = 14;
+    try {
+      const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { container } = render(
+        <QueryClientProvider client={qc}>
+          <TooltipProvider>
+            <KanbanBoardV2 columns={defaultB2BColumns()} jobId={10} onOpenAddCandidates={vi.fn()} />
+          </TooltipProvider>
+        </QueryClientProvider>,
+      );
+      await waitFor(() =>
+        expect(container.querySelector('[aria-label="Nowi, liczba kandydatów: 2"]')).toBeTruthy(),
+      );
+    } finally {
+      reviewTotal.value = 0;
+    }
   });
 
-  it("osoba na etapie Cpro ma na karcie obie odznaki, a w doku „DZ” jest włączone", async () => {
+  it("u Nordei kolumna to „Wysłane do Cpro”, a karta w kolejce Cpro ma znacznik", async () => {
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
     columns[4] = {
       ...columns[4],
       count: 1,
       items: [{ id: 7401, candidate_id: 8401, stage: "new", name: "Ewa", lastname: "Cpro", days_in_stage: 1 }],
     };
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={qc}>
-        <TooltipProvider>
-          <KanbanBoardV2 columns={columns as never} jobId={10} cproEnabled />
-        </TooltipProvider>
-      </QueryClientProvider>,
-    );
+    const { container } = renderBoard(columns as never, undefined, false, true);
     await screen.findByText("Ewa Cpro");
-    const card = document.querySelector('[data-candidate-id="8401"]') as HTMLElement;
-    expect(within(card).getByText("DZ ✓")).toBeTruthy();
-    expect(within(card).getByText("Gotowy do Cpro")).toBeTruthy();
-    fireEvent.click(card);
-    const group = within(
-      await screen.findByRole("complementary", { name: "Karta kandydata" }),
-    ).getByRole("group", { name: "Odznaki etapu" });
-    expect(within(group).getByRole("button", { name: "✓ DZ" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(group).getByRole("button", { name: "✓ Gotowy do Cpro" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    const headers = Array.from(container.querySelectorAll("[data-colid] h3")).map((h) => h.textContent);
+    expect(headers).toContain("Wysłane do Cpro");
+    expect(headers).not.toContain("CV wysłane");
+    const qcCol = container.querySelector('[data-colid="def:303"]') as HTMLElement;
+    const card = within(qcCol).getByText("Ewa Cpro").closest("[data-kanban-card]") as HTMLElement;
+    expect(within(card).getByText("W kolejce Cpro")).toBeTruthy();
+    expect(within(card).queryByText("DZ ✓")).toBeNull();
+    expect(within(card).getByTestId("card-next-who")).toHaveTextContent("Osoba od Cpro");
   });
 
-  it("„DZ ✓” jest wyłączone dla rekrutera — ustawia je DL albo Head of Recruitment", async () => {
-    useAuthStore.setState({ user: { id: 2, role: "recruiter", roles: ["recruiter"] } } as never);
+  it("strzałka „→” otwiera „Przesuń dalej”: braki blokują przycisk, akcja otwiera arkusz", async () => {
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
-    columns[2] = {
-      ...columns[2],
-      count: 1,
-      items: [{ id: 7201, candidate_id: 8201, stage: "verified", name: "Olek", lastname: "Nowy", days_in_stage: 1 }],
-    };
-    renderBoard(columns as never, undefined, false, true);
-    await screen.findByText("Olek Nowy");
-    fireEvent.click(document.querySelector('[data-candidate-id="8201"]') as HTMLElement);
-    const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
-    expect(within(dock).getByRole("button", { name: "+ DZ" })).toBeDisabled();
+    get.mockImplementation((url: string) =>
+      url === "/api/pipeline/move-requirements"
+        ? Promise.resolve({
+            data: {
+              from_column: "screening",
+              to_column: "verified",
+              skipped_columns: [],
+              items: [
+                {
+                  key: "screening_sheet",
+                  label: "Arkusz screeningu",
+                  detail: "jeszcze niewypełniony",
+                  status: "missing",
+                  blocking: true,
+                  action: { kind: "open_screening", label: "Otwórz arkusz", stage_id: 1100 },
+                },
+              ],
+              primary: { kind: "move", label: "Przesuń na „Zweryfikowany”" },
+              owner_note: null,
+            },
+          })
+        : Promise.resolve({ data: {} }),
+    );
+    renderBoard(columns as never);
+    await screen.findByTestId("pipeline-board");
+    // Karta ze Screeningu (index 1).
+    const card = document.querySelector('[data-candidate-id="2100"]') as HTMLElement;
+    await userEvent.click(within(card).getByRole("button", { name: /Przesuń Kandydat Screen0 na następny etap/ }));
+
+    const dialog = await screen.findByTestId("move-next-dialog");
+    await within(dialog).findByText("Arkusz screeningu");
+    expect(get).toHaveBeenCalledWith(
+      "/api/pipeline/move-requirements",
+      expect.objectContaining({
+        params: expect.objectContaining({ candidate_id: 2100, job_id: 10, to_stage_def_id: 302 }),
+      }),
+    );
+    expect(within(dialog).getByTestId("move-next-primary")).toBeDisabled();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Otwórz arkusz" }));
+    // Arkusz screeningu (ScreeningSheet) — okno „Przesuń dalej” chowa się na czas akcji.
+    await waitFor(() => expect(screen.queryByTestId("move-next-dialog")).toBeNull());
+    expect(post.mock.calls.filter((c) => c[0] === "/api/pipeline/move")).toHaveLength(0);
   });
 
   it("nagłówek kolumny niesie drugą linię o SLA i najstarszej karcie", async () => {
@@ -1464,9 +1481,9 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
       await screen.findByRole("button", { name: "Ukryj puste kolumny" }),
     );
 
-    // Zostaje wyłącznie „Nowi" (wejście i screening to od 23.09 jedna
-    // kolumna; odrzuceni są na pasku nad tablicą, nie w kolumnie).
-    expect(container.querySelectorAll("[data-colid]")).toHaveLength(1);
+    // Zostają „Nowi” (zawsze) i „Screening” (1 karta); odrzuceni są na
+    // pasku nad tablicą, nie w kolumnie.
+    expect(container.querySelectorAll("[data-colid]")).toHaveLength(2);
   });
 });
 

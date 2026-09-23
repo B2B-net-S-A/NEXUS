@@ -1,32 +1,37 @@
 /**
- * Tablica rekrutacji: 6 kolumn — Nowi · Zweryfikowany · CV wysłane · Rozmowa
- * u klienta · Umowa · Zatrudniony (decyzja Artura 23.09.2026, makiety
- * https://claude.ai/artifact/JQ8qdz16J6wG24WKTSgv6i). Do 22.09 było 9 kolumn;
- * „Do przejrzenia”, „Screening” i „Akceptacja” są teraz odznakami.
+ * Tablica rekrutacji: 8 kolumn — Nowi · Screening · Zweryfikowany · QC CV ·
+ * CV wysłane · Rozmowa u klienta · Umowa · Zatrudniony (Rekrutacja v5,
+ * decyzja Artura 23.09.2026, makiety
+ * https://claude.ai/artifact/CG4mBk9xcHZAn3y9jcmMeW). Screening znów jest
+ * kolumną, a etap DZ stał się kolumną „QC CV” (kontrola CV przed wysłaniem).
  *
  * Szablony etapów w bazie ZOSTAJĄ — nocny import z Traffita zapisuje ruch na
  * dokładny stan swojego procesu (15 i 18 stanów), a usunięcie etapu wrzuciłoby
  * te osoby do „Poza szablonem". Ten moduł tylko TŁUMACZY etap szablonu na
- * kolumnę Tablicy, a to, co nie jest krokiem procesu, na odznakę na karcie:
+ * kolumnę Tablicy, a to, co nie jest krokiem procesu, na znacznik na karcie:
  *
- *   Ogłoszenia, Screening   → „Nowi" + „Z ogłoszenia"/„Screening"
- *   Przepuszczony przez DZ → „Zweryfikowany" + „DZ ✓"
- *   Wysłać do Cpro          → „Zweryfikowany" + „Gotowy do Cpro" (Nordea)
- *   Preparation Meeting     → „Rozmowa u klienta" + „Prep"
- *   Akceptacja              → „Umowa" + „Akceptacja"
- *   Umowa wysłana/podpisana → „Umowa" + „wysłana"/„podpisana"
- *   Onboarding              → „Zatrudniony" + „Onboarding"
- *   Odrzucony, Wycofany     → pasek pod tablicą
+ *   Ogłoszenia               → „Nowi" + „Z ogłoszenia"
+ *   Screening, Rozmowa wst.  → „Screening"
+ *   Przepuszczony przez DZ,
+ *   QC CV                    → „QC CV" (gospodarz kolumny, bez znacznika)
+ *   Wysłać do Cpro           → „QC CV" + „W kolejce Cpro" (Nordea)
+ *   Preparation Meeting      → „Rozmowa u klienta" + „Prep"
+ *   Akceptacja               → „Umowa" + „Akceptacja"
+ *   Umowa wysłana/podpisana  → „Umowa" + „wysłana"/„podpisana"
+ *   Onboarding               → „Zatrudniony" + „Onboarding"
+ *   Odrzucony, Wycofany      → pasek pod tablicą
  *
  * Statystyki liczą dalej każdy etap osobno — tablica tylko składa kolumny.
- * Reguła ma lustro w backendzie (`services/board_stage_badges.py`: kto może
- * ustawić odznakę, `board_column_for` — kolumna dla blokady 12 h i
- * statystyk). Oba czytają `__fixtures__/board-stage-cases.json`.
+ * Reguła ma lustro w backendzie (`services/board_stage_badges.py`:
+ * `board_column_for` — kolumna dla blokady 12 h i statystyk). Oba czytają
+ * `__fixtures__/board-stage-cases.json`.
  */
 
 export type BoardColumnKey =
   | "new"
+  | "screening"
   | "verified"
+  | "cv_qc"
   | "cv_sent"
   | "client_interview"
   | "contract"
@@ -35,9 +40,7 @@ export type BoardColumnKey =
 
 export type StageBadgeKey =
   | "posting"
-  | "screening"
   | "acceptance"
-  | "dz"
   | "cpro"
   | "prep"
   | "after_interview"
@@ -47,7 +50,9 @@ export type StageBadgeKey =
 
 export const BOARD_COLUMN_ORDER: readonly BoardColumnKey[] = [
   "new",
+  "screening",
   "verified",
+  "cv_qc",
   "cv_sent",
   "client_interview",
   "contract",
@@ -56,7 +61,9 @@ export const BOARD_COLUMN_ORDER: readonly BoardColumnKey[] = [
 
 export const BOARD_COLUMN_LABEL: Record<BoardColumnKey, string> = {
   new: "Nowi",
+  screening: "Screening",
   verified: "Zweryfikowany",
+  cv_qc: "QC CV",
   cv_sent: "CV wysłane",
   client_interview: "Rozmowa u klienta",
   contract: "Umowa",
@@ -73,17 +80,22 @@ export interface FoldBoardOptions {
   cproEnabled?: boolean;
 }
 
-function boardColumnLabel(key: BoardColumnKey, options: FoldBoardOptions): string {
+export function boardColumnLabel(key: BoardColumnKey, options: FoldBoardOptions = {}): string {
   if (key === "cv_sent" && options.cproEnabled) return CPRO_SENT_COLUMN_LABEL;
   return BOARD_COLUMN_LABEL[key];
 }
 
+/** Numer kroku w nagłówku kolumny (1–8); `null` dla zamkniętych. */
+export function boardColumnStep(key: BoardColumnKey | null | undefined): number | null {
+  if (!key) return null;
+  const at = BOARD_COLUMN_ORDER.indexOf(key);
+  return at < 0 ? null : at + 1;
+}
+
 export const STAGE_BADGE_LABEL: Record<StageBadgeKey, string> = {
   posting: "Z ogłoszenia",
-  screening: "Screening",
   acceptance: "Akceptacja",
-  dz: "DZ ✓",
-  cpro: "Gotowy do Cpro",
+  cpro: "W kolejce Cpro",
   prep: "Prep",
   after_interview: "Po rozmowie",
   contract_sent: "wysłana",
@@ -93,10 +105,8 @@ export const STAGE_BADGE_LABEL: Record<StageBadgeKey, string> = {
 
 export const STAGE_BADGE_TITLE: Record<StageBadgeKey, string> = {
   posting: "Osoba z ogłoszenia — jeszcze nikt z nią nie rozmawiał",
-  screening: "Etap „Screening” (z Traffita) — rozmowa w toku",
   acceptance: "Klient zaakceptował — umowa jeszcze nie wysłana",
-  dz: "Zweryfikowany przez DZ (Delivery Lead / Dominik)",
-  cpro: "Gotowy do wysłania w systemie Cpro Nordei",
+  cpro: "CV czeka w kolejce osoby, która wrzuca je do systemu Cpro Nordei",
   prep: "Przygotowanie do rozmowy u klienta",
   after_interview: "Rozmowa u klienta się odbyła — czekamy na decyzję",
   contract_sent: "Umowa wysłana",
@@ -127,10 +137,14 @@ export function normalizeStageName(name: string | null | undefined): string {
     .trim();
 }
 
-/** Etap „Przepuszczony przez DZ" — lustro `is_dz_stage` w backendzie. */
-export function isDzStageName(name: string | null | undefined): boolean {
+/**
+ * Etap kolumny „QC CV": „QC CV" (Default B2B po migracji 0361) albo dawne
+ * „Przepuszczony przez DZ" (szablon z Traffita) — lustro rodzaju `qc`
+ * w `stage_badge_kind` w backendzie.
+ */
+export function isQcStageName(name: string | null | undefined): boolean {
   const n = normalizeStageName(name);
-  return /\bdz\b/.test(n) || n.includes("przepuszcz");
+  return /\bqc\b/.test(n) || /\bdz\b/.test(n) || n.includes("przepuszcz");
 }
 
 /** Etap „Wysłać do Cpro" (Nordea) — lustro `is_cpro_stage` w backendzie. */
@@ -141,8 +155,8 @@ export function isCproStageName(name: string | null | undefined): boolean {
 const BY_ENUM: Record<string, BoardColumnKey> = {
   posting: "new",
   new: "new",
-  prep_call: "new",
-  screening: "new",
+  prep_call: "screening",
+  screening: "screening",
   verified: "verified",
   interview: "verified",
   cv_sent: "cv_sent",
@@ -155,12 +169,14 @@ const BY_ENUM: Record<string, BoardColumnKey> = {
   withdrawn: "closed",
 };
 
-/** Etap szablonu → kolumna Tablicy i odznaka (bez odznaki = `null`). */
+/** Etap szablonu → kolumna Tablicy i znacznik (bez znacznika = `null`). */
 export function placeStage(col: StageLike): StagePlacement {
   const raw = col.label ?? col.name ?? "";
   const n = normalizeStageName(raw);
-  if (isDzStageName(raw)) return { column: "verified", badge: "dz" };
-  if (isCproStageName(raw)) return { column: "verified", badge: "cpro" };
+  if (col.category !== "terminal") {
+    if (isCproStageName(raw)) return { column: "cv_qc", badge: "cpro" };
+    if (isQcStageName(raw)) return { column: "cv_qc", badge: null };
+  }
   if (n.includes("umowa podpis")) return { column: "contract", badge: "contract_signed" };
   if (n.includes("umowa wysl")) return { column: "contract", badge: "contract_sent" };
   if (n.includes("po interview") || n.includes("po rozmowie")) {
@@ -179,11 +195,8 @@ export function placeStage(col: StageLike): StagePlacement {
     return { column: "hired", badge: null };
   }
   if (col.category === "terminal") return { column: "closed", badge: null };
-  // Odznaki z KODU etapu (nie z nazwy): kolumny, które zniknęły 23.09.2026.
+  // Znaczniki z KODU etapu (nie z nazwy).
   if (col.stage === "posting") return { column: "new", badge: "posting" };
-  if (col.stage === "screening" || col.stage === "prep_call") {
-    return { column: "new", badge: "screening" };
-  }
   if (col.stage === "acceptance") return { column: "contract", badge: "acceptance" };
   return { column: BY_ENUM[col.stage ?? ""] ?? "new", badge: null };
 }
@@ -208,6 +221,7 @@ export interface BoardColumnFold<C extends FoldableColumn> {
 }
 
 const CANONICAL_ENUM: Partial<Record<BoardColumnKey, string>> = {
+  screening: "screening",
   verified: "verified",
   cv_sent: "cv_sent",
   client_interview: "client_interview",
@@ -222,8 +236,8 @@ function baseName(col: StageLike): string {
 /**
  * Składa kolumny szablonu w kolumny Tablicy. JEDEN etap = JEDNA kolumna —
  * łączą się WYŁĄCZNIE:
- *  - etapy-odznaki rozpoznane po nazwie (DZ, Cpro, Prep, Umowa, Onboarding)
- *    z etapem swojej kolumny (np. „Przepuszczony przez DZ" → „Zweryfikowany"),
+ *  - etapy-odznaki rozpoznane po nazwie (Cpro, Prep, Umowa, Onboarding)
+ *    z etapem swojej kolumny (np. „Wysłać do Cpro" → „QC CV"),
  *  - duplikaty nazw z importu („Zaakceptowany (#41)" → „Zaakceptowany").
  * Własny etap szablonu bez znanego znaczenia (kod zastępczy `new` poza
  * pierwszym) zostaje osobną kolumną z własną nazwą — inaczej szablon
@@ -266,6 +280,10 @@ export function foldBoardColumns<C extends FoldableColumn>(
     // z własną nazwą.
     const canonical =
       CANONICAL_ENUM[column] === col.stage ||
+      // „QC CV"/„Przepuszczony przez DZ" jest gospodarzem kolumny po NAZWIE —
+      // kod etapu bywa `interview` albo `new`.
+      column === "cv_qc" ||
+      (column === "screening" && col.stage === "prep_call") ||
       (column === "hired" && col.terminal_type === "hired") ||
       (column === "new" && col.stage === "new" && !seenNew);
     if (column === "new" && col.stage === "new") seenNew = true;
@@ -318,20 +336,14 @@ export function foldBoardColumns<C extends FoldableColumn>(
 }
 
 /**
- * Odznaki, które da się ustawić z panelu osoby: etap-odznaka z tej samej
- * kolumny Tablicy (ruch na ten etap). `cpro` wyłącznie u Nordei, `dz`
- * wyłącznie dla admina, Delivery Leada i Head of Recruitment — tę samą
- * regułę sprawdza serwer przy ruchu.
+ * Znaczniki, które da się ustawić z panelu osoby: etap-znacznik z tej samej
+ * kolumny Tablicy (ruch na ten etap). Od Rekrutacji v5 zostaje tylko
+ * „Umowa podpisana" — Cpro ustawia się strzałką „Przesuń dalej" →
+ * „Przekaż do Cpro", a DZ stał się kolumną „QC CV".
  */
-export const SETTABLE_BADGES: readonly StageBadgeKey[] = ["dz", "cpro", "contract_signed"];
+export const SETTABLE_BADGES: readonly StageBadgeKey[] = ["contract_signed"];
 
-/**
- * Odznaki widoczne na karcie dla etapu-odznaki. „Wysłać do Cpro" stoi w procesie
- * PO „Przepuszczony przez DZ" — osoba gotowa do Cpro jest też zweryfikowana
- * przez DZ, więc karta pokazuje obie odznaki (inaczej ustawienie Cpro
- * „zabierało" DZ).
- */
+/** Znaczniki widoczne na karcie dla etapu-znacznika. */
 export function impliedBadges(badge: StageBadgeKey | null | undefined): StageBadgeKey[] {
-  if (!badge) return [];
-  return badge === "cpro" ? ["dz", "cpro"] : [badge];
+  return badge ? [badge] : [];
 }

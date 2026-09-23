@@ -1,6 +1,6 @@
 """GET /api/insights/recruitment/stage-breakdown — „Lejek po etapach”.
 
-Tablica ma 6 kolumn, a statystyki muszą dalej liczyć każdy etap i odznakę:
+Tablica ma 8 kolumn (od 24.09.2026), a statystyki muszą dalej liczyć każdy etap i odznakę:
 etap szablonu bez własnego kodu („Umowa wysłana” = kod `new` + nazwa) ma
 swój wiersz, „Zatrudnieni” zgadzają się z regułą D2 (widok kamieni, bez
 wykluczonych placementów), a „kto zakończył” czyta `ended_by`, a przy jego
@@ -275,14 +275,15 @@ async def _seed_world() -> dict[str, Any]:
             )
 
         a, b = job_a.id, job_b.id
-        # c0: przez weryfikację, DZ, wysyłkę CV do „Umowa wysłana” (kod `new`).
+        # c0: przez weryfikację, QC CV (szablon z Traffita nazywa go „DZ”), wysyłkę CV do „Umowa wysłana” (kod `new`).
         row(c[0], a, PipelineStage.new, _at(3, 2))
         row(c[0], a, PipelineStage.verified, _at(3, 3))
         row(c[0], a, PipelineStage.interview, _at(3, 4), stage_def_id=dz.id)
         row(c[0], a, PipelineStage.cv_sent, _at(3, 5))
         row(c[0], a, PipelineStage.new, _at(3, 6), stage_def_id=sent.id)
-        # c1: dodany w lutym (poza oknem), zweryfikowany w marcu.
+        # c1: dodany w lutym (poza oknem), screening i weryfikacja w marcu.
         row(c[1], a, PipelineStage.new, _at(2, 1))
+        row(c[1], a, PipelineStage.screening, _at(3, 9))
         row(c[1], a, PipelineStage.verified, _at(3, 10))
         # c2: odrzucony bez `ended_by` → „odrzucony przez nas”, powód z katalogu.
         row(c[2], a, PipelineStage.new, _at(3, 2))
@@ -371,8 +372,9 @@ async def test_breakdown_counts_every_stage_and_badge() -> None:
         # c0, c2–c9, c11–c13 — c1 i c10 zaczęli przed oknem.
         "added": 12,
         "reassign": 1,
+        "screening": 1,
         "verified": 2,
-        "dz": 1,
+        "qc": 1,
         "cpro": 0,
         "cv_sent": 2,
         "prep": 0,
@@ -395,10 +397,13 @@ async def test_breakdown_counts_every_stage_and_badge() -> None:
     assert now["onboarding"] == 1  # c6
     assert now["hired"] == 1  # c9
     assert now["cv_sent"] == 1  # c10; c8 jest w rekrutacji zamkniętej
-    assert now["dz"] == 0
+    assert now["qc"] == 0
+    assert now["screening"] == 0
 
     assert rows["added"]["column"] == "new" and rows["added"]["is_main"] is True
     assert rows["contract_sent"]["column_label"] == "Umowa"
+    assert rows["qc"]["column"] == "cv_qc" and rows["qc"]["is_main"] is True
+    assert rows["screening"]["column_label"] == "Screening"
 
     closed = {g["key"]: g for g in result["closed_by"]}
     assert closed["recruiter"]["count"] == 1

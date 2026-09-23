@@ -903,8 +903,24 @@ async def _original_cv(
     }
 
 
-async def build_review(db: AsyncSession, stage: CandidateStage) -> dict:
-    """Pełny przegląd pary z wiersza etapu. Wołający sprawdził dostęp."""
+@dataclass
+class ReviewSources:
+    """Wszystko, co przegląd czyta o parze — wspólne dla DZ i QC CV (v5)."""
+
+    candidate: Candidate
+    job: Job
+    client_name: Optional[str]
+    must: list[Requirement]
+    nice: list[Requirement]
+    # Źródło CV dla klienta (`_generated_cv` / `_document_cv`) albo None.
+    generated: Optional[dict]
+    original: dict
+    blocks: list[Block]
+    bold_known: bool
+
+
+async def load_sources(db: AsyncSession, stage: CandidateStage) -> ReviewSources:
+    """Wczytaj źródła przeglądu pary z wiersza etapu. Wołający sprawdził dostęp."""
 
     candidate = await db.get(Candidate, stage.candidate_id)
     job = await db.get(Job, stage.job_id)
@@ -928,6 +944,27 @@ async def build_review(db: AsyncSession, stage: CandidateStage) -> dict:
     else:
         blocks = html_blocks(generated["html"])
     bold_known = bool(generated) and generated.get("bold_known", True)
+    return ReviewSources(
+        candidate=candidate,
+        job=job,
+        client_name=client_name,
+        must=must,
+        nice=nice,
+        generated=generated,
+        original=original,
+        blocks=blocks,
+        bold_known=bold_known,
+    )
+
+
+async def build_review(db: AsyncSession, stage: CandidateStage) -> dict:
+    """Pełny przegląd pary z wiersza etapu. Wołający sprawdził dostęp."""
+
+    src = await load_sources(db, stage)
+    candidate, job, client_name = src.candidate, src.job, src.client_name
+    must, nice = src.must, src.nice
+    generated, original = src.generated, src.original
+    blocks, bold_known = src.blocks, src.bold_known
     analysis = analyze(
         must,
         nice,

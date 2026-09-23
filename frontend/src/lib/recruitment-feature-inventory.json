@@ -785,7 +785,7 @@
   {
    "id": "board.stage-badges",
    "area": "pipeline",
-   "opis": "Tablica: jeden etap = jedna kolumna; etapy-odznaki (DZ ✓, Gotowy do Cpro — tylko Nordea, Prep, Umowa wysłana/podpisana, Onboarding) jako odznaki na karcie, przełączniki w panelu osoby; odrzuceni/wycofani na pasku",
+   "opis": "Tablica: jeden etap = jedna kolumna; etapy-odznaki (Gotowy do Cpro — tylko Nordea, Prep, Umowa wysłana/podpisana, Onboarding) jako odznaki na karcie, przełączniki w panelu osoby; odrzuceni/wycofani na pasku",
    "file": "lib/board-stages.ts",
    "marker": "foldBoardColumns",
    "v3_home": "Tablica → kolumny, karta, panel osoby"
@@ -793,7 +793,7 @@
   {
    "id": "board.cpro-assignee-queue",
    "area": "pipeline",
-   "opis": "Kolejka „Czeka na Ciebie” na pulpicie: czeka na DZ (✓ DZ jednym kliknięciem), do wysłania do Cpro pogrupowane po rekrutacji z jedną osobą wysyłającą na proces, wysłane do Cpro (Nordea); rano zbiorczy dzwonek",
+   "opis": "Kolejka „Czeka na Ciebie” na pulpicie: przegląd DL (osoby w kolumnie „QC CV” z wynikiem QC), do wrzucenia do Cpro — jedna linia per rekrutacja i „Wrzucaj po kolei”, kto wrzuca (cała firma) z „Zmień”, wysłane do Cpro (Nordea); rano zbiorczy dzwonek. Kolejka „Czeka na DZ” usunięta (v5: QC CV).",
    "file": "components/v2/dashboard/BoardTasksPanel.tsx",
    "marker": "BoardTasksPanel",
    "v3_home": "Pulpit → „Czeka na Ciebie”"
@@ -804,7 +804,8 @@
    "opis": "Przegląd przed DZ: CV dla klienta obok oryginalnego CV i zapytania klienta, sprawdzenie must-have (w CV, pogrubione, w każdej roli z oryginału), podpowiedzi GPT-6 Luny, „Zatwierdź DZ” z okna",
    "file": "components/v2/dashboard/DzReviewDialog.tsx",
    "marker": "DzReviewDialog",
-   "v3_home": "Pulpit → „Czeka na Ciebie” → Sprawdź"
+   "v3_home": "Pulpit → „Czeka na Ciebie” → Sprawdź",
+   "removed_reason": "Decyzja Artura 23.09.2026 (Rekrutacja v5): przegląd DZ zastąpiło QC CV — okno `CvQcDialog` z twardą bramką przed „CV wysłane”/Cpro i obejściem DL/admina z powodem."
   },
   {
    "id": "board.cpro-sender",
@@ -812,7 +813,40 @@
    "opis": "Jedna osoba wysyła do Cpro wszystkich kandydatów rekrutacji Nordei — pasek „Do Cpro wysyła” nad Tablicą z liczbą gotowych",
    "file": "components/v2/jobs/CproSenderBar.tsx",
    "marker": "CproSenderBar",
-   "v3_home": "Tablica → pasek nad kolumnami"
+   "v3_home": "Tablica → pasek nad kolumnami",
+   "removed_reason": "Decyzja Artura 23.09.2026 (Rekrutacja v5): osoba od Cpro jest JEDNA na całą firmę, nie per rekrutacja — pasek nad Tablicą zastąpił wybór w kolejce Cpro na pulpicie (`CproQueueDialog`, „Zmień”)."
+  },
+  {
+   "id": "board.cv-qc",
+   "area": "pipeline",
+   "opis": "QC CV przed „CV wysłane”/Cpro: CV firmowe z zaznaczonymi brakami (niepogrubione must-have, stanowiska bez opisu technologii), sprawdzenia blokujące i uwagi, naprawy (pogrub wszystkie, pisownia, usuń termin, pytanie do kandydata, generator CV), propozycje poprawek AI ze źródłem (zastosuj/edytuj/odrzuć), „Przepuść mimo QC” z powodem dla DL i admina",
+   "file": "components/v2/recruitment/CvQcDialog.tsx",
+   "marker": "CvQcDialog",
+   "v3_home": "Tablica → kolumna „QC CV” / Pulpit → przegląd DL → Otwórz QC"
+  },
+  {
+   "id": "board.cpro-queue",
+   "area": "pipeline",
+   "opis": "Kolejka Cpro (Nordea): rekrutacje z licznikami, osoby po kolei z danymi do przepisania (stawka do Cpro, dostępność, QC), CV do pobrania, „Kopiuj dane”, „✓ Wrzucone” (ruch na „Wysłane do Cpro”), „Zwróć do rekrutera” z powodem, pasek postępu, „Następna rekrutacja”; jedna osoba od Cpro na firmę z zastępstwem do daty",
+   "file": "components/v2/dashboard/CproQueueDialog.tsx",
+   "marker": "CproQueueDialog",
+   "v3_home": "Pulpit → „Czeka na Ciebie” → Wrzucaj po kolei"
+  },
+  {
+   "id": "board.move-next",
+   "area": "pipeline",
+   "opis": "„Przesuń dalej” (strzałka → na karcie): wymagania następnego etapu z serwera (`move-requirements`), każdy brak z akcją, która go usuwa, przekazanie do DL / do Cpro",
+   "file": "components/v2/recruitment/MoveNextDialog.tsx",
+   "marker": "MoveNextDialog",
+   "v3_home": "Tablica → karta → „→”"
+  },
+  {
+   "id": "board.add-candidates",
+   "area": "pipeline",
+   "opis": "„Dodaj kandydatów”: jedno okno z wyszukiwaniem w bazie (AI) według Championa, propozycjami, „Moimi ludźmi” i ręcznym dodaniem; dodani trafiają do „Nowych” z blokadą 12 h",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "AddCandidatesPanel",
+   "v3_home": "Tablica → nagłówek / kolumna Nowi → Dodaj kandydatów"
   }
  ]
 }

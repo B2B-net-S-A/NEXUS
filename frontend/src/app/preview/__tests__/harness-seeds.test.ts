@@ -237,3 +237,46 @@ describe("/preview/kpi-targets zasiewa każdy stały klucz", () => {
     for (const key of keys) expect(harness).toContain(key);
   });
 });
+
+describe("/preview/cv-qc — okno QC CV bez sieci", () => {
+  const harness = withoutComments(read("app/preview/cv-qc/page.tsx")).replace(/\s+/g, " ");
+
+  it("wynik QC idzie propsem, propozycje AI zasiane kluczem komponentu", () => {
+    // `CvQcDialog` sam pyta o wynik (staleTime 0) — harness renderuje widok.
+    expect(harness).toContain("CvQcDialogView");
+    expect(harness).not.toMatch(/<CvQcDialog\b(?!View)/);
+    expect(harness).toContain("setQueryData<QcFixesResponse>(cvQcFixesQueryKey(STAGE_ID)");
+    expect(read("lib/api/cvQc.ts")).toContain("queryKey: cvQcFixesQueryKey(");
+  });
+
+  it("odcina sieć — przyciski poprawek nie trafiają do API", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+  });
+});
+
+describe("/preview/cpro-queue zasiewa każdy stały klucz", () => {
+  const harness = withoutComments(read("app/preview/cpro-queue/page.tsx")).replace(/\s+/g, " ");
+
+  it("nie zostawia klucza, który uruchomiłby zapytanie i przerzucił na /login", () => {
+    const missing: string[] = [];
+    for (const file of [
+      "lib/api/boardTasks.ts",
+      "components/v2/dashboard/BoardTasksPanel.tsx",
+      "components/v2/dashboard/CproQueueDialog.tsx",
+    ]) {
+      for (const key of literalQueryKeys(read(file))) {
+        if (!harness.includes(key)) missing.push(`${file}: ${key}`);
+      }
+    }
+    expect(missing).toEqual([]);
+    for (const constant of ["BOARD_TASKS_QUERY_KEY", "CPRO_QUEUE_QUERY_KEY", "CPRO_SENDER_QUERY_KEY"]) {
+      expect(harness).toMatch(new RegExp(`setQueryData<\\w+>\\(${constant}`));
+    }
+  });
+
+  it("odcina sieć", () => {
+    expect(harness).toContain("api.interceptors.request.use(");
+    expect(harness).toContain("api.interceptors.request.eject(");
+  });
+});

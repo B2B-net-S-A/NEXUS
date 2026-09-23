@@ -787,7 +787,7 @@ async def transition_process(
             claim_for_user_id is not None
             and process.status == ProcessStatus.open
             and await candidate_claim.stage_column(db, stage_row)
-            == candidate_claim.NEW_COLUMN
+            in candidate_claim.CLAIM_COLUMNS
         ):
             candidate_claim.set_claim(process, claim_for_user_id)
     else:
@@ -801,7 +801,7 @@ async def transition_process(
         if (
             process.claimed_by_user_id is not None
             and await candidate_claim.stage_column(db, stage_row)
-            != candidate_claim.NEW_COLUMN
+            not in candidate_claim.CLAIM_COLUMNS
         ):
             candidate_claim.clear_claim(process)
 
