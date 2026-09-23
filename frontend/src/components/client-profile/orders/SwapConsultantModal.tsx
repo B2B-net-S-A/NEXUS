@@ -16,6 +16,7 @@ import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { formatPLN } from "@/types/client-profile";
 
 import { formatMd } from "./MdBudgetBar";
+import { warsawToday } from "@/lib/warsaw-date";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring";
@@ -59,7 +60,7 @@ export function SwapConsultantModal({
     setContractId("");
     setRateCost("");
     setRateRevenue("");
-    setSwapDate(new Date().toISOString().slice(0, 10));
+    setSwapDate(warsawToday());
   }, [open]);
 
   // Przeliczenie liczone też tutaj, żeby operator zobaczył wynik PRZED

@@ -260,7 +260,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // zaułek, tracąc przy okazji warstwę defense-in-depth.
   //
   // Alerty SLA z `dashboard_v2.py` celują już kotwicą w ten panel
-  // (`/dashboard#nadzor-kontaktu`, parametr `preset` jest ignorowany), a nie tutaj —
+  // (`/dashboard?panel=nadzor-kontaktu`; stary `#nadzor-kontaktu` też działa), a nie tutaj —
   // wcześniej odbiorca alertu, klikając własny alert, lądował na /403.
   // Zmieniając tę listę ról, przemieć też tamten `href`.
   {

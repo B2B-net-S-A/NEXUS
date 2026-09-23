@@ -7,9 +7,10 @@ normalizuje odpowiedź do płaskiego kształtu formularza. Niczego nie zapisuje.
 Zasady, które łatwo cofnąć „przy okazji”:
 
 * **Budżet liczy kod, nie model.** Model cytuje fragment (`rate_quote`),
-  a liczba powstaje z `champion_intake.document_rate` — tej samej reguły, której
-  używa import dokumentu Championa. Stawka dzienna, w innej walucie albo
-  brutto daje ``None`` i notatkę, nigdy przeliczoną liczbę.
+  a liczba powstaje z `champion_intake.pln_hourly_bounds` — gramatyki stawki
+  PLN/h z importu dokumentu Championa. Stawka dzienna, w innej walucie, brutto
+  albo goła liczba bez waluty i jednostki (REC-07) daje ``None`` i notatkę,
+  nigdy przeliczoną liczbę.
 * **Cytat musi być w tekście.** Fragment, którego nie ma w requeście (model
   go „poprawił”), nie jest dowodem — ani dla budżetu, ani dla podświetlenia.
 * **Braki są jawne.** ``missing`` używa tych samych reguł co handoff: formularz
@@ -204,18 +205,22 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     if rate_quote and not _in_text(rate_quote, folded_text):
         rate_quote = None
     if rate_quote:
-        read = champion_intake.document_rate(rate_quote)
-        if read is None:
+        # Audyt 22.09 r2 (REC-07): tylko cytat z JAWNĄ walutą i jednostką
+        # godzinową (`pln_hourly_bounds`). `document_rate` przyjmuje też gołą
+        # liczbę („1100”), którą rekruter pisze równie często jako stawkę za MD
+        # — budżet 1100 PLN/h to cicha pomyłka o rząd wielkości.
+        bounds = champion_intake.pln_hourly_bounds(rate_quote)
+        value = champion_intake.rate(bounds[1]) if bounds else None
+        if value is None:
             rate_note = (
                 f"W requeście jest „{rate_quote}” — to nie jest stawka w PLN/h "
-                "netto. Wpisz budżet ręcznie."
+                "netto (brak waluty albo jednostki). Wpisz budżet ręcznie."
             )
         else:
-            rate_budget, _is_bound = read
-            bounds = champion_intake.pln_hourly_bounds(rate_quote)
+            rate_budget = value
             # „do 170 zł/h” to po prostu budżet 170; notatka tylko przy
             # prawdziwym przedziale, bo tam budżetem jest jego GÓRA.
-            if bounds and 0 < bounds[0] < bounds[1]:
+            if 0 < bounds[0] < bounds[1]:
                 rate_note = f"„{rate_quote}” — przyjęto górną granicę jako budżet."
 
     work_mode = _text(data.get("work_mode"), 30)

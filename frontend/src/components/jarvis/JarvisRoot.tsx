@@ -53,6 +53,7 @@ import { JarvisAppearanceDialog } from "./JarvisAppearanceDialog";
 import { JarvisMascot } from "./JarvisMascot";
 import { JarvisPanel } from "./JarvisPanel";
 import { useKidsChatter } from "./useKidsChatter";
+import { warsawToday } from "@/lib/warsaw-date";
 
 const DEFAULT_PREFS: JarvisPrefsResponse = {
   character: "robot",
@@ -95,7 +96,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+  return warsawToday();
 }
 
 export function JarvisRoot() {

@@ -95,11 +95,22 @@ def _int_days(value: Any) -> Optional[int]:
 # ── Stawka ────────────────────────────────────────────────────────────────
 
 
-def hourly_from_notes_rate(rate: Any) -> Optional[dict]:
+MONTHLY_WITHOUT_B2B_NOTE = (
+    "Stawka miesięczna bez potwierdzonej formy B2B (może to być UoP brutto) — "
+    "nie przeliczamy jej na stawkę B2B netto za godzinę. Sprawdź w notatce."
+)
+
+
+def hourly_from_notes_rate(rate: Any, *, contract_form: Any = None) -> Optional[dict]:
     """Stawka z notatek + godzinowy odpowiednik PLN (albo None, gdy nie ma liczby).
 
     ``hourly_pln`` jest ``None`` dla innej waluty, nieznanej jednostki albo
     wyniku poza rozsądnym zakresem — wtedy profil dostaje tylko tekst notatki.
+
+    Audyt 22.09 r2 (CAND-04): kwota MIESIĘCZNA jest przeliczana ÷168 wyłącznie
+    przy formie ``b2b`` (``contract_form_preference`` z notatek). UoP brutto
+    albo forma nieznana dałyby zawyżoną „stawkę B2B netto” — wtedy ``None``
+    i zdanie w ``note``.
     """
     if not isinstance(rate, dict):
         return None
@@ -115,7 +126,10 @@ def hourly_from_notes_rate(rate: Any) -> Optional[dict]:
     currency = (_text(rate.get("currency"), 8) or "").upper() or None
     period = rate.get("period") if rate.get("period") in ("h", "md", "month") else None
     hourly: Optional[Decimal] = None
-    if currency == "PLN" and period is not None:
+    note: Optional[str] = None
+    if currency == "PLN" and period == "month" and contract_form != "b2b":
+        note = MONTHLY_WITHOUT_B2B_NOTE
+    elif currency == "PLN" and period is not None:
         divisor = {
             "h": Decimal("1"),
             "md": HOURS_PER_DAY,
@@ -133,6 +147,7 @@ def hourly_from_notes_rate(rate: Any) -> Optional[dict]:
         "raw": _text(rate.get("raw")),
         "as_of": _text(rate.get("as_of"), 10),
         "hourly_pln": hourly,
+        "note": note,
     }
 
 
@@ -373,7 +388,10 @@ def build_notes_facts(candidate: Any) -> dict:
         return base
     base["extracted_at"] = _text(insights.get("_extracted_at"), 40)
 
-    rate = hourly_from_notes_rate(insights.get("expected_rate"))
+    rate = hourly_from_notes_rate(
+        insights.get("expected_rate"),
+        contract_form=insights.get("contract_form_preference"),
+    )
     if rate is not None:
         from app.services.candidate_profile_rate import (
             canonical_profile_rate_amount,
@@ -499,7 +517,10 @@ def apply_notes_fact(candidate: Any, field: str) -> dict:
     extracted = dict(candidate.cv_extracted_data)
 
     if field == "rate":
-        rate = hourly_from_notes_rate(insights.get("expected_rate"))
+        rate = hourly_from_notes_rate(
+            insights.get("expected_rate"),
+            contract_form=insights.get("contract_form_preference"),
+        )
         if rate is None or rate["hourly_pln"] is None:
             raise NotesFactUnavailable(field)
         from app.services.candidate_profile_rate import write_profile_rate

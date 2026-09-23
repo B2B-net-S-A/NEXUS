@@ -216,6 +216,8 @@ class NotesRateFact(BaseModel):
     raw: Optional[str] = None
     as_of: Optional[str] = None
     hourly_pln: Optional[Decimal] = None
+    # CAND-04: powód braku przeliczenia (np. miesięczna bez formy B2B).
+    note: Optional[str] = None
     flexibility: Optional[str] = None
     profile_amount: Optional[Decimal] = None
     profile_rate_version: int = 0

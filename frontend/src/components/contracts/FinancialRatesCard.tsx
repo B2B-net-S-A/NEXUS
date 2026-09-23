@@ -2,6 +2,7 @@ import { AlertCircle, Banknote, RefreshCw, TrendingUp } from "lucide-react";
 
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { HOURS_PER_MONTH, MD_PER_MONTH } from "@/lib/work-time";
+import { warsawToday } from "@/lib/warsaw-date";
 
 export interface EurPlnRate {
   rate: number;
@@ -374,7 +375,7 @@ function RateSchedule({
   /** Oznacz pochodzenie kroku: z zamówienia klienta albo ręczny/z aneksu. */
   showSource?: boolean;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = warsawToday();
   // Sortowanie stabilne: przy tej samej dacie zostaje kolejność z API
   // (effective_from, id), a backend przy remisie bierze krok dodany jako
   // ostatni — więc wcześniejszy krok z tą samą datą nigdy nie obowiązuje.

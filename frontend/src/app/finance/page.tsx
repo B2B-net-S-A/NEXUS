@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds";
@@ -20,7 +21,26 @@ import { hasSectionAccess } from "@/lib/section-access";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
-type ViewMode = "results" | "archive" | "md" | "order-changes" | "order-pdfs";
+import { parseFinanceView, type FinanceViewMode as ViewMode } from "@/lib/finance-view";
+
+/**
+ * FE-N09 (audyt 22.09 r2): widok idzie za `?view=` także przy MIĘKKIEJ
+ * nawigacji — link (np. z powiadomienia) do `/finance?view=order-changes`
+ * przy otwartym module nie odmontowuje strony, więc odczyt `window.location`
+ * przy montowaniu go nie widział. Efekt zależy od WARTOŚCI parametru; mały
+ * komponent w `Suspense`, żeby `useSearchParams` nie wymusił granicy
+ * Suspense wokół całej strony.
+ */
+function FinanceViewSync({ onView }: { onView: (view: ViewMode) => void }) {
+  const searchParams = useSearchParams();
+  const raw = searchParams ? searchParams.get("view") : undefined;
+  useEffect(() => {
+    // `undefined` = poza routerem App (testy) — zostaje odczyt przy montowaniu.
+    if (raw === undefined) return;
+    onView(parseFinanceView(raw));
+  }, [raw, onView]);
+  return null;
+}
 
 /**
  * /finance — moduł „Finanse", trzy powierzchnie pod jedną trasą:
@@ -63,15 +83,7 @@ export default function FinancePage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const initial = params.get("view");
-    if (
-      initial === "archive" ||
-      initial === "md" ||
-      initial === "order-changes" ||
-      initial === "order-pdfs"
-    ) {
-      setView(initial);
-    }
+    setView(parseFinanceView(params.get("view")));
     setMounted(true);
   }, []);
 
@@ -109,6 +121,9 @@ export default function FinancePage() {
         />
       }
     >
+      <Suspense fallback={null}>
+        <FinanceViewSync onView={setView} />
+      </Suspense>
       <div className="mx-auto max-w-[1400px] space-y-4">
         <div
           role="tablist"

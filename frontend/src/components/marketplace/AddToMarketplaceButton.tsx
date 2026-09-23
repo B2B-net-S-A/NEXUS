@@ -6,6 +6,7 @@ import { Store, X, Check, Loader2, Sparkles } from "lucide-react";
 import { marketplaceApi } from "@/lib/api";
 import { useMarketplaceThreshold } from "@/hooks/useMarketplaceThreshold";
 import { CandidateMatchesExpansion } from "./CandidateMatchesExpansion";
+import { warsawToday } from "@/lib/warsaw-date";
 
 interface Props {
   candidateId: number;
@@ -161,7 +162,7 @@ export function AddToMarketplaceButton({
                     value={until}
                     onChange={(e) => setUntil(e.target.value)}
                     className="h-10 w-full px-3 border border-border dark:border-border rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-teal-500 bg-card dark:bg-muted dark:text-foreground"
-                    min={new Date().toISOString().slice(0, 10)}
+                    min={warsawToday()}
                   />
                 </div>
                 {error && <p className="text-xs text-destructive">{error}</p>}

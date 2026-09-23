@@ -505,6 +505,25 @@ export function listEngineGaps(request: UnifiedCandidateSearchRequest): string[]
     .sort();
 }
 
+/**
+ * Flagi żądania zmieniające wynik (`hide_unknown`, `location_scope`) także
+ * w querystringu UI listy (`hu=1`, `ls=location_only`) — lustro
+ * `with_request_flags` (CAND-06). Dopisuje tylko brakujące.
+ */
+export function withRequestFlags(
+  qs: string,
+  request: UnifiedCandidateSearchRequest,
+): string {
+  const parts = qs.split("&").filter(Boolean);
+  const keys = new Set(parts.map((p) => p.split("=", 1)[0]));
+  const req = request as unknown as Dict;
+  if (req.hide_unknown === true && !keys.has("hu")) parts.push("hu=1");
+  if (req.location_scope === "location_only" && !keys.has("ls")) {
+    parts.push("ls=location_only");
+  }
+  return parts.join("&");
+}
+
 /** Dopisuje `sv=2` do querystringu listy (raz). */
 export function withSemanticsMarker(qs: string): string {
   const parts = qs.split("&").filter((p) => p && !p.startsWith("sv="));
@@ -526,7 +545,7 @@ export function buildUnifiedPayload(
     request: compact(request as unknown as Dict),
   };
   if (origin === "candidates_list" && typeof filters.qs === "string") {
-    payload.qs = withSemanticsMarker(filters.qs);
+    payload.qs = withSemanticsMarker(withRequestFlags(filters.qs, request));
   }
   payload.legacy =
     detectUnifiedFormat(filters) === "unified" ? filters.legacy : filters;

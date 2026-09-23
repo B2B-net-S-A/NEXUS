@@ -59,7 +59,9 @@ export function describeNotesRate(rate: NonNullable<CandidateNotesFacts["rate"]>
   const hourly = formatAmount(rate.hourly_pln);
   let warning: string | null = null;
   if (!hourly) {
-    if (rate.currency && rate.currency !== "PLN") {
+    if (rate.note) {
+      warning = rate.note;
+    } else if (rate.currency && rate.currency !== "PLN") {
       warning = `Stawka w ${rate.currency} — przelicz ręcznie po kursie z dnia rozmowy.`;
     } else if (!rate.currency) {
       warning = "Notatka nie podaje waluty — sprawdź w notatce przed zapisem.";
