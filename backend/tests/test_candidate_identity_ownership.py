@@ -434,7 +434,8 @@ async def test_real_import_preserves_manual_name_and_updates_unlocked_lastname(
     assert metadata["name_manual"] is True
     assert metadata["traffit_name"] == "Anna Source"
     assert metadata["traffit_lastname"] == "Kowalska Source"
-    assert metadata["traffit_source_updated_at"] == "2026-08-28T10:15:00+00:00"
+    # Czas Traffita bez strefy to Europe/Warsaw (audyt 22.09.2026): 10:15 lokalnie = 08:15 UTC.
+    assert metadata["traffit_source_updated_at"] == "2026-08-28T08:15:00+00:00"
 
 
 @pytest.mark.asyncio
