@@ -93,6 +93,23 @@ describe("AddCandidatesQuickModal — eligibility", () => {
     );
   });
 
+  it("searches names literally via the shared v2 text rule", async () => {
+    renderModal();
+    await screen.findByTestId("add-candidate-row-1");
+    fireEvent.change(screen.getByPlaceholderText("Wpisz imię i nazwisko..."), {
+      target: { value: "TestPipelineD" },
+    });
+    await waitFor(() =>
+      expect(mocks.search).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          q: "TestPipelineD",
+          semantics_version: 2,
+          text_mode: "auto",
+        }),
+      ),
+    );
+  });
+
   it("a hiring-manager veto disables the row with the reason as title", async () => {
     renderModal();
     const row = await screen.findByTestId("add-candidate-row-2");

@@ -35,6 +35,9 @@ interface Props {
   /** Pipeline v4 (23.09.2026): poza Nordeą stawka jest WYMAGANA i wpisuje ją
    *  Delivery Lead — bez „Przesuń bez stawki". */
   required?: boolean;
+  /** Stawka kandydata z weryfikacji (np. „140 PLN/h”) — punkt odniesienia dla
+   *  DL przy wpisywaniu stawki do klienta (decyzja 23.09.2026). */
+  candidateRateLabel?: string | null;
 }
 
 const UNIT_LABELS: Record<RateUnit, string> = {
@@ -57,6 +60,7 @@ export function ClientRateModal({
   onConfirm,
   onSkip,
   required = false,
+  candidateRateLabel = null,
 }: Props) {
   const [rate, setRate] = useState<string>("");
   // Wymagana stawka (przegląd DL) jest godzinowa jak w makiecie; stary
@@ -95,6 +99,12 @@ export function ClientRateModal({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
+          <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+            Stawka kandydata:{" "}
+            <span className="font-semibold">
+              {candidateRateLabel ?? "nie podano przy weryfikacji"}
+            </span>
+          </p>
           <FormField label="Stawka do klienta" required={required}>
             <input
               type="number"

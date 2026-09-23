@@ -12,9 +12,12 @@ import {
   actionForTodo,
   candidateLabel,
   countdownLabel,
+  debriefAvailable,
+  debriefAvailableFromLabel,
   formatSlot,
   formatTime,
   groupAgendaByDay,
+  interviewStartFor,
   pairContext,
   pairKey,
   relativeLabel,
@@ -183,6 +186,11 @@ export function AgendaView({
                     <AgendaRow
                       key={`${e.kind}-${e.event_id ?? e.slot_request_id}-${e.start}`}
                       entry={e}
+                      interviewStart={
+                        e.kind === "call" && e.event_id != null
+                          ? interviewStartFor(data, e.event_id)
+                          : undefined
+                      }
                       now={now}
                       selected={pairKey(e) === selectedPairKey}
                       onSelect={() => onSelect(pairKey(e))}
@@ -280,12 +288,15 @@ function CallNowCard({
 
 function AgendaRow({
   entry,
+  interviewStart,
   now,
   selected,
   onSelect,
   onAction,
 }: {
   entry: AgendaEntry;
+  /** Początek rozmowy, po której jest ten telefon — debrief dopiero od niego. */
+  interviewStart?: string;
   now: Date;
   selected: boolean;
   onSelect: () => void;
@@ -332,15 +343,35 @@ function AgendaRow({
           </a>
         ) : null}
         {entry.kind === "call" && !entry.done && entry.event_id != null ? (
-          <button
-            type="button"
-            onClick={() =>
-              onAction({ type: "debrief", pair: entry, eventId: entry.event_id as number })
-            }
-            className="h-8 rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted"
-          >
-            Debrief
-          </button>
+          debriefAvailable(interviewStart, now) ? (
+            <button
+              type="button"
+              onClick={() =>
+                onAction({ type: "debrief", pair: entry, eventId: entry.event_id as number })
+              }
+              className="h-8 rounded-md border border-border px-2.5 text-xs font-semibold hover:bg-muted"
+            >
+              Debrief
+            </button>
+          ) : (
+            <>
+              <span
+                id={`debrief-hint-${entry.event_id}`}
+                className="text-xs text-muted-foreground"
+              >
+                {debriefAvailableFromLabel(interviewStart as string, now)}
+              </span>
+              <button
+                type="button"
+                disabled
+                aria-describedby={`debrief-hint-${entry.event_id}`}
+                title={debriefAvailableFromLabel(interviewStart as string, now)}
+                className="h-8 cursor-not-allowed rounded-md border border-border px-2.5 text-xs font-semibold opacity-50"
+              >
+                Debrief
+              </button>
+            </>
+          )
         ) : null}
         {entry.kind === "call" && entry.done ? (
           <span className="text-xs text-success-muted-foreground">debrief zapisany</span>

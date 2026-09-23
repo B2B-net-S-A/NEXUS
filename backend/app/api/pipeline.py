@@ -69,6 +69,7 @@ from app.schemas.pipeline import (
 from app.api.candidate_access import (
     CandidatePIIAccess,
     resolve_client_rate_write,
+    user_can_view_client_rate,
     user_has_candidate_read,
 )
 from app.api.deps import CurrentUser, OperationalUser, RecruiterPlus
@@ -257,6 +258,7 @@ def _stage_response(
     added_to_job_by_name: Optional[str] = None,
     added_to_job_at: Optional[datetime] = None,
     candidate_expected_rate_hourly: Optional[Decimal] = None,
+    show_client_rate: bool = True,
 ) -> dict:
     """Convert a CandidateStage to response dict with days_in_stage.
 
@@ -315,9 +317,12 @@ def _stage_response(
         "task_assignee_id": stage.task_assignee_id,
         # Pipeline v4 (0352).
         "ended_by": stage.ended_by,
-        "client_rate_value": stage.client_rate_value,
-        "client_rate_unit": stage.client_rate_unit,
-        "client_rate_currency": stage.client_rate_currency,
+        # Stawka do klienta tylko dla DL/admina/Finansów (decyzja 23.09.2026).
+        "client_rate_value": stage.client_rate_value if show_client_rate else None,
+        "client_rate_unit": stage.client_rate_unit if show_client_rate else None,
+        "client_rate_currency": (
+            stage.client_rate_currency if show_client_rate else None
+        ),
     }
 
 
@@ -677,7 +682,10 @@ async def move_candidate(
         and previous_stage_row is not None
         and previous_stage_row.stage == PipelineStage.hired
     ):
-        resp = _stage_response(previous_stage_row)
+        resp = _stage_response(
+            previous_stage_row,
+            show_client_rate=user_can_view_client_rate(current_user),
+        )
         resp["scheduled_rejection_email_id"] = None
         await db.commit()
         return CandidateStageResponse(**resp)
@@ -1470,7 +1478,9 @@ async def move_candidate(
         except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
             logger.warning("cv_auto_generate spawn failed stage=%s: %s", stage.id, _exc)
 
-    resp = _stage_response(stage)
+    resp = _stage_response(
+        stage, show_client_rate=user_can_view_client_rate(current_user)
+    )
     resp["scheduled_rejection_email_id"] = scheduled_rejection_email_id
     # F05: nowa wersja procesu po ruchu — karta podmienia ją od razu, żeby
     # kolejny ruch z tej samej karty (przed odświeżeniem tablicy) nie wysłał
@@ -1780,10 +1790,23 @@ async def build_kanban_view(
     # Last row per candidate = earliest stage → who assigned them to the job.
     seen: dict[int, CandidateStage] = {}
     earliest: dict[int, CandidateStage] = {}
+    # Pipeline v4: screening i stawki wpisane na WCZEŚNIEJSZYM etapie należą do
+    # pary (kandydat, rekrutacja) — karta w „Rozmowie u klienta" nie może udawać,
+    # że screeningu nie było, a stawka kandydata z weryfikacji zniknęła.
+    screened_pairs: set[int] = set()
+    carried_expected_rate: dict[int, CandidateStage] = {}
+    carried_client_rate: dict[int, CandidateStage] = {}
     for s in all_stages:
         if s.candidate_id not in seen:
             seen[s.candidate_id] = s
         earliest[s.candidate_id] = s  # overwritten; last write wins (oldest row)
+        if _sheet_filled(s.screening_answers):
+            screened_pairs.add(s.candidate_id)
+        if s.expected_rate_value is not None:
+            carried_expected_rate.setdefault(s.candidate_id, s)
+        if s.client_rate_value is not None:
+            carried_client_rate.setdefault(s.candidate_id, s)
+    show_client_rate = user_can_view_client_rate(viewer)
 
     # Bulk-load candidate names so cards render with real names (not "Kandydat" fallback)
     candidate_ids = list(seen.keys())
@@ -1942,6 +1965,23 @@ async def build_kanban_view(
             added_to_job_at=added_at,
             candidate_expected_rate_hourly=profile_rate_by_id.get(e.candidate_id),
         )
+        payload["screening_done"] = e.candidate_id in screened_pairs
+        if e.expected_rate_value is None:
+            rate_row = carried_expected_rate.get(e.candidate_id)
+            if rate_row is not None:
+                payload["expected_rate_value"] = rate_row.expected_rate_value
+                payload["expected_rate_unit"] = rate_row.expected_rate_unit
+                payload["expected_rate_currency"] = rate_row.expected_rate_currency
+        client_row = carried_client_rate.get(e.candidate_id)
+        if show_client_rate and client_row is not None:
+            payload["client_rate_value"] = client_row.client_rate_value
+            payload["client_rate_unit"] = client_row.client_rate_unit
+            payload["client_rate_currency"] = client_row.client_rate_currency
+        elif not show_client_rate:
+            # Decyzja 23.09.2026: rekruter nie widzi, za ile osoba poszła do klienta.
+            payload["client_rate_value"] = None
+            payload["client_rate_unit"] = None
+            payload["client_rate_currency"] = None
         payload["contact_case"] = contact_case_by_candidate.get(e.candidate_id)
         payload["process_state_version"] = process_versions.get(e.candidate_id, 0)
         payload["auto_cv_ready"] = e.id in auto_cv_stage_ids
@@ -2197,7 +2237,11 @@ async def get_stage_history(
         .order_by(CandidateStage.moved_at.asc())
     )
     stages = result.scalars().all()
-    return [CandidateStageResponse(**_stage_response(s)) for s in stages]
+    show_client_rate = user_can_view_client_rate(current_user)
+    return [
+        CandidateStageResponse(**_stage_response(s, show_client_rate=show_client_rate))
+        for s in stages
+    ]
 
 
 # Dziennik ruchów CAŁEJ rekrutacji. Poprzedni etap liczy LAG po WSZYSTKICH
@@ -2343,6 +2387,7 @@ async def get_stage_screening(
     from app.services.screening_suggestions import suggestions_from_notes
 
     candidate = await db.get(Candidate, stage.candidate_id)
+    answers, source_stage_id = await _latest_filled_screening(db, stage)
     return {
         "stage_id": stage.id,
         "candidate_id": stage.candidate_id,
@@ -2360,8 +2405,33 @@ async def get_stage_screening(
         "champion_profile": champion_view.api_response(
             job.champion_profile if job else None
         ),
-        "screening_answers": stage.screening_answers or None,
+        "screening_answers": answers,
+        # Pipeline v4: arkusz należy do pary, nie do etapu — zapisany w „Nowych"
+        # czyta się dalej na „Zweryfikowanym" (przegląd DL) i w rozmowie.
+        "screening_source_stage_id": source_stage_id,
     }
+
+
+async def _latest_filled_screening(
+    db: AsyncSession, stage: CandidateStage
+) -> tuple[Optional[dict], Optional[int]]:
+    """Arkusz screeningu etapu, a gdy pusty — najnowszy wypełniony tej pary."""
+    if _sheet_filled(stage.screening_answers):
+        return stage.screening_answers, None
+    rows = await db.execute(
+        select(CandidateStage.id, CandidateStage.screening_answers)
+        .where(
+            CandidateStage.candidate_id == stage.candidate_id,
+            CandidateStage.job_id == stage.job_id,
+            CandidateStage.id != stage.id,
+            CandidateStage.screening_answers.isnot(None),
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+    )
+    for row_id, answers in rows.all():
+        if _sheet_filled(answers):
+            return answers, row_id
+    return stage.screening_answers or None, None
 
 
 @router.post("/stages/{stage_id}/screening")

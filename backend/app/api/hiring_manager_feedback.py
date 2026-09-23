@@ -93,6 +93,7 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services.hiring_manager_verdicts import MANAGER_MET_STAGES
 from app.services.interview_feedback_actions import apply_post_feedback_actions
+from app.services.rejection_reason_labels import rejection_reason_label
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -230,7 +231,7 @@ def _to_response(
         candidate_id=feedback.candidate_id,
         decision=feedback.decision.value if feedback.decision else "",
         rejection_reason_id=feedback.rejection_reason_id,
-        rejection_reason_name=reason.name if reason else None,
+        rejection_reason_name=rejection_reason_label(reason.name) if reason else None,
         note=feedback.feedback_summary,
         technical_fit=feedback.technical_fit,
         soft_fit=feedback.soft_fit,
@@ -304,7 +305,7 @@ async def _veto_state(
         blockers.append("Werdykt nie ma powodu ze słownika.")
     elif not reason.disqualifies_person:
         blockers.append(
-            f"Powód „{reason.name}” opisuje sytuację, nie osobę — takie "
+            f"Powód „{rejection_reason_label(reason.name)}” opisuje sytuację, nie osobę — takie "
             "odrzucenie nie blokuje kolejnych propozycji."
         )
 

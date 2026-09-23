@@ -8,7 +8,6 @@ import {
   requestStatusOf,
 } from "@/lib/request-status";
 import {
-  defaultSelection,
   selectedSentCount,
   type SimilarJobItem,
 } from "@/lib/similar-jobs-api";
@@ -28,10 +27,6 @@ function item(id: number, sent: number): SimilarJobItem {
 }
 
 describe("podobne rekrutacje (0341)", () => {
-  it("domyślnie zaznacza tylko sugestie z osobami wysłanymi do klienta", () => {
-    expect(defaultSelection([item(1, 3), item(2, 0), item(3, 1)])).toEqual([1, 3]);
-  });
-
   it("liczy osoby do przepięcia z zaznaczonych rekrutacji", () => {
     expect(selectedSentCount([item(1, 3), item(2, 5)], new Set([2]))).toBe(5);
   });

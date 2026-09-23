@@ -43,6 +43,7 @@ from app.services.insights_stage_breakdown import (
     KEY_COLUMN,
     ROWS,
     compute_stage_breakdown,
+    reason_label,
     stage_key,
     summarize_closed_by,
 )
@@ -93,7 +94,11 @@ def test_contract_sent_is_a_row_although_its_code_is_new() -> None:
     )
 
 
-def test_free_text_reason_needs_to_repeat_before_it_is_shown() -> None:
+def _reason(label: str, count: int, kind: str = "reason", details=None) -> dict:
+    return {"label": label, "count": count, "kind": kind, "details": details or []}
+
+
+def test_single_free_text_goes_to_other_and_sums_match() -> None:
     groups = [
         {"who": "client", "reason_name": None, "reason_note": "Brak EN", "count": 2},
         {
@@ -102,24 +107,97 @@ def test_free_text_reason_needs_to_repeat_before_it_is_shown() -> None:
             "reason_note": "Jan był miły",
             "count": 1,
         },
+        {"who": "client", "reason_name": None, "reason_note": "brak en", "count": 1},
         {"who": "recruiter", "reason_name": "Po CV", "count": 1, "reason_note": None},
     ]
-    by_key = {g["key"]: g for g in summarize_closed_by(groups)}
-    assert [g["key"] for g in summarize_closed_by(groups)] == [
+    result = summarize_closed_by(groups)
+    by_key = {g["key"]: g for g in result}
+    assert [g["key"] for g in result] == [
         "candidate",
         "recruiter",
         "delivery_lead",
         "client",
     ]
-    assert by_key["client"]["count"] == 3
-    assert by_key["client"]["top_reasons"] == [{"label": "Brak EN", "count": 2}]
-    assert by_key["recruiter"]["top_reasons"] == [{"label": "Po CV", "count": 1}]
+    assert by_key["client"]["count"] == 4
+    # Wielkość liter nie rozdziela powodu; jednorazowy wpis idzie do „Inne”.
+    assert by_key["client"]["top_reasons"] == [
+        _reason("Brak EN", 3),
+        _reason("Inne", 1, "other", ["Jan był miły"]),
+    ]
+    assert by_key["recruiter"]["top_reasons"] == [_reason("Po CV", 1)]
     assert by_key["delivery_lead"] == {
         "key": "delivery_lead",
         "label": "Odrzucony przez DL",
         "count": 0,
         "top_reasons": [],
     }
+    for group in result:
+        assert sum(r["count"] for r in group["top_reasons"]) == group["count"]
+
+
+def test_catalog_codes_get_polish_labels_and_legacy_means_no_reason() -> None:
+    groups = [
+        {"who": "candidate", "reason_name": "legacy_unknown", "count": 6},
+        {"who": "candidate", "reason_name": "counter_offer", "count": 3},
+        {"who": "candidate", "reason_name": "lost_interest", "count": 2},
+        # Zaślepka importu z notatką z Traffita — liczy się notatka.
+        {
+            "who": "candidate",
+            "reason_name": "legacy_unknown",
+            "reason_note": "Rezygnacja przez Kandydata",
+            "count": 2,
+        },
+        {"who": "recruiter", "reason_name": None, "reason_note": None, "count": 4},
+        # Katalogowe „Inne (rejected)” idzie do zbiorczego „Inne”.
+        {"who": "recruiter", "reason_name": "Inne (rejected)", "count": 2},
+    ]
+    by_key = {g["key"]: g for g in summarize_closed_by(groups)}
+    assert by_key["candidate"]["top_reasons"] == [
+        _reason("Kontroferta od obecnego pracodawcy", 3),
+        _reason("Rezygnacja przez Kandydata", 2),
+        _reason("Stracił zainteresowanie", 2),
+        _reason("Bez podanego powodu", 6, "none"),
+    ]
+    assert by_key["recruiter"]["top_reasons"] == [
+        _reason("Inne", 2, "other", ["Inne (z listy powodów) (2)"]),
+        _reason("Bez podanego powodu", 4, "none"),
+    ]
+    labels = {r["label"] for g in by_key.values() for r in g["top_reasons"]}
+    assert not labels & {"legacy_unknown", "counter_offer", "lost_interest"}
+
+
+@pytest.mark.parametrize(
+    ("code", "label"),
+    [
+        ("accepted_other_offer", "Przyjął inną ofertę"),
+        ("counter_offer", "Kontroferta od obecnego pracodawcy"),
+        ("personal_reasons", "Powody osobiste"),
+        ("lost_interest", "Stracił zainteresowanie"),
+        ("salary_mismatch", "Rozbieżność oczekiwań finansowych"),
+        ("process_too_long", "Za długi proces"),
+        ("Inne (rejected)", "Inne"),
+        ("legacy_unknown", None),
+        ("  ", None),
+        ("Za wysoka stawka", "Za wysoka stawka"),
+    ],
+)
+def test_reason_label(code: str, label: str | None) -> None:
+    assert reason_label(code) == label
+
+
+def test_reasons_beyond_the_top_three_fold_into_other() -> None:
+    groups = [
+        {"who": "client", "reason_name": f"Powód {i}", "count": 10 - i}
+        for i in range(5)
+    ] + [{"who": "client", "reason_name": None, "reason_note": "Jednorazowy"}]
+    groups[-1]["count"] = 1
+    by_key = {g["key"]: g for g in summarize_closed_by(groups)}
+    reasons = by_key["client"]["top_reasons"]
+    assert [r["label"] for r in reasons] == ["Powód 0", "Powód 1", "Powód 2", "Inne"]
+    assert reasons[-1] == _reason(
+        "Inne", 7 + 6 + 1, "other", ["Powód 3 (7)", "Powód 4 (6)", "Jednorazowy"]
+    )
+    assert sum(r["count"] for r in reasons) == by_key["client"]["count"]
 
 
 # ── Liczby z prawdziwej bazy ─────────────────────────────────────────────────
@@ -169,11 +247,16 @@ async def _seed_world() -> dict[str, Any]:
             remote_policy=RemotePolicy.hybrid,
             client_id=cli.id,
         )
-        db.add_all([dz, sent, reason, gone, job_a, job_b])
+        legacy = RejectionReason(
+            template_id=tpl.id,
+            name="legacy_unknown",
+            category=TerminalType.withdrawn,
+        )
+        db.add_all([dz, sent, reason, gone, legacy, job_a, job_b])
         await db.flush()
 
         cands = []
-        for i in range(11):
+        for i in range(14):
             c = Candidate(
                 name=f"Etap{i}",
                 lastname=f"Test-{tag}",
@@ -244,6 +327,28 @@ async def _seed_world() -> dict[str, Any]:
         # c10: wszystko przed oknem — nie może wpaść nigdzie w „Doszło”.
         row(c[10], a, PipelineStage.new, _at(1, 5))
         row(c[10], a, PipelineStage.cv_sent, _at(1, 6))
+        # c11: odrzucenie bez `ended_by`, ale powód z Traffita mówi, że to
+        # kandydat odrzucił ofertę → „zrezygnował”, nie „odrzucony przez nas”.
+        row(
+            c[11],
+            a,
+            PipelineStage.rejected,
+            _at(3, 12),
+            rejection_note="Odrzucenie oferty przez Kandydata",
+        )
+        # c12: wycofanie z zaślepką importu bez notatki → „Bez podanego powodu”.
+        row(
+            c[12], a, PipelineStage.withdrawn, _at(3, 12), rejection_reason_id=legacy.id
+        )
+        # c13: klient, jednorazowy wpis ręczny → „Inne”.
+        row(
+            c[13],
+            a,
+            PipelineStage.rejected,
+            _at(3, 12),
+            ended_by="client",
+            rejection_note="Za daleko do biura",
+        )
         await db.commit()
         return {"job_a": a, "job_b": b, "reason": reason.name, "gone": gone.name}
 
@@ -263,8 +368,8 @@ async def test_breakdown_counts_every_stage_and_badge() -> None:
     assert [r["key"] for r in result["rows"]] == [row.key for row in ROWS]
     reached = {k: r["reached"] for k, r in rows.items()}
     assert reached == {
-        # c0, c2, c3, c4, c5, c6, c7, c8, c9 — c1 i c10 zaczęli przed oknem.
-        "added": 9,
+        # c0, c2–c9, c11–c13 — c1 i c10 zaczęli przed oknem.
+        "added": 12,
         "reassign": 1,
         "verified": 2,
         "dz": 1,
@@ -297,14 +402,17 @@ async def test_breakdown_counts_every_stage_and_badge() -> None:
 
     closed = {g["key"]: g for g in result["closed_by"]}
     assert closed["recruiter"]["count"] == 1
-    assert closed["recruiter"]["top_reasons"] == [
-        {"label": world["reason"], "count": 1}
+    assert closed["recruiter"]["top_reasons"] == [_reason(world["reason"], 1)]
+    assert closed["candidate"]["count"] == 3  # c3, c11, c12
+    assert closed["candidate"]["top_reasons"] == [
+        _reason(world["gone"], 1),
+        _reason("Inne", 1, "other", ["Odrzucenie oferty przez Kandydata"]),
+        _reason("Bez podanego powodu", 1, "none"),
     ]
-    assert closed["candidate"]["count"] == 1
-    assert closed["candidate"]["top_reasons"] == [{"label": world["gone"], "count": 1}]
-    assert closed["client"]["count"] == 2
+    assert closed["client"]["count"] == 3
     assert closed["client"]["top_reasons"] == [
-        {"label": "Brak angielskiego", "count": 2}
+        _reason("Brak angielskiego", 2),
+        _reason("Inne", 1, "other", ["Za daleko do biura"]),
     ]
     assert closed["delivery_lead"]["count"] == 0
     assert set(result["definitions"]) == {"reached", "now"}

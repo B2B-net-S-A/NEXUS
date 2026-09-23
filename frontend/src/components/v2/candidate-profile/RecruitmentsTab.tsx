@@ -22,6 +22,8 @@ import {
   type RateUnit,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { canViewClientRate, canWriteClientRate } from "@/lib/client-rate-access";
+import { useAuthStore } from "@/store/auth";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -438,8 +440,15 @@ function RecruitmentRateRow({
   expectedRate: RecruitmentRate;
   readOnly?: boolean;
 }) {
+  const authUser = useAuthStore((st) => st.user);
+  // Decyzja 23.09.2026: stawkę do klienta widzi DL/admin/Finanse, wpisuje DL.
+  const showClientRate = canViewClientRate(authUser);
+  const clientRateWritable = canWriteClientRate(authUser);
   const sameUnit =
-    clientRate != null && expectedRate != null && clientRate.unit === expectedRate.unit;
+    showClientRate &&
+    clientRate != null &&
+    expectedRate != null &&
+    clientRate.unit === expectedRate.unit;
   const margin =
     sameUnit && clientRate != null && expectedRate != null
       ? clientRate.value - expectedRate.value
@@ -459,17 +468,19 @@ function RecruitmentRateRow({
             candidatesApi.setRecruitmentExpectedRate(candidateId, jobId, payload)
           }
         />
-        <EditableRateCell
-          candidateId={candidateId}
-          label="Stawka do klienta"
-          rate={clientRate}
-          testIdPrefix="client-rate"
-          successMessage="Zapisano stawkę do klienta"
-          readOnly={readOnly}
-          mutationFn={(payload) =>
-            candidatesApi.setRecruitmentClientRate(candidateId, jobId, payload)
-          }
-        />
+        {showClientRate ? (
+          <EditableRateCell
+            candidateId={candidateId}
+            label="Stawka do klienta"
+            rate={clientRate}
+            testIdPrefix="client-rate"
+            successMessage="Zapisano stawkę do klienta"
+            readOnly={readOnly || !clientRateWritable}
+            mutationFn={(payload) =>
+              candidatesApi.setRecruitmentClientRate(candidateId, jobId, payload)
+            }
+          />
+        ) : null}
       </div>
       {margin != null ? (
         <div className="mt-2 text-xs text-muted-foreground">

@@ -26,7 +26,10 @@ import { boardReviewCountLabel, boardReviewState } from "@/lib/board-review-stat
 import { DEFAULT_PROPOSAL_FILTERS } from "@/lib/proposals-merge";
 import { cn } from "@/lib/utils";
 
-export const BOARD_REVIEW_LIMIT = 6;
+// 3, nie 6 (test na produkcji 23.09.2026): przy kilkudziesięciu przepięciach
+// sześć kart propozycji spychało prawdziwych „Nowych" pod ekran. Resztę
+// otwiera „Przejrzyj wszystkich N".
+export const BOARD_REVIEW_LIMIT = 3;
 
 export function BoardReviewSection({
   jobId,

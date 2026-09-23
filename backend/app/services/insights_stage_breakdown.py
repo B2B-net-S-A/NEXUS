@@ -35,6 +35,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.board_stage_badges import normalize_stage_name, stage_badge_kind
+from app.services.rejection_reason_labels import rejection_reason_label
 
 
 @dataclass(frozen=True)
@@ -88,12 +89,27 @@ CLOSED_BY: tuple[tuple[str, str], ...] = (
 _CLOSED_BY_KEYS = tuple(k for k, _ in CLOSED_BY)
 
 TOP_REASONS = 3
-# Powód spoza katalogu (wolny tekst `rejection_note`) pokazujemy dopiero, gdy
-# powtarza się co najmniej tyle razy: import z Traffita wpisuje tam nazwę
-# kategorii (powtarzalną), a jednorazowy opis bywa zdaniem o konkretnej
-# osobie — Insights widzi każda zalogowana rola.
-FREE_TEXT_MIN_COUNT = 2
 _REASON_MAX_CHARS = 80
+# Ile treści pokazuje dymek „Inne” — reszta jako „… i jeszcze N”.
+OTHER_DETAILS_MAX = 20
+
+NO_REASON_LABEL = "Bez podanego powodu"
+OTHER_LABEL = "Inne"
+# Treść w dymku „Inne” dla katalogowego „Inne (rejected/withdrawn)”.
+OTHER_CATALOG_DETAIL = "Inne (z listy powodów)"
+
+# Zaślepka importu Traffita w `rejection_reasons.name` — to brak powodu, nie
+# powód: liczy się wtedy notatka (`rejection_note` z Traffita), a bez niej
+# wiersz „Bez podanego powodu”. Etykiety pozostałych kodów daje jeden słownik
+# `app.services.rejection_reason_labels`.
+_NO_REASON_CODES = frozenset({"legacy_unknown"})
+
+# Odrzucenie bez `ended_by` z powodem „… przez Kandydata” (import Traffita:
+# „Odrzucenie oferty przez Kandydata”, „Rezygnacja przez Kandydata”) to
+# decyzja kandydata, nie nasza. Jedno wyrażenie dla SQL (`~*`) i Pythona.
+CANDIDATE_DECISION_PATTERN = r"przez\s+kandydat"
+# Lustro dla klienta: „Rezygnacja przez Klienta” z importu = decyzja klienta.
+CLIENT_DECISION_PATTERN = r"przez\s+klient"
 
 DEFINITIONS = {
     "reached": (
@@ -379,7 +395,9 @@ async def _closed_by(db: AsyncSession, params: dict[str, Any]) -> list[dict[str,
     """Pary, których najnowszy wiersz jest końcem procesu z datą w oknie.
 
     `ended_by` NULL (wiersz sprzed 0352 albo z importu) czytamy po typie końca:
-    wycofanie = zrezygnował kandydat, odrzucenie = „odrzucony przez nas”.
+    wycofanie = zrezygnował kandydat; odrzucenie z powodem „… przez
+    Kandydata” (`CANDIDATE_DECISION_PATTERN`) też kandydat; reszta odrzuceń =
+    „odrzucony przez nas”.
     """
 
     job_filter = _JOB_FILTER_SQL.format(col="cs.job_id")
@@ -413,6 +431,12 @@ async def _closed_by(db: AsyncSession, params: dict[str, Any]) -> list[dict[str,
                       THEN l.ended_by
                     WHEN l.stage = 'withdrawn' OR l.o = '__withdrawn'
                       THEN 'candidate'
+                    WHEN concat_ws(' ', rr.name, l.rejection_note)
+                         ~* :candidate_decision
+                      THEN 'candidate'
+                    WHEN concat_ws(' ', rr.name, l.rejection_note)
+                         ~* :client_decision
+                      THEN 'client'
                     ELSE 'recruiter'
                   END AS who,
                   NULLIF(btrim(rr.name), '') AS reason_name,
@@ -425,7 +449,12 @@ async def _closed_by(db: AsyncSession, params: dict[str, Any]) -> list[dict[str,
                 GROUP BY 1, 2, 3
                 """
             ),
-            {**params, "closed_by_keys": list(_CLOSED_BY_KEYS)},
+            {
+                **params,
+                "closed_by_keys": list(_CLOSED_BY_KEYS),
+                "candidate_decision": CANDIDATE_DECISION_PATTERN,
+                "client_decision": CLIENT_DECISION_PATTERN,
+            },
         )
     ).all()
     return [
@@ -446,44 +475,114 @@ def _short(label: str) -> str:
     return label[: _REASON_MAX_CHARS - 1].rstrip() + "…"
 
 
-def summarize_closed_by(groups: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Grupy „kto zakończył” z trzema najczęstszymi powodami.
+def reason_label(name: Optional[str]) -> Optional[str]:
+    """Etykieta powodu z katalogu po polsku; `None` = brak prawdziwego powodu.
 
-    Powód z katalogu (`rejection_reasons.name`) wchodzi zawsze; wolny tekst —
-    dopiero od `FREE_TEXT_MIN_COUNT` powtórzeń (patrz komentarz przy stałej).
+    Kody zasiane migracjami tłumaczy wspólny słownik
+    (`rejection_reason_label`); nazwa wpisana w szablonie przechodzi bez zmian.
+    """
+
+    if name is None or not name.strip():
+        return None
+    if name.strip() in _NO_REASON_CODES:
+        return None
+    return rejection_reason_label(name.strip())
+
+
+def _detail(label: str, count: int) -> str:
+    return label if count == 1 else f"{label} ({count})"
+
+
+def summarize_closed_by(groups: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Grupy „kto zakończył” z powodami, których suma = liczba procesów.
+
+    Każdy proces trafia do dokładnie jednego wiersza powodów:
+
+    * powód z katalogu (etykieta po polsku) albo wolny tekst powtórzony co
+      najmniej dwa razy — `TOP_REASONS` najczęstszych ma własny wiersz;
+    * wolny tekst użyty raz i powody spoza pierwszej trójki — wiersz
+      „Inne” z listą treści w `details` (dymek na ekranie; decyzja
+      właściciela produktu 23.09.2026, żeby nic nie znikało z sumy);
+    * brak powodu (także zaślepka importu `legacy_unknown` bez notatki) —
+      „Bez podanego powodu”.
     """
 
     totals: dict[str, int] = defaultdict(int)
-    catalog: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    named: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     free: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-    labels: dict[str, dict[str, str]] = defaultdict(dict)
+    free_labels: dict[str, dict[str, str]] = defaultdict(dict)
+    missing: dict[str, int] = defaultdict(int)
+    other_catalog: dict[str, int] = defaultdict(int)
     for g in groups:
         who = g["who"]
-        totals[who] += g["count"]
-        if g["reason_name"]:
-            catalog[who][_short(g["reason_name"])] += g["count"]
-        elif g["reason_note"]:
-            label = _short(g["reason_note"])
-            key = label.casefold()
-            labels[who].setdefault(key, label)
-            free[who][key] += g["count"]
+        count = int(g["count"])
+        totals[who] += count
+        catalog = reason_label(g.get("reason_name"))
+        note = (g.get("reason_note") or "").strip()
+        if catalog == OTHER_LABEL:
+            # Katalogowe „Inne” z seeda 0006 — ten sam sens co zbiorczy wiersz,
+            # więc tam trafia (dwa wiersze „Inne” obok siebie byłyby zagadką).
+            other_catalog[who] += count
+        elif catalog:
+            named[who][_short(catalog)] += count
+        elif note:
+            label = _short(note)
+            folded = label.casefold()
+            free_labels[who].setdefault(folded, label)
+            free[who][folded] += count
+        else:
+            missing[who] += count
 
     result: list[dict[str, Any]] = []
     for key, label in CLOSED_BY:
-        reasons: dict[str, int] = dict(catalog[key])
+        reasons: dict[str, int] = dict(named[key])
+        singles: list[tuple[str, int]] = []
         for folded, count in free[key].items():
-            if count >= FREE_TEXT_MIN_COUNT:
-                text_label = labels[key][folded]
+            text_label = free_labels[key][folded]
+            if count >= 2:
                 reasons[text_label] = reasons.get(text_label, 0) + count
-        top = sorted(reasons.items(), key=lambda item: (-item[1], item[0]))
+            else:
+                singles.append((text_label, count))
+        if other_catalog[key]:
+            singles.append((OTHER_CATALOG_DETAIL, other_catalog[key]))
+        ranked = sorted(reasons.items(), key=lambda item: (-item[1], item[0]))
+        top = ranked[:TOP_REASONS]
+        other = sorted(
+            ranked[TOP_REASONS:] + singles, key=lambda item: (-item[1], item[0])
+        )
+
+        top_reasons: list[dict[str, Any]] = [
+            {"label": name, "count": count, "kind": "reason", "details": []}
+            for name, count in top
+        ]
+        if other:
+            details = [_detail(name, count) for name, count in other]
+            if len(details) > OTHER_DETAILS_MAX:
+                rest = len(details) - OTHER_DETAILS_MAX
+                details = details[:OTHER_DETAILS_MAX] + [f"… i jeszcze {rest}"]
+            top_reasons.append(
+                {
+                    "label": OTHER_LABEL,
+                    "count": sum(count for _, count in other),
+                    "kind": "other",
+                    "details": details,
+                }
+            )
+        if missing[key]:
+            top_reasons.append(
+                {
+                    "label": NO_REASON_LABEL,
+                    "count": missing[key],
+                    "kind": "none",
+                    "details": [],
+                }
+            )
         result.append(
             {
                 "key": key,
                 "label": label,
                 "count": totals.get(key, 0),
-                "top_reasons": [
-                    {"label": name, "count": count} for name, count in top[:TOP_REASONS]
-                ],
+                "top_reasons": top_reasons,
             }
         )
     return result

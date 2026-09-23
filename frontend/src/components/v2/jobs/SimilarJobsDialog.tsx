@@ -30,7 +30,6 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
-  defaultSelection,
   selectedSentCount,
   type SimilarJobItem,
   useLinkSimilarJobs,
@@ -72,8 +71,10 @@ export function SimilarJobsDialog({
       setQuery("");
       return;
     }
+    // Nic nie jest zaznaczone z góry (test na produkcji 23.09.2026): połączenie
+    // przepina ludzi do tej rekrutacji, więc wybiera je wyłącznie człowiek.
     if (!seeded && similar.data) {
-      setSelected(new Set(defaultSelection(similar.data.suggestions)));
+      setSelected(new Set());
       setSeeded(true);
     }
   }, [open, seeded, similar.data]);

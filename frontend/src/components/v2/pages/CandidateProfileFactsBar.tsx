@@ -223,7 +223,10 @@ function FactShell({
           <p className="text-xs font-medium text-muted-foreground">{label}</p>
           <div
             className={cn(
-              "mt-0.5 min-w-0 break-words text-sm font-medium leading-5 text-foreground [overflow-wrap:anywhere]",
+              // `break-words`, nie `[overflow-wrap:anywhere]`: „anywhere” zeruje
+              // minimalną szerokość słowa, więc w wąskim kafelku tekst łamał się
+              // litera po literze („Nie / uz / up / eł…”, test 23.09.2026).
+              "mt-0.5 min-w-0 break-words text-sm font-medium leading-5 text-foreground",
               muted && "font-normal text-muted-foreground",
             )}
           >
@@ -1119,12 +1122,12 @@ export function CandidateProfileFactsBar({
       <section
         aria-label="Najważniejsze fakty o kandydacie"
         data-help="candidate.profile.facts"
-        className={cn(
-          "grid gap-3",
-          canViewAndEditRate && !rateForbidden
-            ? "sm:grid-cols-2 xl:grid-cols-5"
-            : "sm:grid-cols-2 xl:grid-cols-4",
-        )}
+        // Liczba kolumn wynika z szerokości PASKA, nie okna: obok listy
+        // „Kandydaci — ostatnio wyświetlani” pasek bywa o połowę węższy niż
+        // ekran, a `xl:grid-cols-5` wciskało pięć kafelków w ~900 px. Kafelek
+        // ma najmniej 15rem (ikona, etykieta, wartość i przycisk edycji), resztę
+        // dzieli po równo; za mało miejsca = kolejny wiersz.
+        className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3"
       >
         {languagesQuery.isPending ? (
           <FactLoading label="Języki" />
@@ -1179,7 +1182,7 @@ export function CandidateProfileFactsBar({
                     key={language.id}
                     variant="soft"
                     size="sm"
-                    className="h-auto max-w-full whitespace-normal py-0.5 [overflow-wrap:anywhere]"
+                    className="h-auto max-w-full whitespace-normal break-words py-0.5"
                   >
                     {languageLabel(language)}
                   </Badge>

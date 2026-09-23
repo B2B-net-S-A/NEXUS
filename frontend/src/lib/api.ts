@@ -2720,7 +2720,14 @@ export interface RejectionReasonDef {
   id: number;
   template_id: number;
   stage_def_id: number | null;
+  /** Klucz danych — bywa kodem (`counter_offer`). Człowiekowi pokazuj `label`. */
   name: string;
+  /**
+   * Polska etykieta liczona przez backend (`rejection_reason_labels.py`).
+   * Opcjonalna tylko dla starych odpowiedzi/mocków — czytaj przez
+   * `rejectionReasonLabel` z `@/lib/rejection-reasons`.
+   */
+  label?: string;
   order: number;
   category: "hired" | "rejected" | "withdrawn";
   active: boolean;

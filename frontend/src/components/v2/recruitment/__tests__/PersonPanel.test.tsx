@@ -217,8 +217,10 @@ describe("PersonPanel — nagłówek i ruch etapu", () => {
   it("główny przycisk prowadzi na pierwszy etap po bieżącym — przez usePipelineMove", async () => {
     const move = moveControls();
     renderPanel({ candidateId: 3, move, section: "notes" });
-    await userEvent.click(screen.getByRole("button", { name: "Przenieś na etap: Wysłać do Cpro" }));
-    expect(move.requestMove).toHaveBeenCalledWith(rowOf(3).item, rowOf(3).column, columns[3]);
+    // Pipeline v4: „Wysłać do Cpro” to odznaka kolumny „Zweryfikowany” —
+    // naprzód prowadzi do kolejnej KOLUMNY Tablicy („CV Wysłane”).
+    await userEvent.click(screen.getByRole("button", { name: "Przenieś na etap: CV Wysłane" }));
+    expect(move.requestMove).toHaveBeenCalledWith(rowOf(3).item, rowOf(3).column, columns[4]);
   });
 
   it("sekcja z własnym przyciskiem ruchu (Screening, CV) chowa ogólny „Przenieś na etap”", async () => {

@@ -17,6 +17,7 @@ from __future__ import annotations
 import ast
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 from sqlalchemy import func, select
 
@@ -59,8 +60,13 @@ async def test_bulk_add_snapshots_each_candidate_cv() -> None:
 
     async with AsyncSessionLocal() as db:
         user = await db.get(User, uid)
+        # Trasa od 23.09.2026 bierze `request` (integracja = bez blokady 12 h).
         resp = await bulk_add_proposals(
-            job_id, BulkProposalsRequest(candidate_ids=ids), current_user=user, db=db
+            request=SimpleNamespace(state=SimpleNamespace()),
+            job_id=job_id,
+            body=BulkProposalsRequest(candidate_ids=ids),
+            current_user=user,
+            db=db,
         )
     assert set(resp.added) == set(ids), resp
 

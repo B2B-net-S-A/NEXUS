@@ -568,6 +568,41 @@ async def _create_observed_attempt(
     )
 
 
+def _screening_filled(payload: object) -> bool:
+    """Lustro `pipeline._sheet_filled` dla arkusza screeningu."""
+    if not isinstance(payload, dict) or not payload:
+        return False
+    answers = payload.get("answers")
+    if isinstance(answers, (list, dict)):
+        return len(answers) > 0
+    return any(value not in (None, "", [], {}) for value in payload.values())
+
+
+async def _latest_screening_answers(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> Optional[dict]:
+    """Najnowszy wypełniony arkusz screeningu pary (Pipeline v4, 23.09.2026).
+
+    Screening robi się w „Nowych", a portal klienta, generator CV i przegląd
+    DL czytają arkusz z BIEŻĄCEGO wiersza etapu — bez przeniesienia odpowiedzi
+    znikały po pierwszym ruchu. Arkusz należy do pary, nie do etapu.
+    """
+    rows = await db.execute(
+        select(CandidateStage.screening_answers)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+            CandidateStage.screening_answers.isnot(None),
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(20)
+    )
+    for (answers,) in rows.all():
+        if _screening_filled(answers):
+            return dict(answers)
+    return None
+
+
 async def transition_process(
     db: AsyncSession,
     *,
@@ -707,6 +742,12 @@ async def transition_process(
         "moved_at",
     ):
         values.pop(owned, None)
+    if not values.get("screening_answers"):
+        carried = await _latest_screening_answers(
+            db, candidate_id=candidate_id, job_id=job_id
+        )
+        if carried is not None:
+            values["screening_answers"] = carried
     stage_row = CandidateStage(
         candidate_id=candidate_id,
         job_id=job_id,

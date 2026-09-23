@@ -138,6 +138,8 @@ export interface DzCvBlock {
 
 export interface DzCheck {
   label: string;
+  /** Frazy szukane w CV: nazwa bez opisu po myślniku i bez nawiasów. */
+  terms?: string[];
   in_cv: boolean;
   /** `null` = pogrubień nie da się odczytać (CV dla klienta z PDF-a). */
   bolded: boolean | null;

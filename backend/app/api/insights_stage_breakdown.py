@@ -2,8 +2,10 @@
 
 Tablica ma 6 kolumn, ale statystyki dalej liczą każdy etap i każdą odznakę
 — logika w `app.services.insights_stage_breakdown`. Ta sama bramka, okres
-i cache co lejek (`insights_recruitment.py`); endpoint niczego nie zapisuje
-i nie niesie danych osobowych (same liczniki i nazwy powodów z katalogu).
+i cache co lejek (`insights_recruitment.py`); endpoint niczego nie zapisuje.
+Powody zakończenia niosą etykiety po polsku, a jednorazowe wpisy ręczne
+jadą zbiorczo jako „Inne” z listą treści (decyzja właściciela 23.09.2026) —
+przycięte do 80 znaków.
 """
 
 from __future__ import annotations
@@ -52,7 +54,7 @@ async def insights_stage_breakdown(
 
     # Klucz niesie okno — inaczej liczby jednego okresu wyszłyby pod etykietą
     # drugiego. „Teraz” jest stanem na dziś, więc żyje tyle co TTL.
-    cache_key = f"insights:recruitment:stage-breakdown:v1:{resolved.cache_suffix}"
+    cache_key = f"insights:recruitment:stage-breakdown:v2:{resolved.cache_suffix}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:

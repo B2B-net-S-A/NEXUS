@@ -83,7 +83,6 @@ import {
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import {
   CvHandoffError,
-  computeMarginPreview,
   describeCvHandoffFailure,
   describeCvHandoffSuccess,
   runCvHandoff,
@@ -155,6 +154,9 @@ export interface CvHandoffWorkbenchProps extends WorkbenchPanelProps {
    * właściciel/twórca rekrutacji). Brak pola = pole stawki ukryte.
    */
   canWriteClientRate?: boolean;
+  /** Nordea (DZ → Cpro) — tam „CV wysłane" wysyła wytypowana osoba bez
+   *  stawki; poza Nordeą wysyła wyłącznie DL ze stawką (Pipeline v4). */
+  cproEnabled?: boolean;
   /**
    * Aktualny budżet PLN/h rekrutacji (`effective_budget_hourly`) — odznaka
    * „ponad budżet" (informacja, nie blokada). `null` = brak budżetu.
@@ -198,6 +200,7 @@ export function CvHandoffWorkbench({
   onMoved,
   readOnly,
   canWriteClientRate = false,
+  cproEnabled = false,
   budgetHourly = null,
   layout = "full",
   focusCandidateId = null,
@@ -365,13 +368,6 @@ export function CvHandoffWorkbench({
   const numericClientRate = Number.parseFloat(clientRate.replace(",", "."));
   const clientRateValid =
     Number.isFinite(numericClientRate) && numericClientRate > 0;
-  const margin = computeMarginPreview({
-    clientRate,
-    clientUnit: clientRateUnit,
-    candidateRate: selected?.item.expected_rate_value,
-    candidateUnit: selected?.item.expected_rate_unit,
-    candidateCurrency: selected?.item.expected_rate_currency,
-  });
   // Link tylko przy sfinalizowanym CV brandowanym — backend odbija 409, więc
   // bramka jest widoczna z powodem, a nie niespodzianką po kliknięciu.
   const linkBlockedReason = brandedFinalized
@@ -443,6 +439,8 @@ export function CvHandoffWorkbench({
       }) ??
       (!cvSentCol
         ? "Szablon tej rekrutacji nie ma kolumny „CV Wysłane”."
+        : !cproEnabled && !canWriteClientRate
+          ? "Do klienta wysyła Delivery Lead — osoba czeka w jego przeglądzie."
         : CV_CLIENT_LINKS_UI_ENABLED && brandedQuery.isLoading
           ? // Bez tego w oknie ładowania `brandedStatus` = "none", więc klik
             // wysłałby BEZ linku i zaraportował to jako świadomą decyzję.
@@ -1086,34 +1084,22 @@ export function CvHandoffWorkbench({
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="text-muted-foreground">
-                      Marża (podgląd)
-                    </span>
-                    <span
-                      title={margin.reason ?? undefined}
-                      className={cn(
-                        "font-medium tabular-nums",
-                        margin.value != null && margin.value > 0
-                          ? "text-success-muted-foreground"
-                          : margin.value != null
-                            ? "text-destructive-muted-foreground"
-                            : "text-muted-foreground",
-                      )}
-                    >
-                      {margin.label}
+                    <span className="text-muted-foreground">Stawka kandydata</span>
+                    <span className="font-medium tabular-nums text-foreground">
+                      {selected ? (formatExpectedRate(selected.item) ?? "nie podano") : "—"}
                     </span>
                   </div>
                   <p className="text-[10.5px] text-muted-foreground">
-                    „Pomiń” zostaje — puste pole wysyła bez stawki, można ją
-                    uzupełnić później na karcie rekrutacji w profilu. Stawka
-                    zapisuje się PO ruchu, na nowym etapie — jak na tablicy.
+                    {cproEnabled
+                      ? "Puste pole wysyła bez stawki — DL uzupełni ją później na karcie rekrutacji."
+                      : "Bez stawki do klienta nie wyślesz — trafi do umowy i zamówienia."}
                   </p>
                 </DockSection>
               ) : (
                 <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-                  Stawkę do klienta zapisuje właściciel rekrutacji, Delivery
-                  Lead, TAC, TCM, Head of Recruitment, Finanse albo admin —
-                  wysyłka idzie bez stawki, uzupełnią ją później.
+                  {cproEnabled
+                    ? "Stawkę do klienta ustala Delivery Lead — wysyłka idzie bez stawki, DL ją uzupełni."
+                    : "Do klienta wysyła Delivery Lead i to on ustala stawkę — osoba czeka w jego przeglądzie."}
                 </p>
               )}
 

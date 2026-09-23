@@ -3,7 +3,7 @@
  *
  * Pilnowane reguły:
  * 1. Konwersja bez mianownika to „—”, nigdy „0%”.
- * 2. Odznaka liczy konwersję do wiersza głównego nad nią.
+ * 2. Konwersję ma tylko etap główny (do poprzedniego głównego); odznaka „—”.
  * 3. Awaria (403/500) nie renderuje się jako pustka.
  * 4. Karta „Zamknięci — kto skończył” pokazuje grupy i powody.
  */
@@ -79,12 +79,27 @@ function body(
     },
     rows: ROWS,
     closed_by: [
-      { key: "candidate", label: "Zrezygnował", count: 2, top_reasons: [] },
+      {
+        key: "candidate",
+        label: "Zrezygnował",
+        count: 2,
+        top_reasons: [
+          { label: "Bez podanego powodu", count: 2, kind: "none", details: [] },
+        ],
+      },
       {
         key: "recruiter",
         label: "Odrzucony przez nas",
         count: 5,
-        top_reasons: [{ label: "Za wysoka stawka", count: 3 }],
+        top_reasons: [
+          { label: "Za wysoka stawka", count: 3, kind: "reason", details: [] },
+          {
+            label: "Inne",
+            count: 2,
+            kind: "other",
+            details: ["Za daleko do biura", "Brak EN (2)"],
+          },
+        ],
       },
       {
         key: "delivery_lead",
@@ -130,16 +145,29 @@ beforeEach(() => {
 });
 
 describe("stageConversionPct", () => {
-  it("dzieli przez poprzedni wiersz główny, odznakę przez główny nad nią", () => {
+  it("etap główny dzieli przez poprzedni główny, odznaka nie ma konwersji", () => {
     expect(stageConversionPct(ROWS, 0)).toBeNull();
-    expect(stageConversionPct(ROWS, 1)).toBe(10); // 4 / 40
+    expect(stageConversionPct(ROWS, 1)).toBeNull(); // Przepięcie — odznaka
     expect(stageConversionPct(ROWS, 2)).toBe(50); // 20 / 40
-    expect(stageConversionPct(ROWS, 3)).toBe(50); // 10 / 20
+    expect(stageConversionPct(ROWS, 3)).toBeNull(); // DZ ✓ — odznaka
+    expect(stageConversionPct(ROWS, 4)).toBe(0); // 0 / 20 — policzone zero
+    expect(stageConversionPct(ROWS, 5)).toBeNull(); // Prep — odznaka
+    expect(stageConversionPct(ROWS, 7)).toBeNull(); // Umowa wysłana — odznaka
   });
 
   it("zerowy mianownik daje null, nie 0", () => {
-    // Prep (5) liczy się do „Wysłani do klienta” z zerem.
-    expect(stageConversionPct(ROWS, 5)).toBeNull();
+    // Akceptacja (6) liczy się do „Wysłani do klienta” z zerem.
+    expect(stageConversionPct(ROWS, 6)).toBeNull();
+  });
+
+  it("nie przycina do 100% — etap główny większy od poprzedniego", () => {
+    const rows = [
+      row("cv_sent", "cv_sent", "Wysłani", true, 10),
+      row("client_interview", "after_interview", "Po rozmowie", false, 30),
+      row("client_interview", "client_interview", "Rozmowa", true, 12),
+    ];
+    expect(stageConversionPct(rows, 1)).toBeNull();
+    expect(stageConversionPct(rows, 2)).toBe(120);
   });
 });
 
@@ -153,7 +181,10 @@ describe("StageBreakdownSection", () => {
     expect(cells[1]).toHaveTextContent("DZ ✓");
     expect(cells[3]).toHaveTextContent("10");
     expect(cells[4]).toHaveTextContent("2");
-    expect(cells[5]).toHaveTextContent("50%");
+    expect(cells[5]).toHaveTextContent("—");
+
+    const verified = screen.getByTestId("stage-row-verified");
+    expect(within(verified).getAllByRole("cell")[5]).toHaveTextContent("50%");
 
     const prep = screen.getByTestId("stage-row-prep");
     expect(within(prep).getAllByRole("cell")[5]).toHaveTextContent("—");
@@ -178,6 +209,18 @@ describe("StageBreakdownSection", () => {
     const recruiter = within(card).getByTestId("closed-by-recruiter");
     expect(recruiter).toHaveTextContent("Odrzucony przez nas");
     expect(recruiter).toHaveTextContent("Za wysoka stawka");
+
+    // Jednorazowe wpisy ręczne jako „Inne” z listą treści w dymku.
+    const other = within(card).getByTestId("closed-by-recruiter-other");
+    expect(other).toHaveTextContent("Inne");
+    expect(other).toHaveAttribute(
+      "title",
+      "Za daleko do biura\nBrak EN (2)",
+    );
+
+    const candidate = within(card).getByTestId("closed-by-candidate");
+    expect(candidate).toHaveTextContent("Bez podanego powodu");
+    expect(candidate).not.toHaveTextContent("legacy_unknown");
   });
 
   it("403 to brak uprawnień, a nie pusta sekcja", async () => {

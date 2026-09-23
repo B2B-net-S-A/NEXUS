@@ -139,6 +139,41 @@ def test_debrief_closes_call_and_debrief():
     assert s["call"] == "done" and s["debrief"] == "done"
 
 
+def test_call_and_debrief_wait_until_the_interview_starts():
+    # Prep i prep 2 zrobione, rozmowa jutro: nic nie jest „bieżące” (karta nie
+    # proponuje „Zapisz debrief”), a debrief zapisany przed rozmową nie zamyka
+    # kroków (test na produkcji 23.09.2026).
+    preps = [
+        EventRef(
+            id=3, start=NOW - timedelta(days=2), end=None, title="P", status="completed"
+        ),
+        EventRef(
+            id=4,
+            start=NOW - timedelta(hours=3),
+            end=None,
+            title="P2",
+            status="completed",
+        ),
+    ]
+    pair = PairSnapshot(
+        1,
+        2,
+        preps=preps,
+        interview=_iv(NOW + timedelta(days=1)),
+        debrief=DebriefRef(1, 5, "yes", None, None, "Kafka?"),
+    )
+    steps = compute_steps(pair, NOW, call_window_minutes=30)
+    s = _states(steps)
+    assert s["interview"] == "scheduled"
+    assert s["call"] == "todo" and s["debrief"] == "todo"
+    assert current_step_key(steps) == "interview"
+    # Rozmowa trwa — debrief już można zapisać, telefon jest bieżący.
+    during = PairSnapshot(1, 2, preps=preps, interview=_iv(NOW - timedelta(minutes=10)))
+    assert (
+        _states(compute_steps(during, NOW, call_window_minutes=30))["call"] == "current"
+    )
+
+
 def test_upcoming_interview_without_prep_asks_for_prep():
     pair = PairSnapshot(1, 2, interview=_iv(NOW + timedelta(days=2)))
     todos = compute_todos(

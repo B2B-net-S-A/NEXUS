@@ -32,10 +32,9 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fastapi import HTTPException
 from sqlalchemy import text
 
-from app.api.recruitment_access import ensure_job_read_access, user_can_edit_rates
+from app.api.recruitment_access import user_can_edit_rates
 from app.models.ai_feature import AIFeatureKey
 from app.models.job import Job
 from app.models.job_proposal import JobProposal
@@ -60,10 +59,6 @@ MSG_NOT_REASSIGNED = (
     "z której Luna mogłaby podpowiedzieć odpowiedzi."
 )
 MSG_NO_QUESTIONS = "Ta rekrutacja nie ma pytań screeningowych w profilu Championa."
-MSG_NO_SOURCE_ACCESS = (
-    "Nie masz dostępu do rekrutacji, z której przyszło przepięcie — "
-    "uzupełnij odpowiedzi ręcznie."
-)
 MSG_NO_MATERIAL = (
     "Z poprzedniej rekrutacji nie ma ani odpowiedzi ze screeningu, ani notatek "
     "— uzupełnij odpowiedzi ręcznie."
@@ -297,25 +292,6 @@ def validate_suggestions(
     return out
 
 
-async def accessible_context(
-    db: AsyncSession, *, candidate_id: int, job_id: int, user: User
-) -> tuple[Optional[ReassignContext], bool]:
-    """Kontekst przepięcia, o ile ``user`` może czytać rekrutację źródłową.
-
-    Zwraca ``(ctx, denied)``. Odpowiedzi ze screeningu i tytuł rekrutacji
-    źródłowej należą do TAMTEJ rekrutacji — członkostwo w docelowej nie daje
-    do nich wglądu (przegląd bezpieczeństwa 23.09.2026).
-    """
-    ctx = await reassign_context(db, candidate_id=candidate_id, job_id=job_id)
-    if ctx is None:
-        return None, False
-    try:
-        await ensure_job_read_access(db, user, ctx.source_job_id)
-    except HTTPException:
-        return None, True
-    return ctx, False
-
-
 async def _job_scoped_notes(
     db: AsyncSession, *, candidate_id: int, job_ids: tuple[int, int]
 ) -> str:
@@ -350,11 +326,10 @@ async def suggest_answers(
     user_id = user.id
     include_rates = user_can_edit_rates(user)
 
-    ctx, denied = await accessible_context(
-        db, candidate_id=candidate_id, job_id=job_id, user=user
-    )
-    if denied:
-        return _unavailable(MSG_NO_SOURCE_ACCESS)
+    # Podpowiedź widzi każdy, kto pracuje nad rekrutacją DOCELOWĄ — także bez
+    # dostępu do źródłowej (decyzja Artura 23.09.2026). Notatki i tak idą
+    # wyłącznie z tych dwóch rekrutacji, a kwoty są maskowane rolom bez stawek.
+    ctx = await reassign_context(db, candidate_id=candidate_id, job_id=job_id)
     if ctx is None:
         return _unavailable(MSG_NOT_REASSIGNED)
 
@@ -433,15 +408,8 @@ async def suggest_answers(
     }
 
 
-def context_payload(ctx: Optional[ReassignContext], *, denied: bool = False) -> dict:
+def context_payload(ctx: Optional[ReassignContext]) -> dict:
     """Odpowiedź `GET …/reassign-context` — bez wywołania modelu."""
-    if denied:
-        return {
-            "available": False,
-            "source": None,
-            "previous_answers_count": 0,
-            "message": MSG_NO_SOURCE_ACCESS,
-        }
     if ctx is None:
         return {"available": False, "source": None, "previous_answers_count": 0}
     return {

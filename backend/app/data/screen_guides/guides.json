@@ -344,7 +344,7 @@
       },
       {
         "q": "Jak zapisać debrief po rozmowie?",
-        "a": "Po rozmowie kliknij sprawę w „Do zrobienia” i zapisz, jak poszło, czy kandydat przyjmie ofertę i jakie pytania zadał klient. Pytania trafią do przygotowań kolejnych kandydatów do tego klienta.",
+        "a": "Kliknij „Debrief” przy rozmowie — przycisk włącza się, gdy rozmowa się zacznie. Zapisz, jak poszło, czy kandydat przyjmie ofertę i jakie pytania zadał klient; trafią do przygotowań kolejnych kandydatów.",
         "anchor": "calendar.todo"
       },
       {
