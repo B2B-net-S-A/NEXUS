@@ -1106,7 +1106,12 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
 - **Zadania z kolejki przeżywają deploy.** `job_snapshot.py` przyjmuje snapshot
   bez pola, które ma wartość domyślną w dataclassie (np. `champion_profile`
   z #1477); nieznane pola i brak pól wymaganych dalej są odrzucane.
-- **Wejścia generacji, która nie dała dokumentu, żyją 7 dni** (od 11.09.2026).
+- **CV nie znikają same — automatyczna retencja WYŁĄCZONA (decyzja Artura
+  23.09.2026: trzymamy wszystko, także bez zgody RODO).**
+  `CV_JOB_INPUT_RETENTION_ENABLED` domyślnie `false` i obejmuje oba automaty
+  poniżej: sprzątanie wejść generatora i CV próbnych reguł klienta. CV znika
+  wyłącznie ręcznie (usunięcie dokumentu albo kandydata). Nie włączaj z
+  powrotem bez decyzji właściciela. Opis mechanizmu (stan przy `true`):
   `retire_unneeded_job_inputs` w pętli `cv_source_cleanup` (co 15 min, paczki
   `FOR UPDATE SKIP LOCKED`) bierze zadania zakończone porażką/przerwane bez
   gotowego dokumentu i zakończone podglądy reguł CV: klucz w magazynie zmienia
@@ -1250,7 +1255,8 @@ do modelu.
   `client_cv_rule_previews` — nie `cv_generated_documents`, bo podgląd nie
   jest dokumentem do wysłania. `candidate_id` z **CASCADE** (wiersz niesie
   pełne CV — usunięcie osoby ma go zabrać), retencja 7 dni sprzątana przy
-  następnym podglądzie, „processing" starsze niż 15 min raportowane jako
+  następnym podglądzie TYLKO przy `CV_JOB_INPUT_RETENTION_ENABLED=true`
+  (od 23.09.2026 domyślnie wyłączona — CV nie znikają same), „processing" starsze niż 15 min raportowane jako
   awaria (Coolify zabija zadanie w tle przy każdym pushu), porażka zapisywana
   po `rollback()`. Id podglądu żyje w edytorze, nie w zakładce — przełączenie
   zakładki nie może zgubić wyniku, za który już zapłacono.
