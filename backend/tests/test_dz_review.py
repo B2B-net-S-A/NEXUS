@@ -117,6 +117,45 @@ def test_analyze_reports_the_three_dominik_checks() -> None:
     assert result["summary"]["must_in_cv"] == 1
 
 
+@pytest.mark.parametrize(
+    ("alternatives", "terms"),
+    [
+        # Prawdziwe wpisy DL-ów z produkcji (23.09.2026): nazwa + opis po myślniku.
+        (
+            ("IT Project Management – prowadzenie i koordynacja projektów",),
+            ("IT Project Management",),
+        ),
+        (("Security frameworks – MITRE ATT&CK, NIST",), ("Security frameworks",)),
+        # Kontrakt wymagań rozciął „lub” wewnątrz nawiasu — sklejamy i zdejmujemy nawias.
+        (("react.js (v18", "higher)"), ("react.js",)),
+        (("Java", "Kotlin"), ("Java", "Kotlin")),
+        # Dywiz bez spacji to część nazwy, nie opis.
+        (("CI-CD",), ("CI-CD",)),
+        (("Docker (preferowany)",), ("Docker",)),
+    ],
+)
+def test_requirement_terms_read_the_name_not_the_description(
+    alternatives, terms
+) -> None:
+    assert svc.requirement_terms(alternatives) == terms
+
+
+def test_prose_must_have_is_found_by_its_name() -> None:
+    """Wymaganie opisane zdaniem nie może dawać „brak w CV”, gdy CV nazywa
+    tę umiejętność — tak wyglądało 0 z 11 u kandydata na Case Managera."""
+    alternatives = ("Kubernetes – utrzymanie klastrów produkcyjnych",)
+    req = svc.Requirement(
+        label=alternatives[0],
+        alternatives=alternatives,
+        terms=svc.requirement_terms(alternatives),
+    )
+    result = svc.analyze([req], [], svc.html_blocks(BRANDED_HTML), ORIGINAL, EXPERIENCE)
+    check = result["checks"][0]
+    assert check["in_original"] is True
+    assert check["terms"] == ["Kubernetes"]
+    assert check["label"] == alternatives[0]
+
+
 def test_analyze_without_generator_markers_splits_by_company_names() -> None:
     blocks = svc.html_blocks(
         "<p>Acme Bank</p><p>Java i Kubernetes</p><p>Globex</p><p>React</p>"

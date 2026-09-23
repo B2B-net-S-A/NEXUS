@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds";
@@ -10,6 +11,7 @@ import { FinanceArchiveTab } from "@/components/finance/FinanceArchiveTab";
 import { FinanceResultsTab } from "@/components/finance/FinanceResultsTab";
 import { MdImportWorkspace } from "@/components/finance/MdImportWorkspace";
 import {
+  ORDER_CHANGES_SUMMARY_KEY,
   ORDER_CHANGES_URL_KEYS,
   OrderChangesTab,
 } from "@/components/finance/OrderChangesTab";
@@ -17,6 +19,8 @@ import {
   ORDER_PDFS_URL_KEYS,
   OrderPdfsTab,
 } from "@/components/finance/OrderPdfsTab";
+import { financeApi, type OrderPdfRef } from "@/lib/api/finance";
+import { ORDER_CHANGES_POLL_MS } from "@/lib/polling";
 import { hasSectionAccess } from "@/lib/section-access";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -87,6 +91,30 @@ export default function FinancePage() {
     setMounted(true);
   }, []);
 
+  // Badge „do zrobienia" przy zakładce — zmiany bieżącego miesiąca. Liczony
+  // przez serwer; odhaczenie unieważnia ten klucz, więc spada od razu.
+  const summary = useQuery({
+    queryKey: ORDER_CHANGES_SUMMARY_KEY,
+    queryFn: async () => (await financeApi.getOrderChangesSummary()).data,
+    enabled: mounted,
+    refetchOnWindowFocus: true,
+    refetchInterval: ORDER_CHANGES_POLL_MS,
+  });
+  const todoBadge = summary.data?.todo ?? 0;
+
+  /** „Otwórz w Zamówienia PDF" — miesiąc i klient pliku, nic więcej z adresu. */
+  function openInPdfs(pdf: OrderPdfRef) {
+    const params = new URLSearchParams(window.location.search);
+    params.set("pdfMonth", pdf.month);
+    params.set("pdfClient", String(pdf.client_id));
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}?${params.toString()}`,
+    );
+    changeView("order-pdfs");
+  }
+
   function changeView(next: ViewMode) {
     setView(next);
     const params = new URLSearchParams(window.location.search);
@@ -152,6 +180,14 @@ export default function FinancePage() {
             onClick={() => changeView("order-changes")}
           >
             Zmiany w zamówieniach
+            {todoBadge > 0 ? (
+              <span
+                className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
+                aria-label={`${todoBadge} do zrobienia w bieżącym miesiącu`}
+              >
+                {todoBadge}
+              </span>
+            ) : null}
           </ModeButton>
           <ModeButton
             active={visibleView === "order-pdfs"}
@@ -196,7 +232,7 @@ export default function FinancePage() {
         ) : visibleView === "archive" ? (
           <FinanceArchiveTab canWrite={canWrite} />
         ) : visibleView === "order-changes" ? (
-          <OrderChangesTab />
+          <OrderChangesTab onOpenInPdfs={openInPdfs} />
         ) : visibleView === "order-pdfs" ? (
           <OrderPdfsTab />
         ) : (

@@ -26,13 +26,17 @@ klienta, a nazwisko dopisuje Finanse ręcznie.
 
 from __future__ import annotations
 
+import io
 import re
+import unicodedata
+import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import PurePath
-from typing import Literal, Optional
+from typing import Collection, Literal, Optional
 
 from sqlalchemy import and_, func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
@@ -42,6 +46,7 @@ from app.models.client_order_group import ClientOrderGroup
 from app.models.contract import Contract
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
 from app.models.contract_document import ContractDocument
+from app.models.order_change_check import OrderPdfDownload
 from app.services.client_identity import client_display_name_expression
 from app.services.order_facts import effective_end_expr, effective_start_expr
 
@@ -155,7 +160,7 @@ async def _order_entries(
     db: AsyncSession,
     *,
     window: Optional[tuple[date, date]],
-    order_id: Optional[int],
+    order_ids: Optional[Collection[int]],
 ) -> list[OrderPdfEntry]:
     eff_start = effective_start_expr()
     eff_end = effective_end_expr()
@@ -191,8 +196,10 @@ async def _order_entries(
     )
     if window is not None:
         stmt = stmt.where(eff_start >= window[0], eff_start < window[1])
-    if order_id is not None:
-        stmt = stmt.where(ClientOrder.id == order_id)
+    if order_ids is not None:
+        if not order_ids:
+            return []
+        stmt = stmt.where(ClientOrder.id.in_(sorted(order_ids)))
     rows = (await db.execute(stmt)).all()
     if not rows:
         return []
@@ -258,7 +265,7 @@ async def _group_entries(
     db: AsyncSession,
     *,
     window: Optional[tuple[date, date]],
-    group_id: Optional[int],
+    group_ids: Optional[Collection[int]],
 ) -> list[OrderPdfEntry]:
     stmt = (
         select(
@@ -283,8 +290,10 @@ async def _group_entries(
             ClientOrderGroup.start_date >= window[0],
             ClientOrderGroup.start_date < window[1],
         )
-    if group_id is not None:
-        stmt = stmt.where(ClientOrderGroup.id == group_id)
+    if group_ids is not None:
+        if not group_ids:
+            return []
+        stmt = stmt.where(ClientOrderGroup.id.in_(sorted(group_ids)))
     rows = (await db.execute(stmt)).all()
     if not rows:
         return []
@@ -418,8 +427,8 @@ async def collect_entries(
     db: AsyncSession, *, window: Optional[tuple[date, date]] = None
 ) -> list[OrderPdfEntry]:
     entries = [
-        *await _order_entries(db, window=window, order_id=None),
-        *await _group_entries(db, window=window, group_id=None),
+        *await _order_entries(db, window=window, order_ids=None),
+        *await _group_entries(db, window=window, group_ids=None),
         *await _amendment_entries(db, window=window, amendment_id=None),
     ]
     return sorted(entries, key=_sort_key)
@@ -431,9 +440,9 @@ async def find_entry(
     """Jeden plik — liczony TĄ SAMĄ ścieżką co lista, więc nazwa się zgadza."""
 
     if kind == "order":
-        found = await _order_entries(db, window=None, order_id=entry_id)
+        found = await _order_entries(db, window=None, order_ids=(entry_id,))
     elif kind == "group":
-        found = await _group_entries(db, window=None, group_id=entry_id)
+        found = await _group_entries(db, window=None, group_ids=(entry_id,))
     else:
         found = await _amendment_entries(db, window=None, amendment_id=entry_id)
     return found[0] if found else None
@@ -465,3 +474,175 @@ def group_by_client(entries: list[OrderPdfEntry]) -> list[dict]:
         )
         bucket["files"].append(entry)
     return sorted(clients.values(), key=lambda c: c["client_name"].lower())
+
+
+async def entries_for(
+    db: AsyncSession,
+    *,
+    order_ids: Collection[int] = (),
+    group_ids: Collection[int] = (),
+) -> tuple[dict[int, OrderPdfEntry], dict[int, OrderPdfEntry]]:
+    """PDF-y wskazanych zamówień i grup — ta sama ścieżka co lista (nazwy,
+    okres i miesiąc zgadzają się z „Zamówieniami PDF")."""
+
+    orders = await _order_entries(db, window=None, order_ids=set(order_ids))
+    groups = await _group_entries(db, window=None, group_ids=set(group_ids))
+    return {e.id: e for e in orders}, {e.id: e for e in groups}
+
+
+# ── ZIP i nazwy plików w archiwum ───────────────────────────────────────────
+
+_ZIP_TYPE_LABELS: dict[str, str] = {
+    "new": "Nowe",
+    "extension": "Przedluzenie",
+    "amendment": "Aneks",
+}
+_NON_SLUG = re.compile(r"[^A-Za-z0-9.-]+")
+
+
+def ascii_slug(value: Optional[str], *, keep_dash: bool = True) -> str:
+    """Bez polskich znaków, spacji i znaków spoza nazwy pliku.
+
+    ``ł`` nie rozkłada się przez NFKD (to osobna litera), stąd jawna podmiana.
+    ``/`` w numerze zamówienia (``OIT/0189/2026``) staje się myślnikiem.
+    """
+
+    text = (value or "").replace("ł", "l").replace("Ł", "L").replace("/", "-")
+    folded = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    slug = _NON_SLUG.sub("_", folded).strip("_.-")
+    slug = re.sub(r"_+", "_", slug)
+    if not keep_dash:
+        slug = slug.replace("-", "_")
+    return slug
+
+
+def _zip_date(value: Optional[date]) -> str:
+    return value.strftime("%d.%m.%Y") if value is not None else OPEN_ENDED_LABEL
+
+
+def zip_member_name(entry: OrderPdfEntry) -> str:
+    """``[Klient]_[NrZam]_[Nazwisko]_[Typ]_[DataOd]-[DataDo].pdf``.
+
+    Brakujący człon dostaje zaślepkę zamiast znikać — nazwa ma zawsze tyle
+    samo członów, więc pliki sortują się i czytają tak samo.
+    """
+
+    parts = [
+        ascii_slug(entry.client_name) or "klient",
+        ascii_slug(entry.order_number) or "bez-numeru",
+        ascii_slug(entry.consultant_lastname) or "bez-nazwiska",
+        _ZIP_TYPE_LABELS[entry.entry_type],
+        f"{_zip_date(entry.start)}-{_zip_date(entry.end)}",
+    ]
+    return "_".join(parts) + ".pdf"
+
+
+def client_zip_name(client_name: str, year: int, month: int) -> str:
+    return f"{ascii_slug(client_name) or 'klient'}_{year}-{month:02d}.zip"
+
+
+def month_zip_name(year: int, month: int) -> str:
+    return f"Zamowienia_{year}-{month:02d}.zip"
+
+
+def build_zip(
+    files: list[tuple[OrderPdfEntry, Optional[str]]],
+    *,
+    client_folders: bool,
+) -> bytes:
+    """Archiwum z plikami ``(wpis, ścieżka bezwzględna | None)``.
+
+    Plik, którego nie ma na dysku, nie wywraca archiwum: jego nazwa trafia do
+    ``BRAKUJACE_PLIKI.txt`` — pusty ZIP bez wyjaśnienia wyglądałby jak
+    kompletny.
+    """
+
+    buffer = io.BytesIO()
+    used: set[str] = set()
+    missing: list[str] = []
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for entry, path in files:
+            name = zip_member_name(entry)
+            if client_folders:
+                name = f"{ascii_slug(entry.client_name) or 'klient'}/{name}"
+            if path is None:
+                missing.append(name)
+                continue
+            unique = name
+            counter = 2
+            while unique in used:
+                stem, _, ext = name.rpartition(".")
+                unique = f"{stem}_{counter}.{ext}"
+                counter += 1
+            used.add(unique)
+            archive.write(path, arcname=unique)
+        if missing:
+            archive.writestr(
+                "BRAKUJACE_PLIKI.txt",
+                "Tych plików nie ma już na dysku — pobierz je ponownie z zamówienia:\n"
+                + "\n".join(missing)
+                + "\n",
+            )
+    return buffer.getvalue()
+
+
+# ── Pobrania per osoba ──────────────────────────────────────────────────────
+
+
+async def downloads_for_user(
+    db: AsyncSession, user_id: int, entries: list[OrderPdfEntry]
+) -> dict[tuple[str, int], datetime]:
+    """Kiedy ta osoba pobrała te pliki. Podmieniony plik (inna ścieżka) = „Nowy"."""
+
+    if not entries:
+        return {}
+    ids_by_kind: dict[str, set[int]] = {}
+    for entry in entries:
+        ids_by_kind.setdefault(entry.kind, set()).add(entry.id)
+    rows = (
+        await db.execute(
+            select(
+                OrderPdfDownload.file_kind,
+                OrderPdfDownload.file_id,
+                OrderPdfDownload.file_path,
+                OrderPdfDownload.downloaded_at,
+            ).where(
+                OrderPdfDownload.user_id == user_id,
+                OrderPdfDownload.file_kind.in_(sorted(ids_by_kind)),
+                OrderPdfDownload.file_id.in_(
+                    sorted({i for ids in ids_by_kind.values() for i in ids})
+                ),
+            )
+        )
+    ).all()
+    current = {(e.kind, e.id): e.file_path for e in entries}
+    return {
+        (row.file_kind, row.file_id): row.downloaded_at
+        for row in rows
+        if current.get((row.file_kind, row.file_id)) == row.file_path
+    }
+
+
+async def record_downloads(
+    db: AsyncSession, user_id: int, entries: list[OrderPdfEntry]
+) -> None:
+    if not entries:
+        return
+    unique = {(e.kind, e.id): e for e in entries}
+    stmt = insert(OrderPdfDownload).values(
+        [
+            {
+                "user_id": user_id,
+                "file_kind": kind,
+                "file_id": file_id,
+                "file_path": entry.file_path,
+            }
+            for (kind, file_id), entry in unique.items()
+        ]
+    )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            index_elements=["user_id", "file_kind", "file_id"],
+            set_={"file_path": stmt.excluded.file_path, "downloaded_at": func.now()},
+        )
+    )

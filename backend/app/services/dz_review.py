@@ -198,6 +198,44 @@ def bold_texts(blocks: list[Block]) -> list[str]:
 class Requirement:
     label: str
     alternatives: tuple[str, ...]
+    # Czego szukamy w tekście: nazwa bez opisu po myślniku i bez nawiasów.
+    # Puste = szukamy alternatyw dosłownie.
+    terms: tuple[str, ...] = ()
+
+
+# „IT Project Management – prowadzenie i koordynacja…”: szukamy nazwy przed
+# opisem. Dywiz musi mieć spacje po obu stronach, bo „CI-CD” to jedno słowo.
+_DESCRIPTION_SPLIT = re.compile(r"\s+[–—-]\s+|:\s")
+_PARENTHETICAL = re.compile(r"\([^()]*\)")
+
+
+def _term(text: str) -> str:
+    head = _DESCRIPTION_SPLIT.split(text, maxsplit=1)[0]
+    head = _PARENTHETICAL.sub(" ", head)
+    head = head.replace("(", " ").replace(")", " ")
+    return " ".join(head.split()).strip(" ,;.")
+
+
+def requirement_terms(alternatives: tuple[str, ...]) -> tuple[str, ...]:
+    """Frazy do wyszukania dla wymagania, tak jak przeczyta je człowiek.
+
+    Kontrakt wymagań dzieli tekst po „lub”, więc „react.js (v18 lub higher)”
+    przychodzi jako „react.js (v18” i „higher)”. Rozdział wewnątrz nawiasu
+    to nie są alternatywy — sklejamy je z powrotem i zdejmujemy nawias.
+    """
+    joined = " lub ".join(alternatives)
+    unbalanced = any(a.count("(") != a.count(")") for a in alternatives)
+    parts = (
+        (joined,)
+        if unbalanced and joined.count("(") == joined.count(")")
+        else alternatives
+    )
+    out: list[str] = []
+    for part in parts:
+        term = _term(part)
+        if len(term) >= 2 and term.casefold() not in {t.casefold() for t in out}:
+            out.append(term)
+    return tuple(out) or alternatives
 
 
 def _patterns(name: str) -> list[re.Pattern[str]]:
@@ -214,7 +252,8 @@ def _patterns(name: str) -> list[re.Pattern[str]]:
 
 
 def _found(text: str, req: Requirement) -> bool:
-    return any(p.search(text) for alt in req.alternatives for p in _patterns(alt))
+    names = req.terms or req.alternatives
+    return any(p.search(text) for alt in names for p in _patterns(alt))
 
 
 def _written_names(job: Job) -> dict[str, str]:
@@ -241,7 +280,11 @@ def job_requirements(job: Job) -> tuple[list[Requirement], list[Requirement]]:
     nice: list[Requirement] = []
     for group in contract.all_of:
         alternatives = tuple(written.get(n.casefold(), n) for n in group.any_of)
-        req = Requirement(label=" lub ".join(alternatives), alternatives=alternatives)
+        req = Requirement(
+            label=" lub ".join(alternatives),
+            alternatives=alternatives,
+            terms=requirement_terms(alternatives),
+        )
         if group.level == "must":
             must.append(req)
         elif group.level == "nice":
@@ -470,6 +513,7 @@ def analyze(
         checks.append(
             {
                 "label": req.label,
+                "terms": list(req.terms or req.alternatives),
                 "in_cv": in_cv,
                 "bolded": bolded,
                 "in_original": bool(original_text) and _found(original_text, req),

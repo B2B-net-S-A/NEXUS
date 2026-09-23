@@ -275,6 +275,10 @@ export function DzReviewBody({
   onOpenOriginal?: () => void;
 }) {
   const terms = review.client_request.must;
+  // Podświetlamy to, czego szukał serwer — nie całe zdanie wymagania.
+  const highlight = review.checks.length
+    ? review.checks.flatMap((c) => (c.terms?.length ? c.terms : [c.label]))
+    : terms;
   const { summary } = review;
   const boardHref = `/jobs/${review.job_id}?candidate=${review.candidate_id}`;
   return (
@@ -326,7 +330,7 @@ export function DzReviewBody({
                   {review.generated_cv.bold_known === false ? " (PDF: bez pogrubień)" : ""}.
                 </p>
               )}
-              <CvBlocks blocks={review.generated_cv.blocks} terms={terms} />
+              <CvBlocks blocks={review.generated_cv.blocks} terms={highlight} />
               <Link href={boardHref} className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
                 Popraw CV na Tablicy
                 <ExternalLink className="h-3 w-3" aria-hidden />
@@ -358,7 +362,7 @@ export function DzReviewBody({
                 <p className="mb-2 text-xs text-muted-foreground">Tekst CV z profilu — brak snapshotu z tej rekrutacji.</p>
               )}
               <p className="whitespace-pre-wrap text-sm leading-relaxed">
-                <Highlighted text={review.original_cv.text} terms={terms} />
+                <Highlighted text={review.original_cv.text} terms={highlight} />
               </p>
             </>
           ) : (
@@ -401,7 +405,7 @@ export function DzReviewBody({
               <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">Opis rekrutacji</p>
                 <p className="whitespace-pre-wrap leading-relaxed">
-                  <Highlighted text={review.client_request.description} terms={terms} />
+                  <Highlighted text={review.client_request.description} terms={highlight} />
                 </p>
               </div>
             )}

@@ -86,6 +86,9 @@ class CproSenderResponse(BaseModel):
 
 class DzCheck(BaseModel):
     label: str
+    # Frazy, których szukamy w CV (nazwa bez opisu i nawiasów) — front
+    # podświetla dokładnie je.
+    terms: list[str] = []
     in_cv: bool
     # None = pogrubień nie da się odczytać (CV dla klienta z PDF-a).
     bolded: Optional[bool] = None

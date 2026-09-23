@@ -52,6 +52,7 @@ from sqlalchemy.orm import aliased
 
 from app.api.deps import OperationalUser
 from app.api.section_access import DeliverySectionUser
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.models.ai_feature import AIFeatureKey
 from app.models.client import Client
@@ -1424,8 +1425,8 @@ async def _mark_preview_failed(db: AsyncSession, preview_id: int, message: str) 
 # restartuje kontener przy każdym pushu) — pokazujemy je jako awarię, żeby
 # przycisk i odpytywanie nie wisiały w nieskończoność.
 PREVIEW_STALE_AFTER = timedelta(minutes=15)
-# Podglądy niosą pełne CV kandydata — nie są dokumentami do wysłania, więc
-# nie ma powodu trzymać ich dłużej niż kilka dni.
+# Okno retencji CV próbnych — działa tylko przy CV_JOB_INPUT_RETENTION_ENABLED
+# (domyślnie wyłączone od 23.09.2026: CV nie znikają same).
 PREVIEW_RETENTION = timedelta(days=7)
 
 
@@ -1684,11 +1685,14 @@ async def enqueue_client_cv_rule_preview(
             status_code=409,
             detail="Źródła rekrutacji zmieniły się. Wybierz proces ponownie.",
         )
-    # Sprzątanie: podglądy starsze niż okno retencji znikają przy okazji
-    # kolejnego — bez osobnego crona.
-    from app.services.cv_preview_retention import retire_previews
+    # Sprzątanie (tylko przy włączonej retencji CV): podglądy starsze niż okno
+    # znikają przy okazji kolejnego — bez osobnego crona.
+    if settings.CV_JOB_INPUT_RETENTION_ENABLED:
+        from app.services.cv_preview_retention import retire_previews
 
-    await retire_previews(db, client_id, datetime.now(timezone.utc) - PREVIEW_RETENTION)
+        await retire_previews(
+            db, client_id, datetime.now(timezone.utc) - PREVIEW_RETENTION
+        )
 
     async def charge_preview():
         try:

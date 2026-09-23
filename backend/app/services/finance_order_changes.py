@@ -657,6 +657,7 @@ async def _changes(
             OrderChangeItem(
                 **ref,
                 kind=event.field,
+                event_id=event.id,
                 occurred_at=event.created_at,
                 effective_date=event.created_at.astimezone(zone).date(),
                 old_amount=event.old_amount,
@@ -696,6 +697,7 @@ async def _changes(
                 previous_end_date=previous.end if previous else None,
                 previous_client_name=entry_class.previous_client_name,
                 engagement_since=entry_class.engagement_since,
+                order_status=fact.status,
             )
         )
 

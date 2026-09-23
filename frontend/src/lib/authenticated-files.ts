@@ -106,6 +106,24 @@ export async function postAuthenticatedDownload(
   };
 }
 
+/** GET a protected file and return it with the server-given filename. */
+export async function fetchAuthenticatedDownload(
+  path: string,
+): Promise<AuthenticatedDownload> {
+  const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
+  const res = await fetch(url, {
+    headers: getAuthenticatedRequestHeaders(),
+  });
+  if (!res.ok) throw await responseError(res);
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+  return {
+    blob: await res.blob(),
+    filename: encoded ? decodeURIComponent(encoded) : plain ?? null,
+  };
+}
+
 /** Trigger a browser download of an in-memory blob (programmatic `<a download>`). */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);

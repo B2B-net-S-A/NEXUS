@@ -5,7 +5,8 @@
  *
  * Renderuje produkcyjny `OrderPdfsPanel` na zahardkodowanych danych — bez
  * react-query i bez żadnego zapytania, więc strona może stać w
- * `PUBLIC_PATHS`. Dane są fikcyjne; „Pobierz" niczego nie pobiera.
+ * `PUBLIC_PATHS`. Dane są fikcyjne; „Pobierz" i ZIP-y niczego nie pobierają,
+ * a podgląd czyta plik statyczny harnessu `/preview/cv-search` (nie API).
  */
 
 import { useState } from "react";
@@ -37,6 +38,8 @@ const CLIENTS: Record<string, OrderPdfClient[]> = {
           status: "active",
           order_number: "OIT/0189/2026",
           uploaded_at: "2026-09-10T09:00:00Z",
+          downloaded_at: null,
+          pending_change: true,
         },
         {
           kind: "group",
@@ -50,6 +53,7 @@ const CLIENTS: Record<string, OrderPdfClient[]> = {
           status: "active",
           order_number: "445",
           uploaded_at: "2026-09-02T09:00:00Z",
+          downloaded_at: "2026-09-22T08:30:00Z",
         },
         {
           kind: "amendment",
@@ -107,6 +111,15 @@ export default function FinanceOrderPdfsPreview() {
         onClientChange={setClientId}
         onDownload={() => undefined}
         downloadingKey={null}
+        onDownloadMonth={() => undefined}
+        onDownloadClient={() => undefined}
+        onDownloadFiles={() => undefined}
+        zipBusy={null}
+        loadPdf={async () => {
+          const response = await fetch("/preview/cv-search/cv-tekst.pdf");
+          if (!response.ok) throw new Error("brak pliku");
+          return response.blob();
+        }}
       />
     </div>
   );

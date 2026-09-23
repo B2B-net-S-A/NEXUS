@@ -2683,6 +2683,7 @@ async def api_health_deep_check():
     from app.models.client_executive_contract import ClientExecutiveContract
     from app.models.client_cleanup import ClientCleanupRun, PurgedClient
     from app.models.critical_event import CriticalEvent
+    from app.models.order_change_check import OrderChangeCheck, OrderPdfDownload
     from app.models.order_change_event import OrderChangeEvent
     from app.models.order_gap import OrderGap
     from app.models.insights_scoring_config import InsightsScoringConfig
@@ -2836,6 +2837,10 @@ async def api_health_deep_check():
         # pada KAŻDY zapis zamówienia (listener dopisuje wiersz w flushu).
         ("order_change_events", OrderChangeEvent),
         ("order_gaps", OrderGap),
+        # 0354: odhaczenia zmian i pobrania PDF-ów. Bez tabel pada checkbox
+        # „Zrobione” i każde pobranie PDF-u zamówienia.
+        ("order_change_checks", OrderChangeCheck),
+        ("order_pdf_downloads", OrderPdfDownload),
         # 0256: konfigurowalna punktacja Insights. Brak tabeli NIE wywraca
         # Ligi — `get_scoring_config` degraduje się do wartości domyślnych
         # z kodu — więc bez tej sondy jedynym objawem byłby zapis wagi,

@@ -18,7 +18,16 @@ from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi import status as http_status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import String, cast, func, select, text
@@ -26,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
 
+from app.api.deps import FinanceModuleUser
 from app.api.section_access import FINANCE_SECTION_DEPENDENCIES, FinanceSectionUser
 from app.core.database import get_db
 from app.models.activity import Activity
@@ -34,7 +44,7 @@ from app.models.finance import (
     FinanceImportRunStatus,
     FinanceMonthlyResult,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.finance import (
     EDITABLE_NUMERIC_FIELDS,
     FinanceHeaderMismatch,
@@ -48,7 +58,14 @@ from app.schemas.finance import (
     FinanceRowUpdate,
     FinanceTotals,
 )
-from app.schemas.finance_order_changes import OrderChangesResponse
+from app.schemas.finance_order_changes import (
+    OrderChangesPeriod,
+    OrderChangesResponse,
+    OrderChangesSummaryResponse,
+    OrderCheckRequest,
+    OrderCheckResponse,
+    OrderHistoryResponse,
+)
 from app.schemas.finance_order_pdfs import (
     OrderPdfClient,
     OrderPdfFile,
@@ -58,13 +75,16 @@ from app.schemas.finance_order_pdfs import (
 )
 from app.core.http_headers import content_disposition_attachment
 from app.services import finance_order_pdfs
+from app.services import order_change_checks
 from app.services import storage_service
 from app.services.finance_order_changes import (
     OrderChangesFilters,
     OrderChangesTab,
+    apply_filters,
     build_order_changes,
     build_order_changes_workbook,
     order_changes_filename,
+    period_label,
 )
 from app.services.finance_import import (
     FinanceHeaderError,
@@ -794,7 +814,8 @@ def _order_changes_filters(
 
 @router.get("/order-changes", response_model=OrderChangesResponse)
 async def get_order_changes(
-    _user: FinanceSectionUser,
+    request: Request,
+    user: FinanceSectionUser,
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
     q: Optional[str] = Query(None, max_length=200),
@@ -812,11 +833,106 @@ async def get_order_changes(
     """
 
     resolved_year, resolved_month = _order_changes_period(year, month)
-    return await build_order_changes(
+    filters = _order_changes_filters(q, client_id, date_from, date_to)
+    # Dekoracja na PEŁNYM audycie, filtry dopiero potem — pozycja ukryta
+    # filtrem nie może wyglądać jak odhaczenie, które zniknęło.
+    full = await build_order_changes(db, resolved_year, resolved_month)
+    decorated = await order_change_checks.decorate(
+        db, full, can_check=_can_check(request, user)
+    )
+    return apply_filters(decorated, filters)
+
+
+def _impersonating(request: Request) -> bool:
+    return getattr(request.state, "impersonator_id", None) is not None
+
+
+def _can_check(request: Request, user: User) -> bool:
+    """Odhaczać mogą role Admin i Finanse — nigdy w trybie „podgląd jako"."""
+
+    return not _impersonating(request) and user.has_any_role(
+        UserRole.admin, UserRole.finance
+    )
+
+
+@router.get("/order-changes/summary", response_model=OrderChangesSummaryResponse)
+async def get_order_changes_summary(
+    _user: FinanceSectionUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Liczniki „Do zrobienia" bieżącego miesiąca — badge przy zakładce w menu.
+
+    Badge liczy podzakładkę Zmiany (to są „zmiany do zrobienia"), a ``tabs``
+    niesie liczniki wszystkich pięciu podzakładek.
+    """
+
+    year, month = _order_changes_period(None, None)
+    response = await build_order_changes(db, year, month)
+    tabs = await order_change_checks.tab_summary(db, response)
+    return OrderChangesSummaryResponse(
+        period=OrderChangesPeriod(
+            year=year, month=month, label=period_label(year, month)
+        ),
+        tabs={tab: value for tab, value in tabs.items()},
+        todo=tabs["changes"].todo,
+    )
+
+
+@router.post("/order-changes/checks", response_model=OrderCheckResponse)
+async def set_order_change_check(
+    payload: OrderCheckRequest,
+    user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Odhacza pozycję jako „Zrobione" albo cofa odhaczenie (Admin i Finanse).
+
+    Pozycja musi istnieć w audycie wskazanego miesiąca — klucz spoza niego
+    to nieaktualny widok (zamówienie zmieniono w międzyczasie), nie zapis.
+    Każde odhaczenie i cofnięcie zostaje w historii.
+    """
+
+    _validate_period(payload.year, payload.month)
+    response = await build_order_changes(db, payload.year, payload.month)
+    found = order_change_checks.find_item(response, payload.item_key)
+    if found is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Tej pozycji nie ma już w wybranym miesiącu — zamówienie zmieniło "
+                "się w międzyczasie. Odśwież widok."
+            ),
+        )
+    tab, item = found
+    done = await order_change_checks.set_check(
         db,
-        resolved_year,
-        resolved_month,
-        filters=_order_changes_filters(q, client_id, date_from, date_to),
+        year=payload.year,
+        month=payload.month,
+        tab=tab,
+        item=item,
+        done=payload.done,
+        user=user,
+    )
+    await db.commit()
+    return OrderCheckResponse(item_key=payload.item_key, done=done)
+
+
+@router.get("/order-changes/history", response_model=OrderHistoryResponse)
+async def get_order_change_history(
+    _user: FinanceSectionUser,
+    order_id: Optional[int] = Query(None),
+    order_group_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Historia (audyt) zamówienia: zmiany z dziennika i odhaczenia pozycji."""
+
+    if order_id is None and order_group_id is None:
+        raise HTTPException(
+            status_code=422, detail="Podaj zamówienie albo zamówienie zbiorcze."
+        )
+    return OrderHistoryResponse(
+        items=await order_change_checks.order_history(
+            db, order_id=order_id, order_group_id=order_group_id
+        )
     )
 
 
@@ -859,7 +975,12 @@ async def export_order_changes(
 # ── Zamówienia PDF ──────────────────────────────────────────────────────────
 
 
-def _order_pdf_file(entry: finance_order_pdfs.OrderPdfEntry) -> OrderPdfFile:
+def _order_pdf_file(
+    entry: finance_order_pdfs.OrderPdfEntry,
+    *,
+    downloaded_at: Optional[datetime] = None,
+    pending_change: bool = False,
+) -> OrderPdfFile:
     return OrderPdfFile(
         kind=entry.kind,
         id=entry.id,
@@ -872,6 +993,8 @@ def _order_pdf_file(entry: finance_order_pdfs.OrderPdfEntry) -> OrderPdfFile:
         status=entry.status,
         order_number=entry.order_number,
         uploaded_at=entry.uploaded_at,
+        downloaded_at=downloaded_at,
+        pending_change=pending_change,
     )
 
 
@@ -895,24 +1018,61 @@ async def get_order_pdf_months(
     )
 
 
+async def _pending_change_orders(
+    db: AsyncSession, year: int, month: int
+) -> tuple[set[int], set[int]]:
+    """Zamówienia i grupy z pozycją „Do zrobienia" w Zmianach tego miesiąca."""
+
+    audit = await build_order_changes(db, year, month)
+    items = list(order_change_checks.iter_items(audit))
+    states = await order_change_checks.latest_states(
+        db, (order_change_checks.item_key(tab, item) for tab, item in items)
+    )
+    return order_change_checks.todo_orders(audit, states)
+
+
 @router.get("/order-pdfs", response_model=OrderPdfsResponse)
 async def get_order_pdfs(
-    _user: FinanceSectionUser,
+    user: FinanceSectionUser,
     year: Optional[int] = Query(None),
     month: Optional[int] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Klienci z PDF-ami zamówień, które ZACZYNAJĄ się w danym miesiącu."""
+    """Klienci z PDF-ami zamówień, które ZACZYNAJĄ się w danym miesiącu.
+
+    Każdy plik niesie status pobrania ZALOGOWANEJ osoby (pobranie przez kogoś
+    innego nic tu nie zmienia) i znacznik „zmiana do rozliczenia", gdy jego
+    zamówienie ma w Zmianach tego miesiąca pozycję „Do zrobienia".
+    """
 
     resolved_year, resolved_month = _order_changes_period(year, month)
     entries = await finance_order_pdfs.collect_entries(
         db, window=finance_order_pdfs.month_bounds(resolved_year, resolved_month)
     )
+    downloads = await finance_order_pdfs.downloads_for_user(db, user.id, entries)
+    todo_orders, todo_groups = await _pending_change_orders(
+        db, resolved_year, resolved_month
+    )
+
+    def pending(entry: finance_order_pdfs.OrderPdfEntry) -> bool:
+        if entry.kind == "order":
+            return entry.id in todo_orders
+        if entry.kind == "group":
+            return entry.id in todo_groups
+        return False
+
     clients = [
         OrderPdfClient(
             client_id=bucket["client_id"],
             client_name=bucket["client_name"],
-            files=[_order_pdf_file(entry) for entry in bucket["files"]],
+            files=[
+                _order_pdf_file(
+                    entry,
+                    downloaded_at=downloads.get((entry.kind, entry.id)),
+                    pending_change=pending(entry),
+                )
+                for entry in bucket["files"]
+            ],
         )
         for bucket in finance_order_pdfs.group_by_client(entries)
     ]
@@ -925,32 +1085,137 @@ _ORDER_PDF_PATH_GETTERS = {
     "amendment": storage_service.get_contract_document_path,
 }
 
+# Sufit plików w jednym ZIP-ie — miesiąc ma dziś kilkadziesiąt PDF-ów, a
+# archiwum budowane jest w pamięci.
+MAX_ZIP_FILES = 500
+
+
+def _entry_path(entry: finance_order_pdfs.OrderPdfEntry) -> Optional[str]:
+    try:
+        abs_path = _ORDER_PDF_PATH_GETTERS[entry.kind](entry.file_path)
+    except FileNotFoundError:
+        return None
+    return str(abs_path) if abs_path.is_file() else None
+
+
+async def _record_downloads(
+    request: Request,
+    db: AsyncSession,
+    user: User,
+    entries: list[finance_order_pdfs.OrderPdfEntry],
+) -> None:
+    """Pobranie zapisuje się na koncie osoby — nigdy w „podglądzie jako"
+    (tam efektywny użytkownik jest kimś innym niż ten, kto klika)."""
+
+    if _impersonating(request) or not entries:
+        return
+    await finance_order_pdfs.record_downloads(db, user.id, entries)
+    await db.commit()
+
+
+def _parse_file_refs(raw: str) -> list[tuple[str, int]]:
+    refs: list[tuple[str, int]] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        kind, _, raw_id = token.partition(":")
+        if kind not in _ORDER_PDF_PATH_GETTERS or not raw_id.isdigit():
+            raise HTTPException(
+                status_code=422, detail=f"Nieprawidłowy plik na liście: {token[:40]}"
+            )
+        refs.append((kind, int(raw_id)))
+    return refs
+
+
+@router.get("/order-pdfs/zip")
+async def download_order_pdfs_zip(
+    request: Request,
+    user: FinanceSectionUser,
+    year: int = Query(...),
+    month: int = Query(...),
+    client_id: Optional[int] = Query(None),
+    files: Optional[str] = Query(None, max_length=20000),
+    db: AsyncSession = Depends(get_db),
+):
+    """ZIP z PDF-ami zamówień miesiąca.
+
+    * ``client_id`` — pliki jednego klienta: ``[Klient]_[RRRR-MM].zip``;
+    * bez klienta — cały miesiąc z podfolderem na klienta:
+      ``Zamowienia_[RRRR-MM].zip``;
+    * ``files`` (``order:1,group:2``) — wybrane pliki z tego zakresu
+      („Pobierz zaznaczone", „Pobierz nowe").
+
+    Pliki w środku: ``[Klient]_[NrZam]_[Nazwisko]_[Typ]_[DataOd]-[DataDo].pdf``.
+    Każdy plik w archiwum liczy się jako pobrany przez zalogowaną osobę.
+    """
+
+    _validate_period(year, month)
+    entries = await finance_order_pdfs.collect_entries(
+        db, window=finance_order_pdfs.month_bounds(year, month)
+    )
+    if client_id is not None:
+        entries = [entry for entry in entries if entry.client_id == client_id]
+    if files is not None:
+        wanted = set(_parse_file_refs(files))
+        entries = [entry for entry in entries if (entry.kind, entry.id) in wanted]
+    if not entries:
+        raise HTTPException(status_code=404, detail="Brak plików do spakowania.")
+    if len(entries) > MAX_ZIP_FILES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Za dużo plików w jednym archiwum (limit {MAX_ZIP_FILES}).",
+        )
+    members = [(entry, _entry_path(entry)) for entry in entries]
+    content = await run_in_threadpool(
+        finance_order_pdfs.build_zip, members, client_folders=client_id is None
+    )
+    await _record_downloads(
+        request, db, user, [entry for entry, path in members if path is not None]
+    )
+    filename = (
+        finance_order_pdfs.client_zip_name(entries[0].client_name, year, month)
+        if client_id is not None
+        else finance_order_pdfs.month_zip_name(year, month)
+    )
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": content_disposition_attachment(
+                filename, fallback="zamowienia.zip"
+            )
+        },
+    )
+
 
 @router.get("/order-pdfs/{kind}/{entry_id}/file")
 async def download_order_pdf(
+    request: Request,
     kind: finance_order_pdfs.PdfKind,
     entry_id: int,
-    _user: FinanceSectionUser,
+    user: FinanceSectionUser,
+    preview: bool = Query(False),
     db: AsyncSession = Depends(get_db),
 ):
     """PDF zamówienia pod nazwą z nazwiskiem konsultanta i okresem.
 
     Nazwa liczona jest tą samą funkcją co lista, więc plik zapisuje się
-    dokładnie tak, jak widać go w widoku.
+    dokładnie tak, jak widać go w widoku. ``preview=true`` (podgląd w panelu)
+    nie liczy się jako pobranie — status „Nowy" zmienia wyłącznie pobranie.
     """
 
     entry = await finance_order_pdfs.find_entry(db, kind, entry_id)
     if entry is None:
         raise HTTPException(404, detail="Nie znaleziono pliku zamówienia.")
-    try:
-        abs_path = _ORDER_PDF_PATH_GETTERS[kind](entry.file_path)
-    except FileNotFoundError as exc:
-        raise HTTPException(404, detail="Plik nie jest już dostępny na dysku.") from exc
-    if not abs_path.is_file():
+    abs_path = _entry_path(entry)
+    if abs_path is None:
         raise HTTPException(404, detail="Plik nie jest już dostępny na dysku.")
+    if not preview:
+        await _record_downloads(request, db, user, [entry])
     download_name = entry.download_name
     return FileResponse(
-        path=str(abs_path),
+        path=abs_path,
         media_type=entry.content_type or "application/pdf",
         headers={
             "Content-Disposition": content_disposition_attachment(
