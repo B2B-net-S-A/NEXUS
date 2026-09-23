@@ -131,6 +131,9 @@ async def apply_imported_stage_side_effects(
         # skutków zostaje za `TRAFFIT_IMPORT_SIDE_EFFECTS_ENABLED`.
         if settings.TRAFFIT_IMPORT_REASSIGN_ENABLED and inserted_rows:
             applied["reassigned"] = await _reassign_imported(db, inserted_rows)
+        if applied["reassigned"]:
+            # Commit tylko, gdy coś zapisano — wsad etapów jest już
+            # zacommitowany, a pusty commit to zbędna runda do bazy.
             try:
                 await db.commit()
             except Exception as exc:  # noqa: BLE001
