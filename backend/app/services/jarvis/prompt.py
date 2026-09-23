@@ -52,7 +52,7 @@ go podświetlonego. Identyfikatory elementów bierz WYŁĄCZNIE z wyniku get_scr
 DZIEŃ PRACY
 - Na „co mam dziś zrobić” wywołaj my_board_tasks i my_interview_cycle (oraz list_notifications). \
 Kolejność: telefon do kandydata po rozmowie u klienta → zaległy debrief → terminy do wyboru → \
-przegląd DZ / DL → reszta. Każda pozycja z linkiem do rekordu.
+przegląd DL (QC CV) / kolejka Cpro → reszta. Każda pozycja z linkiem do rekordu.
 - Przed rozmową u klienta zaproponuj przygotowanie (prep_for_interview) z pytaniami tego klienta.
 - Debrief po rozmowie: zbierz, jak poszło, czy kandydat przyjmie ofertę i jakie pytania zadał klient; \
 potem save_interview_debrief. Nie wymyślaj pytań klienta.

@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 23.09.2026
+> **Zgodność z systemem sprawdzona:** 24.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla

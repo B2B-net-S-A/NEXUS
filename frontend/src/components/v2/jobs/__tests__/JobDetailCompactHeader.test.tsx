@@ -56,7 +56,7 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.getByText("Aktywna")).toBeTruthy();
 
     await userEvent.click(
-      screen.getByRole("button", { name: "Dodaj kandydata" }),
+      screen.getByRole("button", { name: "Dodaj kandydatów" }),
     );
     expect(onAddCandidate).toHaveBeenCalledOnce();
   });
@@ -70,7 +70,7 @@ describe("JobDetailCompactHeader", () => {
     });
 
     expect(
-      screen.queryByRole("button", { name: "Dodaj kandydata" }),
+      screen.queryByRole("button", { name: "Dodaj kandydatów" }),
     ).toBeNull();
     // Menu „⋯" zostaje, ale niesie wyłącznie odczyt — „Bazę pytań".
     await userEvent.click(screen.getByRole("button", { name: "Więcej akcji rekrutacji" }));

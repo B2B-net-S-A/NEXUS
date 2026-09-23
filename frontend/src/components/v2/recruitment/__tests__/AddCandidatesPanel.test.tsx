@@ -1,0 +1,220 @@
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const addToJob = vi.fn();
+const startRun = vi.fn();
+const bulkAdd = vi.fn();
+const forJob = vi.fn();
+const toast = vi.fn();
+
+function entry(id: number, name: string, origins: string[], extra: Record<string, unknown> = {}) {
+  return {
+    row: {
+      kind: "proposal",
+      key: `proposal:${id}`,
+      candidateId: id,
+      fullName: name,
+      rateLabel: "150 zł/h",
+      availabilityLabel: "od zaraz",
+      fitScore: 82,
+      warnings: [],
+      sources: origins.includes("run") ? ["full_base"] : ["similar_projects"],
+      reason: null,
+      isNew: false,
+      previouslyDismissed: false,
+      runId: null,
+      ...extra,
+    },
+    detail: { origins, title: "Java Developer", eligibility: null },
+  };
+}
+
+const proposalsState = {
+  entries: [] as ReturnType<typeof entry>[],
+  adding: false,
+  addToJob: (...a: unknown[]) => addToJob(...a),
+  status: {
+    run: { data: undefined, runId: null, starting: false, running: false, error: null, offset: 0, setOffset: vi.fn(), fetching: false },
+    startRun: () => startRun(),
+    retryRun: vi.fn(),
+    latestRun: null,
+    engineDegraded: false,
+    settled: true,
+    inbox: { isError: false, error: null },
+    retryEngine: vi.fn(),
+  },
+};
+
+vi.mock("@/components/v2/recruitment/useJobProposals", () => ({
+  useJobProposals: () => proposalsState,
+}));
+vi.mock("@/lib/candidate-search-api", () => ({
+  proposalsBulkApi: { add: (...a: unknown[]) => bulkAdd(...a) },
+}));
+vi.mock("@/lib/matching-requirements", () => ({
+  matchingRequirementsApi: {
+    get: () =>
+      Promise.resolve({
+        all_of: [
+          { level: "must", any_of: ["java"] },
+          { level: "nice", any_of: ["kubernetes"] },
+        ],
+      }),
+  },
+  requirementLabels: (c: { all_of?: Array<{ level: string; any_of: string[] }> } | undefined, level: string) =>
+    (c?.all_of ?? []).filter((g) => g.level === level).map((g) => g.any_of.join(" lub ")),
+}));
+vi.mock("@/lib/api/myPeople", async () => {
+  const { useQuery } = await import("@tanstack/react-query");
+  return {
+    MY_PEOPLE_QUERY_PREFIX: ["my-people"],
+    useMyPeopleForJob: (jobId: number, enabled: boolean) =>
+      useQuery({ queryKey: ["my-people", "for-job", jobId], queryFn: () => forJob(jobId), enabled }),
+  };
+});
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showToast: toast, showError: vi.fn(), showSuccess: vi.fn() }),
+}));
+vi.mock("@/components/talent-radar/FullCandidateSearchStatus", () => ({
+  FullCandidateSearchStatus: () => <div data-testid="run-status" />,
+}));
+
+import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
+
+function renderPanel(overrides: Record<string, unknown> = {}) {
+  const props = {
+    open: true,
+    onOpenChange: vi.fn(),
+    jobId: 5,
+    budgetHourly: 160,
+    location: "Warszawa",
+    pipelineCandidateIds: [99],
+    onOpenManualSearch: vi.fn(),
+    onOpenQuickAdd: vi.fn(),
+    onOpenFromCv: vi.fn(),
+    ...overrides,
+  };
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={qc}>
+      <AddCandidatesPanel {...props} />
+    </QueryClientProvider>,
+  );
+  return props;
+}
+
+describe("AddCandidatesPanel", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    proposalsState.entries = [];
+    (proposalsState.status.run as { data: unknown }).data = undefined;
+    proposalsState.status.latestRun = null;
+  });
+
+  it("zamknięty panel nie montuje treści ani zapytań", () => {
+    renderPanel({ open: false });
+    expect(screen.queryByTestId("add-candidates-panel")).toBeNull();
+    expect(forJob).not.toHaveBeenCalled();
+  });
+
+  it("„Szukaj w bazie (AI)”: kryteria z Championa, start przeglądu kliknięciem, „Zmień kryteria”", async () => {
+    const props = renderPanel();
+    const panel = await screen.findByTestId("add-candidates-panel");
+    expect(within(panel).getByRole("tab", { name: "Szukaj w bazie (AI)" })).toHaveAttribute("aria-selected", "true");
+    const criteria = await within(panel).findByRole("list", { name: "Kryteria wyszukiwania" });
+    await within(criteria).findByText("java");
+    expect(within(criteria).getByText("kubernetes")).toBeTruthy();
+    expect(within(criteria).getByText(/Warszawa/)).toBeTruthy();
+    expect(within(criteria).getByText("do 160 zł/h")).toBeTruthy();
+
+    await userEvent.click(within(panel).getByRole("button", { name: /Przeszukaj całą bazę/ }));
+    expect(startRun).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(within(panel).getByRole("button", { name: "Zmień kryteria" }));
+    expect(props.onOpenChange).toHaveBeenCalledWith(false);
+    expect(props.onOpenManualSearch).toHaveBeenCalled();
+  });
+
+  it("zakładka „Propozycje” liczy osoby, zaznaczenie aktualizuje stopkę, dodanie idzie przez propozycje", async () => {
+    proposalsState.entries = [
+      entry(1, "Anna Kowalczyk", ["inbox"]),
+      entry(2, "Piotr Nowak", ["similar"], { warnings: ["over_budget"] }),
+      entry(3, "Ola Wynik", ["run"]),
+    ];
+    renderPanel();
+    const tab = await screen.findByRole("tab", { name: "Propozycje · 2" });
+    await userEvent.click(tab);
+    const list = screen.getByRole("list", { name: "Propozycje" });
+    expect(within(list).getByText("Ponad budżet")).toBeTruthy();
+    const submit = screen.getByTestId("add-candidates-submit");
+    expect(submit).toBeDisabled();
+
+    await userEvent.click(within(list).getByRole("checkbox", { name: "Zaznacz Anna Kowalczyk" }));
+    expect(screen.getByTestId("add-candidates-summary")).toHaveTextContent(
+      "1 zaznaczonych trafi do »Nowych«, zarezerwowanych dla Ciebie na 12 h.",
+    );
+    expect(submit).toHaveTextContent("Dodaj 1 do Nowych");
+    await userEvent.click(submit);
+    expect(addToJob).toHaveBeenCalledWith([1]);
+    expect(bulkAdd).not.toHaveBeenCalled();
+  });
+
+  it("weto HM blokuje zaznaczenie, ostrzeżenie zostaje widoczne", async () => {
+    proposalsState.entries = [
+      {
+        ...entry(4, "Jan Weto", ["inbox"]),
+        detail: {
+          origins: ["inbox"],
+          title: null,
+          eligibility: {
+            reason_code: "hm_veto",
+            reason: "Brak bankowości",
+            assignment_allowed: false,
+            visibility: "warn",
+            severity: "hard",
+            secondary: [],
+          },
+        },
+      } as never,
+    ];
+    renderPanel({ initialTab: "proposals" });
+    expect(await screen.findByText("Weto HM: Brak bankowości")).toBeTruthy();
+    expect(screen.getByRole("checkbox", { name: "Zaznacz Jan Weto" })).toBeDisabled();
+  });
+
+  it("„Moi ludzie”: bez osób już w rekrutacji, dodanie ze źródłem my_people", async () => {
+    forJob.mockResolvedValue({
+      job_id: 5,
+      job_title: "Java",
+      in_job_count: 1,
+      degraded: false,
+      rows: [
+        { candidate_id: 99, full_name: "Już W Rekrutacji", score: 90, measurement: "ok", eligibility: null, sent_to_client_at: null, last_sent_client_name: null, days_since_last_send: null, expected_rate_hourly: null, active_processes: 0 },
+        { candidate_id: 42, full_name: "Ewa Moja", score: null, measurement: "unavailable", eligibility: null, sent_to_client_at: null, last_sent_client_name: "PKO BP", days_since_last_send: 12, expected_rate_hourly: 140, active_processes: 1 },
+      ],
+    });
+    bulkAdd.mockResolvedValue({ added: [42], skipped: [], warnings: [], total_added: 1, total_skipped: 0 });
+    renderPanel({ initialTab: "my_people" });
+    const list = await screen.findByRole("list", { name: "Moi ludzie" });
+    expect(within(list).queryByText("Już W Rekrutacji")).toBeNull();
+    expect(within(list).getByText("nie policzono")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Moi ludzie · 1" })).toBeTruthy();
+    await userEvent.click(within(list).getByRole("checkbox", { name: "Zaznacz Ewa Moja" }));
+    await userEvent.click(screen.getByTestId("add-candidates-submit"));
+    await waitFor(() =>
+      expect(bulkAdd).toHaveBeenCalledWith(5, { candidate_ids: [42], source: "my_people" }),
+    );
+    await waitFor(() => expect(toast).toHaveBeenCalledWith("Dodano z Moich ludzi: 1", "success"));
+    expect(addToJob).not.toHaveBeenCalled();
+  });
+
+  it("„Po nazwisku / z pliku CV” otwiera dotychczasowe okna", async () => {
+    const props = renderPanel({ initialTab: "by_name" });
+    await userEvent.click(await screen.findByRole("button", { name: /Po nazwisku/ }));
+    expect(props.onOpenQuickAdd).toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: /Z pliku CV/ }));
+    expect(props.onOpenFromCv).toHaveBeenCalled();
+  });
+});
