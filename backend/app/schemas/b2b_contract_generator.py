@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -112,6 +113,16 @@ class B2BRoleUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
+def _round_to_grosze(value: Optional[float]) -> Optional[float]:
+    """Stawka do pełnych groszy, jedną regułą dla kwoty i kwoty słownie.
+
+    Bez tego 135,999 renderowało się jako „136,00”, a słownie jako „sto
+    trzydzieści pięć złotych sto groszy” (audyt 23.09.2026)."""
+    if value is None:
+        return None
+    return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+
 class B2BRateStageInput(BaseModel):
     """Jeden etap stawki („stawka progresywna") w sekcji „Warunki umowy".
 
@@ -125,6 +136,11 @@ class B2BRateStageInput(BaseModel):
     rate: float = Field(gt=0)
     effective_from: Optional[date] = None
     effective_to: Optional[date] = None
+
+    @field_validator("rate")
+    @classmethod
+    def _rate_in_grosze(cls, v: float) -> float:
+        return _round_to_grosze(v)
 
     @model_validator(mode="after")
     def _dates_ordered(self) -> "B2BRateStageInput":
@@ -251,11 +267,13 @@ class B2BRenderRequest(BaseModel):
     # (Panem/ią, prowadzącym/cą, zwany/a, zapoznałem/am). "m" | "k".
     gender: str = "m"
     # Dane Partnera (firma) — edytowalne; pre-fill z kandydata opcjonalny.
-    partner_name: Optional[str] = None
+    # Kolumny rejestru mają 255 znaków — dłuższa wartość dawała DataError
+    # przy commicie, czyli 500 zamiast czytelnego 422 (audyt 23.09.2026).
+    partner_name: Optional[str] = Field(None, max_length=255)
     # Imię i nazwisko w narzędniku do komparycji („z Panem Janem Kowalskim").
     # Liczone heurystycznie po stronie FE i edytowalne; pusty → mianownik.
     partner_instrumental: Optional[str] = None
-    partner_legal_name: Optional[str] = None
+    partner_legal_name: Optional[str] = Field(None, max_length=255)
     partner_business_address: Optional[str] = None
     partner_correspondence_address: Optional[str] = None
     partner_nip: Optional[str] = None
@@ -275,7 +293,7 @@ class B2BRenderRequest(BaseModel):
     partner_email: Optional[str] = None
     partner_phone: Optional[str] = None
     # Klient + projekt
-    client_name: Optional[str] = None
+    client_name: Optional[str] = Field(None, max_length=255)
     project_city: Optional[str] = None
     project_description: Optional[str] = None
     # Warunki
@@ -303,6 +321,11 @@ class B2BRenderRequest(BaseModel):
         cls, v: Optional[list[B2BRateStageInput]]
     ) -> Optional[list[B2BRateStageInput]]:
         return _normalize_rate_stages(v)
+
+    @field_validator("rate_candidate")
+    @classmethod
+    def _rate_candidate_in_grosze(cls, v: Optional[float]) -> Optional[float]:
+        return _round_to_grosze(v)
 
     @field_validator("partner_entity_type")
     @classmethod
@@ -425,6 +448,11 @@ class B2BGeneratedContractItem(BaseModel):
     job_id: Optional[int] = None
     client_id: Optional[int] = None
     contract_id: Optional[int] = None
+    # Stan kontraktu powiązanego z umową (``ContractStatus``) i jego data końca.
+    # Rejestr nie zmienia się sam, gdy kontrakt się skończy — lista pokazuje
+    # ostrzeżenie. ``None`` przy ``contract_id`` = kontraktu brak.
+    linked_contract_status: Optional[str] = None
+    linked_contract_end_date: Optional[date] = None
     candidate_name: Optional[str] = None
     job_title: Optional[str] = None
     canonical_client_name: Optional[str] = None
@@ -452,7 +480,7 @@ class B2BGeneratedContractUpdate(BaseModel):
     do siebie nie należy.
     """
 
-    client_name: Optional[str] = None
+    client_name: Optional[str] = Field(None, max_length=255)
     contract_status: Optional[B2BContractStatus] = None
     closure_reason: Optional[B2BClosureReason] = None
     closure_reason_other: Optional[str] = None

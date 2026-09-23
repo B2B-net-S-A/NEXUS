@@ -307,7 +307,8 @@ async def test_closing_other_stores_free_text(app_client, app_auth_headers):
 
 async def test_reopening_clears_every_closure_field(app_client, app_auth_headers):
     admin_id = await _admin_user_id(app_client)
-    rid, _number = await _seed(admin_id)
+    # Podpisana: „Aktywna” ustawia się wyłącznie umowie podpisanej obustronnie.
+    rid, _number = await _seed(admin_id, signature_status="signed_both")
 
     await app_client.patch(
         f"{PATH}/{rid}",
@@ -1439,11 +1440,11 @@ async def test_reopening_a_closed_contract_does_not_require_a_project(
     ktoś zamknął nie tę umowę. Wymuszanie projektu blokowałoby cofnięcie błędnego
     kliknięcia i kazałoby wpisać projekt, którego może nie być.
 
-    Ta ścieżka nie ma dziś powierzchni w UI (zakładka „Zakończone umowy" jest
-    read-only), ale API ją dopuszcza i ten test przypina ją jako decyzję, a nie
-    przeoczenie. Ślad zostaje w dzienniku."""
+    Od 23.09.2026 zakładka „Zakończone umowy" ma „Zmień status”, a ścieżka
+    dotyczy umów podpisanych — niepodpisaną cofa się na „W trakcie”. Ślad
+    zostaje w dzienniku."""
     admin_id = await _admin_user_id(app_client)
-    rid, _ = await _seed(admin_id)
+    rid, _ = await _seed(admin_id, signature_status="signed_both")
     await app_client.patch(
         f"{PATH}/{rid}",
         headers=app_auth_headers,

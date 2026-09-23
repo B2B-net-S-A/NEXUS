@@ -23,10 +23,20 @@ const SOURCE = readFileSync(
   "utf8",
 );
 
-/** Ciało komponentu — bez eksportowanych helperów nad nim (te mają własne testy). */
-const COMPONENT = SOURCE.slice(SOURCE.indexOf("export default function"));
+/** Ciało komponentu — bez eksportowanych helperów nad nim (te mają własne testy).
+ *
+ * Do 23.09.2026 cięcie szukało `export default function`, którego w pliku nie
+ * ma: `indexOf` dawał -1, `slice(-1)` ostatni znak, a dwie pierwsze asercje
+ * sprawdzały pusty tekst i nie mogły paść. */
+const COMPONENT_START = SOURCE.indexOf("export function B2BContractGeneratorV2(");
+const COMPONENT = SOURCE.slice(COMPONENT_START);
 
 describe("B2B generator never creates a contract before the signature", () => {
+  it("finds the component body it guards", () => {
+    expect(COMPONENT_START).toBeGreaterThan(0);
+    expect(COMPONENT.length).toBeGreaterThan(10_000);
+  });
+
   it("does not call the endpoint that drafts a Contract", () => {
     expect(COMPONENT).not.toMatch(/b2bGeneratorApi\s*\.\s*generate\s*\(/);
   });

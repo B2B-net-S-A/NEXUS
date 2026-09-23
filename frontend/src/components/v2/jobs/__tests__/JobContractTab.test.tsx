@@ -422,6 +422,26 @@ describe("JobContractTab — layout=\"panel\" (rekrutacja v3)", () => {
     expect(screen.getByRole("link", { name: /Sprawy tego klienta/ })).toBeTruthy();
   });
 
+  it("linki do generatora niosą osobę i rekrutację, a martwych chipów podpisu nie ma", async () => {
+    renderTab({ layout: "panel", focusCandidateId: 42 });
+    expect(await screen.findByText(/Umowa 1436\/2026/)).toBeTruthy();
+    // Formularz wybiera kandydata i rekrutację sam (`?candidate=&job=`).
+    expect(
+      screen
+        .getByRole("link", { name: /Otwórz w Generatorze B2B/ })
+        .getAttribute("href"),
+    ).toBe("/contracts/b2b-generator?tab=generator&candidate=42&job=10");
+    // Potwierdzenie podpisu otwiera rejestr z wyszukaną umową.
+    expect(
+      screen
+        .getByRole("link", { name: /Potwierdź w pełni podpisaną/ })
+        .getAttribute("href"),
+    ).toBe("/contracts/b2b-generator?tab=generated&q=1436%2F2026");
+    // Akcje zdjęte 17.09.2026 (umowy podpisujemy offline).
+    expect(screen.queryByRole("link", { name: /Oznacz wysłaną/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Wgraj podpisaną/ })).toBeNull();
+  });
+
   it("„Zamknij rekrutację” jest w panelu domyślnie widoczne", async () => {
     renderTab({ layout: "panel", focusCandidateId: 42 });
     expect(await screen.findByRole("button", { name: /Zamknij rekrutację/ })).toBeTruthy();

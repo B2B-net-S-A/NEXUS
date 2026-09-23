@@ -242,15 +242,28 @@ def _contract_docx_filename(contract_number: str | None) -> str:
     return f"Umowa B2B {label}.docx" if label else "Umowa B2B.docx"
 
 
-def _docx_response(data: bytes, contract_number: str | None) -> Response:
-    """Zwróć DOCX z nazwą widoczną dla frontendu także przez CORS."""
+def _docx_response(
+    data: bytes,
+    contract_number: str | None,
+    *,
+    generated_id: int | None = None,
+) -> Response:
+    """Zwróć DOCX z nazwą widoczną dla frontendu także przez CORS.
+
+    ``X-Generated-Contract-Id`` niesie id wiersza rejestru — formularz po
+    pobraniu wie, KTÓRY wpis opisuje, i poprawka idzie do niego zamiast
+    zakładać drugi wiersz z nowym numerem."""
     filename = _contract_docx_filename(contract_number)
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
-        "Access-Control-Expose-Headers": "Content-Disposition, X-Contract-Number",
+        "Access-Control-Expose-Headers": (
+            "Content-Disposition, X-Contract-Number, X-Generated-Contract-Id"
+        ),
     }
     if contract_number:
         headers["X-Contract-Number"] = contract_number
+    if generated_id is not None:
+        headers["X-Generated-Contract-Id"] = str(generated_id)
     return Response(content=data, media_type=_DOCX_MEDIA, headers=headers)
 
 
@@ -816,6 +829,23 @@ async def _serialize_generated_contracts(
                 )
                 scoped_job_ids.update(job_id for (job_id,) in result.all())
 
+    # Stan powiązanego kontraktu: rejestr nie wie, że kontrakt się skończył
+    # albo został usunięty (audyt 23.09.2026 — trzy umowy „Aktywne” przy
+    # zakończonych kontraktach). Wiersz pokazuje ostrzeżenie, status zmienia
+    # człowiek.
+    contract_ids = {row.contract_id for row in rows if row.contract_id is not None}
+    linked_contracts: dict[int, tuple[str, date | None]] = {}
+    if contract_ids:
+        result = await db.execute(
+            select(Contract.id, Contract.status, Contract.end_date).where(
+                Contract.id.in_(contract_ids)
+            )
+        )
+        linked_contracts = {
+            cid: (getattr(cstatus, "value", cstatus), end_date)
+            for cid, cstatus, end_date in result.all()
+        }
+
     rate_visibility = await _rate_visibility(db, current_user, set(job_ids))
     is_admin = current_user.has_role(UserRole.admin)
     generator_access = action_access_for_user(
@@ -895,6 +925,7 @@ async def _serialize_generated_contracts(
             blocked_reason = "Brak przypisania do powiązanej rekrutacji."
             can_confirm = False
 
+        linked_status, linked_end = linked_contracts.get(row.contract_id, (None, None))
         job = jobs.get(row.job_id) if row.job_id is not None else None
         # Kolumna „Partner": nazwa firmy z rejestru, a dla spółki dodatkowo
         # druga linia z osobą. Rozstrzygane TUTAJ, nie na frontendzie — reguła
@@ -954,6 +985,8 @@ async def _serialize_generated_contracts(
                 job_id=row.job_id,
                 client_id=row.client_id,
                 contract_id=row.contract_id,
+                linked_contract_status=linked_status,
+                linked_contract_end_date=linked_end,
                 candidate_name=candidates.get(row.candidate_id),
                 job_title=job.title if job else None,
                 canonical_client_name=clients.get(row.client_id),
@@ -1130,6 +1163,10 @@ async def generate(
     tpl = await _b2b_template_for(db, lang)
 
     # 1. Utwórz lub wczytaj draft Contract (typ b2b).
+    # Kontrakt, który istniał PRZED tym wywołaniem, jest cudzą pracą — jego
+    # stawkę wolno nadpisać tylko komuś, kto ją widzi (audyt 23.09.2026:
+    # rekruter spoza zespołu zmieniał stawkę szkicu Delivery z 150 na 1).
+    pre_existing_contract = payload.contract_id is not None
     if payload.contract_id is not None:
         # selectinload harmonogramu: replace relacji niżej musi znać stan
         # bieżący (delete-orphan) — lazy-load w async wywala MissingGreenlet.
@@ -1273,6 +1310,7 @@ async def generate(
                 reject_signed_generated_link=True,
             )
             contract = ensured.contract
+            pre_existing_contract = not ensured.created_contract
         else:
             # Legacy ad-hoc path without a recruitment cannot be safely
             # deduplicated. New UI flows always send job_id.
@@ -1290,6 +1328,15 @@ async def generate(
             )
             db.add(contract)
             await db.flush()
+
+    if pre_existing_contract:
+        await _require_generator_rate_content(
+            db,
+            current_user,
+            contract.client_id,
+            created_by=await _contract_author_id(db, current_user, contract),
+            job_id=contract.job_id,
+        )
 
     # 2. Pola finansowe/daty na Contract.
     contract.start_date = payload.start_date
@@ -1478,24 +1525,42 @@ def _validate_contract_number(number: str, suggested: str) -> tuple[int, int, st
     return seq, year, f"{seq}/{year}"
 
 
-async def _next_seq(db: AsyncSession, year: int) -> int:
+async def _next_seq(db: AsyncSession) -> int:
     """Następny numer porządkowy = max(liczbowy prefiks `contract_number`) + 1.
 
     Liczone z REALNYCH numerów (string „1434/2026"), NIE z kolumny `seq` (zwykły
     licznik wierszy) — dzięki temu sugestia respektuje ręcznie wpisane numery
     (kontynuacja zewnętrznej numeracji, np. 1433→1434→1435) zamiast cofać się do
     „8/2026". Duplikaty nie zawyżają wyniku (max po wartości, nie po liczbie wierszy)."""
-    rows = await db.execute(
-        select(B2BGeneratedContract.contract_number).where(
-            B2BGeneratedContract.year == year
-        )
-    )
+    # Numeracja jest CIĄGŁA między latami — zmienia się tylko rok („1302/2026”
+    # był pierwszym numerem 2026 w rejestrze Excel działu). Liczone po
+    # wszystkich latach; z filtrem po roku 1 stycznia sugestią byłoby „1/2027”.
+    rows = await db.execute(select(B2BGeneratedContract.contract_number))
     max_seq = 0
-    for (number,) in rows.all():
-        parsed = _parse_seq(number, year)
+    numbers = [number for (number,) in rows.all()]
+    # Numery USUNIĘTYCH wpisów też się liczą (audyt 23.09.2026): usunięty DOCX
+    # mógł już wyjść do Partnera, a `max+1` z samych żywych wierszy oddawało
+    # jego numer następnej osobie (1518 i 1522/2026 wydane dwa razy).
+    numbers.extend(await _deleted_contract_numbers(db))
+    for number in numbers:
+        parsed = _parse_seq(number)
         if parsed is not None and parsed > max_seq:
             max_seq = parsed
     return max_seq + 1
+
+
+async def _deleted_contract_numbers(db: AsyncSession) -> list[str]:
+    """Numery umów, których wpis usunięto z rejestru (dziennik `activities`).
+
+    Wiersz rejestru znika przy DELETE, ale wpis `deleted` w dzienniku zostaje —
+    to on pamięta, że numer został wydany. Bez osobnej tabeli nagrobków."""
+    rows = await db.execute(
+        select(Activity.details["contract_number"].astext).where(
+            Activity.entity_type == "b2b_generated_contract",
+            Activity.action == "deleted",
+        )
+    )
+    return [number for (number,) in rows.all() if number]
 
 
 @router.get("/next-number", response_model=B2BNextNumberResponse)
@@ -1505,7 +1570,7 @@ async def next_number(
 ):
     """Sugerowany kolejny WOLNY numer umowy `<seq>/<rok>` (edytowalny w UI)."""
     year = datetime.now(timezone.utc).year
-    seq = await _next_seq(db, year)
+    seq = await _next_seq(db)
     return B2BNextNumberResponse(contract_number=f"{seq}/{year}", year=year, seq=seq)
 
 
@@ -1612,7 +1677,7 @@ async def render_standalone(
         if payload.signing_date
         else datetime.now(timezone.utc).year
     )
-    suggested_seq = await _next_seq(db, default_year)
+    suggested_seq = await _next_seq(db)
     suggested = f"{suggested_seq}/{default_year}"
     raw_number = (payload.contract_number or "").strip() or suggested
 
@@ -1633,54 +1698,81 @@ async def render_standalone(
                 f"Następny wolny: {suggested}."
             ),
         )
-
-    db.add(
-        B2BGeneratedContract(
-            year=row_year,
-            seq=row_seq,
-            contract_number=number,
-            partner_name=payload.partner_name,
-            client_name=payload.client_name,
-            language=lang,
-            signing_date=payload.signing_date,
-            created_by=current_user.id,
-            candidate_id=payload.candidate_id,
-            job_id=payload.job_id,
-            client_id=linked_job.client_id if linked_job else None,
-            # Wygenerowanie dokumentu to początek biegu umowy, nie jej
-            # obowiązywanie. „Aktywna" znaczy „podpisana obustronnie" i ustawia
-            # ją WYŁĄCZNIE confirm-fully-signed; default kolumny („active")
-            # kłamałby o każdej nowej umowie.
-            contract_status="in_progress",
-            # Snapshot danych rejestrowych na potrzeby listy — odnormalizowane
-            # z payloadu, bo lista pokazuje je jako kolumny i filtruje po
-            # `start_date` po stronie SQL-a.
-            partner_legal_name=payload.partner_legal_name,
-            partner_nip=_nip_digits(payload.partner_nip),
-            start_date=payload.start_date,
-            # Rozstrzygnięcie zapada TERAZ, nie przy każdym odczycie: ticket
-            # wymaga snapshotu „nieprzeliczanego później", a forma prawna
-            # Partnera po podpisaniu umowy przestaje być bieżącą informacją.
-            partner_entity_type=resolve_partner_entity_type(
-                stored=payload.partner_entity_type,
-                legal_name=payload.partner_legal_name,
+    if number in set(await _deleted_contract_numbers(db)):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Numer umowy „{number}” był już wydany (wpis usunięto z "
+                f"rejestru, ale dokument mógł trafić do Partnera) — wybierz "
+                f"inny. Następny wolny: {suggested}."
             ),
-            # Zapis surowych pól → ponowne pobranie DOCX z listy (re-render).
-            # Plus snapshot rejestru klauzul — bez niego re-render rozstrzyga
-            # rejestr od nowa i wydaje inną umowę niż podpisana.
-            render_payload={
-                **payload.model_dump(mode="json"),
-                _CLAUSE_SNAPSHOT_FIELD: _clause_snapshot(override_key, override_ops),
-            },
         )
+
+    # Render PRZED zapisem wiersza (audyt 23.09.2026): dotąd numer był
+    # commitowany, a dopiero potem powstawał plik — rozjazd rejestru klauzul
+    # z szablonem dawał 500 i wiersz „W trakcie” bez dokumentu, który trzeba
+    # było usuwać, żeby odzyskać numer. Render nie potrzebuje bazy.
+    context["b2b"]["contract_number"] = number
+    data = await _render_docx_or_500(context, lang, override_key)
+
+    created = B2BGeneratedContract(
+        year=row_year,
+        seq=row_seq,
+        contract_number=number,
+        partner_name=payload.partner_name,
+        client_name=payload.client_name,
+        language=lang,
+        signing_date=payload.signing_date,
+        created_by=current_user.id,
+        candidate_id=payload.candidate_id,
+        job_id=payload.job_id,
+        client_id=linked_job.client_id if linked_job else None,
+        # Wygenerowanie dokumentu to początek biegu umowy, nie jej
+        # obowiązywanie. „Aktywna" znaczy „podpisana obustronnie" i ustawia
+        # ją WYŁĄCZNIE confirm-fully-signed; default kolumny („active")
+        # kłamałby o każdej nowej umowie.
+        contract_status="in_progress",
+        # Snapshot danych rejestrowych na potrzeby listy — odnormalizowane
+        # z payloadu, bo lista pokazuje je jako kolumny i filtruje po
+        # `start_date` po stronie SQL-a.
+        partner_legal_name=payload.partner_legal_name,
+        partner_nip=_nip_digits(payload.partner_nip),
+        start_date=payload.start_date,
+        # Rozstrzygnięcie zapada TERAZ, nie przy każdym odczycie: ticket
+        # wymaga snapshotu „nieprzeliczanego później", a forma prawna
+        # Partnera po podpisaniu umowy przestaje być bieżącą informacją.
+        partner_entity_type=resolve_partner_entity_type(
+            stored=payload.partner_entity_type,
+            legal_name=payload.partner_legal_name,
+        ),
+        # Zapis surowych pól → ponowne pobranie DOCX z listy (re-render).
+        # Plus snapshot rejestru klauzul — bez niego re-render rozstrzyga
+        # rejestr od nowa i wydaje inną umowę niż podpisana.
+        render_payload={
+            **payload.model_dump(mode="json"),
+            _CLAUSE_SNAPSHOT_FIELD: _clause_snapshot(override_key, override_ops),
+        },
     )
+    db.add(created)
     try:
         await db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         # Race: dwa równoległe rendery z tym samym numerem przeszły SELECT-check;
         # constraint UNIQUE(year, seq) ubija drugi INSERT (migracja 0128).
         await db.rollback()
-        fresh = await _next_seq(db, row_year)
+        if "uq_b2b_generated_contracts_year_seq" not in str(exc.orig):
+            # Inny więz (np. FK do usuniętej w międzyczasie rekrutacji) NIE jest
+            # „numerem zajętym przez kogoś innego” — dotąd dostawał ten komunikat.
+            logger.error("b2b_render_integrity_error number=%s: %s", number, exc.orig)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Nie udało się zapisać umowy — powiązany kandydat, rekrutacja "
+                    "albo klient zmienił się w trakcie. Odśwież formularz i spróbuj "
+                    "ponownie."
+                ),
+            ) from exc
+        fresh = await _next_seq(db)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
@@ -1688,11 +1780,8 @@ async def render_standalone(
                 f"— wybierz inny. Następny wolny: {fresh}/{row_year}."
             ),
         )
-    context["b2b"]["contract_number"] = number
     await _stamp_candidate_contact_on_contract(db, payload)
-
-    data = await _render_docx_or_500(context, lang, override_key)
-    return _docx_response(data, number)
+    return _docx_response(data, number, generated_id=created.id)
 
 
 async def _stamp_candidate_contact_on_contract(
@@ -1763,6 +1852,14 @@ async def list_generated_contracts(
     current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
     limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(
+        0,
+        ge=0,
+        description=(
+            "Stronicowanie „Pokaż więcej” — okno po `created_at DESC`. Bez "
+            "niego rejestr cicho kończył się na `limit` najnowszych wierszach."
+        ),
+    ),
     q: str | None = Query(
         None,
         max_length=120,
@@ -1903,7 +2000,12 @@ async def list_generated_contracts(
     rows = list(
         (
             await db.execute(
-                query.order_by(B2BGeneratedContract.created_at.desc()).limit(limit)
+                query.order_by(
+                    B2BGeneratedContract.created_at.desc(),
+                    B2BGeneratedContract.id.desc(),
+                )
+                .offset(offset)
+                .limit(limit)
             )
         )
         .scalars()
@@ -2058,6 +2160,94 @@ async def download_generated_contract(
 
     data = await _render_docx_or_500(context, lang, _pinned_clause_key(row, lang))
     return _docx_response(data, row.contract_number)
+
+
+@router.post("/generated/{generated_id}/rerender")
+async def rerender_generated_contract(
+    generated_id: int,
+    payload: B2BRenderRequest,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Popraw niepodpisaną umowę i pobierz ją ponownie — POD TYM SAMYM numerem.
+
+    Do 23.09.2026 jedyną drogą poprawki literówki albo zmiany języka było
+    „usuń i wygeneruj od nowa” (15 usunięć na ~104 generacje), a każde
+    ponowne kliknięcie „Pobierz” zakładało drugi wiersz z kolejnym numerem.
+    Poprawka nadpisuje ``render_payload`` i kolumny snapshotu tego samego
+    wiersza. Kandydata i rekrutacji zmienić nie można — to już inna umowa.
+    Bramka jak przy usuwaniu: autor albo admin, tylko umowa „W trakcie”."""
+    _require_contract_generation(current_user)
+    _require_generated_contract_management(current_user)
+    row = await db.scalar(
+        select(B2BGeneratedContract)
+        .where(B2BGeneratedContract.id == generated_id)
+        .with_for_update()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    await _assert_generator_client_access(db, current_user, row.client_id, write=True)
+    if not current_user.has_role(UserRole.admin) and row.created_by != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Poprawić umowę może tylko jej autor albo administrator.",
+        )
+    if row.signature_status == "signed_both" or row.contract_status != "in_progress":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Poprawić można tylko niepodpisaną umowę „W trakcie” — "
+                "podpisany dokument jest zapisem tego, co strony podpisały."
+            ),
+        )
+    if (payload.candidate_id, payload.job_id) != (row.candidate_id, row.job_id):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Zmiana kandydata albo rekrutacji to nowa umowa — wygeneruj ją "
+                "z pustego formularza („Nowa umowa”)."
+            ),
+        )
+
+    lang = normalize_language(payload.language)
+    role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
+    context = build_render_context(payload, role)
+    context["b2b"]["contract_number"] = row.contract_number
+    override_key, override_ops = resolve_override(payload.client_name, lang)
+    data = await _render_docx_or_500(context, lang, override_key)
+
+    row.partner_name = payload.partner_name
+    row.client_name = payload.client_name
+    row.language = lang
+    row.signing_date = payload.signing_date
+    row.partner_legal_name = payload.partner_legal_name
+    row.partner_nip = _nip_digits(payload.partner_nip)
+    row.start_date = payload.start_date
+    row.partner_entity_type = resolve_partner_entity_type(
+        stored=payload.partner_entity_type,
+        legal_name=payload.partner_legal_name,
+    )
+    row.render_payload = {
+        **payload.model_dump(mode="json"),
+        "contract_number": row.contract_number,
+        _CLAUSE_SNAPSHOT_FIELD: _clause_snapshot(override_key, override_ops),
+    }
+    db.add(
+        Activity(
+            entity_type="b2b_generated_contract",
+            entity_id=row.id,
+            action="regenerated",
+            user_id=current_user.id,
+            details={
+                "contract_number": row.contract_number,
+                "language": lang,
+                "clause_override": override_key,
+            },
+        )
+    )
+    await db.commit()
+    await _stamp_candidate_contact_on_contract(db, payload)
+    return _docx_response(data, row.contract_number, generated_id=row.id)
 
 
 @router.post(
@@ -2581,9 +2771,10 @@ async def update_generated_contract(
         # `closed → active` to KOREKTA POMYŁKI — ktoś zamknął nie tę umowę.
         # Wymuszanie projektu blokowałoby cofnięcie błędnego kliknięcia
         # i zmuszało do wpisania projektu, którego może nie być. Zdarzenie
-        # trafia do dziennika (niżej), więc ślad zostaje. Ta ścieżka NIE ma
-        # dziś powierzchni w UI: zakładka „Zakończone umowy" jest read-only,
-        # a dialog statusu nie oferuje „Aktywnej" dla wiersza zawieszonego.
+        # trafia do dziennika (niżej), więc ślad zostaje. Od 23.09.2026
+        # zakładka „Zakończone umowy" ma „Zmień status”; „Aktywna” dotyczy
+        # wyłącznie umów podpisanych (guard niżej), a dialog nie oferuje jej
+        # dla wiersza zawieszonego.
         reactivating = new_status == "active" and old_status == "suspended"
 
         # „Anulowana" opisuje umowę, która NIE DOSZŁA DO SKUTKU. Podpisana
@@ -2602,7 +2793,17 @@ async def update_generated_contract(
         # Jedyny ręczny wybór „W trakcie": powrót z „Anulowanej" (Partner jednak
         # wraca do podpisu). Każde inne źródło dostaje komunikat, który do 0328
         # padał w walidatorze DTO — bez zmian dla użytkownika.
-        if new_status == "in_progress" and old_status != "cancelled":
+        # Drugi legalny wybór: cofnięcie pomyłkowego zamknięcia NIEPODPISANEJ
+        # umowy — „Aktywna” jest dla niej zablokowana (guard niżej), a bez tej
+        # ścieżki wiersz utknąłby w „Zakończonych” (audyt 23.09.2026).
+        reopening_unsigned = (
+            old_status == "closed" and row.signature_status != "signed_both"
+        )
+        if (
+            new_status == "in_progress"
+            and old_status != "cancelled"
+            and not reopening_unsigned
+        ):
             raise HTTPException(status_code=422, detail=_IN_PROGRESS_IS_AUTOMATIC)
 
         # Z „Anulowanej" nie ma skrótu do „Aktywnej": ta umowa jest z definicji
@@ -2615,6 +2816,23 @@ async def update_generated_contract(
                     "Anulowaną umowę przywróć najpierw na „W trakcie” — "
                     "„Aktywna” ustawia się po potwierdzeniu podpisu "
                     "obustronnego."
+                ),
+            )
+
+        # „Aktywna" znaczy „podpisana obustronnie" — ręczne przejście z każdego
+        # innego stanu dawało wiersz „Aktywny i Niepodpisany” bez kontraktu,
+        # zamówienia i ruchu kandydata (audyt 23.09.2026). Powrót z zawieszenia
+        # dotyczy umowy, która była już aktywna, więc jest podpisana.
+        if (
+            new_status == "active"
+            and old_status not in ("active", "suspended")
+            and row.signature_status != "signed_both"
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Umowa nie jest podpisana obustronnie — „Aktywna” ustawia "
+                    "się przyciskiem „Oznacz jako podpisaną”."
                 ),
             )
 
@@ -2799,9 +3017,9 @@ async def delete_generated_contract(
     """Usuń wpis z listy „Wygenerowane umowy".
 
     Może to zrobić wyłącznie autor wpisu (osoba, która wygenerowała umowę) lub
-    administrator. Usunięcie nie zwalnia numeru wstecz — sugestia kolejnego numeru
-    liczona jest jako ``max(numer)+1``, więc skasowanie najnowszego wpisu pozwala
-    ponownie użyć jego numeru (świadome — to log/audyt, nie rejestr nadań)."""
+    administrator. Usunięcie NIE zwalnia numeru: wpis `deleted` w dzienniku
+    trzyma go poza pulą (`_deleted_contract_numbers`), bo usunięty dokument mógł
+    już trafić do Partnera (audyt 23.09.2026)."""
     async with audited_deletion(
         db,
         actor=current_user,

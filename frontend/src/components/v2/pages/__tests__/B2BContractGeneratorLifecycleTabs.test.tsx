@@ -321,7 +321,7 @@ describe("Umowy bieżące", () => {
 });
 
 describe("Zakończone umowy", () => {
-  it("pyta serwer wyłącznie o umowy zakończone i nie daje akcji", async () => {
+  it("pyta serwer wyłącznie o umowy zakończone i daje tylko „Zmień status”", async () => {
     renderTab(ClosedContractsTab, [
       row({
         contract_status: "closed",
@@ -347,8 +347,22 @@ describe("Zakończone umowy", () => {
       "Klient",
       "Status umowy",
       "Powód zakończenia projektu",
+      "Akcje",
     ]);
     expect(screen.queryByRole("button", { name: /Przywróć/ })).toBeNull();
+    // Cofnięcie pomyłkowego zakończenia — do 23.09.2026 zakładka była tylko
+    // do odczytu i taki wiersz utykał w niej na zawsze.
+    expect(
+      screen.getByRole("button", { name: /Zmień status umowy 1471\/2026/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("bez prawa zmiany statusu zakładka nie pokazuje przycisku", async () => {
+    renderTab(ClosedContractsTab, [
+      row({ contract_status: "closed", can_change_status: false }),
+    ]);
+    await screen.findByText("1471/2026");
+    expect(screen.queryByRole("button", { name: /Zmień status/ })).toBeNull();
   });
 
   it("powód sprzed migracji 0226 ma etykietę, nie surowy klucz", async () => {
