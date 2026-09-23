@@ -42,6 +42,12 @@ Capability → allowed roles:
 - **job edit** (opis, ogłoszenia, Champion — decyzja 22.09.2026) — admin,
   Delivery Lead, TAC albo członek zespołu rekrutacji (``ensure_job_editor``).
 
+Od 23.09.2026 (decyzja Artura) bramka zespołu przepuszcza KAŻDĄ rolę
+wewnętrzną — rekrutacje i kandydatów widzą i obsługują wszyscy; członkostwo
+liczy się wyłącznie dla starej roli podglądu ``user`` i w widokach osobistych
+(``oversight_bypass=False``). Opis poniżej dotyczy mechanizmu, który dla tych
+dwóch przypadków nadal działa.
+
 Resource scope for the *pipeline* surfaces is enforced by
 ``ensure_job_membership`` below (P1-PIPE-01). The role guards above answer
 "may this persona touch the recruitment module at all?"; the membership gate
