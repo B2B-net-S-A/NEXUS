@@ -460,7 +460,7 @@ class B2BGeneratedContractItem(BaseModel):
     signed_by_name: Optional[str] = None
     can_confirm_signed: bool = False
     blocked_reason: Optional[str] = None
-    # Rejestr z Excela działu (0359). `excel` = wiersz z pliku, tylko do odczytu
+    # Rejestr z Excela działu (0363). `excel` = wiersz z pliku, tylko do odczytu
     # poza statusem handlowym; `generator` = umowa wydana w NEXUSIE.
     source: Literal["generator", "excel"] = "generator"
     # Numer dokładnie jak w Excelu („264A”, „bez numeru”) — `contract_number`

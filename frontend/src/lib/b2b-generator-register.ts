@@ -213,7 +213,7 @@ export interface RowWarning {
   text: string;
 }
 
-// ── Wiersze z rejestru Excela działu (0359) ─────────────────────────────────
+// ── Wiersze z rejestru Excela działu (0363) ─────────────────────────────────
 
 /** Etykiety kodów `legacy_flags` z importu — tylko te, które coś mówią
  *  użytkownikowi rejestru. Nieznany kod nie jest pokazywany. */

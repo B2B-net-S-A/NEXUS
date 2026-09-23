@@ -821,7 +821,7 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
     w „Zakończonych”. Reguły: `lib/b2b-generator-register.ts`.
   - Stawka zaokrąglana do groszy w schemacie (jedna reguła dla kwoty i kwoty
     słownie); nazwy Partnera/Klienta ≤ 255 znaków (422, nie 500).
-- **Dokumenty pochodne (0358, zakładka „Dokumenty”, `?tab=documents`)** —
+- **Dokumenty pochodne (0362, zakładka „Dokumenty”, `?tab=documents`)** —
   aneksy (stawka, data startu, dane firmy JDG/spółka, oddelegowanie, zlecenie),
   porozumienie o rozwiązaniu (B2B i zlecenie, opcja zwolnienia z zakazu
   konkurencji), wypowiedzenie przez B2B.net, cofnięcie wypowiedzenia Partnera
@@ -850,7 +850,7 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   - Wypowiedzenie złożone przez Partnera nie ma wzoru — to akcja bez
     dokumentu (`POST /documents/partner-notice`, koniec z okresu wypowiedzenia
     wersji umowy: 2026 = miesiąc na koniec miesiąca).
-- **Rejestr z Excela działu (0359)** — Excel „UMOWY I ZAMÓWIENIA” jest
+- **Rejestr z Excela działu (0363)** — Excel „UMOWY I ZAMÓWIENIA” jest
   prowadzony RÓWNOLEGLE, więc import jest powtarzalny: Ustawienia → Umowy
   i stawki → „Rejestr umów z Excela” (admin): podgląd → zapis → cofnięcie
   ostatniego przebiegu. `source = generator | excel`; wiersza z NEXUSA import

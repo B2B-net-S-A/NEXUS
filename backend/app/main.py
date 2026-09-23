@@ -2579,7 +2579,7 @@ async def api_health_deep_check():
             "b2b_generated_contract_status_events",
             B2BGeneratedContractStatusEvent,
         ),
-        # 0358/0359: dokumenty pochodne (aneksy, rozwiązania) i przebiegi
+        # 0362/0363: dokumenty pochodne (aneksy, rozwiązania) i przebiegi
         # importu rejestru z Excela.
         ("b2b_contract_documents", B2BContractDocument),
         ("b2b_register_import_runs", B2BRegisterImportRun),
