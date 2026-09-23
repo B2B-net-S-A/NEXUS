@@ -63,9 +63,9 @@ def test_enum_values_and_constraints_are_mirrored():
         assert needle in migration, needle
 
 
-def test_migration_chains_after_jarvis_ui_events():
+def test_migration_chains_after_kpi_targets_editor_reports():
     assert 'revision = "0357_contract_agreement_termination"' in MIGRATION
-    assert 'down_revision = "0355_jarvis_ui_events"' in MIGRATION
+    assert 'down_revision = "0356_kpi_targets_editor_reports"' in MIGRATION
 
 
 def test_model_enum_matches_migration():

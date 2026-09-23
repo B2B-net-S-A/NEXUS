@@ -4584,6 +4584,38 @@ _COLUMN_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS ix_b2b_generated_contracts_previous "
     "ON b2b_generated_contracts (previous_generated_contract_id)",
     "ALTER TABLE b2b_generated_contract_status_events ADD COLUMN IF NOT EXISTS details JSONB",
+    # 0355: historia edytora „Cele KPI" i znacznik raportów KPI mailem
+    # (UNIQUE kind+period_key = raport wychodzi najwyżej raz, także po restarcie).
+    """CREATE TABLE IF NOT EXISTS kpi_target_events (
+        id SERIAL PRIMARY KEY,
+        scope VARCHAR(8) NOT NULL,
+        role VARCHAR(40),
+        subject_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        subject_name VARCHAR(255),
+        kpi_id VARCHAR(64) NOT NULL,
+        action VARCHAR(16) NOT NULL,
+        changes JSONB,
+        actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        actor_name VARCHAR(255),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_kpi_target_events_scope CHECK (scope IN ('role', 'user')),
+        CONSTRAINT ck_kpi_target_events_action CHECK (action IN ('set', 'reset'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_kpi_target_events_created "
+    "ON kpi_target_events (created_at)",
+    """CREATE TABLE IF NOT EXISTS kpi_email_report_runs (
+        id SERIAL PRIMARY KEY,
+        kind VARCHAR(32) NOT NULL,
+        period_key VARCHAR(16) NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'claimed',
+        recipients INTEGER NOT NULL DEFAULT 0,
+        sent INTEGER NOT NULL DEFAULT 0,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        finished_at TIMESTAMPTZ,
+        CONSTRAINT uq_kpi_email_report_runs UNIQUE (kind, period_key),
+        CONSTRAINT ck_kpi_email_report_runs_status
+            CHECK (status IN ('claimed', 'sent', 'skipped', 'failed'))
+    )""",
     # 0320: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
     # Kody powodow sa rownolegle do `gate_reasons` — recheck rozstrzyga po
     # kodzie, czy zamowienie czeka na podpis umowy, czy utknelo na czyms innym.

@@ -11,12 +11,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.candidate_access import CandidatePIIAccess, CandidateWriteAccess
+from app.api.candidate_access import (
+    CandidatePIIAccess,
+    CandidateWriteAccess,
+    user_can_access_candidate_domain,
+)
 from app.api.deps import DeliveryLeadPlus
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.api.ws import notify_user
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.models.candidate import Candidate
 from app.models.candidate_chat import (
     CandidateChatMention,
     CandidateChatMessage,
@@ -59,6 +64,19 @@ MAX_PAGE_LIMIT = 200
 
 
 async def _require_member(db: AsyncSession, user: User, candidate_id: int) -> None:
+    """Dostęp do czatu kandydata: każda rola wewnętrzna czyta i pisze.
+
+    Decyzja Artura 23.09.2026 (jak czat rekrutacji). ``is_member_of_candidate_chat``
+    zostaje listą ODBIORCÓW powiadomień, nie bramką — autor wiadomości staje
+    się członkiem, więc osoba spoza zespołu, która napisała, dostaje odpowiedzi.
+    """
+    if user_can_access_candidate_domain(user):
+        if await db.get(Candidate, candidate_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Kandydat nie istnieje.",
+            )
+        return
     if not await is_member_of_candidate_chat(db, user, candidate_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -71,9 +89,7 @@ async def _require_read_access(
     user: User,
     candidate_id: int,
 ) -> None:
-    """GET-only organization oversight for Finance; membership for everyone else."""
-    if user.has_role(UserRole.finance):
-        return
+    """Odczyt czatu — ta sama reguła co zapis (patrz ``_require_member``)."""
     await _require_member(db, user, candidate_id)
 
 

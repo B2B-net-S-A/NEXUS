@@ -3694,6 +3694,9 @@ async def test_api_scope_roles_and_pii_projection(
         other_job.id,
     }
 
+    # Decyzja 23.09.2026: rekrutacje i kandydata widzi każda rola wewnętrzna
+    # bez przypisania, więc rekruter jednej z ofert widzi obie szanse, a
+    # rekruter spoza obu — całą sprawę. Granicą zostaje rola (``user`` niżej).
     partial_scope_response = await app_client.get(
         f"/api/candidate-contact/candidates/{candidate.id}",
         headers=_headers(other_owner),
@@ -3702,16 +3705,21 @@ async def test_api_scope_roles_and_pii_projection(
     partial_scope_case = partial_scope_response.json()
     assert partial_scope_case["candidate"]["phone"] == "+48 501 234 567"
     assert {item["job_id"] for item in partial_scope_case["opportunities"]} == {
-        other_job.id
+        owner_job.id,
+        other_job.id,
     }
 
     unrelated_response = await app_client.get(
         f"/api/candidate-contact/candidates/{candidate.id}",
         headers=_headers(unrelated),
     )
-    assert unrelated_response.status_code == 200
-    assert unrelated_response.json() is None
-    assert "+48 501 234 567" not in unrelated_response.text
+    assert unrelated_response.status_code == 200, unrelated_response.text
+    unrelated_case = unrelated_response.json()
+    assert unrelated_case["id"] == case_id
+    assert {item["job_id"] for item in unrelated_case["opportunities"]} == {
+        owner_job.id,
+        other_job.id,
+    }
 
     viewer_response = await app_client.get(
         f"/api/candidate-contact/candidates/{candidate.id}",
@@ -3773,8 +3781,9 @@ async def test_attempt_api_returns_409_for_stale_expected_version(
     )
     assert first.status_code == 200, first.text
 
-    # The same key remains idempotent after ownership changes, but replay must
-    # not become a PII bypass after the original caller loses every linked job.
+    # The same key remains idempotent after ownership changes. Since the
+    # 23.09.2026 decision the recruitment boundary no longer depends on team
+    # membership, so a former owner who lost the job still replays (200).
     job.recruiter_id = replacement.id
     await contact_db.commit()
     replay_without_scope = await app_client.post(
@@ -3789,7 +3798,8 @@ async def test_attempt_api_returns_409_for_stale_expected_version(
             "opportunity_outcomes": [],
         },
     )
-    assert replay_without_scope.status_code == 403
+    assert replay_without_scope.status_code == 200, replay_without_scope.text
+    assert replay_without_scope.json()["id"] == case_id
     job.recruiter_id = owner.id
     await contact_db.commit()
 

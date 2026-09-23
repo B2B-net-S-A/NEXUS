@@ -33,13 +33,12 @@ import { SectionError } from "./_shared";
  *
  * Cztery rzeczy, które ten ekran robi świadomie inaczej niż oryginał:
  *
- * 1. **Plakietka „X/dzień" nie zgaduje mianownika.** Oryginał dzielił przez
+ * 1. **Plakietka „X/dzień" mówi, skąd ma mianownik.** Oryginał dzielił przez
  *    sztywną liczbę dni i pokazywał „3.1/dzień" osobie, która połowę miesiąca
- *    była na urlopie. Mianownik jest INDYWIDUALNY i pochodzi z COMPASSA
- *    (`insights_workdays.working_days_for`); dopóki go nie ma, plakietka mówi
- *    „—" i podpisuje się „brak danych o dniach roboczych". Ekran, który w tym
- *    miejscu podstawia stałą, wygląda dokładnie tak samo jak ten, który wie —
- *    i to jest cała różnica.
+ *    była na urlopie. Tu mianownikiem są dni robocze, które upłynęły w tym
+ *    miesiącu, minus urlop z COMPASSA. Gdy urlopu nie znamy (`workdays_source:
+ *    "calendar"`), plakietka ma dopisek „bez urlopów" — ta sama liczba bez
+ *    dopisku czytałaby się jak ocena osoby na urlopie.
  * 2. **Niezakwalifikowany zostaje na liście.** Backend celowo zwraca go
  *    z `qualified: false` i powodem (`competitions.py`); ukrycie zamieniłoby
  *    „próg niespełniony" w „zero wyniku".
@@ -120,7 +119,7 @@ const RACE_COPY: Record<
  * Próg kwalifikacji Wyścigu Rekomendacji jest WSPÓLNY i KALENDARZOWY:
  * `competitions.py` liczy `4 × dni robocze, które upłynęły w miesiącu`
  * (Pon–Pt minus święta) — bez indywidualnych urlopów. Plakietka „X/dzień"
- * obok ma mianownik indywidualny z COMPASSA, więc bez tego zdania ekran
+ * obok odejmuje urlop z COMPASSA, gdy go zna, więc bez tego zdania ekran
  * obiecywał regułę, której backend nie stosuje (audyt B44). Decyzja
  * o progu per osoba jest produktowa i leży poza tym ekranem.
  */
@@ -154,7 +153,7 @@ function PerDayBadge({ entry }: { entry: MonthlyRaceEntry }) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded border border-dashed border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
-        title={`Weryfikacje na dzień roboczy: ${label}. Mianownik jest indywidualny (urlop też) i pochodzi z COMPASSA — nie zastępujemy go stałą liczbą dni. Ta plakietka nie decyduje o kwalifikacji: próg „wymaganych weryfikacji” obok jest wspólny i kalendarzowy.`}
+        title={`Weryfikacje na dzień roboczy: ${label}. Mianownik to dni robocze, które upłynęły w tym miesiącu, minus urlop z COMPASSA. Ta plakietka nie decyduje o kwalifikacji: próg „wymaganych weryfikacji” obok jest wspólny i kalendarzowy.`}
       >
         <span className="font-semibold">—</span>
         <span>/dzień</span>
@@ -162,9 +161,20 @@ function PerDayBadge({ entry }: { entry: MonthlyRaceEntry }) {
       </span>
     );
   }
+  const withoutLeave = entry.workdays_source === "calendar";
   return (
-    <span className="inline-flex items-center rounded bg-info-muted px-1.5 py-0.5 text-[11px] font-semibold text-info-muted-foreground">
+    <span
+      className="inline-flex items-center gap-1 rounded bg-info-muted px-1.5 py-0.5 text-[11px] font-semibold text-info-muted-foreground"
+      title={
+        withoutLeave
+          ? "Weryfikacje na dzień roboczy liczone z dni kalendarzowych, które upłynęły w tym miesiącu (Pon–Pt bez świąt), bez urlopów — COMPASS nie potwierdził nieobecności w tym okresie."
+          : "Weryfikacje na dzień roboczy: dni robocze, które upłynęły w tym miesiącu, minus urlop z COMPASSA."
+      }
+    >
       {perDay.value.toFixed(1)}/dzień
+      {withoutLeave ? (
+        <span className="font-normal">· bez urlopów</span>
+      ) : null}
     </span>
   );
 }

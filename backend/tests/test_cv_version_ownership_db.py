@@ -195,7 +195,8 @@ async def test_standalone_approval_share_roundtrip(
         async with AsyncSessionLocal() as db:
             version = await db.get(CvDocumentVersion, version_id)
             assert version.docx_content == b"frozen fixture"
-            assert public.json()["cv_html"] == version.content_html
+            assert version.content_html in public.json()["cv_html"]
+            assert "<style>" in public.json()["cv_html"]
         chat = await app_client.post(
             f"/api/public/cv-i/{token}/chat", json={"question": "What experience?"}
         )

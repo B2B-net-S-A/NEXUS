@@ -58,7 +58,7 @@ MAX_TOKENS = 1200
 # Changing this value invalidates every previously generated row even when the
 # prompt happens to retain the same version.
 CONTENT_POLICY_VERSION = "candidate-summary-no-finance-v3"
-VISIBILITY_SCOPE_VERSION = "candidate-summary-scope-v1"
+VISIBILITY_SCOPE_VERSION = "candidate-summary-scope-v2"
 
 # Input caps so a hyperactive candidate cannot create an unbounded prompt.
 _MAX_NOTES = 30
@@ -718,7 +718,7 @@ async def _feedback_section(
             .outerjoin(Job, Job.id == InterviewFeedback.job_id)
             .where(
                 InterviewFeedback.candidate_id == candidate_id,
-                _scope_filter(InterviewFeedback.job_id, visible_job_ids, null_ok=False),
+                _scope_filter(InterviewFeedback.job_id, visible_job_ids, null_ok=True),
             )
             .order_by(InterviewFeedback.id.desc())
             .limit(_MAX_FEEDBACK + 1)
@@ -767,7 +767,7 @@ async def _screening_section(
                 select(ScreeningNote)
                 .where(
                     ScreeningNote.candidate_id == candidate_id,
-                    _scope_filter(ScreeningNote.job_id, visible_job_ids, null_ok=False),
+                    _scope_filter(ScreeningNote.job_id, visible_job_ids, null_ok=True),
                 )
                 .order_by(ScreeningNote.created_at.desc())
                 .limit(_MAX_SCREENINGS + 1)
@@ -814,10 +814,10 @@ async def _notes_section(
                 .where(
                     Note.candidate_id == candidate_id,
                     Note.source_deleted_at.is_(None),
-                    # A candidate-global note has no job membership proof. The
-                    # summary is scope-bound, so NULL job_id is deliberately
-                    # rejected instead of being shared across disjoint teams.
-                    _scope_filter(Note.job_id, visible_job_ids, null_ok=False),
+                    # Notatka bez rekrutacji wchodzi do podsumowania — od
+                    # 23.09.2026 wszystko w panelu kandydata widzą wszyscy
+                    # (decyzja Artura), więc nie ma zespołów do rozdzielania.
+                    _scope_filter(Note.job_id, visible_job_ids, null_ok=True),
                     source_is_eligible_clause(
                         candidate_id_column=Note.candidate_id,
                         source_id_column=Note.id,

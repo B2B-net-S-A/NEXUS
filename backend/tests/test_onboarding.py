@@ -304,19 +304,25 @@ async def test_dl_onboarding_jobs_include_all_clients_and_are_minimal(
 
 
 @pytest.mark.asyncio
-async def test_recruiter_onboarding_jobs_reuse_membership_scope(
+async def test_recruiter_onboarding_jobs_offer_every_published_job(
     app_client: AsyncClient, recruiter_auth: tuple[User, dict[str, str]]
 ):
+    """Nowy rekruter wybiera spośród WSZYSTKICH opublikowanych rekrutacji.
+
+    Decyzja 23.09.2026: zakres rekrutacji nie zależy od przypisania, a nowa
+    osoba przypisań jeszcze nie ma — lista onboardingu nie zawęża się do
+    zespołu.
+    """
     user, headers = recruiter_auth
-    allowed = await _seed_client_and_jobs(count=2, recruiter_id=user.id)
+    own = await _seed_client_and_jobs(count=2, recruiter_id=user.id)
     foreign = await _seed_client_and_jobs(count=1)
 
     resp = await app_client.get("/api/users/me/onboarding/jobs", headers=headers)
 
     assert resp.status_code == 200, resp.text
     returned_ids = {item["id"] for item in resp.json()["items"]}
-    assert set(allowed).issubset(returned_ids)
-    assert returned_ids.isdisjoint(foreign)
+    assert set(own).issubset(returned_ids)
+    assert set(foreign).issubset(returned_ids)
 
 
 @pytest.mark.asyncio

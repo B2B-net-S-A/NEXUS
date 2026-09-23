@@ -119,16 +119,31 @@ def test_structured_pool_settings_are_declared():
     assert Settings.model_fields["STRUCTURED_POOL_MIN_MEMBERS"].default == 20
 
 
-def test_shared_engine_settings_are_declared():
-    """`/ai-matches` na wspólnym silniku — ta sama zasada co wyżej.
+def test_dead_shared_engine_settings_are_gone_and_stale_env_is_ignored(
+    monkeypatch,
+):
+    """Jeden silnik pod `/ai-matches` działa od #1428 — martwe pokrętła znikają.
 
-    Domyślne OFF jest częścią kontraktu tego commitu: merge nie może zmienić
-    tego, co rekruter widzi na stronie rekrutacji, dopóki nie ma A/B na
-    zamrożonym zbiorze ofert.
+    `AI_MATCHES_SHARED_ENGINE`, `AI_MATCHES_RERANK_TOP_N`, `AI_MATCH_MIN_SCORE`,
+    `AI_MATCH_POOL_SIZE` i `AI_UNIFIED_RETRIEVAL_*` nic nie przestawiały, a
+    wyglądały na konfigurowalne. Stare wartości mogą zostać w Coolify, więc
+    `Settings` MUSI przejść start z nieznaną zmienną środowiskową — inaczej
+    usunięcie pola położyłoby backend przy pierwszym deployu.
     """
     from app.core.config import Settings
 
-    assert "AI_MATCHES_SHARED_ENGINE" in Settings.model_fields
-    assert Settings.model_fields["AI_MATCHES_SHARED_ENGINE"].default is False
-    assert "AI_MATCHES_RERANK_TOP_N" in Settings.model_fields
-    assert Settings.model_fields["AI_MATCHES_RERANK_TOP_N"].default == 0
+    dead = (
+        "AI_MATCHES_SHARED_ENGINE",
+        "AI_MATCHES_RERANK_TOP_N",
+        "AI_MATCH_MIN_SCORE",
+        "AI_MATCH_POOL_SIZE",
+        "AI_UNIFIED_RETRIEVAL_ENABLED",
+        "AI_UNIFIED_RETRIEVAL_SURFACES",
+    )
+    for name in dead:
+        assert name not in Settings.model_fields
+        monkeypatch.setenv(name, "true")
+
+    fresh = Settings()
+    for name in dead:
+        assert not hasattr(fresh, name)

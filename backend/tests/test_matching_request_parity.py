@@ -4,16 +4,14 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.api import matching
-from app.core.config import settings
 from tests.test_scoring_service import make_candidate, make_job
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fallback", [False, True])
-@pytest.mark.parametrize("old_flag", [False, True])
 @pytest.mark.parametrize("location,expected", [(None, [1, 2]), ("Warszawa", [1])])
 async def test_compatibility_endpoint_only_filters_explicit_location(
-    monkeypatch, location, expected, old_flag, fallback
+    monkeypatch, location, expected, fallback
 ):
     job = make_job(location="Warszawa", description="Wstęp " * 500 + "Django na końcu")
     candidates = [
@@ -38,7 +36,6 @@ async def test_compatibility_endpoint_only_filters_explicit_location(
     monkeypatch.setattr(
         "app.services.retrieval_pool.retrieve_candidate_pool", retrieval
     )
-    monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", old_flag)
 
     async def gate(db, **kwargs):
         return kwargs["ordered"], {}, {}, 0, kwargs["inputs"]
