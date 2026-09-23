@@ -73,7 +73,6 @@ from app.api.deps import (
     DeliveryLeadPlus,
     OperationalUser,
     RecruiterPlus,
-    TacPlus,
     require_roles,
 )
 from app.services.auto_assign_owners import resolve_default_owners
@@ -1295,7 +1294,7 @@ async def jobs_quick_counts(
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(
     data: JobCreate,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
@@ -1983,7 +1982,7 @@ async def update_job(
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_job(
-    job_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
+    job_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Job).where(Job.id == job_id).with_for_update())
     job = result.scalar_one_or_none()
@@ -2077,7 +2076,7 @@ async def delete_job(
 async def close_job(
     job_id: int,
     data: JobCloseRequest,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Close a job with a structured reason.
@@ -2132,15 +2131,17 @@ async def close_job(
 async def set_job_managed_in_nexus(
     job_id: int,
     data: JobManageInNexusRequest,
-    current_user: TacPlus,
+    current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Przełącznik „Rekrutacja prowadzona w NEXUSIE" (0325).
 
     Osobna trasa, nie pole w PATCH: przełączenie ma własny wpis w `activities`
     z poprzednią wartością, a formularz edycji nie może przełączyć „przy okazji".
-    Idempotentna. Wyłączenie tylko admin / delivery_lead — powrót do Traffita
-    oznacza, że najbliższy import nadpisze ruchy zrobione w NEXUSIE.
+    Idempotentna. Włącza każdy członek zespołu rekrutacji (``RecruiterPlus``
+    + ``ensure_job_membership``; od 23.09.2026 bez wymogu roli TAC).
+    Wyłączenie tylko admin / delivery_lead — powrót do Traffita oznacza, że
+    najbliższy import nadpisze ruchy zrobione w NEXUSIE.
 
     Członkostwo sprawdzane PO odczycie oferty: `ensure_job_membership` na
     nieistniejącej ofercie daje osobie spoza ról nadzoru 403, a nie 404.
@@ -2193,7 +2194,7 @@ async def set_job_managed_in_nexus(
 
 @router.post("/{job_id}/publish")
 async def publish_job(
-    job_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
+    job_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
 ):
     """Publish job — mark as published and queue portal syndication."""
     result = await db.execute(select(Job).where(Job.id == job_id))

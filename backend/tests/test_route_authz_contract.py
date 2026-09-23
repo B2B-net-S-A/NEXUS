@@ -48,7 +48,6 @@ _GATE_QUALNAME_MARKERS = (
     "require_delivery_lead_or_admin",
     "require_financial_access",
     "require_capability",
-    "require_dynareporter_section",
     "_snapshot_auth",
     "require_admin",
     "require_contractor_access",
@@ -71,8 +70,8 @@ _GATE_QUALNAME_MARKERS = (
 _AUTHN_QUALNAMES = ("get_current_user", "get_authenticated_user")
 
 # Many handlers carry no gate in their signature but check imperatively as the
-# first statement of the body — e.g. `dynareporter_admin_master_data.py` takes
-# `current_user: CurrentUser` and then calls `_require_admin(current_user)`.
+# first statement of the body — e.g. a handler takes `current_user: CurrentUser`
+# and then calls `_require_admin(current_user)`.
 # That is genuine authorisation; it is simply invisible to FastAPI's dependency
 # graph, and therefore to any structural analysis.
 #
@@ -199,8 +198,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/auth/me"),
     ("GET", "/api/competence-categories"),
     ("GET", "/api/dictionaries/{slug}/items"),
-    ("GET", "/api/dynareporter/board-dashboard/monthly"),
-    ("GET", "/api/dynareporter/competitions/my-notifications"),
     ("GET", "/api/entity-schema/{entity_type}"),
     ("GET", "/api/fx"),
     # Biblioteka linków do dokumentów firmowych (SharePoint) — odczyt dla
@@ -241,7 +238,6 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     # pobierają ich własne endpointy za bramkami sekcji.
     ("GET", "/api/users/me/dashboard"),
     ("PUT", "/api/users/me/dashboard"),
-    ("PATCH", "/api/dynareporter/competitions/notifications/{notif_id}/read"),
     ("PATCH", "/api/notifications/read-all"),
     ("PATCH", "/api/notifications/{notification_id}/read"),
     ("PATCH", "/api/users/me/preferences"),

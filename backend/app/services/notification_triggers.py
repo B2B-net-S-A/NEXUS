@@ -9,8 +9,9 @@ Triggery:
   1. check_dl_stage_stale_6h     — kandydat w `cv_sent` > 6h bez ruchu → alert do DL.
   2. check_client_feedback_eobd  — o 16:30 dla `client_interview` zakończonego dziś
                                    bez feedbacku (brak ScreeningNote po end_time).
-  3. check_powercalling_kpi      — o 11:45: rekruterzy z <15 completed Call dziś +
-                                   agregat do każdego head_of_recruitment.
+  3. (usunięty 23.09.2026) raport PowerCalling 11:45 — bez telefonii mierzył
+     rozmowy, których system nie rejestruje. Typ `powercalling_kpi` zostaje
+     dla historycznych powiadomień.
   4. check_candidate_feedback_1h — 60–75 min po Call completed bez ScreeningNote →
                                    alert do rekrutera (Call.user_id).
   5. check_stage_stuck_7d        — kandydat na nieterminalnym etapie 7–30 dni
@@ -301,11 +302,6 @@ def _moved_at_utc(stage: LatestStage) -> datetime:
     return moved.astimezone(timezone.utc)
 
 
-def _date_as_int(moment: datetime) -> int:
-    """YYYYMMDD jako int — kanoniczne entity_id dla raportów dziennych."""
-    return moment.year * 10000 + moment.month * 100 + moment.day
-
-
 # ── Trigger 1: DL_STAGE_STALE_6H ──────────────────────────────────────────────
 
 
@@ -429,124 +425,6 @@ async def check_client_feedback_eobd(
                 ntype=NotificationType.client_feedback_eobd,
                 related_entity_type="calendar_event",
                 related_entity_id=event.id,
-            )
-            if result is not None:
-                emitted += 1
-    return emitted
-
-
-# ── Trigger 3: POWERCALLING_KPI ───────────────────────────────────────────────
-
-
-async def check_powercalling_kpi(db: AsyncSession, now: datetime) -> int:
-    """O 11:45 — per-recruiter alert o <15 calli + agregat do HR-ów."""
-    # Bez telefonii raport mierzy coś, czego system nie rejestruje. CloudTalk
-    # jest wyłączony od 28.07.2026, a do 22.09 trigger i tak wysyłał codziennie
-    # tabelę „0/15 ❌" przy każdym rekruterze do Head of Recruitment
-    # (44 tabele i 268 alertów w 30 dni, wszystkie nieprzeczytane).
-    if not settings.CLOUDTALK_ENABLED:
-        return 0
-    if not is_within_window(
-        now,
-        hour=settings.POWERCALLING_CHECK_HOUR,
-        minute=settings.POWERCALLING_CHECK_MINUTE,
-    ):
-        return 0
-
-    day = local_day_bounds(now)
-    target = settings.POWERCALLING_DAILY_TARGET
-
-    # Wszyscy aktywni rekruterzy.
-    recruiters_rows = await db.execute(
-        select(User.id, User.name).where(
-            User.role == UserRole.recruiter, User.is_active.is_(True)
-        )
-    )
-    recruiters = [(r.id, r.name) for r in recruiters_rows]
-    if not recruiters:
-        return 0
-
-    # Liczba completed Call per user od startu dnia lokalnego.
-    counts_rows = await db.execute(
-        select(Call.user_id, func.count(Call.id))
-        .where(
-            Call.status == CallStatus.completed,
-            Call.user_id.isnot(None),
-            Call.created_at >= day.start_utc,
-            Call.created_at <= day.end_utc,
-        )
-        .group_by(Call.user_id)
-    )
-    calls_per_user: dict[int, int] = {row[0]: row[1] for row in counts_rows}
-
-    emitted = 0
-    day_id = _date_as_int(now)
-    below_target: list[tuple[int, str, int]] = []
-    for user_id, name in recruiters:
-        count = calls_per_user.get(user_id, 0)
-        if count < target:
-            below_target.append((user_id, name, count))
-
-    # Indywidualne alerty dla rekruterów < target — tylko dla osób, które mają
-    # źródło rozmów (choć jeden wiersz `Call`). Bez telefonii (CloudTalk
-    # wyłączony 28.07) „0/15 rozmów" dostawał każdy rekruter każdego dnia,
-    # czyli wyrzut za coś, czego system w ogóle nie rejestruje.
-    with_call_source: set[int] = set()
-    if below_target:
-        source_rows = await db.execute(
-            select(Call.user_id)
-            .where(Call.user_id.in_([u for u, _, _ in below_target]))
-            .distinct()
-        )
-        with_call_source = {row[0] for row in source_rows}
-    for user_id, name, count in below_target:
-        if user_id not in with_call_source:
-            continue
-        result = await emit(
-            db,
-            user_id=user_id,
-            title="Baza PowerCalling niekompletna",
-            message=(
-                f"Masz {count}/{target} wykonanych rozmów dziś. "
-                "Dobij bazę — raport trafia właśnie do Head of Recruitment."
-            ),
-            link="/candidates",
-            ntype=NotificationType.powercalling_kpi,
-            related_entity_type="user",
-            related_entity_id=user_id,
-        )
-        if result is not None:
-            emitted += 1
-
-    # Agregat dla HR-ów — jedna tabelka per dzień.
-    hr_rows = await db.execute(
-        select(User.id).where(
-            User.role == UserRole.head_of_recruitment, User.is_active.is_(True)
-        )
-    )
-    hr_ids = list(hr_rows.scalars().all())
-    if hr_ids:
-        lines = ["Stan bazy PowerCalling na 11:45:", ""]
-        for user_id, name, _ in sorted(
-            [(u, n, calls_per_user.get(u, 0)) for u, n in recruiters],
-            key=lambda r: r[2],
-        ):
-            count = calls_per_user.get(user_id, 0)
-            marker = "✅" if count >= target else "❌"
-            lines.append(f"- {name}: {count}/{target} {marker}")
-        message = "\n".join(lines)
-        for hr_id in hr_ids:
-            result = await emit(
-                db,
-                user_id=hr_id,
-                title="Raport PowerCalling 11:45",
-                message=message,
-                # Sekcja Power Calling zniknęła z Insights (21.09.2026) — raport
-                # prowadzi do zespołu w rozdziale Wyniki.
-                link="/insights?tab=body-leasing&ch=wyniki#zespol",
-                ntype=NotificationType.powercalling_kpi,
-                related_entity_type="daily_kpi_report",
-                related_entity_id=day_id,
             )
             if result is not None:
                 emitted += 1
@@ -1142,7 +1020,6 @@ async def run_all_triggers(db: AsyncSession, now: datetime) -> dict[str, int]:
         "dl_stage_stale_6h": await check_dl_stage_stale_6h(db, now, latest),
         "stage_stuck_7d": await check_stage_stuck_7d(db, now, latest),
         "candidate_feedback_1h": await check_candidate_feedback_1h(db, now),
-        "powercalling_kpi": await check_powercalling_kpi(db, now),
         "client_feedback_eobd": await check_client_feedback_eobd(db, now, latest),
         "post_interview_t15": await check_post_interview_t15(db, now, latest),
         "post_interview_t45": await check_post_interview_t45(db, now, latest),
@@ -1165,7 +1042,6 @@ __all__ = [
     "check_post_interview_t45",
     "check_post_interview_t2h_escalation",
     "check_prep_attention",
-    "check_powercalling_kpi",
     "check_stage_stuck_7d",
     "emit",
     "run_all_triggers",

@@ -226,7 +226,7 @@ async def recruitment_stats_dashboard(
     """Sekcja „Statystyki rekrutacji" — wspólna dla wszystkich presetów.
 
     Guard `OperationalUser` (nie capability): payload jest z natury imienny
-    (tabela per osoba, podia, wyścigi, LinkedIn), więc legacy `user` dostaje 403.
+    (tabela per osoba, podia, wyścigi), więc legacy `user` dostaje 403.
 
     UWAGA — finance PRZECHODZI. `OperationalUser` zawiera `UserRole.finance`
     od 19.08 (pełny dostęp operacyjny, tier recruitera). Do 20.08 ten docstring

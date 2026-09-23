@@ -74,7 +74,7 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // PATCH /api/jobs/{id} → TacPlus. HoR celowo na false: inline-edycja pól
+  // PATCH /api/jobs/{id} → poziom `full` (admin/DL/TAC). HoR celowo na false: inline-edycja pól
   // oferty dostałaby 403, więc kontrolka ma być dla niego niewidoczna.
   "job.update": {
     admin: true,
@@ -85,7 +85,7 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // POST /api/clients → TacPlus narrowed by the Delivery section write gate
+  // POST /api/clients → DeliveryLeadPlus + the Delivery section write gate
   "client.create": {
     admin: true,
     head_of_recruitment: false,
@@ -95,7 +95,7 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // PATCH /api/clients/{id} → TacPlus narrowed by the Delivery section write gate
+  // PATCH /api/clients/{id} → DeliveryLeadPlus + the Delivery section write gate
   "client.update": {
     admin: true,
     head_of_recruitment: false,
@@ -129,7 +129,7 @@ const EXPECTED: Record<
     sourcer: false,
     user: false,
   },
-  // POST /api/contracts → TacPlus narrowed by the Delivery section write gate
+  // POST /api/contracts → DeliveryLeadPlus + the Delivery section write gate
   "contract.create": {
     admin: true,
     head_of_recruitment: false,
@@ -332,7 +332,7 @@ const EXPECTED: Record<
 /**
  * Reguła dla `finance` (decyzja produktowa Artura 19.08 — pełny dostęp
  * operacyjny): Finance ma tier recruitera, własny moduł oraz jawne moduły
- * business-read kontraktów, klientów i Cortex. Wyliczana z macierzy, nie ręczna
+ * business-read kontraktów i klientów. Wyliczana z macierzy, nie ręczna
  * lista — dzięki temu nowa capability przyznana recruiterowi automatycznie obejmuje finance, a
  * odstępstwo od reguły wymaga świadomej zmiany tej funkcji.
  */
@@ -424,7 +424,7 @@ describe("hasCapability — przypadki brzegowe", () => {
   });
 
   it("multi-role: druga rola nadaje uprawnienie, którego primary nie ma", () => {
-    // Hybryda HoR + DL — HoR sam nie zakłada rekrutacji (TacPlus), DL tak.
+    // Hybryda HoR + DL — HoR sam nie zakłada rekrutacji (DeliveryLeadPlus), DL tak.
     const hybrid = {
       role: "head_of_recruitment" as UserRole,
       roles: ["head_of_recruitment", "delivery_lead"] as UserRole[],
@@ -604,7 +604,7 @@ describe("regresja F-19: Quick Actions nie pokazuje akcji bez capability", () =>
 
   it("head_of_recruitment nie dostaje akcji tworzenia z sekcji Delivery", () => {
     // Parytet z rekruterem (2026-09-17): kandydat, spotkanie, link — ale
-    // nadal bez rekrutacji/klienta/kontraktu/kontaktu (TacPlus / Delivery).
+    // nadal bez rekrutacji/klienta/kontraktu/kontaktu (DeliveryLeadPlus / Delivery).
     const visible = QUICK_ACTIONS.filter((c) =>
       hasCapability(mkUser("head_of_recruitment"), c),
     );
@@ -689,7 +689,6 @@ const BACKEND_FILES = {
   candidateAccess: "backend/app/api/candidate_access.py",
   recruitmentAccess: "backend/app/api/recruitment_access.py",
   clientAccess: "backend/app/services/client_access.py",
-  cortex: "backend/app/api/cortex.py",
 } as const;
 
 type BackendFile = keyof typeof BACKEND_FILES;
@@ -787,14 +786,14 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   // i handoff za `DeliveryLeadPlus` (job_request_intake.py importuje alias
   // z deps.py — test niżej pilnuje, że dalej go używa).
   "job.create": { guards: [["deps", "DeliveryLeadPlus"]] },
-  "job.update": { guards: [["deps", "TacPlus"]] },
+  "job.update": { guards: [["recruitmentAccess", "JOB_FULL_EDIT_ROLES"]] },
   "client.create": {
     productDecision:
-      "TacPlus intersected with the Delivery section write matrix; TAC is section-denied, leaving Admin and Delivery Lead.",
+      "DeliveryLeadPlus + the Delivery section write matrix — Admin and Delivery Lead.",
   },
   "client.update": {
     productDecision:
-      "TacPlus intersected with the Delivery section write matrix; TAC is section-denied, leaving Admin and Delivery Lead.",
+      "DeliveryLeadPlus + the Delivery section write matrix — Admin and Delivery Lead.",
   },
   "cv_rule.manage": { guards: [["deps", "DeliveryLeadPlus"]] },
   "client_playbook.manage": {
@@ -803,7 +802,7 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   },
   "contract.create": {
     productDecision:
-      "TacPlus intersected with the Delivery section write matrix; TAC is section-denied, leaving Admin and Delivery Lead.",
+      "DeliveryLeadPlus + the Delivery section write matrix — Admin and Delivery Lead.",
   },
   // ClientAccess.can_edit_contacts = ADMIN_LIKE ∪ CLIENT_TEAM.
   "contact.create": {
@@ -923,8 +922,6 @@ const SIDEBAR_HREF_CAPABILITY: Record<string, Capability> = {
   // Panel klientów, Moje relacje i Zamówienia z maila od 22.09.2026 to tryby
   // ekranów Klienci / Kontrakty (wejście z ⌘K), więc nie mają pozycji menu.
   "/contracts": "nav.contracts",
-  // Cortex ukryty w UI (21.09.2026) — capability `nav.cortex` zdjęta 22.09
-  // (brak konsumenta); bramkę `/cortex` trzyma middleware (CORTEX_ROLES).
   "/finance": "nav.finance",
   // `/manager` przekierowuje na `/dashboard` — bez pozycji w menu i palecie
   // (capability `nav.manager` zdjęta 22.09.2026).

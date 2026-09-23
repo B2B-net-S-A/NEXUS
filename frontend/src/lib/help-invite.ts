@@ -321,10 +321,10 @@ function replaceAll(source: string, needle: string, value: string): string {
 /**
  * Podstawia WYŁĄCZNIE to, co faktycznie znamy.
  *
- * Link do ogłoszenia zostaje placeholderem świadomie: adresy ofert w NEXUSie są
- * dziś generowane sztucznie (`_simulate_url` w `api/postings.py`), więc
- * automatyczne wklejenie wysłałoby kandydatowi link prowadzący donikąd. Lepszy
- * widoczny placeholder do uzupełnienia niż cichy martwy adres.
+ * Link do ogłoszenia zostaje placeholderem świadomie: NEXUS nie publikuje
+ * dziś ofert na portalach (symulacja `api/postings.py` usunięta 23.09.2026),
+ * więc nie ma prawdziwego adresu do wklejenia. Lepszy widoczny placeholder do
+ * uzupełnienia niż cichy martwy adres.
  */
 export function fillInviteTemplate(template: string, facts: InviteFacts): string {
   let out = template;

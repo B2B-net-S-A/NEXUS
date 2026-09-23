@@ -1,4 +1,7 @@
-"""Cortex — dedup taksonomii jako SERWIS (safety-net dla zablokowanego alembica).
+"""Dedup taksonomii umiejętności jako SERWIS (safety-net dla zablokowanego alembica).
+
+Do 23.09.2026 moduł żył w ``services/cortex/``; Cortex usunięto, a ten krok
+startu został, bo pilnuje spójności słownika umiejętności (funkcyjne unique).
 
 Wierny port logiki z migracji ``0167_cortex_trust_foundation`` do async, żeby
 dało się go odpalić z entrypointu, gdy ``alembic upgrade heads`` na prodzie NIE

@@ -64,6 +64,15 @@ describe("settings-registry — widoczność jak przed przebudową", () => {
     expect(can(user("finance", { sourcing: "write" }), "mail")).toBe(false);
   });
 
+  it("Słownik umiejętności: admin i HoR z zapisem Sourcing (lustro /api/skills-admin)", () => {
+    expect(can(user("admin", { sourcing: "write" }), "skills")).toBe(true);
+    expect(can(user("head_of_recruitment", { sourcing: "write" }), "skills")).toBe(true);
+    expect(can(user("head_of_recruitment", { sourcing: "read" }), "skills")).toBe(false);
+    expect(can(user("delivery_lead", { sourcing: "write" }), "skills")).toBe(false);
+    expect(can(user("recruiter", { sourcing: "write" }), "skills")).toBe(false);
+    expect(item("skills").area).toBe("rec");
+  });
+
   it("rekruter ma jeden obszar", () => {
     const r = user("recruiter", { pipeline: "write" });
     expect(listedSettingsAreas(r as never).map((a) => a.id)).toEqual(["me"]);

@@ -111,7 +111,6 @@ const PRIVATE_ROUTES = [
   "/talents",
   "/talent-radar",
   "/manager",
-  "/cortex",
   "/preview/shell",
   "/jakas/zupelnie/nowa/trasa",
 ]
@@ -250,7 +249,6 @@ describe("linki publiczne działają bez tokenu", () => {
     // SidebarV2 (role-gating, liczniki) — czyli wewnętrzną strukturę aplikacji.
     expect(destination("/preview/shell")).toBe("/login")
     expect(destination("/preview/ds-kit")).toBe("/login")
-    expect(destination("/preview/cortex")).toBe("/login")
   })
 })
 
@@ -276,9 +274,6 @@ describe("zawężenia ról nadal obowiązują", () => {
     expect(destination("/cv-generator", configuredRecruiter)).toBe("/403")
     expect(destination("/talent-radar", configuredRecruiter)).toBe("/403")
     expect(destination("/insights", configuredRecruiter)).toBe("/403")
-    expect(destination("/settings/linkedin-metrics", configuredRecruiter)).toBe(
-      "/403",
-    )
 
     const configuredDeliveryLead = makeToken({
       role: "delivery_lead",
@@ -330,9 +325,7 @@ describe("zawężenia ról nadal obowiązują", () => {
         system_admin: "none",
       },
     })
-    expect(destination("/settings/linkedin-metrics", readOnlyFinance)).toBe(
-      "pass",
-    )
+    expect(destination("/insights", readOnlyFinance)).toBe("pass")
   })
 
   it("nie używa claimu sekcji do obchodzenia węższych reguł akcji", () => {
@@ -368,7 +361,6 @@ describe("zawężenia ról nadal obowiązują", () => {
       },
     })
     expect(destination("/candidates", configuredViewer)).toBe("/403")
-    expect(destination("/cortex", configuredViewer)).toBe("/403")
   })
 
   it("viewer nie wchodzi na /candidates", () => {
@@ -420,7 +412,6 @@ describe("zawężenia ról nadal obowiązują", () => {
       "/jobs",
       "/calendar",
       "/insights",
-      "/cortex",
     ]) {
       expect(destination(route, token), route).toBe("pass")
     }
@@ -443,7 +434,6 @@ describe("zawężenia ról nadal obowiązują", () => {
       "/jobs",
       "/calendar",
       "/insights",
-      "/cortex",
       "/clients",
       "/my-clients",
       "/order-mail",
@@ -522,12 +512,10 @@ describe("zawężenia ról nadal obowiązują", () => {
       "/clients",
       "/my-clients",
       "/contracts",
-      "/cortex",
       "/insights",
       "/settings/rate-benchmarks",
       "/settings/contract-templates",
       "/settings/team-structure",
-      "/settings/linkedin-metrics",
       "/settings/clients-overview",
       "/settings/client-portfolio-preview",
       "/settings/hiring-managers",

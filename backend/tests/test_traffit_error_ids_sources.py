@@ -1,8 +1,8 @@
-"""Źródła faz `cortex` i `candidates_cv_fields` muszą wypuścić ID padłych wierszy.
+"""Źródło fazy `candidates_cv_fields` musi wypuścić ID padłych wierszy.
 
 Adapter w ``app/tasks/traffit_sync.py`` zamienia ``stats["error_ids"]`` na błędy
 PRZYPISANE do wiersza (``PhaseProgress.add_error``), a dopiero przypisany błąd
-może trafić do kwarantanny. Dopóki oba źródła liczyły wyłącznie anonimowe
+może trafić do kwarantanny. Dopóki źródła liczyły wyłącznie anonimowe
 ``errors``, każdy błąd tych faz był dla ``_blocking_errors`` nieprzypisany:
 jeden trwale wywracający się kandydat mroził GLOBALNY znacznik ``__daily__``
 bezterminowo, okno delty rosło z każdą nocą, a ``checks.traffit`` stał na
@@ -18,7 +18,6 @@ from types import SimpleNamespace
 
 import pytest
 
-import app.services.cortex.extractor_traffit as cortex_extractor
 import app.services.cv_field_backfill as cv_fields
 
 
@@ -33,21 +32,6 @@ class _Nested:
 
     async def __aexit__(self, *a):
         return False  # wyjątek leci dalej, tak jak przy prawdziwym savepoincie
-
-
-class _CortexDb:
-    def __init__(self, rows: list[tuple[int, str]]) -> None:
-        self._rows = rows
-
-    async def execute(self, *a, **k):
-        rows = self._rows
-        return SimpleNamespace(all=lambda: rows)
-
-    async def commit(self):
-        return None
-
-    def begin_nested(self):
-        return _Nested()
 
 
 class _CvFieldsDb:
@@ -102,50 +86,6 @@ def cv_fields_env(monkeypatch):
         raise RuntimeError("apply boom")
 
     monkeypatch.setattr(cv_fields, "_apply_cv_enrichment", _explode)
-
-
-# ── cortex ───────────────────────────────────────────────────────────────────
-
-
-async def test_cortex_failing_row_lands_in_error_ids(monkeypatch):
-    async def _taxonomy(db):
-        return {}
-
-    def _explode(*a, **k):
-        raise RuntimeError("normalize boom")
-
-    monkeypatch.setattr(cortex_extractor, "load_taxonomy", _taxonomy)
-    monkeypatch.setattr(cortex_extractor, "normalize_and_upsert", _explode)
-
-    stats = await cortex_extractor.run_traffit_backfill(
-        _CortexDb([(41, "Python"), (42, "Go")])
-    )
-    assert stats["errors"] == 2
-    assert stats["error_ids"] == [41, 42]
-
-
-async def test_cortex_error_ids_are_capped(monkeypatch):
-    """500+ padających wierszy to awaria systemowa, nie zatruty wiersz.
-
-    Cap chroni JSONB (``cortex_extraction_runs.stats`` i
-    ``traffit_sync_state.stats``) przed 49 tysiącami identyfikatorów po
-    nieudanym pełnym reconcile, a nadmiar ZOSTAJE nieprzypisany — czyli dalej
-    mrozi watermark, co przy awarii systemowej jest bezpieczną odpowiedzią.
-    """
-
-    async def _taxonomy(db):
-        return {}
-
-    def _explode(*a, **k):
-        raise RuntimeError("normalize boom")
-
-    monkeypatch.setattr(cortex_extractor, "load_taxonomy", _taxonomy)
-    monkeypatch.setattr(cortex_extractor, "normalize_and_upsert", _explode)
-
-    rows = [(i, "Python") for i in range(600)]
-    stats = await cortex_extractor.run_traffit_backfill(_CortexDb(rows))
-    assert stats["errors"] == 600
-    assert len(stats["error_ids"]) == cortex_extractor._MAX_ERROR_IDS == 500
 
 
 # ── candidates_cv_fields ─────────────────────────────────────────────────────

@@ -418,9 +418,10 @@ def _isolate_skill_taxonomy():
 
     `scoring_service.ALIAS_MAP` and the three `skill_normalize` containers are
     module-level caches hydrated once at app startup. Anything that calls
-    `refresh_alias_map()` — the Cortex curation endpoints do, on every skill or
-    alias edit — rewrites them for the rest of the process. That made the order
-    of the CI file list load-bearing: `test_cortex_api.py` hydrates the taxonomy
+    `refresh_alias_map()` — the skill-dictionary curation endpoints
+    (`/api/skills-admin`, dawniej Cortex) do, on every skill or alias edit —
+    rewrites them for the rest of the process. That made the order of the CI
+    file list load-bearing: the curation API test hydrated the taxonomy
     from the DB, and every later test that expects the unhydrated default
     (`test_scoring_service.py`, the CV bolding tests) then failed for a reason
     unrelated to itself.

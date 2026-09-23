@@ -51,7 +51,6 @@ def _is_section_denial(resp) -> bool:
 
 _CASES = [
     ("GET", "/api/kpis/me/today", {"insights": "none"}),
-    ("GET", "/api/cortex/skills", {"insights": "none"}),
     ("GET", "/api/rejection-emails/by-candidate/1", {"pipeline": "none"}),
     ("GET", "/api/dashboard/v2/my-work", {"pipeline": "none"}),
     ("GET", "/api/priority-work/mine", {"pipeline": "none"}),

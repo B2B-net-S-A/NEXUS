@@ -82,6 +82,13 @@ const EventHistoryTab = dynamic(
     loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
   }
 );
+const SkillDictionaryTab = dynamic(
+  () => import("@/components/settings/SkillDictionaryTab"),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 animate-pulse bg-muted rounded-xl" />,
+  }
+);
 const PlacementExclusionsTab = dynamic(
   () => import("@/components/settings/PlacementExclusionsTab"),
   {
@@ -208,15 +215,6 @@ const ADVANCED_LINKS: Array<{
     roles: ["admin", "head_of_recruitment", "finance"],
   },
   {
-    href: "/settings/linkedin-metrics",
-    title: "Aktywność LinkedIn",
-    description: "Bulk edit dziennych liczb (CV / Msg / Resp) per TAC/sourcer.",
-    icon: <BarChart3 className="w-5 h-5" />,
-    roles: ["admin", "head_of_recruitment", "finance"],
-    section: "insights",
-    required: "read",
-  },
-  {
     href: "/settings/chats",
     title: "Globalny audyt czatów",
     description: "Przegląd wszystkich rozmów (projekty + kandydaci) z możliwością przeszukania treści.",
@@ -256,7 +254,6 @@ const FINANCE_READ_ONLY_LINKS = new Set([
   "/settings/rate-benchmarks",
   "/settings/contract-templates",
   "/settings/team-structure",
-  "/settings/linkedin-metrics",
   "/settings/chats",
   "/settings/clients-overview",
   "/settings/client-portfolio-preview",
@@ -378,6 +375,8 @@ function SettingsItemBody({ item, user }: { item: SettingsItem; user: Parameters
           </div>
         </div>
       );
+    case "skills":
+      return <SkillDictionaryTab />;
     case "traffit":
       return <TraffitSyncCard />;
     case "teams-prep":
