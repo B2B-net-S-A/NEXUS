@@ -4564,7 +4564,7 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_order_pdf_downloads_kind
             CHECK (file_kind IN ('order', 'group', 'amendment'))
     )""",
-    # 0355: „Cofnij zakończenie" (stan kontraktu i zamówień sprzed
+    # 0356: „Cofnij zakończenie" (stan kontraktu i zamówień sprzed
     # zakończenia) i „Powrót po przerwie" (nowy kontrakt wskazuje poprzedni).
     """CREATE TABLE IF NOT EXISTS contract_termination_snapshots (
         id SERIAL PRIMARY KEY,

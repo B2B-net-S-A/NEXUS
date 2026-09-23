@@ -1910,7 +1910,7 @@ async def assign_row(
     return await _row_to_read(db, row)
 
 
-# ── Cofnięcie zakończenia kontraktu (0355) ──────────────────────────────────
+# ── Cofnięcie zakończenia kontraktu (0356) ──────────────────────────────────
 
 
 @dataclass(frozen=True)

@@ -4147,7 +4147,7 @@ i zwroty sprzętu, dla których kart nie ma. Panel `MyClientsAlertsPanel` (`pres
   i cache z `updatedAt` w przyszłości — zero zapytań (401 przerzuciłby na /login).
   Checkbox w harnessie woła API — nie klikaj go w podglądzie.
 
-## „Cofnij zakończenie" i „Powrót po przerwie" (0355, 23.09.2026)
+## „Cofnij zakończenie" i „Powrót po przerwie" (0356, 23.09.2026)
 
 Zakończony kontrakt ma dwie osobne akcje (Admin, Finanse, TCM — bez DL;
 bramka `ContractTerminationRecoveryUser` + wyjątek sekcji w
@@ -4169,7 +4169,7 @@ linia MD została w „Zakończonych" z decyzją o puli) — front ją przechwyt
   = blokada 409 ze wskazaniem zamówienia. Nierozstrzygnięta sprawa
   offboardingu jest USUWANA (zostawiona blokowałaby nową sprawę przy
   ponownym zakończeniu z tą datą), jej alerty zamykane jako `resolved`.
-  Zakończenia sprzed 0355: data końca z `order_change_events` („stara →
+  Zakończenia sprzed 0356: data końca z `order_change_events` („stara →
   data zakończenia"), a bez wpisu — data końca grupy; zamówienie okresowe bez
   śladu jest pomijane. Import MD: wiersze `unmatched` z tym nazwiskiem, wgrane
   po zakończeniu, za miesiące po dacie zakończenia — tą samą ścieżką co
