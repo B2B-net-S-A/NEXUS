@@ -227,7 +227,7 @@ _HISTORICAL_REFERENCE_KEYS = frozenset(
 _CONTRACT_LIFECYCLE_FIELDS = {"status", "voided_at", "voided_by"}
 _CONTRACT_DERIVED_FIELDS = {"client_order_start_date", "client_order_end_date"}
 _CONTRACT_AUDIT_FIELDS = {"created_at", "updated_at"}
-# „Usuń szkic" (0356): stan PREZENTACJI karty w zakładce Zamówienia. Ocalały
+# „Usuń szkic" (0357): stan PREZENTACJI karty w zakładce Zamówienia. Ocalały
 # kontrakt zachowuje własny — schowana karta przegranego nie chowa karty osoby,
 # która po scaleniu ma zamówienia.
 _CONTRACT_PRESENTATION_FIELDS = {"orders_card_dismissed_at", "orders_card_dismissed_by"}

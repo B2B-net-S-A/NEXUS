@@ -259,7 +259,7 @@ class Contract(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
-    # „Usuń szkic" na pustej karcie zakładki Zamówienia (0356, ticket 09.2026).
+    # „Usuń szkic" na pustej karcie zakładki Zamówienia (0357, ticket 09.2026).
     # Kontrakt i rekrutacja zostają — chowa się tylko karta bez zamówienia.
     # Zamówienie założone PÓŹNIEJ przywraca kartę (`client_orders`).
     orders_card_dismissed_at: Mapped[Optional[datetime]] = mapped_column(

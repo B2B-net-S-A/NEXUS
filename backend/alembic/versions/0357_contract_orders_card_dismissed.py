@@ -1,7 +1,7 @@
 """Usunięcie pustej karty szkicu z zakładki Zamówienia (ticket 09.2026, C1).
 
-Revision ID: 0356_contract_orders_card_dismissed
-Revises: 0355_jarvis_ui_events
+Revision ID: 0357_contract_orders_card_dismissed
+Revises: 0356_kpi_targets_editor_reports
 
 Karta kontraktora w zakładce Zamówienia jest liczona z KONTRAKTU, więc po
 usunięciu jedynego zamówienia zostawała pusta karta „Brak aktywnego
@@ -14,8 +14,8 @@ Lustro w ``entrypoint.sh`` (prod alembic bywa osierocony).
 
 from alembic import op
 
-revision = "0356_contract_orders_card_dismissed"
-down_revision = "0355_jarvis_ui_events"
+revision = "0357_contract_orders_card_dismissed"
+down_revision = "0356_kpi_targets_editor_reports"
 branch_labels = None
 depends_on = None
 

@@ -4240,7 +4240,7 @@ poszerzenie CHECK-a na prodzie WYMAGA jawnego DROP+ADD):
   `IS DISTINCT FROM`, więc trzecia wartość omijała OBA i mogłaby nieść
   `target_order_id`/`rate_basis` bez żadnego ograniczenia.
 
-## Przejęcie pozostałych MD i karta szkicu (ticket 09.2026, migracja 0356)
+## Przejęcie pozostałych MD i karta szkicu (ticket 09.2026, migracja 0357)
 
 Serwis `app/services/order_line_takeover.py`, trasa
 `POST /api/clients/{id}/order-groups/{g}/takeover`, front `lib/order-takeover.ts`
