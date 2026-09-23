@@ -14,6 +14,7 @@ import {
 import {
  AlertCircle,
  AlertTriangle,
+ ArrowRight,
  ChevronLeft,
  ChevronRight,
  Clock,
@@ -75,12 +76,20 @@ import { useToast } from"@/components/Toast";
 import { BoardReviewSection } from "@/components/v2/jobs/BoardReviewSection";
 import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
+import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
+import { MoveNextDialog } from "@/components/v2/recruitment/MoveNextDialog";
+import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
+import {
+ MOVE_REQUIREMENTS_PREFIX,
+ type MoveRequirementAction,
+} from "@/lib/api/moveRequirements";
 import type { BoardTaskRow } from "@/lib/api/boardTasks";
 import type { PairInfo } from "@/lib/interview-cycle";
 import {
  SETTABLE_BADGES,
  STAGE_BADGE_LABEL,
  STAGE_BADGE_TITLE,
+ boardColumnStep,
  foldBoardColumns,
  impliedBadges,
  placeStage,
@@ -91,7 +100,12 @@ import { hasRole, useAuthStore } from "@/store/auth";
 import {
  CARD_BADGE_TONE_CLASS,
  cardBadges,
+ cardNextStep,
  claimAction,
+ knownForwardGap,
+ qcChip,
+ type CardNextStep,
+ type QcChipTone,
 } from "@/lib/board-card-badges";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -205,8 +219,12 @@ interface KanbanBoardV2Props {
  /** Deep link `?candidate=&panel=` — otwiera warsztat tej osoby. */
  initialWorkbench?: { candidateId: number; section: PersonPanelSection } | null;
  onInitialWorkbenchHandled?: () => void;
- /** Odznaka „Gotowy do Cpro" (tylko Nordea — `job.cpro_enabled`). */
+ /** Nordea (`job.cpro_enabled`): „CV wysłane" = „Wysłane do Cpro", znacznik
+  *  „W kolejce Cpro" w kolumnie „QC CV". */
  cproEnabled?: boolean;
+ /** Panel „Dodaj kandydatów" (Rekrutacja v5) — otwiera go strona; bez tej
+  *  funkcji kolumna „Nowi" pokazuje dawne karty propozycji. */
+ onOpenAddCandidates?: (tab: "search" | "proposals") => void;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -512,13 +530,20 @@ const NEXT_ACTION_ICON: Record<NextActionKind, typeof Phone> = {
 
 function NextActionRow({
  action,
+ step,
  hidden,
+ advance,
 }: {
  action: NextAction;
+ /** „Kto ma ruch" + co zrobić (Rekrutacja v5) — `null` = sama etykieta akcji. */
+ step?: CardNextStep | null;
  hidden?: boolean;
+ /** Strzałka „→" na końcu wiersza. */
+ advance?: React.ReactNode;
 }) {
- if (action.kind === "none") return null;
+ if (action.kind === "none" && !step && !advance) return null;
  const Icon = action.tone === "normal" ? NEXT_ACTION_ICON[action.kind] : AlertTriangle;
+ const label = step?.label ?? action.label;
  return (
  <div
  data-next-action={action.tone}
@@ -528,11 +553,32 @@ function NextActionRow({
  hidden && "xl:pointer-fine:hidden"
  )}
  >
- <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
- <span className="min-w-0 truncate">{action.label}</span>
+ {step ? (
+  <span
+   data-testid="card-next-who"
+   className={cn(
+    "shrink-0 rounded px-1 text-[9.5px] font-semibold",
+    step.mine ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+   )}
+  >
+   {step.who}
+  </span>
+ ) : label ? (
+  <Icon className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ ) : null}
+ <span className="min-w-0 flex-1 truncate">{label}</span>
+ {advance}
  </div>
  );
 }
+
+/** Ton chipu QC — tokeny, jak odznaki karty. */
+const QC_CHIP_TONE: Record<QcChipTone, string> = {
+ ok: "bg-success/15 text-success",
+ urgent: "bg-destructive/10 text-destructive",
+ wait: "bg-warning/15 text-warning",
+ neutral: "bg-muted text-muted-foreground",
+};
 
 interface CardProps {
  item: KanbanItem;
@@ -575,9 +621,7 @@ interface CardProps {
 
 const STAGE_BADGE_TONE: Record<StageBadgeKey, string> = {
  posting: "bg-muted text-muted-foreground",
- screening: "bg-muted text-muted-foreground",
  acceptance: "bg-info/15 text-info",
- dz: "bg-success/15 text-success",
  cpro: "bg-info/15 text-info",
  prep: "bg-info/15 text-info",
  after_interview: "bg-muted text-muted-foreground",
@@ -627,6 +671,12 @@ interface BoardV4Ctx {
  readOnly: boolean;
  takingIds: ReadonlySet<number>;
  onTake: (item: KanbanItem) => void;
+ /** Rekrutacja v5: następna kolumna Tablicy karty (`null` = brak strzałki). */
+ nextColumnLabel: (item: KanbanItem) => string | null;
+ /** Strzałka „→" — okno „Przesuń dalej". */
+ onAdvance: (item: KanbanItem) => void;
+ /** Chip QC — okno QC CV. */
+ onOpenQc: (item: KanbanItem) => void;
 }
 const BoardV4Context = React.createContext<BoardV4Ctx | null>(null);
 
@@ -709,6 +759,15 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  stageBadge = null,
 }: CardProps) {
  const fullName = `${item.name ??""} ${item.lastname ??""}`.trim() ||"Kandydat";
+ // Rekrutacja v5: kolumna Tablicy karty, „kto ma ruch", strzałka „→" i chip QC.
+ const v5 = React.useContext(BoardV4Context);
+ const boardKey = v5?.columnByItemId.get(item.id) ?? null;
+ const nextStep = v5
+ ? cardNextStep(nextAction, item, { column: boardKey, cproEnabled: v5.cproEnabled, stageBadge })
+ : null;
+ const nextColumnLabel = v5 && !readOnly ? v5.nextColumnLabel(item) : null;
+ const forwardGap = nextColumnLabel ? knownForwardGap(item, boardKey) : null;
+ const qc = boardKey === "cv_qc" ? qcChip(item) : null;
  const normalizedMatchScore =
  typeof matchScore === "number" && Number.isFinite(matchScore)
  ? Math.max(0, Math.min(100, Math.round(matchScore)))
@@ -1005,6 +1064,26 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {STAGE_BADGE_LABEL[badge]}
  </span>
  ))}
+ {qc && v5 && (
+ <button
+ type="button"
+ data-testid="card-qc-chip"
+ onClick={(e) => {
+ e.stopPropagation();
+ e.preventDefault();
+ v5.onOpenQc(item);
+ }}
+ className={cn(
+ "inline-flex items-center rounded px-1 text-[9px] font-semibold hover:ring-1 hover:ring-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+ QC_CHIP_TONE[qc.tone],
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={qc.title}
+ aria-label={`${qc.label} — otwórz QC CV dla ${fullName}`}
+ >
+ {qc.label}
+ </button>
+ )}
  <CardV4Badges item={item} fullName={fullName} stageBadge={stageBadge} />
  {/* `=== true`: odznaka obiecuje gotowy dokument (dawna odznaka
  kolumny „Następny krok" w Tabeli). */}
@@ -1062,8 +1141,40 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </div>
  ) : null}
 
- {/* Wiersz 3 makiety: co dalej z tą kartą. */}
- <NextActionRow action={nextAction} hidden={desktopOverview} />
+ {/* Wiersz 3 makiety: kto ma ruch, co zrobić i strzałka „→" (v5). */}
+ <NextActionRow
+ action={nextAction}
+ step={nextStep}
+ hidden={desktopOverview}
+ advance={
+ nextColumnLabel && v5 ? (
+ <button
+ type="button"
+ data-testid="card-advance"
+ data-gap={forwardGap ? "true" : "false"}
+ onClick={(e) => {
+ e.stopPropagation();
+ e.preventDefault();
+ v5.onAdvance(item);
+ }}
+ aria-label={`Przesuń ${fullName} na następny etap`}
+ title={
+ forwardGap
+ ? `${forwardGap} — kliknij, żeby zobaczyć, czego brakuje do „${nextColumnLabel}”`
+ : `Dalej: ${nextColumnLabel}`
+ }
+ className={cn(
+ "ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+ forwardGap
+ ? "border-border bg-muted text-muted-foreground hover:text-foreground"
+ : "border-primary/40 text-primary hover:bg-primary hover:text-primary-foreground"
+ )}
+ >
+ <ArrowRight className="h-3 w-3" aria-hidden="true" />
+ </button>
+ ) : null
+ }
+ />
 
  {/* Usuń z rekrutacji — akcja korekcyjna („dodano nie tego kandydata").
  Hover-revealed, żeby nie zaśmiecać karty. */}
@@ -1159,6 +1270,8 @@ interface ColProps {
  badgeByItemId?: ReadonlyMap<number, StageBadgeKey>;
  /** Dolicz do licznika w nagłówku (propozycje w „Do przejrzenia"). */
  extraCount?: number;
+ /** Numer kroku procesu (1–8) w nagłówku kolumny Tablicy; `null` = bez numeru. */
+ step?: number | null;
 }
 
 const KanbanColumnV2 = memo(function KanbanColumnV2({
@@ -1187,6 +1300,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  prepend,
  badgeByItemId,
  extraCount = 0,
+ step = null,
 }: ColProps) {
  const headerCount = col.count + extraCount;
  const dropId = colId(col);
@@ -1239,6 +1353,18 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  </TooltipTrigger>
  <TooltipContent side="top">{CATEGORY_LABEL[col.category]}</TooltipContent>
  </Tooltip>
+ )}
+ {step != null && (
+ <span
+ data-testid="column-step"
+ className={cn(
+ "inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 px-1 text-[10px] font-semibold tabular-nums text-primary",
+ desktopOverview && "xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:text-[9px]"
+ )}
+ aria-label={`Krok ${step}`}
+ >
+ {step}
+ </span>
  )}
  <h3 className={cn("text-foreground flex-1 truncate", density === "compact" ?"text-sm font-medium" :"text-xl font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)}>
  {titleOverride ?? columnLabel(col)}
@@ -1360,7 +1486,7 @@ const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, onOpenAddCandidates }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
  const setDensity = useUiStore((s) => s.setDensity);
  // Krok 04 Pipeline (flow C2, PR 3/7): globalny przełącznik, jak `density` —
@@ -1378,7 +1504,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Kolumny SZABLONU — wszystko, co wybiera cel ruchu albo mierzy pipeline,
  // musi iść po tej liście, nie po `cols` (w `cols` siedzi też kubełek).
  const stageCols = useMemo(() => cols.filter((c) => !isOffTemplate(c)), [cols]);
- // 6 kolumn Tablicy (23.09.2026, `lib/board-stages.ts`): etapy szablonu
+ // 8 kolumn Tablicy (Rekrutacja v5, `lib/board-stages.ts`): etapy szablonu
  // złożone w kolumny, to, co nie jest krokiem procesu, jako odznaka na karcie.
  // `cols`/`stageCols` zostają PRAWDZIWYMI etapami — z nich liczy się ruch,
  // liczniki i dok; złożenie dotyczy wyłącznie renderu i celów upuszczenia.
@@ -1408,7 +1534,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  for (const c of boardFold.closed) m.set(colId(c), c);
  return m;
  }, [boardFold]);
- // Cele ruchu z doku i paska zbiorczego: 6 gospodarzy + zamknięci.
+ // Cele ruchu z doku i paska zbiorczego: 8 gospodarzy + zamknięci.
  // Gospodarz niesie nazwę KOLUMNY Tablicy („Umowa", nie „Umowa wysłana").
  const moveTargetCols = useMemo(
  () => [
@@ -1424,15 +1550,18 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // czternastoma propozycjami).
  const [reviewTotal, setReviewTotal] = useState<number | null>(null);
  const authUser = useAuthStore((st) => st.user);
- const canSetDzBadge =
+ const isDlOrHor =
  hasRole(authUser, "admin") ||
  hasRole(authUser, "delivery_lead") ||
  hasRole(authUser, "head_of_recruitment");
+ // Poza Nordeą CV do klienta wysyła DL albo admin (lustro
+ // `pipeline_move_rules.CLIENT_SEND_ROLES`).
+ const canReviewAsDl = hasRole(authUser, "admin") || hasRole(authUser, "delivery_lead");
  // Terminy od klienta dodaje DL (lustro bramki `interview_slots`: admin, HoR,
  // DL, TAC z członkostwem — serwer i tak sprawdza członkostwo).
  const canAddClientSlots =
  !readOnly &&
- (canSetDzBadge || hasRole(authUser, "tac"));
+ (isDlOrHor || hasRole(authUser, "tac"));
  const [slotPair, setSlotPair] = useState<PairInfo | null>(null);
  // Pipeline v4: kolumna Tablicy każdej karty (odznaki) i „Biorę/Przejmij".
  const columnByItemId = useMemo(() => {
@@ -1441,6 +1570,70 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  for (const c of boardFold.closed) for (const it of c.items) m.set(it.id, "closed");
  return m;
  }, [boardFold]);
+ // Rekrutacja v5: następna kolumna Tablicy karty — cel strzałki „→".
+ // Zatrudnieni, zamknięci i kubełek „Poza szablonem" strzałki nie mają.
+ const nextFoldByItemId = useMemo(() => {
+ const m = new Map<number, (typeof boardFold.columns)[number]>();
+ boardFold.columns.forEach((f, index) => {
+ const next = boardFold.columns[index + 1];
+ if (!next || f.key === "hired") return;
+ for (const it of f.items) m.set(it.id, next);
+ });
+ return m;
+ }, [boardFold]);
+ const foldIndexByColId = useMemo(() => {
+ const m = new Map<string, number>();
+ boardFold.columns.forEach((f, index) => {
+ for (const c of f.members) m.set(colId(c), index);
+ });
+ return m;
+ }, [boardFold]);
+ const nextColumnLabel = useCallback(
+ (item: KanbanItem) => nextFoldByItemId.get(item.id)?.label ?? null,
+ [nextFoldByItemId]
+ );
+ // Okno „Przesuń dalej" i okno QC CV (F2: `CvQcDialog`).
+ const [moveNext, setMoveNext] = useState<{
+ item: KanbanItem;
+ srcColId: string;
+ target: KanbanColumn;
+ targetLabel: string;
+ targetKey: BoardColumnKey | null;
+ fromKey: BoardColumnKey | null;
+ } | null>(null);
+ // Okno „Przesuń dalej" chowa się na czas akcji z listy braków (arkusz,
+ // QC, warsztat) i wraca po jej zamknięciu ze świeżymi wymaganiami.
+ const [moveNextOpen, setMoveNextOpen] = useState(false);
+ const moveNextSuspended = useRef(false);
+ const [qcStageId, setQcStageId] = useState<number | null>(null);
+ const [debriefFor, setDebriefFor] = useState<{ eventId: number; name: string } | null>(null);
+ const openMoveNext = useCallback(
+ (item: KanbanItem, srcColId: string, target: KanbanColumn) => {
+ const fold = boardFold.columns.find((f) => f.host === target || f.members.includes(target));
+ const host = fold?.host ?? target;
+ setMoveNext({
+ item,
+ srcColId,
+ target: host,
+ targetLabel: fold?.label ?? columnLabel(host),
+ targetKey: fold?.key ?? null,
+ fromKey: columnByItemId.get(item.id) ?? null,
+ });
+ moveNextSuspended.current = false;
+ setMoveNextOpen(true);
+ },
+ [boardFold, columnByItemId]
+ );
+ const onAdvance = useCallback(
+ (item: KanbanItem) => {
+ const next = nextFoldByItemId.get(item.id);
+ const src = cols.find((c) => c.items.some((i) => i.id === item.id));
+ if (!next || !src) return;
+ openMoveNext(item, colId(src), next.host);
+ },
+ [nextFoldByItemId, cols, openMoveNext]
+ );
+ const onOpenQc = useCallback((item: KanbanItem) => setQcStageId(item.id), []);
  const [takingIds, setTakingIds] = useState<ReadonlySet<number>>(() => new Set());
  const takeCandidate = useCallback(
  async (item: KanbanItem) => {
@@ -1475,8 +1668,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  readOnly,
  takingIds,
  onTake: takeCandidate,
+ nextColumnLabel,
+ onAdvance,
+ onOpenQc,
  }),
- [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate]
+ [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate, nextColumnLabel, onAdvance, onOpenQc]
  );
  // Osoby już na tablicy — „Do przejrzenia" nie proponuje ich drugi raz.
  const boardCandidateIds = useMemo(
@@ -1770,8 +1966,38 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  confirm: confirmMoved,
  sync: refreshBoardFromServer,
  },
+ // 409 CV_QC_FAILED (także z przeciągnięcia) → okno QC CV tej pary.
+ onCvQcFailed: (failure, item) => setQcStageId(failure.stageId ?? item.id),
  });
  const { requestMove, requestReject } = move;
+
+ // Rekrutacja v5: ruch NAPRZÓD przez Tablicę. Na sąsiednią kolumnę bez
+ // znanych braków — od razu (`usePipelineMove`, jak dotąd). Dalej niż
+ // o jedną kolumnę, przy znanym braku albo na „CV wysłane" (bramka QC,
+ // wysyłka przez DL / kolejka Cpro) — najpierw okno „Przesuń dalej".
+ // Ruchy wstecz i na etapy-znaczniki w tej samej kolumnie idą od razu.
+ const routeMove = useCallback(
+ (item: KanbanItem, srcColId: string, dst: KanbanColumn) => {
+ const fromIndex = foldIndexByColId.get(srcColId);
+ const toIndex = foldIndexByColId.get(colId(dst));
+ if (fromIndex == null || toIndex == null || toIndex <= fromIndex) {
+ requestMove(item, srcColId, dst);
+ return;
+ }
+ const fromKey = boardFold.columns[fromIndex]?.key ?? null;
+ const toKey = boardFold.columns[toIndex]?.key ?? null;
+ const stageBadge = boardFold.badgeByItemId.get(item.id) ?? null;
+ const directToClient =
+ toKey === "cv_sent" &&
+ !(cproEnabled ? stageBadge === "cpro" : canReviewAsDl && item.qc?.status !== "failed");
+ if (toIndex - fromIndex > 1 || knownForwardGap(item, fromKey) || directToClient) {
+ openMoveNext(item, srcColId, dst);
+ return;
+ }
+ requestMove(item, srcColId, dst);
+ },
+ [foldIndexByColId, boardFold, cproEnabled, canReviewAsDl, openMoveNext, requestMove]
+ );
 
  const onDragEnd = useCallback(
  (res: DropResult) => {
@@ -1796,9 +2022,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  requestReject(item, dst, { endedBy: closedBy as ClosedRejectBy });
  return;
  }
- requestMove(item, colId(realSrc), dst);
+ routeMove(item, colId(realSrc), dst);
  },
- [cols, displayCols, stageCols, hostByColId, requestMove, requestReject, readOnly]
+ [cols, displayCols, stageCols, hostByColId, routeMove, requestReject, readOnly]
  );
 
  // Potwierdzone usunięcie kandydata z tej rekrutacji. Optymistycznie zdejmuje
@@ -2004,7 +2230,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const dockHostKey = dockItem ? (columnByItemId.get(dockItem.id) ?? null) : null;
  const dockMoveTargets = useMemo<PipelineMoveTarget[]>(() => {
  if (!dockItem || !dockItemColId) return [];
- // Cele: 9 kolumn Tablicy (ich gospodarze) + zamknięci — bez etapów-odznak,
+ // Cele: 8 kolumn Tablicy (ich gospodarze) + zamknięci — bez etapów-odznak,
  // te ustawia się przełącznikiem odznaki.
  return moveTargetCols
  .filter((c) => !dockHost || colId(c) !== colId(dockHost))
@@ -2039,8 +2265,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // (`lib/pipeline-flow.ts`), obok jedynej bramki ruchu `moveBlockedReason`.
  const dockPrimaryMove = useMemo<PrimaryForwardMove | null>(() => {
  if (!dockItem || !dockItemColId) return null;
- // Po kolumnach Tablicy, nie po etapach szablonu: z „Zweryfikowany" główna
- // akcja prowadzi do „CV wysłane", nie do etapu-odznaki „DZ".
+ // Po kolumnach Tablicy, nie po etapach szablonu: z „QC CV" główna akcja
+ // prowadzi do „CV wysłane", nie do etapu-znacznika „Wysłać do Cpro".
  return primaryForwardMove({
  item: dockItem,
  columns: moveTargetCols,
@@ -2062,33 +2288,25 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  disabledReason: string | null;
  onToggle: () => void;
  }> = [];
+ // Rekrutacja v5: DZ stał się kolumną „QC CV", a Cpro ustawia strzałka
+ // („Przesuń dalej" → „Przekaż do Cpro") — zostaje „Umowa podpisana".
  for (const member of fold.members) {
  const badge = placeStage(member).badge;
  if (!badge || !SETTABLE_BADGES.includes(badge)) continue;
- // Pipeline v4: DZ → Cpro to ścieżka Nordei; poza nią osobę wysyła DL
- // z przeglądu, a odznaka DZ tylko myliłaby (decyzja 23.09.2026).
- if ((badge === "cpro" || badge === "dz") && !cproEnabled) continue;
  const currentBadge = placeStage(
  fold.members.find((m) => colId(m) === dockItemColId) ?? dockHost
  ).badge;
- // „DZ" jest aktywne także na etapie Cpro (stoi po DZ w procesie).
  const active = impliedBadges(currentBadge).includes(badge);
  toggles.push({
  key: badge,
  label: STAGE_BADGE_LABEL[badge],
  active,
- disabledReason: readOnly
- ? "Tylko odczyt."
- : badge === "dz" && !canSetDzBadge
- ? "„DZ ✓” ustawia Delivery Lead albo Head of Recruitment."
- : null,
- // „Gotowy do Cpro": bez pytania o osobę — do Cpro wysyła jedna
- // osoba na całą rekrutację (0353, pasek nad Tablicą).
+ disabledReason: readOnly ? "Tylko odczyt." : null,
  onToggle: () => requestMove(dockItem, dockItemColId, active ? dockHost : member),
  });
  }
  return toggles;
- }, [dockItem, dockItemColId, dockHost, boardFold, cproEnabled, readOnly, canSetDzBadge, requestMove]);
+ }, [dockItem, dockItemColId, dockHost, boardFold, readOnly, requestMove]);
 
  // Wiersz „następna akcja" doku — TA SAMA funkcja, którą renderuje karta na
  // tablicy; osobna kopia rozjechałaby się przy pierwszej zmianie progu.
@@ -2104,7 +2322,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // do klienta dostaje ten sam pełny przegląd co na pulpicie (stawka kandydata,
  // CV, screening, stawka do klienta — bez marży), a nie samo okno stawki.
  const [dlReviewTask, setDlReviewTask] = useState<BoardTaskRow | null>(null);
- const canReviewAsDl = hasRole(authUser, "admin") || hasRole(authUser, "delivery_lead");
  const handleDockMove = useCallback(
  (dst: KanbanColumn) => {
  if (!dockItem || !dockItemColId) return;
@@ -2112,7 +2329,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  dst.stage === "cv_sent" &&
  !cproEnabled &&
  canReviewAsDl &&
- dockHostKey === "verified"
+ dockHostKey === "cv_qc" &&
+ dockItem.qc?.status !== "failed"
  ) {
  setDlReviewTask({
  kind: "dl_review",
@@ -2139,6 +2357,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  });
  return;
  }
+ // Wybór etapu z doku jest jawny — ruch od razu (serwer i tak pilnuje
+ // bramki QC; 409 CV_QC_FAILED otwiera okno QC CV).
  requestMove(dockItem, dockItemColId, dst);
  },
  [dockItem, dockItemColId, requestMove, cproEnabled, canReviewAsDl, dockHostKey, jobId, jobTitle, clientId, rejectedTemplateCol]
@@ -2173,6 +2393,110 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (!dockItem) return;
  move.requestWithdraw(dockItem);
  }, [dockItem, move]);
+
+ // ── Okno „Przesuń dalej" (Rekrutacja v5) ────────────────────────────────
+ const refreshMoveRequirements = useCallback(() => {
+ void queryClient.invalidateQueries({ queryKey: MOVE_REQUIREMENTS_PREFIX });
+ }, [queryClient]);
+ // Okno akcji (arkusz, QC, warsztat, terminy, debrief) się zamknęło — wróć
+ // do „Przesuń dalej" z przeliczonymi wymaganiami.
+ const resumeMoveNext = useCallback(() => {
+ refreshMoveRequirements();
+ if (!moveNextSuspended.current) return;
+ moveNextSuspended.current = false;
+ setMoveNextOpen(true);
+ }, [refreshMoveRequirements]);
+ const suspendMoveNext = useCallback(() => {
+ moveNextSuspended.current = true;
+ setMoveNextOpen(false);
+ }, []);
+ const handleMoveNextAction = useCallback(
+ (action: MoveRequirementAction, item: KanbanItem) => {
+ const name = itemFullName(item);
+ const stageId = action.stage_id ?? item.id;
+ switch (action.kind) {
+ case "open_screening":
+ suspendMoveNext();
+ setScreeningPrompt({ stageId, candidateName: name });
+ return;
+ case "open_qc":
+ suspendMoveNext();
+ setQcStageId(stageId);
+ return;
+ case "set_candidate_rate": {
+ // Stawkę kandydata zapisuje ruch na „Zweryfikowany" (okno stawki
+ // `usePipelineMove`) — osoba stoi dalej przed tą kolumną.
+ const verified = boardFold.columns.find((f) => f.key === "verified")?.host;
+ const src = cols.find((c) => c.items.some((i) => i.id === item.id));
+ setMoveNextOpen(false);
+ if (verified && src) requestMove(item, colId(src), verified);
+ return;
+ }
+ case "generate_cv":
+ case "set_client_rate":
+ if (workbenchContext) {
+ suspendMoveNext();
+ setWorkbench({ candidateId: item.candidate_id, section: "cv" });
+ } else {
+ window.open(
+ `/cv-generator?candidate_id=${item.candidate_id}&job_id=${jobId}`,
+ "_blank",
+ "noopener"
+ );
+ }
+ return;
+ case "open_debrief":
+ suspendMoveNext();
+ if (action.event_id != null) {
+ setDebriefFor({ eventId: action.event_id, name });
+ } else if (workbenchContext) {
+ setWorkbench({ candidateId: item.candidate_id, section: "interviews" });
+ } else {
+ moveNextSuspended.current = false;
+ window.open(`/calendar?view=agenda`, "_blank", "noopener");
+ }
+ return;
+ case "request_slots":
+ if (canAddClientSlots) {
+ suspendMoveNext();
+ setSlotPair({
+ candidate_id: item.candidate_id,
+ candidate_name: name,
+ candidate_email: null,
+ job_id: jobId,
+ job_title: jobTitle ?? null,
+ client_id: clientId ?? null,
+ client_name: null,
+ });
+ } else {
+ window.open(`/calendar?view=agenda`, "_blank", "noopener");
+ }
+ return;
+ default:
+ return;
+ }
+ },
+ [suspendMoveNext, boardFold, cols, requestMove, workbenchContext, jobId, jobTitle, clientId, canAddClientSlots]
+ );
+ const handleMoveNextMove = useCallback(
+ (target: KanbanColumn) => {
+ if (!moveNext) return;
+ requestMove(moveNext.item, moveNext.srcColId, target);
+ },
+ [moveNext, requestMove]
+ );
+ const handleHandToCpro = useCallback(
+ (stageDefId: number) => {
+ if (!moveNext) return;
+ const cpro = stageCols.find((c) => c.stage_def_id === stageDefId);
+ if (!cpro) {
+ showError("Nie znaleziono etapu „Wysłać do Cpro” w szablonie tej rekrutacji.");
+ return;
+ }
+ requestMove(moveNext.item, moveNext.srcColId, cpro);
+ },
+ [moveNext, stageCols, requestMove, showError]
+ );
 
  // Filtry lewej kolumny — liczone raz nad WSZYSTKIMI kartami (łącznie z
  // kubełkiem „Poza szablonem": to nadal realni kandydaci w procesie).
@@ -2257,7 +2581,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  [stuckFilter, stuckIds, blockedFilter, noActionFilter, noActionIds, recruiterFilter, myMoveFilter, myMoveIds, nameQuery]
  );
 
- // Kolumny do renderu: 9 kolumn Tablicy (+ rozwinięci zamknięci + kubełek
+ // Kolumny do renderu: 8 kolumn Tablicy (+ rozwinięci zamknięci + kubełek
  // „Poza szablonem"). „Ukryj puste kolumny" usuwa CAŁE kolumny bez kart —
  // bezpieczne dla `@hello-pangea/dnd` (pusta kolumna nie ma indeksów).
  // „Do przejrzenia" nie znika nigdy: niesie propozycje spoza kanbana.
@@ -2599,6 +2923,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onTotalChange={setReviewTotal}
  pipelineCandidateIds={boardCandidateIds}
  budgetHourly={jobBudgetHourlyValue ?? null}
+ compact={Boolean(onOpenAddCandidates)}
+ onOpenPanel={onOpenAddCandidates}
  />
  </div>
  )}
@@ -2647,12 +2973,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  group={groupByColId.get(entry.key)}
  slaDays={slaDays}
  badgeByItemId={boardFold.badgeByItemId}
+ step={boardColumnStep(boardKeyByColId.get(entry.key))}
  {...(boardLabelByColId.has(entry.key)
  ? { titleOverride: boardLabelByColId.get(entry.key) }
  : {})}
  {...(boardKeyByColId.get(entry.key) === "new"
  ? {
- extraCount: reviewTotal ?? 0,
+ // v5: propozycje mają własne pole nad kartami — nagłówek liczy ludzi w kolumnie.
+ extraCount: onOpenAddCandidates ? 0 : (reviewTotal ?? 0),
  prepend: (
  <BoardReviewSection
  jobId={jobId}
@@ -2661,6 +2989,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onTotalChange={setReviewTotal}
  pipelineCandidateIds={boardCandidateIds}
  budgetHourly={jobBudgetHourlyValue ?? null}
+ compact={Boolean(onOpenAddCandidates)}
+ onOpenPanel={onOpenAddCandidates}
  />
  ),
  }
@@ -2749,8 +3079,57 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Terminy od klienta same przesuwają kartę na „Rozmowę u klienta".
  queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
  queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+ resumeMoveNext();
  }}
  />
+ <MoveNextDialog
+ open={moveNextOpen && moveNext !== null}
+ onOpenChange={(open) => {
+ setMoveNextOpen(open);
+ if (!open && !moveNextSuspended.current) setMoveNext(null);
+ }}
+ jobId={jobId}
+ item={moveNext?.item ?? null}
+ target={moveNext?.target ?? null}
+ targetLabel={moveNext?.targetLabel ?? null}
+ targetKey={moveNext?.targetKey ?? null}
+ fromKey={moveNext?.fromKey ?? null}
+ cproEnabled={cproEnabled}
+ readOnly={readOnly}
+ onMove={handleMoveNextMove}
+ onHandToCpro={handleHandToCpro}
+ onAction={handleMoveNextAction}
+ />
+ <CvQcDialog
+ stageId={qcStageId}
+ open={qcStageId !== null}
+ onClose={() => {
+ setQcStageId(null);
+ resumeMoveNext();
+ }}
+ onChanged={() => {
+ queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+ queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+ refreshMoveRequirements();
+ }}
+ />
+ {debriefFor && (
+ <DebriefRequiredDialog
+ open={true}
+ onOpenChange={(open) => {
+ if (open) return;
+ setDebriefFor(null);
+ resumeMoveNext();
+ }}
+ eventId={debriefFor.eventId}
+ candidateName={debriefFor.name}
+ jobId={jobId}
+ onSaved={() => {
+ setDebriefFor(null);
+ resumeMoveNext();
+ }}
+ />
+ )}
  {workbench && workbenchContext && kanbanQueryState && (
  <BoardWorkbenchDrawer
  jobId={jobId}
@@ -2761,7 +3140,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onSectionChange={(section) =>
  setWorkbench((prev) => (prev ? { ...prev, section } : prev))
  }
- onClose={() => setWorkbench(null)}
+ onClose={() => {
+ setWorkbench(null);
+ resumeMoveNext();
+ }}
  readOnly={readOnly}
  canWriteClientRate={canWriteClientRate}
  budgetHourly={jobBudgetHourlyValue ?? null}
@@ -2793,10 +3175,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  {screeningPrompt && (
  <ScreeningSheet
  open={true}
- onOpenChange={(v) => !v && setScreeningPrompt(null)}
+ onOpenChange={(v) => {
+ if (v) return;
+ setScreeningPrompt(null);
+ resumeMoveNext();
+ }}
  stageId={screeningPrompt.stageId}
  candidateName={screeningPrompt.candidateName}
- onSubmitted={() => setScreeningPrompt(null)}
+ onSubmitted={() => {
+ setScreeningPrompt(null);
+ resumeMoveNext();
+ }}
  />
  )}
 

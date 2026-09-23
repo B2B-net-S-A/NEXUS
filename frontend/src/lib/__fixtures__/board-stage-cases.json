@@ -1,12 +1,13 @@
 {
-  "_comment": "Tablica rekrutacji (6 kolumn od 23.09.2026): etap szablonu → kolumna Tablicy + odznaka. Odznaki posting/screening/acceptance wynikają z KODU etapu, pozostałe z NAZWY (tylko te sprawdza stage_badge_kind). Czyta go frontend (lib/board-stages.ts) i backend (services/board_stage_badges.py) — reguła nazw DZ/Cpro musi być w obu miejscach taka sama. Przypadki to prawdziwe nazwy etapów z trzech szablonów na produkcji.",
+  "_comment": "Tablica rekrutacji (8 kolumn od 24.09.2026, makiety https://claude.ai/artifact/CG4mBk9xcHZAn3y9jcmMeW): Nowi · Screening · Zweryfikowany · QC CV · CV wysłane · Rozmowa u klienta · Umowa · Zatrudniony. Etap szablonu → kolumna Tablicy + znacznik na karcie. „Przepuszczony przez DZ” i „QC CV” to gospodarz kolumny QC CV (bez znacznika); „Wysłać do Cpro” (Nordea) wpada do QC CV ze znacznikiem cpro = „w kolejce Cpro”. Odznaki posting/acceptance wynikają z KODU etapu, pozostałe z NAZWY. Czyta go frontend (lib/board-stages.ts) i backend (services/board_stage_badges.py). Przypadki to prawdziwe nazwy etapów z trzech szablonów na produkcji.",
   "cases": [
     {"name": "Ogłoszenia", "stage": "posting", "category": "internal", "column": "new", "badge": "posting"},
     {"name": "Nowi / Analiza CV", "stage": "new", "category": "internal", "column": "new", "badge": null},
-    {"name": "Screening", "stage": "screening", "category": "internal", "column": "new", "badge": "screening"},
+    {"name": "Screening", "stage": "screening", "category": "internal", "column": "screening", "badge": null},
     {"name": "Zweryfikowany", "stage": "verified", "category": "internal", "column": "verified", "badge": null},
-    {"name": "Przepuszczony przez DZ", "stage": "interview", "category": "internal", "column": "verified", "badge": "dz"},
-    {"name": "Wysłać do Cpro", "stage": "new", "category": "internal", "column": "verified", "badge": "cpro"},
+    {"name": "Przepuszczony przez DZ", "stage": "interview", "category": "internal", "column": "cv_qc", "badge": null},
+    {"name": "QC CV", "stage": "interview", "category": "internal", "column": "cv_qc", "badge": null},
+    {"name": "Wysłać do Cpro", "stage": "new", "category": "internal", "column": "cv_qc", "badge": "cpro"},
     {"name": "CV Wysłane", "stage": "cv_sent", "category": "internal", "column": "cv_sent", "badge": null},
     {"name": "Preparation Meeting", "stage": "new", "category": "internal", "column": "client_interview", "badge": "prep"},
     {"name": "Interview Klient", "stage": "client_interview", "category": "external", "column": "client_interview", "badge": null},
@@ -19,7 +20,7 @@
     {"name": "Wycofany", "stage": "withdrawn", "category": "terminal", "column": "closed", "badge": null},
     {"name": "Nowy", "stage": "new", "category": "internal", "column": "new", "badge": null},
     {"name": "Kandydat Zweryfikowany", "stage": "verified", "category": "internal", "column": "verified", "badge": null},
-    {"name": "NORDEA: Wysłać do Cpro", "stage": "new", "category": "internal", "column": "verified", "badge": "cpro"},
+    {"name": "NORDEA: Wysłać do Cpro", "stage": "new", "category": "internal", "column": "cv_qc", "badge": "cpro"},
     {"name": "Wysłany do Klienta", "stage": "cv_sent", "category": "internal", "column": "cv_sent", "badge": null},
     {"name": "Interview - Prep", "stage": "new", "category": "internal", "column": "client_interview", "badge": "prep"},
     {"name": "Prep - Followup", "stage": "new", "category": "internal", "column": "client_interview", "badge": "prep"},
@@ -30,10 +31,11 @@
     {"name": "Zaakceptowany", "stage": "acceptance", "category": "external", "column": "contract", "badge": "acceptance"},
     {"name": "Zaakceptowany (#41)", "stage": "acceptance", "category": "external", "column": "contract", "badge": "acceptance"},
     {"name": "Współpraca zakończona", "stage": "new", "category": "terminal", "column": "closed", "badge": null},
-    {"name": "Wstępny akcept", "stage": "screening", "category": "internal", "column": "new", "badge": "screening"},
-    {"name": "Rozmowa telefoniczna", "stage": "screening", "category": "internal", "column": "new", "badge": "screening"},
+    {"name": "Wstępny akcept", "stage": "screening", "category": "internal", "column": "screening", "badge": null},
+    {"name": "Rozmowa telefoniczna", "stage": "screening", "category": "internal", "column": "screening", "badge": null},
     {"name": "Spotkanie", "stage": "client_interview", "category": "external", "column": "client_interview", "badge": null},
     {"name": "Oferta", "stage": "acceptance", "category": "external", "column": "contract", "badge": "acceptance"},
-    {"name": "Lista rezerwowa", "stage": "new", "category": "internal", "column": "closed", "badge": null}
+    {"name": "Lista rezerwowa", "stage": "new", "category": "internal", "column": "closed", "badge": null},
+    {"name": "Rozmowa wstępna", "stage": "prep_call", "category": "internal", "column": "screening", "badge": null}
   ]
 }

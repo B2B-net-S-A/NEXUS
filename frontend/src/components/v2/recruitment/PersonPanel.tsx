@@ -94,7 +94,7 @@ export interface KanbanQueryState {
  */
 export interface WorkbenchContext {
   jobTitle?: string;
-  /** Nordea (DZ → Cpro): „CV wysłane" wysyła wytypowana osoba, nie DL. */
+  /** Nordea: „CV wysłane" = „Wysłane do Cpro" — wysyła osoba od Cpro (jedna na firmę), nie DL. */
   cproEnabled?: boolean;
   clientId: number | null;
   clientName?: string | null;

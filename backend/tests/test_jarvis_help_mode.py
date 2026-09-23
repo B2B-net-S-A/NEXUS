@@ -316,7 +316,7 @@ async def test_board_tasks_tool_reads_the_real_queue(app_client, monkeypatch):
     await _chat(app_client, headers, "Co mam dziś zrobić?")
     result = model.calls[1]["messages"][-1]["content"][0]
     assert "is_error" not in result, result
-    assert '"dz"' in result["content"] and '"count"' in result["content"]
+    assert '"dl_review"' in result["content"] and '"count"' in result["content"]
 
 
 # ── H: pamięć, telemetria, strumień ─────────────────────────────────────────
