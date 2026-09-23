@@ -51,6 +51,8 @@ SYNC_IDENTITY: frozenset[str] = frozenset({"external_id", "external_source"})
 # puste, ale nigdy nie kasuj". W praktyce NEXUS wygrywa, bo odpowiedź listy
 # `/recruitments/` nie zawiera `workflow_id` ani `responsible_person`, a klient
 # bywa nierozwiązywalny — patrz komentarz o sierocie w `import_jobs`.
+# `responsible_person` import dociąga z detalu `/recruitments/{id}`, ale tylko
+# dla wierszy bez prowadzącego (23.09.2026).
 # recruiter_id: po przekazaniu do NEXUS sync zachowuje również świadomy brak
 # prowadzącego (kolejka automatu); wcześniej uzupełnia tylko brakującego ownera.
 SHARED_NEXUS_WINS: frozenset[str] = frozenset(

@@ -499,6 +499,43 @@ class TestTraffitRecruitmentToJob:
         assert result["title"]  # not empty
         assert result["custom_fields"]["traffit_is_confidential"] in (False, True)
 
+    def test_responsible_person_list_from_detail_maps_to_recruiter(self):
+        """Regresja 23.09.2026: detal podaje prowadzącego jako LISTĘ.
+
+        Mapper czytał tylko dict, więc 310/310 opublikowanych rekrutacji z
+        Traffita miało `recruiter_id` NULL. Fixture to prawdziwy kształt z API.
+        """
+        payload = _load("recruitments_detail.json")
+        assert isinstance(payload["responsible_person"], list)
+        traffit_user_id = str(payload["responsible_person"][0]["id"])
+
+        result = traffit_recruitment_to_job(
+            payload, {}, {}, user_id_map={traffit_user_id: 7}
+        )
+        assert result["recruiter_id"] == 7
+
+    def test_responsible_person_first_known_user_wins(self):
+        payload = {
+            "id": 1,
+            "name": "X",
+            "responsible_person": [{"id": 900}, {"id": 49}],
+        }
+        result = traffit_recruitment_to_job(payload, {}, {}, {"49": 7, "50": 8})
+        assert result["recruiter_id"] == 7
+
+    def test_responsible_person_dict_still_supported(self):
+        payload = {"id": 1, "name": "X", "responsible_person": {"id": 49}}
+        result = traffit_recruitment_to_job(payload, {}, {}, {"49": 7})
+        assert result["recruiter_id"] == 7
+
+    @pytest.mark.parametrize(
+        "rp", [None, [], [{"id": 900}], [{"email": "x@example.com"}], "49"]
+    )
+    def test_responsible_person_unresolvable_gives_none(self, rp):
+        payload = {"id": 1, "name": "X", "responsible_person": rp}
+        result = traffit_recruitment_to_job(payload, {}, {}, {"49": 7})
+        assert result["recruiter_id"] is None
+
     def test_unknown_client_returns_none(self):
         payload = {"id": 1, "name": "X", "client": {"id": 999}}
         result = traffit_recruitment_to_job(payload, {"1": 50}, {}, None)
