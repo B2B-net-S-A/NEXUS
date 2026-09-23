@@ -58,6 +58,7 @@ from app.services.traffit.mappers import (
     traffit_employee_to_candidate,
     traffit_recruitment_history_to_stage,
     traffit_recruitment_to_job,
+    traffit_responsible_user_id,
     traffit_source_to_candidate_tag,
     traffit_talent_to_pool,
     traffit_user_to_nexus,
@@ -299,6 +300,13 @@ class PhaseProgress:
     # Bez tego licznika „sync działa" i „wektory ofert są aktualne" to dwa
     # różne zdania, których nie da się rozróżnić z zewnątrz.
     index_intents: int = 0
+    # Rekrutacje, którym detal `/recruitments/{id}` dał prowadzącego znanego
+    # w NEXUSIE (23.09.2026). Lista nie niesie `responsible_person`, więc bez
+    # tego licznika nie widać, czy dopełnianie rekruterów w ogóle działa.
+    recruiter_resolved: int = 0
+    # Detal, który nie odpowiedział. Osobno od `errors`, bo wiersz jest
+    # zapisany, a luka dopełni się w następnym biegu.
+    recruiter_detail_failed: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -346,6 +354,8 @@ class PhaseProgress:
             "tombstoned": self.tombstoned,
             "skipped_managed": self.skipped_managed,
             "index_intents": self.index_intents,
+            "recruiter_resolved": self.recruiter_resolved,
+            "recruiter_detail_failed": self.recruiter_detail_failed,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -1263,6 +1273,22 @@ class TraffitImporter:
             )
         )
         return {row[0]: row[1] for row in result}
+
+    async def _build_job_owner_set(self) -> set[str]:
+        """`external_id` rekrutacji, którym prowadzący z Traffita nic nie zmieni.
+
+        To wiersze z rekruterem ustawionym w NEXUSIE albo przekazane do NEXUSA
+        (`is_open`) — `_UPSERT_JOB` i tak zachowa tam `jobs.recruiter_id`, więc
+        dociąganie detalu byłoby zapytaniem do wyrzucenia.
+        """
+        result = await self.db.execute(
+            text(
+                "SELECT external_id FROM jobs "
+                "WHERE external_source = 'traffit' AND external_id IS NOT NULL "
+                "AND (recruiter_id IS NOT NULL OR is_open)"
+            )
+        )
+        return {row[0] for row in result}
 
     async def _ensure_orphan_client(self) -> int:
         """Get-or-create the `__traffit_orphans` client. Returns its Nexus id.
@@ -2327,6 +2353,7 @@ class TraffitImporter:
         # klienta rekrutacji, która już go ma (patrz komentarz przy użyciu).
         existing_job_clients = await self._build_job_client_map()
         user_map = await self.build_user_id_map()
+        owned_job_exts = await self._build_job_owner_set()
         touched_job_ids: list[int] = []
         logger.info(
             "Jobs lookup maps: clients=%d workflows=%d users=%d",
@@ -2363,6 +2390,49 @@ class TraffitImporter:
             except Exception as e:  # noqa: BLE001
                 progress.add_error(f"map recruitment id={raw.get('id')}: {e!r}")
                 continue
+
+            # Prowadzący jest TYLKO w detalu — odpowiedź listy nie ma pola
+            # `responsible_person` (sprawdzone na żywym API 23.09.2026), więc
+            # do tej poprawki `recruiter_id` z importu był zawsze NULL: 310/310
+            # opublikowanych rekrutacji z Traffita bez rekrutera, 403 na
+            # Tablicy rekrutacji, poranne skróty bez adresata. Detal kosztuje
+            # jedno zapytanie, więc pytamy tylko tam, gdzie upsert może go
+            # użyć: wiersz nowy albo bez prowadzącego i nieprzekazany do
+            # NEXUSA (tam pusty prowadzący to kolejka automatu przydziałów,
+            # patrz `_UPSERT_JOB`). Po pierwszym pełnym biegu zostają głównie
+            # rekrutacje, których prowadzący nie ma konta w NEXUSIE.
+            ext_id = payload["external_id"]
+            if (
+                user_map
+                and payload["recruiter_id"] is None
+                and ext_id not in owned_job_exts
+                and not self.dry_run
+            ):
+                try:
+                    detail_resp = await self.traffit._get_raw(  # noqa: SLF001
+                        f"/recruitments/{ext_id}", page=1, page_size=1
+                    )
+                    if detail_resp.status_code != 200:
+                        raise RuntimeError(f"HTTP {detail_resp.status_code}")
+                    detail = detail_resp.json()
+                    if isinstance(detail, list):
+                        detail = detail[0] if detail else {}
+                    payload["recruiter_id"] = traffit_responsible_user_id(
+                        detail, user_map
+                    )
+                    if payload["recruiter_id"] is not None:
+                        progress.recruiter_resolved += 1
+                except Exception as e:  # noqa: BLE001
+                    # CELOWO nie `add_error`: wiersz z listy i tak się zapisze,
+                    # brakuje tylko prowadzącego, a następny pełny bieg zapyta
+                    # ponownie (wiersz dalej ma NULL). Błąd blokujący fazy
+                    # `jobs` zamroziłby globalny watermark dla WSZYSTKICH faz,
+                    # a przy ~4,3 tys. zapytań w pełnym biegu co noc padałby
+                    # inny wiersz, więc kwarantanna nigdy by go nie zwolniła.
+                    progress.recruiter_detail_failed += 1
+                    logger.warning(
+                        "Traffit recruitment %s detail failed: %r", ext_id, e
+                    )
 
             # Rekrutacje bez znanego klienta lądują u sieroty, nie w koszu.
             #

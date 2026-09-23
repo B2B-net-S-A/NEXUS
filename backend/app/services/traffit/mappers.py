@@ -781,6 +781,29 @@ def normalize_job_status(raw: Optional[str], is_closed: bool = False) -> str:
     return _JOB_STATUS_MAP.get(raw.strip().lower(), "published")
 
 
+def traffit_responsible_user_id(
+    payload: dict[str, Any], user_id_map: Optional[dict[str, int]]
+) -> Optional[int]:
+    """Prowadzący rekrutacji z Traffita → `users.id` w NEXUSIE.
+
+    Detal `/recruitments/{id}` podaje `responsible_person` jako LISTĘ
+    `[{"id": 49, "email": …}]` (sprawdzone na żywym API 23.09.2026). Mapper
+    czytał tylko dict, więc żadna rekrutacja nie dostawała rekrutera z importu.
+    Dict zostaje obsłużony na wypadek pojedynczego obiektu. Wygrywa pierwsza
+    osoba, którą znamy w NEXUSIE.
+    """
+    if not user_id_map:
+        return None
+    rp = payload.get("responsible_person")
+    people = rp if isinstance(rp, list) else [rp]
+    for person in people:
+        if isinstance(person, dict) and person.get("id") is not None:
+            nexus_id = user_id_map.get(str(person["id"]))
+            if nexus_id is not None:
+                return nexus_id
+    return None
+
+
 def traffit_recruitment_to_job(
     payload: dict[str, Any],
     client_external_id_to_nexus_id: dict[str, int],
@@ -810,13 +833,7 @@ def traffit_recruitment_to_job(
     if workflow_id is not None:
         pipeline_template_id = workflow_external_id_to_template_id.get(str(workflow_id))
 
-    recruiter_id: Optional[int] = None
-    if user_id_map:
-        rp = payload.get("responsible_person")
-        if isinstance(rp, dict):
-            traffit_user_id = rp.get("id")
-            if traffit_user_id is not None:
-                recruiter_id = user_id_map.get(str(traffit_user_id))
+    recruiter_id = traffit_responsible_user_id(payload, user_id_map)
 
     is_closed = bool(payload.get("is_closed") or False)
     closing_date = payload.get("closing_date")  # "yyyy-MM-dd HH:mm:ss" lub None

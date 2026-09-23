@@ -762,6 +762,9 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "skipped_managed",
         # 18.09.2026: intencje przeindeksowania zapisane przez fazę `jobs`.
         "index_intents",
+        # 23.09.2026: rekruterzy dopełnieni z detalu `/recruitments/{id}`.
+        "recruiter_resolved",
+        "recruiter_detail_failed",
         "drifted_entities",
         "drift",
         "total_source",
