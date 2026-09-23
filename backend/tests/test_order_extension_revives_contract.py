@@ -224,6 +224,10 @@ async def test_daily_reconciler_catches_up_after_a_missed_day_but_skips_cutover_
                 )
             )
 
+        def scalars(self):
+            # Powrót po przerwie szuka umów w Generatorze (0357) — tu żadnych.
+            return SimpleNamespace(all=lambda: [])
+
         def one_or_none(self):
             return (
                 missed_contract.status,
