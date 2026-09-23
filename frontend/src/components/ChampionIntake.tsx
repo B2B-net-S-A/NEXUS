@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, type MouseEvent } from "react";
-import { api, extractErrorMsg, EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
+import { api, extractErrorMsg, EMPTY_CHAMPION_PROFILE, type ChampionProfile, type ExperienceItem } from "@/lib/api";
+import { experienceToText } from "@/lib/champion-experience";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { CHAMPION_SECTIONS, type ChampionSectionId } from "@/lib/champion-section-state";
@@ -21,6 +22,9 @@ const fields = [
   ["basics.contract_length", "Długość kontraktu"], ["search.keywords", "Kluczowe słowa do wyszukiwania"],
   ["search.target_companies", "Firmy docelowe"], ["search.disqualifiers", "Kogo odrzucamy"], ["search.notes", "Uwagi / plan DL"],
   ["stack.must", "MUST — jeden wpis na wiersz; alternatywy: A lub B"], ["stack.nice", "NICE — opcjonalne"], ["stack.notes", "Uwagi / niuanse"],
+  ["experience.domains", "Dziedzina — jedna na wiersz; „(mile)”, „(min. 2 lat)”"],
+  ["experience.certifications", "Certyfikaty — jeden na wiersz; „(mile)”"],
+  ["experience.regulations", "Regulacje / standardy — jedna na wiersz; „(mile)”"],
   ["project.about", "O projekcie"], ["project.responsibilities", "Obowiązki"], ["client.selling_points", "Co przekona kandydata"],
   ["client.consultant_insight", "Insight konsultanta"], ["client.historical_questions", "Historyczne pytania klienta"], ["client.priority_rules", "Uwagi / standardy"],
 ] as const;
@@ -42,7 +46,9 @@ function readValues(profile: ChampionProfile): Values {
   return Object.fromEntries(fields.map(([path]) => {
     const [section, key] = path.split(".");
     const value = obj[section]?.[key];
-    const canonical = Array.isArray(value) ? value.map(v => typeof v === "object" ? v.name : v).join("\n") : String(value ?? "");
+    const canonical = section === "experience"
+      ? experienceToText(Array.isArray(value) ? (value as ExperienceItem[]) : [])
+      : Array.isArray(value) ? value.map(v => typeof v === "object" ? v.name : v).join("\n") : String(value ?? "");
     const unresolved = profile.intake?.unresolved?.[path];
     return [path, Array.isArray(value) && unresolved ? [canonical, unresolved].filter(Boolean).join("\n") : unresolved ?? canonical];
   }));

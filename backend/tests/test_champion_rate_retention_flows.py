@@ -67,6 +67,9 @@ DIALOG_FIELDS = [
     "stack.must",
     "stack.nice",
     "stack.notes",
+    "experience.domains",
+    "experience.certifications",
+    "experience.regulations",
     "project.about",
     "project.responsibilities",
     "client.selling_points",
@@ -125,13 +128,25 @@ def _js_string(value) -> str:
     return str(value)
 
 
+def _experience_line(item: dict) -> str:
+    """Lustro `experienceToText` (frontend/src/lib/champion-experience.ts)."""
+    line = item["name"]
+    if item.get("min_years"):
+        line += f" (min. {item['min_years']} lat)"
+    if item.get("level") == "nice":
+        line += " (mile)"
+    return line
+
+
 def read_values(profile: dict) -> dict:
     notes = (profile.get("intake") or {}).get("unresolved") or {}
     values = {}
     for path in DIALOG_FIELDS:
         section, key = path.split(".")
         value = (profile.get(section) or {}).get(key)
-        if isinstance(value, list):
+        if isinstance(value, list) and section == "experience":
+            canonical = "\n".join(_experience_line(item) for item in value)
+        elif isinstance(value, list):
             canonical = "\n".join(
                 item["name"] if isinstance(item, dict) else str(item) for item in value
             )

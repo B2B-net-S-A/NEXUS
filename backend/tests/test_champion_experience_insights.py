@@ -458,3 +458,24 @@ def test_long_legacy_field_does_not_break_validation_of_the_view() -> None:
     note = next(n for n in view["insights"] if n["id"].startswith("legacy:"))
     assert len(note["text"]) <= 2000
     prepare_profile(view)  # nie rzuca
+
+
+def test_experience_written_as_text_keeps_level_and_years() -> None:
+    """Okno „Uzgodnij profil” pracuje na tekście: „(mile)” i „min. N lat” to
+    ta sama gramatyka co wzór Word v5 — inaczej przejście przez okno
+    zamieniało każdą pozycję w wymaganą i gubiło lata."""
+    saved = user_edit(
+        {},
+        {
+            "experience": {
+                "domains": "płatności kartowe (min. 2 lata)\ne-commerce (mile)",
+                "certifications": "ISTQB Foundation (mile)",
+            }
+        },
+        5,
+    )
+    assert saved["experience"]["domains"] == [
+        {"name": "płatności kartowe", "level": "must", "min_years": 2, "note": ""},
+        {"name": "e-commerce", "level": "nice", "min_years": None, "note": ""},
+    ]
+    assert saved["experience"]["certifications"][0]["level"] == "nice"

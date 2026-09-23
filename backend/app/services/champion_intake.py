@@ -483,7 +483,11 @@ def normalize_experience_items(value, *, with_years):
     )
 
     if isinstance(value, str):
-        value = [part for part in re.split(r"[\n;,]+", value)]
+        # Tekst (okno „Uzgodnij profil”, komórka wzoru Word v5): „(mile)”
+        # i „min. N lat” niosą poziom i lata — ta sama gramatyka co wzór.
+        from app.services.champion_document import experience_from_text
+
+        value = experience_from_text(value, with_years=with_years)
     items = []
     seen = set()
     for raw in value if isinstance(value, list) else []:

@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Generator wzoru „Profil Championa" (.docx) — szablon 6-sekcyjny (09.2026, karta klienta).
+"""Wzór „Profil Championa” (.docx) do wgrania na SharePoint — JEDEN plik (09.2026).
 
-JEDEN wzór, bez wariantów per klient. Do 09.2026 było ich piętnaście (ogólny
-i czternaście per klient), różniących się WYŁĄCZNIE treścią kliencką: ramką
-„Standardy tego klienta", opisem klienta i listą dokumentów. Ta treść ma od
-teraz jedno miejsce — kartę klienta w NEXUSIE (`client_playbooks`; seed z
-`app/data/client_playbooks/seed.json`), więc wzór jej nie przepisuje.
+Do 23.09.2026 ten skrypt składał osobny wzór (tabele jednokolumnowe), różny od
+formularza pobieranego z aplikacji. Import takiego pliku nie przechodził przez
+odczyt formularza (`champion_document.table_profile`) i szedł przez płatne AI.
+Decyzja Artura 23.09.2026: jeden wzór — formularz v5 z
+`app/assets/champion/Profil_Championa_v5.0.docx` (budowany skryptem
+`build_champion_template_v5.py`). Ten skrypt tylko go kopiuje pod nazwą
+wgrywaną na SharePoint.
 
-Skrypt, a nie ręcznie zredagowany plik, z jednego powodu: **nagłówki są
-kontraktem z parserem.** `cv_generator_b2b/champion_builder.py` rozpoznaje
-sekcje wgranego dokumentu po ich NAZWACH, więc wzór rozjechany z kodem po cichu
-produkuje CV bez sekcji — a brak sekcji jest u nas poprawnym wynikiem, nie
-błędem. Generowanie z jednego źródła sprawia, że literówka w Wordzie nie może
-tego zepsuć; pilnuje tego `test_champion_template_agenda.py`.
+**Nagłówki są kontraktem z parserami.** `SECTION_TITLES` i
+`CONTENT_FIELD_LABELS` opisują to, co stoi w v5; test
+`test_champion_template_agenda.py` sprawdza, że parser CV
+(`cv_generator_b2b/champion_builder.py`) rozpoznaje każdy nagłówek i każdą
+etykietę treściową, a sam dokument je zawiera.
 
 Użycie:
     python scripts/generate_champion_template.py --out-dir /tmp/wzory
@@ -25,31 +26,32 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import shutil
 import sys
 
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt, RGBColor
 
-# Nagłówki sekcji. To NIE jest kosmetyka dokumentu, tylko kontrakt z parserem —
-# patrz punkt 2 w docstringu modułu. Importowane przez
-# `tests/test_champion_template_agenda.py`.
+TEMPLATE = (
+    pathlib.Path(__file__).resolve().parents[1]
+    / "app"
+    / "assets"
+    / "champion"
+    / "Profil_Championa_v5.0.docx"
+)
+
+# Nagłówki sekcji wzoru v5 (bez numerów). Kontrakt z parserem CV.
 SECTION_TITLES: tuple[str, ...] = (
     "PODSTAWOWE INFORMACJE",
     "CO WPISAĆ (SEARCH)",
     "STACK TECHNOLOGICZNY",
     "DOŚWIADCZENIE POZA STACKIEM",
     "O PROJEKCIE",
-    "PYTANIA SCREENINGOWE",
+    "SCREENING",
     "O KLIENCIE",
     "WIEDZA Z ROZMÓW",
 )
 
-# Etykiety pól, które parser traktuje jako TREŚCIOWE — czyli takie, po których
-# zbiera zawartość do promptu generatora CV. Osobno od `SECTION_TITLES`, bo test
-# sprawdzający wyłącznie nagłówki sekcji przepuścił już jedną lukę: „Insight od
-# naszego konsultanta u klienta" nie pasował do wzorca `INSIGHT OD KONSULTANTA`
-# i pole z nowego wzoru cicho nie trafiało do generowanego CV.
+# Etykiety pól TREŚCIOWYCH — po nich parser CV zbiera treść do promptu.
 CONTENT_FIELD_LABELS: tuple[str, ...] = (
     "MUST-HAVE",
     "NICE-TO-HAVE",
@@ -58,230 +60,9 @@ CONTENT_FIELD_LABELS: tuple[str, ...] = (
     "Insight od naszego konsultanta u klienta",
 )
 
-_ACCENT = RGBColor(0x4F, 0x46, 0xE5)  # indygo — akcent design systemu
-_HINT = RGBColor(0x64, 0x74, 0x8B)  # slate-500
-
-
-def _section(doc: Document, number: int, title: str) -> None:
-    para = doc.add_paragraph()
-    para.paragraph_format.space_before = Pt(14)
-    run = para.add_run(f"{number}. {title}")
-    run.bold = True
-    run.font.size = Pt(13)
-    run.font.color.rgb = _ACCENT
-
-
-def _hint(doc: Document, text: str) -> None:
-    """Kursywa w kolorze pomocniczym — instrukcja, nie treść do wypełnienia."""
-    para = doc.add_paragraph()
-    run = para.add_run(text)
-    run.italic = True
-    run.font.size = Pt(9)
-    run.font.color.rgb = _HINT
-
-
-def _kv_table(doc: Document, rows: list[tuple[str, str]]) -> None:
-    """Tabela etykieta | wartość — układ, którego DL używa od zawsze."""
-    table = doc.add_table(rows=len(rows), cols=2)
-    table.style = "Table Grid"
-    for i, (label, value) in enumerate(rows):
-        cell = table.rows[i].cells[0]
-        cell.text = ""
-        run = cell.paragraphs[0].add_run(label)
-        run.bold = True
-        run.font.size = Pt(10)
-        table.rows[i].cells[1].text = value
-
-    doc.add_paragraph()
-
-
-def _block_table(doc: Document, blocks: list[tuple[str, str]]) -> None:
-    """Tabela jednokolumnowa: etykieta pogrubiona, pod nią miejsce na treść."""
-    table = doc.add_table(rows=len(blocks), cols=1)
-    table.style = "Table Grid"
-    for i, (label, value) in enumerate(blocks):
-        cell = table.rows[i].cells[0]
-        cell.text = ""
-        run = cell.paragraphs[0].add_run(label)
-        run.bold = True
-        run.font.size = Pt(10)
-        if value:
-            for line in value.split("\n"):
-                cell.add_paragraph(line)
-        else:
-            cell.add_paragraph("")
-    doc.add_paragraph()
-
 
 def build() -> Document:
-    doc = Document()
-
-    title = doc.add_paragraph()
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = title.add_run("PROFIL CHAMPIONA")
-    run.bold = True
-    run.font.size = Pt(20)
-    run.font.color.rgb = _ACCENT
-
-    sub = doc.add_paragraph()
-    sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    sub_run = sub.add_run("Idealny kandydat zweryfikowany z klientem")
-    sub_run.italic = True
-    sub_run.font.size = Pt(10)
-    sub_run.font.color.rgb = _HINT
-
-    _kv_table(
-        doc,
-        [("Opracowano na podstawie rozmowy z", "[Manager] oraz [Konsultant wewnętrzny]")],
-    )
-
-    _hint(
-        doc,
-        "Wypełniaj TYLKO to, co naprawdę zmienia decyzję o kandydacie. Puste pole "
-        "jest lepsze niż wypełnione na wszelki wypadek — profil czyta rekruter "
-        "przed rozmową, nie archiwum.",
-    )
-
-    # 1
-    _section(doc, 1, SECTION_TITLES[0])
-    _kv_table(
-        doc,
-        [
-            ("Nazwa roli", ""),
-            ("Minimum lat doświadczenia", ""),
-            ("Stawka kandydata (PLN/h)", ""),
-            ("Tryb pracy", "[ ] Stacjonarnie   [ ] Hybrydowo   [ ] Zdalnie"),
-            ("Dni pracy stacjonarnej", "___ dni / tydzień"),
-            # „Lokalizacja biura", nie „kandydata": scoring porównuje tę wartość
-            # z miastem KANDYDATA, więc pole od zawsze znaczyło „dokąd trzeba
-            # dojechać". Stara etykieta mówiła coś odwrotnego do zachowania.
-            ("Lokalizacja biura", ""),
-            # Dwa różne języki, dwa wiersze. „Pracy" to wymaganie wobec
-            # kandydata; język dokumentu CV stoi niżej i pochodzi z reguł
-            # klienta, więc tutaj jest tylko do odczytu.
-            ("Język pracy (wymagany od kandydata)", ""),
-            ("Start", ""),
-            ("Deadline na kandydatów", ""),
-            ("Długość kontraktu", ""),
-        ],
-    )
-    _hint(
-        doc,
-        "Stawka kandydata: system ODRZUCA kandydatów powyżej tej kwoty, bez "
-        "marginesu. Zostaw puste, jeśli nie ma twardego limitu.",
-    )
-
-    # 2
-    _section(doc, 2, SECTION_TITLES[1])
-    _hint(
-        doc,
-        "Nie plan sourcingu — dosłownie frazy, które rekruter wkleja w wyszukiwarkę.",
-    )
-    _block_table(
-        doc,
-        [
-            ("Frazy do wyszukiwarki (po przecinku):", ""),
-            ("Firmy docelowe:", ""),
-            ("Kogo odrzucamy od razu (jeden powód na linię):", ""),
-            ("Uwagi / plan działania:", ""),
-        ],
-    )
-
-    # 3
-    _section(doc, 3, SECTION_TITLES[2])
-    _hint(
-        doc,
-        "Pojedyncze technologie po przecinku (Java, Kafka), nie zdania. To z tej "
-        "listy liczy się dopasowanie kandydatów: technologia wpisana TUTAJ jest "
-        "wymaganiem, opisana w sekcji 4 jest tylko tekstem.",
-    )
-    _block_table(
-        doc,
-        [
-            (f"{CONTENT_FIELD_LABELS[0]}:", ""),
-            (f"{CONTENT_FIELD_LABELS[1]}:", ""),
-            ("Niuanse wersji / zakresu:", ""),
-        ],
-    )
-
-    # 4 — dziedzina, certyfikaty, regulacje (09.2026). Nie technologie: te
-    # są w sekcji 3. W NEXUSIE dają plakietkę „ślad w CV”, nie filtr.
-    _section(doc, 4, SECTION_TITLES[3])
-    _hint(
-        doc,
-        "Dziedzina to obszar biznesowy (np. płatności kartowe), nie technologia. "
-        "Dopisz „min. N lat”, a przy mile widzianej pozycji „(mile)”.",
-    )
-    _block_table(
-        doc,
-        [
-            ("Dziedzina:", ""),
-            ("Certyfikaty:", ""),
-            ("Regulacje / standardy:", ""),
-        ],
-    )
-
-    # 5
-    _section(doc, 5, SECTION_TITLES[4])
-    _hint(doc, "Maksymalnie 2 zdania o projekcie — resztę pomiń, nie przenoś gdzie indziej.")
-    _block_table(
-        doc,
-        [
-            ("Czym jest projekt (max 2 zdania):", ""),
-            (f"{CONTENT_FIELD_LABELS[2]}:", ""),
-        ],
-    )
-
-    # 6
-    _section(doc, 6, SECTION_TITLES[5])
-    _hint(doc, "Rekruter musi na nie odpowiedzieć przed wysłaniem CV do klienta.")
-    table = doc.add_table(rows=4, cols=2)
-    table.style = "Table Grid"
-    head = table.rows[0].cells
-    for cell, text in ((head[0], "Pytania od Delivery Leada"), (head[1], "Sugerowane odpowiedzi")):
-        cell.text = ""
-        run = cell.paragraphs[0].add_run(text)
-        run.bold = True
-        run.font.size = Pt(10)
-    for i in (1, 2, 3):
-        table.rows[i].cells[0].text = f"Pytanie {i}:"
-        table.rows[i].cells[1].text = "Idealna odpowiedź:\n\nDeal breaker:"
-    doc.add_paragraph()
-
-    # 7 — wyłącznie to, co zależy od TEJ roli. Standardy współpracy (SLA,
-    # limit CV, off-limit, onboarding, dokumenty) NIE są tu przepisywane:
-    # żyją w karcie klienta w NEXUSIE (`client_playbooks`), jedno miejsce.
-    _section(doc, 7, SECTION_TITLES[6])
-    _hint(
-        doc,
-        "Standardy klienta (SLA, limit CV, off-limit, onboarding, dokumenty) są "
-        "w NEXUSIE: Klient → Zasady współpracy albo Pomoc → Klienci. Nie "
-        "przepisuj ich tutaj.",
-    )
-    _block_table(
-        doc,
-        [
-            ("Co przekona kandydata do tej oferty:", ""),
-            (f"{CONTENT_FIELD_LABELS[3]}:", ""),
-        ],
-    )
-
-    # 8 — smaczki z rozmów. Widzi je wyłącznie zespół rekrutacji.
-    _section(doc, 8, SECTION_TITLES[7])
-    _hint(
-        doc,
-        "Czego klient naprawdę szuka, za co odrzucał, kto decyduje; od naszego "
-        "konsultanta — jak wygląda praca na co dzień.",
-    )
-    _block_table(
-        doc,
-        [
-            ("Od klienta:", ""),
-            (f"{CONTENT_FIELD_LABELS[4]}:", ""),
-        ],
-    )
-
-    return doc
+    return Document(TEMPLATE)
 
 
 def main() -> int:
@@ -292,7 +73,7 @@ def main() -> int:
     out_dir = pathlib.Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "Profil_Championa_WZÓR.docx"
-    build().save(path)
+    shutil.copyfile(TEMPLATE, path)
     print(f"zapisano: {path}")
     print(
         "\nWgranie na SharePoint jest osobnym krokiem — NEXUS trzyma do wzoru "

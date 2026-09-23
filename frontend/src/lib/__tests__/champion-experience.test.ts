@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { experienceCheckRows } from "@/components/v2/screening/ScreeningForm";
 import {
   addExperienceItems,
+  experienceToText,
   experienceItemLabel,
   hasExperience,
   readExperienceEvidence,
@@ -66,5 +67,17 @@ describe("screening — „Sprawdź w rozmowie”", () => {
 
   it("profil bez sekcji 4 nie dokłada listy", () => {
     expect(experienceCheckRows({}, undefined)).toEqual([]);
+  });
+});
+
+describe("okno „Uzgodnij profil” — sekcja 4 jako tekst", () => {
+  it("znaczniki „(min. N lat)” i „(mile)” — gramatyka, którą czyta serwer", () => {
+    expect(
+      experienceToText([
+        { name: "płatności kartowe", level: "must", min_years: 2 },
+        { name: "e-commerce", level: "nice", min_years: null },
+      ]),
+    ).toBe("płatności kartowe (min. 2 lat)\ne-commerce (mile)");
+    expect(experienceToText(undefined)).toBe("");
   });
 });

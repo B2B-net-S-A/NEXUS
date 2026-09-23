@@ -126,3 +126,22 @@ export function readExperienceEvidence(breakdown: unknown): ExperienceEvidence[]
         (e as ExperienceEvidence).status === "unknown"),
   );
 }
+
+/**
+ * Pozycje sekcji 4 jako tekst — okno „Uzgodnij profil i pola rekrutacji”
+ * pracuje na polach tekstowych. „(min. N lat)” i „(mile)” to ta sama
+ * gramatyka, którą serwer czyta z komórki wzoru Word v5
+ * (`champion_document.experience_from_text`), więc przejście przez okno nie
+ * gubi poziomu ani lat. Lustro w teście backendu
+ * (`test_champion_rate_retention_flows._experience_line`).
+ */
+export function experienceToText(items: readonly ExperienceItem[] | undefined): string {
+  return (items ?? [])
+    .map((item) => {
+      let line = item.name;
+      if (item.min_years) line += ` (min. ${item.min_years} lat)`;
+      if (item.level === "nice") line += " (mile)";
+      return line;
+    })
+    .join("\n");
+}

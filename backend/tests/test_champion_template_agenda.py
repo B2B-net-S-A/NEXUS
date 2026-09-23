@@ -600,7 +600,8 @@ def test_template_has_no_client_standards_box_and_points_to_nexus() -> None:
     assert "STANDARDY TEGO KLIENTA" not in text
     assert "DOKUMENTY" not in text
     assert "7. O KLIENCIE" in text
-    assert "Zasady współpracy" in text
+    # Odsyłacz do karty klienta zamiast kopii standardów.
+    assert "karcie klienta" in text
     assert len(gen.SECTION_TITLES) == 8
 
 
@@ -620,7 +621,17 @@ def test_section_seven_carries_only_role_level_client_fields() -> None:
     assert -1 < section_seven_at < text.find("Historyczne pytania klienta")
     assert section_eight_at > section_seven_at
     assert section_eight_at < text.find("Insight od naszego konsultanta u klienta")
-    assert section_eight_at < text.find("Od klienta:")
+    assert section_eight_at < text.find("Od klienta —")
+
+
+def test_sharepoint_template_is_the_same_file_as_the_app_form() -> None:
+    """Jeden wzór (decyzja 23.09.2026): SharePoint dostaje formularz v5,
+    który aplikacja czyta bez AI — a nie osobno składany dokument."""
+    gen = _generator()
+    assert gen.TEMPLATE.name == "Profil_Championa_v5.0.docx"
+    assert "wzór v5.0" in " ".join(
+        p.text for section in gen.build().sections for p in section.footer.paragraphs
+    )
 
 
 def test_section_four_experience_sits_between_stack_and_project() -> None:
@@ -629,5 +640,5 @@ def test_section_four_experience_sits_between_stack_and_project() -> None:
     experience_at = text.find("4. DOŚWIADCZENIE POZA STACKIEM")
     project_at = text.find("5. O PROJEKCIE")
     assert -1 < stack_at < experience_at < project_at
-    for label in ("Dziedzina:", "Certyfikaty:", "Regulacje / standardy:"):
+    for label in ("Dziedzina —", "Certyfikaty —", "Regulacje / standardy —"):
         assert experience_at < text.find(label) < project_at
