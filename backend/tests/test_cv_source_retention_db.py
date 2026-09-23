@@ -239,3 +239,10 @@ async def test_the_deletion_loop_runs_the_sweep_only_when_enabled(monkeypatch, e
         await cleanup.recovery_loop()
 
     assert sweep.await_count == (1 if enabled else 0)
+
+
+def test_cv_retention_is_off_by_default():
+    """CV nie znikają same (decyzja Artura 23.09.2026) — także bez zgody RODO."""
+    from app.core.config import Settings
+
+    assert Settings.model_fields["CV_JOB_INPUT_RETENTION_ENABLED"].default is False

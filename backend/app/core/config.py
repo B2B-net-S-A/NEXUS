@@ -349,12 +349,6 @@ class Settings(BaseSettings):
     # zapłacić za ogon niż uzupełnić wszystko.
     EXPERIENCE_DATES_ON_DEMAND_MAX_PER_REQUEST: int = 10
 
-    # Retencja zamrożonych wejść generatora CV (pełne CV, notatki screeningowe,
-    # Champion — obiekt w magazynie plików na zadanie). Wejścia generacji, która
-    # NIE dała żadnego dokumentu do użycia (błąd/przerwanie), oraz CV próbnych
-    # są kasowane po tylu dniach; do 09.2026 zostawały bezterminowo. Wejścia
-    # gotowych CV zostają — czyta je kontrola przy zatwierdzaniu i mapa wersji.
-    # Kill-switch (env, bez zmiany kodu): CV_JOB_INPUT_RETENTION_ENABLED=false.
     CV_CENTRAL_POLICIES_ENABLED: bool = False
     # Interaktywne CV (kafelki wymagań z cytatami, przełącznik widoku na
     # publicznym linku, czat AI, kafelki w eksporcie HTML). Wyłączone
@@ -362,7 +356,14 @@ class Settings(BaseSettings):
     # = CV_INTERACTIVE_ENABLED=true w Coolify. Wyłączone: brak dodatkowego
     # wywołania AI mapy wymagań, link i plik HTML pokazują widok klasyczny.
     CV_INTERACTIVE_ENABLED: bool = False
-    CV_JOB_INPUT_RETENTION_ENABLED: bool = True
+    # Automatyczne kasowanie treści CV — WYŁĄCZONE (decyzja Artura 23.09.2026:
+    # NEXUS trzyma wszystkie CV, także bez zgody RODO; nic nie znika samo).
+    # Jedna flaga obejmuje oba automaty: wejścia generatora CV (pełne CV,
+    # notatki, Champion) z generacji bez gotowego dokumentu i z CV próbnych
+    # (`retire_unneeded_job_inputs`) oraz wiersze CV próbnych reguł klienta
+    # starsze niż 7 dni (`retire_previews`). Usunięcie CV zostaje wyłącznie
+    # ręczne (usunięcie dokumentu albo kandydata). Włączenie = true w Coolify.
+    CV_JOB_INPUT_RETENTION_ENABLED: bool = False
     CV_JOB_INPUT_RETENTION_DAYS: int = 7
 
     # --- Fala 2: pasaże CV --------------------------------------------------
