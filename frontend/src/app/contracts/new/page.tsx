@@ -60,6 +60,7 @@ import {
   canManageCandidateFinance,
   useAuthStore,
 } from "@/store/auth";
+import { warsawToday } from "@/lib/warsaw-date";
 
 type CandidateOption = {
   id: number;
@@ -80,7 +81,7 @@ type RecruitmentOption = {
 type ClientOption = { id: number; name: string };
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return warsawToday();
 }
 
 function NewContractForm() {

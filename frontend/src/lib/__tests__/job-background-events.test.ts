@@ -61,6 +61,9 @@ describe("job-background-events", () => {
       "reguła klienta wymaga danych, których automat nie ma (Brak stanowiska)",
     );
     expect(autoCvSkipReason({ reason: "generation_unavailable", detail: "503" })).toBe("generator CV był niedostępny");
+    expect(autoCvSkipReason({ reason: "already_generated" })).toBe(
+      "CV z tego samego pliku już wygenerowano w tej rekrutacji — nowego nie tworzono",
+    );
     expect(autoCvSkipReason({ reason: "xyz" })).toBe("powód: xyz");
     expect(autoCvSkipReason({})).toBe("powód nieznany");
   });

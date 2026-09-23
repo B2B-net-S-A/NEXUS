@@ -450,7 +450,7 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 | **Dodaj przedłużenie** | zakłada **nowe** zamówienie podpięte pod obecne (patrz niżej) |
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
 | **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet |
-| **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**, a umowy konsultantów zostają bez zmian |
+| **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**. Okno usuwania pokazuje skutki dla umów: jeśli zamówienie niosło jedyną stawkę klienta na umowie, umowa zostaje **bez przychodu** (stawka klienta i marża znikają), a gdy są inne zamówienia — okres, którego dotyczyło, przejdzie na ich stawkę |
 | **Historia zamówienia** | rozwijana lista zdarzeń z datą, wykonawcą (wpis bez osoby = zmiana automatyczna) i opisem: utworzenie, dodania i zamiany konsultantów, importy, decyzje o MD, zakończenia. Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
 
 Przy każdym konsultancie masz osobno: **Edytuj linię**, **Zamień kontraktora**
@@ -499,8 +499,10 @@ Dwie rzeczy, które celowo działają inaczej, niż mógłbyś się spodziewać:
   przy każdej z linii.
 
 **Usunięcie konsultanta usuwa tylko jego miejsce na tym zamówieniu.** Nie
-powstaje z niego nowe zamówienie okresowe, a umowa tej osoby i jej pozostałe
-zamówienia nie zmieniają się — projekt zostaje aktywny. Osoby, która ma już
+powstaje z niego nowe zamówienie okresowe, a pozostałe zamówienia tej osoby nie
+zmieniają się. Stawka klienta zapisana z tej linii znika jednak z umowy —
+okno usuwania (już nie zwykłe „OK / Anuluj”) mówi, czy umowa przejdzie na
+stawkę innego zamówienia, czy zostanie **bez przychodu**. Osoby, która ma już
 zafakturowaną kwotę albo zaraportowane MD, **nie usuniesz** (kosz jest
 wyszarzony, a system odmówi): usunięcie skasowałoby jej rozliczenia. Gdy
 współpraca się skończyła, użyj **Zostaw jako historię**, **Zastąp kimś innym**
@@ -556,6 +558,12 @@ z budżetem przy osobie** system sam przelicza dni tak, żeby wartość w złoty
 została ta sama (nowe MD × nowa stawka = pozostałe MD × stara stawka). Przy
 zamówieniu **kosztowym** i przy **wspólnej puli MD** nie rusza budżetu w ogóle —
 zmienia się tylko osoba i jej stawki.
+
+Gdy raport Finansów za **miesiąc zamiany** przyjdzie już po zamianie, system
+zdejmuje te MD z poprzednika i **sam koryguje budżet następcy** (wpis
+„Korekta budżetu następcy po rozliczeniu miesiąca zamiany” w historii) —
+inaczej te same dni byłyby rozdane dwa razy. Korekta nie rusza budżetu, który
+ktoś zmienił ręcznie, ani zamian sprzed 23.09.2026.
 
 Data zamiany w przyszłości **nie wyłącza od razu** osoby, która dziś pracuje —
 poprzednik dostaje datę zakończenia od razu, ale status „zakończony" dopiero gdy
@@ -669,7 +677,12 @@ kolejka miała w menu własną pozycję „Zamówienia z maila", a stare linki
 z powiadomień nadal do niej prowadzą.
 
 Automatyczny odczyt załączników ze skrzynki **zamowienia@b2bnetwork.pl**
-przygotowuje plan dla osób rozpoznanych w dokumencie. Przy dopasowaniu osoby
+przygotowuje plan dla osób rozpoznanych w dokumencie. Trzy sytuacje zawsze
+czekają na Ciebie w kolejce: **waluta inna niż PLN** (zapis bierze walutę
+z dokumentu), **okres niepotwierdzony regułą klienta** u BIK, Polkomtela, BNP,
+PFRON i Credit Agricole (tam liczy się wyłącznie okres z dokumentu) oraz
+**powrót po przerwie osoby, która ma w bazie imiennika**. Wartość całego
+dokumentu trafia na zamówienie tylko wtedy, gdy dokument dotyczy jednej osoby. Przy dopasowaniu osoby
 sprawdza **pełną, aktualną listę konsultantów przypisanych umową do tego
 klienta**, także z dawniej zakończonymi umowami. Nie szuka wśród osób innego
 klienta.

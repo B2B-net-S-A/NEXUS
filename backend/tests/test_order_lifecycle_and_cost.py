@@ -2112,3 +2112,133 @@ async def test_delete_group_with_settlements_is_refused(
 
     async with AsyncSessionLocal() as db:
         assert await db.get(ClientOrderGroup, group["id"]) is not None
+
+
+# ── Audyt 22.09 r2 (FIN-MD-04): przywrócenie odtwarza daty i obsadę ─────────
+
+
+async def test_reopen_restores_dates_and_cost_lines_cut_by_the_closure(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    planned_end = business_today() + timedelta(days=90)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_cost_line(contracts[0], end_date=planned_end.isoformat())],
+        is_cost_based=True,
+        budget_amount=50000,
+        end_date=planned_end.isoformat(),
+    )
+    line_id = group["lines"][0]["id"]
+    yesterday = business_today() - timedelta(days=1)
+
+    closed = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/close",
+        json={"closure_date": yesterday.isoformat()},
+        headers=app_auth_headers,
+    )
+    assert closed.status_code == 200, closed.text
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, line_id)
+        assert line.status.value == "completed"
+        assert line.end_date == yesterday
+
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/reopen",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["end_date"] == planned_end.isoformat()
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, line_id)
+        assert line.status.value == "active"
+        assert line.end_date == planned_end
+
+
+# ── Audyt 22.09 r2 (FIN-MD-06): faktura bez MD i korekta ≤ 0 ────────────────
+
+
+async def test_invoice_only_row_settles_the_cost_pool_and_correction_is_flagged(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    client_id, contracts, names = await _seed_client_with_contracts(2)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    number = f"45007{uuid.uuid4().int % 100000:05d}"
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_cost_line(c) for c in contracts],
+        order_number=number,
+        is_cost_based=True,
+        budget_amount=50000,
+    )
+    finance = await _finance_headers(app_client)
+
+    detail = await _import_sheet(
+        app_client,
+        finance,
+        _sheet(
+            [
+                (names[0], None, f"SAP {number}", 12000),
+                (names[1], 3, f"SAP {number}", -500),
+            ]
+        ),
+    )
+    by_name = {row["consultant_name"]: row for row in detail["rows"]}
+    assert by_name[names[0]]["status"] == "cost_only"
+    assert by_name[names[0]]["cost_status"] == "applied"
+    assert by_name[names[1]]["cost_status"] == "non_positive_amount"
+
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+    )
+    body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
+    assert body["budget_used"] == pytest.approx(12000.0)
+
+
+async def test_correcting_the_invoice_month_that_exhausted_a_cost_order(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """FIN-MD-08: korekta faktury za miesiąc, który wyczerpał pulę kosztową."""
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    number = f"45008{uuid.uuid4().int % 100000:05d}"
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_cost_line(contracts[0])],
+        order_number=number,
+        is_cost_based=True,
+        budget_amount=10000,
+    )
+    finance = await _finance_headers(app_client)
+    await _import_sheet(
+        app_client, finance, _sheet([(names[0], 5, f"SAP {number}", 12000)])
+    )
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+    )
+    body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
+    assert body["status"] == "exhausted"
+
+    await _import_sheet(
+        app_client, finance, _sheet([(names[0], 5, f"SAP {number}", 6000)])
+    )
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+    )
+    body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
+    assert body["status"] == "active"
+    assert body["budget_remaining"] == pytest.approx(4000.0)

@@ -48,6 +48,7 @@ from app.models.client_order_group import (
     GROUP_STATUS_EXHAUSTED,
     ClientOrderGroup,
     ClientOrderGroupEvent,
+    ClientOrderGroupMdConsumption,
 )
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.job import Job
@@ -696,6 +697,88 @@ def _group_settles_in_month_clause(first_day: date):
     )
 
 
+def _exhausted_with_month_entry_clause(period_month: str, *, cost: bool):
+    """Audyt 22.09 r2 (FIN-MD-08): korekta miesiąca, który WYCZERPAŁ pulę.
+
+    ``group_settles_in_month`` celowo pomija ``exhausted`` (z wyczerpanej puli
+    nic się już nie zdejmuje) — ale przez to ponowny import TEGO SAMEGO
+    miesiąca z mniejszą liczbą (korekta raportu Finansów) był niemożliwy,
+    a pula zostawała wyczerpana na zawsze. Grupa ``exhausted``, która ma już
+    wpis za ten miesiąc, jest więc celem korekty; ``settle`` sam przywraca
+    ``active``, gdy po korekcie coś zostaje. Wzorzec:
+    ``historical_shared_md_lines``.
+    """
+    from app.models.md_consumption import ClientOrderInvoiceConsumption
+
+    if cost:
+        entry = (
+            select(ClientOrderInvoiceConsumption.id)
+            .join(ClientOrder, ClientOrder.id == ClientOrderInvoiceConsumption.order_id)
+            .where(
+                ClientOrder.order_group_id == ClientOrderGroup.id,
+                ClientOrderInvoiceConsumption.period_month == period_month,
+            )
+            .exists()
+        )
+    else:
+        entry = (
+            select(ClientOrderGroupMdConsumption.id)
+            .where(
+                ClientOrderGroupMdConsumption.group_id == ClientOrderGroup.id,
+                ClientOrderGroupMdConsumption.period_month == period_month,
+            )
+            .exists()
+        )
+    return and_(ClientOrderGroup.status == GROUP_STATUS_EXHAUSTED, entry)
+
+
+async def exhausted_groups_with_month_entry(
+    db: AsyncSession, group_ids: Iterable[int], period_month: str
+) -> frozenset[int]:
+    """Id grup ``exhausted`` z wpisem za ``period_month`` (MD puli albo faktura)."""
+    from app.models.md_consumption import ClientOrderInvoiceConsumption
+
+    ids = sorted(set(group_ids))
+    if not ids:
+        return frozenset()
+    shared = set(
+        (
+            await db.scalars(
+                select(ClientOrderGroupMdConsumption.group_id)
+                .join(
+                    ClientOrderGroup,
+                    ClientOrderGroup.id == ClientOrderGroupMdConsumption.group_id,
+                )
+                .where(
+                    ClientOrderGroupMdConsumption.group_id.in_(ids),
+                    ClientOrderGroupMdConsumption.period_month == period_month,
+                    ClientOrderGroup.status == GROUP_STATUS_EXHAUSTED,
+                )
+            )
+        ).all()
+    )
+    cost = set(
+        (
+            await db.scalars(
+                select(ClientOrder.order_group_id)
+                .join(
+                    ClientOrderInvoiceConsumption,
+                    ClientOrderInvoiceConsumption.order_id == ClientOrder.id,
+                )
+                .join(
+                    ClientOrderGroup, ClientOrderGroup.id == ClientOrder.order_group_id
+                )
+                .where(
+                    ClientOrder.order_group_id.in_(ids),
+                    ClientOrderInvoiceConsumption.period_month == period_month,
+                    ClientOrderGroup.status == GROUP_STATUS_EXHAUSTED,
+                )
+            )
+        ).all()
+    )
+    return frozenset(g for g in shared | cost if g is not None)
+
+
 # ── Kwalifikacja linii do importu: OKRES, nie status ────────────────────────
 #
 # Do 09.2026 import pytał wyłącznie o linie ``active``. Konsultant, który
@@ -855,7 +938,10 @@ async def cost_lines_settling_in_month(
         .options(selectinload(ClientOrder.order_group))
         .where(
             ClientOrderGroup.is_cost_based.is_(True),
-            _group_settles_in_month_clause(first),
+            or_(
+                _group_settles_in_month_clause(first),
+                _exhausted_with_month_entry_clause(period_month, cost=True),
+            ),
             *line_settles_in_month_conditions(period_month, include_draft=True),
         )
     )
@@ -894,7 +980,10 @@ async def shared_md_lines_settling_in_month(
         .options(selectinload(ClientOrder.order_group))
         .where(
             ClientOrderGroup.is_md_budget_based.is_(True),
-            _group_settles_in_month_clause(first),
+            or_(
+                _group_settles_in_month_clause(first),
+                _exhausted_with_month_entry_clause(period_month, cost=False),
+            ),
             *line_settles_in_month_conditions(period_month),
         )
     )
@@ -1378,8 +1467,16 @@ async def _refresh_open_offboarding_snapshot(
         case.remaining_md_snapshot = refreshed
 
 
-async def recompute_remaining(db: AsyncSession, order: ClientOrder) -> Decimal:
+async def recompute_remaining(
+    db: AsyncSession, order: ClientOrder, *, rebalance: bool = True
+) -> Decimal:
     """Przelicz ``md_remaining`` od zera i zapisz na linii.
+
+    ``rebalance`` (audyt 22.09 r2, FIN-MD-02): po przeliczeniu poprzednika
+    koryguje budżet NASTĘPCY po zamianie kontraktora i celu transferu puli
+    przy offboardingu — patrz :func:`_rebalance_swap_successor` i
+    :func:`_rebalance_offboarding_transfer`. Korekta woła tę funkcję dla
+    następcy z ``rebalance=False`` (głębokość 1).
 
     Jedyny writer tego pola. Wartość może zejść do zera i poniżej —
     przekroczony budżet jest faktem handlowym, więc nie jest tu ścinany;
@@ -1410,7 +1507,297 @@ async def recompute_remaining(db: AsyncSession, order: ClientOrder) -> Decimal:
         await sync_md_group_exhaustion(
             db, order.order_group_id, client_id=order.client_id
         )
-    return remaining
+    if rebalance and order.id is not None:
+        await _rebalance_swap_successor(db, order)
+        await _rebalance_offboarding_transfer(db, order)
+    return order.md_remaining if order.md_remaining is not None else remaining
+
+
+# ── Audyt 22.09 r2 (FIN-MD-02): korekta budżetu następcy ────────────────────
+#
+# Zamiana kontraktora (i transfer puli przy offboardingu) liczy budżet
+# następcy z pozostałości poprzednika W CHWILI KLIKNIĘCIA. Raport Finansów za
+# miesiąc zamiany przychodzi później i schodzi już tylko z linii poprzednika
+# (``line_settles_in_month``), więc te same MD były rozdane dwa razy: raz jako
+# zużycie poprzednika, raz w budżecie następcy. Decyzja właściciela:
+# automatyczna korekta — ale WYŁĄCZNIE, gdy budżet następcy nie był od tamtej
+# pory edytowany ręcznie (porównanie z liczbą zapisaną w dzienniku).
+
+
+def _dec_or_none(value: object) -> Optional[Decimal]:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except Exception:  # noqa: BLE001 — dziennik przeżywa dane starsze od walidacji
+        return None
+
+
+def _same_md(left: object, right: object) -> bool:
+    a, b = _dec_or_none(left), _dec_or_none(right)
+    if a is None or b is None:
+        return a is None and b is None
+    return quantize_md(a) == quantize_md(b)
+
+
+async def _swap_split_remaining(
+    db: AsyncSession, old: ClientOrder, md_remaining_old: Decimal
+) -> tuple[Decimal, Decimal]:
+    """(podstawa, opcja) pozostałości poprzednika — lustro ``swap_consultant``."""
+    optional_remaining = ZERO
+    if old.md_optional_total is not None:
+        _, optional_used = split_md_usage(old, await consumed_md(db, old.id))
+        optional_unused = max(ZERO, Decimal(str(old.md_optional_total)) - optional_used)
+        optional_remaining = max(ZERO, min(optional_unused, md_remaining_old))
+    base_remaining = max(ZERO, md_remaining_old - optional_remaining)
+    return base_remaining, optional_remaining
+
+
+async def _person_name(db: AsyncSession, order: ClientOrder) -> str:
+    """Imię i nazwisko osoby z linii — BEZ leniwego doczytania relacji."""
+    row = (
+        await db.execute(
+            select(Candidate.name, Candidate.lastname)
+            .join(Contract, Contract.candidate_id == Candidate.id)
+            .where(Contract.id == order.contract_id)
+        )
+    ).first()
+    if row is None:
+        return "—"
+    return f"{row[0] or ''} {row[1] or ''}".strip() or "—"
+
+
+async def _rebalance_swap_successor(db: AsyncSession, order: ClientOrder) -> None:
+    from app.services.multi_consultant_orders import (
+        EVENT_CONSULTANT_SWAPPED,
+        EVENT_MANUAL_EDIT,
+        swap_md_total,
+    )
+
+    if order.md_total is None or order.order_group_id is None:
+        return
+    successors = list(
+        (
+            await db.scalars(
+                select(ClientOrder).where(
+                    ClientOrder.predecessor_order_id == order.id,
+                    ClientOrder.order_group_id == order.order_group_id,
+                    ClientOrder.status != ClientOrderStatus.cancelled,
+                )
+            )
+        ).all()
+    )
+    if len(successors) != 1 or successors[0].md_total is None:
+        return
+    succ = successors[0]
+    event = await db.scalar(
+        select(ClientOrderGroupEvent)
+        .where(
+            ClientOrderGroupEvent.group_id == order.order_group_id,
+            ClientOrderGroupEvent.order_id == succ.id,
+            ClientOrderGroupEvent.event_type == EVENT_CONSULTANT_SWAPPED,
+        )
+        .order_by(ClientOrderGroupEvent.id.desc())
+        .limit(1)
+    )
+    payload = dict(event.payload or {}) if event is not None else {}
+    recorded_total = payload.get("new_md_total")
+    if not payload.get("auto_rebalance"):
+        # Zamiana sprzed audytu 22.09 r2: jej budżet mógł zostać przyjęty
+        # i rozliczony z klientem — nie korygujemy historii po cichu.
+        return
+    if recorded_total is None:
+        # Zamiana sprzed tej reguły (albo zamówienie kosztowe / wspólna pula):
+        # bez zapisanej liczby nie odróżnimy ręcznej edycji od korekty.
+        return
+    if not _same_md(succ.md_total, recorded_total) or not _same_md(
+        succ.md_optional_total, payload.get("new_md_optional_total")
+    ):
+        return  # budżet następcy edytowany ręcznie — nie ruszamy
+    rate_old = _dec_or_none(payload.get("old_rate_revenue")) or _dec_or_none(
+        order.md_rate_revenue
+    )
+    rate_new = _dec_or_none(payload.get("new_rate_revenue")) or _dec_or_none(
+        succ.md_rate_revenue
+    )
+    if rate_old is None or rate_new is None or rate_new <= 0:
+        return
+    md_remaining_old = max(ZERO, Decimal(str(order.md_remaining or 0)))
+    base_rem, opt_rem = await _swap_split_remaining(db, order, md_remaining_old)
+    new_total = swap_md_total(
+        md_remaining_old=base_rem, rate_revenue_old=rate_old, rate_revenue_new=rate_new
+    )
+    new_optional = (
+        None
+        if succ.md_optional_total is None
+        else swap_md_total(
+            md_remaining_old=opt_rem,
+            rate_revenue_old=rate_old,
+            rate_revenue_new=rate_new,
+        )
+    )
+    if _same_md(succ.md_total, new_total) and _same_md(
+        succ.md_optional_total, new_optional
+    ):
+        return
+    previous_total = Decimal(str(succ.md_total))
+    succ_name = await _person_name(db, succ)
+    succ.md_total = new_total
+    succ.md_input_value = new_total
+    succ.md_optional_total = new_optional
+    payload["new_md_total"] = str(new_total)
+    if new_optional is not None:
+        payload["new_md_optional_total"] = str(new_optional)
+    payload["old_md_remaining"] = str(md_remaining_old)
+    # Nowy dict: mutacja JSONB w miejscu nie jest widoczna dla ORM.
+    event.payload = payload
+    record_event(
+        db,
+        group_id=order.order_group_id,
+        order_id=succ.id,
+        event_type=EVENT_MANUAL_EDIT,
+        description=(
+            "Korekta budżetu następcy po rozliczeniu miesiąca zamiany: "
+            f"{succ_name} {format_md(previous_total)} MD → "
+            f"{format_md(new_total)} MD (pozostałość poprzednika "
+            f"{format_md(md_remaining_old)} MD)."
+        ),
+        payload={
+            "kind": "swap_successor_rebalance",
+            "predecessor_order_id": order.id,
+            "previous_md_total": str(previous_total),
+            "new_md_total": str(new_total),
+        },
+    )
+    await recompute_remaining(db, succ, rebalance=False)
+
+
+async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) -> None:
+    from app.models.client_order_offboarding import (
+        OFFBOARDING_RESOLUTION_TRANSFER,
+        OFFBOARDING_STATUS_RESOLVED,
+        ClientOrderOffboardingCase,
+    )
+    from app.services.multi_consultant_orders import (
+        EVENT_MANUAL_EDIT,
+        INPUT_MODE_AMOUNT,
+        INPUT_MODE_MD,
+    )
+
+    if order.md_total is None or order.order_group_id is None:
+        return
+    case = await db.scalar(
+        select(ClientOrderOffboardingCase)
+        .where(
+            ClientOrderOffboardingCase.order_id == order.id,
+            ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_RESOLVED,
+            ClientOrderOffboardingCase.resolution == OFFBOARDING_RESOLUTION_TRANSFER,
+            ClientOrderOffboardingCase.uses_shared_md_pool.is_(False),
+            ClientOrderOffboardingCase.target_order_id.is_not(None),
+        )
+        .order_by(ClientOrderOffboardingCase.id.desc())
+        .limit(1)
+    )
+    if case is None:
+        return
+    payload = dict(case.resolution_payload or {})
+    before = payload.get("source_before")
+    if not isinstance(before, dict):
+        return  # decyzja sprzed tej reguły
+    if not _same_md(
+        order.md_total, payload.get("source_md_total_after")
+    ) or not _same_md(order.md_optional_total, payload.get("source_md_optional_after")):
+        return  # linia odchodzącego edytowana ręcznie
+    target = await db.get(ClientOrder, case.target_order_id)
+    if target is None or target.md_total is None:
+        return
+    if not _same_md(target.md_total, payload.get("target_md_total_after")):
+        return  # budżet celu edytowany ręcznie
+    basis = _dec_or_none(payload.get("basis_rate"))
+    target_rate = _dec_or_none(payload.get("target_rate_revenue"))
+    old_remaining = _dec_or_none(payload.get("remaining_md_snapshot"))
+    old_transferred = _dec_or_none(payload.get("transferred_md"))
+    if (
+        basis is None
+        or target_rate is None
+        or target_rate <= 0
+        or old_remaining is None
+        or old_transferred is None
+    ):
+        return
+
+    before_total = Decimal(str(before.get("md_total")))
+    before_optional = _dec_or_none(before.get("md_optional_total"))
+    before_adjustment = _dec_or_none(before.get("md_manual_adjustment")) or ZERO
+    consumed = await consumed_md(db, order.id)
+    budget_before = before_total + (before_optional or ZERO)
+    new_remaining = max(ZERO, quantize_md(budget_before - consumed + before_adjustment))
+    if new_remaining == quantize_md(old_remaining):
+        return
+
+    # Odtwórz budżet odchodzącego sprzed decyzji i zdejmij z niego NOWĄ pulę
+    # tą samą regułą co decyzja (opcja pierwsza).
+    from fastapi import HTTPException
+
+    from app.api.client_order_groups import _reduce_legacy_md_budget
+
+    order.md_total = before_total
+    order.md_optional_total = before_optional
+    order.md_manual_adjustment = before_adjustment
+    order.md_input_mode = before.get("md_input_mode")
+    order.md_input_value = _dec_or_none(before.get("md_input_value"))
+    try:
+        _reduce_legacy_md_budget(order, new_remaining)
+    except HTTPException:
+        return
+    new_transferred = quantize_md(new_remaining * basis / target_rate)
+    delta = new_transferred - quantize_md(old_transferred)
+    target.md_total = quantize_md(Decimal(str(target.md_total)) + delta)
+    if target.md_input_mode == INPUT_MODE_AMOUNT:
+        target.md_input_value = quantize_md(
+            Decimal(str(target.md_input_value or 0)) + delta * target_rate
+        )
+    else:
+        target.md_input_mode = INPUT_MODE_MD
+        target.md_input_value = quantize_md(
+            Decimal(str(target.md_input_value or 0)) + delta
+        )
+    payload.update(
+        {
+            "remaining_md_snapshot": str(new_remaining),
+            "transferred_md": str(new_transferred),
+            "source_md_total_after": str(order.md_total),
+            "source_md_optional_after": (
+                None
+                if order.md_optional_total is None
+                else str(order.md_optional_total)
+            ),
+            "target_md_total_after": str(target.md_total),
+        }
+    )
+    case.resolution_payload = payload
+    target_name = await _person_name(db, target)
+    source_name = await _person_name(db, order)
+    record_event(
+        db,
+        group_id=order.order_group_id,
+        order_id=target.id,
+        event_type=EVENT_MANUAL_EDIT,
+        description=(
+            "Korekta przeniesionej puli MD po rozliczeniu miesiąca zejścia: "
+            f"{target_name} {format_md(old_transferred)} MD → "
+            f"{format_md(new_transferred)} MD (pozostałość "
+            f"{source_name} {format_md(new_remaining)} MD)."
+        ),
+        payload={
+            "kind": "offboarding_transfer_rebalance",
+            "offboarding_case_id": case.id,
+            "previous_transferred_md": str(old_transferred),
+            "transferred_md": str(new_transferred),
+        },
+    )
+    await recompute_remaining(db, order, rebalance=False)
+    await recompute_remaining(db, target, rebalance=False)
 
 
 async def upsert_consumption(
@@ -1528,6 +1915,11 @@ class MdConsumptionOutcome:
     transferred: Decimal
     successor_order: Optional[ClientOrder]
     successor_group: Optional[ClientOrderGroup]
+    #: Linia (i jej grupa), na której faktycznie zaczęło się rozliczenie
+    #: miesiąca — po przekierowaniu na poprzednika (FIN-MD-01) inna niż ta,
+    #: którą podał wołający.
+    order: Optional[ClientOrder] = None
+    group: Optional[ClientOrderGroup] = None
 
 
 async def successor_line_for(
@@ -1584,6 +1976,59 @@ async def successor_line_for(
     ]
     if len(by_candidate) == 1:
         return by_candidate[0], successor
+    return None, None
+
+
+async def predecessor_line_for(
+    db: AsyncSession, order: ClientOrder
+) -> tuple[Optional[ClientOrder], Optional[ClientOrderGroup]]:
+    """Linia TEGO SAMEGO konsultanta w zamówieniu-poprzedniku (lustro
+    :func:`successor_line_for`).
+
+    Audyt 22.09 r2 (FIN-MD-01). Po materializacji następca jest ``active``,
+    więc powtórka importu miesiąca, w którym nadwyżka przeszła na następcę,
+    dopasowywała wiersz do NASTĘPCY (``prefer_active_line``) i zapisywała na
+    nim pełną liczbę — a wpis poprzednika za ten miesiąc zostawał. 20 MD
+    liczone podwójnie. Podział miesiąca zaczyna się zawsze od poprzednika.
+
+    Ta sama reguła dopasowania: najpierw ``contract_id``, potem kandydat;
+    niejednoznaczność = pustka (bez zgadywania).
+    """
+    if order.order_group_id is None:
+        return None, None
+    group = await db.get(ClientOrderGroup, order.order_group_id)
+    if group is None or group.predecessor_group_id is None:
+        return None, None
+    predecessor = await db.get(ClientOrderGroup, group.predecessor_group_id)
+    if predecessor is None:
+        return None, None
+    lines = list(
+        (
+            await db.scalars(
+                _line_query().where(ClientOrder.order_group_id == predecessor.id)
+            )
+        ).all()
+    )
+    open_lines = [
+        line
+        for line in lines
+        if line.md_total is not None and line.status != ClientOrderStatus.cancelled
+    ]
+    by_contract = [line for line in open_lines if line.contract_id == order.contract_id]
+    if len(by_contract) == 1:
+        return by_contract[0], predecessor
+    if by_contract:
+        return None, None
+    wanted = order.contract.candidate_id if order.contract else None
+    if wanted is None:
+        return None, None
+    by_candidate = [
+        line
+        for line in open_lines
+        if line.contract is not None and line.contract.candidate_id == wanted
+    ]
+    if len(by_candidate) == 1:
+        return by_candidate[0], predecessor
     return None, None
 
 
@@ -1645,6 +2090,25 @@ async def apply_md_consumption(
     successor_line: Optional[ClientOrder] = None
     successor_group: Optional[ClientOrderGroup] = None
     if allow_successor_transfer:
+        # Audyt 22.09 r2 (FIN-MD-01): miesiąc już raz podzielony z poprzednika
+        # rozliczamy ZNOWU od poprzednika — inaczej powtórka importu po
+        # materializacji zapisałaby całość na następcy, a wpis poprzednika
+        # za ten miesiąc zostałby (MD liczone dwa razy).
+        pred_line, pred_group = await predecessor_line_for(db, order)
+        if pred_line is not None and (
+            await db.scalar(
+                select(ClientOrderMdConsumption.id).where(
+                    ClientOrderMdConsumption.order_id == pred_line.id,
+                    ClientOrderMdConsumption.period_month == period_month,
+                )
+            )
+        ):
+            await db.scalar(
+                select(ClientOrder.id)
+                .where(ClientOrder.id == pred_line.id)
+                .with_for_update()
+            )
+            order, group = pred_line, pred_group
         successor_line, successor_group = await successor_line_for(db, order)
 
     applied = value
@@ -1719,6 +2183,8 @@ async def apply_md_consumption(
         transferred=overflow,
         successor_order=successor_line,
         successor_group=successor_group,
+        order=order,
+        group=group,
     )
 
 

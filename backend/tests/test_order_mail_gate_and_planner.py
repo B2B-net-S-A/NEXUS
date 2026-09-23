@@ -657,3 +657,176 @@ def test_verdict_codes_line_up_with_their_reasons():
     assert dirty.verdict == VERDICT_REVIEW
     assert len(dirty.codes) == len(dirty.reasons) > 1
     assert all(dirty.codes)
+
+
+# ── Audyt 22.09, druga runda (FIN-MAIL-01..07) ───────────────────────────────
+
+
+def _plan(ex, resolved, **kw):
+    return plan_document(
+        client_id=1,
+        extraction=ex,
+        resolved=list(resolved),
+        existing_orders_by_contract=kw.pop("existing", {}),
+        is_group_client=False,
+        today=TODAY,
+        **kw,
+    )
+
+
+def test_document_total_is_copied_only_onto_a_single_person_order():
+    """FIN-MAIL-01: wartość całego PDF-a nie ląduje na zamówieniu każdej osoby."""
+    two = _extraction([_row("Jan Kowalski"), _row("Anna Nowak")])
+    two.total_value = Decimal("120000")
+    prop = _plan(
+        two,
+        (
+            _resolved(0, "Jan Kowalski"),
+            _resolved(1, "Anna Nowak", contract_id=11, live=(11,)),
+        ),
+    )
+    assert [r.total_value for r in prop.rows] == [None, None]
+    one = _extraction([_row("Jan Kowalski")])
+    one.total_value = Decimal("60000")
+    assert _plan(one, (_resolved(0, "Jan Kowalski"),)).rows[0].total_value == "60000"
+
+
+def test_foreign_currency_goes_to_the_queue_and_travels_with_the_row():
+    """FIN-MAIL-02: 110 EUR nie może zapisać się automatem jako 110 PLN."""
+    from app.services.order_mail_gate import CODE_CURRENCY_FOREIGN
+
+    ex = _extraction([_row("Jan Kowalski")])
+    ex.currency = "eur"
+    prop = _plan(ex, (_resolved(0, "Jan Kowalski"),))
+    assert prop.rows[0].currency == "EUR"
+    verdict = evaluate(_gate_input(extraction=ex, proposal=prop))
+    assert verdict.verdict == VERDICT_REVIEW
+    assert CODE_CURRENCY_FOREIGN in verdict.codes
+    pln = _extraction([_row("Jan Kowalski")])
+    pln.currency = "PLN"
+    prop_pln = _plan(pln, (_resolved(0, "Jan Kowalski"),))
+    assert evaluate(_gate_input(extraction=pln, proposal=prop_pln)).is_auto
+
+
+def test_document_period_wins_over_the_model_row_period_for_ruled_clients():
+    """FIN-MAIL-03: u klienta z okresem z reguły plan bierze okres dokumentu."""
+    row = _row("Jan Kowalski", start="2031-05-05", end="2031-12-31")
+    ex = _extraction([row])
+    ex.end_date = None  # BIK: bezterminowo z reguły
+    ruled = _plan(
+        ex, (_resolved(0, "Jan Kowalski"),), document_period_authoritative=True
+    )
+    assert (ruled.rows[0].start_date, ruled.rows[0].end_date) == ("2031-04-01", None)
+    plain = _plan(ex, (_resolved(0, "Jan Kowalski"),))
+    assert (plain.rows[0].start_date, plain.rows[0].end_date) == (
+        "2031-05-05",
+        "2031-12-31",
+    )
+
+
+def test_gate_requires_the_ruled_period_and_matching_row_evidence():
+    from app.services.order_mail_gate import CODE_ROW_EVIDENCE_PERIOD
+
+    ex = _extraction([_row("Jan Kowalski")])
+    prop = _plan(ex, (_resolved(0, "Jan Kowalski"),))
+    # Okres od modelu (bez potwierdzenia regułą) u klienta z okresem z reguły.
+    ex.confidence.update({"start_date": 0.99, "end_date": 0.99})
+    held = evaluate(
+        _gate_input(extraction=ex, proposal=prop, document_period_authoritative=True)
+    )
+    assert CODE_ROW_EVIDENCE_PERIOD in held.codes
+    ex.confidence.update({"start_date": 1.0, "end_date": 1.0})
+    assert evaluate(
+        _gate_input(extraction=ex, proposal=prop, document_period_authoritative=True)
+    ).is_auto
+    # Wiersz z tabeli PDF ma inny okres niż plan.
+    other = _row("Jan Kowalski", start="2031-04-01", end="2031-09-30")
+    mismatch = evaluate(
+        _gate_input(extraction=ex, proposal=prop, deterministic_rows=(other,))
+    )
+    assert CODE_ROW_EVIDENCE_PERIOD in mismatch.codes
+
+
+def test_model_cannot_claim_rule_confidence():
+    """FIN-MAIL-04: 1.0 od modelu nie udaje potwierdzenia regułą."""
+    from app.services.order_pdf_parser import _normalize
+
+    ex = _normalize(
+        {
+            "title": "7/2031",
+            "start_date": "2031-04-01",
+            "_confidence": {"title": 1.0, "start_date": 0.4},
+        },
+        source="claude",
+    )
+    assert ex.confidence["title"] < 1.0
+    assert ex.confidence["start_date"] == 0.4
+
+
+def test_return_after_break_with_a_namesake_is_not_automatic():
+    """FIN-MAIL-07: powrót rozpoznany po nazwisku przy imienniku → kolejka."""
+    from app.services.order_mail_gate import CODE_ACTION_NOT_AUTO
+    from app.services.order_mail_planner import ACTION_REACTIVATE
+    from app.services.order_mail_resolver import PersonElsewhere, annotate_namesakes
+
+    resolved = annotate_namesakes(
+        [_resolved(0, "Jan Kowalski", status="ended")],
+        {
+            "Jan Kowalski": (
+                PersonElsewhere(candidate_id=100, full_name="Jan Kowalski"),
+                PersonElsewhere(candidate_id=555, full_name="Jan Kowalski"),
+            )
+        },
+    )
+    assert resolved[0].namesake_ids == (555,)
+    existing = {
+        10: [
+            ExistingOrder(1, "completed", "OLD/1", date(2030, 1, 1), date(2031, 2, 28))
+        ]
+    }
+    ex = _extraction([_row("Jan Kowalski")])
+    prop = _plan(ex, resolved, existing=existing)
+    assert prop.rows[0].action == ACTION_REACTIVATE
+    assert prop.rows[0].existing_person_ids == [555]
+    verdict = evaluate(
+        _gate_input(extraction=ex, proposal=prop, resolved=tuple(resolved))
+    )
+    assert verdict.verdict == VERDICT_REVIEW and CODE_ACTION_NOT_AUTO in verdict.codes
+    # Bez imiennika powrót zostaje automatyczny (decyzja 10.09.2026).
+    plain = _plan(ex, [_resolved(0, "Jan Kowalski", status="ended")], existing=existing)
+    assert evaluate(_gate_input(extraction=ex, proposal=plain)).is_auto
+
+
+def test_queue_redacts_amounts_and_other_clients_for_roles_without_finance():
+    """FIN-MAIL-06: kwoty wierszy i nazwy innych klientów poza rolami z finansami."""
+    from app.api.order_mail_queue import _redact_proposal
+
+    proposal = {
+        "blocking": [],
+        "rows": [
+            {
+                "row_name": "Jan Kowalski",
+                "rate_client": "900",
+                "total_value": "50000",
+                "currency": "PLN",
+                "existing_person_ids": [7],
+                "reasons": [
+                    "„Jan Kowalski”: „Jan Kowalski” (#7) ma kontrakt #3 u klienta "
+                    "„Bank Inny”. Sprawdź"
+                ],
+            }
+        ],
+        "resolved": [{"reason": "ma kontrakt #3 u klienta „Bank Inny”"}],
+    }
+    dl = _redact_proposal(proposal, show_finance=True, hide_other_clients=True)
+    assert dl["rows"][0]["rate_client"] == "900"  # przypisany DL widzi kwoty
+    assert "Bank Inny" not in str(dl)
+    assert dl["rows"][0]["existing_person_ids"] == [7]
+    tcm = _redact_proposal(
+        proposal, show_finance=False, read_only_tcm=True, hide_other_clients=True
+    )
+    row = tcm["rows"][0]
+    assert (row["rate_client"], row["total_value"], row["currency"]) == (None,) * 3
+    assert row["existing_person_ids"] == [] and "Bank Inny" not in str(tcm)
+    admin = _redact_proposal(proposal, show_finance=True)
+    assert admin is proposal

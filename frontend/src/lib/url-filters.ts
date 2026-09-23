@@ -114,6 +114,12 @@ export interface CandidateFilters {
   // „Ukryj osoby bez danych" (`hide_unknown`) — bez tego osoby bez lokalizacji,
   // stażu albo stawki zostają z plakietką `unknown_fields`. W URL `hu=1`.
   hideUnknown: boolean;
+  /**
+   * Zakres pola lokalizacji (`location_scope`). `location_only` = sama kolumna
+   * `location` (dawne zachowanie listy) — ustawia go migracja zapisów
+   * (CAND-06), żeby otwarty zapis pokazywał ten sam zbiór co alert. W URL `ls`.
+   */
+  locationScope: "" | "location_only";
   location: string;
   poolIds: number[];
   addedByIds: number[];
@@ -233,6 +239,7 @@ export const DEFAULT_FILTERS: CandidateFilters = {
   skillsExpr: "",
   skillsPreferred: [],
   hideUnknown: false,
+  locationScope: "",
   location: "",
   poolIds: [],
   addedByIds: [],
@@ -344,6 +351,7 @@ export function encodeFilters(f: CandidateFilters): URLSearchParams {
     if (entry.trim()) p.append("skills_pref", entry.trim());
   }
   if (f.hideUnknown) p.set("hu", "1");
+  if (f.locationScope) p.set("ls", f.locationScope);
   if (f.location) p.set("loc", f.location);
   if (f.poolIds.length) p.set("pool", CSV(f.poolIds));
   if (f.addedByIds.length) p.set("added_by", CSV(f.addedByIds));
@@ -455,6 +463,7 @@ export function decodeFilters(sp: URLSearchParams): CandidateFilters {
       .map((x) => x.trim())
       .filter(Boolean),
     hideUnknown: sp.get("hu") === "1",
+    locationScope: sp.get("ls") === "location_only" ? "location_only" : "",
     location: sp.get("loc") ?? "",
     poolIds: parseCsvInt(sp.get("pool")),
     addedByIds: parseCsvInt(sp.get("added_by")),
@@ -642,6 +651,7 @@ export function filtersToApiParams(
       ? filters.skillsPreferred
       : undefined,
     hide_unknown: filters.hideUnknown ? true : undefined,
+    location_scope: filters.locationScope || undefined,
     remote_policy: filters.remote.length ? filters.remote : undefined,
     employment: filters.employment.length ? filters.employment : undefined,
     availability: filters.availability.length ? filters.availability : undefined,

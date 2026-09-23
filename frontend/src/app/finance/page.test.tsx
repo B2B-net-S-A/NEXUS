@@ -4,6 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import FinancePage from "@/app/finance/page";
 import { useAuthStore, type User } from "@/store/auth";
 
+let mockParams: URLSearchParams | null = null;
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => mockParams,
+}));
+
 vi.mock("@/components/RequireSectionAccess", () => ({
   RequireSectionAccess: ({ children }: { children: React.ReactNode }) => children,
 }));
@@ -49,6 +54,7 @@ const financeUser = {
 } satisfies User;
 
 beforeEach(() => {
+  mockParams = null;
   window.history.replaceState(null, "", "/finance");
   useAuthStore.setState({
     user: financeUser,
@@ -91,5 +97,22 @@ describe("FinancePage permissions", () => {
     expect(
       screen.getByRole("tab", { name: "Zmiany w zamówieniach" }),
     ).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("follows ?view= on soft navigation without remounting (FE-N09)", async () => {
+    mockParams = new URLSearchParams("");
+    const view = render(<FinancePage />);
+    expect(await screen.findByText("results-write")).toBeInTheDocument();
+
+    mockParams = new URLSearchParams("view=order-changes");
+    view.rerender(<FinancePage />);
+    expect(await screen.findByText("order-changes")).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "Zmiany w zamówieniach" }),
+    ).toHaveAttribute("aria-selected", "true");
+
+    mockParams = new URLSearchParams("");
+    view.rerender(<FinancePage />);
+    expect(await screen.findByText("results-write")).toBeInTheDocument();
   });
 });

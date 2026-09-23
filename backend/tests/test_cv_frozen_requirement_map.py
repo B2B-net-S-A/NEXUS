@@ -160,3 +160,24 @@ async def test_downloaded_html_uses_same_evidence_validation(monkeypatch):
     assert response.status_code == 200
     assert renderer.call_args.args[1][0]["status"] == "no_data"
     assert renderer.call_args.args[1][0]["evidence"] == []
+
+
+def test_alternative_labels_get_recruitment_spelling(monkeypatch):
+    """FIX-10 (audyt 22.09 r2): grupa LUB z kontraktu („java lub kotlin")
+    dostaje pisownię z rekrutacji tak samo jak pojedyncze wymaganie."""
+    from app.services import requirement_contract
+
+    monkeypatch.setattr(requirement_contract, "stored_contract", lambda job: None)
+    monkeypatch.setattr(requirement_contract, "requirements_for_job", lambda job: [])
+    monkeypatch.setattr(
+        requirement_contract,
+        "requirement_labels",
+        lambda reqs: {"must": ["java lub kotlin", "python"], "nice": []},
+    )
+    job = SimpleNamespace(
+        must_skills=["Java", "Kotlin", "Python"],
+        nice_skills=[],
+        champion_profile=None,
+    )
+    names = [r["name"] for r in mapping.build_requirements(job)]
+    assert names == ["Java lub Kotlin", "Python"]

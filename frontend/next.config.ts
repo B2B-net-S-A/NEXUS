@@ -1,6 +1,91 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
+// audyt 22.09 r2 (SEC-01b): Content-Security-Policy.
+//
+// Egzekwujemy MINIMUM, które niczego dziś działającego nie łamie (brak
+// wtyczek, brak <base>, brak ramkowania, formularze tylko do siebie i API).
+// Pełna polityka (skąd skrypty, style, połączenia) idzie równolegle jako
+// Report-Only z raportem do Sentry — zaostrzenie egzekwowanej polityki
+// dopiero po przejrzeniu raportów. Budowane z env w czasie buildu
+// (NEXT_PUBLIC_* to build argi), bez importu z `src/`.
+type CspEnv = {
+  NODE_ENV?: string;
+  NEXT_PUBLIC_API_URL?: string;
+  NEXT_PUBLIC_SENTRY_DSN?: string;
+};
+
+function originOf(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Endpoint `security` Sentry z publicznego DSN (report-uri CSP). */
+export function sentryCspReportUri(dsn: string | undefined): string | null {
+  if (!dsn) return null;
+  try {
+    const url = new URL(dsn);
+    const projectId = url.pathname.replace(/^\/+|\/+$/g, "");
+    if (!url.username || !projectId) return null;
+    return `${url.protocol}//${url.host}/api/${projectId}/security/?sentry_key=${url.username}`;
+  } catch {
+    return null;
+  }
+}
+
+export function buildSecurityHeaders(
+  env: CspEnv = process.env as CspEnv,
+): { key: string; value: string }[] {
+  const api = originOf(env.NEXT_PUBLIC_API_URL);
+  const ws = api ? api.replace(/^http/, "ws") : null;
+  const sentryUri = sentryCspReportUri(env.NEXT_PUBLIC_SENTRY_DSN);
+  const sentryOrigin = sentryUri ? new URL(sentryUri).origin : null;
+  const isProd = env.NODE_ENV === "production";
+  const join = (...parts: (string | null | false | undefined)[]) =>
+    parts.filter(Boolean).join(" ");
+
+  const enforced = [
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+    join("form-action 'self'", api),
+  ].join("; ");
+
+  const reportOnly = [
+    "default-src 'self'",
+    join("script-src 'self' 'unsafe-inline'", !isProd && "'unsafe-eval'"),
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    join("img-src 'self' data: blob: https:", api),
+    "font-src 'self' data: https://fonts.gstatic.com",
+    join("connect-src 'self'", api, ws, sentryOrigin, !isProd && "ws: http://localhost:*"),
+    "frame-src 'self' blob:",
+    "worker-src 'self' blob:",
+    "media-src 'self' blob: https:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+    join("form-action 'self'", api),
+    sentryUri ? `report-uri ${sentryUri}` : null,
+  ]
+    .filter(Boolean)
+    .join("; ");
+
+  return [
+    { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+    { key: "X-Frame-Options", value: "DENY" },
+    { key: "X-Content-Type-Options", value: "nosniff" },
+    { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+    { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
+    { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+    { key: "Content-Security-Policy", value: enforced },
+    { key: "Content-Security-Policy-Report-Only", value: reportOnly },
+  ];
+}
+
 const nextConfig: NextConfig = {
   output: "standalone",
   // Grafiki OG strony kariery czytają TTF z src/app/fonts przez fs — obraz
@@ -74,14 +159,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/:path*",
-        headers: [
-          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
-          { key: "X-Frame-Options", value: "DENY" },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
-          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
-        ],
+        headers: buildSecurityHeaders(),
       },
     ];
   },

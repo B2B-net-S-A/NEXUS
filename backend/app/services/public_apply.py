@@ -249,7 +249,7 @@ async def submit_application(
     if existing is not None:
         existing_id = existing.id
         blacklisted = existing.status == CandidateStatus.blacklisted
-        await _record_duplicate_application(
+        _submission_id, blocked_reason = await _record_duplicate_application(
             db,
             ref=ref,
             applicant=applicant,
@@ -268,6 +268,7 @@ async def submit_application(
             target=f"/candidates/{existing_id}",
             duplicate=True,
             blacklisted=blacklisted,
+            blocked_reason=blocked_reason,
         )
         return {"ok": True, "status": "received"}
 
@@ -302,11 +303,13 @@ async def _record_duplicate_application(
     content: bytes,
     existing: Candidate,
     blacklisted: bool,
-) -> int:
+) -> tuple[int, Optional[str]]:
+    """Zwraca (id zgłoszenia, powód nieotwarcia procesu albo ``None``)."""
     from app.api import public_share
     from app.api.application_submissions import (
         _attach_cv_as_document,
         _ensure_submission_process,
+        submission_block_reason,
     )
     from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
     from app.services.candidate_stage_cv_service import create_original_cv_snapshot
@@ -366,15 +369,24 @@ async def _record_duplicate_application(
     # cudzy plik zastąpił CV, na którym pracuje zespół.
     await _attach_cv_as_document(db, existing.id, submission)
     opened_stage = None
+    blocked_reason: Optional[str] = None
     if not blacklisted:
         if link.job_id is not None:
+            # Audyt 22.09 r2 (CAND-01): weto hiring managera tej rekrutacji
+            # (ta sama bramka co przypisanie) — CV zostaje przy profilu, proces
+            # się nie otwiera, a właściciel linku dostaje powód w dzwonku.
+            # Publicznie nic się nie zmienia (ogólne 201, bez enumeracji).
+            blocked_reason = await submission_block_reason(
+                db, job_id=link.job_id, candidate_id=existing.id
+            )
+        if link.job_id is not None and blocked_reason is None:
             opened_stage = await _ensure_submission_process(
                 db,
                 submission=submission,
                 candidate_id=existing.id,
                 actor_user_id=link.created_by,
             )
-        else:
+        elif link.job_id is None:
             await db.execute(
                 pg_insert(MyPeopleOverride)
                 .values(
@@ -411,12 +423,13 @@ async def _record_duplicate_application(
                 "submission_id": submission.id,
                 "process_opened": opened_stage is not None,
                 "blacklisted": blacklisted,
+                "process_blocked": blocked_reason is not None,
             },
         )
     )
     link.use_count += 1
     link.last_used_at = datetime.now(timezone.utc)
-    return submission.id
+    return submission.id, blocked_reason
 
 
 async def _create_candidate(
@@ -599,16 +612,32 @@ async def _notify_owner(
     target: str,
     duplicate: bool,
     blacklisted: bool = False,
+    blocked_reason: Optional[str] = None,
 ) -> None:
-    """Dzwonek dla właściciela linku. Po commicie, nigdy nie rzuca."""
+    """Dzwonek dla właściciela linku. Po commicie, nigdy nie rzuca.
+
+    audyt 22.09 r2 (SEC-06): gdy właściciel linku do rekrutacji jest już
+    nieaktywny, zgłoszenie dostaje rekruter i Delivery Lead tej rekrutacji —
+    ``emit`` pomija konta nieaktywne, więc dzwonek przepadał w ciszy.
+    """
     owner_id = link.created_by
     job_id = link.job_id
     try:
+        from app.models.user import User
         from app.services.notification_triggers import emit
 
         job_title: Optional[str] = None
+        recipients: list[int] = [owner_id] if owner_id is not None else []
         if job_id is not None:
-            job_title = await db.scalar(select(Job.title).where(Job.id == job_id))
+            job = await db.get(Job, job_id)
+            job_title = job.title if job else None
+            owner = await db.get(User, owner_id) if owner_id is not None else None
+            if job is not None and not (owner and owner.is_active):
+                recipients = [
+                    uid
+                    for uid in dict.fromkeys((job.recruiter_id, job.delivery_lead_id))
+                    if uid is not None and uid != owner_id
+                ]
         person = f"{applicant.first_name} {applicant.last_name}".strip()
         where = (
             f"przez link do rekrutacji „{job_title}”"
@@ -621,21 +650,27 @@ async def _notify_owner(
                 " Ta osoba jest na czarnej liście — CV dołączono do profilu, "
                 "ale nie dodano jej do rekrutacji."
             )
+        elif blocked_reason:
+            message += (
+                " CV dołączono do profilu, ale nie dodano tej osoby do "
+                f"rekrutacji: {blocked_reason}"
+            )
         elif duplicate:
             message += (
                 " Ta osoba była już w bazie — nowe CV dołączono do jej profilu "
                 "jako dodatkowy dokument, dane profilu bez zmian."
             )
-        await emit(
-            db,
-            user_id=owner_id,
-            title="Nowe zgłoszenie z linku aplikacyjnego",
-            message=message,
-            ntype=NotificationType.new_application,
-            related_entity_type=related_entity_type,
-            related_entity_id=related_entity_id,
-            link=target,
-        )
+        for recipient_id in recipients:
+            await emit(
+                db,
+                user_id=recipient_id,
+                title="Nowe zgłoszenie z linku aplikacyjnego",
+                message=message,
+                ntype=NotificationType.new_application,
+                related_entity_type=related_entity_type,
+                related_entity_id=related_entity_id,
+                link=target,
+            )
         await db.commit()
     except Exception as exc:  # noqa: BLE001 — powiadomienie nie cofa zgłoszenia
         logger.warning(

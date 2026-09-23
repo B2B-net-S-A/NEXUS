@@ -197,3 +197,121 @@ async def test_dedupe_repair_refuses_unknown_foreign_key(owner, monkeypatch):
             await repair.run_m365_email_dedupe_repair(db, marker=marker)
         await db.rollback()
         assert await db.get(AppSetting, marker) is None
+
+
+def _graph_msg(owner, *, graph_id: str, imid: str, from_address: str) -> dict:
+    return {
+        "id": graph_id,
+        "conversationId": "conv",
+        "internetMessageId": imid,
+        "subject": "Oferta",
+        "from": {"emailAddress": {"address": from_address}},
+        "sentDateTime": "2026-09-22T10:00:00Z",
+        "receivedDateTime": "2026-09-22T10:00:00Z",
+        "body": {"contentType": "html", "content": "<p>x</p>"},
+        "hasAttachments": False,
+        "isRead": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_removed_in_outlook_keeps_candidate_linked_email(owner):
+    """FIX-04: przeniesienie do Archiwum (``@removed`` w delcie) nie kasuje
+    maila powiązanego z kandydatem ani wysłanego z NEXUSA."""
+    async with AsyncSessionLocal() as db:
+        linked = _email(
+            owner.user_id,
+            candidate_id=owner.candidate_id,
+            m365_message_id=f"linked-{owner.suffix}",
+            direction=EmailDirection.received,
+        )
+        sent = _email(
+            owner.user_id,
+            m365_message_id=f"nexus-{owner.suffix}",
+            idempotency_key=f"key-rm-{owner.suffix}",
+        )
+        loose = _email(
+            owner.user_id,
+            m365_message_id=f"loose-{owner.suffix}",
+            direction=EmailDirection.received,
+        )
+        db.add_all([linked, sent, loose])
+        await db.commit()
+        linked_id, sent_id, loose_id = linked.id, sent.id, loose.id
+
+    conn = SimpleNamespace(id=1, user_id=owner.user_id, mailbox_upn="me@example.com")
+    async with AsyncSessionLocal() as db:
+        for graph_id in (
+            f"linked-{owner.suffix}",
+            f"nexus-{owner.suffix}",
+            f"loose-{owner.suffix}",
+        ):
+            await sync_mod._upsert_message(
+                db,
+                None,
+                conn,
+                {"id": graph_id, "@removed": {"reason": "deleted"}},
+                "Inbox",
+            )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        ids = set(
+            (
+                await db.scalars(select(Email.id).where(Email.user_id == owner.user_id))
+            ).all()
+        )
+    assert linked_id in ids, "mail powiązany z kandydatem zniknął po przeniesieniu"
+    assert sent_id in ids, "mail wysłany z NEXUSA zniknął po przeniesieniu"
+    assert loose_id not in ids
+
+
+@pytest.mark.asyncio
+async def test_self_cc_inbox_copy_does_not_adopt_sent_row(owner):
+    """FIX-05: mail wysłany z własnym adresem w CC — kopia z Odebranych nie
+    przejmuje wiersza wysyłki, a jej usunięcie nie rusza wysłanego."""
+    imid = f"<selfcc-{owner.suffix}@nexus.test>"
+    async with AsyncSessionLocal() as db:
+        sent = _email(
+            owner.user_id,
+            candidate_id=owner.candidate_id,
+            m365_message_id=f"sent-{owner.suffix}",
+            m365_internet_message_id=imid,
+            idempotency_key=f"key-cc-{owner.suffix}",
+            send_state="sent",
+        )
+        db.add(sent)
+        await db.commit()
+        sent_id = sent.id
+
+    conn = SimpleNamespace(id=1, user_id=owner.user_id, mailbox_upn="other@example.com")
+    inbox_id = f"inbox-{owner.suffix}"
+    async with AsyncSessionLocal() as db:
+        await sync_mod._upsert_message(
+            db,
+            None,
+            conn,
+            _graph_msg(owner, graph_id=inbox_id, imid=imid, from_address="x@y.pl"),
+            "Inbox",
+        )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(Email).where(Email.user_id == owner.user_id).order_by(Email.id)
+            )
+        ).all()
+    assert len(rows) == 2, "kopia z Odebranych przejęła wiersz wysyłki"
+    assert rows[0].id == sent_id and rows[0].m365_message_id == f"sent-{owner.suffix}"
+
+    # Usunięcie kopii z Odebranych nie rusza wysłanego.
+    async with AsyncSessionLocal() as db:
+        await sync_mod._upsert_message(
+            db, None, conn, {"id": inbox_id, "@removed": {"reason": "deleted"}}, "Inbox"
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        kept = await db.get(Email, sent_id)
+    assert kept is not None
+    assert kept.m365_message_id == f"sent-{owner.suffix}"

@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { safeExternalHref } from "@/lib/safe-href";
+import { safeExternalHref, safeInternalPath } from "@/lib/safe-href";
 
 describe("safeExternalHref", () => {
   it("przepuszcza zwykłe adresy http/https", () => {
@@ -43,5 +43,30 @@ describe("safeExternalHref", () => {
     expect(safeExternalHref(undefined)).toBeNull();
     expect(safeExternalHref("")).toBeNull();
     expect(safeExternalHref("   ")).toBeNull();
+  });
+});
+
+describe("safeInternalPath (AI-01)", () => {
+  it("przepuszcza zwykłe ścieżki wewnętrzne", () => {
+    expect(safeInternalPath("/candidates/12")).toBe("/candidates/12");
+    expect(safeInternalPath("/jobs/5?tab=board#x")).toBe("/jobs/5?tab=board#x");
+  });
+
+  it("odrzuca adresy prowadzące poza origin", () => {
+    for (const bad of [
+      "/\\evil.example",
+      "/\\/evil.example",
+      "//evil.example",
+      "/\t/evil.example",
+      "/ /evil.example",
+      "https://evil.example",
+      "javascript:alert(1)",
+      "candidates/12",
+      "",
+      null,
+      undefined,
+    ]) {
+      expect(safeInternalPath(bad as string | null | undefined)).toBeNull();
+    }
   });
 });

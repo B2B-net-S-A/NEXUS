@@ -39,6 +39,7 @@ EXEMPT: dict[str, str] = {
     "candidate_search": "worker przeglądów; reaper kończy przeglądy bez postępu po 30 min",
     "candidate_search_retention": "retencja danych; opóźnienie o godziny nieszkodliwe",
     "jarvis_retention": "retencja rozmów Jarvisa; opóźnienie o godziny nieszkodliwe",
+    "queue_retention": "retencja kolejek i dziennika automatów; opóźnienie o godziny nieszkodliwe",
     "match_history_ttl": "sprzątanie historii; opóźnienie nieszkodliwe",
     "slack_sla_alerts": "osobna kontrola stopped_webhook_alarms",
     "ai_spend_alerts": "osobna kontrola checks.ai_features",

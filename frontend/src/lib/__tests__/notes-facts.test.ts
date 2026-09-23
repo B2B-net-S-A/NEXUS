@@ -36,6 +36,15 @@ describe("notes facts wording", () => {
     expect(out.warning).toBeNull();
   });
 
+  it("shows the server's reason first (monthly amount without B2B)", () => {
+    const note = "Stawka miesięczna bez potwierdzonej formy B2B — sprawdź.";
+    const out = describeNotesRate(
+      rate({ value: "18000", period: "month", hourly_pln: null, note }),
+    );
+    expect(out.hourly).toBeNull();
+    expect(out.warning).toBe(note);
+  });
+
   it("explains why a rate cannot be converted", () => {
     expect(
       describeNotesRate(rate({ currency: "EUR", period: "h", hourly_pln: null })).warning,

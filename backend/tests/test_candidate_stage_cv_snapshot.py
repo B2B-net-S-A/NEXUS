@@ -503,3 +503,171 @@ async def test_refresh_endpoint_422_when_candidate_has_no_cv(
         headers=app_auth_headers,
     )
     assert res.status_code == 422
+
+
+# ── Audyt 22.09 r2 (PROD-02): snapshot w object storage ────────────────────
+
+
+class _MemoryStorage:
+    def __init__(self):
+        self.objects: dict[str, bytes] = {}
+
+    def is_available(self):
+        return True
+
+    def upload_cv(self, content, filename, content_type=None, *, storage_key=None):
+        self.objects[storage_key] = bytes(content)
+        return storage_key
+
+    def download_cv(self, storage_key):
+        return self.objects[storage_key]
+
+
+@pytest.fixture
+def memory_storage(monkeypatch):
+    from app.services import object_storage
+
+    store = _MemoryStorage()
+    monkeypatch.setattr(object_storage, "is_available", store.is_available)
+    monkeypatch.setattr(object_storage, "upload_cv", store.upload_cv)
+    monkeypatch.setattr(object_storage, "download_cv", store.download_cv)
+    return store
+
+
+@pytest.mark.asyncio
+async def test_snapshot_goes_to_storage_once_per_candidate_file(memory_storage):
+    cid = await _seed_candidate_with_cv(cv_bytes=b"%PDF-1.4 storage-snap")
+    jid1, jid2 = await _seed_job(), await _seed_job()
+    sids = [await _seed_stage(cid, jid1), await _seed_stage(cid, jid2)]
+    async with AsyncSessionLocal() as db:
+        for sid in sids:
+            stage = await db.scalar(
+                select(CandidateStage).where(CandidateStage.id == sid)
+            )
+            await create_original_cv_snapshot(db, stage)
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id.in_(sids)
+                )
+            )
+        ).all()
+    assert len(rows) == 2
+    keys = {r.original_cv_storage_key for r in rows}
+    assert len(keys) == 1  # ten sam plik tej samej osoby = jeden obiekt
+    key = keys.pop()
+    assert key.startswith(f"stage-cv/{cid}/")
+    assert all(r.original_cv_content is None for r in rows)
+    assert all(r.original_cv_sha256 and len(r.original_cv_sha256) == 64 for r in rows)
+    assert memory_storage.objects[key] == b"%PDF-1.4 storage-snap"
+
+
+@pytest.mark.asyncio
+async def test_download_reads_snapshot_from_storage(
+    app_client: AsyncClient, app_auth_headers: dict, memory_storage
+):
+    cid = await _seed_candidate_with_cv(
+        cv_bytes=b"%PDF-1.4 from-storage", cv_filename="resume.pdf"
+    )
+    sid = await _seed_stage(cid, await _seed_job())
+    async with AsyncSessionLocal() as db:
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
+        await create_original_cv_snapshot(db, stage)
+        await db.commit()
+
+    meta = await app_client.get(
+        f"/api/candidates/stages/{sid}/cv/original", headers=app_auth_headers
+    )
+    assert meta.status_code == 200
+    assert meta.json()["has_snapshot"] is True
+    res = await app_client.get(
+        f"/api/candidates/stages/{sid}/cv/original/download",
+        headers=app_auth_headers,
+    )
+    assert res.status_code == 200
+    assert res.content == b"%PDF-1.4 from-storage"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_keys_for_candidate_lists_only_that_candidate(memory_storage):
+    from app.services.candidate_stage_cv_service import snapshot_keys_for_candidate
+
+    cid = await _seed_candidate_with_cv(cv_bytes=b"%PDF-1.4 rodo")
+    sid = await _seed_stage(cid, await _seed_job())
+    async with AsyncSessionLocal() as db:
+        stage = await db.scalar(select(CandidateStage).where(CandidateStage.id == sid))
+        await create_original_cv_snapshot(db, stage)
+        await db.commit()
+        keys = await snapshot_keys_for_candidate(db, cid)
+    assert len(keys) == 1 and keys[0].startswith(f"stage-cv/{cid}/")
+
+
+@pytest.mark.asyncio
+async def test_offload_cli_moves_old_bytes_and_verifies_the_echo(memory_storage):
+    from app.cli import stage_cv_snapshot_offload as cli
+
+    cid = await _seed_candidate_with_cv(cv_bytes=b"%PDF-1.4 legacy-bytes")
+    sid = await _seed_stage(cid, await _seed_job())
+    async with AsyncSessionLocal() as db:
+        # Stary wiersz: bajty w bazie (snapshot sprzed PROD-02).
+        db.add(
+            CandidateStageCV(
+                candidate_stage_id=sid,
+                candidate_id=cid,
+                job_id=(
+                    await db.scalar(
+                        select(CandidateStage.job_id).where(CandidateStage.id == sid)
+                    )
+                ),
+                original_cv_filename="legacy.pdf",
+                original_cv_content=b"%PDF-1.4 legacy-bytes",
+            )
+        )
+        await db.commit()
+        row = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        stats = await cli.offload(db, batch=50, row_ids=[row.id])
+        assert stats["failed"] == 0
+        await db.refresh(row)
+    assert row.original_cv_content is None
+    assert row.original_cv_storage_key == f"stage-cv/{cid}/{row.original_cv_sha256}"
+    assert memory_storage.objects[row.original_cv_storage_key] == (
+        b"%PDF-1.4 legacy-bytes"
+    )
+
+
+@pytest.mark.asyncio
+async def test_offload_keeps_bytes_when_storage_echo_differs(monkeypatch):
+    from app.cli import stage_cv_snapshot_offload as cli
+
+    class _Broken(_MemoryStorage):
+        def download_cv(self, storage_key):
+            return b"corrupted"
+
+    cid = await _seed_candidate_with_cv(cv_bytes=b"%PDF-1.4 keep-me")
+    sid = await _seed_stage(cid, await _seed_job())
+    async with AsyncSessionLocal() as db:
+        job_id = await db.scalar(
+            select(CandidateStage.job_id).where(CandidateStage.id == sid)
+        )
+        db.add(
+            CandidateStageCV(
+                candidate_stage_id=sid,
+                candidate_id=cid,
+                job_id=job_id,
+                original_cv_content=b"%PDF-1.4 keep-me",
+            )
+        )
+        await db.commit()
+        row = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        stats = await cli.offload(db, batch=50, storage=_Broken(), row_ids=[row.id])
+        await db.refresh(row)
+    assert stats["failed"] >= 1
+    assert row.original_cv_content == b"%PDF-1.4 keep-me"
+    assert row.original_cv_storage_key is None

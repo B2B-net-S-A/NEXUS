@@ -50,6 +50,7 @@ import { terminalOf } from "@/lib/kanban-terminal";
 import { moveDialogFor } from "@/lib/pipeline-move-dialog";
 import { assignErrorMessage } from "@/lib/assign-error";
 import {
+  bulkMoveFailureMessage,
   bulkMoveSkipReason,
   itemFullName,
   moveBlockedReason,
@@ -163,6 +164,9 @@ interface SendMoveOptions {
   checkVersion?: boolean;
   // 17.09.2026: powtórka po 409 ELIGIBILITY_WARNING („Przenieś mimo to").
   acknowledgeEligibility?: boolean;
+  // REC-06: przy `silent` powód odmowy trafia do wołającego (ruch zbiorczy
+  // składa z nich jeden komunikat z nazwiskami).
+  onFailure?: (reason: string) => void;
   // 0348: osoba, która wyśle kandydata do Cpro — tylko przy „Gotowy do Cpro".
   taskAssigneeId?: number;
 }
@@ -386,6 +390,15 @@ export function usePipelineMove({
         return true;
       } catch (e) {
         console.error("Move failed", e);
+        if (opts?.silent) {
+          opts.onFailure?.(
+            isEligibilityWarning(e)
+              ? (eligibilityWarningReason(e) ?? "serwer ostrzega przed tym ruchem")
+              : isPipelineVersionConflict(e)
+                ? PIPELINE_VERSION_CONFLICT_MESSAGE
+                : assignErrorMessage(e),
+          );
+        }
         if (
           !opts?.silent &&
           !opts?.acknowledgeEligibility &&
@@ -631,10 +644,14 @@ export function usePipelineMove({
       applyOptimistic(item, srcColId, destCol);
       // Zapytanie strony odświeżamy PO zapisie stawki — inaczej kolejki kroków
       // dostałyby „CV Wysłane" bez stawki, którą zaraz zapiszemy.
+      let failureReason: string | null = null;
       const ok = await sendMove(item, destCol, undefined, {
         silent: isBulk,
         deferCacheSync: true,
         checkVersion: !isBulk,
+        onFailure: (r) => {
+          failureReason = r;
+        },
       });
       if (ok && payload) {
         try {
@@ -657,7 +674,10 @@ export function usePipelineMove({
         // wracała na miejsce bez słowa wyjaśnienia.
         const failedName =
           `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
-        showError(`${failedName}: nie udało się przenieść na „CV Wysłane”.`);
+        showError(
+          `${failedName}: nie udało się przenieść na „CV Wysłane”` +
+            (failureReason ? ` — ${failureReason}.` : "."),
+        );
         await refreshAfterMove();
       }
       if (ok) syncKanbanCache();
@@ -775,20 +795,22 @@ export function usePipelineMove({
 
       setBulkBusy(true);
       try {
-        let failures = 0;
+        const failed: { name: string; reason: string }[] = [];
         for (const { item, srcColId } of entries) {
           applyOptimistic(item, srcColId, dst);
+          let reason = "nieznany błąd";
           const ok = await sendMove(item, dst, undefined, {
             silent: true,
             deferCacheSync: true,
             checkVersion: false,
+            onFailure: (r) => {
+              reason = r;
+            },
           });
-          if (!ok) failures += 1;
+          if (!ok) failed.push({ name: itemFullName(item), reason });
         }
-        if (failures > 0) {
-          showError(
-            `Nie udało się przenieść ${failures} z ${entries.length} kandydatów.`
-          );
+        if (failed.length > 0) {
+          showError(bulkMoveFailureMessage(failed, entries.length));
           // `refreshAfterMove` odświeża też zapytanie strony.
           await refreshAfterMove();
         } else {
@@ -845,9 +867,10 @@ export function usePipelineMove({
     const { entries, destCol } = pendingRejection;
     setPendingRejection(null);
     void (async () => {
-      let failures = 0;
+      const failed: { name: string; reason: string }[] = [];
       for (const { item, srcColId } of entries) {
         applyOptimistic(item, srcColId, destCol);
+        let failureReason = "nieznany błąd";
         const ok = await sendMove(
           item,
           destCol,
@@ -862,15 +885,16 @@ export function usePipelineMove({
             silent: entries.length > 1,
             deferCacheSync: entries.length > 1,
             checkVersion: entries.length === 1,
+            onFailure: (r) => {
+              failureReason = r;
+            },
           }
         );
-        if (!ok) failures += 1;
+        if (!ok) failed.push({ name: itemFullName(item), reason: failureReason });
       }
-      if (failures > 0) {
+      if (failed.length > 0) {
         if (entries.length > 1) {
-          showError(
-            `Nie udało się przenieść ${failures} z ${entries.length} kandydatów.`
-          );
+          showError(bulkMoveFailureMessage(failed, entries.length));
         }
         await refreshAfterMove();
       } else if (entries.length > 1) {

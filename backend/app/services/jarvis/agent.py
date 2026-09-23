@@ -270,6 +270,8 @@ async def prepare_proposal(
     if extra.get("from_stage"):
         text += f" (teraz: {extra['from_stage']})"
     preview = {"text": text, "tool_label": tool.label, "display": display}
+    if tool.detail:
+        preview["body"] = tool.detail(args)
     return args, preview
 
 

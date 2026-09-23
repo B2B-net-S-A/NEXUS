@@ -68,9 +68,30 @@ def _cand(insights=None, **kw):
     ],
 )
 def test_pln_rates_convert_to_hourly(period, value, expected):
-    rate = hourly_from_notes_rate({"value": value, "currency": "pln", "period": period})
+    rate = hourly_from_notes_rate(
+        {"value": value, "currency": "pln", "period": period}, contract_form="b2b"
+    )
     assert rate["hourly_pln"] == expected
     assert rate["currency"] == "PLN"
+    assert rate["note"] is None
+
+
+@pytest.mark.parametrize("contract_form", [None, "uop", "any"])
+def test_monthly_rate_without_b2b_is_not_converted(contract_form):
+    """CAND-04: 18 000 PLN/mies. na UoP brutto ≠ 107 PLN/h B2B netto."""
+    rate = hourly_from_notes_rate(
+        {"value": 18000, "currency": "PLN", "period": "month"},
+        contract_form=contract_form,
+    )
+    assert rate is not None
+    assert rate["hourly_pln"] is None
+    assert rate["note"] and "B2B" in rate["note"]
+
+
+@pytest.mark.parametrize(("period", "value"), [("h", 150), ("md", 1200)])
+def test_hourly_and_daily_rates_do_not_need_a_contract_form(period, value):
+    rate = hourly_from_notes_rate({"value": value, "currency": "PLN", "period": period})
+    assert rate["hourly_pln"] == Decimal("150.00")
 
 
 @pytest.mark.parametrize(
@@ -222,6 +243,7 @@ def test_apply_rate_writes_converted_hourly_and_locks_it():
     cand = _cand(
         {
             "expected_rate": {"value": 25200, "currency": "PLN", "period": "month"},
+            "contract_form_preference": "b2b",
             "_rate_from_notes": True,
         }
     )
@@ -232,6 +254,23 @@ def test_apply_rate_writes_converted_hourly_and_locks_it():
     assert details["rate_audit"]["source"] == "notes_confirmed"
     assert cand.cv_extracted_data["_manual_override_rate"] is True
     assert "_rate_from_notes" not in cand.cv_extracted_data["_notes_insights"]
+
+
+def test_apply_rate_refuses_monthly_amount_without_b2b():
+    """CAND-04: UoP brutto miesięcznie nie trafia do profilu jako B2B/h."""
+    cand = _cand(
+        {
+            "expected_rate": {"value": 18000, "currency": "PLN", "period": "month"},
+            "contract_form_preference": "uop",
+        }
+    )
+    with pytest.raises(NotesFactUnavailable):
+        apply_notes_fact(cand, "rate")
+    assert cand.expected_rate_hourly is None
+    view = build_notes_facts(cand)
+    assert view["rate"]["hourly_pln"] is None
+    assert view["rate"]["can_apply"] is False
+    assert "B2B" in view["rate"]["note"]
 
 
 def test_apply_rate_refuses_foreign_currency():

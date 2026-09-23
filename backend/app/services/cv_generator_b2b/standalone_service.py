@@ -40,6 +40,7 @@ from app.models.job import Job
 from app.models.note import Note
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.screening_note import ScreeningNote
+from app.services.prompt_fencing import fence, json_for_prompt
 from app.services import object_storage
 from app.services import champion_view
 from app.services.cv_generator_b2b.provider import (
@@ -1618,9 +1619,7 @@ def _run_generation_pipeline(
         "tenure": source_facts["tenure"],
     }
     user_parts = [
-        "<source_facts>\n"
-        + json.dumps(editorial_input, ensure_ascii=False)
-        + "\n</source_facts>"
+        "<source_facts>\n" + json_for_prompt(editorial_input) + "\n</source_facts>"
     ]
     # Only "tailored" gets the client's requirements in front of the model.
     # Withholding the section (rather than relying on the prompt to ignore it)
@@ -1643,9 +1642,7 @@ def _run_generation_pipeline(
             len(champion_section),
         )
     if champion_section.strip():
-        user_parts.append(
-            f"<champion_profile>\n{champion_section.strip()}\n</champion_profile>"
-        )
+        user_parts.append(fence("champion_profile", champion_section))
     # Reguły prezentacji klienta (Delivery Lead, `client_cv_rules.
     # generator_instructions`). W wiadomości użytkownika, nie w systemowej:
     # tamta jest jednym cache'owanym blokiem. Prompt systemowy ogranicza ich

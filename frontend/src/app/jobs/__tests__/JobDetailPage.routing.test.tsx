@@ -63,6 +63,9 @@ vi.mock("@/lib/client-playbooks", () => ({
   useClientPlaybook: () => ({ data: { sla_business_days: 5 } }),
 }));
 vi.mock("@/hooks/useCapability", () => ({ useCapability: () => true }));
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showError: vi.fn(), showSuccess: vi.fn() }),
+}));
 vi.mock("@/hooks/useJobPipelineTemplate", () => ({
   useJobPipelineTemplate: () => ({
     rejectionReasons: [],

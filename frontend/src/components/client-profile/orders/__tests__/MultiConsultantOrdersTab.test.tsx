@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -82,6 +82,7 @@ vi.mock("@/lib/api/dlPortal", () => ({
       data: { contractors: [], total_contractors: 0, can_manage_finance: true },
     }),
     updateOrder: vi.fn(),
+    previewOrderDeletion: vi.fn(),
     // Zakładka woła `useClientDefaultRateUnit` przy montażu (formularze zamówień
     // dostają domyślną jednostkę klienta zamiast twardego `monthly`).
     getDefaultRateUnit: vi.fn().mockResolvedValue({ data: { rate_unit: "daily" } }),
@@ -1034,11 +1035,36 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     expect(screen.queryByText(/Zamówienie nr 445/)).not.toBeInTheDocument();
   });
 
-  it("usunięcie konsultanta wymaga potwierdzenia i NIE rusza reszty zamówienia", async () => {
+  it("usunięcie konsultanta otwiera dialog skutków (bez window.confirm) i NIE rusza reszty zamówienia", async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: { groups: [group()], total_groups: 1, total_consultants: 1 },
     } as never);
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    vi.mocked(dlPortalApi.previewOrderDeletion).mockResolvedValue({
+      data: {
+        order_id: 1,
+        order_number: "4500012345",
+        status: "active",
+        is_group_line: true,
+        deletes_row: true,
+        blocked_by: [],
+        has_file: false,
+        rate_changes: [
+          {
+            effective_from: "2026-03-01",
+            effective_until: null,
+            rate: 150,
+            replacement_rate: null,
+            changes_amount: true,
+            removes_revenue: true,
+          },
+        ],
+        currency: "PLN",
+        rate_unit: "hourly",
+        amounts_redacted: false,
+      },
+    } as never);
+    vi.mocked(orderGroupsApi.removeLine).mockResolvedValue({} as never);
+    const confirmSpy = vi.spyOn(window, "confirm");
 
     renderTab();
     await userEvent.click(
@@ -1046,20 +1072,47 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
         name: /Usuń konsultanta z zamówienia — Jan Kowalski/i,
       }),
     );
-    // Odmowa w oknie potwierdzenia MUSI wstrzymać wywołanie — inaczej
-    // „Czy na pewno" jest ozdobą.
-    expect(confirmSpy).toHaveBeenCalled();
+    // Audyt 22.09 r2 (FE-N02): skutki liczy serwer w kontekście linii grupy.
+    const dialog = await screen.findByRole("dialog");
+    expect(dlPortalApi.previewOrderDeletion).toHaveBeenCalledWith(
+      7,
+      1,
+      "group_line",
+    );
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(
+      await within(dialog).findByText(/kontrakt zostanie bez przychodu/),
+    ).toBeInTheDocument();
     expect(orderGroupsApi.removeLine).not.toHaveBeenCalled();
 
-    confirmSpy.mockReturnValue(true);
-    await userEvent.click(
-      screen.getByRole("button", {
-        name: /Usuń konsultanta z zamówienia — Jan Kowalski/i,
-      }),
-    );
+    const confirmButton = within(dialog).getByRole("button", {
+      name: "Usuń konsultanta",
+    });
+    await waitFor(() => expect(confirmButton).toBeEnabled());
+    await userEvent.click(confirmButton);
     expect(orderGroupsApi.removeLine).toHaveBeenCalledWith(7, 10, 1);
     expect(orderGroupsApi.remove).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+
+  it("przycisk usunięcia linii czeka na podgląd skutków", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: { groups: [group()], total_groups: 1, total_consultants: 1 },
+    } as never);
+    vi.mocked(dlPortalApi.previewOrderDeletion).mockReturnValue(
+      new Promise(() => undefined) as never,
+    );
+
+    renderTab();
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: /Usuń konsultanta z zamówienia — Jan Kowalski/i,
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByRole("button", { name: "Usuń konsultanta" }),
+    ).toBeDisabled();
   });
 
   it('„Zakończ" pokazuje się tylko na aktywnym, „Przywróć" tylko na zakończonym', async () => {
@@ -1999,5 +2052,55 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
         },
       ),
     );
+  });
+});
+
+describe("MultiConsultantOrdersTab — usunięcie całego zamówienia (FE-N02)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    authState.role = "admin";
+    authState.capabilities = ["manage_finance"];
+  });
+
+  it("pyta serwer o skutki każdej linii i nie używa window.confirm", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: { groups: [group()], total_groups: 1, total_consultants: 1 },
+    } as never);
+    vi.mocked(dlPortalApi.previewOrderDeletion).mockResolvedValue({
+      data: {
+        order_id: 1,
+        order_number: "4500012345",
+        status: "active",
+        is_group_line: true,
+        deletes_row: true,
+        blocked_by: [],
+        has_file: false,
+        rate_changes: [],
+        currency: "PLN",
+        rate_unit: "hourly",
+        amounts_redacted: false,
+      },
+    } as never);
+    vi.mocked(orderGroupsApi.remove).mockResolvedValue({} as never);
+    const confirmSpy = vi.spyOn(window, "confirm");
+
+    renderTab();
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Usuń całe\s+zamówienie/ }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(dlPortalApi.previewOrderDeletion).toHaveBeenCalledWith(
+      7,
+      1,
+      "group_line",
+    );
+    expect(confirmSpy).not.toHaveBeenCalled();
+    const confirmButton = within(dialog).getByRole("button", {
+      name: "Usuń zamówienie",
+    });
+    await waitFor(() => expect(confirmButton).toBeEnabled());
+    await userEvent.click(confirmButton);
+    expect(orderGroupsApi.remove).toHaveBeenCalledWith(7, 10);
+    confirmSpy.mockRestore();
   });
 });

@@ -30,7 +30,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate, CandidateStatus
-from app.models.job import Job, JobStatus
+from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.rejection_email import (
     RejectionEmailStatus,
@@ -610,3 +610,137 @@ async def test_dispatch_does_not_cancel_when_still_rejected(seeded_entities):
         # Guard przepuścił (wciąż rejected); brak skrzynki → skipped, nie sent.
         assert row.status == RejectionEmailStatus.skipped
         assert row.status != RejectionEmailStatus.cancelled
+
+
+@pytest.mark.asyncio
+async def test_dispatch_with_unknown_send_outcome_never_sends_twice(
+    seeded_entities, monkeypatch
+):
+    """FIX-03 (audyt 22.09 r2): utracona odpowiedź Graph na ``/send``.
+
+    Dawniej wyjątek ``EmailSendConflict`` wpadał w ogólne ``except``, rollback
+    kasował wiersz ``uncertain``, a ponowienie (nowy klucz minutowy) wysyłało
+    kandydatowi DRUGI mail odrzucenia. Teraz: wiersz harmonogramu = failed,
+    bez ponowienia, wiersz ``Email`` zostaje jako ``uncertain``, rekruter
+    dostaje prośbę o sprawdzenie folderu Wysłane.
+    """
+    from datetime import timedelta
+
+    import httpx
+    from sqlalchemy import delete
+
+    from app.models.activity import Activity
+    from app.models.m365 import Email, M365Connection
+    from app.services import rejection_email_scheduler as sched
+    from app.services.m365 import sender as sender_mod
+
+    ids = seeded_entities
+    sends: list[str] = []
+
+    class _Graph:
+        def __init__(self, connection, db):  # noqa: ANN001
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):  # noqa: ANN002
+            return None
+
+        async def get(self, url, params=None):  # noqa: ANN001
+            return {"value": []}
+
+        async def post(self, url, json=None, **_kw):  # noqa: ANN001
+            if url.endswith("/send"):
+                sends.append(url)
+                raise httpx.ReadTimeout("lost")
+            return {
+                "id": f"draft-{uuid.uuid4().hex[:10]}",
+                "conversationId": "conv-x",
+                "internetMessageId": f"<{uuid.uuid4().hex[:10]}@t>",
+            }
+
+    async def _eligible_owner(db, user_id):  # noqa: ANN001
+        return await db.get(User, user_id)
+
+    async def _eligible_conn(db, connection):  # noqa: ANN001
+        return None
+
+    monkeypatch.setattr(sender_mod, "GraphClient", _Graph)
+    monkeypatch.setattr(sender_mod, "require_eligible_connection_owner", _eligible_conn)
+    monkeypatch.setattr(sender_mod.settings, "M365_SIGNATURE_INJECTION_ENABLED", False)
+    monkeypatch.setattr(sched, "eligible_m365_owner", _eligible_owner)
+    monkeypatch.setattr(sched, "_can_send_rejection_email", lambda user: True)
+
+    async with AsyncSessionLocal() as db:
+        conn = M365Connection(
+            user_id=ids["recruiter_id"],
+            tenant_id="tenant",
+            mailbox_upn=ids["recruiter_email"],
+            access_token_ct="x",
+            refresh_token_ct="x",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            is_active=True,
+        )
+        db.add(conn)
+        await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.cv_sent,
+            moved_by=ids["recruiter_id"],
+        )
+        rejected_stage = await _add_stage(
+            db,
+            candidate_id=ids["candidate_id"],
+            job_id=ids["job_primary_id"],
+            stage=PipelineStage.rejected,
+            moved_by=ids["recruiter_id"],
+        )
+        job = await db.get(Job, ids["job_primary_id"])
+        scheduled = await maybe_schedule(
+            db, stage=rejected_stage, job=job, recruiter_id=ids["recruiter_id"]
+        )
+        await db.commit()
+        row_id = scheduled.id
+        conn_id = conn.id
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await dispatch(db, row_id)
+
+        async with AsyncSessionLocal() as db:
+            row = await db.get(ScheduledRejectionEmail, row_id)
+            assert row.status == RejectionEmailStatus.failed
+            assert row.last_error == "send_outcome_uncertain"
+            assert row.email_id is not None
+            email = await db.get(Email, row.email_id)
+            assert email is not None and email.send_state == "uncertain"
+            actions = (
+                await db.scalars(
+                    select(Activity.action).where(
+                        Activity.entity_type == "candidate",
+                        Activity.entity_id == ids["candidate_id"],
+                    )
+                )
+            ).all()
+            assert "rejection_email_uncertain" in actions
+            # Wiersz nie jest już pending → kolejny bieg nic nie wysyła.
+            row.status = RejectionEmailStatus.pending
+            await db.commit()
+
+        # Nawet gdyby ktoś przywrócił wiersz do kolejki, stały klucz trafia
+        # w istniejący wiersz ``uncertain`` — Graph nie jest wołany ponownie.
+        async with AsyncSessionLocal() as db:
+            await dispatch(db, row_id)
+        assert len(sends) == 1, "drugi mail odrzucenia do kandydata"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ScheduledRejectionEmail).where(
+                    ScheduledRejectionEmail.id == row_id
+                )
+            )
+            await db.execute(delete(Email).where(Email.user_id == ids["recruiter_id"]))
+            await db.execute(delete(M365Connection).where(M365Connection.id == conn_id))
+            await db.commit()

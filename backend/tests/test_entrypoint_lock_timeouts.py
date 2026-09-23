@@ -237,3 +237,94 @@ async def test_signature_policy_missing_migration_still_fails_the_boot(
 
     with pytest.raises(FileNotFoundError):
         await signature.main(engine)
+
+
+# ── Audyt 22.09 r2 (DATA-02): mail_delivery_schema ──────────────────────────
+
+
+def _sync_engine():
+    from sqlalchemy import create_engine
+    from sqlalchemy.engine import make_url
+
+    return create_engine(
+        make_url(settings.DATABASE_URL).set(drivername="postgresql+psycopg2")
+    )
+
+
+def test_mail_delivery_schema_ready_on_a_migrated_database() -> None:
+    from app.services.m365 import mail_delivery_schema as mail
+
+    engine = _sync_engine()
+    try:
+        with engine.connect() as connection:
+            assert connection.execute(text(mail.READY_SQL)).scalar() is True
+    finally:
+        engine.dispose()
+
+
+async def test_mail_delivery_schema_complete_runs_no_ddl_behind_a_dump(engine):
+    """Kompletny schemat = żadnego ALTER — start nie czeka za pg_dump."""
+    from app.services.m365 import mail_delivery_schema as mail
+
+    sync = _sync_engine()
+    try:
+        result = await _while_locked(engine, "notifications", lambda: _call(mail, sync))
+    finally:
+        sync.dispose()
+    assert result == "complete"
+
+
+async def test_mail_delivery_schema_incomplete_behind_a_dump_still_fails(
+    engine, monkeypatch
+):
+    from app.services.m365 import mail_delivery_schema as mail
+
+    monkeypatch.setattr(mail, "BOOT_LOCK_TIMEOUT", "200ms")
+    monkeypatch.setattr(mail, "READY_SQL", "SELECT false")
+    sync = _sync_engine()
+    try:
+        with pytest.raises(DBAPIError) as error:
+            await _while_locked(engine, "notifications", lambda: _call(mail, sync))
+    finally:
+        sync.dispose()
+    assert is_lock_timeout(error.value)
+
+
+async def test_mail_delivery_schema_timeout_on_a_complete_schema_is_soft(
+    engine, monkeypatch
+):
+    """Wyścig: schemat uzupełniony w międzyczasie — timeout nie zatrzymuje startu."""
+    from app.services.m365 import mail_delivery_schema as mail
+
+    ready_sql = mail.READY_SQL
+    probe = "__ready_probe__"
+    calls = {"n": 0}
+    original_text = mail.text
+
+    def _text(sql):
+        if sql == probe:
+            # Pierwsze sprawdzenie: niekompletny; po timeoucie: kompletny.
+            calls["n"] += 1
+            return original_text("SELECT false" if calls["n"] == 1 else ready_sql)
+        return original_text(sql)
+
+    monkeypatch.setattr(mail, "BOOT_LOCK_TIMEOUT", "200ms")
+    monkeypatch.setattr(mail, "READY_SQL", probe)
+    monkeypatch.setattr(mail, "text", _text)
+    sync = _sync_engine()
+    try:
+        result = await _while_locked(engine, "notifications", lambda: _call(mail, sync))
+    finally:
+        sync.dispose()
+    assert result == "skipped_lock_timeout"
+
+
+def test_mail_delivery_ddl_tuple_is_unchanged_for_migration_0332() -> None:
+    from app.services.m365 import mail_delivery_schema as mail
+
+    assert len(mail.DDL) == 4
+    assert mail.DDL[1].startswith("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS")
+
+
+async def _call(module, sync_engine):
+    return module.main(sync_engine)

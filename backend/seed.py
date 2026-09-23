@@ -75,7 +75,15 @@ def _candidate_seed_payload(data: dict) -> dict:
     return payload
 
 
+def demo_seed_enabled() -> bool:
+    """audyt 22.09 r2 (PROD-08): dane demo wyłącznie przy NEXUS_DEMO_SEED=true."""
+    return os.getenv("NEXUS_DEMO_SEED", "").strip().lower() == "true"
+
+
 async def seed():
+    if not demo_seed_enabled():
+        print("seed skipped (NEXUS_DEMO_SEED != true)")
+        return
     engine = create_async_engine(DATABASE_URL, echo=False)
     SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -2137,6 +2145,8 @@ async def seed_extended():
     5 contracts, 50 activities, and 10 calendar events.
     Idempotent: checks by email before creating candidates.
     """
+    if not demo_seed_enabled():
+        return
     from app.models.calendar_event import CalendarEvent, EventType, EventStatus
 
     engine = create_async_engine(DATABASE_URL, echo=False)

@@ -8,6 +8,7 @@ import {
   type ContractTerminationReason,
 } from "@/lib/api";
 import { AppModal } from "@/components/ds/AppModal";
+import { warsawToday } from "@/lib/warsaw-date";
 
 interface Props {
   contractId: number;
@@ -38,7 +39,7 @@ export function ContractTerminationDialog({
   const [reason, setReason] = useState<ContractTerminationReason>("project_ended");
   const [lessons, setLessons] = useState("");
   const [when, setWhen] = useState(
-    defaultDate || new Date().toISOString().slice(0, 10),
+    defaultDate || warsawToday(),
   );
 
   const mut = useMutation({

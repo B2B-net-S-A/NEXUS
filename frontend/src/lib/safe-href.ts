@@ -31,3 +31,30 @@ export function safeExternalHref(raw: string | null | undefined): string | null 
     return null;
   }
 }
+
+/**
+ * Bezpieczna ścieżka WEWNĘTRZNA (audyt 22.09 r2, AI-01).
+ *
+ * Link „wewnętrzny” rozpoznawany samym `startsWith("/") && !startsWith("//")`
+ * przepuszczał `/\evil.example` — przeglądarka traktuje backslash jak ukośnik,
+ * więc to adres protocol-relative do obcej domeny (Jarvis renderuje linki
+ * z odpowiedzi modelu, a `?next=` logowania pochodzi z adresu, który ktoś
+ * mógł podesłać). Zwraca ścieżkę tylko wtedy, gdy po rozwiązaniu względem
+ * dowolnego originu zostaje w TYM SAMYM originie; inaczej `null`.
+ */
+const INTERNAL_BASE = "https://nexus.invalid";
+
+export function safeInternalPath(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string" || !raw) return null;
+  if (!raw.startsWith("/") || raw.startsWith("//")) return null;
+  // Backslash, białe i sterujące znaki — przeglądarki je normalizują
+  // (`/\x`, `/\t/x`), więc to one robią z ścieżki adres obcej domeny.
+  if (/[\\\s\u0000-\u001f\u007f]/.test(raw)) return null;
+  try {
+    const url = new URL(raw, INTERNAL_BASE);
+    if (url.origin !== INTERNAL_BASE) return null;
+    return raw;
+  } catch {
+    return null;
+  }
+}

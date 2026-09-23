@@ -466,6 +466,8 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       retryRun,
       latestRun: latestRun.data?.run ?? null,
       engineDegraded,
+      /** Każde źródło się rozstrzygnęło (sukces albo błąd) — REC-02. */
+      settled: countsSettled,
       inbox: {
         total: inboxTotal,
         hidden: inboxHidden,
@@ -489,6 +491,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       retryEngine: () => {
         void inbox.refetch();
         void similar.refetch();
+        void recommendations.refetch();
         retryRun();
       },
       recommendations: {

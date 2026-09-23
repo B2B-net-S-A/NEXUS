@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { warsawToday } from "@/lib/warsaw-date";
 import { emptyAmendmentForm } from "@/components/ContractAmendmentsTab";
 
@@ -23,5 +26,28 @@ describe("emptyAmendmentForm", () => {
       new_end_date: "",
     });
     expect(emptyAmendmentForm().effective_date).toBe(warsawToday());
+  });
+});
+
+// FE-N08 (audyt 22.09 r2): domyślne „dziś” w formularzach dat liczy dzień
+// w Warszawie. `toISOString().slice(0, 10)` między północą a 1:00/2:00 dawało
+// WCZORAJ (np. data wypowiedzenia, zamiany kontraktora, skrót Jarvisa).
+describe("formularze z domyślną datą „dziś”", () => {
+  const files = [
+    "src/components/client-profile/actions/TerminateContractModal.tsx",
+    "src/components/client-profile/orders/SwapConsultantModal.tsx",
+    "src/components/contracts/FinancialRatesCard.tsx",
+    "src/components/jarvis/JarvisRoot.tsx",
+    "src/components/contracts/ContractTerminationDialog.tsx",
+    "src/components/contracts/ContractRegisterDialog.tsx",
+    "src/components/contracts/AddProjectDialog.tsx",
+    "src/app/contracts/new/page.tsx",
+    "src/components/v2/pages/B2BContractGeneratorV2.tsx",
+    "src/components/marketplace/AddToMarketplaceButton.tsx",
+  ];
+  it.each(files)("%s nie liczy dnia w UTC", (file) => {
+    const source = readFileSync(resolve(process.cwd(), file), "utf8");
+    expect(source).not.toMatch(/new Date\(\)\.toISOString\(\)\.slice\(0, 10\)/);
+    expect(source).toContain("warsawToday");
   });
 });

@@ -139,7 +139,16 @@ async def _compare(
     headers = _auth_headers(owner)
     legacy_text_is_person = False
     if origin == "candidates_list":
-        legacy = await _collect_list(client, headers, dict(filters.get("api") or {}))
+        # Audyt 22.09 r2 (CAND-05): strona LEGACY też dosłownie. Zapis listy
+        # z 21.09.2026 niesie `text_mode` — bez tego porównanie odpalało
+        # retrieval semantyczny (Voyage, pula z całej bazy) tylko po stronie
+        # legacy i dawało fałszywe „different". Skaner odtwarza ten sam zapis
+        # dosłownie (`alert_list_params`), więc to jest właściwe porównanie.
+        legacy = await _collect_list(
+            client,
+            headers,
+            payloads.with_literal_text(dict(filters.get("api") or {})),
+        )
         unified = await _collect_list(
             client,
             headers,

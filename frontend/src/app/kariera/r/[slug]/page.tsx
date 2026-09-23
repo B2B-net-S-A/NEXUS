@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { CareerJobView } from "@/components/career/CareerJobView";
-import { fetchCareerJob } from "@/lib/career/api";
+import { fetchCareerJob } from "@/lib/career/server";
 import { paramsSummary } from "@/lib/career/format";
 
 import { careerRequestContext } from "../../_context";

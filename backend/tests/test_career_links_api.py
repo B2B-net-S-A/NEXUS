@@ -813,3 +813,127 @@ async def test_career_link_exposes_base_urls(api):
     body = resp.json()
     assert body["base_url"]
     assert body["recruiter_base_url"].endswith("/")
+
+
+# ── audyt 22.09 r2: linki nieaktywnych (SEC-06) i liczenie wejść (FE-N01) ──
+
+
+async def _deactivate(user_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        user.is_active = False
+        await db.commit()
+
+
+async def test_recruiter_link_of_inactive_owner_is_404_for_page_and_apply(api):
+    uid, headers, _ = await _owner_with_job(api)
+    slug = f"gone-{uuid.uuid4().hex[:6]}"
+    put = await api.put("/api/me/career-link", json={"slug": slug}, headers=headers)
+    assert put.status_code == 200, put.text
+    assert (await api.get(f"/api/public/career/p/{slug}")).status_code == 200
+
+    await _deactivate(uid)
+
+    assert (await api.get(f"/api/public/career/p/{slug}")).status_code == 404
+    applicant = f"gone-{uuid.uuid4().hex[:6]}@example.com"
+    resp = await api.post(
+        "/api/public/career/apply", data=_form(slug, applicant), files=_cv()
+    )
+    assert resp.status_code == 404
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.scalar(select(Candidate).where(Candidate.email == applicant))
+        ) is None
+
+
+async def test_job_link_of_inactive_owner_notifies_the_job_team(api):
+    uid, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    new_recruiter, _, _ = await _seed_user("next-recruiter")
+    delivery_lead, _, _ = await _seed_user("dl")
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.recruiter_id = new_recruiter
+        job.delivery_lead_id = delivery_lead
+        await db.commit()
+    await _deactivate(uid)
+
+    page = await api.get(f"/api/public/career/r/{link['slug']}")
+    assert page.status_code == 200
+    assert page.json()["recruiter"]["slug"] is None
+
+    applicant = f"team-{uuid.uuid4().hex[:6]}@example.com"
+    resp = await api.post(
+        "/api/public/career/apply", data=_form(link["slug"], applicant), files=_cv()
+    )
+    assert resp.status_code == 201, resp.text
+    async with AsyncSessionLocal() as db:
+        cand = await db.scalar(select(Candidate).where(Candidate.email == applicant))
+        recipients = set(
+            (
+                await db.execute(
+                    select(Notification.user_id).where(
+                        Notification.notification_type
+                        == NotificationType.new_application,
+                        Notification.related_entity_id == cand.id,
+                    )
+                )
+            ).scalars()
+        )
+    assert recipients == {new_recruiter, delivery_lead}
+
+
+async def test_admin_soft_delete_revokes_the_recruiter_link(
+    app_client, app_auth_headers
+):
+    uid, email, password = await _seed_user("revoke")
+    login = await app_client.post(
+        "/api/auth/login", json={"email": email, "password": password}
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    slug = f"revoke-{uuid.uuid4().hex[:6]}"
+    put = await app_client.put(
+        "/api/me/career-link", json={"slug": slug}, headers=headers
+    )
+    assert put.status_code == 200, put.text
+
+    deleted = await app_client.delete(
+        f"/api/admin/users/{uid}", headers=app_auth_headers
+    )
+    assert deleted.status_code == 204, deleted.text
+    async with AsyncSessionLocal() as db:
+        link = await db.scalar(
+            select(CandidateInviteLink).where(CandidateInviteLink.slug == slug)
+        )
+        assert link.revoked is True
+
+
+async def _visits(slug: str) -> int:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(CandidateInviteLink.visit_count).where(
+                CandidateInviteLink.slug == slug
+            )
+        )
+
+
+async def test_link_previews_and_og_images_do_not_count_as_visits(api):
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    url = f"/api/public/career/r/{link['slug']}"
+    start = await _visits(link["slug"])
+
+    for ua in (
+        "LinkedInBot/1.0 (compatible; Mozilla/5.0; +http://www.linkedin.com)",
+        "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+        "facebookexternalhit/1.1",
+    ):
+        assert (await api.get(url, headers={"User-Agent": ua})).status_code == 200
+    assert (await api.get(url, headers={"x-nexus-count-visit": "0"})).status_code == 200
+    assert await _visits(link["slug"]) == start
+
+    human = "Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/130 Safari/537.36"
+    assert (await api.get(url, headers={"User-Agent": human})).status_code == 200
+    assert await _visits(link["slug"]) == start + 1

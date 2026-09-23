@@ -178,3 +178,14 @@ def test_skaner_czyta_tekst_doslownie() -> None:
     legacy = {"version": 2, "qs": "", "api": {"q": "x", "text_mode": "semantic"}}
     assert alert_list_params(legacy) == {"q": "x", "text_mode": "literal"}
     assert p.with_literal_text({"q": "x"}) == {"q": "x"}
+
+
+def test_flagi_zadania_trafiaja_do_querystringu_listy() -> None:
+    """CAND-06: `hu=1` / `ls=location_only` w qs, tylko brakujące, raz."""
+    req = {"hide_unknown": True, "location_scope": "location_only"}
+    assert p.with_request_flags("loc=gdansk", req) == "loc=gdansk&hu=1&ls=location_only"
+    assert (
+        p.with_request_flags("loc=gdansk&hu=1", req)
+        == "loc=gdansk&hu=1&ls=location_only"
+    )
+    assert p.with_request_flags("q=python", {}) == "q=python"

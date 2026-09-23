@@ -51,6 +51,12 @@ OAUTH_ROUTE_RESOURCES: dict[str, tuple[str, ...]] = {
     # Dodanie kandydatów do rekrutacji i odczyt etapów do wyboru.
     "/api/jobs/{job_id}/proposals/bulk": ("candidate", "job"),
     "/api/jobs/{job_id}/assignable-stages": ("job",),
+    # audyt 22.09 r2 (FIX-02): trasy importera JJIT (CV do istniejącego
+    # kandydata, źródło kandydata, rekomendacje rekrutacji dla kandydata) —
+    # bez nich włączenie egzekwowania zatrzymałoby import.
+    "/api/candidates/{candidate_id}/cv": ("candidate",),
+    "/api/candidates/{candidate_id}/sources": ("candidate",),
+    "/api/candidates/{candidate_id}/recommendations": ("candidate",),
 }
 
 

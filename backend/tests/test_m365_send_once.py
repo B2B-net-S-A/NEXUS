@@ -217,6 +217,42 @@ async def test_different_body_same_minute_is_a_second_message(mailbox):
 
 
 @pytest.mark.asyncio
+async def test_corrected_body_with_same_request_id_is_sent(mailbox):
+    """FIX-06: ten sam UUID formularza, ale poprawiona treść → nowa wysyłka."""
+    ids, graph = mailbox
+    request_id = str(uuid.uuid4())
+    first_id, _ = await _send(ids, request_id=request_id, body="<p>Wersja 1</p>")
+    second_id, state = await _send(
+        ids, request_id=request_id, body="<p>Wersja 2 — poprawiona</p>"
+    )
+    assert second_id != first_id, "poprawiona treść po cichu nie wyszła"
+    assert state == "sent"
+    assert graph.sends == 2
+    # Ta sama treść z tym samym UUID nadal jest ponowieniem.
+    again_id, _ = await _send(
+        ids, request_id=request_id, body="<p>Wersja 2 — poprawiona</p>"
+    )
+    assert again_id == second_id
+    assert graph.sends == 2
+
+
+def test_request_key_depends_on_content_fingerprint():
+    fp1 = sender_mod.content_fingerprint(
+        subject="S", to=["A@x.pl"], cc=[], body_html="<p>1</p>"
+    )
+    fp2 = sender_mod.content_fingerprint(
+        subject="S", to=["a@x.pl"], cc=[], body_html="<p>2</p>"
+    )
+    same = sender_mod.content_fingerprint(
+        subject="S ", to=["a@x.pl"], cc=[], body_html="<p>1</p>"
+    )
+    assert fp1 == same
+    k1 = sender_mod.request_key(user_id=1, client_request_id="u", content_sha=fp1)
+    k2 = sender_mod.request_key(user_id=1, client_request_id="u", content_sha=fp2)
+    assert k1 != k2
+
+
+@pytest.mark.asyncio
 async def test_lost_send_response_leaves_uncertain_row_and_blocks_resend(mailbox):
     ids, graph = mailbox
     graph.fail_send = httpx.ReadTimeout("lost")

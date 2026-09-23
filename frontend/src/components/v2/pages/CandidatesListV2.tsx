@@ -560,6 +560,10 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  const [hideUnknown, setHideUnknown] = useState<boolean>(
  searchParams.get("hu") === "1",
  );
+ // CAND-06: zakres lokalizacji z migrowanego zapisu (`ls=location_only`).
+ const [locationScope, setLocationScope] = useState<
+ CandidateFilters["locationScope"]
+ >(searchParams.get("ls") === "location_only" ? "location_only" : "");
  // Engagement openness — any of {side_projects, sales_support, expert_consult}, OR-combined.
  const [openToFilter, setOpenToFilter] = useState<OpenToValue[]>(
  searchParams
@@ -681,6 +685,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  skillsExpr: skillExpr,
  skillsPreferred,
  hideUnknown,
+ locationScope,
  location: locationFilter,
  poolIds,
  competenceCategoryIds,
@@ -728,6 +733,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  skillExpr,
  skillsPreferred,
  hideUnknown,
+ locationScope,
  locationFilter,
  poolIds,
  competenceCategoryIds,
@@ -1131,6 +1137,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  }
  if (patch.skillsPreferred !== undefined) setSkillsPreferred(patch.skillsPreferred);
  if (patch.hideUnknown !== undefined) setHideUnknown(patch.hideUnknown);
+ if (patch.locationScope !== undefined) setLocationScope(patch.locationScope);
  if (patch.location !== undefined) setLocationFilter(patch.location);
  if (patch.poolIds !== undefined) setPoolIds(patch.poolIds);
  if (patch.competenceCategoryIds !== undefined)
@@ -1229,6 +1236,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  setSkillExpr("");
  setSkillsPreferred([]);
  setHideUnknown(false);
+ setLocationScope("");
  setLocationFilter("");
  setPoolIds([]);
  setCompetenceCategoryIds([]);

@@ -499,13 +499,30 @@ def build_unified_payload(
     }
     qs = filters.get("qs")
     if origin == "candidates_list" and isinstance(qs, str):
-        payload["qs"] = with_semantics_marker(qs)
+        payload["qs"] = with_semantics_marker(with_request_flags(qs, request))
     payload["legacy"] = (
         filters.get("legacy") if detect_format(filters) == "unified" else filters
     )
     if migration is not None:
         payload["migration"] = migration
     return payload
+
+
+def with_request_flags(qs: str, request: dict[str, Any]) -> str:
+    """Flagi żądania, które zmieniają wynik, także w querystringu UI listy.
+
+    Audyt 22.09 r2 (CAND-06): migracja neutralizuje zapis z listy flagami
+    ``hide_unknown`` i ``location_scope="location_only"``, a alert liczy się
+    z ``request``. Bez nich w ``qs`` otwarty zapis pokazywał SZERSZY zbiór niż
+    alert (lista: ``hu=1``, ``ls=location_only``). Dopisuje tylko brakujące.
+    """
+    parts = [p for p in qs.split("&") if p]
+    keys = {p.split("=", 1)[0] for p in parts}
+    if request.get("hide_unknown") is True and "hu" not in keys:
+        parts.append("hu=1")
+    if request.get("location_scope") == "location_only" and "ls" not in keys:
+        parts.append("ls=location_only")
+    return "&".join(parts)
 
 
 def with_semantics_marker(qs: str) -> str:

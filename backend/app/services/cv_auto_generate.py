@@ -14,7 +14,10 @@ Reguły, które łatwo cofnąć „przy okazji":
   regułę i nigdy naliczona kwota AI za coś, czego nie da się wysłać.
 * Idempotencja: (etap, wersja CV kandydata) — częściowy UNIQUE na
   ``cv_generated_documents`` (0335). Ponowny ruch na ten sam etap z tym samym CV
-  nie generuje i nie nalicza drugi raz; nowe CV = nowy dokument.
+  nie generuje i nie nalicza drugi raz; nowe CV = nowy dokument. Od audytu
+  22.09 r2 (AI-06) także (kandydat, rekrutacja, wersja CV): powrót karty na
+  „Zweryfikowany" (nowy wiersz etapu) daje pominięcie ``already_generated``
+  i podpięcie istniejącego gotowego dokumentu jako szkicu nowego etapu.
 * Kwota AI i autorstwo dokumentu idą na osobę, która przesunęła kartę — to jej
   lista „Wygenerowane CV" i jej decyzja uruchomiła wydatek.
 * Dokument powstaje jako zwykły wiersz generatora (``origin="auto"``): do
@@ -153,6 +156,38 @@ async def _enqueue(db, *, stage_id: int, user_id: int) -> Optional[tuple[int, in
         .limit(1)
     )
     if already is not None:
+        return None
+    # audyt 22.09 r2 (AI-06): ponowny ruch tej samej karty na „Zweryfikowany"
+    # (np. cofnięcie i powrót) tworzy NOWY wiersz etapu, więc klucz (etap,
+    # wersja CV) go nie łapał i automat płacił drugi raz za ten sam dokument.
+    # Dokument dla tej samej osoby, rekrutacji i wersji CV (nieudany się nie
+    # liczy) = pominięcie; gotowy podpinamy jako szkic nowego etapu.
+    earlier = (
+        await db.execute(
+            select(CvGeneratedDocument.id, CvGeneratedDocument.status)
+            .where(
+                CvGeneratedDocument.origin == "auto",
+                CvGeneratedDocument.candidate_id == candidate.id,
+                CvGeneratedDocument.job_id == job.id,
+                CvGeneratedDocument.source_cv_revision == revision,
+                CvGeneratedDocument.status != "failed",
+            )
+            .order_by(CvGeneratedDocument.id.desc())
+            .limit(1)
+        )
+    ).first()
+    if earlier is not None:
+        await _record(
+            db,
+            action=ACTION_SKIPPED,
+            reason="already_generated",
+            generated_id=earlier.id,
+            **base,
+        )
+        if earlier.status == "ready":
+            await attach_as_stage_draft(
+                stage_id=stage.id, user_id=user_id, generated_id=earlier.id
+            )
         return None
 
     try:

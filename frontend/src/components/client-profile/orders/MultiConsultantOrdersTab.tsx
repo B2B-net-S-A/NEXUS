@@ -6,6 +6,8 @@ import { Plus } from "lucide-react";
 
 import { EmptyState, QueryStateNotice } from "@/components/ds";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
+import { DeleteOrderDialog } from "@/components/orders/DeleteOrderDialog";
+import { DeleteOrderGroupDialog } from "@/components/orders/DeleteOrderGroupDialog";
 import {
   ContractorOrderCards,
   type ContractorOrderFocus,
@@ -232,6 +234,12 @@ export function MultiConsultantOrdersTab({
     group: OrderGroupRead | null;
   }>({ open: false, group: null });
   const [formError, setFormError] = useState<string | null>(null);
+  const [deleteLineTarget, setDeleteLineTarget] = useState<{
+    group: OrderGroupRead;
+    line: OrderLineRead;
+  } | null>(null);
+  const [deleteGroupTarget, setDeleteGroupTarget] =
+    useState<OrderGroupRead | null>(null);
   const [mailSource, setMailSource] = useState<MailSource | null>(null);
   // Przejście z wpisu „transfer_md" do zamówienia powiązanego. Żądanie leci do
   // WSZYSTKICH kart, bo cel bywa zagnieżdżony w przyszłych zamówieniach innej
@@ -643,6 +651,7 @@ export function MultiConsultantOrdersTab({
     mutationFn: ({ groupId, lineId }: { groupId: number; lineId: number }) =>
       orderGroupsApi.removeLine(clientId, groupId, lineId),
     onSuccess: () => {
+      setDeleteLineTarget(null);
       invalidate();
       showToast("Usunięto konsultanta z zamówienia", "success");
     },
@@ -664,6 +673,7 @@ export function MultiConsultantOrdersTab({
   const removeGroup = useMutation({
     mutationFn: (groupId: number) => orderGroupsApi.remove(clientId, groupId),
     onSuccess: () => {
+      setDeleteGroupTarget(null);
       invalidate();
       showToast("Usunięto zamówienie", "success");
     },
@@ -958,30 +968,13 @@ export function MultiConsultantOrdersTab({
           setFormError(null);
           setOffboardingModal({ open: true, group: selected, line });
         }}
-        onDeleteLine={(selected, line) => {
-          if (
-            !window.confirm(
-              `Czy na pewno chcesz usunąć konsultanta ${line.consultant_name} ` +
-                `z zamówienia nr ${selected.order_number}? Usunięte zostanie tylko ` +
-                `jego miejsce na tym zamówieniu — nie powstanie nowe zamówienie, ` +
-                `a umowa i inne zamówienia tej osoby się nie zmienią.`,
-            )
-          ) {
-            return;
-          }
-          removeLine.mutate({ groupId: selected.id, lineId: line.id });
-        }}
-        onDeleteGroup={(selected) => {
-          if (
-            !window.confirm(
-              `Czy na pewno chcesz usunąć całe zamówienie nr ${selected.order_number} ` +
-                `wraz ze wszystkimi konsultantami? Tej operacji nie można cofnąć.`,
-            )
-          ) {
-            return;
-          }
-          removeGroup.mutate(selected.id);
-        }}
+        // Audyt 22.09 r2 (FE-N02): dialog ze skutkami liczonymi przez serwer
+        // zamiast `window.confirm`, który obiecywał „umowa się nie zmieni” —
+        // usunięcie linii zabiera jej krok stawki klienta.
+        onDeleteLine={(selected, line) =>
+          setDeleteLineTarget({ group: selected, line })
+        }
+        onDeleteGroup={(selected) => setDeleteGroupTarget(selected)}
         onCloseGroup={(selected) => {
           setFormError(null);
           setEndModal({ open: true, group: selected });
@@ -1282,6 +1275,37 @@ export function MultiConsultantOrdersTab({
         error={formError}
         onSubmit={(values, file) => extendGroup.mutate({ values, file })}
       />
+
+      {deleteLineTarget ? (
+        <DeleteOrderDialog
+          clientId={clientId}
+          orderId={deleteLineTarget.line.id}
+          title={deleteLineTarget.group.order_number}
+          context="group_line"
+          heading={`Usunąć konsultanta ${deleteLineTarget.line.consultant_name} z zamówienia nr ${deleteLineTarget.group.order_number}?`}
+          confirmLabel="Usuń konsultanta"
+          pending={removeLine.isPending}
+          onConfirm={() =>
+            removeLine.mutate({
+              groupId: deleteLineTarget.group.id,
+              lineId: deleteLineTarget.line.id,
+            })
+          }
+          onClose={() => setDeleteLineTarget(null)}
+        />
+      ) : null}
+
+      {deleteGroupTarget ? (
+        <DeleteOrderGroupDialog
+          clientId={clientId}
+          orderNumber={deleteGroupTarget.order_number}
+          lines={deleteGroupTarget.lines}
+          hasFile={deleteGroupTarget.has_file}
+          pending={removeGroup.isPending}
+          onConfirm={() => removeGroup.mutate(deleteGroupTarget.id)}
+          onClose={() => setDeleteGroupTarget(null)}
+        />
+      ) : null}
     </div>
   );
 }

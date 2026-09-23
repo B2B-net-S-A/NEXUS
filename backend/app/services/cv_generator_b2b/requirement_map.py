@@ -45,6 +45,7 @@ from app.services.cv_generator_b2b.public_view import (
     build_public_payload,
     public_payload_text,
 )
+from app.services.prompt_fencing import json_for_prompt
 from app.services.llm_prompts import CV_REQUIREMENT_MAP
 from app.services.ai_models import model_for
 
@@ -65,6 +66,18 @@ _WS_RE = re.compile(r"\s+")
 
 def _normalize_for_match(text: str) -> str:
     return _WS_RE.sub(" ", text).strip().casefold()
+
+
+def _display_label(name: str, display: dict[str, str]) -> str:
+    """Pisownia z rekrutacji także dla alternatyw „X lub Y" (FIX-10).
+
+    Kontrakt składa grupę LUB w jedną etykietę małymi literami („java lub
+    kotlin"), a słownik pisowni zna tylko pojedyncze umiejętności — bez
+    rozbicia klient widział kafelek „java lub kotlin".
+    """
+    return " lub ".join(
+        display.get(part.casefold(), part) for part in name.split(" lub ")
+    )
 
 
 def build_requirements(job: Job) -> list[dict[str, str]]:
@@ -123,8 +136,8 @@ def build_requirements(job: Job) -> list[dict[str, str]]:
     for source in sources:
         for name in iter_skill_names(source):
             display.setdefault(name.casefold(), name)
-    must = [display.get(n.casefold(), n) for n in must][:_MAX_MUST]
-    nice = [display.get(n.casefold(), n) for n in nice][:_MAX_NICE]
+    must = [_display_label(n, display) for n in must][:_MAX_MUST]
+    nice = [_display_label(n, display) for n in nice][:_MAX_NICE]
 
     seen: set[str] = set()
     requirements: list[dict[str, str]] = []
@@ -435,8 +448,8 @@ async def generate_map_result(
     from app.services.claude_client import call_claude
 
     prompt = CV_REQUIREMENT_MAP.render(
-        cv_json=json.dumps(public_payload, ensure_ascii=False),
-        requirements_json=json.dumps(requirements, ensure_ascii=False),
+        cv_json=json_for_prompt(public_payload),
+        requirements_json=json_for_prompt(requirements),
         language_label=(
             "angielski" if public_payload["language"] == "en" else "polski"
         ),

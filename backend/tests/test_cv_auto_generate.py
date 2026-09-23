@@ -23,7 +23,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 import app.models  # noqa: F401
@@ -356,6 +356,58 @@ async def test_second_move_with_the_same_cv_does_not_generate_again(monkeypatch)
     events = await _events(world["job_id"])
     assert [e.action for e in events] == [auto.ACTION_STARTED]
     assert events[0].details["generated_id"] == rows[0].id
+
+
+async def test_return_to_verified_with_the_same_cv_does_not_pay_twice(monkeypatch):
+    """AI-06 (audyt 22.09 r2): powrót karty na „Zweryfikowany" to NOWY wiersz
+    etapu. Klucz (etap, wersja CV) go nie łapał — druga płatna generacja tego
+    samego dokumentu. Teraz: pominięcie ``already_generated`` i podpięcie
+    gotowego dokumentu jako szkicu nowego etapu."""
+    world = await _world()
+    calls = _fake_generator(monkeypatch)
+    attached: list[dict] = []
+
+    async def _attach(**kwargs):
+        attached.append(kwargs)
+        return True
+
+    monkeypatch.setattr(auto, "attach_as_stage_draft", _attach)
+    async with AsyncSessionLocal() as db:
+        first = await auto._enqueue(
+            db, stage_id=world["stage_id"], user_id=world["user_id"]
+        )
+        await db.execute(
+            update(CvGeneratedDocument)
+            .where(CvGeneratedDocument.stage_id == world["stage_id"])
+            .values(status="ready")
+        )
+        stage = CandidateStage(
+            candidate_id=world["candidate_id"],
+            job_id=world["job_id"],
+            stage=PipelineStage.verified,
+            moved_by=world["user_id"],
+        )
+        db.add(stage)
+        await db.commit()
+        new_stage_id = stage.id
+    async with AsyncSessionLocal() as db:
+        second = await auto._enqueue(
+            db, stage_id=new_stage_id, user_id=world["user_id"]
+        )
+
+    assert first is not None and second is None
+    assert len(calls) == 1, "druga płatna generacja tego samego CV"
+    events = await _events(world["job_id"])
+    skip = next(e for e in events if e.action == auto.ACTION_SKIPPED)
+    assert skip.details["reason"] == "already_generated"
+    assert skip.details["stage_id"] == new_stage_id
+    assert attached == [
+        {
+            "stage_id": new_stage_id,
+            "user_id": world["user_id"],
+            "generated_id": skip.details["generated_id"],
+        }
+    ]
 
 
 async def test_database_enforces_the_idempotency_key():

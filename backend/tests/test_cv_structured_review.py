@@ -45,7 +45,7 @@ def test_supported_review_records_schema_fingerprint(monkeypatch):
     )
     assert call.call_args.kwargs["response_schema"] == review.REVIEW_RESPONSE_SCHEMA
     assert result["response_schema_sha256"] == review.REVIEW_RESPONSE_SCHEMA_SHA256
-    assert result["version"] == 3
+    assert result["version"] == 4
 
 
 def test_provider_schema_does_not_replace_local_limits(monkeypatch):

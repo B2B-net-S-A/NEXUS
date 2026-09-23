@@ -316,15 +316,19 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       router.push(championTab);
       return;
     }
+    // REC-04: toast sukcesu WYŁĄCZNIE po udanej publikacji — inaczej obok
+    // błędu stał komunikat „utworzona i przekazana”, który mu przeczył.
+    let published = true;
     try {
       await api.post(`/api/jobs/${jobId}/publish`);
     } catch (e) {
+      published = false;
       showError(
         `Rekrutacja w searchu, ale nie opublikowana: ${apiErrorMessage(e, "błąd")}. Opublikuj ją na stronie rekrutacji.`,
       );
     }
     invalidateJobs();
-    showSuccess("Rekrutacja utworzona i przekazana do searchu.");
+    if (published) showSuccess("Rekrutacja utworzona i przekazana do searchu.");
     router.push(`/jobs/${jobId}`);
   };
 

@@ -2513,3 +2513,131 @@ async def test_executive_contract_is_refused_outside_ezdrowie(
     assert plain.status_code == 201, plain.text
     assert plain.json()["executive_contract"] is None
     assert plain.json()["md_positions_total"] == 50
+
+
+# ── Audyt 22.09 r2 (FIN-MD-02): korekta budżetu następcy po zamianie ────────
+
+
+async def _report_md(line_id: int, md: str) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from app.services.client_order_lines import upsert_consumption
+
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, line_id)
+        await upsert_consumption(
+            db,
+            order=line,
+            period_month=_TODAY.strftime("%Y-%m"),
+            md_reported=Decimal(md),
+        )
+        await db.commit()
+
+
+async def _line_total(line_id: int) -> Decimal:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+
+    async with AsyncSessionLocal() as db:
+        return Decimal(str((await db.get(ClientOrder, line_id)).md_total))
+
+
+async def _swap(app_client, headers, client_id, group, new_contract) -> int:
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}/swap",
+        json={
+            "contract_id": new_contract,
+            "rate_cost": 1000,
+            "rate_revenue": 1200,
+            "swap_date": _TODAY.isoformat(),
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
+async def test_late_report_for_the_swap_month_shrinks_the_successor(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Raport za miesiąc zamiany schodzi z poprzednika — te MD nie mogą
+    zostać także w budżecie następcy (rozdane dwa razy)."""
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    successor_id = await _swap(
+        app_client, app_auth_headers, client_id, group, contracts[1]
+    )
+    assert await _line_total(successor_id) == Decimal("50")
+
+    await _report_md(group["lines"][0]["id"], "10")
+
+    assert await _line_total(successor_id) == Decimal("40")
+    events = (
+        await app_client.get(
+            f"/api/clients/{client_id}/order-groups/{group['id']}/events",
+            headers=app_auth_headers,
+        )
+    ).json()["events"]
+    assert any("Korekta budżetu następcy" in e["description"] for e in events)
+
+
+async def test_manually_edited_successor_budget_is_not_corrected(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    successor_id = await _swap(
+        app_client, app_auth_headers, client_id, group, contracts[1]
+    )
+    edit = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{successor_id}",
+        json={"input_mode": "md", "input_value": 70, "rate_revenue": 1200},
+        headers=app_auth_headers,
+    )
+    assert edit.status_code == 200, edit.text
+
+    await _report_md(group["lines"][0]["id"], "10")
+
+    assert await _line_total(successor_id) == Decimal("70")
+
+
+async def test_swap_recorded_before_the_rule_is_not_corrected(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Zamiany sprzed audytu 22.09 r2 nie niosą ``auto_rebalance`` — ich
+    budżet mógł zostać już rozliczony z klientem, więc automat go nie rusza."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import ClientOrderGroupEvent
+
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    successor_id = await _swap(
+        app_client, app_auth_headers, client_id, group, contracts[1]
+    )
+    async with AsyncSessionLocal() as db:
+        event = await db.scalar(
+            select(ClientOrderGroupEvent).where(
+                ClientOrderGroupEvent.order_id == successor_id,
+                ClientOrderGroupEvent.event_type == "zamiana_kontraktora",
+            )
+        )
+        payload = dict(event.payload)
+        payload.pop("auto_rebalance")
+        event.payload = payload
+        await db.commit()
+
+    await _report_md(group["lines"][0]["id"], "10")
+
+    assert await _line_total(successor_id) == Decimal("50")

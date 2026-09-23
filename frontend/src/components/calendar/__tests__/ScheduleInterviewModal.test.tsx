@@ -154,6 +154,30 @@ describe("ScheduleInterviewModal", () => {
     );
   });
 
+  it("ponowienie po błędzie niesie ten sam identyfikator, nowe wydarzenie — nowy (FIX-08)", async () => {
+    recruitments([]);
+    mocks.createInvite
+      .mockRejectedValueOnce(new Error("Network Error"))
+      .mockResolvedValue({ data: { online_meeting_url: null } });
+    render(<Harness open />);
+    const submit = () =>
+      fireEvent.click(screen.getByRole("button", { name: /Zaplanuj w Outlook/ }));
+
+    submit();
+    await waitFor(() => expect(mocks.createInvite).toHaveBeenCalledTimes(1));
+    submit();
+    await waitFor(() => expect(mocks.createInvite).toHaveBeenCalledTimes(2));
+    submit();
+    await waitFor(() => expect(mocks.createInvite).toHaveBeenCalledTimes(3));
+
+    const ids = mocks.createInvite.mock.calls.map(
+      (call: unknown[]) => (call[0] as { client_request_id?: string }).client_request_id,
+    );
+    expect(ids[0]).toMatch(/^[A-Za-z0-9-]{8,64}$/);
+    expect(ids[1]).toBe(ids[0]);
+    expect(ids[2]).not.toBe(ids[1]);
+  });
+
   it("ponowne otwarcie czyści uczestników i proponuje przyszłą godzinę", async () => {
     recruitments([]);
     const { rerender } = render(<Harness open />);

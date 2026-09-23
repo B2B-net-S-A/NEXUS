@@ -138,13 +138,13 @@ def test_incomplete_or_fabricated_review_cannot_approve(monkeypatch, mutation):
     ],
 )
 def test_negative_semantic_verdict_blocks_before_render(monkeypatch, claim, status):
-    data = {**DOCUMENT, "why_points": [claim]}
+    data = {**DOCUMENT, "certifications": [claim]}
     monkeypatch.setattr(svc, "extract_text_from_file", lambda *a, **k: SOURCE)
     monkeypatch.setattr(svc, "analyze_with_ai", lambda *a, **k: json.dumps(data))
 
     def verdict(content, *args, **kwargs):
         result = review_response(content)
-        next(item for item in result["claims"] if item["path"] == "/why_points/0")[
+        next(item for item in result["claims"] if item["path"] == "/certifications/0")[
             "status"
         ] = status
         return json.dumps(result)
@@ -157,7 +157,7 @@ def test_negative_semantic_verdict_blocks_before_render(monkeypatch, claim, stat
     with pytest.raises(svc.StandaloneGenerationError) as caught:
         run_pipeline()
     assert caught.value.code == "source_verification_failed"
-    assert "podsumowanie" in str(caught.value)
+    assert "certyfikaty" in str(caught.value)
     assert rendered == []
 
 
@@ -335,7 +335,7 @@ def test_successful_pipeline_saves_report_for_the_exact_final_document(monkeypat
 
 
 def test_batches_cover_every_claim_even_for_long_cv(monkeypatch):
-    data = {"why_points": ["Tworzył API w Pythonie."] * 85}
+    data = {"certifications": ["Tworzył API w Pythonie."] * 85}
     requests = []
 
     def verdict(content, *args, **kwargs):
@@ -497,3 +497,27 @@ def test_oversized_review_is_rejected_before_parsing(monkeypatch):
         run_gate()
     assert exc.value.reason == "oversized_response"
     parser.assert_not_called()
+
+
+def test_narrative_why_points_are_context_not_claims(monkeypatch):
+    """AI-02 (audyt 22.09 r2): ``why_points`` składa fakty z innych pól
+    i nie jest faktem do zacytowania — recenzowane jako twierdzenie dawało
+    0/76 CV „verified”. Zostaje w dokumencie jako kontekst recenzenta."""
+    data = {
+        **DOCUMENT,
+        "why_points": ["Idealny kandydat do projektu bankowego — lider zespołu."],
+    }
+    requests = []
+
+    def verdict(content, *args, **kwargs):
+        request = json.loads(content)
+        requests.append(request)
+        return json.dumps(review_response(content))
+
+    monkeypatch.setattr(gate, "analyze_with_ai", verdict)
+    report = run_gate(data)
+    assert report["status"] == "verified"
+    assert report["version"] == 4
+    claimed = {path for r in requests for path in r["claims"]}
+    assert not any(path.startswith("/why_points") for path in claimed)
+    assert requests[0]["final_document"]["why_points"] == data["why_points"]

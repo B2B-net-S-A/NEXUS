@@ -454,13 +454,22 @@ def _assess_uncertainty(
     return uncertain, reasons
 
 
+#: Sufit ufności deklarowanej przez MODEL. ``1.0`` znaczy w całym module
+#: „pole potwierdzone regułą z etykiety dokumentu" (``set_field``) — bramka
+#: automatu czyta je jako dowód proweniencji numeru i okresu. Model, który
+#: sam zgłosił 1.0, nie może się pod ten dowód podszyć (audyt 22.09,
+#: FIN-MAIL-04). Odtworzenie zapisanego odczytu (``restore_extraction``) nie
+#: przechodzi przez ``_normalize``, więc 1.0 ustawione przez regułę przeżywa.
+_MODEL_CONFIDENCE_CAP = 0.99
+
+
 def _normalize(data: dict[str, Any], *, source: str) -> OrderExtraction:
     raw_conf = data.get("_confidence")
     conf: dict[str, float] = {}
     if isinstance(raw_conf, dict):
         for k, v in raw_conf.items():
             if isinstance(v, (int, float)) and not isinstance(v, bool):
-                conf[str(k)] = max(0.0, min(1.0, float(v)))
+                conf[str(k)] = max(0.0, min(_MODEL_CONFIDENCE_CAP, float(v)))
 
     consultant_rows: list[ConsultantOrderRow] = []
     raw_rows = data.get("consultant_rows")

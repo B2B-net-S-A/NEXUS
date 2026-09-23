@@ -141,3 +141,39 @@ describe("rateChangeSentence", () => {
     expect(text).not.toContain("do ");
   });
 });
+
+describe("FIN-02 (audyt 22.09 r2): okres bez żadnej stawki", () => {
+  it("mówi wprost, że kontrakt zostanie bez przychodu", () => {
+    const text = rateChangeSentence(
+      {
+        effective_from: "2026-09-15",
+        effective_until: null,
+        rate: 167.5,
+        replacement_rate: null,
+        changes_amount: true,
+        removes_revenue: true,
+      },
+      "PLN",
+      "hourly",
+    );
+    expect(text).toBe(
+      "Okres od 15.09.2026 straci stawkę klienta — kontrakt zostanie bez przychodu.",
+    );
+  });
+
+  it("rola bez finansów też dostaje to zdanie (to nie jest kwota)", () => {
+    const text = rateChangeSentence(
+      {
+        effective_from: "2026-09-15",
+        effective_until: "2026-12-31",
+        rate: null,
+        replacement_rate: null,
+        changes_amount: true,
+        removes_revenue: true,
+      },
+      null,
+      null,
+    );
+    expect(text).toContain("kontrakt zostanie bez przychodu");
+  });
+});

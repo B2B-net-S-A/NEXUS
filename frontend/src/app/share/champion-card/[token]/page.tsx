@@ -8,6 +8,7 @@
  */
 import { PublicLinkUnavailable } from "@/components/public/PublicLinkUnavailable";
 import { publicLinkFailure } from "@/lib/public-link-state";
+import { forwardedClientHeaders } from "@/lib/server-forwarded";
 import { AlertCircle, Calendar, CheckCircle2, Sparkles, XCircle } from"lucide-react";
 
 interface PageProps {
@@ -97,7 +98,11 @@ async function fetchShare(
 ): Promise<{ data: ShareResponse } | { status: number | null }> {
  const url = `${apiBase()}/api/public/champion-card/${token}`;
  try {
- const res = await fetch(url, { cache: "no-store" });
+ const res = await fetch(url, {
+ cache: "no-store",
+ // FE-N01: limit zapytań per odwiedzający, nie per kontener frontu.
+ headers: await forwardedClientHeaders(),
+ });
  if (!res.ok) {
  console.error("[share] upstream", res.status, url);
  return { status: res.status };

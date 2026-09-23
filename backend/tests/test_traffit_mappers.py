@@ -327,7 +327,8 @@ class TestTraffitEmployeeToCandidate:
             }
         )
 
-        assert result["traffit_source_updated_at"] == "2026-08-28T10:15:00+00:00"
+        # 10:15 czasu lokalnego (CEST) = 08:15Z (INTG-04).
+        assert result["traffit_source_updated_at"] == "2026-08-28T08:15:00+00:00"
         assert result["traffit_raw_name"] == "Anna"
         assert result["traffit_raw_lastname"] == "Kowalska"
 
@@ -574,8 +575,9 @@ class TestTraffitRecruitmentToJob:
         payload = _load("recruitments_list.json")[0]
         result = traffit_recruitment_to_job(payload, {}, {}, None)
 
+        # Traffit podaje czas lokalny: 09:59:10 w sierpniu (CEST) = 07:59:10Z.
         assert result["opened_at"] == datetime(
-            2022, 8, 9, 9, 59, 10, tzinfo=timezone.utc
+            2022, 8, 9, 7, 59, 10, tzinfo=timezone.utc
         )
         # tz-aware, bo kolumna jest `timestamp with time zone`, a asyncpg
         # odrzuca naiwne wartości.
@@ -593,8 +595,9 @@ class TestTraffitRecruitmentToJob:
         payload = dict(_load("recruitments_list.json")[0])
         assert payload["is_closed"] is True
         closed = traffit_recruitment_to_job(payload, {}, {}, None)
+        # 09:54:21 w lutym (CET) = 08:54:21Z.
         assert closed["closed_at"] == datetime(
-            2023, 2, 22, 9, 54, 21, tzinfo=timezone.utc
+            2023, 2, 22, 8, 54, 21, tzinfo=timezone.utc
         )
 
         payload["is_closed"] = False
@@ -612,6 +615,97 @@ class TestTraffitRecruitmentToJob:
         result = traffit_recruitment_to_job({"id": 7, "name": "X"}, {}, {}, None)
         assert result["opened_at"] is None
         assert result["closed_at"] is None
+
+
+class TestResponsiblePerson:
+    """Audyt 22.09 r2 (DATA-01/PROD-03): opiekun rekrutacji z listy."""
+
+    def test_list_of_people_maps_to_recruiter(self):
+        payload = {
+            "id": 1,
+            "name": "X",
+            "responsible_person": [{"id": 99}, {"id": 43}],
+        }
+        result = traffit_recruitment_to_job(payload, {}, {}, {"43": 7})
+        assert result["recruiter_id"] == 7
+
+    def test_dict_works_and_bare_id_is_not_a_person(self):
+        assert (
+            traffit_recruitment_to_job(
+                {"id": 1, "name": "X", "responsible_person": {"id": 43}},
+                {},
+                {},
+                {"43": 7},
+            )["recruiter_id"]
+            == 7
+        )
+        # Goła liczba to nie jest kształt API Traffita (decyzja #1728).
+        assert (
+            traffit_recruitment_to_job(
+                {"id": 1, "name": "X", "responsible_person": 43}, {}, {}, {"43": 7}
+            )["recruiter_id"]
+            is None
+        )
+
+    def test_unknown_people_give_no_recruiter(self):
+        payload = {"id": 1, "name": "X", "responsible_person": [{"id": 1}, None]}
+        assert (
+            traffit_recruitment_to_job(payload, {}, {}, {"43": 7})["recruiter_id"]
+            is None
+        )
+
+
+class TestTraffitLocalTime:
+    """Audyt 22.09 r2 (INTG-04): Traffit podaje czas lokalny, nie UTC."""
+
+    def test_summer_local_time_is_two_hours_ahead_of_utc(self):
+        from datetime import datetime, timezone
+
+        from app.services.traffit.mappers import _parse_traffit_datetime
+
+        assert _parse_traffit_datetime("2026-07-15 10:00:00") == datetime(
+            2026, 7, 15, 8, 0, tzinfo=timezone.utc
+        )
+
+    def test_winter_local_time_is_one_hour_ahead_of_utc(self):
+        from datetime import datetime, timezone
+
+        from app.services.traffit.mappers import _parse_traffit_datetime
+
+        assert _parse_traffit_datetime("2026-01-15 10:00:00") == datetime(
+            2026, 1, 15, 9, 0, tzinfo=timezone.utc
+        )
+
+    def test_explicit_offset_is_respected(self):
+        from datetime import datetime, timezone
+
+        from app.services.traffit.mappers import _parse_traffit_datetime
+
+        assert _parse_traffit_datetime("2026-07-15T10:00:00Z") == datetime(
+            2026, 7, 15, 10, 0, tzinfo=timezone.utc
+        )
+
+    def test_stage_move_is_stored_in_utc(self):
+        record = {
+            "id": 301,
+            "employee": {"id": 100},
+            "recruitment": {"id": 200},
+            "workflow_state": {"id": 19},
+            "date": "2026-07-28 10:00:00",
+        }
+        result = traffit_recruitment_history_to_stage(
+            record, {"100": 1}, {"200": 2}, {"19": 3}, {"19": "new"}, None
+        )
+        assert result is not None
+        assert result["moved_at"].isoformat() == "2026-07-28T08:00:00+00:00"
+
+    def test_deadline_just_after_midnight_keeps_the_local_date(self):
+        from datetime import date
+
+        payload = {"id": 1, "name": "X", "closing_date": "2026-12-31 00:30:00"}
+        result = traffit_recruitment_to_job(payload, {}, {}, None)
+        # 00:30 lokalnie to 30.12 23:30Z — termin zostaje 31.12.
+        assert result["deadline"] == date(2026, 12, 31)
 
 
 # ── Faza 5: talent → talent_pool ────────────────────────────────────────────
@@ -762,8 +856,9 @@ class TestTraffitRecruitmentHistoryToStage:
             None,
         )
         assert result is not None
-        assert result["moved_at"].hour == 8
-        assert result["contact_source_created_at"].hour == 9
+        # 08:00 czasu lokalnego w lipcu = 06:00Z (INTG-04).
+        assert result["moved_at"].hour == 6
+        assert result["contact_source_created_at"].hour == 7
 
     def test_missing_id_raises(self):
         with pytest.raises(ValueError, match="missing 'id'"):

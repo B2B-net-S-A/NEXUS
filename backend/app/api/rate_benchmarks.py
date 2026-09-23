@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser
 from app.api.financial_access import FinanceReadUser
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.contract import RateUnit
 from app.models.rate_benchmark import RateBenchmark, SeniorityLevel
@@ -28,6 +29,9 @@ from app.schemas.rate_benchmark import (
 )
 
 router = APIRouter()
+
+# audyt 22.09 r2 (SEC-03): górna granica wczytywanego CSV.
+MAX_CSV_BYTES = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 
 @router.get("", response_model=List[RateBenchmarkResponse])
@@ -130,7 +134,13 @@ async def import_benchmarks(
         None,
     ):
         raise HTTPException(status_code=415, detail="Only CSV files are supported")
-    raw = await file.read()
+    # audyt 22.09 r2 (SEC-03): najwyżej limit + 1 bajt w RAM.
+    raw = await file.read(MAX_CSV_BYTES + 1)
+    if len(raw) > MAX_CSV_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"CSV file exceeds {settings.MAX_UPLOAD_SIZE_MB} MB",
+        )
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError:

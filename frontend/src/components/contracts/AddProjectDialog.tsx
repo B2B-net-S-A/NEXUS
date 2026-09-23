@@ -62,6 +62,7 @@ import {
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { B2B_END_DATE_HOW, b2bEndDateLocked } from "@/lib/contract-end-date";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
+import { warsawToday } from "@/lib/warsaw-date";
 
 type ClientOption = { id: number; name: string };
 type JobOption = { id: number; title: string };
@@ -90,7 +91,7 @@ export interface AddProjectDialogProps {
 type FieldErrors = Record<string, string>;
 
 function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return warsawToday();
 }
 
 export function AddProjectDialog({

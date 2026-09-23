@@ -58,11 +58,13 @@ from app.models.md_consumption import (
     ClientOrderInvoiceConsumption,
     ClientOrderMdConsumption,
     COST_ROW_APPLIED,
+    COST_ROW_NON_POSITIVE,
     COST_ROW_STATUS_LABELS,
     COST_ROW_UNMATCHED_CONSULTANT,
     COST_ROW_UNMATCHED_NUMBER,
     CONSUMPTION_SOURCE_MANUAL,
     IMPORT_ROW_APPLIED,
+    IMPORT_ROW_COST_ONLY,
     IMPORT_ROW_NEEDS_ASSIGNMENT,
     IMPORT_ROW_STATUS_LABELS,
     IMPORT_ROW_UNMATCHED,
@@ -85,6 +87,7 @@ from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import (
     LineMatch,
     apply_md_consumption,
+    exhausted_groups_with_month_entry,
     cost_lines_settling_in_month,
     describe_import,
     group_settles_in_month,
@@ -351,6 +354,11 @@ async def _apply_to_line(
         user_id=user_id,
         allow_successor_transfer=not historical_reprocess,
     )
+    # FIN-MD-01: miesiąc już raz podzielony rozlicza się od poprzednika — wpis
+    # historii ląduje na linii, na której rozliczenie faktycznie się zaczęło.
+    if getattr(outcome, "order", None) is not None:
+        locked_order = outcome.order
+        locked_group = outcome.group
     if locked_group is not None:
         record_event(
             db,
@@ -431,6 +439,7 @@ def _ordinary_locked_target_is_valid(
     rows: list[MdConsumptionImportRow],
     expected_client_id: int,
     period_month: str,
+    correctable_exhausted_group_ids: frozenset[int] = frozenset(),
 ) -> bool:
     """Re-match persisted spreadsheet evidence after line/group lock waits.
 
@@ -482,7 +491,10 @@ def _ordinary_locked_target_is_valid(
     elif kind == "shared_md":
         if (
             not line_settles_in_month(order, period_month, contract=contract)
-            or not group_settles_in_month(group, first)
+            or not (
+                group_settles_in_month(group, first)
+                or group.id in correctable_exhausted_group_ids
+            )
             or not uses_shared_md_pool(group)
         ):
             return False
@@ -491,7 +503,10 @@ def _ordinary_locked_target_is_valid(
             not line_settles_in_month(
                 order, period_month, contract=contract, include_draft=True
             )
-            or not group_settles_in_month(group, first)
+            or not (
+                group_settles_in_month(group, first)
+                or group.id in correctable_exhausted_group_ids
+            )
             or not group.is_cost_based
         ):
             return False
@@ -596,11 +611,30 @@ async def create_import(
             row_number=parsed_row.row_number,
             consultant_name=parsed_row.consultant_name[:255],
             md_reported=parsed_row.md_reported,
-            status=IMPORT_ROW_UNMATCHED,
+            status=(
+                IMPORT_ROW_COST_ONLY
+                if getattr(parsed_row, "cost_only", False)
+                else IMPORT_ROW_UNMATCHED
+            ),
             notes_raw=parsed_row.notes_raw,
             order_number_hint=parsed_row.order_number_hint,
             invoice_amount=parsed_row.invoice_amount,
         )
+        if getattr(parsed_row, "cost_only", False):
+            # FIN-MD-06: wiersz z samą fakturą rozlicza wyłącznie pulę
+            # kosztową — do budżetów MD (per osoba i wspólnej puli) nie idzie.
+            cost_match = _match_cost_row(
+                row,
+                parsed_row=parsed_row,
+                cost_candidates=cost_candidates,
+                pending_invoices=pending_invoices,
+                invoice_orders=invoice_orders,
+                touched_groups=touched_groups,
+            )
+            if cost_match is not None:
+                cost_rows[cost_match.order.id].append(row)
+            db.add(row)
+            continue
 
         # Parser dochodzi tutaj wyłącznie po znalezieniu jawnie rozpoznanej
         # kolumny MD. Wspólna pula nie próbuje wyliczać dni z faktury, godzin
@@ -710,6 +744,11 @@ async def create_import(
     for group_id in list(touched_groups):
         touched_groups[group_id] = locked_groups[group_id]
 
+    # FIN-MD-08: grupy wyczerpane, które już mają wpis za ten miesiąc, są
+    # celem korekty (patrz `_exhausted_with_month_entry_clause`).
+    correctable_exhausted = await exhausted_groups_with_month_entry(
+        db, locked_groups.keys(), period_month
+    )
     for order_id, rows in md_rows.items():
         order = locked_orders[order_id]
         group = locked_groups[expected_group_by_order[order_id]]
@@ -735,6 +774,7 @@ async def create_import(
             rows=rows,
             expected_client_id=expected_client_by_order[order_id],
             period_month=period_month,
+            correctable_exhausted_group_ids=correctable_exhausted,
         ):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -750,6 +790,7 @@ async def create_import(
             rows=rows,
             expected_client_id=expected_client_by_order[order_id],
             period_month=period_month,
+            correctable_exhausted_group_ids=correctable_exhausted,
         ):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -920,7 +961,12 @@ def _match_cost_row(
     """
     hints = extract_order_number_candidates(parsed_row.notes_raw)
     amount = parsed_row.invoice_amount
-    if not hints or amount is None or quantize_money(amount) <= Decimal("0"):
+    if hints and amount is not None and quantize_money(amount) <= Decimal("0"):
+        # FIN-MD-06: korekta faktury (kwota ≤ 0) nie znika po cichu — operator
+        # dostaje status do ręcznego rozliczenia.
+        row.cost_status = COST_ROW_NON_POSITIVE
+        return None
+    if not hints or amount is None:
         return None
 
     # Numer zamówienia nie jest globalnie unikalny (ani w bazie, ani między
@@ -1192,51 +1238,80 @@ async def _protect_newer_or_manual_consumption(
             "rozliczenie wspólnej puli MD za ten miesiąc."
         )
 
-    model = (
-        ClientOrderInvoiceConsumption
-        if plan.kind == _REPROCESS_COST
-        else ClientOrderMdConsumption
+    is_cost = plan.kind == _REPROCESS_COST
+    message, current_value, write_required = await _newer_or_manual_conflict(
+        db,
+        model=ClientOrderInvoiceConsumption if is_cost else ClientOrderMdConsumption,
+        order_id=plan.match.order.id,
+        order_number=plan.match.group.order_number,
+        batch=batch,
+        expected_value=plan.expected_value,
+        is_cost=is_cost,
+        lock=lock,
     )
-    value_column = (
-        model.invoice_amount if plan.kind == _REPROCESS_COST else model.md_reported
-    )
+    if current_value is not None:
+        plan.current_value = current_value
+    if not write_required:
+        plan.write_required = False
+    return message
+
+
+async def _newer_or_manual_conflict(
+    db: AsyncSession,
+    *,
+    model,
+    order_id: int,
+    order_number: str,
+    batch: MdConsumptionImport,
+    expected_value: Decimal,
+    is_cost: bool,
+    lock: bool,
+) -> tuple[Optional[str], Optional[Decimal], bool]:
+    """Czy wpis za ten miesiąc na linii jest ręczny albo z NOWSZEJ partii.
+
+    Zwraca ``(komunikat konfliktu | None, bieżąca wartość | None,
+    czy zapis jest potrzebny)``. Wspólne dla replayu Polkomtela i ręcznego
+    przypisania wiersza (audyt 22.09 r2, FIN-MD-07): ``assign_row`` ze starszej
+    paczki nadpisywał nowszy albo ręczny wpis za ten sam miesiąc.
+    """
+    value_column = model.invoice_amount if is_cost else model.md_reported
     current_query = select(model).where(
-        model.order_id == plan.match.order.id,
+        model.order_id == order_id,
         model.period_month == batch.period_month,
     )
     if lock:
         current_query = current_query.with_for_update()
     current = await db.scalar(current_query.execution_options(populate_existing=True))
     if current is None:
-        return None
-    current_value = (
-        quantize_money(getattr(current, value_column.key))
-        if plan.kind == _REPROCESS_COST
-        else quantize_md(getattr(current, value_column.key))
-    )
-    plan.current_value = current_value
+        return None, None, True
+    raw = getattr(current, value_column.key)
+    current_value = quantize_money(raw) if is_cost else quantize_md(raw)
     if current.source == CONSUMPTION_SOURCE_MANUAL:
         return (
-            f"Zamówienie {plan.match.group.order_number}: istnieje ręczne "
-            "rozliczenie za ten miesiąc."
+            f"Zamówienie {order_number}: istnieje ręczne rozliczenie za ten miesiąc.",
+            current_value,
+            True,
         )
-    if current_value == plan.expected_value:
-        plan.write_required = False
-        return None
+    if current_value == expected_value:
+        return None, current_value, False
     if current.import_id == batch.id:
-        return None
+        return None, current_value, True
     if current.import_id is None:
         return (
-            f"Zamówienie {plan.match.group.order_number}: istnieje inne "
-            "rozliczenie bez możliwej do potwierdzenia partii źródłowej."
+            f"Zamówienie {order_number}: istnieje inne "
+            "rozliczenie bez możliwej do potwierdzenia partii źródłowej.",
+            current_value,
+            True,
         )
     other_batch = await db.get(MdConsumptionImport, current.import_id)
     if other_batch is None or other_batch.created_at >= batch.created_at:
         return (
-            f"Zamówienie {plan.match.group.order_number}: istnieje rozliczenie "
-            "z nowszego importu; starsza partia nie może go nadpisać."
+            f"Zamówienie {order_number}: istnieje rozliczenie "
+            "z nowszego importu; starsza partia nie może go nadpisać.",
+            current_value,
+            True,
         )
-    return None
+    return None, current_value, True
 
 
 async def _lock_polkomtel_reprocess_targets(
@@ -1794,6 +1869,24 @@ async def assign_row(
             MdConsumptionImportRow.id != row.id,
         )
     )
+    # Audyt 22.09 r2 (FIN-MD-07): starsza paczka nie nadpisuje nowszego ani
+    # ręcznego wpisu za ten miesiąc (ta sama reguła co replay Polkomtela).
+    conflict, _current, _write = await _newer_or_manual_conflict(
+        db,
+        model=ClientOrderMdConsumption,
+        order_id=order.id,
+        order_number=(
+            order.order_group.order_number if order.order_group else str(order.id)
+        ),
+        batch=batch,
+        expected_value=quantize_md(
+            Decimal(str(already_applied or 0)) + row.md_reported
+        ),
+        is_cost=False,
+        lock=True,
+    )
+    if conflict is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=conflict)
     await _apply_to_line(
         db,
         match_order=order,

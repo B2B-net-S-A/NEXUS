@@ -50,7 +50,8 @@ def _candidate(insights):
 def test_defaults_keep_all_four_automations_on():
     fields = Settings.model_fields
     assert fields["AUTO_FULL_REVIEW_ENABLED"].default is True
-    assert fields["AUTO_FULL_REVIEW_MAX_PER_NIGHT"].default == 20
+    # Audyt 22.09 r2 (PROD-03): 5/noc — przegląd ~190 MB.
+    assert fields["AUTO_FULL_REVIEW_MAX_PER_NIGHT"].default == 5
     assert fields["AUTO_FULL_REVIEW_TOP_K"].default == 60
     assert fields["CV_AUTO_GENERATE_ON_VERIFIED"].default is True
     assert fields["AUTO_MATCH_MODE"].default is None  # = propose

@@ -5,7 +5,11 @@ import { AlertTriangle, Loader2, ShieldAlert } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
 import { apiErrorMessage } from "@/lib/api-error";
-import { dlPortalApi, type OrderDeletePreview } from "@/lib/api/dlPortal";
+import {
+  dlPortalApi,
+  type OrderDeleteContext,
+  type OrderDeletePreview,
+} from "@/lib/api/dlPortal";
 import {
   NO_SIDE_EFFECTS_TEXT,
   orderDeleteBlocked,
@@ -17,6 +21,11 @@ interface DeleteOrderDialogProps {
   orderId: number;
   title: string;
   pending?: boolean;
+  /** `group_line` = kosz linii zamówienia MD/kosztowego (FE-N02). */
+  context?: OrderDeleteContext;
+  /** Nagłówek dialogu; domyślnie „Usunąć zamówienie „…”?”. */
+  heading?: string;
+  confirmLabel?: string;
   onConfirm: () => void;
   onClose: () => void;
 }
@@ -38,13 +47,18 @@ export function DeleteOrderDialog({
   orderId,
   title,
   pending = false,
+  context = "order",
+  heading,
+  confirmLabel = "Usuń zamówienie",
   onConfirm,
   onClose,
 }: DeleteOrderDialogProps) {
   const previewQuery = useQuery<OrderDeletePreview>({
-    queryKey: ["order-delete-preview", clientId, orderId],
+    queryKey: ["order-delete-preview", clientId, orderId, context],
     queryFn: () =>
-      dlPortalApi.previewOrderDeletion(clientId, orderId).then((r) => r.data),
+      dlPortalApi
+        .previewOrderDeletion(clientId, orderId, context)
+        .then((r) => r.data),
     // Skutki mają być świeże w chwili pytania, nie z poprzedniego otwarcia.
     staleTime: 0,
   });
@@ -62,7 +76,7 @@ export function DeleteOrderDialog({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={`Usunąć zamówienie „${title}”?`}
+      title={heading ?? `Usunąć zamówienie „${title}”?`}
       size="md"
       footer={
         <>
@@ -80,7 +94,7 @@ export function DeleteOrderDialog({
             className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
           >
             {pending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-            Usuń zamówienie
+            {confirmLabel}
           </button>
         </>
       }

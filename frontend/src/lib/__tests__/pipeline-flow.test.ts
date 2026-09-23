@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  bulkMoveFailureMessage,
   HM_VETO_ENFORCED_STAGES,
   PIPELINE_GROUP_LABEL,
   countAtClient,
@@ -698,5 +699,17 @@ describe("groupKanbanColumns — „Ogłoszenia” (posting) przed „Nowi”", 
     expect(byKey.get("posting")?.count).toBe(4);
     expect(byKey.get("intake")?.columns.map((c) => c.name)).toEqual(["Nowi / Analiza CV"]);
     expect(byKey.get("intake")?.count).toBe(13);
+  });
+});
+
+describe("bulkMoveFailureMessage (REC-06)", () => {
+  it("do 3 nazwisk z powodami, reszta jako „i N więcej”", () => {
+    const failures = [1, 2, 3, 4, 5].map((n) => ({ name: `Osoba ${n}`, reason: `powód ${n}.` }));
+    expect(bulkMoveFailureMessage(failures, 9)).toBe(
+      "Nie udało się przenieść 5 z 9 kandydatów: Osoba 1 — powód 1; Osoba 2 — powód 2; Osoba 3 — powód 3 (i 2 więcej).",
+    );
+    expect(bulkMoveFailureMessage([{ name: "A", reason: "x" }], 2)).toBe(
+      "Nie udało się przenieść 1 z 2 kandydatów: A — x.",
+    );
   });
 });

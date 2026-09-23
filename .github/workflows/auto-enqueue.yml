@@ -18,10 +18,17 @@ name: Auto-enqueue
 #
 # `gh pr merge --auto` przy kolejce merge'ów = „dodaj do kolejki, gdy wymagane
 # testy na PR-ze będą zielone”, więc nie trzeba czekać tu na komplet checków.
+#
+# WSTRZYMANIE (REC-03 / OPS-N04, audyt 22.09.2026): do 09.2026 `wstrzymaj`
+# i draft działały tylko PRZED włączeniem auto-merge'a — etykieta dodana
+# później nie zatrzymywała niczego, bo nic nie reagowało na `labeled`
+# ani `converted_to_draft`. Teraz job `hold` wyłącza auto-merge i zdejmuje
+# PR z TRWAJĄCEJ kolejki (GraphQL `dequeuePullRequest`). Zdjęcie etykiety
+# (`unlabeled`) albo „Ready for review” wrzuca PR z powrotem.
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, synchronize, unlabeled]
+    types: [opened, reopened, ready_for_review, synchronize, unlabeled, labeled, converted_to_draft]
     branches: [main]
 
 permissions:
@@ -38,6 +45,8 @@ jobs:
     timeout-minutes: 5
     if: >-
       ${{ !github.event.pull_request.draft
+      && github.event.action != 'labeled'
+      && github.event.action != 'converted_to_draft'
       && github.event.pull_request.user.login != 'dependabot[bot]'
       && !contains(github.event.pull_request.labels.*.name, 'wstrzymaj') }}
     steps:
@@ -59,4 +68,40 @@ jobs:
             # Najczęściej: PR już w kolejce albo ma konflikt z mainem. Nie
             # czerwienimy PR-a z tego powodu — to informacja, nie awaria.
             echo "::notice::PR #$PR nie został dodany do kolejki: $out"
+          fi
+
+  hold:
+    name: Wstrzymaj (zdejmij z kolejki)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      ${{ github.event.action == 'converted_to_draft'
+      || (github.event.action == 'labeled' && github.event.label.name == 'wstrzymaj') }}
+    steps:
+      - name: Wyłącz auto-merge i zdejmij z kolejki merge'ów
+        env:
+          GH_TOKEN: ${{ secrets.QUEUE_BOT_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          PR_NODE_ID: ${{ github.event.pull_request.node_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Brak sekretu QUEUE_BOT_TOKEN — PR #$PR NIE został zdjęty z kolejki. Zrób to ręcznie: gh pr merge $PR --disable-auto."
+            exit 0
+          fi
+          if out=$(gh pr merge "$PR" --repo "$REPO" --disable-auto 2>&1); then
+            echo "PR #$PR: auto-merge wyłączony."
+          else
+            echo "::notice::PR #$PR: auto-merge nie był włączony albo nie dał się wyłączyć: $out"
+          fi
+          # PR już w kolejce: wyłączenie auto-merge'a go nie wyjmuje — grupa
+          # z nim nadal wejdzie na maina. Stąd jawne zdjęcie z kolejki.
+          if out=$(gh api graphql \
+                -f query='mutation($id: ID!) { dequeuePullRequest(input: {id: $id}) { mergeQueueEntry { id } } }' \
+                -f id="$PR_NODE_ID" 2>&1); then
+            echo "PR #$PR: zdjęty z kolejki merge'ów."
+          else
+            # Najczęściej: PR nie był w kolejce. To stan docelowy, nie awaria.
+            echo "::notice::PR #$PR nie był w kolejce merge'ów (albo nie dało się go zdjąć): $out"
           fi

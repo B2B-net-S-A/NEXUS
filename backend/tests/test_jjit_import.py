@@ -255,7 +255,10 @@ async def fakes(monkeypatch):
         runner, "_cv_text", lambda cv: "Anna Nowa anna@example.com Python 5 lat"
     )
 
-    async def _parse(text, **_k):
+    _PARSE_CALLS.clear()
+
+    async def _parse(text, **kwargs):
+        _PARSE_CALLS.append(kwargs)
         return {
             "first_name": "Anna",
             "last_name": "Nowa",
@@ -270,6 +273,9 @@ async def fakes(monkeypatch):
     _FakeNexus.candidate_id = await _seed_candidate()
     yield
     _FakeNexus.candidate_id = None
+
+
+_PARSE_CALLS: list[dict] = []
 
 
 @pytest.mark.asyncio
@@ -342,3 +348,51 @@ async def test_concurrent_run_is_rejected(fakes):
                 dry_run=True, since="2026-09-01", states=["published"]
             )
     await asyncio.sleep(0)
+
+
+async def _forget_seen_applications(monkeypatch) -> None:
+    """Wcześniejszy prawdziwy run zapamiętał aplikacje — bez tego są pomijane.
+
+    Tekst CV z fixture'a ma < 50 znaków, więc parser w ogóle by nie ruszył.
+    """
+    from sqlalchemy import delete
+
+    monkeypatch.setattr(
+        runner,
+        "_cv_text",
+        lambda cv: (
+            "Anna Nowa anna@example.com Python 5 lat, AWS, Kubernetes, Terraform"
+        ),
+    )
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(IntegrationExternalItem).where(
+                IntegrationExternalItem.source == "jjit",
+                IntegrationExternalItem.external_id.in_(["app-1", "app-2", "app-3"]),
+            )
+        )
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_dry_run_never_calls_the_paid_model(fakes, monkeypatch):
+    """AI-05 (audyt 22.09 r2): wynik odczytu w dry_run jest wyrzucany, więc
+    płatne wywołanie modelu (poza licznikiem kosztów) nie ma sensu."""
+    await _forget_seen_applications(monkeypatch)
+    result = await runner.run_once(
+        dry_run=True, since="2026-09-01", states=["published"]
+    )
+    assert _PARSE_CALLS, f"odczyt CV w ogóle nie pobiegł: {result}"
+    assert all(call.get("prefer_llm") is False for call in _PARSE_CALLS)
+
+
+@pytest.mark.asyncio
+async def test_real_run_parses_through_the_ai_quota_gate(fakes, monkeypatch):
+    """AI-05: tryb importu idzie przez ``parse_cv(db=…)`` — bramka
+    ``ai_feature(cv_parser)``, koszt widoczny w Ustawieniach → AI."""
+    await _forget_seen_applications(monkeypatch)
+    await runner.run_once(dry_run=False, since="2026-09-01", states=["published"])
+    assert _PARSE_CALLS
+    assert all(call.get("db") is not None for call in _PARSE_CALLS)
+    # Nie zostawiaj zapamiętanych aplikacji dla kolejnych biegów na tej bazie.
+    await _forget_seen_applications(monkeypatch)

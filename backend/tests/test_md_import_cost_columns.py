@@ -157,3 +157,43 @@ def test_rate_column_never_wins_over_the_md_count_column():
 def test_bare_md_header_still_works_when_it_is_the_only_one():
     parsed = parse_md_sheet(_sheet(["Konsultant", "MD"], [["Jan Kowalski", 12]]))
     assert parsed.rows[0].md_reported == Decimal("12")
+
+
+# ── Audyt 22.09 r2 (FIN-MD-06) ──────────────────────────────────────────────
+
+
+def test_invoice_row_without_md_becomes_cost_only():
+    """Wiersz kosztowy bez liczby MD był odrzucany razem z kwotą faktury."""
+    parsed = parse_md_sheet(
+        _sheet(
+            ["Imię i nazwisko", "Ilość MD", "Uwagi", "Faktura"],
+            [["Jan Kowalski", None, "SAP 4500719650", "20 900,00 zł"]],
+        )
+    )
+    assert parsed.skipped_rows == []
+    row = parsed.rows[0]
+    assert row.cost_only is True
+    assert row.md_reported == Decimal("0")
+    assert row.invoice_amount == Decimal("20900.00")
+    assert row.order_number_hint == "4500719650"
+
+
+def test_row_without_md_and_without_invoice_is_still_skipped():
+    parsed = parse_md_sheet(
+        _sheet(
+            ["Imię i nazwisko", "Ilość MD", "Uwagi", "Faktura"],
+            [["Jan Kowalski", None, "SAP 4500719650", None]],
+        )
+    )
+    assert parsed.rows == []
+    assert len(parsed.skipped_rows) == 1
+
+
+def test_unreadable_md_text_is_not_turned_into_cost_only():
+    parsed = parse_md_sheet(
+        _sheet(
+            ["Imię i nazwisko", "Ilość MD", "Uwagi", "Faktura"],
+            [["Jan Kowalski", "dziesięć", "SAP 4500719650", 1000]],
+        )
+    )
+    assert parsed.rows == []

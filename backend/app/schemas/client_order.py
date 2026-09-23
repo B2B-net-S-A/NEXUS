@@ -362,6 +362,10 @@ class OrderDeleteRateChange(BaseModel):
     replacement_rate: Optional[Decimal] = None
     #: ``False`` = kwota wychodzi ta sama, zmienia się tylko pochodzenie kroku.
     changes_amount: bool
+    #: ``True`` = po usunięciu ten okres nie ma ŻADNEJ stawki klienta — kontrakt
+    #: zostaje bez przychodu (audyt 22.09 r2, FIN-02). Nie jest kwotą, więc
+    #: widzi je także rola bez finansów.
+    removes_revenue: bool = False
 
 
 class OrderDeletePreview(BaseModel):

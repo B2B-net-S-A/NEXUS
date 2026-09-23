@@ -12,6 +12,7 @@ na snapshot — to jest the-feature, rozwiązuje pain point z Traffit.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -19,6 +20,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -27,6 +29,88 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.services.cv_source import get_current_cv
 
 logger = logging.getLogger(__name__)
+
+
+# ── Snapshot jako wskaźnik do object storage (audyt 22.09 r2, PROD-02) ──────
+#
+# `original_cv_content` (BYTEA) zajmował 2,35 GB — 28% bazy — przy 8947
+# wierszach i 3696 unikalnych plikach: jedno konto dodało w kilka dni 8752
+# osób do 213 rekrutacji i każda para dostała WŁASNĄ kopię bajtów w bazie
+# (i w każdym nocnym dumpie). Teraz snapshot to kopia w object storage pod
+# kluczem `stage-cv/<candidate_id>/<sha256>`:
+#
+# * KOPIA, nie wskaźnik na dokument kandydata — dokument bywa usuwany albo
+#   podmieniany, a snapshot jest niemutowalny z definicji;
+# * klucz per KANDYDAT i treść — ta sama osoba w 50 rekrutacjach to jeden
+#   obiekt, a usunięcie kandydata (RODO) może skasować wszystkie jego klucze
+#   bez ryzyka, że ten sam obiekt trzyma snapshot innej osoby;
+# * storage nieskonfigurowany albo niedostępny → bajty w bazie jak dotąd
+#   (fail-soft: utworzenie etapu nie może paść na storage).
+
+SNAPSHOT_KEY_PREFIX = "stage-cv"
+
+
+def snapshot_storage_key(candidate_id: int, sha256: str) -> str:
+    return f"{SNAPSHOT_KEY_PREFIX}/{int(candidate_id)}/{sha256}"
+
+
+async def _store_snapshot(
+    candidate_id: int, content: bytes, filename: Optional[str]
+) -> tuple[Optional[str], str]:
+    """(klucz w storage albo None, sha256). None = trzymaj bajty w bazie."""
+    from app.services import object_storage
+
+    digest = hashlib.sha256(content).hexdigest()
+    if not object_storage.is_available():
+        return None, digest
+    key = snapshot_storage_key(candidate_id, digest)
+    try:
+        await run_in_threadpool(
+            object_storage.upload_cv, content, filename or "cv", storage_key=key
+        )
+    except Exception:  # noqa: BLE001 — snapshot nie może blokować etapu
+        logger.exception(
+            "Snapshot CV: upload do storage nieudany (candidate=%s) — bajty w bazie",
+            candidate_id,
+        )
+        return None, digest
+    return key, digest
+
+
+def snapshot_exists(csv_row: CandidateStageCV) -> bool:
+    return (
+        csv_row.original_cv_content is not None
+        or csv_row.original_cv_storage_key is not None
+    )
+
+
+async def load_original_cv_bytes(csv_row: CandidateStageCV) -> Optional[bytes]:
+    """Bajty snapshotu — z bazy (stare wiersze) albo z object storage."""
+    if csv_row.original_cv_content is not None:
+        return bytes(csv_row.original_cv_content)
+    if csv_row.original_cv_storage_key:
+        from app.services import object_storage
+
+        return await run_in_threadpool(
+            object_storage.download_cv, csv_row.original_cv_storage_key
+        )
+    return None
+
+
+async def snapshot_keys_for_candidate(db: AsyncSession, candidate_id: int) -> list[str]:
+    """Klucze snapshotów kandydata — do kasowania razem z nim (RODO).
+
+    Klucz zawiera `candidate_id`, więc żaden inny kandydat go nie współdzieli.
+    """
+    rows = await db.scalars(
+        select(CandidateStageCV.original_cv_storage_key)
+        .where(
+            CandidateStageCV.candidate_id == candidate_id,
+            CandidateStageCV.original_cv_storage_key.is_not(None),
+        )
+        .distinct()
+    )
+    return [k for k in rows.all() if k]
 
 
 async def create_original_cv_snapshot(
@@ -80,12 +164,22 @@ async def create_original_cv_snapshot(
         current = None
 
     has_cv = current is not None
+    storage_key: Optional[str] = None
+    digest: Optional[str] = None
+    if current is not None:
+        storage_key, digest = await _store_snapshot(
+            stage.candidate_id, current.content, current.filename
+        )
     csv_row = CandidateStageCV(
         candidate_stage_id=stage.id,
         candidate_id=stage.candidate_id,
         job_id=stage.job_id,
         original_cv_filename=current.filename if current else None,
-        original_cv_content=current.content if current else None,
+        original_cv_content=(
+            current.content if current is not None and storage_key is None else None
+        ),
+        original_cv_storage_key=storage_key,
+        original_cv_sha256=digest,
         original_cv_language=current.language if current else None,
         original_snapshot_at=datetime.now(tz=timezone.utc) if has_cv else None,
         original_snapshot_source=source if has_cv else None,
@@ -176,8 +270,13 @@ async def refresh_original_cv_snapshot(
     old_filename = csv_row.original_cv_filename
     old_at = csv_row.original_snapshot_at
 
+    storage_key, digest = await _store_snapshot(
+        csv_row.candidate_id, current.content, current.filename
+    )
     csv_row.original_cv_filename = current.filename
-    csv_row.original_cv_content = current.content
+    csv_row.original_cv_content = current.content if storage_key is None else None
+    csv_row.original_cv_storage_key = storage_key
+    csv_row.original_cv_sha256 = digest
     csv_row.original_cv_language = current.language
     csv_row.original_snapshot_at = datetime.now(tz=timezone.utc)
     csv_row.original_snapshot_source = "manual_refresh"

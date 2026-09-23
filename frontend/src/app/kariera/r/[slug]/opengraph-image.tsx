@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { ImageResponse } from "next/og";
 
 import { OG_COLORS, OG_SIZE, OgFrame, ogFontsOrDefault } from "@/components/career/og";
-import { fetchCareerJob } from "@/lib/career/api";
+import { fetchCareerJob } from "@/lib/career/server";
 import { jobHandle, paramsSummary, splitTitle } from "@/lib/career/format";
 import { requestDisplayHost } from "@/lib/career/host";
 
@@ -16,7 +16,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   const { slug } = await params;
   // Host z żądania, nie stała domena — grafika pokazuje adres, pod którym link działa.
   const host = requestDisplayHost(await headers());
-  const result = await fetchCareerJob(slug.toLowerCase());
+  const result = await fetchCareerJob(slug.toLowerCase(), false);
   const job = result.ok ? result.data.job : { slug, title: "Rekrutacja IT" };
   const closed = result.ok && result.data.status === "closed";
   const title = splitTitle(job.title);

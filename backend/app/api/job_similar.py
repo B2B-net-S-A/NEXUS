@@ -129,6 +129,12 @@ async def link_similar_jobs(
     missing = [i for i in wanted if i not in known]
     if missing:
         raise HTTPException(404, f"Nie ma rekrutacji: {', '.join(map(str, missing))}")
+    # audyt 22.09 r2 (SEC-05): połączenie przepina osoby wysłane do klienta
+    # w OBU kierunkach, więc wymaga dostępu także do drugiej rekrutacji —
+    # inaczej rekruter spoza jej zespołu dostawał wgląd w jej wysłanych.
+    for other_id in wanted:
+        await _job(db, user, other_id)
+        await ensure_job_membership(db, user, other_id)
     linked, reassigned = await sim.link_jobs(db, job_id, wanted, user_id=user.id)
     db.add(
         Activity(

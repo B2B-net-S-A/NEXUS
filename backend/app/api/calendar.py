@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -1288,6 +1288,14 @@ class M365InviteRequest(BaseModel):
     # service helper apply the event-type default (on for interview/screening).
     add_teams_meeting: Optional[bool] = None
     reminder_minutes: int = 15
+    # audyt 22.09 r2 (FIX-08): identyfikator intencji nadany przy OTWARCIU
+    # okna tworzenia wydarzenia i powtarzany przy ponowieniach. Z niego
+    # powstaje ``transactionId`` Graph. Bez niego ``transactionId`` liczył się
+    # z treści, więc świadome utworzenie DRUGIEGO identycznego spotkania
+    # (np. druga runda o tej samej porze) Graph traktował jak ponowienie.
+    client_request_id: Optional[str] = Field(
+        default=None, pattern=r"^[A-Za-z0-9-]{8,64}$"
+    )
 
     @field_validator("reminder_minutes")
     @classmethod
@@ -1349,6 +1357,11 @@ async def create_m365_invite(
         extra_attendees=body.extra_attendees,
         invite_candidate=body.invite_candidate,
         with_teams_meeting=body.add_teams_meeting,
+        intent_id=(
+            f"invite-form|{current_user.id}|{body.client_request_id}"
+            if body.client_request_id
+            else None
+        ),
     )
     row.job_id = body.job_id
     row.reminder_minutes = body.reminder_minutes

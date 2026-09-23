@@ -334,11 +334,44 @@ async def test_zapis_z_listy_zostaje_przy_dotychczasowych_wynikach(
     assert ss.filters["request"]["hide_unknown"] is True
     assert ss.filters["request"]["location_scope"] == "location_only"
     assert ss.filters["migration"]["neutralised"] == ["hide_unknown", "location_scope"]
+    # CAND-06: otwarty z listy zapis pokazuje TEN SAM zbiór co alert —
+    # flagi neutralizujące są też w querystringu UI.
+    assert ss.filters["qs"] == "rate_min=100&loc=gdansk&hu=1&ls=location_only&sv=2"
     assert ss.requires_reapproval is False and ss.notify_new_matches is True
     assert await _reapproval_notifications(search_id) == []
     # skaner odtwarza go ścieżką wspólną i nadal widzi tylko osobę ze stawką
     params = alerts.alert_list_params(ss.filters)
     assert params["semantics_version"] == 2 and params["hide_unknown"] is True
+
+
+@pytest.mark.asyncio
+async def test_porownanie_czyta_tekst_legacy_doslownie(
+    app_client, app_auth_headers, monkeypatch
+):
+    """CAND-05: zapis listy z `text_mode` (lista od 21.09.2026) nie może
+    odpalać retrievalu semantycznego po stronie legacy porównania — fałszywe
+    „different" i płatne embeddingi przy każdym przebiegu migracji."""
+    from app.services import candidate_text_retrieval
+
+    async def _no_semantic(*_a, **_kw):
+        raise AssertionError("porównanie migracji nie może wołać Voyage")
+
+    monkeypatch.setattr(candidate_text_retrieval, "semantic_pool", _no_semantic)
+    nonce = _nonce()
+    await _seed_candidates(nonce)
+    owner = await _owner_id(app_client, app_auth_headers)
+    search_id = await _seed_search(
+        owner,
+        {
+            "version": 2,
+            "qs": f"q={nonce}&sv=2",
+            "api": {"q": nonce, "text_mode": "auto", "semantics_version": 2},
+        },
+        alert=True,
+    )
+    assert await _migrate(search_id) == "identical"
+    ss = await _load(search_id)
+    assert ss.requires_reapproval is False
 
 
 @pytest.mark.asyncio

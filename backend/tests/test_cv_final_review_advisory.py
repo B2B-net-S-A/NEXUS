@@ -179,18 +179,20 @@ def test_a_clean_review_is_stored_and_says_nothing_to_the_recruiter(
 def test_findings_reach_the_recruiter_as_warnings_and_never_block(
     review_on, monkeypatch
 ):
-    _verifier(monkeypatch, review_on, _reject("/why_points/0"))
+    # ``why_points`` to sekcja narracyjna (AI-02) — poza inwentarzem twierdzeń.
+    path = "/experience/0/responsibilities/0"
+    _verifier(monkeypatch, review_on, _reject(path))
 
     result = _run()
 
     report = result.render_payload["factual_verification"]
     assert report["status"] == "advisory"
-    assert report["paths"] == ["/why_points/0"]
-    assert report["statuses"] == {"/why_points/0": "unsupported"}
+    assert report["paths"] == [path]
+    assert report["statuses"] == {path: "unsupported"}
     # Dokument POWSTAJE — to jest kontrakt tej funkcji.
     assert result.docx_bytes == b"DOCX"
     warning = next(w for w in result.warnings if w.startswith("BRAK POKRYCIA"))
-    assert "podsumowanie" in warning
+    assert "doświadczenie" in warning
     assert "brak potwierdzenia" in warning
 
 
@@ -209,7 +211,11 @@ def test_a_contradiction_reads_differently_than_missing_evidence(
 
 
 def test_private_notes_are_flagged_softly_not_as_fabrication(review_on, monkeypatch):
-    _verifier(monkeypatch, review_on, _reject("/why_points/0", status="private"))
+    _verifier(
+        monkeypatch,
+        review_on,
+        _reject("/experience/0/responsibilities/0", status="private"),
+    )
 
     result = _run()
 
@@ -276,7 +282,7 @@ def test_findings_from_every_batch_are_reported_not_just_the_first(monkeypatch):
         )
 
     monkeypatch.setattr(factual_verification, "analyze_with_ai", analyze)
-    document = {"why_points": [f"Twierdzenie numer {i}" for i in range(45)]}
+    document = {"certifications": [f"Twierdzenie numer {i}" for i in range(45)]}
 
     with pytest.raises(factual_verification.FactualVerificationError) as err:
         factual_verification.verify_final_cv(
@@ -300,7 +306,7 @@ def test_protocol_failures_still_abort_immediately(monkeypatch):
 
     with pytest.raises(factual_verification.FactualVerificationError) as err:
         factual_verification.verify_final_cv(
-            {"why_points": ["cokolwiek"]},
+            {"certifications": ["cokolwiek"]},
             cv_text="źródło\n",
             screening_notes="",
             identity="",
@@ -388,7 +394,9 @@ async def test_edited_cv_is_reviewed_by_the_independent_model(
     monkeypatch.setattr(
         review_module,
         "verify_editor_content",
-        Mock(return_value={"version": 3, "prompt_sha256": "p", "model": "gpt-5.6-luna"}),
+        Mock(
+            return_value={"version": 3, "prompt_sha256": "p", "model": "gpt-5.6-luna"}
+        ),
     )
     prepared = await _prepared(monkeypatch, review_module)
 
@@ -430,6 +438,40 @@ async def test_findings_do_not_refuse_the_approval(approval_advisory, monkeypatc
     assert result["status"] == "reviewed"
     assert result["findings"]["count"] == 1
     assert result["findings"]["statuses"] == {"/why_points/0": "unsupported"}
+
+
+async def test_protocol_failure_is_unverified_not_a_clean_review(
+    approval_advisory, monkeypatch
+):
+    """AI-04 (audyt 22.09 r2): awaria protokołu recenzenta (np. niepoprawny
+    JSON) bez żadnej ścieżki nie może udawać czystej kontroli
+    (``reviewed`` z count=0 = brak banera)."""
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock, Mock
+
+    from app.services import cv_approval_review as review_module
+
+    @asynccontextmanager
+    async def quota(*args, **kwargs):
+        yield
+
+    monkeypatch.setattr(review_module, "ai_feature", quota)
+    monkeypatch.setattr(
+        review_module,
+        "verify_editor_content",
+        Mock(
+            side_effect=factual_verification.FactualVerificationError(
+                reason="invalid_json"
+            )
+        ),
+    )
+    prepared = await _prepared(monkeypatch, review_module)
+
+    result = await review_module.execute_approval_review(AsyncMock(), prepared, 17)
+
+    assert result["status"] == "unverified"
+    assert result["method_detail"] == "review_protocol_invalid_json"
+    assert "findings" not in result
 
 
 async def test_enforced_mode_still_refuses(monkeypatch):
@@ -517,11 +559,16 @@ async def test_a_missing_source_degrades_instead_of_refusing(
 def test_review_outcome_reads_findings_off_the_saved_version():
     from app.services.cv_approval_review import review_outcome
 
-    assert review_outcome({"content_review": {"status": "reviewed", "findings": {"count": 3}}}) == (
+    assert review_outcome(
+        {"content_review": {"status": "reviewed", "findings": {"count": 3}}}
+    ) == (
         "reviewed",
         3,
     )
-    assert review_outcome({"content_review": {"status": "verified"}}) == ("verified", None)
+    assert review_outcome({"content_review": {"status": "verified"}}) == (
+        "verified",
+        None,
+    )
     # Wersje sprzed wdrożenia: brak wpisu = brak komunikatu, nie „niedostępna".
     assert review_outcome({}) == (None, None)
     assert review_outcome(None) == (None, None)

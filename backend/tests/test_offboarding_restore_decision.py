@@ -415,3 +415,133 @@ async def test_a_resolved_case_cannot_be_restored_twice(
     )
     assert second.status_code == 409, second.text
     assert second.json()["detail"]["code"] == "offboarding_case_already_resolved"
+
+
+# ── Audyt 22.09 r2 (FIN-MD-02): korekta przeniesionej puli ─────────────────
+
+
+async def _add_target_line(seed: dict, *, md_total: str = "50") -> int:
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract, ContractStatus, RateUnit
+
+    suffix = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(
+            name="Anna", lastname=f"Target-{suffix}", email=f"tg-{suffix}@example.com"
+        )
+        db.add(candidate)
+        await db.flush()
+        contract = Contract(
+            candidate_id=candidate.id,
+            client_id=seed["client_id"],
+            status=ContractStatus.active,
+            start_date=_TODAY - timedelta(days=100),
+            rate_candidate=Decimal("1000.000"),
+            rate_client=Decimal("1320.000"),
+            rate_unit=RateUnit.daily,
+        )
+        db.add(contract)
+        await db.flush()
+        line = ClientOrder(
+            client_id=seed["client_id"],
+            contract_id=contract.id,
+            order_group_id=seed["group_id"],
+            title=f"Zamówienie target {suffix}",
+            order_type=None,
+            status=ClientOrderStatus.active,
+            start_date=_TODAY - timedelta(days=100),
+            md_rate_cost=Decimal("1000.00"),
+            md_rate_revenue=Decimal("1320.00"),
+            rate_unit=RateUnit.daily,
+            billing_hours_per_month=160,
+            currency="PLN",
+            rate_client_currency="PLN",
+            rate_candidate_currency="PLN",
+            md_input_mode="md",
+            md_input_value=Decimal(md_total),
+            md_total=Decimal(md_total),
+            md_remaining=Decimal(md_total),
+        )
+        db.add(line)
+        await db.commit()
+        return line.id
+
+
+async def _report_md_on_source(line_id: int, md: str) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+    from app.services.client_order_lines import upsert_consumption
+
+    async with AsyncSessionLocal() as db:
+        line = await db.get(ClientOrder, line_id)
+        await upsert_consumption(
+            db,
+            order=line,
+            period_month=(_TODAY - timedelta(days=1)).strftime("%Y-%m"),
+            md_reported=Decimal(md),
+        )
+        await db.commit()
+
+
+async def test_late_report_shrinks_the_transferred_pool(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Raport za miesiąc zejścia przychodzi PO decyzji: 10 MD odchodzącego
+    zostało rozdane dwa razy (jako jego zużycie i w puli przeniesionej)."""
+    seed = await _seed_pending_case()
+    _enable_multi(monkeypatch, seed["client_id"])
+    target_id = await _add_target_line(seed)
+
+    resp = await app_client.post(
+        _resolve_url(seed),
+        json={
+            "action": "transfer",
+            "target_order_id": target_id,
+            "rate_basis": "departing",
+            "expected_version": 1,
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert (await _line_state(target_id))["md_total"] == Decimal("140")
+
+    await _report_md_on_source(seed["line_id"], "10")
+
+    target = await _line_state(target_id)
+    source = await _line_state(seed["line_id"])
+    assert target["md_total"] == Decimal("130")
+    assert source["md_total"] == Decimal("10")
+    assert source["md_remaining"] == Decimal("0")
+
+
+async def test_manually_edited_transfer_target_is_left_alone(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder
+
+    seed = await _seed_pending_case()
+    _enable_multi(monkeypatch, seed["client_id"])
+    target_id = await _add_target_line(seed)
+    resp = await app_client.post(
+        _resolve_url(seed),
+        json={
+            "action": "transfer",
+            "target_order_id": target_id,
+            "rate_basis": "departing",
+            "expected_version": 1,
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    async with AsyncSessionLocal() as db:
+        target = await db.get(ClientOrder, target_id)
+        target.md_total = Decimal("200")
+        target.md_input_value = Decimal("200")
+        await db.commit()
+
+    await _report_md_on_source(seed["line_id"], "10")
+
+    assert (await _line_state(target_id))["md_total"] == Decimal("200")

@@ -18,7 +18,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func
+from sqlalchemy import case, delete, func, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -197,6 +197,18 @@ async def _set_override(
     reason: Optional[str] = None,
     note: Optional[str] = None,
 ) -> None:
+    # Audyt 22.09 r2 (CAND-07): uśpienie PRZYPIĘTEJ osoby zapamiętuje
+    # przypięcie w `restore_kind` (przypięcie ze stałego linku to jedyny powód,
+    # dla którego osoba jest na liście) — „Przywróć” wraca do niego zamiast
+    # kasować wiersz. Ponowne uśpienie uśpionej osoby zachowuje pamięć;
+    # przypięcie ją zeruje (osoba JEST przypięta).
+    if kind == "snoozed":
+        restore_on_conflict = case(
+            (MyPeopleOverride.kind == "pinned", "pinned"),
+            else_=MyPeopleOverride.restore_kind,
+        )
+    else:
+        restore_on_conflict = None
     await db.execute(
         pg_insert(MyPeopleOverride)
         .values(
@@ -205,6 +217,7 @@ async def _set_override(
             kind=kind,
             reason=reason,
             note=note,
+            restore_kind=None,
         )
         .on_conflict_do_update(
             constraint="uq_my_people_overrides_user_candidate",
@@ -212,6 +225,7 @@ async def _set_override(
                 "kind": kind,
                 "reason": reason,
                 "note": note,
+                "restore_kind": restore_on_conflict,
                 "created_at": func.now(),
             },
         )
@@ -255,9 +269,27 @@ async def unsnooze_person(
     user: CandidateSearchAccess,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    await _clear_override(
-        db, user_id=user.id, candidate_id=candidate_id, kind="snoozed"
+    # CAND-07: uśpiona osoba przypięta wcześniej wraca do przypiętych.
+    restored = await db.execute(
+        update(MyPeopleOverride)
+        .where(
+            MyPeopleOverride.user_id == user.id,
+            MyPeopleOverride.candidate_id == candidate_id,
+            MyPeopleOverride.kind == "snoozed",
+            MyPeopleOverride.restore_kind == "pinned",
+        )
+        .values(
+            kind="pinned",
+            reason=None,
+            note=None,
+            restore_kind=None,
+            created_at=func.now(),
+        )
     )
+    if not restored.rowcount:
+        await _clear_override(
+            db, user_id=user.id, candidate_id=candidate_id, kind="snoozed"
+        )
     await db.commit()
 
 
@@ -279,6 +311,16 @@ async def unpin_person(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await _clear_override(db, user_id=user.id, candidate_id=candidate_id, kind="pinned")
+    # Odpięcie uśpionej osoby: „Przywróć” nie może jej już przypiąć z powrotem.
+    await db.execute(
+        update(MyPeopleOverride)
+        .where(
+            MyPeopleOverride.user_id == user.id,
+            MyPeopleOverride.candidate_id == candidate_id,
+            MyPeopleOverride.kind == "snoozed",
+        )
+        .values(restore_kind=None)
+    )
     await db.commit()
 
 

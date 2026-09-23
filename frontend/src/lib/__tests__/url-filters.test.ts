@@ -41,6 +41,7 @@ describe("url-filters", () => {
       skillsExpr: "python OR aws",
       skillsPreferred: ["Docker", "Spring|Quarkus"],
       hideUnknown: true,
+      locationScope: "location_only",
       location: "Warszawa",
       poolIds: [3, 5],
       addedByIds: [12, 0],
@@ -416,6 +417,17 @@ describe("url-filters", () => {
     expect(params.skills).toBeUndefined();
     expect(params.skills_any).toBeUndefined();
     expect(params.skills_none).toBeUndefined();
+  });
+
+  it("carries location_scope from a migrated saved search (CAND-06)", () => {
+    const decoded = decodeFilters(sp("loc=Warszawa&hu=1&ls=location_only&sv=2"));
+    expect(decoded.locationScope).toBe("location_only");
+    const params = filtersToApiParams(decoded, 1);
+    expect(params.location_scope).toBe("location_only");
+    expect(params.hide_unknown).toBe(true);
+    expect(encodeFilters(decoded).get("ls")).toBe("location_only");
+    expect(filtersToApiParams(DEFAULT_FILTERS, 1).location_scope).toBeUndefined();
+    expect(decodeFilters(sp("ls=bogus")).locationScope).toBe("");
   });
 
   it("old bookmarks without sv run in v2; sv=1 keeps the legacy params", () => {

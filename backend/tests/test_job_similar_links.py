@@ -328,6 +328,35 @@ async def test_similar_api_rejects_unknown_job(
     assert response.status_code == 404
 
 
+async def test_linking_requires_membership_in_the_other_job_too(
+    app_client: AsyncClient,
+):
+    """SEC-05: rekruter z zespołu B nie połączy B z cudzą rekrutacją A."""
+    recruiter_id, headers = await _user(UserRole.recruiter)
+    world = await _world()
+    async with AsyncSessionLocal() as db:
+        job_b = await db.get(Job, world["b"])
+        job_b.recruiter_id = recruiter_id
+        await db.commit()
+
+    response = await app_client.post(
+        f"/api/jobs/{world['b']}/similar",
+        json={"job_ids": [world["a"]]},
+        headers=headers,
+    )
+
+    assert response.status_code == 403, response.text
+    async with AsyncSessionLocal() as db:
+        rows = await db.execute(
+            select(JobSimilarLink).where(
+                (JobSimilarLink.job_id == world["b"])
+                | (JobSimilarLink.job_id == world["a"])
+            )
+        )
+        assert rows.scalars().all() == []
+    assert await _reassigned(world["b"]) == {}
+
+
 async def test_preview_suggests_for_unsaved_job(
     app_client: AsyncClient, app_auth_headers
 ):

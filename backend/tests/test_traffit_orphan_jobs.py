@@ -40,7 +40,14 @@ from app.services.traffit.importer import ORPHAN_CLIENT_NAME, TraffitImporter
 
 
 @pytest_asyncio.fixture
-async def db():
+async def db(monkeypatch):
+    # Audyt 22.09 r2 (DATA-01): import rekrutacji zapisuje zdarzenia dla
+    # automatów. Ten plik nie sprząta swoich rekrutacji, więc bez tego
+    # zostawiałby w `candidate_match_outbox` wiersze `pending`, które zabierają
+    # miejsce w kolejce testom workera auto-matcha (claim LIMIT).
+    import app.services.auto_match_outbox as outbox
+
+    monkeypatch.setattr(outbox, "job_events_enabled", lambda: False)
     async with AsyncSessionLocal() as session:
         yield session
 

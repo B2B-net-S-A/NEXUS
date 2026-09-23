@@ -16,6 +16,7 @@ from app.core.http_headers import apply_credentialed_cache_policy
 from app.core.logging_config import configure_json_logging
 from app.core.rate_limit import limiter
 from app.core.null_character_guard import NullCharacterGuardMiddleware
+from app.core.body_size_limit import BodySizeLimitMiddleware
 from app.core.request_correlation import RequestCorrelationMiddleware
 from app.core.sentry_privacy import scrub_event
 
@@ -586,6 +587,10 @@ async def lifespan(app: FastAPI):
     _migration_failure = startup_failure_message(read_startup_status())
     if _migration_failure:
         logger.error(_migration_failure)
+    # audyt 22.09 r2 (SEC-02): klucz z historii gita — tylko głośny log.
+    from app.core.config import log_if_secret_key_leaked
+
+    log_if_secret_key_leaked(settings.SECRET_KEY)
     try:
         # Rozgrzanie cache grafu rewizji: pierwszy odczyt parsuje wszystkie
         # pliki migracji, a /api/health liczy go pod 2-sekundowym timeoutem.
@@ -734,6 +739,9 @@ async def lifespan(app: FastAPI):
     from app.tasks.candidate_search_worker import candidate_search_loop
     from app.tasks.candidate_search_retention import candidate_search_retention_loop
     from app.tasks.jarvis_retention import jarvis_retention_loop
+
+    # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
+    from app.tasks.queue_retention import queue_retention_loop
     from app.tasks.priority_work import priority_work_loop
     from app.tasks.recruitment_allocation import (
         availability_loop,
@@ -778,6 +786,8 @@ async def lifespan(app: FastAPI):
         ),
         # Jarvis (0330): retencja rozmów (dane osobowe) i wygaszanie propozycji.
         "jarvis_retention": asyncio.create_task(jarvis_retention_loop()),
+        # audyt 22.09 r2 (DATA-03/04/PROD-10): dziennik auto-matcha, kolejki.
+        "queue_retention": asyncio.create_task(queue_retention_loop()),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
         "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
         "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
@@ -939,6 +949,14 @@ app.add_middleware(UnhandledErrorMiddleware)
 # Nad `UnhandledErrorMiddleware`, ale pod CORS: odrzucenie musi dostać nagłówki
 # CORS i x-request-id, inaczej przeglądarka pokaże „Network Error".
 app.add_middleware(NullCharacterGuardMiddleware)
+# audyt 22.09 r2 (SEC-03): limit ciała żądania — NAD strażnikiem NUL (ten
+# buforuje JSON), pod CORS. Generator CV z uploadem przyjmuje dwa pliki po
+# 50 MB, więc ma własny, wyższy sufit.
+app.add_middleware(
+    BodySizeLimitMiddleware,
+    max_bytes=settings.MAX_REQUEST_BODY_MB * 1024 * 1024,
+    path_limits={"/api/cv-generator/generate-upload": 101 * 1024 * 1024},
+)
 app.add_middleware(RequestCorrelationMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LegacyStatsDeprecationMiddleware)
@@ -2540,6 +2558,19 @@ async def api_health_check():
     except Exception:
         checks["disk"] = "unknown"
 
+    # audyt 22.09 r2 (PROD-01): wolumen kopii zapasowych — z pliku statusu,
+    # który zapisuje cron hosta (`app/services/host_status.py`). Informacyjne.
+    backup_volume_percent: int | None = None
+    backup_volume_checked_at: str | None = None
+    try:
+        from app.services.host_status import read_backup_volume
+
+        backup_volume_percent, backup_volume_checked_at = read_backup_volume(
+            settings.HOST_STATUS_DIR
+        )
+    except Exception as exc:  # noqa: BLE001 — sonda informacyjna
+        logger.warning("[health] backup volume check failed: %s", exc)
+
     db_healthy = checks.get("database") == "healthy"
     overall = "healthy" if db_healthy else "unhealthy"
 
@@ -2549,6 +2580,8 @@ async def api_health_check():
             "version": os.environ.get("GIT_SHA", "unknown"),
             "deployedAt": _resolve_deployed_at(),
             "diskPercent": disk_percent,
+            "backupVolumePercent": backup_volume_percent,
+            "backupVolumeCheckedAt": backup_volume_checked_at,
             "checks": checks,
         },
         status_code=http_status.HTTP_200_OK

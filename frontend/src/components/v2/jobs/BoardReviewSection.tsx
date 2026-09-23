@@ -22,6 +22,7 @@ import { Check, X } from "lucide-react";
 import { jobProposalsHref } from "@/components/v2/jobs/JobListCells";
 import { PROPOSAL_SOURCE_LABEL } from "@/components/v2/recruitment/types";
 import { useJobProposals } from "@/components/v2/recruitment/useJobProposals";
+import { boardReviewCountLabel, boardReviewState } from "@/lib/board-review-state";
 import { DEFAULT_PROPOSAL_FILTERS } from "@/lib/proposals-merge";
 import { cn } from "@/lib/utils";
 
@@ -56,8 +57,21 @@ export function BoardReviewSection({
   const shown = entries.slice(0, BOARD_REVIEW_LIMIT);
   const total = entries.length;
   const busy = proposals.adding || proposals.dismissing;
-  const loading = status.inbox.isLoading;
-  const known = !loading && !status.inbox.isError;
+  // REC-02: „Nikt nie czeka" dopiero, gdy KAŻDE źródło odpowiedziało; awaria
+  // któregokolwiek to komunikat z „Ponów", nie pustka.
+  const view = boardReviewState({
+    settled: status.settled,
+    inboxError: status.inbox.isError,
+    similarError: status.similar.isError,
+    recommendationsError: status.recommendations.isError,
+    runError: Boolean(status.run.error),
+    count: total,
+  });
+  const countLabel = boardReviewCountLabel(total, Boolean(status.inbox.hasMore));
+  const failedText = view.failed.join(", ");
+  // Nagłówek kolumny dostaje liczbę dopiero, gdy jest pewna: wszystkie
+  // źródła odpowiedziały i żadne nie padło (REC-02). `null` = nie wiadomo.
+  const known = status.settled && (view.kind === "list" || view.kind === "empty");
   useEffect(() => {
     onTotalChange?.(known ? total : null);
   }, [onTotalChange, known, total]);
@@ -66,20 +80,31 @@ export function BoardReviewSection({
     <div className="space-y-1.5 border-b border-border p-2" data-testid="board-review">
       <div className="flex items-center justify-between px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         <span>Z bazy i przepięcia</span>
-        {!loading ? <span className="tabular-nums">{total}</span> : null}
+        {view.kind === "list" || view.kind === "empty" || view.kind === "partial" ? (
+          <span className="tabular-nums" data-testid="board-review-count">
+            {countLabel}
+          </span>
+        ) : null}
       </div>
-      {status.inbox.isError ? (
-        <p className="px-1 text-xs text-destructive">
-          Nie wczytano propozycji.{" "}
-          <button type="button" className="underline" onClick={status.retryEngine}>
+      {view.kind === "error" || view.kind === "partial" ? (
+        <p className="px-1 text-xs text-destructive" role="alert">
+          {view.kind === "error"
+            ? `Nie wczytano listy do przejrzenia (${failedText}).`
+            : `Lista może być niepełna — nie odpowiedziały: ${failedText}.`}{" "}
+          <button
+            type="button"
+            className="underline"
+            onClick={status.retryEngine}
+          >
             Ponów
           </button>
         </p>
-      ) : loading ? (
+      ) : null}
+      {view.kind === "loading" ? (
         <p className="px-1 text-xs text-muted-foreground">Wczytuję…</p>
-      ) : shown.length === 0 ? (
+      ) : view.kind === "empty" ? (
         <p className="px-1 text-xs text-muted-foreground">Nikt nie czeka na przejrzenie.</p>
-      ) : (
+      ) : view.kind === "error" ? null : (
         shown.map(({ row, detail }) => {
           const source = row.sources.includes("reassign") ? "reassign" : row.sources[0];
           const label = source ? PROPOSAL_SOURCE_LABEL[source] : null;
@@ -148,12 +173,12 @@ export function BoardReviewSection({
           );
         })
       )}
-      {total > shown.length ? (
+      {view.kind !== "error" && (total > shown.length || status.inbox.hasMore) ? (
         <Link
           href={jobProposalsHref(jobId)}
           className="block px-1 text-xs font-semibold text-primary hover:underline"
         >
-          Przejrzyj wszystkich {total} →
+          Przejrzyj wszystkich {countLabel} →
         </Link>
       ) : null}
       {showPostingHeading ? (

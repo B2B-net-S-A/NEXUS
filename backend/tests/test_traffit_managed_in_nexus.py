@@ -252,7 +252,8 @@ async def test_upsert_job_keeps_nexus_title_status_and_closed_at_when_managed(
             else:
                 assert job.title == "Python Developer"
                 assert job.status == JobStatus.closed
-                assert job.closed_at == datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+                # 12:00 czasu lokalnego Traffita (CEST) = 10:00Z (INTG-04).
+                assert job.closed_at == datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc)
                 assert job.matching_requirements is None
                 assert job.requirements_reviewed is False
             # Flaga należy do NEXUSA — sync jej nie dotyka.

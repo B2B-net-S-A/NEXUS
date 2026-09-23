@@ -13,6 +13,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   cleanup:
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

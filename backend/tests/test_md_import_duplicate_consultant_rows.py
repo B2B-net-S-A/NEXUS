@@ -399,6 +399,50 @@ async def test_reimporting_the_split_month_does_not_move_md_twice(
     assert next_line["md_remaining"] == pytest.approx(40.0)
 
 
+async def test_reimport_after_materialization_does_not_double_count(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Audyt 22.09 r2 (FIN-MD-01): po materializacji następca jest ``active``,
+    więc powtórka importu dopasowywała wiersz do NASTĘPCY i zapisywała na nim
+    pełne 30 MD — a 20 MD poprzednika za ten sam miesiąc zostawało (MD liczone
+    dwa razy, następcy zostawało 20 zamiast 40)."""
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_md_line(contracts[0], 20)]
+    )
+    successor_start = _TODAY - timedelta(days=5)
+    successor = await _extend(
+        app_client,
+        app_auth_headers,
+        client_id,
+        group["id"],
+        start=successor_start,
+        lines=[
+            dict(
+                _md_line(contracts[0], 50),
+                start_date=successor_start.isoformat(),
+            )
+        ],
+    )
+    finance = await _finance_headers(app_client)
+    payload = _sheet([(names[0], 30)])
+
+    first = await _import(app_client, finance, payload)
+    assert first["rows_applied"] == 1, first
+    assert (await _line_of(app_client, app_auth_headers, client_id, successor["id"]))[
+        "is_active"
+    ] is True, "kontynuacja powinna się zmaterializować"
+
+    second = await _import(app_client, finance, payload)
+    assert second["rows_applied"] == 1, second
+
+    current_line = await _line_of(app_client, app_auth_headers, client_id, group["id"])
+    next_line = await _line_of(app_client, app_auth_headers, client_id, successor["id"])
+    assert current_line["md_remaining"] == pytest.approx(0.0)
+    assert next_line["md_remaining"] == pytest.approx(40.0)
+
+
 async def test_raising_the_budget_takes_the_md_back_from_the_continuation(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
@@ -541,3 +585,44 @@ async def test_import_entry_names_the_order_and_the_counter(
     assert "wykorzystano 20 / pozostało 30 MD" in entry["description"]
     # Miesiąc słownie, nie „2026-07" — wpis czyta człowiek.
     assert _PERIOD not in entry["description"]
+
+
+# ── Audyt 22.09 r2 (FIN-MD-07) ──────────────────────────────────────────────
+
+
+async def test_assigning_an_old_row_does_not_overwrite_a_newer_or_manual_entry(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Przypisanie wiersza starszej paczki nadpisywało wpis ręczny / nowszy."""
+    client_id, contracts, names = await _seed_client_with_contracts(2, same_name=True)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_md_line(contracts[0], 50), _md_line(contracts[1], 50)],
+    )
+    finance = await _finance_headers(app_client)
+    old = await _import(app_client, finance, _sheet([(names[0], 15)]))
+    assert old["rows_ambiguous"] == 1, old
+    target = group["lines"][0]["id"]
+
+    manual = await app_client.put(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{target}/consumptions/{_PERIOD}",
+        json={"md_reported": 7, "status": "accepted"},
+        headers=app_auth_headers,
+    )
+    assert manual.status_code == 200, manual.text
+
+    resp = await app_client.post(
+        f"/api/md-consumption/imports/{old['id']}/rows/{old['rows'][0]['id']}/assign",
+        json={"order_id": target},
+        headers=finance,
+    )
+    assert resp.status_code == 409, resp.text
+    assert "ręczne rozliczenie" in resp.text
+
+    body = await _group(app_client, app_auth_headers, client_id, group["id"])
+    line = next(line for line in body["lines"] if line["id"] == target)
+    assert line["md_remaining"] == pytest.approx(43.0)

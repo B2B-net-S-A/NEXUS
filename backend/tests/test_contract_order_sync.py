@@ -1044,8 +1044,9 @@ async def test_full_contract_form_with_a_stale_cache_does_not_lower_revenue(
     """Edycja PM-a nie może dopisać kroku ze starą stawką przychodową.
 
     Kolumna ``rate_client`` była 167,5, a od wczoraj obowiązuje krok 175.
-    Formularz odsyła wyświetlone 167,5 razem z edycją nazwy projektu — to NIE
-    jest zmiana stawki.
+    Formularz pokazuje stawkę EFEKTYWNĄ (175, ``GET /contracts/{id}``) i odsyła
+    ją razem z edycją nazwy projektu — to NIE jest zmiana stawki (audyt 22.09
+    r2, FIN-03: porównanie idzie ze stawką efektywną, nie z kolumną).
     """
     from app.core.database import AsyncSessionLocal
 
@@ -1072,7 +1073,7 @@ async def test_full_contract_form_with_a_stale_cache_does_not_lower_revenue(
 
     resp = await app_client.patch(
         f"/api/contracts/{ids['contract_id']}",
-        json={"project_name": "Nowa nazwa", "rate_client": 167.5},
+        json={"project_name": "Nowa nazwa", "rate_client": 175},
         headers=app_auth_headers,
     )
 
@@ -1080,6 +1081,84 @@ async def test_full_contract_form_with_a_stale_cache_does_not_lower_revenue(
     contract = await _load_contract(ids["contract_id"])
     assert contract.effective_client_rate(today) == Decimal("175")
     assert len(contract.client_rate_schedule) == 2
+
+
+async def test_changing_revenue_to_the_stale_column_value_is_a_real_change(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """FIN-03: zmiana na wartość nieaktualnej kolumny była cichym no-opem."""
+    from app.core.database import AsyncSessionLocal
+
+    ids = await _seed_signed_contractor(contract_status=ContractStatus.active)
+    today = date.today()
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, ids["contract_id"])
+        contract.rate_client = Decimal("167.5")
+        db.add_all(
+            [
+                ContractClientRate(
+                    contract_id=contract.id,
+                    rate=Decimal("167.5"),
+                    effective_from=today - timedelta(days=20),
+                ),
+                ContractClientRate(
+                    contract_id=contract.id,
+                    rate=Decimal("175"),
+                    effective_from=today - timedelta(days=1),
+                ),
+            ]
+        )
+        await db.commit()
+
+    resp = await app_client.patch(
+        f"/api/contracts/{ids['contract_id']}",
+        json={"rate_client": 167.5},
+        headers=app_auth_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    contract = await _load_contract(ids["contract_id"])
+    assert contract.effective_client_rate(today) == Decimal("167.5")
+    assert len(contract.client_rate_schedule) == 3
+
+
+async def test_daily_pass_refreshes_stale_cost_and_old_revenue_caches():
+    """FIN-03: cache kosztu nie odświeżał się nigdy, a przychodu tylko w oknie
+    31 dni — lista kontraktorów pokazywała stawki sprzed kroku."""
+    from app.core.database import AsyncSessionLocal
+    from app.services.contract_order_sync import _refresh_revenue_caches
+
+    ids = await _seed_signed_contractor(contract_status=ContractStatus.active)
+    today = date.today()
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, ids["contract_id"])
+        contract.rate_client = Decimal("220")
+        contract.rate_candidate = Decimal("175")
+        contract.margin = Decimal("45")
+        db.add_all(
+            [
+                ContractClientRate(
+                    contract_id=contract.id,
+                    rate=Decimal("213"),
+                    effective_from=today - timedelta(days=90),
+                ),
+                ContractCandidateRate(
+                    contract_id=contract.id,
+                    rate=Decimal("165"),
+                    effective_from=today - timedelta(days=90),
+                ),
+            ]
+        )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        await _refresh_revenue_caches(db, today=today)
+        await db.commit()
+
+    contract = await _load_contract(ids["contract_id"])
+    assert contract.rate_client == Decimal("213")
+    assert contract.rate_candidate == Decimal("165")
+    assert contract.margin == Decimal("48")
 
 
 async def _seed_contract(
@@ -1203,3 +1282,63 @@ async def test_repair_never_blindly_activates_expired_or_duplicate_drafts():
     assert ended.end_date == date(2026, 6, 30)
     left = await _load_contract(duplicate["contract_id"])
     assert left.status == ContractStatus.draft
+
+
+# ── audyt 22.09 r2 (FIN-02): bez fantomowego przychodu ──────────────────────
+
+
+async def test_cancelled_last_order_leaves_the_contract_without_revenue():
+    """Decyzja właściciela: ostatni krok z zamówień znika → kontrakt bez przychodu."""
+    contract = _contract()
+    order = _order()
+    await sync_contract_from_orders(
+        _FakeDb(), contract, [order], actor_id=None, today=date(2026, 9, 20)
+    )
+    assert contract.rate_client == Decimal("167.5")
+    order.status = ClientOrderStatus.cancelled
+
+    await sync_contract_from_orders(
+        _FakeDb(), contract, [order], actor_id=None, today=date(2026, 9, 20)
+    )
+
+    assert contract.client_rate_schedule == []
+    assert contract.rate_client is None
+    assert contract.margin is None
+    assert contract.effective_client_rate(date(2026, 10, 1)) is None
+
+
+async def test_deleting_the_only_order_takes_its_revenue_off_the_contract(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Kaskada w bazie kasowała krok ZANIM synchronizacja go zobaczyła —
+    kolumna ``rate_client`` zostawała ze stawką usuniętego zamówienia."""
+    ids = await _seed_signed_contractor()
+    resp = await app_client.patch(
+        f"/api/clients/{ids['client_id']}/orders/{ids['order_id']}",
+        json={
+            "start_date": "2026-09-15",
+            "end_date": "2026-12-31",
+            "rate_unit": "daily",
+            "rate_client": "1340",
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    contract = await _load_contract(ids["contract_id"])
+    assert contract.rate_client == Decimal("167.5")
+
+    resp = await app_client.delete(
+        f"/api/clients/{ids['client_id']}/orders/{ids['order_id']}",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 204, resp.text
+
+    contract = await _load_contract(ids["contract_id"])
+    assert contract.client_rate_schedule == []
+    assert contract.rate_client is None
+    assert contract.margin is None
+    assert contract.effective_client_rate(date(2026, 10, 1)) is None
+    assert (contract.client_order_start_date, contract.client_order_end_date) == (
+        None,
+        None,
+    )

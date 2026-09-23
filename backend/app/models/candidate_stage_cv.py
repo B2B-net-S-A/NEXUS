@@ -72,6 +72,12 @@ class CandidateStageCV(Base):
     original_cv_content: Mapped[Optional[bytes]] = mapped_column(
         LargeBinary, nullable=True
     )
+    # PROD-02 (0351): snapshot może wskazywać plik w object storage zamiast
+    # kopiować bajty — ``original_cv_content`` jest wtedy NULL.
+    original_cv_storage_key: Mapped[Optional[str]] = mapped_column(
+        String(512), nullable=True
+    )
+    original_cv_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     original_cv_language: Mapped[Optional[str]] = mapped_column(
         String(10), nullable=True
     )

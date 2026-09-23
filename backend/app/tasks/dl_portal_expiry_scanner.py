@@ -37,6 +37,7 @@ from datetime import date, timedelta
 from sqlalchemy import and_, func, literal_column, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
@@ -47,6 +48,7 @@ from app.models.client_framework_contract import (
     FrameworkContractStatus,
 )
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_group import GROUP_STATUS_COMPLETED, ClientOrderGroup
 from app.models.contract import Contract
 from app.models.notification import Notification, NotificationType
 from app.services.contract_lifecycle import (
@@ -237,6 +239,43 @@ async def _promote_statuses(
         )
         .values(status=ClientOrderStatus.completed)
     )
+    # Linia MD zamknięta W PRZÓD (zamiana kontraktora z datą w przyszłości,
+    # zamknięcie grupy z przyszłą datą) dostaje datę końca od razu, a status
+    # ``completed`` „gdy dzień nadejdzie" — tylko że nikt go potem nie stawiał,
+    # bo warunek wyżej celowo pomija linie MD. Linia zostawała ``active`` na
+    # zawsze: nie trafiała do Zejść, Kończących się ani Braków (audyt 22.09,
+    # FIN-CHG-1). Zamykamy WYŁĄCZNIE linie, których koniec jest świadomą
+    # decyzją: mają następcę (zamiana) albo ich grupa jest zakończona datą
+    # nie późniejszą niż koniec linii. Linia MD z samą datą nadal pracuje
+    # do wyczerpania budżetu.
+    successor = aliased(ClientOrder)
+    md_closed = await db.execute(
+        update(ClientOrder)
+        .where(
+            ClientOrder.status == ClientOrderStatus.active,
+            ClientOrder.md_total.is_not(None),
+            ClientOrder.end_date.is_not(None),
+            ClientOrder.end_date < today,
+            or_(
+                select(successor.id)
+                .where(
+                    successor.predecessor_order_id == ClientOrder.id,
+                    successor.status != ClientOrderStatus.cancelled,
+                )
+                .exists(),
+                select(ClientOrderGroup.id)
+                .where(
+                    ClientOrderGroup.id == ClientOrder.order_group_id,
+                    ClientOrderGroup.status == GROUP_STATUS_COMPLETED,
+                    ClientOrderGroup.closure_date.is_not(None),
+                    ClientOrderGroup.closure_date <= ClientOrder.end_date,
+                )
+                .exists(),
+            ),
+        )
+        .values(status=ClientOrderStatus.completed)
+        .execution_options(synchronize_session=False)
+    )
     groups_promoted = await materialize_scheduled_order_groups(db, today=today)
     contracts_reconciled = await reconcile_contracts_to_live_orders(
         db,
@@ -244,7 +283,7 @@ async def _promote_statuses(
     )
     return (
         fc_expired.rowcount or 0,
-        order_completed.rowcount or 0,
+        (order_completed.rowcount or 0) + (md_closed.rowcount or 0),
         groups_promoted,
         contracts_reconciled,
     )

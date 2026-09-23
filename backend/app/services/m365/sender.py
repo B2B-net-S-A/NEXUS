@@ -19,7 +19,8 @@ Wiersz ``Email`` jest REZERWOWANY przed pierwszym wywołaniem Graph
 z unikalnym ``idempotency_key``:
 
 * ``client_request_id`` z formularza (UUID nadany przy otwarciu okna i
-  powtarzany przy ponowieniach) → klucz = użytkownik + UUID;
+  powtarzany przy ponowieniach) → klucz = użytkownik + UUID + skrót tematu,
+  odbiorców i treści (FIX-06: poprawiona treść to nowa intencja);
 * bez niego (automaty, stare klienty) → odcisk użytkownik + odbiorcy + temat +
   minuta + skrót TREŚCI + kandydat (wcześniej bez treści: korekta wysłana
   w tej samej minucie była po cichu gubiona — INT-05).
@@ -122,9 +123,38 @@ def _sha(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def request_key(*, user_id: int, client_request_id: str) -> str:
-    """Klucz intencji nadanej przez formularz (użytkownik + UUID)."""
-    return _sha(f"request|{user_id}|{client_request_id.strip()}")
+def request_key(*, user_id: int, client_request_id: str, content_sha: str = "") -> str:
+    """Klucz intencji nadanej przez formularz (użytkownik + UUID + treść).
+
+    ``content_sha`` (audyt 22.09 r2, FIX-06): skrót tematu, odbiorców
+    i treści. Bez niego ponowienie z tym samym UUID, ale POPRAWIONĄ treścią,
+    zwracało poprzedni wiersz — korekta po cichu nie wychodziła. Ta sama
+    treść = ten sam klucz, więc podwójne kliknięcie nadal nie wysyła dwa razy.
+    """
+    base = f"request|{user_id}|{client_request_id.strip()}"
+    if content_sha:
+        base = f"{base}|{content_sha}"
+    return _sha(base)
+
+
+def content_fingerprint(
+    *,
+    subject: str,
+    to: list[str],
+    cc: list[str],
+    body_html: str,
+) -> str:
+    """Skrót treści wiadomości do klucza intencji (FIX-06)."""
+    return _sha(
+        "|".join(
+            [
+                (subject or "").strip(),
+                ",".join(sorted({a.strip().lower() for a in to if a})),
+                ",".join(sorted({a.strip().lower() for a in cc if a})),
+                _sha(body_html or ""),
+            ]
+        )
+    )
 
 
 def _build_idempotency_key(
@@ -393,7 +423,11 @@ async def send_new(
     now = datetime.now(timezone.utc)
     if client_request_id:
         idempotency_key = request_key(
-            user_id=connection.user_id, client_request_id=client_request_id
+            user_id=connection.user_id,
+            client_request_id=client_request_id,
+            content_sha=content_fingerprint(
+                subject=subject, to=to, cc=cc, body_html=body_html
+            ),
         )
     else:
         idempotency_key = _build_idempotency_key(
@@ -479,7 +513,11 @@ async def send_interview_invitation(
     now = datetime.now(timezone.utc)
     if client_request_id:
         idempotency_key = request_key(
-            user_id=connection.user_id, client_request_id=client_request_id
+            user_id=connection.user_id,
+            client_request_id=client_request_id,
+            content_sha=content_fingerprint(
+                subject=subject, to=to, cc=cc, body_html=safe_body_html
+            ),
         )
     else:
         idempotency_key = _build_idempotency_key(
@@ -559,7 +597,11 @@ async def reply(
     now = datetime.now(timezone.utc)
     if client_request_id:
         idempotency_key = request_key(
-            user_id=connection.user_id, client_request_id=client_request_id
+            user_id=connection.user_id,
+            client_request_id=client_request_id,
+            content_sha=content_fingerprint(
+                subject="", to=[], cc=[], body_html=body_html
+            ),
         )
     else:
         idempotency_key = _build_reply_idempotency_key(

@@ -11,6 +11,7 @@ stawki. Pozostałe role, w tym Head of Recruitment, odcina bramka sekcji.
 """
 
 # Bez `from __future__ import annotations` (PEP 563 vs FastAPI/slowapi).
+import re
 from datetime import datetime, timezone
 from typing import Annotated, Any, Dict, Optional
 
@@ -25,6 +26,7 @@ from app.api.client_orders import (
     _dl_assigned_to_client,
     _order_finance_visible,
 )
+from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.deps import require_roles
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.config import settings
@@ -186,22 +188,85 @@ def _redact_extraction(
     return out
 
 
+#: „ma kontrakt #12 u klienta „Y”; kontrakt #13 u klienta „Z”" — fragment
+#: podpowiedzi o osobie z bazy (``known_elsewhere_reason``), który nazywa INNEGO
+#: klienta. Role bez odczytu finansów dostają zamiast niego zdanie ogólne
+#: (audyt 22.09, FIN-MAIL-06).
+_OTHER_CLIENT_RE = re.compile(r"(?:kontrakt #\d+ u klienta „[^”]*”(?:; )?)+")
+_OTHER_CLIENT_GENERIC = (
+    "trwającą współpracę u innego klienta (szczegóły widzi admin lub Finanse)"
+)
+_GENERIC_REVIEW = "Sprawdź odczytane dane przed zapisem."
+
+
+def _hide_other_clients(text: Any) -> Any:
+    if not isinstance(text, str):
+        return text
+    return _OTHER_CLIENT_RE.sub(_OTHER_CLIENT_GENERIC, text)
+
+
+def _sees_other_clients(user) -> bool:
+    """Nazwy innych klientów widzi wyłącznie Admin i rola z odczytem finansów."""
+    return user.has_role(UserRole.admin) or user_has_capability(
+        user, AnalyticsCapability.VIEW_FINANCE
+    )
+
+
 def _redact_proposal(
-    proposal: Optional[dict], *, show_finance: bool, read_only_tcm: bool = False
+    proposal: Optional[dict],
+    *,
+    show_finance: bool,
+    read_only_tcm: bool = False,
+    hide_other_clients: bool = False,
 ) -> Optional[dict]:
-    if proposal is None or (show_finance and not read_only_tcm):
+    if proposal is None or (
+        show_finance and not read_only_tcm and not hide_other_clients
+    ):
         return proposal
     rows = []
     for r in proposal.get("rows") or []:
         row = {**r}
         if not show_finance:
-            row["rate_client"] = None
-        if read_only_tcm and row.get("reasons"):
-            # Lustro `gate_reasons` dla TCM: powody planu cytują szczegóły
-            # (np. datę końca kontraktu), a TCM ma tu bezpieczną projekcję.
-            row["reasons"] = ["Sprawdź odczytane dane przed zapisem."]
+            # Wszystkie kwoty wiersza, nie tylko stawka: ``total_value`` niesie
+            # wartość zamówienia (FIN-MAIL-06, lustro ``_redact_extraction``).
+            for key in _FINANCE_KEYS:
+                if key in row:
+                    row[key] = None
+        if hide_other_clients:
+            row["reasons"] = [_hide_other_clients(x) for x in row.get("reasons") or []]
+        if read_only_tcm:
+            row["existing_person_ids"] = []
+            if row.get("reasons"):
+                # Lustro `gate_reasons` dla TCM: powody planu cytują szczegóły
+                # (np. datę końca kontraktu), a TCM ma tu bezpieczną projekcję.
+                row["reasons"] = [_GENERIC_REVIEW]
         rows.append(row)
-    return {**proposal, "rows": rows}
+    out = {**proposal, "rows": rows}
+    if hide_other_clients:
+        out["resolved"] = [
+            {**r, "reason": _hide_other_clients(r.get("reason"))}
+            if isinstance(r, dict)
+            else r
+            for r in proposal.get("resolved") or []
+        ]
+        out["blocking"] = [
+            _hide_other_clients(x) for x in proposal.get("blocking") or []
+        ]
+    if read_only_tcm:
+        out["blocking"] = [_GENERIC_REVIEW] if proposal.get("blocking") else []
+        out["resolved"] = [
+            {
+                **r,
+                "reason": _GENERIC_REVIEW,
+                "known_elsewhere_ids": [],
+                "known_elsewhere_open_ids": [],
+                "namesake_ids": [],
+            }
+            if isinstance(r, dict)
+            else r
+            for r in proposal.get("resolved") or []
+        ]
+    return out
 
 
 async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str, Any]:
@@ -213,6 +278,7 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
     can_finance = _can_manage_order_finance(user, dl_assigned=dl_assigned)
     show_finance = _order_finance_visible(user, can_finance=can_finance)
     read_only_tcm = _is_read_only_tcm(user)
+    hide_other_clients = not _sees_other_clients(user)
     # Nazwa klienta osobnym zapytaniem — relacja `doc.client` w sesji async to
     # lazy load, czyli MissingGreenlet i 500 bez CORS („Network Error").
     client_name = (
@@ -240,12 +306,20 @@ async def _serialize(db: AsyncSession, doc: OrderMailDocument, user) -> Dict[str
         "gate_reasons": (
             ["Sprawdź odczytane dane przed zapisem."]
             if read_only_tcm and doc.gate_reasons
-            else [polish_gate_reason(r) for r in doc.gate_reasons or []]
+            else [
+                _hide_other_clients(polish_gate_reason(r))
+                if hide_other_clients
+                else polish_gate_reason(r)
+                for r in doc.gate_reasons or []
+            ]
         ),
         "document_meta": doc.document_meta,
         "extraction": _redact_extraction(doc.extraction, show_finance=show_finance),
         "proposal": _redact_proposal(
-            doc.proposal, show_finance=show_finance, read_only_tcm=read_only_tcm
+            doc.proposal,
+            show_finance=show_finance,
+            read_only_tcm=read_only_tcm,
+            hide_other_clients=hide_other_clients,
         ),
         "applied_order_id": doc.applied_order_id,
         "applied_at": doc.applied_at.isoformat() if doc.applied_at else None,
@@ -268,6 +342,8 @@ async def _load_visible(
             select(OrderMailDocument)
             .where(OrderMailDocument.id == doc_id)
             .with_for_update()
+            # Stan PO blokadzie, nie z mapy tożsamości sesji (FIN-MAIL-08).
+            .execution_options(populate_existing=True)
         )
         if for_update
         else await db.get(OrderMailDocument, doc_id)
@@ -687,6 +763,27 @@ async def mark_queue_item_resolved_in_order(
         raise HTTPException(
             status_code=422,
             detail="To zamówienie nie należy do klienta z dokumentu",
+        )
+    # Dowolna grupa klienta nie „rozstrzyga" dokumentu (FIN-MAIL-09): tylko
+    # zamówienie o tym numerze albo założone po nadejściu maila (czyli w oknie
+    # otwartym z kolejki). Inaczej dokument znikał z kolejki przypięty do
+    # zamówienia, które go nie dotyczy.
+    number = (doc.proposal or {}).get("order_number") or (doc.extraction or {}).get(
+        "title"
+    )
+    mail_arrived = doc.received_at or doc.created_at
+    created_after_mail = (
+        group.created_at is not None
+        and mail_arrived is not None
+        and group.created_at >= mail_arrived
+    )
+    if not (titles_collide(group.order_number, number) or created_after_mail):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "To zamówienie nie ma numeru z dokumentu i powstało przed nadejściem "
+                "maila — wskaż zamówienie założone z tego dokumentu"
+            ),
         )
     now = datetime.now(timezone.utc)
     doc.outcome = OUTCOME_APPLIED

@@ -77,7 +77,7 @@ async def test_disabled_by_default_does_nothing(monkeypatch):
         rows=[{"candidate_id": 1, "job_id": 2, "stage_legacy_enum": "cv_sent"}],
     )
 
-    assert applied == {"risk": 0, "talent_pool": 0}
+    assert applied == {"risk": 0, "talent_pool": 0, "reassigned": 0}
 
 
 async def test_empty_batch_is_a_no_op(monkeypatch):
@@ -88,6 +88,7 @@ async def test_empty_batch_is_a_no_op(monkeypatch):
     assert await apply_imported_stage_side_effects(db=None, rows=[]) == {
         "risk": 0,
         "talent_pool": 0,
+        "reassigned": 0,
     }
 
 

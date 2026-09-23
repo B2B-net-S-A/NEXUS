@@ -512,7 +512,8 @@ class Settings(BaseSettings):
     # do skrzynki „Propozycje" (źródło `full_base`). False = pętla kończy się
     # przed startem, nic się nie dzieje (stan sprzed 21.09).
     AUTO_FULL_REVIEW_ENABLED: bool = True
-    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 20
+    # audyt 22.09 r2 (PROD-03): 5/noc — przegląd to ~190 MB, 20/noc zapełniało wolumen.
+    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 5
     AUTO_FULL_REVIEW_TOP_K: int = 60
     # Osobny próg, bo pełny przegląd punktuje kanonicznym fitem, a auto-match
     # nowych CV starszym scoringiem — wspólny próg stroiłby dwa różne pomiary.
@@ -754,6 +755,9 @@ class Settings(BaseSettings):
     # File uploads
     UPLOAD_DIR: str = "/tmp/nexus/uploads"
     MAX_UPLOAD_SIZE_MB: int = 10
+    # audyt 22.09 r2 (SEC-03): limit CAŁEGO ciała żądania (POST/PUT/PATCH),
+    # sprawdzany przed handlerem (app/core/body_size_limit.py).
+    MAX_REQUEST_BODY_MB: int = 30
 
     # ── Phase 13: notification triggers ──────────────────────────────────────
     BUSINESS_TZ: str = "Europe/Warsaw"
@@ -1463,6 +1467,33 @@ class Settings(BaseSettings):
     # biegu (ekstrakcja lokalna: pdfplumber/python-docx, OCR tylko dla skanów).
     TRAFFIT_SYNC_CV_TEXT_LIMIT: int = 1000
 
+    # audyt 22.09 r2 (INTG-01/02, INTG-03, DATA-01/PROD-03, REC-01, DATA-03/04,
+    # PROD-01) — jeden blok ustawień obszaru „Traffit, automaty, dane".
+    # INTG-01: przerwana próba (deploy w trakcie) wznawia się od faz, których
+    # jeszcze nie skończyła — o ile ta sama `since` i ostatni ślad próby młodszy
+    # niż tyle godzin. Starsza próba = zaczynamy od nowa.
+    TRAFFIT_SYNC_ATTEMPT_RESUME_HOURS: int = 24
+    # INTG-03: delta `pipelines` czyta /recruitment_history od NAJNOWSZYCH
+    # (`id DESC`) i kończy na stronie, na której pojawił się wpis starszy niż
+    # `since` — zamiast pełnego przeglądu ~200 tys. wierszy w każdej delcie.
+    TRAFFIT_PIPELINES_DELTA_TAIL: bool = True
+    # REC-01: przepięcia podobnych rekrutacji dla etapów wstawionych przez import
+    # (99,6% ruchów). Tylko wiersze z ostatnich tylu dni — import historii nie
+    # może przepinać ludzi wysłanych do klienta rok temu.
+    TRAFFIT_IMPORT_REASSIGN_ENABLED: bool = True
+    TRAFFIT_IMPORT_REASSIGN_WINDOW_DAYS: int = 7
+    # DATA-03/04: retencja kolejek i dzienników automatów (pętla co 6 h).
+    QUEUE_RETENTION_ENABLED: bool = True
+    QUEUE_RETENTION_INTERVAL_SECONDS: int = 6 * 3600
+    AUTOMATION_LOG_RETENTION_DAYS: int = 30
+    QUEUE_OUTBOX_RETENTION_DAYS: int = 30
+    # DATA-04/PROD-10: surowe wyniki przeglądów AUTOMATYCZNYCH (~190 MB każdy)
+    # żyją tyle dni; propozycje z nich są już w `job_proposals`.
+    AUTO_FULL_REVIEW_RETENTION_DAYS: int = 2
+    # PROD-01: katalog, w którym cron hosta zapisuje `backup-volume.json`
+    # (montowany read-only do kontenera backendu).
+    HOST_STATUS_DIR: str = "/run/nexus-host-status"
+
     # ── Notes insights sync (świeżość faktów z notatek) ─────────────────────
     # Cykliczna ekstrakcja `cv_extracted_data._notes_insights` po imporcie
     # 08.2026. Płacą wyłącznie kandydaci ze zmienionymi notatkami (fingerprint
@@ -1989,6 +2020,36 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+
+
+# audyt 22.09 r2 (SEC-02): SECRET_KEY, który trafił do historii gita
+# (commit bf5cb10f8). Trzymamy WYŁĄCZNIE prefiks skrótu SHA-256, nie klucz.
+# Start z tym kluczem loguje błąd (main.py) — celowo NIE rzuca: odmowa startu
+# położyłaby produkcję przy pierwszym auto-merge'u, a termin rotacji wybiera
+# właściciel. Po rotacji ostrzeżenie znika samo.
+LEAKED_SECRET_KEY_SHA256_PREFIXES = frozenset({"e76920d40b5cd73d"})
+
+
+def secret_key_is_known_leaked(value: str | None) -> bool:
+    if not value:
+        return False
+    import hashlib
+
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+    return digest in LEAKED_SECRET_KEY_SHA256_PREFIXES
+
+
+def log_if_secret_key_leaked(value: str | None) -> bool:
+    """Loguje ERROR (→ Sentry), gdy działa klucz z historii gita. Nigdy nie rzuca."""
+    if not secret_key_is_known_leaked(value):
+        return False
+    import logging
+
+    logging.getLogger("app.core.config").error(
+        "SECRET_KEY is the one leaked in git history — rotate it "
+        "(procedure: new GH secret -> 'Coolify set env' redeploy=false -> Deploy)"
+    )
+    return True
 
 
 settings = Settings()

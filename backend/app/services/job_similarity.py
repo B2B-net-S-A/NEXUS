@@ -518,9 +518,17 @@ async def unlink_jobs(db: AsyncSession, job_id: int, other_id: int) -> int:
 
 
 async def on_candidate_sent(
-    db: AsyncSession, *, job_id: int, candidate_id: int, stage: PipelineStage
+    db: AsyncSession,
+    *,
+    job_id: int,
+    candidate_id: int,
+    stage: PipelineStage,
+    sent_at: Optional[datetime] = None,
 ) -> int:
     """Hak ruchu w pipeline: osoba weszła do klienta → przepnij do połączonych.
+
+    ``sent_at`` — chwila ruchu, gdy nie jest „teraz" (import Traffita,
+    audyt 22.09 r2 REC-01); trafia do dowodu propozycji.
 
     Nie rzuca — przepięcie jest dodatkiem, ruch musi się zapisać zawsze."""
     from app.services.job_proposals import upsert_proposals  # noqa: PLC0415
@@ -553,7 +561,7 @@ async def on_candidate_sent(
                     )
                 ).scalars()
             )
-            now = datetime.now(timezone.utc)
+            now = sent_at or datetime.now(timezone.utc)
             written = 0
             for target in sorted(open_targets - already):
                 written += await upsert_proposals(

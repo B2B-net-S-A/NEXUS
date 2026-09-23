@@ -270,6 +270,74 @@ async def test_snooze_hides_and_unsnooze_restores(app_client):
 
 @needs_db
 @pytest.mark.asyncio
+async def test_unsnooze_of_a_pinned_person_restores_the_pin(app_client):
+    """CAND-07: osoba przypięta (np. ze stałego linku) po „Uśpij” → „Przywróć”
+    wraca na listę jako przypięta, zamiast zniknąć razem z wierszem."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import create_access_token
+    from app.models.my_people import MyPeopleOverride
+
+    async with AsyncSessionLocal() as db:
+        me = await _user(db)
+        cand = await _candidate(db)
+        await db.commit()
+        uid, cid = me.id, cand.id
+    headers = {
+        "Authorization": f"Bearer {create_access_token(subject=uid, role='recruiter')}"
+    }
+
+    def ids(body):
+        return {r["candidate_id"]: r for r in body["rows"]}
+
+    assert (
+        await app_client.post(f"/api/my-people/{cid}/pin", headers=headers)
+    ).status_code == 204
+    assert (
+        await app_client.post(
+            f"/api/my-people/{cid}/snooze", headers=headers, json={"reason": "other"}
+        )
+    ).status_code == 204
+    # Drugie uśpienie (np. zmiana powodu) nie gubi pamięci przypięcia.
+    assert (
+        await app_client.post(
+            f"/api/my-people/{cid}/snooze",
+            headers=headers,
+            json={"reason": "no_contact"},
+        )
+    ).status_code == 204
+    body = (await app_client.get("/api/my-people", headers=headers)).json()
+    assert ids(body)[cid]["snoozed"] is True
+
+    assert (
+        await app_client.delete(f"/api/my-people/{cid}/snooze", headers=headers)
+    ).status_code == 204
+    body = (await app_client.get("/api/my-people", headers=headers)).json()
+    row = ids(body).get(cid)
+    assert row is not None, "przypięta osoba zniknęła po przywróceniu"
+    assert row["snoozed"] is False and row["source"] == "pinned"
+    async with AsyncSessionLocal() as db:
+        ov = await db.scalar(
+            select(MyPeopleOverride).where(
+                MyPeopleOverride.user_id == uid,
+                MyPeopleOverride.candidate_id == cid,
+            )
+        )
+        assert ov.kind == "pinned" and ov.restore_kind is None
+
+    # Odpięcie uśpionej osoby: po „Przywróć” już jej nie ma.
+    await app_client.post(
+        f"/api/my-people/{cid}/snooze", headers=headers, json={"reason": "other"}
+    )
+    await app_client.delete(f"/api/my-people/{cid}/pin", headers=headers)
+    await app_client.delete(f"/api/my-people/{cid}/snooze", headers=headers)
+    body = (await app_client.get("/api/my-people", headers=headers)).json()
+    assert cid not in ids(body)
+
+
+@needs_db
+@pytest.mark.asyncio
 async def test_pin_adds_a_person_without_history_and_is_private(app_client):
     from app.core.database import AsyncSessionLocal
     from app.core.security import create_access_token

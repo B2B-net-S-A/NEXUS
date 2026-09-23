@@ -266,8 +266,12 @@ class TraffitClient:
         fallback_on_filter_rejection: bool = True,
         start_page: int = 1,
         on_page_skipped: Optional[Callable[[int, int], None]] = None,
+        sort_desc: bool = False,
     ) -> AsyncIterator[tuple[int, list[dict]]]:
-        """Yield ``(page_number, items)`` for each page. Sorts on `id ASC`.
+        """Yield ``(page_number, items)`` for each page. Sorts on `id ASC`
+        (``sort_desc=True`` → `id DESC`, newest first — audyt 22.09 r2,
+        INTG-03: delta ogonowa historii rekrutacji kończy na pierwszej stronie
+        starszej niż `since` zamiast przemiatać cały feed).
 
         Same fetch/stop/fallback semantics as :meth:`get_paginated` (which is a
         thin wrapper over this), plus page-level **resume**:
@@ -320,7 +324,9 @@ class TraffitClient:
                 total_pages_known = None
 
         while True:
-            extra_headers = {"X-Request-Sort": json.dumps({"id": "ASC"})}
+            extra_headers = {
+                "X-Request-Sort": json.dumps({"id": "DESC" if sort_desc else "ASC"})
+            }
             if active_filter is not None:
                 extra_headers["X-Request-Filter"] = json.dumps(active_filter)
             resp = await self._get_raw(
@@ -418,6 +424,7 @@ class TraffitClient:
         filter_: Optional[dict] = None,
         fallback_on_filter_rejection: bool = True,
         on_page_skipped: Optional[Callable[[int, int], None]] = None,
+        sort_desc: bool = False,
     ) -> AsyncIterator[dict]:
         """Yield each item across all pages — thin wrapper over :meth:`get_pages`."""
         async for _page, items in self.get_pages(
@@ -427,6 +434,7 @@ class TraffitClient:
             filter_=filter_,
             fallback_on_filter_rejection=fallback_on_filter_rejection,
             on_page_skipped=on_page_skipped,
+            sort_desc=sort_desc,
         ):
             for item in items:
                 yield item

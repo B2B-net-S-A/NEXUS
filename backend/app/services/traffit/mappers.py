@@ -18,7 +18,9 @@ import re
 import unicodedata
 from datetime import date, datetime, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
+from app.core.scheduling import DEFAULT_TZ
 from app.services.candidate_location_writer import normalize_candidate_location
 
 # Legacy Traffit hack: recruiters flagged placed consultants by stuffing
@@ -252,26 +254,51 @@ def has_blacklist_marker(*values: Optional[str]) -> bool:
     )
 
 
+# Traffit zwraca czas LOKALNY firmy ("yyyy-MM-dd HH:mm:ss" bez strefy) —
+# audyt 22.09 r2 (INTG-04): do tej daty traktowaliśmy go jako UTC, więc każdy
+# ruch pipeline'u, data otwarcia i zamknięcia rekrutacji były przesunięte
+# o +1/+2 h (2907 ruchów z `moved_at` późniejszym niż chwila zapisu).
+_TRAFFIT_TZ = ZoneInfo(DEFAULT_TZ)
+
+
 def _parse_traffit_datetime(value: Any) -> Optional[datetime]:
-    """Parse Traffit datetime strings ('yyyy-MM-dd HH:mm:ss' or ISO) to
+    """Parse Traffit datetime strings ('yyyy-MM-dd HH:mm:ss' or ISO) to a
     timezone-aware UTC datetime. Returns None if value is None/empty/invalid.
-    asyncpg requires aware datetime for `timestamp with time zone` columns.
+
+    Wartość bez strefy to czas lokalny Traffita (Europe/Warsaw, z czasem
+    letnim), nie UTC. Wartość z jawną strefą (``Z``/``+02:00``) zostaje przy
+    swojej strefie. asyncpg wymaga wartości ze strefą dla kolumn
+    ``timestamp with time zone``.
     """
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-    if not isinstance(value, str):
+        dt = value
+    elif isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            # fromisoformat accepts both 'YYYY-MM-DD HH:MM:SS' and 'YYYY-MM-DDTHH:MM:SS'
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
         return None
-    s = value.strip()
-    if not s:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_TRAFFIT_TZ)
+    return dt.astimezone(timezone.utc)
+
+
+def _traffit_local_date(moment: Optional[datetime]) -> Optional[date]:
+    """Dzień kalendarzowy w strefie Traffita (nie w UTC).
+
+    ``closing_date = "2026-12-31 00:30:00"`` to 30.12 23:30 UTC — ``.date()``
+    na wartości UTC przesunęłoby termin rekrutacji o dzień wstecz.
+    """
+    if moment is None:
         return None
-    try:
-        # fromisoformat accepts both 'YYYY-MM-DD HH:MM:SS' and 'YYYY-MM-DDTHH:MM:SS'
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return moment.astimezone(_TRAFFIT_TZ).date()
 
 
 # Status mapping for Traffit `client.status` (free text) → Nexus ClientStatus enum.
@@ -781,27 +808,42 @@ def normalize_job_status(raw: Optional[str], is_closed: bool = False) -> str:
     return _JOB_STATUS_MAP.get(raw.strip().lower(), "published")
 
 
-def traffit_responsible_user_id(
+def responsible_user_id(
     payload: dict[str, Any], user_id_map: Optional[dict[str, int]]
 ) -> Optional[int]:
-    """Prowadzący rekrutacji z Traffita → `users.id` w NEXUSIE.
+    """Opiekun rekrutacji z `responsible_person` Traffita → id usera NEXUSA.
 
-    Detal `/recruitments/{id}` podaje `responsible_person` jako LISTĘ
-    `[{"id": 49, "email": …}]` (sprawdzone na żywym API 23.09.2026). Mapper
-    czytał tylko dict, więc żadna rekrutacja nie dostawała rekrutera z importu.
-    Dict zostaje obsłużony na wypadek pojedynczego obiektu. Wygrywa pierwsza
-    osoba, którą znamy w NEXUSIE.
+    Audyt 22.09 r2 (DATA-01/PROD-03): Traffit zwraca `responsible_person` jako
+    LISTĘ osób (czasem pojedynczy słownik), a mapper znał tylko słownik —
+    312 z 326 opublikowanych rekrutacji nie miało ani `recruiter_id`, ani
+    `tac_id`, więc nocny przegląd bazy nie miał dla kogo liczyć. Pierwsza osoba
+    z listy, którą znamy w NEXUSIE, wygrywa.
     """
     if not user_id_map:
         return None
-    rp = payload.get("responsible_person")
-    people = rp if isinstance(rp, list) else [rp]
-    for person in people:
-        if isinstance(person, dict) and person.get("id") is not None:
-            nexus_id = user_id_map.get(str(person["id"]))
-            if nexus_id is not None:
-                return nexus_id
+    raw = payload.get("responsible_person")
+    candidates = raw if isinstance(raw, list) else [raw]
+    for entry in candidates:
+        # Wyłącznie obiekty osoby (`{"id": …}` albo `{"user": {"id": …}}`) —
+        # goła liczba/napis to nie jest kształt API Traffita (test #1728).
+        if not isinstance(entry, dict):
+            continue
+        traffit_user_id = entry.get("id")
+        if traffit_user_id is None and isinstance(entry.get("user"), dict):
+            traffit_user_id = entry["user"].get("id")
+        if traffit_user_id is None or isinstance(traffit_user_id, bool):
+            continue
+        if not isinstance(traffit_user_id, (int, str)):
+            continue
+        nexus_id = user_id_map.get(str(traffit_user_id))
+        if nexus_id is not None:
+            return nexus_id
     return None
+
+
+# #1728 (23.09.2026) nazwał tę samą regułę po swojemu — jedna implementacja,
+# dwie nazwy, żeby testy i wołający obu zmian czytali to samo.
+traffit_responsible_user_id = responsible_user_id
 
 
 def traffit_recruitment_to_job(
@@ -839,7 +881,7 @@ def traffit_recruitment_to_job(
     closing_date = payload.get("closing_date")  # "yyyy-MM-dd HH:mm:ss" lub None
 
     closing_dt = _parse_traffit_datetime(closing_date)
-    deadline: Optional[date] = closing_dt.date() if closing_dt else None
+    deadline: Optional[date] = _traffit_local_date(closing_dt)
 
     # Data otwarcia rekrutacji U KLIENTA. `jobs.created_at` jest stemplowane
     # `NOW()` przy insercie, więc dla 4206 zaimportowanych wierszy opisuje

@@ -388,6 +388,31 @@ export function itemFullName(item: KanbanItem): string {
   return `${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat";
 }
 
+/** Maksymalnie tyle nazwisk z powodami w komunikacie ruchu zbiorczego. */
+export const BULK_FAILURE_NAMES_SHOWN = 3;
+
+/**
+ * Komunikat nieudanego ruchu zbiorczego (audyt 22.09 r2, REC-06).
+ *
+ * Ruch zbiorczy jest cichy per kandydat (nie ma okna „Przenieś mimo to"), więc
+ * dotąd kończył się samym „Nie udało się przenieść 2 z 5" — bez tego, KOGO
+ * i DLACZEGO (np. weto hiring managera). Teraz: do 3 nazwisk z powodami,
+ * reszta jako „i N więcej".
+ */
+export function bulkMoveFailureMessage(
+  failures: readonly { name: string; reason: string }[],
+  total: number,
+): string {
+  const head = `Nie udało się przenieść ${failures.length} z ${total} kandydatów`;
+  if (failures.length === 0) return `${head}.`;
+  const shown = failures
+    .slice(0, BULK_FAILURE_NAMES_SHOWN)
+    .map((f) => `${f.name} — ${f.reason.replace(/[.\s]+$/, "")}`)
+    .join("; ");
+  const rest = failures.length - BULK_FAILURE_NAMES_SHOWN;
+  return `${head}: ${shown}${rest > 0 ? ` (i ${rest} więcej)` : ""}.`;
+}
+
 // ── Grupy etapów (krok 04 Pipeline, fala 3 „parytet z makietami") ──────
 //
 // Lewa kolumna Pipeline'u pokazuje SZEŚĆ grup zamiast piętnastu wierszy —

@@ -908,6 +908,8 @@ export interface CandidateNotesFacts {
     raw: string | null;
     as_of: string | null;
     hourly_pln: string | null;
+    /** CAND-04: dlaczego serwer nie przeliczył (np. miesięczna bez B2B). */
+    note?: string | null;
     flexibility: string | null;
     profile_amount: string | null;
     profile_rate_version: number;
@@ -5130,6 +5132,8 @@ export const microsoft365Api = {
     /** Rekrutacja — bez niej feedback i eskalacja T+2h nie mają do czego się przypiąć. */
     job_id?: number | null;
     reminder_minutes?: number;
+    /** Identyfikator okna tworzenia (FIX-08) — ten sam przy ponowieniach. */
+    client_request_id?: string;
   }) =>
     api.post<CalendarEventResponse>(
       "/api/calendar/events/m365-invite",

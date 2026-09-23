@@ -582,3 +582,112 @@ async def test_ledger_rows_roll_back_with_a_failed_delete(
             )
         ).all()
     assert ledger == [], "odmowa nie może zakolejkować kasowania plików"
+
+
+# ── CAND-02 (audyt 22.09 r2): zgłoszenia z formularza idą razem z osobą ──────
+
+
+async def test_hard_delete_erases_application_submissions_consents_and_files(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """`matched_candidate_id` to SET NULL — bez jawnego kasowania zgłoszenie
+    z CV, kontaktem i zgodą przeżywało usunięcie profilu (art. 17 RODO)."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.activity import Activity
+    from app.models.application_submission import ApplicationSubmission
+    from app.models.candidate import Candidate
+    from app.models.candidate_consent import CandidateConsent
+    from app.models.cv_source_cleanup import CvSourceCleanup
+
+    unique = uuid.uuid4().hex[:8]
+    email = f"Sub-Erase-{unique}@Example.com"
+    matched_key = f"submissions/{unique}-matched.pdf"
+    by_email_key = f"submissions/{unique}-email.pdf"
+    shared_key = f"submissions/{unique}-shared.pdf"
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(name="Sub", lastname=f"Erase-{unique}", email=email)
+        other = Candidate(
+            name="Other",
+            lastname=f"Keep-{unique}",
+            email=f"keep-{unique}@example.com",
+            cv_storage_key=shared_key,
+        )
+        db.add_all([cand, other])
+        await db.flush()
+
+        def _sub(**kw) -> ApplicationSubmission:
+            return ApplicationSubmission(
+                status="linked",
+                submitted_first_name="Sub",
+                submitted_last_name="Erase",
+                cv_filename="cv.pdf",
+                **kw,
+            )
+
+        matched = _sub(
+            submitted_email=email,
+            matched_candidate_id=cand.id,
+            cv_object_key=matched_key,
+        )
+        by_email = _sub(submitted_email=email.lower(), cv_object_key=by_email_key)
+        shared = _sub(
+            submitted_email=email,
+            matched_candidate_id=cand.id,
+            cv_object_key=shared_key,
+        )
+        unrelated = _sub(submitted_email=f"someone-{unique}@example.com")
+        db.add_all([matched, by_email, shared, unrelated])
+        await db.flush()
+        db.add(
+            CandidateConsent(
+                application_submission_id=matched.id,
+                kind="recruitment_current_future",
+                text_version="v1",
+                text_sha256="0" * 64,
+            )
+        )
+        await db.commit()
+        cand_id, other_id = cand.id, other.id
+        sub_ids = [matched.id, by_email.id, shared.id]
+        unrelated_id = unrelated.id
+
+    r = await app_client.delete(f"/api/candidates/{cand_id}", headers=app_auth_headers)
+    assert r.status_code == 204, r.text
+
+    async with AsyncSessionLocal() as db:
+        left = (
+            await db.scalars(
+                select(ApplicationSubmission.id).where(
+                    ApplicationSubmission.id.in_([*sub_ids, unrelated_id])
+                )
+            )
+        ).all()
+        assert list(left) == [unrelated_id]
+        consents = await db.scalar(
+            select(func.count())
+            .select_from(CandidateConsent)
+            .where(CandidateConsent.application_submission_id.in_(sub_ids))
+        )
+        assert consents == 0
+        ledger = set(
+            (
+                await db.scalars(
+                    select(CvSourceCleanup.storage_key).where(
+                        CvSourceCleanup.storage_key.in_(
+                            [matched_key, by_email_key, shared_key]
+                        )
+                    )
+                )
+            ).all()
+        )
+        # Klucz, na który wskazuje CV innej osoby, NIE trafia do kasowania.
+        assert ledger == {matched_key, by_email_key}
+        assert await db.get(Candidate, other_id) is not None
+        audit = await db.scalar(
+            select(Activity).where(
+                Activity.entity_id == cand_id,
+                Activity.details["operation"].astext == "hard_delete",
+            )
+        )
+        assert audit.details["application_submissions_deleted"] == 3
+        assert audit.details["application_consents_deleted"] == 1

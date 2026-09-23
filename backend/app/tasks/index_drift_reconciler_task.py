@@ -46,6 +46,12 @@ def embedding_provider_down() -> bool:
     return provider_health_label("voyage") == "unhealthy"
 
 
+def _job_is_published(job) -> bool:
+    from app.models.job import JobStatus
+
+    return getattr(job, "status", None) == JobStatus.published
+
+
 async def index_drift_reconciler_loop() -> None:
     if not reconciler_enabled():
         logger.info(
@@ -90,6 +96,13 @@ async def index_drift_reconciler_loop() -> None:
                         entity_type=entity_type,
                         batch=batch,
                         cursor=cursors[entity_type],
+                        # Audyt 22.09 r2 (INTG-05): opublikowana rekrutacja bez
+                        # wektora jest dziurą w puli ofert, nie „populacją
+                        # początkową" — kolejkujemy ją. Kandydatów NIE (tam
+                        # brak wektora domyka `reembed_collections`).
+                        unseen_predicate=(
+                            _job_is_published if entity_type == outbox.JOB else None
+                        ),
                     )
                     await db.commit()
                 if result.next_cursor is None:

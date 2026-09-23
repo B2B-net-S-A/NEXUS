@@ -4,6 +4,7 @@ import { useCentralPolicy } from "@/components/cv-rules/CentralPolicyView";
 import { CvPackagePanel } from "@/components/v2/cv-generator/CvPackagePanel";
 import { withCvGenerationRequest } from "@/lib/cv-generation-request";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
+import { renderDocxSafely } from "@/lib/docx-preview-safe";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
@@ -2337,11 +2338,10 @@ function GeneratedCvPreviewModal({
           { responseType: "blob" },
         );
         if (cancelled) return;
-        const { renderAsync } = await import("docx-preview");
         const host = hostRef.current;
         if (!host || cancelled) return;
         host.innerHTML = "";
-        await renderAsync(res.data as Blob, host, undefined, {
+        await renderDocxSafely(res.data as Blob, host, {
           className: "docx",
           inWrapper: true,
           breakPages: true,

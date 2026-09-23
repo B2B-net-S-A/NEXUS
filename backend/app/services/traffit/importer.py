@@ -300,6 +300,18 @@ class PhaseProgress:
     # Bez tego licznika „sync działa" i „wektory ofert są aktualne" to dwa
     # różne zdania, których nie da się rozróżnić z zewnątrz.
     index_intents: int = 0
+    # Audyt 22.09 r2 (INTG-03): rekrutacje, których upsert niczego nie zmienił
+    # (WHERE w `_UPSERT_JOB`) — bez zapisu i bez intencji przeindeksowania.
+    unchanged: int = 0
+    # Audyt 22.09 r2 (INTG-03): wpisy /recruitment_history starsze niż `since`
+    # pominięte przez deltę ogonową (sortowanie `id DESC`).
+    skipped_before_since: int = 0
+    # Audyt 22.09 r2 (DATA-01): zdarzenia rekrutacji dla automatów (nocny
+    # przegląd bazy, auto-match, dzwonek „Moi ludzie") zapisane przez import.
+    job_events: int = 0
+    # Audyt 22.09 r2 (REC-01): propozycje przepięcia do połączonych rekrutacji
+    # zapisane dla etapów wstawionych przez import.
+    reassigned: int = 0
     # Rekrutacje, którym detal `/recruitments/{id}` dał prowadzącego znanego
     # w NEXUSIE (23.09.2026). Lista nie niesie `responsible_person`, więc bez
     # tego licznika nie widać, czy dopełnianie rekruterów w ogóle działa.
@@ -354,6 +366,10 @@ class PhaseProgress:
             "tombstoned": self.tombstoned,
             "skipped_managed": self.skipped_managed,
             "index_intents": self.index_intents,
+            "unchanged": self.unchanged,
+            "skipped_before_since": self.skipped_before_since,
+            "job_events": self.job_events,
+            "reassigned": self.reassigned,
             "recruiter_resolved": self.recruiter_resolved,
             "recruiter_detail_failed": self.recruiter_detail_failed,
             "error_samples": self.error_samples[:20],
@@ -966,7 +982,34 @@ _UPSERT_JOB = text(
                                    ELSE EXCLUDED.closed_at END,
         custom_fields        = jobs.custom_fields || EXCLUDED.custom_fields,
         updated_at           = NOW()
-    RETURNING id, (xmax = 0) AS was_insert
+    -- Audyt 22.09 r2 (INTG-03): wiersz bez realnej zmiany NIE jest
+    -- przepisywany. Do 22.09 każda delta przepisywała ~4,3 tys. rekrutacji,
+    -- stemplowała `updated_at` i zapisywała tyle samo intencji
+    -- przeindeksowania (18 tys. wywołań Voyage w jeden dzień). Warunek jest
+    -- lustrem SET-u wyżej: każde pole, które SET mógłby zmienić.
+    WHERE (
+            NOT jobs.managed_in_nexus
+            AND (
+                jobs.title IS DISTINCT FROM EXCLUDED.title
+                OR jobs.status IS DISTINCT FROM EXCLUDED.status
+                OR jobs.closed_at IS DISTINCT FROM EXCLUDED.closed_at
+            )
+        )
+        OR (EXCLUDED.client_id IS NOT NULL
+            AND jobs.client_id IS DISTINCT FROM EXCLUDED.client_id)
+        OR (EXCLUDED.pipeline_template_id IS NOT NULL
+            AND jobs.pipeline_template_id IS DISTINCT FROM
+                EXCLUDED.pipeline_template_id)
+        OR (NOT jobs.is_open AND jobs.recruiter_id IS NULL
+            AND EXCLUDED.recruiter_id IS NOT NULL)
+        OR (EXCLUDED.reference_number IS NOT NULL
+            AND jobs.reference_number IS DISTINCT FROM EXCLUDED.reference_number)
+        OR (EXCLUDED.deadline IS NOT NULL
+            AND jobs.deadline IS DISTINCT FROM EXCLUDED.deadline)
+        OR (EXCLUDED.opened_at IS NOT NULL
+            AND jobs.opened_at IS DISTINCT FROM EXCLUDED.opened_at)
+        OR NOT (COALESCE(jobs.custom_fields, '{}'::jsonb) @> EXCLUDED.custom_fields)
+    RETURNING id, (xmax = 0) AS was_insert, managed_in_nexus
     """
 )
 
@@ -2355,6 +2398,9 @@ class TraffitImporter:
         user_map = await self.build_user_id_map()
         owned_job_exts = await self._build_job_owner_set()
         touched_job_ids: list[int] = []
+        # DATA-01: opublikowane rekrutacje nowe albo ze zmienionym
+        # tytułem/statusem — zdarzenie dla automatów.
+        event_job_ids: list[int] = []
         logger.info(
             "Jobs lookup maps: clients=%d workflows=%d users=%d",
             len(client_map),
@@ -2375,6 +2421,23 @@ class TraffitImporter:
         # set manually pre-import); during this run we update the same dict.
         ref_owner: dict[str, Optional[str]] = {
             row[0]: row[1] for row in existing_refs_result.fetchall()
+        }
+        # Stan przed importem (audyt 22.09 r2, INTG-03/DATA-01): intencję
+        # przeindeksowania i zdarzenie dla automatów zapisujemy tylko dla
+        # rekrutacji NOWYCH albo ze zmienionym tytułem/statusem — to jedyne
+        # pola z Traffita, które wchodzą do wektora (tytuł) i jego payloadu
+        # (status, filtr puli ofert w Qdrancie).
+        before_import: dict[str, tuple[Optional[str], Optional[str]]] = {
+            str(row[0]): (row[1], row[2])
+            for row in (
+                await self.db.execute(
+                    text(
+                        "SELECT external_id, CAST(status AS text), title FROM jobs "
+                        "WHERE external_source = 'traffit' "
+                        "AND external_id IS NOT NULL"
+                    )
+                )
+            ).fetchall()
         }
 
         async for raw in self.traffit.get_paginated(
@@ -2521,7 +2584,23 @@ class TraffitImporter:
                     row = result.fetchone()
                     if row is not None:
                         was_insert = bool(row[1])
-                        touched_job_ids.append(int(row[0]))
+                        previous = before_import.get(payload["external_id"])
+                        managed = bool(row[2])
+                        meaningful = (
+                            was_insert
+                            or previous is None
+                            or (
+                                not managed
+                                and (
+                                    previous[0] != payload.get("status")
+                                    or previous[1] != payload.get("title")
+                                )
+                            )
+                        )
+                        if meaningful:
+                            touched_job_ids.append(int(row[0]))
+                            if not managed and payload.get("status") == "published":
+                                event_job_ids.append(int(row[0]))
             except Exception as e:  # noqa: BLE001
                 progress.add_error(
                     f"upsert job ext={payload.get('external_id')}: {e!r}"
@@ -2534,11 +2613,29 @@ class TraffitImporter:
                     await self.db.rollback()
                 continue
             if was_insert is None:
+                # WHERE w `_UPSERT_JOB` odrzucił zapis — nic się nie zmieniło.
+                progress.unchanged += 1
                 continue
             if was_insert:
                 progress.inserted += 1
             else:
                 progress.updated += 1
+
+        if not self.dry_run:
+            # Audyt 22.09 r2 (DATA-01/PROD-03): import Traffita (99% rekrutacji)
+            # NIE zapisywał zdarzeń rekrutacji, więc nocny przegląd bazy,
+            # auto-match nowej rekrutacji i dzwonek „Moi ludzie" nie ruszyły
+            # ani razu od 21.09 (0 wierszy z `job_id` w kolejce).
+            from app.services.auto_match_outbox import enqueue_job
+
+            for job_id in event_job_ids:
+                try:
+                    await enqueue_job(self.db, job_id=job_id, trigger="traffit_job")
+                    progress.job_events += 1
+                except Exception as exc:  # noqa: BLE001
+                    # Brak zdarzenia = rekrutacja poczeka na ręczną zmianę;
+                    # nie wywracamy importu rekrutacji.
+                    logger.warning("Jobs: enqueue_job job=%s failed: %r", job_id, exc)
 
         # Intencja przeindeksowania rekrutacji — jak dla kandydatów.
         # `_UPSERT_JOB` nadpisuje `title`, a tytuł WCHODZI do tekstu embeddingu
@@ -3656,157 +3753,208 @@ class TraffitImporter:
         # niego nieudany wsad nie da się odtworzyć wiersz po wierszu.
         pending_rows: list[tuple[dict[str, Any], Optional[int], bool]] = []
 
-        # Resumable page cursor. This is the second-largest feed (~166k stage
-        # moves) and it sits 12th of 14 in the phase plan, so a Coolify restart —
-        # which happens on every push to main — used to throw away the whole run
-        # and start again from page 1 the following week. With deploys more
-        # frequent than the weekly full reconcile, the tail of this feed could
-        # never be reached, and the tail is candidate stages: the recruitment
-        # history itself. Slots are per mode for the same reason as activities —
-        # delta page numbers are filtered by `since`, full's are not, so sharing
-        # one slot means the nightly delta overwrites and then clears the full
-        # sweep's parked position.
-        since_iso = since.isoformat() if since else None
-        start_page = 1
-        _cursor = await self._read_mode_cursor(_PIPELINES_CURSOR_PHASE, since_iso)
-        if (
-            _cursor is not None
-            # The mode slot separates delta from full, NOT one delta window from
-            # the next: `since` moves every night. Without this check an
-            # interrupted run at page 5 for `since=Day1` would resume at page 5
-            # of the `since=Day2` feed and silently skip its pages 1-4 — and a
-            # clean finish then advances the watermark, so those rows are gone
-            # until a full reconcile.
-            and _cursor.get("since") == since_iso
-            and _cursor.get("page_size") == self.batch_size
-        ):
-            # Inclusive resume: re-fetch the last committed page (upserts are
-            # idempotent) rather than page+1, so a mid-page commit never skips.
-            start_page = max(1, int(_cursor.get("page") or 1))
-            logger.info("Pipelines: resuming from page %d", start_page)
-
-        current_page = start_page
-        # If the tenant rejects the filter (HTTP 400) the client drops it and
-        # restarts UNFILTERED from page 1, so page numbers stop mapping to
-        # `since` — stop persisting the cursor for this run once that happens.
-        saw_fallback = False
-        prev_page = start_page
-
-        async for page_no, items in self.traffit.get_pages(
-            "/employees/recruitment_history",
-            page_size=self.batch_size,
-            filter_=self._delta_filter("created_at", since),
-            start_page=start_page,
-        ):
-            if page_no < prev_page:
-                saw_fallback = True
-            prev_page = page_no
-            current_page = page_no
-            for raw in items:
-                progress.processed += 1
-                try:
-                    payload = traffit_recruitment_history_to_stage(
-                        raw, cand_map, job_map, sd_id_map, sd_legacy_map, user_map
-                    )
-                except Exception as e:  # noqa: BLE001
-                    progress.add_error(f"map history id={raw.get('id')}: {e!r}")
-                    continue
-                if payload is None:
-                    progress.skipped += 1
-                    continue
-                # Oferta prowadzona w NEXUSIE: ruch z Traffita NIE wchodzi — tablica
-                # czyta najnowszy wiersz per (kandydat, oferta), więc zaimportowany
-                # etap nadpisałby ruch zrobiony w NEXUSIE (0325). Przed `dry_run`,
-                # żeby próbny bieg liczył tak samo.
-                if payload["job_id"] in managed_job_ids:
-                    progress.skipped_managed += 1
-                    continue
-                if self.dry_run:
-                    # Dry-run nie zasiewa legacy_unknown, więc nie ma sensu liczyć
-                    # fallbacku — zachowujemy dotychczasowe zachowanie 1:1.
-                    progress.inserted += 1
-                    continue
-                # withdrawn wymaga powodu (constraint 0068); fallback
-                # 'legacy_unknown' — patrz WithdrawnReasonFallback.
-                rejection_reason_id = self._fallback_rejection_reason_id(
-                    payload["stage_legacy_enum"],
-                    payload["job_id"],
-                    payload["stage_def_id"],
-                    withdrawn_fallback,
+        async def _handle(raw: dict[str, Any]) -> None:
+            """Jeden wpis historii → wiersz etapu w `pending_rows`."""
+            nonlocal unresolved_withdrawn
+            progress.processed += 1
+            try:
+                payload = traffit_recruitment_history_to_stage(
+                    raw, cand_map, job_map, sd_id_map, sd_legacy_map, user_map
                 )
-                if payload["stage_legacy_enum"] == "withdrawn" and (
-                    rejection_reason_id is None
-                ):
-                    # Nierozwiązywalne tylko gdy baza nie ma ANI JEDNEGO
-                    # pipeline_template (a wtedy nie ma też stage_defs, więc ten
-                    # ruch i tak nie byłby 'withdrawn'). Świadomy skip z jawnym
-                    # powodem — NIE błąd: wiersz i tak padłby na constraincie,
-                    # a `errors>0` blokuje watermark i trzyma health=degraded.
-                    progress.skipped += 1
-                    unresolved_withdrawn += 1
-                    # Własny licznik, nie progress.skipped — ten drugi zbiera też
-                    # rekordy spoza Nexusa (na prodzie 224), więc guard na nim
-                    # nigdy by nie wypuścił tego logu.
-                    if unresolved_withdrawn <= 5:
-                        logger.warning(
-                            "Pipelines skip ext=%s: withdrawn bez fallback reason "
-                            "(brak seeda legacy_unknown w rejection_reasons)",
-                            payload["external_id"],
-                        )
-                    continue
-                try:
-                    was_insert = await self._upsert_stage_row(
-                        payload, rejection_reason_id
+            except Exception as e:  # noqa: BLE001
+                progress.add_error(f"map history id={raw.get('id')}: {e!r}")
+                return
+            if payload is None:
+                progress.skipped += 1
+                return
+            # Oferta prowadzona w NEXUSIE: ruch z Traffita NIE wchodzi — tablica
+            # czyta najnowszy wiersz per (kandydat, oferta), więc zaimportowany
+            # etap nadpisałby ruch zrobiony w NEXUSIE (0325). Przed `dry_run`,
+            # żeby próbny bieg liczył tak samo.
+            if payload["job_id"] in managed_job_ids:
+                progress.skipped_managed += 1
+                return
+            if self.dry_run:
+                # Dry-run nie zasiewa legacy_unknown, więc nie ma sensu liczyć
+                # fallbacku — zachowujemy dotychczasowe zachowanie 1:1.
+                progress.inserted += 1
+                return
+            # withdrawn wymaga powodu (constraint 0068); fallback
+            # 'legacy_unknown' — patrz WithdrawnReasonFallback.
+            rejection_reason_id = self._fallback_rejection_reason_id(
+                payload["stage_legacy_enum"],
+                payload["job_id"],
+                payload["stage_def_id"],
+                withdrawn_fallback,
+            )
+            if payload["stage_legacy_enum"] == "withdrawn" and (
+                rejection_reason_id is None
+            ):
+                # Nierozwiązywalne tylko gdy baza nie ma ANI JEDNEGO
+                # pipeline_template (a wtedy nie ma też stage_defs, więc ten
+                # ruch i tak nie byłby 'withdrawn'). Świadomy skip z jawnym
+                # powodem — NIE błąd: wiersz i tak padłby na constraincie,
+                # a `errors>0` blokuje watermark i trzyma health=degraded.
+                progress.skipped += 1
+                unresolved_withdrawn += 1
+                # Własny licznik, nie progress.skipped — ten drugi zbiera też
+                # rekordy spoza Nexusa (na prodzie 224), więc guard na nim
+                # nigdy by nie wypuścił tego logu.
+                if unresolved_withdrawn <= 5:
+                    logger.warning(
+                        "Pipelines skip ext=%s: withdrawn bez fallback reason "
+                        "(brak seeda legacy_unknown w rejection_reasons)",
+                        payload["external_id"],
                     )
-                except Exception as e:  # noqa: BLE001
-                    msg = f"upsert stage ext={payload.get('external_id')}: {e!r}"
-                    progress.add_error(msg)
-                    if progress.errors <= 5 or progress.errors % 500 == 0:
-                        logger.warning("Pipelines upsert error: %s", msg[:300])
-                    continue
+                return
+            try:
+                was_insert = await self._upsert_stage_row(payload, rejection_reason_id)
+            except Exception as e:  # noqa: BLE001
+                msg = f"upsert stage ext={payload.get('external_id')}: {e!r}"
+                progress.add_error(msg)
+                if progress.errors <= 5 or progress.errors % 500 == 0:
+                    logger.warning("Pipelines upsert error: %s", msg[:300])
+                return
 
-                if was_insert is None:
-                    continue
-                pending_rows.append((payload, rejection_reason_id, was_insert))
-                if len(pending_rows) >= commit_every:
-                    if not saw_fallback:
-                        # Staged BEFORE the flush so it lands in the same
-                        # transaction as the rows it accounts for — the flush
-                        # is what commits. A failed batch rolls both back,
-                        # leaving the last good cursor in place.
-                        await self._write_mode_cursor(
-                            _PIPELINES_CURSOR_PHASE,
-                            since_iso,
-                            {
-                                "page": current_page,
-                                "since": since_iso,
-                                "page_size": self.batch_size,
-                            },
-                        )
-                    await self._flush_stage_batch(progress, pending_rows)
-                    pending_rows.clear()
-                    logger.info(
-                        "Pipelines progress: %d/%d (inserted=%d updated=%d errors=%d)",
-                        progress.processed,
-                        progress.total_source,
-                        progress.inserted,
-                        progress.updated,
-                        progress.errors,
-                    )
+            if was_insert is None:
+                return
+            pending_rows.append((payload, rejection_reason_id, was_insert))
 
-        if not self.dry_run and pending_rows:
-            if not saw_fallback:
+        async def _flush(cursor: Optional[dict[str, Any]]) -> None:
+            if cursor is not None:
+                # Staged BEFORE the flush so it lands in the same
+                # transaction as the rows it accounts for — the flush
+                # is what commits. A failed batch rolls both back,
+                # leaving the last good cursor in place.
                 await self._write_mode_cursor(
-                    _PIPELINES_CURSOR_PHASE,
-                    since_iso,
-                    {
-                        "page": current_page,
-                        "since": since_iso,
-                        "page_size": self.batch_size,
-                    },
+                    _PIPELINES_CURSOR_PHASE, since_iso, cursor
                 )
             await self._flush_stage_batch(progress, pending_rows)
             pending_rows.clear()
+            logger.info(
+                "Pipelines progress: %d/%d (inserted=%d updated=%d errors=%d)",
+                progress.processed,
+                progress.total_source,
+                progress.inserted,
+                progress.updated,
+                progress.errors,
+            )
+
+        since_iso = since.isoformat() if since else None
+
+        # Audyt 22.09 r2 (INTG-03): delta czyta feed od NAJNOWSZYCH (`id DESC`)
+        # i kończy na pierwszej stronie, na której pojawił się wpis starszy niż
+        # `since`. Filtr `created_at` nie zawężał odpowiedzi — każda delta
+        # przemiatała ~199 tys. wpisów (godziny), więc deploy ubijał ją przed
+        # końcem. Bez kursora: ogon to kilka stron, a strona od góry nie jest
+        # stabilna między biegami (nowe wpisy przesuwają numerację).
+        tail_done = False
+        if since is not None and settings.TRAFFIT_PIPELINES_DELTA_TAIL:
+            tail_done = True
+            first_page = True
+            async for _page_no, items in self.traffit.get_pages(
+                "/employees/recruitment_history",
+                page_size=self.batch_size,
+                filter_=self._delta_filter("created_at", since),
+                sort_desc=True,
+            ):
+                if first_page:
+                    first_page = False
+                    page_ids = [
+                        int(raw["id"])
+                        for raw in items
+                        if str(raw.get("id", "")).isdigit()
+                    ]
+                    if len(page_ids) >= 2 and page_ids[0] < page_ids[-1]:
+                        # Tenant zignorował sortowanie — ogon nie jest ogonem.
+                        # Bezpieczny odwrót: dotychczasowy pełny przegląd delty.
+                        logger.warning(
+                            "Pipelines: /recruitment_history ignored id DESC sort "
+                            "— falling back to the full delta scan"
+                        )
+                        tail_done = False
+                        break
+                reached_older = False
+                for raw in items:
+                    created = _parse_traffit_datetime(
+                        raw.get("created_at") or raw.get("date")
+                    )
+                    if created is not None and created < since:
+                        progress.skipped_before_since += 1
+                        reached_older = True
+                        continue
+                    await _handle(raw)
+                    if len(pending_rows) >= commit_every:
+                        await _flush(None)
+                if reached_older:
+                    break
+            if tail_done and not self.dry_run and pending_rows:
+                await _flush(None)
+
+        if not tail_done:
+            # Resumable page cursor. This is the second-largest feed (~166k
+            # stage moves), so a Coolify restart — which happens on every push
+            # to main — used to throw away the whole run and start again from
+            # page 1 the following week. With deploys more frequent than the
+            # weekly full reconcile, the tail of this feed could never be
+            # reached, and the tail is candidate stages: the recruitment history
+            # itself. Slots are per mode for the same reason as activities —
+            # delta page numbers are filtered by `since`, full's are not, so
+            # sharing one slot means the nightly delta overwrites and then
+            # clears the full sweep's parked position.
+            start_page = 1
+            _cursor = await self._read_mode_cursor(_PIPELINES_CURSOR_PHASE, since_iso)
+            if (
+                _cursor is not None
+                # The mode slot separates delta from full, NOT one delta window
+                # from the next: `since` moves every night. Without this check
+                # an interrupted run at page 5 for `since=Day1` would resume at
+                # page 5 of the `since=Day2` feed and silently skip its pages
+                # 1-4 — and a clean finish then advances the watermark, so
+                # those rows are gone until a full reconcile.
+                and _cursor.get("since") == since_iso
+                and _cursor.get("page_size") == self.batch_size
+            ):
+                # Inclusive resume: re-fetch the last committed page (upserts
+                # are idempotent) rather than page+1, so a mid-page commit
+                # never skips.
+                start_page = max(1, int(_cursor.get("page") or 1))
+                logger.info("Pipelines: resuming from page %d", start_page)
+
+            current_page = start_page
+            # If the tenant rejects the filter (HTTP 400) the client drops it
+            # and restarts UNFILTERED from page 1, so page numbers stop mapping
+            # to `since` — stop persisting the cursor for this run once that
+            # happens.
+            saw_fallback = False
+            prev_page = start_page
+
+            def _page_cursor() -> Optional[dict[str, Any]]:
+                if saw_fallback:
+                    return None
+                return {
+                    "page": current_page,
+                    "since": since_iso,
+                    "page_size": self.batch_size,
+                }
+
+            async for page_no, items in self.traffit.get_pages(
+                "/employees/recruitment_history",
+                page_size=self.batch_size,
+                filter_=self._delta_filter("created_at", since),
+                start_page=start_page,
+            ):
+                if page_no < prev_page:
+                    saw_fallback = True
+                prev_page = page_no
+                current_page = page_no
+                for raw in items:
+                    await _handle(raw)
+                    if len(pending_rows) >= commit_every:
+                        await _flush(_page_cursor())
+
+            if not self.dry_run and pending_rows:
+                await _flush(_page_cursor())
 
         if not self.dry_run:
             # Reached the end of the feed — retire this mode's slot so the next
@@ -3968,9 +4116,14 @@ class TraffitImporter:
         # awaria bazy przechodzą tędy. Pilnuje tego
         # `test_the_hook_can_raise_so_the_callers_guard_is_not_dead`.
         try:
-            await apply_imported_stage_side_effects(
-                self.db, rows=[payload for payload, _, _ in pending_rows]
+            applied = await apply_imported_stage_side_effects(
+                self.db,
+                rows=[payload for payload, _, _ in pending_rows],
+                inserted_rows=[
+                    payload for payload, _, was_insert in pending_rows if was_insert
+                ],
             )
+            progress.reassigned += int((applied or {}).get("reassigned") or 0)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Imported-stage side effects failed: %r", exc)
             try:

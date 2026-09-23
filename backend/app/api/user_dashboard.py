@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
@@ -58,6 +59,16 @@ async def save_my_dashboard(
 ) -> UserDashboardResponse:
     """Zapisuje cały układ naraz (tryb edycji pracuje na szkicu)."""
     layout = DashboardLayout(tiles=payload.tiles)
+    # Audyt 22.09 r2 (DATA-05): pierwszy zapis z dwóch kart naraz. Bez
+    # wiersza `FOR UPDATE` nie ma czego zablokować, obie karty wstawiały
+    # `UserDashboard` i druga kończyła się IntegrityError → 500. Pusty wiersz
+    # (wersja 0 = to samo co „brak zapisu”) zakładamy PRZED blokadą; druga
+    # karta czeka na blokadzie i dostaje czytelne 409.
+    await db.execute(
+        pg_insert(UserDashboard)
+        .values(user_id=current_user.id, layout={}, version=0)
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
     row = (
         await db.execute(
             select(UserDashboard)

@@ -11,6 +11,7 @@ import {
   type FreeBusyResponse,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { newClientRequestId } from "@/lib/client-request-id";
 import {
   Dialog,
   DialogContent,
@@ -133,6 +134,10 @@ export default function ScheduleInterviewModal({
     useState<CalendarEventResponse | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // FIX-08 (audyt 22.09 r2): jedna intencja utworzenia = jeden identyfikator
+  // (z niego powstaje transactionId w Outlooku). Ponowienie po błędzie sieci
+  // niesie ten sam, a KAŻDE kolejne wydarzenie — nowy.
+  const [clientRequestId, setClientRequestId] = useState(newClientRequestId);
 
   // Każde otwarcie to nowe spotkanie — do 09.2026 zostawali „Dodatkowi
   // uczestnicy" i termin z poprzedniej rozmowy (wzorzec z InterviewFeedbackModal).
@@ -305,8 +310,10 @@ export default function ScheduleInterviewModal({
         invite_candidate: inviteCandidate,
         add_teams_meeting: addTeamsMeeting,
         reminder_minutes: reminderMinutes,
+        client_request_id: clientRequestId,
       }),
     onSuccess: (res) => {
+      setClientRequestId(newClientRequestId());
       queryClient.invalidateQueries({ queryKey: ["candidate-calls", candidateId] });
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
       queryClient.invalidateQueries({ queryKey: ["calendar-upcoming"] });
