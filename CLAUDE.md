@@ -3195,8 +3195,8 @@ i polskim powodem.
 
 ## PR2 (23.09.2026): multiposting, scalanie kandydatów, tagi, mail aplikacji, przepięcie kontraktu, anulowanie zamówień MD
 
-Migracje `0358_application_confirmation`, `0359_order_group_cancel`,
-`0360_job_portals` (lustra w `entrypoint.sh`, test `test_pr2_migration_mirror.py`).
+Migracje `0362_application_confirmation`, `0363_order_group_cancel`,
+`0364_job_portals` (lustra w `entrypoint.sh`, test `test_pr2_migration_mirror.py`).
 
 - **Multiposting (Pracuj.pl, JustJoinIT) to szkielet za flagami OFF**
   (`PORTAL_PRACUJ_ENABLED`, `PORTAL_JJIT_ENABLED` + `_API_URL`/`_API_KEY`) —
