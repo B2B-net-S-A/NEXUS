@@ -40,10 +40,13 @@ test.describe("Candidates flow", () => {
     await expect(page.getByRole("menuitem", { name: "Eksportuj wyniki (XLSX)" })).toBeVisible();
   });
 
-  test("filtry stoją na stałe w lewej kolumnie", async ({ page }) => {
+  test("filtry stoją paskiem nad tabelą", async ({ page }) => {
     await login(page);
     await page.goto("/candidates");
-    await expect(page.getByRole("complementary", { name: "Filtry kandydatów" })).toBeVisible();
+    const bar = page.getByRole("region", { name: "Filtry kandydatów" });
+    await expect(bar).toBeVisible();
+    await bar.getByRole("button", { name: /^Lokalizacja/ }).click();
+    await expect(page.getByRole("dialog").getByLabel("Miasto")).toBeVisible();
   });
 
   test("quick view zachowuje listę, przechodzi przez granicę strony i oddaje fokus", async ({ page }) => {

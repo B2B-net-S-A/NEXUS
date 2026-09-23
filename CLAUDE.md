@@ -2280,24 +2280,33 @@ wariant A + „filtry na stałe po lewej” + „wybór źródła na starcie”)
 trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
 
 **Lista `/candidates` = JEDEN ekran, jeden silnik (`GET /api/candidates`).**
-- Filtry stoją na stałe w lewej kolumnie (`components/v2/candidates/CandidateFilterRail.tsx`;
-  poniżej `lg` ten sam panel w arkuszu) — **decyzja Artura 22.09.2026: „szukamy
-  głównie ręcznie po słowach kluczowych i wykluczeniach, stawce, lokalizacji
-  i trybie pracy”.** Na wierzchu WYŁĄCZNIE: Słowa kluczowe jak w Traffit
-  (`CandidateSearchFields.tsx`: zielone „Zawiera wszystkie” `q_all`, niebieskie
+- Filtry stoją PASKIEM NAD TABELĄ (`components/v2/candidates/CandidateFilterBar.tsx`;
+  wariant A z makiet https://claude.ai/artifact/7MJmn8Unqc26J6yHB9ThNG,
+  **decyzja Artura 23.09.2026** — do tego dnia była kolumna 224 px po lewej
+  i szuflada „Zaawansowane” z prawej; tabela z 8 kolumnami dostaje teraz całą
+  szerokość). Priorytet z 22.09 zostaje: „szukamy głównie ręcznie po słowach
+  kluczowych i wykluczeniach, stawce, lokalizacji i trybie pracy”. Rząd 1:
+  pas słów kluczowych jak w Traffit (`KeywordFields` w
+  `CandidateSearchFields.tsx`: zielone „Zawiera wszystkie” `q_all`, niebieskie
   „Zawiera którekolwiek” = PIERWSZA grupa `q_any`, czerwone „Nie zawiera
-  żadnego” `q_none`, „Szukaj w” `q_scope`) · Stawka B2B · Lokalizacja (miasto
-  z podpowiedziami, promień w km, województwa) · Tryb pracy. Reszta w szufladzie
-  „Zaawansowane” z licznikiem ustawionych w niej filtrów: Historia z nami
-  (otwarta — brał udział w rekrutacji, etap, wysłany do klienta, pracował
-  u klienta, KONTAKT z kandydatem w okresie i przez kogo), Umiejętności,
-  Dostępność (jedno pytanie „Czy można go teraz zaproponować?” —
-  `lib/candidate-availability-choice.ts` ustawia `availability` + `employment`
-  naraz), Doświadczenie/języki/kategoria, Firma i stanowisko, Kto dodał/pule
-  (w tym „Moi kandydaci”), Inne (KOLEJNE grupy LUB, status w bazie, otwarty
-  na, ukryj bez danych). Gotowych skrótów nad listą świadomie NIE ma („za
-  bardzo kombinujesz”). Nie przenoś grup z powrotem na wierzch — za dużo
-  opcji naraz było powodem przebudowy. Tabela ma domyślnie kolumny:
+  żadnego” `q_none`, „Szukaj w” `q_scope`; zasady dopasowania pod ⓘ; na
+  telefonie za przyciskiem „Słowa kluczowe (N)”). Rząd 2: przyciski z okienkami
+  (Radix Popover) — Stawka · Lokalizacja (miasto z podpowiedziami, promień w km,
+  województwa; tekst wpisany tuż przed zamknięciem okienka zapisuje cleanup
+  `LocationFields`) · Tryb pracy | Historia z nami (brał udział w rekrutacji,
+  etap, wysłany do klienta, pracował u klienta, KONTAKT z kandydatem w okresie
+  i przez kogo) · Umiejętności · Dostępność (jedno pytanie „Czy można go teraz
+  zaproponować?” — `lib/candidate-availability-choice.ts` ustawia
+  `availability` + `employment` naraz) · „Więcej filtrów” (szuflada z prawej:
+  Doświadczenie/języki/kategoria, Firma i stanowisko, Kto dodał/pule — w tym
+  „Moi kandydaci”, Inne — KOLEJNE grupy LUB, status w bazie, otwarty na, ukryj
+  bez danych). Ustawiony przycisk niesie wartość („Stawka: do 160 zł/h”) albo
+  licznik i ✕ czyszczące grupę — liczniki i podsumowania liczy
+  `lib/candidate-filter-groups.ts`. Chipy nad tabelą (`ActiveFilterChips`
+  z `omitKey={isChipShownOnFilterBar}`) pokazują TYLKO filtry, których wartości
+  nie widać na przycisku — nie dubluj ich. Gotowych skrótów nad listą świadomie
+  NIE ma („za bardzo kombinujesz”). Nie dokładaj kolejnych przycisków na pasek —
+  rzadkie filtry idą do „Więcej filtrów”. Tabela ma domyślnie kolumny:
   Kandydat (pod nazwiskiem miasto) · Ostatnie stanowisko (+ firma,
   `getCurrentTitle`/`getCurrentCompany`) · Telefon (`tel:` + kopiuj,
   `CandidatePhoneCell`) · Stawka B2B · Dostępność · W procesie (skrót, a po

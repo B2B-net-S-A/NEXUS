@@ -20,11 +20,19 @@ vi.mock("@/lib/api", async () => {
 import { ActiveFilterChips } from "@/components/v2/filters/ActiveFilterChips";
 import { DEFAULT_FILTERS, type CandidateFilters } from "@/lib/url-filters";
 
-function renderChips(patch: Partial<CandidateFilters>, onUpdate = vi.fn()) {
+function renderChips(
+  patch: Partial<CandidateFilters>,
+  onUpdate = vi.fn(),
+  omitKey?: (key: string) => boolean,
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <ActiveFilterChips filters={{ ...DEFAULT_FILTERS, ...patch }} onUpdate={onUpdate} />
+      <ActiveFilterChips
+        filters={{ ...DEFAULT_FILTERS, ...patch }}
+        onUpdate={onUpdate}
+        omitKey={omitKey}
+      />
     </QueryClientProvider>,
   );
   return onUpdate;
@@ -64,5 +72,20 @@ describe("ActiveFilterChips — etykiety etapów", () => {
     expect(screen.getByText("Etap: Ogłoszenia")).toBeInTheDocument();
     expect(screen.getByText("Etap: CV wysłane")).toBeInTheDocument();
     expect(screen.queryByText(/Etap: posting/)).not.toBeInTheDocument();
+  });
+
+  it("omitKey chowa chipy pokazane gdzie indziej, a bez pozostałych nic nie rysuje", () => {
+    renderChips(
+      { rateMax: 160, status: ["active"] },
+      vi.fn(),
+      (key) => key === "rate",
+    );
+    expect(screen.queryByText(/Stawka/)).toBeNull();
+    expect(screen.getByText("Status: Aktywni")).toBeInTheDocument();
+  });
+
+  it("gdy wszystkie chipy są pominięte, nie zostaje samo „Wyczyść wszystko”", () => {
+    renderChips({ rateMax: 160 }, vi.fn(), () => true);
+    expect(screen.queryByText("Wyczyść wszystko")).toBeNull();
   });
 });
