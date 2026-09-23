@@ -428,6 +428,11 @@ async def test_offboarding_decision_is_blocked_by_a_scheduled_takeover(
     assert kamila["takeover_scheduled"] is True
     assert konrad["replaced_by_scheduled"] is True
     assert konrad["replaced_by_start_date"] == entry.isoformat()
+    # Do dnia wejścia Konrad wnosi cały budżet, a prognoza Kamili nic —
+    # suma pozycji się nie podwaja.
+    assert Decimal(str(group["md_positions_total"])) == Decimal(
+        str(before["md_positions_total"])
+    )
 
     # Dzień po ostatnim dniu Konrada: terminacja domyka linię i zakłada sprawę,
     # a zastępstwo ją rozstrzyga.

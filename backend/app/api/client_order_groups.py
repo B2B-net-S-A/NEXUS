@@ -1255,6 +1255,14 @@ async def _group_to_read(
     if not group.is_cost_based and not uses_shared_md_budget:
         used_by_line = {item.id: item.md_used for item in reads}
         replaced_kind = {item.id: item.replaced_by_kind for item in reads}
+        # Zaplanowane zastępstwo (ticket 09.2026) jeszcze nie weszło: odchodzący
+        # pracuje i wnosi CAŁY budżet, a szkic następcy (prognoza „na dziś")
+        # nie wnosi nic — inaczej zużycie z okresu do wejścia liczyłoby się
+        # dwa razy.
+        scheduled_ids = {item.id for item in reads if item.takeover_scheduled}
+        for item in reads:
+            if item.replaced_by_scheduled:
+                replaced_kind[item.id] = None
         positions = Decimal("0")
         used_sum = Decimal("0")
         value = Decimal("0")
@@ -1266,7 +1274,7 @@ async def _group_to_read(
             used = Decimal(str(used_by_line.get(line.id) or 0))
             used_sum += used
             used_value += used * rate
-            if line.status == ClientOrderStatus.cancelled:
+            if line.status == ClientOrderStatus.cancelled or line.id in scheduled_ids:
                 # Anulowana linia nie jest pozycją umowy — jej ewentualne
                 # zużycie zostaje faktem, ale budżet nie wchodzi do wartości.
                 continue
