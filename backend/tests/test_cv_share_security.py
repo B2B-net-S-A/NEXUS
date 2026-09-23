@@ -70,6 +70,23 @@ def test_sanitizer_preserves_presentation_markup():
     assert 'src="data:image/png;base64,iVBOR"' in out
 
 
+@pytest.mark.parametrize(
+    "style",
+    [
+        "background:url(https://evil.example/x)",
+        "background:#fff url('https://evil.example/x')",
+        "list-style:square url(https://evil.example/x)",
+        "background:-webkit-image-set('https://evil.example/x' 1x)",
+        "background:\\75 rl(https://evil.example/x)",
+    ],
+)
+def test_sanitizer_drops_css_that_loads_remote_resources(style: str):
+    # Otwarcie CV przez klienta nie może wysłać żądania na adres z treści CV.
+    out = sanitize_cv_html(f'<p style="{style};color:#123456">CV</p>')
+    assert "evil.example" not in out
+    assert "color:#123456" in out.replace(" ", "")
+
+
 def test_sanitizer_handles_empty():
     assert sanitize_cv_html(None) == ""
     assert sanitize_cv_html("") == ""

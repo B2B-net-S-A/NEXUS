@@ -274,6 +274,26 @@ describe("InsightsRaces", () => {
     renderWithClient(<InsightsRaces month="2020-01" />);
 
     expect(await screen.findByText("3.1/dzień")).toBeInTheDocument();
+    expect(screen.queryByText(/bez urlopów/)).not.toBeInTheDocument();
+  });
+
+  it("mianownik kalendarzowy dostaje dopisek „bez urlopów”", async () => {
+    respond({
+      [RACES]: racesPayload({
+        recommendations: [
+          recEntry({
+            verifications: 30,
+            workdays: 10,
+            per_day: 3,
+            workdays_source: "calendar",
+          }),
+        ],
+      }),
+    });
+    renderWithClient(<InsightsRaces month="2020-01" />);
+
+    expect(await screen.findByText("· bez urlopów")).toBeInTheDocument();
+    expect(screen.getByText(/3\.0\/dzień/)).toBeInTheDocument();
   });
 
   it("niezakwalifikowany zostaje na liście z powodem", async () => {

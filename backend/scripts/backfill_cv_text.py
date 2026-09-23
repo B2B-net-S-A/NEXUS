@@ -63,6 +63,14 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     p.add_argument(
+        "--glued",
+        action="store_true",
+        help=(
+            "Zamiast CV bez tekstu: ponownie przeczytaj CV, których tekst jest "
+            "sklejony (słowa bez przerw) — patrz cv_text_extractor.looks_glued."
+        ),
+    )
+    p.add_argument(
         "--no-reindex",
         action="store_true",
         help=(
@@ -96,6 +104,7 @@ def main() -> int:
             retry_outcomes=frozenset(
                 o.strip() for o in args.retry_outcomes.split(",") if o.strip()
             ),
+            glued=args.glued,
         )
     )
     if not stats.storage_available:

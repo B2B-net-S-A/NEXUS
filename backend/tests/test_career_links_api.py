@@ -382,12 +382,25 @@ async def test_edit_after_approval_returns_to_draft_and_visibility_does_not(api)
     assert edited.json()["status"] == "draft"
 
 
-async def test_public_profile_requires_job_membership(api):
-    _, _, job_id = await _owner_with_job(api)
+async def test_public_profile_is_open_to_recruiters_outside_the_team(api):
+    """Od 23.09.2026 opis publiczny czyta i poprawia każdy rekruter, także
+    spoza zespołu rekrutacji („nie musisz być przypisany")."""
+    _, headers, job_id = await _owner_with_job(api)
+    assert (await _approve(api, headers, job_id)).status_code == 200
     _, email, password = await _seed_user("outsider")
     outsider = await _login(api, email, password)
+
     resp = await api.get(f"/api/jobs/{job_id}/public-profile", headers=outsider)
-    assert resp.status_code == 403
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "approved"
+
+    edited = await api.put(
+        f"/api/jobs/{job_id}/public-profile",
+        json={"about": "Treść poprawiona przez kolegę z innego zespołu."},
+        headers=outsider,
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["status"] == "draft"
 
 
 # ── Formularz ──────────────────────────────────────────────────────────────

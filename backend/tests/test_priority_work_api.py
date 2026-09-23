@@ -216,7 +216,13 @@ def _priority_scope_visible(
     process_status: str | None = None,
     process_compliant: bool | None = True,
 ) -> bool:
-    """Evaluate the generated list-scope SQL against a minimal real schema."""
+    """Evaluate the generated list-scope SQL against a minimal real schema.
+
+    Od 23.09.2026 rekruter widzi każdą rekrutację na listach domyślnych
+    (``_JOB_MEMBERSHIP_BYPASS_ROLES``), więc logikę Priority Work sprawdzamy
+    na ścieżce OSOBISTEJ (``oversight_bypass=False``) — tam assignment i
+    carry-over nadal są jedynymi dodatkowymi źródłami zakresu.
+    """
 
     monkeypatch.setattr(
         recruitment_access.settings,
@@ -280,8 +286,18 @@ def _priority_scope_visible(
         clause = recruitment_access.job_scope_clause(
             _FakeUser(UserRole.recruiter),
             literal(77),
+            oversight_bypass=False,
         )
         return connection.scalar(select(literal(1)).where(clause)) == 1
+
+
+def test_default_list_scope_shows_every_job_to_a_recruiter() -> None:
+    """Decyzja 23.09.2026: lista domyślna nie zawęża rekrutera do zespołu."""
+    clause = recruitment_access.job_scope_clause(
+        _FakeUser(UserRole.recruiter),
+        literal(77),
+    )
+    assert str(clause) == "true"
 
 
 def test_global_off_does_not_expand_list_scope_for_assignment_or_carry_over(
@@ -657,26 +673,39 @@ def _stub_membership_inputs(monkeypatch, *, is_member: bool) -> None:
     monkeypatch.setattr(priority_work, "current_plan", AsyncMock(return_value=None))
 
 
-async def test_job_priority_context_denies_non_member_before_serializing_anything(
+async def test_job_priority_context_denies_legacy_viewer_before_serializing_anything(
     monkeypatch,
 ) -> None:
-    """Rola operacyjna spoza zespołu oferty nie może czytać cudzej alokacji.
+    """Stara rola podglądu ``user`` spoza zespołu nie czyta cudzej alokacji.
 
-    Trasa oddawała nazwiska przypisanych, treść blockerów i surowe `evidence`
-    dla KAŻDEJ oferty każdemu poza read-only viewerem — jedyna taka ścieżka w
-    module (``/mine`` zawęża do siebie, ``/team`` jest HoR-only, ``/current``
-    nie zwraca danych per-osoba).
+    Trasa oddaje nazwiska przypisanych, treść blockerów i surowe `evidence`.
+    Od 23.09.2026 widzą je wszystkie role wewnętrzne bez przypisania, ale
+    ``user`` nadal przechodzi wyłącznie przez członkostwo — i dostaje 403
+    zanim cokolwiek zostanie zserializowane.
     """
     _stub_membership_inputs(monkeypatch, is_member=False)
     db = _job_context_db()
 
     with pytest.raises(HTTPException) as error:
-        await priority_work.get_job_priority_context(
-            77, _FakeUser(UserRole.recruiter), db
-        )
+        await priority_work.get_job_priority_context(77, _FakeUser(UserRole.user), db)
 
     assert error.value.status_code == 403
     assert db.execute.await_count == 0
+
+
+async def test_job_priority_context_serves_a_recruiter_outside_the_team(
+    monkeypatch,
+) -> None:
+    """Decyzja 23.09.2026: rekruter spoza zespołu widzi kontekst rekrutacji."""
+    _stub_membership_inputs(monkeypatch, is_member=False)
+    db = _job_context_db()
+
+    payload = await priority_work.get_job_priority_context(
+        77, _FakeUser(UserRole.recruiter), db
+    )
+
+    assert payload["assignments"] == []
+    assert payload["blockers"] == []
 
 
 @pytest.mark.parametrize(

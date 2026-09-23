@@ -429,7 +429,7 @@ function EditableRateCell({
 
 // Stawka kandydata i stawka do klienta per rekrutacja; marża liczona
 // z wartości z serwera (tylko przy tej samej jednostce).
-function RecruitmentRateRow({
+export function RecruitmentRateRow({
   candidateId,
   jobId,
   clientRate,
@@ -443,7 +443,8 @@ function RecruitmentRateRow({
   readOnly?: boolean;
 }) {
   const authUser = useAuthStore((st) => st.user);
-  // Decyzja 23.09.2026: stawkę do klienta widzi DL/admin/Finanse, wpisuje DL.
+  // Decyzja 23.09.2026: stawki do klienta nie widzą rekruter, sourcer i TAC;
+  // wpisuje ją wyłącznie DL albo admin (lustro `candidate_access.py`).
   const showClientRate = canViewClientRate(authUser);
   const clientRateWritable = canWriteClientRate(authUser);
   const sameUnit =

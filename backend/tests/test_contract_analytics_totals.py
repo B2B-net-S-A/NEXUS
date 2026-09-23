@@ -155,6 +155,50 @@ async def test_a_candidate_who_never_had_a_contract_is_not_on_the_bench(seeded):
     assert candidate_identity_key(never) not in population.ever_keys
 
 
+@pytest.mark.parametrize("end_offset", [None, 30])
+async def test_ended_contract_without_past_end_date_is_bench_not_active(end_offset):
+    """Status `ended` bez daty końca (albo z datą w przyszłości) to nie praca.
+
+    Populacja liczyła osobę jako aktywną po samej dacie końca, a kafel obok
+    liczy kontrakty po statusie — w kolejce 23.09 wyszło „3 aktywne kontrakty,
+    4 aktywne osoby” (test_contract_analytics::test_utilization_shape).
+    """
+    pytest.importorskip("asyncpg")
+    from app.services.contractor_identity import candidate_identity_key
+
+    today = date.today()
+    marker = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Utylizacja ended {marker}")
+        person = Candidate(name="Zakończony", lastname=f"Bezdaty{marker}")
+        db.add_all([client, person])
+        await db.flush()
+        db.add(
+            Contract(
+                candidate_id=person.id,
+                client_id=client.id,
+                contract_type=ContractType.b2b,
+                status=ContractStatus.ended,
+                start_date=today - timedelta(days=200),
+                end_date=(
+                    None if end_offset is None else today + timedelta(days=end_offset)
+                ),
+                rate_unit=RateUnit.monthly,
+                rate_client=Decimal("20000"),
+                rate_candidate=Decimal("15000"),
+            )
+        )
+        await db.commit()
+        key = candidate_identity_key(person)
+        population = await consultant_population(db)
+        # Przeszłość: status mówi o dziś, nie o tamtym dniu — wtedy trwał.
+        past = await consultant_population(db, on=today - timedelta(days=100))
+
+    assert key in population.ever_keys
+    assert key not in population.active_keys
+    assert key in past.active_keys
+
+
 async def test_utilization_endpoint_counts_people_not_the_whole_cv_database(
     app_client: AsyncClient, app_auth_headers: dict, seeded
 ):
