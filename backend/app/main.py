@@ -2036,9 +2036,7 @@ async def api_health_check():
             from app.services.job_portals.service import failed_recently
 
             async with AsyncSessionLocal() as session:
-                _failed = await asyncio.wait_for(
-                    failed_recently(session), timeout=1.0
-                )
+                _failed = await asyncio.wait_for(failed_recently(session), timeout=1.0)
             checks["job_portals"] = _job_portals.health_state(_failed)
     except Exception:  # noqa: BLE001 — sonda informacyjna
         checks["job_portals"] = "unknown"
