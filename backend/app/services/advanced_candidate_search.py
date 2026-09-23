@@ -86,6 +86,7 @@ from sqlalchemy.sql import ColumnElement
 
 from app.models.candidate import Candidate
 from app.models.note import Note
+from app.services import keyword_corpus
 from app.services.keyword_terms import (
     KeywordTerm,
     parse_keyword,
@@ -132,6 +133,13 @@ _SEARCH_FTS = column("search_fts", TSVECTOR)
 # is folded with the SAME map (`fold_polish`) and matched as an ILIKE substring
 # against this column. Bare column (not ORM-mapped), referenced in WHERE only.
 _SEARCH_DOC_UNACCENT = column("search_doc_unaccented", Text)
+
+# Korpus słów kluczowych v2 (migracja 0350, ``app/services/keyword_corpus.py``):
+# profil bez podsumowania AI i bez kluczy/poziomów JSON-ów, z polami Traffita
+# i „Kandydat o sobie”. ``keyword_doc`` — bez polskich znaków, małe litery,
+# bez CV (indeks trigramowy); ``keyword_fts`` — profil + CV (GIN).
+_KEYWORD_DOC = column("keyword_doc", Text)
+_KEYWORD_FTS = column("keyword_fts", TSVECTOR)
 
 # Polish diacritic → ASCII fold, both cases. MUST stay byte-for-byte in sync with
 # migration 0159 (_FOLD_SRC/_FOLD_DST) and the entrypoint.sh safety-net copy, so
@@ -281,18 +289,26 @@ def _phrase_match(phrase: str, *, fuzzy: bool = False) -> ColumnElement:
     return Candidate.id.in_(union(*branches))
 
 
+def _traffit_text(key: str) -> ColumnElement:
+    """Pole własne Traffita z ``cv_extracted_data`` (``keyword_corpus``)."""
+    return func.coalesce(Candidate.cv_extracted_data.op("->>")(key), "")
+
+
 def _experience_roles_text() -> ColumnElement:
-    """Tekst stanowisk z historii zatrudnienia (``experience[*].role``).
+    """Tekst stanowisk: ``experience[*].role`` + stanowisko z Traffita.
 
     „Stanowisko” w zakresie słów kluczowych — ta sama kolumna, z której lista
-    pokazuje „Ostatnie stanowisko”. Nie-tablica (import) daje pusty tekst.
+    pokazuje „Ostatnie stanowisko”, plus ``traffit_Position`` (Traffit szuka
+    w nim stanowiska, a NEXUS go nie czytał). Nie-tablica (import) daje pusty
+    tekst.
     """
-    return func.coalesce(
+    roles = func.coalesce(
         func.jsonb_path_query_array(
             Candidate.experience, literal_column("'lax $[*].role'::jsonpath")
         ).cast(Text),
         "",
     )
+    return roles + " " + _traffit_text("traffit_Position")
 
 
 def _quote_sql(value: str) -> str:
@@ -318,17 +334,40 @@ def _skill_names_text() -> ColumnElement:
             ).cast(Text),
             "",
         )
+        + " "
+        + _traffit_text("traffit_technologie")
+    )
+
+
+def _corpus_fts(query) -> ColumnElement:
+    """``keyword_fts @@ query``; do końca backfillu wiersze bez korpusu
+    dopasowuje stary ``search_fts`` (``keyword_corpus.ready``)."""
+    match = _KEYWORD_FTS.op("@@")(query)
+    if keyword_corpus.ready():
+        return match
+    return or_(match, and_(_KEYWORD_DOC.is_(None), _SEARCH_FTS.op("@@")(query)))
+
+
+def _corpus_folded(folded_pattern: str) -> ColumnElement:
+    """Regex bez polskich znaków po profilu (bez CV) — lustro ``_corpus_fts``."""
+    match = _KEYWORD_DOC.op("~*")(folded_pattern)
+    if keyword_corpus.ready():
+        return match
+    return or_(
+        match,
+        and_(_KEYWORD_DOC.is_(None), _SEARCH_DOC_UNACCENT.op("~*")(folded_pattern)),
     )
 
 
 def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:
     """Całe słowo / fraza / gwiazdka (``keyword_terms``) w wybranym zakresie.
 
-    ``all`` (domyślnie) ma te same pola co dopasowanie podłańcuchowe:
-    indeks pełnotekstowy (``search_fts`` — wszystkie pola z CV) albo regex
-    z granicą słowa po trzech gałęziach, do tego wariant bez polskich znaków
-    i notatki. Zmierzone na produkcji 22.09.2026: „java” 14 071 osób w 0,7 s
-    (dotychczasowe ``java:*`` + podłańcuch: 22 384, w tym JavaScript).
+    ``all`` (domyślnie) szuka w korpusie słów kluczowych (``keyword_corpus``:
+    CV, profil, pola Traffita, „o sobie” — BEZ podsumowania AI i kluczy
+    JSON-ów): indeks pełnotekstowy ``keyword_fts`` albo regex z granicą słowa
+    po profilu i CV, do tego wariant bez polskich znaków i notatki. Zmierzone
+    na produkcji 22.09.2026: „java” 14 071 osób w 0,7 s (dotychczasowe
+    ``java:*`` + podłańcuch: 22 384, w tym JavaScript).
 
     Zakres zawęża do jednego pola. Dla słów z indeksem pełnotekstowym warunek
     pola jest DOKŁADANY do dopasowania z indeksu (to ono wybiera wiersze), więc
@@ -350,7 +389,7 @@ def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:
         variants = tsquery_path_variants(term)
         if variants is not None:
             query = query.op("||")(literal_column(f"'{_quote_sql(variants)}'::tsquery"))
-        fts = _SEARCH_FTS.op("@@")(query)
+        fts = _corpus_fts(query)
     notes_branch = select(Note.candidate_id).where(
         Note.candidate_id.is_not(None),
         Note.content.op("~*")(pattern),
@@ -368,9 +407,7 @@ def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:
             conditions.insert(0, fts)
         return Candidate.id.in_(select(Candidate.id).where(*conditions))
 
-    folded_branch = select(Candidate.id).where(
-        _SEARCH_DOC_UNACCENT.op("~*")(folded_pattern)
-    )
+    folded_branch = select(Candidate.id).where(_corpus_folded(folded_pattern))
     if fts is not None:
         branches = [
             select(Candidate.id).where(fts),
@@ -379,7 +416,6 @@ def _whole_word_match(term: KeywordTerm, scope: str = "all") -> ColumnElement:
         ]
     else:
         branches = [
-            select(Candidate.id).where(_SEARCH_DOC.op("~*")(pattern)),
             folded_branch,
             select(Candidate.id).where(Candidate.raw_cv_text.op("~*")(pattern)),
             notes_branch,

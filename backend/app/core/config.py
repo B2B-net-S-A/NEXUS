@@ -1459,6 +1459,9 @@ class Settings(BaseSettings):
     # kandydatów dotkniętych w biegu; ~$0,008/CV na Haiku). Nocna delta to
     # zwykle dziesiątki wierszy — 200 ogranicza patologiczny bieg do ~$1,6.
     TRAFFIT_SYNC_CV_FIELDS_LIMIT: int = 200
+    # Faza `candidates_cv_text`: ile zapisanych CV bez tekstu odczytać w jednym
+    # biegu (ekstrakcja lokalna: pdfplumber/python-docx, OCR tylko dla skanów).
+    TRAFFIT_SYNC_CV_TEXT_LIMIT: int = 1000
 
     # ── Notes insights sync (świeżość faktów z notatek) ─────────────────────
     # Cykliczna ekstrakcja `cv_extracted_data._notes_insights` po imporcie

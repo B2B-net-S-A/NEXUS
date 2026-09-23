@@ -26,11 +26,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
-from app.services.cv_text_extractor import UnsupportedCvFormat, extract_text
+from app.services.cv_text_extractor import (
+    UnsupportedCvFormat,
+    extract_text,
+    sniff_extension,
+)
 from app.services.object_storage import download_cv, is_available
 
 logger = logging.getLogger("cv_text_backfill")
@@ -43,7 +47,8 @@ MIN_USEFUL_TEXT_CHARS = 200
 
 # Extensions we can actually read. `.doc` is deliberately absent: the image ships
 # neither libreoffice nor antiword, so python-docx raises on binary OLE2 every
-# time. Skipping by extension avoids thousands of pointless S3 GETs and OCR runs.
+# time. Since 2026-09-22 a real OLE2 file is recognised by its bytes, not its
+# name (see `extract_one`); the name only picks the temp-file suffix.
 _READABLE_EXTENSIONS = (".pdf", ".docx", ".txt")
 _KNOWN_EXTENSIONS = _READABLE_EXTENSIONS + (".doc",)
 
@@ -55,6 +60,13 @@ _EXTRACTION_MARKER_KEY = "_cv_text_extraction"
 _TERMINAL_OUTCOMES = frozenset(
     {"legacy_doc", "unsupported_format", "junk", "empty", "no_improvement"}
 )
+# Outcomes that could have been WRONG before the extractor read the format from
+# the file's bytes (2026-09-22): 3 320 PDFs named `*.docx` were marked `empty`,
+# and a PDF named `*.odt` was `unsupported_format`. A marker of one of these
+# classes WITHOUT the `sniffed` flag gets one more attempt; the new marker
+# carries the flag, so the retry happens exactly once.
+_SNIFF_RETRY_OUTCOMES = frozenset({"empty", "unsupported_format", "legacy_doc"})
+_SNIFFED_FLAG = "sniffed"
 
 
 @dataclass
@@ -134,9 +146,9 @@ def extract_one(storage_key: str, filename: str | None) -> ExtractionResult:
     distinguish "this file will never yield text" from "try again later".
     """
     ext = _extension_of(filename, storage_key)
-    if ext == ".doc":
-        return ExtractionResult("legacy_doc")
-
+    # No pre-download skip of `.doc` by NAME any more: the name lies (a PDF
+    # saved as `.doc` exists as surely as the 3 320 PDFs saved as `.docx`), and
+    # there are ~140 of them — the cost of the extra GETs is nothing.
     try:
         blob = download_cv(storage_key)
     except Exception as exc:  # noqa: BLE001 — network/storage errors are retryable
@@ -149,6 +161,10 @@ def extract_one(storage_key: str, filename: str | None) -> ExtractionResult:
         tmp.write(blob)
         path = tmp.name
     try:
+        sniffed = sniff_extension(path)
+        if sniffed == ".doc" or (ext == ".doc" and sniffed is None):
+            # Binary OLE2 Word: the image has neither libreoffice nor antiword.
+            return ExtractionResult("legacy_doc")
         text = extract_text(path, filename or os.path.basename(storage_key))
     except UnsupportedCvFormat:
         return ExtractionResult("unsupported_format")
@@ -200,9 +216,9 @@ def _pending_candidates_stmt(
     # each successive tranche spent more of its budget re-reading them. Measured
     # on the first production run: 2 494 of 2 500 rows scanned were already-marked
     # skips, i.e. the tranche did ~0.2% useful work.
-    marker_outcome = Candidate.cv_extracted_data[_EXTRACTION_MARKER_KEY][
-        "outcome"
-    ].astext
+    marker = Candidate.cv_extracted_data[_EXTRACTION_MARKER_KEY]
+    marker_outcome = marker["outcome"].astext
+    marker_sniffed = marker[_SNIFFED_FLAG].astext
     stmt = select(Candidate.id, Candidate.cv_storage_key, Candidate.cv_filename).where(
         Candidate.cv_storage_key.is_not(None),
         Candidate.cv_storage_key != "",
@@ -214,6 +230,10 @@ def _pending_candidates_stmt(
         or_(
             marker_outcome.is_(None),
             marker_outcome.notin_(sorted(_TERMINAL_OUTCOMES - retry_outcomes)),
+            and_(
+                marker_outcome.in_(sorted(_SNIFF_RETRY_OUTCOMES - retry_outcomes)),
+                marker_sniffed.is_(None),
+            ),
         ),
     )
     stmt = stmt.order_by(func.random() if random_sample else Candidate.id.asc())
@@ -240,6 +260,8 @@ def _terminal_marker(
     outcome = marker.get("outcome")
     if outcome in retry_outcomes:
         return None
+    if outcome in _SNIFF_RETRY_OUTCOMES and not marker.get(_SNIFFED_FLAG):
+        return None  # recorded before the format was read from the bytes
     return outcome if outcome in _TERMINAL_OUTCOMES else None
 
 
@@ -255,6 +277,7 @@ def _record_marker(candidate: Candidate, outcome: str, chars: int) -> None:
         "at": datetime.now(timezone.utc).isoformat(),
         "outcome": outcome,
         "chars": chars,
+        _SNIFFED_FLAG: True,
     }
     candidate.cv_extracted_data = extracted
 

@@ -742,7 +742,26 @@ _PROFILE_RATE_ALTER_SQL = (
     "TYPE NUMERIC(10,2) USING expected_rate_hourly::numeric(10,2)"
 )
 
+# Korpus słów kluczowych (migracja 0350): kolumny + trigger z JEDNEGO źródła
+# (`app/services/keyword_corpus.py`). Bez kolumn lista kandydatów pada na
+# UndefinedColumn. Import w try: jego awaria nie może zdjąć reszty tej siatki.
+try:
+    from app.services import keyword_corpus as _kc
+
+    _KEYWORD_CORPUS_DDL = [
+        *_kc.COLUMN_DDL,
+        _kc.JSON_TEXT_FUNCTION_DDL,
+        _kc.TRIGGER_FUNCTION_DDL,
+        _kc.TRIGGER_DDL,
+    ]
+    _KEYWORD_CORPUS_INDEXES = _kc.index_ddl(concurrently=True)
+except Exception as _kc_err:  # noqa: BLE001
+    print(f"keyword corpus DDL unavailable: {_kc_err!r}")
+    _KEYWORD_CORPUS_DDL = []
+    _KEYWORD_CORPUS_INDEXES = []
+
 _COLUMN_STATEMENTS = [
+    *_KEYWORD_CORPUS_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -7519,6 +7538,7 @@ _CONSTRAINT_STATEMENTS = [
 # ix_delivery_lead_client_assignments_delivery_lead_user_id. Dopisywanie ich
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
+    *_KEYWORD_CORPUS_INDEXES,
     # 0339: slug linku unikalny; jeden nieodwołany stały link na rekrutera.
     "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS ux_candidate_invite_links_slug "
     "ON candidate_invite_links (slug) WHERE slug IS NOT NULL",
