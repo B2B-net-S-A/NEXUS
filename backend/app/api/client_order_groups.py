@@ -3686,6 +3686,10 @@ async def close_order_group(
     # 22:00 UTC a północą zakończenie „z dniem dzisiejszym" wg firmy nie
     # domykałoby linii, bo dla `date.today()` ta data leży jeszcze w przyszłości.
     today = business_today()
+    # Audyt 22.09 r2 (FIN-MD-04): stan sprzed zakończenia — z niego
+    # „Przywróć” odtwarza daty i obsadę, które zakończenie przycięło.
+    previous_group_end_date = group.end_date
+    previous_lines: list[dict[str, object]] = []
     group.status = GROUP_STATUS_COMPLETED
     group.closure_date = payload.closure_date
     group.closure_reason = (payload.closure_reason or "").strip() or None
@@ -3698,6 +3702,15 @@ async def close_order_group(
     for line in locked_lines:
         if line.status in (ClientOrderStatus.completed, ClientOrderStatus.cancelled):
             continue
+        previous_lines.append(
+            {
+                "id": line.id,
+                "previous_end_date": (
+                    None if line.end_date is None else line.end_date.isoformat()
+                ),
+                "previous_status": getattr(line.status, "value", line.status),
+            }
+        )
         if line.end_date is None or line.end_date > payload.closure_date:
             line.end_date = payload.closure_date
         if payload.closure_date <= today:
@@ -3717,6 +3730,12 @@ async def close_order_group(
             "closure_date": payload.closure_date.isoformat(),
             "closure_reason": group.closure_reason,
             "lines_closed": closed_lines,
+            "previous_group_end_date": (
+                None
+                if previous_group_end_date is None
+                else previous_group_end_date.isoformat()
+            ),
+            "lines": previous_lines,
         },
         user_id=user.id,
     )
@@ -3776,11 +3795,38 @@ async def reopen_order_group(
         )
 
     previous_closure = group.closure_date
+    closed_event = await db.scalar(
+        select(ClientOrderGroupEvent)
+        .where(
+            ClientOrderGroupEvent.group_id == group.id,
+            ClientOrderGroupEvent.event_type == EVENT_ORDER_CLOSED,
+        )
+        .order_by(ClientOrderGroupEvent.id.desc())
+        .limit(1)
+    )
+    closed_payload = (
+        closed_event.payload
+        if closed_event is not None and isinstance(closed_event.payload, dict)
+        else {}
+    )
     group.status = GROUP_STATUS_ACTIVE
     group.closure_date = None
     group.closure_reason = None
     group.closed_at = None
     group.closed_by_user_id = None
+    # Audyt 22.09 r2 (FIN-MD-04): odtwórz daty, które zakończenie przycięło.
+    # Zdarzenia sprzed tej reguły nie niosą stanu linii — wtedy zostaje
+    # dawne zachowanie (tylko `sync_md_line_status`).
+    closed_lines_state = {
+        entry.get("id"): entry
+        for entry in closed_payload.get("lines") or []
+        if isinstance(entry, dict)
+    }
+    if "previous_group_end_date" in closed_payload and (
+        previous_closure is not None and group.end_date == previous_closure
+    ):
+        raw = closed_payload.get("previous_group_end_date")
+        group.end_date = None if raw is None else date.fromisoformat(raw)
 
     # Przywrócenie musi objąć LINIE, nie tylko nagłówek. Do tej rewizji reopen
     # cofał sam status grupy, a konsultantów zostawiał `completed` — zamówienie
@@ -3790,7 +3836,26 @@ async def reopen_order_group(
     # okres jeszcze trwa: zakończenie z datą w przeszłości było świadomą
     # decyzją o okresie i reopen jej nie unieważnia (patrz `sync_md_line_status`).
     lines_reopened = 0
+    reopen_day = business_today()
     for line in await lines_for_group(db, group.id):
+        state = closed_lines_state.get(line.id)
+        if state is not None and previous_closure is not None:
+            if line.end_date == previous_closure:
+                raw_end = state.get("previous_end_date")
+                line.end_date = None if raw_end is None else date.fromisoformat(raw_end)
+            # Linie kosztowe i ze wspólnej puli nie mają budżetu per linia,
+            # więc `sync_md_line_status` ich nie wskrzesza — wracają, gdy były
+            # aktywne i ich okres dalej trwa.
+            if (
+                line.md_total is None
+                and state.get("previous_status") == ClientOrderStatus.active.value
+                and line.status == ClientOrderStatus.completed
+                and (line.end_date is None or line.end_date >= reopen_day)
+                and (line.start_date is None or line.start_date <= reopen_day)
+            ):
+                line.status = ClientOrderStatus.active
+                lines_reopened += 1
+                continue
         if await sync_md_line_status(db, line):
             lines_reopened += 1
 
