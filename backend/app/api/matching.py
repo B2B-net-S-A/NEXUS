@@ -696,7 +696,7 @@ async def get_ai_matches(
     # Pull a wide pool so "show all who match" isn't artificially capped by
     # retrieval. The threshold filter below — not a fixed top-K — decides
     # who is shown. Rerank cost scales ~linearly with pool size, hence the
-    # tunable AI_MATCH_POOL_SIZE.
+    # tunable MATCH_POOL_SIZE.
 
     # ── Attempt Qdrant semantic search (+ optional Voyage rerank) ────────────
     # `try` obejmuje WYŁĄCZNIE wywołanie sieciowe. Do 2026-08-20 obejmował całą
