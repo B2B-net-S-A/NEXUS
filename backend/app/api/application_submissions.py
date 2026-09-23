@@ -266,6 +266,7 @@ async def _ensure_submission_process(
         frozen_origin_assignment_id=_origin_assignment_id(submission),
         frozen_priority_compliant=_priority_compliant_at_create(submission),
         notes="Rozstrzygnięto aplikację (application submission)",
+        entry_source="application",
     )
     return stage
 

@@ -161,3 +161,34 @@ export function insightOriginLabel(note: InsightNote): string | null {
       return null;
   }
 }
+
+/**
+ * Wpis „z importu” po zmianie starego pola spoza sekcji 8 (np. panel pytań
+ * klienta dopisuje do `historical_questions`) — ten sam tekst w widoku.
+ */
+export function syncLegacyInsight(
+  notes: readonly InsightNote[],
+  id: keyof typeof LEGACY_INSIGHT_META,
+  text: string,
+): InsightNote[] {
+  const existing = notes.find((n) => n.id === id);
+  if (existing) return notes.map((n) => (n.id === id ? { ...n, text } : n));
+  if (!text.trim()) return [...notes];
+  return [
+    ...notes,
+    {
+      id,
+      ...LEGACY_INSIGHT_META[id],
+      audience: "team",
+      text,
+      origin: "legacy",
+      editable: true,
+      done: false,
+    },
+  ];
+}
+
+const LEGACY_INSIGHT_META = {
+  "legacy:client.consultant_insight": { source: "consultant", topic: "team" },
+  "legacy:client.historical_questions": { source: "client", topic: "process" },
+} as const satisfies Record<string, { source: InsightSource; topic: InsightTopic }>;

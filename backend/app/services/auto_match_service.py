@@ -281,6 +281,10 @@ async def _apply_decisions(
                         trigger,
                     ),
                     tags=[AUTO_MATCH_TAG],
+                    # Automat nikogo nie „bierze” — osoba z automatu jest
+                    # wolna, a „Biorę” zakłada blokadę klikającemu (0352).
+                    entry_source="auto_match",
+                    claim=False,
                 )
         except Exception as exc:  # noqa: BLE001 — jedna para nie wywraca biegu
             logger.warning(

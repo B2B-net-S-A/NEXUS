@@ -46,6 +46,7 @@ import { cn } from "@/lib/utils";
 import { NewJobRequestStep } from "./NewJobRequestStep";
 import { NewJobReviewForm } from "./NewJobReviewForm";
 import { SimilarJobsPicker } from "./SimilarJobsPicker";
+import { ClientAskedBeforeHint } from "./ClientAskedBeforeHint";
 import { plural } from "@/components/v2/jobs/SimilarJobsDialog";
 import { similarJobsApi } from "@/lib/similar-jobs-api";
 
@@ -440,6 +441,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
                 onChange={setSimilarJobIds}
               />
             )}
+            {!preview && <ClientAskedBeforeHint clientId={client?.id ?? null} />}
           </div>
         </div>
       )}

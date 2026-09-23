@@ -32,6 +32,9 @@ interface Props {
   onConfirm: (payload: { rate: number; unit: RateUnit; currency: string }) => void;
   // Przesuń bez stawki — stawkę można uzupełnić później z profilu kandydata.
   onSkip: () => void;
+  /** Pipeline v4 (23.09.2026): poza Nordeą stawka jest WYMAGANA i wpisuje ją
+   *  Delivery Lead — bez „Przesuń bez stawki". */
+  required?: boolean;
 }
 
 const UNIT_LABELS: Record<RateUnit, string> = {
@@ -53,9 +56,12 @@ export function ClientRateModal({
   candidateName,
   onConfirm,
   onSkip,
+  required = false,
 }: Props) {
   const [rate, setRate] = useState<string>("");
-  const [unit, setUnit] = useState<RateUnit>("monthly");
+  // Wymagana stawka (przegląd DL) jest godzinowa jak w makiecie; stary
+  // opcjonalny wariant zostaje przy miesięcznej.
+  const [unit, setUnit] = useState<RateUnit>(required ? "hourly" : "monthly");
   const currency = "PLN";
 
   const numericRate = Number.parseFloat(rate.replace(",", "."));
@@ -63,7 +69,7 @@ export function ClientRateModal({
 
   const reset = () => {
     setRate("");
-    setUnit("monthly");
+    setUnit(required ? "hourly" : "monthly");
   };
 
   const handleConfirm = () => {
@@ -89,7 +95,7 @@ export function ClientRateModal({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
-          <FormField label="Stawka do klienta">
+          <FormField label="Stawka do klienta" required={required}>
             <input
               type="number"
               inputMode="decimal"
@@ -100,7 +106,7 @@ export function ClientRateModal({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && isValid) handleConfirm();
               }}
-              placeholder="np. 25000"
+              placeholder={unit === "hourly" ? "np. 175" : unit === "daily" ? "np. 1400" : "np. 25000"}
               className="w-full h-10 px-3 rounded-md border border-border bg-card focus:outline-hidden focus:ring-2 focus:ring-primary"
               autoFocus
             />
@@ -120,14 +126,21 @@ export function ClientRateModal({
             </Select>
           </FormField>
           <p className="text-xs text-muted-foreground">
-            Możesz pominąć i uzupełnić stawkę później z profilu kandydata
-            (zakładka „Rekrutacje").
+            {required
+              ? "Bez stawki nie przeniesiesz na „CV wysłane” — trafi do umowy i zamówienia."
+              : "Możesz pominąć i uzupełnić stawkę później z profilu kandydata (zakładka „Rekrutacje”)."}
           </p>
         </DialogBody>
         <DialogFooter>
-          <Button variant="ghost" onClick={handleSkip}>
-            Przesuń bez stawki
-          </Button>
+          {required ? (
+            <Button variant="ghost" onClick={() => onOpenChange(false)}>
+              Anuluj
+            </Button>
+          ) : (
+            <Button variant="ghost" onClick={handleSkip}>
+              Przesuń bez stawki
+            </Button>
+          )}
           <Button onClick={handleConfirm} disabled={!isValid}>
             Przesuń i zapisz
           </Button>

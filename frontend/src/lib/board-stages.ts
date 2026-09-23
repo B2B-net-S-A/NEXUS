@@ -1,36 +1,42 @@
 /**
- * Tablica rekrutacji: 9 kolumn, jeden etap = jedna kolumna (decyzja Artura
- * 22.09.2026, makieta https://claude.ai/artifact/6M23uXPJx2P2M7MuYqJec1).
+ * Tablica rekrutacji: 6 kolumn — Nowi · Zweryfikowany · CV wysłane · Rozmowa
+ * u klienta · Umowa · Zatrudniony (decyzja Artura 23.09.2026, makiety
+ * https://claude.ai/artifact/JQ8qdz16J6wG24WKTSgv6i). Do 22.09 było 9 kolumn;
+ * „Do przejrzenia”, „Screening” i „Akceptacja” są teraz odznakami.
  *
  * Szablony etapów w bazie ZOSTAJĄ — nocny import z Traffita zapisuje ruch na
  * dokładny stan swojego procesu (15 i 18 stanów), a usunięcie etapu wrzuciłoby
  * te osoby do „Poza szablonem". Ten moduł tylko TŁUMACZY etap szablonu na
  * kolumnę Tablicy, a to, co nie jest krokiem procesu, na odznakę na karcie:
  *
+ *   Ogłoszenia, Screening   → „Nowi" + „Z ogłoszenia"/„Screening"
  *   Przepuszczony przez DZ → „Zweryfikowany" + „DZ ✓"
  *   Wysłać do Cpro          → „Zweryfikowany" + „Gotowy do Cpro" (Nordea)
  *   Preparation Meeting     → „Rozmowa u klienta" + „Prep"
+ *   Akceptacja              → „Umowa" + „Akceptacja"
  *   Umowa wysłana/podpisana → „Umowa" + „wysłana"/„podpisana"
  *   Onboarding              → „Zatrudniony" + „Onboarding"
  *   Odrzucony, Wycofany     → pasek pod tablicą
  *
- * Reguła nazw DZ/Cpro ma lustro w backendzie (`services/board_stage_badges.py`
- * — kto może ustawić odznakę). Oba czytają `__fixtures__/board-stage-cases.json`.
+ * Statystyki liczą dalej każdy etap osobno — tablica tylko składa kolumny.
+ * Reguła ma lustro w backendzie (`services/board_stage_badges.py`: kto może
+ * ustawić odznakę, `board_column_for` — kolumna dla blokady 12 h i
+ * statystyk). Oba czytają `__fixtures__/board-stage-cases.json`.
  */
 
 export type BoardColumnKey =
-  | "review"
   | "new"
-  | "screening"
   | "verified"
   | "cv_sent"
   | "client_interview"
-  | "acceptance"
   | "contract"
   | "hired"
   | "closed";
 
 export type StageBadgeKey =
+  | "posting"
+  | "screening"
+  | "acceptance"
   | "dz"
   | "cpro"
   | "prep"
@@ -40,25 +46,19 @@ export type StageBadgeKey =
   | "onboarding";
 
 export const BOARD_COLUMN_ORDER: readonly BoardColumnKey[] = [
-  "review",
   "new",
-  "screening",
   "verified",
   "cv_sent",
   "client_interview",
-  "acceptance",
   "contract",
   "hired",
 ];
 
 export const BOARD_COLUMN_LABEL: Record<BoardColumnKey, string> = {
-  review: "Do przejrzenia",
   new: "Nowi",
-  screening: "Screening",
   verified: "Zweryfikowany",
   cv_sent: "CV wysłane",
   client_interview: "Rozmowa u klienta",
-  acceptance: "Akceptacja",
   contract: "Umowa",
   hired: "Zatrudniony",
   closed: "Zamknięci",
@@ -79,6 +79,9 @@ function boardColumnLabel(key: BoardColumnKey, options: FoldBoardOptions): strin
 }
 
 export const STAGE_BADGE_LABEL: Record<StageBadgeKey, string> = {
+  posting: "Z ogłoszenia",
+  screening: "Screening",
+  acceptance: "Akceptacja",
   dz: "DZ ✓",
   cpro: "Gotowy do Cpro",
   prep: "Prep",
@@ -89,6 +92,9 @@ export const STAGE_BADGE_LABEL: Record<StageBadgeKey, string> = {
 };
 
 export const STAGE_BADGE_TITLE: Record<StageBadgeKey, string> = {
+  posting: "Osoba z ogłoszenia — jeszcze nikt z nią nie rozmawiał",
+  screening: "Etap „Screening” (z Traffita) — rozmowa w toku",
+  acceptance: "Klient zaakceptował — umowa jeszcze nie wysłana",
   dz: "Zweryfikowany przez DZ (Delivery Lead / Dominik)",
   cpro: "Gotowy do wysłania w systemie Cpro Nordei",
   prep: "Przygotowanie do rozmowy u klienta",
@@ -133,15 +139,15 @@ export function isCproStageName(name: string | null | undefined): boolean {
 }
 
 const BY_ENUM: Record<string, BoardColumnKey> = {
-  posting: "review",
+  posting: "new",
   new: "new",
-  prep_call: "screening",
-  screening: "screening",
+  prep_call: "new",
+  screening: "new",
   verified: "verified",
   interview: "verified",
   cv_sent: "cv_sent",
   client_interview: "client_interview",
-  acceptance: "acceptance",
+  acceptance: "contract",
   negotiation: "contract",
   onboarding: "hired",
   hired: "hired",
@@ -173,6 +179,12 @@ export function placeStage(col: StageLike): StagePlacement {
     return { column: "hired", badge: null };
   }
   if (col.category === "terminal") return { column: "closed", badge: null };
+  // Odznaki z KODU etapu (nie z nazwy): kolumny, które zniknęły 23.09.2026.
+  if (col.stage === "posting") return { column: "new", badge: "posting" };
+  if (col.stage === "screening" || col.stage === "prep_call") {
+    return { column: "new", badge: "screening" };
+  }
+  if (col.stage === "acceptance") return { column: "contract", badge: "acceptance" };
   return { column: BY_ENUM[col.stage ?? ""] ?? "new", badge: null };
 }
 
@@ -196,12 +208,9 @@ export interface BoardColumnFold<C extends FoldableColumn> {
 }
 
 const CANONICAL_ENUM: Partial<Record<BoardColumnKey, string>> = {
-  review: "posting",
-  screening: "screening",
   verified: "verified",
   cv_sent: "cv_sent",
   client_interview: "client_interview",
-  acceptance: "acceptance",
   hired: "hired",
 };
 

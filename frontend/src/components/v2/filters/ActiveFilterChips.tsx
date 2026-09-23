@@ -28,6 +28,8 @@ interface ActiveFilterChipsProps {
  poolsById?: Map<number, string>;
  usersById?: Map<number, string>;
  clientsById?: Map<number, string>;
+ /** Pomija chipy, których wartość ekran pokazuje gdzie indziej (np. na pasku filtrów). */
+ omitKey?: (key: string) => boolean;
 }
 
 const REMOTE_LABELS: Record<string, string> = {
@@ -522,6 +524,7 @@ export function ActiveFilterChips({
  poolsById,
  usersById,
  clientsById,
+ omitKey,
 }: ActiveFilterChipsProps) {
  // Hit the same React Query cache key as <TalentPoolMultiSelect> (staleTime
  // 60s) — gdy filter dropdown był otwarty w tej sesji, to read jest cache-hit
@@ -610,7 +613,7 @@ export function ActiveFilterChips({
  resolvedClients,
  resolvedCcs,
  resolvedRecruitments,
- );
+ ).filter((chip) => !omitKey?.(chip.key));
  if (chips.length === 0) return null;
 
  const clearAll = () =>

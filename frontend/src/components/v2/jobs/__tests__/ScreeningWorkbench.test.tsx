@@ -32,6 +32,11 @@ vi.mock("@/lib/api", () => ({
   screeningApi: {
     getForStage: (...a: unknown[]) => getForStage(...a),
     submit: (...a: unknown[]) => submitScreening(...a),
+    // Przepięcie (Pipeline v4): te testy dotyczą osób bez poprzedniej rekrutacji.
+    reassignContext: () =>
+      Promise.resolve({
+        data: { stage_id: 0, available: false, source: null, previous_answers_count: 0 },
+      }),
   },
   interviewQuestionsApi: { listForJob: (...a: unknown[]) => listForJob(...a) },
   extractErrorMsg: (e: unknown) => (e instanceof Error ? e.message : "Błąd"),
@@ -598,7 +603,7 @@ describe("ScreeningWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
   it("osoba spoza kolejki dostaje zdanie o etapie, nie pustkę ani błąd", () => {
     renderWorkbench({ layout: "panel", focusCandidateId: 999 });
     expect(
-      screen.getByText(/Arkusz screeningu jest dostępny na etapie „Screening”/),
+      screen.getByText(/Arkusz screeningu jest dostępny w kolumnie „Nowi”/),
     ).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(getForStage).not.toHaveBeenCalled();

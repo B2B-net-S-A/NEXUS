@@ -38,6 +38,7 @@ class TestFeatureKeyEnum:
             "scoring",
             "job_description_generator",
             "job_public_description",
+            "screening_reassign_suggest",
             "cv_parser",
             "candidate_summary",
             "champion_draft",

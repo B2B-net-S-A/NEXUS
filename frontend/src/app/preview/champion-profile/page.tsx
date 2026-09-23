@@ -38,6 +38,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
 import { EMPTY_CHAMPION_PROFILE, type ChampionProfile } from "@/lib/api";
+import { clientQuestionPoolQueryKey } from "@/lib/api/interviewCycle";
 import { makeClientPlaybook } from "@/test/fixtures/client-playbook";
 import { makeCvRule } from "@/test/fixtures/cv-rule";
 
@@ -223,6 +224,8 @@ export default function ChampionProfilePreviewPage() {
       qc.setQueryData(["job-meeting-notes", jobId], EMPTY_LIST);
       qc.setQueryData(["champion-suggestions", jobId], EMPTY_LIST);
       qc.setQueryData(["notes-attached", jobId], EMPTY_LIST);
+      // Pipeline v4: panel „Pytania klienta z rozmów" (pula z debriefów).
+      qc.setQueryData(clientQuestionPoolQueryKey("job", jobId, 50), EMPTY_LIST);
       // Panel podobnych ról ma przełącznik „ten klient / wszyscy klienci", a
       // `crossClient` wchodzi w klucz — zasianie jednego wariantu zostawia drugi
       // niezasiany, więc pierwsze kliknięcie strzeliłoby do API.

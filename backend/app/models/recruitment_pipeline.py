@@ -226,6 +226,12 @@ class CandidateStage(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
+    # ── Kto zakończył proces (0352) ────────────────────────────────────────
+    # Wyłącznie na wierszu etapu terminalnego: candidate (rezygnacja) |
+    # recruiter („odrzucony przez nas") | delivery_lead | client. NULL = wiersz
+    # sprzed 0352 albo z importu — czytany według typu terminala.
+    ended_by: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+
     # ── Candidate offer response (migracja 0066) ───────────────────────────
     # Tylko ma znaczenie gdy stage ∈ {acceptance, negotiation, onboarding}.
     # `declined` na późniejszym `withdrawn` = post-accept dropout (10pt).

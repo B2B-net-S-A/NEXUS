@@ -24,7 +24,7 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import api, { candidatesApi, pipelineApi, type RateUnit } from "@/lib/api";
+import api, { pipelineApi, type RateUnit } from "@/lib/api";
 import { getUserRoles, useAuthStore } from "@/store/auth";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,8 @@ import {
 } from "@/components/ui/dialog";
 import { VerifiedRateModal } from "@/components/v2/modals/VerifiedRateModal";
 import { ClientRateModal } from "@/components/v2/modals/ClientRateModal";
-import { RejectionV2 } from "@/components/v2/modals/RejectionV2";
+import { RejectionV2, type EndedBy } from "@/components/v2/modals/RejectionV2";
+import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
   colId,
   type KanbanColumn,
@@ -136,6 +137,8 @@ export interface UsePipelineMoveOptions {
   readOnly: boolean;
   canWriteClientRate: boolean;
   optimistic?: PipelineMoveOptimisticAdapter;
+  /** Rekrutacja Nordei: „CV wysłane" = „Wysłane do Cpro", bez przeglądu DL. */
+  cproEnabled?: boolean;
 }
 
 interface MoveEntry {
@@ -150,6 +153,8 @@ interface MoveReason {
   candidateOfferResponse?: "pending" | "accepted" | "declined" | null;
   // Wolny tekst powodu — tylko gdy szablon nie miał zdefiniowanych powodów.
   freeReason?: string;
+  // Kto zakończył proces (0352).
+  endedBy?: EndedBy;
 }
 
 interface SendMoveOptions {
@@ -169,9 +174,27 @@ interface SendMoveOptions {
   onFailure?: (reason: string) => void;
   // 0348: osoba, która wyśle kandydata do Cpro — tylko przy „Gotowy do Cpro".
   taskAssigneeId?: number;
+  // Pipeline v4: stawka do klienta w TYM SAMYM żądaniu co ruch na „CV wysłane".
+  clientRate?: RatePayload;
 }
 
 type RatePayload = { rate: number; unit: RateUnit; currency: string };
+
+/** 409 `DEBRIEF_REQUIRED` (Pipeline v4) → id rozmowy u klienta albo `null`. */
+function debriefRequiredEventId(error: unknown): number | null {
+  const response = (error as { response?: { status?: number; data?: { detail?: unknown } } })
+    ?.response;
+  const detail = response?.data?.detail as { code?: unknown; event_id?: unknown } | undefined;
+  if (response?.status !== 409 || !detail || detail.code !== "DEBRIEF_REQUIRED") return null;
+  return typeof detail.event_id === "number" ? detail.event_id : null;
+}
+
+// Pipeline v4 (23.09.2026): poza Nordeą do klienta wysyła Delivery Lead
+// (lustro `pipeline_move_rules.CLIENT_SEND_ROLES`).
+const CLIENT_SEND_ROLES = new Set(["admin", "delivery_lead"]);
+const DL_REJECT_ROLES = new Set(["admin", "delivery_lead", "head_of_recruitment"]);
+export const CLIENT_SEND_DENIED_MESSAGE =
+  "Do klienta wysyła Delivery Lead — osoba czeka w „Zweryfikowanym” na jego przegląd.";
 
 export interface PipelineMoveControls {
   /** Ta sama decyzja co przeciągnięcie karty na tablicy. */
@@ -189,11 +212,15 @@ export interface PipelineMoveControls {
     options?: { onHandled?: () => void }
   ) => Promise<void>;
   /** „Odrzuć z powodem" — otwiera `RejectionV2` na kolumnie terminalnej
-   *  „Odrzucony" (domyślnie pierwszej takiej w `columns`). */
+   *  „Odrzucony" (domyślnie pierwszej takiej w `columns`). `endedBy` wstępnie
+   *  wybiera „kto kończy". */
   requestReject: (
     items: KanbanItem | KanbanItem[],
-    toColumn?: KanbanColumn
+    toColumn?: KanbanColumn,
+    options?: { endedBy?: Exclude<EndedBy, "candidate"> }
   ) => void;
+  /** „Zrezygnował" — `RejectionV2` na kolumnie „Wycofany". */
+  requestWithdraw: (items: KanbanItem | KanbanItem[]) => void;
   /** Trwa pętla ruchu zbiorczego. */
   isMoving: boolean;
   /** Wszystkie okna przepływu — wyrenderuj raz w drzewie wołającego. */
@@ -207,6 +234,7 @@ export function usePipelineMove({
   readOnly,
   canWriteClientRate,
   optimistic,
+  cproEnabled = false,
 }: UsePipelineMoveOptions): PipelineMoveControls {
   const queryClient = useQueryClient();
   const { showActionToast, showSuccess, showError } = useToast();
@@ -214,6 +242,8 @@ export function usePipelineMove({
   // widzi to, na co pozwala jej którakolwiek z nich (parity z backendem).
   const authUser = useAuthStore((s) => s.user);
   const canEditRates = getUserRoles(authUser).some((r) => RATE_EDIT_ROLES.has(r));
+  const canSendToClient = getUserRoles(authUser).some((r) => CLIENT_SEND_ROLES.has(r));
+  const canEndAsDeliveryLead = getUserRoles(authUser).some((r) => DL_REJECT_ROLES.has(r));
 
   // Ref, nie zależność: adapter jest zwykle świeżym obiektem przy każdym
   // renderze wołającego, a callbacki ruchu mają zostać stabilne.
@@ -234,6 +264,7 @@ export function usePipelineMove({
     entries: MoveEntry[];
     destCol: KanbanColumn;
     terminalType: "rejected" | "withdrawn";
+    endedBy?: Exclude<EndedBy, "candidate"> | null;
   } | null>(null);
   const [verifiedRatePrompt, setVerifiedRatePrompt] = useState<{
     item: KanbanItem;
@@ -253,6 +284,13 @@ export function usePipelineMove({
     srcColId: string;
   } | null>(null);
   const [clientRateQueue, setClientRateQueue] = useState<MoveEntry[]>([]);
+  // Pipeline v4: 409 DEBRIEF_REQUIRED — najpierw telefon po rozmowie u klienta
+  // i pytania klienta, potem TEN SAM ruch.
+  const [debriefRequired, setDebriefRequired] = useState<{
+    eventId: number;
+    item: KanbanItem;
+    retry: () => Promise<void>;
+  } | null>(null);
   const [clientRateBulkTotal, setClientRateBulkTotal] = useState(0);
   // 409 ELIGIBILITY_WARNING (17.09.2026) — jedno okno. `retry` powtarza ruch,
   // który je wywołał, z `acknowledge_eligibility: true`; `onDismiss` pozwala
@@ -328,6 +366,10 @@ export function usePipelineMove({
             opts?.checkVersion === false ? undefined : expectedStateVersionOf(item),
           acknowledge_eligibility: opts?.acknowledgeEligibility ? true : undefined,
           task_assignee_id: opts?.taskAssigneeId ?? undefined,
+          ended_by: reason?.endedBy ?? undefined,
+          client_rate_value: opts?.clientRate?.rate ?? undefined,
+          client_rate_unit: opts?.clientRate?.unit ?? undefined,
+          client_rate_currency: opts?.clientRate?.currency ?? undefined,
         });
 
         // M4 PR-03 (audyt P1.3): backend tworzy NOWY CandidateStage — karta
@@ -419,6 +461,18 @@ export function usePipelineMove({
           });
           return false;
         }
+        const debriefEventId = debriefRequiredEventId(e);
+        if (!opts?.silent && debriefEventId != null) {
+          setDebriefRequired({
+            eventId: debriefEventId,
+            item,
+            retry: async () => {
+              setDebriefRequired(null);
+              await sendMoveRef.current?.(item, dst, reason, opts);
+            },
+          });
+          return false;
+        }
         if (!opts?.silent && isPipelineVersionConflict(e)) {
           // Ktoś przesunął tę parę po odczycie tablicy: bez ponowienia —
           // pokazujemy prawdę serwera i dajemy zdecydować jeszcze raz.
@@ -494,6 +548,18 @@ export function usePipelineMove({
         return;
       }
 
+      // „CV Wysłane" poza Nordeą (Pipeline v4): wysyła DL, stawka wymagana.
+      if (dialog === "client_rate" && !cproEnabled) {
+        if (!canSendToClient) {
+          showError(CLIENT_SEND_DENIED_MESSAGE);
+          return;
+        }
+        setClientRateQueue([]);
+        setClientRateBulkTotal(1);
+        setClientRatePrompt({ item, destCol: dst, srcColId });
+        return;
+      }
+
       // „CV Wysłane" — zapytaj o stawkę do klienta przed ruchem (rekruter może
       // pominąć lub anulować w modalu, dlatego NIE applyOptimistic tutaj).
       if (dialog === "client_rate" && canWriteClientRate) {
@@ -530,7 +596,16 @@ export function usePipelineMove({
         options?.taskAssigneeId != null ? { taskAssigneeId: options.taskAssigneeId } : undefined
       );
     },
-    [readOnly, applyOptimistic, sendMove, showError, canEditRates, canWriteClientRate]
+    [
+      readOnly,
+      applyOptimistic,
+      sendMove,
+      showError,
+      canEditRates,
+      canWriteClientRate,
+      canSendToClient,
+      cproEnabled,
+    ]
   );
 
   // Submit z okna „Zweryfikowany". `payload === null` = „Pomiń stawkę" (stawka
@@ -645,30 +720,20 @@ export function usePipelineMove({
       // Zapytanie strony odświeżamy PO zapisie stawki — inaczej kolejki kroków
       // dostałyby „CV Wysłane" bez stawki, którą zaraz zapiszemy.
       let failureReason: string | null = null;
+      // Pipeline v4: stawka jedzie w tym samym żądaniu co ruch — serwer
+      // odmawia ruchu bez niej (poza Nordeą), więc nie ma już stanu
+      // „przeniesiono, ale stawki brak".
       const ok = await sendMove(item, destCol, undefined, {
         silent: isBulk,
         deferCacheSync: true,
         checkVersion: !isBulk,
+        clientRate: payload ?? undefined,
         onFailure: (r) => {
           failureReason = r;
         },
       });
-      if (ok && payload) {
-        try {
-          await candidatesApi.setRecruitmentClientRate(item.candidate_id, jobId, {
-            rate_value: payload.rate,
-            rate_unit: payload.unit,
-            rate_currency: payload.currency,
-          });
-          if (!isBulk) {
-            showSuccess("Przeniesiono na „CV Wysłane” i zapisano stawkę do klienta.");
-          }
-        } catch (e) {
-          console.error("Set client rate failed", e);
-          showError(
-            "Przeniesiono, ale nie udało się zapisać stawki do klienta — uzupełnij ją z profilu kandydata."
-          );
-        }
+      if (ok && payload && !isBulk) {
+        showSuccess("Przeniesiono na „CV Wysłane” ze stawką do klienta.");
       } else if (!ok && isBulk) {
         // `sendMove` w trybie zbiorczym jest cichy — bez tego toastu karta
         // wracała na miejsce bez słowa wyjaśnienia.
@@ -693,7 +758,6 @@ export function usePipelineMove({
       clientRatePrompt,
       clientRateQueue,
       clientRateBulkTotal,
-      jobId,
       applyOptimistic,
       sendMove,
       refreshAfterMove,
@@ -765,7 +829,12 @@ export function usePipelineMove({
       }
 
       // „CV Wysłane" — stawka do klienta per kandydat → kolejka modali.
-      if (dst.stage === "cv_sent" && canWriteClientRate) {
+      // Poza Nordeą (Pipeline v4) tylko DL/admin i bez pomijania stawki.
+      if (dst.stage === "cv_sent" && !cproEnabled && !canSendToClient) {
+        showError(CLIENT_SEND_DENIED_MESSAGE);
+        return;
+      }
+      if (dst.stage === "cv_sent" && (canWriteClientRate || !cproEnabled)) {
         setClientRateBulkTotal(entries.length);
         setClientRateQueue(entries.slice(1));
         setClientRatePrompt({
@@ -829,6 +898,8 @@ export function usePipelineMove({
       readOnly,
       canEditRates,
       canWriteClientRate,
+      canSendToClient,
+      cproEnabled,
       applyOptimistic,
       sendMove,
       refreshAfterMove,
@@ -839,7 +910,11 @@ export function usePipelineMove({
   );
 
   const requestReject = useCallback(
-    (items: KanbanItem | KanbanItem[], toColumn?: KanbanColumn) => {
+    (
+      items: KanbanItem | KanbanItem[],
+      toColumn?: KanbanColumn,
+      options?: { endedBy?: Exclude<EndedBy, "candidate"> }
+    ) => {
       const dst = toColumn ?? columns.find((c) => terminalOf(c) === "rejected");
       if (!dst) return;
       const entries: MoveEntry[] = [];
@@ -851,9 +926,35 @@ export function usePipelineMove({
         entries.push({ item: candidate, srcColId: colId(src) });
       }
       if (entries.length === 0) return;
-      setPendingRejection({ entries, destCol: dst, terminalType: "rejected" });
+      setPendingRejection({
+        entries,
+        destCol: dst,
+        terminalType: "rejected",
+        endedBy: options?.endedBy ?? null,
+      });
     },
     [columns]
+  );
+
+  const requestWithdraw = useCallback(
+    (items: KanbanItem | KanbanItem[]) => {
+      const dst = columns.find((c) => terminalOf(c) === "withdrawn");
+      if (!dst) {
+        showError("Ten szablon nie ma etapu „Wycofany” — użyj „Odrzuć”.");
+        return;
+      }
+      const entries: MoveEntry[] = [];
+      for (const candidate of Array.isArray(items) ? items : [items]) {
+        const src = columns.find((c) =>
+          c.items.some((i) => i.candidate_id === candidate.candidate_id)
+        );
+        if (!src) continue;
+        entries.push({ item: candidate, srcColId: colId(src) });
+      }
+      if (entries.length === 0) return;
+      setPendingRejection({ entries, destCol: dst, terminalType: "withdrawn" });
+    },
+    [columns, showError]
   );
 
   const confirmRejection = (
@@ -861,7 +962,8 @@ export function usePipelineMove({
     notes: string,
     sendRejectionEmail: boolean | null | undefined,
     candidateOfferResponse: "pending" | "accepted" | "declined" | null | undefined,
-    freeReason?: string
+    freeReason?: string,
+    endedBy?: EndedBy
   ) => {
     if (!pendingRejection) return;
     const { entries, destCol } = pendingRejection;
@@ -880,6 +982,7 @@ export function usePipelineMove({
             sendRejectionEmail,
             candidateOfferResponse: candidateOfferResponse ?? null,
             freeReason,
+            endedBy,
           },
           {
             silent: entries.length > 1,
@@ -925,7 +1028,25 @@ export function usePipelineMove({
             : null
         }
         onConfirm={confirmRejection}
+        initialEndedBy={pendingRejection?.endedBy ?? null}
+        canEndAsDeliveryLead={canEndAsDeliveryLead}
       />
+
+      {debriefRequired && (
+        <DebriefRequiredDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setDebriefRequired(null);
+              void refreshAfterMove();
+            }
+          }}
+          eventId={debriefRequired.eventId}
+          candidateName={itemFullName(debriefRequired.item)}
+          jobId={jobId}
+          onSaved={() => void debriefRequired.retry()}
+        />
+      )}
 
       {/* „Zweryfikowany" — stawka opcjonalna, podpowiedź z profilu kandydata */}
       {verifiedRatePrompt && (
@@ -976,6 +1097,7 @@ export function usePipelineMove({
           }
           onConfirm={(payload) => submitClientRateMove(payload)}
           onSkip={() => submitClientRateMove(null)}
+          required={!cproEnabled}
         />
       )}
 
@@ -1049,6 +1171,7 @@ export function usePipelineMove({
     requestMove,
     requestBulkMove,
     requestReject,
+    requestWithdraw,
     isMoving: bulkBusy,
     dialogs,
   };

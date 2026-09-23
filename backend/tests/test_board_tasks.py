@@ -139,9 +139,52 @@ def test_hor_sees_own_cpro_first_then_unassigned_then_others() -> None:
     assert [t.stage_id for t in mine[svc.KIND_CPRO_TO_SEND]] == [3, 2, 1]
 
 
+def test_classify_template_finds_the_rejected_terminal_stage() -> None:
+    stages = svc.classify_template(
+        [
+            _def(2, "Zweryfikowany", 2, "verified"),
+            _def(5, "CV Wysłane", 5, "cv_sent"),
+            _def(8, "Zatrudniony", 8, "hired", terminal=True),
+            _def(9, "Odrzucony", 9, "rejected", terminal=True),
+        ]
+    )
+    assert stages.rejected_id == 9
+    assert stages.cv_sent_id == 5
+
+
+def test_dl_review_is_visible_like_dz_and_never_to_recruiters() -> None:
+    snap = svc.BoardTaskSnapshot(
+        tasks=[
+            _task(svc.KIND_DL_REVIEW, stage_id=1, client_id=7),
+            _task(svc.KIND_DL_REVIEW, stage_id=2, client_id=8),
+            _task(svc.KIND_DL_REVIEW, stage_id=3, client_id=9, delivery_lead_id=50),
+        ]
+    )
+    dl = _user(50, UserRole.delivery_lead)
+    mine = svc.tasks_for_user(snap, dl, portfolio=frozenset({7}))
+    assert [t.stage_id for t in mine[svc.KIND_DL_REVIEW]] == [1, 3]
+    assert mine[svc.KIND_DZ] == []
+
+    hor = _user(60, UserRole.head_of_recruitment)
+    assert (
+        len(svc.tasks_for_user(snap, hor, portfolio=frozenset())[svc.KIND_DL_REVIEW])
+        == 3
+    )
+    rec = _user(70, UserRole.recruiter)
+    assert (
+        svc.tasks_for_user(snap, rec, portfolio=frozenset({7}))[svc.KIND_DL_REVIEW]
+        == []
+    )
+
+
 @pytest.mark.parametrize(
     ("line", "text"),
     [
+        (svc.DigestLine(dl_review=1), "1 osoba czeka na Twój przegląd"),
+        (
+            svc.DigestLine(dl_review=5, dz=2),
+            "5 osób czeka na Twój przegląd · 2 osoby czekają na DZ",
+        ),
         (svc.DigestLine(dz=1), "1 osoba czeka na DZ"),
         (svc.DigestLine(dz=3), "3 osoby czekają na DZ"),
         (
@@ -438,17 +481,187 @@ async def test_cpro_queue_ignores_non_nordea_clients(
     world = await _seed_world()
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
     hor = await _login(api_client, hor_creds)
+    dl = await _login(api_client, dl_creds)
     cid, jid, defs = world["candidate_id"], world["job_id"], world["defs"]
     try:
-        for key in ("verified", "cv_sent"):
+        # Poza Nordeą „CV wysłane" to ruch Delivery Leada ze stawką do klienta.
+        for headers, key, extra in (
+            (hor, "verified", {}),
+            (
+                dl,
+                "cv_sent",
+                {
+                    "client_rate_value": "180",
+                    "client_rate_unit": "hourly",
+                    "client_rate_currency": "PLN",
+                },
+            ),
+        ):
             r = await api_client.post(
                 "/api/pipeline/move",
-                headers=hor,
-                json={"candidate_id": cid, "job_id": jid, "stage_def_id": defs[key]},
+                headers=headers,
+                json={
+                    "candidate_id": cid,
+                    "job_id": jid,
+                    "stage_def_id": defs[key],
+                    **extra,
+                },
             )
             assert r.status_code == 200, r.text
         queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
         assert _rows(queue, "cpro_sent", cid) == []
+        # Wysłany do klienta nie czeka już na przegląd DL.
+        assert _rows(queue, "dl_review", cid) == []
+    finally:
+        await _cleanup(world, [hor_id, dl_id])
+
+
+@pytest.mark.asyncio
+async def test_dl_review_queue_for_clients_other_than_nordea(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pipeline v4: poza Nordeą zweryfikowany czeka na przegląd DL (nie na DZ).
+
+    Wiersz niesie cel „CV wysłane", etap „Odrzucony", kto zweryfikował i
+    migawkę stawki z wiersza weryfikacji — także wtedy, gdy najnowszym
+    wierszem jest już etap DZ (odznaka w tej samej kolumnie).
+    """
+
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    dl_in_id, dl_in_creds = await _seed_user(UserRole.delivery_lead)
+    dl_out_id, dl_out_creds = await _seed_user(UserRole.delivery_lead)
+    hor = await _login(api_client, hor_creds)
+    rec = await _login(api_client, rec_creds)
+    dl_in = await _login(api_client, dl_in_creds)
+    dl_out = await _login(api_client, dl_out_creds)
+    cid, jid, defs = world["candidate_id"], world["job_id"], world["defs"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, jid)
+        job.delivery_lead_id = dl_in_id
+        rejected_id = await db.scalar(
+            select(PipelineStageDef.id).where(
+                PipelineStageDef.template_id == world["template_id"],
+                PipelineStageDef.is_terminal.is_(True),
+            )
+        )
+        await db.commit()
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CandidateStage(
+                    candidate_id=cid,
+                    job_id=jid,
+                    stage="screening",
+                    stage_def_id=defs["screening"],
+                    moved_by=rec_id,
+                    screening_answers={"answers": [], "overall_fit": "fit"},
+                    moved_at=datetime.now(timezone.utc) - timedelta(hours=2),
+                )
+            )
+            await db.commit()
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=hor,
+            json={
+                "candidate_id": cid,
+                "job_id": jid,
+                "stage_def_id": defs["verified"],
+                "expected_rate_value": "140",
+                "expected_rate_unit": "hourly",
+                "expected_rate_currency": "PLN",
+            },
+        )
+        assert moved.status_code == 200, moved.text
+
+        queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
+        assert _rows(queue, "dz", cid) == []
+        review = _rows(queue, "dl_review", cid)
+        assert len(review) == 1
+        row = review[0]
+        assert row["kind"] == "dl_review"
+        assert row["target_stage_def_id"] == defs["cv_sent"]
+        assert row["rejected_stage_def_id"] == rejected_id
+        assert row["verified_by_id"] == hor_id
+        assert row["verified_by_name"].startswith("BT head_of_recruitment")
+        assert row["expected_rate_value"] == 140.0
+        assert row["expected_rate_unit"] == "hourly"
+        assert row["expected_rate_currency"] == "PLN"
+        assert row["screening_stage_id"] is not None
+        assert row["screening_stage_id"] != row["stage_id"]
+        assert queue["can_send_to_client"] is False
+        assert queue["dl_review_window_days"] == svc.DL_REVIEW_WINDOW_DAYS
+
+        assert (
+            _rows(
+                (await api_client.get("/api/board-tasks", headers=rec)).json(),
+                "dl_review",
+                cid,
+            )
+            == []
+        )
+        assert (
+            _rows(
+                (await api_client.get("/api/board-tasks", headers=dl_out)).json(),
+                "dl_review",
+                cid,
+            )
+            == []
+        )
+        dl_queue = (await api_client.get("/api/board-tasks", headers=dl_in)).json()
+        assert len(_rows(dl_queue, "dl_review", cid)) == 1
+        assert dl_queue["can_send_to_client"] is True
+
+        # Etap DZ to odznaka tej samej kolumny — osoba dalej czeka na przegląd,
+        # a weryfikacja i stawka idą z wiersza „Zweryfikowany".
+        dz = await api_client.post(
+            "/api/pipeline/move",
+            headers=hor,
+            json={"candidate_id": cid, "job_id": jid, "stage_def_id": defs["dz"]},
+        )
+        assert dz.status_code == 200, dz.text
+        after_dz = _rows(
+            (await api_client.get("/api/board-tasks", headers=hor)).json(),
+            "dl_review",
+            cid,
+        )
+        assert len(after_dz) == 1
+        assert after_dz[0]["stage_id"] != row["stage_id"]
+        assert after_dz[0]["verified_by_id"] == hor_id
+        assert after_dz[0]["expected_rate_value"] == 140.0
+
+        # Poranny skrót liczy przegląd DL.
+        async with AsyncSessionLocal() as db:
+            snapshot = await svc.load_snapshot(db)
+            counts = await svc.digest_counts(db, snapshot)
+        assert counts[dl_in_id].dl_review >= 1
+        assert dl_out_id not in counts
+    finally:
+        await _cleanup(world, [hor_id, rec_id, dl_in_id, dl_out_id])
+
+
+@pytest.mark.asyncio
+async def test_nordea_keeps_dz_and_has_no_dl_review(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    cid, jid, defs = world["candidate_id"], world["job_id"], world["defs"]
+    try:
+        r = await api_client.post(
+            "/api/pipeline/move",
+            headers=hor,
+            json={"candidate_id": cid, "job_id": jid, "stage_def_id": defs["verified"]},
+        )
+        assert r.status_code == 200, r.text
+        queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
+        assert len(_rows(queue, "dz", cid)) == 1
+        assert _rows(queue, "dl_review", cid) == []
     finally:
         await _cleanup(world, [hor_id])

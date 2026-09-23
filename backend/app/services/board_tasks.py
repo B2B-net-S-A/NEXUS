@@ -15,8 +15,17 @@ z NAJNOWSZEGO wiersza każdej pary (kandydat, opublikowana rekrutacja):
   nieprzypisane i widzą je osoby z prawem DZ.
 * **Wysłane do Cpro** — u Nordei „CV wysłane" TO JEST wysłanie do Cpro
   (decyzja Artura 22.09.2026); lista mówi, od ilu dni czekamy na Nordeę.
+* **Czeka na przegląd DL** (pipeline v4, decyzja Artura 23.09.2026) — u
+  klientów INNYCH niż Nordea osoba w kolumnie „Zweryfikowany" (etap
+  ``verified`` albo etap DZ) czeka, aż Delivery Lead obejrzy stawkę, CV
+  i odpowiedzi ze screeningu i wyśle ją do klienta (ruch na „CV wysłane" ze
+  stawką do klienta) albo odrzuci. Kolejka DZ zostaje wyłącznie u Nordei
+  (DZ → Cpro bez zmian) — u pozostałych klientów przegląd DL ją zastępuje,
+  inaczej ta sama osoba czekałaby w dwóch listach na tę samą decyzję.
 
-Okno: ruch z ostatnich ``WINDOW_DAYS`` dni. Import z Traffita zostawia na
+Okno: ruch z ostatnich ``WINDOW_DAYS`` dni (przegląd DL:
+``DL_REVIEW_WINDOW_DAYS`` — zweryfikowany kandydat bez decyzji DL to praca
+do zrobienia dłużej niż odznaka). Import z Traffita zostawia na
 opublikowanych rekrutacjach setki osób „zweryfikowanych" rok temu — kolejka
 z nimi byłaby listą, której nikt nie przeczyta.
 """
@@ -27,11 +36,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
-from sqlalchemy import or_, select, text
+from sqlalchemy import or_, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
+from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services.board_stage_badges import (
@@ -43,10 +53,12 @@ from app.services.board_stage_badges import (
 )
 
 WINDOW_DAYS = 14
+DL_REVIEW_WINDOW_DAYS = 30
 
 KIND_DZ = "dz"
 KIND_CPRO_TO_SEND = "cpro_to_send"
 KIND_CPRO_SENT = "cpro_sent"
+KIND_DL_REVIEW = "dl_review"
 
 # Role, które dostają kolejkę DZ w porannym skrócie. Admin może zatwierdzać,
 # ale skrót dostaje tylko wtedy, gdy ma też jedną z tych ról — konto
@@ -67,6 +79,7 @@ class TemplateStages:
     cpro_id: Optional[int]
     cv_sent_ids: frozenset[int]
     cv_sent_id: Optional[int]
+    rejected_id: Optional[int] = None
 
 
 @dataclass
@@ -86,6 +99,18 @@ class BoardTask:
     assignee_name: Optional[str] = None
     moved_by: Optional[int] = None
     delivery_lead_id: Optional[int] = None
+    template_id: Optional[int] = None
+    # Przegląd DL: kto i kiedy zweryfikował, stawka z wiersza weryfikacji
+    # (migawka oczekiwań kandydata), wiersz z zapisanym arkuszem screeningu
+    # i etap „Odrzucony" szablonu — panel nie musi zgadywać żadnego z nich.
+    rejected_stage_def_id: Optional[int] = None
+    verified_by_id: Optional[int] = None
+    verified_by_name: Optional[str] = None
+    verified_at: Optional[datetime] = None
+    expected_rate_value: Optional[float] = None
+    expected_rate_unit: Optional[str] = None
+    expected_rate_currency: Optional[str] = None
+    screening_stage_id: Optional[int] = None
 
     def as_dict(self) -> dict:
         return {
@@ -102,6 +127,14 @@ class BoardTask:
             "target_stage_def_id": self.target_stage_def_id,
             "assignee_id": self.assignee_id,
             "assignee_name": self.assignee_name,
+            "rejected_stage_def_id": self.rejected_stage_def_id,
+            "verified_by_id": self.verified_by_id,
+            "verified_by_name": self.verified_by_name,
+            "verified_at": self.verified_at,
+            "expected_rate_value": self.expected_rate_value,
+            "expected_rate_unit": self.expected_rate_unit,
+            "expected_rate_currency": self.expected_rate_currency,
+            "screening_stage_id": self.screening_stage_id,
         }
 
 
@@ -125,8 +158,11 @@ def classify_template(defs: Iterable[PipelineStageDef]) -> TemplateStages:
     dz: list[int] = []
     cpro: list[int] = []
     cv_sent: list[int] = []
+    rejected: list[int] = []
     for d in ordered:
         if d.is_terminal:
+            if _terminal_type(d) == "rejected":
+                rejected.append(d.id)
             continue
         if is_dz_stage(d.name):
             dz.append(d.id)
@@ -143,7 +179,15 @@ def classify_template(defs: Iterable[PipelineStageDef]) -> TemplateStages:
         cpro_id=cpro[0] if cpro else None,
         cv_sent_ids=frozenset(cv_sent),
         cv_sent_id=cv_sent[0] if cv_sent else None,
+        rejected_id=rejected[0] if rejected else None,
     )
+
+
+def _terminal_type(d: PipelineStageDef) -> Optional[str]:
+    value = getattr(d, "terminal_type", None)
+    if value is None:
+        return "rejected" if d.legacy_enum_value == "rejected" else None
+    return getattr(value, "value", value)
 
 
 @dataclass(frozen=True)
@@ -226,6 +270,8 @@ async def load_snapshot(
     targets: set[int] = set()
     for stages in templates.values():
         targets |= stages.verified_ids | stages.cpro_ids | stages.cv_sent_ids
+        if stages.dz_id is not None:
+            targets.add(stages.dz_id)
     if not targets:
         return BoardTaskSnapshot()
     # Wiersze, które w KTÓRYMKOLWIEK szablonie trafiają na etap kolejki
@@ -246,12 +292,13 @@ async def load_snapshot(
             _LATEST_SQL,
             {
                 "default_template_id": default_template_id,
-                "since": now - timedelta(days=WINDOW_DAYS),
+                "since": now - timedelta(days=max(WINDOW_DAYS, DL_REVIEW_WINDOW_DAYS)),
                 "stage_def_ids": sorted(relevant),
             },
         )
     ).all()
 
+    badge_since = now - timedelta(days=WINDOW_DAYS)
     tasks: list[BoardTask] = []
     for r in rows:
         stages = templates.get(r.template_id)
@@ -275,8 +322,25 @@ async def load_snapshot(
             process_state_version=0,
             moved_by=r.moved_by,
             delivery_lead_id=r.delivery_lead_id,
+            template_id=r.template_id,
         )
         nordea = cpro_enabled_for_client(r.client_id)
+        if not nordea:
+            in_verified_column = effective in stages.verified_ids or (
+                stages.dz_id is not None and effective == stages.dz_id
+            )
+            if in_verified_column:
+                tasks.append(
+                    BoardTask(
+                        kind=KIND_DL_REVIEW,
+                        target_stage_def_id=stages.cv_sent_id,
+                        rejected_stage_def_id=stages.rejected_id,
+                        **base,
+                    )
+                )
+            continue
+        if r.moved_at < badge_since:
+            continue
         if effective in stages.verified_ids and stages.dz_id is not None:
             tasks.append(
                 BoardTask(kind=KIND_DZ, target_stage_def_id=stages.dz_id, **base)
@@ -295,6 +359,7 @@ async def load_snapshot(
                 BoardTask(kind=KIND_CPRO_SENT, target_stage_def_id=None, **base)
             )
 
+    await _attach_dl_review_details(db, catalog, tasks)
     await _attach_versions_and_names(db, tasks)
     tasks.sort(key=lambda t: t.since)
     return BoardTaskSnapshot(tasks=tasks)
@@ -325,7 +390,9 @@ async def _attach_versions_and_names(db: AsyncSession, tasks: list[BoardTask]) -
         .distinct(RecruitmentProcess.candidate_id, RecruitmentProcess.job_id)
     )
     versions = {(c, j): int(v or 0) for c, j, v in rows.all()}
-    user_ids = {t.assignee_id for t in tasks if t.assignee_id is not None}
+    user_ids = {t.assignee_id for t in tasks if t.assignee_id is not None} | {
+        t.verified_by_id for t in tasks if t.verified_by_id is not None
+    }
     names: dict[int, str] = {}
     if user_ids:
         for uid, uname, email in (
@@ -338,6 +405,71 @@ async def _attach_versions_and_names(db: AsyncSession, tasks: list[BoardTask]) -
         t.process_state_version = versions.get((t.candidate_id, t.job_id), 0)
         if t.assignee_id is not None:
             t.assignee_name = names.get(t.assignee_id)
+        if t.verified_by_id is not None:
+            t.verified_by_name = names.get(t.verified_by_id)
+
+
+async def _attach_dl_review_details(
+    db: AsyncSession, catalog: _Catalog, tasks: list[BoardTask]
+) -> None:
+    """Dla przeglądu DL: wiersz weryfikacji (kto, kiedy, stawka) i screening.
+
+    Najnowszy wiersz pary bywa etapem DZ (odznaka w kolumnie „Zweryfikowany"),
+    więc weryfikację szukamy wstecz w historii pary — ostatni wiersz, który na
+    tablicy tej rekrutacji stoi na etapie ``verified``. Arkusz screeningu leży
+    na wierszu, na którym go wypełniono (zwykle „Screening").
+    """
+
+    review = [t for t in tasks if t.kind == KIND_DL_REVIEW]
+    if not review:
+        return
+    pairs = sorted({(t.candidate_id, t.job_id) for t in review})
+    rows = (
+        await db.execute(
+            select(
+                CandidateStage.id,
+                CandidateStage.candidate_id,
+                CandidateStage.job_id,
+                CandidateStage.stage_def_id,
+                CandidateStage.moved_at,
+                CandidateStage.moved_by,
+                CandidateStage.expected_rate_value,
+                CandidateStage.expected_rate_unit,
+                CandidateStage.expected_rate_currency,
+                CandidateStage.screening_answers.is_not(None).label("has_screening"),
+            )
+            .where(
+                tuple_(CandidateStage.candidate_id, CandidateStage.job_id).in_(pairs)
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        )
+    ).all()
+    history: dict[tuple[int, int], list] = {}
+    for row in rows:
+        history.setdefault((row.candidate_id, row.job_id), []).append(row)
+    for t in review:
+        stages = catalog.stages.get(t.template_id) if t.template_id else None
+        for row in history.get((t.candidate_id, t.job_id), []):
+            if (
+                t.verified_at is None
+                and stages is not None
+                and row.stage_def_id is not None
+                and catalog.effective_def_id(t.template_id, row.stage_def_id)
+                in stages.verified_ids
+            ):
+                t.verified_by_id = row.moved_by
+                t.verified_at = row.moved_at
+                t.expected_rate_value = (
+                    float(row.expected_rate_value)
+                    if row.expected_rate_value is not None
+                    else None
+                )
+                t.expected_rate_unit = row.expected_rate_unit
+                t.expected_rate_currency = row.expected_rate_currency
+            if t.screening_stage_id is None and row.has_screening:
+                t.screening_stage_id = row.id
+            if t.verified_at is not None and t.screening_stage_id is not None:
+                break
 
 
 async def dl_portfolio_client_ids(db: AsyncSession, user_id: int) -> frozenset[int]:
@@ -367,7 +499,8 @@ def tasks_for_user(
 ) -> dict[str, list[BoardTask]]:
     """Co z migawki należy do tej osoby.
 
-    * DZ: role z prawem DZ; Delivery Lead tylko w swoim portfelu.
+    * DZ i przegląd DL: role z prawem DZ; Delivery Lead tylko w swoim
+      portfelu.
     * Do wysłania do Cpro: wytypowany zawsze; role DZ — także nieprzypisane
       i cudze (ktoś musi je przydzielić albo zastąpić nieobecnego).
     * Wysłane: kto przesunął na „Wysłane do Cpro", albo role DZ.
@@ -379,12 +512,13 @@ def tasks_for_user(
         KIND_DZ: [],
         KIND_CPRO_TO_SEND: [],
         KIND_CPRO_SENT: [],
+        KIND_DL_REVIEW: [],
     }
     for t in snapshot.tasks:
         scoped = sees_all or _in_portfolio(t, user, portfolio)
-        if t.kind == KIND_DZ:
+        if t.kind in (KIND_DZ, KIND_DL_REVIEW):
             if can_dz and scoped:
-                out[KIND_DZ].append(t)
+                out[t.kind].append(t)
         elif t.kind == KIND_CPRO_TO_SEND:
             if t.assignee_id == user.id or (can_dz and scoped):
                 out[KIND_CPRO_TO_SEND].append(t)
@@ -406,10 +540,11 @@ class DigestLine:
     dz: int = 0
     cpro_mine: int = 0
     cpro_unassigned: int = 0
+    dl_review: int = 0
 
     @property
     def total(self) -> int:
-        return self.dz + self.cpro_mine + self.cpro_unassigned
+        return self.dz + self.cpro_mine + self.cpro_unassigned + self.dl_review
 
 
 async def digest_counts(
@@ -443,17 +578,21 @@ async def digest_counts(
     counts: dict[int, dict[str, int]] = {}
 
     def bump(uid: int, key: str) -> None:
-        counts.setdefault(uid, {"dz": 0, "cpro_mine": 0, "cpro_unassigned": 0})[
-            key
-        ] += 1
+        counts.setdefault(
+            uid, {"dz": 0, "cpro_mine": 0, "cpro_unassigned": 0, "dl_review": 0}
+        )[key] += 1
 
     for t in snapshot.tasks:
         if t.kind == KIND_CPRO_TO_SEND and t.assignee_id is not None:
             bump(t.assignee_id, "cpro_mine")
             continue
-        if t.kind not in (KIND_DZ, KIND_CPRO_TO_SEND):
+        if t.kind not in (KIND_DZ, KIND_CPRO_TO_SEND, KIND_DL_REVIEW):
             continue
-        key = "dz" if t.kind == KIND_DZ else "cpro_unassigned"
+        key = {
+            KIND_DZ: "dz",
+            KIND_CPRO_TO_SEND: "cpro_unassigned",
+            KIND_DL_REVIEW: "dl_review",
+        }[t.kind]
         for u in users:
             if _sees_all(u) or _in_portfolio(t, u, portfolios.get(u.id, frozenset())):
                 bump(u.id, key)
@@ -462,6 +601,10 @@ async def digest_counts(
 
 def digest_message(line: DigestLine) -> str:
     parts: list[str] = []
+    if line.dl_review:
+        parts.append(
+            f"{_people(line.dl_review)} {_waits(line.dl_review)} na Twój przegląd"
+        )
     if line.dz:
         parts.append(f"{_people(line.dz)} {_waits(line.dz)} na DZ")
     if line.cpro_mine:
@@ -488,8 +631,10 @@ def _people(n: int) -> str:
 
 
 __all__ = [
+    "DL_REVIEW_WINDOW_DAYS",
     "KIND_CPRO_SENT",
     "KIND_CPRO_TO_SEND",
+    "KIND_DL_REVIEW",
     "KIND_DZ",
     "WINDOW_DAYS",
     "BoardTask",

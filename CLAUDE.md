@@ -648,8 +648,8 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   409 z listą różnic (`conflicts`) i podpowiedzią `can_keep_existing_terms`.
   Drugi, jawny krok — checkbox w dialogu →
   `keep_existing_contract_terms: true` — WIĄŻE podpisaną umowę z kontraktem,
-  zapewnia zamówienie (etapu kandydata NIE zmienia — od 17.09.2026 umowę
-  podpisujemy offline, a „Zatrudniony" ustawia człowiek na tablicy), ale nie zmienia niczego, co na
+  zapewnia zamówienie i przesuwa kandydata na „Zatrudniony" (od 23.09.2026,
+  Pipeline v4; 17–22.09 etap ustawiał człowiek), ale nie zmienia niczego, co na
   kontrakcie już jest (stawka, jednostka, harmonogram, daty, szczegóły B2B).
   Puste pola nadal uzupełnia z dokumentu (`_complete_absent_terms`), z jednym
   wyjątkiem: stawki GODZINOWEJ z dokumentu nie wpisuje obok jednostki dziennej
@@ -2334,24 +2334,33 @@ wariant A + „filtry na stałe po lewej” + „wybór źródła na starcie”)
 trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
 
 **Lista `/candidates` = JEDEN ekran, jeden silnik (`GET /api/candidates`).**
-- Filtry stoją na stałe w lewej kolumnie (`components/v2/candidates/CandidateFilterRail.tsx`;
-  poniżej `lg` ten sam panel w arkuszu) — **decyzja Artura 22.09.2026: „szukamy
-  głównie ręcznie po słowach kluczowych i wykluczeniach, stawce, lokalizacji
-  i trybie pracy”.** Na wierzchu WYŁĄCZNIE: Słowa kluczowe jak w Traffit
-  (`CandidateSearchFields.tsx`: zielone „Zawiera wszystkie” `q_all`, niebieskie
+- Filtry stoją PASKIEM NAD TABELĄ (`components/v2/candidates/CandidateFilterBar.tsx`;
+  wariant A z makiet https://claude.ai/artifact/7MJmn8Unqc26J6yHB9ThNG,
+  **decyzja Artura 23.09.2026** — do tego dnia była kolumna 224 px po lewej
+  i szuflada „Zaawansowane” z prawej; tabela z 8 kolumnami dostaje teraz całą
+  szerokość). Priorytet z 22.09 zostaje: „szukamy głównie ręcznie po słowach
+  kluczowych i wykluczeniach, stawce, lokalizacji i trybie pracy”. Rząd 1:
+  pas słów kluczowych jak w Traffit (`KeywordFields` w
+  `CandidateSearchFields.tsx`: zielone „Zawiera wszystkie” `q_all`, niebieskie
   „Zawiera którekolwiek” = PIERWSZA grupa `q_any`, czerwone „Nie zawiera
-  żadnego” `q_none`, „Szukaj w” `q_scope`) · Stawka B2B · Lokalizacja (miasto
-  z podpowiedziami, promień w km, województwa) · Tryb pracy. Reszta w szufladzie
-  „Zaawansowane” z licznikiem ustawionych w niej filtrów: Historia z nami
-  (otwarta — brał udział w rekrutacji, etap, wysłany do klienta, pracował
-  u klienta, KONTAKT z kandydatem w okresie i przez kogo), Umiejętności,
-  Dostępność (jedno pytanie „Czy można go teraz zaproponować?” —
-  `lib/candidate-availability-choice.ts` ustawia `availability` + `employment`
-  naraz), Doświadczenie/języki/kategoria, Firma i stanowisko, Kto dodał/pule
-  (w tym „Moi kandydaci”), Inne (KOLEJNE grupy LUB, status w bazie, otwarty
-  na, ukryj bez danych). Gotowych skrótów nad listą świadomie NIE ma („za
-  bardzo kombinujesz”). Nie przenoś grup z powrotem na wierzch — za dużo
-  opcji naraz było powodem przebudowy. Tabela ma domyślnie kolumny:
+  żadnego” `q_none`, „Szukaj w” `q_scope`; zasady dopasowania pod ⓘ; na
+  telefonie za przyciskiem „Słowa kluczowe (N)”). Rząd 2: przyciski z okienkami
+  (Radix Popover) — Stawka · Lokalizacja (miasto z podpowiedziami, promień w km,
+  województwa; tekst wpisany tuż przed zamknięciem okienka zapisuje cleanup
+  `LocationFields`) · Tryb pracy | Historia z nami (brał udział w rekrutacji,
+  etap, wysłany do klienta, pracował u klienta, KONTAKT z kandydatem w okresie
+  i przez kogo) · Umiejętności · Dostępność (jedno pytanie „Czy można go teraz
+  zaproponować?” — `lib/candidate-availability-choice.ts` ustawia
+  `availability` + `employment` naraz) · „Więcej filtrów” (szuflada z prawej:
+  Doświadczenie/języki/kategoria, Firma i stanowisko, Kto dodał/pule — w tym
+  „Moi kandydaci”, Inne — KOLEJNE grupy LUB, status w bazie, otwarty na, ukryj
+  bez danych). Ustawiony przycisk niesie wartość („Stawka: do 160 zł/h”) albo
+  licznik i ✕ czyszczące grupę — liczniki i podsumowania liczy
+  `lib/candidate-filter-groups.ts`. Chipy nad tabelą (`ActiveFilterChips`
+  z `omitKey={isChipShownOnFilterBar}`) pokazują TYLKO filtry, których wartości
+  nie widać na przycisku — nie dubluj ich. Gotowych skrótów nad listą świadomie
+  NIE ma („za bardzo kombinujesz”). Nie dokładaj kolejnych przycisków na pasek —
+  rzadkie filtry idą do „Więcej filtrów”. Tabela ma domyślnie kolumny:
   Kandydat (pod nazwiskiem miasto) · Ostatnie stanowisko (+ firma,
   `getCurrentTitle`/`getCurrentCompany`) · Telefon (`tel:` + kopiuj,
   `CandidatePhoneCell`) · Stawka B2B · Dostępność · W procesie (skrót, a po
@@ -2491,6 +2500,11 @@ blokad. Razem z przełącznikiem „Rekrutacja prowadzona w NEXUSIE" (sekcja
 Traffit) to warunek przenoszenia zespołu z Traffita falami. Nie przywracaj
 żadnej z bramek bez decyzji właściciela.
 
+**Wyjątki świadome (Pipeline v4, decyzje Artura 23.09.2026 — sekcja niżej):**
+„CV wysłane" poza Nordeą wysyła wyłącznie DL/admin ze stawką do klienta,
+wyjście z „Rozmowy u klienta" dalej wymaga debriefu z pytaniami klienta,
+a osoba dodana ręcznie jest 12 h zarezerwowana dla dodającego.
+
 - **Brak karty „Oczekuje".** Bramka jest USUNIĘTA z kodu (18.09.2026; do tego
   dnia wyłączała ją flaga — nazwa w raportach z 17.09.2026, #1593; stara
   zmienna w Coolify jest nieszkodliwa, `Settings` ignoruje nieznane env).
@@ -2534,8 +2548,9 @@ Traffit) to warunek przenoszenia zespołu z Traffita falami. Nie przywracaj
   `Activity(contract_draft_skipped)` + powiadomienie „Nie założono szkicu
   kontraktu" dla Delivery klienta (`emit`, dedup dzienny).
 - **Podpis umowy offline.** `services/signing/pipeline_hook.py` usunięty —
-  wysyłka, „oznacz jako wysłane" i powrót podpisanego PDF nie przesuwają kart;
-  `confirm-fully-signed` w Generatorze B2B ma `ensure_hired=False`. Kolumny
+  wysyłka, „oznacz jako wysłane" i powrót podpisanego PDF nie przesuwają kart.
+  Od 23.09.2026 (Pipeline v4) `confirm-fully-signed` w Generatorze B2B ma
+  `ensure_hired=True` — potwierdzony podpis przesuwa na „Zatrudniony". Kolumny
   „Umowa wysłana"/„Umowa podpisana" są ręczne.
 - **Mail odrzucenia OPT-IN.** Serwer planuje wyłącznie przy
   `send_rejection_email is True`; checkbox w `RejectionV2` domyślnie odznaczony.
@@ -2736,7 +2751,8 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   **Okno Zlecenie: trzy bloki** (Co zamówił klient · Zespół · Ogłoszenie),
   priorytet/ustawienia/kompletność w „Więcej"; „Baza pytań" w menu „⋯".
 - **Tablica: jeden etap = jedna kolumna, reszta to odznaki** (decyzja Artura
-  22.09.2026, `lib/board-stages.ts` → `foldBoardColumns`). Szablony w bazie
+  22.09.2026, `lib/board-stages.ts` → `foldBoardColumns`; od 23.09.2026
+  6 kolumn — sekcja „Pipeline v4"). Szablony w bazie
   ZOSTAJĄ — nocny import z Traffita zapisuje ruch na dokładny stan swojego
   procesu, więc składa się wyłącznie RENDER: etapy-odznaki rozpoznane po nazwie
   dołączają do kolumny swojego znaczenia („Przepuszczony przez DZ" → „DZ ✓"
@@ -2788,6 +2804,60 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   aktywnych (utknęli, bez akcji, ostrzeżenia, poza szablonem, rekruter, puste
   kolumny); po prawej „N w procesie · M utknęło" i SLA. Filtry PRZYGASZAJĄ karty, nigdy
   ich nie usuwają (indeksy `@hello-pangea/dnd`).
+
+## Pipeline v4 — 6 kolumn, blokada 12 h, przegląd DL (0352, 23.09.2026)
+
+Decyzje Artura 23.09.2026, makiety https://claude.ai/artifact/JQ8qdz16J6wG24WKTSgv6i.
+Tablica: **Nowi · Zweryfikowany · CV wysłane · Rozmowa u klienta · Umowa ·
+Zatrudniony** + pasek zamkniętych w czterech grupach (Zrezygnował / Odrzucony
+przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
+
+- **Etapy zostają, składa się render.** „Do przejrzenia” (propozycje na górze
+  Nowych), „Screening” i „Akceptacja” są odznakami (kod etapu), nie kolumnami.
+  Każda odznaka etapu jest wierszem `candidate_stages`, więc statystyki liczą
+  ją osobno (`GET /api/insights/recruitment/stage-breakdown`, sekcja „Lejek po
+  etapach” w Wynikach: „Doszło” vs „Teraz”). Kolumnę liczy JEDNA reguła
+  w dwóch lustrach: `placeStage` i `board_stage_badges.board_column_for`
+  (wspólny `__fixtures__/board-stage-cases.json`).
+- **Blokada 12 h** (`services/candidate_claim.py`, kolumny
+  `recruitment_processes.claimed_by_user_id/claimed_until`): osoba dodana
+  ręcznie (każde ludzkie `open_process`, też „Biorę” na propozycji) jest 12 h
+  dodającego w tej rekrutacji; inny rekruter dostaje 423 `CANDIDATE_CLAIMED`
+  przy ruchu, ruchu zbiorczym i zapisie screeningu. Admin/DL/HoR omijają.
+  `POST /api/pipeline/claim` = „Biorę” (wolna) / „Przejmij” (cudza aktywna —
+  tylko DL/HoR/admin, dzwonek `candidate_claim_taken`). Wyjście poza Nowych
+  czyści blokadę; wygaśnięcie liczy się przy odczycie. Automat
+  (`auto_match`) nikogo nie blokuje.
+- **Źródło wejścia** `recruitment_processes.entry_source`
+  (added_manual|application|proposal|reassign|auto_match|import; NULL = proces
+  sprzed 0352). Otwarta propozycja przepięcia (`JobProposal source=reassign`)
+  daje `reassign` + `reassign_from_job_id`, niezależnie od ekranu dodania.
+- **Rozmowa w Nowych.** Arkusz pytań Championa działa dla kart Nowych
+  (`isNewColumn` w `lib/pipeline-flow.ts`). Przepięcie: Luna
+  (`AIFeatureKey.screening_reassign_suggest`, `services/screening_reassign.py`)
+  podpowiada odpowiedzi z poprzedniej rekrutacji — tylko podpowiedź, awaria =
+  `available:false`. Odpowiedź `skipped` i `internal_note` („pominięte —
+  przepięcie”) NIGDY nie idą do klienta: share portal i generator CV czytają
+  `client_safe_screening`.
+- **„CV wysłane” poza Nordeą wysyła DL** (`services/pipeline_move_rules.py`):
+  rola admin/delivery_lead (403) i stawka do klienta w TYM SAMYM żądaniu ruchu
+  (`client_rate_*` w `StageMove`/`BulkMoveRequest`, 422 bez niej; stawka
+  zapisana wcześniej w tej rekrutacji wystarcza). Nordea bez zmian (DZ → Cpro,
+  „Wysłane do Cpro” wysyła osoba wytypowana). Kolejka „Czeka na Twój przegląd
+  (DL)” (`board_tasks.KIND_DL_REVIEW`, 30 dni) + `DlReviewPanel`; „Czeka na
+  DZ” zostaje wyłącznie u Nordei.
+- **Terminy od klienta przesuwają kartę** na „Rozmowę u klienta”
+  (`pipeline_auto_move.auto_advance` w `create_slot_request`); odznaka karty =
+  `interview_badges_for_job`. Wyjście z Rozmowy dalej wymaga debriefu
+  (pytania klienta albo „klient nie zadawał pytań”, `services/debrief_gate.py`,
+  409 `DEBRIEF_REQUIRED`) — pytania zasilają bank `client_debrief`: prep,
+  follow-up i panel „Pytania klienta z rozmów” w Championie.
+- **Podpis obustronny → „Zatrudniony”** (`ensure_hired=True`) +
+  `hired_order_missing` do Finansów, gdy brak uzupełnionego zamówienia
+  (`services/hired_order_status.py`; odznaka „Brak zamówienia” na karcie).
+- **Kto zakończył**: `candidate_stages.ended_by` (candidate|recruiter|
+  delivery_lead|client). Rezygnacja = zawsze kandydat; odrzucenie bez pola =
+  „przez nas”; „przez DL” tylko admin/DL/HoR (403).
 
 ## Rekrutacja „wersja 3" — jedna tabela + panel osoby (21.09.2026, #1641 #1657 #1659)
 

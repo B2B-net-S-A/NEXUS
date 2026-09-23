@@ -108,6 +108,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.note_mention: _C.mentions,
     # Ktoś wytypował Cię do wysłania osoby do Cpro — imienne zadanie, jak wzmianka.
     _T.cpro_send_assigned: _C.mentions,
+    # Ktoś przejął Twoją osobę w „Nowych" — imienne, jak wzmianka.
+    _T.candidate_claim_taken: _C.mentions,
     # Czat
     _T.job_chat_message: _C.chat,
     # Ruchy w rekrutacjach
@@ -163,6 +165,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.client_order_ending_14d: _C.contracts,
     _T.client_order_ending_7d: _C.contracts,
     _T.order_missing_successor: _C.contracts,
+    _T.hired_order_missing: _C.contracts,
     _T.framework_contract_expiring_30d: _C.contracts,
     _T.framework_contract_expiring_14d: _C.contracts,
     _T.framework_contract_expiring_7d: _C.contracts,

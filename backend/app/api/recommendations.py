@@ -1339,6 +1339,8 @@ async def assign_candidate_to_job(
         moved_at=datetime.now(timezone.utc),
         actor_user_id=current_user.id,
         work_channel=PriorityChannel.database,
+        entry_source="added_manual",
+        claim_for_user_id=current_user.id,
     )
     await create_original_cv_snapshot(db, stage)
     await maybe_ensure_contact_opportunity(

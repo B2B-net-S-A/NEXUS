@@ -53,9 +53,9 @@ import { colId, columnLabel, type KanbanColumn } from "@/components/v2/pages/kan
 import type { PipelineMoveControls } from "@/hooks/usePipelineMove";
 import { terminalOf } from "@/lib/kanban-terminal";
 import {
-  SCREENING_STAGE,
   VERIFIED_STAGE,
   findStageColumn,
+  isNewColumn,
   moveBlockedReason,
   countHired,
   primaryForwardMove,
@@ -562,9 +562,11 @@ export function PersonPanel({
   // Warsztat „Screening" i „CV" prowadzi osobę ze SWOJEJ kolejki i ma własny
   // przycisk ruchu („Zweryfikowany — zapisz stawkę…", „Oznacz CV Wysłane").
   // Lustro wyboru z warsztatów: kolejka etapu, a w screeningu także karty
-  // „ponad budżet" i z wetem HM z innych etapów nie-terminalnych.
+  // „ponad budżet" i z wetem HM z innych etapów nie-terminalnych. Od
+  // Pipeline v4 (23.09.2026) screening robi się w kolumnie „Nowi"
+  // (`isNewColumn` — ta sama reguła co kolejka warsztatu).
   const inScreeningWorkbench =
-    column === findStageColumn(columns, SCREENING_STAGE) ||
+    (!offTemplate && isNewColumn(column)) ||
     (column.category !== "terminal" &&
       !offTemplate &&
       (Boolean(item.hm_veto) || isOverHourlyBudget(item, workbenchContext.budgetHourly)));
@@ -782,7 +784,21 @@ export function PersonPanel({
             title={writeBlocked ?? undefined}
             onClick={() => move.requestReject(item)}
           >
-            Odrzuć
+            Odrzuć…
+          </Button>
+        ) : null}
+        {/* Pipeline v4: rezygnację kandydata zapisuje się osobno — to inny
+            wniosek w statystykach niż odrzucenie. */}
+        {!isClosed ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-[34px]"
+            disabled={writeBlocked != null || move.isMoving}
+            title={writeBlocked ?? undefined}
+            onClick={() => move.requestWithdraw(item)}
+          >
+            Zrezygnował…
           </Button>
         ) : null}
       </div>

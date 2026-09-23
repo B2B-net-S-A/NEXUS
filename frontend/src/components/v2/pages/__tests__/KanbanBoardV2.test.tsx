@@ -255,6 +255,7 @@ function renderBoard(
   columns = pendingColumns(),
   scoreMap?: Map<number, number>,
   readOnly = false,
+  cproEnabled = false,
 ) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -267,6 +268,7 @@ function renderBoard(
           jobId={10}
           scoreMap={scoreMap}
           readOnly={readOnly}
+          cproEnabled={cproEnabled}
         />
       </TooltipProvider>
     </QueryClientProvider>
@@ -693,7 +695,7 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     expect(moveCalls()).toHaveLength(0);
   });
 
-  it("„CV Wysłane” bez prawa zapisu stawki do klienta przenosi kartę bez pytania o stawkę", async () => {
+  it("„CV Wysłane” poza Nordeą: DL musi wpisać stawkę — bez „Przesuń bez stawki”", async () => {
     get.mockImplementation(() =>
       Promise.resolve({
         data: {
@@ -706,6 +708,39 @@ describe("KanbanBoardV2 — ruch z doku i ostrzeżenia serwera", () => {
     renderBoard(gateColumns({}));
     const menu = await openDockStageMenu();
     await userEvent.click(within(menu).getByRole("menuitem", { name: "CV wysłane" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByRole("button", { name: "Przesuń bez stawki" })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Przesuń i zapisz" })).toBeDisabled();
+    expect(moveCalls()).toHaveLength(0);
+  });
+
+  it("„CV Wysłane” poza Nordeą: rekruter dostaje komunikat, że wysyła DL", async () => {
+    useAuthStore.setState({ user: { id: 5, role: "recruiter", roles: ["recruiter"] } } as never);
+    renderBoard(gateColumns({}));
+    const menu = await openDockStageMenu();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "CV wysłane" }));
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(expect.stringContaining("Delivery Lead")),
+    );
+    expect(moveCalls()).toHaveLength(0);
+  });
+
+  it("„CV Wysłane” u Nordei bez prawa zapisu stawki przenosi kartę bez pytania o stawkę", async () => {
+    get.mockImplementation(() =>
+      Promise.resolve({
+        data: {
+          effective_budget_hourly: null,
+          pipeline_template_id: null,
+          can_write_client_rate: false,
+        },
+      }),
+    );
+    renderBoard(gateColumns({}), undefined, false, true);
+    const menu = await openDockStageMenu();
+    // U Nordei kolumna „CV wysłane" nazywa się „Wysłane do Cpro".
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Wysłane do Cpro" }));
 
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith(
@@ -1209,11 +1244,9 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     const headers = Array.from(container.querySelectorAll("[data-colid] h3")).map((h) => h.textContent);
     expect(headers).toEqual([
       "Nowi",
-      "Screening",
       "Zweryfikowany",
       "CV wysłane",
       "Rozmowa u klienta",
-      "Akceptacja",
       "Umowa",
       "Zatrudniony",
     ]);
@@ -1222,11 +1255,15 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(within(verified as HTMLElement).getByText("Iga Mazur")).toBeTruthy();
     expect(within(verified as HTMLElement).getByText("DZ ✓")).toBeTruthy();
     // Odrzuceni i wycofani nie zajmują kolumn — pasek z celami upuszczenia.
+    // Pipeline v4: odrzuceni w trzech grupach „kto kończy" (bez `ended_by`
+    // = „przez nas"), rezygnacje osobno.
     const bar = screen.getByTestId("board-closed-bar");
-    expect(bar).toHaveTextContent("Odrzuceni 1");
-    expect(bar).toHaveTextContent("Wycofani 0");
+    expect(bar).toHaveTextContent("Odrzucony przez nas 1");
+    expect(bar).toHaveTextContent("Odrzucony przez DL 0");
+    expect(bar).toHaveTextContent("Odrzucony przez klienta 0");
+    expect(bar).toHaveTextContent("Zrezygnował 0");
     expect(container.querySelector('[data-colid="def:313"]')).toBeNull();
-    await userEvent.click(within(bar).getByRole("button", { name: /Odrzuceni/ }));
+    await userEvent.click(within(bar).getByRole("button", { name: /Odrzucony przez nas/ }));
     expect(container.querySelector('[data-colid="def:313"]')).toBeTruthy();
   });
 
@@ -1272,15 +1309,18 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     ).toBeTruthy();
   });
 
-  it("licznik „Do przejrzenia” liczy propozycje z bazy razem z kartami z ogłoszeń", async () => {
+  it("licznik „Nowi” liczy propozycje z bazy razem z kartami (Nowi, Screening, ogłoszenia)", async () => {
     reviewTotal.value = 14;
     try {
-      // Szablon bez etapu „Ogłoszenia" — kolumna „Do przejrzenia" stoi sama.
-      renderBoard(defaultB2BColumns());
-      const heading = await screen.findByRole("heading", { name: "Do przejrzenia" });
-      await waitFor(() => expect(heading.parentElement).toHaveTextContent("Do przejrzenia14"));
+      // „Default B2B": 2 karty w „Nowi / Analiza CV" + 1 w Screeningu + 14 propozycji.
+      const { container: base } = renderBoard(defaultB2BColumns());
+      await waitFor(() =>
+        expect(
+          base.querySelector('[aria-label="Nowi, liczba kandydatów: 17"]'),
+        ).toBeTruthy(),
+      );
 
-      // Z etapem „Ogłoszenia" (1 karta) nagłówek liczy 1 + 14.
+      // Z etapem „Ogłoszenia" (1 karta) nagłówek liczy 1 + 3 + 14.
       rtlCleanup();
       const withPosting = [
         {
@@ -1296,7 +1336,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
       const { container } = renderBoard(withPosting as never);
       await waitFor(() =>
         expect(
-          container.querySelector('[aria-label="Do przejrzenia, liczba kandydatów: 15"]'),
+          container.querySelector('[aria-label="Nowi, liczba kandydatów: 18"]'),
         ).toBeTruthy(),
       );
     } finally {
@@ -1447,7 +1487,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     await screen.findByTestId("pipeline-board");
 
     // Dwa dni na etapie wejściowym → screening; dziewięć → brak akcji.
-    expect(screen.getByText("Umów screening")).toBeTruthy();
+    expect(screen.getAllByText("Umów screening").length).toBeGreaterThan(0);
     expect(screen.getByText("Brak następnej akcji")).toBeTruthy();
     // Licznik w rail'u liczy TĄ SAMĄ funkcją co karta: jedna zaległa karta
     // wejściowa. Karta ze screeningu (2 dni) ma akcję, terminalna nie liczy się.
@@ -1466,9 +1506,9 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
       await screen.findByRole("button", { name: "Ukryj puste kolumny" }),
     );
 
-    // Zostają wyłącznie kolumny z kartami: wejście i screening (odrzuceni
-    // są na pasku nad tablicą, nie w kolumnie).
-    expect(container.querySelectorAll("[data-colid]")).toHaveLength(2);
+    // Zostaje wyłącznie „Nowi" (wejście i screening to od 23.09 jedna
+    // kolumna; odrzuceni są na pasku nad tablicą, nie w kolumnie).
+    expect(container.querySelectorAll("[data-colid]")).toHaveLength(1);
   });
 });
 

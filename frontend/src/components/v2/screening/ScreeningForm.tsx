@@ -65,6 +65,15 @@ export const FIT_OPTIONS = [
   },
 ];
 
+export type ScreeningAnswerOrigin = "manual" | "reassign_suggested";
+
+export interface ScreeningFormAnswer {
+  response: string;
+  deal_breaker_hit: boolean;
+  /** `reassign_suggested` = odpowiedź przyjęta z podpowiedzi Luny (przepięcie). */
+  origin?: ScreeningAnswerOrigin;
+}
+
 /**
  * „Sprawdź w rozmowie” — pozycja sekcji 4 Championa (dziedzina, certyfikat,
  * regulacja) z werdyktem rekrutera. Zapis rozmowy, nie punktacja: nie zmienia
@@ -79,10 +88,18 @@ export interface ExperienceCheckRow {
 }
 
 export interface ScreeningFormValues {
-  answers: Record<string, { response: string; deal_breaker_hit: boolean }>;
+  answers: Record<string, ScreeningFormAnswer>;
   overall_fit: "fit" | "uncertain" | "miss";
   notes: string;
-  experience_checks: ExperienceCheckRow[];
+  /**
+   * „Pomiń brakujące — przepięcie" (Pipeline v4, 23.09.2026): pytania bez
+   * odpowiedzi zapisują się jako pominięte zamiast blokować zapis.
+   */
+  skip_missing?: boolean;
+  /** Notatka wewnętrzna do pominięcia — nigdy nie idzie do klienta. */
+  internal_note?: string;
+  /** Sekcja 4 Championa — patrz `ExperienceCheckRow`. */
+  experience_checks?: ExperienceCheckRow[];
 }
 
 /** Pozycje sekcji 4 z profilu + zapisane werdykty (po `kind` i nazwie). */
@@ -114,33 +131,97 @@ export function experienceCheckRows(
   );
 }
 
-function makeSchema(questions: ScreeningQuestion[]) {
+
+/** Notatka wstawiana, gdy rekruter pominął pytania bez własnego komentarza. */
+export const DEFAULT_SKIP_NOTE = "Pominięte — przepięcie";
+
+export function makeSchema(questions: ScreeningQuestion[]) {
   const answersShape = Object.fromEntries(
     questions.map((q) => [
       q.id,
       z.object({
-        response: z.string().min(1, "Odpowiedź jest wymagana"),
+        response: z.string(),
         deal_breaker_hit: z.boolean(),
+        origin: z.enum(["manual", "reassign_suggested"]).optional(),
       }),
     ]),
   );
-  return z.object({
-    answers: z.object(answersShape),
-    overall_fit: z.enum(["fit", "uncertain", "miss"]),
-    notes: z.string().optional().default(""),
-    experience_checks: z
-      .array(
-        z.object({
-          kind: z.enum(["domains", "certifications", "regulations"]),
-          name: z.string(),
-          label: z.string(),
-          level: z.enum(["must", "nice"]),
-          status: z.enum(["confirmed", "not_confirmed", "unknown"]),
-        }),
-      )
-      .optional()
-      .default([]),
+  return z
+    .object({
+      answers: z.object(answersShape),
+      overall_fit: z.enum(["fit", "uncertain", "miss"]),
+      notes: z.string().optional().default(""),
+      skip_missing: z.boolean().optional().default(false),
+      internal_note: z
+        .string()
+        .max(2000, "Notatka może mieć najwyżej 2000 znaków")
+        .optional()
+        .default(""),
+      experience_checks: z
+        .array(
+          z.object({
+            kind: z.enum(["domains", "certifications", "regulations"]),
+            name: z.string(),
+            label: z.string(),
+            level: z.enum(["must", "nice"]),
+            status: z.enum(["confirmed", "not_confirmed", "unknown"]),
+          }),
+        )
+        .optional()
+        .default([]),
+    })
+    .superRefine((values, ctx) => {
+      // Odpowiedź wymagana na każde pytanie — chyba że rekruter świadomie
+      // pominął brakujące przy przepięciu.
+      if (values.skip_missing) return;
+      for (const q of questions) {
+        const answer = (values.answers as Record<string, ScreeningFormAnswer>)[q.id];
+        if (!(answer?.response ?? "").trim()) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["answers", q.id, "response"],
+            message: "Odpowiedź jest wymagana",
+          });
+        }
+      }
+    });
+}
+
+/**
+ * Payload zapisu z wartości formularza. Przy „Pomiń brakujące" puste
+ * odpowiedzi idą jako `skipped: true`, a notatka wewnętrzna jest wymagana
+ * przez sens (domyślna, gdy rekruter nic nie wpisał).
+ */
+export function buildScreeningPayload(
+  questions: ScreeningQuestion[],
+  values: ScreeningFormValues,
+): ScreeningAnswers {
+  const skipMissing = Boolean(values.skip_missing);
+  const answers: ScreeningAnswerItem[] = questions.map((q) => {
+    const value = values.answers[q.id];
+    const response = value?.response ?? "";
+    return {
+      question_id: q.id,
+      response,
+      deal_breaker_hit: !!value?.deal_breaker_hit,
+      origin: value?.origin ?? "manual",
+      skipped: skipMissing && !response.trim(),
+    };
   });
+  const anySkipped = answers.some((a) => a.skipped);
+  return {
+    answers,
+    overall_fit: values.overall_fit,
+    notes: values.notes ?? "",
+    internal_note: anySkipped
+      ? (values.internal_note ?? "").trim() || DEFAULT_SKIP_NOTE
+      : null,
+    experience_checks: (values.experience_checks ?? []).map((row) => ({
+      kind: row.kind,
+      name: row.name,
+      status: row.status,
+    })),
+  };
 }
 
 /**
@@ -194,6 +275,8 @@ export function useScreeningForm({
       answers: {},
       overall_fit: "uncertain",
       notes: "",
+      skip_missing: false,
+      internal_note: "",
       experience_checks: [],
     },
   });
@@ -202,10 +285,7 @@ export function useScreeningForm({
   // pytania, inne odpowiedzi).
   useEffect(() => {
     if (!data) return;
-    const entries: Record<
-      string,
-      { response: string; deal_breaker_hit: boolean }
-    > = {};
+    const entries: Record<string, ScreeningFormAnswer> = {};
     for (const q of questions) {
       const existingAnswer = existing?.answers.find(
         (a) => a.question_id === q.id,
@@ -213,12 +293,15 @@ export function useScreeningForm({
       entries[q.id] = {
         response: existingAnswer?.response ?? "",
         deal_breaker_hit: existingAnswer?.deal_breaker_hit ?? false,
+        origin: existingAnswer?.origin ?? "manual",
       };
     }
     methods.reset({
       answers: entries,
       overall_fit: existing?.overall_fit ?? "uncertain",
       notes: existing?.notes ?? "",
+      skip_missing: Boolean(existing?.answers.some((a) => a.skipped)),
+      internal_note: existing?.internal_note ?? "",
       experience_checks: experienceCheckRows(
         data.champion_profile,
         existing?.experience_checks,
@@ -255,21 +338,7 @@ export function useScreeningForm({
 
   const onSubmit = (values: ScreeningFormValues) => {
     setSubmitError(null);
-    const answers: ScreeningAnswerItem[] = questions.map((q) => ({
-      question_id: q.id,
-      response: values.answers[q.id]?.response ?? "",
-      deal_breaker_hit: !!values.answers[q.id]?.deal_breaker_hit,
-    }));
-    submitMut.mutate({
-      answers,
-      overall_fit: values.overall_fit,
-      notes: values.notes ?? "",
-      experience_checks: (values.experience_checks ?? []).map((row) => ({
-        kind: row.kind,
-        name: row.name,
-        status: row.status,
-      })),
-    });
+    submitMut.mutate(buildScreeningPayload(questions, values));
   };
 
   return {
@@ -292,20 +361,9 @@ export function ScreeningFormFields({
   questions: ScreeningQuestion[];
   methods: UseFormReturn<ScreeningFormValues>;
 }) {
-  const checks = methods.watch("experience_checks") ?? [];
   return (
     <div className="space-y-5">
-      {checks.length > 0 ? (
-        <ExperienceChecklist
-          rows={checks}
-          onChange={(index, status) =>
-            methods.setValue(
-              "experience_checks",
-              checks.map((row, i) => (i === index ? { ...row, status } : row)),
-            )
-          }
-        />
-      ) : null}
+      <ExperienceChecklistField methods={methods} />
       {questions.map((q, i) => {
         const dealBreakerName = `answers.${q.id}.deal_breaker_hit` as const;
         // Chip stanu pytania — makieta kroku 05 pokazuje przy każdym pytaniu,
@@ -315,6 +373,9 @@ export function ScreeningFormFields({
           (methods.watch(`answers.${q.id}.response`) ?? "").trim(),
         );
         const dealBreakerHit = Boolean(methods.watch(dealBreakerName));
+        const skipped = Boolean(methods.watch("skip_missing")) && !answered;
+        const fromLuna =
+          methods.watch(`answers.${q.id}.origin`) === "reassign_suggested";
         return (
           <div
             key={q.id}
@@ -327,6 +388,11 @@ export function ScreeningFormFields({
               <p className="min-w-0 flex-1 text-sm font-semibold text-foreground">
                 {q.question}
               </p>
+              {fromLuna && (
+                <Badge variant="soft" size="sm" className="shrink-0">
+                  z podpowiedzi Luny
+                </Badge>
+              )}
               <span
                 className={cn(
                   "shrink-0 text-[10.5px] font-medium",
@@ -334,14 +400,18 @@ export function ScreeningFormFields({
                     ? "text-destructive-muted-foreground"
                     : answered
                       ? "text-success-muted-foreground"
-                      : "text-warning-muted-foreground",
+                      : skipped
+                        ? "text-muted-foreground"
+                        : "text-warning-muted-foreground",
                 )}
               >
                 {dealBreakerHit
                   ? "narusza deal-breaker"
                   : answered
                     ? "odpowiedziano"
-                    : "bez odpowiedzi"}
+                    : skipped
+                      ? "pominięte — przepięcie"
+                      : "bez odpowiedzi"}
               </span>
             </div>
             {(q.ideal_answer || q.deal_breaker) && (
@@ -432,6 +502,26 @@ export function ScreeningFormFields({
         />
       </FormField>
     </div>
+  );
+}
+
+function ExperienceChecklistField({
+  methods,
+}: {
+  methods: UseFormReturn<ScreeningFormValues>;
+}) {
+  const checks = methods.watch("experience_checks") ?? [];
+  if (checks.length === 0) return null;
+  return (
+    <ExperienceChecklist
+      rows={checks}
+      onChange={(index, status) =>
+        methods.setValue(
+          "experience_checks",
+          checks.map((row, i) => (i === index ? { ...row, status } : row)),
+        )
+      }
+    />
   );
 }
 

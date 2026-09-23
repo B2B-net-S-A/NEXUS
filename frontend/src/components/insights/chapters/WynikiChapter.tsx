@@ -23,6 +23,7 @@ import {
   InsightsSectionNav,
 } from "@/components/insights/InsightsSectionNav";
 import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
+import { StageBreakdownSection } from "@/components/insights/chapters/StageBreakdownSection";
 import { DeferUntilVisible } from "@/components/v2/DeferUntilVisible";
 import { buildFunnelCsvExport } from "@/lib/insights-csv";
 import {
@@ -41,6 +42,7 @@ const DEFAULT_PERIOD: InsightsPeriodParams = {
 // Spis treści i kontrakt kotwic (InsightsSectionNavContract.test.ts).
 const SECTIONS = [
   { id: "wynik", label: "Wynik" },
+  { id: "etapy", label: "Lejek po etapach" },
   { id: "aktywnosc", label: "Dziś i w miesiącu" },
   { id: "zespol", label: "Zespół" },
   { id: "praca", label: "Praca w toku" },
@@ -100,6 +102,16 @@ export function WynikiChapter() {
         <InsightsDisclosure title="Trendy roczne" hint="12 miesięcy · rozwiń">
           <InsightsYearlyStats />
         </InsightsDisclosure>
+      </InsightsSection>
+
+      <InsightsSection id="etapy" className="space-y-4">
+        <DeferUntilVisible minHeight={240}>
+          <InsightsPartHeading
+            title="Lejek po etapach"
+            hint="każdy etap i odznaka Tablicy — kto doszedł w okresie i kto stoi teraz"
+          />
+          <StageBreakdownSection period={period} />
+        </DeferUntilVisible>
       </InsightsSection>
 
       <InsightsSection id="aktywnosc" className="space-y-4">

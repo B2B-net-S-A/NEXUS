@@ -168,6 +168,12 @@ class NotificationType(str, enum.Enum):
     # 0348: ktoś wytypował Cię do wysłania osoby do Cpro (Nordea) —
     # related_entity=(candidate_stage, id).
     cpro_send_assigned = "cpro_send_assigned"
+    # 0352: ktoś przejął Twoją osobę w „Nowych" (przed upływem 12 h tylko
+    # DL/HoR/admin) — related_entity=(recruitment_process, id).
+    candidate_claim_taken = "candidate_claim_taken"
+    # 0352: podpis umowy przeniósł osobę na „Zatrudniony", a zamówienia od
+    # klienta jeszcze nie ma — do Finansów; related_entity=(contract, id).
+    hired_order_missing = "hired_order_missing"
 
 
 class Notification(Base, TimestampMixin):

@@ -25,8 +25,15 @@ describe("etap szablonu → kolumna Tablicy + odznaka (prawdziwe nazwy z trzech 
     expect(isCproStageName("CV Wysłane")).toBe(false);
   });
 
-  it("Tablica ma 9 kolumn, bez etapów w środku", () => {
-    expect(BOARD_COLUMN_ORDER).toHaveLength(9);
+  it("Tablica ma 6 kolumn, bez etapów w środku (decyzja 23.09.2026)", () => {
+    expect(BOARD_COLUMN_ORDER).toEqual([
+      "new",
+      "verified",
+      "cv_sent",
+      "client_interview",
+      "contract",
+      "hired",
+    ]);
   });
 });
 
@@ -55,15 +62,12 @@ describe("foldBoardColumns", () => {
   ];
   const folded = foldBoardColumns(template);
 
-  it("„Default B2B”: 16 etapów → 9 kolumn + pasek zamkniętych", () => {
+  it("„Default B2B”: 16 etapów → 6 kolumn + pasek zamkniętych", () => {
     expect(folded.columns.map((c) => c.label)).toEqual([
-      "Do przejrzenia",
       "Nowi",
-      "Screening",
       "Zweryfikowany",
       "CV wysłane",
       "Rozmowa u klienta",
-      "Akceptacja",
       "Umowa",
       "Zatrudniony",
     ]);
@@ -84,8 +88,15 @@ describe("foldBoardColumns", () => {
     expect(verified.items.map((i) => i.id)).toEqual([2, 3, 4]);
     expect(verified.count).toBe(3);
     const contract = folded.columns.find((c) => c.key === "contract")!;
-    expect(contract.host.label).toBe("Umowa wysłana");
+    expect(contract.host.label).toBe("Akceptacja");
     expect(contract.items.map((i) => i.id)).toEqual([7, 8]);
+    const nowi = folded.columns.find((c) => c.key === "new")!;
+    expect(nowi.host.label).toBe("Nowi / Analiza CV");
+    expect(nowi.members.map((m) => m.label)).toEqual([
+      "Nowi / Analiza CV",
+      "Ogłoszenia",
+      "Screening",
+    ]);
     const hired = folded.columns.find((c) => c.key === "hired")!;
     expect(hired.host.label).toBe("Zatrudniony");
     expect(hired.items.map((i) => i.id)).toEqual([9]);
@@ -143,16 +154,15 @@ describe("foldBoardColumns", () => {
     ]);
     expect(traffit.columns.map((c) => c.label)).toEqual([
       "Nowi",
-      "Screening",
       "Zweryfikowany",
       "CV wysłane",
       "Rozmowa u klienta",
-      "Akceptacja",
+      "Umowa",
       "Zatrudniony",
-      "Do przejrzenia",
     ]);
-    const accept = traffit.columns.find((c) => c.key === "acceptance")!;
+    const accept = traffit.columns.find((c) => c.key === "contract")!;
     expect(accept.items.map((i) => i.id)).toEqual([5, 6]);
+    expect(traffit.badgeByItemId.get(5)).toBe("acceptance");
     const interview = traffit.columns.find((c) => c.key === "client_interview")!;
     expect(interview.items.map((i) => i.id)).toEqual([3, 4]);
     expect(traffit.closed).toHaveLength(2);

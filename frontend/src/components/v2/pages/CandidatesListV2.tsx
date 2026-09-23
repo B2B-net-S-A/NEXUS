@@ -20,7 +20,6 @@ import {
   Lock,
   Plus,
   Search,
-  SlidersHorizontal,
   Sparkles,
   Upload,
   UserPlus,
@@ -59,15 +58,7 @@ import {
   MatchSnippet,
   type FieldSnippet,
 } from "@/components/v2/MatchSnippet";
-import {
-  Sheet,
-  SheetBody,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { CANDIDATES_PAGE_SIZES, useUiStore, type CandidatesPageSize } from "@/store/ui";
 import {
   CANDIDATE_COLUMNS,
@@ -157,7 +148,8 @@ import {
 import { PinnedCandidatesBar } from "@/components/v2/filters/PinnedCandidatesBar";
 import { SavedSearchesMenu } from "@/components/v2/filters/SavedSearchesMenu";
 import type { SearchTextInterpretation } from "@/lib/candidate-search-api";
-import { CandidateFilterRail } from "@/components/v2/candidates/CandidateFilterRail";
+import { CandidateFilterBar } from "@/components/v2/candidates/CandidateFilterBar";
+import { isChipShownOnFilterBar } from "@/lib/candidate-filter-groups";
 import {
   ListSearchInterpretation,
   type ListTextModeApplied,
@@ -599,8 +591,6 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  // Otherwise opt-in via the `Boolean` toggle next to the search input. Persists
  // across reloads via `?boolean=1` once opened so the recruiter doesn't lose
  // their workspace.
- // Filter drawer (boczny panel ze wszystkimi filtrami) — tylko open/close.
- const [filtersOpen, setFiltersOpen] = useState(false);
  const currentUser = useAuthStore((s) => s.user);
 
  // Draft wyszukiwarki reaguje natychmiast, ale nie wysyła requestu na każdy
@@ -1378,8 +1368,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
     if (idx >= 0) setDetailPosition((page - 1) * pageSize + idx + 1);
   };
 
-  const rail = (
-    <CandidateFilterRail
+  const filterBar = (
+    <CandidateFilterBar
       filters={filtersSnapshot}
       onPatch={patchFiltersFromFields}
       currentUserId={currentUser?.id ?? null}
@@ -1449,15 +1439,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
         </div>
       </div>
 
-      <div className="flex items-start gap-5">
-        <div
-          data-testid="candidate-filter-rail"
-          className="sticky top-2 hidden max-h-[calc(100vh-6rem)] w-[224px] shrink-0 self-start overflow-y-auto pb-6 pr-1 lg:block"
-        >
-          {rail}
-        </div>
-
-        <div className="min-w-0 flex-1 space-y-3">
+      <div>
+        <div className="min-w-0 space-y-3">
           <div className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
               <div className="min-w-[240px] flex-1">
@@ -1483,14 +1466,6 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                   <FileText className="h-4 w-4" /> Z requestu
                 </Button>
               )}
-              <Button
-                variant={totalActiveFilters > 0 ? "primary" : "outline"}
-                className="h-10 lg:hidden"
-                onClick={() => setFiltersOpen(true)}
-              >
-                <SlidersHorizontal className="h-4 w-4" />
-                Filtry{totalActiveFilters > 0 ? ` (${totalActiveFilters})` : ""}
-              </Button>
             </div>
             {pastedRequest && onRequestSearch ? (
               <p className="text-xs text-muted-foreground">
@@ -1518,6 +1493,8 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             ) : null}
           </div>
 
+          {filterBar}
+
           <div className="flex flex-wrap items-center gap-2" aria-live="polite">
             <span className="text-sm font-medium text-foreground">
               {isLoading
@@ -1529,8 +1506,12 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             {isFetching && !isLoading && (
               <span className="text-xs text-muted-foreground">aktualizuję…</span>
             )}
-            <ActiveFilterChips filters={filtersSnapshot} onUpdate={applyFiltersPatch} />
-            <div className="ml-auto flex items-center gap-2">
+            <ActiveFilterChips
+              filters={filtersSnapshot}
+              onUpdate={applyFiltersPatch}
+              omitKey={isChipShownOnFilterBar}
+            />
+            <div className="ml-auto flex flex-wrap items-center gap-2">
               <SavedSearchesMenu
                 currentQs={encodeFilterCriteria(filtersSnapshot).toString()}
                 onApply={(qs, ssId, previousViewedAt, newCandidateIds) => {
@@ -1967,22 +1948,6 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
           </div>
         </div>
       </div>
-
-      {/* Filtry na węższych ekranach — ta sama kolumna w panelu bocznym. */}
-      <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-        <SheetContent side="left" size="sm">
-          <SheetHeader>
-            <SheetTitle>Filtry</SheetTitle>
-            <SheetDescription>Wyniki aktualizują się na bieżąco.</SheetDescription>
-          </SheetHeader>
-          <SheetBody>{rail}</SheetBody>
-          <SheetFooter>
-            <Button variant="primary" onClick={() => setFiltersOpen(false)}>
-              Pokaż {candidatesCountLabel(total)}
-            </Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
 
       <CandidateBulkBar
         count={selectedIds.size}

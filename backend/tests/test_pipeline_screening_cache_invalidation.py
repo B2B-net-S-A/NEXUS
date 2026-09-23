@@ -24,6 +24,10 @@ class _FakeStage:
         self.candidate_id = 7
         self.job_id = 9
         self.screening_answers = None
+        # `_FakeDb.scalar` zwraca ten obiekt na każde zapytanie — także jako
+        # proces pary przy sprawdzeniu blokady 12 h (Pipeline v4): bez blokady.
+        self.claimed_by_user_id = None
+        self.claimed_until = None
 
 
 class _FakeDb:

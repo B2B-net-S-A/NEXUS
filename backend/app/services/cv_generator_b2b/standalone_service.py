@@ -32,6 +32,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.schemas.champion import client_safe_screening
 from app.models.call import Call
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument
@@ -486,6 +487,7 @@ def _has_candidate_answers(screening_answers: Any) -> bool:
     Used for the readiness badge so a candidate screened purely through the
     Q&A sheet is not reported as "no notes".
     """
+    screening_answers = client_safe_screening(screening_answers)
     if not isinstance(screening_answers, dict):
         return False
     answers = screening_answers.get("answers")
@@ -511,6 +513,9 @@ def _format_candidate_answers(screening_answers: Any, screening_questions: Any) 
     """
     if not _has_candidate_answers(screening_answers):
         return ""
+    # Odpowiedzi pominięte przy przepięciu i notatka wewnętrzna nie wchodzą
+    # do CV (idzie do klienta) — ta sama reguła co share portal.
+    screening_answers = client_safe_screening(screening_answers) or {}
 
     q_by_id: dict[str, str] = {}
     if isinstance(screening_questions, list):

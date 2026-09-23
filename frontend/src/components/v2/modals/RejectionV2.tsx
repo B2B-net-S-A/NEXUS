@@ -31,6 +31,16 @@ const POST_ACCEPT_STAGES = new Set<string>(["acceptance","negotiation","onboardi
 
 export type CandidateOfferResponse ="pending" |"accepted" |"declined";
 
+/** Kto zakończył proces (Pipeline v4, 0352) — przy odrzuceniu wybór, przy
+ *  rezygnacji zawsze kandydat. */
+export type EndedBy = "candidate" | "recruiter" | "delivery_lead" | "client";
+
+const ENDED_BY_OPTIONS: { value: Exclude<EndedBy, "candidate">; label: string; hint: string }[] = [
+ { value: "recruiter", label: "Odrzucamy my", hint: "decyzja rekrutera" },
+ { value: "delivery_lead", label: "Odrzuca Delivery Lead", hint: "przegląd DL" },
+ { value: "client", label: "Odrzuca klient", hint: "decyzja po stronie klienta" },
+];
+
 interface Props {
  open: boolean;
  onOpenChange: (open: boolean) => void;
@@ -53,13 +63,18 @@ interface Props {
  candidateOfferResponse?: CandidateOfferResponse | null,
  // Wolny tekst powodu — przekazywany tylko w trybie fallback (brak
  // zdefiniowanych powodów). Backend przyjmuje go jako `rejection_reason`.
- freeReason?: string
+ freeReason?: string,
+ endedBy?: EndedBy
  ) => void;
+ /** Wstępny wybór „kto kończy" (np. upuszczenie na „Odrzucony przez klienta"). */
+ initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
+ /** „Odrzuca Delivery Lead" widzi tylko admin, DL i Head of Recruitment. */
+ canEndAsDeliveryLead?: boolean;
 }
 
 const TYPE_LABEL: Record<string, string> = {
- rejected: "Odrzuć kandydata",
- withdrawn: "Kandydat wycofany",
+ rejected: "Zamknij proces — odrzucenie",
+ withdrawn: "Kandydat zrezygnował",
 };
 
 export function RejectionV2({
@@ -70,8 +85,13 @@ export function RejectionV2({
  previousStageCategory = null,
  previousStage = null,
  onConfirm,
+ initialEndedBy = null,
+ canEndAsDeliveryLead = false,
 }: Props) {
  const [reasonId, setReasonId] = useState("");
+ const [endedBy, setEndedBy] = useState<Exclude<EndedBy, "candidate">>(
+ initialEndedBy ?? "recruiter"
+ );
  const [notes, setNotes] = useState("");
 
  // Mail odrzucenia dotyczy tylko `rejected` z etapu widocznego dla klienta
@@ -103,8 +123,13 @@ export function RejectionV2({
  setSendEmail(false);
  setOfferResponse("");
  setFreeReason("");
+ setEndedBy(initialEndedBy ?? "recruiter");
  }
- }, [open]);
+ }, [open, initialEndedBy]);
+ const endedByValue: EndedBy = terminalType === "withdrawn" ? "candidate" : endedBy;
+ const endedByOptions = ENDED_BY_OPTIONS.filter(
+ (o) => o.value !== "delivery_lead" || canEndAsDeliveryLead || initialEndedBy === "delivery_lead"
+ );
 
  const filtered = reasons.filter((r) => r.applies_to.includes(terminalType));
  const hasReasons = filtered.length > 0;
@@ -115,7 +140,7 @@ export function RejectionV2({
  const offerResponseValue: CandidateOfferResponse | null =
  offerResponseRequired && offerResponse ? offerResponse : null;
  if (hasReasons) {
- onConfirm(reasonId, notes, emailFlag, offerResponseValue);
+ onConfirm(reasonId, notes, emailFlag, offerResponseValue, undefined, endedByValue);
  return;
  }
  // Fallback wolnego tekstu — brak zdefiniowanych powodów. Powód trafia do
@@ -126,7 +151,7 @@ export function RejectionV2({
  const combinedNotes = notes.trim()
  ? `${reasonText}\n\n${notes.trim()}`
  : reasonText;
- onConfirm("", combinedNotes, emailFlag, offerResponseValue, reasonText);
+ onConfirm("", combinedNotes, emailFlag, offerResponseValue, reasonText, endedByValue);
  };
 
  const submitDisabled =
@@ -148,6 +173,30 @@ export function RejectionV2({
 
  <DialogBody>
  <div className="space-y-3">
+ {terminalType === "rejected" && (
+ <FormField label="Kto kończy?" required>
+ <RadioGroup
+ value={endedBy}
+ onValueChange={(v) => setEndedBy(v as Exclude<EndedBy, "candidate">)}
+ className="grid gap-2 sm:grid-cols-3"
+ >
+ {endedByOptions.map((o) => (
+ <label
+ key={o.value}
+ className={`flex cursor-pointer flex-col gap-0.5 rounded-md border p-2 text-sm ${
+ endedBy === o.value ? "border-primary bg-primary/5" : "border-border hover:bg-accent"
+ }`}
+ >
+ <span className="flex items-center gap-2 font-medium">
+ <RadioGroupItem value={o.value} />
+ {o.label}
+ </span>
+ <span className="pl-6 text-xs text-muted-foreground">{o.hint}</span>
+ </label>
+ ))}
+ </RadioGroup>
+ </FormField>
+ )}
  <FormField
  label="Powód"
  required

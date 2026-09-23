@@ -45,6 +45,8 @@ export interface BoardWorkbenchDrawerProps {
   rejectionReasons: PipelineRejectionReasonOption[];
   workbenchContext: BoardWorkbenchContext;
   kanbanQueryState: KanbanQueryState;
+  /** Nordea: „CV wysłane" = „Wysłane do Cpro", bez przeglądu DL (Pipeline v4). */
+  cproEnabled?: boolean;
 }
 
 const NO_SCORES = new Map<number, number>();
@@ -64,6 +66,7 @@ export function BoardWorkbenchDrawer({
   rejectionReasons,
   workbenchContext,
   kanbanQueryState,
+  cproEnabled = false,
 }: BoardWorkbenchDrawerProps) {
   const row = useMemo(
     () =>
@@ -82,6 +85,7 @@ export function BoardWorkbenchDrawer({
     columns,
     readOnly,
     canWriteClientRate,
+    cproEnabled,
   });
 
   const context: WorkbenchContext = {

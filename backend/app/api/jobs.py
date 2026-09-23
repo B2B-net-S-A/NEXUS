@@ -3978,6 +3978,8 @@ async def add_candidate_from_history(
         # human-created pair. Ownership, collaboration or manager role must
         # not bypass the published Priority Work assignment.
         origin_kind=PriorityOriginKind.assigned,
+        entry_source="added_manual",
+        claim_for_user_id=current_user.id,
     )
     db.add(
         Activity(

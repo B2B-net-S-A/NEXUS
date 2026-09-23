@@ -41,6 +41,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F18 | cv_factual_verification          | gpt-6-luna (z Sonnet 5)  |
 | F19 | jarvis                           | claude-sonnet-5 (z Haiku)|
 | F20 | job_public_description           | claude-sonnet-5 (z Haiku)|
+| F21 | screening_reassign_suggest       | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -266,6 +267,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "na stronę kariery to ta sama robota co F6 (generator ogłoszeń), a tam Sonnet 5 był "
         "jedynym modelem z językiem OK w 100%. Tekst i tak przechodzi deterministyczną "
         "kontrolę (klient, kwoty, kontakty) i zatwierdzenie człowieka.",
+    ),
+    AIFeatureKey.screening_reassign_suggest: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("SCREENING_REASSIGN_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F21 (decyzja Artura 23.09.2026, POZA badaniem 16.09). Przepięcie: "
+        "dopasowanie odpowiedzi z poprzedniego screeningu do pytań nowej rekrutacji to "
+        "zadanie „znajdź i zacytuj” (jak F7/F8, które Luna wygrała). Wynik jest wyłącznie "
+        "podpowiedzią — rekruter przyjmuje albo poprawia każdą odpowiedź.",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
         default=GPT_LUNA,

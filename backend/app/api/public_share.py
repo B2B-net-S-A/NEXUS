@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.schemas.champion import client_safe_screening
 from app.services import champion_view
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -124,7 +125,9 @@ async def get_public_champion_card(
             "seniority": job.seniority.value if job and job.seniority else None,
         },
         "champion_profile": _public_champion_projection(job),
-        "screening_answers": stage.screening_answers or None,
+        # Wersja dla klienta: bez pytań pominiętych przy przepięciu i bez
+        # notatki wewnętrznej (Pipeline v4, 23.09.2026).
+        "screening_answers": client_safe_screening(stage.screening_answers),
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
     }
 

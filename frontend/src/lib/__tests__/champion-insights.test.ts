@@ -6,6 +6,7 @@ import {
   askClientItems,
   newInsight,
   removeInsight,
+  syncLegacyInsight,
   visibleInsights,
 } from "@/lib/champion-insights";
 
@@ -65,5 +66,17 @@ describe("widok kolumn", () => {
     expect(n.audience).toBe("team");
     expect(n.id.startsWith("new-")).toBe(true);
     expect(n.editable).toBe(true);
+  });
+});
+
+describe("panel pytań klienta a wpis „z importu”", () => {
+  it("dopisane pytanie aktualizuje istniejący wpis albo go tworzy", () => {
+    const id = "legacy:client.historical_questions" as const;
+    const created = syncLegacyInsight([], id, "Jak testowałeś chargeback?");
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({ id, source: "client", origin: "legacy" });
+    const updated = syncLegacyInsight(created, id, "A\nB");
+    expect(updated).toHaveLength(1);
+    expect(updated[0].text).toBe("A\nB");
   });
 });
