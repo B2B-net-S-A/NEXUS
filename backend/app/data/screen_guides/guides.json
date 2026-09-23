@@ -1,0 +1,562 @@
+[
+  {
+    "key": "jobs.list",
+    "title": "Lista rekrutacji",
+    "section": "pipeline",
+    "roles": ["recruiter", "sourcer", "delivery_lead", "head_of_recruitment", "admin"],
+    "what": "Tu widzisz wszystkie rekrutacje: swoje albo całej firmy, ze statusem requestu, etapami kandydatów i liczbą nowych propozycji.",
+    "tasks": [
+      {
+        "q": "Jak przełączyć między moimi a wszystkimi rekrutacjami?",
+        "a": "Użyj przełącznika „Moje / Wszystkie” obok przycisku „Filtry”. Rekruter i Delivery Lead domyślnie widzą swoje, admin i Finanse wszystkie. Wybór zapisuje się w adresie, więc link wysłany koledze pokaże to samo.",
+        "anchor": "jobs.list.scope"
+      },
+      {
+        "q": "Jak znaleźć konkretną rekrutację?",
+        "a": "Wpisz w pole wyszukiwania tytuł, nazwę klienta albo technologię. Zawęzić listę możesz też statusem („Szukamy”, „Mamy championa”, „Umowa”…) i przyciskiem „Filtry”.",
+        "anchor": "jobs.list.search"
+      },
+      {
+        "q": "Co pokazuje status requestu?",
+        "a": "„Szukamy” trwa, dopóki Delivery Lead nie oznaczy „Mamy championa”. „Umowa” znaczy, że ktoś jest na etapie umowy, „Obsadzona” — komplet zatrudnionych, „Do uzupełnienia” — zlecenie jest szkicem i nie trafiło jeszcze do searchu.",
+        "anchor": "jobs.list.status"
+      },
+      {
+        "q": "Jak zajrzeć do rekrutacji bez otwierania jej?",
+        "a": "Kliknij ikonę „Podgląd” w wierszu — z prawej otworzy się dok z gotowością rekrutacji. Kliknięcie w sam wiersz otwiera rekrutację (z Ctrl/⌘ w nowej karcie)."
+      },
+      {
+        "q": "Jak założyć nową rekrutację?",
+        "a": "Kliknij „Nowa rekrutacja”. Wklej mail albo plik od klienta — system wypełni pola i pokaże braki. Przycisk widzą admin i Delivery Lead.",
+        "anchor": "jobs.list.new"
+      }
+    ],
+    "pitfalls": [
+      "Pusta lista w zakresie „Moje” nie znaczy, że rekrutacji nie ma — przełącz na „Wszystkie”.",
+      "Sortowanie „Wymaga uwagi” stawia na górze rekrutacje z największą liczbą kandydatów czekających na Twój ruch."
+    ],
+    "anchors": [
+      {"id": "jobs.list.scope", "label": "Moje / Wszystkie", "describe": "Przełącznik zakresu listy rekrutacji z licznikami."},
+      {"id": "jobs.list.search", "label": "Wyszukiwanie", "describe": "Pole wyszukiwania po tytule, kliencie i technologii."},
+      {"id": "jobs.list.status", "label": "Status requestu", "describe": "Filtry statusu: Szukamy, Mamy championa, Umowa, Obsadzona, Do uzupełnienia."},
+      {"id": "jobs.list.filters", "label": "Filtry", "describe": "Kolumna z pozostałymi filtrami listy."},
+      {"id": "jobs.list.sort", "label": "Sortowanie", "describe": "Kolejność listy, m.in. „Wymaga uwagi”."},
+      {
+        "id": "jobs.list.new",
+        "label": "Nowa rekrutacja",
+        "describe": "Założenie rekrutacji z maila albo pliku od klienta.",
+        "requires": {"roles": ["admin", "delivery_lead"]}
+      }
+    ],
+    "help_slug": null,
+    "sources": ["frontend/src/components/v2/pages/JobsListV2.tsx", "frontend/src/lib/request-status.ts"]
+  },
+  {
+    "key": "jobs.board",
+    "title": "Tablica rekrutacji",
+    "section": "pipeline",
+    "roles": ["recruiter", "sourcer", "delivery_lead", "head_of_recruitment", "admin"],
+    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 6 kolumn: Nowi, Zweryfikowany, CV wysłane, Rozmowa u klienta, Umowa i Zatrudniony.",
+    "tasks": [
+      {
+        "q": "Jak przesunąć kandydata dalej?",
+        "a": "Przeciągnij kartę do następnej kolumny albo kliknij kartę i w doku osoby użyj „Przenieś na etap: …”. Przy „Zweryfikowany” system zapyta o stawkę (możesz ją pominąć).",
+        "anchor": "jobs.board.columns"
+      },
+      {
+        "q": "Skąd biorą się propozycje na górze kolumny Nowi?",
+        "a": "To „Propozycje · z bazy i przepięcia”: osoby dobrane automatycznie z bazy i przepięte z podobnych rekrutacji. „Biorę” dodaje osobę do Nowych i rezerwuje ją dla Ciebie na 12 godzin.",
+        "anchor": "jobs.board.review"
+      },
+      {
+        "q": "Jak szybko znaleźć karty, na które czekam ja?",
+        "a": "Włącz „Mój ruch” na pasku nad tablicą — karty, na których następny krok należy do rekrutera, zostaną wyróżnione, reszta przygaszona. Pozostałe filtry (utknęli, rekruter, puste kolumny) są pod „Filtry”.",
+        "anchor": "jobs.board.filters"
+      },
+      {
+        "q": "Gdzie są odrzuceni i ci, którzy zrezygnowali?",
+        "a": "Na pasku nad tablicą: „Zrezygnował”, „Odrzucony przez nas”, „Odrzucony przez DL”, „Odrzucony przez klienta”. Kliknij chip, żeby rozwinąć kolumny; kartę możesz też na chip upuścić.",
+        "anchor": "jobs.board.closed"
+      }
+    ],
+    "pitfalls": [
+      "„CV wysłane” poza Nordeą ustawia tylko Delivery Lead albo admin, podając w tym samym kroku stawkę do klienta.",
+      "Wyjście z „Rozmowy u klienta” wymaga debriefu: pytań klienta albo potwierdzenia, że ich nie było.",
+      "Osobę dodaną ręcznie do Nowych przez 12 godzin prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
+    ],
+    "anchors": [
+      {"id": "jobs.board.columns", "label": "Kolumny tablicy", "describe": "Sześć kolumn etapów — przeciągaj karty między nimi."},
+      {"id": "jobs.board.review", "label": "Propozycje z bazy", "describe": "Propozycje i przepięcia na górze kolumny Nowi, z przyciskiem „Biorę”."},
+      {"id": "jobs.board.filters", "label": "Pasek filtrów tablicy", "describe": "Szukanie po nazwisku, „Mój ruch” i pozostałe filtry."},
+      {"id": "jobs.board.closed", "label": "Zamknięci", "describe": "Chipy: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."}
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/components/v2/pages/KanbanBoardV2.tsx",
+      "frontend/src/lib/board-stages.ts",
+      "backend/app/services/pipeline_move_rules.py"
+    ]
+  },
+  {
+    "key": "jobs.proposals",
+    "title": "Do przejrzenia",
+    "section": "pipeline",
+    "roles": ["recruiter", "sourcer", "delivery_lead"],
+    "what": "Tu przeglądasz kandydatów zaproponowanych do tej rekrutacji — z przeglądu całej bazy, nowych CV, podobnych rekrutacji — oraz shortlistę.",
+    "tasks": [
+      {
+        "q": "Jak dodać zaproponowaną osobę do rekrutacji?",
+        "a": "Kliknij osobę na liście, sprawdź dopasowanie w panelu z prawej i użyj „Dodaj do rekrutacji”. Skróty: D — dodaj, P — pomiń, strzałki — następna osoba.",
+        "anchor": "jobs.proposals.add"
+      },
+      {
+        "q": "Jak przeszukać całą bazę pod tę rekrutację?",
+        "a": "Użyj „Przeszukaj całą bazę” (albo „Uruchom ponownie”) w pasku przeglądu. Przegląd trwa kilka minut; wynik trafia na tę listę. W nocy przegląd robi się też sam po zmianie rekrutacji.",
+        "anchor": "jobs.proposals.review"
+      },
+      {
+        "q": "Jak zobaczyć tylko przepięcia albo tylko nowe CV?",
+        "a": "Użyj pigułek źródła nad listą — każda ma licznik. „Wszystkie” pokazuje komplet.",
+        "anchor": "jobs.proposals.sources"
+      },
+      {
+        "q": "Co robi „Pomiń”?",
+        "a": "Zdejmuje propozycję z listy tej rekrutacji. Da się ją przywrócić, a nowe CV tej osoby zaproponuje ją ponownie."
+      }
+    ],
+    "pitfalls": [
+      "Wynik „nie policzono” to brak danych, nie słabe dopasowanie.",
+      "Osoby z ostrzeżeniem (np. konflikt z klientem) są widoczne i da się je dodać — sprawdź powód przed wysłaniem do klienta; weto hiring managera blokuje dodanie."
+    ],
+    "anchors": [
+      {"id": "jobs.proposals.tabs", "label": "Propozycje / Shortlista", "describe": "Przełącznik między propozycjami z bazy a shortlistą."},
+      {"id": "jobs.proposals.review", "label": "Przegląd bazy", "describe": "Stan ostatniego przeglądu i przycisk uruchomienia nowego."},
+      {"id": "jobs.proposals.sources", "label": "Źródło propozycji", "describe": "Pigułki źródła: przegląd bazy, nowe CV, podobne rekrutacje, przepięcia."},
+      {"id": "jobs.proposals.add", "label": "Dodaj do rekrutacji", "describe": "Dodanie wybranej osoby do Nowych."}
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/components/v2/recruitment/ProposalsSegment.tsx",
+      "frontend/src/components/v2/recruitment/ProposalPanel.tsx"
+    ]
+  },
+  {
+    "key": "jobs.person",
+    "title": "Karta kandydata w rekrutacji",
+    "section": "pipeline",
+    "roles": ["recruiter", "sourcer", "delivery_lead"],
+    "what": "Tu prowadzisz jedną osobę w tej rekrutacji: sekcja „Teraz” pokazuje, co jest do zrobienia na jej etapie, a główna akcja przesuwa ją dalej.",
+    "tasks": [
+      {
+        "q": "Jak przesunąć osobę na kolejny etap?",
+        "a": "Użyj „Przenieś na etap: …” pod nazwiskiem. Na inny etap przejdziesz przez „Inny etap…”. Jeśli przycisk jest wyszarzony, pod nim zobaczysz powód.",
+        "anchor": "jobs.person.actions"
+      },
+      {
+        "q": "Jak odrzucić kandydata?",
+        "a": "Kliknij „Odrzuć z powodem” i wybierz powód. Jeśli to kandydat się wycofał, użyj „Zrezygnował” — raporty liczą te przypadki osobno.",
+        "anchor": "jobs.person.actions"
+      },
+      {
+        "q": "Jak dodać szybką notatkę?",
+        "a": "Wpisz ją w pole „Dodaj notatkę…” na dole karty i naciśnij Enter. Notatka trafia do historii kandydata w kontekście tej rekrutacji.",
+        "anchor": "jobs.person.note"
+      },
+      {
+        "q": "Co to są odznaki etapu (np. DZ ✓, Prep)?",
+        "a": "To etapy pomocnicze, które nie mają własnej kolumny. Włączasz je przełącznikami w karcie; „DZ ✓” zatwierdzają admin, Delivery Lead i Head of Recruitment.",
+        "anchor": "jobs.person.badges"
+      }
+    ],
+    "pitfalls": [
+      "Osoba zarezerwowana przez kogoś innego (12 h) nie da się przesunąć, dopóki rezerwacja nie wygaśnie albo ktoś uprawniony jej nie przejmie."
+    ],
+    "anchors": [
+      {"id": "jobs.person.dock", "label": "Karta kandydata", "describe": "Panel osoby wysuwany z prawej po kliknięciu karty."},
+      {"id": "jobs.person.actions", "label": "Akcje etapu", "describe": "Przenieś na etap, Inny etap, Odrzuć z powodem, Zrezygnował."},
+      {"id": "jobs.person.badges", "label": "Odznaki etapu", "describe": "Przełączniki etapów pomocniczych, np. DZ ✓, Prep."},
+      {"id": "jobs.person.note", "label": "Szybka notatka", "describe": "Pole notatki na dole karty."}
+    ],
+    "help_slug": null,
+    "sources": ["frontend/src/components/v2/jobs/PipelineCandidateDock.tsx"]
+  },
+  {
+    "key": "job.champion",
+    "title": "Zlecenie i Champion",
+    "section": "pipeline",
+    "roles": ["delivery_lead", "recruiter", "admin"],
+    "what": "Tu opisujesz, czego szuka klient: profil Championa w sześciu sekcjach, stack MUST/NICE, pytania screeningowe i gotowość do przekazania do searchu.",
+    "tasks": [
+      {
+        "q": "Jak szybko wypełnić profil z maila klienta?",
+        "a": "Kliknij „Wygeneruj z opisu klienta”, wklej opis i zatwierdź. AI wypełni sekcje, a Ty poprawisz je ręcznie — profil dostanie znacznik pochodzenia.",
+        "anchor": "job.champion.intake"
+      },
+      {
+        "q": "Czego brakuje, żeby przekazać rekrutację do searchu?",
+        "a": "Zobacz dok gotowości z prawej: lista braków (rola, must-have, budżet, tryb pracy, opis projektu, dwa pytania screeningowe). Gdy wszystko jest, użyj „Przekaż do searchu”.",
+        "anchor": "job.champion.readiness"
+      },
+      {
+        "q": "Profil i pola rekrutacji się różnią — co zrobić?",
+        "a": "Kliknij „Uzgodnij profil i pola rekrutacji”. Zobaczysz różnice obok siebie i zdecydujesz, która wartość zostaje.",
+        "anchor": "job.champion.reconcile"
+      },
+      {
+        "q": "Jak oznaczyć, że mamy już championa?",
+        "a": "Delivery Lead klika „Oznacz: mamy championa” w nagłówku rekrutacji. Status zmienia się z „Szukamy” na „Mamy championa”; da się to cofnąć tym samym przyciskiem.",
+        "anchor": "job.champion.found"
+      }
+    ],
+    "pitfalls": [
+      "Stack MUST z sekcji 3 jest tym, po czym system dopasowuje kandydatów — sama proza w opisie projektu wystarcza gorzej.",
+      "Budżet podany zakresem jest zapisywany jako górna granica stawki godzinowej."
+    ],
+    "anchors": [
+      {"id": "job.champion.intake", "label": "Wygeneruj z opisu klienta", "describe": "Wypełnienie profilu z opisu klienta przez AI."},
+      {"id": "job.champion.readiness", "label": "Gotowość rekrutacji", "describe": "Dok z brakami i przyciskiem przekazania do searchu."},
+      {"id": "job.champion.reconcile", "label": "Uzgodnij profil i pola", "describe": "Porównanie profilu z polami rekrutacji."},
+      {
+        "id": "job.champion.found",
+        "label": "Mamy championa",
+        "describe": "Przełącznik statusu requestu w nagłówku rekrutacji.",
+        "requires": {"roles": ["admin", "delivery_lead", "head_of_recruitment"]}
+      },
+      {"id": "job.champion.sections", "label": "Spis sekcji", "describe": "Spis sekcji profilu (widoczny na szerokim ekranie)."}
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/components/ChampionProfileEditor.tsx",
+      "frontend/src/components/v2/jobs/JobDetailCompactHeader.tsx"
+    ]
+  },
+  {
+    "key": "candidates.list",
+    "title": "Kandydaci",
+    "section": "sourcing",
+    "roles": ["recruiter", "sourcer", "delivery_lead"],
+    "what": "Tu szukasz ludzi w bazie: słowa kluczowe jak w Traffit, stawka, lokalizacja z promieniem, tryb pracy i historia współpracy — albo wyszukiwanie z treści requestu.",
+    "tasks": [
+      {
+        "q": "Jak szukać po słowach kluczowych?",
+        "a": "Użyj trzech pól nad listą: „Zawiera wszystkie”, „Zawiera którekolwiek” i „Nie zawiera żadnego”. Słowa pasują w całości: „java” nie znajdzie „JavaScript”; gwiazdka „java*” szuka początku słowa.",
+        "anchor": "candidates.list.filters"
+      },
+      {
+        "q": "Jak znaleźć kandydatów pod request klienta?",
+        "a": "Kliknij „Z requestu”, wklej treść, wgraj plik Championa albo wybierz rekrutację, podaj klienta i przejdź dalej — dostaniesz ranking bazy bez zakładania rekrutacji.",
+        "anchor": "candidates.list.request"
+      },
+      {
+        "q": "Gdzie są rzadsze filtry (doświadczenie, języki, firmy)?",
+        "a": "Pod „Więcej filtrów” — szuflada z prawej: doświadczenie i języki, firma i stanowisko, kto dodał i pule, pozostałe.",
+        "anchor": "candidates.list.more"
+      },
+      {
+        "q": "Jak zapisać wyszukiwanie i dostawać powiadomienia?",
+        "a": "Otwórz „Zapisane” i zapisz bieżące filtry. Dzwonek jest domyślnie włączony — dostaniesz powiadomienie, gdy pojawi się nowa pasująca osoba.",
+        "anchor": "candidates.list.saved"
+      },
+      {
+        "q": "Jak zmienić kolumny tabeli?",
+        "a": "Kliknij „Kolumny” i zaznacz, co chcesz widzieć (np. e-mail, staż, ostatni kontakt). Wybór zapamiętuje przeglądarka.",
+        "anchor": "candidates.list.columns"
+      }
+    ],
+    "pitfalls": [
+      "Osoby bez stawki, lokalizacji albo stażu zostają na liście przy aktywnym filtrze i są oznaczone — możesz je ukryć w „Więcej filtrów”.",
+      "Historia kontaktów z Traffita ma datę importu (maj 2026), więc wcześniejszy okres nic nie znajdzie."
+    ],
+    "anchors": [
+      {"id": "candidates.list.filters", "label": "Pasek filtrów", "describe": "Słowa kluczowe i przyciski filtrów nad tabelą."},
+      {"id": "candidates.list.request", "label": "Z requestu", "describe": "Wyszukiwanie z treści requestu, pliku Championa albo rekrutacji."},
+      {"id": "candidates.list.more", "label": "Więcej filtrów", "describe": "Szuflada z rzadszymi filtrami."},
+      {"id": "candidates.list.saved", "label": "Zapisane, sortowanie, kolumny", "describe": "Zapisane wyszukiwania, sortowanie i wybór kolumn."},
+      {"id": "candidates.list.columns", "label": "Kolumny", "describe": "Wybór kolumn tabeli kandydatów."}
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/components/v2/candidates/CandidateFilterBar.tsx",
+      "frontend/src/components/v2/pages/CandidatesListV2.tsx"
+    ]
+  },
+  {
+    "key": "candidate.profile",
+    "title": "Profil kandydata",
+    "section": "sourcing",
+    "roles": ["recruiter", "sourcer", "delivery_lead"],
+    "what": "Tu masz wszystko o jednej osobie: fakty (dostępność, stawka, lokalizacja), rekrutacje, historię kontaktów oraz pliki i umowy.",
+    "tasks": [
+      {
+        "q": "Jak dodać kandydata do rekrutacji?",
+        "a": "Kliknij „Przypisz do rekrutacji” w nagłówku i wybierz rekrutację. Osoba trafi do kolumny Nowi.",
+        "anchor": "candidate.profile.assign"
+      },
+      {
+        "q": "Jak poprawić stawkę albo dostępność?",
+        "a": "Kliknij fakt na pasku pod nagłówkiem (dostępność, stawka, lokalizacja, tryb pracy) i zapisz. Każdy fakt jest pokazany tylko w tym jednym miejscu.",
+        "anchor": "candidate.profile.facts"
+      },
+      {
+        "q": "Skąd są dane w karcie „Z notatek rekruterów”?",
+        "a": "System co noc czyta notatki i wyciąga z nich stawkę, dostępność, tryb pracy i formę umowy. Nic nie zapisuje się samo — kliknij „Zapisz w profilu” przy fakcie, który się zgadza.",
+        "anchor": "candidate.profile.notes_facts"
+      },
+      {
+        "q": "Gdzie są maile, notatki i rozmowy?",
+        "a": "W zakładce „Historia” — z filtrem rodzaju. Rekrutacje i dopasowania są w „Rekrutacje”, CV i umowy w „Pliki i umowy”.",
+        "anchor": "candidate.profile.tabs"
+      }
+    ],
+    "pitfalls": [
+      "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem."
+    ],
+    "anchors": [
+      {"id": "candidate.profile.assign", "label": "Przypisz do rekrutacji", "describe": "Dodanie kandydata do rekrutacji."},
+      {"id": "candidate.profile.note", "label": "Dodaj notatkę", "describe": "Nowa notatka o kandydacie."},
+      {"id": "candidate.profile.facts", "label": "Najważniejsze fakty", "describe": "Pasek faktów: dostępność, stawka, lokalizacja, tryb pracy."},
+      {"id": "candidate.profile.notes_facts", "label": "Z notatek rekruterów", "describe": "Fakty wyciągnięte z notatek do zatwierdzenia."},
+      {"id": "candidate.profile.tabs", "label": "Zakładki profilu", "describe": "Profil, Rekrutacje, Historia, Pliki i umowy."}
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/components/v2/pages/CandidateDetailV2.tsx",
+      "frontend/src/components/v2/candidate-profile/ProfileHeader.tsx",
+      "frontend/src/components/v2/pages/CandidateNotesFactsCard.tsx"
+    ]
+  },
+  {
+    "key": "calendar",
+    "title": "Rozmowy u klienta",
+    "section": "pipeline",
+    "roles": ["recruiter", "delivery_lead", "head_of_recruitment"],
+    "what": "Tu prowadzisz cykl rozmowy u klienta: terminy od klienta, wybór terminu, prep, rozmowę, telefon do kandydata do 30 minut po niej i debrief.",
+    "tasks": [
+      {
+        "q": "Co mam dziś zrobić?",
+        "a": "Zobacz „Do zrobienia” w widoku Agenda — na górze są najpilniejsze sprawy: telefon po rozmowie, zaległy debrief, termin do wyboru.",
+        "anchor": "calendar.todo"
+      },
+      {
+        "q": "Jak dodać terminy zaproponowane przez klienta?",
+        "a": "Delivery Lead klika „Terminy od klienta”, wybiera kandydata i rekrutację i wpisuje terminy. Rekruter wybiera jeden, a Delivery Lead go potwierdza.",
+        "anchor": "calendar.slots"
+      },
+      {
+        "q": "Jak zapisać debrief po rozmowie?",
+        "a": "Po rozmowie kliknij sprawę w „Do zrobienia” i zapisz, jak poszło, czy kandydat przyjmie ofertę i jakie pytania zadał klient. Pytania trafią do przygotowań kolejnych kandydatów do tego klienta.",
+        "anchor": "calendar.todo"
+      },
+      {
+        "q": "Jak zobaczyć cały zespół albo zwykły kalendarz?",
+        "a": "Przełączniki „Widok” (Agenda, Tydzień, Tablica) i „Zakres” (Moi kandydaci, Moje rekrutacje, Cały zespół) są w nagłówku. Tydzień to siatka z Outlookiem.",
+        "anchor": "calendar.views"
+      }
+    ],
+    "pitfalls": [
+      "Bez debriefu kandydat nie wyjdzie z kolumny „Rozmowa u klienta” na tablicy.",
+      "Zmiana terminu wydarzenia z Outlooka idzie najpierw do Outlooka — bez połączonej skrzynki zapis zostanie odrzucony."
+    ],
+    "anchors": [
+      {"id": "calendar.todo", "label": "Do zrobienia", "describe": "Lista najpilniejszych spraw cyklu rozmów."},
+      {"id": "calendar.agenda", "label": "Agenda", "describe": "Rozmowy i prepy na dziś, jutro i ten tydzień."},
+      {"id": "calendar.views", "label": "Widok i zakres", "describe": "Przełączniki Agenda / Tydzień / Tablica i zakresu."},
+      {
+        "id": "calendar.slots",
+        "label": "Terminy od klienta",
+        "describe": "Dodanie terminów zaproponowanych przez klienta.",
+        "requires": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "tac"]}
+      }
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/components/calendar/cycle/CalendarCycleScreen.tsx",
+      "frontend/src/components/calendar/cycle/AgendaView.tsx"
+    ]
+  },
+  {
+    "key": "client.orders",
+    "title": "Zamówienia klienta",
+    "section": "delivery",
+    "roles": ["delivery_lead", "finance", "admin"],
+    "what": "Tu masz wszystkie zamówienia klienta — okresowe, kosztowe i rozliczane w MD — z obsadą, budżetem i datami.",
+    "tasks": [
+      {
+        "q": "Jak dodać zamówienie z PDF-a od klienta?",
+        "a": "Kliknij „Nowe zamówienie”, wgraj PDF i użyj „Zczytaj i uzupełnij całe zamówienie”. System utworzy kartę dla każdej osoby z dokumentu — sprawdź dopasowanie i zapisz.",
+        "anchor": "client.orders.new"
+      },
+      {
+        "q": "Komu kończy się zamówienie?",
+        "a": "Kliknij pigułkę „Kończące się 30d”. Są tam tylko zamówienia bez kolejnego zamówienia dla tej osoby.",
+        "anchor": "client.orders.pills"
+      },
+      {
+        "q": "Jak znaleźć zamówienie po numerze albo nazwisku?",
+        "a": "Wpisz numer albo nazwisko w pole wyszukiwania nad listą. Tam też jest eksport widocznej listy do Excela.",
+        "anchor": "client.orders.search"
+      },
+      {
+        "q": "Czym różni się „Zakończ zamówienie” od „Zakończ współpracę”?",
+        "a": "„Zakończ zamówienie” zamyka jedno zamówienie i nie rusza umowy. „Zakończ współpracę” wypowiada umowę konsultanta i zamyka wszystkie jego zamówienia u klienta."
+      }
+    ],
+    "pitfalls": [
+      "Usunięcie zamówienia może zmienić stawkę w przeszłych miesiącach — okno usuwania pokazuje skutki, przeczytaj je przed potwierdzeniem.",
+      "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się usunąć."
+    ],
+    "anchors": [
+      {
+        "id": "client.orders.new",
+        "label": "Nowe zamówienie",
+        "describe": "Dodanie zamówienia, także z odczytem PDF.",
+        "requires": {"roles": ["admin", "delivery_lead"]}
+      },
+      {"id": "client.orders.pills", "label": "Aktywne / Kończące się / Zakończeni", "describe": "Pigułki stanu zamówień z licznikami."},
+      {"id": "client.orders.search", "label": "Wyszukiwanie i eksport", "describe": "Szukanie po numerze i nazwisku, filtry i eksport."}
+    ],
+    "help_slug": "zamowienia-instrukcja-delivery-lead",
+    "sources": [
+      "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx",
+      "frontend/src/components/client-profile/orders/OrderGroupCard.tsx"
+    ]
+  },
+  {
+    "key": "contracts.order_mail",
+    "title": "Skrzynka zamówień",
+    "section": "delivery",
+    "roles": ["delivery_lead", "finance", "admin"],
+    "what": "Tu trafiają zamówienia z maila zamowienia@: pewne zapisują się same, a te wymagające decyzji czekają w „Do weryfikacji” z powodem wstrzymania.",
+    "tasks": [
+      {
+        "q": "Jak pobrać zamówienia teraz, bez czekania?",
+        "a": "Kliknij „Pobierz zamówienia z maila”. Skrzynka i tak jest sprawdzana co godzinę; liczby pod przyciskiem dotyczą całej skrzynki.",
+        "anchor": "contracts.order_mail.check"
+      },
+      {
+        "q": "Co zrobić z wpisem „Do weryfikacji”?",
+        "a": "Otwórz wpis i przeczytaj powód wstrzymania. Gdy plan jest dobry — „Zastosuj”; gdy dotyczy osoby do rozstrzygnięcia — „Rozstrzygnij w oknie zamówienia”; gdy to nie zamówienie — „Odrzuć”.",
+        "anchor": "contracts.order_mail.detail"
+      },
+      {
+        "q": "Dlaczego zamówienie czeka na podpis umowy?",
+        "a": "Osoby z zamówienia nie ma jeszcze w systemie. Kontraktor powstaje z podpisanej umowy B2B — po „Oznacz jako podpisaną” w Generatorze zamówienie dopisze się samo przy najbliższym sprawdzeniu.",
+        "anchor": "contracts.order_mail.tabs"
+      },
+      {
+        "q": "Kiedy system ostatnio sprawdzał wstrzymane wpisy?",
+        "a": "Na dole ekranu jest historia sprawdzeń i zdanie „Sprawdzone ostatnio”. Wstrzymane wpisy są sprawdzane co godzinę między 8 a 18; historia pokazuje tylko sprawdzenia, które coś zmieniły.",
+        "anchor": "contracts.order_mail.history"
+      }
+    ],
+    "pitfalls": [
+      "„Zastosuj” ignoruje wyłącznik automatu — zapisujesz świadomie jako człowiek.",
+      "Stawka w walucie innej niż PLN zawsze wymaga ręcznej weryfikacji."
+    ],
+    "anchors": [
+      {
+        "id": "contracts.order_mail.check",
+        "label": "Pobierz zamówienia z maila",
+        "describe": "Ręczne sprawdzenie skrzynki i wynik ostatniego biegu.",
+        "requires": {"roles": ["admin", "finance", "delivery_lead"]}
+      },
+      {"id": "contracts.order_mail.tabs", "label": "Zakładki kolejki", "describe": "Do weryfikacji, Zapisane automatycznie, Zapisane ręcznie, Nierozpoznane."},
+      {"id": "contracts.order_mail.detail", "label": "Szczegóły wpisu", "describe": "Odczyt, plan i przyciski decyzji dla wybranego zamówienia."},
+      {"id": "contracts.order_mail.history", "label": "Historia sprawdzeń", "describe": "Kiedy system ostatnio sprawdzał wstrzymane wpisy."}
+    ],
+    "help_slug": "zamowienia-instrukcja-delivery-lead",
+    "sources": [
+      "frontend/src/components/order-mail/OrderMailQueue.tsx",
+      "backend/app/services/order_mail_gate.py"
+    ]
+  },
+  {
+    "key": "contracts.b2b_generator",
+    "title": "Generator umów B2B",
+    "section": null,
+    "roles": ["recruiter", "delivery_lead", "tac", "admin"],
+    "what": "Tu generujesz umowę B2B z Partnerem w DOCX i prowadzisz rejestr umów: bieżące, bez projektu i zakończone.",
+    "tasks": [
+      {
+        "q": "Jak wygenerować umowę?",
+        "a": "W zakładce „Generator” wypełnij dane Partnera i warunki, sprawdź „Podgląd” i kliknij „Pobierz DOCX (PL)” albo „(EN)”. Numer umowy nadaje się sam.",
+        "anchor": "contracts.b2b_generator.docx"
+      },
+      {
+        "q": "Umowa jest podpisana — co dalej?",
+        "a": "W „Umowy bieżące” kliknij „Oznacz jako podpisaną”. Dopiero wtedy powstaje kontrakt i szkic zamówienia, a kandydat przechodzi na „Zatrudniony”.",
+        "anchor": "contracts.b2b_generator.tabs"
+      },
+      {
+        "q": "Jak znaleźć umowę?",
+        "a": "Wpisz numer umowy albo imię i nazwisko w polu wyszukiwania na liście umów.",
+        "anchor": "contracts.b2b_generator.search"
+      },
+      {
+        "q": "Partner się wycofał przed podpisem — co zrobić?",
+        "a": "Zmień status umowy na „Anulowana”. Wpis zostaje w „Umowy bieżące”, numer nie wraca do puli, a powrót na „W trakcie” to jedno kliknięcie."
+      }
+    ],
+    "pitfalls": [
+      "Umowy podpisanej obustronnie nie da się anulować — kończy się ją statusem „Zakończona”.",
+      "Zawiesić („Umowy bez projektu”) można tylko umowę aktywną."
+    ],
+    "anchors": [
+      {"id": "contracts.b2b_generator.tabs", "label": "Zakładki generatora", "describe": "Generator, Umowy bieżące, Umowy bez projektu, Zakończone umowy."},
+      {"id": "contracts.b2b_generator.search", "label": "Szukaj umowy", "describe": "Wyszukiwanie po numerze i nazwisku."},
+      {
+        "id": "contracts.b2b_generator.docx",
+        "label": "Pobierz DOCX",
+        "describe": "Wygenerowanie dokumentu umowy.",
+        "requires": {"section": "sourcing"}
+      }
+    ],
+    "help_slug": null,
+    "sources": ["frontend/src/components/v2/pages/B2BContractGeneratorV2.tsx"]
+  },
+  {
+    "key": "finance",
+    "title": "Finanse",
+    "section": "finance",
+    "roles": ["finance", "admin"],
+    "what": "Tu rozliczasz miesiąc: wyniki, import zużycia MD, comiesięczny audyt zmian w zamówieniach (wejścia, zejścia, braki) i PDF-y zamówień.",
+    "tasks": [
+      {
+        "q": "Co się zmieniło w zamówieniach w tym miesiącu?",
+        "a": "Otwórz „Zmiany w zamówieniach”: Zmiany, Wejścia, Zejścia, Kończące się zamówienia i Braki. Odhaczaj pozycje „Zrobione” — pasek pokazuje postęp miesiąca.",
+        "anchor": "finance.order_changes"
+      },
+      {
+        "q": "Jak zaimportować raport zużycia MD?",
+        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Wiersze dopasowane do jednej osoby schodzą z budżetu, niejednoznaczne czekają na wskazanie zamówienia.",
+        "anchor": "finance.md_import"
+      },
+      {
+        "q": "Jak wyeksportować listę do Excela?",
+        "a": "W „Zmianach w zamówieniach” użyj „Eksport zakładki do Excela” — plik zawiera dokładnie to, co widać po filtrach.",
+        "anchor": "finance.export"
+      },
+      {
+        "q": "Gdzie są PDF-y zamówień za miesiąc?",
+        "a": "W trybie „Zamówienia PDF”: miesiąc startu, potem klient i pliki do pobrania.",
+        "anchor": "finance.modes"
+      }
+    ],
+    "pitfalls": [
+      "Zejścia to tylko zapisany koniec współpracy — zamówienie kończące się przy trwającej umowie jest w „Kończące się zamówienia”.",
+      "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie."
+    ],
+    "anchors": [
+      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF."},
+      {"id": "finance.order_changes", "label": "Zmiany w zamówieniach", "describe": "Podzakładki audytu i wybór miesiąca."},
+      {"id": "finance.export", "label": "Eksport do Excela", "describe": "Eksport bieżącej podzakładki z filtrami."},
+      {"id": "finance.md_import", "label": "Import zużycia MD", "describe": "Wgranie miesięcznego raportu MD."}
+    ],
+    "help_slug": null,
+    "sources": [
+      "frontend/src/app/finance/page.tsx",
+      "frontend/src/components/finance/OrderChangesPanel.tsx",
+      "frontend/src/components/finance/MdImportWorkspace.tsx"
+    ]
+  }
+]

@@ -32,7 +32,7 @@ import re
 import time
 import traceback
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Callable
 
 import anthropic
 
@@ -373,6 +373,21 @@ class _ModelExhausted(Exception):
         self.retryable = retryable
 
 
+def _forward_text_delta(event: Any, callback: Callable[[str | None], None]) -> None:
+    """Przekazuje fragment tekstu odpowiedzi (tylko surowe ``text_delta`` —
+    syntetyczne zdarzenia ``text`` SDK powtórzyłyby ten sam fragment)."""
+    if getattr(event, "type", None) != "content_block_delta":
+        return
+    delta = getattr(event, "delta", None)
+    if getattr(delta, "type", None) == "text_delta":
+        text = getattr(delta, "text", "") or ""
+        if text:
+            try:
+                callback(text)
+            except Exception:  # noqa: BLE001 — podgląd na żywo nie może zabić wywołania
+                logger.debug("on_text_delta: callback padł", exc_info=True)
+
+
 def _call_one_model(
     client: anthropic.Anthropic,
     *,
@@ -386,6 +401,7 @@ def _call_one_model(
     stream_response: bool = False,
     deadline: float | None = None,
     request_timeout: float | None = None,
+    on_text_delta: Callable[[str | None], None] | None = None,
 ) -> anthropic.types.Message:
     """Jeden model z pełnym budżetem ponowień. Rzuca `_ModelExhausted`.
 
@@ -425,6 +441,10 @@ def _call_one_model(
                 # A full CV plus evidence can take longer than the idle read
                 # timeout. SSE keeps that connection alive while the model works.
                 # Only the complete accumulated message reaches the caller.
+                if on_text_delta is not None and attempt > 0:
+                    # Ponowienie zaczyna tekst od nowa — odbiorca czyści to,
+                    # co zdążył pokazać z nieudanej próby.
+                    on_text_delta(None)
                 with client.messages.stream(
                     model=model,
                     max_tokens=max_tokens,
@@ -436,6 +456,8 @@ def _call_one_model(
                             raise ClaudeDeadlineExceeded(
                                 "AI response deadline exceeded"
                             )
+                        if on_text_delta is not None:
+                            _forward_text_delta(_event, on_text_delta)
                     message = stream.get_final_message()
             else:
                 message = client.messages.create(
@@ -516,6 +538,7 @@ def call_claude(
     raise_on_truncation: bool = False,
     stream_response: bool = False,
     total_timeout: float | None = None,
+    on_text_delta: Callable[[str | None], None] | None = None,
     **kwargs: Any,
 ) -> anthropic.types.Message:
     """Wywołaj model z jawnym timeoutem, ponowieniami i (opcjonalnie) fallbackiem.
@@ -585,6 +608,7 @@ def call_claude(
                 stream_response=stream_response,
                 deadline=deadline,
                 request_timeout=request_timeout,
+                on_text_delta=on_text_delta,
             )
         except ClaudeDeadlineExceeded:
             _record_health(

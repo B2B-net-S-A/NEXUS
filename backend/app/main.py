@@ -188,6 +188,7 @@ from app.api import admin_import
 from app.api import kpis as kpis_api
 from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
+from app.api import help_screens as help_screens_api
 from app.api import help_materials as help_materials_api
 from app.api import proposals as proposals_api
 from app.api import job_shortlist as job_shortlist_api
@@ -1603,6 +1604,7 @@ app.include_router(
 )
 app.include_router(users_api.router, prefix="/api/users", tags=["users"])
 app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
+app.include_router(help_screens_api.router, prefix="/api", tags=["help"])
 app.include_router(help_materials_api.router, prefix="/api", tags=["help-materials"])
 app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
@@ -2758,6 +2760,7 @@ async def api_health_deep_check():
         JarvisConversation,
         JarvisConversationEntity,
         JarvisMessage,
+        JarvisUiEvent,
     )
     from app.models.job_proposal import JobProposal
     from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride
@@ -2919,6 +2922,8 @@ async def api_health_deep_check():
         ("jarvis_messages", JarvisMessage),
         ("jarvis_actions", JarvisAction),
         ("jarvis_conversation_entities", JarvisConversationEntity),
+        # 0355: telemetria pomocy na ekranie — brak tabeli = 500 na każdym dymku.
+        ("jarvis_ui_events", JarvisUiEvent),
         # 0333: skrzynka „Propozycje". Lista rekrutacji liczy z niej
         # `open_proposals_count`, a dodanie kandydata do rekrutacji ją stempluje.
         ("job_proposals", JobProposal),

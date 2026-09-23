@@ -683,6 +683,7 @@ from app.models.jarvis import (  # noqa: F401
     JarvisConversation,
     JarvisConversationEntity,
     JarvisMessage,
+    JarvisUiEvent,
 )
 from app.models.mail_delivery import MailDeliveryState  # noqa: F401
 from app.models.job_proposal import JobProposal  # noqa: F401

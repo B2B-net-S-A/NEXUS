@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from app.core.database import get_db
 from app.models.procedure import Procedure
 from app.models.user import UserRole
+from app.services import help_search
 from app.api.deps import AdminUser, CurrentUser
 
 router = APIRouter()
@@ -48,6 +49,9 @@ class ProcedureSummary(BaseModel):
     sort_order: int
     is_published: bool
     updated_at: datetime
+    # Tylko przy ``ranked=true`` (Jarvis): fragment wokół trafienia i punkty.
+    excerpt: Optional[str] = None
+    score: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
@@ -143,13 +147,35 @@ async def list_procedures(
         default=True,
         description="Domyślnie true; admin może przekazać false aby widzieć szkice",
     ),
-) -> list[Procedure]:
+    ranked: bool = Query(
+        default=False,
+        description=(
+            "Ranking dla pytań zadanych zdaniem (Jarvis): punkty zamiast wymogu "
+            "trafienia każdego słowa, bez polskich znaków, z fragmentem treści."
+        ),
+    ),
+) -> list[Procedure] | list[ProcedureSummary]:
     stmt = select(Procedure)
 
     # Non-admin zawsze widzi tylko opublikowane, niezależnie od query param
     effective_published_only = published_only or not _is_admin(current_user)
     if effective_published_only:
         stmt = stmt.where(Procedure.is_published.is_(True))
+
+    if ranked:
+        if not q or not q.strip():
+            return []
+        rows = list((await db.execute(stmt)).scalars().all())
+        by_id = {row.id: row for row in rows}
+        hits = help_search.rank(
+            q, ((row.id, row.title, row.content or "") for row in rows)
+        )
+        return [
+            ProcedureSummary.model_validate(by_id[hit.key]).model_copy(
+                update={"excerpt": hit.excerpt, "score": hit.score}
+            )
+            for hit in hits
+        ]
 
     if q:
         for term in _search_terms(q):
