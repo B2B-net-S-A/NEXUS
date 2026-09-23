@@ -1,0 +1,120 @@
+{
+  "_opis": "Słownik synonimów dziedzin dla plakietek „Doświadczenie poza stackiem” (experience_evidence). Formy są po złożeniu (małe litery, bez polskich znaków) i dopasowywane jako POCZĄTEK słowa, więc „platnosc” łapie „płatności”, „płatnościach”. Klucz to etykieta; dopasowanie następuje, gdy nazwa dziedziny w profilu zawiera którąkolwiek formę z listy albo jest jej początkiem. Dopisuj formy, nie usuwaj — każda to dowód, na którym stoi plakietka.",
+  "domains": {
+    "płatności": [
+      "platnos",
+      "platnic",
+      "payment",
+      "payments",
+      "acquiring",
+      "acquirer",
+      "issuing",
+      "psd2",
+      "blik",
+      "przelew",
+      "rozliczen",
+      "clearing",
+      "settlement",
+      "swift",
+      "sepa"
+    ],
+    "karty": [
+      "kart",
+      "card",
+      "mastercard",
+      "emv",
+      "pci"
+    ],
+    "bankowość": [
+      "bank",
+      "bankow",
+      "banking",
+      "kredyt",
+      "loan",
+      "deposit",
+      "lokat",
+      "core banking"
+    ],
+    "ubezpieczenia": [
+      "ubezpiecz",
+      "insurance",
+      "insurtech",
+      "polis",
+      "likwidacj"
+    ],
+    "telekomunikacja": [
+      "telekom",
+      "telco",
+      "telecom",
+      "operator",
+      "bss",
+      "5g",
+      "lte"
+    ],
+    "e-commerce": [
+      "e-commerce",
+      "ecommerce",
+      "sklep internetow",
+      "marketplace",
+      "retail",
+      "handel"
+    ],
+    "sektor publiczny": [
+      "sektor publiczn",
+      "administracj",
+      "public sector",
+      "government",
+      "urzad",
+      "e-zdrow",
+      "zus"
+    ],
+    "medycyna": [
+      "medyc",
+      "medical",
+      "healthcare",
+      "zdrow",
+      "szpital",
+      "pharma",
+      "farmac",
+      "medtech"
+    ],
+    "energetyka": [
+      "energet",
+      "energy",
+      "utilities",
+      "oze"
+    ],
+    "logistyka": [
+      "logisty",
+      "logistics",
+      "transport",
+      "spedycj",
+      "supply chain"
+    ],
+    "automotive": [
+      "automotive",
+      "motoryzac",
+      "samochod",
+      "autosar"
+    ],
+    "fintech": [
+      "fintech",
+      "trading",
+      "inwestyc",
+      "investment",
+      "brokerage",
+      "gield",
+      "crypto",
+      "blockchain"
+    ],
+    "gaming": [
+      "gaming",
+      "gamedev",
+      "gry",
+      "gier",
+      "igaming",
+      "hazard",
+      "betting"
+    ]
+  }
+}
