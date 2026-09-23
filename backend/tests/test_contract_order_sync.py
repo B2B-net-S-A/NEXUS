@@ -1090,7 +1090,11 @@ async def test_changing_revenue_to_the_stale_column_value_is_a_real_change(
     from app.core.database import AsyncSessionLocal
 
     ids = await _seed_signed_contractor(contract_status=ContractStatus.active)
-    today = date.today()
+    # „Dziś” w czasie polskim, jak kod — `date.today()` (UTC na CI) myliło
+    # się między 22:00 a 24:00 UTC.
+    from app.core.scheduling import business_today
+
+    today = business_today()
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, ids["contract_id"])
         contract.rate_client = Decimal("167.5")

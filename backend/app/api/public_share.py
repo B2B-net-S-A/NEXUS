@@ -46,7 +46,7 @@ from app.models.champion_share import ChampionCardShareToken
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_generated_share import CvGeneratedShareToken
 from app.models.cv_share_token import CVShareToken
-from app.services.html_sanitizer import sanitize_cv_html
+from app.services.cv_public_document import public_cv_document
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage
@@ -288,8 +288,8 @@ async def get_public_cv(
 
     # Source of truth: zapisany draft HTML (immutable po finalize) —
     # M4 PR-04: na wyjściu przechodzi allowlist sanitizer (stored XSS w
-    # publicznym linku dla klienta).
-    cv_html = sanitize_cv_html(
+    # publicznym linku dla klienta); arkusz szablonu dokładamy z kodu.
+    cv_html = public_cv_document(
         version.content_html if version else csv.branded_draft_html
     )
 
@@ -512,7 +512,9 @@ async def get_public_generated_cv(
     return {
         **package,
         "cv": payload,
-        "cv_html": approved.content_html if approved is not None else None,
+        "cv_html": public_cv_document(approved.content_html)
+        if approved is not None
+        else None,
         "document_version_id": version_id,
         "requirements": (
             approved_requirements

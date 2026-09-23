@@ -324,7 +324,7 @@ export function CustomDashboard() {
         }
       />
 
-      {/* Kolejka „Czeka na Ciebie" (DZ, Cpro) stoi nad układem, a nie jako
+      {/* Kolejka „Czeka na Ciebie" (przegląd DL, Cpro) stoi nad układem, a nie jako
           kafelek: zadanie ma dotrzeć do osoby, która pulpitu nie układała. */}
       {editing ? null : <BoardTasksPanel />}
 

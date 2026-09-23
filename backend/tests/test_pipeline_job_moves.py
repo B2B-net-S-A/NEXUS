@@ -185,12 +185,21 @@ async def test_moves_follow_the_kanban_read_gate(app_client: AsyncClient):
     _, _, outsider = await _user(UserRole.recruiter)
     _, _, no_pipeline = await _user(UserRole.recruiter, pipeline="none")
     _, _, finance = await _user(UserRole.finance)
+    _, _, viewer = await _user(UserRole.user)
     world = await _world(recruiter_id)
     url = _url(world["job_id"])
 
     assert (await app_client.get(url)).status_code == 401
-    assert (await app_client.get(url, headers=outsider)).status_code == 403
+    # Od 23.09.2026 dziennik czyta każda rola wewnętrzna — także rekruter spoza
+    # zespołu rekrutacji. Odebrana sekcja i stara rola podglądu nadal 403.
+    outsider_body = await app_client.get(url, headers=outsider)
+    assert outsider_body.status_code == 200, outsider_body.text
+    assert {i["candidate_id"] for i in outsider_body.json()["items"]} == {
+        world["anna"],
+        world["bo"],
+    }
     assert (await app_client.get(url, headers=no_pipeline)).status_code == 403
+    assert (await app_client.get(url, headers=viewer)).status_code == 403
     # Finanse czytają organizacyjnie — jak tablicę.
     assert (await app_client.get(url, headers=finance)).status_code == 200
     assert (
@@ -198,7 +207,7 @@ async def test_moves_follow_the_kanban_read_gate(app_client: AsyncClient):
     ).status_code == 404
 
     # Tablica i dziennik odpowiadają tak samo tej samej osobie.
-    for headers in (recruiter, outsider):
+    for headers in (recruiter, outsider, viewer):
         board = await app_client.get(
             f"/api/pipeline/kanban/{world['job_id']}", headers=headers
         )

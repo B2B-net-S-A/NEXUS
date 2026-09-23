@@ -35,7 +35,7 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import STAGE_ORDER, CandidateStage, PipelineStage
-from app.services.board_stage_badges import board_column_for
+from app.services.board_stage_badges import BOARD_COLUMN_ORDER, board_column_for
 from app.services.candidate_contact_hooks import maybe_close_contact_opportunity
 from app.services.priority_work_policy import PriorityWorkLocked
 from app.services.recruitment_process_commands import transition_process
@@ -45,15 +45,9 @@ logger = logging.getLogger(__name__)
 _TERMINAL_STAGES = frozenset(
     {PipelineStage.hired, PipelineStage.rejected, PipelineStage.withdrawn}
 )
-# Kolejność kolumn Tablicy (6 kolumn); „closed” nie ma pozycji — to koniec.
-_COLUMN_RANK = {
-    "new": 0,
-    "verified": 1,
-    "cv_sent": 2,
-    "client_interview": 3,
-    "contract": 4,
-    "hired": 5,
-}
+# Kolejność kolumn Tablicy (8 kolumn od 24.09.2026, jedno źródło w
+# `board_stage_badges`); „closed” nie ma pozycji — to koniec.
+_COLUMN_RANK = {column: rank for rank, column in enumerate(BOARD_COLUMN_ORDER)}
 
 
 def _enum_value(value) -> Optional[str]:

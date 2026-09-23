@@ -464,15 +464,29 @@ async def test_invalid_json_is_graceful(monkeypatch) -> None:
 # ── trasy ────────────────────────────────────────────────────────────────────
 
 
-async def test_routes_require_job_membership(app_client: AsyncClient, monkeypatch):
+async def test_routes_open_for_a_recruiter_outside_both_teams(
+    app_client: AsyncClient, monkeypatch
+):
+    """Od 23.09.2026 rekrutację obsługuje każdy (decyzja Artura) — rekruter
+    spoza zespołu obu rekrutacji widzi kontekst i dostaje podpowiedź."""
     seed = await _seed_pair(owner_id=None)
     headers, _uid = await _seed_recruiter(app_client)
+    called = {"n": 0}
+
+    def fake(system: str, prompt: str) -> str:
+        called["n"] += 1
+        return '{"suggestions": []}'
+
+    monkeypatch.setattr(svc, "_call_model", fake)
     r = await app_client.get(CONTEXT.format(stage_id=seed["stage_id"]), headers=headers)
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
+    assert r.json()["available"] is True
+    assert r.json()["source"]["job_id"] == seed["source_id"]
     r = await app_client.post(
         SUGGEST.format(stage_id=seed["stage_id"]), headers=headers
     )
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
+    assert called["n"] == 1
 
 
 async def test_member_of_target_only_sees_source_suggestions(

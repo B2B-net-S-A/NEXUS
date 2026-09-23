@@ -304,10 +304,10 @@ export function JobDetailCompactHeader({
                     size="sm"
                     onClick={onAddCandidate}
                     data-testid="open-add-candidates"
-                    title="Wyszukaj kandydatów i dodaj ich do pipeline"
+                    title="Przegląd bazy (AI), propozycje, Twoi ludzie albo po nazwisku"
                   >
                     <UserPlus className="h-4 w-4" />
-                    Dodaj kandydata
+                    Dodaj kandydatów
                   </Button>
                 ) : null}
 

@@ -47,6 +47,8 @@ _SCOPED_MODULES = {
     # draft into `jobs.champion_profile`, so a missing scope check here was a
     # write into another client's job, not just a read.
     "app.api.champion_suggestions",
+    # QC CV (Rekrutacja v5): CV firmowe, oryginał i poprawki jednej pary.
+    "app.api.cv_qc",
 }
 
 # Individual routes on shared routers that address one recruitment. Matched as

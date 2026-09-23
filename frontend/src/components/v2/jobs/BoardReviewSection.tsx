@@ -17,7 +17,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { Check, X } from "lucide-react";
+import { Check, Sparkles, X } from "lucide-react";
 
 import { jobProposalsHref } from "@/components/v2/jobs/JobListCells";
 import { PROPOSAL_SOURCE_LABEL } from "@/components/v2/recruitment/types";
@@ -38,6 +38,8 @@ export function BoardReviewSection({
   pipelineCandidateIds,
   budgetHourly = null,
   onTotalChange,
+  compact = false,
+  onOpenPanel,
 }: {
   jobId: number;
   readOnly: boolean;
@@ -49,6 +51,13 @@ export function BoardReviewSection({
   /** Ile propozycji czeka — nagłówek kolumny „Do przejrzenia" liczy je razem
    *  z kartami etapu „Ogłoszenia". `null` = jeszcze nie wiadomo. */
   onTotalChange?: (total: number | null) => void;
+  /**
+   * Rekrutacja v5 (makiety CG4mBk9x…, zakładka 1): zamiast kart propozycji
+   * jedno pole „Propozycje z bazy · N — Przejrzyj" i „Znajdź w bazie (AI)".
+   * Dodawanie idzie przez panel „Dodaj kandydatów" (`onOpenPanel`).
+   */
+  compact?: boolean;
+  onOpenPanel?: (tab: "search" | "proposals") => void;
 }) {
   const proposals = useJobProposals(jobId, {
     filters: DEFAULT_PROPOSAL_FILTERS,
@@ -78,6 +87,58 @@ export function BoardReviewSection({
   useEffect(() => {
     onTotalChange?.(known ? total : null);
   }, [onTotalChange, known, total]);
+
+  if (compact) {
+    return (
+      <div
+        className="space-y-1.5 border-b border-border p-2"
+        data-testid="board-review"
+        data-help="jobs.board.review"
+      >
+        <div className="flex items-center justify-between gap-2 rounded-md border border-dashed border-primary/40 bg-primary/5 px-2 py-1.5 text-xs">
+          <span className="min-w-0 truncate font-medium text-foreground">
+            Propozycje z bazy ·{" "}
+            <span className="tabular-nums" data-testid="board-review-count">
+              {view.kind === "loading" ? "…" : countLabel}
+            </span>
+          </span>
+          {onOpenPanel ? (
+            <button
+              type="button"
+              onClick={() => onOpenPanel("proposals")}
+              className="shrink-0 font-semibold text-primary hover:underline"
+            >
+              Przejrzyj
+            </button>
+          ) : (
+            <Link href={jobProposalsHref(jobId)} className="shrink-0 font-semibold text-primary hover:underline">
+              Przejrzyj
+            </Link>
+          )}
+        </div>
+        {view.kind === "error" || view.kind === "partial" ? (
+          <p className="px-1 text-xs text-destructive" role="alert">
+            {view.kind === "error"
+              ? `Nie wczytano propozycji (${failedText}).`
+              : `Lista może być niepełna — nie odpowiedziały: ${failedText}.`}{" "}
+            <button type="button" className="underline" onClick={status.retryEngine}>
+              Ponów
+            </button>
+          </p>
+        ) : null}
+        {!readOnly && onOpenPanel ? (
+          <button
+            type="button"
+            onClick={() => onOpenPanel("search")}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-foreground hover:border-primary/40 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+            Znajdź w bazie (AI)
+          </button>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-1.5 border-b border-border p-2" data-testid="board-review" data-help="jobs.board.review">

@@ -60,6 +60,7 @@ import {
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { AppModal } from "@/components/ds/AppModal";
 import { EditOrderDialog } from "@/components/EditOrderDialog";
 import { DeleteOrderDialog } from "@/components/orders/DeleteOrderDialog";
 import { ExtendOrderDialog } from "@/components/ExtendOrderDialog";
@@ -406,6 +407,13 @@ interface ContractorOrderCardsProps {
   /** Karta obsłużyła cel — rodzic czyści żądanie, żeby ponowny montaż karty
    *  (np. przełączenie pigułki) nie otwierał okna edycji drugi raz. */
   onFocusOrderServed?: () => void;
+  /** „Przypisz do zamówienia" na karcie szkicu (wyłącznie Centrum e-Zdrowia).
+   *  `openCompleteOrder` otwiera dotychczasowe „Uzupełnij zamówienie" karty
+   *  — trzecia ścieżka okna („Nowe zamówienie"). */
+  onAssignToOrder?: (
+    contractor: ContractWithOrdersRead,
+    openCompleteOrder: () => void,
+  ) => void;
 }
 
 export interface ContractorOrderFocus {
@@ -443,6 +451,7 @@ export function ContractorOrderCards({
   searching,
   focusOrder = null,
   onFocusOrderServed,
+  onAssignToOrder,
 }: ContractorOrderCardsProps) {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -519,6 +528,11 @@ export function ContractorOrderCards({
               focusOrder?.contractId === contractor.contract_id ? focusOrder : null
             }
             onFocusOrderServed={onFocusOrderServed}
+            onAssignToOrder={
+              onAssignToOrder
+                ? (openCompleteOrder) => onAssignToOrder(contractor, openCompleteOrder)
+                : undefined
+            }
             onExtend={() => setExtendingContract(contractor)}
             onTerminate={() => setTerminatingContract(contractor)}
             onCloseOrder={(order) => {
@@ -760,6 +774,7 @@ interface ContractorCardProps {
   searching: boolean;
   focusOrder?: ContractorOrderFocus | null;
   onFocusOrderServed?: () => void;
+  onAssignToOrder?: (openCompleteOrder: () => void) => void;
   onExtend: () => void;
   onTerminate: () => void;
   /** Zakończenie POJEDYNCZEGO zamówienia — bez wypowiadania umowy. */
@@ -781,6 +796,7 @@ function ContractorCard({
   searching,
   focusOrder = null,
   onFocusOrderServed,
+  onAssignToOrder,
   onExtend,
   onTerminate,
   onCloseOrder,
@@ -796,6 +812,21 @@ function ContractorCard({
   const [deletingActiveOrder, setDeletingActiveOrder] =
     useState<ClientOrderRead | null>(null);
   const historyOpen = searching ? true : showHistory;
+  const [confirmingDismiss, setConfirmingDismiss] = useState(false);
+  // „Usuń szkic" (ticket 09.2026, C1): pusta karta znika, kontrakt i dane
+  // rekrutacji zostają. Serwer usuwa wyłącznie szkice zamówień tej osoby.
+  const dismissDraft = useMutation({
+    mutationFn: () => dlPortalApi.dismissDraftCard(clientId, contractor.contract_id),
+    onSuccess: () => {
+      setConfirmingDismiss(false);
+      onSuccess("Usunięto szkic — kontrakt i rekrutacja zostały zachowane");
+      onChange();
+    },
+    onError: (err: unknown) => {
+      setConfirmingDismiss(false);
+      onError(apiErrorMessage(err, "Nie udało się usunąć szkicu."));
+    },
+  });
   const deleteActiveOrder = useMutation({
     mutationFn: (orderId: number) => dlPortalApi.deleteOrder(clientId, orderId),
     onSuccess: () => {
@@ -1064,9 +1095,10 @@ function ContractorCard({
   // z dopiskiem — do „Zakończonych" przenosi wyłącznie umowa z modułu
   // Kontrakty (reguła 09.2026, `contractClosed`).
   const noCurrentOrder =
-    (contractor.contract_status === "active" ||
+    contractor.draft_card === true ||
+    ((contractor.contract_status === "active" ||
       contractor.contract_status === "ending") &&
-    lacksCurrentOrder(contractor);
+      lacksCurrentOrder(contractor));
 
   const hasSection = futureOrders.length > 0 || historyOrders.length > 0;
   // Zamknięte i anulowane nie mają czego kończyć. Linii grup ta karta nie
@@ -1385,6 +1417,16 @@ function ContractorCard({
           {/* Bez `activeOrder &&` — kontraktor bez zamówienia też musi mieć
               czym je założyć; dialog otwiera się pusty, a POST leci dopiero
               przy zapisie. */}
+          {canManageOrders && contractor.draft_card && onAssignToOrder ? (
+            <button
+              type="button"
+              onClick={() => onAssignToOrder(() => openOrderDialog(activeOrder))}
+              className="flex items-center gap-1 px-2 py-1 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              Przypisz do zamówienia
+            </button>
+          ) : null}
           {canManageOrders ? (
             <>
               <CompleteOrderButton onClick={() => openOrderDialog(activeOrder)} />
@@ -1412,7 +1454,18 @@ function ContractorCard({
               Zakończ zamówienie
             </button>
           )}
-          {canManageOrders && activeOrder && (
+          {canManageOrders && contractor.draft_card ? (
+            <button
+              type="button"
+              disabled={dismissDraft.isPending}
+              onClick={() => setConfirmingDismiss(true)}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-foreground border border-border rounded hover:bg-muted disabled:opacity-50"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Usuń szkic
+            </button>
+          ) : null}
+          {canManageOrders && activeOrder && !contractor.draft_card && (
             <button
               type="button"
               disabled={deleteActiveOrder.isPending}
@@ -1517,6 +1570,40 @@ function ContractorCard({
           </div>
         )
       )}
+      <AppModal
+        open={confirmingDismiss}
+        onOpenChange={(open) => {
+          if (!dismissDraft.isPending) setConfirmingDismiss(open);
+        }}
+        title="Usunąć szkic?"
+        description={contractor.candidate_name}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setConfirmingDismiss(false)}
+              disabled={dismissDraft.isPending}
+              className="rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-muted disabled:opacity-50"
+            >
+              Anuluj
+            </button>
+            <button
+              type="button"
+              onClick={() => dismissDraft.mutate()}
+              disabled={dismissDraft.isPending}
+              className="rounded-md bg-destructive px-3 py-2 text-sm font-medium text-destructive-foreground disabled:opacity-50"
+            >
+              {dismissDraft.isPending ? "Usuwanie…" : "Usuń szkic"}
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          Karta zniknie z zakładki Zamówienia razem ze szkicem zamówienia.
+          Kontrakt i dane rekrutacji zostają bez zmian — karta wróci, gdy dla tej
+          osoby powstanie nowe zamówienie.
+        </p>
+      </AppModal>
       {deletingActiveOrder ? (
         <DeleteOrderDialog
           clientId={clientId}

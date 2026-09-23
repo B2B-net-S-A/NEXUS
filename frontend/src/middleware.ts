@@ -194,6 +194,13 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   {
+    prefix: "/settings/kpi-targets",
+    roles: ["admin", "head_of_recruitment"],
+    section: "insights",
+    required: "write",
+    enforceRoles: true,
+  },
+  {
     prefix: "/settings/cv-rules",
     roles: ["admin", "delivery_lead"],
     section: "delivery",
@@ -332,10 +339,12 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/procedure-help`, `/preview/champion-profile`,
 //   `/preview/client-playbook`, `/preview/inactive-clients-cleanup`,
 //   `/preview/order-new-from-pdf`, `/preview/finance-order-changes`,
-//   `/preview/finance-order-pdfs`,
+//   `/preview/finance-order-pdfs`, `/preview/order-takeover`,
 //   `/preview/contract-candidate-contact`, `/preview/cv-search`,
 //   `/preview/recruitment-v3`, `/preview/pipeline-v4`,
-//   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/dz-review`,
+//   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/cv-qc`,
+//   `/preview/cpro-queue`,
+//   `/preview/kpi-targets`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
@@ -369,6 +378,7 @@ const PUBLIC_PATHS = [
   "/preview/order-consultant-picker",
   "/preview/order-lifecycle",
   "/preview/order-md-scopes",
+  "/preview/order-takeover",
   "/preview/ezdrowie-contract-structure",
   "/preview/order-tile",
   "/preview/dl-alerts",
@@ -394,7 +404,9 @@ const PUBLIC_PATHS = [
   "/preview/my-people",
   "/preview/custom-dashboard",
   "/preview/calendar-cycle",
-  "/preview/dz-review",
+  "/preview/cv-qc",
+  "/preview/cpro-queue",
+  "/preview/kpi-targets",
   "/preview/kariera",
   "/preview/career-share",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym

@@ -4564,6 +4564,38 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_order_pdf_downloads_kind
             CHECK (file_kind IN ('order', 'group', 'amendment'))
     )""",
+    # 0355: historia edytora „Cele KPI" i znacznik raportów KPI mailem
+    # (UNIQUE kind+period_key = raport wychodzi najwyżej raz, także po restarcie).
+    """CREATE TABLE IF NOT EXISTS kpi_target_events (
+        id SERIAL PRIMARY KEY,
+        scope VARCHAR(8) NOT NULL,
+        role VARCHAR(40),
+        subject_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        subject_name VARCHAR(255),
+        kpi_id VARCHAR(64) NOT NULL,
+        action VARCHAR(16) NOT NULL,
+        changes JSONB,
+        actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        actor_name VARCHAR(255),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_kpi_target_events_scope CHECK (scope IN ('role', 'user')),
+        CONSTRAINT ck_kpi_target_events_action CHECK (action IN ('set', 'reset'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_kpi_target_events_created "
+    "ON kpi_target_events (created_at)",
+    """CREATE TABLE IF NOT EXISTS kpi_email_report_runs (
+        id SERIAL PRIMARY KEY,
+        kind VARCHAR(32) NOT NULL,
+        period_key VARCHAR(16) NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'claimed',
+        recipients INTEGER NOT NULL DEFAULT 0,
+        sent INTEGER NOT NULL DEFAULT 0,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        finished_at TIMESTAMPTZ,
+        CONSTRAINT uq_kpi_email_report_runs UNIQUE (kind, period_key),
+        CONSTRAINT ck_kpi_email_report_runs_status
+            CHECK (status IN ('claimed', 'sent', 'skipped', 'failed'))
+    )""",
     # 0320: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
     # Kody powodow sa rownolegle do `gate_reasons` — recheck rozstrzyga po
     # kodzie, czy zamowienie czeka na podpis umowy, czy utknelo na czyms innym.
@@ -5097,6 +5129,32 @@ _COLUMN_STATEMENTS = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_dz_review_hints_stage_hash UNIQUE (candidate_stage_id, input_hash)
 )""",
+    # 0357: „Usuń szkic" chowa pustą kartę kontraktora w zakładce Zamówienia.
+    # Lustro 1:1 z migracją — pilnuje `test_order_line_takeover.py`.
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
+    "orders_card_dismissed_at TIMESTAMPTZ NULL",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
+    "orders_card_dismissed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    # 0361 (Rekrutacja v5): przebiegi QC CV — bramka przed „CV wysłane”/Cpro.
+    # Lustro 1:1 z migracją — pilnuje `test_cv_qc.py`.
+    """CREATE TABLE IF NOT EXISTS cv_qc_runs (
+    id BIGSERIAL PRIMARY KEY,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    candidate_stage_id INTEGER NULL
+        REFERENCES candidate_stages(id) ON DELETE SET NULL,
+    cv_fingerprint VARCHAR(64) NULL,
+    passed BOOLEAN NOT NULL,
+    blocking_failed INTEGER NOT NULL,
+    warnings_count INTEGER NOT NULL,
+    result JSONB NOT NULL,
+    override_reason TEXT NULL,
+    override_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_cv_qc_runs_pair_created "
+    "ON cv_qc_runs (candidate_id, job_id, created_at DESC)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -5502,6 +5560,22 @@ _DATA_STATEMENTS = [
                WHERE other.template_id = sd.template_id
                  AND other.legacy_enum_value = 'interview'
           )""",
+    # 0361 (Rekrutacja v5): „Przepuszczony przez DZ” → „QC CV” w szablonach
+    # NEXUSA (szablon z Traffita zostaje — nocny sync by go przepisał).
+    # Jednorazowo: znacznik wstawiany TĄ SAMĄ instrukcją, więc ręczna zmiana
+    # nazwy przez admina nie jest cofana przy starcie. Stoi PO bloku 0271,
+    # który rozpoznaje ten etap po starej nazwie.
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('0361_dz_stage_renamed_qc_cv', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "UPDATE pipeline_stage_defs SET name = 'QC CV', updated_at = now() "
+    "WHERE name = 'Przepuszczony przez DZ' "
+    "AND template_id IN (SELECT id FROM pipeline_templates "
+    "WHERE coalesce(external_source, 'manual') <> 'traffit') "
+    "AND NOT EXISTS (SELECT 1 FROM pipeline_stage_defs x "
+    "WHERE x.template_id = pipeline_stage_defs.template_id AND x.name = 'QC CV') "
+    "AND EXISTS (SELECT 1 FROM marker)",
     # 0273 + 0347: domyślne wartości akcji (recovery tylko przy pustej macierzy).
     # TCM ma pełny generator od decyzji z 22.09.2026 (0347); tylko legacy
     # viewer zaczyna od podglądu.

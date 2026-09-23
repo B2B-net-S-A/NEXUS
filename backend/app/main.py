@@ -161,6 +161,7 @@ from app.api import phase5
 from app.api import candidate_conflicts as candidate_conflicts_api
 from app.api import admin_import
 from app.api import kpis as kpis_api
+from app.api import kpi_targets_admin as kpi_targets_admin_api
 from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
 from app.api import help_screens as help_screens_api
@@ -182,6 +183,8 @@ from app.api import settings as app_settings_api
 from app.api import champion_intake as champion_intake_api
 from app.api import job_request_intake as job_request_intake_api
 from app.api import screening_reassign as screening_reassign_api
+from app.api import cv_qc as cv_qc_api
+from app.api import pipeline_requirements as pipeline_requirements_api
 from app.api import champion_suggestions as champion_suggestions_api
 from app.api import rate_benchmarks as rate_benchmarks_api
 from app.api import team_structure as team_structure_api
@@ -627,6 +630,7 @@ async def lifespan(app: FastAPI):
         insights_seniority_journal_loop,
     )
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
+    from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
@@ -730,6 +734,9 @@ async def lifespan(app: FastAPI):
         "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
+        # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
+        # Rodzaje domyślnie OFF w Ustawieniach → Powiadomienia; znacznik w bazie.
+        "kpi_email_reports": asyncio.create_task(kpi_email_reports_loop()),
         # Powiadomienia Delivery Leada (0233). Kill-switch sprawdzany PRZED
         # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
         # 24 h po to, żeby sprawdzić tę samą flagę.
@@ -906,6 +913,12 @@ app.add_middleware(
 app.include_router(champion_intake_api.router, prefix="/api", tags=["champion"])
 app.include_router(job_request_intake_api.router, prefix="/api", tags=["jobs"])
 app.include_router(screening_reassign_api.router, prefix="/api", tags=["pipeline"])
+# Rekrutacja v5: QC CV (bramka przed „CV wysłane”/Cpro, poprawki AI).
+app.include_router(cv_qc_api.router, prefix="/api/pipeline", tags=["pipeline"])
+# Rekrutacja v5: wymagania przejścia na kolumnę (okno „Przesuń dalej”).
+app.include_router(
+    pipeline_requirements_api.router, prefix="/api/pipeline", tags=["pipeline"]
+)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 # IMPORTANT: candidate_pins MUST be mounted BEFORE candidates so its
@@ -1378,6 +1391,10 @@ app.include_router(
 )
 app.include_router(admin_import.router, prefix="/api", tags=["admin-import"])
 app.include_router(kpis_api.router, prefix="/api/kpis", tags=["kpis"])
+# Ustawienia → Cele KPI (plan PR3): edytor odstępstw ról i osobistych celów.
+app.include_router(
+    kpi_targets_admin_api.router, prefix="/api/kpi-targets", tags=["kpis"]
+)
 # Analytics v1 (plan 2026-07-16, PR 3) — wersjonowany kontrakt statystyk.
 # Endpointy 503 przy ANALYTICS_V1_MODE=off; RBAC/capabilities niezależnie.
 app.include_router(
@@ -2436,6 +2453,8 @@ async def api_health_deep_check():
     from app.models.client import Client
     from app.models.client_cv_rule import ClientCvRule
     from app.models.client_cv_rule_event import ClientCvRuleEvent
+    from app.models.kpi_email_report_run import KpiEmailReportRun
+    from app.models.kpi_target_event import KpiTargetEvent
     from app.models.client_cv_rule_preview import ClientCvRulePreview
     from app.models.client_cv_rule_publication import ClientCvRulePublication
     from app.models.cv_document_version import CvDocumentVersion
@@ -2525,6 +2544,7 @@ async def api_health_deep_check():
     from app.models.job_public_profile import JobPublicProfile
     from app.models.candidate_consent import CandidateConsent
     from app.models.placement_exclusion import PlacementExclusion
+    from app.models.cv_qc_run import CvQcRun
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2600,6 +2620,10 @@ async def api_health_deep_check():
         # „Zrobione” i każde pobranie PDF-u zamówienia.
         ("order_change_checks", OrderChangeCheck),
         ("order_pdf_downloads", OrderPdfDownload),
+        # 0355: historia „Cele KPI" (bez tabeli pada każdy zapis celu)
+        # i znacznik raportów KPI mailem (bez niego pętla raportów stoi).
+        ("kpi_target_events", KpiTargetEvent),
+        ("kpi_email_report_runs", KpiEmailReportRun),
         # 0256: konfigurowalna punktacja Insights. Brak tabeli NIE wywraca
         # Ligi — `get_scoring_config` degraduje się do wartości domyślnych
         # z kodu — więc bez tej sondy jedynym objawem byłby zapis wagi,
@@ -2696,6 +2720,9 @@ async def api_health_deep_check():
         # 0343: wykluczone placementy — czyta je widok analytics_first_milestones
         # i VERIFIER_ANCHORED_CTE, więc brak tabeli = KPI i Insights 500.
         ("placement_exclusions", PlacementExclusion),
+        # 0361: QC CV — tablica czyta stan QC każdej karty, a ruch na
+        # „CV wysłane” zapisuje przebieg, więc brak tabeli = kanban 500.
+        ("cv_qc_runs", CvQcRun),
     ]
 
     checks: dict[str, str] = {}

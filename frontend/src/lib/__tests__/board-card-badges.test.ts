@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import {
   cardBadges,
+  cardNextStep,
   claimAction,
   formatClientRate,
   hoursLeft,
+  knownForwardGap,
+  qcChip,
   type CardBadgeContext,
 } from "@/lib/board-card-badges";
 
@@ -53,6 +56,9 @@ describe("odznaki karty — Pipeline v4", () => {
     expect(claimAction(free, ctx())).toBe("take");
     // Poza „Nowymi” nikt niczego nie bierze.
     expect(claimAction(free, ctx({ column: "verified" }))).toBeNull();
+    // Screening to ta sama część procesu co Nowi (blokada 12 h).
+    expect(claimAction(free, ctx({ column: "screening" }))).toBe("take");
+    expect(labels(free, ctx({ column: "screening" }))).toEqual(["Z ogłoszenia", "Wolny"]);
   });
 
   it("przepięcie niesie rekrutację źródłową", () => {
@@ -60,10 +66,11 @@ describe("odznaki karty — Pipeline v4", () => {
     expect(labels(re, ctx())[0]).toBe("Przepięcie · Java · PKO BP");
   });
 
-  it("„Czeka na DL” w Zweryfikowanym poza Nordeą, u Nordei nie", () => {
-    const v = item({ stage: "verified", days_in_stage: 1 });
-    expect(labels(v, ctx({ column: "verified" }))).toEqual(["Czeka na DL · 1 dzień"]);
-    expect(labels(v, ctx({ column: "verified", cproEnabled: true }))).toEqual([]);
+  it("„Czeka na DL” w QC CV poza Nordeą, u Nordei nie, w Zweryfikowanym nie", () => {
+    const v = item({ stage: "interview", days_in_stage: 1 });
+    expect(labels(v, ctx({ column: "cv_qc" }))).toEqual(["Czeka na DL · 1 dzień"]);
+    expect(labels(v, ctx({ column: "cv_qc", cproEnabled: true }))).toEqual([]);
+    expect(labels(v, ctx({ column: "verified" }))).toEqual([]);
   });
 
   it("stawka do klienta i cisza klienta w „CV wysłane”", () => {
@@ -101,5 +108,56 @@ describe("odznaki karty — Pipeline v4", () => {
       "do klienta 1200 zł/MD",
     );
     expect(formatClientRate(item({ client_rate_value: null }))).toBeNull();
+  });
+});
+
+describe("Rekrutacja v5: chip QC, znany brak i „kto ma ruch”", () => {
+  it("chip QC mówi wynik ostatniej kontroli; brak pola = „nie sprawdzone”", () => {
+    expect(qcChip(item({})).label).toBe("QC nie sprawdzone");
+    expect(qcChip(item({ qc: { status: "passed", blocking_failed: 0 } })).label).toBe("QC ✓");
+    expect(qcChip(item({ qc: { status: "failed", blocking_failed: 3 } }))).toMatchObject({
+      label: "QC: 3 do poprawy",
+      tone: "urgent",
+    });
+    expect(qcChip(item({ qc: { status: "overridden", blocking_failed: 2 } })).label).toBe(
+      "QC przepuszczone",
+    );
+  });
+
+  it("strzałka jest szara tylko przy brakach, które karta zna", () => {
+    expect(knownForwardGap(item({ screening_done: false }), "screening")).toBe("Brak arkusza screeningu");
+    expect(knownForwardGap(item({ screening_done: true }), "screening")).toBeNull();
+    // Brak pola (starszy serwer) to nie brak arkusza.
+    expect(knownForwardGap(item({}), "screening")).toBeNull();
+    expect(knownForwardGap(item({ qc: { status: "failed", blocking_failed: 2 } }), "cv_qc")).toBe(
+      "QC: 2 do poprawy",
+    );
+    expect(knownForwardGap(item({ qc: { status: "unchecked", blocking_failed: 0 } }), "cv_qc")).toBeNull();
+  });
+
+  it("w QC CV ruch ma rekruter (poprawki), DL (poza Nordeą) albo osoba od Cpro", () => {
+    const action = { label: "Wyślij CV do klienta", owner: "recruiter", kind: "cv" };
+    const failed = item({ qc: { status: "failed", blocking_failed: 1 } });
+    expect(cardNextStep(action, failed, { column: "cv_qc", cproEnabled: false })).toMatchObject({
+      who: "Ty",
+      mine: true,
+    });
+    expect(cardNextStep(action, item({}), { column: "cv_qc", cproEnabled: false })?.who).toBe("DL");
+    expect(
+      cardNextStep(action, item({}), { column: "cv_qc", cproEnabled: true, stageBadge: "cpro" })?.who,
+    ).toBe("Osoba od Cpro");
+    expect(cardNextStep(action, item({}), { column: "cv_qc", cproEnabled: true })?.label).toBe(
+      "Przekaż do Cpro",
+    );
+    // Poza QC — lustro `nextActionFor`: klient to nie „Ty”.
+    expect(
+      cardNextStep({ label: "Feedback klienta", owner: "client", kind: "client" }, item({}), {
+        column: "cv_sent",
+        cproEnabled: false,
+      }),
+    ).toEqual({ who: "Klient", mine: false, label: "Feedback klienta" });
+    expect(
+      cardNextStep({ label: "", owner: "none", kind: "none" }, item({}), { column: "closed", cproEnabled: false }),
+    ).toBeNull();
   });
 });

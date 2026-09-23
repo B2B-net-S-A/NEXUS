@@ -258,7 +258,10 @@ def _stage_response(
     added_to_job_by_name: Optional[str] = None,
     added_to_job_at: Optional[datetime] = None,
     candidate_expected_rate_hourly: Optional[Decimal] = None,
-    show_client_rate: bool = True,
+    # Bez wartości domyślnej: każdy wołający decyduje jawnie
+    # (`user_can_view_client_rate`) — zapomniany argument nie może odsłonić
+    # stawki do klienta rekruterowi.
+    show_client_rate: bool,
 ) -> dict:
     """Convert a CandidateStage to response dict with days_in_stage.
 
@@ -317,7 +320,7 @@ def _stage_response(
         "task_assignee_id": stage.task_assignee_id,
         # Pipeline v4 (0352).
         "ended_by": stage.ended_by,
-        # Stawka do klienta tylko dla DL/admina/Finansów (decyzja 23.09.2026).
+        # Stawki do klienta nie widzą rekruter, sourcer i TAC (23.09.2026).
         "client_rate_value": stage.client_rate_value if show_client_rate else None,
         "client_rate_unit": stage.client_rate_unit if show_client_rate else None,
         "client_rate_currency": (
@@ -500,6 +503,84 @@ async def list_stages(
     return result
 
 
+async def _assert_cv_qc_gate(
+    db: AsyncSession,
+    user: User,
+    *,
+    candidate_id: int,
+    job_id: int,
+    stage_def: Optional[PipelineStageDef],
+    legacy_value: Optional[str],
+    client_id: Optional[int],
+) -> None:
+    """Rekrutacja v5 (0361): QC CV — twarda bramka przed „CV wysłane”/Cpro.
+
+    Ruch pary z kolumn Nowi/Screening/Zweryfikowany/QC CV na „CV wysłane”
+    albo na etap Cpro liczy QC CV firmowego; nieprzechodzące QC bez obejścia
+    Delivery Leada/admina = 409 `CV_QC_FAILED`. Wołać PRZED zapisami ruchu —
+    przy odmowie przebieg QC zostaje zapisany (okno QC pokaże ten sam wynik).
+    """
+
+    from app.core.config import settings
+    from app.services import cv_qc
+
+    if not settings.CV_QC_GATE_ENABLED:
+        return
+    if stage_def is not None and stage_def.is_terminal:
+        return
+    target_column = board_column_for(
+        stage_def.name if stage_def else None,
+        (stage_def.legacy_enum_value if stage_def else None) or legacy_value,
+        category=(
+            stage_def.category.value if stage_def and stage_def.category else None
+        ),
+        terminal_type=(
+            stage_def.terminal_type.value
+            if stage_def and stage_def.terminal_type
+            else None
+        ),
+    )
+    target_is_cpro = stage_def is not None and is_cpro_stage(stage_def.name)
+    if target_column != "cv_sent" and not target_is_cpro:
+        return
+    current = await db.scalar(
+        select(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    if current is None:
+        return
+    current_column = await candidate_claim.stage_column(db, current)
+    if not cv_qc.gate_applies(current_column, target_column, target_is_cpro):
+        return
+    # U Nordei „CV wysłane" = „Wysłane do Cpro": wrzuca osoba od Cpro
+    # wyznaczona dla całej firmy (albo admin / DL / HoR). Rekruter po QC
+    # przekazuje kartę do kolejki Cpro, nie wysyła jej sam.
+    from app.services.board_stage_badges import cpro_enabled_for_client
+
+    if target_column == "cv_sent" and cpro_enabled_for_client(client_id):
+        from app.services import cpro_sender
+
+        if not await cpro_sender.can_send_to_cpro(db, user):
+            sender = await cpro_sender.effective_sender(db)
+            names = await cpro_sender.user_names(db, {sender.user_id})
+            who = names.get(sender.user_id) or "osoba wyznaczona do Cpro"
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Do Cpro wrzuca {who}. Po QC użyj „Przekaż do Cpro” — "
+                    "osoba trafi do kolejki na pulpicie."
+                ),
+            )
+    await cv_qc.assert_qc_passed(
+        db, candidate_id=candidate_id, job_id=job_id, user=user, stage=current
+    )
+
+
 @router.post("/move", response_model=CandidateStageResponse)
 async def move_candidate(
     data: StageMove,
@@ -575,6 +656,17 @@ async def move_candidate(
         ensure_badge_stage_allowed(
             current_user, stage_name=stage_def.name, client_id=job.client_id
         )
+    # Rekrutacja v5 (0361): QC CV przed „CV wysłane”/Cpro. Tu, przed
+    # pierwszym zapisem ruchu — odmowa zapisuje przebieg QC i nic więcej.
+    await _assert_cv_qc_gate(
+        db,
+        current_user,
+        candidate_id=data.candidate_id,
+        job_id=job.id,
+        stage_def=stage_def,
+        legacy_value=data.stage.value if data.stage is not None else None,
+        client_id=job.client_id,
+    )
     # 0348/0353: osoba, która wysyła do Cpro — od 23.09.2026 JEDNA na całą
     # rekrutację (`jobs.cpro_sender_id`); pole przy ruchu ustawia ją dla
     # rekrutacji. Na każdym innym etapie pole nie ma znaczenia, więc 422.
@@ -747,11 +839,7 @@ async def move_candidate(
         # Stawka do klienta w ruchu = ta sama bramka co `PATCH …/client-rate`.
         raise HTTPException(
             status_code=403,
-            detail=(
-                "Stawkę do klienta zapisuje Delivery Lead, TAC, TCM, Head of "
-                "Recruitment, Finanse albo admin z zespołu tej rekrutacji — "
-                "albo jej właściciel."
-            ),
+            detail=("Stawkę do klienta zapisuje Delivery Lead albo admin."),
         )
 
     # ── P1-PIPE-01: eligibility gate ── same hard block the assign ingresses
@@ -1947,6 +2035,11 @@ async def build_kanban_view(
     from app.services.cv_auto_review import job_stages_with_ready_auto_cv
 
     auto_cv_stage_ids = await job_stages_with_ready_auto_cv(db, job_id)
+    # Rekrutacja v5 (0361): stan QC CV każdej karty — jedno zapytanie hurtowe
+    # (najnowszy przebieg pary; obejście DL/admina = `overridden`).
+    from app.services.cv_qc import pair_statuses
+
+    qc_by_pair = await pair_statuses(db, [(cid, job_id) for cid in candidate_ids])
 
     def _stage_resp_with_name(e: CandidateStage) -> dict:
         n, ln = name_by_id.get(e.candidate_id, (None, None))
@@ -1959,6 +2052,7 @@ async def build_kanban_view(
         added_at = first.moved_at if first is not None else None
         payload = _stage_response(
             e,
+            show_client_rate=show_client_rate,
             candidate_name=n,
             candidate_lastname=ln,
             added_to_job_by_name=added_by_name,
@@ -1985,6 +2079,7 @@ async def build_kanban_view(
         payload["contact_case"] = contact_case_by_candidate.get(e.candidate_id)
         payload["process_state_version"] = process_versions.get(e.candidate_id, 0)
         payload["auto_cv_ready"] = e.id in auto_cv_stage_ids
+        payload["qc"] = qc_by_pair.get((e.candidate_id, job_id))
         # Rekruter karty: właściciel procesu (Priority Work), a gdy proces go
         # nie ma — osoba, która dodała kandydata do rekrutacji.
         process_owner = process_cards.get(e.candidate_id, (0, None))[1]
@@ -2201,8 +2296,12 @@ async def my_next_steps(
     for job in jobs:
         try:
             # `jobs_mine_clause` keeps collaborators removed from the team;
-            # the board read guard is the one that decides.
-            await ensure_job_read_access(db, current_user, job.id)
+            # the board read guard is the one that decides. Widok OSOBISTY:
+            # od 23.09.2026 tablicę każdej rekrutacji czyta każdy, więc
+            # przypisanie liczymy jawnie (`oversight_bypass=False`).
+            await ensure_job_read_access(
+                db, current_user, job.id, oversight_bypass=False
+            )
         except HTTPException:
             continue
         out.append(
@@ -2857,11 +2956,15 @@ async def claim_candidate(
         process is None
         or latest is None
         or process.status.value != "open"
-        or await candidate_claim.stage_column(db, latest) != candidate_claim.NEW_COLUMN
+        or await candidate_claim.stage_column(db, latest)
+        not in candidate_claim.CLAIM_COLUMNS
     ):
         raise HTTPException(
             status_code=409,
-            detail="Brać można tylko osobę z kolumny „Nowi” w otwartym procesie.",
+            detail=(
+                "Brać można tylko osobę z kolumny „Nowi” albo „Screening” "
+                "w otwartym procesie."
+            ),
         )
 
     now = datetime.now(timezone.utc)
@@ -3003,7 +3106,7 @@ async def bulk_move_candidates(
     ):
         raise HTTPException(
             status_code=403,
-            detail="Stawkę do klienta zapisuje osoba z prawem zapisu stawek tej rekrutacji.",
+            detail="Stawkę do klienta zapisuje Delivery Lead albo admin.",
         )
 
     # Etap-odznaka Tablicy (DZ / Cpro) — ta sama reguła co pojedynczy /move.
@@ -3013,6 +3116,19 @@ async def bulk_move_candidates(
     if bulk_stage_def is not None:
         ensure_badge_stage_allowed(
             current_user, stage_name=bulk_stage_def.name, client_id=job.client_id
+        )
+
+    # Rekrutacja v5 (0361): QC CV przed „CV wysłane” — jak pojedynczy /move.
+    # Pierwsza osoba bez QC zatrzymuje całą paczkę (409 z jej `stage_id`).
+    for cid in unique_ids:
+        await _assert_cv_qc_gate(
+            db,
+            current_user,
+            candidate_id=cid,
+            job_id=job.id,
+            stage_def=bulk_stage_def,
+            legacy_value=data.stage.value,
+            client_id=job.client_id,
         )
 
     # Faza 1 globalnej kolejności blokad: komplet kandydatów rosnąco, ZANIM

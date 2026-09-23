@@ -31,8 +31,10 @@ from sqlalchemy import and_, func, or_, select
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.services.cv_text_extractor import (
+    GLUED_AVG_WORD_LEN,
     UnsupportedCvFormat,
     extract_text,
+    looks_glued,
     sniff_extension,
 )
 from app.services.object_storage import download_cv, is_available
@@ -67,6 +69,10 @@ _TERMINAL_OUTCOMES = frozenset(
 # carries the flag, so the retry happens exactly once.
 _SNIFF_RETRY_OUTCOMES = frozenset({"empty", "unsupported_format", "legacy_doc"})
 _SNIFFED_FLAG = "sniffed"
+# Znacznik wiersza, którego tekst po ponownym odczycie nadal jest sklejony —
+# zakres „glued” go pomija, więc kolejne noce nie czytają go w kółko. Nie jest
+# terminalny dla zwykłego backfillu: tamten bierze tylko wiersze BEZ tekstu.
+_STILL_GLUED = "still_glued"
 
 
 @dataclass
@@ -94,6 +100,8 @@ class BackfillStats:
     download_failed: int = 0
     error: int = 0
     skipped_terminal: int = 0
+    # Zakres ``glued``: ponowny odczyt dalej bez przerw między słowami.
+    still_glued: int = 0
     reindex_enqueued: int = 0
     # False when object storage is unconfigured. Without it the caller cannot
     # tell "nothing to do" from "could not even look" — both leave scanned=0.
@@ -240,6 +248,40 @@ def _pending_candidates_stmt(
     return stmt.limit(limit) if limit is not None else stmt
 
 
+def _glued_candidates_stmt(limit: Optional[int]):
+    """Wiersze, których tekst CV jest SKLEJONY (słowa bez przerw).
+
+    Lustro ``cv_text_extractor.looks_glued`` w SQL-u: tekst ≥ 300 znaków
+    i średnia długość „słowa” > ``GLUED_AVG_WORD_LEN``. Zmierzone 23.09.2026:
+    1 581 z 54 257 CV z tekstem, prawie same PDF-y — ekstraktor czytał je bez
+    spacji, więc „qa”, „tester” czy „devops” w środku sklejonego ciągu nie były
+    słowami dla wyszukiwarki. Wiersz, który po ponownym odczycie nadal jest
+    sklejony, dostaje znacznik ``still_glued`` i wypada z zakresu.
+    """
+    text_len = func.char_length(Candidate.raw_cv_text)
+    marker_outcome = Candidate.cv_extracted_data[_EXTRACTION_MARKER_KEY][
+        "outcome"
+    ].astext
+    stmt = (
+        select(Candidate.id, Candidate.cv_storage_key, Candidate.cv_filename)
+        .where(
+            Candidate.cv_storage_key.is_not(None),
+            Candidate.cv_storage_key != "",
+            text_len >= 300,
+            text_len
+            > GLUED_AVG_WORD_LEN
+            * (func.regexp_count(Candidate.raw_cv_text, r"\s+") + 1),
+            or_(marker_outcome.is_(None), marker_outcome != _STILL_GLUED),
+        )
+        .order_by(Candidate.id.asc())
+    )
+    return stmt.limit(limit) if limit is not None else stmt
+
+
+def _non_space_chars(text: str) -> int:
+    return len(text) - sum(1 for c in text if c.isspace())
+
+
 def _terminal_marker(
     candidate: Candidate, retry_outcomes: frozenset[str] = frozenset()
 ) -> Optional[str]:
@@ -292,8 +334,14 @@ async def run_backfill(
     random_sample: bool = False,
     retry_outcomes: frozenset[str] = frozenset(),
     progress: Optional[Callable[[BackfillStats], None]] = None,
+    glued: bool = False,
 ) -> BackfillStats:
     """Extract text for every candidate whose stored CV was never read.
+
+    ``glued=True`` zmienia zakres na CV, których tekst jest sklejony
+    (``_glued_candidates_stmt``) — ekstraktor czyta je wtedy z węższym progiem
+    odstępu między literami, a nowy tekst zastępuje stary tylko wtedy, gdy nie
+    jest sklejony i niesie co najmniej tyle samo znaków (bez spacji).
 
     ``enqueue_reindex`` closes a loop that was open until now: the previous
     implementation wrote ``raw_cv_text`` and told nobody, so 7 893 historically
@@ -310,7 +358,9 @@ async def run_backfill(
     async with AsyncSessionLocal() as db:
         rows = (
             await db.execute(
-                _pending_candidates_stmt(
+                _glued_candidates_stmt(limit)
+                if glued
+                else _pending_candidates_stmt(
                     limit, random_sample=random_sample, retry_outcomes=retry_outcomes
                 )
             )
@@ -342,8 +392,34 @@ async def run_backfill(
                 )
                 if candidate is None:
                     continue
-                if _terminal_marker(candidate, retry_outcomes=retry_outcomes):
+                # Sklejony tekst ma już znacznik z poprzedniego odczytu — tu go
+                # świadomie czytamy ponownie, więc strażnik go nie zatrzymuje.
+                terminal = _terminal_marker(candidate, retry_outcomes=retry_outcomes)
+                if terminal and not glued:
                     stats.skipped_terminal += 1
+                    continue
+
+                if glued:
+                    previous = candidate.raw_cv_text or ""
+                    if result.outcome in ("download_failed", "error"):
+                        # Przejściowe — bez znacznika, następna noc spróbuje znowu.
+                        stats.error += 1
+                        continue
+                    if (
+                        result.outcome != "extracted"
+                        or looks_glued(result.text)
+                        or _non_space_chars(result.text) < _non_space_chars(previous)
+                    ):
+                        # Zostawiamy stary tekst: nowy nie jest lepszy.
+                        stats.still_glued += 1
+                        if commit:
+                            _record_marker(candidate, _STILL_GLUED, len(previous))
+                        continue
+                    stats.improved += 1
+                    stats.candidate_ids_written.append(cid)
+                    if commit:
+                        candidate.raw_cv_text = result.text
+                        _record_marker(candidate, "extracted", len(result.text))
                     continue
 
                 if result.outcome != "extracted":
