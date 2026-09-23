@@ -65,6 +65,7 @@ def should_run_daily(
     hour_utc: int,
     *,
     min_gap_hours: int = 20,
+    attempt_pending: bool = False,
 ) -> bool:
     """Daily delta is due?
 
@@ -72,7 +73,14 @@ def should_run_daily(
     hour. Afterwards it runs only at/after ``hour_utc`` and only once the gap
     since the last finish is large enough (prevents same-day re-runs and
     Coolify-redeploy re-triggers).
+
+    ``attempt_pending`` (audyt 22.09 r2, INTG-01): poprzednia próba została
+    przerwana (deploy zabił kontener w trakcie) i jej ślad jest świeży — bieg
+    jest należny od razu, niezależnie od godziny, i WZNOWI się od faz, których
+    przerwana próba nie skończyła.
     """
+    if attempt_pending:
+        return True
     if last_finished is None:
         return True
     if now_utc.hour < hour_utc:
@@ -175,7 +183,7 @@ async def _get_state(db, phase: str):
     row = await db.execute(
         text(
             "SELECT phase, last_synced_at, last_run_started_at, "
-            "last_run_finished_at, last_status, stats "
+            "last_run_finished_at, last_status, stats, cursor_payload "
             "FROM traffit_sync_state WHERE phase = :phase"
         ),
         {"phase": phase},
@@ -229,6 +237,118 @@ async def _upsert_state(
             "last_status": last_status,
             "stats": json.dumps(stats) if stats is not None else None,
         },
+    )
+    await db.commit()
+
+
+# ── Stan PRÓBY biegu (audyt 22.09 r2, INTG-01/02) ────────────────────────────
+#
+# Coolify restartuje kontener przy każdym pushu na main (25–35 deployów
+# dziennie), a pełny plan faz trwa dłużej niż odstęp między nimi. Do 22.09
+# każda nowa próba zaczynała od `users` i nie docierała do `pipelines`:
+# `__daily__` stał 39 h, a ruchy pipeline'u z 21–22.09 nie weszły wcale (KPI
+# i Insights puste). Stan próby żyje w `cursor_payload['attempt']` wiersza
+# znacznika (`__daily__`/`__full__`): kolejna próba z tą samą `since` pomija
+# fazy, które poprzednia już skończyła, a `files_since` i watermark liczy od
+# startu PIERWSZEJ próby — inaczej kandydaci dotknięci przed przerwaniem
+# wypadali z zakresu plików/CV/Cortexa (INTG-02).
+#
+# Czyszczony na końcu KAŻDEGO biegu, który dobiegł końca (także z błędami),
+# i przy wyjątku; NIE przy anulowaniu — to właśnie deploy.
+
+_ATTEMPT_KEY = "attempt"
+
+
+def _parse_iso(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def attempt_from_payload(payload: Any) -> Optional[dict[str, Any]]:
+    """Wyciąga stan próby z `cursor_payload` (odporne na śmieci w JSONB)."""
+    if not isinstance(payload, dict):
+        return None
+    attempt = payload.get(_ATTEMPT_KEY)
+    return attempt if isinstance(attempt, dict) else None
+
+
+def attempt_is_fresh(
+    attempt: Optional[dict[str, Any]], now_utc: datetime, resume_hours: int
+) -> bool:
+    """Czy ślad przerwanej próby jest na tyle świeży, żeby ją wznowić."""
+    if not attempt:
+        return False
+    touched = _parse_iso(attempt.get("touched_at"))
+    if touched is None:
+        return False
+    return (now_utc - touched) < timedelta(hours=max(0, int(resume_hours)))
+
+
+def resumable_attempt(
+    attempt: Optional[dict[str, Any]],
+    *,
+    since_iso: Optional[str],
+    now_utc: datetime,
+    resume_hours: int,
+) -> Optional[tuple[datetime, set[str], set[str]]]:
+    """(start pierwszej próby, fazy skończone, fazy z blokującymi błędami)
+    albo None, gdy próby nie da się wznowić (inna `since`, stary ślad)."""
+    if not attempt_is_fresh(attempt, now_utc, resume_hours):
+        return None
+    assert attempt is not None
+    if attempt.get("since") != since_iso:
+        return None
+    first_start = _parse_iso(attempt.get("run_start"))
+    if first_start is None:
+        return None
+    done = {str(p) for p in (attempt.get("done") or []) if isinstance(p, str)}
+    held = {str(p) for p in (attempt.get("held") or []) if isinstance(p, str)}
+    return first_start, done, held
+
+
+async def _load_attempt(db, marker: str) -> Optional[dict[str, Any]]:
+    row = await _get_state(db, marker)
+    if row is None:
+        return None
+    return attempt_from_payload(getattr(row, "cursor_payload", None))
+
+
+async def _save_attempt(db, marker: str, attempt: dict[str, Any]) -> None:
+    """UPSERT samego klucza `attempt` w `cursor_payload` wiersza znacznika."""
+    await db.execute(
+        text(
+            """
+            INSERT INTO traffit_sync_state
+                (phase, cursor_payload, created_at, updated_at)
+            VALUES (:p, jsonb_build_object('attempt', CAST(:a AS JSONB)), NOW(), NOW())
+            ON CONFLICT (phase) DO UPDATE SET
+                cursor_payload = COALESCE(traffit_sync_state.cursor_payload,
+                                          '{}'::jsonb)
+                                 || jsonb_build_object('attempt', CAST(:a AS JSONB)),
+                updated_at = NOW()
+            """
+        ),
+        {"p": marker, "a": json.dumps(attempt)},
+    )
+    await db.commit()
+
+
+async def _clear_attempt(db, marker: str) -> None:
+    await db.execute(
+        text(
+            """
+            UPDATE traffit_sync_state
+               SET cursor_payload = NULLIF(cursor_payload - 'attempt', '{}'::jsonb),
+                   updated_at = NOW()
+             WHERE phase = :p AND cursor_payload -> 'attempt' IS NOT NULL
+            """
+        ),
+        {"p": marker},
     )
     await db.commit()
 
@@ -499,7 +619,8 @@ def _phase_plan(
     Data phases honour ``since`` (None = full scan).
 
     The CV/files phases use a separate ``files_since`` cutoff. In delta mode this
-    is the run start, not the data ``since``: the candidates phase has just
+    is the start of the FIRST attempt of this run (INTG-02 — an interrupted
+    attempt resumes with the same cutoff), not the data ``since``: the candidates phase has just
     upserted exactly the Traffit-changed candidates (bumping their Nexus
     ``updated_at`` to NOW() >= run start), so scoping files to ``run_start``
     re-fetches files only for candidates Traffit actually changed — instead of
@@ -512,35 +633,37 @@ def _phase_plan(
         ("contacts", importer.import_contacts),
         ("workflows", importer.import_workflows),
         ("candidates", lambda: importer.import_candidates(since=since)),
-        # Pliki CV ZARAZ po kandydatach (od 22.09.2026, wcześniej 9. z 15 faz,
-        # za 25-minutowym cortexem): deploye co 30–60 min zabijały dzienny bieg
-        # przed tą fazą, więc CV nowych kandydatów nie docierały całymi dniami.
-        # Cortex i pola z CV i tak czytają zapisane CV, więc zyskują na tej
-        # kolejności.
+        # Audyt 22.09 r2 (INTG-01): `jobs` i `pipelines` ZARAZ po kandydatach.
+        # Ruchy pipeline'u zasilają KPI, Insights, konkursy i przepięcia —
+        # 21–22.09 dzienna delta w ogóle do nich nie dochodziła (deploy zabijał
+        # próbę w fazach plików i 35-minutowym Cortexie). `pipelines` wymaga
+        # `jobs` (FK), a obie są szybkie przy delcie ogonowej (INTG-03).
+        ("jobs", lambda: importer.import_jobs(since=since)),
+        ("pipelines", lambda: importer.import_pipelines(since=since)),
+        # Pliki CV zaraz za ruchami (od 22.09.2026 wcześniej niż Cortex): CV
+        # nowych kandydatów nie czeka na 25-minutowego Cortexa, który i tak
+        # czyta zapisane CV.
         ("candidates_cv", lambda: importer.import_candidates_cv(since=files_since)),
         ("candidate_files", lambda: importer.import_candidate_files(since=files_since)),
-        # Cortex re-ekstrahuje fakty skilli tuż po upsercie kandydatów. W delcie
-        # używa ``files_since`` (=run_start) — tylko kandydaci dotknięci w tym
-        # runie (updated_at >= run_start), tak jak faza plików. Reconcile +
-        # single-flight czynią to bezpiecznym.
-        *(
-            [("cortex", lambda: _cortex_phase(files_since))]
-            if settings.CORTEX_SYNC_ENABLED
-            else []
-        ),
-        ("jobs", lambda: importer.import_jobs(since=since)),
-        ("talents", importer.import_talents),
-        (
-            "candidates_enrich_names",
-            lambda: importer.enrich_missing_names(since=files_since),
-        ),
-        ("candidates_cv_fields", lambda: _cv_fields_phase(files_since)),
-        ("pipelines", lambda: importer.import_pipelines(since=since)),
         (
             "candidate_activities",
             lambda: importer.import_candidate_activities(since=since),
         ),
         ("candidate_sources", lambda: importer.import_candidate_sources(since=since)),
+        ("talents", importer.import_talents),
+        # Cortex re-ekstrahuje fakty skilli kandydatów dotkniętych w tym biegu.
+        # W delcie używa ``files_since`` (= start PIERWSZEJ próby, INTG-02) —
+        # tak jak faza plików. Reconcile + single-flight czynią to bezpiecznym.
+        *(
+            [("cortex", lambda: _cortex_phase(files_since))]
+            if settings.CORTEX_SYNC_ENABLED
+            else []
+        ),
+        (
+            "candidates_enrich_names",
+            lambda: importer.enrich_missing_names(since=files_since),
+        ),
+        ("candidates_cv_fields", lambda: _cv_fields_phase(files_since)),
         # Ostatnia i wyłącznie raportowa — nic nie zapisuje, nic nie blokuje.
         ("reconcile", lambda: _reconcile_phase(importer)),
     ]
@@ -581,16 +704,16 @@ PHASE_NAMES: tuple[str, ...] = (
     "contacts",
     "workflows",
     "candidates",
+    "jobs",
+    "pipelines",
     "candidates_cv",
     "candidate_files",
-    "cortex",
-    "jobs",
-    "talents",
-    "candidates_enrich_names",
-    "candidates_cv_fields",
-    "pipelines",
     "candidate_activities",
     "candidate_sources",
+    "talents",
+    "cortex",
+    "candidates_enrich_names",
+    "candidates_cv_fields",
     "reconcile",
 )
 
@@ -762,6 +885,16 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "skipped_managed",
         # 18.09.2026: intencje przeindeksowania zapisane przez fazę `jobs`.
         "index_intents",
+        # Audyt 22.09 r2 (INTG-03): rekrutacje bez zmian i wpisy historii
+        # sprzed `since` pominięte przez deltę ogonową.
+        "unchanged",
+        "skipped_before_since",
+        # Audyt 22.09 r2 (DATA-01): zdarzenia rekrutacji dla automatów
+        # i opiekunowie uzupełnieni z /recruitments/{id}.
+        "job_events",
+        "owners_filled",
+        # Audyt 22.09 r2 (REC-01): przepięcia z etapów wstawionych przez import.
+        "reassigned",
         "drifted_entities",
         "drift",
         "total_source",
@@ -899,16 +1032,53 @@ async def run_traffit_sync(
                         )
                     logger.info("Traffit delta cutoff (since): %s", since)
 
+                # Wznowienie przerwanej próby (INTG-01/02). Tylko pełny plan —
+                # bieg częściowy (`phases=`) nie jest próbą znacznika i nie
+                # może ani wznawiać, ani zostawiać jej śladu.
+                attempt_marker = DAILY_MARKER if mode == "delta" else FULL_MARKER
+                since_iso = since.isoformat() if since else None
+                first_start = run_start
+                done_before: set[str] = set()
+                held_before: set[str] = set()
+                attempt: Optional[dict[str, Any]] = None
+                if selected is None:
+                    resumed = resumable_attempt(
+                        await _load_attempt(db, attempt_marker),
+                        since_iso=since_iso,
+                        now_utc=run_start,
+                        resume_hours=settings.TRAFFIT_SYNC_ATTEMPT_RESUME_HOURS,
+                    )
+                    if resumed is not None:
+                        first_start, done_before, held_before = resumed
+                        logger.info(
+                            "Traffit %s: resuming interrupted attempt started %s; "
+                            "skipping finished phases: %s",
+                            mode,
+                            first_start.isoformat(),
+                            ", ".join(sorted(done_before)) or "-",
+                        )
+                    attempt = {
+                        "since": since_iso,
+                        "run_start": first_start.isoformat(),
+                        "touched_at": run_start.isoformat(),
+                        "done": sorted(done_before),
+                        "held": sorted(held_before),
+                    }
+                    await _save_attempt(db, attempt_marker, attempt)
+
                 # CV/files re-fetch only candidates this run actually touched
-                # (Traffit-changed → upserted with updated_at >= run_start).
+                # (Traffit-changed → upserted with updated_at >= first_start).
                 # Full reconcile uses None (its own "missing files" gate).
-                files_since = run_start if mode == "delta" else None
+                files_since = first_start if mode == "delta" else None
 
                 importer = TraffitImporter(traffit, db, dry_run=False, batch_size=100)
 
                 executed = 0
                 for name, factory in _phase_plan(importer, since, files_since):
                     if selected is not None and name not in selected:
+                        continue
+                    if name in done_before:
+                        results[name] = {"resumed": "done_in_previous_attempt"}
                         continue
                     executed += 1
                     # Znacznik startu poza `try`: gałąź awaryjna też ma czym
@@ -991,6 +1161,17 @@ async def run_traffit_sync(
                             stats=summary,
                         )
                         logger.info("Traffit phase %s: %s", name, results[name])
+                        if attempt is not None:
+                            # Faza doszła do końca — kolejna próba jej nie
+                            # powtórzy. Blokujące błędy wierszy pamiętamy
+                            # osobno, żeby watermark nadal stał.
+                            attempt["done"] = sorted(set(attempt["done"]) | {name})
+                            if blocking and name not in ADVISORY_PHASES:
+                                attempt["held"] = sorted(set(attempt["held"]) | {name})
+                            attempt["touched_at"] = datetime.now(
+                                timezone.utc
+                            ).isoformat()
+                            await _save_attempt(db, attempt_marker, attempt)
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:  # noqa: BLE001
@@ -1090,7 +1271,7 @@ async def run_traffit_sync(
                 # Row errors of enrichment phases are filed under
                 # `advisory_errors`, so they never gate it; a crash (`error`)
                 # does, in every phase — `ADVISORY_PHASES`.
-                any_error = any(
+                any_error = bool(held_before) or any(
                     isinstance(v, dict) and ("error" in v or v.get("blocking_errors"))
                     for v in results.values()
                 )
@@ -1121,7 +1302,10 @@ async def run_traffit_sync(
                 # ``last_run_finished_at`` / ``last_status`` advance regardless,
                 # so the daily gate resets to the normal schedule (no hot-retry
                 # loop) and /api/health surfaces the failure as ``degraded``.
-                watermark = run_start if not any_error else None
+                # Od startu PIERWSZEJ próby (INTG-02): wznowiona próba nie
+                # może przesunąć watermarku ponad okres, w którym poprzednia
+                # próba importowała już fazy przed przerwaniem.
+                watermark = first_start if not any_error else None
 
                 # A full run also advances the daily watermark (it covers
                 # everything) so the next delta computes its cutoff from here and
@@ -1137,7 +1321,7 @@ async def run_traffit_sync(
                         db,
                         FULL_MARKER if mode == "full" else DAILY_MARKER,
                         last_synced_at=watermark,
-                        last_run_started_at=run_start,
+                        last_run_started_at=first_start,
                         last_run_finished_at=finished,
                         last_status=status,
                         stats=results,
@@ -1157,6 +1341,10 @@ async def run_traffit_sync(
                         mode,
                         ", ".join(sorted(selected)),
                     )
+                if attempt is not None:
+                    # Bieg dobiegł końca — próba zamknięta, następny bieg
+                    # zaczyna od zera (niezależnie od błędów faz).
+                    await _clear_attempt(db, attempt_marker)
 
         from app.core.operation_telemetry import record_job_outcome
 
@@ -1211,14 +1399,30 @@ async def traffit_daily_sync_loop() -> None:
                 continue
 
             now = datetime.now(timezone.utc)
+            resume_hours = settings.TRAFFIT_SYNC_ATTEMPT_RESUME_HOURS
             async with AsyncSessionLocal() as db:
                 daily = await _get_state(db, DAILY_MARKER)
                 full = await _get_state(db, FULL_MARKER)
                 sweep_pending = await full_sweep_pending(db)
             daily_done = daily.last_run_finished_at if daily else None
             full_done = full.last_run_finished_at if full else None
+            # INTG-01: przerwana próba (deploy) wznawia się przy najbliższym
+            # ticku zamiast czekać do jutra albo zaczynać od `users`.
+            full_attempt = attempt_is_fresh(
+                attempt_from_payload(getattr(full, "cursor_payload", None)),
+                now,
+                resume_hours,
+            )
+            daily_attempt = attempt_is_fresh(
+                attempt_from_payload(getattr(daily, "cursor_payload", None)),
+                now,
+                resume_hours,
+            )
 
-            if should_run_full(
+            if full_attempt:
+                logger.info("Traffit: resuming an interrupted full reconcile")
+                await run_traffit_sync("full")
+            elif should_run_full(
                 now,
                 full_done,
                 settings.TRAFFIT_SYNC_FULL_WEEKDAY,
@@ -1232,7 +1436,12 @@ async def traffit_daily_sync_loop() -> None:
                     else "weekly schedule",
                 )
                 await run_traffit_sync("full")
-            elif should_run_daily(now, daily_done, settings.TRAFFIT_SYNC_HOUR_UTC):
+            elif should_run_daily(
+                now,
+                daily_done,
+                settings.TRAFFIT_SYNC_HOUR_UTC,
+                attempt_pending=daily_attempt,
+            ):
                 logger.info("Traffit: daily delta is due")
                 await run_traffit_sync("delta")
         except asyncio.CancelledError:

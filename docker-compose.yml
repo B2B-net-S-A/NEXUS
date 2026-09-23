@@ -244,6 +244,10 @@ services:
       start_period: 300s
     volumes:
       - uploads_data:/tmp/nexus/uploads
+      # audyt 22.09 r2 (PROD-01): TYLKO katalog statusu hosta (cron zapisuje
+      # tam `backup-volume.json` z zajętością wolumenu kopii) — read-only,
+      # bez dostępu do samych dumpów. `/api/health` → `backupVolumePercent`.
+      - /var/lib/nexus-status:/run/nexus-host-status:ro
     logging: *default-logging
 
   frontend:

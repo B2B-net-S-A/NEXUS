@@ -230,3 +230,82 @@ def test_provider_gate_pauses_only_on_a_real_outage(monkeypatch):
             "app.services.ai_health.provider_health_label", lambda _p, r=label: r
         )
         assert task.embedding_provider_down() is paused, label
+
+
+# ── Audyt 22.09 r2 (INTG-05): opublikowane rekrutacje bez wektora ──────────
+
+
+async def _fresh_job(db, *, published: bool):
+    from app.models.client import Client
+    from app.models.job import Job, JobStatus
+
+    client = Client(name=f"INTG-05 {uuid.uuid4().hex[:8]}")
+    db.add(client)
+    await db.flush()
+    job = Job(
+        title="Reconciler Job",
+        client_id=client.id,
+        status=JobStatus.published if published else JobStatus.closed,
+    )
+    db.add(job)
+    await db.flush()
+    return job
+
+
+async def _job_pending(db, job_id: int) -> int:
+    await db.flush()
+    return (
+        await db.execute(
+            text(
+                "SELECT count(*) FROM match_index_outbox WHERE entity_type='job' "
+                "AND entity_id=:j AND status='pending'"
+            ),
+            {"j": job_id},
+        )
+    ).scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_published_job_the_index_never_saw_is_enqueued_once():
+    from app.tasks.index_drift_reconciler_task import _job_is_published
+
+    async with AsyncSessionLocal() as db:
+        job = await _fresh_job(db, published=True)
+        for _ in range(2):
+            await rec.reconcile_once(
+                db,
+                entity_type=outbox.JOB,
+                cursor=job.id - 1,
+                batch=1,
+                unseen_predicate=_job_is_published,
+            )
+        # Druga pętla nie dubluje intencji, która wciąż czeka w kolejce.
+        assert await _job_pending(db, job.id) == 1
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_closed_job_the_index_never_saw_is_still_skipped():
+    from app.tasks.index_drift_reconciler_task import _job_is_published
+
+    async with AsyncSessionLocal() as db:
+        job = await _fresh_job(db, published=False)
+        result = await rec.reconcile_once(
+            db,
+            entity_type=outbox.JOB,
+            cursor=job.id - 1,
+            batch=1,
+            unseen_predicate=_job_is_published,
+        )
+        assert result.unseen == 1
+        assert await _job_pending(db, job.id) == 0
+        await db.rollback()
+
+
+def test_the_loop_passes_the_published_predicate_only_for_jobs():
+    import inspect
+
+    from app.tasks import index_drift_reconciler_task as task
+
+    src = inspect.getsource(task.index_drift_reconciler_loop)
+    assert "_job_is_published if entity_type == outbox.JOB else None" in src

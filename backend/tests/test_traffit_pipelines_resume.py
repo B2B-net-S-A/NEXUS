@@ -95,6 +95,9 @@ def _pages(n_pages: int, per_page: int = 100):
 
 def _make_importer(db, traffit, monkeypatch) -> TraffitImporter:
     imp = TraffitImporter(traffit, db, dry_run=False, batch_size=100)
+    # Ten plik pilnuje KURSORA stronicowania; delta ogonowa (INTG-03) go nie
+    # używa, więc testy kursora biegną ścieżką pełnego przeglądu delty.
+    monkeypatch.setattr(importer_mod.settings, "TRAFFIT_PIPELINES_DELTA_TAIL", False)
     monkeypatch.setattr(
         imp, "_build_candidate_external_id_map", AsyncMock(return_value={})
     )

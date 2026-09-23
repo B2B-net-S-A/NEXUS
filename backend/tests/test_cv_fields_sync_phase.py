@@ -35,11 +35,12 @@ def test_phase_registered_in_plan_and_names():
     )
     names = [name for name, _ in ts._phase_plan(importer, None, None)]
     assert "candidates_cv_fields" in names
-    # Po enrich_names (imiona najpierw — ten sam parser), przed pipelines.
+    # Po enrich_names (imiona najpierw — ten sam parser). Od audytu 22.09 r2
+    # (INTG-01) ruchy pipeline'u idą PRZED fazami wzbogacania CV.
     assert (
-        names.index("candidates_enrich_names")
+        names.index("pipelines")
+        < names.index("candidates_enrich_names")
         < names.index("candidates_cv_fields")
-        < names.index("pipelines")
     )
 
 

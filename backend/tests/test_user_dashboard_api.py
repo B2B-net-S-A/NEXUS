@@ -180,3 +180,50 @@ async def test_invalid_layout_returns_422_in_polish(app_client):
     )
     assert resp.status_code == 422
     assert "12 kolumn" in resp.text
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_parallel_first_save_from_two_tabs_is_200_and_409_not_500(app_client):
+    """Audyt 22.09 r2 (DATA-05): dwa pierwsze zapisy naraz nie dają 500."""
+    import asyncio
+
+    headers, _ = await _login()
+    first, second = await asyncio.gather(
+        app_client.put(
+            URL, headers=headers, json={"tiles": [_tile()], "expected_version": 0}
+        ),
+        app_client.put(
+            URL, headers=headers, json={"tiles": [_tile()], "expected_version": 0}
+        ),
+    )
+    assert sorted([first.status_code, second.status_code]) == [200, 409]
+    read = await app_client.get(URL, headers=headers)
+    assert read.json()["version"] == 1
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_rejected_first_save_leaves_an_empty_dashboard(app_client):
+    headers, _ = await _login()
+    stale = await app_client.put(
+        URL, headers=headers, json={"tiles": [_tile()], "expected_version": 3}
+    )
+    assert stale.status_code == 409
+    read = await app_client.get(URL, headers=headers)
+    assert read.status_code == 200
+    assert read.json()["tiles"] == []
+    assert read.json()["version"] == 0
+
+
+def test_first_save_inserts_the_row_before_locking_it():
+    """Wyścig dwóch kart nie odtwarza się deterministycznie w jednym procesie
+    (ASGI szereguje żądania), więc pilnujemy kolejności w źródle: pusty wiersz
+    `ON CONFLICT DO NOTHING` PRZED `SELECT … FOR UPDATE`."""
+    import inspect
+
+    from app.api import user_dashboard
+
+    src = inspect.getsource(user_dashboard.save_my_dashboard)
+    assert "on_conflict_do_nothing" in src
+    assert src.index("on_conflict_do_nothing") < src.index("with_for_update")
