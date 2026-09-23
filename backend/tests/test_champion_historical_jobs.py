@@ -351,6 +351,16 @@ def _patch_anthropic(monkeypatch):
     import anthropic
 
     monkeypatch.setattr(anthropic, "Anthropic", _FakeAnthropic)
+    # F13 = GPT-6 Luna (22.09.2026): model spoza Anthropic idzie przez
+    # `llm_providers.chat_complete`, więc podmieniamy też ten transport.
+    from app.services import llm_providers
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-dummy")
+    monkeypatch.setattr(
+        llm_providers,
+        "chat_complete",
+        lambda *_a, **_kw: _FakeAnthropic().create(),
+    )
 
 
 async def _seed_client_and_job(

@@ -437,9 +437,6 @@ async def require_onboarded_user(
     return ensure_onboarding_complete(current_user)
 
 
-OnboardedUser = Annotated[User, Depends(require_onboarded_user)]
-
-
 def require_roles(*roles: UserRole):
     """Dependency factory for role-based access control.
 
@@ -522,17 +519,17 @@ HeadOfRecruitmentPlus = Annotated[
 ]
 
 # Priority Work is owned by the Head of Recruitment as a business role.
-# A plain administrator is not an implicit break-glass operator for plan
-# publication, handoffs or KPI exceptions.
+# Uwaga: ``require_roles`` ZAWSZE wpuszcza admina (superadmin także dla
+# guardów), więc ta nazwa znaczy „HoR + admin" — nie „tylko HoR".
 HeadOfRecruitmentOnly = Annotated[
     User,
     Depends(require_roles(UserRole.head_of_recruitment)),
 ]
 
-# Priority Work demand routes deliberately exclude a plain administrator.
-# Creation belongs to the current Delivery Lead; reads and updates are shared
-# with the Head of Recruitment, with job ownership still checked in the
-# handler for Delivery Leads.
+# Priority Work demand routes: creation belongs to the current Delivery Lead;
+# reads and updates are shared with the Head of Recruitment, with job
+# ownership still checked in the handler for Delivery Leads. Admin przechodzi
+# niejawnie przez ``require_roles`` jak przy każdym guardzie.
 PriorityDemandCreator = Annotated[
     User,
     Depends(require_roles(UserRole.delivery_lead)),
@@ -576,9 +573,9 @@ RecruiterPlus = Annotated[
 # R0 (plan analytics 2026-07-16): każdy operacyjny — czyli wszyscy poza
 # wycofywanym viewerem `user`. Od 19.08 obejmuje też finance (decyzja
 # produktowa: pełny dostęp operacyjny — patrz CLAUDE.md „Rola finance").
-# W odróżnieniu od RecruiterPlus zawiera head_of_recruitment. Do feedów/danych
-# z PII kandydatów, które nie są „bezpiecznymi agregatami", ale też nie
-# wymagają konkretnej roli.
+# Od 17.09.2026 (HoR w RecruiterPlus) to ten sam zbiór ról co RecruiterPlus —
+# osobna nazwa zostaje, bo opisuje inną intencję: odczyt feedów/danych z PII
+# kandydatów, które nie są „bezpiecznymi agregatami", a nie pracę rekrutera.
 OperationalUser = Annotated[
     User,
     Depends(
@@ -591,21 +588,6 @@ OperationalUser = Annotated[
             UserRole.recruiter,
             UserRole.finance,
             UserRole.sourcer,
-        )
-    ),
-]
-
-# Pending verification approval (migracja 0056) — admin + delivery_lead +
-# head_of_recruitment mogą akceptować / odrzucać kandydatów na stage `verified`
-# kiedy rate przekracza Job.salary_max. Recruiter który wrzucił NIE może sam
-# akceptować — separation of duties.
-ApproverPlus = Annotated[
-    User,
-    Depends(
-        require_roles(
-            UserRole.admin,
-            UserRole.delivery_lead,
-            UserRole.head_of_recruitment,
         )
     ),
 ]

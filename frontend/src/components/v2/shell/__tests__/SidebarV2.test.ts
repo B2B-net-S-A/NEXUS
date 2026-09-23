@@ -210,10 +210,10 @@ describe("szyna vs „Więcej”", () => {
   });
 
   it("viewer `user` ma na szynie tylko to, do czego ma dostęp", () => {
+    // Kalendarz zdjęty 22.09.2026 — backend (RecruitmentReadAccess) odcina viewera.
     expect(primary("user")).toEqual([
       "/dashboard",
       "/jobs",
-      "/calendar",
       "/insights",
     ]);
   });

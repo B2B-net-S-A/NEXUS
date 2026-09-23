@@ -648,6 +648,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_slot_chosen'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_slot_confirmed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'interview_debrief_saved'",
+    # 0348: kolejka „Czeka na Ciebie" — poranny skrót i wytypowanie do Cpro.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_tasks_digest'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_send_assigned'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -928,6 +931,10 @@ _COLUMN_STATEMENTS = [
        ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ NULL""",
     """ALTER TABLE candidate_stages
        ADD COLUMN IF NOT EXISTS sla_alerted_at TIMESTAMPTZ NULL""",
+    # 0348: kto wysyła osobę do Cpro (wiersz etapu „Wysłać do Cpro").
+    """ALTER TABLE candidate_stages
+       ADD COLUMN IF NOT EXISTS task_assignee_id INTEGER NULL
+       REFERENCES users(id) ON DELETE SET NULL""",
     # Generated B2B contract signature automation (migration 0196). Historical
     # rows remain unsigned; entity links are filled explicitly, never guessed
     # from partner/client names.
@@ -4751,6 +4758,10 @@ _COLUMN_STATEMENTS = [
     # odczyt użytkownika (w tym logowanie) pada na UndefinedColumnError.
     # Lustro 1:1 z migracją — pilnuje `test_jarvis_migration_mirror.py`.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS jarvis_prefs JSONB NOT NULL DEFAULT '{}'::jsonb",
+    # 0349: wyciszone kategorie powiadomień. Model `User` deklaruje kolumnę —
+    # bez niej każdy odczyt użytkownika (w tym logowanie) pada. Lustro 1:1
+    # z migracją — pilnuje `test_notification_categories.py`.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS muted_notification_categories JSONB NOT NULL DEFAULT '{}'::jsonb",
     """CREATE TABLE IF NOT EXISTS jarvis_conversations (
         id UUID PRIMARY KEY,
         user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -4967,7 +4978,7 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS orders_in_md "
     "BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE contracts ALTER COLUMN billing_hours_per_month SET DEFAULT 168",
-    # 0346 (audyt 22.09, druga runda): snapshot CV etapu jako wskaźnik do
+    # 0350 (audyt 22.09, druga runda): snapshot CV etapu jako wskaźnik do
     # object storage (PROD-02) i pamięć przypięcia przy uśpieniu (CAND-07).
     "ALTER TABLE candidate_stage_cvs ADD COLUMN IF NOT EXISTS "
     "original_cv_storage_key VARCHAR(512) NULL",
@@ -5380,8 +5391,9 @@ _DATA_STATEMENTS = [
                WHERE other.template_id = sd.template_id
                  AND other.legacy_enum_value = 'interview'
           )""",
-    # 0273: mirror the migration defaults. These values preserve the existing
-    # generator behavior; only TCM and the legacy viewer start view-only.
+    # 0273 + 0347: domyślne wartości akcji (recovery tylko przy pustej macierzy).
+    # TCM ma pełny generator od decyzji z 22.09.2026 (0347); tylko legacy
+    # viewer zaczyna od podglądu.
     """INSERT INTO rbac_role_action_permissions (role, action, access)
        SELECT defaults.role, defaults.action, defaults.access
        FROM (VALUES
@@ -5389,7 +5401,7 @@ _DATA_STATEMENTS = [
            ('finance', 'b2b_contract_generator', 'manage'),
            ('head_of_recruitment', 'b2b_contract_generator', 'manage'),
            ('delivery_lead', 'b2b_contract_generator', 'manage'),
-           ('talent_community_manager', 'b2b_contract_generator', 'view'),
+           ('talent_community_manager', 'b2b_contract_generator', 'manage'),
            ('tac', 'b2b_contract_generator', 'manage'),
            ('recruiter', 'b2b_contract_generator', 'manage'),
            ('sourcer', 'b2b_contract_generator', 'manage'),
@@ -5417,7 +5429,8 @@ _DATA_STATEMENTS = [
            ('seniority_senior_alt_placements', 12),
            ('seniority_senior_alt_window_months', 12),
            ('seniority_expert_alt_placements', 24),
-           ('seniority_expert_alt_window_months', 12)
+           ('seniority_expert_alt_window_months', 12),
+           ('monthly_race_min_placements', 2)
        ON CONFLICT (key) DO NOTHING""",
     # 0260: korekta okna Eksperta 12 -> 6 miesięcy. Seed wyżej NIE naprawi
     # istniejącej instalacji (`DO NOTHING` omija wiersz zasiany przez 0256),
@@ -7254,7 +7267,7 @@ _CONSTRAINT_STATEMENTS = [
     END $$""",
     "ALTER TABLE md_consumption_import_rows "
     "DROP CONSTRAINT IF EXISTS ck_md_import_rows_cost_status",
-    # 0346: 'non_positive_amount' — korekta faktury / kwota ≤ 0 (FIN-MD-06).
+    # 0350: 'non_positive_amount' — korekta faktury / kwota ≤ 0 (FIN-MD-06).
     """DO $$ BEGIN
         ALTER TABLE md_consumption_import_rows
             ADD CONSTRAINT ck_md_import_rows_cost_status
@@ -7263,7 +7276,7 @@ _CONSTRAINT_STATEMENTS = [
                 'non_positive_amount'
             )) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0346: 'cost_only' — wiersz arkusza z samą fakturą, bez liczby MD.
+    # 0350: 'cost_only' — wiersz arkusza z samą fakturą, bez liczby MD.
     "ALTER TABLE md_consumption_import_rows "
     "DROP CONSTRAINT IF EXISTS ck_md_import_rows_status",
     """DO $$ BEGIN
@@ -8310,6 +8323,34 @@ async def repair():
             {"key": SEPARATE_MD_PERIODIC_MARKER},
         )
     print(f"md/periodic separation: {receipt}")
+
+asyncio.run(repair())
+PY
+
+# Jeden katalog KPI (0346, 22.09.2026) — stare id panelu „Moje KPI" na
+# kanoniczne id katalogu, martwe id z 0034 i wiersze równe domyślnym z
+# `kpi_role_defaults` usunięte (katalog = jedyne źródło liczb). Safety-net dla
+# migracji 0346: ten sam blok SQL z `app/services/kpi_target_normalization.py`,
+# marker w `app_settings` + advisory lock → drugi start kończy się natychmiast.
+startup_phase "repair-kpi-catalog-unification"
+echo "KPI targets: unify panel and coach ids (one-shot, idempotent)..."
+python - <<'PY' || echo "kpi catalog unification skipped; continuing"
+import asyncio
+from sqlalchemy import text
+from app.core.database import engine
+from app.services.kpi_target_normalization import (
+    KPI_TARGET_NORMALIZATION_MARKER,
+    KPI_TARGET_NORMALIZATION_SQL,
+)
+
+async def repair():
+    async with engine.begin() as conn:
+        await conn.execute(text(KPI_TARGET_NORMALIZATION_SQL))
+        done = await conn.scalar(
+            text("SELECT 1 FROM app_settings WHERE key = :key"),
+            {"key": KPI_TARGET_NORMALIZATION_MARKER},
+        )
+    print(f"kpi catalog unification: {'done' if done else 'not applied'}")
 
 asyncio.run(repair())
 PY

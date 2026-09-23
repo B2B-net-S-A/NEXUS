@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api, { jobChatApi, matchingApi } from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
+import { canEditJobContent, jobEditScope } from "@/lib/job-edit-access";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
@@ -621,9 +622,25 @@ export default function JobDetailPage() {
       </div>
     );
 
-  const canEditJob = canWritePipeline && canUpdateJob;
-  const onEdit = canEditJob ? () => setShowEditJob(true) : undefined;
-  const onWriteAnnouncement = canEditJob ? () => setShowAIWriter(true) : undefined;
+  // Dwa poziomy edycji (22.09.2026, `lib/job-edit-access.ts`): pełna
+  // (`job.update` — klient, budżet, zespół, cykl życia) i treść (`can_edit`
+  // z serwera — rekruter prowadzący i współpracownicy: opis, ogłoszenia,
+  // Champion). `canEditJob` zostaje bramką PEŁNEJ edycji i cyklu życia.
+  const editScope = jobEditScope(job, {
+    canWritePipeline,
+    canManageJob: canUpdateJob,
+  });
+  const canEditJob = editScope === "full";
+  const canEditJobContentFields = editScope !== "none";
+  const canEditChampion = canEditJobContent(job, {
+    canWritePipeline,
+    // Lustro `PUT /champion-profile` sprzed pola `can_edit` (DeliveryLeadPlus).
+    fallback: isAdmin || hasRole(authUser, "delivery_lead"),
+  });
+  const onEdit = canEditJobContentFields ? () => setShowEditJob(true) : undefined;
+  const onWriteAnnouncement = canEditJobContentFields
+    ? () => setShowAIWriter(true)
+    : undefined;
   const onGenerateInviteLink =
     canWritePipeline && job.status === "published" && canCreateInviteLink
       ? () => setShowInviteLink(true)
@@ -785,9 +802,10 @@ export default function JobDetailPage() {
       />
 
       {/* Edit Job Modal */}
-      {canWritePipeline && showEditJob && job && (
+      {canEditJobContentFields && showEditJob && job && (
         <EditJobModal
           job={job}
+          scope={canEditJob ? "full" : "content"}
           onClose={() => setShowEditJob(false)}
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ["job", id] });
@@ -807,7 +825,7 @@ export default function JobDetailPage() {
       )}
 
       {/* AI Writer Modal */}
-      {canWritePipeline && showAIWriter && (
+      {canEditJobContentFields && showAIWriter && (
         <AIJobWriterModal
           job={job}
           onClose={() => setShowAIWriter(false)}
@@ -867,6 +885,7 @@ export default function JobDetailPage() {
         onOpenChange={slideOverOpenChange("order")}
         jobId={jobId}
         canEdit={canEditJob}
+        canEditContent={canEditJobContentFields}
         readOnly={!canWritePipeline}
         onNavigate={() => selectView("champion")}
         onOpenSlideOver={openSlideOver}
@@ -1089,22 +1108,15 @@ export default function JobDetailPage() {
           <div className="min-w-0 space-y-4">
             <JobSummaryCard
               job={job}
-              onEdit={
-                canWritePipeline && canUpdateJob
-                  ? () => setShowEditJob(true)
-                  : undefined
-              }
+              onEdit={onEdit}
             />
             <ChampionProfileEditor
               jobId={Number(id)}
               clientId={job?.client_id ?? null}
-              // Backend PUT /champion-profile is DeliveryLeadPlus — mirror it so a
-              // recruiter sees a read-only Champion instead of filling a form that
-              // 403s on save (P1-02).
-              canEdit={
-                canWritePipeline &&
-                (isAdmin || hasRole(authUser, "delivery_lead"))
-              }
+              // `can_edit` z serwera (rekruter prowadzący i współpracownicy od
+              // 22.09.2026); bez pola — lustro DeliveryLeadPlus (P1-02), żeby
+              // nikt nie wypełniał formularza, który skończy się 403.
+              canEdit={canEditChampion}
               // `CreateJobModal` ląduje tu z `?intake=1` gdy nowa rekrutacja
               // ma opis do podania AI (stare linki; od 22.09.2026 `/jobs/new`) — otwiera panel „Wklej
               // opis" od razu, zamiast zmuszać DL-a do odnalezienia go samemu.

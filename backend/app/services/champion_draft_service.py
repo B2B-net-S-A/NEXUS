@@ -67,7 +67,7 @@ from app.services.historical_jobs_retrieval import (
     find_similar_historical_jobs,
     skill_frequency,
 )
-from app.services.ai_models import model_for
+from app.services.ai_models import fallbacks_for, model_for
 from app.services.llm_prompts import (
     CHAMPION_PROFILE_ENRICH_FROM_CALL,
     CHAMPION_PROFILE_ENRICH_FROM_MEETING,
@@ -117,10 +117,13 @@ async def _call_claude_json(
     """
     # Shared resilient helper: explicit timeout + transient-retry backoff.
     from app.services.claude_client import call_claude  # local: avoid load-time cost
+    from app.services.llm_providers import api_key_configured  # noqa: PLC0415
 
+    # Od 22.09.2026 szkic idzie na GPT-6 Lunę — sonda pyta o klucz DOSTAWCY
+    # modelu; `api_key` niżej to ścieżka Anthropic (fallback).
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not configured")
+    if not api_key_configured(model):
+        raise RuntimeError(f"brak klucza API dostawcy modelu {model}")
 
     started = time.time()
     # Sync Anthropic SDK — offload the multi-second LLM round-trip so it does
@@ -131,13 +134,14 @@ async def _call_claude_json(
     message = await run_in_threadpool(
         call_claude,
         model=model,
+        fallback_models=fallbacks_for(AIFeatureKey.champion_draft),
         max_tokens=max_tokens,
         # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
         # tokens count toward max_tokens and would truncate this JSON output.
         thinking={"type": "disabled"},
         system=system_prompt,
         messages=[{"role": "user", "content": prompt}],
-        api_key=api_key,
+        api_key=api_key or None,
     )
     latency_ms = int((time.time() - started) * 1000)
 
@@ -224,21 +228,25 @@ def _summarize_chunk_sync(chunk: str, *, model: str) -> str:
     """Sync chunk summary. Wrapped in `asyncio.to_thread` by the async caller —
     matches the sync `anthropic.Anthropic` pattern used by `_call_claude_json`."""
     from app.services.claude_client import call_claude  # noqa: PLC0415
+    from app.services.llm_providers import api_key_configured  # noqa: PLC0415
 
+    # Od 22.09.2026 szkic idzie na GPT-6 Lunę — sonda pyta o klucz DOSTAWCY
+    # modelu; `api_key` niżej to ścieżka Anthropic (fallback).
     api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY not configured")
+    if not api_key_configured(model):
+        raise RuntimeError(f"brak klucza API dostawcy modelu {model}")
     # Already sync (wrapped in asyncio.to_thread upstream) → call directly.
     # call_claude adds an explicit timeout + transient-retry backoff.
     message = call_claude(
         model=model,
+        fallback_models=fallbacks_for(AIFeatureKey.champion_draft),
         max_tokens=1500,
         # Sonnet 5 does adaptive thinking (effort=high) by default; thinking
         # tokens count toward max_tokens and would truncate this summary.
         thinking={"type": "disabled"},
         system=_CHUNK_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": chunk}],
-        api_key=api_key,
+        api_key=api_key or None,
     )
     parts: list[str] = []
     for block in getattr(message, "content", []) or []:

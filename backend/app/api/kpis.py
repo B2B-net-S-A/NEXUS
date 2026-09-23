@@ -2,7 +2,8 @@
 
 Endpoint `GET /api/kpis/me/today` — zwraca bieżący progres current_user
 względem wszystkich KPI z katalogu. Używane przez widget `MyKpiWidget`
-w TopbarV2 i DashboardV2.
+w TopbarV2 i DashboardV2. `GET /api/kpis/me/goals` — cele liderów (Delivery
+Lead: portfel, HoR / TCM: zespół), ten sam widget.
 
 Inne endpointy (targets CRUD, historia nudge'y, per-user lookup dla
 delivery_leada) dodawane w kolejnych fazach.
@@ -11,29 +12,31 @@ delivery_leada) dodawane w kolejnych fazach.
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
+from app.analytics.capabilities import AnalyticsCapability, require_capability
 from app.api.deps import (
     AdminUser,
     CurrentUser,
-    OperationalUser,
     RecruiterPlus,
 )
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.kpi_nudge_log import KpiNudgeType
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.services.kpi_catalog import KpiPeriod, get_kpi
 from app.services.kpi_coach_service import run_scheduled_sweep
 from app.services.kpi_coach_service import _try_emit as _try_emit_nudge
 from app.services.kpi_engine import KpiResult, evaluate_user_kpis, period_bucket_label
+from app.services.kpi_goals import GoalsResult, compute_my_goals
 from app.services.kpi_panel import PanelResult, compute_my_panel
+from app.services.kpi_targets import KPI_BEARING_ROLES
 from app.services.kpi_team import TeamPanelResult, compute_team_panel
 
 logger = logging.getLogger(__name__)
@@ -68,18 +71,13 @@ def _to_schema(kpi_result) -> KpiResultSchema:
     )
 
 
-# Role, które nie wykonują pracy operacyjnej — nie pokazujemy im widgeta.
 # Role, które MAJĄ własne KPI rekrutacyjne. Zapisane jako zbiór pozytywny,
 # bo lista zabroniona źle się zachowuje przy schemacie multi-role: użytkownik z
 # primary=delivery_lead i secondary=recruiter realnie rekrutuje i POWINIEN
 # widzieć swoje KPI, a sprawdzenie "czy jest na liście zabronionych" wyklucza
 # go przez samą rolę główną. Pytanie brzmi "czy masz JAKĄKOLWIEK rolę z KPI",
 # nie "czy twoja główna rola jest na czarnej liście".
-_KPI_BEARING_ROLES = {
-    UserRole.tac,
-    UserRole.recruiter,
-    UserRole.sourcer,
-}
+_KPI_BEARING_ROLES = set(KPI_BEARING_ROLES)
 
 
 @router.get("/me/today", response_model=List[KpiResultSchema])
@@ -98,6 +96,51 @@ async def get_my_kpis_today(
 
     results = await evaluate_user_kpis(db, user=current_user)
     return [_to_schema(r) for r in results if r.target > 0]
+
+
+# ── Cele liderów (DL: portfel, HoR / TCM: zespół) ───────────────────────────
+
+
+class GoalRowSchema(BaseModel):
+    goal_id: str
+    title_pl: str
+    period: str  # "day" | "week" | "month" | "quarter"
+    unit: str  # "count" | "pct"
+    target: float
+    # None = niepoliczony (np. hit ratio bez requestów) — NIGDY zero.
+    current: float | None
+    progress_pct: float | None
+    state: str | None
+    note: str | None = None
+
+
+class MyGoalsSchema(BaseModel):
+    """Cele lidera. `kind="none"` = osoba nie ma celów lidera."""
+
+    kind: str  # "delivery_lead" | "team" | "none"
+    scope_label: str
+    people: int | None
+    goals: List[GoalRowSchema]
+
+
+def _goals_to_schema(result: GoalsResult) -> MyGoalsSchema:
+    return MyGoalsSchema(**result.as_dict())
+
+
+@router.get("/me/goals", response_model=MyGoalsSchema)
+async def get_my_goals(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> MyGoalsSchema:
+    """Cele liderów (decyzja Artura 22.09.2026).
+
+    - Delivery Lead: hit ratio portfela i placementy w kwartale — liczone tak
+      samo jak Liga Mistrzów DL (próg 30% i minimum placementów ligi).
+    - Head of Recruitment i TCM: cele ZESPOŁU — suma celów operatorów
+      rekrutacji z zakresu pulpitu i suma ich pracy; bez osobistych celów.
+    - Reszta ról: `kind="none"` i pusta lista.
+    """
+    return _goals_to_schema(await compute_my_goals(db, user=current_user))
 
 
 # ── „Moje KPI" panel (verifier-anchored funnel) ────────────────────────────
@@ -227,12 +270,15 @@ _PERIOD_MAP = {
     "month": KpiPeriod.month,
 }
 
-# Widok zespołowy — pełny per-person breakdown dla KAŻDEJ roli operacyjnej.
-# Decyzja właściciela 2026-08-07 (sekcja „Statystyki rekrutacji" na /dashboard):
-# cały zespół widzi imienne wyniki wszystkich, jak w InfraReporterze. Od 19.08
-# OperationalUser obejmuje też finance (pełny dostęp operacyjny); odcięty
-# pozostaje wyłącznie legacy viewer `user`.
-TeamPanelViewer = OperationalUser
+# Imienny panel zespołu pod `/api/kpis/team/panel` nie ma konsumenta we
+# froncie — tabela „Statystyki rekrutacji" na pulpicie idzie przez
+# `/api/dashboard/v2/recruitment-stats` i TAM zostaje decyzja właściciela
+# z 2026-08-07 (imienne wyniki dla każdej roli operacyjnej). Ta trasa wymaga
+# od 22.09.2026 capability zespołowej, jak `/users/{id}/today` obok — do tej
+# daty wystarczało `OperationalUser`, czyli cudze KPI widział każdy rekruter.
+TeamPanelViewer = Annotated[
+    User, Depends(require_capability(AnalyticsCapability.VIEW_TEAM_KPI))
+]
 
 
 def _team_to_schema(result: TeamPanelResult) -> TeamPanelSchema:

@@ -1157,10 +1157,12 @@ pytań „dlaczego nie widzę przycisku".
 |---|---|
 | **Bezpieczny odczyt zamówień** | administrator i Finanse — wszyscy klienci; każdy Delivery Lead — wszyscy klienci, ale poza przypisanym portfelem bez kwot i plików PO; Talent Community Manager — wszyscy klienci, ale bez kwot, plików PO i eksportu |
 | **Cykl życia** (zakończ, przywróć, usuń — także usunięcie konsultanta) | administrator i każdy Delivery Lead; Finanse dodatkowo przy zamówieniach zbiorczych |
-| **Stawki, budżety, pliki PO i obsada** (dodanie/edycja konsultanta, finansowa edycja zamówienia) | **wyłącznie** administrator i Delivery Lead przypisany do klienta |
+| **Stawki, budżety, pliki PO i obsada** (dodanie/edycja konsultanta, finansowa edycja zamówienia) | administrator i Delivery Lead przypisany do klienta; **Finanse — same kwoty** (stawki i wartości), bez obsady i plików PO |
 
 **Finanse przechodzą bramkę odczytu u wszystkich klientów bez przypisania**
-i widzą kwoty, ale nie zapisują stawek ani obsady. Delivery Lead nie potrzebuje
+i widzą kwoty. Od 22.09.2026 zmieniają też **same kwoty** — stawki kontraktu,
+zamówienia i linii MD. Próba zmiany czegokolwiek innego (obsada, daty, numer,
+plik PO) kończy się odmową „Finanse zmieniają tutaj wyłącznie kwoty". Delivery Lead nie potrzebuje
 przypisania, aby widzieć i obsługiwać klienta operacyjnie; przypisanie nadal
 wyznacza jego dostęp do stawek, budżetów, plików PO i operacji, które je zapisują.
 

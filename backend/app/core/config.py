@@ -588,11 +588,10 @@ class Settings(BaseSettings):
     # Order-PDF extraction ("Zczytaj dane z dokumentu" w przedłużeniu). Kill-switch
     # bez redeploya, obok bramki AIFeatureKey.order_parser (master → feature → limit).
     ORDER_EXTRACTION_ENABLED: bool = True
-    # F7: Sonnet 5 (decyzja 21.09.2026, powrót z GPT Luna — zbędne flagi
-    # „niepewny” wysyłały poprawne odczyty do kolejki). Rejestr `ai_models`
-    # honoruje to pole jako legacy override, więc domyślna wartość MUSI zgadzać
-    # się z rejestrem.
-    ORDER_PARSER_MODEL: str = "claude-sonnet-5"
+    # F7: GPT-6 Luna (decyzja 22.09.2026 po pomiarze; 21.09 był powrót z GPT-5.6
+    # Luna na Sonneta). Rejestr `ai_models` honoruje to pole jako legacy
+    # override, więc domyślna wartość MUSI zgadzać się z rejestrem.
+    ORDER_PARSER_MODEL: str = "gpt-6-luna"
     # ── Zamówienia z maila (ticket zamowienia@b2bnetwork.pl) ──────────────
     # Skrzynka kopii w M365 czytana przez Graph (hosting robi kopię przychodzących
     # na tę skrzynkę; oryginały zostają). Kill-switch PRZED pętlą: wyłączona

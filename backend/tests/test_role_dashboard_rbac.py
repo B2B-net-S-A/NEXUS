@@ -79,12 +79,15 @@ def test_finance_capabilities_are_exclusive_from_delivery_lead() -> None:
     assert AnalyticsCapability.VIEW_FINANCE not in delivery_caps
     assert AnalyticsCapability.MANAGE_FINANCE not in delivery_caps
     assert AnalyticsCapability.APPROVE_FINANCE not in delivery_caps
-    assert AnalyticsCapability.VIEW_RECRUITMENT_RANKING not in delivery_caps
+    # 22.09.2026 (audyt U9): DL jest w Hall of Fame i Lidze, więc widzi ranking.
+    assert AnalyticsCapability.VIEW_RECRUITMENT_RANKING in delivery_caps
     assert not has_financial_access(_user(UserRole.delivery_lead))
 
     tcm_caps = capabilities_for(_user(UserRole.talent_community_manager))
     assert AnalyticsCapability.VIEW_RECRUITMENT_RANKING in tcm_caps
     assert AnalyticsCapability.VIEW_TEAM_KPI in tcm_caps
+    # 22.09.2026: TCM ma cele zespołowe, bez osobistych KPI.
+    assert AnalyticsCapability.VIEW_OWN_RECRUITMENT_KPI not in tcm_caps
     assert AnalyticsCapability.VIEW_CLIENT_OPERATIONS in tcm_caps
     assert AnalyticsCapability.VIEW_FINANCE not in tcm_caps
     assert AnalyticsCapability.MANAGE_FINANCE not in tcm_caps
@@ -126,11 +129,12 @@ async def test_frozen_legacy_dashboards_are_admin_or_hor_only() -> None:
 
 
 @pytest.mark.asyncio
-async def test_team_kpi_panel_is_visible_to_every_operational_role() -> None:
-    """Decyzja właściciela 2026-08-07: pełna tabela imienna KPI zespołu dla
-    KAŻDEJ roli operacyjnej (sekcja „Statystyki rekrutacji" na /dashboard).
-    Od 19.08 finance jest rolą operacyjną (pełny dostęp) — twarde 403
-    zostaje wyłącznie dla legacy viewera `user`."""
+async def test_team_kpi_panel_route_requires_team_capability() -> None:
+    """`/api/kpis/team/panel` nie ma konsumenta we froncie; od 22.09.2026
+    wymaga VIEW_TEAM_KPI (jak `/users/{id}/today`). Decyzja właściciela
+    z 2026-08-07 (imienna tabela dla każdej roli operacyjnej) żyje dalej
+    w `/api/dashboard/v2/recruitment-stats` — tamtego guardu ta zmiana
+    nie dotyka."""
     from typing import get_args
 
     from app.api.kpis import TeamPanelViewer
@@ -142,15 +146,12 @@ async def test_team_kpi_panel_is_visible_to_every_operational_role() -> None:
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
-        UserRole.tac,
-        UserRole.recruiter,
         UserRole.finance,
-        UserRole.sourcer,
     ):
         user = _user(role)
         assert await guard(current_user=user) is user
 
-    for role in (UserRole.user,):
+    for role in (UserRole.tac, UserRole.recruiter, UserRole.sourcer, UserRole.user):
         with pytest.raises(HTTPException) as exc:
             await guard(current_user=_user(role))
         assert exc.value.status_code == 403
@@ -195,6 +196,7 @@ async def test_legacy_recruitment_report_follows_ranking_capability() -> None:
     for role in (
         UserRole.admin,
         UserRole.head_of_recruitment,
+        UserRole.delivery_lead,  # 22.09.2026 (audyt U9)
         UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,
@@ -204,7 +206,7 @@ async def test_legacy_recruitment_report_follows_ranking_capability() -> None:
         user = _user(role)
         assert await _recruitment_ranking_guard(current_user=user) is user
 
-    for role in (UserRole.delivery_lead, UserRole.user):
+    for role in (UserRole.user,):
         with pytest.raises(HTTPException) as exc:
             await _recruitment_ranking_guard(current_user=_user(role))
         assert exc.value.status_code == 403
@@ -473,7 +475,11 @@ async def test_delivery_scope_preserves_exact_client_tac_relationships() -> None
             self.tac_user_id = tac_user_id
 
     class _Database:
-        async def scalars(self, _statement):
+        async def scalars(self, statement):
+            # Pierwsze zapytanie: klienci. Drugie: ludzie rekrutacji DL
+            # (`_delivery_lead_operator_ids`) — zespół bez ClientTacAssignment.
+            if "users" in str(statement):
+                return _Values([303])
             return _Values([10, 20])
 
         async def execute(self, _statement):
@@ -489,6 +495,7 @@ async def test_delivery_scope_preserves_exact_client_tac_relationships() -> None
 
     assert scope.allowed_client_ids == frozenset({10, 20})
     assert scope.allowed_tac_user_ids == frozenset({101, 202})
+    assert scope.allowed_operator_user_ids == frozenset({101, 202, 303})
     assert scope.allowed_client_tac_pairs == frozenset({(10, 101), (20, 202)})
     assert scope.as_payload()["allowed_client_tac_pairs"] == [
         {"client_id": 10, "tac_user_id": 101},

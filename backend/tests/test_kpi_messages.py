@@ -33,7 +33,7 @@ def test_select_reminder_variant_handles_negative_defensively():
 # ── render: praise_hit ─────────────────────────────────────────────────────
 
 
-def _render_praise(kpi_id: str = "daily_activity_count"):
+def _render_praise(kpi_id: str = "daily_first_verifications"):
     return render(
         nudge_type=KpiNudgeType.praise_hit,
         kpi_id=kpi_id,
@@ -72,7 +72,7 @@ def test_render_praise_hit_different_buckets_can_differ_or_match():
     # not hit the same variant but must be deterministic.
     a = render(
         nudge_type=KpiNudgeType.praise_hit,
-        kpi_id="daily_activity_count",
+        kpi_id="daily_first_verifications",
         kpi_title_pl="X",
         user_id=1,
         user_name="A",
@@ -84,7 +84,7 @@ def test_render_praise_hit_different_buckets_can_differ_or_match():
     )
     a2 = render(
         nudge_type=KpiNudgeType.praise_hit,
-        kpi_id="daily_activity_count",
+        kpi_id="daily_first_verifications",
         kpi_title_pl="X",
         user_id=1,
         user_name="A",
@@ -118,7 +118,7 @@ def test_render_praise_hit_unknown_kpi_falls_back_to_generic():
 def test_render_first_name_fallback_to_email_local_part():
     msg = render(
         nudge_type=KpiNudgeType.praise_hit,
-        kpi_id="daily_activity_count",
+        kpi_id="daily_first_verifications",
         kpi_title_pl="X",
         user_id=1,
         user_name="   ",  # empty/whitespace
@@ -134,7 +134,7 @@ def test_render_first_name_fallback_to_email_local_part():
 # ── render: remind_behind (forced variants = escalation) ───────────────────
 
 
-def _render_remind(forced_variant: int, kpi_id: str = "daily_activity_count"):
+def _render_remind(forced_variant: int, kpi_id: str = "daily_first_verifications"):
     return render(
         nudge_type=KpiNudgeType.remind_behind,
         kpi_id=kpi_id,
@@ -204,7 +204,7 @@ def test_render_eod_summary_includes_progress_and_name():
 def test_render_streak_bonus_renders_without_error():
     msg = render(
         nudge_type=KpiNudgeType.streak_bonus,
-        kpi_id="daily_activity_count",
+        kpi_id="daily_first_verifications",
         kpi_title_pl="Aktywności",
         user_id=1,
         user_name="Anna",

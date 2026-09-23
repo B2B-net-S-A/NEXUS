@@ -132,10 +132,24 @@ def test_sync_gate_rechecks_after_admin_disables(monkeypatch):
     assert send.call_count == 1
 
 
+def _pin_disabled_policy(monkeypatch, *modules) -> None:
+    async def disabled(_db):
+        return delivery.DeliveryPolicy()
+
+    monkeypatch.setattr(delivery, "load_policy", disabled)
+    monkeypatch.setattr(delivery, "load_policy_sync", lambda: delivery.DeliveryPolicy())
+    for module in modules:
+        monkeypatch.setattr(module, "load_policy", disabled, raising=False)
+
+
 async def test_disabled_chat_and_deadline_do_not_touch_provider(monkeypatch):
     from app.tasks import chat_email_fallback as chat, job_deadline_alerts as deadline
 
     db = SimpleNamespace(scalar=AsyncMock(return_value=None))
+    # Polityka „wyłączona" podana wprost: test mówi o zachowaniu przy wyłączonej
+    # wysyłce, więc nie może zależeć od tego, co w tym procesie zostawił
+    # wcześniejszy test (w sicie PR-ów #1724 i poprzednim padał od kolejności).
+    _pin_disabled_policy(monkeypatch, chat, deadline)
     channel = AsyncMock(side_effect=AssertionError("provider must not be checked"))
     monkeypatch.setattr(chat, "_channel_waiting", channel)
     monkeypatch.setattr(deadline, "get_system_sender_connection", channel)
@@ -164,6 +178,7 @@ async def test_disabled_delivery_alert_does_not_touch_provider(monkeypatch):
 async def test_stage_inapp_still_works_while_routine_email_is_off(monkeypatch):
     from app.services import stage_notification_emitter as emitter
 
+    _pin_disabled_policy(monkeypatch, emitter)
     monkeypatch.setattr(
         emitter,
         "resolve_recipients",

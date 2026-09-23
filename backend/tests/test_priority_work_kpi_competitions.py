@@ -21,7 +21,8 @@ from app.models.recruitment_pipeline import (
 from app.models.skill import Skill as _Skill  # noqa: F401
 from app.models.user import User, UserRole
 from app.services import competitions
-from app.services.kpi_panel import PANEL_KPI_DEFAULTS, VERIFIER_ANCHORED_CTE
+from app.services.kpi_catalog import get_kpi
+from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 from app.tasks import competition_autofreeze
 
 
@@ -235,6 +236,26 @@ def _race_row(
     )
 
 
+def _pin_race_thresholds(monkeypatch) -> None:
+    """Fałszywa sesja nie ma tabel — progi wyścigu (od 22.09.2026 czytane z celów
+    KPI i konfiguracji) podajemy wprost, wartościami domyślnymi katalogu."""
+    monkeypatch.setattr(
+        competitions,
+        "monthly_race_thresholds",
+        AsyncMock(
+            return_value=competitions.MonthlyRaceThresholds(
+                verifications_per_day=get_kpi(
+                    "daily_first_verifications"
+                ).default_targets[UserRole.recruiter],
+                precision_pct=float(
+                    get_kpi("monthly_precision").default_targets[UserRole.recruiter]
+                ),
+                min_placements=2,
+            )
+        ),
+    )
+
+
 async def test_monthly_recommendation_qualification_is_four_per_day_and_75_percent(
     monkeypatch,
 ) -> None:
@@ -262,6 +283,7 @@ async def test_monthly_recommendation_qualification_is_four_per_day_and_75_perce
         ),
     ]
     db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
+    _pin_race_thresholds(monkeypatch)
     monkeypatch.setattr(
         competitions,
         "business_days_elapsed_in_month",
@@ -312,6 +334,7 @@ async def test_monthly_recommendation_ranking_keeps_unqualified_entrants(
         ),
     ]
     db = SimpleNamespace(execute=AsyncMock(return_value=_Result(rows)))
+    _pin_race_thresholds(monkeypatch)
     monkeypatch.setattr(
         competitions,
         "business_days_elapsed_in_month",
@@ -519,7 +542,8 @@ def test_monthly_race_threshold_uses_holiday_aware_business_days() -> None:
     elapsed = competitions.business_days_elapsed_in_month(
         2026, 1, today=date(2026, 2, 1)
     )
-    required = competitions.MONTHLY_RACE_MIN_VERIFICATIONS_PER_DAY * elapsed
+    per_day = get_kpi("daily_first_verifications").default_targets[UserRole.recruiter]
+    required = per_day * elapsed
     assert required == 80  # a NIE 88 (22 dni Pon–Pt × 4)
 
 
@@ -789,14 +813,11 @@ async def test_autofreeze_failure_in_one_type_does_not_starve_the_rest(
 
 
 def test_kpi_defaults_preserve_four_per_day_and_75_percent() -> None:
-    for role in ("sourcer", "tac", "recruiter"):
-        enum_role = next(
-            item
-            for item in PANEL_KPI_DEFAULTS["verifications_daily"]
-            if item.value == role
-        )
-        assert PANEL_KPI_DEFAULTS["verifications_daily"][enum_role] == 4
-        assert PANEL_KPI_DEFAULTS["precision_monthly"][enum_role] == 75
+    verifications = get_kpi("daily_first_verifications")
+    precision = get_kpi("monthly_precision")
+    for role in (UserRole.sourcer, UserRole.tac, UserRole.recruiter):
+        assert verifications.default_targets[role] == 4
+        assert precision.default_targets[role] == 75
 
 
 def test_canonical_cte_is_attempt_aware_and_anchors_credit_on_verifier() -> None:

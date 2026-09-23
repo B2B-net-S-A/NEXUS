@@ -29,13 +29,13 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F4  | cv_generator                     | claude-sonnet-5 (z 4.6)  |
 | F5  | cv_interactive_chat              | gpt-6-luna (z Sonnet 5)  |
 | F6  | job_description_generator        | claude-sonnet-5          |
-| F7  | order_parser                     | claude-sonnet-5 (21.09)  |
+| F7  | order_parser                     | gpt-6-luna (z Sonnet 5)  |
 | F8  | uop_check                        | gpt-6-luna (z Sonnet 5)  |
 | F9  | cv_parser                        | claude-sonnet-5          |
-| F10 | cv_backfill + cv_name_backfill   | claude-sonnet-5 (z Haiku)|
+| F10 | cv_backfill + cv_name_backfill   | gpt-6-luna (z Sonnet 5)  |
 | F11 | notes_extraction                 | deepseek-v4-pro (z Haiku)|
-| F12 | candidate_summary                | deepseek-v4-pro          |
-| F13 | champion_draft                   | claude-sonnet-5          |
+| F12 | candidate_summary                | gpt-6-luna (z Sonnet 5)  |
+| F13 | champion_draft                   | gpt-6-luna (z Sonnet 5)  |
 | F14 | cv_rule_lint                     | claude-sonnet-5 (z Haiku)|
 | F15 | mindy_chat                       | gpt-6-luna (z Sonnet 5)  |
 | F18 | cv_factual_verification          | gpt-6-luna (z Sonnet 5)  |
@@ -49,6 +49,15 @@ GPT-5.6 Luna, z której pochodzą liczby badania 16.09 — ta sama rodzina
 i ten sam kształt żądania (``reasoning_effort=none``, JSON schema, ``store``),
 dwa razy tańsze wejście i 2,4× tańsze wyjście. Powrót bez deployu: env
 funkcji (np. ``CV_FACTUAL_VERIFICATION_MODEL=gpt-5.6-luna``).
+
+Pomiar gpt-6-luna na przypadkach badania 16.09 (22.09.2026, harness
+``/root/nexus-model-eval``, decyzja Artura tego dnia) przeniósł na Lunę 6 trzy
+kolejne funkcje, w których wyszła na remis z dotychczasowym modelem: F7 odczyt
+zamówień (błędy krytyczne 3,9% vs 4,7% Sonneta, 0 cichych), F12 podsumowanie
+aktywności (96,7% poprawnych jak DeepSeek, dane zostają u dostawcy z DPA)
+i F13 szkic Championa (recall 0,62 vs 0,60, precyzja 0,88 vs 0,90). Po nich
+F10 masowe uzupełnianie pól i nazwisk z CV (wymyślone technologie 0,07 vs 0,08
+Sonneta na CV, zła osoba 3,1% vs 6,3%).
 
 Funkcje na GPT/DeepSeek mają fallback na Sonneta 5: przeciążenie albo 429
 u dostawcy nie zdejmuje funkcji. Brak klucza dostawcy to 401 NIEPONAWIALNE
@@ -125,30 +134,34 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "go od reszty. Badanie 16.09: najmniej wymyślonych faktów (0.063).",
     ),
     AIFeatureKey.candidate_summary: ModelChoice(
-        default=DEEPSEEK_PRO,
+        default=GPT_LUNA,
         env_vars=("CANDIDATE_SUMMARY_MODEL",),
         fallbacks=(SONNET_5,),
-        rationale="F12. Podsumowanie aktywności: DeepSeek V4 Pro 3% błędów vs 20% u Sonneta 5 "
-        "(badanie 16.09); dane produkcyjne do DeepSeek za zgodą Artura z 16.09.",
+        rationale="F12. Podsumowanie aktywności: GPT-6 Luna 96,7% poprawnych, 0 wymyśleń — jak "
+        "DeepSeek V4 Pro (pomiar 22.09), 8× taniej i bez wysyłki poza EOG. Sonnet 5 w badaniu "
+        "16.09 nie oddał użytecznego podsumowania w 20% przypadków.",
     ),
     AIFeatureKey.champion_draft: ModelChoice(
-        default=SONNET_5,
+        default=GPT_LUNA,
         env_vars=("CHAMPION_AI_MODEL",),
-        rationale="F13. Szkic Championa: najmniej nieugruntowanych pozycji (0.10).",
+        fallbacks=(SONNET_5,),
+        rationale="F13. Szkic Championa: GPT-6 Luna recall MUST 0,62 / precyzja 0,88 wobec "
+        "0,60 / 0,90 Sonneta 5, 0 dopisanych pozycji u obu (pomiar 22.09), 28× taniej.",
     ),
     AIFeatureKey.order_parser: ModelChoice(
-        default=SONNET_5,
+        default=GPT_LUNA,
         env_vars=("ORDER_PARSER_MODEL",),
         # settings_attr obok tego samego env: wierne odtworzenie oryginału
         # `os.environ.get("ORDER_PARSER_MODEL","") or settings.ORDER_PARSER_MODEL`.
         # env_vars (os.environ) wygrywa i zwykle to wystarcza; settings_attr
         # łapie wariant z pliku .env, który pydantic czyta, a os.environ nie widzi.
         settings_attr="ORDER_PARSER_MODEL",
-        rationale="F7. Odczyt PDF zamówień: Sonnet 5 (decyzja Artura 21.09.2026, powrót "
-        "z GPT Luna). Luna czytała wartości poprawnie, ale oznaczała odczyt jako "
-        "niepewny bez konkretnego powodu, więc zamówienia Nordei szły do kolejki "
-        "zamiast zapisu automatycznego (2 z 6 po 16.09). Badanie 16.09 i tak "
-        "zalecało zostawić tę funkcję na Sonnecie.",
+        fallbacks=(SONNET_5,),
+        rationale="F7. Odczyt PDF zamówień: GPT-6 Luna (decyzja Artura 22.09.2026). Na 127 "
+        "zamówieniach badania: błędy krytyczne 3,9% vs 4,7% Sonneta 5, 0 cichych, trafność "
+        "pól 0,960 vs 0,963, 34× taniej. 21.09 wróciliśmy z GPT-5.6 Luna na Sonneta, bo "
+        "Luna 5.6 oznaczała poprawne odczyty Nordei jako niepewne bez powodu (2 z 6 do "
+        "kolejki) — przy Lunie 6 obserwuj kolejkę Nordei.",
     ),
     AIFeatureKey.cv_requirement_map: ModelChoice(
         default=SONNET_5,
@@ -163,18 +176,23 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "cena i umowa powierzenia (OpenAI).",
     ),
     AIFeatureKey.cv_backfill: ModelChoice(
-        default=SONNET_5,
+        default=GPT_LUNA,
         env_vars=("CV_BACKFILL_MODEL",),
-        settings_attr="CLAUDE_MODEL_CV_BULK",
-        rationale="F10. Masowy backfill pól; honoruje CLAUDE_MODEL_CV_BULK (od 16.09 = Sonnet 5), "
-        "CV_BACKFILL_MODEL rozdziela od lintu. Haiku wymyślał fakty w 31% CV vs 8%.",
+        # Bez legacy CLAUDE_MODEL_CV_BULK od 22.09.2026: ta zmienna nadal steruje
+        # lintem reguł i datami doświadczenia (Sonnet 5), a `settings_attr`
+        # wygrywa z `default` — zostawiona zabrałaby tej funkcji Lunę.
+        fallbacks=(SONNET_5,),
+        rationale="F10. Masowy backfill pól: GPT-6 Luna (decyzja 22.09.2026 po pomiarze na 96 "
+        "CV) — wymyślone technologie 0,07/CV vs 0,08 Sonneta 5, zła osoba 3,1% vs 6,3%, "
+        "31× taniej. Przeciążenie OpenAI → model parsera CV (cv_parser._parse_with_claude).",
     ),
     AIFeatureKey.experience_dates_on_demand: ModelChoice(
         default=SONNET_5,
         env_vars=("EXPERIENCE_DATES_MODEL",),
         settings_attr="CLAUDE_MODEL_CV_BULK",
-        rationale="Ta sama robota co F10 (odczyt CV), więc ten sam model — "
-        "osobny klucz jest po to, żeby dało się ją zgasić bez nocnego syncu.",
+        rationale="Ta sama robota co F10 (odczyt CV), ale 22.09.2026 na Lunę 6 przeniesiono "
+        "tylko cv_backfill i cv_name_backfill — ta ścieżka zostaje na Sonnecie 5 do decyzji. "
+        "Osobny klucz jest po to, żeby dało się ją zgasić bez nocnego syncu.",
     ),
     AIFeatureKey.notes_extraction: ModelChoice(
         default=DEEPSEEK_PRO,
@@ -250,11 +268,13 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "kontrolę (klient, kwoty, kontakty) i zatwierdzenie człowieka.",
     ),
     AIFeatureKey.cv_name_backfill: ModelChoice(
-        default=SONNET_5,
+        default=GPT_LUNA,
         env_vars=("CV_NAME_BACKFILL_MODEL",),
-        settings_attr="CLAUDE_MODEL_CV",
-        rationale="F10. Sync imion z Traffita; deleguje do parse_cv (model CV), własny override "
-        "dla ~57k wierszy bez ruszania parsera na wgraniu CV.",
+        # Bez legacy CLAUDE_MODEL_CV od 22.09.2026 — ta zmienna steruje parserem CV
+        # (Sonnet 5); patrz cv_backfill.
+        fallbacks=(SONNET_5,),
+        rationale="F10. Sync imion z Traffita; deleguje do parse_cv z własnym modelem. GPT-6 Luna "
+        "jak cv_backfill (ten sam odczyt CV, pomiar 22.09.2026).",
     ),
 }
 

@@ -64,6 +64,20 @@ export const BOARD_COLUMN_LABEL: Record<BoardColumnKey, string> = {
   closed: "Zamknięci",
 };
 
+/** U Nordei wysłanie CV do klienta TO JEST wysłanie do Cpro (decyzja Artura
+ *  22.09.2026) — ta sama kolumna, inna nazwa. */
+export const CPRO_SENT_COLUMN_LABEL = "Wysłane do Cpro";
+
+export interface FoldBoardOptions {
+  /** Rekrutacja Nordei (`job.cpro_enabled`): „CV wysłane" → „Wysłane do Cpro". */
+  cproEnabled?: boolean;
+}
+
+function boardColumnLabel(key: BoardColumnKey, options: FoldBoardOptions): string {
+  if (key === "cv_sent" && options.cproEnabled) return CPRO_SENT_COLUMN_LABEL;
+  return BOARD_COLUMN_LABEL[key];
+}
+
 export const STAGE_BADGE_LABEL: Record<StageBadgeKey, string> = {
   dz: "DZ ✓",
   cpro: "Gotowy do Cpro",
@@ -210,6 +224,7 @@ function baseName(col: StageLike): string {
  */
 export function foldBoardColumns<C extends FoldableColumn>(
   columns: readonly C[],
+  options: FoldBoardOptions = {},
 ): { columns: BoardColumnFold<C>[]; closed: C[]; badgeByItemId: Map<number, StageBadgeKey> } {
   const closed: C[] = [];
   const badgeByItemId = new Map<number, StageBadgeKey>();
@@ -248,7 +263,7 @@ export function foldBoardColumns<C extends FoldableColumn>(
     const key = canonical ? column : null;
     const fold: BoardColumnFold<C> = {
       key,
-      label: key && !hostByKey.has(key) ? BOARD_COLUMN_LABEL[key] : (col.label ?? col.name ?? ""),
+      label: key && !hostByKey.has(key) ? boardColumnLabel(key, options) : (col.label ?? col.name ?? ""),
       host: col,
       members: [col],
       items: [],
@@ -269,7 +284,7 @@ export function foldBoardColumns<C extends FoldableColumn>(
     }
     const fold: BoardColumnFold<C> = {
       key,
-      label: BOARD_COLUMN_LABEL[key],
+      label: boardColumnLabel(key, options),
       host: col,
       members: [col],
       items: [],

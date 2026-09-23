@@ -79,15 +79,25 @@ from app.api.deps import (
 from app.services.auto_assign_owners import resolve_default_owners
 from app.api.notifications import create_notification
 from app.api.recruitment_access import (
+    JobEditLevel,
+    JobEditUser,
     assert_delivery_lead_job_visible,
     delivery_lead_job_pairs,
+    ensure_champion_job_editor,
     ensure_champion_job_read_visible,
     ensure_delivery_lead_job_visible,
+    ensure_job_editor,
     ensure_job_membership,
     ensure_job_read_access,
+    job_edit_level,
 )
 from app.services.requirement_contract import apply_requirement_source_update
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
+from app.services.section_permissions import (
+    ProductSection,
+    SectionAccess,
+    section_access_for_user,
+)
 from app.api.ws import manager as ws_manager
 from app.core.config import settings
 from app.services.recruitment_allocation import (
@@ -969,21 +979,30 @@ async def list_jobs(
             if tid is not None
         }
         defs_by_template: dict[int, list[PipelineStageDef]] = {}
+        # Wszystkie definicje (kilkadziesiąt wierszy): etapy z innych szablonów
+        # (import Traffita) trafiają do kolumn tą samą regułą co na tablicy.
+        all_defs: dict[int, PipelineStageDef] = {}
         if template_ids:
             def_rows = (
                 await db.execute(
-                    select(PipelineStageDef)
-                    .where(PipelineStageDef.template_id.in_(template_ids))
-                    .order_by(PipelineStageDef.template_id, PipelineStageDef.order)
+                    select(PipelineStageDef).order_by(
+                        PipelineStageDef.template_id, PipelineStageDef.order
+                    )
                 )
             ).scalars()
             for sd in def_rows:
-                defs_by_template.setdefault(sd.template_id, []).append(sd)
+                all_defs[sd.id] = sd
+                if sd.template_id in template_ids:
+                    defs_by_template.setdefault(sd.template_id, []).append(sd)
         for j in jobs:
             tid = j.pipeline_template_id or default_template_id
             entries = tallies.get(j.id, [])
             if tid is not None and defs_by_template.get(tid):
-                cols, off = stage_column_summaries(defs_by_template[tid], entries)
+                cols, off = stage_column_summaries(
+                    defs_by_template[tid],
+                    entries,
+                    {i: d for i, d in all_defs.items() if d.template_id != tid},
+                )
             else:
                 cols, off = legacy_stage_column_summaries(entries)
             stage_columns[j.id] = [
@@ -1713,6 +1732,16 @@ async def get_job(
     payload["can_write_client_rate"] = await resolve_client_rate_write(
         db, current_user, job
     )
+    # Czy bieżący użytkownik redaguje tę rekrutację (opis, ogłoszenia,
+    # Champion) i czy prowadzi jej cykl życia — ta sama reguła co bramka PATCH.
+    edit_level = (
+        await job_edit_level(db, current_user, job)
+        if section_access_for_user(current_user, ProductSection.pipeline)
+        >= SectionAccess.write
+        else None
+    )
+    payload["can_edit"] = edit_level is not None
+    payload["can_manage"] = edit_level is JobEditLevel.full
     # 0341: status requestu — ta sama reguła co wiersz listy.
     from app.services.job_similarity import request_statuses  # noqa: PLC0415
 
@@ -1745,7 +1774,7 @@ async def _populate_hiring_manager_name(
 async def update_job(
     job_id: int,
     data: JobUpdate,
-    current_user: TacPlus,
+    current_user: JobEditUser,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
@@ -1755,6 +1784,9 @@ async def update_job(
         raise HTTPException(status_code=404, detail="Job not found")
     delivery_lead_pairs = await _delivery_lead_job_pairs(current_user, db)
     _assert_delivery_lead_job_visible(job, delivery_lead_pairs)
+    # Treść rekrutacji redaguje też osoba, która ją prowadzi, i współpracownicy
+    # (decyzja 22.09.2026) — ale bez statusu, klienta, obsady i widełek.
+    await ensure_job_editor(db, current_user, job, fields=data.model_fields_set)
     _assert_delivery_lead_finance_write(data.model_fields_set, current_user)
 
     # Validate explicit owner overrides before applying any mutations.
@@ -2242,7 +2274,7 @@ async def _champion_profile_recipients(
 @router.put("/{job_id}/champion-profile")
 async def update_champion_profile(
     job_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: JobEditUser,
     db: AsyncSession = Depends(get_db),
     payload: dict | None = None,
 ) -> dict:
@@ -2252,7 +2284,7 @@ async def update_champion_profile(
 @router.post("/{job_id}/champion-profile/apply-import")
 async def apply_champion_import(
     job_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: JobEditUser,
     payload: dict,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -2283,7 +2315,7 @@ async def apply_champion_import(
 
 async def _save_champion_profile(
     job_id: int,
-    current_user: DeliveryLeadPlus,
+    current_user: User,
     db: AsyncSession = Depends(get_db),
     payload: dict | None = None,
     *,
@@ -2291,7 +2323,7 @@ async def _save_champion_profile(
     expected_fingerprint: str | None = None,
     sync_fields: list[str] | None = None,
 ) -> dict:
-    """Upsert Champion Profile (Delivery Lead / admin only).
+    """Upsert Champion Profile (Delivery Lead / admin / zespół rekrutacji).
 
     On a content change, notifies everyone assigned to the job
     (``recruiter_id`` + ``job_collaborators``) minus the editor. Emits
@@ -2307,6 +2339,9 @@ async def _save_champion_profile(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
+    # Champion redaguje DL/admin oraz osoba prowadząca rekrutację i jej
+    # współpracownicy (decyzja 22.09.2026); TAC tylko we własnych ofertach.
+    await ensure_champion_job_editor(job, current_user, db)
 
     from app.services.champion_intake import (
         fingerprint,

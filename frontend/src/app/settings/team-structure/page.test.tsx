@@ -239,9 +239,11 @@ describe("AdminTeamStructurePage — kompetencje i raportowanie", () => {
     expect(
       await screen.findByText(/skład zespołu dl wynika z relacji przy kliencie/i),
     ).toBeInTheDocument()
+    // Funkcja TAC wyłączona w UI (22.09.2026) — tekst nie wspomina TAC-ów.
     expect(
-      screen.getByText(/klient ↔ Delivery Lead.*klient ↔ TAC/i),
+      screen.getByText(/Delivery Leadów przypisujesz do klientów/i),
     ).toBeInTheDocument()
+    expect(screen.queryByText(/klient ↔ TAC/i)).not.toBeInTheDocument()
     expect(
       screen.getByText(/raportują organizacyjnie do Head of Recruitment/i),
     ).toBeInTheDocument()

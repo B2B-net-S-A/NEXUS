@@ -42,7 +42,7 @@ from app.services.claude_client import call_claude
 from app.services.llm_providers import api_key_configured
 from app.services.llm_prompts import ORDER_EXTRACTION
 from app.models.ai_feature import AIFeatureKey
-from app.services.ai_models import model_for
+from app.services.ai_models import fallbacks_for, model_for
 
 logger = logging.getLogger(__name__)
 
@@ -951,6 +951,8 @@ async def _call_extraction(
             call_claude,
             messages=[{"role": "user", "content": prompt}],
             model=_MODEL,
+            # Przeciążenie OpenAI nie może zepchnąć zamówienia do odczytu awaryjnego.
+            fallback_models=fallbacks_for(AIFeatureKey.order_parser),
             max_tokens=max_tokens,
             api_key=api_key or None,
             # Claude 5 robi adaptive thinking (effort=high) domyślnie; thinking

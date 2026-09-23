@@ -102,6 +102,7 @@ from app.api import md_consumption as md_consumption_api
 from app.api import my_clients as my_clients_api
 from app.api import my_relationships as my_relationships_api
 from app.api import my_people as my_people_api
+from app.api import board_tasks as board_tasks_api
 from app.api import interview_cycle as interview_cycle_api
 from app.api import hiring_managers_analytics as hiring_managers_api
 from app.api import admin_client_mixups
@@ -1128,6 +1129,11 @@ app.include_router(
     my_people_api.router,
     prefix="/api/my-people",
     tags=["my-people"],
+)
+app.include_router(
+    board_tasks_api.router,
+    prefix="/api/board-tasks",
+    tags=["board-tasks"],
 )
 app.include_router(
     interview_cycle_api.router,

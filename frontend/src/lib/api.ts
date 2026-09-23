@@ -614,9 +614,32 @@ export interface KpiResult {
   deadline_hours_left: number;
 }
 
+/** Cel lidera — DL: portfel w kwartale, HoR / TCM: zespół. */
+export interface KpiGoal {
+  goal_id: string;
+  title_pl: string;
+  period: KpiPeriod | "quarter";
+  unit: "count" | "pct";
+  target: number;
+  /** null = niepoliczony (np. hit ratio bez requestów) — nigdy zero. */
+  current: number | null;
+  progress_pct: number | null;
+  state: KpiState | null;
+  note: string | null;
+}
+
+export interface MyKpiGoals {
+  kind: "delivery_lead" | "team" | "none";
+  scope_label: string;
+  people: number | null;
+  goals: KpiGoal[];
+}
+
 export const kpisApi = {
   /** KPI rekrutera dla current usera (pusta lista dla ról nieoperacyjnych). */
   myToday: () => api.get<KpiResult[]>("/api/kpis/me/today"),
+  /** Cele liderów (DL / HoR / TCM); `kind: "none"` dla pozostałych ról. */
+  myGoals: () => api.get<MyKpiGoals>("/api/kpis/me/goals"),
   /** KPI dowolnego usera — dla delivery_leada / admina monitorującego team. */
   userToday: (userId: number) =>
     api.get<KpiResult[]>(`/api/kpis/users/${userId}/today`),
@@ -1686,6 +1709,12 @@ export interface NotificationResponse {
   notification_type: string;
   is_read: boolean;
   created_at: string | null;
+  on_behalf_of_name?: string | null;
+  /** Kategoria z „Moje powiadomienia" (0349). */
+  category?: string | null;
+  category_label?: string | null;
+  /** Czy kategorię wolno wyciszyć (obowiązkowe: wzmianki, rozmowy, system). */
+  category_mutable?: boolean;
 }
 
 export interface NotificationListResponse {
@@ -6587,7 +6616,6 @@ export type DrRekrutacjaDashboard = {
     prize_2: number;
     prize_3: number;
     // Business thresholds — admin editable.
-    power_calling_min_per_day?: number;
     linkedin_cv_per_md_target?: number;
   };
 };
@@ -6748,8 +6776,8 @@ export type DrScoringConfig = {
   prize_1: number;
   prize_2: number;
   prize_3: number;
-  // Business thresholds — admin editable.
-  power_calling_min_per_day: number;
+  // Business thresholds — admin editable. Próg Power Calling to cel KPI
+  // „Weryfikacje dziś" z katalogu (backend `kpi_catalog`), nie ustawienie tutaj.
   linkedin_cv_per_md_target: number;
 };
 

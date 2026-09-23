@@ -65,6 +65,7 @@ from app.services.contractor_identity import (
     current_contracts,
 )
 from app.services.fx_service import amount_to_pln_with_rate, rates_to_pln
+from app.services.metric_definitions import DL_HIT_RATIO_TARGET_PCT
 from app.services.order_revenue import order_revenue_rows_to_pln
 from app.schemas.money import to_whole_pln
 
@@ -89,11 +90,9 @@ __all__ = [
 # marżę, przez co ten ekran przeczył profilowi klienta i banerowi wygasających.
 LIVE_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
 
-# Próg wejścia do Ligi Mistrzów DL (InfraReporter). Stała jest tu skopiowana
-# świadomie: import z `app.api.reports` wciągnąłby cały router raportów do
-# warstwy serwisowej, a to dokładnie ta zależność, którą `contract_rates`
-# zdejmowało z `api.contracts`.
-HIT_RATIO_TARGET_PCT = 30.0
+# Próg wejścia do Ligi Mistrzów DL (InfraReporter) — jedna stała w repo
+# (`metric_definitions`), bez importu routera `app.api.reports`.
+HIT_RATIO_TARGET_PCT = DL_HIT_RATIO_TARGET_PCT
 
 # Widok kamieni milowych (migracja 0184) — pierwsze wejście na etap per para
 # (kandydat, oferta). Deklaracja przez `table()`, a nie surowy `text()`, bo

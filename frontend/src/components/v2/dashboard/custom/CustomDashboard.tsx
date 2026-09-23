@@ -48,6 +48,7 @@ import { useAuthStore } from "@/store/auth"
 
 import { DashboardGrid } from "./DashboardGrid"
 import { EmptyDashboard } from "./EmptyDashboard"
+import { BoardTasksPanel } from "../BoardTasksPanel"
 import { TileCatalogSheet } from "./TileCatalogSheet"
 import { TileSettingsDialog } from "./TileSettingsDialog"
 
@@ -318,6 +319,10 @@ export function CustomDashboard() {
           )
         }
       />
+
+      {/* Kolejka „Czeka na Ciebie" (DZ, Cpro) stoi nad układem, a nie jako
+          kafelek: zadanie ma dotrzeć do osoby, która pulpitu nie układała. */}
+      {editing ? null : <BoardTasksPanel />}
 
       {editing ? (
         <div

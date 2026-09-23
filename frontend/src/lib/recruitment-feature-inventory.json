@@ -788,6 +788,14 @@
    "file": "lib/board-stages.ts",
    "marker": "foldBoardColumns",
    "v3_home": "Tablica → kolumny, karta, panel osoby"
+  },
+  {
+   "id": "board.cpro-assignee-queue",
+   "area": "pipeline",
+   "opis": "Kolejka „Czeka na Ciebie” na pulpicie: czeka na DZ (✓ DZ jednym kliknięciem), do wysłania do Cpro z wytypowaną osobą, wysłane do Cpro (Nordea); przy „Gotowy do Cpro” wybór, kto wysyła; rano zbiorczy dzwonek",
+   "file": "components/v2/dashboard/BoardTasksPanel.tsx",
+   "marker": "BoardTasksPanel",
+   "v3_home": "Pulpit → „Czeka na Ciebie”; Tablica → dok osoby"
   }
  ]
 }

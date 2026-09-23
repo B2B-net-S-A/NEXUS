@@ -35,9 +35,11 @@ from app.services.kpi_panel import (
     _PRECISION_WINDOW_DAYS,
     VERIFIER_ANCHORED_CTE,
 )
+from app.services.kpi_targets import resolve_org_target
 
-# Cel precision (rekomendacje ÷ weryfikacje) — globalny dla widoku zespołu.
-_PRECISION_TARGET_PCT = 75
+# Cel precision (rekomendacje ÷ weryfikacje) widoku zespołu to cel
+# organizacyjny z katalogu KPI (`kpi_targets.resolve_org_target`) — do
+# 22.09.2026 stała 75 obok, której zmiana celu KPI nie ruszała.
 
 
 # ── SQL ──────────────────────────────────────────────────────────────────────
@@ -344,7 +346,7 @@ async def compute_team_panel(
 
     return TeamPanelResult(
         period=label,
-        precision_target_pct=_PRECISION_TARGET_PCT,
+        precision_target_pct=await resolve_org_target(db, "monthly_precision"),
         rows=tuple(rows),
         totals=totals,
     )

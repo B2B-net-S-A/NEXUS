@@ -355,6 +355,9 @@ async def test_legacy_order_finance_guard_is_untouched(
         def has_any_role(self, *roles):
             return self._role in roles
 
+        def get_all_roles(self):
+            return [self._role]
+
     for role in (UserRole.delivery_lead, UserRole.tac, UserRole.head_of_recruitment):
         with pytest.raises(HTTPException) as exc:
             _assert_order_finance_write_allowed(_StubUser(role), {"rate_client"})
@@ -378,6 +381,9 @@ async def test_head_of_recruitment_cannot_set_line_rates(monkeypatch):
 
         def has_any_role(self, *roles):
             return self._role in roles
+
+        def get_all_roles(self):
+            return [self._role]
 
     async def _finance_scope(user, _db):
         if user.has_role(UserRole.delivery_lead):

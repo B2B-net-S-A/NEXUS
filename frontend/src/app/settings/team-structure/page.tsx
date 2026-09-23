@@ -17,6 +17,7 @@ import api from "@/lib/api"
 import { fetchAllClientOptions } from "@/lib/admin-client-options"
 import { cn } from "@/lib/utils"
 import { hasRole, useAuthStore } from "@/store/auth"
+import { TAC_UI_ENABLED } from "@/lib/tac-ui"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -344,12 +345,20 @@ function DeliveryLeadReportingInfo() {
             <p className="font-semibold text-foreground">
               Skład zespołu DL wynika z relacji przy kliencie.
             </p>
-            <p className="text-muted-foreground">
-              System łączy przypisania klient ↔ Delivery Lead z przypisaniami
-              klient ↔ TAC. TAC-ów przypisujesz na karcie klienta, a Delivery
-              Leadów w sekcji poniżej. Sourcerzy, TAC-y i Rekruterzy raportują
-              organizacyjnie do Head of Recruitment.
-            </p>
+            {TAC_UI_ENABLED ? (
+              <p className="text-muted-foreground">
+                System łączy przypisania klient ↔ Delivery Lead z przypisaniami
+                klient ↔ TAC. TAC-ów przypisujesz na karcie klienta, a Delivery
+                Leadów w sekcji poniżej. Sourcerzy, TAC-y i Rekruterzy raportują
+                organizacyjnie do Head of Recruitment.
+              </p>
+            ) : (
+              <p className="text-muted-foreground">
+                Delivery Leadów przypisujesz do klientów w sekcji poniżej.
+                Sourcerzy i rekruterzy raportują organizacyjnie do Head of
+                Recruitment.
+              </p>
+            )}
           </div>
         </div>
       </CardContent>

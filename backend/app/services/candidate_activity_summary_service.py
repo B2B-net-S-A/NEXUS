@@ -48,7 +48,7 @@ from app.services.ai_quota import ai_feature
 from app.services.candidate_identity_quarantine import source_is_eligible_clause
 from app.services.client_identity import client_display_name_expression
 from app.services.llm_prompts import CANDIDATE_ACTIVITY_SUMMARY
-from app.services.ai_models import model_for
+from app.services.ai_models import fallbacks_for, model_for
 
 logger = logging.getLogger(__name__)
 
@@ -1002,7 +1002,7 @@ async def _call_claude_text(
 ) -> str:
     from app.services.claude_client import call_claude  # local: load only on use
 
-    # Od 16.09.2026 podsumowanie idzie na DeepSeek V4 Pro — sonda pyta o klucz
+    # Od 22.09.2026 podsumowanie idzie na GPT-6 Lunę — sonda pyta o klucz
     # DOSTAWCY modelu; `api_key` niżej to ścieżka Anthropic (fallback).
     from app.services.llm_providers import api_key_configured
 
@@ -1015,6 +1015,7 @@ async def _call_claude_text(
         message = await run_in_threadpool(
             call_claude,
             model=model,
+            fallback_models=fallbacks_for(AIFeatureKey.candidate_summary),
             max_tokens=max_tokens,
             thinking={"type": "disabled"},
             system=system_prompt,

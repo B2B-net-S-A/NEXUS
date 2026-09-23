@@ -126,6 +126,14 @@ class User(Base, TimestampMixin):
         JSONB, default=dict, server_default="{}", nullable=False
     )
 
+    # Wyciszone kategorie powiadomień (0349): ``{kategoria: ISO czasu
+    # wyciszenia}``. Kategorie i reguły: ``services/notification_categories``;
+    # stosuje je ``services/notification_access`` przy każdym odczycie
+    # dzwonka, wypchnięciu przez WebSocket i decyzji „czy wysłać".
+    muted_notification_categories: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+
     # Ręczne usuwanie klientów z profilu (0307). Uprawnienie IMIENNE: nie
     # wynika z żadnej roli — także administrator go nie ma, dopóki ktoś mu go
     # jawnie nie nada w edycji użytkownika. Każda zmiana ląduje w Historii

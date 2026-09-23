@@ -63,6 +63,12 @@ const SOURCING_OPERATIONAL_ROLES = SOURCING_ROLES.filter(
   (role) => role !== "user",
 );
 const PIPELINE_ROLES = sectionRoles("pipeline");
+// Legacy viewer `user` ma odczyt Pipeline w macierzy sekcji, ale backend
+// kalendarza (`RecruitmentReadAccess` = role operacyjne) go nie wpuszcza — bez
+// tego trafiał na ekran pełen błędów zamiast na /403 (audyt ról 22.09).
+const PIPELINE_OPERATIONAL_ROLES = PIPELINE_ROLES.filter(
+  (role) => role !== "user",
+);
 const DELIVERY_ROLES = sectionRoles("delivery");
 const INSIGHTS_ROLES = sectionRoles("insights");
 const SYSTEM_ADMIN_ROLES = sectionRoles("system_admin");
@@ -99,7 +105,13 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     roles: SOURCING_ROLES,
     section: "sourcing",
   },
-  { prefix: "/cv-generator", roles: SOURCING_ROLES, section: "sourcing" },
+  // Generator CV = CandidateWriteAccess w backendzie — viewer `user` poza.
+  {
+    prefix: "/cv-generator",
+    roles: SOURCING_OPERATIONAL_ROLES,
+    section: "sourcing",
+    enforceRoles: true,
+  },
   {
     prefix: "/contracts/analytics",
     roles: ["admin", "finance"],
@@ -116,7 +128,12 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   { prefix: "/my-clients", roles: DELIVERY_ROLES, section: "delivery" },
   { prefix: "/clients", roles: DELIVERY_ROLES, section: "delivery" },
   { prefix: "/jobs", roles: PIPELINE_ROLES, section: "pipeline" },
-  { prefix: "/calendar", roles: PIPELINE_ROLES, section: "pipeline" },
+  {
+    prefix: "/calendar",
+    roles: PIPELINE_OPERATIONAL_ROLES,
+    section: "pipeline",
+    enforceRoles: true,
+  },
   // Moduł „Finanse" — podpisany claim sekcji pozwala także na indywidualny
   // wyjątek, a lista ról zachowuje bezpieczny fallback dla starszych tokenów.
   {
@@ -297,15 +314,11 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // (imię, e-mail, telefon, LinkedIn, CV). Backend gatuje ją przez
   // CandidateWriteAccess + membership do oferty; tu poprawiamy UX, żeby
   // viewer dostał /403 zamiast pustego ekranu z błędem z API.
-  // Head of Recruitment NIE rozpatruje zgłoszeń: backend stoi za
-  // CandidateWriteAccess, a HoR nie wykonuje operacyjnych zapisów kandydatów
-  // (`candidate_access.CANDIDATE_WRITE_ROLES`). Bez tego HoR z menu trafiał na
-  // „Nie udało się pobrać kolejki zgłoszeń." (UAT A-B02).
+  // Od 17.09.2026 `CANDIDATE_WRITE_ROLES` obejmuje Head of Recruitment
+  // (parytet z rekruterem), więc HoR nie jest już odcinany (audyt ról U5).
   {
     prefix: "/applications",
-    roles: SOURCING_OPERATIONAL_ROLES.filter(
-      (role) => role !== "head_of_recruitment",
-    ),
+    roles: SOURCING_OPERATIONAL_ROLES,
     section: "sourcing",
     enforceRoles: true,
   },

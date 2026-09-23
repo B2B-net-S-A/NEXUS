@@ -69,7 +69,7 @@ from app.schemas.client_profile import (
     RecruiterBrief,
 )
 from app.api.contracts import _effective_rate_fields
-from app.api.deps import AdminUser, OperationalUser, TacPlus
+from app.api.deps import AdminUser, OperationalUser, DeliveryLeadPlus
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
@@ -497,7 +497,7 @@ async def list_clients(
 @router.post("", response_model=ClientResponse, status_code=status.HTTP_201_CREATED)
 async def create_client(
     data: ClientCreate,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     portfolio_category: PortfolioCategory = Query(PortfolioCategory.active),
 ):
@@ -1041,7 +1041,7 @@ async def get_client_profile(
 async def update_client(
     client_id: int,
     data: ClientUpdate,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     assert_delivery_lead_client_visible(

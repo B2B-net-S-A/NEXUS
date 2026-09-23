@@ -14,6 +14,7 @@ import {
 import { useToast } from "@/components/Toast";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
+import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { resolveViewState } from "@/lib/view-state";
@@ -48,7 +49,11 @@ const STATUS_LABELS: Record<FrameworkContractStatus, string> = {
  */
 function useCanEditLegalDocs(): boolean {
   const user = useAuthStore((s) => s.user);
-  return hasRole(user, "admin", "delivery_lead");
+  // Rola + zapis w sekcji Delivery (U8) — odebrana sekcja = brak przycisków.
+  return (
+    hasRole(user, "admin", "delivery_lead") &&
+    hasSectionAccess(user, "delivery", "write")
+  );
 }
 
 const STATUS_COLORS: Record<FrameworkContractStatus, string> = {

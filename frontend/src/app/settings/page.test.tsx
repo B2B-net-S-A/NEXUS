@@ -48,6 +48,9 @@ vi.mock("@/store/auth", () => ({
     roles.some((role) =>
       new Set([user.role, ...(user.roles ?? [])]).has(role),
     ),
+  // `hasCapability` (bramka „Szablony maili") czyta role tym helperem.
+  getUserRoles: (user: { role?: string; roles?: string[] } | null) =>
+    user ? Array.from(new Set([user.role, ...(user.roles ?? [])])) : [],
 }));
 
 vi.mock("@/lib/api", () => ({

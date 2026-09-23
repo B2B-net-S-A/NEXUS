@@ -352,6 +352,7 @@ async def _scan_orders(
             select(
                 ClientOrder,
                 Candidate.name.label("candidate_name"),
+                Candidate.lastname.label("candidate_lastname"),
                 client_display_name_expression().label("client_name"),
             )
             .join(Contract, Contract.id == ClientOrder.contract_id)
@@ -375,7 +376,12 @@ async def _scan_orders(
         if days is None:
             continue
         ntype = _ORDER_NTYPE_BY_DAY[days]
-        cand_name: str = row.candidate_name or "kontraktor"
+        # Pełne imię i nazwisko — do 23.09.2026 dzwonek mówił „Zamówienie
+        # Kacper kończy się…", a przy 54 alertach naraz samo imię nic nie mówi.
+        cand_name: str = (
+            " ".join(p for p in (row.candidate_name, row.candidate_lastname) if p)
+            or "kontraktor"
+        )
         cli_name: str = row.client_name or "klient"
         end_phrase = _end_phrase("kończy się", o.end_date)
 
@@ -392,15 +398,20 @@ async def _scan_orders(
             if await _insert_notification(
                 db,
                 user_id=user_id,
-                title=f"Zamówienie {cand_name} kończy się {_lead_phrase(days_left)}",
+                title=(
+                    f"Zamówienie: {cand_name} ({cli_name}) kończy się "
+                    f"{_lead_phrase(days_left)}"
+                ),
+                # `end_phrase` zostaje w treści dosłownie — po nim idzie dedup.
                 message=(
-                    f"Zamówienie dla {cand_name} u {cli_name} {end_phrase}. "
+                    f"Zamówienie dla: {cand_name} — {cli_name} — {end_phrase}. "
                     "Skontaktuj się z klientem, aby przedyskutować przedłużenie."
                 ),
                 notification_type=ntype,
                 related_entity_type="client_order",
                 related_entity_id=o.id,
-                link=f"/clients/{o.client_id}?tab=zamowienia",
+                # `?order=` otwiera od razu kartę tego zamówienia.
+                link=f"/clients/{o.client_id}?tab=zamowienia&order={o.id}",
             ):
                 sent += 1
     return sent

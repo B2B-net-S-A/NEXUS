@@ -45,7 +45,7 @@ _PERIOD_MONTH_CHECK = "period_month ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'"
 IMPORT_ROW_APPLIED = "applied"
 IMPORT_ROW_NEEDS_ASSIGNMENT = "needs_assignment"
 IMPORT_ROW_UNMATCHED = "unmatched"
-# FIN-MD-06 (0346): wiersz z samą fakturą (numer + kwota, bez liczby MD) —
+# FIN-MD-06 (0350): wiersz z samą fakturą (numer + kwota, bez liczby MD) —
 # rozlicza wyłącznie pulę kosztową.
 IMPORT_ROW_COST_ONLY = "cost_only"
 IMPORT_ROW_STATUSES: tuple[str, ...] = (
@@ -75,7 +75,7 @@ CONSUMPTION_SOURCE_MANUAL = "manual"
 COST_ROW_APPLIED = "applied"
 COST_ROW_UNMATCHED_NUMBER = "unmatched_number"
 COST_ROW_UNMATCHED_CONSULTANT = "unmatched_consultant"
-# FIN-MD-06 (0346): korekta faktury / kwota ≤ 0 — nie znika po cichu.
+# FIN-MD-06 (0350): korekta faktury / kwota ≤ 0 — nie znika po cichu.
 COST_ROW_NON_POSITIVE = "non_positive_amount"
 COST_ROW_STATUSES: tuple[str, ...] = (
     COST_ROW_APPLIED,

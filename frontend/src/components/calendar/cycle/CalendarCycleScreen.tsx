@@ -21,6 +21,7 @@ import {
   type SlotRequest,
 } from "@/lib/interview-cycle";
 import { resolveViewState } from "@/lib/view-state";
+import { hasSectionAccess } from "@/lib/section-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 
@@ -68,9 +69,13 @@ export function CalendarCycleScreen({
   const params = useSearchParams();
   const storeUser = useAuthStore((s) => s.user);
   const user = roleOverride ? { role: roleOverride, roles: [roleOverride] } : storeUser;
-  const canManageSlots = hasRole(user, "admin", "head_of_recruitment", "delivery_lead", "tac");
+  // Lustro `_SLOT_OWNER_ROLES` (interview_cycle.py) + sufit sekcji Pipeline
+  // (router stoi za PIPELINE_SECTION_DEPENDENCIES; zapis terminów, U8).
+  const canManageSlots =
+    hasRole(user, "admin", "head_of_recruitment", "delivery_lead", "tac") &&
+    hasSectionAccess(user, "pipeline", "write");
   const isOversight = hasRole(user, "admin", "head_of_recruitment");
-  // DL i TAC patrzą domyślnie na swoje rekrutacje, rekruter na swoich kandydatów.
+  // Delivery patrzy domyślnie na swoje rekrutacje, rekruter na swoich kandydatów.
   const defaultScope: CycleScope = hasRole(user, "delivery_lead", "tac") ? "jobs" : "mine";
 
   const view = parseView(params.get("view"), params.get("event") != null);

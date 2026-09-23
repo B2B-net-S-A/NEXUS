@@ -167,6 +167,8 @@ interface SendMoveOptions {
   // REC-06: przy `silent` powód odmowy trafia do wołającego (ruch zbiorczy
   // składa z nich jeden komunikat z nazwiskami).
   onFailure?: (reason: string) => void;
+  // 0348: osoba, która wyśle kandydata do Cpro — tylko przy „Gotowy do Cpro".
+  taskAssigneeId?: number;
 }
 
 type RatePayload = { rate: number; unit: RateUnit; currency: string };
@@ -176,7 +178,8 @@ export interface PipelineMoveControls {
   requestMove: (
     item: KanbanItem,
     fromColumn: KanbanColumn | string,
-    toColumn: KanbanColumn
+    toColumn: KanbanColumn,
+    options?: { taskAssigneeId?: number }
   ) => void;
   /** Ruch zbiorczy: pętla pojedynczych ruchów / kolejki okien. `onHandled`
    *  woła się w chwili, gdy wołający powinien wyczyścić zaznaczenie. */
@@ -324,6 +327,7 @@ export function usePipelineMove({
           expected_state_version:
             opts?.checkVersion === false ? undefined : expectedStateVersionOf(item),
           acknowledge_eligibility: opts?.acknowledgeEligibility ? true : undefined,
+          task_assignee_id: opts?.taskAssigneeId ?? undefined,
         });
 
         // M4 PR-03 (audyt P1.3): backend tworzy NOWY CandidateStage — karta
@@ -450,7 +454,12 @@ export function usePipelineMove({
   sendMoveRef.current = sendMove;
 
   const requestMove = useCallback(
-    (item: KanbanItem, fromColumn: KanbanColumn | string, dst: KanbanColumn) => {
+    (
+      item: KanbanItem,
+      fromColumn: KanbanColumn | string,
+      dst: KanbanColumn,
+      options?: { taskAssigneeId?: number }
+    ) => {
       const srcColId = typeof fromColumn === "string" ? fromColumn : colId(fromColumn);
       if (readOnly) return;
       if (srcColId === colId(dst)) return;
@@ -514,7 +523,12 @@ export function usePipelineMove({
       }
 
       applyOptimistic(item, srcColId, dst);
-      sendMove(item, dst);
+      sendMove(
+        item,
+        dst,
+        undefined,
+        options?.taskAssigneeId != null ? { taskAssigneeId: options.taskAssigneeId } : undefined
+      );
     },
     [readOnly, applyOptimistic, sendMove, showError, canEditRates, canWriteClientRate]
   );

@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.contract_access import assert_contract_legal_contract_access
-from app.api.deps import CurrentUser, TacPlus, require_roles
+from app.api.deps import CurrentUser, DeliveryLeadPlus, require_roles
 from app.api.section_access import ProductSection, require_section_access
 from app.core.config import settings
 from app.core.database import get_db
@@ -87,7 +87,7 @@ def _require_enabled() -> None:
 async def send_contract_for_signature(
     contract_id: int,
     payload: AutentiSendRequest,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> AutentiSendResponse:
     """Validate and dispatch a contract to Autenti.
@@ -170,7 +170,7 @@ async def get_signature_detail(
 )
 async def withdraw_signature(
     signature_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Cancel a sent process. Calls Autenti `withdraw` action."""
@@ -231,7 +231,7 @@ async def withdraw_signature(
 )
 async def remind_signer(
     signature_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ) -> DocumentSignature:
     """Trigger Autenti `remind` action. Throttled at 1 reminder / hour."""

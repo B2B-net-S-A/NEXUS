@@ -158,12 +158,15 @@ from app.services.polish_ilike import (
     polish_folded_ilike,
 )
 from app.tasks.contract_alerts import run_contract_alerts_cycle
-from app.api.deps import AdminUser, TacPlus, get_current_user, require_roles
+from app.api.deps import AdminUser, DeliveryLeadPlus, get_current_user, require_roles
 from app.api.financial_access import (
     FinanceReadUser,
+    assert_finance_manager_touches_only_amounts,
+    can_manage_finance_amounts,
     can_read_client_finance,
     has_financial_access,
     require_financial_access,
+    require_roles_or_finance_manager,
     redact_feed_activity,
     redact_financial_fields,
 )
@@ -177,12 +180,16 @@ from app.services.access_scope import (
 )
 
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
+
+# Mutacje kontraktów stoją na `DeliveryLeadPlus` (admin + Delivery Lead). Do
+# 22.09.2026 było tu `TacPlus`, ale TAC nie ma sekcji Delivery, więc bramka
+# routera i tak go odcinała (audyt U7) — alias mówił coś, czego kod nie robił.
 logger = logging.getLogger(__name__)
 
 # Structured contract readers admitted by the Delivery section. TCM receives a
 # finance-redacted projection; the organization-wide Finance business reader
 # keeps its existing access. This alias is used only by GET handlers; contract
-# commands keep their existing ``TacPlus``/``AdminUser`` dependencies and the
+# commands keep their existing ``DeliveryLeadPlus``/``AdminUser`` dependencies and the
 # section-level write gate narrows their effective audience to Admin/DL.
 ContractReadUser = Annotated[
     User,
@@ -1466,9 +1473,9 @@ def _assert_contract_finance_write_allowed(
     forbidden = sorted(
         set(supplied_fields).intersection(_CONTRACT_FINANCE_WRITE_FIELDS)
     )
-    # Contract write routes carry candidate identity. Even the Finance persona
-    # is excluded here; it operates through person-free finance endpoints.
-    if forbidden and not current_user.has_role(UserRole.admin):
+    # Kwoty kontraktu zmienia admin albo osoba z MANAGE_FINANCE (Finanse,
+    # decyzja Artura 22.09.2026). Delivery Lead, TCM, TAC i reszta — nie.
+    if forbidden and not can_manage_finance_amounts(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -2693,7 +2700,9 @@ async def _create_manual_project_order_draft(
 
 @router.post("", response_model=ContractResponse, status_code=status.HTTP_201_CREATED)
 async def create_contract(
-    data: ContractCreate, current_user: TacPlus, db: AsyncSession = Depends(get_db)
+    data: ContractCreate,
+    current_user: DeliveryLeadPlus,
+    db: AsyncSession = Depends(get_db),
 ):
     _assert_contract_finance_write_allowed(current_user, data.model_fields_set)
     assert_delivery_lead_client_visible(
@@ -2919,7 +2928,7 @@ async def run_alerts_now(current_user: AdminUser):
 
 @router.post("/bulk-extend", status_code=status.HTTP_200_OK)
 async def bulk_extend_contracts(
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     contract_ids: list[int] = Query(..., alias="ids"),
     months: int = Query(..., ge=1, le=24, description="Extension in months"),
@@ -2999,7 +3008,7 @@ async def bulk_extend_contracts(
 @router.post("/bulk-mark-ended", status_code=status.HTTP_200_OK)
 async def bulk_mark_ended(
     data: ContractBulkTerminateRequest,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     contract_ids: list[int] = Query(..., alias="ids"),
 ):
@@ -3319,13 +3328,28 @@ async def contract_rate_history(
     ]
 
 
+# PATCH kontraktu: admin / Delivery Lead albo Finanse z MANAGE_FINANCE — te
+# ostatnie wyłącznie dla pól kwot (22.09.2026).
+_CONTRACT_PATCH_OPERATIONAL_ROLES = (UserRole.delivery_lead,)
+ContractPatchUser = Annotated[
+    User,
+    Depends(require_roles_or_finance_manager(*_CONTRACT_PATCH_OPERATIONAL_ROLES)),
+]
+
+
 @router.patch("/{contract_id}", response_model=ContractDetailResponse)
 async def update_contract(
     contract_id: int,
     data: ContractUpdate,
-    current_user: TacPlus,
+    current_user: ContractPatchUser,
     db: AsyncSession = Depends(get_db),
 ):
+    assert_finance_manager_touches_only_amounts(
+        current_user,
+        data.model_fields_set,
+        _CONTRACT_FINANCE_WRITE_FIELDS,
+        operational_roles=_CONTRACT_PATCH_OPERATIONAL_ROLES,
+    )
     _assert_contract_finance_write_allowed(current_user, data.model_fields_set)
     # FOR UPDATE na rodzicu — ta sama racja co w `update_contract_status`
     # (ocena statusu z pamięci obchodziła `void`), ten sam porządek blokad.
@@ -3726,7 +3750,7 @@ async def update_contract_status(
 async def activate_contract(
     contract_id: int,
     _: ContractActivateRequest,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Explicitly flip a draft contract to ``active`` after validation.
@@ -3861,7 +3885,7 @@ def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
         raise HTTPException(status_code=422, detail=f"Template render error: {exc}")
 
 
-# Draft/contract HTML is authored by TacPlus (non-admin) users and served
+# Draft/contract HTML is authored by DeliveryLeadPlus (non-admin) users and served
 # same-origin for preview. An explicit restrictive CSP is the browser-side
 # trust boundary against stored XSS (M5-P0.10): every script is blocked EXCEPT
 # our own auto-print snippet, allowed by its SHA-256 hash. Inline styles +
@@ -4008,7 +4032,7 @@ async def get_contract_draft(
 async def update_contract_draft(
     contract_id: int,
     payload: ContractDraftUpdate,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Update the draft body. Two mutually exclusive modes:
@@ -4126,7 +4150,7 @@ async def render_draft_for_print(
 )
 async def finalize_contract_draft(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Snapshot the draft as a `ContractDocument(doc_type=contract)` and move
@@ -4224,7 +4248,7 @@ async def finalize_contract_draft(
 async def reopen_contract_endpoint(
     contract_id: int,
     data: ContractReopenRequest,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Audited revert to `draft` — the guarded replacement for free status writes.
@@ -4266,7 +4290,7 @@ async def reopen_contract_endpoint(
 async def void_contract_endpoint(
     contract_id: int,
     data: ContractVoidRequest,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Soft-delete (annul) a contract, preserving documents + signature evidence.
@@ -4304,7 +4328,7 @@ async def void_contract_endpoint(
 
 @router.delete("/{contract_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_contract(
-    contract_id: int, current_user: TacPlus, db: AsyncSession = Depends(get_db)
+    contract_id: int, current_user: DeliveryLeadPlus, db: AsyncSession = Depends(get_db)
 ):
     """Trwale usuń kontrakt z modułu Kontrakty — i TYLKO ten rekord.
 
@@ -4462,7 +4486,7 @@ async def list_contract_documents(
 )
 async def upload_contract_document(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
     doc_type: ContractDocumentType = Form(ContractDocumentType.other),
@@ -4525,7 +4549,7 @@ async def update_contract_document(
     contract_id: int,
     document_id: int,
     data: ContractDocumentUpdate,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
@@ -4583,7 +4607,7 @@ async def download_contract_document(
 async def delete_contract_document(
     contract_id: int,
     document_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     contract = await _assert_contract(db, contract_id, current_user)
@@ -4677,7 +4701,7 @@ async def list_contract_amendments(
 async def create_contract_amendment(
     contract_id: int,
     data: ContractAmendmentCreate,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     supplied_fields = set(data.model_fields_set)
@@ -4952,7 +4976,7 @@ async def list_onboarding_items(
 async def create_onboarding_item(
     contract_id: int,
     data: OnboardingItemCreate,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -4984,7 +5008,7 @@ DEFAULT_ONBOARDING_ITEMS: tuple[str, ...] = (
 )
 async def seed_onboarding_items(
     contract_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Załóż domyślną listę onboardingową — atomowo i idempotentnie.
@@ -5021,7 +5045,7 @@ async def update_onboarding_item(
     contract_id: int,
     item_id: int,
     data: OnboardingItemUpdate,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -5047,7 +5071,7 @@ async def update_onboarding_item(
 async def delete_onboarding_item(
     contract_id: int,
     item_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -5091,7 +5115,7 @@ async def list_contract_equipment(
 async def create_contract_equipment(
     contract_id: int,
     data: ContractEquipmentCreate,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     contract_res = await db.execute(select(Contract).where(Contract.id == contract_id))
@@ -5138,7 +5162,7 @@ async def update_contract_equipment(
     contract_id: int,
     equipment_id: int,
     data: ContractEquipmentUpdate,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -5183,7 +5207,7 @@ async def update_contract_equipment(
 async def delete_contract_equipment(
     contract_id: int,
     equipment_id: int,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_contract(db, contract_id, current_user)
@@ -5217,7 +5241,7 @@ async def delete_contract_equipment(
 async def terminate_contract(
     contract_id: int,
     data: ContractTerminateRequest,
-    current_user: TacPlus,
+    current_user: DeliveryLeadPlus,
     db: AsyncSession = Depends(get_db),
 ):
     """Mark the contract as ended with a structured reason and optional lessons.

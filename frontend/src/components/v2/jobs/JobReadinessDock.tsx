@@ -33,7 +33,8 @@ import api, {
 import { apiErrorMessage } from "@/lib/api-error";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
-import { canMutateSection } from "@/lib/section-access";
+import { canMutateSection, hasSectionAccess } from "@/lib/section-access";
+import { canEditJobContent, jobEditScope } from "@/lib/job-edit-access";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { useToast } from "@/components/Toast";
 import { httpStatusFromError, resolveViewState } from "@/lib/view-state";
@@ -450,11 +451,15 @@ export function JobReadinessDock({
   const impersonating = useAuthStore((s) => s.realUser !== null);
   const canWritePipeline = canMutateSection(authUser, "pipeline", impersonating);
   const claimEligible = authUser ? hasRole(authUser, ...CLAIM_ELIGIBLE_ROLES) : false;
-  const canSeeGate = authUser ? hasRole(authUser, ...GATE_ROLES) : false;
+  // Rola + sufit sekcji Pipeline (U8): DL z odebraną sekcją nie wysyła
+  // zapytania, które skończy się 403.
+  const canSeeGate = authUser
+    ? hasRole(authUser, ...GATE_ROLES) &&
+      hasSectionAccess(authUser, "pipeline", "read")
+    : false;
   // Lustro `page.tsx` (dawny header „Zespół i priorytet") dla ról, którym
   // wolno edytować Championa / dane zlecenia z tej zakładki doku.
   const canUpdateJob = useCapability("job.update");
-  const canEditChampion = canWritePipeline && hasRole(authUser, "admin", "delivery_lead");
   const [showEdit, setShowEdit] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
   const [dockTab, setDockTab] = useState<DockTab>("readiness");
@@ -593,6 +598,19 @@ export function JobReadinessDock({
   }
 
   const job = jobQuery.data;
+  // Dwa poziomy edycji (22.09.2026, `lib/job-edit-access.ts`): pełna
+  // (`job.update`) i treść (`can_edit` z serwera — rekruter prowadzący
+  // i współpracownicy: opis, ogłoszenia, Champion).
+  const editScope = jobEditScope(job, {
+    canWritePipeline,
+    canManageJob: canUpdateJob,
+  });
+  const canManageJob = editScope === "full";
+  const canEditChampion = canEditJobContent(job, {
+    canWritePipeline,
+    // Lustro `PUT /champion-profile` sprzed pola `can_edit` (DeliveryLeadPlus).
+    fallback: hasRole(authUser, "admin", "delivery_lead"),
+  });
   // Na kroku 02 źródłem prawdy o Championie jest `["champion-profile", jobId]`
   // — ten sam klucz, który unieważnia edytor i checklista obok. Czytanie
   // weryfikacji i stacku z kopii zlecenia dawało dok, który zaprzeczał
@@ -837,14 +855,14 @@ export function JobReadinessDock({
         clientId={job.client_id ?? null}
         deliveryLeadId={job.delivery_lead_id ?? null}
         deadline={job.deadline ?? null}
-        canEdit={canWritePipeline && canUpdateJob}
+        canEdit={canManageJob}
       />
       <HiringManagerPicker
         jobId={jobId}
         clientId={job.client_id ?? null}
         value={job.hiring_manager_contact_id ?? null}
         valueName={job.hiring_manager_name ?? null}
-        canEdit={canWritePipeline && canUpdateJob}
+        canEdit={canManageJob}
         onSaved={() =>
           queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] })
         }
@@ -1098,15 +1116,17 @@ export function JobReadinessDock({
                   >
                     <UserPlus className="h-3.5 w-3.5" /> Dodaj kandydata
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-start"
-                    onClick={() => setShowEdit(true)}
-                  >
-                    <PencilLine className="h-3.5 w-3.5" /> Edytuj rekrutację
-                  </Button>
+                  {editScope !== "none" && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full justify-start"
+                      onClick={() => setShowEdit(true)}
+                    >
+                      <PencilLine className="h-3.5 w-3.5" /> Edytuj rekrutację
+                    </Button>
+                  )}
                 </>
               )}
             </div>
@@ -1168,9 +1188,10 @@ export function JobReadinessDock({
           jobTitle={job.title}
         />
       )}
-      {canWritePipeline && showEdit && (
+      {editScope !== "none" && showEdit && (
         <EditJobModal
           job={job}
+          scope={canManageJob ? "full" : "content"}
           onClose={() => setShowEdit(false)}
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });

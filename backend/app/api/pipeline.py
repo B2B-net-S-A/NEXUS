@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from pydantic import BaseModel
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -27,7 +27,12 @@ from app.models.recruitment_process import RecruitmentProcess
 from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
-from app.services.board_stage_badges import ensure_badge_stage_allowed
+from app.services import board_tasks as board_tasks_svc
+from app.services.board_stage_badges import (
+    ensure_badge_stage_allowed,
+    foreign_stage_target,
+    is_cpro_stage,
+)
 from app.services import champion_view
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
@@ -300,6 +305,7 @@ def _stage_response(
         "screening_done": _sheet_filled(stage.screening_answers),
         "scorecard_done": _sheet_filled(stage.scorecard_answers),
         "candidate_expected_rate_hourly": candidate_expected_rate_hourly,
+        "task_assignee_id": stage.task_assignee_id,
     }
 
 
@@ -524,6 +530,25 @@ async def move_candidate(
     if stage_def is not None:
         ensure_badge_stage_allowed(
             current_user, stage_name=stage_def.name, client_id=job.client_id
+        )
+    # 0348: osoba, która wyśle kandydata do Cpro — typowana przy oznaczeniu
+    # gotowości. Na każdym innym etapie pole nie ma znaczenia, więc 422.
+    cpro_assignee: Optional[User] = None
+    cpro_assignee_added_to_team = False
+    if data.task_assignee_id is not None:
+        if stage_def is None or not is_cpro_stage(stage_def.name):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Osobę wysyłającą wybiera się tylko przy oznaczeniu "
+                    "„Gotowy do Cpro”."
+                ),
+            )
+        cpro_assignee = await board_tasks_svc.load_assignee(db, data.task_assignee_id)
+        # Przed ruchem: odmowa (osoba spoza zespołu, a typuje ktoś bez prawa
+        # zmiany zespołu) ma zatrzymać ruch, zanim cokolwiek się zapisze.
+        cpro_assignee_added_to_team = await board_tasks_svc.ensure_assignee_can_move(
+            db, job_id=job.id, assignee=cpro_assignee, actor=current_user
         )
 
     # Use the same first lock as the signed-contract automation. Besides
@@ -811,6 +836,8 @@ async def move_candidate(
         expected_state_version=data.expected_state_version,
     )
     await create_original_cv_snapshot(db, stage)
+    if cpro_assignee is not None:
+        stage.task_assignee_id = cpro_assignee.id
     if is_terminal_target:
         await maybe_close_contact_opportunity(
             db,
@@ -1212,6 +1239,41 @@ async def move_candidate(
         except Exception:  # noqa: BLE001
             pass
 
+    # 0348: dzwonek dla osoby wytypowanej do wysłania do Cpro. Best-effort.
+    if cpro_assignee is not None:
+        try:
+            cand_for_notice = await db.scalar(
+                select(Candidate).where(Candidate.id == data.candidate_id)
+            )
+            await board_tasks_svc.notify_cpro_assignment(
+                db,
+                stage_id=stage.id,
+                candidate_name=(
+                    " ".join(
+                        p for p in (cand_for_notice.name, cand_for_notice.lastname) if p
+                    )
+                    if cand_for_notice
+                    else "Kandydat"
+                ),
+                job_id=job.id,
+                job_title=job.title,
+                candidate_id=data.candidate_id,
+                assignee_id=cpro_assignee.id,
+                actor=current_user,
+            )
+            await db.commit()
+        except Exception as _exc:  # noqa: BLE001
+            logger.warning(
+                "cpro assignment notice failed stage=%s: %s (added_to_team=%s)",
+                stage.id,
+                _exc,
+                cpro_assignee_added_to_team,
+            )
+            try:
+                await db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+
     # Phase 10 A1: auto-add candidate to a talent pool when CV is sent to
     # the client. Best-effort — po commicie ruchu.
     if legacy_enum == PipelineStage.cv_sent:
@@ -1293,6 +1355,7 @@ async def move_candidate(
 def _bucket_by_stage_def(
     entries: Iterable[CandidateStage],
     stage_defs: Sequence[PipelineStageDef],
+    foreign_defs: Optional[Mapping[int, PipelineStageDef]] = None,
 ) -> tuple[dict[int, list[CandidateStage]], list[CandidateStage]]:
     """Rozdziel karty na kolumny szablonu i kubełek „poza szablonem".
 
@@ -1319,6 +1382,22 @@ def _bucket_by_stage_def(
         # poprawnie spada do fallbacku po legacy enumie.
         if entry.stage_def_id in columns_map:
             columns_map[entry.stage_def_id].append(entry)
+            continue
+        foreign = (
+            foreign_defs.get(entry.stage_def_id)
+            if foreign_defs is not None and entry.stage_def_id is not None
+            else None
+        )
+        if foreign is not None:
+            # Etap innego szablonu (import Traffita na rekrutacji bez własnego
+            # szablonu): najpierw nazwa, potem kod — `foreign_stage_target`.
+            target = foreign_stage_target(
+                foreign.name, foreign.legacy_enum_value, stage_defs
+            )
+            if target is not None:
+                columns_map[target.id].append(entry)
+            else:
+                off_template.append(entry)
             continue
         mapped = enum_to_def.get(entry.stage.value) if entry.stage else None
         if mapped is not None:
@@ -1395,13 +1474,14 @@ LEGACY_COLUMN_STAGES: list[PipelineStage] = list(STAGE_ORDER) + [
 def stage_column_summaries(
     stage_defs: Sequence[PipelineStageDef],
     entries: Iterable,
+    foreign_defs: Optional[Mapping[int, PipelineStageDef]] = None,
 ) -> tuple[list[dict], int]:
     """Kolumny szablonu z liczbami (bez kart) + liczba wpisów poza szablonem.
 
     Ten sam podział co `get_kanban` (`_bucket_by_stage_def` + `template_column_meta`),
     więc suma per kolumna na liście równa się `count` kolumny na tablicy.
     """
-    columns_map, off_template = _bucket_by_stage_def(entries, stage_defs)
+    columns_map, off_template = _bucket_by_stage_def(entries, stage_defs, foreign_defs)
     columns = [
         {
             **template_column_meta(sd),
@@ -1655,6 +1735,10 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
     process_cards = await _process_cards(db, job_id=job_id, candidate_ids=candidate_ids)
     process_versions = {cid: card[0] for cid, card in process_cards.items()}
     owner_ids = {card[1] for card in process_cards.values() if card[1] is not None}
+    # 0348: wytypowani do wysłania do Cpro — ta sama paczka nazwisk.
+    owner_ids |= {
+        s.task_assignee_id for s in seen.values() if s.task_assignee_id is not None
+    }
     missing_owner_names = owner_ids - set(user_name_by_id)
     if missing_owner_names:
         orows = await db.execute(
@@ -1701,6 +1785,8 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
         payload["recruiter_name"] = (
             user_name_by_id.get(recruiter_id) if recruiter_id is not None else None
         )
+        if e.task_assignee_id is not None:
+            payload["task_assignee_name"] = user_name_by_id.get(e.task_assignee_id)
         availability = availability_by_id.get(e.candidate_id, (None, None))
         payload["availability_status"] = availability[0]
         payload["availability_date"] = availability[1]
@@ -1739,8 +1825,28 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
             .all()
         )
 
+        template_def_ids = {sd.id for sd in stage_defs}
+        foreign_ids = {
+            e.stage_def_id
+            for e in seen.values()
+            if e.stage_def_id is not None and e.stage_def_id not in template_def_ids
+        }
+        foreign_defs = (
+            {
+                sd.id: sd
+                for sd in (
+                    await db.execute(
+                        select(PipelineStageDef).where(
+                            PipelineStageDef.id.in_(foreign_ids)
+                        )
+                    )
+                ).scalars()
+            }
+            if foreign_ids
+            else {}
+        )
         columns_map, off_template_entries = _bucket_by_stage_def(
-            seen.values(), stage_defs
+            seen.values(), stage_defs, foreign_defs
         )
 
         columns = []

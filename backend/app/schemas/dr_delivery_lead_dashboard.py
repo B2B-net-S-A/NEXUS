@@ -14,6 +14,10 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.services.metric_definitions import DL_HIT_RATIO_TARGET_PCT
+
+_HIT_RATIO_TARGET = int(DL_HIT_RATIO_TARGET_PCT)
+
 
 class DLMember(BaseModel):
     """Pojedynczy Delivery Lead z agregatami."""
@@ -28,10 +32,12 @@ class DLMember(BaseModel):
     vacancies: int = 0
     open_requests: int = 0
     open_vacancies: int = 0
-    hit_ratio: float = Field(description="placements/requests × 100 (target 30%)")
+    hit_ratio: float = Field(
+        description=f"placements/requests × 100 (target {_HIT_RATIO_TARGET}%)"
+    )
     fill_rate: float = Field(description="placements/vacancies × 100")
     avg_vacancies_per_request: float
-    hit_ratio_target: int = 30
+    hit_ratio_target: int = _HIT_RATIO_TARGET
     target_achieved: bool
     rank: int
 
@@ -88,7 +94,7 @@ class DLDashboard(BaseModel):
     delivery_leads: list[DLMember]
     team_stats: DLTeamStats
     team_history: list[DLTeamHistoryRow]
-    hit_ratio_target: int = 30
+    hit_ratio_target: int = _HIT_RATIO_TARGET
     period_label: str
     period_start: Optional[date] = None
     period_end: Optional[date] = None

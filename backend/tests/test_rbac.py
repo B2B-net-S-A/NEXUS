@@ -145,8 +145,8 @@ TAC_PLUS_ENDPOINTS = [
     ("POST", "/api/jobs"),
 ]
 
-# Delivery mutations additionally pass through the section boundary. Tac loses
-# this section even though the legacy endpoint-level alias is still TacPlus.
+# Delivery mutations additionally pass through the section boundary. Od
+# 22.09.2026 alias trasy to DeliveryLeadPlus (TAC i tak nie miał sekcji).
 DELIVERY_WRITE_ENDPOINTS = [
     ("POST", "/api/contracts"),
     ("POST", "/api/clients"),
@@ -235,6 +235,7 @@ ROLE_SETS = {
     "recruitment_ranking": {
         UserRole.admin,
         UserRole.head_of_recruitment,
+        UserRole.delivery_lead,
         UserRole.talent_community_manager,
         UserRole.tac,
         UserRole.recruiter,

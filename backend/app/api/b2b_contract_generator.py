@@ -31,6 +31,7 @@ from app.api.contract_access import (
 )
 from app.api.contract_templates import _jinja_env
 from app.api.contracts import _load_contract_with_relations, _render_draft_body
+from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.api.deps import AdminUser
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
@@ -420,7 +421,7 @@ def _generator_unscoped(user: User) -> bool:
     persona (business decision): it may draft, render, list and download
     every B2B contract regardless of any ``ClientTacAssignment`` graph.
     Admin/Head of Recruitment were already unrestricted through the
-    underlying resolvers. Finance/recruiter/sourcer/the legacy `user` role
+    underlying resolvers. Finance/recruiter/sourcer
     join them here for the same structural reason TAC needed this: none of
     them have any row in ``ClientTacAssignment``/
     ``DeliveryLeadClientAssignment`` to be scoped by, so leaving them off this
@@ -429,6 +430,9 @@ def _generator_unscoped(user: User) -> bool:
     real access decision. Delivery Lead is deliberately excluded so clientless
     entities stay fail-closed. It can browse every concrete client, while rate
     content and document mutations still require ownership assignment.
+
+    „Bez zakresu" dotyczy rejestru, nie stawek: od 22.09.2026 stawki cudzych
+    umów widzą tylko admin i Finanse (``_RateVisibility``).
 
     Reuses ``B2B_GENERATOR_UNCONDITIONAL_ROLES`` from ``contract_access``
     instead of its own copy of the role tuple (auto-review on #1216 flagged
@@ -441,19 +445,182 @@ def _generator_unscoped(user: User) -> bool:
     return user.has_any_role(*B2B_GENERATOR_UNCONDITIONAL_ROLES)
 
 
+def _sees_every_generator_rate(user: User) -> bool:
+    """Wszystkie stawki umów B2B: admin i Finanse (``VIEW_FINANCE``)."""
+
+    return user.has_role(UserRole.admin) or user_has_capability(
+        user, AnalyticsCapability.VIEW_FINANCE
+    )
+
+
+async def _jobs_run_by(db: AsyncSession, user: User, job_ids: set[int]) -> set[int]:
+    """Rekrutacje z ``job_ids``, które ``user`` prowadzi albo współprowadzi.
+
+    Prowadzi = rekruter, TAC albo Delivery Lead rekrutacji; współprowadzi =
+    aktywny współpracownik. Jedno zapytanie na listę, żeby rejestr umów nie
+    robił N+1 przy liczeniu, czyje stawki wolno pokazać.
+    """
+
+    if not job_ids:
+        return set()
+    owned = {
+        int(job_id)
+        for job_id in (
+            await db.scalars(
+                select(Job.id).where(
+                    Job.id.in_(job_ids),
+                    or_(
+                        Job.recruiter_id == user.id,
+                        Job.tac_id == user.id,
+                        Job.delivery_lead_id == user.id,
+                    ),
+                )
+            )
+        ).all()
+    }
+    owned.update(
+        int(job_id)
+        for job_id in (
+            await db.scalars(
+                select(JobCollaborator.job_id).where(
+                    JobCollaborator.job_id.in_(job_ids),
+                    JobCollaborator.user_id == user.id,
+                    JobCollaborator.removed_from_auto_cc.is_(False),
+                )
+            )
+        ).all()
+    )
+    return owned
+
+
+class _RateVisibility:
+    """Kto widzi stawki w dokumentach Generatora B2B (decyzja Artura 22.09.2026).
+
+    Wszystkie stawki: admin i Finanse. Delivery Lead: klienci ze swojego
+    portfela. Każda inna rola (rekruter, sourcer, TCM, TAC, HoR): wyłącznie
+    umowy, które sama wygenerowała, i umowy z rekrutacji, które prowadzi.
+    Wejście do generatora zostaje otwarte dla wszystkich (decyzja 20.08) —
+    to reguła dla STAWEK, nie dla rejestru.
+    """
+
+    def __init__(
+        self,
+        user: User,
+        *,
+        every: bool,
+        assigned_client_ids: frozenset[int] | None,
+        run_job_ids: set[int],
+    ) -> None:
+        self._user = user
+        self._every = every
+        self._assigned = assigned_client_ids
+        self._run_job_ids = run_job_ids
+
+    def visible(
+        self,
+        *,
+        client_id: int | None,
+        created_by: int | None,
+        job_id: int | None,
+    ) -> bool:
+        if self._every:
+            return True
+        if created_by is not None and created_by == self._user.id:
+            return True
+        if job_id is not None and job_id in self._run_job_ids:
+            return True
+        return (
+            self._assigned is not None
+            and client_id is not None
+            and client_id in self._assigned
+        )
+
+
+async def _rate_visibility(
+    db: AsyncSession, user: User, job_ids: set[int]
+) -> _RateVisibility:
+    every = _sees_every_generator_rate(user)
+    assigned = (
+        await resolve_delivery_lead_assigned_client_ids(user, db)
+        if not every and user.has_role(UserRole.delivery_lead)
+        else None
+    )
+    run_job_ids = set() if every else await _jobs_run_by(db, user, job_ids)
+    return _RateVisibility(
+        user, every=every, assigned_client_ids=assigned, run_job_ids=run_job_ids
+    )
+
+
 async def _generator_rate_content_visible(
     db: AsyncSession,
     user: User,
     client_id: int | None,
+    *,
+    created_by: int | None = None,
+    job_id: int | None = None,
 ) -> bool:
-    """Keep rate-bearing content inside a plain DL's assigned portfolio."""
+    """Czy ``user`` widzi stawki jednego dokumentu (patrz ``_RateVisibility``)."""
 
-    if _generator_unscoped(user):
-        return True
-    if not user.has_role(UserRole.delivery_lead) or client_id is None:
-        return False
-    assigned_client_ids = await resolve_delivery_lead_assigned_client_ids(user, db)
-    return assigned_client_ids is not None and client_id in assigned_client_ids
+    visibility = await _rate_visibility(
+        db, user, {job_id} if job_id is not None else set()
+    )
+    return visibility.visible(client_id=client_id, created_by=created_by, job_id=job_id)
+
+
+async def _contract_author_id(
+    db: AsyncSession, user: User, contract: Contract
+) -> int | None:
+    """``user.id``, gdy to ``user`` wygenerował umowę kontraktu, inaczej ``None``.
+
+    ``Contract`` nie ma kolumny autora — autorstwo niesie wpis ``b2b_generated``
+    w dzienniku (``POST /generate``) albo wiersz rejestru z tym kontraktem.
+    """
+
+    activity = await db.scalar(
+        select(Activity.id)
+        .where(
+            Activity.entity_type == "contract",
+            Activity.entity_id == contract.id,
+            Activity.action == "b2b_generated",
+            Activity.user_id == user.id,
+        )
+        .limit(1)
+    )
+    if activity is not None:
+        return user.id
+    generated = await db.scalar(
+        select(B2BGeneratedContract.id)
+        .where(
+            B2BGeneratedContract.contract_id == contract.id,
+            B2BGeneratedContract.created_by == user.id,
+        )
+        .limit(1)
+    )
+    return user.id if generated is not None else None
+
+
+_RATE_CONTENT_DENIED = (
+    "Stawki tej umowy widzą admin, Finanse, Delivery Lead klienta, autor umowy "
+    "i zespół rekrutacji, z której powstała."
+)
+
+
+async def _require_generator_rate_content(
+    db: AsyncSession,
+    user: User,
+    client_id: int | None,
+    *,
+    created_by: int | None,
+    job_id: int | None,
+) -> None:
+    """DOCX niesie stawkę w treści — cudzej umowy nie wydajemy wcale."""
+
+    if not await _generator_rate_content_visible(
+        db, user, client_id, created_by=created_by, job_id=job_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=_RATE_CONTENT_DENIED
+        )
 
 
 async def _assert_generator_client_access(
@@ -647,6 +814,7 @@ async def _serialize_generated_contracts(
                 )
                 scoped_job_ids.update(job_id for (job_id,) in result.all())
 
+    rate_visibility = await _rate_visibility(db, current_user, set(job_ids))
     is_admin = current_user.has_role(UserRole.admin)
     generator_access = action_access_for_user(
         current_user, ProductAction.b2b_contract_generator
@@ -767,10 +935,16 @@ async def _serialize_generated_contracts(
                 created_by_name=users.get(row.created_by),
                 can_delete=can_manage,
                 can_edit=can_manage,
+                # DOCX niesie stawkę — pobranie tylko przy widocznych stawkach.
                 can_download=(
                     row.render_payload is not None
                     and can_generate_documents
                     and can_write_client
+                    and rate_visibility.visible(
+                        client_id=row.client_id,
+                        created_by=row.created_by,
+                        job_id=row.job_id,
+                    )
                 ),
                 signature_status=row.signature_status,
                 signature_source=row.signature_source,
@@ -1201,6 +1375,8 @@ async def get_detail(
         db,
         current_user,
         contract.client_id,
+        created_by=await _contract_author_id(db, current_user, contract),
+        job_id=contract.job_id,
     )
     return B2BContractDetailResponse(
         contract_id=contract.id,
@@ -1236,6 +1412,13 @@ async def download_docx(
         current_user,
         contract.client_id,
         write=True,
+    )
+    await _require_generator_rate_content(
+        db,
+        current_user,
+        contract.client_id,
+        created_by=await _contract_author_id(db, current_user, contract),
+        job_id=contract.job_id,
     )
     detail_lang = contract.b2b_detail.language if contract.b2b_detail else "pl"
     lang = normalize_language(language or detail_lang)
@@ -1849,6 +2032,13 @@ async def download_generated_contract(
         current_user,
         row.client_id,
         write=True,
+    )
+    await _require_generator_rate_content(
+        db,
+        current_user,
+        row.client_id,
+        created_by=row.created_by,
+        job_id=row.job_id,
     )
     if not row.render_payload:
         raise HTTPException(

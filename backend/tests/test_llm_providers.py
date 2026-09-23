@@ -645,9 +645,9 @@ def test_availability_gates_follow_the_registrys_provider(monkeypatch):
         monkeypatch.setattr(settings, name, "", raising=False)
 
     # Sam klucz Anthropic nie wystarcza funkcji stojącej na innym dostawcy…
-    # (F7 domyślnie = Sonnet 5 od 21.09.2026, więc GPT ustawiamy env-em — tak
-    # samo, jak można to zrobić na produkcji bez zmiany kodu.)
-    monkeypatch.setenv("ORDER_PARSER_MODEL", "gpt-5.6-luna")
+    # (F7 domyślnie = GPT-6 Luna od 22.09.2026; env zostaje jawnie, bo tak
+    # model przestawia się na produkcji bez zmiany kodu.)
+    monkeypatch.setenv("ORDER_PARSER_MODEL", "gpt-6-luna")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
     assert provider_of(ai_models.model_for(AIFeatureKey.order_parser)) == OPENAI
     assert ingest.ai_extraction_available() is False
@@ -655,10 +655,9 @@ def test_availability_gates_follow_the_registrys_provider(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
     assert ingest.ai_extraction_available() is True
 
-    # Lustro dla ścieżki CV: dziś Anthropic, więc bramka idzie za jego kluczem.
-    assert (
-        provider_of(ai_models.model_for(AIFeatureKey.cv_name_backfill)) == "anthropic"
-    )
+    # Lustro dla ścieżki CV: od 22.09.2026 GPT-6 Luna, więc bramka idzie za
+    # kluczem OpenAI — sam klucz Anthropic (nadal ustawiony) nie wystarcza.
+    assert provider_of(ai_models.model_for(AIFeatureKey.cv_name_backfill)) == OPENAI
     assert cv_backfill._claude_step_can_run() is True
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert cv_backfill._claude_step_can_run() is False

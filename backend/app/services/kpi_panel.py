@@ -25,13 +25,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
 from app.models.user import User, UserRole
 from app.services.kpi_catalog import KpiPeriod
 from app.services.kpi_engine import WARSAW, period_bounds
+from app.services.kpi_targets import resolve_kpi_targets_bulk
 
 # Minimalna liczba weryfikacji w oknie, by pokazać precision (mniej = szum).
 _PRECISION_MIN_DENOM = 5
@@ -48,33 +48,15 @@ _OPERATIONAL_ROLES = {
     UserRole.delivery_lead,
 }
 
-# Role z licencją LinkedIn Recruiter → target „5 CV do bazy / dzień".
-_CV_TARGET_ROLES = {UserRole.recruiter, UserRole.tac}
-
-# Code-level default targety. DB (`kpi_role_defaults`) nadpisuje; per-user
-# override (`user_kpi_targets`) ma najwyższy priorytet. Trzymane też tu, żeby
-# panel działał zanim migracja zaseeduje DB.
-PANEL_KPI_DEFAULTS: dict[str, dict[UserRole, int]] = {
-    "verifications_daily": {
-        UserRole.sourcer: 4,
-        UserRole.tac: 4,
-        UserRole.recruiter: 4,
-    },
-    "precision_monthly": {
-        UserRole.sourcer: 75,
-        UserRole.tac: 75,
-        UserRole.recruiter: 75,
-    },
-    "placements_monthly": {
-        UserRole.sourcer: 1,
-        UserRole.tac: 1,
-        UserRole.recruiter: 1,
-    },
-    "cv_added_daily": {
-        UserRole.recruiter: 5,
-        UserRole.tac: 5,
-    },
-}
+# Cele panelu czytamy z JEDNEGO katalogu (`kpi_catalog`) przez resolver
+# `kpi_targets` — do 22.09.2026 panel miał własne `PANEL_KPI_DEFAULTS` z innymi
+# liczbami niż widget KPI Coach (placementy 1/1/1 vs 2/3/1). Kanoniczne id:
+_PANEL_KPI_IDS = (
+    "daily_first_verifications",
+    "monthly_precision",
+    "monthly_placements",
+    "daily_new_candidates",
+)
 
 
 # ── SQL: verifier-anchored funnel ────────────────────────────────────────────
@@ -377,29 +359,6 @@ class PanelResult:
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-async def _resolve_target(db: AsyncSession, *, user: User, kpi_id: str) -> int:
-    """Target dla (user, kpi_id): user override → role default → code default."""
-    row = await db.scalar(
-        select(UserKpiTarget.target_value).where(
-            UserKpiTarget.user_id == user.id,
-            UserKpiTarget.kpi_id == kpi_id,
-        )
-    )
-    if row is not None:
-        return int(row)
-
-    row = await db.scalar(
-        select(KpiRoleDefault.target_value).where(
-            KpiRoleDefault.role == user.role,
-            KpiRoleDefault.kpi_id == kpi_id,
-        )
-    )
-    if row is not None:
-        return int(row)
-
-    return int(PANEL_KPI_DEFAULTS.get(kpi_id, {}).get(user.role, 0))
-
-
 def _funnel_counts(row: Optional[dict], *, key_month: str = "mo") -> FunnelCounts:
     if row is None:
         return FunnelCounts(day=0, week=0, month=0)
@@ -446,17 +405,18 @@ async def compute_my_panel(
     # Precision — okno kroczące 30 dni (stabilniejsze niż month-to-date).
     verified_30d = int(by_stage["verified"]["r30"]) if "verified" in by_stage else 0
     sent_30d = int(by_stage["cv_sent"]["r30"]) if "cv_sent" in by_stage else 0
-    precision_target = await _resolve_target(db, user=user, kpi_id="precision_monthly")
+    targets = (await resolve_kpi_targets_bulk(db, [user], _PANEL_KPI_IDS))[user.id]
+    precision_target = targets["monthly_precision"]
     precision_value: Optional[float] = (
         round(100.0 * sent_30d / verified_30d, 1)
         if verified_30d >= _PRECISION_MIN_DENOM
         else None
     )
 
-    # CV do bazy — tylko dla ról z targetem (recruiter/TAC) lub gdy target ustawiony.
-    cv_target = await _resolve_target(db, user=user, kpi_id="cv_added_daily")
+    # CV do bazy — tylko gdy osoba ma cel (którakolwiek z jej ról).
+    cv_target = targets["daily_new_candidates"]
     cv_to_base: Optional[FunnelCounts] = None
-    if cv_target > 0 or user.has_any_role(*_CV_TARGET_ROLES):
+    if cv_target > 0:
         cv_params = {
             "uid": user.id,
             "day_start": day_start,
@@ -466,12 +426,8 @@ async def compute_my_panel(
         cv_row = (await db.execute(_CV_SQL, cv_params)).mappings().one()
         cv_to_base = _funnel_counts(dict(cv_row))
 
-    verifications_target = await _resolve_target(
-        db, user=user, kpi_id="verifications_daily"
-    )
-    placements_target = await _resolve_target(
-        db, user=user, kpi_id="placements_monthly"
-    )
+    verifications_target = targets["daily_first_verifications"]
+    placements_target = targets["monthly_placements"]
 
     total_activity = (
         weryfikacje.month + rekomendacje.month + interview_month + placementy_month
@@ -505,7 +461,6 @@ __all__ = [
     "FunnelCounts",
     "PanelResult",
     "PrecisionResult",
-    "PANEL_KPI_DEFAULTS",
     "VERIFIER_ANCHORED_CTE",
     "compute_my_panel",
 ]
