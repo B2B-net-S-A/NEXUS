@@ -814,7 +814,7 @@ def responsible_user_id(
     """Opiekun rekrutacji z `responsible_person` Traffita → id usera NEXUSA.
 
     Audyt 22.09 r2 (DATA-01/PROD-03): Traffit zwraca `responsible_person` jako
-    LISTĘ osób (czasem słownik, czasem samo id), a mapper znał tylko słownik —
+    LISTĘ osób (czasem pojedynczy słownik), a mapper znał tylko słownik —
     312 z 326 opublikowanych rekrutacji nie miało ani `recruiter_id`, ani
     `tac_id`, więc nocny przegląd bazy nie miał dla kogo liczyć. Pierwsza osoba
     z listy, którą znamy w NEXUSIE, wygrywa.
@@ -824,12 +824,13 @@ def responsible_user_id(
     raw = payload.get("responsible_person")
     candidates = raw if isinstance(raw, list) else [raw]
     for entry in candidates:
-        if isinstance(entry, dict):
-            traffit_user_id = entry.get("id")
-            if traffit_user_id is None and isinstance(entry.get("user"), dict):
-                traffit_user_id = entry["user"].get("id")
-        else:
-            traffit_user_id = entry
+        # Wyłącznie obiekty osoby (`{"id": …}` albo `{"user": {"id": …}}`) —
+        # goła liczba/napis to nie jest kształt API Traffita (test #1728).
+        if not isinstance(entry, dict):
+            continue
+        traffit_user_id = entry.get("id")
+        if traffit_user_id is None and isinstance(entry.get("user"), dict):
+            traffit_user_id = entry["user"].get("id")
         if traffit_user_id is None or isinstance(traffit_user_id, bool):
             continue
         if not isinstance(traffit_user_id, (int, str)):

@@ -629,7 +629,7 @@ class TestResponsiblePerson:
         result = traffit_recruitment_to_job(payload, {}, {}, {"43": 7})
         assert result["recruiter_id"] == 7
 
-    def test_dict_and_bare_id_still_work(self):
+    def test_dict_works_and_bare_id_is_not_a_person(self):
         assert (
             traffit_recruitment_to_job(
                 {"id": 1, "name": "X", "responsible_person": {"id": 43}},
@@ -639,11 +639,12 @@ class TestResponsiblePerson:
             )["recruiter_id"]
             == 7
         )
+        # Goła liczba to nie jest kształt API Traffita (decyzja #1728).
         assert (
             traffit_recruitment_to_job(
                 {"id": 1, "name": "X", "responsible_person": 43}, {}, {}, {"43": 7}
             )["recruiter_id"]
-            == 7
+            is None
         )
 
     def test_unknown_people_give_no_recruiter(self):
