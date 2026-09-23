@@ -658,7 +658,8 @@ CHAMPION_RECOMMENDED_SEARCHES = PromptTemplate(
     # the semantic index), dropped `experience_years_*` from the emittable set,
     # and started injecting measured column density instead of hard-coding
     # which fields to avoid.
-    version=2,
+    # v3 (09.2026): sekcja „experience” (dziedzina, certyfikaty, regulacje).
+    version=3,
     expected_format="json",
     system_prompt=(
         "Jesteś senior sourcerem IT w polskiej agencji staffing. "
@@ -681,7 +682,12 @@ CHAMPION_RECOMMENDED_SEARCHES = PromptTemplate(
         "(7) Sygnały, których nie da się wyrazić filtrem po dobrze wypełnionej "
         "kolumnie (staż, seniority, branża, typ projektu), wpisuj do `q`, nie "
         "wymyślaj do nich filtrów strukturalnych. "
-        "(8) Odpowiedź MUSI być czystym JSON bez prose, bez code fences."
+        "(8) Sekcja `experience` profilu: certyfikat o level=must → q_all "
+        "(dokładna nazwa, np. 'ISTQB'); certyfikaty i regulacje o level=nice "
+        "→ q_any_groups; dziedzina (np. płatności, ubezpieczenia) → do `q` "
+        "i opcjonalnie q_any_groups z synonimami ('płatności', 'payments', "
+        "'karty', 'acquiring'). Nigdy nie traktuj dziedziny jak skilla. "
+        "(9) Odpowiedź MUSI być czystym JSON bez prose, bez code fences."
     ),
     template=(
         "Rekrutacja:\n"

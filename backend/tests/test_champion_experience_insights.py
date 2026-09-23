@@ -18,6 +18,8 @@ from __future__ import annotations
 from copy import deepcopy
 from types import SimpleNamespace
 
+import pytest
+
 from app.schemas.champion import ChampionProfile
 from app.services import champion_view
 from app.services.champion_intake import copy_profile, user_edit
@@ -320,3 +322,74 @@ def test_public_draft_material_carries_only_candidate_notes() -> None:
     assert "angielski" not in material["pitch"]
     assert material["domains"] == "payments"
     assert material["certifications"] == "ISTQB"
+
+
+def test_cv_generator_champion_section_carries_domain_and_certificates() -> None:
+    from app.services.cv_generator_b2b.champion_builder import (
+        build_champion_section,
+        from_nexus_job,
+    )
+
+    profile = user_edit(
+        {},
+        {
+            "stack": {"must": [{"name": "Selenium"}]},
+            "experience": {
+                "domains": [
+                    {"name": "płatności kartowe", "min_years": 2},
+                    {"name": "e-commerce", "level": "nice"},
+                ],
+                "certifications": [{"name": "ISTQB Foundation"}],
+                "regulations": [{"name": "PSD2", "level": "nice"}],
+            },
+        },
+        5,
+    )
+    dto = from_nexus_job(None, None, profile)
+    section = build_champion_section(dto, "pl")
+    lines = section.splitlines()
+    # Tuż po MUST — cięcie sekcji do 14 000 znaków zachowuje początek.
+    must_at = next(i for i, line in enumerate(lines) if line.startswith("MUST-HAVE"))
+    assert lines[must_at + 1] == "DZIEDZINA (wymagana): płatności kartowe (min. 2 l.)"
+    assert "DZIEDZINA (mile widziana): e-commerce" in section
+    assert "CERTYFIKATY: ISTQB Foundation" in section
+    assert "REGULACJE / STANDARDY: PSD2 (mile widziane)" in section
+    assert not dto.is_empty()
+
+
+@pytest.mark.asyncio
+async def test_recommended_searches_prompt_puts_experience_before_prose(
+    monkeypatch,
+) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.job import Job
+    from app.services import champion_draft_service
+
+    captured: dict = {}
+
+    async def fake_call(*, prompt, **_):
+        captured["prompt"] = prompt
+        return {"searches": []}
+
+    monkeypatch.setattr(champion_draft_service, "_call_claude_json", fake_call)
+    profile = user_edit(
+        {},
+        {
+            "project": {"about": "x" * 7000},
+            "experience": {"certifications": [{"name": "ISTQB Foundation"}]},
+        },
+        5,
+    )
+    async with AsyncSessionLocal() as db:
+        client = Client(name="Experience Search Client")
+        db.add(client)
+        await db.flush()
+        job = Job(title="Tester", client_id=client.id, champion_profile=profile)
+        db.add(job)
+        await db.commit()
+        await champion_draft_service.generate_recommended_searches(
+            db, job_id=job.id, user_id=None
+        )
+    # Długi opis projektu nie wypycha certyfikatu z przyciętego wycinka.
+    assert "ISTQB Foundation" in captured["prompt"]
