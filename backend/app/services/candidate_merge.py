@@ -765,11 +765,11 @@ async def _move_polymorphic(
         if table == "notifications":
             # Link „/candidates/{id}” też wskazuje osobę — przepisz go razem
             # z encją, inaczej powiadomienie prowadziłoby do 404.
-            extra = (
-                ", link = regexp_replace(link, "
-                "'/candidates/' || CAST(:d AS text) || '(?![0-9])', "
-                "'/candidates/' || CAST(:s AS text))"
-            )
+            # Osobne parametry tekstowe: asyncpg nie przyjmie tego samego
+            # parametru raz jako liczby (id), raz jako tekstu.
+            params["d_link"] = f"/candidates/{duplicate_id}(?![0-9])"
+            params["s_link"] = f"/candidates/{survivor_id}"
+            extra = ", link = regexp_replace(link, :d_link, :s_link)"
         sql = text(
             f"UPDATE {table} SET {id_col} = :s{extra} "
             f"WHERE {type_col} = :t AND {id_col} = :d"
@@ -797,7 +797,10 @@ async def _move_polymorphic(
                 async with db.begin_nested():
                     await db.execute(
                         text(f"UPDATE {table} SET {id_col} = :s{extra} WHERE id = :id"),
-                        {**params, "id": row_id},
+                        {
+                            **{k: v for k, v in params.items() if k not in ("t", "d")},
+                            "id": row_id,
+                        },
                     )
                 count += 1
             except DBAPIError as exc:

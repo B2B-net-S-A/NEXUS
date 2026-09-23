@@ -534,7 +534,7 @@ function OrderBody({
         </DisclosureRow>
         {/* Multiposting (Pracuj.pl, JustJoinIT) — renderuje się dopiero, gdy
             backend zgłasza gotowy portal (dziś flagi są wyłączone). */}
-        <JobPortalsSection jobId={jobId} readOnly={readOnly || !canEditContent} />
+        <JobPortalsSection jobId={jobId} readOnly={!canEditContent} />
       </section>
 
       <p className="text-xs text-muted-foreground">
