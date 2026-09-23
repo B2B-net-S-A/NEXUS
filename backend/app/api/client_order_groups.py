@@ -2547,6 +2547,8 @@ async def list_group_events(
                     EVENT_TYPE_LABELS.get(ev.event_type, ev.event_type)
                     if _is_read_only_tcm(user)
                     else ev.description
+                    if with_finance
+                    else _redact_amounts(ev.description)
                 ),
                 order_id=ev.order_id,
                 payload=ev.payload if with_finance else None,
@@ -2558,6 +2560,23 @@ async def list_group_events(
             )
         )
     return OrderGroupEventsResponse(events=events)
+
+
+# Audyt 22.09 r2 (FIN-MD-05): opis wpisu historii niesie kwoty („1320 zł/MD",
+# „Wartość pozostała bez zmian: 60000 zł"). ``payload`` znikał rolom bez
+# finansów, ale ``description`` szedł bez redakcji (wyjątkiem był tylko TCM).
+# Liczby MD zostają — są operacyjne.
+_AMOUNT_IN_TEXT_RE = re.compile(
+    r"-?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?\s*(?:zł|PLN|EUR)"
+    r"(?:\s*/\s*[\wąćęłńóśźż]+)?",
+    re.IGNORECASE,
+)
+
+
+def _redact_amounts(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return text
+    return _AMOUNT_IN_TEXT_RE.sub("—", text)
 
 
 def _related_order(

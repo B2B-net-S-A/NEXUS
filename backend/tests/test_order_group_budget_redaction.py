@@ -336,3 +336,46 @@ async def test_contract_value_is_redacted_but_md_scope_stays(
     assert body["lines"][0]["md_base_used"] == 154
     assert body["lines"][0]["md_optional_used"] == 0
     assert body["lines"][0]["rate_revenue"] is None
+
+
+# ── Audyt 22.09 r2 (FIN-MD-05): kwoty w opisie historii ─────────────────────
+
+
+def test_redact_amounts_keeps_md_and_dates():
+    from app.api.client_order_groups import _redact_amounts
+
+    text = (
+        "Zamiana kontraktora 2026-09-01: Jan (1320 zł/MD, pozostało 30 MD) → "
+        "Anna (950 zł/MD, 41,684 MD). Wartość pozostała bez zmian: 39 600,50 zł."
+    )
+    redacted = _redact_amounts(text)
+    assert "zł" not in redacted
+    assert "30 MD" in redacted and "41,684 MD" in redacted
+    assert "2026-09-01" in redacted
+
+
+async def test_history_description_hides_amounts_without_finance(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    client_id, contract_id, _name = await _seed_client_with_contract()
+    _enable(monkeypatch, client_id)
+    group = await _create_md_group(app_client, app_auth_headers, client_id, contract_id)
+    await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{group['lines'][0]['id']}",
+        json={"rate_cost": 1100},
+        headers=app_auth_headers,
+    )
+
+    async def _no_finance(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr("app.api.client_order_groups._can_see_finance", _no_finance)
+    resp = await app_client.get(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/events",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    descriptions = " ".join(e["description"] for e in resp.json()["events"])
+    assert "zł" not in descriptions and "PLN" not in descriptions
+    assert "MD" in descriptions
