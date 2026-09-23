@@ -75,7 +75,9 @@ async def test_history_lists_every_recruitment_and_readiness_lists_all():
         # Od 23.09.2026 rekruter widzi CV każdej rekrutacji, nie tylko swojej.
         own_list = await api.list_generated_cvs(owner, db, limit=2)
         assert [row.id for row in own_list] == [other_doc.id, own_doc.id]
-        assert [row.can_delete for row in own_list] == [False, True]
+        # Cudzego CV nie usuwa się nigdy; własne jest jeszcze w trakcie
+        # generowania (`processing`), więc też bez przycisku.
+        assert [row.can_delete for row in own_list] == [False, False]
         finance_list = await api.list_generated_cvs(finance, db, limit=2)
         assert [row.id for row in finance_list] == [other_doc.id, own_doc.id]
         # Decyzja 10.09.2026 („wszyscy mogą”): picker gotowości NIE jest
