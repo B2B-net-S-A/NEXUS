@@ -5,33 +5,28 @@ import { AlertTriangle, Download, Loader2 } from "lucide-react";
 
 import { FilterBar, type FilterBarChip } from "@/components/ds/FilterBar";
 import { TabbedNav } from "@/components/ds/TabbedNav";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import type { OrderChangesResponse } from "@/lib/api/finance";
 import {
-  changeMeta,
-  changeTitle,
-  changeValue,
-  entryDetails,
-  entryTags,
-  exitDetails,
-  exitTone,
+  STATUS_FILTER_LABELS,
+  doneInMonthLabel,
+  type StatusCounts,
+  type StatusFilter,
+} from "@/lib/finance-order-board";
+import {
   formatDay,
-  gapDetails,
-  gapStatusLabel,
-  initials,
-  orderTypeLabel,
   peopleLabel,
   type MonthOption,
-  type Tone,
 } from "@/lib/finance-order-changes";
+import { cn } from "@/lib/utils";
+
+import {
+  OrderChangesBoard,
+  type OrderChangesBoardProps,
+} from "./OrderChangesBoard";
 
 export type OrderChangesSubTab =
-  | "changes"
-  | "entries"
-  | "exits"
-  | "ending"
-  | "gaps";
+  "changes" | "entries" | "exits" | "ending" | "gaps";
 
 export const ORDER_CHANGES_SUB_TABS: readonly OrderChangesSubTab[] = [
   "changes",
@@ -40,13 +35,6 @@ export const ORDER_CHANGES_SUB_TABS: readonly OrderChangesSubTab[] = [
   "ending",
   "gaps",
 ];
-
-const TONE_VARIANT: Record<Tone, "neutral" | "success" | "warning" | "danger"> = {
-  neutral: "neutral",
-  success: "success",
-  warning: "warning",
-  danger: "danger",
-};
 
 export const SUB_TAB_LABELS: Record<OrderChangesSubTab, string> = {
   changes: "Zmiany",
@@ -98,6 +86,11 @@ interface OrderChangesPanelProps {
   onExport: () => void;
   exporting: boolean;
   filters: OrderChangesFilterProps;
+  /** Filtr statusu „Do zrobienia / Zrobione / Wszystkie" (domyślnie pierwszy). */
+  status?: StatusFilter;
+  onStatusChange?: (next: StatusFilter) => void;
+  /** Liczniki pozycji podzakładki po filtrach — `null` = dane jeszcze nie przyszły. */
+  statusCounts?: StatusCounts | null;
 }
 
 function filterChips(
@@ -152,6 +145,9 @@ export function OrderChangesPanel({
   onExport,
   exporting,
   filters,
+  status = "todo",
+  onStatusChange,
+  statusCounts = null,
 }: OrderChangesPanelProps) {
   const counts = data?.counts;
   const tabs = ORDER_CHANGES_SUB_TABS.map((value) => ({
@@ -176,7 +172,14 @@ export function OrderChangesPanel({
           className="min-w-0 xl:w-auto xl:flex-1"
           listClassName="w-auto"
         />
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          {data && statusCounts ? (
+            <DoneProgress
+              month={data.period.month}
+              done={statusCounts.done}
+              total={statusCounts.all}
+            />
+          ) : null}
           <select
             aria-label="Miesiąc rozliczeniowy"
             value={month}
@@ -205,6 +208,13 @@ export function OrderChangesPanel({
           </button>
         </div>
       </div>
+      {onStatusChange ? (
+        <StatusSwitch
+          value={status}
+          counts={statusCounts}
+          onChange={onStatusChange}
+        />
+      ) : null}
       {/* Filtry zawężają WSZYSTKIE cztery zakładki i ich liczniki, a eksport
           bierze dokładnie to, co widać — liczy je serwer, jedną funkcją. */}
       <FilterBar
@@ -213,7 +223,8 @@ export function OrderChangesPanel({
           value: filters.search,
           onChange: filters.onSearchChange,
           onClear: () => filters.onSearchChange(""),
-          placeholder: "Szukaj po konsultancie, kliencie lub numerze zamówienia…",
+          placeholder:
+            "Szukaj po konsultancie, kliencie lub numerze zamówienia…",
           ariaLabel: "Szukaj w audycie zamówień",
         }}
         filters={
@@ -228,7 +239,9 @@ export function OrderChangesPanel({
                 type="date"
                 aria-label={`${DATE_FILTER_LABELS[subTab]} od`}
                 value={filters.dateFrom}
-                onChange={(event) => filters.onDateFromChange(event.target.value)}
+                onChange={(event) =>
+                  filters.onDateFromChange(event.target.value)
+                }
                 className="h-9 w-[150px]"
               />
               <span className="text-sm text-muted-foreground" aria-hidden>
@@ -252,40 +265,83 @@ export function OrderChangesPanel({
   );
 }
 
-function Row({
-  name,
-  details,
-  aside,
-  footer,
+/** Pasek „Zrobione we wrześniu: X / Y" — pozycje podzakładki po filtrach. */
+function DoneProgress({
+  month,
+  done,
+  total,
 }: {
-  name: string;
-  details: ReactNode;
-  aside?: ReactNode;
-  footer?: ReactNode;
+  month: number;
+  done: number;
+  total: number;
 }) {
+  const label = doneInMonthLabel(month);
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
   return (
-    <li className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
-      <span
-        aria-hidden
-        className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
-      >
-        {initials(name)}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-foreground">{name}</p>
-        <div className="text-xs text-muted-foreground">{details}</div>
-        {footer ? <div className="mt-1 text-xs">{footer}</div> : null}
+    <div className="min-w-[180px]" aria-label={`${label}: ${done} z ${total}`}>
+      <div className="flex items-baseline justify-between gap-3 text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-semibold tabular-nums text-foreground">
+          {done} / {total}
+        </span>
       </div>
-      {aside ? <div className="flex shrink-0 flex-wrap justify-end gap-1">{aside}</div> : null}
-    </li>
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={done}
+        aria-label={label}
+        className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+      >
+        <div
+          className="h-full rounded-full bg-primary transition-all"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
   );
 }
 
-function EmptyList({ children }: { children: ReactNode }) {
+const STATUS_ORDER: StatusFilter[] = ["todo", "done", "all"];
+
+function StatusSwitch({
+  value,
+  counts,
+  onChange,
+}: {
+  value: StatusFilter;
+  counts: StatusCounts | null;
+  onChange: (next: StatusFilter) => void;
+}) {
   return (
-    <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-      {children}
-    </p>
+    <div
+      role="radiogroup"
+      aria-label="Status pozycji"
+      className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-border bg-muted/40 p-1"
+    >
+      {STATUS_ORDER.map((option) => {
+        const active = option === value;
+        const count = counts ? counts[option] : null;
+        return (
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(option)}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              active
+                ? "bg-primary text-primary-foreground shadow-xs"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {STATUS_FILTER_LABELS[option]}
+            {count !== null ? ` · ${count}` : ""}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -318,12 +374,45 @@ function GapsBanner({
   );
 }
 
-/** Treść wybranej podzakładki dla gotowych danych. */
+/** Stan układu kart, który trzyma rodzic (zapytania, zapisy, adres). */
+export type OrderChangesBoardState = Omit<
+  OrderChangesBoardProps,
+  "data" | "tab" | "banner" | "emptyText"
+>;
+
+function emptyText(
+  data: OrderChangesResponse,
+  subTab: OrderChangesSubTab,
+): ReactNode {
+  switch (subTab) {
+    case "entries":
+      return `Nikt nie rozpoczął z nami współpracy w miesiącu ${data.period.label}. Przedłużenia, zmiany klienta i dodatkowe projekty są w zakładce Zmiany.`;
+    case "exits":
+      return `Nikt nie zakończył współpracy w miesiącu ${data.period.label}. Zamówienia, które kończą się bez kolejnego, są w zakładce Kończące się zamówienia.`;
+    case "ending":
+      return `Żadne zamówienie nie kończy się w miesiącu ${data.period.label} bez kolejnego.`;
+    case "gaps":
+      return `Brak zamówień zakończonych bez następnego zamówienia w miesiącu ${data.period.label}.`;
+    case "changes":
+      return (
+        `Brak zmian stawek, dat końca i nowych zamówień osób już z nami współpracujących w miesiącu ${data.period.label}.` +
+        (data.changes_tracked_since
+          ? ""
+          : " Dziennik zmian stawek i dat działa od wdrożenia tej zakładki — wcześniejsze zmiany nie zostały zapisane.")
+      );
+  }
+}
+
+/**
+ * Treść wybranej podzakładki dla gotowych danych: klienci → karty zamówień.
+ * Komunikaty pustki mówią, GDZIE są wiersze, których tu nie ma.
+ */
 export function OrderChangesList({
   data,
   subTab,
   onOpenGaps,
   filtersActive = false,
+  board,
 }: {
   data: OrderChangesResponse;
   subTab: OrderChangesSubTab;
@@ -331,161 +420,36 @@ export function OrderChangesList({
   /** Pustka po filtrach czyta się jak „nic w tym miesiącu nie było" — musi
    *  być odróżnialna od prawdziwego braku danych. */
   filtersActive?: boolean;
+  board: OrderChangesBoardState;
 }) {
   const monthOpenGaps = data.gaps.filter((gap) => gap.status === "open").length;
   const banner =
     subTab !== "gaps" ? (
       <GapsBanner count={monthOpenGaps} onOpenGaps={onOpenGaps} />
     ) : null;
-  const filteredOut = filtersActive ? (
-    <EmptyList>Żaden wiersz nie pasuje do ustawionych filtrów.</EmptyList>
-  ) : null;
+  const trackedSince =
+    subTab === "changes" && data.changes_tracked_since
+      ? formatDay(data.changes_tracked_since.slice(0, 10))
+      : null;
 
-  if (subTab === "entries") {
-    return (
-      <div className="space-y-3">
-        {data.entries.length === 0 ? (
-          filteredOut ?? (
-            <EmptyList>
-              Nikt nie rozpoczął z nami współpracy w miesiącu {data.period.label}.
-              Przedłużenia, zmiany klienta i dodatkowe projekty są w zakładce
-              Zmiany.
-            </EmptyList>
-          )
-        ) : (
-          <ul className="space-y-2">
-            {data.entries.map((item) => (
-              <Row
-                key={`e-${item.order_id}`}
-                name={item.consultant_name}
-                details={entryDetails(item)}
-                footer={
-                  <span className="flex flex-wrap gap-1">
-                    {entryTags(item).map((tag) => (
-                      <Badge
-                        key={tag}
-                        size="sm"
-                        variant={tag === "Nowy konsultant" ? "info" : "outline"}
-                      >
-                        {tag}
-                      </Badge>
-                    ))}
-                  </span>
-                }
-                aside={<Badge variant="soft">{orderTypeLabel(item.order_type)}</Badge>}
-              />
-            ))}
-          </ul>
-        )}
-        {banner}
-      </div>
-    );
-  }
-
-  if (subTab === "exits" || subTab === "ending") {
-    const items = subTab === "exits" ? data.exits : data.ending_orders;
-    return (
-      <div className="space-y-3">
-        {items.length === 0 ? (
-          filteredOut ??
-          (subTab === "exits" ? (
-            <EmptyList>
-              Nikt nie zakończył współpracy w miesiącu {data.period.label}.
-              Zamówienia, które kończą się bez kolejnego, są w zakładce
-              Kończące się zamówienia.
-            </EmptyList>
-          ) : (
-            <EmptyList>
-              Żadne zamówienie nie kończy się w miesiącu {data.period.label} bez
-              kolejnego.
-            </EmptyList>
-          ))
-        ) : (
-          <ul className="space-y-2">
-            {items.map((item) => (
-              <Row
-                key={`x-${item.order_id}`}
-                name={item.consultant_name}
-                details={exitDetails(item)}
-                footer={
-                  <Badge variant={TONE_VARIANT[exitTone(item)]} size="md">
-                    {item.verdict_label}
-                  </Badge>
-                }
-                aside={<Badge variant="soft">{orderTypeLabel(item.order_type)}</Badge>}
-              />
-            ))}
-          </ul>
-        )}
-        {banner}
-      </div>
-    );
-  }
-
-  if (subTab === "gaps") {
-    return data.gaps.length === 0 ? (
-      filteredOut ?? (
-        <EmptyList>
-          Brak zamówień zakończonych bez następnego zamówienia w miesiącu{" "}
-          {data.period.label}.
-        </EmptyList>
-      )
-    ) : (
-      <ul className="space-y-2">
-        {data.gaps.map((item) => (
-          <Row
-            key={`g-${item.gap_id}`}
-            name={item.consultant_name}
-            details={gapDetails(item)}
-            footer={
-              <Badge variant={item.status === "open" ? "danger" : "warning"} size="md">
-                {gapStatusLabel(item)}
-              </Badge>
-            }
-          />
-        ))}
-      </ul>
-    );
-  }
-
-  const trackedSince = data.changes_tracked_since
-    ? formatDay(data.changes_tracked_since.slice(0, 10))
-    : null;
   return (
     <div className="space-y-3">
-      {data.changes.length === 0 ? (
-        filteredOut ?? (
-          <EmptyList>
-            Brak zmian stawek, dat końca i nowych zamówień osób już z nami
-            współpracujących w miesiącu {data.period.label}.
-            {!trackedSince
-              ? " Dziennik zmian stawek i dat działa od wdrożenia tej zakładki — wcześniejsze zmiany nie zostały zapisane."
-              : ""}
-          </EmptyList>
-        )
-      ) : (
-        <ul className="space-y-2">
-          {data.changes.map((item, index) => (
-            <Row
-              key={`c-${item.kind}-${item.order_id ?? item.order_group_id}-${item.occurred_at ?? index}`}
-              name={item.consultant_name}
-              details={
-                <>
-                  <span className="font-medium text-foreground">{changeTitle(item)}:</span>{" "}
-                  {changeValue(item)}
-                </>
-              }
-              footer={<span className="text-muted-foreground">{changeMeta(item)}</span>}
-            />
-          ))}
-        </ul>
-      )}
+      <OrderChangesBoard
+        {...board}
+        data={data}
+        tab={subTab}
+        banner={banner}
+        emptyText={
+          filtersActive
+            ? "Żaden wiersz nie pasuje do ustawionych filtrów."
+            : emptyText(data, subTab)
+        }
+      />
       {trackedSince ? (
         <p className="text-xs text-muted-foreground">
           Zmiany stawek i dat końca są zapisywane od {trackedSince}.
         </p>
       ) : null}
-      {banner}
     </div>
   );
 }
