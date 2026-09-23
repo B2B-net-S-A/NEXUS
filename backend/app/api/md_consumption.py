@@ -58,11 +58,13 @@ from app.models.md_consumption import (
     ClientOrderInvoiceConsumption,
     ClientOrderMdConsumption,
     COST_ROW_APPLIED,
+    COST_ROW_NON_POSITIVE,
     COST_ROW_STATUS_LABELS,
     COST_ROW_UNMATCHED_CONSULTANT,
     COST_ROW_UNMATCHED_NUMBER,
     CONSUMPTION_SOURCE_MANUAL,
     IMPORT_ROW_APPLIED,
+    IMPORT_ROW_COST_ONLY,
     IMPORT_ROW_NEEDS_ASSIGNMENT,
     IMPORT_ROW_STATUS_LABELS,
     IMPORT_ROW_UNMATCHED,
@@ -601,11 +603,30 @@ async def create_import(
             row_number=parsed_row.row_number,
             consultant_name=parsed_row.consultant_name[:255],
             md_reported=parsed_row.md_reported,
-            status=IMPORT_ROW_UNMATCHED,
+            status=(
+                IMPORT_ROW_COST_ONLY
+                if getattr(parsed_row, "cost_only", False)
+                else IMPORT_ROW_UNMATCHED
+            ),
             notes_raw=parsed_row.notes_raw,
             order_number_hint=parsed_row.order_number_hint,
             invoice_amount=parsed_row.invoice_amount,
         )
+        if getattr(parsed_row, "cost_only", False):
+            # FIN-MD-06: wiersz z samą fakturą rozlicza wyłącznie pulę
+            # kosztową — do budżetów MD (per osoba i wspólnej puli) nie idzie.
+            cost_match = _match_cost_row(
+                row,
+                parsed_row=parsed_row,
+                cost_candidates=cost_candidates,
+                pending_invoices=pending_invoices,
+                invoice_orders=invoice_orders,
+                touched_groups=touched_groups,
+            )
+            if cost_match is not None:
+                cost_rows[cost_match.order.id].append(row)
+            db.add(row)
+            continue
 
         # Parser dochodzi tutaj wyłącznie po znalezieniu jawnie rozpoznanej
         # kolumny MD. Wspólna pula nie próbuje wyliczać dni z faktury, godzin
@@ -925,7 +946,12 @@ def _match_cost_row(
     """
     hints = extract_order_number_candidates(parsed_row.notes_raw)
     amount = parsed_row.invoice_amount
-    if not hints or amount is None or quantize_money(amount) <= Decimal("0"):
+    if hints and amount is not None and quantize_money(amount) <= Decimal("0"):
+        # FIN-MD-06: korekta faktury (kwota ≤ 0) nie znika po cichu — operator
+        # dostaje status do ręcznego rozliczenia.
+        row.cost_status = COST_ROW_NON_POSITIVE
+        return None
+    if not hints or amount is None:
         return None
 
     # Numer zamówienia nie jest globalnie unikalny (ani w bazie, ani między

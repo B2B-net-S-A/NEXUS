@@ -269,6 +269,17 @@ class ParsedRow:
     notes_raw: Optional[str] = None
     order_number_hint: Optional[str] = None
     invoice_amount: Optional[Decimal] = None
+    #: Audyt 22.09 r2 (FIN-MD-06): wiersz kosztowy BEZ liczby MD, ale z kwotą
+    #: faktury i numerem zamówienia w „Uwagach". Rozlicza wyłącznie pulę
+    #: kosztową — do budżetów MD nie trafia (``md_reported`` = 0).
+    cost_only: bool = False
+
+
+def _blank_md_cell(value: Any) -> bool:
+    """Pusta komórka MD (albo kreska) — nie „nieczytelna liczba"."""
+    if value is None:
+        return True
+    return str(value).strip() in ("", "-", "—", "–")
 
 
 @dataclass
@@ -281,6 +292,45 @@ class ParsedSheet:
     invoice_column: Optional[int] = None
     rows: list[ParsedRow] = field(default_factory=list)
     skipped_rows: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _cost_only_row(
+    cells: list,
+    *,
+    row_idx: int,
+    name: str,
+    md_raw: Any,
+    notes_col: Optional[int],
+    invoice_col: Optional[int],
+) -> Optional["ParsedRow"]:
+    """Wiersz faktury bez MD — tylko gdy komórka MD jest PUSTA, a wiersz ma
+    kwotę faktury i numer zamówienia (audyt 22.09 r2, FIN-MD-06).
+
+    Nieczytelny tekst w kolumnie MD dalej jest odrzucany: to literówka
+    w liczbie dni, a nie świadomie pusty wiersz kosztowy.
+    """
+    if not _blank_md_cell(md_raw) or invoice_col is None or notes_col is None:
+        return None
+    if invoice_col >= len(cells) or notes_col >= len(cells):
+        return None
+    notes_text = str(cells[notes_col] or "").strip() or None
+    hint = extract_order_number(notes_text)
+    invoice_value = parse_money_value(cells[invoice_col])
+    if (
+        hint is None
+        or invoice_value is None
+        or invoice_value_problem(invoice_value) is not None
+    ):
+        return None
+    return ParsedRow(
+        row_number=row_idx,
+        consultant_name=name,
+        md_reported=Decimal("0"),
+        notes_raw=notes_text,
+        order_number_hint=hint,
+        invoice_amount=invoice_value,
+        cost_only=True,
+    )
 
 
 class MdSheetFormatError(ValueError):
@@ -393,6 +443,17 @@ def parse_md_sheet(content: bytes) -> ParsedSheet:
                     )
                     continue
                 if md_value is None:
+                    cost_only_row = _cost_only_row(
+                        cells,
+                        row_idx=row_idx,
+                        name=name,
+                        md_raw=md_raw,
+                        notes_col=notes_col,
+                        invoice_col=invoice_col,
+                    )
+                    if cost_only_row is not None:
+                        parsed.rows.append(cost_only_row)
+                        continue
                     parsed.skipped_rows.append(
                         {
                             "row": row_idx,
