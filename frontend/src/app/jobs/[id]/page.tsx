@@ -8,6 +8,8 @@ import api, { jobChatApi, matchingApi } from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
 import { canEditJobContent, jobEditScope } from "@/lib/job-edit-access";
+import { placeStage } from "@/lib/board-stages";
+import { CproSenderBar } from "@/components/v2/jobs/CproSenderBar";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { KanbanBoardV2 } from "@/components/v2/pages/KanbanBoardV2";
 import { PipelineBoardGate } from "@/components/v2/jobs/PipelineBoardGate";
@@ -1025,6 +1027,18 @@ export default function JobDetailPage() {
       {showBoard && (
         <div>
           <ManagedInNexusBanner job={job} canSwitch={canEditJob} />
+          {job.cpro_enabled === true && (
+            // 0353: jedna osoba wysyła do Cpro wszystkich kandydatów procesu.
+            <CproSenderBar
+              jobId={jobId}
+              senderId={job.cpro_sender_id ?? null}
+              senderName={job.cpro_sender_name ?? null}
+              waiting={(kanban?.columns ?? [])
+                .filter((c: { name?: string | null; label?: string | null }) => placeStage(c).badge === "cpro")
+                .reduce((n: number, c: { items?: unknown[] }) => n + (c.items?.length ?? 0), 0)}
+              canChange={canEditJobContentFields}
+            />
+          )}
           <PipelineBoardGate
             state={kanbanViewState}
             hasData={Boolean(kanban)}

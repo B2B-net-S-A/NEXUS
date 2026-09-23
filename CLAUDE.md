@@ -2789,15 +2789,37 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   z etapem DZ; Delivery Lead widzi swój portfel + rekrutacje, w których jest
   DL-em, HoR i admin — wszystko), „Do wysłania do Cpro” i „Wysłane do Cpro”
   (Nordea: „CV wysłane” TO JEST wysłanie do Cpro — kolumna nazywa się tak
-  u Nordei, `foldBoardColumns(…, { cproEnabled })`). Osobę, która wysyła,
-  typuje się przy „Gotowy do Cpro” (`StageMove.task_assignee_id` →
-  `candidate_stages.task_assignee_id` na wierszu etapu Cpro; inny etap = 422);
-  osoba spoza zespołu rekrutacji zostaje dopisana jako collaborator, bo
-  inaczej dostałaby 403 przy własnym zadaniu. Zmiana osoby:
-  `PATCH /api/board-tasks/cpro/{stage_id}/assignee` (tylko bieżący wiersz, inaczej
-  409). „✓ DZ” z pulpitu to zwykły `/move` z wersją procesu — kolejka nie ma
+  u Nordei, `foldBoardColumns(…, { cproEnabled })`). **Do Cpro wysyła JEDNA
+  osoba na całą rekrutację** (0353, decyzja Artura 23.09.2026 — koryguje
+  „typujemy za każdym razem” z 22.09): `jobs.cpro_sender_id`, ustawiane
+  `PUT /api/board-tasks/cpro/jobs/{job_id}/sender` z paska „Do Cpro wysyła”
+  nad Tablicą (`CproSenderBar`) albo z grupy rekrutacji w kolejce (lista
+  „Do wysłania do Cpro” jest pogrupowana po rekrutacji, „Wysyłaj z
+  rekrutacji” prowadzi na Tablicę). Przełącznik „Gotowy do Cpro” w doku nie
+  pyta już o osobę. `candidate_stages.task_assignee_id` (0348) zostaje
+  zapasem, gdy rekrutacja nie ma osoby; `StageMove.task_assignee_id` ustawia
+  osobę dla rekrutacji (zgodność wstecz; inny etap niż Cpro = 422). Osoba
+  spoza zespołu zostaje dopisana jako collaborator (tylko przez role DZ).
+  „✓ DZ” z pulpitu to zwykły `/move` z wersją procesu — kolejka nie ma
   własnej ścieżki zapisu etapu. Rano (8–17, pierwszy tick) JEDEN dzwonek
-  `board_tasks_digest` na osobę; wytypowanie = dzwonek `cpro_send_assigned`.
+  `board_tasks_digest` na osobę; ustawienie osoby = dzwonek
+  `cpro_send_assigned` (encja: rekrutacja).
+- **Przegląd przed DZ (0353)** — „Sprawdź” przy osobie z kolejki DZ otwiera
+  `DzReviewDialog`: CV dla klienta (CV firmowe pary, sfinalizowane > szkic,
+  bez niego najnowsze gotowe CV z generatora), oryginał (snapshot etapu,
+  bez niego `raw_cv_text`) i zapytanie klienta (must/nice z
+  `requirements_for_job` w pisowni DL-a, opis, „O projekcie”). Trzy
+  sprawdzenia Dominika liczy KOD (`services/dz_review.py`): must-have w CV,
+  pogrubiony (bez pogrubień szablonu: nagłówek roli, etykiety „…:”), obecny
+  w każdej roli, w której jest w oryginale (role generatora po
+  `data-cv-section`, bez znaczników — po nazwach firm z `candidate.experience`).
+  Podpowiedzi GPT-6 Luny (`AIFeatureKey.dz_review`, F21) są doradcze:
+  awaria = `status: unavailable`, nigdy 5xx; wynik pamiętany w
+  `dz_review_hints` per (wiersz etapu, skrót wejścia z wersją promptu
+  i modelem), cytat spoza obu tekstów jest usuwany. Treść CV idzie do
+  przeglądarki jako bloki tekstu z flagą pogrubienia, nigdy HTML. Trasy
+  `GET …/dz/{stage_id}/review` i `POST …/dz/{stage_id}/hints` tylko dla ról DZ
+  z dostępem do rekrutacji. Harness `/preview/dz-review`.
 - **Filtry Tablicy = jeden pasek nad tablicą** (`PipelineFilterBar`) zamiast
   lewej kolumny: na wierzchu nazwisko i „Mój ruch" (owner następnego kroku =
   rekruter, ta sama `nextActionFor` co karta), reszta w „Filtry ▾" z licznikiem

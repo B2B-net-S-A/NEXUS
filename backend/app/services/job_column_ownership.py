@@ -81,6 +81,8 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         # 0341: „Mamy championa" — decyzja Delivery Leada w NEXUSIE.
         "champion_found_at",
         "champion_found_by",
+        # 0353: osoba wysyłająca do Cpro — ustawia ją zespół w NEXUSIE.
+        "cpro_sender_id",
         "needs_sourcing",
         "favorite_sourcing_paused",
         "description",

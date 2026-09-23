@@ -387,47 +387,51 @@ async def test_dz_then_cpro_assignment_then_sent_flows_through_the_queue(
         queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
         assert _rows(queue, "dz", cid) == []
 
-        # 2. Gotowy do Cpro z wytypowanym rekruterem spoza zespołu.
+        # 2. Gotowy do Cpro — bez typowania przy ruchu (0353: jedna osoba na
+        # rekrutację, ustawiana raz).
         ready = await api_client.post(
             "/api/pipeline/move",
             headers=hor,
-            json={
-                "candidate_id": cid,
-                "job_id": jid,
-                "stage_def_id": defs["cpro"],
-                "task_assignee_id": rec_id,
-            },
+            json={"candidate_id": cid, "job_id": jid, "stage_def_id": defs["cpro"]},
         )
         assert ready.status_code == 200, ready.text
-        assert ready.json()["task_assignee_id"] == rec_id
+        queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
+        todo = _rows(queue, "cpro_to_send", cid)
+        assert len(todo) == 1 and todo[0]["assignee_id"] is None
+        assert todo[0]["job_sender_id"] is None
+        assert todo[0]["target_stage_def_id"] == defs["cv_sent"]
+
+        # HoR ustawia rekrutera spoza zespołu jako osobę wysyłającą dla
+        # CAŁEJ rekrutacji — rekruter trafia do zespołu, żeby móc przesunąć kartę.
+        sender = await api_client.put(
+            f"/api/board-tasks/cpro/jobs/{jid}/sender",
+            headers=hor,
+            json={"assignee_id": rec_id},
+        )
+        assert sender.status_code == 200, sender.text
+        assert sender.json()["added_to_team"] is True
         async with AsyncSessionLocal() as db:
             collab = await db.scalar(
                 select(JobCollaborator.id).where(
                     JobCollaborator.job_id == jid, JobCollaborator.user_id == rec_id
                 )
             )
-        assert collab is not None, "wytypowany rekruter musi móc przesunąć kartę"
+        assert collab is not None, "osoba wysyłająca musi móc przesunąć kartę"
 
         rec_queue = (await api_client.get("/api/board-tasks", headers=rec)).json()
         todo = _rows(rec_queue, "cpro_to_send", cid)
-        assert len(todo) == 1
-        assert todo[0]["assignee_id"] == rec_id
-        assert todo[0]["target_stage_def_id"] == defs["cv_sent"]
+        assert len(todo) == 1 and todo[0]["assignee_id"] == rec_id
+        assert todo[0]["job_sender_id"] == rec_id and todo[0]["job_sender_name"]
 
-        kanban = (
-            await api_client.get(f"/api/pipeline/kanban/{jid}", headers=hor)
-        ).json()
-        cards = [
-            i for c in kanban["columns"] for i in c["items"] if i["candidate_id"] == cid
-        ]
-        assert cards[0]["task_assignee_id"] == rec_id
-        assert cards[0]["task_assignee_name"]
+        detail = (await api_client.get(f"/api/jobs/{jid}", headers=hor)).json()
+        assert detail["cpro_sender_id"] == rec_id
+        assert detail["cpro_sender_name"]
 
         # Rekruter z zespołu nie może wprowadzić do rekrutacji osoby spoza niej
         # (zespół zmienia admin / DL / HoR) — 422, bez zmian.
         outsider_id, _ = await _seed_user(UserRole.sourcer)
-        refused = await api_client.patch(
-            f"/api/board-tasks/cpro/{todo[0]['stage_id']}/assignee",
+        refused = await api_client.put(
+            f"/api/board-tasks/cpro/jobs/{jid}/sender",
             headers=rec,
             json={"assignee_id": outsider_id},
         )
@@ -442,16 +446,19 @@ async def test_dz_then_cpro_assignment_then_sent_flows_through_the_queue(
                 )
                 is None
             )
+            assert (await db.get(Job, jid)).cpro_sender_id == rec_id
 
-        # Zmiana osoby — HoR przejmuje.
-        swap = await api_client.patch(
-            f"/api/board-tasks/cpro/{todo[0]['stage_id']}/assignee",
+        # Zmiana osoby — HoR przejmuje całą rekrutację.
+        swap = await api_client.put(
+            f"/api/board-tasks/cpro/jobs/{jid}/sender",
             headers=hor,
             json={"assignee_id": hor_id},
         )
         assert swap.status_code == 200, swap.text
         rec_queue = (await api_client.get("/api/board-tasks", headers=rec)).json()
         assert _rows(rec_queue, "cpro_to_send", cid) == []
+        queue = (await api_client.get("/api/board-tasks", headers=hor)).json()
+        assert _rows(queue, "cpro_to_send", cid)[0]["assignee_id"] == hor_id
 
         # 3. Wysłane do Cpro = „CV wysłane" u Nordei.
         sent = await api_client.post(
@@ -462,14 +469,6 @@ async def test_dz_then_cpro_assignment_then_sent_flows_through_the_queue(
         assert sent.status_code == 200, sent.text
         rec_queue = (await api_client.get("/api/board-tasks", headers=rec)).json()
         assert len(_rows(rec_queue, "cpro_sent", cid)) == 1
-
-        # Zmiana osoby na nieaktualnym wierszu → 409.
-        stale = await api_client.patch(
-            f"/api/board-tasks/cpro/{todo[0]['stage_id']}/assignee",
-            headers=hor,
-            json={"assignee_id": rec_id},
-        )
-        assert stale.status_code == 409, stale.text
     finally:
         await _cleanup(world, [hor_id, rec_id])
 
@@ -514,6 +513,12 @@ async def test_cpro_queue_ignores_non_nordea_clients(
         assert _rows(queue, "cpro_sent", cid) == []
         # Wysłany do klienta nie czeka już na przegląd DL.
         assert _rows(queue, "dl_review", cid) == []
+        refused = await api_client.put(
+            f"/api/board-tasks/cpro/jobs/{jid}/sender",
+            headers=hor,
+            json={"assignee_id": hor_id},
+        )
+        assert refused.status_code == 409, refused.text
     finally:
         await _cleanup(world, [hor_id, dl_id])
 
@@ -665,3 +670,33 @@ async def test_nordea_keeps_dz_and_has_no_dl_review(
         assert _rows(queue, "dl_review", cid) == []
     finally:
         await _cleanup(world, [hor_id])
+
+
+@pytest.mark.asyncio
+async def test_assignee_on_ready_move_sets_the_sender_for_the_whole_job(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pole ruchu z 0348 zostaje zgodne wstecz: ustawia osobę dla rekrutacji."""
+
+    world = await _seed_world()
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", str(world["client_id"]))
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, _ = await _seed_user(UserRole.recruiter)
+    hor = await _login(api_client, hor_creds)
+    cid, jid, defs = world["candidate_id"], world["job_id"], world["defs"]
+    try:
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=hor,
+            json={
+                "candidate_id": cid,
+                "job_id": jid,
+                "stage_def_id": defs["cpro"],
+                "task_assignee_id": rec_id,
+            },
+        )
+        assert moved.status_code == 200, moved.text
+        async with AsyncSessionLocal() as db:
+            assert (await db.get(Job, jid)).cpro_sender_id == rec_id
+    finally:
+        await _cleanup(world, [hor_id, rec_id])

@@ -786,7 +786,7 @@ describe("simplified options", () => {
     setSourcingAccess("write");
     renderPage();
     await openUploadMode();
-    fireEvent.click(screen.getByRole("button", { name: "Wróć do generowania z procesu" }));
+    fireEvent.click(screen.getByRole("button", { name: "Z procesu w NEXUSie" }));
     expect(await screen.findByText("Krok 1 — Konsultant")).toBeInTheDocument();
   });
 });

@@ -133,6 +133,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.job_public_description: ("F20", "claude-sonnet-5"),
     # F21 — decyzja 23.09.2026: podpowiedzi odpowiedzi przy przepięciu.
     AIFeatureKey.screening_reassign_suggest: ("F21", "gpt-6-luna"),
+    # F22 — decyzja 23.09.2026: podpowiedzi dla zatwierdzającego DZ, jak F18.
+    AIFeatureKey.dz_review: ("F22", "gpt-6-luna"),
 }
 
 
@@ -157,7 +159,9 @@ def test_decision_table_covers_every_feature():
     [(k, v[0], v[1]) for k, v in DECISION_2026_09_16.items()],
     ids=[f"{v[0]}-{k.value}" for k, v in DECISION_2026_09_16.items()],
 )
-def test_defaults_match_the_2026_09_16_decision(monkeypatch, feature, function_id, expected):
+def test_defaults_match_the_2026_09_16_decision(
+    monkeypatch, feature, function_id, expected
+):
     """Każda funkcja dostaje model z decyzji Artura (ID F1–F15 z raportu)."""
     _clear_model_overrides(monkeypatch)
     assert ai_models.model_for(feature) == expected, function_id

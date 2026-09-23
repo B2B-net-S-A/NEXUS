@@ -79,6 +79,9 @@ class TestFeatureKeyEnum:
             "cv_factual_verification",
             # 0330: Jarvis — asystent-agent w shellu (zastępuje MINDY).
             "jarvis",
+            # 0353: podpowiedzi Luny w przeglądzie DZ (CV dla klienta
+            # porównane z oryginałem i zapytaniem klienta).
+            "dz_review",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

@@ -1344,12 +1344,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     }
   });
 
-  it("„Gotowy do Cpro” pyta, kto wyśle, i przesuwa z wytypowaną osobą; u Nordei kolumna to „Wysłane do Cpro”", async () => {
-    get.mockImplementation((url: string) =>
-      url === "/api/users"
-        ? Promise.resolve({ data: [{ id: 1, name: "Artur" }, { id: 44, name: "Marta Rekruter" }] })
-        : Promise.resolve({ data: {} }),
-    );
+  it("„Gotowy do Cpro” przesuwa od razu, bez pytania o osobę; u Nordei kolumna to „Wysłane do Cpro”", async () => {
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
     columns[2] = {
       ...columns[2],
@@ -1376,51 +1371,16 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
         name: /Gotowy do Cpro/,
       }),
     );
-    // Najpierw okno — bez ruchu.
-    const dialog = await screen.findByRole("dialog", { name: "Gotowy do Cpro" });
-    expect(post.mock.calls.some((c) => c[0] === "/api/pipeline/move")).toBe(false);
-    const select = within(dialog).getByLabelText("Wysyła");
-    await waitFor(() => expect(within(select).getByRole("option", { name: "Marta Rekruter" })).toBeTruthy());
-    await userEvent.selectOptions(select, "44");
-    await userEvent.click(within(dialog).getByRole("button", { name: "Oznacz „Gotowy do Cpro”" }));
+    // 0353: jedna osoba wysyła całą rekrutację — ruch bez okna i bez osoby.
     await waitFor(() =>
       expect(post.mock.calls.find((c) => c[0] === "/api/pipeline/move")?.[1]).toMatchObject({
         candidate_id: 8202,
         stage_def_id: 304,
-        task_assignee_id: 44,
       }),
     );
-  });
-
-  it("karta na etapie Cpro pokazuje, kto wysyła", async () => {
-    const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
-    columns[4] = {
-      ...columns[4],
-      count: 1,
-      items: [
-        {
-          id: 7402,
-          candidate_id: 8402,
-          stage: "new",
-          name: "Jan",
-          lastname: "Wysyłany",
-          days_in_stage: 1,
-          task_assignee_id: 44,
-          task_assignee_name: "Marta Rekruter",
-        },
-      ],
-    };
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={qc}>
-        <TooltipProvider>
-          <KanbanBoardV2 columns={columns as never} jobId={10} cproEnabled />
-        </TooltipProvider>
-      </QueryClientProvider>,
-    );
-    await screen.findByText("Jan Wysyłany");
-    const card = document.querySelector('[data-candidate-id="8402"]') as HTMLElement;
-    expect(within(card).getByText("Wysyła: Marta Rekruter")).toBeTruthy();
+    const body = post.mock.calls.find((c) => c[0] === "/api/pipeline/move")?.[1] as Record<string, unknown>;
+    expect(body.task_assignee_id).toBeUndefined();
+    expect(screen.queryByRole("dialog", { name: "Gotowy do Cpro" })).toBeNull();
   });
 
   it("osoba na etapie Cpro ma na karcie obie odznaki, a w doku „DZ” jest włączone", async () => {
