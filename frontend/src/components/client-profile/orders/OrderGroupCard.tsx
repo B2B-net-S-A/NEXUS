@@ -560,7 +560,11 @@ function OrderLineRow({
               Wymagana decyzja o pozostałej puli MD
               {line.offboarding_case.uses_shared_md_pool
                 ? " (wspólna pula pozostaje bez zmian)."
-                : "."}
+                : // Migawka sprawy idzie za rozliczeniami (import po zejściu
+                  // zmniejsza pulę), więc liczba jest stanem na dziś.
+                  line.offboarding_case.remaining_md_snapshot > 0
+                  ? `: pozostało ${formatMd(line.offboarding_case.remaining_md_snapshot)} MD.`
+                  : ": pula wykorzystana w całości (0 MD do przeniesienia)."}
             </p>
           ) : null}
           {completedCostLine ? (
@@ -1214,7 +1218,7 @@ export function OrderGroupCard({
   // pracujących. Sprawa wędruje teraz razem z wierszem do „Zakończone", a żeby
   // nie zniknęła z oczu, nagłówek tej sekcji niesie licznik decyzji.
   // Szkic przypisania należy do obsady także w OTWARTYM zamówieniu —
-  // „Powrót po przerwie" (0359) wprowadza osobę jako szkic do uzupełnienia,
+  // „Powrót po przerwie" (0363) wprowadza osobę jako szkic do uzupełnienia,
   // a zaplanowane zastępstwo (ticket 09.2026) czeka jako szkic w aktywnym
   // zamówieniu — oba należą do bieżącej obsady, nie do „Zakończonych".
   const isDraftLine = (line: OrderLineRead) =>

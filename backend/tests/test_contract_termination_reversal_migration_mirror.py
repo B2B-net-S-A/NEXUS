@@ -1,4 +1,4 @@
-"""0359: migawka zakończenia i powrót po przerwie mają lustro w entrypoincie.
+"""0363: migawka zakończenia i powrót po przerwie mają lustro w entrypoincie.
 
 Prod alembic bywa osierocony — `entrypoint.sh` JEST wdrożeniem. Bez lustra
 zakończenie kontraktu (zapis migawki) padałoby na UndefinedTable przy zielonym
@@ -13,7 +13,7 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parents[1]
 ENTRYPOINT = (BACKEND / "entrypoint.sh").read_text()
 MIGRATION = (
-    BACKEND / "alembic" / "versions" / "0359_contract_termination_reversal.py"
+    BACKEND / "alembic" / "versions" / "0363_contract_termination_reversal.py"
 ).read_text()
 
 
@@ -43,9 +43,9 @@ def test_every_named_object_in_the_migration_exists_in_the_entrypoint():
         assert name in ENTRYPOINT, name
 
 
-def test_migration_chains_after_0357():
-    assert 'revision = "0359_contract_termination_reversal"' in MIGRATION
-    assert 'down_revision = "0357_contract_orders_card_dismissed"' in MIGRATION
+def test_migration_chains_after_0361():
+    assert 'revision = "0363_contract_termination_reversal"' in MIGRATION
+    assert 'down_revision = "0361_cv_qc"' in MIGRATION
 
 
 def test_one_shot_repair_runs_at_startup_without_names_in_the_log():

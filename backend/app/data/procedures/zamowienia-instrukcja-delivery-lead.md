@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 23.09.2026
+> **Zgodność z systemem sprawdzona:** 24.09.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1300,6 +1300,21 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   „Wymaga przypisania"** i system czeka, aż człowiek wskaże właściwe zamówienie.
   Nie zgaduje, bo trafienie w złe zamówienie odejmuje dni nie temu klientowi
   i wychodzi dopiero na fakturze.
+* **Numer zamówienia w „Uwagach" jest wiążący u każdego klienta.** Wiersz
+  z numerem trafia **wyłącznie** na zamówienie o tym numerze — także gdy ta
+  sama osoba ma w tym miesiącu dwa zamówienia (stare kończy się 14.08, nowe
+  zaczyna 15.08: dwa wiersze, każdy na swoje zamówienie, bez nadpisywania).
+  Nadwyżka ponad budżet zostaje wtedy na wskazanym zamówieniu (widać ją na
+  czerwono), a nie przechodzi na przedłużenie. Gdy tej osoby nie ma na
+  wskazanym zamówieniu w tym miesiącu (numer z literówką, zamówienia nie ma
+  w NEXUSIE, okres go nie obejmuje), wiersz zostaje **„Brak pasującego
+  zamówienia" z opisem przyczyny** i nie zmienia żadnego zamówienia. Za
+  numer uznawany jest ciąg cyfr znany jako numer zamówienia **klienta tej
+  osoby**, a u klientów z numerami z samych cyfr (BIK, Polkomtel) także każdy
+  ciąg dłuższy niż 6 cyfr. Dopisek „w tym delegacja 318", rok, NIP czy numer
+  zamówienia innego klienta nie blokuje dopasowania po nazwisku. Ponowny
+  import miesiąca z numerem cofa nadwyżkę przeniesioną wcześniej na
+  przedłużenie — te same MD nie liczą się dwa razy.
 * **Zakończenie współpracy konsultanta nie wyklucza go z importu.** Liczy się
   okres, w którym obsadzał zamówienie — raport za sierpień wgrany we wrześniu
   trafi w osobę, która zeszła 31 sierpnia, i doliczy jej MD. Gdy ta sama osoba
@@ -1317,10 +1332,10 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   „Uwagi"**. Bez numeru (albo gdy numer pasuje do kilku zamówień) **z puli nie
   schodzi ani jeden dzień**, a wiersz zostaje niedopasowany. To najczęstsza
   przyczyna „import przeszedł, a budżet stoi w miejscu".
-* **U Polkomtela numer z „Uwag" jest rozstrzygający.** Jeżeli wiersz go niesie
-  i pasuje do zamówienia Polkomtela — decyduje numer, nie nazwisko; jeżeli nie
-  pasuje, system **nie wraca do dopasowania po nazwisku**, tylko zostawia wiersz
-  niedopasowany. U BNP i BIK obowiązuje samo nazwisko.
+* **U Polkomtela każdy ciąg cyfr z „Uwag" jest rozstrzygający** (także krótki).
+  Jeżeli pasuje do zamówienia Polkomtela — decyduje numer, nie nazwisko; jeżeli
+  nie pasuje, system **nie wraca do dopasowania po nazwisku**, tylko zostawia
+  wiersz niedopasowany.
 * **Wiersz z liczbą MD ujemną, większą niż 1000 albo nieliczbową („NaN”)
   jest odrzucany** i trafia do pominiętych wierszy z numerem i powodem — nie
   zmienia żadnego budżetu. To samo dotyczy nieczytelnej kwoty faktury
@@ -1328,6 +1343,10 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   ponownie.
 * **Powtórny import tego samego miesiąca nadpisuje** poprzednie zużycie — MD nie
   odejmą się drugi raz.
+* **Ręczne przypisanie też musi zgadzać się z numerem z „Uwag"** — wiersz
+  z numerem 4500029903 nie da się przypisać do innego zamówienia. Dwa wiersze
+  tej samej paczki przypisane do dwóch kolejnych zamówień tej osoby nie
+  nadpisują się nawzajem.
 * **Ale błędne przypisanie wiersza jest nieodwracalne.** Wiersz raz rozstrzygnięty
   nie da się przypisać ponownie, a ponowny import miesiąca tego nie naprawia — MD
   wpisane omyłkowo na złą linię tam zostają. Jeżeli operator z Finansów pyta,

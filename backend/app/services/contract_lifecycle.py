@@ -505,7 +505,7 @@ async def reopen_contract(
     if supersede_termination_snapshot:
         # Przedłużenie/aneks wskrzesza współpracę NOWYMI zamówieniami — stan
         # sprzed zakończenia przestał opisywać to, do czego da się wrócić
-        # (0359). Zwykła zmiana statusu z rejestru zamówień nie rusza, więc
+        # (0363). Zwykła zmiana statusu z rejestru zamówień nie rusza, więc
         # tam migawka zostaje otwarta i „Cofnij zakończenie" nadal ją widzi.
         from app.services.contract_termination_snapshot import (
             supersede_open_snapshot,

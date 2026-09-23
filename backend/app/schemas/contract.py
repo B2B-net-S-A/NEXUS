@@ -390,7 +390,7 @@ class ContractResponse(BaseModel):
     termination_reason: Optional[ContractTerminationReason] = None
     termination_lessons: Optional[str] = None
     terminated_at: Optional[date] = None
-    # „Powrót po przerwie" (0359) — nowy kontrakt wskazuje poprzedni.
+    # „Powrót po przerwie" (0363) — nowy kontrakt wskazuje poprzedni.
     returned_from_contract_id: Optional[int] = None
     # Per-klient rejestr (migracja 0138)
     project_code: Optional[str] = None
@@ -539,7 +539,7 @@ class ContractDetailResponse(ContractResponse):
     # widocznych dla wołającego (scope Delivery Leada). FE renderuje z nich
     # przełącznik zakładek nazwanych po kliencie („pracuje u N klientów").
     related_contracts: list[ContractSiblingRef] = []
-    # Cofnięcie zakończenia i powrót po przerwie (0359). Flagi mówią o STANIE
+    # Cofnięcie zakończenia i powrót po przerwie (0363). Flagi mówią o STANIE
     # kontraktu; o tym, czy użytkownik może akcję wykonać, decyduje rola
     # (Admin, Finanse, Talent Community Manager).
     can_reverse_termination: bool = False

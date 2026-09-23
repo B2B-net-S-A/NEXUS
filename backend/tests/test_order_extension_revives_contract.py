@@ -254,7 +254,7 @@ async def test_daily_reconciler_catches_up_after_a_missed_day_but_skips_cutover_
             self.added.append(value)
 
         async def scalar(self, _statement):
-            # Wskrzeszenie zamyka otwartą migawkę zakończenia (0359) — tu jej nie ma.
+            # Wskrzeszenie zamyka otwartą migawkę zakończenia (0363) — tu jej nie ma.
             return None
 
     db = _FakeDb()

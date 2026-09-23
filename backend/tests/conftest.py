@@ -262,6 +262,20 @@ def _no_background_cv_generation_after_moves(monkeypatch):
     monkeypatch.setattr(settings, "CV_AUTO_GENERATE_ON_VERIFIED", False)
 
 
+# ── QC CV — bramka przed „CV wysłane”/Cpro (Rekrutacja v5, 0361) ────────────
+
+
+@pytest.fixture(autouse=True)
+def _cv_qc_gate_off_by_default(monkeypatch):
+    """Dziesiątki testów przesuwają kartę na „CV wysłane” bez CV firmowego.
+
+    Bramka QC odmówiłaby każdemu z nich 409 — testują co innego (stawkę DL,
+    Cpro, przepięcia). Testy bramki (`test_cv_qc.py`) włączają ją jawnie.
+    """
+
+    monkeypatch.setattr(settings, "CV_QC_GATE_ENABLED", False)
+
+
 # ── Polkomtel: klientowa normalizacja numerów Finansów ─────────────────────
 
 

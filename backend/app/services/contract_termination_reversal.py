@@ -10,9 +10,9 @@ ruszało (poza pulą, o której decyzja BLOKUJE cofnięcie).
 
 Dwa źródła stanu „przed":
 
-* **migawka** (``contract_termination_snapshots``, od 0359) — zapisana przy
+* **migawka** (``contract_termination_snapshots``, od 0363) — zapisana przy
   zakończeniu, dokładna;
-* **historia** — zakończenia sprzed 0359. Datę końca przypisania bierzemy
+* **historia** — zakończenia sprzed 0363. Datę końca przypisania bierzemy
   z dziennika zmian zamówień (``order_change_events``: wpis „stara data →
   data zakończenia"); gdy go brak, z daty końca zamówienia (grupy), na którym
   jest konsultant. Zamówienie okresowe bez śladu w dzienniku jest POMIJANE
@@ -348,7 +348,7 @@ async def _history_end_dates(
 
 
 async def _plan_from_history(db: AsyncSession, plan: ReversalPlan) -> None:
-    """Zakończenie sprzed 0359: stan „przed" z historii zmian przypisania."""
+    """Zakończenie sprzed 0363: stan „przed" z historii zmian przypisania."""
 
     contract = plan.contract
     terminated_on = plan.terminated_on

@@ -1,17 +1,22 @@
-// Kolejka „Czeka na Ciebie" (0348, 0353) — praca na Tablicach, której nikt nie widzi.
+// Kolejka „Czeka na Ciebie" (0348, Rekrutacja v5) — praca na Tablicach, której
+// nikt nie widzi.
 //
-// Typy są lustrem `backend/app/api/board_tasks.py`. Serwer rozstrzyga, co
-// należy do danej osoby (DZ: Delivery Lead w swoim portfelu, Head of
-// Recruitment wszędzie; Cpro: osoba ustawiona dla CAŁEJ rekrutacji). Front
-// tylko pokazuje i woła zwykły ruch w pipeline — bez własnej ścieżki zapisu
-// etapu.
+// Typy są lustrem `backend/app/api/board_tasks.py` i kontraktu
+// `docs/recruitment-v5-contract.md`. Serwer rozstrzyga, co należy do danej
+// osoby (przegląd DL: osoby w kolumnie „QC CV" poza Nordeą; Cpro: JEDNA osoba
+// na całą firmę, decyzja Artura 23.09.2026). Front tylko pokazuje i woła
+// zwykły ruch w pipeline — bez własnej ścieżki zapisu etapu. Przegląd DZ
+// (0353) zastąpiło QC CV (`lib/api/cvQc.ts`).
 
 import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 
-export type BoardTaskKind = "dz" | "cpro_to_send" | "cpro_sent" | "dl_review";
+export type BoardTaskKind = "cpro_to_send" | "cpro_sent" | "dl_review";
+
+/** Wynik QC CV pary (najnowszy przebieg) — lustro `qc_status` z serwera. */
+export type QcStatus = "passed" | "failed" | "overridden" | "unchecked";
 
 export interface BoardTaskRow {
   kind: BoardTaskKind;
@@ -24,7 +29,7 @@ export interface BoardTaskRow {
   client_name: string | null;
   since: string;
   process_state_version: number;
-  /** Etap, na który prowadzi akcja (DZ, „Wysłane do Cpro", a przy przeglądzie
+  /** Etap, na który prowadzi akcja („Wysłane do Cpro", a przy przeglądzie
    *  DL — „CV wysłane"). */
   target_stage_def_id: number | null;
   assignee_id: number | null;
@@ -41,23 +46,20 @@ export interface BoardTaskRow {
   expected_rate_currency?: string | null;
   /** Wiersz etapu z zapisanym arkuszem screeningu (zwykle „Screening"). */
   screening_stage_id?: number | null;
-  /** 0353: osoba ustawiona dla CAŁEJ rekrutacji (`jobs.cpro_sender_id`). */
-  job_sender_id?: number | null;
-  job_sender_name?: string | null;
+  /** v5: wynik QC CV (przegląd DL = osoby w kolumnie „QC CV"). */
+  qc_status?: QcStatus | null;
+  qc_blocking_failed?: number | null;
 }
 
 export interface BoardTasksResponse {
-  dz: BoardTaskRow[];
   cpro_to_send: BoardTaskRow[];
   cpro_sent: BoardTaskRow[];
-  // Pola Pipeline v4 serwer wysyła zawsze; opcjonalne w typie, bo harness
-  // `/preview/custom-dashboard` zasiewa kolejkę sprzed v4 (panel traktuje
+  // Pola Pipeline v4 serwer wysyła zawsze; opcjonalne w typie (panel traktuje
   // brak jak pustą listę / bramkę z ról).
-  /** Pipeline v4: zweryfikowani poza Nordeą czekający na przegląd DL. */
+  /** v5: osoby w kolumnie „QC CV" poza Nordeą czekające na przegląd DL. */
   dl_review?: BoardTaskRow[];
   window_days: number;
   dl_review_window_days?: number;
-  can_approve_dz: boolean;
   /** Ruch na „CV wysłane" ze stawką do klienta — admin i Delivery Lead. */
   can_send_to_client?: boolean;
 }
@@ -75,180 +77,99 @@ export function useBoardTasks() {
   });
 }
 
-/** Jedna osoba wysyła do Cpro kandydatów całej rekrutacji (decyzja 23.09.2026). */
-export function setCproSender(jobId: number, assigneeId: number) {
-  return api
-    .put<{ job_id: number; assignee_id: number; assignee_name: string | null; added_to_team: boolean }>(
-      `/api/board-tasks/cpro/jobs/${jobId}/sender`,
-      { assignee_id: assigneeId }
-    )
-    .then((r) => r.data);
+// ── Cpro: jedna osoba na firmę (v5) ─────────────────────────────────────────
+
+export interface CproSender {
+  /** `null` = nikt nie jest ustawiony. */
+  user_id: number | null;
+  user_name: string | null;
+  /** Zastępstwo do tego dnia (ISO), potem wraca `fallback_*`. */
+  until: string | null;
+  fallback_user_id: number | null;
+  fallback_user_name: string | null;
+  set_by_name: string | null;
+  set_at: string | null;
+}
+
+export interface CproQueueItem {
+  stage_id: number;
+  candidate_id: number;
+  candidate_name: string;
+  since: string;
+  process_state_version: number;
+  /** Etap „Wysłane do Cpro" — cel „✓ Wrzucone". */
+  target_stage_def_id: number | null;
+  /** Etap „QC CV" — cel „Zwróć do rekrutera". */
+  return_stage_def_id: number | null;
+  client_rate_value: number | null;
+  client_rate_unit: "hourly" | "daily" | "monthly" | null;
+  client_rate_currency: string | null;
+  availability: string | null;
+  qc_status: QcStatus | null;
+  cv: { generated_document_id: number | null; document_id: number | null } | null;
+}
+
+export interface CproQueueJob {
+  job_id: number;
+  job_title: string;
+  client_name: string | null;
+  oldest_since: string;
+  items: CproQueueItem[];
+}
+
+export interface CproQueueResponse {
+  sender: CproSender;
+  jobs: CproQueueJob[];
+  sent_today: number;
+}
+
+export const CPRO_SENDER_QUERY_KEY = ["board-tasks", "cpro", "sender"] as const;
+export const CPRO_QUEUE_QUERY_KEY = ["board-tasks", "cpro", "queue"] as const;
+
+export function useCproSender(enabled = true) {
+  return useQuery<CproSender>({
+    queryKey: CPRO_SENDER_QUERY_KEY,
+    queryFn: () => api.get<CproSender>("/api/board-tasks/cpro/sender").then((r) => r.data),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useCproQueue(enabled = true) {
+  return useQuery<CproQueueResponse>({
+    queryKey: CPRO_QUEUE_QUERY_KEY,
+    queryFn: () => api.get<CproQueueResponse>("/api/board-tasks/cpro/queue").then((r) => r.data),
+    enabled,
+    // Ruch z okna unieważnia kolejkę sam; odpytywanie to siatka bezpieczeństwa.
+    refetchInterval: enabled ? WS_BACKED_SAFETY_POLL_MS : false,
+  });
+}
+
+/** Osoba od Cpro dla CAŁEJ firmy; `until` = zastępstwo (potem wraca poprzednia). */
+export function setCproSender(body: { user_id: number; until: string | null }) {
+  return api.put<CproSender>("/api/board-tasks/cpro/sender", body).then((r) => r.data);
 }
 
 export interface CproJobGroup {
   job_id: number;
   job_title: string;
   client_name: string | null;
-  /** Osoba ustawiona dla rekrutacji — nigdy typowanie jednego kandydata. */
-  assignee_id: number | null;
-  assignee_name: string | null;
-  /** Typowania per kandydat sprzed 0353, gdy rekrutacja nie ma jeszcze osoby. */
-  legacy_assignees: string[];
   /** Najdłużej czekający na górze — ta sama kolejność co lista z serwera. */
   rows: BoardTaskRow[];
 }
 
-/** „Do wysłania do Cpro" pogrupowane po rekrutacji — osoba jest per rekrutacja. */
+/** „Do wrzucenia do Cpro" pogrupowane po rekrutacji — jedna linia na proces. */
 export function groupCproByJob(rows: BoardTaskRow[]): CproJobGroup[] {
   const groups = new Map<number, CproJobGroup>();
   for (const row of rows) {
     let group = groups.get(row.job_id);
     if (!group) {
-      group = {
-        job_id: row.job_id,
-        job_title: row.job_title,
-        client_name: row.client_name,
-        assignee_id: row.job_sender_id ?? null,
-        assignee_name: row.job_sender_name ?? null,
-        legacy_assignees: [],
-        rows: [],
-      };
+      group = { job_id: row.job_id, job_title: row.job_title, client_name: row.client_name, rows: [] };
       groups.set(row.job_id, group);
     }
     group.rows.push(row);
-    if (group.assignee_id == null && row.assignee_name && !group.legacy_assignees.includes(row.assignee_name)) {
-      group.legacy_assignees.push(row.assignee_name);
-    }
   }
   return [...groups.values()];
-}
-
-// ── Przegląd DZ (0353) ──────────────────────────────────────────────────────
-
-export interface DzCvRun {
-  t: string;
-  b: boolean;
-}
-
-export interface DzCvBlock {
-  kind: "h" | "p" | "li";
-  section: string | null;
-  runs: DzCvRun[];
-}
-
-export interface DzCheck {
-  label: string;
-  /** Frazy szukane w CV: nazwa bez opisu po myślniku i bez nawiasów. */
-  terms?: string[];
-  in_cv: boolean;
-  /** `null` = pogrubień nie da się odczytać (CV dla klienta z PDF-a). */
-  bolded: boolean | null;
-  in_original: boolean;
-  original_roles: string[];
-  missing_in_roles: string[];
-  roles_absent: string[];
-}
-
-export interface DzReview {
-  stage_id: number;
-  candidate_id: number;
-  candidate_name: string;
-  job_id: number;
-  job_title: string;
-  client_name: string | null;
-  client_request: {
-    must: string[];
-    nice: string[];
-    description: string | null;
-    project_about: string | null;
-  };
-  generated_cv: {
-    /** `document` = plik „…B2B…" kandydata (CV zrobione poza generatorem). */
-    source: "branded_finalized" | "branded_draft" | "generated" | "document";
-    stage_id: number | null;
-    generated_document_id: number | null;
-    document_id?: number | null;
-    filename?: string | null;
-    bold_known?: boolean;
-    updated_at: string | null;
-    blocks: DzCvBlock[];
-  } | null;
-  original_cv: {
-    source: "snapshot" | "profile_text" | null;
-    stage_id: number | null;
-    filename: string | null;
-    text: string | null;
-  };
-  checks: DzCheck[];
-  extra_bold: string[];
-  summary: {
-    must_total: number;
-    must_in_cv: number;
-    must_bolded: number;
-    roles_missing: number;
-    generated_roles: number;
-    /** `false` = w CV dla klienta nie rozpoznano ról — sprawdź ręcznie. */
-    roles_checked?: boolean;
-    bold_known?: boolean;
-  };
-}
-
-export interface DzHint {
-  kind: string;
-  severity: "high" | "medium" | "low";
-  must_have: string | null;
-  message: string;
-  quote: string | null;
-}
-
-export interface DzHints {
-  status: "ok" | "unavailable" | "no_cv";
-  verdict: "ok" | "fix" | null;
-  hints: DzHint[];
-  model: string | null;
-  cached: boolean;
-}
-
-export const dzReviewQueryKey = (stageId: number) => ["dz-review", stageId] as const;
-/** Podpowiedzi należą do TREŚCI przeglądu: CV poprawione na Tablicy daje nowy
- *  klucz, więc stare „Brak must-have X" nie stoi obok CV, które już ma X. */
-export function dzHintsSignature(review: DzReview | undefined): string {
-  if (!review) return "";
-  const cv = review.generated_cv;
-  const words = (cv?.blocks ?? []).reduce((n, b) => n + b.runs.reduce((m, r) => m + r.t.length, 0), 0);
-  return [
-    cv?.source ?? "none",
-    cv?.generated_document_id ?? cv?.document_id ?? "",
-    cv?.updated_at ?? "",
-    words,
-    review.original_cv.stage_id ?? review.original_cv.source ?? "",
-    review.client_request.must.join("|"),
-  ].join(":");
-}
-
-export const dzHintsQueryKey = (stageId: number, signature: string) =>
-  ["dz-review", stageId, "hints", signature] as const;
-
-export function useDzReview(stageId: number | null) {
-  return useQuery<DzReview>({
-    queryKey: dzReviewQueryKey(stageId ?? 0),
-    queryFn: () => api.get<DzReview>(`/api/board-tasks/dz/${stageId}/review`).then((r) => r.data),
-    enabled: stageId != null,
-    // Z okna idzie się na Tablicę poprawić CV — po powrocie zawsze świeży odczyt.
-    staleTime: 0,
-    refetchOnMount: "always",
-  });
-}
-
-/** Podpowiedzi Luny — POST, bo pierwszy odczyt danej treści CV płaci za model;
- *  serwer pamięta wynik per treść, więc ponowne otwarcie nic nie kosztuje. */
-export function useDzHints(stageId: number | null, review: DzReview | undefined, enabled: boolean) {
-  return useQuery<DzHints>({
-    queryKey: dzHintsQueryKey(stageId ?? 0, dzHintsSignature(review)),
-    queryFn: () => api.post<DzHints>(`/api/board-tasks/dz/${stageId}/hints`).then((r) => r.data),
-    enabled: stageId != null && review != null && enabled,
-    staleTime: Infinity,
-  });
 }
 
 export interface AssigneeOption {

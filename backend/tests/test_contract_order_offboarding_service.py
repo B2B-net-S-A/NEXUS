@@ -75,7 +75,7 @@ class _FakeDb:
         self.added.append(value)
 
     async def scalar(self, *_args, **_kwargs):
-        # Migawka zakończenia (0359): brak otwartego wiersza epizodu.
+        # Migawka zakończenia (0363): brak otwartego wiersza epizodu.
         return None
 
     async def get(self, *_args, **_kwargs):
@@ -178,7 +178,7 @@ async def test_future_effective_date_only_clips_periods_and_cancels_not_started(
         assert order.end_date == effective
     ensure_case.assert_not_awaited()
     emit_alert.assert_not_awaited()
-    # Jedyny zapis to migawka stanu sprzed zakończenia (0359) — bez zdarzeń
+    # Jedyny zapis to migawka stanu sprzed zakończenia (0363) — bez zdarzeń
     # i alertów, bo żadne zamówienie jeszcze się nie zakończyło.
     snapshots = [
         item for item in db.added if isinstance(item, ContractTerminationSnapshot)

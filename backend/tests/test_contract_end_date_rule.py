@@ -204,7 +204,7 @@ async def test_revival_by_live_order_makes_the_contract_indefinite():
             self.added.append(value)
 
         async def scalar(self, _statement):
-            # Otwarta migawka zakończenia (0359) — tu jej nie ma.
+            # Otwarta migawka zakończenia (0363) — tu jej nie ma.
             return None
 
     db = _Db()

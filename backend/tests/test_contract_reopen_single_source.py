@@ -38,7 +38,7 @@ class _CollectingDB:
         self.added.append(obj)
 
     async def scalar(self, *_args: object, **_kwargs: object) -> None:
-        # Wskrzeszenie zamyka otwartą migawkę zakończenia (0359) — tu jej nie ma.
+        # Wskrzeszenie zamyka otwartą migawkę zakończenia (0363) — tu jej nie ma.
         return None
 
 

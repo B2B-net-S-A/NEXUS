@@ -2031,7 +2031,7 @@ export const contractsApi = {
     api.delete(`/api/contracts/${contractId}/documents/${documentId}`),
   terminate: (id: number, payload: ContractTerminateRequest) =>
     api.post(`/api/contracts/${id}/terminate`, payload),
-  // „Cofnij zakończenie" (pomyłka) — podgląd i wykonanie (0359).
+  // „Cofnij zakończenie" (pomyłka) — podgląd i wykonanie (0363).
   terminationReversalPreview: (id: number) =>
     api.get<ContractTerminationReversalPlan>(
       `/api/contracts/${id}/termination-reversal`,

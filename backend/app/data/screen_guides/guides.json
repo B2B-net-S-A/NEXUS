@@ -56,16 +56,16 @@
     "title": "Tablica rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "sourcer", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 6 kolumn: Nowi, Zweryfikowany, CV wysłane, Rozmowa u klienta, Umowa i Zatrudniony.",
+    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Umowa i Zatrudniony.",
     "tasks": [
       {
         "q": "Jak przesunąć kandydata dalej?",
-        "a": "Przeciągnij kartę do następnej kolumny albo kliknij kartę i w doku osoby użyj „Przenieś na etap: …”. Przy „Zweryfikowany” system zapyta o stawkę (możesz ją pominąć).",
+        "a": "Kliknij strzałkę „→” na karcie. Otworzy się okno „Przesuń dalej” z listą tego, czego brakuje do następnego etapu, i przyciskami, które te braki uzupełniają. Możesz też przeciągnąć kartę — na sąsiednią kolumnę bez braków przesunie się od razu.",
         "anchor": "jobs.board.columns"
       },
       {
-        "q": "Skąd biorą się propozycje na górze kolumny Nowi?",
-        "a": "To „Propozycje · z bazy i przepięcia”: osoby dobrane automatycznie z bazy i przepięte z podobnych rekrutacji. „Biorę” dodaje osobę do Nowych i rezerwuje ją dla Ciebie na 12 godzin.",
+        "q": "Jak dodać kandydatów z bazy?",
+        "a": "Kliknij „Dodaj kandydatów” w nagłówku albo „Znajdź w bazie (AI)” na górze kolumny Nowi. Panel ma cztery zakładki: wyszukiwanie AI według profilu Championa, propozycje z nocnego przeglądu, Moi ludzie i dodanie po nazwisku lub z pliku CV. Zaznaczeni trafiają do Nowych i są przez 12 godzin zarezerwowani dla Ciebie.",
         "anchor": "jobs.board.review"
       },
       {
@@ -82,11 +82,12 @@
     "pitfalls": [
       "„CV wysłane” poza Nordeą ustawia tylko Delivery Lead albo admin, podając w tym samym kroku stawkę do klienta.",
       "Wyjście z „Rozmowy u klienta” wymaga debriefu: pytań klienta albo potwierdzenia, że ich nie było.",
-      "Osobę dodaną ręcznie do Nowych przez 12 godzin prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
+      "Bez zielonego QC CV kandydat nie przejdzie na „CV wysłane” ani do kolejki Cpro (u Nordei wrzuca osoba od Cpro wyznaczona dla całej firmy). Przepuścić mimo QC może Delivery Lead albo admin, podając powód.",
+      "Osobę dodaną ręcznie przez 12 godzin (w Nowych i Screeningu) prowadzi tylko osoba, która ją wzięła — przejąć mogą Delivery Lead, Head of Recruitment i admin."
     ],
     "anchors": [
-      {"id": "jobs.board.columns", "label": "Kolumny tablicy", "describe": "Sześć kolumn etapów — przeciągaj karty między nimi."},
-      {"id": "jobs.board.review", "label": "Propozycje z bazy", "describe": "Propozycje i przepięcia na górze kolumny Nowi, z przyciskiem „Biorę”."},
+      {"id": "jobs.board.columns", "label": "Kolumny tablicy", "describe": "Osiem kolumn etapów — strzałka „→” na karcie albo przeciąganie."},
+      {"id": "jobs.board.review", "label": "Propozycje z bazy", "describe": "Propozycje z bazy i „Znajdź w bazie (AI)” na górze kolumny Nowi."},
       {"id": "jobs.board.filters", "label": "Pasek filtrów tablicy", "describe": "Szukanie po nazwisku, „Mój ruch” i pozostałe filtry."},
       {"id": "jobs.board.closed", "label": "Zamknięci", "describe": "Chipy: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."}
     ],
@@ -163,8 +164,8 @@
         "anchor": "jobs.person.note"
       },
       {
-        "q": "Co to są odznaki etapu (np. DZ ✓, Prep)?",
-        "a": "To etapy pomocnicze, które nie mają własnej kolumny. Włączasz je przełącznikami w karcie; „DZ ✓” zatwierdzają admin, Delivery Lead i Head of Recruitment.",
+        "q": "Co to są odznaki etapu (np. Prep, Umowa podpisana)?",
+        "a": "To etapy pomocnicze, które nie mają własnej kolumny — pokazują się na karcie. „Umowa podpisana” włączasz przełącznikiem w karcie. Kontrolę CV robi teraz kolumna „QC CV”.",
         "anchor": "jobs.person.badges"
       }
     ],
@@ -174,7 +175,7 @@
     "anchors": [
       {"id": "jobs.person.dock", "label": "Karta kandydata", "describe": "Panel osoby wysuwany z prawej po kliknięciu karty."},
       {"id": "jobs.person.actions", "label": "Akcje etapu", "describe": "Przenieś na etap, Inny etap, Odrzuć z powodem, Zrezygnował."},
-      {"id": "jobs.person.badges", "label": "Odznaki etapu", "describe": "Przełączniki etapów pomocniczych, np. DZ ✓, Prep."},
+      {"id": "jobs.person.badges", "label": "Odznaki etapu", "describe": "Etapy pomocnicze, np. Prep, Umowa podpisana."},
       {"id": "jobs.person.note", "label": "Szybka notatka", "describe": "Pole notatki na dole karty."}
     ],
     "help_slug": null,
@@ -534,7 +535,7 @@
       },
       {
         "q": "Jak zaimportować raport zużycia MD?",
-        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Wiersze dopasowane do jednej osoby schodzą z budżetu, niejednoznaczne czekają na wskazanie zamówienia.",
+        "a": "W „Import zużycia MD” wgraj miesięczny XLSX i wybierz miesiąc. Wiersze dopasowane do jednej osoby schodzą z budżetu, niejednoznaczne czekają na wskazanie zamówienia. Numer zamówienia w „Uwagach” jest wiążący: wiersz trafia tylko na to zamówienie, a gdy się nie da — dostaje „Brak pasującego zamówienia” z przyczyną.",
         "anchor": "finance.md_import"
       },
       {

@@ -85,7 +85,7 @@ export interface OrderLineRead {
   contract_id: number;
   candidate_id: number | null;
   consultant_name: string;
-  // Kontrakt z „Powrotu po przerwie" (0359) wskazuje poprzedni.
+  // Kontrakt z „Powrotu po przerwie" (0363) wskazuje poprzedni.
   returned_from_contract_id?: number | null;
   job_id: number | null;
   job_title: string | null;
@@ -589,6 +589,9 @@ export interface ImportRow {
   matched: ImportLineOption | null;
   options: ImportLineOption[];
   resolved_at: string | null;
+  /** Dlaczego wiersz z numerem zamówienia nie trafił na żadną linię
+   * (ticket 23.09.2026); `null` = wiersz bez numeru albo dopasowany. */
+  status_reason?: string | null;
   notes_raw: string | null;
   order_number_hint: string | null;
   invoice_amount: number | null;
