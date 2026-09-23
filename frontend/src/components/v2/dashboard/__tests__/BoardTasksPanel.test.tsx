@@ -278,6 +278,39 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     await waitFor(() => expect(post.mock.calls.filter((c) => c[0] === "/api/board-tasks/dz/11/hints")).toHaveLength(2));
   });
 
+  it("przegląd DZ z CV z pliku Traffita: nazwa pliku, PDF bez pogrubień, role do ręcznego sprawdzenia", async () => {
+    get.mockImplementation((url: string) => {
+      if (url === "/api/board-tasks")
+        return Promise.resolve({ data: { window_days: 14, can_approve_dz: true, dz: [row("dz")], cpro_to_send: [], cpro_sent: [] } });
+      if (url === "/api/board-tasks/dz/11/review")
+        return Promise.resolve({
+          data: {
+            stage_id: 11, candidate_id: 21, candidate_name: "Anna Nowak", job_id: 31, job_title: "Java Developer", client_name: "Nordea",
+            client_request: { must: ["Java"], nice: [], description: null, project_about: null },
+            generated_cv: {
+              source: "document", stage_id: null, generated_document_id: null, document_id: 5, filename: "Anna_B2B_Nordea.pdf",
+              bold_known: false, updated_at: null, blocks: [{ kind: "p", section: null, runs: [{ t: "Java w banku", b: false }] }],
+            },
+            original_cv: { source: "profile_text", stage_id: null, filename: null, text: "Acme Java" },
+            checks: [{ label: "Java", in_cv: true, bolded: null, in_original: true, original_roles: ["Dev · Acme"], missing_in_roles: [], roles_absent: [] }],
+            extra_bold: [],
+            summary: { must_total: 1, must_in_cv: 1, must_bolded: 0, roles_missing: 0, generated_roles: 0, roles_checked: false, bold_known: false },
+          },
+        });
+      return Promise.resolve({ data: [] });
+    });
+    post.mockResolvedValue({ data: { status: "ok", verdict: "ok", model: "gpt-6-luna", cached: false, hints: [] } });
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Czeka na DZ" });
+    await userEvent.click(within(section).getByRole("button", { name: "Sprawdź CV przed DZ: Anna Nowak" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText(/plik Anna_B2B_Nordea\.pdf/)).toBeTruthy();
+    expect(within(dialog).getByText("Plik kandydata (Traffit)")).toBeTruthy();
+    expect(within(dialog).getByText("nie do sprawdzenia (PDF)")).toBeTruthy();
+    expect(within(dialog).getByText(/W oryginale: Dev · Acme — sprawdź ręcznie/)).toBeTruthy();
+    expect(within(dialog).queryByText(/Rola pominięta/)).toBeNull();
+  });
+
   it("przegląd DZ: awaria podpowiedzi nie blokuje — komunikat i „Ponów”", async () => {
     get.mockImplementation((url: string) => {
       if (url === "/api/board-tasks")

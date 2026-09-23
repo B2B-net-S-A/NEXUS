@@ -68,6 +68,7 @@ export const DZ_CV_SOURCE_LABEL: Record<string, string> = {
   branded_finalized: "Zatwierdzone CV firmowe",
   branded_draft: "Szkic CV firmowego",
   generated: "Z generatora (nieprzypięte do etapu)",
+  document: "Plik kandydata (Traffit)",
 };
 
 export const DZ_HINT_KIND_LABEL: Record<string, string> = {

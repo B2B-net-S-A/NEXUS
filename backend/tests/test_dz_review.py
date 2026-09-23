@@ -171,6 +171,77 @@ def test_blind_cv_pairs_roles_by_position_not_company() -> None:
     assert java["missing_in_roles"] == ["Developer · Globex"]
 
 
+def _client_docx() -> bytes:
+    """CV dla klienta w Wordzie, jak pliki „…B2B…" z Traffita."""
+    import io
+
+    from docx import Document
+
+    doc = Document()
+    doc.add_paragraph("PODSUMOWANIE")
+    p = doc.add_paragraph("Programista ")
+    p.add_run("Java").bold = True
+    p.add_run(" w bankowości.")
+    doc.add_paragraph("DOŚWIADCZENIE ZAWODOWE")
+    role = doc.add_paragraph()
+    role.add_run("Senior Developer | Acme Bank | 2021 – obecnie").bold = True
+    item = doc.add_paragraph(style="List Bullet")
+    item.add_run("Usługi w ")
+    item.add_run("Java").bold = True
+    item.add_run(", Kafka.")
+    role2 = doc.add_paragraph()
+    role2.add_run("Developer | Globex | 2018 – 2021").bold = True
+    doc.add_paragraph("Aplikacje webowe, React.", style="List Bullet")
+    table = doc.add_table(rows=1, cols=1)
+    table.cell(0, 0).paragraphs[0].add_run("Języki: polski, angielski")
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def test_docx_blocks_read_bold_bullets_headings_and_roles() -> None:
+    blocks = svc.docx_blocks(_client_docx())
+    heads = [b.text for b in blocks if b.kind == "h"]
+    assert heads == ["PODSUMOWANIE", "DOŚWIADCZENIE ZAWODOWE"]
+    assert [b.section for b in blocks if b.kind == "h"] == [None, "experience"]
+    assert sum(1 for b in blocks if b.kind == "li") == 2
+    assert [b.text for b in blocks if b.section == "role"] == [
+        "Senior Developer | Acme Bank | 2021 – obecnie",
+        "Developer | Globex | 2018 – 2021",
+    ]
+    # Nagłówki ról są z szablonu — do pogrubionych must-have liczy się treść.
+    assert svc.bold_texts(blocks) == ["Java", "Java"]
+    assert any("Języki" in b.text for b in blocks)
+
+
+def test_docx_client_cv_pairs_roles_by_title_and_order() -> None:
+    blocks = svc.docx_blocks(_client_docx())
+    result = svc.analyze(_reqs("Java", "Kafka"), [], blocks, ORIGINAL, EXPERIENCE[:2])
+    by = {c["label"]: c for c in result["checks"]}
+    assert by["Java"]["bolded"] is True
+    assert by["Java"]["missing_in_roles"] == ["Developer · Globex"]
+    assert by["Kafka"]["bolded"] is False
+    assert result["summary"]["roles_checked"] is True
+
+
+def test_unknown_roles_are_not_reported_as_omitted() -> None:
+    """CV, w którym nie da się rozpoznać żadnej roli (blind bez znaczników),
+    nie ogłasza wszystkich ról pominiętymi — mówi „sprawdź ręcznie"."""
+    blocks = svc.text_blocks("Programista Java\nFirma z branży bankowej: Java")
+    result = svc.analyze(
+        _reqs("Java"), [], blocks, ORIGINAL, EXPERIENCE, bold_known=False
+    )
+    java = result["checks"][0]
+    assert java["roles_absent"] == [] and java["missing_in_roles"] == []
+    assert java["original_roles"]
+    assert java["bolded"] is None
+    assert result["summary"] == {
+        **result["summary"],
+        "roles_checked": False,
+        "bold_known": False,
+    }
+
+
 def test_word_boundaries_do_not_count_javascript_as_java() -> None:
     blocks = svc.html_blocks("<p>Senior <b>JavaScript</b> developer</p>")
     result = svc.analyze(_reqs("Java"), [], blocks, "JavaScript", [])
@@ -366,6 +437,61 @@ async def test_original_comes_from_an_earlier_stage_snapshot_of_the_pair(
         assert body["original_cv"]["filename"] == "cv.txt"
         assert "Snapshot: Java" in (body["original_cv"]["text"] or "")
     finally:
+        await _cleanup_review(world, stage_id)
+        await _cleanup(world, [hor_id])
+
+
+@pytest.mark.asyncio
+async def test_client_cv_made_outside_the_generator_comes_from_the_b2b_file(
+    api_client: AsyncClient,
+) -> None:
+    """Nordea 23.09.2026: CV dla klienta to plik „…B2B…" z Traffita, nie
+    dokument generatora — przegląd bierze go, z pogrubieniami z Worda."""
+    from app.models.candidate_document import CandidateDocument
+
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    try:
+        async with AsyncSessionLocal() as db:
+            # Bez CV firmowego w NEXUSIE — zostaje tylko plik kandydata.
+            await db.execute(
+                delete(CandidateStageCV).where(
+                    CandidateStageCV.candidate_id == world["candidate_id"]
+                )
+            )
+            data = _client_docx()
+            for name in (
+                "Ewa_B2B_Inny.docx",
+                "Ewa_B2B_Nordea.docx",
+                "Ewa_oryginal.pdf",
+            ):
+                db.add(
+                    CandidateDocument(
+                        candidate_id=world["candidate_id"],
+                        filename=name,
+                        file_content=data,
+                    )
+                )
+            await db.commit()
+        body = (
+            await api_client.get(f"/api/board-tasks/dz/{stage_id}/review", headers=hor)
+        ).json()
+        cv = body["generated_cv"]
+        assert cv["source"] == "document"
+        assert cv["filename"] == "Ewa_B2B_Nordea.docx"
+        assert cv["bold_known"] is True
+        checks = {c["label"]: c for c in body["checks"]}
+        assert checks["Java"]["bolded"] is True
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(CandidateDocument).where(
+                    CandidateDocument.candidate_id == world["candidate_id"]
+                )
+            )
+            await db.commit()
         await _cleanup_review(world, stage_id)
         await _cleanup(world, [hor_id])
 

@@ -33,7 +33,7 @@ Przełącznik „Gotowy do Cpro" w karcie osoby nie pyta już, kto wyśle.
 | Trasy | `GET/POST /api/board-tasks/dz/{stage_id}/review|hints`, `PUT /api/board-tasks/cpro/jobs/{job_id}/sender` |
 | Osoba wysyłająca | `jobs.cpro_sender_id` (0353), snapshot kolejki: `cpro_sender_id or task_assignee_id` |
 | UI | `DzReviewDialog.tsx`, `BoardTasksPanel.tsx`, `CproSenderBar.tsx`, harness `/preview/dz-review` |
-| Klucz AI | `AIFeatureKey.dz_review` → GPT-6 Luna, zapas Sonnet 5 (F21) |
+| Klucz AI | `AIFeatureKey.dz_review` → GPT-6 Luna, zapas Sonnet 5 (F22) |
 
 Zasady:
 
@@ -52,6 +52,23 @@ Zasady:
 - **Dostęp:** przegląd i podpowiedzi — tylko role z prawem DZ (admin, DL,
   Head of Recruitment) z dostępem do rekrutacji; osobę wysyłającą ustawia
   członek zespołu rekrutacji, a osobę spoza zespołu dopisać może tylko rola DZ.
+
+## CV zrobione poza generatorem (poprawka po wdrożeniu)
+
+Odczyt produkcji po wdrożeniu: żadna z 18 osób w „Czeka na DZ" nie miała CV
+dla klienta w NEXUSIE — u Nordei CV powstaje poza generatorem i leży w plikach
+kandydata z Traffita („…B2B…", DOCX; 16 z 18 osób ma taki plik). Przegląd
+bierze więc: CV firmowe etapu → CV z generatora → **plik kandydata z „B2B"
+w nazwie** (najpierw ten z nazwą klienta, potem najnowszy).
+
+- DOCX czytamy python-docx: pogrubione runy, listy Worda (numeracja albo styl
+  listy), nagłówki (styl albo krótka linia wersalikami), a w sekcji
+  doświadczenia w pełni pogrubiony akapit spoza listy to nagłówek roli.
+- PDF daje sam tekst: pogrubienia „nie do sprawdzenia (PDF)" (`bolded: null`),
+  nie „brak".
+- Gdy w CV dla klienta nie da się rozpoznać ról, tabela nie twierdzi, że rola
+  jest pominięta — pokazuje role z oryginału z dopiskiem „sprawdź ręcznie"
+  (`roles_checked: false`).
 
 ## Weryfikacja
 

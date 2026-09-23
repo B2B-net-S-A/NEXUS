@@ -109,9 +109,16 @@ function Mark({ ok, label }: { ok: boolean; label: string }) {
   );
 }
 
-function RolesCell({ check }: { check: DzCheck }) {
+function RolesCell({ check, rolesChecked }: { check: DzCheck; rolesChecked: boolean }) {
   if (check.original_roles.length === 0) {
     return <span className="text-muted-foreground">Brak w rolach oryginału</span>;
+  }
+  if (!rolesChecked) {
+    return (
+      <span className="text-muted-foreground">
+        W oryginale: {check.original_roles.join(", ")} — sprawdź ręcznie
+      </span>
+    );
   }
   const problems = [...check.missing_in_roles, ...check.roles_absent];
   if (problems.length === 0) {
@@ -131,6 +138,14 @@ function RolesCell({ check }: { check: DzCheck }) {
 }
 
 function ChecksTable({ review }: { review: DzReview }) {
+  if (!review.generated_cv) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Nie ma CV dla klienta ani w NEXUSIE, ani w plikach kandydata („…B2B…”) — nie ma czego porównać.
+      </p>
+    );
+  }
+  const rolesChecked = review.summary.roles_checked !== false;
   if (review.checks.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -157,10 +172,18 @@ function ChecksTable({ review }: { review: DzReview }) {
                 <Mark ok={check.in_cv} label={check.in_cv ? "Jest" : check.in_original ? "Brak (jest w oryginale)" : "Brak"} />
               </td>
               <td className="py-1.5 pr-3">
-                {check.in_cv ? <Mark ok={check.bolded} label={check.bolded ? "Tak" : "Nie"} /> : <span className="text-muted-foreground">—</span>}
+                {!check.in_cv ? (
+                  <span className="text-muted-foreground">—</span>
+                ) : check.bolded === null ? (
+                  <span className="text-muted-foreground" title="CV dla klienta jest w PDF — pogrubień nie da się odczytać.">
+                    nie do sprawdzenia (PDF)
+                  </span>
+                ) : (
+                  <Mark ok={check.bolded} label={check.bolded ? "Tak" : "Nie"} />
+                )}
               </td>
               <td className="py-1.5">
-                <RolesCell check={check} />
+                <RolesCell check={check} rolesChecked={rolesChecked} />
               </td>
             </tr>
           ))}
@@ -262,7 +285,8 @@ export function DzReviewBody({
             <h3 className="text-sm font-semibold">Must-have</h3>
             {summary.must_total > 0 && (
               <p className="text-xs tabular-nums text-muted-foreground">
-                w CV {summary.must_in_cv}/{summary.must_total} · pogrubione {summary.must_bolded}/{summary.must_total}
+                w CV {summary.must_in_cv}/{summary.must_total}
+                {summary.bold_known === false ? "" : ` · pogrubione ${summary.must_bolded}/${summary.must_total}`}
                 {summary.roles_missing > 0 ? ` · braki w rolach: ${summary.roles_missing}` : ""}
               </p>
             )}
@@ -296,6 +320,12 @@ export function DzReviewBody({
         >
           {review.generated_cv ? (
             <>
+              {review.generated_cv.source === "document" && review.generated_cv.filename && (
+                <p className="mb-2 text-xs text-muted-foreground">
+                  CV zrobione poza generatorem — plik {review.generated_cv.filename}
+                  {review.generated_cv.bold_known === false ? " (PDF: bez pogrubień)" : ""}.
+                </p>
+              )}
               <CvBlocks blocks={review.generated_cv.blocks} terms={terms} />
               <Link href={boardHref} className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
                 Popraw CV na Tablicy

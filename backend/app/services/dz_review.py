@@ -26,6 +26,7 @@ tego słowa). Podpowiedzi są doradcze: ich awaria nigdy nie blokuje DZ.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import logging
 import os
@@ -418,8 +419,16 @@ def analyze(
     blocks: list[Block],
     original_text: str,
     experience: Any,
+    *,
+    bold_known: bool = True,
 ) -> dict:
-    """Trzy sprawdzenia Dominika dla każdego must-have."""
+    """Trzy sprawdzenia Dominika dla każdego must-have.
+
+    ``bolded`` = ``None``, gdy pogrubień nie da się odczytać (CV z PDF-a).
+    Gdy w CV dla klienta nie da się rozpoznać ŻADNEJ roli, sprawdzenie ról
+    jest pomijane (``roles_checked = False``) — lepiej powiedzieć „sprawdź
+    ręcznie" niż ogłosić każdą rolę pominiętą.
+    """
 
     gen_text = blocks_text(blocks)
     bolds = bold_texts(blocks)
@@ -437,11 +446,14 @@ def analyze(
             if r.company and r.company in segs
         ]
 
+    roles_checked = bool(gen_roles)
     pairs = pair_roles(orig_roles, gen_roles)
     checks: list[dict] = []
     for req in must:
         in_cv = bool(gen_text) and _found(gen_text, req)
-        bolded = bool(bolds) and _found(bold_joined, req)
+        bolded: Optional[bool] = (
+            (bool(bolds) and _found(bold_joined, req)) if bold_known else None
+        )
         in_original: list[str] = []
         missing_in_roles: list[str] = []
         roles_absent: list[str] = []
@@ -449,6 +461,8 @@ def analyze(
             if not _found(role.text, req):
                 continue
             in_original.append(role.label)
+            if not roles_checked:
+                continue
             if match is None:
                 roles_absent.append(role.label)
             elif not _found(match.text, req):
@@ -468,7 +482,7 @@ def analyze(
     wanted = must + nice
     extra: list[str] = []
     seen: set[str] = set()
-    for text in bolds:
+    for text in bolds if bold_known else []:
         key = text.casefold()
         if key in seen or len(text) > 60:
             continue
@@ -484,6 +498,8 @@ def analyze(
             "must_bolded": sum(1 for c in checks if c["bolded"]),
             "roles_missing": sum(len(c["missing_in_roles"]) for c in checks),
             "generated_roles": len(gen_roles),
+            "roles_checked": roles_checked,
+            "bold_known": bold_known,
         },
     }
 
@@ -579,6 +595,188 @@ async def _generated_cv(
     }
 
 
+_EXPERIENCE_HEADING = re.compile(
+    r"do[sś]wiadczeni|experience|historia zatrudnienia|employment", re.IGNORECASE
+)
+
+
+def _run_bold(run: Any, paragraph_bold: bool) -> bool:
+    if run.bold is not None:
+        return bool(run.bold)
+    style = getattr(run, "style", None)
+    if style is not None and style.font is not None and style.font.bold:
+        return True
+    return paragraph_bold
+
+
+def _docx_heading(text: str, style_name: str) -> bool:
+    name = (style_name or "").casefold()
+    if name.startswith(("heading", "nagłówek", "naglowek", "title", "tytuł")):
+        return True
+    letters = [c for c in text if c.isalpha()]
+    return bool(letters) and len(text) <= 60 and all(c.isupper() for c in letters)
+
+
+def docx_blocks(data: bytes) -> list[Block]:
+    """CV z Worda → bloki z pogrubieniami, w kolejności dokumentu.
+
+    CV dla klienta przy Nordei robi się dziś poza NEXUSEM (plik „…B2B…" z
+    Traffita, zmierzone 23.09.2026: 16 z 18 osób w kolejce DZ). Nagłówek =
+    styl nagłówka albo krótka linia WIELKIMI literami; punkt = numeracja Worda
+    albo styl listy; w sekcji doświadczenia w całości pogrubiony akapit to
+    nagłówek roli (jak ``data-cv-section="role"`` z generatora), więc jego
+    pogrubienie nie udaje pogrubionego must-have.
+    """
+
+    from docx import Document
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    doc = Document(io.BytesIO(data))
+    blocks: list[Block] = []
+    in_experience = False
+
+    def paragraph(p: Any) -> None:
+        nonlocal in_experience
+        text = p.text.strip()
+        if not text:
+            return
+        style = p.style
+        style_name = style.name if style is not None else ""
+        para_bold = bool(
+            style is not None and style.font is not None and style.font.bold
+        )
+        runs: list[dict] = []
+        for run in p.runs:
+            if not run.text:
+                continue
+            bold = _run_bold(run, para_bold)
+            if runs and runs[-1]["b"] == bold:
+                runs[-1]["t"] += run.text
+            else:
+                runs.append({"t": run.text, "b": bold})
+        if not runs:
+            runs = [{"t": text, "b": para_bold}]
+        numbered = p._p.pPr is not None and p._p.pPr.numPr is not None
+        if _docx_heading(text, style_name) and not numbered:
+            in_experience = bool(_EXPERIENCE_HEADING.search(text))
+            blocks.append(
+                Block(
+                    kind="h",
+                    section="experience" if in_experience else None,
+                    runs=[{"t": text, "b": False}],
+                )
+            )
+            return
+        is_list = numbered or "list" in style_name.casefold()
+        fully_bold = all(r["b"] for r in runs if r["t"].strip())
+        section = "role" if in_experience and fully_bold and not is_list else None
+        blocks.append(Block(kind="li" if is_list else "p", section=section, runs=runs))
+
+    for child in doc.element.body.iterchildren():
+        tag = child.tag.rsplit("}", 1)[-1]
+        if tag == "p":
+            paragraph(Paragraph(child, doc))
+        elif tag == "tbl":
+            table = Table(child, doc)
+            for row in table.rows:
+                seen: set[int] = set()
+                for cell in row.cells:
+                    if id(cell._tc) in seen:
+                        continue
+                    seen.add(id(cell._tc))
+                    for p in cell.paragraphs:
+                        paragraph(p)
+    return blocks
+
+
+def text_blocks(text: str) -> list[Block]:
+    return [
+        Block(kind="p", section=None, runs=[{"t": line.strip(), "b": False}])
+        for line in text.splitlines()
+        if line.strip()
+    ]
+
+
+def _client_token(client_name: Optional[str]) -> Optional[str]:
+    words = re.findall(r"[^\W\d_]{3,}", client_name or "")
+    return words[0].casefold() if words else None
+
+
+async def _document_cv(
+    db: AsyncSession, candidate_id: int, client_name: Optional[str]
+) -> Optional[dict]:
+    """CV dla klienta przygotowane POZA generatorem: plik „…B2B…" kandydata.
+
+    Najpierw plik z nazwą klienta w nazwie, potem najnowszy. PDF daje sam
+    tekst — pogrubień z niego nie odczytamy (``bold_known = False``).
+    """
+
+    from sqlalchemy import case, func
+
+    from app.models.candidate_document import CandidateDocument
+
+    token = _client_token(client_name)
+    order = [
+        func.coalesce(
+            CandidateDocument.uploaded_at, CandidateDocument.created_at
+        ).desc(),
+        CandidateDocument.id.desc(),
+    ]
+    if token:
+        order.insert(
+            0, case((CandidateDocument.filename.ilike(f"%{token}%"), 0), else_=1)
+        )
+    doc = await db.scalar(
+        select(CandidateDocument)
+        .where(
+            CandidateDocument.candidate_id == candidate_id,
+            CandidateDocument.filename.ilike("%b2b%"),
+            CandidateDocument.source_deleted_at.is_(None),
+        )
+        .order_by(*order)
+        .limit(1)
+    )
+    if doc is None:
+        return None
+    content: Optional[bytes] = None
+    try:
+        if doc.storage_key:
+            from app.services.object_storage import download_cv
+
+            content = await run_in_threadpool(download_cv, doc.storage_key)
+        else:
+            await db.refresh(doc, attribute_names=["file_content"])
+            content = bytes(doc.file_content) if doc.file_content else None
+    except Exception:  # noqa: BLE001 — magazyn chwilowo niedostępny
+        logger.warning("[dz_review] document=%s unavailable", doc.id)
+    if not content:
+        return None
+    filename = doc.filename or "cv.docx"
+    bold_known = filename.casefold().endswith(".docx")
+    if bold_known:
+        try:
+            blocks = await run_in_threadpool(docx_blocks, content)
+        except Exception:  # noqa: BLE001 — zepsuty DOCX: sam tekst
+            logger.warning("[dz_review] docx parse failed document=%s", doc.id)
+            bold_known = False
+            blocks = text_blocks(await run_in_threadpool(_extract, content, filename))
+    else:
+        blocks = text_blocks(await run_in_threadpool(_extract, content, filename))
+    if not blocks:
+        return None
+    return {
+        "source": "document",
+        "stage_id": None,
+        "generated_document_id": None,
+        "document_id": doc.id,
+        "filename": filename,
+        "updated_at": doc.uploaded_at or doc.created_at,
+        "bold_known": bold_known,
+        "blocks": blocks,
+    }
+
+
 def _extract(content: bytes, filename: str) -> str:
     from app.services.cv_text_extractor import extract_text
 
@@ -669,18 +867,31 @@ async def build_review(db: AsyncSession, stage: CandidateStage) -> dict:
     if candidate is None or job is None:
         raise LookupError("stage without candidate or job")
     must, nice = job_requirements(job)
-    generated = await _generated_cv(db, candidate.id, job.id)
-    original = await _original_cv(db, candidate, stage.id, job.id)
-    blocks = html_blocks(generated["html"]) if generated else []
-    analysis = analyze(
-        must, nice, blocks, original.get("text") or "", candidate.experience
-    )
     client_name = None
     if job.client_id is not None:
         from app.models.client import Client  # noqa: PLC0415
 
         client = await db.get(Client, job.client_id)
         client_name = (client.display_name or client.name) if client else None
+    generated = await _generated_cv(db, candidate.id, job.id)
+    if generated is None:
+        generated = await _document_cv(db, candidate.id, client_name)
+    original = await _original_cv(db, candidate, stage.id, job.id)
+    if generated is None:
+        blocks: list[Block] = []
+    elif "blocks" in generated:
+        blocks = generated["blocks"]
+    else:
+        blocks = html_blocks(generated["html"])
+    bold_known = bool(generated) and generated.get("bold_known", True)
+    analysis = analyze(
+        must,
+        nice,
+        blocks,
+        original.get("text") or "",
+        candidate.experience,
+        bold_known=bold_known,
+    )
     name = " ".join(p for p in (candidate.name, candidate.lastname) if p) or "Kandydat"
     return {
         "stage_id": stage.id,
@@ -700,6 +911,9 @@ async def build_review(db: AsyncSession, stage: CandidateStage) -> dict:
                 "source": generated["source"],
                 "stage_id": generated["stage_id"],
                 "generated_document_id": generated["generated_document_id"],
+                "document_id": generated.get("document_id"),
+                "filename": generated.get("filename"),
+                "bold_known": bold_known,
                 "updated_at": generated["updated_at"],
                 "blocks": [
                     {"kind": b.kind, "section": b.section, "runs": b.runs}
