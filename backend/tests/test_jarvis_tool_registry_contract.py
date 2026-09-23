@@ -131,6 +131,16 @@ def test_build_matches_the_declared_route():
         "query": "java",
         "year": 2026,
         "month": 9,
+        "contract_id": 77,
+        "event_id": 88,
+        "key": "jobs.board",
+        "outcome": "good",
+        "offer_acceptance": "likely",
+        "decision": "advance",
+        "reason": "found_job",
+        "source": "pipeline_moves",
+        "measure": "first_reach",
+        "period": "last_30_days",
     }
     for tool in ALL_TOOLS:
         if tool.tier == "link":

@@ -1121,6 +1121,7 @@ export function CandidateProfileFactsBar({
     <>
       <section
         aria-label="Najważniejsze fakty o kandydacie"
+        data-help="candidate.profile.facts"
         // Liczba kolumn wynika z szerokości PASKA, nie okna: obok listy
         // „Kandydaci — ostatnio wyświetlani” pasek bywa o połowę węższy niż
         // ekran, a `xl:grid-cols-5` wciskało pięć kafelków w ~900 px. Kafelek

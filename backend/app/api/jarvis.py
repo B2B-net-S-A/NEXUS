@@ -18,7 +18,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Any, AsyncIterator, Literal, Optional
 
@@ -28,13 +28,19 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import AdminUser, CurrentUser
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
 from app.core.rate_limit import client_ip_key, limiter, user_or_ip_key
-from app.core.scheduling import DEFAULT_TZ, business_today
+from app.core.scheduling import DEFAULT_TZ, business_today, local_now
 from app.models.ai_feature import AIFeatureKey
-from app.models.jarvis import JarvisAction, JarvisConversation, JarvisMessage
+from app.models.jarvis import (
+    JARVIS_UI_EVENTS,
+    JarvisAction,
+    JarvisConversation,
+    JarvisMessage,
+    JarvisUiEvent,
+)
 from app.services.ai_models import model_for
 from app.services.jarvis import actions as jarvis_actions
 from app.services.jarvis import agent, store
@@ -66,6 +72,9 @@ class JarvisEntity(BaseModel):
 class JarvisScreen(BaseModel):
     path: str = Field(default="", max_length=300)
     entity: Optional[JarvisEntity] = None
+    # Klucz przewodnika ekranu (``app/data/screen_guides``); nieznany klucz
+    # jest ignorowany w kontekście, więc stary front nie psuje niczego.
+    key: Optional[str] = Field(default=None, pattern=r"^[a-z0-9_.]{1,60}$")
 
 
 class JarvisChatRequest(BaseModel):
@@ -91,6 +100,24 @@ class JarvisConversationSummary(BaseModel):
     id: uuid.UUID
     title: str
     updated_at: datetime
+
+
+class JarvisUiEventIn(BaseModel):
+    """Telemetria pomocy na ekranie — klucz ekranu i kod, nigdy dane rekordu."""
+
+    event: Literal[
+        "bubble_shown",
+        "bubble_clicked",
+        "bubble_dismissed",
+        "guide_opened",
+        "guide_task",
+        "highlight_shown",
+        "highlight_missing",
+        "stuck_shown",
+        "stuck_clicked",
+    ]
+    screen_key: Optional[str] = Field(default=None, pattern=r"^[a-z0-9_.]{1,60}$")
+    detail: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9_.:-]{1,60}$")
 
 
 class JarvisActionOutcomeResponse(BaseModel):
@@ -312,6 +339,9 @@ async def jarvis_chat(
         allowed_tools=tools_for_user(_section_map(current_user)),
         identity=_identity(request),
         today=business_today(),
+        now=local_now(),
+        notes=[] if payload.web else list(prefs.notes),
+        sections={s.value: v for s, v in _section_map(current_user).items()},
         web=payload.web,
     )
     try:
@@ -358,6 +388,16 @@ async def list_conversations(
     ]
 
 
+def _anchor_label(anchor_id: str) -> str:
+    from app.data.screen_guides import load_guides
+
+    for guide in load_guides().values():
+        for anchor in guide.anchors:
+            if anchor.id == anchor_id:
+                return anchor.label
+    return "Element ekranu"
+
+
 def _conversation_items(
     messages: list[tuple[str, list[dict[str, Any]]]], actions: list[JarvisAction]
 ) -> list[dict[str, Any]]:
@@ -398,6 +438,19 @@ def _conversation_items(
                     items.append({"kind": "sources", "items": sources})
             elif kind == "tool_use" and role == "assistant":
                 name = block.get("name")
+                if name == "show_on_screen":
+                    anchor = str((block.get("input") or {}).get("anchor") or "")
+                    if anchor:
+                        items.append(
+                            {
+                                "kind": "highlight",
+                                "anchor": anchor,
+                                "label": _anchor_label(anchor),
+                                "reason": str(
+                                    (block.get("input") or {}).get("reason") or ""
+                                )[:200],
+                            }
+                        )
                 if name == "open_screen":
                     try:
                         items.append(
@@ -484,6 +537,30 @@ async def delete_conversation(
     await db.commit()
 
 
+@router.post(
+    "/conversations/{conversation_id}/cancel",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def cancel_turn(
+    conversation_id: uuid.UUID,
+    request: Request,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Zatrzymaj” — tura kończy się po bieżącym kroku (model w wątku nie
+    daje się przerwać w połowie odpowiedzi)."""
+    _require_available(request)
+    owned = await db.scalar(
+        select(JarvisConversation.id).where(
+            JarvisConversation.id == conversation_id,
+            JarvisConversation.user_id == current_user.id,
+        )
+    )
+    if owned is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiej rozmowy.")
+    agent.request_cancel(conversation_id)
+
+
 def _outcome_response(
     outcome: jarvis_actions.ActionOutcome,
 ) -> JarvisActionOutcomeResponse:
@@ -538,3 +615,67 @@ async def reject_action(
     except (jarvis_actions.ActionNotFound, jarvis_actions.ActionNotPending) as exc:
         raise _action_error(exc)
     return _outcome_response(outcome)
+
+
+# ── telemetria pomocy na ekranie (0355) ────────────────────────────────────
+
+
+@router.post("/ui-events", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def record_ui_event(
+    request: Request,
+    payload: JarvisUiEventIn,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Dymek pokazany/kliknięty, przewodnik otwarty, element podświetlony.
+
+    W trybie podglądu nic nie zapisujemy (to nie są kliknięcia tej osoby)."""
+    if _impersonating(request):
+        return
+    db.add(
+        JarvisUiEvent(
+            user_id=current_user.id,
+            event=payload.event,
+            screen_key=payload.screen_key,
+            detail=payload.detail,
+        )
+    )
+    await db.commit()
+
+
+@router.get("/ui-events/summary")
+async def ui_events_summary(
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+    days: int = 14,
+) -> dict[str, Any]:
+    """Liczniki per zdarzenie × ekran — do decyzji, co wyłączyć (admin)."""
+    window = max(1, min(int(days), 90))
+    since = datetime.now(timezone.utc) - timedelta(days=window)
+    rows = (
+        await db.execute(
+            select(
+                JarvisUiEvent.event,
+                JarvisUiEvent.screen_key,
+                func.count().label("n"),
+                func.count(func.distinct(JarvisUiEvent.user_id)).label("people"),
+            )
+            .where(JarvisUiEvent.created_at >= since)
+            .group_by(JarvisUiEvent.event, JarvisUiEvent.screen_key)
+            .order_by(JarvisUiEvent.screen_key, JarvisUiEvent.event)
+        )
+    ).all()
+    return {
+        "days": window,
+        "events": list(JARVIS_UI_EVENTS),
+        "rows": [
+            {
+                "event": r.event,
+                "screen_key": r.screen_key,
+                "count": int(r.n),
+                "people": int(r.people),
+            }
+            for r in rows
+        ],
+    }

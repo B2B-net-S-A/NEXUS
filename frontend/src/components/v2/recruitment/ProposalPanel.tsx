@@ -286,6 +286,7 @@ export function ProposalPanel({
 
       {canAdd && (
         <Button
+          data-help="jobs.proposals.add"
           size="lg"
           className="w-full"
           disabled={actionsDisabled || vetoed}

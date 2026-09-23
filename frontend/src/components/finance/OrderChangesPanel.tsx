@@ -162,7 +162,10 @@ export function OrderChangesPanel({
       {/* Poniżej `xl` podzakładki idą w osobnym wierszu nad miesiącem i eksportem —
           w jednym wierszu na laptopie (~1000 px) „Braki" chowały się za
           przewijaniem, czyli akurat podzakładka, o którą chodzi. */}
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <div
+        className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between"
+        data-help="finance.order_changes"
+      >
         <TabbedNav
           tabs={tabs}
           value={subTab}
@@ -197,6 +200,7 @@ export function OrderChangesPanel({
             onClick={onExport}
             disabled={exporting || !data}
             aria-label={`Eksport do Excela: ${SUB_TAB_LABELS[subTab]}`}
+            data-help="finance.export"
             className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
           >
             {exporting ? (

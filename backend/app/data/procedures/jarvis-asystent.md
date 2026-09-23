@@ -10,6 +10,14 @@ Jarvis to asystent AI dostępny na każdym ekranie NEXUSA. Zastąpił MINDY z Dy
 
 Jarvis wie, na którym ekranie jesteś. Na profilu kandydata możesz napisać „podsumuj tego kandydata” bez podawania nazwiska.
 
+## Pomoc na ekranie
+
+- Przy **pierwszej wizycie** na ważnym ekranie (lista rekrutacji, tablica, „Do przejrzenia”, Champion, kandydaci, kalendarz, zamówienia klienta, skrzynka zamówień, generator umów B2B, Finanse) Jarvis raz pokaże dymek z tym, co się tu robi. Najwyżej trzy takie dymki dziennie.
+- Przycisk **„?”** w nagłówku panelu otwiera przewodnik bieżącego ekranu: najczęstsze zadania, odpowiedzi i pułapki — bez czekania na model.
+- **„Pokaż na ekranie”** podświetla przycisk albo panel, o który chodzi. Jarvis sam też potrafi coś podświetlić, gdy pytasz „gdzie…”.
+- Gdy ten sam błąd wraca **trzy razy w dwie minuty** (np. „najpierw debrief”), Jarvis wyjaśni po ludzku, co zrobić.
+- Wskazówki wyłączysz albo pokażesz od nowa w ustawieniach asystenta.
+
 ## Co widzi
 
 Jarvis widzi **dokładnie to, co Ty**. Każde jego sprawdzenie idzie przez te same uprawnienia co Twoje kliknięcia w aplikacji. Jeśli nie masz dostępu do finansów, Jarvis też go nie ma — i powie Ci o tym wprost.
@@ -24,7 +32,11 @@ Jarvis widzi **dokładnie to, co Ty**. Każde jego sprawdzenie idzie przez te sa
 - sprawdzać kalendarz, powiadomienia, sprawy klientów z panelu „Moi klienci”, stan skrzynki zamówień,
 - liczyć lejek rekrutacyjny, wyniki zespołu, kokpit Rady i Twoje KPI,
 - przeszukiwać bazę pod request klienta (Talent Radar),
-- szukać odpowiedzi w procedurach modułu Pomoc.
+- szukać odpowiedzi w procedurach modułu Pomoc (możesz pytać pełnym zdaniem),
+- mówić, co masz dziś do zrobienia: kolejka „Czeka na Ciebie” i sprawy po rozmowach u klienta (telefon, debrief, terminy),
+- przygotować Cię do rozmowy u klienta (pytania, które ten klient zadawał wcześniej),
+- pokazywać propozycje w „Do przejrzenia”, werdykty klienta i skrzynkę zamówień z powodami wstrzymania,
+- liczyć „ile…” (np. ile CV wysłałeś w zeszłym miesiącu) i wyjaśniać, dlaczego kandydat pasuje do rekrutacji.
 
 **Przygotowywać zadania** (do Twojego zatwierdzenia):
 
@@ -35,7 +47,11 @@ Jarvis widzi **dokładnie to, co Ty**. Każde jego sprawdzenie idzie przez te sa
 - dodanie kandydata do puli talentów,
 - oznaczenie powiadomień jako przeczytane i sprawy klienta jako załatwionej,
 - uruchomienie pobierania zamówień ze skrzynki,
-- odświeżenie podsumowania aktywności kandydata.
+- odświeżenie podsumowania aktywności kandydata,
+- zapis debriefu po rozmowie u klienta,
+- odrzucenie propozycji w „Do przejrzenia”, werdykt klienta, „Biorę” kandydata,
+- uśpienie albo przypięcie osoby w „Moich ludziach”,
+- zapamiętanie Twojej preferencji („odpowiadaj krócej”).
 
 Zadanie pojawia się jako **karta** z opisem. Nic się nie dzieje, dopóki nie klikniesz **„Zrób to”**. „Anuluj” odrzuca propozycję. Propozycja wygasa po 15 minutach. Jeśli NEXUS ostrzeże przy przesunięciu (np. konflikt z klientem), Jarvis pokaże nową kartę „mimo ostrzeżenia” — decyzja zostaje przy Tobie.
 
@@ -61,14 +77,20 @@ Jarvis **nigdy** nie wykonuje:
 
 Poproszony o takie działanie da Ci **przycisk do właściwego ekranu** i napisze, co tam kliknąć.
 
-## Wygląd
+## Zatrzymaj
 
-Ikona palety w nagłówku panelu otwiera ustawienia wyglądu:
+W trakcie odpowiedzi przycisk wysyłania zmienia się w **„Zatrzymaj odpowiedź”**. Jarvis kończy bieżący krok i nie idzie dalej. Odpowiedź pojawia się na bieżąco, w miarę pisania.
+
+## Wygląd i pamięć
+
+Ikona palety w nagłówku panelu otwiera ustawienia asystenta:
 
 - **postać** — robot, sowa, kot, duszek, rakieta, gwiazdka, smok, astronauta; dwie postaci odblokowujesz wynikiem w Lidze Mistrzów (1. miejsce i podium),
 - **imię** — nazwij asystenta po swojemu,
 - **kolor**, **mała ikona**, **poranny skrót dnia**, **dźwięk**,
-- **pokazuj asystenta** — wyłączony znika z rogu ekranu, ale ⌘J dalej działa.
+- **pokazuj asystenta** — wyłączony znika z rogu ekranu, ale ⌘J dalej działa,
+- **wskazówki na nowych ekranach** — dymki pomocy i przycisk „Pokaż wskazówki od nowa”,
+- **co asystent o mnie wie** — do 10 Twoich preferencji (np. „odpowiadaj krótko”, „moi klienci to X i Y”), które bierze pod uwagę w każdej rozmowie. Możesz je dopisać, usunąć albo poprosić Jarvisa: „zapamiętaj, że…”. Nie wpisuj tu danych kandydatów.
 
 ## Rozmowy i dane
 
