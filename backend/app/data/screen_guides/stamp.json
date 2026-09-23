@@ -1,7 +1,7 @@
 {
   "reviewed_at": "2026-09-23",
   "guides": {
-    "calendar": "85e6575c4c993f82ff878173ccc5a35091b7e47bf05cc1306b478e55973a4437",
+    "calendar": "5e622a7db1c6d091e5b1fe9c45e4a4bc7cec4009655d73d85aa41de139717561",
     "candidate.profile": "97bc3b10d55c54751563039f37ad4ac62725d7d29dc18a3ba1690f455878a203",
     "candidates.list": "b4606b0c62db89e6ab4d779cbedc30c0fe4eb21d4535818acb1aa65b50a0f5cd",
     "client.orders": "011eae87cda845ed31dc95750ba7be449f896db122052a9c3fc6e9008f02d971",
@@ -9,9 +9,9 @@
     "contracts.order_mail": "69d28ae62c8903a3f790e808b1967b0f34d2638982893f96e1a261820311c371",
     "finance": "5b5c43e8350e6fe3168d007a8c2cf4b01ab9312d2d5194ecd48c26e0e54d286d",
     "job.champion": "956ed2756b768a9d4d6905569735629df0c901826ec9aa3bcf2068cc7cfa812f",
-    "jobs.board": "564ae80073bc215af4b9cbcca287b1e74279ede503b2d02e12b7fd19bf682d0e",
+    "jobs.board": "17431fba36a0a2e5e2ce033fbb67e37f26b3eec764ed809758cfa3d1c1fca121",
     "jobs.list": "155a84843e07adda2ebec0856c0a749940bfac7b86a0ca7db97f828c0aabb866",
-    "jobs.person": "880d84328d1b9d6981b9029f2c3c4be75c61a2b21e4a6105f7c39f4b828699bd",
+    "jobs.person": "df85d8de2c8bb5574219f59a99780b891cf464485d28a7778bc395bd105e37c3",
     "jobs.proposals": "6cce5c9f8e95bad49c3b2c9f159ebbf901fa39ea90bd34dafb8865a07733edb4"
   }
 }
