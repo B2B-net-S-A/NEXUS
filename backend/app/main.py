@@ -80,6 +80,7 @@ from app.models.insights_seniority_snapshot import InsightsSenioritySnapshot
 from app.models.user_performance_flag import UserPerformanceFlag
 from app.models.recruitment_campaign import RecruitmentCampaign
 from app.api import insights_recruitment
+from app.api import insights_stage_breakdown
 from app.api import insights_board
 from app.api import insights_clients
 from app.api import insights_delivery_leads
@@ -204,6 +205,7 @@ from app.api import dashboard_metrics as dashboard_metrics_api
 from app.api import settings as app_settings_api
 from app.api import champion_intake as champion_intake_api
 from app.api import job_request_intake as job_request_intake_api
+from app.api import screening_reassign as screening_reassign_api
 from app.api import champion_suggestions as champion_suggestions_api
 from app.api import rate_benchmarks as rate_benchmarks_api
 from app.api import team_structure as team_structure_api
@@ -1000,6 +1002,7 @@ app.add_middleware(
 # Register routers
 app.include_router(champion_intake_api.router, prefix="/api", tags=["champion"])
 app.include_router(job_request_intake_api.router, prefix="/api", tags=["jobs"])
+app.include_router(screening_reassign_api.router, prefix="/api", tags=["pipeline"])
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 # IMPORTANT: candidate_pins MUST be mounted BEFORE candidates so its
@@ -1308,6 +1311,11 @@ app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 # guardu (decyzja D7) zmienialoby po cichu liczby i widocznosc gdzie indziej.
 app.include_router(
     insights_recruitment.router,
+    prefix="/api/insights/recruitment",
+    tags=["insights"],
+)
+app.include_router(
+    insights_stage_breakdown.router,
     prefix="/api/insights/recruitment",
     tags=["insights"],
 )

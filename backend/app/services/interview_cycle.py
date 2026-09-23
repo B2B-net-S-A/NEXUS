@@ -803,3 +803,181 @@ def _debrief_payload(fb: DebriefRef) -> dict:
         "offer_acceptance": fb.offer_acceptance,
         "acceptance_condition": fb.acceptance_condition,
     }
+
+
+# ── Odznaka na karcie Tablicy (Pipeline v4, 23.09.2026) ─────────────────────
+#
+# Karta w kolumnie „Rozmowa u klienta” pokazuje JEDNĄ odznakę terminarza —
+# najważniejszą rzecz do zrobienia albo wiedzenia. Kolejność:
+# telefon po rozmowie > wybór terminu > czeka na DL > zbliżająca się rozmowa
+# (z prepem) > debrief zrobiony. Logika stoi na tej samej migawce pary co
+# kroki ekranu „Rozmowy u klienta”, więc obie powierzchnie mówią to samo.
+
+BadgeKind = Literal[
+    "choose_slot",
+    "awaiting_dl",
+    "slot",
+    "prep_done",
+    "prep2",
+    "call_due",
+    "debrief_done",
+]
+BadgeTone = Literal["wait", "info", "ok", "urgent"]
+
+# Rozmowy do przodu widoczne na karcie — dalej niż kwartał to już nie terminarz.
+BADGE_DAYS_AHEAD = 90
+_WEEKDAYS_PL = ("pon", "wt", "śr", "czw", "pt", "sob", "nd")
+
+
+def _local(dt: datetime) -> datetime:
+    from zoneinfo import ZoneInfo
+
+    return _as_utc(dt).astimezone(ZoneInfo(settings.BUSINESS_TZ))
+
+
+def _when_label(dt: datetime) -> str:
+    """„czw 25.09 · 14:00” w strefie biznesowej."""
+    local = _local(dt)
+    return f"{_WEEKDAYS_PL[local.weekday()]} {local:%d.%m} · {local:%H:%M}"
+
+
+def _day_label(dt: datetime, now: datetime) -> str:
+    """„dziś 14:00” / „jutro” / „czw 25.09” — względem dnia w strefie biznesowej."""
+    local = _local(dt)
+    days = (local.date() - _local(now).date()).days
+    if days == 0:
+        return f"dziś {local:%H:%M}"
+    if days == 1:
+        return "jutro"
+    return f"{_WEEKDAYS_PL[local.weekday()]} {local:%d.%m}"
+
+
+def _proposals_label(count: int) -> str:
+    if count == 1:
+        return "1 propozycja"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return f"{count} propozycje"
+    return f"{count} propozycji"
+
+
+def _badge(kind: str, label: str, tone: str, at: Optional[datetime]) -> dict:
+    return {
+        "kind": kind,
+        "label": label,
+        "tone": tone,
+        "at": _as_utc(at).isoformat() if at is not None else None,
+    }
+
+
+def compute_badge(
+    pair: PairSnapshot, now: datetime, *, call_window_minutes: int
+) -> Optional[dict]:
+    """Najważniejsza odznaka terminarza pary albo ``None`` (nic do pokazania)."""
+    iv = pair.interview
+    req = pair.slot_request
+
+    if iv is not None and pair.debrief is None:
+        end = _interview_end(iv)
+        if end <= now:
+            deadline = end + timedelta(minutes=call_window_minutes)
+            if now <= deadline:
+                minutes = int((now - end).total_seconds() // 60)
+                label = (
+                    "Zadzwoń · zaraz po rozmowie"
+                    if minutes < 1
+                    else f"Zadzwoń · {minutes} min po rozmowie"
+                )
+            else:
+                label = "Zadzwoń · debrief zaległy"
+            return _badge("call_due", label, "urgent", deadline)
+
+    if req is not None and req.status == SLOT_STATUS_AWAITING_RECRUITER:
+        overdue = req.respond_by is not None and req.respond_by < now
+        return _badge(
+            "choose_slot",
+            f"Wybierz termin · {_proposals_label(len(req.slots))}",
+            "urgent" if overdue else "wait",
+            req.respond_by,
+        )
+
+    if req is not None and req.status == SLOT_STATUS_AWAITING_DL:
+        chosen = _chosen_slot(req)
+        start = datetime.fromisoformat(chosen["start"]) if chosen else None
+        label = f"Czeka na DL · {_when_label(start)}" if start else "Czeka na DL"
+        return _badge("awaiting_dl", label, "wait", start)
+
+    if iv is not None and _interview_end(iv) > now:
+        second = pair.preps[1] if len(pair.preps) > 1 else None
+        if second is not None and second.start > now:
+            return _badge(
+                "prep2", f"Prep 2 {_day_label(second.start, now)}", "info", second.start
+            )
+        if any(p.start <= now for p in pair.preps):
+            return _badge(
+                "prep_done", f"{_when_label(iv.start)} · Prep ✓", "ok", iv.start
+            )
+        return _badge("slot", _when_label(iv.start), "info", iv.start)
+
+    if iv is not None and pair.debrief is not None:
+        return _badge("debrief_done", "Debrief ✓", "ok", iv.start)
+    return None
+
+
+async def interview_badges_for_job(
+    db: AsyncSession,
+    *,
+    job_id: int,
+    candidate_ids: Iterable[int],
+    now: Optional[datetime] = None,
+) -> dict[int, dict]:
+    """Odznaki terminarza dla kart jednej rekrutacji: ``{candidate_id: badge}``.
+
+    Kandydaci bez niczego w cyklu (brak wniosku o terminy, prepu i rozmowy)
+    nie mają wpisu. Stała liczba zapytań: jedno wyszukanie kandydatów
+    z czymkolwiek w cyklu + migawki (``load_snapshots``) po najwyżej
+    ``MAX_PAIRS`` par na paczkę.
+    """
+    from sqlalchemy import union
+
+    ids = sorted(set(candidate_ids))
+    if not ids:
+        return {}
+    now = _as_utc(now) if now is not None else datetime.now(timezone.utc)
+    window_start = now - timedelta(days=DEFAULT_DAYS_BACK)
+    window_end = now + timedelta(days=BADGE_DAYS_AHEAD)
+
+    with_events = select(CalendarEvent.candidate_id).where(
+        CalendarEvent.job_id == job_id,
+        CalendarEvent.candidate_id.in_(ids),
+        CalendarEvent.event_type.in_((EventType.prep_call, EventType.client_interview)),
+        CalendarEvent.status != EventStatus.cancelled,
+        # To samo okno co `load_snapshots` (cofa start o 30 dni).
+        CalendarEvent.start_time >= window_start - timedelta(days=30),
+        CalendarEvent.start_time <= window_end,
+    )
+    with_slots = select(ClientInterviewSlotRequest.candidate_id).where(
+        ClientInterviewSlotRequest.job_id == job_id,
+        ClientInterviewSlotRequest.candidate_id.in_(ids),
+        ClientInterviewSlotRequest.status != SLOT_STATUS_CANCELLED,
+    )
+    active = sorted(
+        {cid for cid in (await db.execute(union(with_events, with_slots))).scalars()}
+    )
+    if not active:
+        return {}
+
+    call_window = settings.POST_INTERVIEW_CALL_WINDOW_MINUTES
+    badges: dict[int, dict] = {}
+    for offset in range(0, len(active), MAX_PAIRS):
+        chunk = active[offset : offset + MAX_PAIRS]
+        snaps = await load_snapshots(
+            db,
+            [(cid, job_id) for cid in chunk],
+            window_start=window_start,
+            window_end=window_end,
+        )
+        for (cid, _jid), snap in snaps.items():
+            badge = compute_badge(snap, now, call_window_minutes=call_window)
+            if badge is not None:
+                badges[cid] = badge
+    return badges

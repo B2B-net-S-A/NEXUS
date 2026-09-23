@@ -50,9 +50,7 @@ def requires_dl_client_rate(target: PipelineStage, client_id: Optional[int]) -> 
     return target == PipelineStage.cv_sent and not cpro_enabled_for_client(client_id)
 
 
-def assert_client_send_allowed(
-    user: User, rate_value: Optional[Decimal]
-) -> None:
+def assert_client_send_allowed(user: User, rate_value: Optional[Decimal]) -> None:
     """403 dla roli spoza DL/admina, 422 bez dodatniej stawki do klienta."""
 
     if not user.has_any_role(*CLIENT_SEND_ROLES):
@@ -73,9 +71,7 @@ def assert_client_send_allowed(
         )
 
 
-def resolve_ended_by(
-    requested: Optional[str], *, withdrawn: bool, user: User
-) -> str:
+def resolve_ended_by(requested: Optional[str], *, withdrawn: bool, user: User) -> str:
     """Kto zakończył proces — wartość do zapisu na wierszu etapu.
 
     Rezygnacja to zawsze kandydat. Odrzucenie bez podanego „kto" (stare

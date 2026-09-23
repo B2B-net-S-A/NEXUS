@@ -84,9 +84,9 @@ class StageMove(BaseModel):
     client_rate_unit: Optional[RateUnit] = None
     client_rate_currency: Optional[str] = Field(None, max_length=3)
     # Kto zakończył proces (ruch terminalny): kandydat | my | DL | klient.
-    ended_by: Optional[
-        Literal["candidate", "recruiter", "delivery_lead", "client"]
-    ] = None
+    ended_by: Optional[Literal["candidate", "recruiter", "delivery_lead", "client"]] = (
+        None
+    )
 
 
 class ClientRateUpdate(BaseModel):

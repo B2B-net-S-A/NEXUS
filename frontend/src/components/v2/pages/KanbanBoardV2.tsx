@@ -36,6 +36,7 @@ import {
  XCircle,
 } from"lucide-react";
 import {
+ api,
  candidatesApi,
  pipelineApi,
 } from"@/lib/api";
@@ -83,6 +84,12 @@ import {
  type StageBadgeKey,
 } from "@/lib/board-stages";
 import { hasRole, useAuthStore } from "@/store/auth";
+import {
+ CARD_BADGE_TONE_CLASS,
+ cardBadges,
+ claimAction,
+} from "@/lib/board-card-badges";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
  BoardWorkbenchDrawer,
  type BoardWorkbenchContext,
@@ -563,6 +570,9 @@ interface CardProps {
 }
 
 const STAGE_BADGE_TONE: Record<StageBadgeKey, string> = {
+ posting: "bg-muted text-muted-foreground",
+ screening: "bg-muted text-muted-foreground",
+ acceptance: "bg-info/15 text-info",
  dz: "bg-success/15 text-success",
  cpro: "bg-info/15 text-info",
  prep: "bg-info/15 text-info",
@@ -571,6 +581,105 @@ const STAGE_BADGE_TONE: Record<StageBadgeKey, string> = {
  contract_signed: "bg-success/15 text-success",
  onboarding: "bg-info/15 text-info",
 };
+
+// ── Pasek zamkniętych (Pipeline v4) ─────────────────────────────────────────
+// Odrzuceni dzielą się na trzy grupy po `ended_by`; wiersz bez tej informacji
+// (sprzed 0352, import) liczy się jako „przez nas", jak w statystykach.
+const CLOSED_BY_SEP = "::";
+type ClosedRejectBy = "recruiter" | "delivery_lead" | "client";
+const CLOSED_REJECT_GROUPS: { by: ClosedRejectBy; label: string }[] = [
+ { by: "recruiter", label: "Odrzucony przez nas" },
+ { by: "delivery_lead", label: "Odrzucony przez DL" },
+ { by: "client", label: "Odrzucony przez klienta" },
+];
+
+function closedChips(closed: KanbanColumn[]) {
+ return closed.flatMap((c) => {
+ const terminal = terminalOf(c);
+ if (terminal === "withdrawn") {
+ return [{ col: c, droppableId: colId(c), label: "Zrezygnował", count: c.count }];
+ }
+ if (terminal === "rejected") {
+ return CLOSED_REJECT_GROUPS.map(({ by, label }) => ({
+ col: c,
+ droppableId: `${colId(c)}${CLOSED_BY_SEP}${by}`,
+ label,
+ count: c.items.filter((i) => (i.ended_by ?? "recruiter") === by).length,
+ }));
+ }
+ return [{ col: c, droppableId: colId(c), label: null as string | null, count: c.count }];
+ });
+}
+
+/**
+ * Pipeline v4 (23.09.2026): to, czego karta nie wie sama — w której kolumnie
+ * Tablicy stoi, kto na nią patrzy, czy to Nordea — i akcja „Biorę/Przejmij".
+ * Kontekst zamiast propów, bo `memo` karty i kolumny ma zostać tanie.
+ */
+interface BoardV4Ctx {
+ columnByItemId: Map<number, BoardColumnKey | null>;
+ cproEnabled: boolean;
+ viewerId: number | null;
+ readOnly: boolean;
+ takingIds: ReadonlySet<number>;
+ onTake: (item: KanbanItem) => void;
+}
+const BoardV4Context = React.createContext<BoardV4Ctx | null>(null);
+
+function CardV4Badges({
+ item,
+ fullName,
+ stageBadge,
+}: {
+ item: KanbanItem;
+ fullName: string;
+ stageBadge: StageBadgeKey | null;
+}) {
+ const v4 = React.useContext(BoardV4Context);
+ if (!v4) return null;
+ const ctx = {
+  column: v4.columnByItemId.get(item.id) ?? null,
+  cproEnabled: v4.cproEnabled,
+  viewerId: v4.viewerId,
+  now: new Date(),
+  stageBadge,
+ };
+ const badges = cardBadges(item, ctx);
+ const action = v4.readOnly ? null : claimAction(item, ctx);
+ if (badges.length === 0 && !action) return null;
+ return (
+  <>
+   {badges.map((b) => (
+    <span
+     key={b.key}
+     data-testid={`card-badge-${b.key}`}
+     className={cn(
+      "inline-flex max-w-full items-center truncate rounded px-1 text-[9px] font-semibold",
+      CARD_BADGE_TONE_CLASS[b.tone]
+     )}
+     title={b.title}
+    >
+     {b.label}
+    </span>
+   ))}
+   {action && (
+    <button
+     type="button"
+     onClick={(e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      v4.onTake(item);
+     }}
+     disabled={v4.takingIds.has(item.id)}
+     className="inline-flex items-center rounded border border-primary/40 px-1.5 text-[10px] font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"
+     aria-label={`${action === "takeover" ? "Przejmij" : "Biorę"} ${fullName} — na 12 h`}
+    >
+     {action === "takeover" ? "Przejmij" : "Biorę"}
+    </button>
+   )}
+  </>
+ );
+}
 
 const CandidateKanbanCard = memo(function CandidateKanbanCard({
  item,
@@ -892,6 +1001,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {STAGE_BADGE_LABEL[badge]}
  </span>
  ))}
+ <CardV4Badges item={item} fullName={fullName} stageBadge={stageBadge} />
  {stageBadge === "cpro" && item.task_assignee_name && (
  <span
  className={cn(
@@ -1325,6 +1435,50 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  hasRole(authUser, "admin") ||
  hasRole(authUser, "delivery_lead") ||
  hasRole(authUser, "head_of_recruitment");
+ // Pipeline v4: kolumna Tablicy każdej karty (odznaki) i „Biorę/Przejmij".
+ const columnByItemId = useMemo(() => {
+ const m = new Map<number, BoardColumnKey | null>();
+ for (const f of boardFold.columns) for (const it of f.items) m.set(it.id, f.key);
+ for (const c of boardFold.closed) for (const it of c.items) m.set(it.id, "closed");
+ return m;
+ }, [boardFold]);
+ const [takingIds, setTakingIds] = useState<ReadonlySet<number>>(() => new Set());
+ const takeCandidate = useCallback(
+ async (item: KanbanItem) => {
+ setTakingIds((prev) => new Set(prev).add(item.id));
+ try {
+ await api.post("/api/pipeline/claim", {
+ candidate_id: item.candidate_id,
+ job_id: jobId,
+ });
+ showSuccess(
+ `${`${item.name ?? ""} ${item.lastname ?? ""}`.trim() || "Kandydat"} — Twój na 12 h.`
+ );
+ queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+ queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+ } catch (e) {
+ showError(apiErrorMessage(e, "Nie udało się wziąć tej osoby."));
+ } finally {
+ setTakingIds((prev) => {
+ const n = new Set(prev);
+ n.delete(item.id);
+ return n;
+ });
+ }
+ },
+ [jobId, queryClient, showSuccess, showError]
+ );
+ const boardV4 = useMemo<BoardV4Ctx>(
+ () => ({
+ columnByItemId,
+ cproEnabled,
+ viewerId: authUser?.id ?? null,
+ readOnly,
+ takingIds,
+ onTake: takeCandidate,
+ }),
+ [columnByItemId, cproEnabled, authUser?.id, readOnly, takingIds, takeCandidate]
+ );
  // Osoby już na tablicy — „Do przejrzenia" nie proponuje ich drugi raz.
  const boardCandidateIds = useMemo(
  () => cols.flatMap((c) => c.items.map((i) => i.candidate_id)),
@@ -1611,6 +1765,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  columns: cols,
  readOnly,
  canWriteClientRate,
+ cproEnabled,
  optimistic: {
  apply: applyOptimistic,
  confirm: confirmMoved,
@@ -1628,16 +1783,23 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const srcDisplay =
  displayCols.find((c) => colId(c) === res.source.droppableId) ??
  cols.find((c) => colId(c) === res.source.droppableId);
+ // Pasek zamkniętych (Pipeline v4): „<kolumna>::<kto>" = odrzucenie
+ // z wybranym „kto kończy" (my / DL / klient).
+ const [dstId, closedBy] = res.destination.droppableId.split(CLOSED_BY_SEP);
  // `stageCols`, nie `cols` — kubełek nie jest celem ruchu.
- const dst = stageCols.find((c) => colId(c) === res.destination!.droppableId);
+ const dst = stageCols.find((c) => colId(c) === dstId);
  if (!srcDisplay || !dst || colId(srcDisplay) === colId(dst)) return;
  const item = srcDisplay.items[res.source.index];
  if (!item) return;
  const realSrc = cols.find((c) => c.items.some((i) => i.id === item.id));
  if (!realSrc || hostByColId.get(colId(realSrc)) === dst) return;
+ if (closedBy && terminalOf(dst) === "rejected") {
+ requestReject(item, dst, { endedBy: closedBy as ClosedRejectBy });
+ return;
+ }
  requestMove(item, colId(realSrc), dst);
  },
- [cols, displayCols, stageCols, hostByColId, requestMove, readOnly]
+ [cols, displayCols, stageCols, hostByColId, requestMove, requestReject, readOnly]
  );
 
  // Potwierdzone usunięcie kandydata z tej rekrutacji. Optymistycznie zdejmuje
@@ -1981,6 +2143,10 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  if (!dockItem || !dockItemColId || !rejectedTemplateCol) return;
  requestReject(dockItem, rejectedTemplateCol);
  }, [dockItem, dockItemColId, rejectedTemplateCol, requestReject]);
+ const handleDockWithdraw = useCallback(() => {
+ if (!dockItem) return;
+ move.requestWithdraw(dockItem);
+ }, [dockItem, move]);
 
  // Filtry lewej kolumny — liczone raz nad WSZYSTKIMI kartami (łącznie z
  // kubełkiem „Poza szablonem": to nadal realni kandydaci w procesie).
@@ -2150,6 +2316,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  const desktopOverview = viewMode === "tiles";
 
  return (
+ <BoardV4Context.Provider value={boardV4}>
  <div className="relative space-y-3">
  {/* Krok 04 Pipeline: lewa kolumna filtrów i tablica. Dok „Karta
  kandydata" NIE zajmuje kolumny siatki — wysuwa się z prawej dopiero po
@@ -2342,8 +2509,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  Zwiń zamkniętych
  </button>
  ) : (
- boardFold.closed.map((c) => (
- <Droppable key={colId(c)} droppableId={colId(c)} isDropDisabled={readOnly}>
+ closedChips(boardFold.closed).map(({ col: c, droppableId, label, count }) => (
+ <Droppable key={droppableId} droppableId={droppableId} isDropDisabled={readOnly}>
  {(provided, snapshot) => (
  <div
  ref={provided.innerRef}
@@ -2358,12 +2525,8 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onClick={() => setShowClosed(true)}
  className="px-2 py-1 text-muted-foreground hover:text-foreground"
  >
- {terminalOf(c) === "rejected"
- ? "Odrzuceni"
- : terminalOf(c) === "withdrawn"
- ? "Wycofani"
- : columnLabel(c)}{" "}
- <span className="font-semibold tabular-nums text-foreground">{c.count}</span> →
+ {label ?? columnLabel(c)}{" "}
+ <span className="font-semibold tabular-nums text-foreground">{count}</span> →
  </button>
  <div className="hidden">{provided.placeholder}</div>
  </div>
@@ -2514,6 +2677,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onMoveTo={handleDockMove}
  onOpenScreening={handleOpenScreening}
  onReject={handleDockReject}
+ onWithdraw={handleDockWithdraw}
  badgeToggles={dockBadgeToggles}
  onOpenWorkbench={
  workbenchContext
@@ -2639,5 +2803,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </Dialog>
  )}
  </div>
+ </BoardV4Context.Provider>
  );
 }

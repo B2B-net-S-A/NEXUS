@@ -433,3 +433,88 @@ def test_cv_sent_rule_ignores_other_stages_and_nordea(monkeypatch) -> None:
     assert rules.requires_dl_client_rate(PipelineStage.cv_sent, 15) is True
     assert rules.requires_dl_client_rate(PipelineStage.cv_sent, 77) is False
     assert rules.requires_dl_client_rate(PipelineStage.verified, 15) is False
+
+
+async def test_leaving_client_interview_requires_debrief(api_client):
+    """Wyjście z „Rozmowy u klienta" do „Umowy" wymaga debriefu z pytaniami
+    klienta albo jawnego „klient nie zadawał pytań" — 409 DEBRIEF_REQUIRED."""
+    from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+    from app.models.interview_feedback import FeedbackSource, InterviewFeedback
+
+    dl_id, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead)
+    job_id, client_id = await _seed_job(dl_id)
+    cand_id = await _seed_candidate()
+    headers = await _login(api_client, dl_email, dl_pw)
+    try:
+        await _add(api_client, headers, job_id, cand_id, "manual_search")
+        to_interview = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "client_interview",
+            },
+        )
+        assert to_interview.status_code == 200, to_interview.text
+        start = datetime.now(timezone.utc) - timedelta(hours=3)
+        async with AsyncSessionLocal() as db:
+            event = CalendarEvent(
+                title="Rozmowa u klienta",
+                event_type=EventType.client_interview,
+                start_time=start,
+                end_time=start + timedelta(hours=1),
+                status=EventStatus.completed,
+                created_by=dl_id,
+                operational_owner_id=dl_id,
+                candidate_id=cand_id,
+                job_id=job_id,
+                client_id=client_id,
+                attendees=[],
+            )
+            db.add(event)
+            await db.commit()
+            event_id = event.id
+
+        blocked = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "acceptance"},
+        )
+        assert blocked.status_code == 409, blocked.text
+        detail = blocked.json()["detail"]
+        assert detail["code"] == "DEBRIEF_REQUIRED"
+        assert detail["event_id"] == event_id
+
+        # Debrief z „klient nie zadawał pytań" otwiera bramkę.
+        async with AsyncSessionLocal() as db:
+            db.add(
+                InterviewFeedback(
+                    calendar_event_id=event_id,
+                    candidate_id=cand_id,
+                    job_id=job_id,
+                    feedback_source=FeedbackSource.candidate_side,
+                    overall_impression=5,
+                    client_questions=None,
+                    no_client_questions=True,
+                )
+            )
+            await db.commit()
+        ok = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "acceptance"},
+        )
+        assert ok.status_code == 200, ok.text
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(InterviewFeedback).where(
+                    InterviewFeedback.candidate_id == cand_id
+                )
+            )
+            await db.execute(
+                delete(CalendarEvent).where(CalendarEvent.candidate_id == cand_id)
+            )
+            await db.commit()
+        await _cleanup([cand_id], job_id)

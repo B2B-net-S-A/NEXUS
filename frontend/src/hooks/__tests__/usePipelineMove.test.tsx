@@ -30,6 +30,15 @@ vi.mock("@/components/Toast", () => ({
 }));
 
 vi.mock("@/lib/celebrate", () => ({ celebrate: vi.fn() }));
+// Okno debriefu ma własne testy — tu liczy się tylko, że hook je otwiera
+// i po zapisie powtarza TEN SAM ruch.
+vi.mock("@/components/v2/recruitment/DebriefRequiredDialog", () => ({
+  DebriefRequiredDialog: (p: { eventId: number; onSaved: () => void }) => (
+    <button type="button" onClick={p.onSaved}>
+      zapisz debrief {p.eventId}
+    </button>
+  ),
+}));
 
 import {
   usePipelineMove,
@@ -283,6 +292,22 @@ describe("usePipelineMove — ruch pojedynczy", () => {
     await waitFor(() =>
       expect(screen.queryByText("Kandydat ma NDA z tym klientem.")).toBeNull()
     );
+  });
+
+  it("409 DEBRIEF_REQUIRED → okno debriefu, po zapisie ten sam ruch", async () => {
+    const item = card({ id: 11, candidate_id: 110, process_state_version: 3 });
+    const b = board({ fresh: [item] });
+    post
+      .mockRejectedValueOnce(conflict("DEBRIEF_REQUIRED", { event_id: 77 }))
+      .mockResolvedValueOnce({ data: { id: 504 } });
+    mount(b.all);
+
+    React.act(() => controls.requestMove(item, b.fresh, b.screening));
+    const save = await screen.findByRole("button", { name: "zapisz debrief 77" });
+    expect(showError).not.toHaveBeenCalled();
+    fireEvent.click(save);
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    expect(post.mock.calls[1][1]).toMatchObject({ candidate_id: 110, stage: "screening" });
   });
 
   it("409 PIPELINE_VERSION_CONFLICT → toast, sync, oba klucze, BEZ ponowienia", async () => {

@@ -146,6 +146,8 @@ export interface Debrief {
   questions: string[];
   offer_acceptance: OfferAcceptance | null;
   acceptance_condition: string | null;
+  /** Rekruter potwierdził, że klient nie zadawał pytań (bramka przed „Umową”). */
+  no_client_questions: boolean;
   questions_saved: number;
 }
 
@@ -156,6 +158,8 @@ export interface DebriefInput {
   offer_acceptance: OfferAcceptance;
   acceptance_condition?: string | null;
   notify_dl: boolean;
+  /** Pusta lista pytań wymaga jawnego „klient nie zadawał pytań” (422 bez tego). */
+  no_client_questions?: boolean;
 }
 
 // ── Etykiety ──────────────────────────────────────────────────────────────────

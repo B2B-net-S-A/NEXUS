@@ -16,6 +16,8 @@ wyliczyć z etapów:
   przepięcie pamięta rekrutację, z której przyszło.
 * ``candidate_stages.ended_by`` — kto zakończył proces: kandydat, my,
   Delivery Lead albo klient.
+* ``interview_feedback.no_client_questions`` — debrief po rozmowie u klienta
+  z jawnym „klient nie zadawał pytań” (bramka przed „Umową”).
 * dwa typy powiadomień i klucz AI podpowiedzi przy przepięciu.
 
 Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
@@ -108,8 +110,16 @@ def upgrade() -> None:
         f"CHECK (ended_by IS NULL OR ended_by IN ({_in_list(ENDED_BY)})) NOT VALID"
     )
 
+    op.execute(
+        "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS "
+        "no_client_questions BOOLEAN NOT NULL DEFAULT false"
+    )
+
 
 def downgrade() -> None:
+    op.execute(
+        "ALTER TABLE interview_feedback DROP COLUMN IF EXISTS no_client_questions"
+    )
     op.execute(
         "ALTER TABLE candidate_stages DROP CONSTRAINT IF EXISTS ck_candidate_stages_ended_by"
     )

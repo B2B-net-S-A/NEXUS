@@ -5021,6 +5021,9 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE recruitment_processes ADD COLUMN IF NOT EXISTS "
     "reassign_from_job_id INTEGER NULL REFERENCES jobs(id) ON DELETE SET NULL",
     "ALTER TABLE candidate_stages ADD COLUMN IF NOT EXISTS ended_by VARCHAR(16) NULL",
+    # 0352: debrief z jawnym „klient nie zadawał pytań” (bramka przed „Umową”).
+    "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS "
+    "no_client_questions BOOLEAN NOT NULL DEFAULT false",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

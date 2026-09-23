@@ -11,6 +11,7 @@ import enum
 from typing import Optional
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Enum,
     ForeignKey,
@@ -136,6 +137,12 @@ class InterviewFeedback(Base, TimestampMixin):
     # (yes/likely/no/unknown) i pod jakim warunkiem.
     offer_acceptance: Mapped[Optional[str]] = mapped_column(String(16))
     acceptance_condition: Mapped[Optional[str]] = mapped_column(Text)
+    # 0352: rekruter potwierdził, że klient NIE zadawał pytań — bez tego
+    # pusty debrief nie przechodzi bramki „telefon po rozmowie”
+    # (``services/debrief_gate``).
+    no_client_questions: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # ── client_side (nullable when source=candidate_side) ──
     technical_fit: Mapped[Optional[int]] = mapped_column(SmallInteger)

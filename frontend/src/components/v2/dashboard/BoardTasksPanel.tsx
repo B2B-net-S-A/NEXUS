@@ -3,7 +3,10 @@
 /**
  * „Czeka na Ciebie" — praca na Tablicach, której nikt nie widzi (0348).
  *
- * Trzy listy z `GET /api/board-tasks`:
+ * Cztery listy z `GET /api/board-tasks`:
+ *  - „Czeka na Twój przegląd (DL)" (Pipeline v4, klienci spoza Nordei) —
+ *    zweryfikowani, których Delivery Lead wysyła do klienta ze stawką albo
+ *    odrzuca; wiersz otwiera `DlReviewPanel` (CV, screening, stawka),
  *  - „Czeka na DZ" — osoby w „Zweryfikowany" bez odznaki DZ; „✓ DZ" to ten
  *    sam ruch co przełącznik w doku (`POST /api/pipeline/move` z wersją
  *    procesu), więc ostrzeżenia i konflikty działają jak na Tablicy,
@@ -18,10 +21,11 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Clock, Send } from "lucide-react";
+import { CheckCircle2, Clock, Eye, Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
+import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
@@ -100,6 +104,7 @@ export function BoardTasksPanel() {
   const me = useAuthStore((s) => s.user);
   const [busy, setBusy] = useState<number | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [reviewing, setReviewing] = useState<BoardTaskRow | null>(null);
   const toggle = (kind: string) => setExpanded((prev) => ({ ...prev, [kind]: !prev[kind] }));
   const shown = <T,>(kind: string, rows: T[]): T[] =>
     expanded[kind] ? rows : rows.slice(0, BOARD_TASKS_ROWS);
@@ -117,7 +122,9 @@ export function BoardTasksPanel() {
   }, [data]);
 
   if (!data) return null;
-  const total = data.dz.length + data.cpro_to_send.length + data.cpro_sent.length;
+  const dlReview = data.dl_review ?? [];
+  const total =
+    dlReview.length + data.dz.length + data.cpro_to_send.length + data.cpro_sent.length;
   if (total === 0) return null;
 
   const refresh = (jobId: number) => {
@@ -183,6 +190,44 @@ export function BoardTasksPanel() {
         </p>
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
+        {dlReview.length > 0 && (
+          <Section
+            title="Czeka na Twój przegląd (DL)"
+            hint={`Zweryfikowani — wyślij do klienta ze stawką albo odrzuć (ostatnie ${data.dl_review_window_days ?? 30} dni).`}
+            count={dlReview.length}
+            expanded={expanded["dl_review"] === true}
+            onToggle={() => toggle("dl_review")}
+          >
+            {shown("dl_review", dlReview).map((row) => (
+              <li key={row.stage_id} className="flex items-center gap-2 px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => setReviewing(row)}
+                    className="block max-w-full truncate text-left text-sm font-medium hover:underline"
+                  >
+                    {row.candidate_name}
+                  </button>
+                  <RowMeta row={row} />
+                </div>
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {waitingFor(row.since)}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => setReviewing(row)}
+                  aria-label={`Przejrzyj: ${row.candidate_name}`}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  Przejrzyj
+                </Button>
+              </li>
+            ))}
+          </Section>
+        )}
+
         {data.dz.length > 0 && (
           <Section
             title="Czeka na DZ"
@@ -305,6 +350,14 @@ export function BoardTasksPanel() {
           </Section>
         )}
       </div>
+      <DlReviewPanel
+        task={reviewing}
+        open={reviewing !== null}
+        onOpenChange={(open) => {
+          if (!open) setReviewing(null);
+        }}
+        canSendToClient={data.can_send_to_client}
+      />
     </div>
   );
 }

@@ -22,6 +22,12 @@ export const interviewCycleQueryKey = (scope: CycleScope) =>
   ["interview-cycle", scope] as const;
 export const clientQuestionsQueryKey = (jobId: number) =>
   ["interview-cycle", "client-questions", jobId] as const;
+/** Pula pytań klienta z debriefów — po rekrutacji albo (nowa rekrutacja) po kliencie. */
+export const clientQuestionPoolQueryKey = (
+  by: "job" | "client",
+  id: number,
+  limit: number,
+) => ["interview-cycle", "client-questions", "pool", by, id, limit] as const;
 export const debriefQueryKey = (eventId: number) =>
   ["interview-cycle", "debrief", eventId] as const;
 
@@ -61,12 +67,23 @@ export const interviewCycleApi = {
       .then((r) => r.data),
   clientQuestions: (jobId: number) =>
     api
-      .get<{ id: number; text: string; created_at: string | null }[]>(
-        "/api/interview-cycle/client-questions",
-        { params: { job_id: jobId, limit: 10 } },
-      )
+      .get<ClientQuestion[]>("/api/interview-cycle/client-questions", {
+        params: { job_id: jobId, limit: 10 },
+      })
+      .then((r) => r.data),
+  clientQuestionPool: (by: "job" | "client", id: number, limit: number) =>
+    api
+      .get<ClientQuestion[]>("/api/interview-cycle/client-questions", {
+        params: by === "job" ? { job_id: id, limit } : { client_id: id, limit },
+      })
       .then((r) => r.data),
 };
+
+export interface ClientQuestion {
+  id: number;
+  text: string;
+  created_at: string | null;
+}
 
 export function useInterviewCycle(
   scope: CycleScope,
@@ -86,6 +103,23 @@ export function useClientQuestions(jobId: number | null) {
     queryKey: clientQuestionsQueryKey(jobId ?? 0),
     queryFn: () => interviewCycleApi.clientQuestions(jobId as number),
     enabled: jobId != null,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/**
+ * Pytania, które klient zadawał kandydatom (debriefy po rozmowach u klienta).
+ * Zasila panel w profilu Championa i podpowiedź na stronie nowej rekrutacji.
+ */
+export function useClientQuestionPool(
+  by: "job" | "client",
+  id: number | null,
+  limit = 50,
+) {
+  return useQuery({
+    queryKey: clientQuestionPoolQueryKey(by, id ?? 0, limit),
+    queryFn: () => interviewCycleApi.clientQuestionPool(by, id as number, limit),
+    enabled: id != null,
     staleTime: 5 * 60_000,
   });
 }

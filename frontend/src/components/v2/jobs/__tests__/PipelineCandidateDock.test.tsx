@@ -12,7 +12,7 @@
  */
 
 import type { ComponentProps } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -198,9 +198,10 @@ describe("PipelineCandidateDock", () => {
     }
   });
 
-  it("sekcja „Teraz” zależy od etapu: Nowi → CV, Screening → Screening", () => {
-    expect(nowSectionForStage("new")).toBe("cv");
-    expect(nowSectionForStage("posting")).toBe("cv");
+  it("sekcja „Teraz” zależy od etapu: Nowi (także Screening) → Screening, Zweryfikowany → CV", () => {
+    expect(nowSectionForStage("new")).toBe("screening");
+    expect(nowSectionForStage("posting")).toBe("screening");
+    expect(nowSectionForStage("prep_call")).toBe("screening");
     expect(nowSectionForStage("screening")).toBe("screening");
     expect(nowSectionForStage("verified")).toBe("cv");
     expect(nowSectionForStage("client_interview")).toBe("process");
@@ -249,6 +250,16 @@ describe("PipelineCandidateDock", () => {
     renderDock({ moveTargets: [{ col: target, blockedReason: "Tylko odczyt" }], readOnly: true });
     expect(screen.queryByRole("button", { name: "Inny etap…" })).toBeNull();
     expect(screen.queryByText(/409/)).toBeNull();
+  });
+
+  it("„Zrezygnował” obok odrzucenia woła rezygnację (Pipeline v4); readOnly je chowa", async () => {
+    const user = userEvent.setup();
+    const props = renderDock({ onWithdraw: vi.fn() });
+    await user.click(screen.getByRole("button", { name: "Zrezygnował" }));
+    expect(props.onWithdraw).toHaveBeenCalledTimes(1);
+    cleanup();
+    renderDock({ onWithdraw: vi.fn(), readOnly: true });
+    expect(screen.queryByRole("button", { name: "Zrezygnował" })).toBeNull();
   });
 
   it("chowa „Odrzuć z powodem”, gdy canReject=false (np. kandydat już terminalny)", () => {
@@ -313,8 +324,8 @@ describe("PipelineCandidateDock", () => {
   it("warsztaty z dawnej Tabeli (CV do klienta, rozmowy, umowa) otwierają się z doku", async () => {
     const user = userEvent.setup();
     const onOpenWorkbench = vi.fn();
-    renderDock({ onOpenWorkbench, item: { ...baseItem(), stage: "new" } });
-    // Etap „Nowi" → sekcja „Teraz" to CV.
+    renderDock({ onOpenWorkbench, item: { ...baseItem(), stage: "verified" } });
+    // Etap „Zweryfikowany" → sekcja „Teraz" to CV.
     await user.click(
       await screen.findByRole("button", { name: /Wysyłka CV do klienta/ }),
     );
@@ -327,7 +338,7 @@ describe("PipelineCandidateDock", () => {
   });
 
   it("bez kontekstu warsztatów dok nie pokazuje ich przycisków", async () => {
-    renderDock({ item: { ...baseItem(), stage: "new" } });
+    renderDock({ item: { ...baseItem(), stage: "verified" } });
     await screen.findByRole("button", { name: /Pokaż CV oryginalne/ });
     expect(screen.queryByRole("button", { name: /Wysyłka CV do klienta/ })).toBeNull();
   });

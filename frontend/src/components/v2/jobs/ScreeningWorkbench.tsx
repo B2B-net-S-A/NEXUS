@@ -62,6 +62,7 @@ import {
 } from "@/components/v2/screening/ScreeningForm";
 import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields";
 import { ScreeningSuggestionChips } from "@/components/v2/screening/ScreeningSuggestionChips";
+import { ScreeningReassignSuggestions } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 import { useCapability } from "@/hooks/useCapability";
 import { apiErrorMessage } from "@/lib/api-error";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
@@ -786,6 +787,15 @@ export function ScreeningWorkbench({
                 />
               ) : (
                 <Form methods={screening.methods} onSubmit={screening.onSubmit}>
+                  {selected && (
+                    <ScreeningReassignSuggestions
+                      key={selected.item.id}
+                      stageId={selected.item.id}
+                      questions={screening.questions}
+                      methods={screening.methods}
+                      readOnly={readOnly}
+                    />
+                  )}
                   <ScreeningFormFields
                     questions={screening.questions}
                     methods={screening.methods}
@@ -895,7 +905,7 @@ export function ScreeningWorkbench({
       if (panelFallback != null) return <>{panelFallback}</>;
       return (
         <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
-          Arkusz screeningu jest dostępny na etapie „Screening”. Ta osoba jest
+          Arkusz screeningu jest dostępny w kolumnie „Nowi”. Ta osoba jest
           dziś na innym etapie tej rekrutacji.
         </p>
       );
@@ -1011,7 +1021,7 @@ export function ScreeningWorkbench({
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Nikt nie stoi dziś na etapie „Screening”. Przenieś kandydata z
+            Nikt nie czeka dziś w kolumnie „Nowi”. Dodaj kandydata do
             Pipeline’u, żeby zacząć rozmowę.
           </p>
         )}

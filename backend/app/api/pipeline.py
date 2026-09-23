@@ -31,6 +31,7 @@ from app.services import board_tasks as board_tasks_svc
 from app.services import candidate_audit, candidate_claim, pipeline_move_rules
 from app.models.contract import RateUnit
 from app.services.board_stage_badges import (
+    board_column_for,
     ensure_badge_stage_allowed,
     foreign_stage_target,
     is_cpro_stage,
@@ -684,6 +685,34 @@ async def move_candidate(
                 "roli admin, delivery_lead, tac, recruiter lub finance."
             ),
         )
+
+    # Pipeline v4 (23.09.2026): wyjście z „Rozmowy u klienta" do „Umowy" albo
+    # „Zatrudnionego" wymaga debriefu po rozmowie (pytania klienta albo „klient
+    # nie zadawał pytań") — pytania zasilają prep i profil Championa.
+    if previous_stage_row is not None:
+        target_column = board_column_for(
+            stage_def.name if stage_def else None,
+            legacy_enum.value,
+            category=(
+                stage_def.category.value if stage_def and stage_def.category else None
+            ),
+            terminal_type=(
+                stage_def.terminal_type.value
+                if stage_def and stage_def.terminal_type
+                else None
+            ),
+        )
+        if target_column in ("contract", "hired") and (
+            await candidate_claim.stage_column(db, previous_stage_row)
+            == "client_interview"
+        ):
+            from app.services.debrief_gate import missing_debrief
+
+            missing = await missing_debrief(
+                db, candidate_id=data.candidate_id, job_id=data.job_id
+            )
+            if missing is not None:
+                raise HTTPException(status_code=409, detail=missing)
 
     # Pipeline v4 (23.09.2026): „CV wysłane" poza Nordeą wysyła Delivery Lead
     # i wpisuje stawkę do klienta. Stawka zapisana wcześniej w tej rekrutacji
@@ -1861,6 +1890,22 @@ async def build_kanban_view(
             ).all()
         )
     board_now = datetime.now(timezone.utc)
+    # Odznaki terminarza rozmowy u klienta i status zamówienia zatrudnionych —
+    # po jednym zapytaniu hurtowym (liczone w serwisach, front tylko rysuje).
+    from app.services.hired_order_status import order_status_for_pairs
+    from app.services.interview_cycle import interview_badges_for_job
+
+    interview_badges = await interview_badges_for_job(
+        db, job_id=job_id, candidate_ids=candidate_ids, now=board_now
+    )
+    hired_ids = [
+        s.candidate_id for s in seen.values() if s.stage == PipelineStage.hired
+    ]
+    order_statuses = (
+        await order_status_for_pairs(db, [(cid, job_id) for cid in hired_ids])
+        if hired_ids
+        else {}
+    )
     # 0348: wytypowani do wysłania do Cpro — ta sama paczka nazwisk.
     owner_ids |= {
         s.task_assignee_id for s in seen.values() if s.task_assignee_id is not None
@@ -1913,6 +1958,9 @@ async def build_kanban_view(
         )
         if e.task_assignee_id is not None:
             payload["task_assignee_name"] = user_name_by_id.get(e.task_assignee_id)
+        payload["interview_badge"] = interview_badges.get(e.candidate_id)
+        if e.stage == PipelineStage.hired:
+            payload["order_status"] = order_statuses.get((e.candidate_id, job_id))
         v4 = v4_processes.get(e.candidate_id)
         if v4 is not None:
             payload["entry_source"] = v4.entry_source
@@ -2746,7 +2794,9 @@ async def claim_candidate(
         )
 
     now = datetime.now(timezone.utc)
-    await candidate_claim.assert_can_act(db, process=process, user=current_user, now=now)
+    await candidate_claim.assert_can_act(
+        db, process=process, user=current_user, now=now
+    )
     previous = candidate_claim.claim_state(process)
     previous_holder = (
         previous.user_id

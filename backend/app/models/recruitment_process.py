@@ -183,9 +183,7 @@ class RecruitmentProcess(Base, TimestampMixin):
     # screeningu podpowiada Luna). FK istnieje w bazie (ON DELETE SET NULL,
     # 0352), ale NIE w modelu: druga ścieżka processes → jobs robi z każdego
     # `select(...).join(Job)` bez warunku AmbiguousForeignKeysError.
-    reassign_from_job_id: Mapped[Optional[int]] = mapped_column(
-        Integer, nullable=True
-    )
+    reassign_from_job_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     opened_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
