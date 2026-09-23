@@ -458,3 +458,76 @@ Experience: Python, FastAPI, Docker, Kubernetes, AWS. 8 lat doświadczenia."""
     assert out["years_it_experience"] == 8
     # Skills still extracted by the legacy tech regex
     assert any(s["name"].lower() == "python" for s in out["skills"])
+
+
+# ── AI-07 (audyt 22.09 r2): ucięty JSON i osoba w liczniku ───────────────────
+
+
+def test_salvage_drops_the_unfinished_tail_and_closes_brackets():
+    raw = (
+        '{"companies": ["Acme", "Globex"], "years_it_experience": 7, '
+        '"career_summary": "Senior dev wi'
+    )
+    out = cvp._salvage_truncated_json(raw)
+    assert out == {"companies": ["Acme", "Globex"], "years_it_experience": 7}
+    assert cvp._salvage_truncated_json('{"a": "nie ma przecinka') is None
+    # Przecinek WEWNĄTRZ napisu nie jest granicą elementu.
+    assert cvp._salvage_truncated_json('{"a": "x, y", "b": [1, 2') == {
+        "a": "x, y",
+        "b": [1],
+    }
+
+
+@pytest.mark.asyncio
+async def test_truncated_claude_answer_is_salvaged_not_thrown_away(monkeypatch):
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    from app.services import claude_client
+
+    truncated = '{"companies": ["Acme"], "years_it_experience": 5, "skills": [{"na'
+    message = _fake_anthropic_response(truncated)
+    message.stop_reason = "max_tokens"
+    monkeypatch.setattr(claude_client, "call_claude", lambda **kwargs: message)
+
+    out = await cvp._parse_with_claude("cv")
+
+    assert out is not None, "zapłacona, ucięta odpowiedź poszła do kosza"
+    assert out["companies"] == ["Acme"]
+    assert out["_truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_broken_json_without_truncation_is_not_salvaged(monkeypatch):
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    from app.services import claude_client
+
+    message = _fake_anthropic_response('{"companies": ["Acme"], "x": ')
+    message.stop_reason = "end_turn"
+    monkeypatch.setattr(claude_client, "call_claude", lambda **kwargs: message)
+
+    assert await cvp._parse_with_claude("cv") is None
+
+
+@pytest.mark.asyncio
+async def test_parse_cv_bills_the_requesting_user(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from app.services import ai_quota
+
+    seen: dict = {}
+
+    @asynccontextmanager
+    async def _feature(db, feature, *, user_id=None, units=1):  # noqa: ANN001
+        seen["user_id"] = user_id
+        yield
+
+    async def _claude(_text, *, model=None):  # noqa: ANN001
+        return {"companies": ["X"]}
+
+    monkeypatch.setattr(ai_quota, "ai_feature", _feature)
+    monkeypatch.setattr(cvp, "_parse_with_claude", _claude)
+
+    await cvp.parse_cv("cv text", db=object(), user_id=42)
+
+    assert seen["user_id"] == 42

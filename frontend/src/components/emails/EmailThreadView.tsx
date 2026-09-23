@@ -42,6 +42,37 @@ interface EmailThreadViewProps {
   onClose: () => void;
 }
 
+/**
+ * Stan wysyłki z NEXUSA (audyt 22.09 r2, FIX-07). ``pending`` = wysyłka
+ * w toku, ``uncertain`` = Microsoft 365 nie potwierdził wysyłki i nie wiadomo,
+ * czy mail wyszedł. Bez tej plakietki wiersz wyglądał jak zwykły wysłany
+ * mail, a ponowienie kończyło się niezrozumiałym 409.
+ */
+export function SendStateBadge({
+  state,
+}: {
+  state: EmailMessage["send_state"];
+}) {
+  if (state === "pending") {
+    return (
+      <span className="rounded bg-muted text-muted-foreground text-[10px] px-1.5 py-0.5">
+        Wysyłanie…
+      </span>
+    );
+  }
+  if (state === "uncertain") {
+    return (
+      <span
+        className="rounded bg-destructive/15 text-destructive text-[10px] px-1.5 py-0.5"
+        title="Microsoft 365 nie potwierdził wysyłki. Sprawdź folder Wysłane w Outlooku, zanim wyślesz ponownie."
+      >
+        Nie wiadomo, czy wyszło — sprawdź Wysłane
+      </span>
+    );
+  }
+  return null;
+}
+
 function initialsOf(name: string | null | undefined, fallback: string): string {
   const source = (name && name.trim()) || fallback;
   const parts = source.trim().split(/\s+/).filter(Boolean);
@@ -173,6 +204,7 @@ function ThreadMessageCard({
                   Wysłane z ATS
                 </span>
               )}
+              <SendStateBadge state={email.send_state} />
               {email.is_private_filtered && (
                 <span className="rounded bg-muted text-muted-foreground text-[10px] px-1.5 py-0.5">
                   Prywatne

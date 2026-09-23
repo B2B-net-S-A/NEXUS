@@ -281,6 +281,12 @@ async def execute_approval_review(
                 422,
                 "Nie zatwierdzono CV: treść po edycji nie została potwierdzona w źródłach. Sprawdź dodane lub zmienione informacje.",
             ) from exc
+        if not exc.paths:
+            # audyt 22.09 r2 (AI-04): awaria PROTOKOŁU (niepoprawny JSON,
+            # niepełne pokrycie, zbyt duża odpowiedź) to nie wynik recenzji.
+            # Jako „reviewed” z count=0 nie dawała banera — czytała się jak
+            # czysta kontrola, choć nikt niczego nie sprawdził.
+            return receipt("unverified", method_detail=f"review_protocol_{exc.reason}")
         # Advisory: the review COMPLETED and found problems. That is a result,
         # not a failure — it travels with the approved version so the recruiter
         # sees what to check before sending the CV out.

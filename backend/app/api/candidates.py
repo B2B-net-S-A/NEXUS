@@ -4665,6 +4665,7 @@ async def update_candidate_document(
             candidate_id,
             doc_id,
             doc.content_sha256,
+            actor_user_id=current_user.id,
         )
 
     return doc
@@ -4711,6 +4712,7 @@ async def reparse_primary_cv(
         candidate_id,
         document.id,
         document.content_sha256,
+        actor_user_id=current_user.id,
     )
     return {"status": "queued", "document_id": document.id}
 
@@ -5613,6 +5615,7 @@ async def _enrich_candidate_from_document_task(
     document_id: int,
     expected_hash: Optional[str] = None,
     trigger: str = "cv_upload",
+    actor_user_id: Optional[int] = None,
 ) -> None:
     """Extract and enrich from the still-current primary CV version."""
 
@@ -5662,7 +5665,7 @@ async def _enrich_candidate_from_document_task(
             # Background task bez bramki to dokładnie przypadek z docstringa
             # `_assert_declared`. `db=` włącza kwotę na PŁATNYM kroku wewnątrz
             # parsera — wyczerpana gasi tylko Claude'a, fallbacki zostają.
-            parsed = await parse_cv(raw_text, db=db)
+            parsed = await parse_cv(raw_text, db=db, user_id=actor_user_id)
 
             current_primary = await db.scalar(
                 select(CandidateDocument.id).where(
@@ -5735,6 +5738,7 @@ async def _enrich_candidate_cv_task(
     candidate_id: int,
     source_document_id: Optional[int] = None,
     source_hash: Optional[str] = None,
+    actor_user_id: Optional[int] = None,
 ) -> None:
     """Background task: parse `raw_cv_text` and fan out to candidate fields.
 
@@ -5774,7 +5778,7 @@ async def _enrich_candidate_cv_task(
             if not candidate or not candidate.raw_cv_text:
                 return
 
-            parsed = await parse_cv(candidate.raw_cv_text, db=db)
+            parsed = await parse_cv(candidate.raw_cv_text, db=db, user_id=actor_user_id)
             if source_document_id is not None:
                 still_primary = (
                     await db.execute(
@@ -5994,7 +5998,7 @@ async def create_candidate_from_cv(
             _raise_from_cv_duplicate_conflict(cheap_rows)
 
     # 2 — parse structured facts
-    parsed = await parse_cv(raw_text, db=db)
+    parsed = await parse_cv(raw_text, db=db, user_id=current_user.id)
 
     # 3 — dedup scan
     dup_rows = await find_candidate_duplicates(
@@ -6304,6 +6308,7 @@ async def _after_cv_commit(
     *,
     candidate: Candidate,
     document: CandidateDocument,
+    actor_user_id: Optional[int] = None,
 ) -> None:
     """Schedule identity-gated extraction/enrichment once the row is durable."""
     candidate_id = candidate.id
@@ -6314,6 +6319,7 @@ async def _after_cv_commit(
         candidate_id,
         document.id,
         document.content_sha256,
+        actor_user_id=actor_user_id,
     )
 
 
@@ -6365,7 +6371,13 @@ async def upload_cv(
     )
     await db.commit()
     await db.refresh(candidate)
-    await _after_cv_commit(db, background_tasks, candidate=candidate, document=document)
+    await _after_cv_commit(
+        db,
+        background_tasks,
+        candidate=candidate,
+        document=document,
+        actor_user_id=current_user.id,
+    )
 
     # Re-fetch with eager-loaded relations so CandidateResponse can build
     # the derived `employment` field; upload_cv used to return the bare
@@ -6474,7 +6486,11 @@ async def upload_candidate_document(
             await db.refresh(candidate)
             await db.refresh(document)
             await _after_cv_commit(
-                db, background_tasks, candidate=candidate, document=document
+                db,
+                background_tasks,
+                candidate=candidate,
+                document=document,
+                actor_user_id=current_user.id,
             )
             return document
 

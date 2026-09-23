@@ -13,7 +13,11 @@ import httpx
 import pytest
 
 from app.services import claude_client, llm_providers
-from app.services.claude_client import call_claude, is_retryable_anthropic_error, text_of
+from app.services.claude_client import (
+    call_claude,
+    is_retryable_anthropic_error,
+    text_of,
+)
 from app.services.llm_providers import (
     DEEPSEEK,
     OPENAI,
@@ -45,6 +49,7 @@ def _declare_provider_calls():
         state=QuotaState(used=1, limit=0, period_start=date(2026, 9, 1)),
     ):
         yield
+
 
 # ── provider_of / klucze ──────────────────────────────────────────────────
 
@@ -139,6 +144,49 @@ def test_cached_system_blocks_are_flattened_to_text():
     assert body["messages"][1] == {"role": "user", "content": "a"}
 
 
+def _openai_strict(schema):
+    kwargs = {"output_config": {"format": {"type": "json_schema", "schema": schema}}}
+    body = build_request(
+        OPENAI, model="gpt-6-luna", messages=[], max_tokens=1, kwargs=kwargs
+    )
+    return body["response_format"]["json_schema"]["strict"]
+
+
+def test_strict_mode_only_for_schemas_that_allow_it():
+    """AI-02 (audyt 22.09 r2): ``strict: true`` dla zgodnych schematów.
+
+    Bez trybu ścisłego ~13% odpowiedzi kontroli CV łamało schemat. Schemat
+    niezgodny idzie jak dotąd — odrzucenie całego żądania byłoby gorsze."""
+    from app.services.cv_generator_b2b.factual_verification import (
+        REVIEW_RESPONSE_SCHEMA,
+    )
+
+    assert _openai_strict(REVIEW_RESPONSE_SCHEMA) is True
+    loose = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
+    assert _openai_strict(loose) is False
+    partial_required = {
+        "type": "object",
+        "properties": {"a": {"type": "string"}, "b": {"type": "string"}},
+        "required": ["a"],
+        "additionalProperties": False,
+    }
+    assert _openai_strict(partial_required) is False
+    nested_loose = {
+        "type": "object",
+        "properties": {"x": {"type": "object", "properties": {}}},
+        "required": ["x"],
+        "additionalProperties": False,
+    }
+    assert _openai_strict(nested_loose) is False
+    one_of = {
+        "type": "object",
+        "properties": {"x": {"oneOf": [{"type": "string"}, {"type": "integer"}]}},
+        "required": ["x"],
+        "additionalProperties": False,
+    }
+    assert _openai_strict(one_of) is False
+
+
 def test_json_schema_output_config_maps_to_response_format():
     schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
     kwargs = {"output_config": {"format": {"type": "json_schema", "schema": schema}}}
@@ -148,7 +196,11 @@ def test_json_schema_output_config_maps_to_response_format():
     assert openai_body["response_format"]["type"] == "json_schema"
     assert openai_body["response_format"]["json_schema"]["schema"] == schema
     deepseek_body = build_request(
-        DEEPSEEK, model="deepseek-v4-pro", messages=[], max_tokens=1, kwargs=dict(kwargs)
+        DEEPSEEK,
+        model="deepseek-v4-pro",
+        messages=[],
+        max_tokens=1,
+        kwargs=dict(kwargs),
     )
     assert deepseek_body["response_format"] == {"type": "json_object"}
     assert "JSON Schema" in deepseek_body["messages"][0]["content"]
@@ -173,7 +225,9 @@ def test_unsupported_shapes_raise_a_non_retryable_error(kwargs, messages):
     """Narzędzia i bloki inne niż tekst nie mają odpowiednika — głośny błąd,
     nie ciche pominięcie części promptu."""
     with pytest.raises(ValueError):
-        build_request(OPENAI, model="gpt-5.6-luna", messages=messages, max_tokens=1, kwargs=kwargs)
+        build_request(
+            OPENAI, model="gpt-5.6-luna", messages=messages, max_tokens=1, kwargs=kwargs
+        )
     assert is_retryable_anthropic_error(ValueError("x")) is False
 
 
@@ -199,7 +253,9 @@ def test_response_looks_like_an_anthropic_message():
     assert text_of(message) == "odp"
     # idiomy wołających: `.text` + hasattr, oraz `getattr(b, "type") == "text"`
     assert "".join(b.text for b in message.content if hasattr(b, "text")) == "odp"
-    assert [b.text for b in message.content if getattr(b, "type", "") == "text"] == ["odp"]
+    assert [b.text for b in message.content if getattr(b, "type", "") == "text"] == [
+        "odp"
+    ]
     assert message.stop_reason == "end_turn"
     assert message.provider == OPENAI
     assert message.model == "gpt-5.6-luna-2026-09-01"
@@ -255,10 +311,20 @@ def _http(status, payload, url="https://api.openai.com/v1/chat/completions"):
 @pytest.mark.parametrize(
     "status,payload,expected_cls,retryable",
     [
-        (429, {"error": {"code": "rate_limit_exceeded"}}, anthropic.RateLimitError, True),
+        (
+            429,
+            {"error": {"code": "rate_limit_exceeded"}},
+            anthropic.RateLimitError,
+            True,
+        ),
         (503, {"error": {"type": "server_error"}}, anthropic.InternalServerError, True),
         (400, {"error": {"code": "invalid_request"}}, anthropic.BadRequestError, False),
-        (401, {"error": {"code": "invalid_api_key"}}, anthropic.AuthenticationError, False),
+        (
+            401,
+            {"error": {"code": "invalid_api_key"}},
+            anthropic.AuthenticationError,
+            False,
+        ),
     ],
 )
 def test_http_errors_become_sdk_exceptions_with_the_same_retry_verdict(
@@ -286,13 +352,23 @@ def test_timeout_and_connection_errors_map_to_retryable_sdk_types(monkeypatch):
     _fake_post(monkeypatch, lambda _n: httpx.ReadTimeout("slow"))
     with pytest.raises(anthropic.APITimeoutError) as timeout:
         llm_providers.chat_complete(
-            OPENAI, model="gpt-5.6-luna", messages=[], max_tokens=1, timeout=1, kwargs={}
+            OPENAI,
+            model="gpt-5.6-luna",
+            messages=[],
+            max_tokens=1,
+            timeout=1,
+            kwargs={},
         )
     assert is_retryable_anthropic_error(timeout.value)
     _fake_post(monkeypatch, lambda _n: httpx.ConnectError("down"))
     with pytest.raises(anthropic.APIConnectionError) as conn:
         llm_providers.chat_complete(
-            OPENAI, model="gpt-5.6-luna", messages=[], max_tokens=1, timeout=1, kwargs={}
+            OPENAI,
+            model="gpt-5.6-luna",
+            messages=[],
+            max_tokens=1,
+            timeout=1,
+            kwargs={},
         )
     assert is_retryable_anthropic_error(conn.value)
 
@@ -305,7 +381,12 @@ def test_missing_key_is_a_loud_non_retryable_401(monkeypatch):
     calls = _fake_post(monkeypatch, lambda _n: _http(200, {}))
     with pytest.raises(anthropic.AuthenticationError) as excinfo:
         llm_providers.chat_complete(
-            DEEPSEEK, model="deepseek-v4-pro", messages=[], max_tokens=1, timeout=1, kwargs={}
+            DEEPSEEK,
+            model="deepseek-v4-pro",
+            messages=[],
+            max_tokens=1,
+            timeout=1,
+            kwargs={},
         )
     assert "DEEPSEEK_API_KEY" in str(excinfo.value)
     assert is_retryable_anthropic_error(excinfo.value) is False
@@ -336,7 +417,9 @@ def test_call_claude_routes_gpt_models_past_the_anthropic_sdk(monkeypatch):
     from app.services import ai_health
 
     monkeypatch.setattr(
-        ai_health, "record_provider_call", lambda p, ms, failed: health.append((p, failed))
+        ai_health,
+        "record_provider_call",
+        lambda p, ms, failed: health.append((p, failed)),
     )
 
     message = call_claude(
@@ -573,7 +656,9 @@ def test_availability_gates_follow_the_registrys_provider(monkeypatch):
     assert ingest.ai_extraction_available() is True
 
     # Lustro dla ścieżki CV: dziś Anthropic, więc bramka idzie za jego kluczem.
-    assert provider_of(ai_models.model_for(AIFeatureKey.cv_name_backfill)) == "anthropic"
+    assert (
+        provider_of(ai_models.model_for(AIFeatureKey.cv_name_backfill)) == "anthropic"
+    )
     assert cv_backfill._claude_step_can_run() is True
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert cv_backfill._claude_step_can_run() is False

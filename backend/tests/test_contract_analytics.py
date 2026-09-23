@@ -255,3 +255,70 @@ async def test_ending_contracts_count_as_active_in_analytics(
             if ids.get("client"):
                 await db.execute(delete(Client).where(Client.id == ids["client"]))
             await db.commit()
+
+
+async def test_location_distribution_skips_contracts_not_started_yet(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """FIX-12 (audyt 22.09 r2): kontrakt z przyszłym startem to jeszcze nie
+    pracujący konsultant — ta sama reguła co reszta modułu (``_started_by``)."""
+    marker = uuid.uuid4().hex[:10]
+    started_hub = f"Started-{marker}"
+    future_hub = f"Future-{marker}"
+    ids: dict[str, list[int]] = {"contract": [], "candidate": [], "client": []}
+    try:
+        async with AsyncSessionLocal() as db:
+            started = Candidate(
+                name="Started", lastname=f"Hub{marker}", hub_city=started_hub
+            )
+            future = Candidate(
+                name="Future", lastname=f"Hub{marker}", hub_city=future_hub
+            )
+            client = Client(name=f"Location Client {marker}")
+            db.add_all([started, future, client])
+            await db.flush()
+            contracts = [
+                Contract(
+                    candidate_id=started.id,
+                    client_id=client.id,
+                    contract_type=ContractType.b2b,
+                    status=ContractStatus.active,
+                    start_date=date.today() - timedelta(days=5),
+                ),
+                Contract(
+                    candidate_id=future.id,
+                    client_id=client.id,
+                    contract_type=ContractType.b2b,
+                    status=ContractStatus.active,
+                    start_date=date.today() + timedelta(days=20),
+                ),
+            ]
+            db.add_all(contracts)
+            await db.commit()
+            ids = {
+                "contract": [c.id for c in contracts],
+                "candidate": [started.id, future.id],
+                "client": [client.id],
+            }
+
+        response = await app_client.get(
+            "/api/contract-analytics/location-distribution",
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        hubs = {row["hub_city"] for row in response.json()["hubs"]}
+        assert started_hub in hubs
+        assert future_hub not in hubs
+    finally:
+        async with AsyncSessionLocal() as db:
+            if ids["contract"]:
+                await db.execute(
+                    delete(Contract).where(Contract.id.in_(ids["contract"]))
+                )
+            if ids["candidate"]:
+                await db.execute(
+                    delete(Candidate).where(Candidate.id.in_(ids["candidate"]))
+                )
+            if ids["client"]:
+                await db.execute(delete(Client).where(Client.id.in_(ids["client"])))
+            await db.commit()

@@ -7,7 +7,9 @@ drugi wiersz tej samej wiadomości (na produkcji: każdy mail wysłany z NEXUSA
 i ~35 grup łącznie). Od tej zmiany sync dopasowuje po ``internetMessageId``
 (``sync._adopt_by_internet_message_id``); ten moduł sprząta to, co już jest.
 
-Grupa = ta sama skrzynka (``user_id``) i ten sam ``m365_internet_message_id``.
+Grupa = ta sama skrzynka (``user_id``), ten sam ``m365_internet_message_id``
+i ten sam kierunek (FIX-05, audyt 22.09 r2: mail wysłany z własnym adresem
+w CC ma kopię wysłaną i odebraną — to dwie wiadomości, nie duplikat).
 Zostaje jeden wiersz: ten z kluczem wysyłki (``idempotency_key`` — ślad
 wysyłki z NEXUSA), a bez niego najstarszy. Wiersz zachowany:
 
@@ -54,7 +56,7 @@ _GROUPS_SQL = text(
            array_agg(id ORDER BY (idempotency_key IS NULL), id) AS ids
       FROM emails
      WHERE m365_internet_message_id IS NOT NULL
-     GROUP BY user_id, m365_internet_message_id
+     GROUP BY user_id, m365_internet_message_id, direction
     HAVING count(*) > 1
      ORDER BY min(id)
     """
