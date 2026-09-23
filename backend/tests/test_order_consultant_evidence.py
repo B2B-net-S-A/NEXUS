@@ -158,7 +158,11 @@ def test_swapped_rates_or_duplicate_people_do_not_pass_gate():
 async def test_pfron_plan_and_gate_pass_real_registered_extractor(monkeypatch):
     from app.services import order_mail_ingest as svc
     from app.services.order_document_text import OrderDocumentText
-    from app.services.order_policies import active_policies
+    from app.services.order_policies import (
+        PolicyContext,
+        active_policies,
+        apply_policies,
+    )
 
     rows = [_row("PALA Krzysztof", "120", "hour", "2031-09-01", "2031-09-30")]
     extraction = OrderExtraction(
@@ -168,16 +172,21 @@ async def test_pfron_plan_and_gate_pass_real_registered_extractor(monkeypatch):
         start_date="2031-09-01",
         end_date="2031-09-30",
     )
-    apply_pfron_order_policy(
-        extraction, TEXT, filename="Zlecenie nr 31 Krzysztof Pala.pdf"
+    # Jak ingest: reguły klienta przez rejestr, a ich nazwy na wierszu — od
+    # #1730 (FIN-MAIL-05) bramka widzi tylko reguły, które naprawdę zadziałały.
+    extraction, applied = apply_policies(
+        extraction,
+        PolicyContext(document_text=TEXT, filename="Zlecenie nr 31 Krzysztof Pala.pdf"),
+        active_policies(122),
     )
+    assert applied == ["PFRON"]
     db = AsyncMock()
     db.scalar.return_value = None
     db.execute.return_value = Mock(
         scalars=Mock(return_value=Mock(all=Mock(return_value=[])))
     )
     monkeypatch.setattr(svc, "load_roster", AsyncMock(return_value=[person()]))
-    row = SimpleNamespace()
+    row = SimpleNamespace(client_policy=" + ".join(applied))
     await svc._plan_and_gate(
         db,
         row,
