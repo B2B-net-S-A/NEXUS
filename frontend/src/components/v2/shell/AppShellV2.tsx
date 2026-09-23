@@ -162,8 +162,15 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // shell while the redirect above takes effect.
   if (needsOnboarding) return null;
 
+  // Dokument NIE może się przewijać — przewija się wyłącznie `<main>`.
+  // `relative` na roocie i na `<main>` jest nośne: element `absolute` bez
+  // pozycjonowanego przodka (`sr-only`, ukryte inputy Radixa) liczy się
+  // względem całego dokumentu, więc wychodził spod `overflow` i wydłużał
+  // stronę do swojej pozycji w treści — puste tło pod kartą i urwany sidebar
+  // (zgłoszenie 09.2026, zakładka Zamówienia). `h-dvh`, nie `h-screen`: na
+  // telefonie 100vh jest wyższe niż widoczny obszar.
   return (
-    <div className="app-shell-root flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="app-shell-root relative flex h-dvh overflow-hidden bg-background text-foreground">
       {/* Skip link — pierwszy element w kolejności tabulacji; widoczny dopiero
           po sfokusowaniu. Pozwala ominąć sidebar i topbar klawiaturą. */}
       <a
@@ -204,7 +211,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
 
         {/* `tabIndex={-1}` — bez tego część przeglądarek przewinie do kotwicy,
             ale nie przeniesie fokusu, więc skip link byłby pozorny. */}
-        <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto focus:outline-hidden">
+        <main id="main" tabIndex={-1} className="relative flex-1 overflow-y-auto focus:outline-hidden">
           <div className="p-4 md:p-6 animate-fadeIn">{children}</div>
         </main>
       </div>
