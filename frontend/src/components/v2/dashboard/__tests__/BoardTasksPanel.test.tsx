@@ -117,6 +117,20 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     expect(within(screen.getByRole("region", { name: "Wysłane do Cpro" })).getByText("Już Wysłana")).toBeTruthy();
   });
 
+  it("długa lista pokazuje najpierw kilka osób i „Pokaż wszystkie (N)”", async () => {
+    mockQueue({
+      cpro_sent: Array.from({ length: 9 }, (_, i) =>
+        row("cpro_sent", { stage_id: 100 + i, candidate_id: 200 + i, candidate_name: `Osoba ${i + 1}` }),
+      ),
+    });
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Wysłane do Cpro" });
+    expect(within(section).getAllByRole("listitem")).toHaveLength(6);
+    await userEvent.click(within(section).getByRole("button", { name: "Pokaż wszystkie (9)" }));
+    expect(within(section).getAllByRole("listitem")).toHaveLength(9);
+    expect(within(section).getByRole("button", { name: "Zwiń" })).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("recruiter bez prawa DZ nie dostaje przycisku zatwierdzenia", async () => {
     mockQueue({ can_approve_dz: false, dz: [row("dz")] });
     renderPanel();

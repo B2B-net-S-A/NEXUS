@@ -55,14 +55,20 @@ function RowMeta({ row }: { row: BoardTaskRow }) {
   );
 }
 
+/** Tyle wierszy na listę, zanim trzeba kliknąć „Pokaż wszystkie" — na produkcji
+ *  „Wysłane do Cpro" liczyło 98 osób, a panel stoi NAD pulpitem. */
+export const BOARD_TASKS_ROWS = 6;
+
 interface SectionProps {
   title: string;
   hint: string;
   count: number;
+  expanded: boolean;
+  onToggle: () => void;
   children: React.ReactNode;
 }
 
-function Section({ title, hint, count, children }: SectionProps) {
+function Section({ title, hint, count, expanded, onToggle, children }: SectionProps) {
   return (
     <section aria-label={title} className="min-w-0">
       <header className="mb-2 flex items-baseline gap-2">
@@ -73,6 +79,16 @@ function Section({ title, hint, count, children }: SectionProps) {
       </header>
       <p className="mb-2 text-xs text-muted-foreground">{hint}</p>
       <ul className="divide-y divide-border rounded-lg border border-border">{children}</ul>
+      {count > BOARD_TASKS_ROWS && (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          className="mt-1.5 text-xs font-medium text-primary hover:underline"
+        >
+          {expanded ? "Zwiń" : `Pokaż wszystkie (${count})`}
+        </button>
+      )}
     </section>
   );
 }
@@ -83,6 +99,10 @@ export function BoardTasksPanel() {
   const { showSuccess, showError } = useToast();
   const me = useAuthStore((s) => s.user);
   const [busy, setBusy] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggle = (kind: string) => setExpanded((prev) => ({ ...prev, [kind]: !prev[kind] }));
+  const shown = <T,>(kind: string, rows: T[]): T[] =>
+    expanded[kind] ? rows : rows.slice(0, BOARD_TASKS_ROWS);
   const data = query.data;
   const hasCpro = (data?.cpro_to_send.length ?? 0) > 0;
   const options = useCproAssigneeOptions(hasCpro);
@@ -168,8 +188,10 @@ export function BoardTasksPanel() {
             title="Czeka na DZ"
             hint="Zweryfikowani bez zatwierdzenia DZ."
             count={data.dz.length}
+            expanded={expanded["dz"] === true}
+            onToggle={() => toggle("dz")}
           >
-            {data.dz.map((row) => (
+            {shown("dz", data.dz).map((row) => (
               <li key={row.stage_id} className="flex items-center gap-2 px-3 py-2">
                 <div className="min-w-0 flex-1">
                   <Link href={boardLink(row)} className="block truncate text-sm font-medium hover:underline">
@@ -203,8 +225,10 @@ export function BoardTasksPanel() {
             title="Do wysłania do Cpro"
             hint="Gotowi do Cpro — wysyła wytypowana osoba."
             count={data.cpro_to_send.length}
+            expanded={expanded["cpro_to_send"] === true}
+            onToggle={() => toggle("cpro_to_send")}
           >
-            {data.cpro_to_send.map((row) => (
+            {shown("cpro_to_send", data.cpro_to_send).map((row) => (
               <li key={row.stage_id} className="flex flex-col gap-1.5 px-3 py-2">
                 <div className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
@@ -261,8 +285,10 @@ export function BoardTasksPanel() {
             title="Wysłane do Cpro"
             hint="Czekamy na odpowiedź Nordei."
             count={data.cpro_sent.length}
+            expanded={expanded["cpro_sent"] === true}
+            onToggle={() => toggle("cpro_sent")}
           >
-            {data.cpro_sent.map((row) => (
+            {shown("cpro_sent", data.cpro_sent).map((row) => (
               <li key={row.stage_id} className="flex items-center gap-2 px-3 py-2">
                 <div className="min-w-0 flex-1">
                   <Link href={boardLink(row)} className="block truncate text-sm font-medium hover:underline">
