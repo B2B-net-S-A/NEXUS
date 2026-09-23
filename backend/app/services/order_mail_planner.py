@@ -115,7 +115,16 @@ class RowProposal:
     reasons: list[str] = field(default_factory=list)
     previous_end_date: Optional[str] = None
     order_type: str = "periodic"
+    #: Wartość CAŁEGO dokumentu — tylko przy dokumencie jednoosobowym. Przy
+    #: kilku osobach kwota z nagłówka nie jest wartością zamówienia żadnej
+    #: z nich, a skopiowana na każde zamówienie sumowałaby się N-krotnie
+    #: w rankingu klientów (audyt 22.09, FIN-MAIL-01).
     total_value: Optional[str] = None
+    #: Waluta z dokumentu (kod ISO). ``None`` = dokument jej nie podał —
+    #: writer bierze wtedy walutę kontraktu. Inna niż PLN idzie do kolejki:
+    #: automat nie ma kursu, a 110 EUR zapisane jako 110 PLN trafiało przez
+    #: synchronizację na kontrakt (audyt 22.09, FIN-MAIL-02).
+    currency: Optional[str] = None
     #: Kandydaci o tym imieniu i nazwisku spoza rostera klienta. Niepusta lista
     #: przy ``new_draft`` znaczy „nie proponuj nowego kontraktora bez pytania" —
     #: kolejka pokazuje wtedy podpowiedź zamiast samej etykiety akcji.
@@ -141,6 +150,15 @@ class DocumentProposal:
     @property
     def auto_eligible_actions(self) -> bool:
         return bool(self.rows) and all(r.action in AUTO_ACTIONS for r in self.rows)
+
+
+def namesake_return_reason(ids: tuple[int, ...] | list[int]) -> str:
+    """Zdanie dla powrotu po przerwie, gdy w bazie jest imiennik."""
+    listing = ", ".join(f"#{i}" for i in ids)
+    return (
+        f"W bazie jest też inna osoba o tym imieniu i nazwisku ({listing}) — "
+        "potwierdź, że to powrót tej samej osoby, i zastosuj ręcznie"
+    )
 
 
 def renewal_gap_phrase(days: int) -> str:
@@ -221,8 +239,22 @@ def _is_draft_shell(
 
 
 def _period_for_row(
-    row: ConsultantOrderRow, extraction: OrderExtraction
+    row: ConsultantOrderRow,
+    extraction: OrderExtraction,
+    *,
+    document_period_authoritative: bool = False,
 ) -> tuple[Optional[str], Optional[str]]:
+    """Okres wiersza; u klienta z okresem z reguły — WYŁĄCZNIE okres dokumentu.
+
+    Reguła klienta (BIK, Polkomtel, BNP, PFRON, Credit Agricole) ustala okres
+    z etykiety dokumentu. Okres wiersza pochodzi wtedy od modelu i nie może
+    wygrać z regułą — do 22.09.2026 wygrywał, więc np. zamówienie BIK
+    (bezterminowe z reguły) dostawało datę końca zgadniętą przez model.
+    Brak daty w regule zostaje brakiem (bramka odeśle do kolejki), a nie
+    podmianą na datę modelu (audyt 22.09, FIN-MAIL-03).
+    """
+    if document_period_authoritative:
+        return extraction.start_date, extraction.end_date
     return (
         row.start_date or extraction.start_date,
         row.end_date or extraction.end_date,
@@ -267,6 +299,7 @@ def plan_document(
     is_group_client: bool,
     today: date,
     order_type: Optional[str] = None,
+    document_period_authoritative: bool = False,
 ) -> DocumentProposal:
     rows = extraction.consultant_rows
     proposal = DocumentProposal(
@@ -282,7 +315,11 @@ def plan_document(
         proposal.blocking.append("Brak numeru zamówienia")
 
     for row, res in zip(rows, resolved):
-        start, end = _period_for_row(row, extraction)
+        start, end = _period_for_row(
+            row,
+            extraction,
+            document_period_authoritative=document_period_authoritative,
+        )
         rate, unit, md = _rate_for_row(row, extraction)
         rp = RowProposal(
             row_index=res.row_index,
@@ -298,8 +335,9 @@ def plan_document(
             md_total=str(md) if md is not None else None,
             order_type=order_type or ("md" if is_group_client else "periodic"),
             total_value=str(extraction.total_value)
-            if extraction.total_value is not None
+            if extraction.total_value is not None and len(rows) == 1
             else None,
+            currency=(extraction.currency or "").strip().upper() or None,
         )
         decision = _person_decision_reason(rp, res)
         if decision is not None:
@@ -368,6 +406,12 @@ def plan_document(
                 f"{renewal_gap_phrase((new_start - target.end_date).days)} "
                 "od zakończenia poprzedniego zamówienia"
             )
+            if res.namesake_ids:
+                # Powrót rozpoznany wyłącznie po imieniu i nazwisku, a w bazie
+                # jest też inna osoba o tym samym — automat nie zgaduje, czy
+                # to ta sama osoba (audyt 22.09, FIN-MAIL-07).
+                rp.existing_person_ids = list(res.namesake_ids)
+                rp.reasons.append(namesake_return_reason(res.namesake_ids))
             proposal.rows.append(rp)
             continue
         same_number = [

@@ -109,6 +109,11 @@ class OrderClientPolicy:
     #: jest poprawnym odczytem, a nie niepełnym okresem. Bramka automatu nie
     #: odsyła go do kolejki, a formularze dostają jawne „bezterminowo".
     open_ended_period: bool = False
+    #: Okres zamówienia ustala REGUŁA z etykiety dokumentu (BIK, Polkomtel, BNP,
+    #: PFRON, Credit Agricole). Planer bierze wtedy wyłącznie okres dokumentu,
+    #: nie okres wiersza od modelu, a bramka automatu wymaga, żeby okres był
+    #: potwierdzony regułą (confidence 1.0) — audyt 22.09, FIN-MAIL-03.
+    document_period_authoritative: bool = False
     #: Zamówienie MD klienta kończy się WYŁĄCZNIE wyczerpaniem limitów MD
     #: wszystkich konsultantów (``order_md_exhaustion``), nie datą.
     closes_on_md_exhaustion: bool = False
@@ -296,6 +301,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         apply=_credit_agricole,
         order=30,
         extract_rows=credit_agricole.extract_rows,
+        document_period_authoritative=True,
+        # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
+        rule_version="2026-09-22",
     ),
     OrderClientPolicy(
         key="bnp",
@@ -304,6 +312,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         apply=_bnp,
         order=40,
         single_consultant_document=True,
+        document_period_authoritative=True,
+        # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
+        rule_version="2026-09-22",
     ),
     OrderClientPolicy(
         key="orlen",
@@ -323,6 +334,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         canonical_client_ids=frozenset({122}),
         extract_rows=parser.pfron_extract_rows,
         rate_unit_default="hour",
+        document_period_authoritative=True,
+        # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
+        rule_version="2026-09-22",
     ),
     OrderClientPolicy(
         key="erste",
@@ -415,6 +429,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         closes_on_md_exhaustion=True,
         exposes_consultant_rows=True,
         rate_rules=bik.apply_rate_rules,
+        document_period_authoritative=True,
+        # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
+        rule_version="2026-09-22",
     ),
     # Kanoniczne ID 15 = Polkomtel (``finance_order_matching.POLKOMTEL_CLIENT_ID``).
     # Zamówienie kosztowe albo MD, zawsze bezterminowe: koniec wyznacza
@@ -432,6 +449,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         closes_on_md_exhaustion=True,
         exposes_consultant_rows=True,
         rate_rules=polkomtel.apply_rate_rules,
+        document_period_authoritative=True,
+        # 22.09.2026: okres z dokumentu wiążący (FIN-MAIL-03).
+        rule_version="2026-09-22",
     ),
     # Ten sam szablon „Zlecenie wykonawcze nr CP … / rok" — wyłącznie reguła
     # numeru. Cyfrowy Polsat ma też zamówienia okresowe, więc okres i stawki
@@ -576,6 +596,11 @@ def md_exhaustion_client_ids() -> frozenset[int]:
         if policy.closes_on_md_exhaustion:
             ids |= policy.canonical_client_ids | client_ids_from_env(policy.env_var)
     return frozenset(ids)
+
+
+def document_period_authoritative(policies: list[OrderClientPolicy]) -> bool:
+    """Czy okres zamówienia u tego klienta ustala reguła z dokumentu."""
+    return any(getattr(p, "document_period_authoritative", False) for p in policies)
 
 
 def open_ended_period(policies: list[OrderClientPolicy]) -> bool:

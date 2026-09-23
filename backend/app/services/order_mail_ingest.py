@@ -80,8 +80,10 @@ from app.services.order_mail_gate import (
 )
 from app.services.order_mail_planner import ExistingOrder, plan_document
 from app.services.order_mail_resolver import (
+    MATCH_EXACT,
     MATCH_NONE,
     annotate_known_elsewhere,
+    annotate_namesakes,
     load_people_outside_roster,
     load_roster,
     resolve_rows,
@@ -101,6 +103,7 @@ from app.services.order_policies import (
     apply_policies,
     apply_rate_kind,
     client_ids_from_env,
+    document_period_authoritative,
     is_client_in_policy,
     open_ended_period,
     policy_by_key,
@@ -818,6 +821,24 @@ async def refresh_review_plan(db: AsyncSession, row: OrderMailDocument) -> None:
         await _follow_client_merge(db, row)
     policies = active_policies(row.client_id)
     doc = dataclasses.replace(doc, text=prepare_document_text(doc.text, policies))
+    # Dokument przeczytany ZANIM rozpoznano klienta (ponowna weryfikacja
+    # rozpoznała go dopiero później) nie przeszedł reguł klienta: Erste
+    # zostawało brutto, Bank Pocztowy w MD, a ``policies_applied`` bramki
+    # twierdziło co innego. Reguły stosujemy tu deterministycznie, bez
+    # ponownego wywołania modelu (audyt 22.09, FIN-MAIL-05). Ten sam przypadek
+    # obejmuje wpis bez zapisanej nazwy reguły u klienta, który reguły ma —
+    # „nic nie zastosowano" znaczy, że podwójne zastosowanie nie grozi.
+    policies_pending = bool(policies) and bool(
+        (getattr(row, "document_meta", None) or {}).get("policies_pending")
+        or not getattr(row, "client_policy", None)
+    )
+    if policies_pending and not reapplies_on_refresh(policies):
+        extraction, applied = apply_policies(
+            extraction,
+            PolicyContext(document_text=doc.text, filename=row.attachment_name),
+            policies,
+        )
+        row.client_policy = " + ".join(applied) or None
     if reapplies_on_refresh(policies):
         # Tabela z PDF-a jest źródłem prawdy (Nordea, Alior): reguła klienta
         # działa ponownie na zapisanym odczycie, bez modelu. Dokument sprzed
@@ -1088,7 +1109,9 @@ async def retry_ai_fallback_documents(db: AsyncSession, stats: IngestStats) -> N
         except Exception as exc:  # noqa: BLE001 — jeden wpis nie wywraca biegu
             logger.exception("order_mail: AI re-read apply failed for doc %s", doc_id)
             await db.rollback()
-            row = await db.get(OrderMailDocument, doc_id, with_for_update=True)
+            row = await db.get(
+                OrderMailDocument, doc_id, with_for_update=True, populate_existing=True
+            )
             row.document_meta = {
                 **(row.document_meta or {}),
                 "ai_retry_attempts": attempts,
@@ -1258,6 +1281,24 @@ async def current_proposal(db, extraction, client_id):
                 )
             except Exception:  # noqa: BLE001 — stawka bieżąca jest tylko kontrolą
                 continue
+    # Powrót po przerwie rozpoznany po samym nazwisku: czy w bazie jest też
+    # imiennik (audyt 22.09, FIN-MAIL-07). Zapytanie tylko dla wierszy, które
+    # MOGĄ być powrotem — osoby z zakończonym samodzielnym zamówieniem.
+    returning = [
+        r.row_name
+        for r in resolved
+        if r.match_kind == MATCH_EXACT
+        and r.contract_id is not None
+        and any(
+            o.status == "completed" and o.order_group_id is None
+            for o in existing.get(r.contract_id, [])
+        )
+    ]
+    if returning:
+        resolved = annotate_namesakes(
+            resolved,
+            await load_people_outside_roster(db, client_id=client_id, names=returning),
+        )
     proposal = plan_document(
         client_id=client_id,
         extraction=extraction,
@@ -1266,8 +1307,20 @@ async def current_proposal(db, extraction, client_id):
         is_group_client=is_multi_consultant_client(client_id),
         today=datetime.now(timezone.utc).date(),
         order_type=(await suggested_order_type(db, client_id)).value,
+        document_period_authoritative=document_period_authoritative(
+            active_policies(client_id)
+        ),
     )
     return proposal, resolved, current_rates
+
+
+def _applied_policy_names(row: OrderMailDocument) -> tuple[str, ...]:
+    """Nazwy reguł zapisane na dokumencie przy ostatnim ich zastosowaniu."""
+    return tuple(
+        name.strip()
+        for name in (getattr(row, "client_policy", None) or "").split(" + ")
+        if name.strip()
+    )
 
 
 async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) -> None:
@@ -1287,7 +1340,10 @@ async def _plan_and_gate(db, row, extraction, doc, policies, client_id, method) 
                 "pfron" if is_client_in_policy("pfron", client_id) else None
             ),
             open_ended_period=open_ended_period(policies),
-            policies_applied=tuple(p.display_name for p in policies),
+            # Tylko reguły, które NAPRAWDĘ zadziałały na tym odczycie
+            # (FIN-MAIL-05) — nie wszystkie aktywne u klienta.
+            policies_applied=_applied_policy_names(row),
+            document_period_authoritative=document_period_authoritative(policies),
             extraction=extraction,
             document_truncated=extraction.document_truncated,
             ocr_capped=doc.ocr_capped,

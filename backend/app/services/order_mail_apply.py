@@ -329,6 +329,15 @@ async def apply_document(
             return ApplyResult(
                 error="Dopasowanie osoby zmieniło się — wymaga potwierdzenia"
             )
+        if not confirmed_by_human and any(
+            r.action == ACTION_REACTIVATE and r.existing_person_ids
+            for r in proposal.rows
+        ):
+            # Powrót po przerwie przy imienniku w bazie (FIN-MAIL-07): zapis
+            # wyłącznie po zatwierdzeniu przez człowieka.
+            return ApplyResult(
+                error="Powrót osoby, która ma imiennika w bazie — wymaga potwierdzenia"
+            )
         doc.proposal = {
             **(doc.proposal or {}),
             "rows": [r.__dict__ for r in proposal.rows],
@@ -447,6 +456,8 @@ async def _write_document(
                         ClientOrder.contract_id == contract.id,
                     )
                     .with_for_update()
+                    # Stan PO blokadzie, nie z mapy tożsamości (FIN-MAIL-08).
+                    .execution_options(populate_existing=True)
                 )
                 if order is None:
                     raise ValueError("Zamówienie już nie istnieje — przelicz plan")
@@ -463,6 +474,8 @@ async def _write_document(
                         ClientOrder.status == ClientOrderStatus.draft,
                     )
                     .with_for_update()
+                    # Stan PO blokadzie, nie z mapy tożsamości (FIN-MAIL-08).
+                    .execution_options(populate_existing=True)
                 )
                 if order is None:
                     applied.error = "Szkic do uzupełnienia już nie istnieje"
@@ -498,6 +511,10 @@ async def _write_document(
                     order.billing_hours_per_month,
                 )
                 order.rate_unit = unit
+                if rp.get("currency"):
+                    # Waluta z dokumentu (FIN-MAIL-02) — nie z kontraktu.
+                    order.rate_client_currency = rp["currency"]
+                    order.currency = rp["currency"]
                 order.contract = contract
             else:
                 # Powrót po przerwie (ACTION_REACTIVATE) idzie tą samą ścieżką co
@@ -538,11 +555,16 @@ async def _write_document(
                     rate_client=_dec(rp.get("rate_client")),
                     rate_candidate=None,  # NIGDY z PDF-a
                     rate_unit=unit,
-                    rate_client_currency=effective.get("rate_client_currency"),
+                    # Waluta z dokumentu wygrywa z walutą kontraktu: 110 EUR
+                    # zapisane jako PLN szło synchronizacją na kontrakt
+                    # (audyt 22.09, FIN-MAIL-02).
+                    rate_client_currency=rp.get("currency")
+                    or effective.get("rate_client_currency"),
                     rate_candidate_currency=effective.get("rate_candidate_currency"),
                     created_by_user_id=actor_user_id,
                     notes=f"Zamówienie z maila (dokument #{doc.id})",
                     **{k: v for k, v in inherited.items() if v is not None},
+                    **({"currency": rp["currency"]} if rp.get("currency") else {}),
                 )
                 db.add(order)
                 await db.flush()

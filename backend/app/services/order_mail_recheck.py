@@ -206,6 +206,9 @@ async def _reidentify_client(db: AsyncSession, row: OrderMailDocument) -> bool:
     row.client_key = policy_key or (ident.client_key if ident.client_key else None)
     row.identification_method = ident.method
     row.identification_reason = ident.reason
+    # Odczyt powstał bez reguł klienta (klient był nieznany) — przeliczenie
+    # planu zastosuje je deterministycznie, bez modelu (FIN-MAIL-05).
+    row.document_meta = {**(row.document_meta or {}), "policies_pending": True}
     # Dalej jedzie zwykła ścieżka kolejki: plan i bramka rozstrzygną, czy
     # dokument wolno zapisać automatem.
     row.outcome = OUTCOME_NEEDS_REVIEW
@@ -279,7 +282,9 @@ async def _recheck_one(db: AsyncSession, doc_id: int) -> Optional[dict[str, Any]
     """Jeden dokument w osobnej transakcji. Zwraca wpis do historii albo ``None``."""
     from app.services.order_mail_ingest import _replannable, replan_and_apply
 
-    row = await db.get(OrderMailDocument, doc_id, with_for_update=True)
+    row = await db.get(
+        OrderMailDocument, doc_id, with_for_update=True, populate_existing=True
+    )
     if row is None or row.outcome not in (OUTCOME_NEEDS_REVIEW, OUTCOME_UNRECOGNIZED):
         await db.commit()  # zwolnij blokadę wiersza
         return None
@@ -362,7 +367,9 @@ async def _recheck_one(db: AsyncSession, doc_id: int) -> Optional[dict[str, Any]
 async def _stamp_failed_attempt(db: AsyncSession, doc_id: int) -> Optional[str]:
     """Policz nieudaną próbę po wycofanej transakcji. Nigdy nie rzuca."""
     try:
-        row = await db.get(OrderMailDocument, doc_id, with_for_update=True)
+        row = await db.get(
+            OrderMailDocument, doc_id, with_for_update=True, populate_existing=True
+        )
         if row is None:
             await db.commit()
             return None

@@ -472,6 +472,9 @@ async def _held_document(db, *, client, name, **fields):
         storage_path=fields.pop("storage_path", "zamowienie.pdf"),
         client_id=client.id,
         identification_method=fields.pop("identification_method", "registry_id"),
+        # Dokument przeczytany już regułą klienta — bramka czyta nazwy reguł
+        # FAKTYCZNIE zastosowanych, zapisane na dokumencie (FIN-MAIL-05).
+        client_policy=fields.pop("client_policy", "Stub"),
         outcome="needs_review",
         gate_verdict="review",
         received_at=datetime.now(timezone.utc),

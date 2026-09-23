@@ -106,6 +106,10 @@ class ResolvedConsultant:
     #: osoba nie pracuje dziś nigdzie), czy „sprawdź, czy to nie zdublowany
     #: rekord klienta" (niepusto — to pytanie do człowieka, nie do zegara).
     known_elsewhere_open_ids: tuple[int, ...] = ()
+    #: Przy dopasowaniu DOKŁADNYM: inni kandydaci w bazie o dokładnie tym
+    #: imieniu i nazwisku. Powrót po przerwie rozpoznany po samym nazwisku
+    #: nie jedzie automatem, gdy lista jest niepusta (audyt 22.09, FIN-MAIL-07).
+    namesake_ids: tuple[int, ...] = ()
     reason: str = ""
 
     @property
@@ -526,4 +530,32 @@ def annotate_known_elsewhere(
                 reason=known_elsewhere_reason(res.row_name, hits),
             )
         )
+    return out
+
+
+def annotate_namesakes(
+    resolved: list[ResolvedConsultant],
+    elsewhere: dict[str, tuple[PersonElsewhere, ...]],
+) -> list[ResolvedConsultant]:
+    """Dokleja imienników do wierszy dopasowanych DOKŁADNIE (czysta funkcja).
+
+    Imiennik = inny kandydat w bazie o dokładnie tym imieniu i nazwisku niż
+    osoba z rostera. Sam powrót po przerwie jest automatyczny (decyzja
+    10.09.2026), ale rozpoznany wyłącznie po nazwisku przy istniejącym
+    imienniku wymaga człowieka (audyt 22.09, FIN-MAIL-07).
+    """
+
+    out: list[ResolvedConsultant] = []
+    for res in resolved:
+        hits = elsewhere.get(res.row_name) if res.match_kind == MATCH_EXACT else None
+        others = tuple(
+            sorted(
+                {
+                    h.candidate_id
+                    for h in hits or ()
+                    if h.candidate_id != res.candidate_id
+                }
+            )
+        )
+        out.append(replace(res, namesake_ids=others) if others else res)
     return out
