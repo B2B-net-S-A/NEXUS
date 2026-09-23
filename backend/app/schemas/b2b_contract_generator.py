@@ -441,7 +441,7 @@ class B2BGeneratedContractItem(BaseModel):
     closure_reason: Optional[B2BClosureReason] = None
     closure_reason_other: Optional[str] = None
     closure_date: Optional[date] = None
-    # 0358 — zakończenie przeniesione z Kontraktów. „Tryb" (wypowiedzenie /
+    # 0362 — zakończenie przeniesione z Kontraktów. „Tryb" (wypowiedzenie /
     # porozumienie stron) i „Data zakończenia zamówienia" (koniec projektu)
     # w „Zakończonych umowach"; `closure_date` to wtedy ostatni dzień UMOWY.
     termination_mode: Optional[Literal["notice", "mutual_agreement"]] = None
@@ -604,7 +604,7 @@ class B2BStatusEventItem(BaseModel):
     client_name: Optional[str] = None
     changed_by_name: Optional[str] = None
     created_at: Optional[str] = None
-    # 0358: zmiana wykonana przez zakończenie kontraktu — kontrakt, koniec
+    # 0362: zmiana wykonana przez zakończenie kontraktu — kontrakt, koniec
     # projektu i dane rozwiązania umowy (tryb, strona, daty). NULL dla
     # ręcznych zmian w Generatorze.
     details: Optional[dict] = None

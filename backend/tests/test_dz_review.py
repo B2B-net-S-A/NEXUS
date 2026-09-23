@@ -380,6 +380,22 @@ async def _seed_review(world: dict, hor: dict, api: AsyncClient) -> int:
     return stage_id
 
 
+async def _review(stage_id: int) -> dict:
+    """Przegląd przez serwis — trasy `/api/board-tasks/dz/*` zniknęły w v5
+    (QC CV, `/api/pipeline/stages/{id}/qc`), serwis zostaje dla QC."""
+    async with AsyncSessionLocal() as db:
+        stage = await db.get(CandidateStage, stage_id)
+        review = await svc.build_review(db, stage)
+    return json.loads(json.dumps(review, default=str))
+
+
+async def _hints(stage_id: int, user_id: int) -> dict:
+    async with AsyncSessionLocal() as db:
+        stage = await db.get(CandidateStage, stage_id)
+        review = await svc.build_review(db, stage)
+        return await svc.generate_hints(db, stage, review, user_id=user_id)
+
+
 async def _cleanup_review(world: dict, stage_id: int) -> None:
     async with AsyncSessionLocal() as db:
         await db.execute(
@@ -399,16 +415,10 @@ async def test_review_shows_both_cvs_request_and_checks(
 ) -> None:
     world = await _seed_world()
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
-    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     hor = await _login(api_client, hor_creds)
-    rec = await _login(api_client, rec_creds)
     stage_id = await _seed_review(world, hor, api_client)
     try:
-        resp = await api_client.get(
-            f"/api/board-tasks/dz/{stage_id}/review", headers=hor
-        )
-        assert resp.status_code == 200, resp.text
-        body = resp.json()
+        body = await _review(stage_id)
         assert body["client_request"]["must"] == ["Java", "Kubernetes"]
         assert body["generated_cv"]["source"] == "branded_draft"
         assert body["original_cv"]["source"] == "profile_text"
@@ -419,15 +429,9 @@ async def test_review_shows_both_cvs_request_and_checks(
         # Treść CV idzie jako bloki tekstu, nie HTML — skrypt z edytora odpada.
         flat = json.dumps(body["generated_cv"]["blocks"])
         assert "<" not in flat and "alert" not in flat
-
-        # Przegląd DZ jest dla ról z prawem DZ.
-        denied = await api_client.get(
-            f"/api/board-tasks/dz/{stage_id}/review", headers=rec
-        )
-        assert denied.status_code == 403
     finally:
         await _cleanup_review(world, stage_id)
-        await _cleanup(world, [hor_id, rec_id])
+        await _cleanup(world, [hor_id])
 
 
 @pytest.mark.asyncio
@@ -469,9 +473,7 @@ async def test_original_comes_from_an_earlier_stage_snapshot_of_the_pair(
                 )
             )
             await db.commit()
-        body = (
-            await api_client.get(f"/api/board-tasks/dz/{stage_id}/review", headers=hor)
-        ).json()
+        body = await _review(stage_id)
         assert body["original_cv"]["source"] == "snapshot", body["original_cv"]
         assert body["original_cv"]["filename"] == "cv.txt"
         assert "Snapshot: Java" in (body["original_cv"]["text"] or "")
@@ -514,9 +516,7 @@ async def test_client_cv_made_outside_the_generator_comes_from_the_b2b_file(
                     )
                 )
             await db.commit()
-        body = (
-            await api_client.get(f"/api/board-tasks/dz/{stage_id}/review", headers=hor)
-        ).json()
+        body = await _review(stage_id)
         cv = body["generated_cv"]
         assert cv["source"] == "document"
         assert cv["filename"] == "Ewa_B2B_Nordea.docx"
@@ -569,21 +569,15 @@ async def test_hints_are_generated_once_then_read_from_memory(
         "app.services.llm_providers.api_key_configured", lambda _model: True
     )
     try:
-        first = await api_client.post(
-            f"/api/board-tasks/dz/{stage_id}/hints", headers=hor
-        )
-        assert first.status_code == 200, first.text
-        body = first.json()
+        body = await _hints(stage_id, hor_id)
         assert body["status"] == "ok" and body["cached"] is False
         assert body["hints"][0]["must_have"] == "Kubernetes"
         assert body["hints"][0]["quote"] == "Java Kubernetes Kafka"
         prompt = calls[0]["messages"][0]["content"]
         assert "**Java**" in prompt and "Kubernetes" in prompt
 
-        second = await api_client.post(
-            f"/api/board-tasks/dz/{stage_id}/hints", headers=hor
-        )
-        assert second.json()["cached"] is True
+        second = await _hints(stage_id, hor_id)
+        assert second["cached"] is True
         assert len(calls) == 1
     finally:
         await _cleanup_review(world, stage_id)
@@ -607,11 +601,8 @@ async def test_hints_failure_is_advisory_not_an_error(
         "app.services.llm_providers.api_key_configured", lambda _model: True
     )
     try:
-        resp = await api_client.post(
-            f"/api/board-tasks/dz/{stage_id}/hints", headers=hor
-        )
-        assert resp.status_code == 200, resp.text
-        assert resp.json()["status"] == "unavailable"
+        result = await _hints(stage_id, hor_id)
+        assert result["status"] == "unavailable"
         async with AsyncSessionLocal() as db:
             assert (
                 await db.scalar(

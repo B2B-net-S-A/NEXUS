@@ -1,4 +1,4 @@
-"""Zakończenie współpracy ↔ Generator umów B2B (ticket 09.2026, migracja 0358).
+"""Zakończenie współpracy ↔ Generator umów B2B (ticket 09.2026, migracja 0362).
 
 Kontrakt w NEXUSIE to PROJEKT (osoba × klient), a umowa z Generatora to umowa
 B2B z Partnerem — ta sama osoba może mieć jedną umowę i kolejne projekty.
@@ -117,7 +117,7 @@ def contract_agreement_termination(
 def set_contract_agreement_termination(
     contract: Contract, termination: Optional[AgreementTermination]
 ) -> None:
-    """Zapisz albo wyczyść rozwiązanie umowy — zawsze komplet (CHECK 0358)."""
+    """Zapisz albo wyczyść rozwiązanie umowy — zawsze komplet (CHECK 0362)."""
     contract.agreement_termination_mode = termination.mode if termination else None
     contract.agreement_termination_party = termination.party if termination else None
     contract.agreement_termination_signed_on = (

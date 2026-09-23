@@ -1,7 +1,7 @@
 """Zakończenie współpracy: rozwiązanie umowy B2B i synchronizacja z Generatorem.
 
-Revision ID: 0358_contract_agreement_termination
-Revises: 0357_contract_orders_card_dismissed
+Revision ID: 0362_contract_agreement_termination
+Revises: 0361_cv_qc
 
 * ``contracts.agreement_termination_*`` + ``agreement_last_day`` — rozwiązanie
   umowy B2B zapisane oknem „Zakończ współpracę” (tryb, strona, data złożenia
@@ -24,8 +24,8 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 
 from alembic import op
 
-revision = "0358_contract_agreement_termination"
-down_revision = "0357_contract_orders_card_dismissed"
+revision = "0362_contract_agreement_termination"
+down_revision = "0361_cv_qc"
 branch_labels = None
 depends_on = None
 

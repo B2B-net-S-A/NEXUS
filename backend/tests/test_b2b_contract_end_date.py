@@ -280,7 +280,7 @@ async def test_terminate_sets_a_future_date_and_it_can_be_corrected(
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["end_date"] == first.isoformat()
-    # Umowa wypowiedziana pracuje do daty zakończenia — od 0358 jako
+    # Umowa wypowiedziana pracuje do daty zakończenia — od 0362 jako
     # „Kończący się” (data zakończenia projektu jest włączna).
     assert resp.json()["status"] == "ending"
     # Po ręcznym zakończeniu datę wolno poprawić w edycji.

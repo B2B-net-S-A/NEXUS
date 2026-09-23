@@ -190,7 +190,7 @@ async def test_revival_by_live_order_makes_the_contract_indefinite():
 
         async def execute(self, statement):
             return SimpleNamespace(
-                # Powrót po przerwie szuka umów w Generatorze (0358) — brak.
+                # Powrót po przerwie szuka umów w Generatorze (0362) — brak.
                 scalars=lambda: SimpleNamespace(all=lambda: []),
                 one_or_none=lambda: (
                     contract.status,

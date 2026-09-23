@@ -686,7 +686,7 @@ async def test_patch_contract_honours_register_status_body(
     assert changed.status_code == 200, changed.text
     assert changed.json()["status"] == "ending"
 
-    # „Zakończony" wyłącznie przez okno „Zakończ współpracę" (0358): sam
+    # „Zakończony" wyłącznie przez okno „Zakończ współpracę" (0362): sam
     # status bez powodu i daty zakończenia projektu jest odrzucany.
     refused = await app_client.patch(
         f"/api/contracts/{cid}",

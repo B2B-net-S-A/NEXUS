@@ -249,7 +249,7 @@ class Contract(Base, TimestampMixin):
     termination_lessons: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     terminated_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
-    # Rozwiązanie UMOWY B2B (0358) — osobne od końca projektu. Projekt kończy
+    # Rozwiązanie UMOWY B2B (0362) — osobne od końca projektu. Projekt kończy
     # się `terminated_at`/`end_date` i to on rządzi statusem kontraktu; umowa
     # może obowiązywać dłużej (okres wypowiedzenia). Komplet albo nic
     # (`ck_contracts_agreement_termination_coherence`). Tryb: `notice`

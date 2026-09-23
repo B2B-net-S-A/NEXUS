@@ -254,7 +254,7 @@ async def test_activation_from_draft_still_demands_the_required_fields():
 
 
 async def test_ending_directly_is_refused_outside_the_termination_window():
-    """Od 0358 „Zakończony" daje wyłącznie okno „Zakończ współpracę"; bez
+    """Od 0362 „Zakończony" daje wyłącznie okno „Zakończ współpracę"; bez
     powodu i daty zakończenia projektu zapis statusu jest odrzucany 409.
     Bezpośrednie przejście zostaje tylko dla wpisu umowy już zakończonej
     (``POST /contracts``, ``allow_direct_end=True``) — testy niżej."""

@@ -619,7 +619,7 @@ _ENUM_STATEMENTS = [
     # doc_type='order' wywala się InvalidTextRepresentationError (DB enum nie
     # zna wartości), gdyby alembic upgrade nie wszedł na prod (multi-head).
     "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'order'",
-    # 0358: załącznik z okna „Zakończ współpracę" — wypowiedzenie/porozumienie.
+    # 0362: załącznik z okna „Zakończ współpracę" — wypowiedzenie/porozumienie.
     "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'termination_notice'",
     "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'termination_agreement'",
     # ── Rozjazd zmierzony na produkcji 2026-07-20 przez /api/admin/schema-drift ──
@@ -4567,7 +4567,7 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_order_pdf_downloads_kind
             CHECK (file_kind IN ('order', 'group', 'amendment'))
     )""",
-    # 0358: zakończenie współpracy — rozwiązanie umowy B2B na kontrakcie
+    # 0362: zakończenie współpracy — rozwiązanie umowy B2B na kontrakcie
     # i ślad zakończenia na umowie w Generatorze (CHECK-i w _CONSTRAINT_STATEMENTS).
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_termination_mode VARCHAR(20)",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_termination_party VARCHAR(20)",
@@ -5155,6 +5155,26 @@ _COLUMN_STATEMENTS = [
     "orders_card_dismissed_at TIMESTAMPTZ NULL",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
     "orders_card_dismissed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    # 0361 (Rekrutacja v5): przebiegi QC CV — bramka przed „CV wysłane”/Cpro.
+    # Lustro 1:1 z migracją — pilnuje `test_cv_qc.py`.
+    """CREATE TABLE IF NOT EXISTS cv_qc_runs (
+    id BIGSERIAL PRIMARY KEY,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    candidate_stage_id INTEGER NULL
+        REFERENCES candidate_stages(id) ON DELETE SET NULL,
+    cv_fingerprint VARCHAR(64) NULL,
+    passed BOOLEAN NOT NULL,
+    blocking_failed INTEGER NOT NULL,
+    warnings_count INTEGER NOT NULL,
+    result JSONB NOT NULL,
+    override_reason TEXT NULL,
+    override_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_cv_qc_runs_pair_created "
+    "ON cv_qc_runs (candidate_id, job_id, created_at DESC)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -5560,6 +5580,22 @@ _DATA_STATEMENTS = [
                WHERE other.template_id = sd.template_id
                  AND other.legacy_enum_value = 'interview'
           )""",
+    # 0361 (Rekrutacja v5): „Przepuszczony przez DZ” → „QC CV” w szablonach
+    # NEXUSA (szablon z Traffita zostaje — nocny sync by go przepisał).
+    # Jednorazowo: znacznik wstawiany TĄ SAMĄ instrukcją, więc ręczna zmiana
+    # nazwy przez admina nie jest cofana przy starcie. Stoi PO bloku 0271,
+    # który rozpoznaje ten etap po starej nazwie.
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('0361_dz_stage_renamed_qc_cv', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "UPDATE pipeline_stage_defs SET name = 'QC CV', updated_at = now() "
+    "WHERE name = 'Przepuszczony przez DZ' "
+    "AND template_id IN (SELECT id FROM pipeline_templates "
+    "WHERE coalesce(external_source, 'manual') <> 'traffit') "
+    "AND NOT EXISTS (SELECT 1 FROM pipeline_stage_defs x "
+    "WHERE x.template_id = pipeline_stage_defs.template_id AND x.name = 'QC CV') "
+    "AND EXISTS (SELECT 1 FROM marker)",
     # 0273 + 0347: domyślne wartości akcji (recovery tylko przy pustej macierzy).
     # TCM ma pełny generator od decyzji z 22.09.2026 (0347); tylko legacy
     # viewer zaczyna od podglądu.
@@ -7041,7 +7077,7 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
-    # 0358: rozwiązanie umowy B2B na kontrakcie — komplet albo nic; tryb
+    # 0362: rozwiązanie umowy B2B na kontrakcie — komplet albo nic; tryb
     # i strona z zamkniętych słowników (także na umowie w Generatorze).
     """DO $$ BEGIN
         ALTER TABLE contracts

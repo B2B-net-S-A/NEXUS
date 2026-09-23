@@ -174,7 +174,7 @@ interface ContractDetail {
   termination_reason: ContractTerminationReason | null;
   termination_lessons: string | null;
   terminated_at: string | null;
-  // Rozwiązanie umowy B2B z okna „Zakończ współpracę" (0358).
+  // Rozwiązanie umowy B2B z okna „Zakończ współpracę" (0362).
   agreement_termination_mode: AgreementTerminationMode | null;
   agreement_termination_party: AgreementTerminationParty | null;
   agreement_termination_signed_on: string | null;
