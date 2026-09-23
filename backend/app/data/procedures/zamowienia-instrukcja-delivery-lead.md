@@ -636,7 +636,9 @@ odczycie to nie awaria — to odmowa zgadywania.
 **Limity i formaty.** Plik do 25 MB. Okno wyboru pliku bywa węższe niż to, co
 system obsługuje: w zamówieniach zbiorczych i w edycji zamówienia przyjmowany
 jest wyłącznie `.pdf`, a przy dodawaniu konsultanta i przy przedłużeniu
-pojedynczego zamówienia także `.docx`. Odczyt korzysta z modułu AI — jeżeli
+pojedynczego zamówienia także `.docx`. O formacie decyduje treść pliku, nie
+jego nazwa: PDF zapisany jako `.docx` zostanie przeczytany jak PDF. Odczyt
+korzysta z modułu AI — jeżeli
 administrator go wyłączy albo ustawi miesięczny limit i ten się wyczerpie,
 zobaczysz komunikat „Odczyt AI jest chwilowo niedostępny (…). Wpisz dane
 ręcznie." Domyślnie limitu nie ma, więc w praktyce oznacza to świadome
