@@ -344,6 +344,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/recruitment-v3`, `/preview/pipeline-v4`,
 //   `/preview/jobs-list-v3`, `/preview/calendar-cycle`, `/preview/dz-review`,
 //   `/preview/kpi-targets`,
+//   `/preview/b2b-documents`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
 //                  Playwright (`e2e/candidate-ux-preview.spec.ts`) bez sesji.
@@ -404,6 +405,7 @@ const PUBLIC_PATHS = [
   "/preview/calendar-cycle",
   "/preview/dz-review",
   "/preview/kpi-targets",
+  "/preview/b2b-documents",
   "/preview/kariera",
   "/preview/career-share",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym

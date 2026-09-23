@@ -1,8 +1,11 @@
 """Idempotentny seed Generatora Umów B2B.
 
-Wstawia brakujące role (po `slug`) oraz 2 szablony HTML (po
-`contract_type='b2b' + language`). NIGDY nie nadpisuje istniejących rekordów —
-edycje z UI są bezpieczne. Wywoływany przy starcie aplikacji (lifespan).
+Wstawia brakujące role (po `slug`) — istniejących ról nie rusza, więc ich
+edycje z UI są bezpieczne. Dwa szablony HTML umowy (po
+`contract_type='b2b' + language`) są UPSERT-owane z plików przy każdym
+starcie: to lustro podglądu DOCX budowanego skryptem, a dokument do podpisu
+powstaje z DOCX, więc ręczna edycja HTML w Ustawieniach i tak nie zmieniłaby
+umowy — a rozjechałaby podgląd z plikiem. Wywoływany przy starcie (lifespan).
 """
 
 from __future__ import annotations

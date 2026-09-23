@@ -133,6 +133,9 @@ _FIELD_SOURCE_RE = re.compile(
 # list, so a schema addition cannot turn into an unnoticed CASCADE delete.
 _KNOWN_CONTRACT_FKS = {
     ("b2b_contract_details", "contract_id"),
+    # Dokumenty pochodne umowy B2B (0357) należą do tej samej współpracy —
+    # przy scaleniu duplikatu idą za kontraktem, który zostaje.
+    ("b2b_contract_documents", "contract_id"),
     ("b2b_generated_contracts", "contract_id"),
     ("calls", "contract_id"),
     # Durable offboarding decisions belong to the same candidate/client

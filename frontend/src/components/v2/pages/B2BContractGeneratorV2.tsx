@@ -102,6 +102,8 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
 import { countPl } from "@/lib/plural-pl";
 import { positiveIntParam } from "@/lib/client-tab";
+import { DocumentsTab } from "@/components/v2/b2b-generator/documents/DocumentsTab";
+import { RegisterNewDocumentMenu } from "@/components/v2/b2b-generator/documents/RegisterNewDocumentMenu";
 import {
   B2B_CURRENCIES,
   B2B_REGISTER_PAGE_SIZE,
@@ -598,6 +600,7 @@ export function B2BContractGeneratorV2() {
               <TabsTrigger value="generated">Umowy bieżące</TabsTrigger>
               <TabsTrigger value="no-project">Umowy bez projektu</TabsTrigger>
               <TabsTrigger value="closed">Zakończone umowy</TabsTrigger>
+              <TabsTrigger value="documents">Dokumenty</TabsTrigger>
               {isAdmin ? (
                 <TabsTrigger value="roles">Zakresy ról (admin)</TabsTrigger>
               ) : null}
@@ -659,6 +662,9 @@ export function B2BContractGeneratorV2() {
               <ClosedContractsTab
                 searchParam={activeTab === "closed" ? qParam : null}
               />
+            </TabsContent>
+            <TabsContent value="documents">
+              <DocumentsTab canGenerate={canGenerate} />
             </TabsContent>
             {isAdmin ? (
               <TabsContent value="roles">
@@ -2173,18 +2179,17 @@ export function GeneratedContractsTab({
     updateMut.mutate({ id, client_name: name });
   };
 
-  const confirmDelete = (r: B2BGeneratedContractRow) => {
-    const label = r.partner_name
-      ? `${r.contract_number} — ${r.partner_name}`
-      : r.contract_number;
-    if (
-      window.confirm(
-        `Usunąć umowę „${label}” z listy? Tej operacji nie można cofnąć, a numer nie wróci do puli.`,
-      )
-    ) {
-      deleteMut.mutate(r.id);
-    }
-  };
+  // Okno aplikacji zamiast `window.confirm` — natywny dialog zamraża
+  // automatyzację przeglądarki (przeklikanie, testy E2E).
+  const [deleteRow, setDeleteRow] = useState<B2BGeneratedContractRow | null>(
+    null,
+  );
+  const confirmDelete = (r: B2BGeneratedContractRow) => setDeleteRow(r);
+  const deleteLabel = deleteRow
+    ? deleteRow.partner_name
+      ? `${deleteRow.contract_number} — ${deleteRow.partner_name}`
+      : deleteRow.contract_number
+    : "";
 
   return (
     <Card>
@@ -2607,6 +2612,11 @@ export function GeneratedContractsTab({
                             </>
                           ) : (
                             <>
+                              {canCorrect ? (
+                                // Aneks, porozumienie, wypowiedzenie — kreator
+                                // w zakładce „Dokumenty” z tą umową jako bazową.
+                                <RegisterNewDocumentMenu row={r} />
+                              ) : null}
                               {canCorrect && canCorrectInForm(r) ? (
                                 // Poprawka treści pod tym samym numerem. Do
                                 // 23.09.2026 działała tylko w karcie, w której
@@ -2732,6 +2742,37 @@ export function GeneratedContractsTab({
           }}
         />
       ) : null}
+      <Dialog
+        open={deleteRow !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteRow(null);
+        }}
+      >
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>Usunąć umowę z rejestru?</DialogTitle>
+            <DialogDescription>
+              „{deleteLabel}” zniknie z listy. Tej operacji nie można cofnąć,
+              a numer nie wróci do puli.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteRow(null)}>
+              Anuluj
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMut.isPending}
+              onClick={() => {
+                if (deleteRow) deleteMut.mutate(deleteRow.id);
+                setDeleteRow(null);
+              }}
+            >
+              Usuń umowę
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

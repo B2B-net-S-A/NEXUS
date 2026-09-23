@@ -14,6 +14,7 @@ export type GeneratorTab =
   | "generated"
   | "no-project"
   | "closed"
+  | "documents"
   | "roles";
 
 export const GENERATOR_TABS: readonly GeneratorTab[] = [
@@ -21,6 +22,7 @@ export const GENERATOR_TABS: readonly GeneratorTab[] = [
   "generated",
   "no-project",
   "closed",
+  "documents",
   "roles",
 ] as const;
 
@@ -206,8 +208,77 @@ export function contractStatusOptions(
 // ── Ostrzeżenia w wierszu rejestru ──────────────────────────────────────────
 
 export interface RowWarning {
-  tone: "warning" | "danger";
+  /** `info` = plakietka informacyjna (np. „Z Excela”), nie ostrzeżenie. */
+  tone: "info" | "warning" | "danger";
   text: string;
+}
+
+// ── Wiersze z rejestru Excela działu (0358) ─────────────────────────────────
+
+/** Etykiety kodów `legacy_flags` z importu — tylko te, które coś mówią
+ *  użytkownikowi rejestru. Nieznany kod nie jest pokazywany. */
+export const EXCEL_FLAG_LABELS: Readonly<Record<string, RowWarning>> = {
+  likely_ended: {
+    tone: "warning",
+    text: "W Excelu oznaczona jako zakończona — brak daty, sprawdź status",
+  },
+  without_project: { tone: "warning", text: "W Excelu: bez projektu" },
+  row_highlight_orange: {
+    tone: "warning",
+    text: "W Excelu wyróżniona (nie doszła do skutku / bez projektu)",
+  },
+  start_date_unknown: { tone: "warning", text: "Data startu nieznana w Excelu" },
+  start_date_uncertain: { tone: "warning", text: "Data startu niepewna w Excelu" },
+  number_collision: { tone: "danger", text: "Numer powtórzony w Excelu" },
+  deleted_number_reused: {
+    tone: "danger",
+    text: "Numer był wydany i usunięty w NEXUSIE",
+  },
+  candidate_ambiguous: {
+    tone: "warning",
+    text: "Kilku kandydatów o tym nazwisku — bez powiązania",
+  },
+};
+
+export function isExcelRow(row: Pick<B2BGeneratedContractRow, "source">): boolean {
+  return row.source === "excel";
+}
+
+/**
+ * Plakietki wiersza z Excela: „Z Excela”, flagi importu, aneks danych firmy
+ * i brak w ostatnio wgranym pliku. Wiersze z Excela są tylko do odczytu —
+ * akcje chowa backend (`can_edit`/`can_delete`/`can_download` = false).
+ */
+export function excelRowBadges(
+  row: Pick<
+    B2BGeneratedContractRow,
+    | "source"
+    | "legacy_flags"
+    | "needs_business_data_annex"
+    | "business_data_annex_done_at"
+    | "excel_missing_since"
+  >,
+): RowWarning[] {
+  const badges: RowWarning[] = [];
+  if (isExcelRow(row)) badges.push({ tone: "info", text: "Z Excela" });
+  for (const flag of row.legacy_flags ?? []) {
+    const label = EXCEL_FLAG_LABELS[flag];
+    if (label) badges.push(label);
+  }
+  if (row.needs_business_data_annex) {
+    badges.push(
+      row.business_data_annex_done_at
+        ? {
+            tone: "info",
+            text: `Aneks „dane firmy” zrobiony ${formatIsoDatePl(row.business_data_annex_done_at)}`,
+          }
+        : { tone: "warning", text: "Czeka na aneks „dane firmy”" },
+    );
+  }
+  if (row.excel_missing_since) {
+    badges.push({ tone: "warning", text: "Brak w ostatnim pliku Excela" });
+  }
+  return badges;
 }
 
 /**
@@ -224,9 +295,14 @@ export function registerRowWarnings(
     | "contract_id"
     | "linked_contract_status"
     | "linked_contract_end_date"
+    | "source"
+    | "legacy_flags"
+    | "needs_business_data_annex"
+    | "business_data_annex_done_at"
+    | "excel_missing_since"
   >,
 ): RowWarning[] {
-  const warnings: RowWarning[] = [];
+  const warnings: RowWarning[] = [...excelRowBadges(row)];
   const linked = row.linked_contract_status ?? null;
   const end = row.linked_contract_end_date ?? null;
   const live = row.contract_status === "active" || row.contract_status === "suspended";
@@ -247,7 +323,13 @@ export function registerRowWarnings(
     });
   }
 
-  if (row.signature_status === "signed_both" && row.contract_id == null) {
+  // Umowa z Excela nigdy nie miała kontraktu w NEXUSIE — brak nie jest
+  // „usuniętym kontraktem”.
+  if (
+    row.signature_status === "signed_both" &&
+    row.contract_id == null &&
+    !isExcelRow(row)
+  ) {
     warnings.push({
       tone: "danger",
       text: "Kontrakt usunięty — brak kontraktora",

@@ -138,6 +138,8 @@ from app.api import public_engagement
 from app.api import public_interview_confirmation
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
+from app.api import b2b_documents
+from app.api import b2b_register_import
 from app.api import jarvis as jarvis_api
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
@@ -1152,6 +1154,16 @@ app.include_router(
 )
 app.include_router(
     b2b_contract_generator.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
+)
+app.include_router(
+    b2b_documents.router,
+    prefix="/api/b2b-generator",
+    tags=["b2b-generator"],
+)
+app.include_router(
+    b2b_register_import.router,
     prefix="/api/b2b-generator",
     tags=["b2b-generator"],
 )
@@ -2536,6 +2548,8 @@ async def api_health_deep_check():
     from app.models.job_public_profile import JobPublicProfile
     from app.models.candidate_consent import CandidateConsent
     from app.models.placement_exclusion import PlacementExclusion
+    from app.models.b2b_contract_document import B2BContractDocument
+    from app.models.b2b_register_import import B2BRegisterImportRun
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2556,6 +2570,10 @@ async def api_health_deep_check():
             "b2b_generated_contract_status_events",
             B2BGeneratedContractStatusEvent,
         ),
+        # 0357/0358: dokumenty pochodne (aneksy, rozwiązania) i przebiegi
+        # importu rejestru z Excela.
+        ("b2b_contract_documents", B2BContractDocument),
+        ("b2b_register_import_runs", B2BRegisterImportRun),
         # Zamówienia wielo-konsultantowe (0227). Bez tych sond zakładka
         # „Zamówienia" trzech klientów rozliczanych na MD wywalałaby
         # UndefinedTable przy zielonym deployu — dokładnie tryb awarii
