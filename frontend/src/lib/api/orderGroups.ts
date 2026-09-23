@@ -506,13 +506,22 @@ export interface SwapConsultantInput {
 
 // ── Import MD (moduł Finanse) ───────────────────────────────────────────────
 
-export type ImportRowStatus = "applied" | "needs_assignment" | "unmatched";
+/** `cost_only` (FIN-MD-06): wiersz z samą fakturą, bez liczby MD. */
+export type ImportRowStatus =
+  | "applied"
+  | "needs_assignment"
+  | "unmatched"
+  | "cost_only";
 
 /** Wynik dopasowania KOSZTOWEGO — niezależny od `status` (dopasowanie MD po
  *  nazwisku). `null` = wiersz nie dotyczy zamówień kosztowych, co jest czym
  *  innym niż „nie udało się dopasować". */
 export type ImportCostStatus =
-  "applied" | "unmatched_number" | "unmatched_consultant";
+  | "applied"
+  | "unmatched_number"
+  | "unmatched_consultant"
+  /** FIN-MD-06: korekta faktury / kwota ≤ 0 — do ręcznego rozliczenia. */
+  | "non_positive_amount";
 
 export interface ImportLineOption {
   order_id: number;

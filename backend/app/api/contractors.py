@@ -30,6 +30,7 @@ from app.api.deps import CurrentUser
 from app.api.financial_access import can_read_client_finance
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
 from app.models.user import UserRole
@@ -49,6 +50,7 @@ from app.services.contract_service import (
     validate_ready_for_activation,
 )
 from app.services.client_identity import client_display_name
+from app.services.contract_rates import RATE_SCHEDULE_LOADS, effective_rate_fields
 from app.services.contractor_identity import count_unique_contractors
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
@@ -115,7 +117,14 @@ def _require_contractor_access(current_user) -> None:  # type: ignore[no-untyped
 
 
 def _to_item(contract: Contract) -> ContractorListItem:
-    """Serialize a Contract (with eager-loaded relations) to the list row."""
+    """Serialize a Contract (with eager-loaded relations) to the list row.
+
+    Stawki i marża z HARMONOGRAMÓW na dziś (audyt 22.09 r2, FIN-03), nie
+    z kolumn cache'u: kolumny odświeżały się tylko przy zapisie i w oknie
+    31 dni, więc lista pokazywała stawki sprzed kroku harmonogramu
+    (kontrakt 116: 220/175/45 zamiast 213/165/48). Wymaga RATE_SCHEDULE_LOADS.
+    """
+    rates = effective_rate_fields(contract, business_today())
     missing = (
         validate_ready_for_activation(contract)
         if contract.status in _PENDING_STATUSES
@@ -137,13 +146,13 @@ def _to_item(contract: Contract) -> ContractorListItem:
         status=contract.status,
         start_date=contract.start_date,
         end_date=contract.end_date,
-        rate_candidate=contract.rate_candidate,
-        rate_client=contract.rate_client,
+        rate_candidate=rates["rate_candidate"],
+        rate_client=rates["rate_client"],
         rate_unit=contract.rate_unit,
         currency=contract.resolved_rate_client_currency,
         rate_client_currency=contract.resolved_rate_client_currency,
         rate_candidate_currency=contract.resolved_rate_candidate_currency,
-        margin=contract.margin,
+        margin=rates["margin"],
         contract_type=contract.contract_type,
         work_mode=contract.work_mode,
         missing_fields=missing,
@@ -180,6 +189,8 @@ async def list_contractors(
         # `_to_item` czyta zamówienia; bez eager-loadu lazy-load w sesji async
         # to `MissingGreenlet`, czyli 500 bez nagłówków CORS.
         selectinload(Contract.client_orders),
+        # `_to_item` liczy stawki z harmonogramów (FIN-03).
+        *RATE_SCHEDULE_LOADS,
     )
 
     # Umowy odpięte od usuniętego kandydata (`candidate_id IS NULL`, migracja
@@ -271,6 +282,8 @@ async def contractor_stats(
 
     query = select(Contract).options(
         selectinload(Contract.candidate),
+        # `validate_ready_for_activation` rozpoznaje stawkę z harmonogramu.
+        *RATE_SCHEDULE_LOADS,
     )
     # Patrz komentarz przy pierwszej kwerendzie: odpięta umowa nie ma
     # kontraktora, a `ContractorCandidateRef.id` jest nienullowalne.

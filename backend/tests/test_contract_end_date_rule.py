@@ -194,6 +194,9 @@ async def test_revival_by_live_order_makes_the_contract_indefinite():
                     contract.status,
                     contract.end_date,
                     contract.client_order_end_date,
+                    ContractType.b2b,
+                    None,
+                    None,
                 )
             )
 

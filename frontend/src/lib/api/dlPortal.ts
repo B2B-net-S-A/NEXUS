@@ -564,9 +564,16 @@ export const dlPortalApi = {
     api.delete(`/api/clients/${clientId}/orders/${orderId}`),
 
   /** Co NAPRAWDĘ zniknie razem z zamówieniem. Wyłącznie odczyt. */
-  previewOrderDeletion: (clientId: number, orderId: number) =>
+  /** `context: "group_line"` = podgląd dla kosza linii zamówienia MD/kosztowego
+   *  (`DELETE …/lines/{id}` kasuje linię w każdym statusie). */
+  previewOrderDeletion: (
+    clientId: number,
+    orderId: number,
+    context: OrderDeleteContext = "order",
+  ) =>
     api.get<OrderDeletePreview>(
-      `/api/clients/${clientId}/orders/${orderId}/delete-preview`
+      `/api/clients/${clientId}/orders/${orderId}/delete-preview`,
+      context === "order" ? undefined : { params: { context } },
     ),
 
   /** Zakończ JEDNO zamówienie okresowe — bez dotykania umowy.
@@ -598,6 +605,8 @@ export const dlPortalApi = {
 
 
 /** Jeden krok harmonogramu stawki klienta znikający razem z zamówieniem. */
+export type OrderDeleteContext = "order" | "group_line";
+
 export interface OrderDeleteRateChange {
   effective_from: string;
   effective_until: string | null;
@@ -605,6 +614,9 @@ export interface OrderDeleteRateChange {
   rate: number | null;
   replacement_rate: number | null;
   changes_amount: boolean;
+  /** `true` = po usunięciu ten okres nie ma ŻADNEJ stawki klienta — kontrakt
+   *  zostaje bez przychodu (audyt 22.09 r2, FIN-02). Brak pola = `false`. */
+  removes_revenue?: boolean;
 }
 
 /**

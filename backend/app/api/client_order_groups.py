@@ -156,7 +156,10 @@ from app.services.cost_orders import (
     settle_group,
 )
 from app.services.contract_lifecycle import sync_contract_to_live_order
-from app.services.contract_order_sync import skip_sync_for_contract
+from app.services.contract_order_sync import (
+    detach_order_rate_steps,
+    skip_sync_for_contract,
+)
 from app.services.order_consultant_match import inactive_consultant_reason
 from app.services.order_engagement_separation import absorb_auto_draft_shells
 from app.services.cyfrowy_polsat_orders import (
@@ -2545,6 +2548,8 @@ async def list_group_events(
                     EVENT_TYPE_LABELS.get(ev.event_type, ev.event_type)
                     if _is_read_only_tcm(user)
                     else ev.description
+                    if with_finance
+                    else _redact_amounts(ev.description)
                 ),
                 order_id=ev.order_id,
                 payload=ev.payload if with_finance else None,
@@ -2556,6 +2561,23 @@ async def list_group_events(
             )
         )
     return OrderGroupEventsResponse(events=events)
+
+
+# Audyt 22.09 r2 (FIN-MD-05): opis wpisu historii niesie kwoty („1320 zł/MD",
+# „Wartość pozostała bez zmian: 60000 zł"). ``payload`` znikał rolom bez
+# finansów, ale ``description`` szedł bez redakcji (wyjątkiem był tylko TCM).
+# Liczby MD zostają — są operacyjne.
+_AMOUNT_IN_TEXT_RE = re.compile(
+    r"-?(?:\d{1,3}(?:[ \u00a0]\d{3})+|\d+)(?:[.,]\d+)?\s*(?:zł|PLN|EUR)"
+    r"(?:\s*/\s*[\wąćęłńóśźż]+)?",
+    re.IGNORECASE,
+)
+
+
+def _redact_amounts(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return text
+    return _AMOUNT_IN_TEXT_RE.sub("—", text)
 
 
 def _related_order(
@@ -3468,6 +3490,8 @@ async def _delete_line_row(db: AsyncSession, line: ClientOrder) -> str | None:
     file_path = line.file_path
     # audyt 22.09 r2 (FIN-CHG-5): karty DL braku tej linii.
     await close_gaps_of_deleted_orders(db, [line.id])
+    # audyt 22.09 r2 (FIN-02): krok stawki zdejmowany PRZED kaskadą w bazie.
+    await detach_order_rate_steps(db, line)
     await db.delete(line)
     return file_path
 
@@ -3684,6 +3708,10 @@ async def close_order_group(
     # 22:00 UTC a północą zakończenie „z dniem dzisiejszym" wg firmy nie
     # domykałoby linii, bo dla `date.today()` ta data leży jeszcze w przyszłości.
     today = business_today()
+    # Audyt 22.09 r2 (FIN-MD-04): stan sprzed zakończenia — z niego
+    # „Przywróć” odtwarza daty i obsadę, które zakończenie przycięło.
+    previous_group_end_date = group.end_date
+    previous_lines: list[dict[str, object]] = []
     group.status = GROUP_STATUS_COMPLETED
     group.closure_date = payload.closure_date
     group.closure_reason = (payload.closure_reason or "").strip() or None
@@ -3696,6 +3724,15 @@ async def close_order_group(
     for line in locked_lines:
         if line.status in (ClientOrderStatus.completed, ClientOrderStatus.cancelled):
             continue
+        previous_lines.append(
+            {
+                "id": line.id,
+                "previous_end_date": (
+                    None if line.end_date is None else line.end_date.isoformat()
+                ),
+                "previous_status": getattr(line.status, "value", line.status),
+            }
+        )
         if line.end_date is None or line.end_date > payload.closure_date:
             line.end_date = payload.closure_date
         if payload.closure_date <= today:
@@ -3715,6 +3752,12 @@ async def close_order_group(
             "closure_date": payload.closure_date.isoformat(),
             "closure_reason": group.closure_reason,
             "lines_closed": closed_lines,
+            "previous_group_end_date": (
+                None
+                if previous_group_end_date is None
+                else previous_group_end_date.isoformat()
+            ),
+            "lines": previous_lines,
         },
         user_id=user.id,
     )
@@ -3774,11 +3817,38 @@ async def reopen_order_group(
         )
 
     previous_closure = group.closure_date
+    closed_event = await db.scalar(
+        select(ClientOrderGroupEvent)
+        .where(
+            ClientOrderGroupEvent.group_id == group.id,
+            ClientOrderGroupEvent.event_type == EVENT_ORDER_CLOSED,
+        )
+        .order_by(ClientOrderGroupEvent.id.desc())
+        .limit(1)
+    )
+    closed_payload = (
+        closed_event.payload
+        if closed_event is not None and isinstance(closed_event.payload, dict)
+        else {}
+    )
     group.status = GROUP_STATUS_ACTIVE
     group.closure_date = None
     group.closure_reason = None
     group.closed_at = None
     group.closed_by_user_id = None
+    # Audyt 22.09 r2 (FIN-MD-04): odtwórz daty, które zakończenie przycięło.
+    # Zdarzenia sprzed tej reguły nie niosą stanu linii — wtedy zostaje
+    # dawne zachowanie (tylko `sync_md_line_status`).
+    closed_lines_state = {
+        entry.get("id"): entry
+        for entry in closed_payload.get("lines") or []
+        if isinstance(entry, dict)
+    }
+    if "previous_group_end_date" in closed_payload and (
+        previous_closure is not None and group.end_date == previous_closure
+    ):
+        raw = closed_payload.get("previous_group_end_date")
+        group.end_date = None if raw is None else date.fromisoformat(raw)
 
     # Przywrócenie musi objąć LINIE, nie tylko nagłówek. Do tej rewizji reopen
     # cofał sam status grupy, a konsultantów zostawiał `completed` — zamówienie
@@ -3788,7 +3858,26 @@ async def reopen_order_group(
     # okres jeszcze trwa: zakończenie z datą w przeszłości było świadomą
     # decyzją o okresie i reopen jej nie unieważnia (patrz `sync_md_line_status`).
     lines_reopened = 0
+    reopen_day = business_today()
     for line in await lines_for_group(db, group.id):
+        state = closed_lines_state.get(line.id)
+        if state is not None and previous_closure is not None:
+            if line.end_date == previous_closure:
+                raw_end = state.get("previous_end_date")
+                line.end_date = None if raw_end is None else date.fromisoformat(raw_end)
+            # Linie kosztowe i ze wspólnej puli nie mają budżetu per linia,
+            # więc `sync_md_line_status` ich nie wskrzesza — wracają, gdy były
+            # aktywne i ich okres dalej trwa.
+            if (
+                line.md_total is None
+                and state.get("previous_status") == ClientOrderStatus.active.value
+                and line.status == ClientOrderStatus.completed
+                and (line.end_date is None or line.end_date >= reopen_day)
+                and (line.start_date is None or line.start_date <= reopen_day)
+            ):
+                line.status = ClientOrderStatus.active
+                lines_reopened += 1
+                continue
         if await sync_md_line_status(db, line):
             lines_reopened += 1
 
@@ -4495,6 +4584,21 @@ async def resolve_md_offboarding_case(
     target_name: Optional[str] = None
     source_rate = case.rate_revenue_snapshot or source.md_rate_revenue
     target_rate: Optional[Decimal] = None
+    # Audyt 22.09 r2 (FIN-MD-02): stan linii odchodzącego SPRZED decyzji
+    # i liczby po niej — z nich `recompute_remaining` koryguje przeniesioną
+    # pulę, gdy raport za miesiąc zejścia przyjdzie po decyzji.
+    rebalance_evidence: dict[str, object] = {}
+    source_before = {
+        "md_total": None if source.md_total is None else str(source.md_total),
+        "md_optional_total": (
+            None if source.md_optional_total is None else str(source.md_optional_total)
+        ),
+        "md_manual_adjustment": str(source.md_manual_adjustment or 0),
+        "md_input_mode": source.md_input_mode,
+        "md_input_value": (
+            None if source.md_input_value is None else str(source.md_input_value)
+        ),
+    }
 
     if payload.action == OFFBOARDING_RESOLUTION_TRANSFER:
         target = locked_lines.get(payload.target_order_id)
@@ -4532,6 +4636,7 @@ async def resolve_md_offboarding_case(
             if basis_rate is None or basis_rate <= 0:
                 raise HTTPException(422, detail="Brak stawki do przeliczenia puli MD")
             transferred_md = quantize_md(remaining * basis_rate / target_rate)
+            rebalance_evidence["basis_rate"] = str(basis_rate)
             target.md_total = quantize_md(
                 Decimal(str(target.md_total)) + transferred_md
             )
@@ -4575,6 +4680,25 @@ async def resolve_md_offboarding_case(
     ):
         _reduce_legacy_md_budget(source, remaining)
         await recompute_remaining(db, source)
+    if (
+        payload.action == OFFBOARDING_RESOLUTION_TRANSFER
+        and target is not None
+        and "basis_rate" in rebalance_evidence
+        and source.md_total is not None
+        and source_before["md_total"] is not None
+    ):
+        rebalance_evidence.update(
+            {
+                "source_before": source_before,
+                "source_md_total_after": str(source.md_total),
+                "source_md_optional_after": (
+                    None
+                    if source.md_optional_total is None
+                    else str(source.md_optional_total)
+                ),
+                "target_md_total_after": str(target.md_total),
+            }
+        )
 
     now = datetime.now(timezone.utc)
     case.status = OFFBOARDING_STATUS_RESOLVED
@@ -4600,6 +4724,7 @@ async def resolve_md_offboarding_case(
             None if restored_end_date is None else restored_end_date.isoformat()
         ),
         "contract_reopened": contract_reopened,
+        **rebalance_evidence,
     }
 
     source_name = consultant_display_name(source)

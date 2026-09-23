@@ -17,7 +17,7 @@ import tempfile
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import (
     APIRouter,
@@ -25,6 +25,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     Response,
     UploadFile,
     status,
@@ -102,7 +103,10 @@ from app.services.order_group_materializer import (
     materialize_group_for_activated_order,
     md_rate_from_order_rate,
 )
-from app.services.contract_order_sync import apply_contract_hourly_policy
+from app.services.contract_order_sync import (
+    apply_contract_hourly_policy,
+    detach_order_rate_steps,
+)
 from app.services.order_rate_snapshots import (
     CONTRACT_RATE_SCALE,
     contract_rate_in_unit,
@@ -2681,6 +2685,8 @@ async def delete_order(
             was_draft = order.status == ClientOrderStatus.draft
             # audyt 22.09 r2 (FIN-CHG-5): karty DL braku tego zamówienia.
             await close_gaps_of_deleted_orders(db, [order.id], actor_id=user.id)
+            # audyt 22.09 r2 (FIN-02): krok stawki zdejmowany PRZED kaskadą w bazie.
+            await detach_order_rate_steps(db, order)
             await db.delete(order)
             audit.result_note = (
                 "Szkic zamówienia usunięty trwale."
@@ -2726,6 +2732,7 @@ async def preview_order_deletion(
     order_id: int,
     user: DeliveryLeadOrAdmin,
     db: AsyncSession = Depends(get_db),
+    context: Literal["order", "group_line"] = Query("order"),
 ):
     """Co NAPRAWDĘ zniknie razem z tym zamówieniem. Niczego nie zapisuje.
 
@@ -2744,6 +2751,12 @@ async def preview_order_deletion(
 
     Kwoty są redagowane tak jak wszędzie w module (``_can_see_finance``):
     rola bez finansów widzi, ŻE stawka się zmieni, i od kiedy — bez kwot.
+
+    ``context=group_line`` (audyt 22.09 r2, FE-N02): podgląd dla kosza linii
+    w zakładce zamówień MD/kosztowych, która woła ``DELETE …/lines/{id}``.
+    Ta trasa kasuje linię w KAŻDYM statusie (``_delete_line_row``), więc
+    ``deletes_row`` jest wtedy zawsze prawdą — inaczej niż ``DELETE
+    /orders/{id}``, które linię nie-szkic anuluje.
     """
     await _assert_client(db, client_id)
     order = await db.scalar(
@@ -2793,8 +2806,9 @@ async def preview_order_deletion(
                 (s for s in survivors if s.effective_from == earliest),
                 key=lambda s: s.id,
             ).rate
-        # Bez ani jednego kroku harmonogram znika i zostaje kolumna cache'u.
-        return getattr(contract, "rate_client", None)
+        # Bez ani jednego kroku kontrakt zostaje BEZ przychodu (audyt 22.09
+        # r2, FIN-02, decyzja właściciela) — nie wraca do kolumny cache'u.
+        return None
 
     by_from = sorted(steps, key=lambda step: (step.effective_from, step.id))
     rate_changes: list[OrderDeleteRateChange] = []
@@ -2815,6 +2829,7 @@ async def preview_order_deletion(
                 changes_amount=(
                     replacement is None or Decimal(replacement) != Decimal(step.rate)
                 ),
+                removes_revenue=replacement is None,
             )
         )
 
@@ -2826,7 +2841,9 @@ async def preview_order_deletion(
         status=getattr(order.status, "value", order.status),
         is_group_line=order.order_group_id is not None,
         deletes_row=(
-            order.order_group_id is None or order.status == ClientOrderStatus.draft
+            context == "group_line"
+            or order.order_group_id is None
+            or order.status == ClientOrderStatus.draft
         ),
         blocked_by=blockers,
         has_file=order.file_path is not None,

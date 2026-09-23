@@ -31,6 +31,7 @@ const STATUS_STYLE: Record<ImportRowStatus, { className: string; icon: typeof Ch
   applied: { className: "text-emerald-700 bg-emerald-50", icon: CheckCircle2 },
   needs_assignment: { className: "text-amber-700 bg-amber-50", icon: HelpCircle },
   unmatched: { className: "text-muted-foreground bg-muted", icon: AlertTriangle },
+  cost_only: { className: "text-sky-700 bg-sky-50", icon: CheckCircle2 },
 };
 
 function currentMonth(): string {

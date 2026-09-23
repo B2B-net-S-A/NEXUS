@@ -425,15 +425,26 @@ def apply_contract_hourly_policy(contract: Contract) -> bool:
     return True
 
 
-def _refresh_rate_caches(contract: Contract, today: date) -> None:
+def _refresh_rate_caches(
+    contract: Contract, today: date, *, clear_if_empty: bool = False
+) -> None:
     """Odśwież cache ``rate_client`` — jedyną stawkę, którą ta ścieżka zmienia.
 
     Kolumna jest cache'em kroku obowiązującego dziś (patrz ``contract_rates``).
     Cache stawki kosztowej zostaje nietknięty: zamówienie nie jest jej źródłem,
     a ``_switch_contract_unit`` przelicza go sam przy zmianie jednostki.
+
+    ``clear_if_empty`` (audyt 22.09 r2, FIN-02): harmonogram opróżniony przez
+    zniknięcie OSTATNIEGO kroku z zamówień zostawia kontrakt BEZ przychodu
+    (decyzja właściciela). Bez tego ``effective_client_rate`` spadał na
+    kolumnę, w której siedziała stawka usuniętego/anulowanego zamówienia —
+    fantomowy przychód w MRR, a przy następnym zamówieniu „Stawka sprzed
+    synchronizacji".
     """
     if contract.client_rate_schedule:
         contract.rate_client = contract.effective_client_rate(today)
+    elif clear_if_empty:
+        contract.rate_client = None
     contract.margin = contract.calculate_margin()
 
 
@@ -515,7 +526,7 @@ async def sync_contract_from_orders(
                 contract.client_order_start_date = None
                 contract.client_order_end_date = None
                 outcome.period_changed = True
-            _refresh_rate_caches(contract, today)
+            _refresh_rate_caches(contract, today, clear_if_empty=True)
         return outcome
 
     latest = _latest(terms)
@@ -773,6 +784,54 @@ async def sync_orders_cost_from_contract(
 
 
 # ── Orkiestracja ─────────────────────────────────────────────────────────────
+
+
+async def detach_order_rate_steps(
+    db: AsyncSession, order: ClientOrder, *, today: Optional[date] = None
+) -> bool:
+    """Przed SKASOWANIEM zamówienia zdejmij jego kroki stawki klienta przez ORM.
+
+    Audyt 22.09 r2 (FIN-02). ``ContractClientRate.source_order_id`` ma
+    ``ondelete=CASCADE``: baza kasuje krok razem z zamówieniem, więc
+    synchronizacja po commicie widziała już pusty harmonogram i nie miała
+    czego zdjąć — kolumna ``rate_client`` (cache stawki usuniętego zamówienia)
+    zostawała, a ``effective_client_rate`` na niej stawał. Tu krok znika
+    jawnie, cache jest przeliczany z ``clear_if_empty`` (ostatni krok z
+    zamówień = kontrakt bez przychodu), a okres zamówienia na kontrakcie,
+    który pokrywa się co do dnia z kasowanym zamówieniem, jest czyszczony.
+    Kolejne zamówienia tej osoby i tak wpisze najbliższa synchronizacja.
+
+    Wołać PRZED ``db.delete(order)``. Zwraca True przy zmianie kontraktu.
+    """
+    if order.contract_id is None or not await sync_enabled(db):
+        return False
+    today = today or business_today()
+    await db.flush()
+    contract = await db.get(Contract, order.contract_id)
+    if contract is None:
+        return False
+    await db.refresh(contract, attribute_names=list(_SCHEDULES))
+    doomed = [
+        step
+        for step in contract.client_rate_schedule
+        if step.source_order_id == order.id
+    ]
+    changed = False
+    for step in doomed:
+        contract.client_rate_schedule.remove(step)
+        changed = True
+    if (
+        order.client_id == contract.client_id
+        and contract.client_order_start_date is not None
+        and contract.client_order_start_date == order.start_date
+        and contract.client_order_end_date == order.end_date
+    ):
+        contract.client_order_start_date = None
+        contract.client_order_end_date = None
+        changed = True
+    if doomed:
+        _refresh_rate_caches(contract, today, clear_if_empty=True)
+    return changed
 
 
 async def _load_orders(db: AsyncSession, contract_id: int) -> list[ClientOrder]:
@@ -1188,27 +1247,37 @@ async def backfill_missing_order_periods(
 
 
 async def _refresh_revenue_caches(db: AsyncSession, *, today: date) -> int:
-    """Przestaw cache ``rate_client``/``margin`` kontraktów, którym właśnie wszedł krok.
+    """Przestaw cache ``rate_client``/``rate_candidate``/``margin`` na stawki na dziś.
 
     Odczyty pieniędzy idą przez harmonogram, ale kolumna jest tym, co widzi
     formularz kontraktu i filtr „marża od" w rejestrze. Kolumna nieodświeżona
     po wejściu przyszłej stawki (130 zł od 01.10) wracałaby z formularza jako
-    „zmiana" i dopisywała krok ze starą kwotą. Okno 31 dni łapie przebiegi
-    pominięte przez restarty.
-    """
-    from datetime import timedelta
+    „zmiana" i dopisywała krok ze starą kwotą.
 
+    Audyt 22.09 r2 (FIN-03): dawniej tylko strona przychodu i tylko kroki
+    z ostatnich 31 dni — cache kosztu nie odświeżał się nigdy, a kontrakt,
+    którego krok wszedł wcześniej (przebieg pominięty dłużej niż miesiąc),
+    zostawał z nieaktualną kolumną na zawsze (kontrakt 116). Teraz przebieg
+    bierze KAŻDY kontrakt z krokiem klienta albo kandydata obowiązującym
+    dziś i porównuje z kolumną — zapis tylko przy różnicy, więc jest
+    idempotentny i sam naprawia zaległy rozjazd.
+    """
+    from sqlalchemy import union
+
+    from app.models.contract_candidate_rate import ContractCandidateRate
     from app.services.contract_rates import RATE_SCHEDULE_LOADS
 
-    ids = list(
+    ids = sorted(
         (
             await db.scalars(
-                select(ContractClientRate.contract_id)
-                .where(
-                    ContractClientRate.effective_from <= today,
-                    ContractClientRate.effective_from > today - timedelta(days=31),
+                union(
+                    select(ContractClientRate.contract_id).where(
+                        ContractClientRate.effective_from <= today
+                    ),
+                    select(ContractCandidateRate.contract_id).where(
+                        ContractCandidateRate.effective_from <= today
+                    ),
                 )
-                .distinct()
             )
         ).all()
     )
@@ -1224,9 +1293,16 @@ async def _refresh_revenue_caches(db: AsyncSession, *, today: date) -> int:
                 .options(*RATE_SCHEDULE_LOADS)
             )
         ).all():
-            current = contract.effective_client_rate(today)
-            if not _same_amount(contract.rate_client, current):
-                contract.rate_client = current
+            changed = False
+            current_client = contract.effective_client_rate(today)
+            if not _same_amount(contract.rate_client, current_client):
+                contract.rate_client = current_client
+                changed = True
+            current_candidate = contract.effective_candidate_rate(today)
+            if not _same_amount(contract.rate_candidate, current_candidate):
+                contract.rate_candidate = current_candidate
+                changed = True
+            if changed:
                 contract.margin = contract.calculate_margin()
                 refreshed += 1
         await db.flush()
