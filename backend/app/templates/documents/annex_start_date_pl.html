@@ -1,0 +1,29 @@
+<p class="right">{{ document_place }}, {{ document_date }} r.</p>
+<h1>ANEKS DO UMOWY O WSPÓŁPRACĘ B2B</h1>
+<p>Strony zgodnie postanawiają dokonać zmian w treści umowy nr {{ base.contract_number }} zawartej dnia {{ base.signing_date }} roku w Warszawie pomiędzy:</p>
+<p><strong>{{ company.name }}</strong> z siedzibą w Warszawie, {{ company.address }}, numer NIP: {{ company.nip }}, reprezentowaną przez {{ company.representative }},</p>
+<p>zwaną dalej jako „<strong>Spółka</strong>” lub „<strong>B2BNET</strong>”</p>
+<p>a</p>
+<p><strong>{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}</strong> {{ g.g_prowadzacy }} działalność gospodarczą pod firmą: {{ partner.legal_name or '…' }}, zarejestrowaną w Centralnej Ewidencji i Informacji o Działalności Gospodarczej pod adresem: {{ partner.business_address or '…' }}, NIP: {{ partner.nip or '…' }}, REGON: {{ partner.regon or '…' }},</p>
+<p>{{ g.g_zwanym }} dalej<strong> „Partnerem”</strong></p>
+<p><strong>B2BNET i Partner</strong> łącznie są zwani „Stronami”</p>
+<h2>§1</h2>
+<ol>
+<li>Aneks zgodnym postanowieniem Stron wprowadza do Umowy następujące zmiany:</li>
+</ol>
+<p>a) Określoną w {{ refs.start_paragraph }} treść:</p>
+<p>„Umowa wchodzi w życie z dniem jej podpisania, a Partner zobowiązany jest do podjęcia świadczenia Usług {{ base.start_clause }}.”</p>
+<p>zastępuje się treścią:</p>
+<p>„Umowa wchodzi w życie z dniem jej podpisania, a Partner zobowiązany jest do podjęcia świadczenia Usług {{ doc.new_start_clause }}.”</p>
+<p>b) W dokumencie „{{ refs.appendix_start }}” do Umowy (wzór określający Klienta B2BNET) pozycję „Data rozpoczęcia świadczenia usług”:</p>
+<p>{{ base.start_clause }}</p>
+<p>zastępuje się wartością:</p>
+<p>{{ doc.new_start_clause }}</p>
+<h2>§ 2</h2>
+<ol>
+<li>Ustalone zmiany wchodzą w życie z dniem podpisania niniejszego aneksu.</li>
+<li>Strony ustalają, że niniejszy aneks może być zawarty w formie pisemnej lub w formie elektronicznej z wykorzystaniem kwalifikowanego podpisu elektronicznego, zgodnie z art. 78¹ §1 Kodeksu cywilnego.</li>
+<li>Pozostałe postanowienia umowy nie ulegają zmianie.</li>
+<li>Aneks sporządzono w dwóch jednobrzmiących egzemplarzach po jednym dla każdej ze stron.</li>
+</ol>
+<p>________________         _____________ (Podpis)                                                                                                       (Podpis)</p>
