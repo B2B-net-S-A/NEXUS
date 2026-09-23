@@ -1,4 +1,4 @@
-"""Korpus słów kluczowych (migracja 0346) — przez prawdziwy endpoint i Postgresa.
+"""Korpus słów kluczowych (migracja 0350) — przez prawdziwy endpoint i Postgresa.
 
 Każdy przypadek to rozjazd z Traffitem zmierzony na produkcji 22.09.2026
 (``app/services/keyword_corpus.py``):
@@ -184,7 +184,7 @@ async def test_row_without_corpus_is_found_until_backfill_ends(
 
     ids = await _seed()
     async with AsyncSessionLocal() as db:
-        # Trigger wyłączony tylko w tej sesji — tak wygląda wiersz sprzed 0346.
+        # Trigger wyłączony tylko w tej sesji — tak wygląda wiersz sprzed 0350.
         # LOCAL: sesja wraca do puli, a rola „replica” zostałaby na połączeniu
         # i wyłączyła trigger także backfillowi niżej.
         await db.execute(text("SET LOCAL session_replication_role = replica"))

@@ -1,7 +1,7 @@
 """Korpus słów kluczowych kandydata: ``keyword_doc`` + ``keyword_fts``.
 
-Revision ID: 0346_candidate_keyword_corpus
-Revises: 0345_billing_hours_168
+Revision ID: 0350_candidate_keyword_corpus
+Revises: 0349_notification_mutes
 Create Date: 2026-09-22 23:00:00.000000
 
 Po co: porównanie z Traffitem (22.09.2026) — szczegóły i lista pól
@@ -24,8 +24,8 @@ from alembic import op
 
 from app.services import keyword_corpus as kc
 
-revision = "0346_candidate_keyword_corpus"
-down_revision = "0345_billing_hours_168"
+revision = "0350_candidate_keyword_corpus"
+down_revision = "0349_notification_mutes"
 branch_labels = None
 depends_on = None
 

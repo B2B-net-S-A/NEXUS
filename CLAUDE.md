@@ -2325,7 +2325,7 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   `match_snippets` — każde pole z trafieniem (do 5, po 2 okna) z zakresami
   pogrubień liczonymi na serwerze; front (`FieldSnippets`) nie powtarza reguły.
 - **Słowa kluczowe v2 szukają w KORPUSIE, nie w `search_fts`/`search_doc`**
-  (migracja 0346, `services/keyword_corpus.py` = jedno źródło listy pól dla
+  (migracja 0350, `services/keyword_corpus.py` = jedno źródło listy pól dla
   SQL-a triggera i wycinków). Porównanie z Traffitem na próbce 3 250 osób ×
   18 zapytań (22.09.2026): NEXUS znajdował ~84% osób z Traffita, a różnica
   siedziała w polach, nie w dopasowaniu. Korpus: CV + profil + pola Traffita

@@ -28,7 +28,7 @@ Ten moduł jest JEDNYM źródłem listy pól: SQL-a triggera
 * ``candidates.keyword_fts`` — ``to_tsvector('simple', profil + CV)``; indeks GIN,
   całe słowa i frazy.
 
-Obie utrzymuje trigger (migracja 0346), nie kolumna generowana: ``ADD COLUMN …
+Obie utrzymuje trigger (migracja 0350), nie kolumna generowana: ``ADD COLUMN …
 GENERATED STORED`` przepisałby tabelę z 171 MB CV pod blokadą ``ACCESS
 EXCLUSIVE``. Istniejące wiersze uzupełnia pętla ``keyword_corpus_backfill`` po
 starcie (NIE migracja — backfill 0143 w starcie kontenera dał 6 minut 502).

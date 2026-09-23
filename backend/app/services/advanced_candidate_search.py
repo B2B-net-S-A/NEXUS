@@ -134,7 +134,7 @@ _SEARCH_FTS = column("search_fts", TSVECTOR)
 # against this column. Bare column (not ORM-mapped), referenced in WHERE only.
 _SEARCH_DOC_UNACCENT = column("search_doc_unaccented", Text)
 
-# Korpus słów kluczowych v2 (migracja 0346, ``app/services/keyword_corpus.py``):
+# Korpus słów kluczowych v2 (migracja 0350, ``app/services/keyword_corpus.py``):
 # profil bez podsumowania AI i bez kluczy/poziomów JSON-ów, z polami Traffita
 # i „Kandydat o sobie”. ``keyword_doc`` — bez polskich znaków, małe litery,
 # bez CV (indeks trigramowy); ``keyword_fts`` — profil + CV (GIN).

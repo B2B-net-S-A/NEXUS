@@ -1,4 +1,4 @@
-"""Uzupełnienie korpusu słów kluczowych dla kandydatów sprzed migracji 0346.
+"""Uzupełnienie korpusu słów kluczowych dla kandydatów sprzed migracji 0350.
 
 Migracja dodaje kolumny i trigger, ale nie liczy wierszy, które już są — backfill
 62 tys. CV w starcie kontenera trzymał publiczny adres na 502 przez ponad
@@ -38,7 +38,7 @@ async def _pending() -> bool:
 
 
 class TriggerMissing(RuntimeError):
-    """Paczka przeszła, a korpus dalej pusty — triggera 0346 nie ma."""
+    """Paczka przeszła, a korpus dalej pusty — triggera 0350 nie ma."""
 
 
 async def _fill_batch() -> int:

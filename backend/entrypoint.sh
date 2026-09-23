@@ -742,7 +742,7 @@ _PROFILE_RATE_ALTER_SQL = (
     "TYPE NUMERIC(10,2) USING expected_rate_hourly::numeric(10,2)"
 )
 
-# Korpus słów kluczowych (migracja 0346): kolumny + trigger z JEDNEGO źródła
+# Korpus słów kluczowych (migracja 0350): kolumny + trigger z JEDNEGO źródła
 # (`app/services/keyword_corpus.py`). Bez kolumn lista kandydatów pada na
 # UndefinedColumn. Import w try: jego awaria nie może zdjąć reszty tej siatki.
 try:
