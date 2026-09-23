@@ -657,6 +657,7 @@ async def _changes(
             OrderChangeItem(
                 **ref,
                 kind=event.field,
+                event_id=event.id,
                 occurred_at=event.created_at,
                 effective_date=event.created_at.astimezone(zone).date(),
                 old_amount=event.old_amount,

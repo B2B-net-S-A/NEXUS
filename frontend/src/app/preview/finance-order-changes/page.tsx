@@ -4,25 +4,45 @@
  * Harness wizualny Finanse → „Zmiany w zamówieniach".
  *
  * Renderuje produkcyjne `OrderChangesPanel` + `OrderChangesList` na
- * zahardkodowanych danych — bez react-query i bez żadnego zapytania, więc
- * strona może stać w `PUBLIC_PATHS`. Dane są fikcyjne.
+ * zahardkodowanych danych — bez react-query i bez żadnego zapytania do API,
+ * więc strona może stać w `PUBLIC_PATHS`. Dane są fikcyjne. „Zrobione"
+ * zapisuje się tylko w stanie strony; podgląd PDF-u czyta plik statyczny
+ * harnessu `/preview/cv-search` (ten sam origin, nie API).
+ *
+ * `?panel=1` otwiera od razu panel podglądu pierwszej karty.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   OrderChangesList,
   OrderChangesPanel,
   type OrderChangesSubTab,
 } from "@/components/finance/OrderChangesPanel";
-import type { OrderChangesResponse } from "@/lib/api/finance";
+import type {
+  OrderChangesResponse,
+  OrderHistoryEntry,
+  OrderPdfRef,
+} from "@/lib/api/finance";
+import {
+  boardItems,
+  cardItemsAllTabs,
+  statusCounts,
+  withCheck,
+  type StatusFilter,
+} from "@/lib/finance-order-board";
 import { monthOptions } from "@/lib/finance-order-changes";
+
+// Ten sam klient = to samo id (kafelki klientów grupują po id).
+const CLIENT_IDS: Record<string, number> = {};
+const clientId = (name: string) =>
+  (CLIENT_IDS[name] ??= Object.keys(CLIENT_IDS).length + 11);
 
 const ref = (id: number, consultant: string, client: string, number: string) => ({
   order_id: id,
   order_group_id: null,
   contract_id: id + 100,
-  client_id: id + 10,
+  client_id: clientId(client),
   client_name: client,
   consultant_name: consultant,
   order_number: number,
@@ -294,8 +314,96 @@ const DATA: OrderChangesResponse = {
   open_gaps_total: 1,
 };
 
+const PDF = (id: number, name: string): OrderPdfRef => ({
+  kind: "order",
+  id,
+  month: "2026-09",
+  client_id: 11,
+  download_name: name,
+});
+
+type Item = { order_id: number | null; item_key?: string };
+
+/** Pola karty zamówienia, które w aplikacji dokłada serwer (0353). */
+function enrich(data: OrderChangesResponse): OrderChangesResponse {
+  let seq = 0;
+  const decorate = <T extends Item>(tab: string, list: T[]): T[] =>
+    list.map((item) => {
+      seq += 1;
+      const id = item.order_id ?? 0;
+      return {
+        ...item,
+        item_key: `${tab}:${seq}`,
+        order_start: "2026-09-01",
+        order_end: id % 3 === 0 ? null : "2026-12-31",
+        pdf: id % 2 === 0 ? null : PDF(id, `Zamowienie_${id}.pdf`),
+        done:
+          seq % 4 === 0
+            ? { by_name: "Anna Finanse", at: "2026-09-18T09:14:00Z" }
+            : null,
+        entered_at: "2026-09-17T07:59:00Z",
+        entered_by: seq % 5 === 0 ? null : "Anna Delivery",
+        entered_automatically: seq % 5 === 0,
+        from_order_mail: seq % 5 === 0,
+      };
+    });
+  return {
+    ...data,
+    can_check: true,
+    changes: decorate("changes", data.changes),
+    entries: decorate("entries", data.entries),
+    exits: decorate("exits", data.exits),
+    ending_orders: decorate("ending", data.ending_orders),
+    gaps: decorate("gaps", data.gaps),
+    superseded: [
+      {
+        item_key: "ending:old",
+        tab: "ending",
+        order_id: 6,
+        order_group_id: null,
+        summary: "Koniec zamówienia 14.09.2026 — kończy się",
+        done: { by_name: "Anna Finanse", at: "2026-09-10T12:00:00Z" },
+      },
+    ],
+  };
+}
+
+const HISTORY: OrderHistoryEntry[] = [
+  {
+    at: "2026-09-21T12:41:00Z",
+    kind: "change",
+    summary: "Zmiana daty końca: 30.11.2026 → 31.12.2026",
+    by_name: "Anna Delivery",
+    automatic: false,
+  },
+  {
+    at: "2026-09-18T11:20:00Z",
+    kind: "checked",
+    summary: "Zmiana daty końca: 14.09.2026 → 30.11.2026",
+    by_name: "Anna Finanse",
+    automatic: false,
+  },
+];
+
+async function loadStaticPdf(): Promise<Blob> {
+  const response = await fetch("/preview/cv-search/cv-tekst.pdf");
+  if (!response.ok) throw new Error("brak pliku");
+  return response.blob();
+}
+
 export default function FinanceOrderChangesPreview() {
   const [subTab, setSubTab] = useState<OrderChangesSubTab>("changes");
+  const [data, setData] = useState<OrderChangesResponse>(() => enrich(DATA));
+  const [status, setStatus] = useState<StatusFilter>("todo");
+  const [tile, setTile] = useState<string | null>(null);
+  const [previewCard, setPreviewCard] = useState<string | null>(null);
+  // Po montowaniu, nie w inicjalizatorze — inaczej serwer i przeglądarka
+  // wyrenderowałyby co innego (błąd hydracji).
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("panel") === "1") {
+      setPreviewCard("o:1");
+    }
+  }, []);
   const months = useMemo(() => monthOptions(new Date(2026, 8, 14)), []);
   const [month, setMonth] = useState("2026-09");
   const [search, setSearch] = useState("");
@@ -319,19 +427,54 @@ export default function FinanceOrderChangesPreview() {
   );
 
   return (
-    <div className="mx-auto max-w-[1100px] space-y-4 p-4 sm:p-6">
+    <div className="mx-auto max-w-[1400px] space-y-4 p-4 sm:p-6">
       <h1 className="text-lg font-semibold">Zmiany w zamówieniach — podgląd</h1>
       <OrderChangesPanel
-        data={DATA}
+        data={data}
         body={
           <OrderChangesList
-            data={DATA}
+            data={data}
             subTab={subTab}
             onOpenGaps={() => setSubTab("gaps")}
+            board={{
+              status,
+              selectedClient: tile,
+              onSelectClient: (next) => {
+                setPreviewCard(null);
+                setTile(next);
+              },
+              onToggle: (item, done) =>
+                setData((current) =>
+                  withCheck(
+                    current,
+                    item.key,
+                    done
+                      ? { by_name: "Ty (podgląd)", at: new Date().toISOString() }
+                      : null,
+                  ),
+                ),
+              pendingKeys: new Set(),
+              onDownloadPdf: () => undefined,
+              downloadingPdf: null,
+              previewCard,
+              onPreviewCard: setPreviewCard,
+              preview: {
+                itemsForCard: (cardKey) => cardItemsAllTabs(data, cardKey),
+                history: { items: HISTORY, loading: false, failed: false },
+                loadPdf: loadStaticPdf,
+                onOpenInPdfs: () => undefined,
+              },
+            }}
           />
         }
         subTab={subTab}
-        onSubTabChange={setSubTab}
+        onSubTabChange={(next) => {
+          setPreviewCard(null);
+          setSubTab(next);
+        }}
+        status={status}
+        onStatusChange={setStatus}
+        statusCounts={statusCounts(boardItems(data, subTab))}
         month={month}
         months={months}
         onMonthChange={setMonth}

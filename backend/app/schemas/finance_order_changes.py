@@ -34,6 +34,24 @@ class OrderChangesCounts(BaseModel):
     gaps: int
 
 
+class OrderItemCheck(BaseModel):
+    """Kto i kiedy odhaczył pozycję jako „Zrobione"."""
+
+    by_name: str
+    at: datetime
+
+
+class OrderPdfRef(BaseModel):
+    """PDF zamówienia, do którego należy pozycja — ten sam plik, który widać
+    w „Zamówieniach PDF" (miesiąc i klient prowadzą tam jednym kliknięciem)."""
+
+    kind: Literal["order", "group", "amendment"]
+    id: int
+    month: str  # RRRR-MM — miesiąc startu, jak w „Zamówieniach PDF"
+    client_id: int
+    download_name: str
+
+
 class OrderRef(BaseModel):
     order_id: Optional[int] = None
     order_group_id: Optional[int] = None
@@ -42,6 +60,19 @@ class OrderRef(BaseModel):
     client_name: str
     consultant_name: str
     order_number: str
+    # Pola karty zamówienia (0353). Klucz pozycji liczy serwer — ten sam
+    # w odczycie, w odhaczeniu i w historii.
+    item_key: str = ""
+    order_start: Optional[date] = None
+    order_end: Optional[date] = None
+    pdf: Optional[OrderPdfRef] = None
+    done: Optional[OrderItemCheck] = None
+    # Kiedy i przez kogo pozycja weszła do systemu: wpis dziennika zmian albo
+    # założenie zamówienia. Pozycje liczone z dat (zejście, brak) go nie mają.
+    entered_at: Optional[datetime] = None
+    entered_by: Optional[str] = None
+    entered_automatically: bool = False
+    from_order_mail: bool = False
 
 
 class OrderEntryItem(OrderRef):
@@ -107,6 +138,8 @@ ChangeKind = Literal[
 
 class OrderChangeItem(OrderRef):
     kind: ChangeKind
+    # Wpis w ``order_change_events`` — pozycje liczone z zamówień go nie mają.
+    event_id: Optional[int] = None
     occurred_at: Optional[datetime] = None
     effective_date: Optional[date] = None
     old_amount: Optional[MoneyPLN] = None
@@ -146,6 +179,24 @@ class OrderGapItem(OrderRef):
     delay_days: Optional[int] = None
 
 
+OrderChangesTabCode = Literal["changes", "entries", "exits", "ending", "gaps"]
+
+
+class SupersededCheck(BaseModel):
+    """Odhaczona pozycja, której już nie ma w bieżącym widoku miesiąca.
+
+    Pozycja liczona z bieżącego stanu (np. zejście z datą końca) znika po
+    ponownej zmianie zamówienia — jej odhaczenie zostaje w historii karty
+    („Zmieniono ponownie")."""
+
+    item_key: str
+    tab: OrderChangesTabCode
+    order_id: Optional[int] = None
+    order_group_id: Optional[int] = None
+    summary: str
+    done: OrderItemCheck
+
+
 class OrderChangesResponse(BaseModel):
     period: OrderChangesPeriod
     counts: OrderChangesCounts
@@ -161,3 +212,43 @@ class OrderChangesResponse(BaseModel):
     changes_tracked_since: Optional[datetime] = None
     gaps_tracked_since: date
     open_gaps_total: int
+    # Odhaczać mogą wyłącznie role Admin i Finanse (poza podglądem jako).
+    can_check: bool = False
+    superseded: list[SupersededCheck] = []
+
+
+class OrderCheckRequest(BaseModel):
+    year: int
+    month: int
+    item_key: str
+    done: bool
+
+
+class OrderCheckResponse(BaseModel):
+    item_key: str
+    done: Optional[OrderItemCheck] = None
+
+
+class OrderChangesTabSummary(BaseModel):
+    total: int
+    todo: int
+
+
+class OrderChangesSummaryResponse(BaseModel):
+    """Liczniki „do zrobienia" bieżącego miesiąca — badge w menu Finansów."""
+
+    period: OrderChangesPeriod
+    tabs: dict[str, OrderChangesTabSummary]
+    todo: int
+
+
+class OrderHistoryEntry(BaseModel):
+    at: datetime
+    kind: Literal["change", "checked", "unchecked"]
+    summary: str
+    by_name: Optional[str] = None
+    automatic: bool = False
+
+
+class OrderHistoryResponse(BaseModel):
+    items: list[OrderHistoryEntry]

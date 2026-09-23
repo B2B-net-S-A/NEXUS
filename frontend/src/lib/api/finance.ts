@@ -116,6 +116,22 @@ export interface FinanceHeaderMismatch {
 export type OrderTypeCode = "periodic" | "cost" | "md";
 export type RateUnitCode = "hourly" | "daily" | "monthly" | "md";
 
+/** Kto i kiedy odhaczył pozycję jako „Zrobione". */
+export interface OrderItemCheck {
+  by_name: string;
+  at: string;
+}
+
+/** PDF zamówienia pozycji — ten sam plik co w „Zamówieniach PDF". */
+export interface OrderPdfRef {
+  kind: OrderPdfKind;
+  id: number;
+  /** Miesiąc startu „RRRR-MM" — pod nim plik stoi w „Zamówieniach PDF". */
+  month: string;
+  client_id: number;
+  download_name: string;
+}
+
 interface OrderRef {
   order_id: number | null;
   order_group_id: number | null;
@@ -124,6 +140,18 @@ interface OrderRef {
   client_name: string;
   consultant_name: string;
   order_number: string;
+  // Pola karty zamówienia (0353) — opcjonalne, bo harnessy i starsze testy
+  // budują wiersze bez nich.
+  /** Klucz pozycji liczony przez serwer — pod nim zapisuje się odhaczenie. */
+  item_key?: string;
+  order_start?: string | null;
+  order_end?: string | null;
+  pdf?: OrderPdfRef | null;
+  done?: OrderItemCheck | null;
+  entered_at?: string | null;
+  entered_by?: string | null;
+  entered_automatically?: boolean;
+  from_order_mail?: boolean;
 }
 
 /**
@@ -174,6 +202,7 @@ export type OrderChangeKind =
 
 export interface OrderChangeItem extends OrderRef {
   kind: OrderChangeKind;
+  event_id?: number | null;
   occurred_at: string | null;
   effective_date: string | null;
   old_amount: number | null;
@@ -226,6 +255,34 @@ export interface OrderChangesResponse {
   changes_tracked_since: string | null;
   gaps_tracked_since: string;
   open_gaps_total: number;
+  /** Odhaczać mogą role Admin i Finanse (nie w „podglądzie jako"). */
+  can_check?: boolean;
+  /** Odhaczone pozycje, których po ponownej zmianie nie ma już w widoku. */
+  superseded?: OrderSupersededCheck[];
+}
+
+export interface OrderSupersededCheck {
+  item_key: string;
+  tab: OrderChangesTab;
+  order_id: number | null;
+  order_group_id: number | null;
+  summary: string;
+  done: OrderItemCheck;
+}
+
+export interface OrderChangesSummary {
+  period: { year: number; month: number; label: string };
+  tabs: Record<OrderChangesTab, { total: number; todo: number }>;
+  /** „Do zrobienia" w podzakładce Zmiany — badge przy zakładce w menu. */
+  todo: number;
+}
+
+export interface OrderHistoryEntry {
+  at: string;
+  kind: "change" | "checked" | "unchecked";
+  summary: string;
+  by_name: string | null;
+  automatic: boolean;
 }
 
 export type OrderChangesTab =
@@ -293,6 +350,10 @@ export interface OrderPdfFile {
   status: string | null;
   order_number: string | null;
   uploaded_at: string | null;
+  /** Pobranie przez ZALOGOWANĄ osobę; brak = „Nowy". */
+  downloaded_at?: string | null;
+  /** Zamówienie ma w Zmianach tego miesiąca pozycję „Do zrobienia". */
+  pending_change?: boolean;
 }
 
 export interface OrderPdfClient {
@@ -307,9 +368,41 @@ export interface OrderPdfsResponse {
   clients: OrderPdfClient[];
 }
 
-/** Ścieżka pobrania — serwer nadaje nazwę z nazwiskiem i okresem. */
-export function orderPdfFilePath(file: Pick<OrderPdfFile, "kind" | "id">): string {
-  return `/api/finance/order-pdfs/${file.kind}/${file.id}/file`;
+/** Ścieżka pobrania — serwer nadaje nazwę z nazwiskiem i okresem.
+ *  `preview` = podgląd w panelu, który NIE liczy się jako pobranie. */
+export function orderPdfFilePath(
+  file: Pick<OrderPdfFile, "kind" | "id">,
+  options: { preview?: boolean } = {},
+): string {
+  const base = `/api/finance/order-pdfs/${file.kind}/${file.id}/file`;
+  return options.preview ? `${base}?preview=true` : base;
+}
+
+/**
+ * ZIP z PDF-ami miesiąca: jednego klienta (`clientId`), całego miesiąca
+ * (bez klienta, podfolder na klienta) albo wskazanych plików (`files`).
+ */
+export function orderPdfZipPath(
+  year: number,
+  month: number,
+  options: {
+    clientId?: number | null;
+    files?: Array<Pick<OrderPdfFile, "kind" | "id">>;
+  } = {},
+): string {
+  const params = new URLSearchParams({
+    year: String(year),
+    month: String(month),
+  });
+  if (options.clientId != null)
+    params.set("client_id", String(options.clientId));
+  if (options.files) {
+    params.set(
+      "files",
+      options.files.map((f) => `${f.kind}:${f.id}`).join(","),
+    );
+  }
+  return `/api/finance/order-pdfs/zip?${params.toString()}`;
 }
 
 export const financeApi = {
@@ -355,6 +448,31 @@ export const financeApi = {
   getOrderChanges: (
     params: { year: number; month: number } & OrderChangesFilters,
   ) => api.get<OrderChangesResponse>("/api/finance/order-changes", { params }),
+
+  getOrderChangesSummary: () =>
+    api.get<OrderChangesSummary>("/api/finance/order-changes/summary"),
+
+  setOrderChangeCheck: (payload: {
+    year: number;
+    month: number;
+    item_key: string;
+    done: boolean;
+  }) =>
+    api.post<{ item_key: string; done: OrderItemCheck | null }>(
+      "/api/finance/order-changes/checks",
+      payload,
+    ),
+
+  getOrderHistory: (params: {
+    order_id?: number | null;
+    order_group_id?: number | null;
+  }) =>
+    api.get<{ items: OrderHistoryEntry[] }>(
+      "/api/finance/order-changes/history",
+      {
+        params,
+      },
+    ),
 
   getOrderPdfMonths: () =>
     api.get<{ items: OrderPdfMonth[] }>("/api/finance/order-pdfs/months"),

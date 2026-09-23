@@ -1,23 +1,37 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
 import {
   financeApi,
   orderPdfFilePath,
+  orderPdfZipPath,
+  type OrderPdfClient,
   type OrderPdfFile,
   type OrderPdfMonth,
   type OrderPdfsResponse,
 } from "@/lib/api/finance";
-import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
+import { apiErrorMessage } from "@/lib/api-error";
+import {
+  downloadAuthenticatedFile,
+  downloadBlob,
+  fetchAuthenticatedBlob,
+  fetchAuthenticatedDownload,
+} from "@/lib/authenticated-files";
 import { monthValue, parseMonthValue } from "@/lib/finance-order-changes";
-import { orderPdfKey } from "@/lib/finance-order-pdfs";
+import { orderPdfKey, zipFallbackName } from "@/lib/finance-order-pdfs";
 import { resolveViewState } from "@/lib/view-state";
 
-import { OrderPdfsPanel } from "./OrderPdfsPanel";
+import { OrderPdfsPanel, type ZipBusy } from "./OrderPdfsPanel";
+
+async function loadPreviewPdf(ref: { kind: string; id: number }): Promise<Blob> {
+  return fetchAuthenticatedBlob(
+    orderPdfFilePath(ref as Pick<OrderPdfFile, "kind" | "id">, { preview: true }),
+  );
+}
 
 /** Klucze w adresie — lustro listy czyszczonej w `app/finance/page.tsx`.
  *  Własne nazwy (nie `month`), bo „Zmiany w zamówieniach" mają domyślnie inny
@@ -64,6 +78,8 @@ export function defaultOrderPdfMonth(
  */
 export function OrderPdfsTab() {
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
+  const [zipBusy, setZipBusy] = useState<ZipBusy>(null);
   const [pickedMonth, setPickedMonth] = useState<string | null>(() => {
     const parsed = parseMonthValue(readParam("pdfMonth"));
     return parsed ? monthValue(parsed.year, parsed.month) : null;
@@ -118,10 +134,36 @@ export function OrderPdfsTab() {
     setDownloadingKey(key);
     try {
       await downloadAuthenticatedFile(orderPdfFilePath(file), file.download_name);
+      refreshStatuses();
     } catch {
       showToast("Nie udało się pobrać pliku.", "error");
     } finally {
       setDownloadingKey(null);
+    }
+  }
+
+  /** Status „Pobrane przez Ciebie" liczy serwer — po pobraniu czytamy go ponownie. */
+  function refreshStatuses() {
+    void queryClient.invalidateQueries({ queryKey: ["finance-order-pdfs"] });
+  }
+
+  async function downloadZip(
+    busy: Exclude<ZipBusy, null>,
+    options: { clientId?: number; files?: OrderPdfFile[] },
+    clientName: string | null,
+  ) {
+    if (zipBusy || !period || !month) return;
+    setZipBusy(busy);
+    try {
+      const { blob, filename } = await fetchAuthenticatedDownload(
+        orderPdfZipPath(period.year, period.month, options),
+      );
+      downloadBlob(blob, filename ?? zipFallbackName(clientName, month));
+      refreshStatuses();
+    } catch (error) {
+      showToast(apiErrorMessage(error, "Nie udało się pobrać archiwum ZIP."), "error");
+    } finally {
+      setZipBusy(null);
     }
   }
 
@@ -166,6 +208,24 @@ export function OrderPdfsTab() {
       onClientChange={changeClient}
       onDownload={download}
       downloadingKey={downloadingKey}
+      onDownloadMonth={() => void downloadZip("month", {}, null)}
+      onDownloadClient={(client: OrderPdfClient) =>
+        void downloadZip(
+          `client:${client.client_id}`,
+          { clientId: client.client_id },
+          client.client_name,
+        )
+      }
+      onDownloadFiles={(client: OrderPdfClient, files: OrderPdfFile[]) => {
+        if (files.length === 0) return;
+        void downloadZip(
+          "files",
+          { clientId: client.client_id, files },
+          client.client_name,
+        );
+      }}
+      zipBusy={zipBusy}
+      loadPdf={loadPreviewPdf}
     />
   );
 }
