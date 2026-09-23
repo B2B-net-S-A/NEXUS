@@ -1323,7 +1323,7 @@ async def compose_monthly_races(
             "leader_tie_user_ids": leader_tie.user_ids if leader_tie else [],
         }
 
-    return {
+    races = {
         "recommendations": _format(
             rec_ranked,
             rec_order,
@@ -1347,6 +1347,44 @@ async def compose_monthly_races(
             ],
         ),
     }
+    # „X/dzień" dopisujemy DOPIERO tutaj, a nie do `extras`: `extras` trafia do
+    # `frozen_snapshot` przy zamrożeniu, a mianownik z COMPASSA zmienia się po
+    # fakcie (urlop zatwierdzony wstecz). Plakietka nie decyduje o nagrodzie —
+    # próg kwalifikacji zostaje wspólny i kalendarzowy.
+    await _attach_per_day(db, races["recommendations"]["ranking"], month_period)
+    return races
+
+
+async def _attach_per_day(db: AsyncSession, ranking: list[dict], period: str) -> None:
+    """Weryfikacje na dzień roboczy per pozycja wyścigu (plan PR3, 23.09.2026).
+
+    Mianownik: dni robocze od 1. dnia miesiąca do dziś (polskie święta — ta sama
+    funkcja co próg kwalifikacji), minus zatwierdzony urlop z COMPASSA, gdy go
+    znamy (`insights_workdays.race_workdays_to_date`). Zero dni (1. dzień
+    miesiąca wypada w święto albo weekend) daje `per_day = None` — dzielenie
+    przez zero nie jest oceną.
+    """
+    if not ranking:
+        return
+    from app.services.insights_workdays import race_workdays_to_date
+
+    year, month = parse_month(period)
+    today = business_today()
+    next_first = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    denominators = await race_workdays_to_date(
+        db,
+        [int(entry["user_id"]) for entry in ranking],
+        month_start=date(year, month, 1),
+        month_end=next_first - timedelta(days=1),
+        today=today,
+        calendar_elapsed=business_days_elapsed_in_month(year, month, today),
+    )
+    for entry in ranking:
+        workdays, source = denominators[int(entry["user_id"])]
+        verifications = int(entry.get("verifications") or 0)
+        entry["workdays"] = workdays
+        entry["workdays_source"] = source
+        entry["per_day"] = round(verifications / workdays, 2) if workdays > 0 else None
 
 
 # ── Compute by CompetitionType ──────────────────────────────────────────

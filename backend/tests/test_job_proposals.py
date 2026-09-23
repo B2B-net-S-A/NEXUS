@@ -528,7 +528,8 @@ async def test_inbox_lists_narrow_identity_and_redacts_the_rate(
 
 async def test_dismiss_flow(app_client: AsyncClient):
     recruiter_id, recruiter = await _user(UserRole.recruiter)
-    _, outsider = await _user(UserRole.recruiter)
+    outsider_id, outsider = await _user(UserRole.recruiter)
+    _, viewer = await _user(UserRole.user)
     world = await _world(people=2, recruiter_id=recruiter_id)
     await _seed_inbox(world)
     job_id = world["job_id"]
@@ -537,14 +538,13 @@ async def test_dismiss_flow(app_client: AsyncClient):
     listed = await app_client.get(_inbox(job_id), headers=recruiter)
     assert [i["is_new"] for i in listed.json()["items"]] == [True, True]
 
-    # Odrzucenie zmienia skrzynkę całego zespołu → wymaga członkostwa.
-    refused = await app_client.post(
-        f"{_inbox(job_id)}/{first}/dismiss", headers=outsider
-    )
+    # Stara rola podglądu nie zmienia skrzynki zespołu.
+    refused = await app_client.post(f"{_inbox(job_id)}/{first}/dismiss", headers=viewer)
     assert refused.status_code == 403, refused.text
     assert (await _statuses(job_id))[(first, "full_base")] == "proposed"
 
-    done = await app_client.post(f"{_inbox(job_id)}/{first}/dismiss", headers=recruiter)
+    # Od 23.09.2026 pomija każdy rekruter — także spoza zespołu rekrutacji.
+    done = await app_client.post(f"{_inbox(job_id)}/{first}/dismiss", headers=outsider)
     assert done.status_code == 200, done.text
     assert done.json()["dismissed"] == 1
     again = await app_client.post(
@@ -568,7 +568,7 @@ async def test_dismiss_flow(app_client: AsyncClient):
                 JobProposal.job_id == job_id, JobProposal.candidate_id == first
             )
         )
-    assert row.dismissed_by == recruiter_id
+    assert row.dismissed_by == outsider_id
     assert row.dismissed_at is not None
     # Trasa stempluje BIEŻĄCĄ wersję profilu (ta sama funkcja co auto-match).
     assert row.dismissed_cv_revision == "unparsed"
@@ -588,7 +588,7 @@ async def test_dismiss_works_for_a_person_the_inbox_never_listed(
     app_client: AsyncClient,
 ):
     recruiter_id, recruiter = await _user(UserRole.recruiter)
-    _, outsider = await _user(UserRole.recruiter)
+    _, viewer = await _user(UserRole.user)
     world = await _world(people=3, recruiter_id=recruiter_id)
     job_id = world["job_id"]
     searched, recommended, in_pipeline = world["candidate_ids"]
@@ -600,9 +600,10 @@ async def test_dismiss_works_for_a_person_the_inbox_never_listed(
         )
         await db.commit()
 
-    # Ta sama bramka co dotąd: członkostwo w zespole i sekcja rekrutacji.
+    # Ta sama bramka co dotąd: rola wewnętrzna i sekcja rekrutacji (przypisanie
+    # do zespołu od 23.09.2026 nie jest wymagane).
     refused = await app_client.post(
-        f"{_inbox(job_id)}/{searched}/dismiss", headers=outsider
+        f"{_inbox(job_id)}/{searched}/dismiss", headers=viewer
     )
     assert refused.status_code == 403, refused.text
     _, no_pipeline = await _user(UserRole.recruiter, pipeline="none")
@@ -683,6 +684,7 @@ async def test_dismiss_works_for_a_person_the_inbox_never_listed(
 async def test_restore_undoes_a_dismiss(app_client: AsyncClient):
     recruiter_id, recruiter = await _user(UserRole.recruiter)
     _, outsider = await _user(UserRole.recruiter)
+    _, viewer = await _user(UserRole.user)
     world = await _world(people=2, recruiter_id=recruiter_id)
     await _seed_inbox(world)
     job_id = world["job_id"]
@@ -696,14 +698,13 @@ async def test_restore_undoes_a_dismiss(app_client: AsyncClient):
     done = await app_client.post(f"{_inbox(job_id)}/{first}/dismiss", headers=recruiter)
     assert done.json()["dismissed"] == 2
 
-    refused = await app_client.post(
-        f"{_inbox(job_id)}/{first}/restore", headers=outsider
-    )
+    refused = await app_client.post(f"{_inbox(job_id)}/{first}/restore", headers=viewer)
     assert refused.status_code == 403, refused.text
     assert (await _statuses(job_id))[(first, "full_base")] == "dismissed"
 
+    # „Cofnij" robi każdy rekruter, także spoza zespołu (23.09.2026).
     restored = await app_client.post(
-        f"{_inbox(job_id)}/{first}/restore", headers=recruiter
+        f"{_inbox(job_id)}/{first}/restore", headers=outsider
     )
     assert restored.status_code == 200, restored.text
     assert restored.json() == {"job_id": job_id, "candidate_id": first, "restored": 2}

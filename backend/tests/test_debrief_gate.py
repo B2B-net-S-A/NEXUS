@@ -472,11 +472,14 @@ async def test_interview_event_info_respects_job_access(app_client: AsyncClient)
 # ── GET client-questions?client_id= ─────────────────────────────────────────
 
 
-async def test_client_questions_by_client_for_team_and_oversight(
+async def test_client_questions_by_client_for_everyone_internal(
     app_client: AsyncClient,
 ):
+    """Pulę pytań klienta czyta zespół, nadzór i — od 23.09.2026 — także
+    rekruter spoza rekrutacji tego klienta (decyzja Artura: rekrutacje widzi
+    każdy, bez przypisania)."""
     rec_id, rec_h = await _user(UserRole.recruiter)
-    outsider_id, outsider_h = await _user(UserRole.recruiter)
+    _, outsider_h = await _user(UserRole.recruiter)
     _, admin_h = await _user(UserRole.admin)
     job_id, cand_id, client_id = await _pair(recruiter_id=rec_id)
     event_id = await _event(
@@ -506,9 +509,9 @@ async def test_client_questions_by_client_for_team_and_oversight(
     assert admin.status_code == 200, admin.text
     assert [q["text"] for q in admin.json()] == ["Jak skalujesz Kafkę?"]
 
-    # Rekruter spoza rekrutacji tego klienta nie czyta jego puli pytań.
     other = await app_client.get(url, headers=outsider_h)
-    assert other.status_code == 403, other.text
+    assert other.status_code == 200, other.text
+    assert [q["text"] for q in other.json()] == ["Jak skalujesz Kafkę?"]
 
     both = await app_client.get(
         f"/api/interview-cycle/client-questions?client_id={client_id}&job_id={job_id}",

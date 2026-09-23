@@ -41,6 +41,7 @@ export type SettingsItemId =
   | "stages"
   | "cv"
   | "ranking"
+  | "kpi-targets"
   | "mail"
   | "skills"
   | "contracts"
@@ -138,6 +139,14 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "scoring wagi dopasowanie ranking profile",
     route: "/settings/scoring",
     gate: { roles: ["admin", "delivery_lead"], section: "insights", required: "read" },
+  },
+  {
+    id: "kpi-targets", area: "rec", title: "Cele KPI",
+    description: "Cele weryfikacji, rekomendacji i placementów dla ról i osób.",
+    keywords: "kpi cele targety wyscig progi weryfikacje placementy precyzja",
+    route: "/settings/kpi-targets",
+    // Lustro `HeadOfRecruitmentPlus` + zapis sekcji Insights (plan PR3).
+    gate: { roles: ["admin", "head_of_recruitment"], section: "insights", required: "write" },
   },
   {
     id: "mail", area: "rec", title: "Szablony maili",

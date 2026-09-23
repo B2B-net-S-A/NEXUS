@@ -6,8 +6,8 @@ i „Shortlistę" (`/ai-matches`, surowy kosinus Qdranta z puli 100). Te same da
 potrafiły dać dwie różne kolejności, bez żadnego sygnału, że to dwie różne
 miary.
 
-Dawna flaga nie może już przywrócić surowego kosinusa. Każda odpowiedź
-używa canonical fit; match_score pozostaje total_score / 100 dla zgodności
+Dawna flaga `AI_MATCHES_SHARED_ENGINE` zniknęła (23.09.2026) — nie ma czego
+przełączać. Każda odpowiedź używa canonical fit; match_score pozostaje total_score / 100 dla zgodności
 z konsumentami dotychczasowej skali API.
 """
 
@@ -101,12 +101,11 @@ def _semantic_hits(monkeypatch, cand_id: int, *, score: float = 0.9, unknown=Fal
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_old_flag_off_cannot_restore_legacy_score(
+async def test_ai_matches_never_serves_raw_cosine(
     app_client: AsyncClient, app_auth_headers: dict, shared_engine_fixture, monkeypatch
 ):
-    """A stale deployment flag cannot restore cosine as the displayed fit."""
+    """Stara zmienna w Coolify nie ma już czego przełączyć — zawsze kompozyt."""
     job_id, cand_id, _ = shared_engine_fixture
-    monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", False)
     _semantic_hits(monkeypatch, cand_id)
 
     resp = await app_client.get(
@@ -124,17 +123,16 @@ async def test_old_flag_off_cannot_restore_legacy_score(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_flag_on_scores_rows_with_the_composite(
+async def test_rows_are_scored_with_the_composite(
     app_client: AsyncClient, app_auth_headers: dict, shared_engine_fixture, monkeypatch
 ):
-    """Z flagą: kompozyt 0–100, a `match_score` to DOKŁADNIE `total/100`.
+    """Kompozyt 0–100, a `match_score` to DOKŁADNIE `total/100`.
 
     Ta równość jest całym kontraktem wstecznym: `MatchScoreBar` mnoży przez 100
     i gdyby te dwie liczby się rozjechały, pasek pokazywałby procent, którego
     nie da się odtworzyć z `total_score` obok niego.
     """
     job_id, cand_id, _ = shared_engine_fixture
-    monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", True)
     _semantic_hits(monkeypatch, cand_id)
 
     resp = await app_client.get(
@@ -158,12 +156,11 @@ async def test_flag_on_scores_rows_with_the_composite(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_min_score_keeps_its_zero_to_one_meaning_under_flag(
+async def test_min_score_keeps_its_zero_to_one_meaning(
     app_client: AsyncClient, app_auth_headers: dict, shared_engine_fixture, monkeypatch
 ):
     """Jawny `min_score` nadal jest w skali 0–1 i nadal odsiewa."""
     job_id, cand_id, _ = shared_engine_fixture
-    monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", True)
     _semantic_hits(monkeypatch, cand_id)
 
     resp = await app_client.get(
@@ -179,12 +176,11 @@ async def test_min_score_keeps_its_zero_to_one_meaning_under_flag(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_default_threshold_follows_the_sibling_list_under_flag(
+async def test_default_threshold_follows_the_sibling_list(
     app_client: AsyncClient, app_auth_headers: dict, shared_engine_fixture, monkeypatch
 ):
     """Default membership matches full search, without a hidden score floor."""
     job_id, cand_id, _ = shared_engine_fixture
-    monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", True)
     _semantic_hits(monkeypatch, cand_id)
 
     resp = await app_client.get(
@@ -198,7 +194,7 @@ async def test_default_threshold_follows_the_sibling_list_under_flag(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_unmeasured_cosine_is_degraded_but_still_scored_under_flag(
+async def test_unmeasured_cosine_is_degraded_but_still_scored(
     app_client: AsyncClient, app_auth_headers: dict, shared_engine_fixture, monkeypatch
 ):
     """Brak POMIARU kosinusu ≠ zmierzone zero.
@@ -209,7 +205,6 @@ async def test_unmeasured_cosine_is_degraded_but_still_scored_under_flag(
     powiedzieć, inaczej awaria dosypki wygląda jak zdrowy, słaby ranking.
     """
     job_id, cand_id, _ = shared_engine_fixture
-    monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", True)
     _semantic_hits(monkeypatch, cand_id, unknown=True)
 
     resp = await app_client.get(
@@ -228,13 +223,11 @@ async def test_unmeasured_cosine_is_degraded_but_still_scored_under_flag(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_provider_outage_still_falls_back_under_flag(
+async def test_provider_outage_still_falls_back(
     app_client: AsyncClient, app_auth_headers: dict, shared_engine_fixture, monkeypatch
 ):
-    """Flaga nie może odebrać ścieżki ratunkowej — awaria nadal schodzi na tagi."""
+    """Wspólny silnik nie odbiera ścieżki ratunkowej — awaria schodzi na tagi."""
     job_id, _cand_id, _ = shared_engine_fixture
-    monkeypatch.setattr(settings, "AI_MATCHES_SHARED_ENGINE", True)
-    monkeypatch.setattr(settings, "AI_MATCH_POOL_SIZE", 100_000)
     monkeypatch.setattr(settings, "MATCH_POOL_SIZE", 100_000)
 
     from app.services.embedding_service import SemanticSearchUnavailable

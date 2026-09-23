@@ -159,16 +159,6 @@ class Settings(BaseSettings):
     # hybrydy) — dlatego flaga świadomie NIE wchodzi do _SCORING_CACHE_INPUTS.
     MULTI_QUERY_RETRIEVAL_ENABLED: bool = False
 
-    # ── AI unified retrieval orchestrator (plan PR8) ──────────────────────────
-    # OFF by default. When ON (per surface, comma-separated list in
-    # AI_UNIFIED_RETRIEVAL_SURFACES), a surface routes through the single
-    # orchestrator (eligibility → sparse+dense generation → RRF fusion →
-    # adaptive overfetch → optional rerank → scoring v2) producing one canonical
-    # MatchingRun trace instead of a bespoke per-surface pipeline. Existing
-    # surfaces are unchanged until explicitly opted in.
-    AI_UNIFIED_RETRIEVAL_ENABLED: bool = False
-    AI_UNIFIED_RETRIEVAL_SURFACES: str = ""  # e.g. "recommendations,marketplace"
-
     # ── AI matching: "pokaż wszystkich kandydatów, którzy pasują" ─────────────
     # Zastępuje stary twardy cap top-10. Oba silniki (legacy /ai-matches oraz
     # hybrydowe /recommendations + proposals) zwracają TERAZ wszystkich
@@ -187,27 +177,6 @@ class Settings(BaseSettings):
     #     neutralny (połowa budżetu, jak availability/champion). Trafny kandydat
     #     ląduje teraz ~55-70 zamiast ~30-37 → próg podniesiony 25 → 40, by
     #     utrzymać podobny zbiór wyników na nowej skali (tunowalny env runtime).
-    # legacy /ai-matches (rerank/cosine/skill-fraction, skala 0-1)
-    AI_MATCH_MIN_SCORE: float = 0.5
-    # ile kandydatów retrieve z Qdrant przed filtrem progu (koszt rerank ~liniowy)
-    AI_MATCH_POOL_SIZE: int = 100
-
-    # `/ai-matches` na WSPÓLNYM silniku (0278, domyślnie OFF). Włączona:
-    # ta powierzchnia pobiera pulę `MATCH_POOL_SIZE` i liczy kompozyt 0–100
-    # przez `bulk_get_or_compute` — czyli dokładnie to samo, co
-    # `/recommendations`, snapshot handoffu i digest. Dziś liczy inaczej:
-    # pula 100, „wynik" to surowy kosinus Qdranta (albo wynik rerankera),
-    # a więc dwa widoki TEJ SAMEJ rekrutacji na jednej zakładce układają
-    # kandydatów w innej kolejności i nazywają to tak samo.
-    #
-    # Kontrakt `match_score` ZOSTAJE na skali 0–1 (`total / 100`), bo czyta go
-    # `MatchScoreBar` (×100), `min_score` (ge=0, le=1) i `JobShortlist`.
-    # Flip dopiero po A/B na zamrożonym zbiorze 50 ofert — patrz raport.
-    AI_MATCHES_SHARED_ENGINE: bool = False
-    # Rerank pod wspólnym silnikiem: 0 = wyłączony. Zmienia KOLEJNOŚĆ pierwszych
-    # N wierszy, nigdy `match_score` — inaczej pasek pokazywałby liczbę z innej
-    # skali niż próg, który go przepuścił.
-    AI_MATCHES_RERANK_TOP_N: int = 0
     # hybrydowe /recommendations + proposals (skala 0-100). Po recalibracji
     # (2026-06-23) skala jest realistyczna, więc próg podniesiony z 25 → 40.
     RECOMMENDATION_MIN_SCORE: float = 40.0

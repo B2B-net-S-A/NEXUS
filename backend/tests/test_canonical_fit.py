@@ -231,7 +231,6 @@ async def test_legacy_c2_shared_engine_uses_exact_fit_and_stable_order(monkeypat
     monkeypatch.setattr(fit, "measure_candidates", AsyncMock(return_value=measurements))
     rerank = AsyncMock(side_effect=AssertionError("fit order must be authoritative"))
     monkeypatch.setattr("app.services.reranker_service.rerank_or_passthrough", rerank)
-    monkeypatch.setattr(matching.settings, "AI_MATCHES_RERANK_TOP_N", 20)
     rows, reranked = await matching._shared_engine_matches(
         None,
         job=job,
@@ -282,7 +281,6 @@ async def test_c2_unknown_measurement_survives_threshold_in_both_discovery_paths
         SimpleNamespace(scalar_one_or_none=lambda: job),
         SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [candidate])),
     ]
-    monkeypatch.setattr(matching.settings, "AI_MATCHES_SHARED_ENGINE", True)
     monkeypatch.setattr(
         retrieval_pool, "retrieve_candidate_pool", AsyncMock(return_value=hits)
     )

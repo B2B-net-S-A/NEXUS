@@ -110,22 +110,30 @@ def test_profile_rate_contract_keeps_literals_even_when_amount_is_empty():
     assert populated.model_dump(mode="json")["amount"] == "123.40"
 
 
-def test_recent_recruitments_sql_is_scoped_redacted_deterministic_and_capped():
-    recruiter = _user(user_id=17, role=UserRole.recruiter)
+def _recent_recruitments_sql(user: User) -> str:
     statement = build_recent_recruitments_stmt(
         candidate_id=23,
-        current_user=recruiter,
+        current_user=user,
         limit=999,
     )
-    sql = str(
+    return str(
         statement.compile(
             dialect=postgresql.dialect(),
             compile_kwargs={"literal_binds": True},
         )
     ).lower()
 
+
+def test_recent_recruitments_sql_is_scoped_redacted_deterministic_and_capped():
+    """Od 23.09.2026 rekruter widzi każdą rekrutację kandydata (decyzja Artura:
+    panel kandydata widzą wszyscy) — zapytanie nie zawęża po zespole. Rola
+    spoza zbioru ról wewnętrznych (stary podgląd ``user``) nadal jest zawężana."""
+    sql = _recent_recruitments_sql(_user(user_id=17, role=UserRole.recruiter))
+    legacy_sql = _recent_recruitments_sql(_user(user_id=18, role=UserRole.user))
+
     assert "limit 5" in sql
-    assert "job_collaborators" in sql
+    assert "job_collaborators" not in sql
+    assert "job_collaborators" in legacy_sql
     assert "candidate_source_identity_reviews" in sql
     assert "cv_share_tokens" in sql
     assert "notes.content" not in sql
@@ -169,8 +177,12 @@ async def test_language_read_holds_key_share_lock_across_version_and_rows():
     not os.environ.get("DATABASE_URL"),
     reason="PostgreSQL integration test; hosted CI provides DATABASE_URL",
 )
-async def test_recent_recruitments_limit_order_reopen_ties_and_membership():
-    """Exercise the production PostgreSQL query, including scope changes."""
+async def test_recent_recruitments_limit_order_reopen_ties_and_open_scope():
+    """Exercise the production PostgreSQL query.
+
+    Od 23.09.2026 rekruter widzi także rekrutację kolegi i przypisanie nie
+    zmienia listy (decyzja Artura: wszystko w panelu kandydata widzą wszyscy).
+    """
 
     from app.core.database import AsyncSessionLocal
 
@@ -210,12 +222,12 @@ async def test_recent_recruitments_limit_order_reopen_ties_and_membership():
             )
             for index in range(6)
         ]
-        hidden_job = Job(
-            title=f"Hidden {marker}",
+        colleague_job = Job(
+            title=f"Colleague {marker}",
             client_id=client.id,
             recruiter_id=admin.id,
         )
-        db.add_all([*jobs, hidden_job])
+        db.add_all([*jobs, colleague_job])
         await db.flush()
 
         first_stage = CandidateStage(
@@ -265,7 +277,7 @@ async def test_recent_recruitments_limit_order_reopen_ties_and_membership():
             ),
             CandidateStage(
                 candidate_id=candidate.id,
-                job_id=hidden_job.id,
+                job_id=colleague_job.id,
                 stage=PipelineStage.new,
                 moved_at=base + timedelta(hours=20),
             ),
@@ -291,15 +303,16 @@ async def test_recent_recruitments_limit_order_reopen_ties_and_membership():
             limit=99,
         )
         assert len(result) == 5
+        # Rekrutacja kolegi (najświeższy ruch) stoi pierwsza — nie jest ukrywana.
         assert [item["job_id"] for item in result] == [
+            colleague_job.id,
             jobs[5].id,
             jobs[0].id,
             jobs[1].id,
             jobs[2].id,
-            jobs[3].id,
         ]
-        assert result[1]["latest_stage_id"] == reopened_stage.id
-        assert result[1]["stage"] == PipelineStage.screening
+        assert result[2]["latest_stage_id"] == reopened_stage.id
+        assert result[2]["stage"] == PipelineStage.screening
         assert {item["client_name"] for item in result} == {canonical_client_name}
         assert set(result[0]) == {
             "job_id",
@@ -319,7 +332,7 @@ async def test_recent_recruitments_limit_order_reopen_ties_and_membership():
                 current_user=recruiter,
                 limit=1,
             )
-        )[0]["job_id"] == jobs[5].id
+        )[0]["job_id"] == colleague_job.id
         assert (
             await get_recent_recruitments(
                 db,
@@ -352,7 +365,10 @@ async def test_recent_recruitments_limit_order_reopen_ties_and_membership():
             current_user=recruiter,
             limit=5,
         )
-        assert after_cv_send[0]["job_id"] == jobs[4].id
+        assert [item["job_id"] for item in after_cv_send[:2]] == [
+            colleague_job.id,
+            jobs[4].id,
+        ]
 
         jobs[5].recruiter_id = None
         await db.flush()
@@ -362,14 +378,18 @@ async def test_recent_recruitments_limit_order_reopen_ties_and_membership():
             current_user=recruiter,
             limit=5,
         )
-        assert jobs[5].id not in {item["job_id"] for item in after_membership_change}
+        assert [item["job_id"] for item in after_membership_change] == [
+            item["job_id"] for item in after_cv_send
+        ]
         admin_view = await get_recent_recruitments(
             db,
             candidate_id=candidate.id,
             current_user=admin,
             limit=5,
         )
-        assert admin_view[0]["job_id"] == hidden_job.id
+        assert [item["job_id"] for item in admin_view] == [
+            item["job_id"] for item in after_cv_send
+        ]
 
         tie_candidate = Candidate(name="Tie", lastname=f"Candidate-{marker}")
         tie_jobs = [

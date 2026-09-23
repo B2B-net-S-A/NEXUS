@@ -571,8 +571,9 @@ def test_money_is_the_same_function_as_the_board_tiles_not_a_copy():
     Wtedy kafel „Marża / mc" i komórka „Marża" w tabeli obok zaczynają
     pokazywać dwie różne kwoty pod jedną nazwą — na jednym ekranie.
     """
-    from app.api import insights_board
-    from app.services import insights_board_money, insights_board_yoy
+    # Kafle liczy od PR3 (23.09.2026) serwis `services/insights_board.py`
+    # — router `/api/insights/board` tylko go woła.
+    from app.services import insights_board, insights_board_money, insights_board_yoy
 
     assert insights_board.fold_money is insights_board_money.fold_money
     assert insights_board_yoy.fold_money is insights_board_money.fold_money

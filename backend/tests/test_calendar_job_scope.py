@@ -19,6 +19,15 @@ miejscach mierzyła nie to, co trzeba:
   (za luźno).
 
 Każdy przypadek ma parę: kto MA dostać 403 i kto MUSI dalej przechodzić.
+
+Decyzja Artura 23.09.2026 („wszystko w rekrutacji widzi i robi każdy — nie
+musisz być przypisany”) zdjęła bramkę zespołu dla ról wewnętrznych
+(``_JOB_MEMBERSHIP_BYPASS_ROLES``). Wszystkie role z prawem zapisu kalendarza
+są wewnętrzne, więc zakres oferty nie odmawia już nikomu, kto w ogóle może
+zapisać wydarzenie: dawne pary „403” pilnują teraz, że obca oferta PRZECHODZI
+i zapis naprawdę trafia na nią. Druga ścieżka zakresu (sprawa kontaktu) jest
+dziś nadmiarowa, ale zostaje — przypadek z przekazaniem nadal sprawdza, że
+spotkanie domyka szansę.
 """
 
 from __future__ import annotations
@@ -172,7 +181,8 @@ async def scope_setup(app_client: AsyncClient) -> AsyncIterator[dict[str, Any]]:
     """Właściciel sprawy jest członkiem oferty A, ale NIE oferty B ani C.
 
     Sprawa kontaktu obejmuje A i B — czyli dokładnie ten zakres, który
-    koordynator już wręczył. Oferta C jest kontrolą negatywną.
+    koordynator już wręczył. Oferta C to oferta bez żadnego tytułu —
+    od 23.09.2026 też dostępna dla każdego rekrutera.
     """
     async with AsyncSessionLocal() as db:
         owner, owner_pwd = await _new_user(db)
@@ -240,10 +250,14 @@ async def test_member_can_create_event_for_own_job(
     assert resp.status_code == 201, resp.text
 
 
-async def test_non_member_without_contact_case_cannot_create_event(
+async def test_non_member_without_contact_case_can_create_event(
     app_client: AsyncClient, scope_setup: dict[str, Any], monkeypatch
 ) -> None:
-    """Obca oferta bez żadnego tytułu do niej = 403. Bramka musi zostać."""
+    """Obca oferta bez żadnego tytułu do niej przechodzi (decyzja 23.09.2026).
+
+    Rekruter umawia spotkanie na rekrutacji, w której zespole nie jest —
+    wydarzenie ląduje na tej rekrutacji.
+    """
     monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
     resp = await app_client.post(
         "/api/calendar/events",
@@ -252,7 +266,8 @@ async def test_non_member_without_contact_case_cannot_create_event(
             candidate_id=scope_setup["candidate_id"], job_id=scope_setup["job_c"]
         ),
     )
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["job_id"] == scope_setup["job_c"]
 
 
 async def test_contact_owner_can_create_meeting_for_foreign_job(
@@ -286,10 +301,14 @@ async def test_contact_owner_can_create_meeting_for_foreign_job(
     assert opportunity.meeting_event_id == resp.json()["id"]
 
 
-async def test_contact_owner_scope_is_limited_to_own_case(
+async def test_foreign_contact_case_does_not_block_another_recruiter(
     app_client: AsyncClient, scope_setup: dict[str, Any], monkeypatch
 ) -> None:
-    """Cudza sprawa nie nadaje zakresu — właścicielem jest ktoś inny."""
+    """Cudza sprawa kontaktu nie zamyka oferty przed innym rekruterem.
+
+    Do 23.09.2026 obcy (spoza zespołu A i bez sprawy) dostawał 403. Teraz
+    zakres oferty nie zależy od przypisania, więc spotkanie powstaje.
+    """
     monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
     resp = await app_client.post(
         "/api/calendar/events",
@@ -298,13 +317,18 @@ async def test_contact_owner_scope_is_limited_to_own_case(
             candidate_id=scope_setup["candidate_id"], job_id=scope_setup["job_a"]
         ),
     )
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["job_id"] == scope_setup["job_a"]
 
 
-async def test_contact_owner_scope_requires_an_open_opportunity(
+async def test_closed_opportunity_does_not_block_the_meeting(
     app_client: AsyncClient, scope_setup: dict[str, Any], monkeypatch
 ) -> None:
-    """Zamknięta szansa nie nadaje zakresu — przekazanie się skończyło."""
+    """Zamknięta szansa już nie jest potrzebna do zakresu oferty.
+
+    Przed 23.09.2026 zamknięta szansa odbierała właścicielowi sprawy dostęp do
+    obcej oferty (403). Teraz spotkanie powstaje bez względu na stan szansy.
+    """
     monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
     async with AsyncSessionLocal() as db:
         row = await db.scalar(
@@ -324,13 +348,19 @@ async def test_contact_owner_scope_requires_an_open_opportunity(
             candidate_id=scope_setup["candidate_id"], job_id=scope_setup["job_b"]
         ),
     )
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["job_id"] == scope_setup["job_b"]
 
 
 async def test_contact_owner_scope_is_off_when_module_disabled(
     app_client: AsyncClient, scope_setup: dict[str, Any], monkeypatch
 ) -> None:
-    """Flaga wyłączona (domyślnie na prod) → zero zmiany zachowania."""
+    """Flaga wyłączona (domyślnie na prod): spotkanie powstaje, sprawa stoi.
+
+    Zakres oferty przepuszcza rekrutera bez sprawy kontaktu (23.09.2026), ale
+    przy wyłączonym module wydarzenie NIE domyka szansy — przekazanie nie
+    rusza bez flagi.
+    """
     monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", False)
     resp = await app_client.post(
         "/api/calendar/events",
@@ -339,17 +369,27 @@ async def test_contact_owner_scope_is_off_when_module_disabled(
             candidate_id=scope_setup["candidate_id"], job_id=scope_setup["job_b"]
         ),
     )
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 201, resp.text
+
+    async with AsyncSessionLocal() as db:
+        opportunity = await db.scalar(
+            select(CandidateContactOpportunity).where(
+                CandidateContactOpportunity.candidate_id == scope_setup["candidate_id"],
+                CandidateContactOpportunity.job_id == scope_setup["job_b"],
+            )
+        )
+    assert opportunity is not None
+    assert opportunity.meeting_event_id is None
 
 
 async def test_m365_invite_applies_the_same_scope_source(
     app_client: AsyncClient, scope_setup: dict[str, Any], monkeypatch
 ) -> None:
-    """Ta sama para na zaproszeniu M365.
+    """To samo źródło zakresu na zaproszeniu M365.
 
-    Właściciel sprawy przechodzi bramkę i zatrzymuje się dopiero na braku
-    połączenia z Microsoft 365 (412) — brak 403 jest tu dowodem przejścia,
-    bez stawiania atrapy Graph API. Obcy dostaje 403 przed czymkolwiek.
+    Od 23.09.2026 zakres oferty przepuszcza rekrutera także na obcej ofercie
+    (C) — obie próby zatrzymują się dopiero na braku połączenia z Microsoft
+    365 (412). Brak 403 jest tu dowodem przejścia, bez atrapy Graph API.
     """
     monkeypatch.setattr(settings, "CANDIDATE_CONTACT_ENABLED", True)
     payload = {
@@ -359,12 +399,13 @@ async def test_m365_invite_applies_the_same_scope_source(
         "end": (_START + timedelta(hours=1)).isoformat(),
     }
 
-    denied = await app_client.post(
+    foreign = await app_client.post(
         "/api/calendar/events/m365-invite",
         headers=scope_setup["owner_headers"],
         json={**payload, "job_id": scope_setup["job_c"]},
     )
-    assert denied.status_code == 403, denied.text
+    assert foreign.status_code == 412, foreign.text
+    assert "Microsoft 365" in foreign.json()["detail"]
 
     allowed = await app_client.post(
         "/api/calendar/events/m365-invite",
@@ -433,15 +474,14 @@ async def test_resending_an_unchanged_job_id_is_not_a_transition(
     assert resp.json()["job_id"] == scope_setup["job_c"]
 
 
-async def test_null_detach_requires_scope_on_the_job_being_detached(
+async def test_null_detach_from_a_foreign_job_is_allowed(
     app_client: AsyncClient, scope_setup: dict[str, Any]
 ) -> None:
-    """P2-14 (b): ``job_id: null`` nie może omijać bramki.
+    """P2-14 (b) po decyzji 23.09.2026: odpięcie od obcej oferty przechodzi.
 
-    Przed poprawką ``setattr`` zerował atrybut, ``ensure_optional_job_
-    membership`` wracał na ``None`` i odpięcie przechodziło — a wraz z nim
-    rozmontowanie przekazania kontaktu na ofercie, do której wołający nie ma
-    dostępu.
+    Bramka nadal jest liczona przeciw ofercie, od której wydarzenie się
+    odpina (kolejność z P2-14 zostaje w kodzie), ale ta oferta nie wymaga już
+    członkostwa w zespole — twórca odpina własne wydarzenie.
     """
     async with AsyncSessionLocal() as db:
         event = await _new_event(
@@ -458,11 +498,12 @@ async def test_null_detach_requires_scope_on_the_job_being_detached(
         headers=scope_setup["owner_headers"],
         json={"job_id": None},
     )
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["job_id"] is None
 
     async with AsyncSessionLocal() as db:
         stored = await db.get(CalendarEvent, event_id)
-        assert stored.job_id == scope_setup["job_c"]
+        assert stored.job_id is None
 
 
 async def test_member_may_detach_own_event_from_the_job(
@@ -488,10 +529,10 @@ async def test_member_may_detach_own_event_from_the_job(
     assert resp.json()["job_id"] is None
 
 
-async def test_repointing_an_event_requires_scope_on_both_jobs(
+async def test_repointing_an_event_to_a_foreign_job_is_allowed(
     app_client: AsyncClient, scope_setup: dict[str, Any]
 ) -> None:
-    """Przepięcie A → C: członkostwo w źródle nie wystarcza."""
+    """Przepięcie A → C przechodzi bez członkostwa w C (decyzja 23.09.2026)."""
     async with AsyncSessionLocal() as db:
         event = await _new_event(
             db,
@@ -507,7 +548,8 @@ async def test_repointing_an_event_requires_scope_on_both_jobs(
         headers=scope_setup["owner_headers"],
         json={"job_id": scope_setup["job_c"]},
     )
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["job_id"] == scope_setup["job_c"]
 
 
 async def test_repointing_is_allowed_within_the_contact_case_scope(

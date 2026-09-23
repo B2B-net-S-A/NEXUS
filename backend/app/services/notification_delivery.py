@@ -70,7 +70,24 @@ CATALOG = (
         trigger="Kandydat wysłał zgłoszenie z CV przez link aplikacyjny lub stronę kariery (najwyżej jeden mail na adres i link w ciągu 24 h).",
         recipient_rule="Kandydat — adres z formularza. Treść jest taka sama, niezależnie od tego, czy osoba była już w bazie.",
     ),
+    # Raporty KPI mailem (plan PR3, 23.09.2026) — `tasks/kpi_email_reports.py`.
+    dict(
+        id="kpi_weekly_report",
+        label="Tygodniowy raport KPI zespołu",
+        module="Statystyki",
+        trigger="Poniedziałek od 8:00 — KPI zespołu za zamknięty tydzień (weryfikacje, rekomendacje, placementy, nowi kandydaci).",
+        recipient_rule="Aktywni Head of Recruitment (rola główna albo dodatkowa) z dostępem do sekcji Insights; zespół według zakresu pulpitu odbiorcy.",
+    ),
+    dict(
+        id="board_monthly_report",
+        label="Miesięczne podsumowanie Rady",
+        module="Statystyki",
+        trigger="1. dzień roboczy miesiąca od 8:00 — kokpit Rady i porównanie rok do roku za zamknięty miesiąc.",
+        recipient_rule="Aktywni administratorzy, Finanse i Head of Recruitment z dostępem do sekcji Insights.",
+    ),
 )
+# Raporty nie mają odpowiednika w dzwonku — wychodzą wyłącznie mailem.
+REPORT_KINDS = frozenset({"kpi_weekly_report", "board_monthly_report"})
 ROUTINE_KINDS = frozenset(item["id"] for item in CATALOG)
 SECURITY_CATALOG = (
     dict(
@@ -339,7 +356,7 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
                 effective_enabled=policy.kind_enabled(kind),
                 send_not_before=cutoff.isoformat() if cutoff else None,
                 channels=["email"]
-                if kind == "application_confirmation"
+                if kind in REPORT_KINDS or kind == "application_confirmation"
                 else [
                     "client_panel" if kind == "delivery_alert" else "in_app",
                     "email",

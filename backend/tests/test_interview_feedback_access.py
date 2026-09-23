@@ -286,10 +286,12 @@ async def test_candidate_mismatch_with_event_is_refused(
     assert await _feedback_count(event_id) == 0
 
 
-async def test_inherited_job_still_goes_through_membership_gate(
+async def test_inherited_job_outside_the_team_is_recorded(
     app_client: AsyncClient,
 ) -> None:
-    """Własne wydarzenie, ale rekrutacja spoza zespołu — `job_id=null` nie omija P1-PIPE-01."""
+    """Własne wydarzenie, rekrutacja spoza zespołu — od 23.09.2026 feedback
+    się zapisuje (decyzja Artura: rekrutację obsługuje każdy, bez
+    przypisania). Rekrutację feedback dziedziczy z wydarzenia."""
     headers, uid = await _seed_user()
     foreign_job = await _seed_job(owner_id=None)
     candidate_id = await _seed_candidate()
@@ -300,9 +302,10 @@ async def test_inherited_job_still_goes_through_membership_gate(
     resp = await app_client.post(
         FEEDBACK, json=_body(event_id, candidate_id, None), headers=headers
     )
-    assert resp.status_code == 403, resp.text
-    assert await _feedback_count(event_id) == 0
-    assert await _needs_attention(event_id) is True
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["job_id"] == foreign_job
+    assert await _feedback_count(event_id) == 1
+    assert await _needs_attention(event_id) is False
 
 
 async def test_attendee_of_someone_elses_event_records_feedback(
