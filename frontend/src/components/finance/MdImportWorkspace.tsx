@@ -670,6 +670,10 @@ function ImportRowLine({
           <span className="text-xs text-muted-foreground">
             {row.matched.client_name} · nr {row.matched.order_number}
           </span>
+        ) : row.status_reason ? (
+          // Wiersz wskazał zamówienie numerem, a ta osoba go w tym miesiącu
+          // nie rozlicza — zużycie świadomie NIE trafiło na inne zamówienie.
+          <span className="text-xs text-destructive">{row.status_reason}</span>
         ) : costFailed ? (
           <span className="text-xs text-destructive">{row.cost_status_label}</span>
         ) : costSettled ? (

@@ -60,3 +60,61 @@ def finance_order_number_matches(
         return True
     numeric = polkomtel_numeric_order_number(client_id, stored)
     return numeric is not None and numeric in hints
+
+
+# ── Jawny numer zamówienia w wierszu importu MD (ticket 23.09.2026) ─────────
+#
+# Arkusz Finansów niesie numer zamówienia w „Uwagach". Do 09.2026 import MD per
+# konsultant czytał go wyłącznie u Polkomtela — u BIK dwa wiersze tej samej
+# osoby z DWOMA różnymi numerami (stare i nowe zamówienie w jednym miesiącu)
+# lądowały na jednym zamówieniu albo w „Wymaga przypisania". Numer wskazany
+# wprost w wierszu jest teraz wiążący u każdego klienta: wiersz trafia
+# wyłącznie na zamówienie o tym numerze albo nigdzie.
+#
+# „Uwagi" niosą też inne liczby („w tym delegacja 318", rok „2026"), więc
+# wiążący jest tylko ciąg cyfr, który ZNAMY jako numer zamówienia, albo ciąg
+# na tyle długi, że nie jest ani rokiem, ani kwotą z dopisku (numery SAP mają
+# 10 cyfr). Nieznany długi numer też jest wiążący — literówka w numerze nie
+# może zamienić się w ciche przypisanie do innego zamówienia tej osoby.
+EXPLICIT_ORDER_NUMBER_MIN_DIGITS = 7
+
+
+def known_order_number_keys(
+    groups: Iterable[tuple[int | None, str | None]],
+) -> frozenset[str]:
+    """Numery zamówień w formie, w jakiej mogą stać w „Uwagach".
+
+    ``groups`` to pary ``(client_id, order_number)``. Polkomtel dostaje obie
+    formy (``SAP 4500…`` i sam ciąg cyfr), reszta — numer dosłownie.
+    """
+
+    keys: set[str] = set()
+    for client_id, order_number in groups:
+        if order_number is None:
+            continue
+        stored = str(order_number).strip()
+        if not stored:
+            continue
+        keys.add(stored)
+        numeric = polkomtel_numeric_order_number(client_id, stored)
+        if numeric is not None:
+            keys.add(numeric)
+    return frozenset(keys)
+
+
+def explicit_order_hints(
+    hints: Iterable[str], known_order_numbers: frozenset[str]
+) -> list[str]:
+    """Ciągi cyfr z „Uwag", które wskazują zamówienie wprost (kolejność zachowana)."""
+
+    explicit: list[str] = []
+    for hint in hints:
+        value = str(hint).strip()
+        if not value:
+            continue
+        if (
+            value in known_order_numbers
+            or len(value) >= EXPLICIT_ORDER_NUMBER_MIN_DIGITS
+        ):
+            explicit.append(value)
+    return explicit
