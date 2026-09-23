@@ -7,8 +7,8 @@ Każdy `CandidateStage` ma 1:1 swój wpis w `candidate_stage_cvs`:
   od późniejszych zmian na profilu kandydata. Rozwiązuje pain point z Traffit
   ("ostatnio wgrane CV" myli rekruterów gdy kandydat jest na kilku req naraz).
 
-* `branded_*` — opcjonalna brandowana prezentacja (Tiptap HTML, lazy-rendered
-  z `_generate_cv_html()` przy pierwszym GET). Lifecycle: `none → draft →
+* `branded_*` — CV do klienta (Tiptap HTML). Szkic powstaje wyłącznie
+  z generatora CV (`select-generated` / podpięcie po generacji, v3). Lifecycle: `none → draft →
   finalized`. Po finalize HTML idzie do storage_service (immutable snapshot)
   i można go udostępnić klientowi przez `CVShareToken`.
 

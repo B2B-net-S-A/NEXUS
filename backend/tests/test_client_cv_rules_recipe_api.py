@@ -1,5 +1,5 @@
 """API pełnej recepty reguły CV (migracja 0267): wersje, historia, kopiowanie,
-sygnał zwrotny, lint, CV próbne, wymagane wejścia w generatorze.
+sygnał zwrotny, lint, wymagane wejścia w generatorze (CV próbne wycofane).
 
 Każdy test dowodzi jednego kontraktu, który łatwo cofnąć „przy okazji":
 
@@ -12,9 +12,7 @@ Każdy test dowodzi jednego kontraktu, który łatwo cofnąć „przy okazji":
 3. Sygnał zwrotny liczy pominięte instrukcje per tekst z ostrzeżeń
    wygenerowanych CV i widzi stempel wersji.
 4. Lint: kwota ``cv_rule_lint`` przed modelem, model zastąpiony atrapą.
-5. CV próbne: rekrutacja innego klienta → 422; kwota generatora naliczona
-   DWA razy; wiersz „processing" → job w tle (atrapa pipeline'u) → „ready"
-   z dwiema wersjami i blokiem promptu.
+5. CV próbne wycofane w generatorze v3 — trasy nie ma.
 6. Generator odmawia 422 z listą braków, gdy reguła wymaga stanowiska /
    numeru projektu, PRZED naliczeniem kwoty.
 """
@@ -444,261 +442,23 @@ async def test_lint_charges_quota_then_returns_per_line_verdicts(
 
 
 @pytest.mark.asyncio
-async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
-    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-):
-    from app.api import client_cv_rules as api_module
-    from app.core.database import AsyncSessionLocal
-    from app.models.candidate import Candidate
-    from app.models.job import Job
-    from app.models.recruitment_pipeline import CandidateStage
-
-    tag = uuid.uuid4().hex[:6]
-    cid = await _make_client(f"Recipe preview {tag}")
-    other = await _make_client(f"Recipe preview other {tag}")
-    candidate_id = job_id = stage_id = other_stage_id = None
+async def test_rule_preview_endpoint_is_gone(app_client: AsyncClient):
+    """CV próbne wycofane w generatorze v3 (23.09.2026) — trasy nie ma."""
+    cid = await _make_client(f"Recipe preview gone {uuid.uuid4().hex[:6]}")
     try:
-        async with AsyncSessionLocal() as db:
-            cand = Candidate(
-                name="Jan", lastname=f"Próbny {tag}", email=f"probny-{tag}@example.com"
-            )
-            db.add(cand)
-            await db.flush()
-            job = Job(title="Analityk", client_id=cid)
-            other_job = Job(title="Analityk u innego", client_id=other)
-            db.add_all([job, other_job])
-            await db.flush()
-            stage = CandidateStage(
-                candidate_id=cand.id, job_id=job.id, stage="verified"
-            )
-            other_stage = CandidateStage(
-                candidate_id=cand.id, job_id=other_job.id, stage="verified"
-            )
-            db.add_all([stage, other_stage])
-            await db.commit()
-            candidate_id, job_id, stage_id, other_stage_id = (
-                cand.id,
-                job.id,
-                stage.id,
-                other_stage.id,
-            )
-
         headers = await _headers_for(
             app_client, "delivery_lead", assigned_client_id=cid
         )
         r = await rule_request(
             app_client,
-            "PUT",
-            RULE_URL.format(cid=cid),
-            json=_full_payload(),
-            headers=headers,
-        )
-        assert r.status_code == 200, r.text
-
-        charged: list[tuple[str, int]] = []
-        remaining = 1
-
-        async def fake_charge(
-            db, feature, user_id=None, *, units=1, commit_with_caller=False
-        ):
-            nonlocal remaining
-            assert commit_with_caller is True
-            from app.services.ai_quota import AIQuotaExceeded
-
-            if remaining < units:
-                raise AIQuotaExceeded(feature, "Limit", used=9, limit=10)
-            remaining -= units
-            charged.append((feature.value, units))
-
-        monkeypatch.setattr(api_module, "check_and_increment", fake_charge)
-
-        seen_rules: list[object] = []
-
-        async def fake_generate(source, *, language="pl", **kw):
-            seen_rules.append(kw.get("client_rule"))
-            from app.services.cv_generator_b2b.standalone_service import (
-                GenerationResult,
-            )
-
-            return GenerationResult(
-                candidate_name="Jan Próbny",
-                filename="x.docx",
-                docx_bytes=b"DOCX",
-                warnings=["w"] if kw.get("client_rule") else [],
-                processing_time_ms=1,
-                render_payload={"name": "Jan", "why_points": ["a"]},
-                job_id=stage_id,
-            )
-
-        from unittest.mock import AsyncMock
-
-        from types import SimpleNamespace
-
-        from io import BytesIO
-        from docx import Document
-
-        document = Document()
-        document.add_paragraph("Synthetic candidate CV with source experience.")
-        buffer = BytesIO()
-        document.save(buffer)
-        from app.services.cv_generator_b2b.standalone_service import (
-            CandidateGenerationSource,
-        )
-
-        frozen_source = CandidateGenerationSource(
-            cv_bytes=buffer.getvalue(),
-            cv_filename="cv.docx",
-            screening_notes_text="notes",
-            champion_json="{}",
-            has_champion=True,
-            source_warnings=(),
-            fallback_name="Synthetic",
-            job_id=job_id,
-            job_title="Developer",
-            client_content_mode_cap=None,
-            cv_document_id=None,
-            candidate_id=candidate_id,
-            stage_id=stage_id,
-            client_id=cid,
-        )
-        monkeypatch.setattr(
-            api_module, "prepare_source_facts", lambda **kwargs: object()
-        )
-        from app.services import object_storage
-
-        stored_inputs = {}
-
-        def upload_snapshot(raw, filename, content_type, *, storage_key=None):
-            key = storage_key or f"test-only/{uuid.uuid4().hex}"
-            stored_inputs[key] = raw
-            return key
-
-        monkeypatch.setattr(object_storage, "upload_cv", upload_snapshot)
-        monkeypatch.setattr(
-            object_storage, "download_cv", lambda key: stored_inputs[key]
-        )
-        load_source = AsyncMock(return_value=frozen_source)
-        monkeypatch.setattr(api_module, "load_candidate_generation_source", load_source)
-        monkeypatch.setattr(
-            api_module, "generate_cv_from_candidate_source", fake_generate
-        )
-
-        # Rekrutacja bez CV / Championa / notatek → 422 PRZED kwotą (prawdziwa
-        # gotowość: kandydat testowy nie ma nic z tych trzech).
-        r = await rule_request(
-            app_client,
             "POST",
             RULE_URL.format(cid=cid) + "/preview",
-            json={"candidate_id": candidate_id, "stage_id": stage_id, "language": "pl"},
+            json={"candidate_id": 1, "stage_id": 1, "language": "pl"},
             headers=headers,
         )
-        assert r.status_code == 422, r.text
-        assert "nie jest gotowa" in r.json()["detail"]
-        assert charged == []
-
-        async def fake_readiness(db, candidate_id, **kwargs):
-            return [
-                SimpleNamespace(
-                    stage_id=stage_id,
-                    ready=True,
-                    has_cv=True,
-                    has_champion=True,
-                    has_notes=True,
-                ),
-                SimpleNamespace(
-                    stage_id=other_stage_id,
-                    ready=True,
-                    has_cv=True,
-                    has_champion=True,
-                    has_notes=True,
-                ),
-            ]
-
-        monkeypatch.setattr(
-            api_module, "list_recruitments_with_readiness", fake_readiness
-        )
-
-        # Rekrutacja u INNEGO klienta → 422, bez naliczania kwoty.
-        r = await rule_request(
-            app_client,
-            "POST",
-            RULE_URL.format(cid=cid) + "/preview",
-            json={
-                "candidate_id": candidate_id,
-                "stage_id": other_stage_id,
-                "language": "pl",
-            },
-            headers=headers,
-        )
-        assert r.status_code == 422, r.text
-        assert charged == []
-
-        r = await rule_request(
-            app_client,
-            "POST",
-            RULE_URL.format(cid=cid) + "/preview",
-            json={"candidate_id": candidate_id, "stage_id": stage_id, "language": "pl"},
-            headers=headers,
-        )
-        assert r.status_code == 503, r.text
-        assert charged == [], "one remaining unit must not be consumed"
-        assert remaining == 1
-        assert seen_rules == [], "neither variant may run after denied admission"
-
-        remaining = 2
-        # CV nie znikają same (decyzja 23.09.2026): nowy podgląd nie sprząta
-        # starszych, dopóki retencja CV jest wyłączona (domyślnie).
-        from app.services import cv_preview_retention
-
-        retire_spy = AsyncMock()
-        monkeypatch.setattr(cv_preview_retention, "retire_previews", retire_spy)
-        r = await rule_request(
-            app_client,
-            "POST",
-            RULE_URL.format(cid=cid) + "/preview",
-            json={"candidate_id": candidate_id, "stage_id": stage_id, "language": "pl"},
-            headers=headers,
-        )
-        assert r.status_code == 202, r.text
-        retire_spy.assert_not_awaited()
-        assert charged == [("cv_generator", 2)], (
-            "both preview variants must have one admission for two units"
-        )
-        preview_id = r.json()["id"]
-
-        # Zadanie w tle wykonało się po odpowiedzi (BackgroundTasks w ASGI transport).
-        g = await app_client.get(
-            RULE_URL.format(cid=cid) + f"/preview/{preview_id}", headers=headers
-        )
-        assert g.status_code == 200, g.text
-        body = g.json()
-        assert body["status"] == "ready", body
-        assert body["with_rule"]["payload"]["name"] == "Jan"
-        assert body["with_rule"]["warnings"] == ["w"]
-        assert body["without_rule"]["warnings"] == []
-        assert "<client_presentation_rules>" in body["prompt_block"]
-        assert seen_rules[0] is not None and seen_rules[1] is None
-
-        # Każdy DL może otworzyć klienta, ale ID podglądu nie przechodzi między
-        # klientami i nie ujawnia, do którego z nich naprawdę należy.
-        g = await app_client.get(
-            RULE_URL.format(cid=other) + f"/preview/{preview_id}", headers=headers
-        )
-        assert g.status_code == 404
+        assert r.status_code in (404, 405), r.text
     finally:
-        async with AsyncSessionLocal() as db:
-            if stage_id:
-                await db.execute(
-                    delete(CandidateStage).where(
-                        CandidateStage.id.in_([stage_id, other_stage_id])
-                    )
-                )
-            if job_id:
-                await db.execute(delete(Job).where(Job.client_id.in_([cid, other])))
-            if candidate_id:
-                await db.execute(delete(Candidate).where(Candidate.id == candidate_id))
-            await db.commit()
-        await _cleanup([cid, other])
+        await _cleanup([cid])
 
 
 @pytest.mark.asyncio

@@ -533,6 +533,11 @@ class Settings(BaseSettings):
     # wejścia = pominięcie z Activity `cv_auto_generate_skipped`. False = brak
     # jakiegokolwiek efektu po ruchu (stan sprzed 21.09).
     CV_AUTO_GENERATE_ON_VERIFIED: bool = True
+    # Pobranie CV klienta, którego centralna polityka wymaga zrzutu zgody RODO
+    # (PKO BP), jest zablokowane (409 `consent_required`), dopóki zrzut nie jest
+    # dołączony — generacja przechodzi, zgodę można dołączyć po niej. False =
+    # wyłącznik awaryjny: pobrania działają jak przed 23.09.2026.
+    CV_CONSENT_DOWNLOAD_GATE_ENABLED: bool = True
 
     # ── Jarvis — asystent-agent w shellu (0330, zastępuje MINDY) ─────────────
     # Wyłącznik całej funkcji: false = maskotka mówi „nie działam teraz”, trasy

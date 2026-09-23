@@ -299,14 +299,22 @@ def automatic_mode(
     )[0]
 
 
-def stamp(rule, *, language: str, project_ref: str, stage_id=None) -> dict | None:
+def stamp(
+    rule, *, language: str, project_ref: str, stage_id=None, force_both: bool = False
+) -> dict | None:
+    """Polityka zamrożona na wierszu CV.
+
+    ``force_both`` (rekruter wybrał „Obie", generator v3): pakiet wymaga obu
+    wersji także u klienta, który sam ich nie wymaga — dzięki temu ponowienie
+    pakietu dorobi brakującą wersję tą samą drogą co u klientów dwujęzycznych.
+    """
     if not enabled():
         return None
     policy = dict(getattr(rule, "managed_policy", None) or metadata(policy_for(None)))
     policy.update(
         publication_version=rule.version,
         required_languages=["pl", "en"]
-        if policy["requires_en_copy"]
+        if policy["requires_en_copy"] or force_both
         else [policy.get("cv_language") or language],
         project_ref=project_ref,
         stage_id=stage_id,

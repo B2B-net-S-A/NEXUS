@@ -50,7 +50,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from app.core.terminal_failure import terminal_operation, capture_terminal_failure
 from app.core.http_headers import content_disposition_attachment
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from app.services.cv_generator_b2b import central_policies
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -93,6 +93,7 @@ from app.services.ai_quota import (
     check_and_increment,
     declared_call,
 )
+from app.services import cv_consent_gate as consent_gate
 from app.services.cv_generator_b2b import consent_binding
 from app.services.cv_generator_b2b.upload_preflight import (
     MAX_UPLOAD_BYTES,
@@ -143,6 +144,7 @@ class CandidateOption(BaseModel):
     full_name: str
     position: Optional[str] = None
     email: Optional[str] = None
+    phone: Optional[str] = None
 
 
 class RecruitmentOption(BaseModel):
@@ -176,12 +178,25 @@ class RecruitmentOption(BaseModel):
 class GenerateRequest(BaseModel):
     cv_document_id: int = Field(..., ge=1)
     candidate_id: int = Field(..., ge=1)
-    stage_id: int = Field(..., ge=1)
-    # Klient jest wyprowadzany z rekrutacji; jawna wartość służy wyłącznie do
-    # sprawdzenia, że front i serwer mówią o tym samym. Rozjazd = 422, bo
-    # cicha wygrana którejkolwiek strony oznaczałaby zastosowanie reguł
+    # Etap rekrutacji. Bez etapu („inny klient, bez procesu", generator v3)
+    # klient jest WYMAGANY — reguły klienta muszą mieć komu obowiązywać.
+    stage_id: Optional[int] = Field(default=None, ge=1)
+    # Z etapem klient jest wyprowadzany z rekrutacji; jawna wartość służy
+    # wyłącznie do sprawdzenia, że front i serwer mówią o tym samym. Rozjazd =
+    # 422, bo cicha wygrana którejkolwiek strony oznaczałaby zastosowanie reguł
     # (nazwa pliku, język) innego klienta niż widzi rekruter.
     client_id: Optional[int] = Field(default=None, ge=1)
+    # Stanowisko z „Zaawansowanych": bez etapu zastępuje tytuł rekrutacji,
+    # z etapem go nadpisuje (nazwa pliku, linia „rozważany na").
+    position: str = Field(default="", max_length=300)
+    # `one` = tylko wersja główna (także u klienta dwujęzycznego — drugą
+    # dorobi ponowienie pakietu); `both` = PL i EN niezależnie od reguły
+    # (odmowa 422, gdy reguła wymusza jeden język). `None` = jak reguła.
+    languages: Optional[Literal["one", "both"]] = None
+    # Profil Championa z podglądu wgranego pliku, gdy nie zapisał się w
+    # rekrutacji. Ma pierwszeństwo przed Championem rekrutacji — jak JSON
+    # podglądu w `/generate-upload`.
+    champion_profile: Optional[dict] = None
     # Numer/nazwa projektu do tokenu {PROJEKT} we wzorze nazwy pliku
     # (ENERGA, ORLEN, PKO BP). Nie da się go wyprowadzić z oferty.
     project_ref: str = Field(default="", max_length=120)
@@ -194,6 +209,22 @@ class GenerateRequest(BaseModel):
     # authorize attachment reuse on their own. New clients send only the token.
     consent_screenshot_key: str = Field(default="", max_length=500)
     consent_screenshot_token: str = Field(default="", max_length=4096)
+    # Generacja BEZ procesu: notatki wpisane w formularzu idą wyłącznie do tego
+    # CV. Nie zapisujemy ich jako notatki kandydata — notatka bez rekrutacji
+    # trafiałaby do CV pod KAŻDEGO kolejnego klienta. Z etapem ignorowane
+    # (notatki procesu zapisuje się w rekrutacji).
+    screening_notes: str = Field(default="", max_length=20000)
+
+    @field_validator("champion_profile")
+    @classmethod
+    def _champion_profile_size(cls, value: Optional[dict]) -> Optional[dict]:
+        # Ten sam sufit co `champion_profile_json` w `/generate-upload`.
+        if (
+            value is not None
+            and len(json.dumps(value, ensure_ascii=False, default=str)) > 60_000
+        ):
+            raise ValueError("Profil Championa jest za duży.")
+        return value
 
 
 class FactualReviewSummary(BaseModel):
@@ -254,6 +285,11 @@ class GeneratedCvItem(BaseModel):
     created_by_name: Optional[str] = None
     can_download: bool
     can_delete: bool
+    # Centralna polityka klienta wymaga zrzutu zgody RODO (PKO BP) ...
+    consent_required: bool = False
+    # ... a dokument go nie ma — pobranie jest zablokowane (409
+    # `consent_required`), dopóki ktoś nie dołączy zgody.
+    consent_missing: bool = False
 
 
 class GenerateEnqueuedResponse(BaseModel):
@@ -400,14 +436,44 @@ async def _create_pending_row(
         render_payload=None,
         created_by=user_id,
         origin=origin,
-        # Klucz idempotencji (0335) dotyczy wyłącznie auto-generacji; ręczne
-        # wiersze go nie niosą, żeby nie wyglądały na „zajęte" przez automat.
-        stage_id=stage_id if origin == "auto" else None,
+        # Etap zapisujemy także przy ręcznej generacji (generator v3): lista
+        # i karta „CV do klienta" wiedzą, pod który etap powstał dokument.
+        # Klucz idempotencji (0335) to para (etap, wersja CV) w częściowym
+        # UNIQUE `WHERE origin = 'auto'` — wersję CV niesie więc tylko automat,
+        # żeby ręczne wiersze nie wyglądały na „zajęte".
+        stage_id=stage_id,
         source_cv_revision=source_cv_revision if origin == "auto" else None,
     )
     db.add(row)
     await db.flush()  # assign row.id before commit so the caller can return it
     return row.id
+
+
+def _render_with_consent(
+    payload: dict, *, template_bytes: Optional[bytes]
+) -> tuple[bytes, bytes]:
+    """DOCX z payloadu z doczytanym obrazem zgody; zwraca ``(docx, obraz)``.
+
+    Wspólne dla generacji (`_finalize_success`) i dołączenia zgody PO generacji
+    (`services.cv_consent_attach`, generator v3). Rzuca, gdy obrazu nie da się
+    pobrać albo odczytać — wołający decyduje, czy to porażka generacji, czy
+    422 dla człowieka. Synchroniczne (magazyn, python-docx) — przez
+    ``run_in_threadpool``.
+    """
+    from copy import deepcopy
+
+    from app.services.cv_generator_b2b.standalone_service import (
+        hydrate_consent_screenshot,
+    )
+
+    hydrated = hydrate_consent_screenshot(deepcopy(payload))
+    image = (hydrated.get("consent_screenshot") or {}).get("_bytes")
+    if not image:
+        raise ValueError("consent screenshot bytes unavailable")
+    docx = rerender_docx_from_payload(
+        hydrated, require_consent=True, template_bytes=template_bytes
+    )
+    return docx, image
 
 
 CONSENT_ATTACH_FAILED_MESSAGE = (
@@ -441,23 +507,13 @@ async def _finalize_success(
     frozen_consent = None
     if consent_screenshot:
         from copy import deepcopy
-        from app.services.cv_generator_b2b.standalone_service import (
-            hydrate_consent_screenshot,
-        )
 
         payload_with_consent = deepcopy(result.render_payload or {})
         payload_with_consent["consent_screenshot"] = dict(consent_screenshot)
         try:
-            hydrated = await run_in_threadpool(
-                hydrate_consent_screenshot, payload_with_consent
-            )
-            frozen_consent = (hydrated.get("consent_screenshot") or {}).get("_bytes")
-            if not frozen_consent:
-                raise ValueError("consent screenshot bytes unavailable")
-            final_docx = await run_in_threadpool(
-                rerender_docx_from_payload,
-                hydrated,
-                require_consent=True,
+            final_docx, frozen_consent = await run_in_threadpool(
+                _render_with_consent,
+                payload_with_consent,
                 template_bytes=getattr(result, "template_bytes", None),
             )
         except Exception:  # noqa: BLE001 — porażka ma trafić na wiersz, nie w próżnię
@@ -635,13 +691,21 @@ def _reject_missing_inputs(problems: list[str]) -> None:
         raise HTTPException(status_code=422, detail="\n".join(problems))
 
 
-def _second_language(rule, language: str) -> Optional[str]:
+def _second_language(rule, language: str, *, force: bool = False) -> Optional[str]:
     """Język drugiej wersji, gdy reguła każe ją generować automatycznie.
 
     Tylko gdy klient oczekuje OBU wersji i nie wymusza jednego języka —
     przy wymuszonym języku druga wersja byłaby dokumentem, którego klient
     nie chce. ``None`` = nic nie generuj.
+
+    ``force=True`` (rekruter wybrał „Obie", generator v3): druga wersja
+    powstaje niezależnie od automatu reguły — ale nigdy wbrew wymuszonemu
+    językowi (tę kombinację odrzuca już przyjęcie żądania).
     """
+    if force:
+        if rule is not None and getattr(rule, "cv_language", None):
+            return None
+        return "en" if language == "pl" else "pl"
     if rule is None or not rule.auto_second_language or not rule.requires_en_copy:
         return None
     if rule.cv_language:
@@ -716,6 +780,26 @@ async def _charge_final_review(db: AsyncSession, *, user_id: int) -> QuotaState 
         return None
 
 
+async def _attach_manual_stage_draft(
+    *, stage_id: int, user_id: int, generated_id: int
+) -> None:
+    """Podepnij ręcznie wygenerowane CV jako szkic etapu (generator v3).
+
+    Ta sama operacja co po auto-CV (`cv_auto_generate.attach_as_stage_draft`):
+    tylko gdy etap nie ma jeszcze szkicu, nigdy zatwierdzenie i nigdy wyjątek —
+    dokument i tak jest na liście „Moje CV". Członkostwa w zespole rekrutacji
+    nie sprawdzamy (decyzja Artura: podpięcie także u osób spoza zespołu).
+    """
+    from app.services.cv_auto_generate import attach_as_stage_draft
+
+    await attach_as_stage_draft(
+        stage_id=stage_id,
+        user_id=user_id,
+        generated_id=generated_id,
+        activity_action="branded_cv_attached_after_generation",
+    )
+
+
 # ── Background generation jobs ─────────────────────────────────────────────
 #
 # Scheduled via FastAPI ``BackgroundTasks`` AFTER the 202 response is fully sent,
@@ -731,7 +815,7 @@ async def _run_generate_new_job(
     generated_id: int,
     *,
     candidate_id: int,
-    stage_id: int,
+    stage_id: Optional[int],
     language: Literal["pl", "en"],
     blind_cv: bool,
     user_id: int,
@@ -741,15 +825,23 @@ async def _run_generate_new_job(
     client_id: int | None = None,
     project_ref: str = "",
     consent_screenshot: Optional[dict] = None,
-    languages: Literal["all", "primary_only"] = "all",
+    languages: Literal["all", "primary_only", "both"] = "all",
     position_fallback: Optional[str] = None,
+    attach_stage_draft: bool = False,
 ) -> None:
     """Background worker for New-mode (DB-backed) generation.
 
-    ``languages="primary_only"`` (auto-CV): pierwszy przebieg robi WYŁĄCZNIE
-    wersję główną — bez drugiej kwoty AI. Drugą wersję dorabia człowiek jednym
-    kliknięciem: ponowienie pakietu wchodzi gałęzią „pierwszy dokument gotowy"
-    (``language_retry``) i wtedy druga wersja powstaje normalnie.
+    ``languages="primary_only"`` (auto-CV, „tylko jedna wersja"): pierwszy
+    przebieg robi WYŁĄCZNIE wersję główną — bez drugiej kwoty AI. Drugą wersję
+    dorabia człowiek jednym kliknięciem: ponowienie pakietu wchodzi gałęzią
+    „pierwszy dokument gotowy" (``language_retry``) i wtedy druga wersja
+    powstaje normalnie. ``languages="both"`` = rekruter wybrał „Obie": druga
+    wersja powstaje niezależnie od automatu reguły klienta.
+
+    ``attach_stage_draft`` (ręczna generacja z etapem, generator v3): gotowy
+    pierwszy dokument zostaje podpięty jako SZKIC CV etapu, o ile etap szkicu
+    jeszcze nie ma — w workerze, więc przeżywa zamknięcie karty i
+    ``recovery_loop``.
     """
     language_retry = False
     async with AsyncSessionLocal() as db:
@@ -859,6 +951,11 @@ async def _run_generate_new_job(
                 )
             await db.commit()
 
+            if finalized and attach_stage_draft and stage_id is not None:
+                await _attach_manual_stage_draft(
+                    stage_id=stage_id, user_id=user_id, generated_id=generated_id
+                )
+
             # Interaktywne CV: precompute mapy „wymaganie → dowody" (kafelki na
             # publicznym linku). Fail-open — porażka/kwota nie psuje generacji,
             # link działa wtedy w samym widoku classic.
@@ -880,7 +977,18 @@ async def _run_generate_new_job(
         # Druga wersja językowa (0267): klient oczekuje PL i EN, a Delivery
         # Lead włączył automat. Osobny wiersz na liście, osobna kwota, osobna
         # awaria — porażka drugiej nie dotyka pierwszej.
-        second = _second_language(rule_snapshot, language) if finalized else None
+        if language_retry and attach_stage_draft and stage_id is not None:
+            # Wznowienie po restarcie z gotowym pierwszym dokumentem: proces mógł
+            # paść między commitem dokumentu a podpięciem. Podpięcie jest
+            # idempotentne (tylko etap bez szkicu), więc powtarzamy je tutaj.
+            await _attach_manual_stage_draft(
+                stage_id=stage_id, user_id=user_id, generated_id=generated_id
+            )
+        second = (
+            _second_language(rule_snapshot, language, force=languages == "both")
+            if finalized
+            else None
+        )
         if languages == "primary_only" and not language_retry:
             second = None
         if second is not None:
@@ -920,6 +1028,7 @@ async def _run_generate_new_job(
                     content_mode=content_mode,
                     client_id=client_id,
                     job_id=result.job_id,
+                    stage_id=stage_id,
                     central_policy=getattr(first_row, "central_policy", None)
                     if first_row
                     else None,
@@ -1023,8 +1132,16 @@ async def _run_generate_upload_job(
     payload: UploadGenerationInput,
     user_id: int,
     consent_screenshot: Optional[dict] = None,
+    languages: Literal["all", "primary_only", "both"] = "all",
+    attach_stage_id: Optional[int] = None,
 ) -> None:
-    """Background worker for Old-mode (manual upload) generation."""
+    """Background worker for Old-mode (manual upload) generation.
+
+    ``languages`` i ``attach_stage_id`` — patrz worker trybu „new"
+    (``languages`` / ``attach_stage_draft``); w uploadzie etap przychodzi
+    wprost, bo zadanie nie niesie źródła z rekrutacji.
+    """
+    language_retry = False
     async with AsyncSessionLocal() as db:
         first_row = await db.get(CvGeneratedDocument, generated_id)
         if (
@@ -1044,6 +1161,7 @@ async def _run_generate_upload_job(
 
             payload = replace(payload, language=first_row.language)
             finalized = True
+            language_retry = True
             result = SimpleNamespace(job_id=first_row.job_id)
             await db.commit()
         else:
@@ -1128,6 +1246,11 @@ async def _run_generate_upload_job(
                 )
             await db.commit()
 
+            if finalized and attach_stage_id is not None:
+                await _attach_manual_stage_draft(
+                    stage_id=attach_stage_id, user_id=user_id, generated_id=generated_id
+                )
+
             # Interaktywne CV w trybie upload: kafelki powstają z RĘCZNYCH wymagań
             # rekrutera, a gdy ich brak — z wgranego pliku championa (ma sekcje
             # MUST-HAVE / NICE-TO-HAVE). Bez żadnego źródła = link classic-only.
@@ -1145,10 +1268,14 @@ async def _run_generate_upload_job(
 
         # Druga wersja językowa (0267) — patrz worker trybu „new".
         second = (
-            _second_language(payload.client_rule, payload.language)
+            _second_language(
+                payload.client_rule, payload.language, force=languages == "both"
+            )
             if finalized
             else None
         )
+        if languages == "primary_only" and not language_retry:
+            second = None
         if second is not None:
             import dataclasses
 
@@ -1180,6 +1307,7 @@ async def _run_generate_upload_job(
                     mode="upload",
                     candidate_id=first_row.candidate_id if first_row else None,
                     job_id=first_row.job_id if first_row else None,
+                    stage_id=getattr(first_row, "stage_id", None),
                     candidate_name=first_row.candidate_name
                     if first_row
                     else "Kandydat",
@@ -1307,7 +1435,10 @@ async def search_candidates(
     q: str = Query(
         "",
         max_length=120,
-        description="Free-text search across name, lastname and email.",
+        description=(
+            "Free-text search across name, lastname, email and phone "
+            "(at least 6 digits)."
+        ),
     ),
     limit: int = Query(20, ge=1, le=50),
 ) -> list[CandidateOption]:
@@ -1335,15 +1466,24 @@ async def search_candidates(
         email_l = func.lower(polish_folded(func.coalesce(Candidate.email, "")))
         full = name_l + " " + lastname_l
         full_rev = lastname_l + " " + name_l
-        stmt = stmt.where(
-            or_(
-                name_l.like(like, escape="\\"),
-                lastname_l.like(like, escape="\\"),
-                full.like(like, escape="\\"),
-                full_rev.like(like, escape="\\"),
-                email_l.like(like, escape="\\"),
+        matches = [
+            name_l.like(like, escape="\\"),
+            lastname_l.like(like, escape="\\"),
+            full.like(like, escape="\\"),
+            full_rev.like(like, escape="\\"),
+            email_l.like(like, escape="\\"),
+        ]
+        # Telefon (generator v3): od 6 cyfr porównujemy same cyfry numeru —
+        # ostatnie 9, jak `dedup_service` — więc „+48 600-100-200" znajduje
+        # „600100200" i odwrotnie. Krótszy ciąg cyfr trafiałby w przypadkowe
+        # fragmenty numerów.
+        digits = re.sub(r"\D", "", q or "")
+        if len(digits) >= 6:
+            phone_digits = func.regexp_replace(
+                func.coalesce(Candidate.phone, ""), r"[^0-9]", "", "g"
             )
-        )
+            matches.append(phone_digits.like(f"%{digits[-9:]}%"))
+        stmt = stmt.where(or_(*matches))
         prefix = f"{needle_like}%"
         rank = case(
             (
@@ -1380,6 +1520,7 @@ async def search_candidates(
             full_name=f"{c.name} {c.lastname}".strip(),
             position=getattr(c, "current_position", None),
             email=getattr(c, "email", None),
+            phone=getattr(c, "phone", None),
         )
         for c in rows
     ]
@@ -1635,6 +1776,9 @@ async def upload_consent_screenshot(
     cv_sha256: Optional[str] = Form(None, pattern=r"^[a-f0-9]{64}$"),
     project_ref: str = Form("", max_length=120),
     binding_stage_id: Optional[int] = Form(None, ge=1),
+    # Generator v3: zgoda dla GOTOWEGO CV (dołączenie albo wymiana po
+    # generacji) — pokwitowanie dla `POST /generated/{id}/consent`.
+    generated_id: Annotated[Optional[int], Form(ge=1)] = None,
     db: AsyncSession = Depends(get_db),
 ) -> ConsentScreenshotResponse:
     """Wgraj zrzut zgody i podpisz przypisanie do źródła i klienta.
@@ -1643,8 +1787,29 @@ async def upload_consent_screenshot(
     obraz w base64 puchnie o jedną trzecią i ląduje w logach requestów. Przy
     okazji ten sam format przypisania obsługuje obie ścieżki generacji (`/generate`
     i `/generate-upload`) jednym mechanizmem.
+
+    Trzy rodzaje przypisania: ``generated_id`` (gotowe CV — klient, etap
+    i numer projektu z polityki zamrożonej na wierszu), ``cv_sha256`` (plik
+    z dysku) albo ``candidate_id`` + ``stage_id`` (proces) / ``candidate_id``
+    + ``client_id`` (kandydat bez procesu, generator v3).
     """
-    if cv_sha256:
+    if generated_id is not None:
+        if cv_sha256 or candidate_id is not None or stage_id is not None:
+            raise HTTPException(
+                status_code=422, detail="Wybierz jeden rodzaj źródła CV."
+            )
+        from app.services.cv_consent_attach import binding_context
+        from app.services.cv_packages import members
+
+        row = await _load_generated_document(db, generated_id, current_user)
+        _job, primary, _rows = await members(db, row)
+        if not consent_gate.consent_required(primary):
+            raise HTTPException(
+                status_code=409,
+                detail="To CV nie wymaga zrzutu zgody — polityka klienta go nie przewiduje.",
+            )
+        context = binding_context(primary)
+    elif cv_sha256:
         if candidate_id is not None or stage_id is not None:
             raise HTTPException(
                 status_code=422, detail="Wybierz jeden rodzaj źródła CV."
@@ -1652,11 +1817,26 @@ async def upload_consent_screenshot(
         if client_id is not None and await db.get(Client, client_id) is None:
             raise HTTPException(status_code=404, detail="Klient nie został znaleziony.")
         context = consent_binding.subject(cv_sha256=cv_sha256, client_id=client_id)
+    elif candidate_id is not None and stage_id is None and client_id is not None:
+        # Kandydat bez procesu („inny klient", generator v3) — ten sam kształt
+        # przypisania, który weryfikuje `/generate` bez etapu.
+        if await db.get(Candidate, candidate_id) is None:
+            raise HTTPException(
+                status_code=404, detail="Kandydat nie został znaleziony."
+            )
+        if await db.get(Client, client_id) is None:
+            raise HTTPException(status_code=404, detail="Klient nie został znaleziony.")
+        context = consent_binding.subject(
+            candidate_id=candidate_id, stage_id=None, client_id=client_id
+        )
     else:
         if candidate_id is None or stage_id is None:
             raise HTTPException(
                 status_code=422,
-                detail="Najpierw wybierz kandydata i rekrutację albo wgraj plik CV.",
+                detail=(
+                    "Najpierw wybierz kandydata i rekrutację (albo klienta) "
+                    "albo wgraj plik CV."
+                ),
             )
         stage = await db.get(CandidateStage, stage_id)
         if stage is None or stage.candidate_id != candidate_id:
@@ -1674,7 +1854,8 @@ async def upload_consent_screenshot(
         context = consent_binding.subject(
             candidate_id=candidate_id, stage_id=stage_id, client_id=job.client_id
         )
-    if central_policies.enabled():
+    if central_policies.enabled() and generated_id is None:
+        binding_job = None
         if cv_sha256 and binding_stage_id:
             binding_stage = await db.get(CandidateStage, binding_stage_id)
             binding_job = (
@@ -1682,6 +1863,19 @@ async def upload_consent_screenshot(
             )
             if not binding_job or binding_job.client_id != client_id:
                 raise HTTPException(422, "Zgoda dotyczy innej rekrutacji lub klienta.")
+        elif not cv_sha256 and stage_id is not None:
+            binding_job = await db.get(
+                Job, (await db.get(CandidateStage, stage_id)).job_id
+            )
+        if binding_job is not None:
+            # Ten sam numer projektu, który wyprowadzi generacja (PKO BP: numer
+            # ZOB z rekrutacji, gdy pole jest puste) — inaczej pokwitowanie
+            # wystawione na pusty numer nie pasowałoby do generacji.
+            project_ref = derived_project_ref(
+                await resolve_client_rule(db, binding_job.client_id),
+                binding_job,
+                project_ref,
+            )
         context = _central_consent_context(
             context, project_ref, binding_stage_id if cv_sha256 else stage_id
         )
@@ -1793,12 +1987,82 @@ def _require_consent_screenshot(rule, storage_key: str) -> None:
     )
 
 
+def _rule_requires_project_ref(rule) -> bool:
+    """Czy reguła klienta (także centralna polityka) wymaga numeru projektu."""
+    if rule is None:
+        return False
+    managed = getattr(rule, "managed_policy", None)
+    return bool(
+        getattr(rule, "require_project_ref", False)
+        or (isinstance(managed, dict) and managed.get("require_project_ref"))
+    )
+
+
+def derived_project_ref(rule, job, project_ref: str) -> str:
+    """Numer projektu z żądania, a gdy go nie ma — z rekrutacji (PKO BP).
+
+    Reguła wymaga numeru, rekruter go nie wpisał, a rekrutacja niesie
+    jednoznaczny numer zapytania ZOB (``cv_packages.pko_job_reference``) —
+    bierzemy go, bo ten sam numer sprawdza potem gotowość pakietu. Wyliczone
+    PRZED sprawdzeniem pokwitowania zgody: zgoda jest wiązana z numerem.
+    """
+    value = (project_ref or "").strip()
+    if value or job is None or not _rule_requires_project_ref(rule):
+        return value
+    from app.services.cv_packages import pko_job_reference
+
+    return pko_job_reference(job) or ""
+
+
+def _worker_languages(
+    rule_snapshot, language: str, languages: str
+) -> Literal["all", "primary_only", "both"]:
+    """Wybór języka z formularza → tryb workera; 422 przed naliczeniem kwoty.
+
+    ``one`` u klienta dwujęzycznego = sama wersja główna (drugą dorobi
+    ponowienie pakietu); ``both`` = druga wersja niezależnie od automatu
+    reguły, ale nigdy wbrew wymuszonemu językowi klienta. Wartość równą
+    zachowaniu reguły zapisujemy jako ``all``, żeby snapshot zadania nie
+    zmieniał się bez potrzeby.
+    """
+    if languages in ("all", "primary_only"):
+        return languages  # type: ignore[return-value]
+    auto_second = _second_language(rule_snapshot, language) is not None
+    if languages == "both":
+        forced = getattr(rule_snapshot, "cv_language", None) if rule_snapshot else None
+        if forced:
+            wanted = "polskim" if forced == "pl" else "angielskim"
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Ten klient wymaga CV wyłącznie w języku {wanted} "
+                    f"({forced.upper()}) — wersja „Obie” nie jest dostępna."
+                ),
+            )
+        return "all" if auto_second else "both"
+    if languages == "one":
+        return "primary_only" if auto_second else "all"
+    raise HTTPException(status_code=422, detail="Nieznany wybór języka CV.")
+
+
+def _imported_champion(champion_profile: Optional[dict], user_id: int):
+    """Profil Championa z podglądu pliku — znormalizowany jak w uploadzie."""
+    if not champion_profile:
+        return None
+    from app.services.champion_intake import prepare_profile
+
+    try:
+        return prepare_profile(dict(champion_profile), actor_id=user_id)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(422, "Nieprawidłowy podgląd profilu Championa.") from exc
+
+
 async def enqueue_candidate_generation(
     db: AsyncSession,
     *,
     user_id: int,
     candidate: Candidate,
-    stage: CandidateStage,
+    stage: CandidateStage | None,
     client_id: Optional[int],
     cv_document_id: Optional[int],
     language: str,
@@ -1809,8 +2073,12 @@ async def enqueue_candidate_generation(
     consent_key: str = "",
     origin: str = "manual",
     source_cv_revision: Optional[str] = None,
-    languages: Literal["all", "primary_only"] = "all",
+    languages: Literal["all", "primary_only", "one", "both"] = "all",
     position_fallback: Optional[str] = None,
+    position: str = "",
+    attach_stage_draft: bool = False,
+    champion_profile: Optional[dict] = None,
+    screening_notes: str = "",
 ) -> tuple[int, int, str]:
     """Walidacje reguły klienta → wiersz „processing" → trwałe zadanie generacji.
 
@@ -1820,12 +2088,35 @@ async def enqueue_candidate_generation(
     łamiącego zatwierdzoną regułę klienta. Odmowy lecą jako ``HTTPException``
     PRZED naliczeniem kwoty AI. Nie commituje — robi to wołający.
     Zwraca ``(generated_id, durable_job_id, candidate_name)``.
+
+    ``stage=None`` (generator v3, „inny klient — bez procesu"): klient jest
+    wymagany przez wołającego, Champion pochodzi wyłącznie z
+    ``champion_profile``, a notatki — tylko te niezwiązane z żadną rekrutacją.
+    Do snapshotu zadania trafiają wyłącznie wartości inne niż domyślne, więc
+    zadania ręczne z etapem i auto-CV zostają bajt w bajt takie jak dotąd.
     """
     rule = await resolve_client_rule(db, client_id)
     rule_snapshot = snapshot_rule(rule)
     if central_policies.enabled():
         language = rule.cv_language or language
     _enforce_client_language(rule_snapshot, language)
+    worker_languages = _worker_languages(rule_snapshot, language, languages)
+    imported_profile = _imported_champion(champion_profile, user_id)
+    position = (position or "").strip()
+    loaded_job: dict = {}
+
+    async def stage_job():
+        # Rekrutację czytamy tylko wtedy, gdy któraś reguła jej potrzebuje —
+        # jak przed generatorem v3 (mniej zapytań na ścieżce bez wymogów).
+        if stage is None:
+            return None
+        if "job" not in loaded_job:
+            loaded_job["job"] = await db.get(Job, stage.job_id)
+        return loaded_job["job"]
+
+    if not (project_ref or "").strip() and _rule_requires_project_ref(rule):
+        project_ref = derived_project_ref(rule, await stage_job(), project_ref)
+    project_ref = project_ref or ""
 
     # Blokada trybu (0267): zablokowany tryb nadpisuje żądanie — kafelki w UI
     # są wyłączone, ale kontrakt trzyma serwer. Sufit z karty klienta nakłada
@@ -1840,41 +2131,73 @@ async def enqueue_candidate_generation(
     if central_policies.enabled():
         # Central policies no longer lock the mode: the recruiter's choice is
         # honoured; "tailored" without a Champion falls back with a notice.
-        job = await db.get(Job, stage.job_id)
         effective_mode, mode_notice = central_policies.resolve_mode(
-            content_mode, job, getattr(client, "cv_content_mode_cap", None)
+            content_mode,
+            await stage_job(),
+            getattr(client, "cv_content_mode_cap", None),
+            uploaded_champion=imported_profile is not None,
         )
+    if imported_profile is not None and effective_mode == "tailored":
+        from types import SimpleNamespace
 
+        from app.services.champion_intake import enforce_operation
+
+        try:
+            enforce_operation(
+                SimpleNamespace(champion_profile=imported_profile), "cv", force=True
+            )
+        except HTTPException:
+            if not central_policies.enabled():
+                raise
+            # Jak w uploadzie: niekompletny podgląd Championa daje CV ogólne
+            # z komunikatem, nigdy 422 pod centralnymi regułami.
+            effective_mode = apply_content_mode_cap(
+                "polished", getattr(client, "cv_content_mode_cap", None)
+            )[0]
+            imported_profile = None
+            mode_notice = central_policies.MISSING_CHAMPION_NOTICE
+
+    stage_id = stage.id if stage is not None else None
     consent = _verified_consent(
         rule,
         consent_token,
         consent_key,
         user_id,
         consent_binding.subject(
-            candidate_id=candidate.id, stage_id=stage.id, client_id=client_id
+            candidate_id=candidate.id, stage_id=stage_id, client_id=client_id
         ),
         project_ref=project_ref,
-        stage_id=stage.id,
+        stage_id=stage_id,
     )
 
     # Wymagane wejścia (0267) — 422 z listą braków PRZED naliczeniem kwoty.
-    if effective_mode == "tailored" or (
-        rule_snapshot is not None
-        and (
-            rule_snapshot.require_screening_notes_min_chars
-            or rule_snapshot.require_project_ref
-            or rule_snapshot.require_champion
+    # Bez etapu notatki i Champion liczymy dopiero z odczytanego źródła niżej.
+    if stage is not None and (
+        effective_mode == "tailored"
+        or (
+            rule_snapshot is not None
+            and (
+                rule_snapshot.require_screening_notes_min_chars
+                or rule_snapshot.require_project_ref
+                or rule_snapshot.require_champion
+            )
         )
     ):
-        job = await db.get(Job, stage.job_id)
-        if job and effective_mode == "tailored":
+        job = await stage_job()
+        has_champion_input = champion_present(job) or (
+            imported_profile is not None
+            and champion_present(
+                _profile_as_job(imported_profile)  # type: ignore[arg-type]
+            )
+        )
+        if job and effective_mode == "tailored" and imported_profile is None:
             from app.services.champion_intake import enforce_operation
 
             enforce_operation(job, "cv")
         notes_chars = await screening_notes_char_count(
             db, candidate_id=candidate.id, stage_id=stage.id
         )
-        if effective_mode == "tailored" and not champion_present(job):
+        if effective_mode == "tailored" and not has_champion_input:
             _reject_missing_inputs(
                 [
                     "Tryb dopasowany wymaga Profilu Championa. Uzupełnij go lub wybierz Przepisanie/Redakcję, jeśli reguła klienta na to pozwala."
@@ -1887,7 +2210,7 @@ async def enqueue_candidate_generation(
                 screening_chars=notes_chars or 0,
                 has_project_ref=bool(project_ref.strip()),
                 has_position=True,
-                has_champion=champion_present(job),
+                has_champion=has_champion_input,
             )
         )
 
@@ -1897,9 +2220,13 @@ async def enqueue_candidate_generation(
         source = await load_candidate_generation_source(
             db,
             candidate_id=candidate.id,
-            stage_id=stage.id,
+            stage_id=stage_id,
             language=language,
             cv_document_id=cv_document_id,
+            position=position,
+            client_id=client_id,
+            champion_profile=imported_profile,
+            extra_notes=screening_notes if stage_id is None else "",
         )
     except StandaloneGenerationError as err:
         raise HTTPException(status_code=422, detail=err.message) from None
@@ -1911,8 +2238,8 @@ async def enqueue_candidate_generation(
         source.cv_document_id,
     ) != (
         candidate.id,
-        stage.id,
-        stage.job_id,
+        stage_id,
+        stage.job_id if stage is not None else None,
         client_id,
         cv_document_id,
     ):
@@ -1952,6 +2279,8 @@ async def enqueue_candidate_generation(
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
 
+    if position and not position_fallback:
+        position_fallback = position
     candidate_name = f"{candidate.name} {candidate.lastname}".strip() or "Kandydat"
     generated_id = await _create_pending_row(
         db,
@@ -1964,15 +2293,16 @@ async def enqueue_candidate_generation(
         user_id=user_id,
         content_mode=effective_mode,
         client_id=client_id,
-        job_id=stage.job_id,
+        job_id=stage.job_id if stage is not None else None,
         origin=origin,
-        stage_id=stage.id,
+        stage_id=stage_id,
         source_cv_revision=source_cv_revision,
         central_policy=central_policies.stamp(
             rule,
             language=language,
             project_ref=project_ref,
-            stage_id=stage.id,
+            stage_id=stage_id,
+            force_both=worker_languages == "both",
         ),
     )
     from app.services.cv_generator_b2b.durable_jobs import persist_job
@@ -1988,7 +2318,7 @@ async def enqueue_candidate_generation(
             source=source,
             rule_snapshot=rule_snapshot,
             candidate_id=candidate.id,
-            stage_id=stage.id,
+            stage_id=stage_id,
             language=language,
             blind_cv=blind_cv,
             user_id=user_id,
@@ -1998,11 +2328,23 @@ async def enqueue_candidate_generation(
             consent_screenshot=consent,
             # Tylko gdy różne od domyślnych: snapshot ręcznej generacji zostaje
             # bajt w bajt taki sam (zadania w kolejce przeżywają deploy).
-            **({"languages": languages} if languages != "all" else {}),
+            **({"languages": worker_languages} if worker_languages != "all" else {}),
             **({"position_fallback": position_fallback} if position_fallback else {}),
+            **(
+                {"attach_stage_draft": True}
+                if attach_stage_draft and stage_id is not None
+                else {}
+            ),
         ),
     )
     return generated_id, durable_id, candidate_name
+
+
+def _profile_as_job(profile: dict):
+    """Widok „oferty" z samym Profilem Championa — dla `champion_present`."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(must_skills=None, nice_skills=None, champion_profile=profile)
 
 
 @router.post(
@@ -2031,36 +2373,50 @@ async def generate(
     if candidate is None:
         raise HTTPException(status_code=404, detail="Kandydat nie został znaleziony.")
 
-    # Etap musi należeć do TEGO kandydata — inaczej wymagane wejścia zgłaszałyby
-    # „brak notatek" dla cudzego etapu zamiast 404.
-    stage = await db.get(CandidateStage, payload.stage_id)
-    if stage is None or stage.candidate_id != payload.candidate_id:
-        raise HTTPException(
-            status_code=404, detail="Rekrutacja nie należy do tego kandydata."
-        )
-    # Członkostwa w zespole rekrutacji celowo NIE sprawdzamy: generować CV może
-    # każdy z rolą zapisu kandydata (decyzja Artura z 10.09.2026, cofnięcie
-    # bramki z #1448). Autor ma potem pełny dostęp do własnego dokumentu —
-    # patrz `_load_generated_document`.
+    stage = None
+    if payload.stage_id is not None:
+        # Etap musi należeć do TEGO kandydata — inaczej wymagane wejścia
+        # zgłaszałyby „brak notatek" dla cudzego etapu zamiast 404.
+        stage = await db.get(CandidateStage, payload.stage_id)
+        if stage is None or stage.candidate_id != payload.candidate_id:
+            raise HTTPException(
+                status_code=404, detail="Rekrutacja nie należy do tego kandydata."
+            )
+        # Członkostwa w zespole rekrutacji celowo NIE sprawdzamy: generować CV
+        # może każdy z rolą zapisu kandydata (decyzja Artura z 10.09.2026,
+        # cofnięcie bramki z #1448). Autor ma potem pełny dostęp do własnego
+        # dokumentu — patrz `_load_generated_document`.
 
-    # Klienta wyprowadza SERWER z rekrutacji — front go nie wybiera. Jawna
-    # wartość w żądaniu jest tylko asercją; rozjazd oznacza, że rekruter widzi
-    # inne reguły (nazwa pliku, język), niż zostałyby zastosowane.
-    client_id = (
-        await db.execute(
-            select(Job.client_id)
-            .join(CandidateStage, CandidateStage.job_id == Job.id)
-            .where(CandidateStage.id == payload.stage_id)
-        )
-    ).scalar_one_or_none()
-    if payload.client_id is not None and payload.client_id != client_id:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Klient wskazany w żądaniu nie zgadza się z klientem tej "
-                "rekrutacji. Odśwież stronę i spróbuj ponownie."
-            ),
-        )
+        # Klienta wyprowadza SERWER z rekrutacji — front go nie wybiera. Jawna
+        # wartość w żądaniu jest tylko asercją; rozjazd oznacza, że rekruter
+        # widzi inne reguły (nazwa pliku, język), niż zostałyby zastosowane.
+        client_id = (
+            await db.execute(
+                select(Job.client_id)
+                .join(CandidateStage, CandidateStage.job_id == Job.id)
+                .where(CandidateStage.id == payload.stage_id)
+            )
+        ).scalar_one_or_none()
+        if payload.client_id is not None and payload.client_id != client_id:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "Klient wskazany w żądaniu nie zgadza się z klientem tej "
+                    "rekrutacji. Odśwież stronę i spróbuj ponownie."
+                ),
+            )
+    else:
+        # Generator v3: „inny klient — bez procesu". Klient jest wymagany —
+        # bez niego nie obowiązuje żadna reguła klienta (nazwa pliku, język,
+        # zgoda RODO), a to była największa dziura „CV poza zleceniem".
+        if payload.client_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Wybierz klienta, dla którego powstaje CV.",
+            )
+        if await db.get(Client, payload.client_id) is None:
+            raise HTTPException(status_code=404, detail="Klient nie został znaleziony.")
+        client_id = payload.client_id
 
     from app.services.cv_generator_b2b.request_receipts import reserve_request
 
@@ -2090,6 +2446,13 @@ async def generate(
         project_ref=payload.project_ref,
         consent_token=payload.consent_screenshot_token,
         consent_key=payload.consent_screenshot_key,
+        languages=payload.languages or "all",
+        position=payload.position,
+        # Decyzja Artura (generator v3): CV podpina się do etapu ZAWSZE, gdy
+        # etap nie ma jeszcze szkicu — także u osoby spoza zespołu.
+        attach_stage_draft=stage is not None,
+        champion_profile=payload.champion_profile,
+        screening_notes=payload.screening_notes,
     )
     from app.services.cv_generator_b2b.durable_jobs import execute_job
 
@@ -2131,9 +2494,12 @@ async def generate_from_upload(
     content_mode: Literal["basic", "polished", "tailored"] = Form(DEFAULT_CONTENT_MODE),
     champion_profile_json: str = Form("", max_length=60_000),
     screening_notes: str = Form(""),
-    # Ręczne wymagania na kafelki interaktywnego CV (przecinki/nowe linie).
-    # Upload nie ma joba, więc bez nich (i bez pliku championa) publiczny link
-    # pokaże sam widok classic.
+    # Generator v3: „Tylko jedna wersja" (`one`) albo „Obie" (`both`); puste =
+    # jak reguła klienta. Znaczenie jak w `/generate`.
+    languages: Annotated[str, Form(pattern="^(one|both)?$")] = "",
+    # Dawne pola Must/Nice (kafelki interaktywnego CV, wyłączonego 21.09.2026).
+    # Przyjmowane dla starszych klientów API i IGNOROWANE — nie były
+    # Championem i nie zasilały niczego poza kafelkami.
     must_requirements: str = Form("", max_length=2000),
     nice_requirements: str = Form("", max_length=2000),
     champion_file: Annotated[
@@ -2255,6 +2621,7 @@ async def generate_from_upload(
         if central_policies.enabled():
             language = rule.cv_language or language
         _enforce_client_language(rule_snapshot, language)
+        project_ref = derived_project_ref(rule, job, project_ref)
         # Blokada trybu (0267) PRZED sufitem — zablokowany tryb nadpisuje
         # żądanie, sufit nadal wygrywa z blokadą.
         locked_mode, _forced = resolve_content_mode(rule_snapshot, content_mode)
@@ -2278,6 +2645,7 @@ async def generate_from_upload(
     if central_policies.enabled():
         rule = await resolve_client_rule(db, client_id)
         language = rule.cv_language or language
+        project_ref = derived_project_ref(rule, job, project_ref)
         # The recruiter's mode is honoured (never locked). "Tailored" uses
         # an uploaded Champion (as before central policies, when 49% of CVs
         # were tailored) or the recruitment's complete Champion; without one
@@ -2291,6 +2659,9 @@ async def generate_from_upload(
 
     # Kwota naliczana PO walidacjach — odrzucone żądanie nie może kosztować
     # rekrutera limitu, którego nie zużyło.
+    worker_languages = _worker_languages(
+        snapshot_rule(rule), language, languages or "all"
+    )
     consent = _verified_consent(
         rule,
         consent_screenshot_token,
@@ -2380,8 +2751,8 @@ async def generate_from_upload(
         champion_filename=champion_filename,
         champion_profile=imported_profile,
         content_mode=effective_mode,
-        must_requirements=must_requirements or "",
-        nice_requirements=nice_requirements or "",
+        must_requirements="",
+        nice_requirements="",
         client_rule=snapshot_rule(rule),
         position=position or "",
         project_ref=project_ref or "",
@@ -2407,8 +2778,13 @@ async def generate_from_upload(
         user_id=current_user.id,
         content_mode=effective_mode,
         client_id=client_id,
+        stage_id=stage_id,
         central_policy=central_policies.stamp(
-            rule, language=language, project_ref=project_ref, stage_id=stage_id
+            rule,
+            language=language,
+            project_ref=project_ref,
+            stage_id=stage_id,
+            force_both=worker_languages == "both",
         ),
     )
     from app.services.cv_generator_b2b.durable_jobs import persist_job, execute_job
@@ -2424,6 +2800,10 @@ async def generate_from_upload(
             payload=gen_payload,
             user_id=current_user.id,
             consent_screenshot=consent,
+            # Tylko wartości niedomyślne — zadania sprzed zmiany bez zmian.
+            **({"languages": worker_languages} if worker_languages != "all" else {}),
+            # Upload z etapem podpina wynik jako szkic CV etapu (generator v3).
+            **({"attach_stage_id": stage_id} if stage_id is not None else {}),
         ),
     )
     if receipt is not None:
@@ -2432,6 +2812,92 @@ async def generate_from_upload(
     background_tasks.add_task(execute_job, durable_id)
     return GenerateEnqueuedResponse(
         id=generated_id, status="processing", candidate_name=provisional
+    )
+
+
+class UploadIdentityMatch(BaseModel):
+    candidate_id: int
+    full_name: str
+    # `identical_file` (te same bajty), `email_exact`, `phone_exact`.
+    match_reasons: list[str] = Field(default_factory=list)
+
+
+class UploadIdentityResponse(BaseModel):
+    matches: list[UploadIdentityMatch]
+
+
+@router.post("/identify-upload", response_model=UploadIdentityResponse)
+@limiter.limit("20/minute")
+async def identify_upload(
+    request: Request,
+    current_user: CandidateWriteAccess,
+    cv_file: Annotated[UploadFile, File(description="Plik CV (PDF / DOCX)")],
+    db: AsyncSession = Depends(get_db),
+) -> UploadIdentityResponse:
+    """Czy osoba z wgranego pliku jest już w bazie? (generator v3)
+
+    Zanim rekruter wygeneruje CV z pliku z dysku, generator pyta, czy to nie
+    ktoś z bazy — wtedy lepiej wybrać tę osobę (procesy, notatki, Champion).
+    Te same darmowe sita co `/api/candidates/from-cv` PRZED płatnym odczytem:
+    identyczny plik, e-mail i telefon z NAGŁÓWKA CV. ZERO wywołań modelu —
+    pusta lista znaczy „nie rozpoznano", nie „na pewno nowa osoba".
+    """
+    import os
+    import tempfile
+
+    from app.core.config import settings
+    from app.services import cv_text_extractor
+    from app.services.cv_upload_dedup import find_duplicates_without_llm
+
+    content = await cv_file.read(MAX_UPLOAD_BYTES + 1)
+    filename = cv_file.filename or "cv.pdf"
+    try:
+        await run_in_threadpool(validate_cv_file, content, filename)
+    except StandaloneGenerationError as err:
+        raise HTTPException(status_code=422, detail=err.message) from None
+
+    # Plik roboczy dla ekstraktora (czyta ze ścieżki) — losowa nazwa, nigdy
+    # nazwa z przeglądarki (kolizja treści przy równoległych żądaniach).
+    suffix = Path(filename).suffix.lower() or ".bin"
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        prefix="nexus_identify_cv_",
+        suffix=suffix,
+        dir=settings.UPLOAD_DIR,
+        delete=False,
+    ) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+    raw_text = ""
+    try:
+        raw_text = await run_in_threadpool(
+            cv_text_extractor.extract_text, tmp_path, filename
+        )
+    except Exception as exc:  # noqa: BLE001 — sito, nie bramka
+        logger.warning("[cv_b2b] identify-upload: odczyt tekstu nieudany: %s", exc)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+    rows = await find_duplicates_without_llm(
+        db, content=content, raw_text=raw_text or ""
+    )
+    return UploadIdentityResponse(
+        matches=[
+            UploadIdentityMatch(
+                candidate_id=int(row["candidate_id"]),
+                full_name=" ".join(
+                    part
+                    for part in (row.get("name") or "", row.get("lastname") or "")
+                    if part
+                ).strip()
+                or f"Kandydat #{row['candidate_id']}",
+                match_reasons=[str(r) for r in row.get("match_reasons") or []],
+            )
+            for row in rows
+        ]
     )
 
 
@@ -2477,8 +2943,16 @@ async def list_generated_cvs(
     job_id: Annotated[Optional[int], Query(ge=1)] = None,
     before_id: Annotated[Optional[int], Query(ge=1)] = None,
     stage_id: Annotated[Optional[int], Query(ge=1)] = None,
+    mine: Annotated[bool, Query()] = False,
+    days: Annotated[Optional[int], Query(ge=1, le=365)] = None,
+    q: Annotated[str, Query(max_length=120)] = "",
 ):
     """Recently generated CVs for the panel list (newest first).
+
+    Filtry listy „Moje CV" (generator v3): ``mine`` = tylko CV wołającego,
+    ``days`` = z ostatnich N dni, ``q`` = fragment nazwiska kandydata,
+    klienta, stanowiska albo nazwy pliku — bez wielkości liter i polskich
+    znaków. Bez nich lista działa jak dotąd.
 
     Auto-CV czekające na przegląd (``needs_review``) stoją PIERWSZE, gdy lista
     jest zawężona do etapu (``stage_id``) albo do pary kandydat + rekrutacja
@@ -2523,6 +2997,32 @@ async def list_generated_cvs(
         filters.append(CvGeneratedDocument.id < before_id)
         if pinned is not None:
             filters.append(~pinned)
+    if mine:
+        filters.append(CvGeneratedDocument.created_by == current_user.id)
+    if days is not None:
+        filters.append(
+            CvGeneratedDocument.created_at
+            >= datetime.now(timezone.utc) - timedelta(days=days)
+        )
+    needle = fold_polish_query((q or "").strip()).lower()
+    if needle:
+        like = f"%{escape_like(needle)}%"
+        filters.append(
+            or_(
+                *(
+                    func.lower(polish_folded(func.coalesce(column, ""))).like(
+                        like, escape="\\"
+                    )
+                    for column in (
+                        CvGeneratedDocument.candidate_name,
+                        CvGeneratedDocument.position,
+                        CvGeneratedDocument.filename,
+                        Client.display_name,
+                        Client.name,
+                    )
+                )
+            )
+        )
     is_admin = current_user.has_role(UserRole.admin)
     # `display_name` przed `name`: to drugie nadpisuje sync Traffita, więc
     # etykieta w panelu rozjeżdżałaby się z tą z pickera klienta.
@@ -2614,6 +3114,8 @@ async def list_generated_cvs(
             can_delete=(is_admin or r.created_by == current_user.id)
             and r.status != "processing"
             and job_status not in {"queued", "running"},
+            consent_required=consent_gate.consent_required(r),
+            consent_missing=consent_gate.consent_missing(r),
         )
         for r, creator_name, job_status, client_name, row_needs_review in rows
     ]
@@ -2632,6 +3134,7 @@ async def download_generated_cv(
     and explicit download in the panel.
     """
     row = await _load_generated_document(db, generated_id, current_user)
+    consent_gate.ensure_downloadable(row)
     stored = getattr(row, "docx_content", None)
     digest = getattr(row, "docx_sha256", None)
     if stored is not None or digest is not None:
@@ -2693,6 +3196,7 @@ async def download_generated_cv_html(
     celowo nieobecny — wymaga serwera, żyje na linku /cv/i/{{token}}.
     """
     row = await _load_generated_document(db, generated_id, current_user)
+    consent_gate.ensure_downloadable(row)
     if row.status != "ready" or not row.render_payload:
         raise HTTPException(
             status_code=422,
@@ -2942,6 +3446,7 @@ async def create_generated_cv_share_token(
             status_code=409,
             detail="CV nie jest gotowe do udostępnienia (brak zapisanych danych).",
         )
+    consent_gate.ensure_downloadable(row)
 
     # Veto hiring managera — jak w share brandowanego CV. Wygenerowane CV zna
     # (candidate_id, job_id); etap wyprowadzamy z tej pary.
@@ -2972,6 +3477,7 @@ async def create_generated_cv_share_token(
     from app.services.cv_generated_approval import approved_version_for_generation
 
     approved = await approved_version_for_generation(db, row, document_version_id)
+    consent_gate.ensure_downloadable(row, approved)
     from app.services.cv_packages import require_ready
 
     package_versions = await require_ready(db, row, document_version_id)
@@ -3225,6 +3731,7 @@ async def preview_generated_editor(
     db: AsyncSession = Depends(get_db),
 ):
     draft = await _load_generated_editor(db, generated_id, current_user, persist=False)
+    consent_gate.ensure_downloadable(await db.get(CvGeneratedDocument, generated_id))
     from app.services.cv_document_versions import check_revision
 
     check_revision(draft, payload.expected_revision)
@@ -3244,6 +3751,7 @@ async def print_generated_editor(
     db: AsyncSession = Depends(get_db),
 ):
     draft = await _load_generated_editor(db, generated_id, current_user, persist=False)
+    consent_gate.ensure_downloadable(await db.get(CvGeneratedDocument, generated_id))
     from app.services.html_sanitizer import sanitize_cv_html
 
     content = (
@@ -3277,6 +3785,7 @@ async def download_generated_approved_version(
     if version_id is None:
         raise HTTPException(404, "Nie znaleziono zatwierdzonej wersji.")
     version = await approved_version_for_generation(db, generated, version_id)
+    consent_gate.ensure_downloadable(generated, version)
     return Response(
         content=version.docx_content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -3492,6 +4001,54 @@ async def retry_cv_package(
     return {"id": primary.id, "status": "queued"}
 
 
+class ConsentAttachRequest(BaseModel):
+    # Pokwitowanie z `POST /consent-screenshot` z `generated_id` tego CV.
+    consent_screenshot_token: str = Field(..., min_length=1, max_length=4096)
+
+
+class ConsentAttachResponse(BaseModel):
+    package_id: int
+    # True = zrzut zastąpił wcześniejszy (ślad `cv_consent_replaced`).
+    replaced: bool
+    # Dokumenty pakietu (wersje językowe), które dostały nowy DOCX z obrazem.
+    document_ids: list[int]
+    # Zatwierdzone ponownie wersje (ta sama treść, nowy obraz, bez AI).
+    reapproved_version_ids: list[int]
+
+
+@router.post("/generated/{generated_id}/consent", response_model=ConsentAttachResponse)
+async def attach_generated_cv_consent(
+    generated_id: int,
+    payload: ConsentAttachRequest,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> ConsentAttachResponse:
+    """Dołącz albo wymień zrzut zgody RODO w gotowym CV (generator v3).
+
+    Dotyczy całego pakietu (obie wersje językowe). 409, gdy generacja jeszcze
+    trwa albo polityka klienta zgody nie wymaga; 422 przy pokwitowaniu dla
+    innego CV / wygasłym albo nieczytelnym obrazie. Bez wywołania AI.
+    """
+    from app.api.recruitment_access import ensure_job_membership
+    from app.services.cv_consent_attach import attach
+
+    row = await _load_generated_document(db, generated_id, current_user)
+    # Dołączenie zgody ponownie ZATWIERDZA wersje (także CV etapu), więc
+    # bramka jest taka jak przy zatwierdzaniu: autor CV, admin albo członek
+    # zespołu rekrutacji. Sam odczyt (np. Finanse spoza zespołu) nie wystarcza.
+    if row.created_by != current_user.id and not current_user.has_role(UserRole.admin):
+        if row.job_id is None:
+            raise HTTPException(
+                403, "Zgodę do tego CV może dołączyć jego autor albo administrator."
+            )
+        await ensure_job_membership(db, current_user, row.job_id)
+    result = await attach(
+        db, row, token=payload.consent_screenshot_token, user_id=current_user.id
+    )
+    await db.commit()
+    return ConsentAttachResponse(**result)
+
+
 @router.get("/generated/{generated_id}/approved/{version_id}/{file_format}")
 async def download_package_document(
     generated_id: int,
@@ -3504,6 +4061,7 @@ async def download_package_document(
 
     row = await _load_generated_document(db, generated_id, current_user)
     version = await approved_version_for_generation(db, row, version_id)
+    consent_gate.ensure_downloadable(row, version)
     filename = version.docx_filename or "CV.docx"
     if file_format == "docx":
         return _build_docx_response(
