@@ -1,7 +1,7 @@
 """Edytor celów KPI (historia) + znacznik raportów KPI mailem (plan PR3).
 
-Revision ID: 0355_kpi_targets_editor_reports
-Revises: 0354_order_change_checks
+Revision ID: 0356_kpi_targets_editor_reports
+Revises: 0355_jarvis_ui_events
 
 * ``kpi_target_events`` — historia zmian z edytora „Cele KPI" (odstępstwa ról
   i osobiste cele). Bez FK do wiersza celu: cel kasowany przy powrocie do
@@ -14,8 +14,8 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 
 from alembic import op
 
-revision = "0355_kpi_targets_editor_reports"
-down_revision = "0354_order_change_checks"
+revision = "0356_kpi_targets_editor_reports"
+down_revision = "0355_jarvis_ui_events"
 branch_labels = None
 depends_on = None
 
