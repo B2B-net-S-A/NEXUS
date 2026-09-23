@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Harness wizualny sekcji „Portale ogłoszeniowe” (multiposting, 0358).
+ * Harness wizualny sekcji „Portale ogłoszeniowe” (multiposting, 0359).
  *
  * PRODUKCYJNY `JobPortalsSection` na zasianym cache react-query
  * (`staleTime: Infinity`) — zero zapytań. Na produkcji sekcja jest dziś

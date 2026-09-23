@@ -166,7 +166,7 @@ export interface OrderGroupRead {
   status_label: string;
   closure_date: string | null;
   closure_reason: string | null;
-  /** Anulowanie (0357): kiedy, dlaczego i do jakiego stanu wróci „Przywróć anulowane". */
+  /** Anulowanie (0358): kiedy, dlaczego i do jakiego stanu wróci „Przywróć anulowane". */
   cancelled_at?: string | null;
   cancellation_reason?: string | null;
   status_before_cancel?: OrderGroupStatus | null;

@@ -1,4 +1,4 @@
-"""Worker kolejki publikacji na portalach (0358).
+"""Worker kolejki publikacji na portalach (0359).
 
 Kończy się PRZED pętlą, gdy żaden portal nie jest włączony
 (``PORTAL_PRACUJ_ENABLED``, ``PORTAL_JJIT_ENABLED``) — wtedy się nie

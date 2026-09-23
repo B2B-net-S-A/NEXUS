@@ -1,4 +1,4 @@
-"""Kolejka publikacji rekrutacji na portalach (0358).
+"""Kolejka publikacji rekrutacji na portalach (0359).
 
 Zgłoszenie publikacji (``request_publish``) zapisuje wiersz ``publishing``;
 worker (``process_batch``) bierze wiersze ``FOR UPDATE SKIP LOCKED`` (wzór

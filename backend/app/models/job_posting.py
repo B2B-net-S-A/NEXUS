@@ -19,24 +19,24 @@ class Portal(str, enum.Enum):
 
 class PostingStatus(str, enum.Enum):
     draft = "draft"
-    # 0358: zgłoszone do publikacji, czeka na worker portali.
+    # 0359: zgłoszone do publikacji, czeka na worker portali.
     publishing = "publishing"
     published = "published"
     expired = "expired"
     removed = "removed"
-    # 0358: portal odmówił albo nie jest skonfigurowany (`last_error`).
+    # 0359: portal odmówił albo nie jest skonfigurowany (`last_error`).
     failed = "failed"
 
 
 class JobPosting(Base, TimestampMixin):
-    """Publikacja rekrutacji na zewnętrznym portalu ogłoszeniowym (0358).
+    """Publikacja rekrutacji na zewnętrznym portalu ogłoszeniowym (0359).
 
     Wiersz jest też pozycją kolejki: ``publishing`` czeka na worker
     ``tasks/job_portal_worker``, który woła adapter portalu
     (``services/job_portals``). Treść idzie WYŁĄCZNIE z zatwierdzonego opisu
     publicznego — ``public_profile_hash`` mówi, z której wersji. Najwyżej
     jedna żywa (``publishing``/``published``) publikacja rekrutacji na portal
-    (``uq_job_postings_live_per_portal``). Do 0358 zakładka „Portale”
+    (``uq_job_postings_live_per_portal``). Do 0359 zakładka „Portale”
     zapisywała tu symulowane wiersze ``SIM-…`` — usunięte migracją.
     """
 
@@ -68,7 +68,7 @@ class JobPosting(Base, TimestampMixin):
     views: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     applications: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    # 0358 — kolejka publikacji.
+    # 0359 — kolejka publikacji.
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     attempts: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0", nullable=False

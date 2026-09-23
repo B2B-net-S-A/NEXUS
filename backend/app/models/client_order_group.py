@@ -45,7 +45,7 @@ GROUP_STATUS_ACTIVE = "active"
 GROUP_STATUS_SCHEDULED = "scheduled"
 GROUP_STATUS_COMPLETED = "completed"
 GROUP_STATUS_EXHAUSTED = "exhausted"
-# Anulowane (0357): zamówienie, które nie doszło do skutku albo zostało
+# Anulowane (0358): zamówienie, które nie doszło do skutku albo zostało
 # założone omyłkowo — w odróżnieniu od usunięcia zostaje w rejestrze razem
 # z historią i da się je przywrócić do stanu sprzed anulowania.
 GROUP_STATUS_CANCELLED = "cancelled"
@@ -206,7 +206,7 @@ class ClientOrderGroup(Base, TimestampMixin):
     status_before_cancel: Mapped[Optional[str]] = mapped_column(
         String(16), nullable=True
     )
-    """Stan sprzed anulowania (0357) — do niego wraca „Przywróć". Statusy
+    """Stan sprzed anulowania (0358) — do niego wraca „Przywróć". Statusy
     LINII sprzed anulowania niesie ``payload`` zdarzenia ``order_cancelled``;
     kolumna trzyma tylko stan całego zamówienia, bo to on decyduje o tym, jak
     je pokazać i czy wolno je przywrócić."""

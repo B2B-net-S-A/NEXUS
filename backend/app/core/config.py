@@ -1363,7 +1363,7 @@ class Settings(BaseSettings):
     # Nie loguje sekretu; przy złym formacie nie wywraca startu (log + no-op).
     COMPASS_INTEGRATION_BOOTSTRAP_KEY: str = ""
 
-    # ── Multiposting (0358): Pracuj.pl i JustJoinIT ─────────────────────────
+    # ── Multiposting (0359): Pracuj.pl i JustJoinIT ─────────────────────────
     # Szkielet bez dokumentacji API portali: flagi OFF = portal niewidoczny
     # w UI, publikacja 409, worker kończy się przed pętlą. Włączona flaga bez
     # adresu i klucza = `checks.job_portals: misconfigured`.

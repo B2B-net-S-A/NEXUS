@@ -761,7 +761,7 @@ async def lifespan(app: FastAPI):
         # tylko po to, zeby sprawdzic te sama flage.
         "compass_workdays_sync": asyncio.create_task(compass_workdays_sync_loop()),
         "compass_lifecycle_sync": asyncio.create_task(compass_lifecycle_sync_loop()),
-        # 0358: kolejka publikacji na portalach — kończy się przed pętlą,
+        # 0359: kolejka publikacji na portalach — kończy się przed pętlą,
         # gdy żaden portal nie jest włączony.
         "job_portal_worker": asyncio.create_task(job_portal_worker_loop()),
         "notes_insights_sync": asyncio.create_task(notes_insights_sync_loop()),
@@ -1148,7 +1148,7 @@ app.include_router(
 )
 app.include_router(notes.router, prefix="/api/notes", tags=["notes"])
 app.include_router(contracts.router, prefix="/api/contracts", tags=["contracts"])
-# Multiposting (0358): szkielet Pracuj.pl + JustJoinIT za flagami OFF.
+# Multiposting (0359): szkielet Pracuj.pl + JustJoinIT za flagami OFF.
 app.include_router(job_portals_api.router, prefix="/api", tags=["job-portals"])
 # Przepięcie kontraktu na innego klienta (admin) — jedyna droga zmiany klienta.
 app.include_router(
@@ -2025,7 +2025,7 @@ async def api_health_check():
     # instalacji, a osoba `exited` zachowywała dostęp. Stempel ostatniego
     # biegu żyje w `app_settings['compass_lifecycle_state']`
     # (`record_sync_outcome`). Sonda informacyjna — nigdy `unhealthy`.
-    # 0358: multiposting — informacyjne, nie zmienia `status`. Dziś wszystkie
+    # 0359: multiposting — informacyjne, nie zmienia `status`. Dziś wszystkie
     # portale są wyłączone (brak dokumentacji API), więc `unconfigured`.
     try:
         from app.services import job_portals as _job_portals
@@ -2639,7 +2639,7 @@ async def api_health_deep_check():
         # „Zrobione” i każde pobranie PDF-u zamówienia.
         ("order_change_checks", OrderChangeCheck),
         ("order_pdf_downloads", OrderPdfDownload),
-        # 0356: dedup maila potwierdzenia aplikacji. Brak tabeli nie wywraca
+        # 0357: dedup maila potwierdzenia aplikacji. Brak tabeli nie wywraca
         # zgłoszenia, ale cicho wyłącza mail — sonda to pokazuje.
         ("application_confirmation_sends", ApplicationConfirmationSend),
         # 0256: konfigurowalna punktacja Insights. Brak tabeli NIE wywraca

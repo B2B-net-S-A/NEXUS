@@ -613,7 +613,7 @@ class OrderGroupRead(BaseModel):
     status_label: str = "Aktywne"
     closure_date: Optional[date] = None
     closure_reason: Optional[str] = None
-    # Anulowanie (0357): kiedy, dlaczego i do jakiego stanu wróci „Przywróć".
+    # Anulowanie (0358): kiedy, dlaczego i do jakiego stanu wróci „Przywróć".
     cancelled_at: Optional[datetime] = None
     cancellation_reason: Optional[str] = None
     status_before_cancel: Optional[str] = None

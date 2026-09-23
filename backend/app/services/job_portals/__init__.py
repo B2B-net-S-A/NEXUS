@@ -1,4 +1,4 @@
-"""Multiposting rekrutacji na portale ogłoszeniowe (0358) — rejestr adapterów.
+"""Multiposting rekrutacji na portale ogłoszeniowe (0359) — rejestr adapterów.
 
 Obsługiwane: Pracuj.pl i JustJoinIT. Oba czekają na dokumentację API, więc
 dziś to szkielet za flagami (domyślnie OFF): sekcja „Portale” w oknie

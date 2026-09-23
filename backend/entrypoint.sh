@@ -145,7 +145,7 @@ _ENUM_STATEMENTS = [
     """DO $$ BEGIN
         CREATE TYPE adjustmentstatus AS ENUM ('draft', 'approved');
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0358: multiposting — kolejka publikacji (czeka na worker / nieudana).
+    # 0359: multiposting — kolejka publikacji (czeka na worker / nieudana).
     "ALTER TYPE postingstatus ADD VALUE IF NOT EXISTS 'publishing'",
     "ALTER TYPE postingstatus ADD VALUE IF NOT EXISTS 'failed'",
     # userrole: head_of_recruitment (migration 0029_notifications_triggers)
@@ -4083,7 +4083,7 @@ _COLUMN_STATEMENTS = [
     "closed_at TIMESTAMPTZ NULL",
     "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
     "closed_by_user_id INTEGER NULL",
-    # 0357 — anulowanie zamówienia MD/kosztowego z przywróceniem. Stan sprzed
+    # 0358 — anulowanie zamówienia MD/kosztowego z przywróceniem. Stan sprzed
     # anulowania i autor; statusy linii żyją w payloadzie zdarzenia.
     "ALTER TABLE client_order_groups ADD COLUMN IF NOT EXISTS "
     "status_before_cancel VARCHAR(16) NULL",
@@ -4585,7 +4585,7 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_order_pdf_downloads_kind
             CHECK (file_kind IN ('order', 'group', 'amendment'))
     )""",
-    # 0358: multiposting — kolumny kolejki publikacji w portalach.
+    # 0359: multiposting — kolumny kolejki publikacji w portalach.
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_error TEXT",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS payload_hash VARCHAR(64)",
@@ -4593,7 +4593,7 @@ _COLUMN_STATEMENTS = [
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS created_by INTEGER "
     "REFERENCES users (id) ON DELETE SET NULL",
     "ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS last_synced_at TIMESTAMPTZ",
-    # 0356: dedup maila potwierdzenia aplikacji (HMAC adresu + klucz linku,
+    # 0357: dedup maila potwierdzenia aplikacji (HMAC adresu + klucz linku,
     # jeden mail na parę w 24 h). Bez tabeli zgłoszenie przechodzi, ale mail
     # się nie wysyła (błąd połykany w `schedule_confirmation`).
     """CREATE TABLE IF NOT EXISTS application_confirmation_sends (
@@ -5419,7 +5419,7 @@ END $$
 
 
 _DATA_STATEMENTS = [
-    # 0358: symulowane „publikacje” SIM-… z dawnej zakładki portali — to nie
+    # 0359: symulowane „publikacje” SIM-… z dawnej zakładki portali — to nie
     # były prawdziwe ogłoszenia. Idempotentne (drugi start nic nie znajdzie).
     "DELETE FROM job_postings WHERE external_id LIKE 'SIM-%'",
     # 17.09.2026: konflikt z klientem i `client_excluded` przestały zerować wynik
@@ -7200,7 +7200,7 @@ _CONSTRAINT_STATEMENTS = [
                 AND (md_rate_revenue IS NULL OR md_rate_revenue > 0)
             ) NOT VALID;
     EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
-    # 0357 dokłada 'cancelled' (anulowanie z przywróceniem) i spójność
+    # 0358 dokłada 'cancelled' (anulowanie z przywróceniem) i spójność
     # `status_before_cancel` — DROP+ADD, bo nazwa więzu się nie zmienia.
     "ALTER TABLE client_order_groups DROP CONSTRAINT IF EXISTS ck_client_order_groups_status",
     """DO $$ BEGIN
@@ -7750,7 +7750,7 @@ _CONSTRAINT_STATEMENTS = [
 # tutaj byłoby martwym kodem: CREATE INDEX IF NOT EXISTS i tak by je pominął.
 _INDEX_STATEMENTS = [
     *_KEYWORD_CORPUS_INDEXES,
-    # 0358: najwyżej jedna żywa publikacja rekrutacji na portal.
+    # 0359: najwyżej jedna żywa publikacja rekrutacji na portal.
     "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_job_postings_live_per_portal "
     "ON job_postings (job_id, portal) WHERE status IN ('publishing', 'published')",
     # 0339: slug linku unikalny; jeden nieodwołany stały link na rekrutera.

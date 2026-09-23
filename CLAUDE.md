@@ -448,9 +448,16 @@ cofnąć „przy okazji”:
   pilnuje test AST w `test_contract_status_concurrency.py`). Bez tego `void`
   i równoległy `revert` na przeterminowanym obiekcie oba przechodziły, a ostatni
   zapis wygrywał. `resync_contract` odświeża pola cyklu życia po blokadzie —
-  obiekt bywa załadowany przed nią. Znany dług: writery zamówień blokują
-  `client_orders` przed `contracts` — kolejność odwrotna niż w cronie
-  i handlerach; nie „ujednolicaj” jej w jednym z miejsc bez drugiego.
+  obiekt bywa załadowany przed nią. **Kolejność blokad jest jedna: kontrakty →
+  zamówienia** (PR2, 23.09.2026 — do tego dnia writery zamówień blokowały
+  `client_orders` przed `contracts`, a `commit_order_write` → `resync_contract`
+  brał kontrakt dopiero przy commicie: ABBA z handlerami kontraktu). Każdy
+  writer zamówień woła `contract_lifecycle.lock_contract_then_orders`
+  (kontrakty rosnąco, potem zamówienia rosnąco; kontrakty zamówień doczytuje
+  sam) albo `lock_order_group_lines` PRZED pierwszą blokadą i zapisem
+  zamówienia; tworzenie zamówienia blokuje kontrakt przed INSERT-em. Pilnuje
+  tego test AST `test_order_writer_lock_order.py` — nowa funkcja z `FOR UPDATE`
+  na `ClientOrder` bez helpera = czerwone CI (wyjątki z powodem w `EXEMPT`).
 - **Zakończenie współpracy przechodzi przez maszynę stanów**
   (`_status_after_termination`, `/terminate` i aneks `early_termination`, od
   15.09.2026). Do tego dnia obie ścieżki liczyły status z samej daty końca:
@@ -3087,6 +3094,72 @@ i polskim powodem.
   `GET /api/conflicts` zasila sekcję „Konflikty z kandydatami" na profilu
   klienta i zakładkę Ustawienia → Konflikty. Tabela nie miała wcześniej
   żadnego lustra w `entrypoint.sh` — teraz ma (kolumny, indeksy, CHECK alertu).
+
+## PR2 (23.09.2026): multiposting, scalanie kandydatów, tagi, mail aplikacji, przepięcie kontraktu, anulowanie zamówień MD
+
+Migracje `0357_application_confirmation`, `0358_order_group_cancel`,
+`0359_job_portals` (lustra w `entrypoint.sh`, test `test_pr2_migration_mirror.py`).
+
+- **Multiposting (Pracuj.pl, JustJoinIT) to szkielet za flagami OFF**
+  (`PORTAL_PRACUJ_ENABLED`, `PORTAL_JJIT_ENABLED` + `_API_URL`/`_API_KEY`) —
+  brak dokumentacji API portali. `services/job_portals/` (adaptery
+  `PendingDocumentationAdapter` mówią „czeka na dokumentację”, nigdy nie udają
+  publikacji jak dawne `SIM-…`), kolejka w `job_postings` (`publishing` →
+  worker `tasks/job_portal_worker.py` z `SKIP LOCKED` → `published`/`failed`
+  z polskim `last_error`), częściowy UNIQUE jednej żywej publikacji na portal.
+  Treść WYŁĄCZNIE z zatwierdzonego opisu publicznego (`public_job_payload`),
+  link aplikacji = link rekrutacji na stronie kariery; bez nich 409. Worker
+  kończy się przed pętlą przy obu flagach OFF; `checks.job_portals`
+  informacyjne (`unconfigured` dziś). Sekcja „Portale ogłoszeniowe” w oknie
+  zlecenia renderuje się tylko przy `GET /api/job-portals/config` → `any_ready`.
+  Harness `/preview/job-portals`.
+- **Scalanie duplikatów kandydatów** (`services/candidate_merge.py`,
+  `GET …/{id}/merge-preview?other=`, `POST …/{id}/merge`, admin + HoR,
+  „Scal z…” w menu profilu, harness `/preview/candidate-merge`). Referencje
+  z KATALOGU w chwili uruchomienia (FK do `candidates.id` o dowolnej nazwie
+  kolumny + kolumny `candidate_id` bez FK + FK z modeli); konflikt unikalności
+  rozstrzygany PER WIERSZ (para z tym samym kluczem → zostaje nowszy wiersz,
+  starszy znika, reszta przepięta — nigdy „usuń wszystkie wiersze
+  duplikatu”); `activities`/`notifications`(+link)/`traffit_entity_links`
+  przepinane jawnie. Konflikt pól = wybór człowieka; kontakt duplikatu
+  zostaje w `custom_fields.merged_duplicates`. Duplikat z Traffita oddaje
+  ocalałemu `external_id` (inaczej nocny sync go odtworzy); oba z tego samego
+  systemu = 409 `both_external`. Odcisk jak w `contract_merge`. Historia
+  zdarzeń `candidate.merge` bez nazwisk. Skrypt
+  `scripts/merge_duplicate_candidates.py` ZOSTAJE (partie Talent Radar,
+  własne testy) — do scalania pojedynczych par używaj UI.
+- **Tagi kandydata:** `POST/DELETE /api/candidates/{id}/tags` zmienia JEDEN
+  tag pod blokadą wiersza (obiekty importu Traffita nietknięte, tag
+  porównywany bez wielkości liter), `GET /api/candidates/tags/suggest`
+  (kształt jak `/companies/suggest`). Nie wracaj do zapisu całej listy
+  z przeglądarki — PATCH zastępuje listę i kasował cudze tagi. Filtr „Tagi”
+  w „Więcej filtrów” → „Inne” (URL `tags`, cały tag).
+- **Mail potwierdzenia aplikacji** (`services/application_confirmation_email.py`,
+  rodzaj `application_confirmation` w `notification_delivery.CATALOG`,
+  domyślnie OFF): wołany IDENTYCZNIE z obu gałęzi `submit_application`
+  (nowy e-mail / już w bazie) i budowany wyłącznie z formularza i linku —
+  treść nie może zdradzić, że osoba była w bazie. Tytuł tylko z
+  ZATWIERDZONEGO opisu publicznego. Dedup (HMAC adresu, klucz linku) 24 h
+  w `application_confirmation_sends`; nieudana wysyłka zwalnia rezerwację.
+- **Przepięcie kontraktu na innego klienta** (admin;
+  `GET /api/contracts/{id}/client-reassign-preview?client_id=`, `POST …/client-reassign`,
+  akcja w szczegółach kontraktu): przenosi `contracts.client_id`, zamówienia,
+  wygenerowane umowy B2B (nazwa WYDRUKOWANA zostaje), otwarte braki; otwarte
+  alerty DL starego klienta zamyka jako `resolved`. **409 z listą** przy
+  zamówieniu pod umową ramową/wykonawczą, linii zamówienia MD/kosztowego,
+  PM-ie z innej firmy, czekającej decyzji offboardingu. `ContractUpdate` nadal
+  NIE ma `client_id` — to jedyna droga. Historia zdarzeń bez nazwisk (same
+  kody blokerów).
+- **Anulowanie zamówienia MD/kosztowego z przywróceniem**
+  (`POST …/order-groups/{id}/cancel` i `…/restore`, cykl życia zamówienia):
+  tylko BEZ rozliczeń (ta sama reguła co usunięcie, 409 z listą); grupa
+  `cancelled` pamięta `status_before_cancel`, linie `cancelled`, statusy linii
+  w payloadzie `order_cancelled` — „Przywróć anulowane” je odtwarza (osoba,
+  której okres minął, wraca jako zakończona). Anulowane zamówienie jest tylko
+  do odczytu (PATCH, zakończenie, przedłużenie, linie, rozliczenia → 409),
+  a zwykłe „Przywróć” (reopen) go nie rusza. Filtry automatów pytają
+  pozytywnie o `active`/`exhausted`/`completed`, więc anulowane samo z nich
+  wypada — nowy filtr pisz tak samo, nie jako „≠ completed”.
 
 ## Konta serwisowe / klucze API (`X-API-Key`)
 
