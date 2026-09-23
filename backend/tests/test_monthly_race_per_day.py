@@ -113,7 +113,9 @@ async def test_without_compass_every_entry_gets_calendar_source(monkeypatch) -> 
 async def test_closed_month_uses_compass_working_days() -> None:
     async with AsyncSessionLocal() as db:
         user = await _user(db)
-        db.add(_compass(user.id, date(2026, 8, 1), date(2026, 8, 31), working=15, absent=5))
+        db.add(
+            _compass(user.id, date(2026, 8, 1), date(2026, 8, 31), working=15, absent=5)
+        )
         await db.flush()
         out = await race_workdays_to_date(
             db,
@@ -135,7 +137,9 @@ async def test_current_month_with_leave_falls_back_to_calendar() -> None:
     """
     async with AsyncSessionLocal() as db:
         user = await _user(db)
-        db.add(_compass(user.id, date(2026, 9, 1), date(2026, 9, 30), working=17, absent=5))
+        db.add(
+            _compass(user.id, date(2026, 9, 1), date(2026, 9, 30), working=17, absent=5)
+        )
         await db.flush()
         out = await race_workdays_to_date(
             db,
@@ -152,7 +156,9 @@ async def test_current_month_with_leave_falls_back_to_calendar() -> None:
 async def test_current_month_without_leave_is_confirmed_by_compass() -> None:
     async with AsyncSessionLocal() as db:
         user = await _user(db)
-        db.add(_compass(user.id, date(2026, 9, 1), date(2026, 9, 30), working=22, absent=0))
+        db.add(
+            _compass(user.id, date(2026, 9, 1), date(2026, 9, 30), working=22, absent=0)
+        )
         await db.flush()
         out = await race_workdays_to_date(
             db,
@@ -175,7 +181,9 @@ async def test_per_day_is_not_stored_in_extras(monkeypatch) -> None:
     async with AsyncSessionLocal() as db:
         user = await _user(db)
         row["user_id"] = user.id
-        await _attach(db, monkeypatch, today=date(2026, 9, 1), period="2026-09", rows=[row])
+        await _attach(
+            db, monkeypatch, today=date(2026, 9, 1), period="2026-09", rows=[row]
+        )
     assert "per_day" in row
     assert "per_day" not in ranked.extras
     assert "workdays" not in ranked.extras
