@@ -143,8 +143,8 @@ async def test_entry_is_checked_undone_and_both_stay_in_the_history(
     body = await _month(app_client, app_auth_headers, day)
     assert body["can_check"] is True
     [entry] = [e for e in body["entries"] if e["client_id"] == ids["client_id"]]
-    key = f"entry:{ids['order_id']}"
-    assert entry["item_key"] == key
+    key = entry["item_key"]
+    assert key == f"entry:{ids['order_id']}:live:{day.isoformat()}"
     assert entry["done"] is None
     assert entry["order_start"] == day.isoformat()
     assert entry["order_end"] == (day + timedelta(days=80)).isoformat()
@@ -224,7 +224,7 @@ async def test_stale_key_is_refused_without_a_write(
 async def test_only_admin_and_finance_can_check(app_client: AsyncClient):
     day = _far_day(2071, 2072).replace(day=4)
     ids = await _seed(start=day, end=day + timedelta(days=30))
-    key = f"entry:{ids['order_id']}"
+    key = f"entry:{ids['order_id']}:live:{day.isoformat()}"
 
     finance = await _login(app_client, "finance")
     body = await _month(app_client, finance, day)
@@ -414,3 +414,41 @@ async def test_file_with_a_todo_change_is_flagged_until_it_is_checked(
 
     files = await _files(app_client, app_auth_headers, month, ids["client_id"])
     assert files[key]["pending_change"] is False
+
+
+async def test_filled_draft_comes_back_as_todo_after_it_was_checked(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Dziennik zmian celowo pomija szkice — uzupełnienie stawek i aktywacja
+    szkicu nie daje wpisu. Pozycja Wejść odhaczona na pustym szkicu musi więc
+    wrócić jako „Do zrobienia", bo Finanse jeszcze nie widziały kwot."""
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+
+    day = _far_day(2075, 2077).replace(day=5)
+    ids = await _seed(
+        start=day, end=day + timedelta(days=60), status=ClientOrderStatus.draft
+    )
+    async with AsyncSessionLocal() as db:
+        order = await db.get(ClientOrder, ids["order_id"])
+        order.rate_client = None
+        order.rate_candidate = None
+        await db.commit()
+
+    body = await _month(app_client, app_auth_headers, day)
+    [entry] = [e for e in body["entries"] if e["order_id"] == ids["order_id"]]
+    resp = await _check(app_client, app_auth_headers, day, entry["item_key"], True)
+    assert resp.status_code == 200, resp.text
+
+    async with AsyncSessionLocal() as db:
+        order = await db.get(ClientOrder, ids["order_id"])
+        order.rate_client = 1400
+        order.rate_candidate = 1000
+        order.status = ClientOrderStatus.active
+        await db.commit()
+
+    after = await _month(app_client, app_auth_headers, day)
+    [entry_after] = [e for e in after["entries"] if e["order_id"] == ids["order_id"]]
+    assert entry_after["item_key"] != entry["item_key"]
+    assert entry_after["done"] is None

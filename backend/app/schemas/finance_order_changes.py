@@ -167,6 +167,10 @@ class OrderChangeItem(OrderRef):
     # w NEXUSIE. Bez tego kontynuacja renderuje się jako „—", czyli dokładnie
     # tak, jak utrata danych.
     engagement_since: Optional[date] = None
+    # Status zamówienia dla pozycji liczonych z zamówień (nowe zamówienie w
+    # trwającej współpracy) — szkic i zamówienie żywe to dla rozliczeń dwie
+    # różne rzeczy, więc wchodzi do klucza odhaczenia.
+    order_status: Optional[str] = None
 
 
 class OrderGapItem(OrderRef):

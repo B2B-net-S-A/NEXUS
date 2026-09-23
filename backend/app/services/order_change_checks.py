@@ -72,15 +72,38 @@ _MAIL_MATCH_WINDOW = timedelta(minutes=10)
 ORDER_MAIL_LABEL = "zamowienia@b2bnetwork.pl"
 
 
+def _order_state(status: Optional[str], start, cost, revenue) -> str:
+    """Stan nowego zamówienia w kluczu pozycji.
+
+    Dziennik zmian celowo pomija szkice (``order_change_audit``) i pierwsze
+    wpisanie stawki, więc uzupełnienie i aktywacja szkicu nie dają żadnego
+    wpisu. Bez stanu w kluczu pozycja odhaczona na pustym szkicu zostałaby
+    „Zrobione" z kwotami, których Finanse nie widziały. Zamówienie żywe niesie
+    tylko start — jego zmiany stawek mają własne pozycje z dziennika, a odcisk
+    stawek policzyłby tę samą zmianę dwa razy.
+    """
+
+    begin = start.isoformat() if start is not None else "-"
+    if status == "draft":
+        return f"draft:{begin}:{cost if cost is not None else '-'}:{revenue if revenue is not None else '-'}"
+    return f"live:{begin}"
+
+
 def item_key(tab: str, item) -> str:
     """Klucz pozycji — ten sam w odczycie, odhaczeniu i historii."""
 
     if tab == "changes":
         if item.event_id is not None:
             return f"chg:ev:{item.event_id}"
-        return f"chg:{item.kind}:{item.order_id}"
+        state = _order_state(
+            item.order_status, item.start_date, item.rate_cost, item.rate_revenue
+        )
+        return f"chg:{item.kind}:{item.order_id}:{state}"
     if tab == "entries":
-        return f"entry:{item.order_id}"
+        state = _order_state(
+            item.status, item.start_date, item.rate_cost, item.rate_revenue
+        )
+        return f"entry:{item.order_id}:{state}"
     if tab == "exits":
         return f"exit:{item.order_id}:{item.end_date.isoformat()}"
     if tab == "ending":

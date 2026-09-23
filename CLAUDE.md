@@ -3384,7 +3384,9 @@ zamyka). Serwis `services/order_change_checks.py`, front
   miesiąca (inaczej 409), blokada doradcza na kluczu, ten sam stan = brak wpisu.
 - **Klucz pozycji liczy serwer** (`item_key`): wpis dziennika `chg:ev:<id>`,
   pozycje liczone z bieżącego stanu niosą to, co je wyróżnia (`exit:`/`ending:`
-  z datą końca, `gap:` ze statusem). Ponowna zmiana = nowy klucz = nowa pozycja
+  z datą końca, `gap:` ze statusem, nowe zamówienie ze stanem szkic/żywe,
+  startem, a szkic także ze stawkami — dziennik celowo pomija szkice, więc
+  uzupełnienie szkicu nie daje wpisu). Ponowna zmiana = nowy klucz = nowa pozycja
   „Do zrobienia"; stare odhaczenie wraca jako `superseded` („Zmieniono
   ponownie"). Zmieniając klucz, zgubisz odhaczenia z historii — nie zmieniaj.
 - **Dekoracja idzie na PEŁNYM audycie, filtry dopiero po niej** — inaczej
