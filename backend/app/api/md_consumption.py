@@ -353,7 +353,7 @@ async def _apply_to_line(
     )
     # FIN-MD-01: miesiąc już raz podzielony rozlicza się od poprzednika — wpis
     # historii ląduje na linii, na której rozliczenie faktycznie się zaczęło.
-    if outcome.order is not None:
+    if getattr(outcome, "order", None) is not None:
         locked_order = outcome.order
         locked_group = outcome.group
     if locked_group is not None:

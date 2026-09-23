@@ -4497,6 +4497,21 @@ async def resolve_md_offboarding_case(
     target_name: Optional[str] = None
     source_rate = case.rate_revenue_snapshot or source.md_rate_revenue
     target_rate: Optional[Decimal] = None
+    # Audyt 22.09 r2 (FIN-MD-02): stan linii odchodzącego SPRZED decyzji
+    # i liczby po niej — z nich `recompute_remaining` koryguje przeniesioną
+    # pulę, gdy raport za miesiąc zejścia przyjdzie po decyzji.
+    rebalance_evidence: dict[str, object] = {}
+    source_before = {
+        "md_total": None if source.md_total is None else str(source.md_total),
+        "md_optional_total": (
+            None if source.md_optional_total is None else str(source.md_optional_total)
+        ),
+        "md_manual_adjustment": str(source.md_manual_adjustment or 0),
+        "md_input_mode": source.md_input_mode,
+        "md_input_value": (
+            None if source.md_input_value is None else str(source.md_input_value)
+        ),
+    }
 
     if payload.action == OFFBOARDING_RESOLUTION_TRANSFER:
         target = locked_lines.get(payload.target_order_id)
@@ -4534,6 +4549,7 @@ async def resolve_md_offboarding_case(
             if basis_rate is None or basis_rate <= 0:
                 raise HTTPException(422, detail="Brak stawki do przeliczenia puli MD")
             transferred_md = quantize_md(remaining * basis_rate / target_rate)
+            rebalance_evidence["basis_rate"] = str(basis_rate)
             target.md_total = quantize_md(
                 Decimal(str(target.md_total)) + transferred_md
             )
@@ -4577,6 +4593,25 @@ async def resolve_md_offboarding_case(
     ):
         _reduce_legacy_md_budget(source, remaining)
         await recompute_remaining(db, source)
+    if (
+        payload.action == OFFBOARDING_RESOLUTION_TRANSFER
+        and target is not None
+        and "basis_rate" in rebalance_evidence
+        and source.md_total is not None
+        and source_before["md_total"] is not None
+    ):
+        rebalance_evidence.update(
+            {
+                "source_before": source_before,
+                "source_md_total_after": str(source.md_total),
+                "source_md_optional_after": (
+                    None
+                    if source.md_optional_total is None
+                    else str(source.md_optional_total)
+                ),
+                "target_md_total_after": str(target.md_total),
+            }
+        )
 
     now = datetime.now(timezone.utc)
     case.status = OFFBOARDING_STATUS_RESOLVED
@@ -4602,6 +4637,7 @@ async def resolve_md_offboarding_case(
             None if restored_end_date is None else restored_end_date.isoformat()
         ),
         "contract_reopened": contract_reopened,
+        **rebalance_evidence,
     }
 
     source_name = consultant_display_name(source)
