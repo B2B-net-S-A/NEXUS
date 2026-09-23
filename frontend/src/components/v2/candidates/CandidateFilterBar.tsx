@@ -1,9 +1,21 @@
 "use client";
 
 import { useId, useState, type ReactNode } from "react";
-import { ChevronDown, Plus, SlidersHorizontal, X } from "lucide-react";
+import {
+  CalendarClock,
+  ChevronDown,
+  History,
+  Home,
+  MapPin,
+  Plus,
+  SlidersHorizontal,
+  Sparkles,
+  Wallet,
+  X,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Sheet,
   SheetBody,
@@ -40,6 +52,12 @@ import {
   type LanguageLevelValue,
 } from "@/lib/candidate-languages";
 import type { SkillBucketsValue } from "@/lib/candidate-search-semantics";
+import {
+  filterGroupCounts,
+  locationSummary,
+  rateSummary,
+  remoteSummary,
+} from "@/lib/candidate-filter-groups";
 import { PillGroup, toggleInList } from "@/components/v2/candidates/filters/FilterPillGroup";
 import { SkillBucketsField } from "@/components/v2/candidates/SkillBucketsField";
 import { HideUnknownToggle } from "@/components/v2/candidates/UnknownFieldBadges";
@@ -71,7 +89,7 @@ const RECENTLY_CHANGED_OPTIONS = [
   { value: 3, label: "3 mies." },
 ] as const;
 
-export interface CandidateFilterRailProps {
+export interface CandidateFilterBarProps {
   filters: CandidateFilters;
   /** Łatka filtrów — wołający sam wraca na pierwszą stronę. */
   onPatch: (patch: Partial<CandidateFilters>) => void;
@@ -93,15 +111,6 @@ export interface CandidateFilterRailProps {
   className?: string;
 }
 
-/** Ten sam styl co etykiety grup „pigułek" (`PillGroup`). */
-function SectionTitle({ children }: { children: ReactNode }) {
-  return (
-    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-      {children}
-    </p>
-  );
-}
-
 function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor?: string }) {
   return (
     <label htmlFor={htmlFor} className="block text-xs text-muted-foreground">
@@ -111,24 +120,21 @@ function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor?: stri
 }
 
 /**
- * Zwijana grupa filtrów. Domyślnie zamknięta, chyba że coś w niej jest
+ * Zwijana grupa w szufladzie „Więcej filtrów”. Domyślnie zamknięta, chyba że coś w niej jest
  * ustawione — aktywny filtr nie może się chować (wyglądałoby, że działa
  * filtr, którego nie widać).
  */
 function RailGroup({
   title,
   activeCount,
-  defaultOpen = false,
   children,
 }: {
   title: string;
   activeCount: number;
-  /** Otwarta na starcie także bez ustawionych filtrów (krótkie sekcje). */
-  defaultOpen?: boolean;
   children: ReactNode;
 }) {
   const [manual, setManual] = useState<boolean | null>(null);
-  const open = manual ?? (defaultOpen || activeCount > 0);
+  const open = manual ?? activeCount > 0;
   const bodyId = useId();
   return (
     <section className="border-t border-border py-3 first:border-t-0 first:pt-0">
@@ -163,7 +169,6 @@ function RailGroup({
 
 function RangeInputs({
   label,
-  hideLabel,
   unit,
   min,
   max,
@@ -172,8 +177,6 @@ function RangeInputs({
   maxValue,
 }: {
   label: string;
-  /** Etykieta tylko dla czytnika — nad polem stoi już tytuł sekcji. */
-  hideLabel?: boolean;
   unit: string;
   min: number | null;
   max: number | null;
@@ -183,7 +186,7 @@ function RangeInputs({
 }) {
   return (
     <div className="space-y-1">
-      {!hideLabel && <FieldLabel>{label}</FieldLabel>}
+      <FieldLabel>{label}</FieldLabel>
       <div className="flex items-center gap-1.5">
         <Input
           type="number"
@@ -291,17 +294,94 @@ export function LanguageFilterField({
 }
 
 /**
- * Lewa kolumna filtrów listy kandydatów (decyzja Artura 22.09.2026: „szukamy
- * głównie ręcznie po słowach kluczowych i wykluczeniach, stawce, lokalizacji
- * i trybie pracy"). Na wierzchu WYŁĄCZNIE te rzeczy — słowa kluczowe jak
- * w Traffit (wszystkie / którekolwiek / żadne + „Szukaj w”), stawka,
- * lokalizacja z promieniem i województwem, tryb pracy; wszystko inne —
- * historia z nami (rekrutacje, etapy, klienci), umiejętności, dostępność,
- * języki, firma, źródło — siedzi w szufladzie „Zaawansowane". Jej przycisk
- * niesie licznik ustawionych w środku filtrów: ukryty aktywny filtr nie może
- * wyglądać, jakby go nie było.
+ * Przycisk filtra na pasku: otwiera okienko z polami grupy. Ustawiony filtr
+ * jest wyróżniony i niesie swoją wartość (albo licznik), a ✕ obok czyści
+ * grupę — ukryty, ale ustawiony filtr nie może wyglądać, jakby go nie było.
  */
-export function CandidateFilterRail({
+function FilterPill({
+  label,
+  icon,
+  summary,
+  count,
+  onClear,
+  contentClassName,
+  children,
+}: {
+  label: string;
+  icon: ReactNode;
+  /** Wartość na przycisku („do 160 zł/h”); bez niej przycisk pokazuje licznik. */
+  summary?: string | null;
+  count: number;
+  onClear?: () => void;
+  contentClassName?: string;
+  children: ReactNode;
+}) {
+  const active = count > 0;
+  return (
+    <div
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center rounded-full border text-xs font-medium transition-colors",
+        active
+          ? "border-primary/30 bg-primary/10 text-primary"
+          : "border-border bg-card text-foreground hover:bg-accent",
+      )}
+    >
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "flex h-full items-center gap-1.5 rounded-full pl-3 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+              active && onClear ? "pr-1" : "pr-2.5",
+            )}
+          >
+            <span aria-hidden className="[&>svg]:h-3.5 [&>svg]:w-3.5">
+              {icon}
+            </span>
+            <span className="flex min-w-0 items-baseline">
+              {label}
+              {active && summary && (
+                <span className="max-w-[200px] truncate font-semibold">: {summary}</span>
+              )}
+            </span>
+            {active && !summary ? (
+              <span className="rounded-full bg-primary px-1.5 text-[10px] leading-4 text-primary-foreground">
+                {count}
+              </span>
+            ) : null}
+            <ChevronDown className="h-3.5 w-3.5 opacity-60" aria-hidden />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          className={cn("w-80 space-y-3 text-sm", contentClassName)}
+        >
+          {children}
+        </PopoverContent>
+      </Popover>
+      {active && onClear && (
+        <button
+          type="button"
+          onClick={onClear}
+          aria-label={`Wyczyść: ${label}`}
+          className="mr-1 flex h-6 w-6 items-center justify-center rounded-full hover:bg-primary/15 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <X className="h-3 w-3" aria-hidden />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Filtry listy kandydatów nad tabelą (wariant A, decyzja Artura 23.09.2026).
+ * Pas słów kluczowych jak w Traffit (wszystkie / którekolwiek / żadne +
+ * „Szukaj w”), pod nim rząd przycisków: stawka, lokalizacja, tryb pracy
+ * (to, czym zespół szuka najczęściej — decyzja 22.09), potem historia z nami,
+ * umiejętności, dostępność i „Więcej filtrów” (szuflada z resztą: profil,
+ * firma, źródło, „Inne”). Tabela dostaje całą szerokość ekranu.
+ */
+export function CandidateFilterBar({
   filters,
   onPatch,
   currentUserId,
@@ -314,28 +394,21 @@ export function CandidateFilterRail({
   onClearAll,
   resultLabel,
   className,
-}: CandidateFilterRailProps) {
+}: CandidateFilterBarProps) {
   const [moreOpen, setMoreOpen] = useState(false);
+  // Na telefonie pas słów kluczowych zajmowałby pół ekranu — chowa się za
+  // przyciskiem; od `md` stoi zawsze. Ustawione słowa otwierają go od razu.
+  const keywordCount =
+    filters.qAll.length + (filters.qAny[0]?.length ?? 0) + filters.qNone.length;
+  const [keywordsOpen, setKeywordsOpen] = useState(keywordCount > 0);
+  const keywordsId = useId();
   const mine =
     currentUserId !== null &&
     filters.addedByIds.length === 1 &&
     filters.addedByIds[0] === currentUserId;
   const everyone = filters.addedByIds.length === 0;
+  const counts = filterGroupCounts(filters, stage, skills);
 
-  const stageCount =
-    stage.stages.length +
-    (stage.currentOnly ? 1 : 0) +
-    stage.clientIds.length +
-    stage.movedByIds.length +
-    (stage.movedAfter || stage.movedBefore ? 1 : 0);
-  const historyCount =
-    filters.recruitmentIds.length +
-    stageCount +
-    (filters.sentToClientFrom || filters.sentToClientTo ? 1 : 0) +
-    filters.workedAtClientIds.length;
-  const skillsCount =
-    skills.required.length + skills.preferred.length + skills.excluded.length;
-  const availabilityCount = filters.availability.length + filters.employment.length;
   const aboutCount =
     (filters.experienceMin !== null || filters.experienceMax !== null ? 1 : 0) +
     filters.languages.length +
@@ -351,96 +424,165 @@ export function CandidateFilterRail({
     filters.openTo.length +
     (filters.hideUnknown ? 1 : 0) +
     filters.qAny.slice(1).flat().length;
-  const contactCount = filters.contacted ? 1 + filters.contactedByIds.length : 0;
-  const moreCount =
-    contactCount +
-    historyCount +
-    skillsCount +
-    availabilityCount +
-    aboutCount +
-    companyCount +
-    sourceCount +
-    otherCount;
 
   return (
-    <aside aria-label="Filtry kandydatów" className={cn("space-y-5 text-sm", className)}>
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-foreground">Filtry</h2>
+    <section aria-label="Filtry kandydatów" className={cn("space-y-2 text-sm", className)}>
+      <button
+        type="button"
+        aria-expanded={keywordsOpen}
+        aria-controls={keywordsId}
+        onClick={() => setKeywordsOpen(!keywordsOpen)}
+        className="flex w-full items-center justify-between rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground md:hidden"
+      >
+        <span>
+          Słowa kluczowe{keywordCount > 0 ? ` (${keywordCount})` : ""}
+        </span>
+        <ChevronDown
+          className={cn("h-3.5 w-3.5 opacity-60 transition-transform", keywordsOpen && "rotate-180")}
+          aria-hidden
+        />
+      </button>
+      <KeywordFields
+        id={keywordsId}
+        filters={filters}
+        onPatch={onPatch}
+        className={keywordsOpen ? undefined : "max-md:hidden"}
+      />
+
+      <div className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1 md:flex-wrap md:overflow-visible md:pb-0">
+        <FilterPill
+          label="Stawka"
+          icon={<Wallet />}
+          summary={rateSummary(filters)}
+          count={counts.rate}
+          onClear={() => onPatch({ rateMin: null, rateMax: null })}
+          contentClassName="w-72"
+        >
+          <RangeInputs
+            label="Stawka B2B"
+            unit="zł/h"
+            min={filters.rateMin}
+            max={filters.rateMax}
+            parse={parseRateBound}
+            onChange={({ min, max }) => onPatch({ rateMin: min, rateMax: max })}
+          />
+        </FilterPill>
+        <FilterPill
+          label="Lokalizacja"
+          icon={<MapPin />}
+          summary={locationSummary(filters)}
+          count={counts.location}
+          onClear={() => onPatch({ location: "", locationRadiusKm: null, voivodeships: [] })}
+        >
+          <LocationFields filters={filters} onPatch={onPatch} />
+        </FilterPill>
+        <FilterPill
+          label="Tryb pracy"
+          icon={<Home />}
+          summary={remoteSummary(filters)}
+          count={counts.remote}
+          onClear={() => onPatch({ remote: [] })}
+          contentClassName="w-auto"
+        >
+          <PillGroup
+            label="Tryb pracy"
+            options={REMOTE_OPTIONS}
+            value={filters.remote}
+            onToggle={(v) => onPatch({ remote: toggleInList(filters.remote, v) })}
+          />
+        </FilterPill>
+
+        <span aria-hidden className="mx-0.5 h-5 w-px shrink-0 bg-border" />
+
+        <FilterPill
+          label="Historia z nami"
+          icon={<History />}
+          count={counts.history}
+          onClear={() => {
+            onPatch({
+              recruitmentIds: [],
+              recruitmentMatch: "assigned",
+              sentToClientFrom: "",
+              sentToClientTo: "",
+              workedAtClientIds: [],
+              contacted: null,
+              contactedFrom: "",
+              contactedTo: "",
+              contactedByIds: [],
+            });
+            onStageChange({
+              stages: [],
+              currentOnly: false,
+              clientIds: [],
+              movedByIds: [],
+              movedAfter: "",
+              movedBefore: "",
+            });
+          }}
+          contentClassName="max-h-[70vh] w-[420px] max-w-[calc(100vw-2rem)] overflow-y-auto"
+        >
+          <HistoryFields
+            filters={filters}
+            onPatch={onPatch}
+            stage={stage}
+            onStageChange={onStageChange}
+          />
+        </FilterPill>
+        <FilterPill
+          label="Umiejętności"
+          icon={<Sparkles />}
+          count={counts.skills}
+          onClear={() => onSkillsChange({ required: [], preferred: [], excluded: [] })}
+          contentClassName="w-[360px] max-w-[calc(100vw-2rem)]"
+        >
+          <SkillBucketsField value={skills} onChange={onSkillsChange} compact />
+        </FilterPill>
+        <FilterPill
+          label="Dostępność"
+          icon={<CalendarClock />}
+          count={counts.availability}
+          onClear={() => onPatch({ availability: [], employment: [] })}
+        >
+          <AvailabilityChoiceField filters={filters} onPatch={onPatch} />
+        </FilterPill>
+
+        <button
+          type="button"
+          onClick={() => setMoreOpen(true)}
+          className={cn(
+            "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+            counts.more > 0
+              ? "border-primary/30 bg-primary/10 text-primary"
+              : "border-border bg-card text-foreground hover:bg-accent",
+          )}
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden />
+          Więcej filtrów
+          {counts.more > 0 && (
+            <span className="rounded-full bg-primary px-1.5 text-[10px] leading-4 text-primary-foreground">
+              {counts.more}
+            </span>
+          )}
+        </button>
         {activeCount > 0 && (
           <button
             type="button"
             onClick={onClearAll}
-            className="text-xs font-medium text-primary hover:underline"
+            className="shrink-0 px-1 text-xs font-medium text-primary hover:underline"
           >
             Wyczyść ({activeCount})
           </button>
         )}
       </div>
 
-      <KeywordFields filters={filters} onPatch={onPatch} />
-
-      <div className="space-y-1.5">
-        <SectionTitle>Stawka B2B</SectionTitle>
-        <RangeInputs
-          label="Stawka B2B"
-          hideLabel
-          unit="zł/h"
-          min={filters.rateMin}
-          max={filters.rateMax}
-          parse={parseRateBound}
-          onChange={({ min, max }) => onPatch({ rateMin: min, rateMax: max })}
-        />
-      </div>
-
-      <LocationFields filters={filters} onPatch={onPatch} />
-
-      <PillGroup
-        label="Tryb pracy"
-        options={REMOTE_OPTIONS}
-        value={filters.remote}
-        onToggle={(v) => onPatch({ remote: toggleInList(filters.remote, v) })}
-      />
-
-      <div className="border-t border-border pt-4">
-        <Button
-          variant={moreCount > 0 ? "primary" : "outline"}
-          className="w-full justify-between"
-          onClick={() => setMoreOpen(true)}
-        >
-          <span className="flex items-center gap-2">
-            <SlidersHorizontal className="h-4 w-4" aria-hidden />
-            Zaawansowane
-          </span>
-          {moreCount > 0 && (
-            <span className="rounded-full bg-primary-foreground/20 px-1.5 text-xs">{moreCount}</span>
-          )}
-        </Button>
-        <p className="mt-1.5 text-[11px] text-muted-foreground">
-          Poprzednie rekrutacje, etapy, klienci, umiejętności, dostępność, języki i inne.
-        </p>
-      </div>
-
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent side="right" size="sm">
           <SheetHeader>
-            <SheetTitle>Zaawansowane</SheetTitle>
+            <SheetTitle>Więcej filtrów</SheetTitle>
             <SheetDescription>Wyniki aktualizują się na bieżąco.</SheetDescription>
           </SheetHeader>
           <SheetBody>
             <div className="text-sm" data-testid="candidate-more-filters">
-              <HistoryGroup
-                filters={filters}
-                onPatch={onPatch}
-                stage={stage}
-                onStageChange={onStageChange}
-                activeCount={historyCount + contactCount}
-              />
-              <RailGroup title="Umiejętności" activeCount={skillsCount}>
-                <SkillBucketsField value={skills} onChange={onSkillsChange} compact />
-              </RailGroup>
-              <RailGroup title="Dostępność" activeCount={availabilityCount}>
-                <AvailabilityChoiceField filters={filters} onPatch={onPatch} />
-              </RailGroup>
               <RailGroup title="Doświadczenie, języki, kategoria" activeCount={aboutCount}>
                 <RangeInputs
                   label="Lata doświadczenia"
@@ -520,7 +662,7 @@ export function CandidateFilterRail({
                   <FieldLabel>Kolejne grupy „którekolwiek” (LUB)</FieldLabel>
                   <p className="text-[11px] text-muted-foreground">
                     Każda grupa musi mieć co najmniej jedno trafienie, np. (React lub Vue) i (Java lub Kotlin).
-                    Pierwsza grupa to pole „Którekolwiek” na górze.
+                    Pierwsza grupa to pole „Zawiera którekolwiek” nad tabelą.
                   </p>
                   <AdvancedSearchPopover
                     value={{ ...phrases, any: phrases.any.slice(1) }}
@@ -560,25 +702,23 @@ export function CandidateFilterRail({
           </SheetFooter>
         </SheetContent>
       </Sheet>
-    </aside>
+    </section>
   );
 }
 
-function HistoryGroup({
+function HistoryFields({
   filters,
   onPatch,
   stage,
   onStageChange,
-  activeCount,
 }: {
   filters: CandidateFilters;
   onPatch: (patch: Partial<CandidateFilters>) => void;
   stage: StageFilterValue;
   onStageChange: (patch: Partial<StageFilterValue>) => void;
-  activeCount: number;
 }) {
   return (
-    <RailGroup title="Historia z nami" activeCount={activeCount} defaultOpen>
+    <div className="space-y-3">
       <p className="text-[11px] text-muted-foreground">
         Poprzednie rekrutacje, etapy i klienci, u których kandydat był.
       </p>
@@ -647,7 +787,7 @@ function HistoryGroup({
         />
       </div>
       <ContactFields filters={filters} onPatch={onPatch} />
-    </RailGroup>
+    </div>
   );
 }
 

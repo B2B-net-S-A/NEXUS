@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, X } from "lucide-react";
+import { Info, MapPin, X } from "lucide-react";
 import api from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { ChipField } from "@/components/v2/filters/AdvancedSearchPopover";
 import { AddedByMultiSelect } from "@/components/v2/filters/AddedByMultiSelect";
@@ -46,14 +47,33 @@ const SELECT_CLASS =
  * Słowa kluczowe jak w Traffit: trzy pola (zielone „wszystkie”, niebieskie
  * „którekolwiek”, czerwone „żadne”) i „Szukaj w”. Dopasowanie całych słów
  * i gwiazdkę liczy serwer (`keyword_terms.py`); tu tylko je opisujemy.
+ * Pas nad tabelą (decyzja 23.09.2026): trzy pola obok siebie, na telefonie
+ * jedno pod drugim; zasady dopasowania pod ikonką ⓘ zamiast akapitu.
  */
-export function KeywordFields({ filters, onPatch }: { filters: CandidateFilters; onPatch: Patch }) {
+export function KeywordFields({
+  filters,
+  onPatch,
+  id,
+  className,
+}: {
+  filters: CandidateFilters;
+  onPatch: Patch;
+  id?: string;
+  className?: string;
+}) {
   const scopeId = useId();
   const anyGroup0 = filters.qAny[0] ?? [];
   return (
-    <div className="space-y-2">
-      <SectionTitle>Słowa kluczowe</SectionTitle>
-      <div className="space-y-1">
+    <div
+      id={id}
+      role="group"
+      aria-label="Słowa kluczowe"
+      className={cn(
+        "grid gap-x-4 gap-y-3 rounded-lg border border-border bg-card p-3 md:grid-cols-[1.2fr_1fr_1fr_auto]",
+        className,
+      )}
+    >
+      <div className="min-w-0 space-y-1">
         <SubLabel tone="success">Zawiera wszystkie</SubLabel>
         <ChipField
           chips={filters.qAll}
@@ -63,7 +83,7 @@ export function KeywordFields({ filters, onPatch }: { filters: CandidateFilters;
           ariaLabel="Zawiera wszystkie ze słów"
         />
       </div>
-      <div className="space-y-1">
+      <div className="min-w-0 space-y-1">
         <SubLabel tone="info">Zawiera którekolwiek</SubLabel>
         <ChipField
           chips={anyGroup0}
@@ -73,7 +93,7 @@ export function KeywordFields({ filters, onPatch }: { filters: CandidateFilters;
           ariaLabel="Zawiera którekolwiek ze słów"
         />
       </div>
-      <div className="space-y-1">
+      <div className="min-w-0 space-y-1">
         <SubLabel tone="destructive">Nie zawiera żadnego</SubLabel>
         <ChipField
           chips={filters.qNone}
@@ -83,10 +103,27 @@ export function KeywordFields({ filters, onPatch }: { filters: CandidateFilters;
           ariaLabel="Nie zawiera żadnego ze słów"
         />
       </div>
-      <div className="space-y-1">
-        <label htmlFor={scopeId} className="block text-[11px] font-medium text-foreground">
-          Szukaj w
-        </label>
+      <div className="space-y-1 md:w-40">
+        <div className="flex items-center justify-between gap-2">
+          <label htmlFor={scopeId} className="block text-[11px] font-medium text-foreground">
+            Szukaj w
+          </label>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Jak działają słowa kluczowe"
+                className="rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Info className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-72 text-xs leading-snug text-muted-foreground">
+              Całe słowa: „java” nie znajdzie „JavaScript”. Gwiazdka szuka początku słowa:
+              „bankow*” znajdzie „bankowość” i „bankowym”. Enter albo przecinek dodaje słowo.
+            </PopoverContent>
+          </Popover>
+        </div>
         <select
           id={scopeId}
           value={filters.qScope}
@@ -100,10 +137,6 @@ export function KeywordFields({ filters, onPatch }: { filters: CandidateFilters;
           ))}
         </select>
       </div>
-      <p className="text-[11px] leading-snug text-muted-foreground">
-        Całe słowa: „java” nie znajdzie „JavaScript”. Gwiazdka szuka początku słowa:
-        „bankow*” znajdzie „bankowość” i „bankowym”. Enter dodaje słowo.
-      </p>
     </div>
   );
 }
@@ -146,6 +179,19 @@ export function LocationFields({ filters, onPatch }: { filters: CandidateFilters
   useEffect(() => {
     setLocal(filters.location);
   }, [filters.location]);
+  // Pole żyje w okienku, które znika po zamknięciu — tekst wpisany tuż przed
+  // zamknięciem (w oknie debounce) nie może przepaść.
+  const pending = useRef({ local, saved: filters.location, onPatch });
+  useEffect(() => {
+    pending.current = { local, saved: filters.location, onPatch };
+  });
+  useEffect(
+    () => () => {
+      const { local: typed, saved, onPatch: patch } = pending.current;
+      if (typed !== saved) patch({ location: typed });
+    },
+    [],
+  );
 
   const query = debounced.trim();
   const { data } = useQuery<PlaceSuggestResponse>({

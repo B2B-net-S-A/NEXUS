@@ -161,14 +161,20 @@ function renderList(props: Parameters<typeof CandidatesListV2>[0] = {}) {
   );
 }
 
-function rail() {
-  return screen.getByRole("complementary", { name: "Filtry kandydatów" });
+function bar() {
+  return screen.getByRole("region", { name: "Filtry kandydatów" });
 }
 
-/** Otwiera szufladę „Zaawansowane” i rozwija wskazaną sekcję. */
+/** Otwiera okienko przycisku filtra na pasku („Lokalizacja”, „Historia z nami”…). */
+async function openFilter(name: RegExp) {
+  fireEvent.click(within(bar()).getByRole("button", { name }));
+  return screen.findByRole("dialog");
+}
+
+/** Otwiera szufladę „Więcej filtrów” i rozwija wskazaną sekcję. */
 async function openAdvanced(section: RegExp) {
   if (!screen.queryByTestId("candidate-more-filters")) {
-    fireEvent.click(within(rail()).getByRole("button", { name: /Zaawansowane/ }));
+    fireEvent.click(within(bar()).getByRole("button", { name: /Więcej filtrów/ }));
   }
   const more = await screen.findByTestId("candidate-more-filters");
   const toggle = within(more).getByRole("button", { name: section });
@@ -176,7 +182,7 @@ async function openAdvanced(section: RegExp) {
   return more;
 }
 
-/** Status żyje w sekcji „Inne” szuflady „Zaawansowane”. */
+/** Status żyje w sekcji „Inne” szuflady „Więcej filtrów”. */
 async function pickStatus(option: string) {
   const more = await openAdvanced(/^Inne/);
   fireEvent.click(within(more).getByRole("button", { name: option }));
@@ -254,33 +260,44 @@ describe("CandidatesListV2", () => {
         "CV",
         "Przypisz",
       ]);
-      // Na wierzchu tylko to, czym zespół szuka (decyzja 22.09.2026).
-      // Słowa kluczowe jak w Traffit: wszystkie / którekolwiek / żadne + „Szukaj w”.
-      expect(within(rail()).getByLabelText("Zawiera wszystkie ze słów")).toBeTruthy();
-      expect(within(rail()).getByLabelText("Zawiera którekolwiek ze słów")).toBeTruthy();
-      expect(within(rail()).getByLabelText("Nie zawiera żadnego ze słów")).toBeTruthy();
-      expect(within(rail()).getByLabelText("Szukaj w")).toBeTruthy();
-      expect(within(rail()).getByLabelText("Promień")).toBeTruthy();
-      expect(within(rail()).getByText("Stawka B2B")).toBeTruthy();
-      expect(within(rail()).getByText("Lokalizacja")).toBeTruthy();
-      expect(within(rail()).getByText("Tryb pracy")).toBeTruthy();
-      // „Umiejętności” jest na wierzchu tylko jako zakres „Szukaj w” — sama
-      // grupa filtrów umiejętności siedzi w „Zaawansowanych”.
-      expect(within(rail()).queryByLabelText("Musi mieć")).toBeNull();
-      expect(within(rail()).queryByRole("button", { name: /^Umiejętności/ })).toBeNull();
-      expect(within(rail()).queryByRole("radiogroup", { name: "Kogo pokazać" })).toBeNull();
-      // Reszta w szufladzie „Zaawansowane”; historia z nami otwarta na starcie.
-      fireEvent.click(within(rail()).getByRole("button", { name: /Zaawansowane/ }));
+      // Pasek nad tabelą (wariant A, 23.09.2026): słowa kluczowe jak w Traffit
+      // (wszystkie / którekolwiek / żadne + „Szukaj w”) widać od razu.
+      expect(within(bar()).getByLabelText("Zawiera wszystkie ze słów")).toBeTruthy();
+      expect(within(bar()).getByLabelText("Zawiera którekolwiek ze słów")).toBeTruthy();
+      expect(within(bar()).getByLabelText("Nie zawiera żadnego ze słów")).toBeTruthy();
+      expect(within(bar()).getByLabelText("Szukaj w")).toBeTruthy();
+      // Pozostałe grupy to przyciski; pola są dopiero w ich okienkach.
+      for (const name of [
+        /^Stawka/,
+        /^Lokalizacja/,
+        /^Tryb pracy/,
+        /^Historia z nami/,
+        /^Umiejętności/,
+        /^Dostępność/,
+        /^Więcej filtrów/,
+      ]) {
+        expect(within(bar()).getByRole("button", { name })).toBeTruthy();
+      }
+      expect(screen.queryByLabelText("Promień")).toBeNull();
+      expect(screen.queryByText("Brał udział w rekrutacji")).toBeNull();
+      const location = await openFilter(/^Lokalizacja/);
+      expect(within(location).getByLabelText("Miasto")).toBeTruthy();
+      expect(within(location).getByLabelText("Promień")).toBeTruthy();
+      fireEvent.keyDown(location, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByLabelText("Promień")).toBeNull());
+      const history = await openFilter(/^Historia z nami/);
+      expect(within(history).getByText("Brał udział w rekrutacji")).toBeTruthy();
+      fireEvent.keyDown(history, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByText("Brał udział w rekrutacji")).toBeNull());
+      // Rzadsze grupy w szufladzie „Więcej filtrów”, zwinięte.
+      expect(screen.queryByRole("radiogroup", { name: "Kogo pokazać" })).toBeNull();
+      fireEvent.click(within(bar()).getByRole("button", { name: /Więcej filtrów/ }));
       const more = await screen.findByTestId("candidate-more-filters");
-      expect(within(more).getByRole("button", { name: /Historia z nami/ })).toHaveAttribute(
-        "aria-expanded",
-        "true",
-      );
-      expect(within(more).getByText("Brał udział w rekrutacji")).toBeTruthy();
       expect(within(more).getByRole("button", { name: /^Inne/ })).toHaveAttribute(
         "aria-expanded",
         "false",
       );
+      expect(within(more).queryByRole("button", { name: /Historia z nami/ })).toBeNull();
       // Bez konfiguracji kolumn, gęstości i widoku kafelków.
       expect(screen.queryByLabelText("Konfiguracja kolumn")).toBeNull();
       expect(screen.queryByLabelText("Widok kafelków")).toBeNull();
@@ -341,10 +358,10 @@ describe("CandidatesListV2", () => {
 
     it("słowa kluczowe i wykluczenia z panelu idą do API", async () => {
       renderList();
-      const must = within(rail()).getByLabelText("Zawiera wszystkie ze słów");
+      const must = within(bar()).getByLabelText("Zawiera wszystkie ze słów");
       fireEvent.change(must, { target: { value: "Kafka" } });
       fireEvent.keyDown(must, { key: "Enter" });
-      const exclude = within(rail()).getByLabelText("Nie zawiera żadnego ze słów");
+      const exclude = within(bar()).getByLabelText("Nie zawiera żadnego ze słów");
       fireEvent.change(exclude, { target: { value: "junior" } });
       fireEvent.keyDown(exclude, { key: "Enter" });
       await waitFor(async () => {
@@ -355,12 +372,12 @@ describe("CandidatesListV2", () => {
 
     it("„którekolwiek” i „Szukaj w” z panelu idą do API", async () => {
       renderList();
-      const any = within(rail()).getByLabelText("Zawiera którekolwiek ze słów");
+      const any = within(bar()).getByLabelText("Zawiera którekolwiek ze słów");
       fireEvent.change(any, { target: { value: "Spring" } });
       fireEvent.keyDown(any, { key: "Enter" });
       fireEvent.change(any, { target: { value: "Quarkus" } });
       fireEvent.keyDown(any, { key: "Enter" });
-      fireEvent.change(within(rail()).getByLabelText("Szukaj w"), { target: { value: "cv" } });
+      fireEvent.change(within(bar()).getByLabelText("Szukaj w"), { target: { value: "cv" } });
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ q_any_group: ["Spring|Quarkus"], q_scope: "cv" });
@@ -369,24 +386,63 @@ describe("CandidatesListV2", () => {
 
     it("promień w km wysyła się razem z miastem", async () => {
       renderList();
-      fireEvent.change(within(rail()).getByLabelText("Miasto"), { target: { value: "Kraków" } });
+      const popover = await openFilter(/^Lokalizacja/);
+      fireEvent.change(within(popover).getByLabelText("Miasto"), { target: { value: "Kraków" } });
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ location: "Kraków" });
       });
-      fireEvent.change(within(rail()).getByLabelText("Promień"), { target: { value: "25" } });
+      fireEvent.change(within(popover).getByLabelText("Promień"), { target: { value: "25" } });
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ location: "Kraków", location_radius_km: 25 });
       });
+      // Przycisk niesie wartość, a ✕ obok czyści całą lokalizację.
+      expect(
+        within(bar()).getByRole("button", { name: /^Lokalizacja: Kraków \+25 km/ }),
+      ).toBeTruthy();
+    });
+
+    it("miasto wpisane tuż przed zamknięciem okienka nie przepada", async () => {
+      renderList();
+      const popover = await openFilter(/^Lokalizacja/);
+      fireEvent.change(within(popover).getByLabelText("Miasto"), { target: { value: "Gdańsk" } });
+      fireEvent.keyDown(popover, { key: "Escape" });
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ location: "Gdańsk" });
+      });
+    });
+
+    it("stawka z okienka idzie do API, a ✕ na przycisku ją zdejmuje", async () => {
+      renderList();
+      const popover = await openFilter(/^Stawka/);
+      fireEvent.change(within(popover).getByLabelText("Stawka B2B — do"), {
+        target: { value: "160" },
+      });
+      await waitFor(async () => {
+        const calls = await candidateCalls();
+        expect(calls.at(-1)).toMatchObject({ max_rate: 160 });
+      });
+      fireEvent.keyDown(popover, { key: "Escape" });
+      expect(
+        within(bar()).getByRole("button", { name: /^Stawka: do 160 zł\/h/ }),
+      ).toBeTruthy();
+      fireEvent.click(within(bar()).getByRole("button", { name: "Wyczyść: Stawka" }));
+      // Powrót do pierwszych parametrów trafia w cache react-query — sprawdzamy
+      // przycisk i adres, nie kolejne wywołanie API.
+      await waitFor(() =>
+        expect(within(bar()).queryByRole("button", { name: "Wyczyść: Stawka" })).toBeNull(),
+      );
+      expect(within(bar()).getByRole("button", { name: /^Stawka$/ })).toBeTruthy();
     });
 
     it("kontakt z kandydatem w „Historii z nami”", async () => {
       renderList();
-      const more = await openAdvanced(/Historia z nami/);
-      const group = within(more).getByRole("radiogroup", { name: "Kontakt z kandydatem" });
+      const history = await openFilter(/^Historia z nami/);
+      const group = within(history).getByRole("radiogroup", { name: "Kontakt z kandydatem" });
       fireEvent.click(within(group).getByRole("radio", { name: "Nie było kontaktu" }));
-      fireEvent.change(within(more).getByLabelText("Kontakt — od"), {
+      fireEvent.change(within(history).getByLabelText("Kontakt — od"), {
         target: { value: "2026-08-01" },
       });
       await waitFor(async () => {
@@ -421,10 +477,10 @@ describe("CandidatesListV2", () => {
       }
     });
 
-    it("dostępność w „Zaawansowanych” łączy dostępność i zatrudnienie jedną odpowiedzią", async () => {
+    it("dostępność łączy dostępność i zatrudnienie jedną odpowiedzią", async () => {
       renderList();
-      const more = await openAdvanced(/Dostępność/);
-      const group = within(more).getByRole("radiogroup", {
+      const popover = await openFilter(/^Dostępność/);
+      const group = within(popover).getByRole("radiogroup", {
         name: "Czy można go teraz zaproponować?",
       });
       fireEvent.click(within(group).getByRole("radio", { name: /Tak — szuka pracy/ }));
@@ -501,7 +557,7 @@ describe("CandidatesListV2", () => {
     });
   });
 
-  describe("kolumna filtrów", () => {
+  describe("pasek filtrów", () => {
     it("„Moi kandydaci” zawęża do dodanych przez zalogowaną osobę", async () => {
       renderList();
       const more = await openAdvanced(/Kto dodał/);
@@ -526,21 +582,21 @@ describe("CandidatesListV2", () => {
       );
     });
 
-    it("języki z adresu idą do API i podbijają licznik „Zaawansowane”", async () => {
+    it("języki z adresu idą do API i podbijają licznik „Więcej filtrów”", async () => {
       urlParams = new URLSearchParams("lang=en:B2");
       renderList();
       await waitFor(async () => {
         const calls = await candidateCalls();
         expect(calls.at(-1)).toMatchObject({ languages: ["en:B2"] });
       });
-      expect(within(rail()).getByRole("button", { name: /Zaawansowane\s*1/ })).toBeTruthy();
+      expect(within(bar()).getByRole("button", { name: /Więcej filtrów\s*1/ })).toBeTruthy();
       expect(screen.getByText("Język: angielski min. B2")).toBeTruthy();
     });
 
     it("„Wyczyść (n)” zdejmuje wszystkie filtry", async () => {
       urlParams = new URLSearchParams("status=active&lang=de");
       renderList();
-      fireEvent.click(await within(rail()).findByRole("button", { name: "Wyczyść (2)" }));
+      fireEvent.click(await within(bar()).findByRole("button", { name: "Wyczyść (2)" }));
       await waitFor(() => expect(screen.queryByText("Status: Aktywni")).toBeNull());
     });
   });
