@@ -30,7 +30,6 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.client import Client
 from app.models.job import Job, JobStatus
-from app.models.job_chat import JobChatMessage
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 
@@ -129,21 +128,51 @@ async def test_member_can_post(app_client: AsyncClient, chat_setup):
     assert body["is_deleted"] is False
 
 
-async def test_non_member_forbidden(app_client: AsyncClient, chat_setup):
+async def test_non_member_recruiter_reads_and_writes_chat(
+    app_client: AsyncClient, chat_setup
+):
+    """Rekruter spoza zespołu czyta i pisze w czacie (decyzja Artura 23.09.2026).
+
+    Do tej daty czat wpuszczał wyłącznie zespół rekrutacji. Stara rola podglądu
+    ``user`` nadal nie ma dostępu, a nieistniejąca rekrutacja to 404.
+    """
     headers = await _login(
         app_client, chat_setup["outsider_email"], chat_setup["outsider_password"]
     )
     list_resp = await app_client.get(
         f"/api/jobs/{chat_setup['job_id']}/chat/messages", headers=headers
     )
-    assert list_resp.status_code == 403
+    assert list_resp.status_code == 200, list_resp.text
 
     post_resp = await app_client.post(
         f"/api/jobs/{chat_setup['job_id']}/chat/messages",
         headers=headers,
-        json={"content": "should fail"},
+        json={"content": "pytanie spoza zespołu"},
     )
-    assert post_resp.status_code == 403
+    assert post_resp.status_code == 201, post_resp.text
+    assert post_resp.json()["author"]["id"] == chat_setup["outsider_id"]
+
+    missing = await app_client.get("/api/jobs/999999999/chat/messages", headers=headers)
+    assert missing.status_code == 404
+
+    viewer_pwd = f"T3st_{uuid.uuid4().hex[:8]}!"
+    async with AsyncSessionLocal() as db:
+        viewer = User(
+            email=f"chat-viewer-{uuid.uuid4().hex[:8]}@example.com",
+            password_hash=hash_password(viewer_pwd),
+            name="Chat viewer",
+            role=UserRole.user,
+            # CHECK ck_users_exclusive_finance_viewer_roles: roles == [role].
+            roles=[UserRole.user.value],
+            is_active=True,
+        )
+        db.add(viewer)
+        await db.commit()
+    viewer_headers = await _login(app_client, viewer.email, viewer_pwd)
+    viewer_resp = await app_client.get(
+        f"/api/jobs/{chat_setup['job_id']}/chat/messages", headers=viewer_headers
+    )
+    assert viewer_resp.status_code == 403
 
 
 async def test_admin_sees_all(

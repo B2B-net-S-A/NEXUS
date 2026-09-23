@@ -121,9 +121,10 @@ async def test_hiring_manager_veto_is_not_assignable(
     assert badge["assignment_allowed"] is False
 
 
-async def test_badges_require_read_access_to_the_recruitment(app_client: AsyncClient):
-    # Plakietka niesie werdykt hiring managera tej rekrutacji. Rekruter spoza
-    # zespołu dostaje wyniki wyszukiwania, ale bez plakietek.
+async def test_recruiter_outside_the_team_sees_the_badges(app_client: AsyncClient):
+    # Plakietka niesie werdykt hiring managera tej rekrutacji, więc wymaga
+    # odczytu rekrutacji. Od 23.09.2026 ma go każda rola wewnętrzna — także
+    # rekruter spoza zespołu („nie musisz być przypisany").
     from app.core.database import AsyncSessionLocal
     from app.core.security import hash_password
     from app.models.user import User, UserRole
@@ -154,4 +155,8 @@ async def test_badges_require_read_access_to_the_recruitment(app_client: AsyncCl
 
     items = await _search(app_client, headers, token, world["job_id"])
     assert world["nda"] in items
-    assert items[world["nda"]]["eligibility"] is None
+    badge = items[world["nda"]]["eligibility"]
+    assert badge is not None
+    assert badge["reason_code"] == "client_nda"
+    assert badge["assignment_allowed"] is True
+    assert items[world["clean"]]["eligibility"] is None

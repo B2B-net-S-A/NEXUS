@@ -833,21 +833,27 @@ def test_unscoped_job_sources_are_fail_closed():
 
 
 async def test_every_job_linked_source_query_is_scoped_before_rendering():
+    """Każde źródło z rekrutacją jest zawężone do widocznych rekrutacji.
+
+    Notatki, screeningi i feedback BEZ rekrutacji (``job_id IS NULL``) wchodzą
+    od 23.09.2026 (decyzja Artura: panel kandydata widzą wszyscy). Etapy,
+    kontrakty i rozmowy zawsze mają rekrutację, więc zostają przy ``IN``.
+    """
     builders = (
-        ("candidate_stages.job_id", cas._submissions_section),
-        ("interview_feedback.job_id", cas._feedback_section),
-        ("screening_notes.job_id", cas._screening_section),
-        ("notes.job_id", cas._notes_section),
-        ("contracts.job_id", cas._contracts_section),
-        ("contracts.job_id", cas._calls_section),
+        ("candidate_stages.job_id", cas._submissions_section, False),
+        ("interview_feedback.job_id", cas._feedback_section, True),
+        ("screening_notes.job_id", cas._screening_section, True),
+        ("notes.job_id", cas._notes_section, True),
+        ("contracts.job_id", cas._contracts_section, False),
+        ("contracts.job_id", cas._calls_section, False),
     )
-    for scoped_column, builder in builders:
+    for scoped_column, builder, includes_unlinked in builders:
         db = _QueryDB()
         await builder(db, 42, (10, 20))  # type: ignore[arg-type]
         assert len(db.statements) == 1
         sql = _sql(db.statements[0])
         assert f"{scoped_column} IN " in sql
-        assert f"{scoped_column} IS NULL" not in sql
+        assert (f"{scoped_column} IS NULL" in sql) is includes_unlinked, scoped_column
 
 
 @pytest.mark.parametrize(
@@ -864,7 +870,10 @@ async def test_candidate_history_uses_canonical_client_display_name(builder):
     assert "), clients.name) as client_name" in sql
 
 
-async def test_visibility_job_discovery_applies_effective_membership_scope():
+async def test_visibility_job_discovery_is_open_for_internal_roles():
+    """Od 23.09.2026 rola wewnętrzna widzi każdą rekrutację kandydata — zapytanie
+    nie zawęża po zespole. Rola spoza zbioru (stary podgląd ``user``) nadal
+    przechodzi przez właściciela / DL / TAC / współpracownika."""
     db = _QueryDB()
     visible = await cas._visible_candidate_job_ids(
         db,
@@ -873,21 +882,33 @@ async def test_visibility_job_discovery_applies_effective_membership_scope():
     )
     assert visible == ()
     sql = _sql(db.statements[0])
-    # The scope clause covers direct owners and active collaborators.  A
-    # candidate-linked foreign job cannot enter the visible id set.
-    assert "jobs.recruiter_id" in sql
-    assert "jobs.delivery_lead_id" in sql
-    assert "jobs.tac_id" in sql
-    assert "job_collaborators" in sql
+    assert "jobs.recruiter_id" not in sql
+    assert "job_collaborators" not in sql
+
+    legacy_db = _QueryDB()
+    await cas._visible_candidate_job_ids(
+        legacy_db,
+        42,
+        make_user(roles=("user",)),  # type: ignore[arg-type]
+    )
+    legacy_sql = _sql(legacy_db.statements[0])
+    assert "jobs.recruiter_id" in legacy_sql
+    assert "jobs.delivery_lead_id" in legacy_sql
+    assert "jobs.tac_id" in legacy_sql
+    assert "job_collaborators" in legacy_sql
 
 
 @pytest.mark.skipif(
     not os.environ.get("DATABASE_URL"),
     reason="PostgreSQL scope/cache integration; hosted CI provides DATABASE_URL",
 )
-async def test_postgres_scope_canary_never_reaches_prompt_response_cache_or_manifest(
+async def test_postgres_summary_sees_every_recruitment_but_never_amounts(
     monkeypatch,
 ):
+    """Od 23.09.2026 podsumowanie rekrutera spoza zespołu obejmuje historię
+    z KAŻDEJ rekrutacji kandydata i notatki bez rekrutacji (decyzja Artura:
+    panel kandydata widzą wszyscy). Kwoty i waluty nie trafiają ani do promptu,
+    ani do odpowiedzi, cache'u czy manifestu."""
     from sqlalchemy import select
 
     from app.core.database import AsyncSessionLocal
@@ -976,6 +997,13 @@ async def test_postgres_scope_canary_never_reaches_prompt_response_cache_or_mani
                     moved_at=now + timedelta(minutes=1),
                 ),
                 Note(
+                    content="GLOBAL_NOTE_CANARY. Kandydat woli pracę zdalną.",
+                    note_type=NoteType.general,
+                    candidate_id=candidate.id,
+                    job_id=None,
+                    author_id=foreign_owner.id,
+                ),
+                Note(
                     content=("FOREIGN_NOTE_CANARY. Oczekiwania wynoszą 999 AED/day."),
                     note_type=NoteType.general,
                     candidate_id=candidate.id,
@@ -1022,7 +1050,10 @@ async def test_postgres_scope_canary_never_reaches_prompt_response_cache_or_mani
 
         scoped_context = await cas.build_context(db, candidate, viewer)
         serialized_context = str(scoped_context.sections)
-        assert "FOREIGN_" not in serialized_context
+        assert "FOREIGN_NOTE_CANARY" in serialized_context
+        assert "FOREIGN_FEEDBACK_CANARY" in serialized_context
+        assert "FOREIGN_SCREENING_CANARY" in serialized_context
+        assert "GLOBAL_NOTE_CANARY" in serialized_context
         assert "999" not in serialized_context
         assert "888" not in serialized_context
         assert "777" not in serialized_context
@@ -1041,7 +1072,10 @@ async def test_postgres_scope_canary_never_reaches_prompt_response_cache_or_mani
         assert state.row is not None
         assert state.row.summary == "Bezpieczne podsumowanie widocznej historii."
         assert captured_prompts
-        assert "FOREIGN_" not in captured_prompts[-1]
+        assert "FOREIGN_NOTE_CANARY" in captured_prompts[-1]
+        assert "GLOBAL_NOTE_CANARY" in captured_prompts[-1]
+        for amount in ("999", "888", "777", "AED", "CAD", "AUD"):
+            assert amount not in captured_prompts[-1]
 
         cached = await db.scalar(
             select(CandidateActivitySummary).where(
@@ -1052,27 +1086,27 @@ async def test_postgres_scope_canary_never_reaches_prompt_response_cache_or_mani
         )
         assert cached is not None
         cache_payload = f"{cached.summary} {cached.source_manifest}"
-        assert "FOREIGN_" not in cache_payload
         assert "999" not in cache_payload
         assert "AED" not in cache_payload
 
-        # Revoke the only visible membership. The old scoped row may remain for
-        # retention, but direct GET state must use a new hash and never serve it.
+        # Przypisanie do rekrutacji nie kształtuje już zakresu: po zdjęciu
+        # rekrutera z jedynej „własnej” rekrutacji zakres jest ten sam, więc
+        # zapisane podsumowanie nadal jest serwowane.
         visible_job.recruiter_id = None
         await db.commit()
-        after_revocation = await cas.get_summary_state(
+        after_unassignment = await cas.get_summary_state(
             candidate.id,
             db,
             user=viewer,
         )
         assert (
-            after_revocation.visibility_scope_hash
-            != scoped_context.visibility_scope_hash
+            after_unassignment.visibility_scope_hash
+            == scoped_context.visibility_scope_hash
         )
-        assert after_revocation.row is None
+        assert after_unassignment.row is not None
 
-        # The foreign owner can see their own source, but every monetary
-        # fragment is removed before the prompt even in the authorised scope.
+        # The foreign owner sees the same sources, and every monetary fragment
+        # is removed before the prompt.
         foreign_context = await cas.build_context(db, candidate, foreign_owner)
         foreign_serialized = str(foreign_context.sections)
         assert "FOREIGN_NOTE_CANARY" in foreign_serialized

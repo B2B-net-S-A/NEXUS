@@ -2940,8 +2940,9 @@ przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
   „przez nas”; „przez DL” tylko admin/DL/HoR (403).
 - **Stawka do klienta = sprawa DL** (decyzja 23.09.2026, `candidate_access`):
   zapisuje WYŁĄCZNIE admin i Delivery Lead (`CLIENT_RATE_WRITE_ROLES`, bez
-  wyjątku dla właściciela rekrutacji), widzą dodatkowo Finanse
-  (`CLIENT_RATE_VIEW_ROLES`). Rekruterowi serwer redaguje ją na tablicy,
+  wyjątku dla właściciela rekrutacji), widzą dodatkowo HoR, TCM i Finanse
+  (`CLIENT_RATE_VIEW_ROLES`, doprecyzowane tego samego dnia: nie widzą jej
+  rekruter, sourcer i TAC). Rekruterowi serwer redaguje ją na tablicy,
   w historii etapów i w historii kandydata (`can_view_client_rate`) — widzi
   tylko oczekiwania kandydata i budżet Championa. Front: `lib/client-rate-access.ts`.
   Przegląd DL (pulpit i ruch „Zweryfikowany → CV wysłane” na tablicy)
@@ -2955,6 +2956,51 @@ przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
 - **„+ DZ” tylko u Nordei** (poza nią wysyła DL z przeglądu). **Integracja
   (token klienta OAuth, np. scraper pracuj.pl/JJIT) nie zakłada blokady** —
   wejście `auto_match` (`candidate_claim.is_integration_request`).
+
+## Rekrutacje i kandydatów widzą wszyscy; stawki do klienta nie widzi rekruter (23.09.2026)
+
+Decyzje Artura: „notatki i wszystkie elementy w panelu rekrutacji i kandydata
+widzą wszyscy — nie musisz być przypisany do rekrutacji”; zapis też („każdy
+może wszystko”); czaty czyta i pisze każdy; „tylko rekruterzy mają nie widzieć
+stawki, za jaką osoby są wysyłane do klienta”.
+
+- **Bramka zespołu jest otwarta dla każdej roli wewnętrznej**
+  (`_JOB_MEMBERSHIP_BYPASS_ROLES = _INTERNAL_OPERATIONAL_ROLES` w
+  `recruitment_access.py`). `ensure_job_membership`, `ensure_job_read_access`
+  i `job_scope_clause` przepuszczają admin/HoR/DL/TCM/TAC/rekrutera/sourcera/
+  Finanse — tablica, historia etapów, screening, CV etapu, feedback, werdykt HM,
+  shortlista, propozycje, cudze CV z generatora i profil kandydata nie ukrywają
+  już niczego przed osobą spoza zespołu. Stara rola podglądu `user` nadal
+  przechodzi wyłącznie przez członkostwo. Zostają bramki RÓL (zatrudnienie bez
+  sourcera, „CV wysłane” poza Nordeą tylko DL/admin, sekcje `allowed_sections`,
+  pola cyklu życia rekrutacji `JOB_MEMBER_LOCKED_FIELDS` tylko DL/admin).
+- **`oversight_bypass=False` = widok OSOBISTY i tak ma zostać** („Moja praca”
+  rekrutera w operacjach rekrutacji, zakres „moje” w cyklu rozmów u klienta) —
+  liczy przypisanie, nie dostęp. `is_member_of_job` i
+  `is_member_of_candidate_chat` zostają listami ODBIORCÓW powiadomień, nie
+  bramkami.
+- **Treść rekrutacji (opis, ogłoszenia, Champion) redaguje każda rola
+  wewnętrzna** (`job_edit_level` → `member` bez członkostwa).
+- **Czat rekrutacji i czat kandydata** (`_require_member` w `job_chat.py`,
+  `candidate_chat.py`): każda rola wewnętrzna czyta i pisze; nieistniejąca
+  rekrutacja/kandydat = 404.
+- **Podsumowanie aktywności AI** bierze też notatki, screeningi i feedback bez
+  rekrutacji (`null_ok=True`, `VISIBILITY_SCOPE_VERSION` v2 unieważnia cache).
+- **Stawka do klienta** (`CandidateStage.client_rate_*`): czytają
+  `CLIENT_RATE_VIEW_ROLES` (admin, HoR, DL, TCM, Finanse; `has_any_role`, więc
+  rekruter z dodatkową rolą DL widzi), zapisują `CLIENT_RATE_WRITE_ROLES`
+  (admin, DL) — `candidate_access.py`, front `lib/client-rate-access.ts`.
+  Własność rekrutacji nie daje zapisu, członkostwo też nie jest potrzebne.
+  Redakcja na serwerze: `_stage_response(show_client_rate=…)` — argument BEZ
+  wartości domyślnej, każdy wołający liczy go `user_can_view_client_rate`
+  (tablica, „moje następne kroki”, historia etapów, odpowiedź `/move`) — oraz
+  `_candidate_history_response_for_user` (profil → Rekrutacje), który niesie
+  `can_view_client_rate`/`can_write_client_rate`. **Stawkę KANDYDATA
+  (`expected_rate`) widzą wszyscy** — do 23.09 profil chował ją każdemu bez
+  `VIEW_FINANCE`. Kwoty KONTRAKTÓW w `/history` zostają przy dostępie
+  finansowym. Nowa powierzchnia niosąca `client_rate_*` = `user_can_view_client_rate`.
+- Wzmianki w starszych sekcjach o „członkostwie w zespole rekrutacji” jako
+  bramce odczytu/zapisu opisują stan sprzed 23.09.2026.
 
 ## Rekrutacja „wersja 3" — jedna tabela + panel osoby (21.09.2026, #1641 #1657 #1659)
 
@@ -5876,9 +5922,9 @@ cofnąć „przy okazji”:
   cudze werdykty HM i feedback z rozmów (jak DL). W kalendarzu HoR edytuje cudze
   wydarzenia, ale **odwołać/usunąć** (także PATCH `status=cancelled`) może tylko
   właściciel albo admin — `user_can_remove_event`, flaga `can_remove` w odpowiedzi.
-- **Stawka do klienta** (`PATCH …/client-rate`): role admin/HoR/DL/TCM/TAC/finance
-  z członkostwem w rekrutacji ALBO właściciel/twórca rekrutacji niezależnie od
-  roli. Jedna funkcja `resolve_client_rate_write` zasila bramkę i
+- **Stawka do klienta** (`PATCH …/client-rate`): od 23.09.2026 wyłącznie
+  admin i Delivery Lead (sekcja „Rekrutacje i kandydatów widzą wszyscy”).
+  Jedna funkcja `resolve_client_rate_write` zasila bramkę i
   `can_write_client_rate` w `GET /api/jobs/{id}`; tablica i warsztat CV pytają
   o stawkę tylko przy `true`.
 - **Wyszukiwarka, tryb semantyczny:** sort i chipy „podbijające ranking” działają

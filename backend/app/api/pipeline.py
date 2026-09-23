@@ -258,7 +258,10 @@ def _stage_response(
     added_to_job_by_name: Optional[str] = None,
     added_to_job_at: Optional[datetime] = None,
     candidate_expected_rate_hourly: Optional[Decimal] = None,
-    show_client_rate: bool = True,
+    # Bez wartości domyślnej: każdy wołający decyduje jawnie
+    # (`user_can_view_client_rate`) — zapomniany argument nie może odsłonić
+    # stawki do klienta rekruterowi.
+    show_client_rate: bool,
 ) -> dict:
     """Convert a CandidateStage to response dict with days_in_stage.
 
@@ -317,7 +320,7 @@ def _stage_response(
         "task_assignee_id": stage.task_assignee_id,
         # Pipeline v4 (0352).
         "ended_by": stage.ended_by,
-        # Stawka do klienta tylko dla DL/admina/Finansów (decyzja 23.09.2026).
+        # Stawki do klienta nie widzą rekruter, sourcer i TAC (23.09.2026).
         "client_rate_value": stage.client_rate_value if show_client_rate else None,
         "client_rate_unit": stage.client_rate_unit if show_client_rate else None,
         "client_rate_currency": (
@@ -747,11 +750,7 @@ async def move_candidate(
         # Stawka do klienta w ruchu = ta sama bramka co `PATCH …/client-rate`.
         raise HTTPException(
             status_code=403,
-            detail=(
-                "Stawkę do klienta zapisuje Delivery Lead, TAC, TCM, Head of "
-                "Recruitment, Finanse albo admin z zespołu tej rekrutacji — "
-                "albo jej właściciel."
-            ),
+            detail=("Stawkę do klienta zapisuje Delivery Lead albo admin."),
         )
 
     # ── P1-PIPE-01: eligibility gate ── same hard block the assign ingresses
@@ -1959,6 +1958,7 @@ async def build_kanban_view(
         added_at = first.moved_at if first is not None else None
         payload = _stage_response(
             e,
+            show_client_rate=show_client_rate,
             candidate_name=n,
             candidate_lastname=ln,
             added_to_job_by_name=added_by_name,
@@ -2201,8 +2201,12 @@ async def my_next_steps(
     for job in jobs:
         try:
             # `jobs_mine_clause` keeps collaborators removed from the team;
-            # the board read guard is the one that decides.
-            await ensure_job_read_access(db, current_user, job.id)
+            # the board read guard is the one that decides. Widok OSOBISTY:
+            # od 23.09.2026 tablicę każdej rekrutacji czyta każdy, więc
+            # przypisanie liczymy jawnie (`oversight_bypass=False`).
+            await ensure_job_read_access(
+                db, current_user, job.id, oversight_bypass=False
+            )
         except HTTPException:
             continue
         out.append(
@@ -3003,7 +3007,7 @@ async def bulk_move_candidates(
     ):
         raise HTTPException(
             status_code=403,
-            detail="Stawkę do klienta zapisuje osoba z prawem zapisu stawek tej rekrutacji.",
+            detail="Stawkę do klienta zapisuje Delivery Lead albo admin.",
         )
 
     # Etap-odznaka Tablicy (DZ / Cpro) — ta sama reguła co pojedynczy /move.

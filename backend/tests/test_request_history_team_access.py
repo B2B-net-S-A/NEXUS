@@ -2,9 +2,11 @@
 
 ``GET /api/jobs/{id}/request-history`` was admin / Delivery Lead / Finance
 only, so a recruiter on the team got a 403 rendered as an error on the Historia
-tab. Now any operational role reads it as a MEMBER of the recruitment's team —
-this client's history only and without fee amounts. Org readers keep the full
-view (amounts, ``cross_client``).
+tab. Now any operational role reads it — this client's history only and
+without fee amounts. Since 23.09.2026 (decyzja Artura: „nie musisz być
+przypisany do rekrutacji") that includes a recruiter outside the team, who
+gets exactly the member view; the legacy viewer role ``user`` is refused.
+Org readers keep the full view (amounts, ``cross_client``).
 
 The retrieval engine (Voyage + SQL fallback) is replaced by a fixed list so the
 tests assert the handler's scope and redaction, not the ranking.
@@ -142,14 +144,37 @@ async def test_team_member_reads_this_clients_history_without_fees(
 
 
 @pytest.mark.asyncio
-async def test_recruiter_outside_the_team_gets_403(app_client: AsyncClient, engine):
+async def test_recruiter_outside_the_team_reads_the_member_view(
+    app_client: AsyncClient, engine
+):
     calls, world = engine
     _member_headers, member_id = await _seed_user(UserRole.recruiter)
     outsider_headers, _ = await _seed_user(UserRole.recruiter)
     world.update(await _seed_jobs(member_id))
 
     resp = await app_client.get(
-        URL.format(job_id=world["job_id"]), headers=outsider_headers
+        URL.format(job_id=world["job_id"]),
+        headers=outsider_headers,
+        params={"cross_client": "true"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [e["client_id"] for e in body["closed"]] == [world["client_id"]]
+    (row,) = body["closed"]
+    assert row["fee_rate"] is None
+    assert calls[-1]["cross_client"] is False
+
+
+@pytest.mark.asyncio
+async def test_legacy_viewer_gets_403(app_client: AsyncClient, engine):
+    calls, world = engine
+    _member_headers, member_id = await _seed_user(UserRole.recruiter)
+    viewer_headers, _ = await _seed_user(UserRole.user)
+    world.update(await _seed_jobs(member_id))
+
+    resp = await app_client.get(
+        URL.format(job_id=world["job_id"]), headers=viewer_headers
     )
 
     assert resp.status_code == 403, resp.text

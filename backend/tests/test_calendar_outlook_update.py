@@ -148,10 +148,16 @@ async def test_attendees_still_belong_to_outlook(app_client: AsyncClient):
     assert resp.status_code == 409, resp.text
 
 
-async def test_refused_job_rebind_never_reaches_outlook(
+async def test_job_rebind_to_a_foreign_recruitment_reaches_outlook_with_the_edit(
     app_client: AsyncClient, monkeypatch
 ):
-    """CAL-01: odmowa zakresu rekrutacji zapada PRZED wywołaniem Grapha."""
+    """Przepięcie na rekrutację spoza zespołu przechodzi (decyzja 23.09.2026).
+
+    Do 23.09 zakres rekrutacji odmawiał tu 403 PRZED Graphem (CAL-01). Teraz
+    rekruter obsługuje każdą rekrutację, więc zmiana tytułu idzie do Outlooka,
+    a przepięcie zapisuje się lokalnie. Kolejność „odmowa przed Graphem”
+    pilnuje nadal ``test_invalid_resulting_range_never_reaches_outlook``.
+    """
     from app.models.client import Client
     from app.models.job import Job
 
@@ -177,12 +183,12 @@ async def test_refused_job_rebind_never_reaches_outlook(
         headers=headers,
         json={"title": "Zmieniony", "job_id": foreign_job_id},
     )
-    assert resp.status_code == 403, resp.text
-    assert calls == [], "Outlook dostał zmianę, której NEXUS odmówił"
+    assert resp.status_code == 200, resp.text
+    assert len(calls) == 1, "Zmiana tytułu powinna trafić do Outlooka"
     async with AsyncSessionLocal() as db:
         ev = await db.get(CalendarEvent, event_id)
-        assert ev.title == "Prep z kandydatem"
-        assert ev.job_id is None
+        assert ev.title == "Zmieniony"
+        assert ev.job_id == foreign_job_id
 
 
 async def test_invalid_resulting_range_never_reaches_outlook(
