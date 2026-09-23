@@ -139,7 +139,8 @@ export interface DzCvBlock {
 export interface DzCheck {
   label: string;
   in_cv: boolean;
-  bolded: boolean;
+  /** `null` = pogrubień nie da się odczytać (CV dla klienta z PDF-a). */
+  bolded: boolean | null;
   in_original: boolean;
   original_roles: string[];
   missing_in_roles: string[];
@@ -160,9 +161,13 @@ export interface DzReview {
     project_about: string | null;
   };
   generated_cv: {
-    source: "branded_finalized" | "branded_draft" | "generated";
+    /** `document` = plik „…B2B…" kandydata (CV zrobione poza generatorem). */
+    source: "branded_finalized" | "branded_draft" | "generated" | "document";
     stage_id: number | null;
     generated_document_id: number | null;
+    document_id?: number | null;
+    filename?: string | null;
+    bold_known?: boolean;
     updated_at: string | null;
     blocks: DzCvBlock[];
   } | null;
@@ -180,6 +185,9 @@ export interface DzReview {
     must_bolded: number;
     roles_missing: number;
     generated_roles: number;
+    /** `false` = w CV dla klienta nie rozpoznano ról — sprawdź ręcznie. */
+    roles_checked?: boolean;
+    bold_known?: boolean;
   };
 }
 
@@ -208,7 +216,7 @@ export function dzHintsSignature(review: DzReview | undefined): string {
   const words = (cv?.blocks ?? []).reduce((n, b) => n + b.runs.reduce((m, r) => m + r.t.length, 0), 0);
   return [
     cv?.source ?? "none",
-    cv?.generated_document_id ?? "",
+    cv?.generated_document_id ?? cv?.document_id ?? "",
     cv?.updated_at ?? "",
     words,
     review.original_cv.stage_id ?? review.original_cv.source ?? "",

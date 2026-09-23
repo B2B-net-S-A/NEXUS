@@ -87,7 +87,8 @@ class CproSenderResponse(BaseModel):
 class DzCheck(BaseModel):
     label: str
     in_cv: bool
-    bolded: bool
+    # None = pogrubień nie da się odczytać (CV dla klienta z PDF-a).
+    bolded: Optional[bool] = None
     in_original: bool
     original_roles: list[str]
     missing_in_roles: list[str]
@@ -113,9 +114,13 @@ class DzCvBlock(BaseModel):
 
 
 class DzGeneratedCv(BaseModel):
-    source: Literal["branded_finalized", "branded_draft", "generated"]
+    # `document` = plik „…B2B…" kandydata (CV zrobione poza generatorem).
+    source: Literal["branded_finalized", "branded_draft", "generated", "document"]
     stage_id: Optional[int] = None
     generated_document_id: Optional[int] = None
+    document_id: Optional[int] = None
+    filename: Optional[str] = None
+    bold_known: bool = True
     updated_at: Optional[datetime] = None
     blocks: list[DzCvBlock]
 
