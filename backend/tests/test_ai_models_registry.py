@@ -135,6 +135,7 @@ DECISION_2026_09_16 = {
     AIFeatureKey.screening_reassign_suggest: ("F21", "gpt-6-luna"),
     # F22 — decyzja 23.09.2026: podpowiedzi dla zatwierdzającego DZ, jak F18.
     AIFeatureKey.dz_review: ("F22", "gpt-6-luna"),
+    AIFeatureKey.prep_review: ("F23", "gpt-6-luna"),
 }
 
 

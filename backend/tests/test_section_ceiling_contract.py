@@ -201,7 +201,8 @@ _EXPECTED_SECTIONS = [
     ("POST", "/api/rejection-emails/{rejection_email_id}/cancel", {P}),
     ("GET", "/api/presence/{resource_type}/{resource_id}/viewers", {S, P}),
     ("POST", "/api/champion/preview", {S, P}),
-    ("POST", "/api/fireflies/sync", {S}),
+    ("POST", "/api/interview-cycle/preps", {P}),
+    ("GET", "/api/interview-cycle/preps/{event_id}/transcript", {P}),
     ("GET", "/api/cortex/supply-demand", {INS}),
     ("GET", "/api/kpis/me/today", {INS}),
     ("POST", "/api/priority-work/demands", {P}),
@@ -239,13 +240,6 @@ def test_fixed_routes_require_the_expected_sections(
     matches = [route for m, p, route in _routes() if m == method and p == path]
     assert matches, f"trasa nie istnieje: {method} {path}"
     assert _sections_of(matches[0]) == expected
-
-
-def test_fireflies_sync_is_not_a_get() -> None:
-    """Synchronizacja zapisuje notatki — jako GET omijała bramkę zapisu sekcji
-    i tryb podglądu tylko do odczytu."""
-    methods = {m for m, p, _ in _routes() if p == "/api/fireflies/sync"}
-    assert methods == {"POST"}
 
 
 def test_read_only_post_templates_point_to_registered_post_routes() -> None:

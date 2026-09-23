@@ -537,7 +537,6 @@
 "tests/test_finance_point_in_time.py": 0.1,
 "tests/test_finance_role_cleanup.py": 0.0,
 "tests/test_finance_role_endpoint_guards.py": 0.4,
-"tests/test_fireflies_note_dedup.py": 0.0,
 "tests/test_from_cv_embedding_fresh_row.py": 0.0,
 "tests/test_full_candidate_scan.py": 0.0,
 "tests/test_full_search_filters.py": 0.0,

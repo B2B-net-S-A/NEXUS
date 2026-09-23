@@ -24,6 +24,7 @@ import {
 } from "@/components/insights/InsightsSectionNav";
 import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
 import { StageBreakdownSection } from "@/components/insights/chapters/StageBreakdownSection";
+import { PrepQualitySection } from "@/components/insights/chapters/PrepQualitySection";
 import { DeferUntilVisible } from "@/components/v2/DeferUntilVisible";
 import { buildFunnelCsvExport } from "@/lib/insights-csv";
 import {
@@ -45,6 +46,8 @@ const SECTIONS = [
   { id: "etapy", label: "Lejek po etapach" },
   { id: "aktywnosc", label: "Dziś i w miesiącu" },
   { id: "zespol", label: "Zespół" },
+  // Tylko admin i HoR — rozdział odfiltrowuje ten wpis pozostałym rolom.
+  { id: "prepy", label: "Jakość prepów" },
   { id: "praca", label: "Praca w toku" },
   { id: "doplyw", label: "Dopływ kandydatów" },
 ];
@@ -74,11 +77,18 @@ export function WynikiChapter() {
   const canReadPipeline = hasSectionAccess(user, "pipeline");
   const canSeeWorkload =
     canReadPipeline && hasRole(user, "admin", "head_of_recruitment");
+  // „Jakość prepów" ocenia pracę konkretnych osób — ten sam krąg co obłożenie
+  // (endpoint stoi za sekcją Rekrutacje i odmawia 403 innym rolom). Wpis paska
+  // znika razem z sekcją, żeby spis treści nie obiecywał czegoś, czego nie ma.
+  const canSeePrepQuality = canSeeWorkload;
+  const navItems = canSeePrepQuality
+    ? SECTIONS
+    : SECTIONS.filter((s) => s.id !== "prepy");
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <InsightsSectionNav items={SECTIONS} ariaLabel="Sekcje Wyników" />
+        <InsightsSectionNav items={navItems} ariaLabel="Sekcje Wyników" />
         <PeriodPicker
           value={period}
           onChange={setPeriod}
@@ -156,6 +166,18 @@ export function WynikiChapter() {
           ) : null}
         </DeferUntilVisible>
       </InsightsSection>
+
+      {canSeePrepQuality ? (
+        <InsightsSection id="prepy" className="space-y-4">
+          <DeferUntilVisible minHeight={200}>
+            <InsightsPartHeading
+              title="Jakość prepów"
+              hint="prepy z kandydatem przed rozmową u klienta · tylko HoR i admin"
+            />
+            <PrepQualitySection />
+          </DeferUntilVisible>
+        </InsightsSection>
+      ) : null}
 
       <InsightsSection id="praca" className="space-y-4">
         <DeferUntilVisible minHeight={240}>

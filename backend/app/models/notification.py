@@ -174,6 +174,10 @@ class NotificationType(str, enum.Enum):
     # 0352: podpis umowy przeniósł osobę na „Zatrudniony", a zamówienia od
     # klienta jeszcze nie ma — do Finansów; related_entity=(contract, id).
     hired_order_missing = "hired_order_missing"
+    # 0355: prep z kandydatem wymaga uwagi — słaby, bez nagrania albo go brak
+    # na dobę przed rozmową u klienta. Do organizatora prepu i Head of
+    # Recruitment; related_entity=(calendar_event, id) — jeden wpis na sprawę.
+    prep_attention = "prep_attention"
 
 
 class Notification(Base, TimestampMixin):

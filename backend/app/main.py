@@ -105,6 +105,7 @@ from app.api import my_relationships as my_relationships_api
 from app.api import my_people as my_people_api
 from app.api import board_tasks as board_tasks_api
 from app.api import interview_cycle as interview_cycle_api
+from app.api import prep_meetings as prep_meetings_api
 from app.api import hiring_managers_analytics as hiring_managers_api
 from app.api import admin_client_mixups
 from app.api import admin_clients_overview as admin_clients_overview_api
@@ -169,7 +170,6 @@ from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import calendar
 from app.api import notifications
 from app.api import import_export
-from app.api import fireflies
 from app.api import ws
 from app.api import matching
 from app.api import pipeline_templates
@@ -729,6 +729,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
     from app.tasks.traffit_sync import traffit_daily_sync_loop
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
+    from app.tasks.teams_prep_transcripts import teams_prep_transcripts_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.weekly_eval import weekly_eval_loop
     from app.tasks.match_digest import match_digest_loop
@@ -848,6 +849,9 @@ async def lifespan(app: FastAPI):
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
         "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
+        # 0355: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
+        # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
+        "teams_prep_transcripts": asyncio.create_task(teams_prep_transcripts_loop()),
         # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
         # pierwszym odczekaniem, gdy wylaczona — nie budzi sie co interwal
         # tylko po to, zeby sprawdzic te sama flage.
@@ -1144,6 +1148,12 @@ app.include_router(
 )
 app.include_router(
     interview_cycle_api.router,
+    prefix="/api",
+    tags=["interview-cycle"],
+)
+# 0355: prepy w Teams — planowanie Prep 1/2, transkrypt i ocena prepu.
+app.include_router(
+    prep_meetings_api.router,
     prefix="/api",
     tags=["interview-cycle"],
 )
@@ -1519,7 +1529,6 @@ app.include_router(
 app.include_router(calendar.router, prefix="/api", tags=["calendar"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])
 app.include_router(import_export.router, prefix="/api", tags=["import-export"])
-app.include_router(fireflies.router, prefix="/api", tags=["fireflies"])
 app.include_router(ws.router, tags=["websocket"])
 app.include_router(presence_api.router, tags=["presence"])
 app.include_router(job_chat_api.router, prefix="/api/jobs", tags=["job-chat"])
@@ -2111,6 +2120,19 @@ async def api_health_check():
     # bieg nie przełącza na `degraded`, trzy z rzędu — tak. `running` w
     # kolumnie NIE jest awarią: to bieg w toku albo przerwany restartem
     # (deploy), a o świeżości i tak mówi data ostatniego końca.
+    # 0355: prepy w Teams — app-only kalendarz i transkrypty. Informacyjna.
+    # `degraded` = w ostatnich 48 h aplikacja dostała 403 (polityka dostępu nie
+    # obejmuje organizatora) albo pobranie padło.
+    try:
+        from app.services.prep_transcripts import health_status as _teams_prep_health
+
+        async with AsyncSessionLocal() as session:
+            checks["teams_prep"] = await asyncio.wait_for(
+                _teams_prep_health(session), timeout=1.0
+            )
+    except Exception:
+        checks["teams_prep"] = "degraded"
+
     if not settings.ORDER_MAIL_INGEST_ENABLED:
         checks["order_mail"] = "unconfigured"
     elif not settings.ORDER_MAIL_UPN:
@@ -2766,6 +2788,7 @@ async def api_health_deep_check():
     from app.models.job_public_profile import JobPublicProfile
     from app.models.candidate_consent import CandidateConsent
     from app.models.placement_exclusion import PlacementExclusion
+    from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2937,6 +2960,11 @@ async def api_health_deep_check():
         # 0343: wykluczone placementy — czyta je widok analytics_first_milestones
         # i VERIFIER_ANCHORED_CTE, więc brak tabeli = KPI i Insights 500.
         ("placement_exclusions", PlacementExclusion),
+        # 0355: prepy w Teams — agenda „Rozmowy u klienta” czyta je przy
+        # każdym wejściu, więc brak tabeli = pusty ekran kalendarza.
+        ("prep_meetings", PrepMeeting),
+        ("prep_transcripts", PrepTranscript),
+        ("prep_reviews", PrepReview),
     ]
 
     checks: dict[str, str] = {}

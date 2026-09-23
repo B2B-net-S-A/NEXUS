@@ -5346,6 +5346,22 @@ async def delete_candidate(
             sa_delete(JobProposal).where(JobProposal.candidate_id == candidate_id)
         )
     ).rowcount or 0
+    # Prepy w Teams (0355): transkrypty i oceny idą kaskadą z kandydatem —
+    # kasujemy je jawnie, żeby liczba trafiła do dowodu wykonania art. 17.
+    # Kopia nagrania/transkryptu w M365 organizatora podlega retencji tenanta.
+    from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
+
+    search_erasure["prep_transcripts_deleted"] = (
+        await db.execute(
+            sa_delete(PrepTranscript).where(PrepTranscript.candidate_id == candidate_id)
+        )
+    ).rowcount or 0
+    await db.execute(
+        sa_delete(PrepReview).where(PrepReview.candidate_id == candidate_id)
+    )
+    await db.execute(
+        sa_delete(PrepMeeting).where(PrepMeeting.candidate_id == candidate_id)
+    )
 
     # Audyt PRZED usunięciem, żeby ślad przetrwał operację. `Activity` nie ma
     # FK na kandydata z CASCADE dla tej ścieżki — patrz test kontraktowy.

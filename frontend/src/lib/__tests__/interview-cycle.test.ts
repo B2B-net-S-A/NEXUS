@@ -12,6 +12,7 @@ import {
   parseCycleParam,
   parseScope,
   parseView,
+  prepQualityTone,
   upcomingAgenda,
   type AgendaEntry,
   type CycleItem,
@@ -188,5 +189,30 @@ describe("debrief dopiero od rozpoczęcia rozmowy", () => {
     expect(debriefAvailableFromLabel("2026-09-28T12:00:00Z", now)).toBe(
       "Debrief po rozmowie — dostępny od 28.09, 14:00",
     );
+  });
+});
+
+describe("interview-cycle — prepy w Teams (0355)", () => {
+  it("słaby prep i prep bez nagrania otwierają ocenę prepu, nie planowanie", () => {
+    for (const kind of ["prep_weak", "prep_unrecorded"] as const) {
+      const todo: TodoEntry = { ...PAIR, kind, priority: 6, due: null, event_id: 71, slot_request_id: null };
+      expect(actionForTodo(todo, [])).toEqual(
+        expect.objectContaining({ type: "prep_review", eventId: 71 }),
+      );
+    }
+  });
+
+  it("brak Prepu 1 i 2 planuje właściwy numer", () => {
+    const p1: TodoEntry = { ...PAIR, kind: "prep_missing", priority: 4, due: null, event_id: 5, slot_request_id: null };
+    const p2: TodoEntry = { ...p1, kind: "prep2_missing" };
+    expect(actionForTodo(p1, [])).toEqual(expect.objectContaining({ type: "plan_prep", second: false }));
+    expect(actionForTodo(p2, [])).toEqual(expect.objectContaining({ type: "plan_prep", second: true }));
+  });
+
+  it("jakość prepu ma ton: słaby = danger, bez nagrania = warn, dobry = done", () => {
+    expect(prepQualityTone("weak")).toBe("danger");
+    expect(prepQualityTone("unrecorded")).toBe("warn");
+    expect(prepQualityTone("good")).toBe("done");
+    expect(prepQualityTone("pending")).toBe("muted");
   });
 });

@@ -21,7 +21,7 @@ należy (DL/TAC/właściciel/współpracownik). „all” = nadzór (admin/HoR).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Literal, Optional
 
@@ -81,6 +81,37 @@ class EventRef:
     status: str
     online_meeting_url: Optional[str] = None
     external_source: Optional[str] = None
+    # 0355 — prep założony z NEXUSA (Teams): numer, transkrypt, ocena.
+    # Dla prepów spoza NEXUSA wszystko puste, a `ordinal` liczy kolejność.
+    prep_no: Optional[int] = None
+    ordinal: Optional[int] = None
+    transcription_setup: Optional[str] = None
+    transcript_status: Optional[str] = None
+    review_status: Optional[str] = None
+    review_level: Optional[str] = None
+    # Organizator (właściciel operacyjny) — adresat zadania „prep słaby”.
+    owner_id: Optional[int] = None
+
+
+def assign_prep_ordinals(preps: list[EventRef]) -> list[EventRef]:
+    """Który prep jest Prepem 1, a który Prepem 2.
+
+    Prep z numerem (założony z NEXUSA) trzyma swój numer; pozostałe zajmują
+    najniższy wolny numer w kolejności startu. Zwraca listę posortowaną po
+    numerze — samotny Prep 2 nie „awansuje” na Prep 1.
+    """
+    taken = {p.prep_no for p in preps if p.prep_no}
+    out: list[EventRef] = []
+    next_free = 1
+    for p in sorted(preps, key=lambda e: e.start):
+        if p.prep_no:
+            out.append(replace(p, ordinal=p.prep_no))
+            continue
+        while next_free in taken:
+            next_free += 1
+        taken.add(next_free)
+        out.append(replace(p, ordinal=next_free))
+    return sorted(out, key=lambda e: (e.ordinal or 99, e.start))
 
 
 @dataclass(frozen=True)
@@ -117,12 +148,39 @@ class PairSnapshot:
     debrief: Optional[DebriefRef] = None
     latest_stage: Optional[str] = None
 
+    def prep_slot(self, n: int) -> Optional[EventRef]:
+        """Prep numer ``n``. Powtórzony prep (poprzedni bez nagrania) wygrywa
+        z tym, którego nie nagrano — liczy się ostatnia próba."""
+        matching = [p for p in self.preps if (p.ordinal or 0) == n]
+        if not matching:
+            return None
+        return max(matching, key=lambda p: (p.transcript_status != "missing", p.start))
+
+
+LEVEL_LABELS_PL = {"weak": "słaby", "ok": "OK", "good": "dobry"}
+
+
+def prep_quality(ev: EventRef) -> tuple[Optional[str], Optional[str]]:
+    """``(meta, quality)`` odbytego prepu. Prep spoza NEXUSA → brak informacji."""
+    status = ev.transcript_status
+    if status is None or status == "cancelled":
+        return None, None
+    if status == "missing":
+        return "bez nagrania", "unrecorded"
+    if status in ("waiting", "error", "forbidden"):
+        return "czeka na transkrypt", "pending"
+    if ev.review_status == "ok" and ev.review_level in LEVEL_LABELS_PL:
+        return f"ocena: {LEVEL_LABELS_PL[ev.review_level]}", ev.review_level
+    return "transkrypt jest, ocena niedostępna", None
+
 
 def _interview_end(ev: EventRef) -> datetime:
     return ev.end or (ev.start + timedelta(hours=1))
 
 
-def _step(key: str, state: StepState, *, at=None, event_id=None, meta=None) -> dict:
+def _step(
+    key: str, state: StepState, *, at=None, event_id=None, meta=None, quality=None
+) -> dict:
     return {
         "key": key,
         "label": STEP_LABELS[key],
@@ -130,6 +188,7 @@ def _step(key: str, state: StepState, *, at=None, event_id=None, meta=None) -> d
         "at": at,
         "event_id": event_id,
         "meta": meta,
+        "quality": quality,
     }
 
 
@@ -175,16 +234,26 @@ def compute_steps(
     else:
         steps.append(_step("choice", "todo"))
 
-    # 3–4. Prep i Prep 2
-    for idx, key in ((0, "prep"), (1, "prep2")):
-        ev = pair.preps[idx] if len(pair.preps) > idx else None
-        if ev is not None:
-            state: StepState = "done" if ev.start <= now else "scheduled"
-            steps.append(_step(key, state, at=ev.start, event_id=ev.id))
-        elif key == "prep2" and (iv_done or (iv is not None and iv.start <= now)):
-            # Drugi prep jest opcjonalny — po rozmowie już się nie wydarzy.
-            steps.append(_step(key, "skipped"))
-        elif key == "prep" and iv_done:
+    # 3–4. Prep i Prep 2 — oba wymagane (0355); po rozmowie już się nie wydarzą.
+    for n, key in ((1, "prep"), (2, "prep2")):
+        ev = pair.prep_slot(n)
+        if ev is not None and ev.start > now:
+            meta = (
+                "transkrypcja nie włączyła się — włącz ją ręcznie w Teams"
+                if ev.transcription_setup == "failed"
+                else None
+            )
+            steps.append(
+                _step(key, "scheduled", at=ev.start, event_id=ev.id, meta=meta)
+            )
+        elif ev is not None:
+            meta, quality = prep_quality(ev)
+            steps.append(
+                _step(
+                    key, "done", at=ev.start, event_id=ev.id, meta=meta, quality=quality
+                )
+            )
+        elif iv is not None and iv.start <= now:
             steps.append(_step(key, "skipped"))
         else:
             steps.append(_step(key, "todo"))
@@ -260,6 +329,8 @@ TodoKind = Literal[
     "slots_confirm",
     "prep_missing",
     "prep2_missing",
+    "prep_weak",
+    "prep_unrecorded",
     "slots_missing",
 ]
 _TODO_PRIORITY = {
@@ -270,9 +341,11 @@ _TODO_PRIORITY = {
     "prep_missing": 4,
     "slots_missing": 5,
     "prep2_missing": 6,
+    "prep_weak": 6,
+    "prep_unrecorded": 7,
 }
-# Drugi prep podpowiadamy tylko, gdy rozmowa jest blisko — wcześniej to szum.
-PREP2_HINT_DAYS = 7
+# Brak prepu tuż przed rozmową u klienta jest pilny (0355).
+PREP_URGENT_HOURS = 24
 
 
 def compute_todos(
@@ -289,16 +362,18 @@ def compute_todos(
     iv = pair.interview
     req = pair.slot_request
 
-    def add(kind: str, *, due=None, event_id=None, slot_request_id=None):
+    def add(kind: str, *, due=None, event_id=None, slot_request_id=None, urgent=False):
         todos.append(
             {
                 "kind": kind,
-                "priority": _TODO_PRIORITY[kind],
+                # Pilny brak prepu wskakuje zaraz za telefon po rozmowie.
+                "priority": 1 if urgent else _TODO_PRIORITY[kind],
                 "candidate_id": pair.candidate_id,
                 "job_id": pair.job_id,
                 "due": due,
                 "event_id": event_id,
                 "slot_request_id": slot_request_id,
+                "urgent": urgent,
             }
         )
 
@@ -323,14 +398,21 @@ def compute_todos(
             )
 
     if iv is not None and iv.start > now:
-        if not pair.preps:
-            add("prep_missing", due=iv.start, event_id=iv.id)
-        elif (
-            len(pair.preps) == 1
-            and pair.preps[0].start <= now
-            and iv.start - now <= timedelta(days=PREP2_HINT_DAYS)
-        ):
-            add("prep2_missing", due=iv.start, event_id=iv.id)
+        urgent = iv.start - now <= timedelta(hours=PREP_URGENT_HOURS)
+        first, second = pair.prep_slot(1), pair.prep_slot(2)
+        # Najpierw Prep 1 — dwa zadania naraz to szum; Prep 2 zawsze (0355).
+        if first is None:
+            add("prep_missing", due=iv.start, event_id=iv.id, urgent=urgent)
+        elif second is None:
+            add("prep2_missing", due=iv.start, event_id=iv.id, urgent=urgent)
+        for ev in (first, second):
+            if ev is None or ev.start > now:
+                continue
+            _meta, quality = prep_quality(ev)
+            if quality == "weak":
+                add("prep_weak", due=iv.start, event_id=ev.id)
+            elif quality == "unrecorded":
+                add("prep_unrecorded", due=iv.start, event_id=ev.id)
 
     if (
         is_dl_view
@@ -358,6 +440,7 @@ def _event_ref(ev: CalendarEvent) -> EventRef:
         status=ev.status.value if ev.status else "scheduled",
         online_meeting_url=ev.online_meeting_url or ev.teams_link,
         external_source=ev.external_source,
+        owner_id=ev.operational_owner_id or ev.created_by,
     )
 
 
@@ -522,6 +605,8 @@ async def load_snapshots(
         )
     ).scalars()
     interviews: dict[tuple[int, int], CalendarEvent] = {}
+    # Poprzednia rozmowa pary — prepy sprzed niej należą do poprzedniej rundy.
+    previous: dict[tuple[int, int], CalendarEvent] = {}
     for ev in ev_rows:
         key = (ev.candidate_id, ev.job_id)
         snap = snaps.get(key)
@@ -531,12 +616,59 @@ async def load_snapshots(
             snap.preps.append(_event_ref(ev))
         else:
             # Najnowsza rozmowa u klienta — kolejne rundy nadpisują poprzednią.
+            if key in interviews:
+                previous[key] = interviews[key]
             interviews[key] = ev
     for key, ev in interviews.items():
         snaps[key].interview = _event_ref(ev)
         # Prepy liczą się do TEJ rozmowy: te po niej należą do następnej rundy.
         iv_start = _as_utc(ev.start_time)
-        snaps[key].preps = [p for p in snaps[key].preps if p.start <= iv_start]
+        prev = previous.get(key)
+        prev_start = _as_utc(prev.start_time) if prev is not None else None
+        snaps[key].preps = [
+            p
+            for p in snaps[key].preps
+            if p.start <= iv_start and (prev_start is None or p.start > prev_start)
+        ]
+
+    # 0355: stan prepów z NEXUSA (numer, transkrypt, ocena) — jedno zapytanie.
+    prep_ids = [p.id for snap in snaps.values() for p in snap.preps]
+    if prep_ids:
+        from app.models.prep_meeting import PrepMeeting, PrepReview
+
+        info = {
+            row.calendar_event_id: row
+            for row in (
+                await db.execute(
+                    select(
+                        PrepMeeting.calendar_event_id,
+                        PrepMeeting.prep_no,
+                        PrepMeeting.transcription_setup,
+                        PrepMeeting.transcript_status,
+                        PrepReview.status.label("review_status"),
+                        PrepReview.level.label("review_level"),
+                    )
+                    .outerjoin(PrepReview, PrepReview.prep_meeting_id == PrepMeeting.id)
+                    .where(PrepMeeting.calendar_event_id.in_(prep_ids))
+                )
+            ).all()
+        }
+        for snap in snaps.values():
+            snap.preps = [
+                replace(
+                    p,
+                    prep_no=info[p.id].prep_no,
+                    transcription_setup=info[p.id].transcription_setup,
+                    transcript_status=info[p.id].transcript_status,
+                    review_status=info[p.id].review_status,
+                    review_level=info[p.id].review_level,
+                )
+                if p.id in info
+                else p
+                for p in snap.preps
+            ]
+    for snap in snaps.values():
+        snap.preps = assign_prep_ordinals(snap.preps)
 
     # Wnioski o sloty: otwarty wygrywa, inaczej najnowszy niezanulowany.
     slot_rows = (
@@ -711,16 +843,20 @@ async def load_overview(
         ):
             todos.append({**t, **pair_info})
 
-        for idx, prep in enumerate(snap.preps):
+        for prep in snap.preps:
             if window_start <= prep.start <= window_end:
+                meta, quality = prep_quality(prep)
                 agenda.append(
                     {
                         **pair_info,
-                        "kind": "prep" if idx == 0 else "prep2",
+                        "kind": "prep" if (prep.ordinal or 1) == 1 else "prep2",
                         "start": prep.start,
                         "end": prep.end,
                         "event_id": prep.id,
                         "online_meeting_url": prep.online_meeting_url,
+                        "from_nexus": prep.prep_no is not None,
+                        "prep_quality": quality,
+                        "prep_meta": meta if prep.start <= now else None,
                     }
                 )
         iv = snap.interview
@@ -833,6 +969,8 @@ BadgeKind = Literal[
     "slot",
     "prep_done",
     "prep2",
+    "prep_missing",
+    "prep_weak",
     "call_due",
     "debrief_done",
 ]
@@ -921,7 +1059,27 @@ def compute_badge(
         return _badge("awaiting_dl", label, "wait", start)
 
     if iv is not None and _interview_end(iv) > now:
-        second = pair.preps[1] if len(pair.preps) > 1 else None
+        soon = iv.start - now <= timedelta(hours=PREP_URGENT_HOURS)
+        past = [p for p in pair.preps if p.start <= now]
+        if any(prep_quality(p)[1] == "weak" for p in past) and iv.start > now:
+            return _badge(
+                "prep_weak",
+                f"Prep słaby · rozmowa {_day_label(iv.start, now)}",
+                "urgent" if soon else "wait",
+                iv.start,
+            )
+        if (
+            soon
+            and iv.start > now
+            and (pair.prep_slot(1) is None or pair.prep_slot(2) is None)
+        ):
+            return _badge(
+                "prep_missing",
+                f"Brak prepu · rozmowa {_day_label(iv.start, now)}",
+                "urgent",
+                iv.start,
+            )
+        second = pair.prep_slot(2)
         if second is not None and second.start > now:
             return _badge(
                 "prep2", f"Prep 2 {_day_label(second.start, now)}", "info", second.start

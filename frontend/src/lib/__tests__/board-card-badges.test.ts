@@ -95,6 +95,22 @@ describe("odznaki karty — Pipeline v4", () => {
     ]);
   });
 
+  it("prepy w Teams: brak prepu i słaby prep jak inne odznaki terminarza, z podpowiedzią", () => {
+    const missing = item({
+      interview_badge: { kind: "prep_missing", label: "Brak prepu · rozmowa jutro", tone: "urgent" },
+    });
+    const [badge] = cardBadges(missing, ctx({ column: "client_interview" }));
+    expect(badge).toMatchObject({ key: "interview", label: "Brak prepu · rozmowa jutro", tone: "urgent" });
+    expect(badge.title).toContain("brakuje prepu");
+    const weak = item({
+      interview_badge: { kind: "prep_weak", label: "Prep słaby · rozmowa czw 25.09", tone: "wait" },
+    });
+    expect(cardBadges(weak, ctx({ column: "client_interview" }))[0]).toMatchObject({
+      label: "Prep słaby · rozmowa czw 25.09",
+      tone: "wait",
+    });
+  });
+
   it("pomocnicze: godziny blokady i format stawki", () => {
     expect(hoursLeft("2026-09-23T10:30:00Z", NOW)).toBe("<1 h");
     expect(formatClientRate(item({ client_rate_value: "1200", client_rate_unit: "daily" }))).toBe(

@@ -257,6 +257,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'screening_reassign_suggest'",
     # 0353: podpowiedzi Luny w przeglądzie DZ (Dominik porównuje CV).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'dz_review'",
+    # 0355: ocena prepu z transkryptu Teams (GPT-6 Luna).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'prep_review'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -658,6 +660,8 @@ _ENUM_STATEMENTS = [
     # 0352: pipeline v4 — przejęta blokada 12 h i zatrudniony bez zamówienia.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_claim_taken'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hired_order_missing'",
+    # 0355: prep słaby / bez nagrania / brak prepu przed rozmową u klienta.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'prep_attention'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -5082,6 +5086,75 @@ _COLUMN_STATEMENTS = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_dz_review_hints_stage_hash UNIQUE (candidate_stage_id, input_hash)
 )""",
+    # 0355: prepy w Teams — spotkanie, transkrypt i ocena. Lustro 1:1 z
+    # migracją — pilnuje `test_prep_meetings_schema.py`.
+    """CREATE TABLE IF NOT EXISTS prep_meetings (
+    id BIGSERIAL PRIMARY KEY,
+    calendar_event_id INTEGER NOT NULL UNIQUE
+        REFERENCES calendar_events(id) ON DELETE CASCADE,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    prep_no SMALLINT NOT NULL,
+    organizer_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    organizer_upn VARCHAR(320) NOT NULL,
+    organizer_aad_id VARCHAR(64) NULL,
+    scheduled_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    online_meeting_id VARCHAR(512) NULL,
+    transcription_setup VARCHAR(20) NOT NULL DEFAULT 'pending',
+    transcript_status VARCHAR(20) NOT NULL DEFAULT 'waiting',
+    fetch_attempts INTEGER NOT NULL DEFAULT 0,
+    next_fetch_at TIMESTAMPTZ NULL,
+    last_error VARCHAR(120) NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_prep_meetings_prep_no CHECK (prep_no IN (1, 2)),
+    CONSTRAINT ck_prep_meetings_transcription_setup
+        CHECK (transcription_setup IN ('pending','enabled','failed','disabled')),
+    CONSTRAINT ck_prep_meetings_transcript_status
+        CHECK (transcript_status IN
+            ('waiting','fetched','missing','cancelled','forbidden','error'))
+)""",
+    """CREATE TABLE IF NOT EXISTS prep_transcripts (
+    id BIGSERIAL PRIMARY KEY,
+    prep_meeting_id BIGINT NOT NULL UNIQUE
+        REFERENCES prep_meetings(id) ON DELETE CASCADE,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    graph_transcript_ids JSONB NOT NULL DEFAULT '[]',
+    vtt TEXT NOT NULL,
+    plain_text TEXT NOT NULL,
+    speakers JSONB NOT NULL DEFAULT '[]',
+    candidate_seconds INTEGER NOT NULL DEFAULT 0,
+    staff_seconds INTEGER NOT NULL DEFAULT 0,
+    unknown_seconds INTEGER NOT NULL DEFAULT 0,
+    talk_share NUMERIC(4,3) NULL,
+    duration_seconds INTEGER NOT NULL DEFAULT 0,
+    summary_note_id INTEGER NULL REFERENCES notes(id) ON DELETE SET NULL,
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)""",
+    """CREATE TABLE IF NOT EXISTS prep_reviews (
+    id BIGSERIAL PRIMARY KEY,
+    prep_meeting_id BIGINT NOT NULL UNIQUE
+        REFERENCES prep_meetings(id) ON DELETE CASCADE,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL,
+    level VARCHAR(10) NULL,
+    coverage NUMERIC(4,3) NULL,
+    criteria JSONB NOT NULL DEFAULT '{}',
+    summary TEXT NULL,
+    remaining JSONB NOT NULL DEFAULT '[]',
+    model VARCHAR(80) NULL,
+    prompt_version VARCHAR(40) NULL,
+    input_hash VARCHAR(64) NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_prep_reviews_status CHECK (status IN ('ok','unavailable')),
+    CONSTRAINT ck_prep_reviews_level
+        CHECK (level IS NULL OR level IN ('weak','ok','good'))
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_prep_meetings_fetch_queue ON prep_meetings (transcript_status, next_fetch_at)",
+    "CREATE INDEX IF NOT EXISTS ix_prep_meetings_pair ON prep_meetings (candidate_id, job_id)",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -5700,6 +5773,11 @@ _DATA_STATEMENTS = [
     "SELECT 'dz_review', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'dz_review')",
+    # 0355: seed feature'a AI `prep_review` (ocena prepu z transkryptu Teams).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'prep_review', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'prep_review')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

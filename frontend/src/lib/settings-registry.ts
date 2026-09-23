@@ -46,7 +46,7 @@ export type SettingsItemId =
   | "rates"
   | "ai"
   | "traffit"
-  | "fireflies"
+  | "teams-prep"
   | "dict"
   | "fields"
   | "history"
@@ -181,10 +181,10 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin"] },
   },
   {
-    id: "fireflies", area: "sys", title: "Notatki ze spotkań",
-    description: "Transkrypcje z Fireflies w profilach kandydatów.",
-    keywords: "fireflies spotkania notatki transkrypcje",
-    gate: { roles: ["admin"], section: "sourcing" },
+    id: "teams-prep", area: "sys", title: "Prepy w Teams",
+    description: "Transkrypty prepów z Teams, notatki i ocena prepu.",
+    keywords: "teams prep transkrypcja spotkania notatki fireflies",
+    gate: { roles: ["admin"] },
   },
   {
     id: "dict", area: "sys", title: "Listy wyboru",

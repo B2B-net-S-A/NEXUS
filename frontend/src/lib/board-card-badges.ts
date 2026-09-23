@@ -31,6 +31,14 @@ export interface CardBadge {
   title?: string;
 }
 
+/** 0355: podpowiedź do odznak prepów — ruch karty nie jest blokowany. */
+const PREP_BADGE_TITLE: Partial<Record<string, string>> = {
+  prep_missing:
+    "Przed rozmową u klienta brakuje prepu z kandydatem (Prep 1 — Delivery Lead, Prep 2 — rekruter). Umów go w kalendarzu „Rozmowy u klienta”.",
+  prep_weak:
+    "Prep odbył się, ale wypadł słabo (transkrypt z Teams). Warto umówić jeszcze jedną rozmowę przed spotkaniem u klienta.",
+};
+
 export interface CardBadgeContext {
   column: BoardColumnKey | null;
   /** Rekrutacja Nordei — przegląd DL zastępuje ścieżka DZ → Cpro. */
@@ -184,12 +192,14 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
     });
   }
   if (column === "client_interview" && item.interview_badge) {
-    const tone = item.interview_badge.tone;
+    const { kind, tone } = item.interview_badge;
+    const title = PREP_BADGE_TITLE[kind];
     out.push({
       key: "interview",
       label: item.interview_badge.label,
       tone:
         tone === "urgent" ? "urgent" : tone === "ok" ? "ok" : tone === "wait" ? "wait" : "info",
+      ...(title ? { title } : {}),
     });
   }
   if (column === "hired" && item.order_status) {

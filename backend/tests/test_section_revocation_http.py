@@ -88,10 +88,10 @@ async def test_revoked_section_closes_formerly_role_only_route(
     assert not _is_section_denial(resp), (resp.status_code, resp.text)
 
 
-async def test_read_only_sourcing_cannot_trigger_fireflies_sync(
+async def test_read_only_pipeline_cannot_schedule_a_teams_prep(
     app_client: AsyncClient,
 ):
-    """Synchronizacja zapisuje notatki: sam odczyt Sourcing nie wystarcza."""
-    headers = await _recruiter({"sourcing": "read"})
-    resp = await app_client.post("/api/fireflies/sync", headers=headers)
+    """Prep zakłada spotkanie w Outlooku organizatora: sam odczyt Pipeline nie wystarcza."""
+    headers = await _recruiter({"pipeline": "read"})
+    resp = await app_client.post("/api/interview-cycle/preps", json={}, headers=headers)
     assert _is_section_denial(resp), (resp.status_code, resp.text)

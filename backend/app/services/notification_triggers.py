@@ -656,6 +656,106 @@ async def check_board_tasks_digest(db: AsyncSession, now: datetime) -> int:
     return emitted
 
 
+# ── Trigger: prep wymaga uwagi (0355) ────────────────────────────────────────
+
+# Migawka par z rozmową u klienta w najbliższym tygodniu — liczona najwyżej
+# raz na kwadrans, nie co tick.
+_PREP_ATTENTION_LAST_RUN: Optional[datetime] = None
+PREP_ATTENTION_EVERY = timedelta(minutes=15)
+
+
+async def _hor_user_ids(db: AsyncSession) -> list[int]:
+    rows = await db.execute(
+        select(User.id).where(
+            User.roles.contains([UserRole.head_of_recruitment.value]),
+            User.is_active.is_(True),
+        )
+    )
+    return list(rows.scalars().all())
+
+
+async def _already_notified(
+    db: AsyncSession, *, user_id: int, entity_type: str, entity_id: int
+) -> bool:
+    """„Raz na sprawę”: ten sam prep/rozmowa nie dzwoni drugi raz w kolejnych dniach."""
+    return (
+        await db.scalar(
+            select(Notification.id)
+            .where(
+                Notification.user_id == user_id,
+                Notification.notification_type == NotificationType.prep_attention,
+                Notification.related_entity_type == entity_type,
+                Notification.related_entity_id == entity_id,
+            )
+            .limit(1)
+        )
+    ) is not None
+
+
+async def check_prep_attention(db: AsyncSession, now: datetime) -> int:
+    """Prep słaby / bez nagrania od razu, brak prepu na dobę przed rozmową.
+
+    Do organizatora prepu i każdego Head of Recruitment (decyzja 23.09.2026).
+    """
+    global _PREP_ATTENTION_LAST_RUN
+    if (
+        _PREP_ATTENTION_LAST_RUN is not None
+        and now - _PREP_ATTENTION_LAST_RUN < PREP_ATTENTION_EVERY
+    ):
+        return 0
+    from app.services import prep_attention  # noqa: PLC0415
+
+    try:
+        async with db.begin_nested():
+            items = await prep_attention.load_prep_attention(db, now)
+            names, titles = await prep_attention.labels(db, items)
+            hor = await _hor_user_ids(db)
+    except Exception:  # noqa: BLE001 — dzwonek nie może zatrzymać reszty ticku
+        logger.exception("prep_attention: nie udało się policzyć prepów")
+        return 0
+    emitted = 0
+    for item in items:
+        if item.reason == "missing" and not item.urgent:
+            continue
+        who = names.get(item.candidate_id, "kandydat")
+        what = titles.get(item.job_id, "rekrutacja")
+        if item.reason == "missing":
+            title = f"Brak Prepu {item.prep_no} przed rozmową u klienta"
+            message = f"{who} — {what}: rozmowa u klienta w ciągu doby, a Prepu {item.prep_no} nie ma w kalendarzu."
+        elif item.reason == "weak":
+            title = f"Prep {item.prep_no} słaby"
+            message = f"{who} — {what}: ocena prepu jest słaba. Sprawdź, co zostało do przygotowania przed rozmową u klienta."
+        else:
+            title = f"Prep {item.prep_no} bez nagrania"
+            message = f"{who} — {what}: z prepu nie ma transkryptu, więc nie da się go ocenić."
+        recipients = {*hor, *([item.owner_id] if item.owner_id else [])}
+        # Brak Prepu 1 i brak Prepu 2 wiszą na tej samej rozmowie — osobny typ
+        # encji, żeby jeden dzwonek nie zjadał drugiego.
+        entity_type = (
+            f"interview_prep{item.prep_no}"
+            if item.reason == "missing"
+            else "calendar_event"
+        )
+        for uid in sorted(recipients):
+            if await _already_notified(
+                db, user_id=uid, entity_type=entity_type, entity_id=item.entity_event_id
+            ):
+                continue
+            created = await emit(
+                db,
+                user_id=uid,
+                title=title,
+                message=message,
+                ntype=NotificationType.prep_attention,
+                related_entity_type=entity_type,
+                related_entity_id=item.entity_event_id,
+                link=f"/calendar?cycle={item.candidate_id}-{item.job_id}",
+            )
+            emitted += int(created is not None)
+    _PREP_ATTENTION_LAST_RUN = now
+    return emitted
+
+
 # ── Trigger 5: STAGE_STUCK_7D ─────────────────────────────────────────────────
 
 
@@ -1050,6 +1150,7 @@ async def run_all_triggers(db: AsyncSession, now: datetime) -> dict[str, int]:
             db, now, latest
         ),
         "board_tasks_digest": await check_board_tasks_digest(db, now),
+        "prep_attention": await check_prep_attention(db, now),
     }
 
 
@@ -1063,6 +1164,7 @@ __all__ = [
     "check_post_interview_t15",
     "check_post_interview_t45",
     "check_post_interview_t2h_escalation",
+    "check_prep_attention",
     "check_powercalling_kpi",
     "check_stage_stuck_7d",
     "emit",
