@@ -60,6 +60,31 @@ export function registerSearchHref(
   return `/contracts/b2b-generator?${params.toString()}`;
 }
 
+/**
+ * Czy wiersz da się wczytać do formularza i poprawić pod tym samym numerem —
+ * lustro bramki `GET /generated/{id}/form` i `/rerender`: autor albo admin
+ * (`can_edit`), tylko niepodpisana umowa „W trakcie”, z dostępem do treści
+ * dokumentu (`can_download` — rola bez stawek formularza nie zobaczy).
+ */
+export function canCorrectInForm(
+  row: Pick<
+    B2BGeneratedContractRow,
+    "can_edit" | "can_download" | "contract_status" | "signature_status"
+  >,
+): boolean {
+  return (
+    row.can_edit &&
+    row.can_download &&
+    row.contract_status === "in_progress" &&
+    row.signature_status !== "signed_both"
+  );
+}
+
+/** Link otwierający zapisaną umowę w formularzu do poprawki (`?edit=`). */
+export function generatorEditHref(generatedId: number): string {
+  return `/contracts/b2b-generator?tab=generator&edit=${generatedId}`;
+}
+
 /** Link do formularza z wybranym kandydatem i rekrutacją (krok 08 „Umowa"). */
 export function generatorPrefillHref(
   candidateId: number | null | undefined,

@@ -776,9 +776,11 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
   `/api/health/deep`.
 - **Poprawki po audycie 23.09.2026** (`test_b2b_generator_audit_2026_09_23.py`):
   - **Numer nigdy nie wraca do puli.** Usunięty wpis zostawia `Activity`
-    `deleted` z numerem, a `_next_seq` i kontrola kolizji w `/render` czytają
-    także te numery (`_deleted_contract_numbers`) — 1518 i 1522/2026 zostały
-    wydane dwóm różnym Partnerom, a usunięty DOCX mógł już wyjść mailem.
+    `deleted` z numerem (`_deleted_contract_numbers`): `/render` odmawia 409
+    dokładnie tego numeru, a `_next_seq` go POMIJA (max żywych + 1, dalej
+    przeskok usuniętych) — nie liczy z usuniętych maksimum, bo jedna usunięta
+    literówka („15190/2026”) zawyżyłaby numerację na zawsze. 1518 i 1522/2026
+    zostały wydane dwóm różnym Partnerom, a usunięty DOCX mógł już wyjść mailem.
     Numeracja jest **ciągła między latami** (zmienia się tylko rok), więc
     `_next_seq` liczy maksimum po wszystkich latach — z filtrem po roku
     1 stycznia sugestią byłoby „1/2027”.
@@ -790,6 +792,9 @@ Wszystko w `components/v2/pages/B2BContractGeneratorV2.tsx`.
     nadpisuje `render_payload` i snapshot. Do 23.09 jedyną drogą była
     „usuń i wygeneruj” (15 usunięć na ~104 generacje), a wersja EN dostawała
     drugi numer. `/render` i `/rerender` zwracają `X-Generated-Contract-Id`.
+    `GET /generated/{id}/form` (ta sama bramka, `_load_row_for_correction`)
+    oddaje zapisany formularz — „Popraw umowę” z wiersza rejestru działa też
+    po odświeżeniu, a nie tylko w karcie, w której umowę pobrano.
   - **DOCX renderuje się PRZED zapisem wiersza** — błąd renderu nie zużywa
     numeru.
   - **Rejestr stronicuje** (`offset`, okno po `created_at DESC, id DESC`) —

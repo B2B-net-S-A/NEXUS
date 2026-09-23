@@ -3435,6 +3435,17 @@ export const b2bGeneratorApi = {
    * jest już podpisana albo zmieniła status, 422 przy innym kandydacie
    * albo rekrutacji (to już nowa umowa).
    */
+  /**
+   * Zapisany payload umowy do wczytania w formularz („Popraw umowę” z wiersza
+   * rejestru). Bramka jak przy `/rerender`: autor albo admin, tylko umowa
+   * „W trakcie” i niepodpisana (403/409); umowa sprzed zapisu danych — 422.
+   */
+  generatedForm: (id: number) =>
+    api
+      .get<{ id: number; contract_number: string; form: B2BRenderPayload }>(
+        `/api/b2b-generator/generated/${id}/form`,
+      )
+      .then((r) => r.data),
   rerenderGenerated: (id: number, body: B2BRenderPayload) =>
     api.post(`/api/b2b-generator/generated/${id}/rerender`, body, {
       responseType: "blob",

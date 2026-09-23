@@ -124,7 +124,27 @@ async def test_deleted_number_is_neither_suggested_nor_accepted_again(
 
     async with AsyncSessionLocal() as db:
         suggested = await _next_seq(db)
-    assert suggested > int(number.split("/")[0])
+    assert suggested != int(number.split("/")[0])
+
+
+async def test_a_deleted_typo_number_does_not_inflate_the_numbering(
+    app_client, app_auth_headers
+):
+    """Usunięta literówka („15190” zamiast „1519”) nie może na zawsze
+    przestawić sugestii — pomijamy usunięte numery, nie liczymy z nich max."""
+    from app.api.b2b_contract_generator import _next_seq
+
+    async with AsyncSessionLocal() as db:
+        before = await _next_seq(db)
+    typo = before + 50_000
+    await _render_docx(app_client, app_auth_headers, contract_number=f"{typo}/2026")
+    item = await _item_by_number(app_client, app_auth_headers, f"{typo}/2026")
+    deleted = await app_client.delete(f"{PATH}/{item['id']}", headers=app_auth_headers)
+    assert deleted.status_code == 204, deleted.text
+
+    async with AsyncSessionLocal() as db:
+        after = await _next_seq(db)
+    assert after < typo
 
 
 async def test_numbering_continues_across_years(app_client):
@@ -367,3 +387,61 @@ async def test_generate_cannot_overwrite_rate_of_someone_elses_draft(app_client)
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, docs["contract_id"])
         assert contract.rate_candidate == Decimal("150")
+
+
+class _Rows:
+    def __init__(self, numbers: list[str]) -> None:
+        self._numbers = numbers
+
+    def all(self) -> list[tuple[str]]:
+        return [(n,) for n in self._numbers]
+
+
+class _FakeDb:
+    def __init__(self, live: list[str]) -> None:
+        self._live = live
+
+    async def execute(self, _statement):
+        return _Rows(self._live)
+
+
+@pytest.mark.parametrize(
+    ("live", "deleted", "expected"),
+    [
+        # Usunięto najnowszy wpis (1522) — nie wraca do puli.
+        (["1520/2026", "1521/2026"], ["1522/2026"], 1523),
+        # Seria usuniętych na szczycie jest przeskakiwana w całości.
+        (["1521/2026"], ["1522/2026", "1523/2026"], 1524),
+        # Usunięta literówka daleko ponad numeracją nic nie zawyża.
+        (["1521/2026"], ["15190/2026"], 1522),
+        # Rok się zmienia, numer płynie dalej.
+        (["1522/2026"], [], 1523),
+    ],
+)
+async def test_next_seq_skips_deleted_numbers_without_inflating(
+    monkeypatch, live, deleted, expected
+):
+    from app.api import b2b_contract_generator as module
+
+    async def _deleted(_db):
+        return deleted
+
+    monkeypatch.setattr(module, "_deleted_contract_numbers", _deleted)
+    assert await module._next_seq(_FakeDb(live)) == expected
+
+
+async def test_saved_form_can_be_reopened_for_correction(app_client, app_auth_headers):
+    """„Popraw” z wiersza rejestru — działa też po odświeżeniu strony."""
+    number = await _render_docx(app_client, app_auth_headers, project_city="Płock")
+    item = await _item_by_number(app_client, app_auth_headers, number)
+    resp = await app_client.get(f"{PATH}/{item['id']}/form", headers=app_auth_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["id"] == item["id"]
+    assert body["form"]["contract_number"] == number
+    assert body["form"]["project_city"] == "Płock"
+    assert "_clause_override" not in body["form"]
+
+    other_h, _ = await _seed_user(app_client, "tac")
+    foreign = await app_client.get(f"{PATH}/{item['id']}/form", headers=other_h)
+    assert foreign.status_code == 403, foreign.text

@@ -17,10 +17,11 @@ const mocks = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showError: vi.fn(),
   push: vi.fn(),
+  replace: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mocks.push }),
+  useRouter: () => ({ push: mocks.push, replace: mocks.replace }),
 }));
 
 vi.mock("next/link", () => ({
@@ -872,5 +873,100 @@ describe("GeneratedContractsTab — stronicowanie i rozjazdy z Kontraktami", () 
         expect.objectContaining({ q: "1471/2026" }),
       ),
     );
+  });
+});
+
+describe("GeneratedContractsTab — „Pokaż więcej” po awarii i „Popraw umowę”", () => {
+  it("nieudana druga strona zostawia stopkę z komunikatem i „Ponów”", async () => {
+    // react-query v5 ustawia `error` przy nieudanym fetchNextPage, a pierwsza
+    // strona zostaje — bez stopki 100 wierszy wyglądałoby na komplet.
+    const user = setupUser();
+    const first = Array.from({ length: 100 }, (_, i) =>
+      generatedRow({ id: i + 1, contract_number: `${1000 + i}/2026` }),
+    );
+    mocks.generated.mockImplementation(
+      (_limit: number, params: { offset?: number }) =>
+        params.offset
+          ? Promise.reject(
+              Object.assign(new Error("Internal Server Error"), {
+                response: { status: 500 },
+              }),
+            )
+          : Promise.resolve(first),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <GeneratedContractsTab />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Pokaż więcej" }));
+
+    expect(
+      await screen.findByText("Nie udało się wczytać kolejnych umów."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Pokazano 100 umów")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ponów" })).toBeInTheDocument();
+    // Pierwsza strona nie zamienia się w „Nie udało się wczytać listy”.
+    expect(screen.queryByText("Nie udało się wczytać listy")).toBeNull();
+    expect(screen.getByText("1099/2026")).toBeInTheDocument();
+  }, 20_000);
+
+  it("„Popraw umowę” tylko dla niepodpisanej „W trakcie” z prawem edycji", async () => {
+    const user = setupUser();
+    renderTab([
+      generatedRow({ id: 1, contract_number: "1471/2026", can_download: true }),
+      generatedRow({
+        id: 2,
+        contract_number: "1472/2026",
+        can_download: true,
+        can_edit: false,
+      }),
+      generatedRow({
+        id: 3,
+        contract_number: "1473/2026",
+        can_download: true,
+        contract_status: "cancelled",
+      }),
+      generatedRow({
+        id: 4,
+        contract_number: "1474/2026",
+        can_download: true,
+        contract_status: "active",
+        signature_status: "signed_both",
+      }),
+    ]);
+
+    const button = await screen.findByRole("button", {
+      name: "Popraw umowę 1471/2026",
+    });
+    for (const n of ["1472/2026", "1473/2026", "1474/2026"]) {
+      expect(
+        screen.queryByRole("button", { name: `Popraw umowę ${n}` }),
+      ).toBeNull();
+    }
+
+    await user.click(button);
+    expect(mocks.replace).toHaveBeenCalledWith(
+      "/contracts/b2b-generator?tab=generator&edit=1",
+      { scroll: false },
+    );
+  });
+
+  it("bez prawa generowania akcji nie ma — zakładki Generator by nie było", async () => {
+    mocks.generated.mockResolvedValue([generatedRow({ can_download: true })]);
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <GeneratedContractsTab canCorrect={false} />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("1471/2026");
+    expect(screen.queryByRole("button", { name: /Popraw umowę/ })).toBeNull();
   });
 });

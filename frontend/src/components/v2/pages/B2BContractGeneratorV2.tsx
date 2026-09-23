@@ -21,6 +21,7 @@ import {
   Download,
   Eye,
   ExternalLink,
+  FilePen,
   FileSignature,
   Loader2,
   History,
@@ -104,9 +105,11 @@ import { positiveIntParam } from "@/lib/client-tab";
 import {
   B2B_CURRENCIES,
   B2B_REGISTER_PAGE_SIZE,
+  canCorrectInForm,
   contractStatusOptions,
   existingContractFor,
   generatedIdFromHeaders,
+  generatorEditHref,
   generatorTabFromParam,
   mergeRegisterPages,
   nextRegisterOffset,
@@ -520,6 +523,9 @@ export function B2BContractGeneratorV2() {
   const qParam = searchParams?.get("q") ?? null;
   const candidateParam = positiveIntParam(searchParams?.get("candidate") ?? null);
   const jobParam = positiveIntParam(searchParams?.get("job") ?? null);
+  // `?edit=<id>` — „Popraw umowę” z wiersza rejestru: formularz wczytuje
+  // zapisany payload i poprawia ten sam wiersz pod tym samym numerem.
+  const editParam = positiveIntParam(searchParams?.get("edit") ?? null);
   const defaultTab: GeneratorTab = canGenerate ? "generator" : "generated";
   const allowedTab = (tab: GeneratorTab | null): GeneratorTab | null => {
     if (!tab) return null;
@@ -607,6 +613,21 @@ export function B2BContractGeneratorV2() {
                 <GeneratorForm
                   prefillCandidateId={candidateParam}
                   prefillJobId={jobParam}
+                  editGeneratedId={editParam}
+                  onEditConsumed={() => {
+                    // Po wczytaniu (albo odmowie) parametr znika — F5 nie może
+                    // nadpisać poprawek wczytanym ponownie stanem z serwera.
+                    const params = new URLSearchParams(
+                      searchParams?.toString() ?? "",
+                    );
+                    if (!params.has("edit")) return;
+                    params.delete("edit");
+                    const query = params.toString();
+                    router.replace(
+                      query ? `${pathname ?? ""}?${query}` : (pathname ?? ""),
+                      { scroll: false },
+                    );
+                  }}
                   onClearPrefill={() => {
                     if (!candidateParam && !jobParam) return;
                     const params = new URLSearchParams(
@@ -626,6 +647,7 @@ export function B2BContractGeneratorV2() {
             <TabsContent value="generated">
               <GeneratedContractsTab
                 searchParam={activeTab === "generated" ? qParam : null}
+                canCorrect={canGenerate}
               />
             </TabsContent>
             <TabsContent value="no-project">
@@ -1998,9 +2020,15 @@ function RegisterRowWarnings({ row }: { row: B2BGeneratedContractRow }) {
 
 export function GeneratedContractsTab({
   searchParam = null,
+  canCorrect = true,
 }: {
   /** `?q=` z adresu — link „popraw ją w rejestrze” z formularza. */
   searchParam?: string | null;
+  /**
+   * „Popraw umowę” otwiera zakładkę Generator — bez prawa generowania tej
+   * zakładki nie ma, więc akcja prowadziłaby donikąd.
+   */
+  canCorrect?: boolean;
 } = {}) {
   const toast = useToast();
   const router = useRouter();
@@ -2578,6 +2606,26 @@ export function GeneratedContractsTab({
                             </>
                           ) : (
                             <>
+                              {canCorrect && canCorrectInForm(r) ? (
+                                // Poprawka treści pod tym samym numerem. Do
+                                // 23.09.2026 działała tylko w karcie, w której
+                                // umowę pobrano; po odświeżeniu zostawało
+                                // „Usuń”, a usunięcie trwale zużywa numer.
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={() =>
+                                    router.replace(generatorEditHref(r.id), {
+                                      scroll: false,
+                                    })
+                                  }
+                                  title="Popraw umowę (ten sam numer)"
+                                  aria-label={`Popraw umowę ${r.contract_number}`}
+                                >
+                                  <FilePen className="h-4 w-4" />
+                                </Button>
+                              ) : null}
                               {!signed && r.can_edit ? (
                                 <Button
                                   variant="ghost"
@@ -2642,7 +2690,10 @@ export function GeneratedContractsTab({
             </table>
           </div>
         )}
-        {rows.length > 0 && !q.error ? (
+        {/* `!(error && !data)`, nie `!error`: nieudane „Pokaż więcej” ustawia
+            `error`, a pierwsza strona zostaje — bez stopki 100 wierszy
+            wyglądałoby na komplet, a komunikat i „Ponów” by znikły. */}
+        {rows.length > 0 && !(q.error && !q.data) ? (
           <RegisterPager
             shown={rows.length}
             hasMore={q.hasNextPage}
@@ -3146,17 +3197,37 @@ type SavedContract = {
   jobId: number | null;
 };
 
+/** Telefon z payloadu („+48 600 100 200”) → prefiks z listy + numer. */
+function splitPhone(value: string | null | undefined): {
+  prefix: string;
+  number: string;
+} {
+  const v = (value ?? "").trim();
+  const prefix = PHONE_PREFIXES.find((p) => v.startsWith(`${p} `));
+  // Numer bez znanego prefiksu zostaje w całości — `buildPayload` wysyła
+  // wartość zaczynającą się od „+” bez doklejania prefiksu z listy.
+  return prefix
+    ? { prefix, number: v.slice(prefix.length + 1).trim() }
+    : { prefix: "+48", number: v };
+}
+
 export function GeneratorForm({
   prefillCandidateId = null,
   prefillJobId = null,
+  editGeneratedId = null,
   onClearPrefill,
+  onEditConsumed,
 }: {
   /** `?candidate=` z adresu — link „Otwórz w Generatorze” z kroku „Umowa”. */
   prefillCandidateId?: number | null;
   /** `?job=` — rekrutacja do wybrania, gdy kandydat w niej jest. */
   prefillJobId?: number | null;
+  /** `?edit=` — zapisana umowa do wczytania i poprawy pod tym samym numerem. */
+  editGeneratedId?: number | null;
   /** „Nowa umowa” zdejmuje parę z adresu, żeby F5 nie wypełnił jej znowu. */
   onClearPrefill?: () => void;
+  /** Zdejmuje `?edit=` z adresu po wczytaniu albo odmowie. */
+  onEditConsumed?: () => void;
 }) {
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -3239,6 +3310,14 @@ export function GeneratorForm({
   // Typ podmiotu z rejestru (CEIDG → JDG, KRS → spółka). Nie jest polem
   // formularza — użytkownik go nie widzi ani nie edytuje; jedzie do backendu
   // jako podpowiedź, czy lista ma pokazywać drugą linię z osobą kontaktową.
+  // Lista punktów zakresu z zapisanej umowy. Formularz jej nie edytuje, ale
+  // poprawka wczytanej umowy nie może jej po cichu zgubić.
+  const [scopeItemsOverride, setScopeItemsOverride] = useState<string[] | null>(
+    null,
+  );
+  // NIP wczytany z zapisanej umowy — lookup rejestru go pomija, bo nadpisałby
+  // zapisaną nazwę firmy, REGON i adres danymi z dziś (a to tylko poprawka).
+  const nipLookupSkip = useRef<string | null>(null);
   const [partnerEntityType, setPartnerEntityType] = useState<
     "sole_trader" | "company" | null
   >(null);
@@ -3264,6 +3343,8 @@ export function GeneratorForm({
   const [pendingPrefill, setPendingPrefill] = useState<{
     candidateId: number;
     jobId: number;
+    /** Wczytana umowa — brak jej rekrutacji na liście trzeba powiedzieć. */
+    fromSaved?: boolean;
   } | null>(null);
 
   const candidatesQuery = useQuery({
@@ -3427,6 +3508,11 @@ export function GeneratorForm({
   // Auto-uzupełnianie danych Partnera z rejestru po NIP (Biała Lista, debounced).
   useEffect(() => {
     const nip = partnerNip.replace(/\D/g, "");
+    if (nipLookupSkip.current !== null && nipLookupSkip.current === nip) {
+      setPartnerLookup("idle");
+      return;
+    }
+    nipLookupSkip.current = null;
     // Klasyfikacja MUSI zniknąć razem z NIP-em, do którego należała. Bez tego
     // scenariusz „wpisz NIP spółki → popraw na NIP JDG, lookup padnie" zapisuje
     // w snapshocie `company` dla JDG — TRWALE, bo snapshot się nie przelicza.
@@ -3519,6 +3605,8 @@ export function GeneratorForm({
       setPartnerPhone("");
       setPartnerEntityType(null);
     }
+    setScopeItemsOverride(null);
+    nipLookupSkip.current = null;
     leaveSavedContract();
   };
 
@@ -3587,7 +3675,59 @@ export function GeneratorForm({
     );
     setPendingPrefill(null);
     if (match) setStageId(String(match.stage_id));
+    else if (pendingPrefill.fromSaved) {
+      // Bez rekrutacji formularz nie przejdzie walidacji, a poprawka wymaga
+      // tej samej pary — cisza zostawiłaby zablokowany przycisk bez powodu.
+      toast.showError(
+        "Rekrutacji tej umowy nie ma już na liście rekrutacji kandydata — " +
+          "poprawka pod tym samym numerem wymaga tej samej rekrutacji.",
+      );
+    }
+    // `toast` ze stabilnego kontekstu — nie jest sygnałem do ponownego wyboru.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPrefill, candidate?.id, recruitmentsQuery.data]);
+
+  // `?edit=<id>` — „Popraw umowę” z wiersza rejestru albo z ostrzeżenia
+  // o istniejącej umowie. Efekt na WARTOŚCI parametru (miękka nawigacja nie
+  // odmontowuje formularza). Wczytuje zapisany payload do KAŻDEGO pola
+  // i przełącza w tryb poprawki: pobranie idzie do `/rerender` tego wiersza.
+  useEffect(() => {
+    if (!editGeneratedId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { id, contract_number, form } =
+          await b2bGeneratorApi.generatedForm(editGeneratedId);
+        let candidateOption: CandidateOption | null = null;
+        if (form.candidate_id) {
+          const res = await api.get<CandidateDetail>(
+            `/api/candidates/${form.candidate_id}`,
+          );
+          const d = res.data;
+          const fullName =
+            d.full_name || `${d.name ?? ""} ${d.lastname ?? ""}`.trim();
+          candidateOption = {
+            id: form.candidate_id,
+            name: d.name ?? "",
+            lastname: d.lastname ?? "",
+            full_name: fullName || `Kandydat #${form.candidate_id}`,
+            email: d.email ?? null,
+          };
+        }
+        if (cancelled) return;
+        applySavedForm(id, contract_number, form, candidateOption);
+      } catch (e: unknown) {
+        if (!cancelled) toast.showError(extractErrorMsg(e));
+      } finally {
+        if (!cancelled) onEditConsumed?.();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Tylko na zmianę parametru — reszta to stan chwili wczytania.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editGeneratedId]);
 
   // Żywa umowa tej osoby w tej rekrutacji — ostrzeżenie przed drugą. Ten sam
   // klucz i kształt co krok „Umowa” rekrutacji (`JobContractTab`), więc
@@ -3657,6 +3797,7 @@ export function GeneratorForm({
           }))
         : null,
     currency: currency.trim() || "PLN",
+    ...(scopeItemsOverride ? { scope_items_override: scopeItemsOverride } : {}),
   });
 
   // Podgląd opisuje dane z chwili kliknięcia — po każdej zmianie formularza
@@ -3784,6 +3925,86 @@ export function GeneratorForm({
     },
   });
 
+  /**
+   * Zapisany payload umowy → pola formularza + tryb poprawki. Flagi prefillu
+   * i „dotknięcia” są ustawiane PRZED renderem, żeby żaden efekt (profil
+   * kandydata, oferta, obszar, auto-odmiana, lookup NIP-u) nie nadpisał
+   * wczytanych wartości tym, co jest w bazie dziś.
+   */
+  const applySavedForm = (
+    id: number,
+    number: string,
+    form: B2BRenderPayload,
+    candidateOption: CandidateOption | null,
+  ) => {
+    const candidateId = candidateOption?.id ?? null;
+    const jobId = form.job_id ?? null;
+    prefilledCand.current = candidateId;
+    prefilledJob.current = jobId;
+    jobFieldsFromJob.current = true;
+    descTouched.current = true;
+    instrTouched.current = true;
+    const nipDigits = (form.partner_nip ?? "").replace(/\D/g, "");
+    nipLookupSkip.current = nipDigits || null;
+
+    setCandidate(candidateOption);
+    setCandidateQuery("");
+    setStageId("");
+    setPendingPrefill(
+      candidateId && jobId ? { candidateId, jobId, fromSaved: true } : null,
+    );
+    setLanguage(form.language === "en" ? "en" : "pl");
+    setGender(form.gender === "k" ? "k" : "m");
+    setRoleId(form.role_id ? String(form.role_id) : "");
+    setPartnerName(form.partner_name ?? "");
+    setPartnerInstrumental(form.partner_instrumental ?? "");
+    setPartnerLegalName(form.partner_legal_name ?? "");
+    setPartnerNip(form.partner_nip ?? "");
+    setPartnerRegon(form.partner_regon ?? "");
+    setPartnerBusinessAddress(form.partner_business_address ?? "");
+    setPartnerCorrespondenceAddress(form.partner_correspondence_address ?? "");
+    setPartnerEntityType(form.partner_entity_type ?? null);
+    setPartnerEmail(form.partner_email ?? "");
+    const phone = splitPhone(form.partner_phone);
+    setPhonePrefix(phone.prefix);
+    setPartnerPhone(phone.number);
+    setClientName(form.client_name ?? "");
+    setClientQuery("");
+    setProjectCity(form.project_city ?? "");
+    setProjectDescription(form.project_description ?? "");
+    setContractNumber(number);
+    setSigningDate(form.signing_date ?? "");
+    setStartDate(form.start_date ?? "");
+    setStartDateMode(
+      form.start_date_mode === "not_earlier" ||
+        form.start_date_mode === "not_later"
+        ? form.start_date_mode
+        : "exact",
+    );
+    const stages = form.rate_stages ?? [];
+    setRateStages(
+      stages.length > 1
+        ? stages.map((st) => ({
+            rate: String(st.rate),
+            from: st.effective_from ?? "",
+            to: st.effective_to ?? "",
+          }))
+        : [
+            {
+              rate:
+                form.rate_candidate != null ? String(form.rate_candidate) : "",
+              from: "",
+              to: "",
+            },
+          ],
+    );
+    setCurrency(form.currency || "PLN");
+    setScopeItemsOverride(form.scope_items_override ?? null);
+    setUop(null);
+    setPreviewHtml("");
+    setSavedContract({ id, number, candidateId, jobId });
+  };
+
   /** „Nowa umowa” — pusty formularz i kolejny wolny numer. */
   const resetForm = () => {
     setSavedContract(null);
@@ -3814,6 +4035,8 @@ export function GeneratorForm({
     setGender("m");
     setPartnerInstrumental("");
     setPartnerEntityType(null);
+    setScopeItemsOverride(null);
+    nipLookupSkip.current = null;
     setPreviewHtml("");
     prefilledCand.current = null;
     prefilledJob.current = null;
@@ -3915,16 +4138,26 @@ export function GeneratorForm({
           }) w tej rekrutacji`}
         >
           <p className="mt-0.5 text-xs opacity-90">
-            Popraw ją w rejestrze zamiast generować nową — każde pobranie tutaj
-            zajmuje kolejny numer.{" "}
+            {canCorrectInForm(existingContract)
+              ? "Popraw ją pod tym samym numerem zamiast generować nową — każde pobranie tutaj zajmuje kolejny numer."
+              : "Sprawdź ją w rejestrze, zanim wygenerujesz nową — każde pobranie tutaj zajmuje kolejny numer."}{" "}
+            {/* Link obiecuje tylko to, co da się zrobić: poprawkę w formularzu
+                dla autora/admina i umowy „W trakcie”, w innym razie rejestr
+                z wyszukaną umową. */}
             <Link
-              href={registerSearchHref(
-                existingContract.contract_number,
-                existingContract.contract_status,
-              )}
+              href={
+                canCorrectInForm(existingContract)
+                  ? generatorEditHref(existingContract.id)
+                  : registerSearchHref(
+                      existingContract.contract_number,
+                      existingContract.contract_status,
+                    )
+              }
               className="font-semibold underline underline-offset-2"
             >
-              Otwórz w rejestrze
+              {canCorrectInForm(existingContract)
+                ? `Popraw umowę ${existingContract.contract_number}`
+                : `Otwórz umowę ${existingContract.contract_number} w rejestrze`}
             </Link>
           </p>
         </Alert>

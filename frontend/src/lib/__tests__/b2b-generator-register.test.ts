@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { B2BGeneratedContractRow } from "@/lib/api";
 import {
+  canCorrectInForm,
   contractStatusOptions,
   existingContractFor,
   generatedIdFromHeaders,
+  generatorEditHref,
   generatorPrefillHref,
   generatorTabFromParam,
   mergeRegisterPages,
@@ -281,5 +283,30 @@ describe("generatedIdFromHeaders", () => {
     expect(generatedIdFromHeaders({})).toBeNull();
     expect(generatedIdFromHeaders({ "x-generated-contract-id": "abc" })).toBeNull();
     expect(generatedIdFromHeaders(undefined)).toBeNull();
+  });
+});
+
+describe("canCorrectInForm — lustro bramki /form i /rerender", () => {
+  const base = {
+    can_edit: true,
+    can_download: true,
+    contract_status: "in_progress" as const,
+    signature_status: "unsigned" as const,
+  };
+
+  it("autor/admin, niepodpisana „W trakcie” — tak", () => {
+    expect(canCorrectInForm(base)).toBe(true);
+    expect(generatorEditHref(7)).toBe(
+      "/contracts/b2b-generator?tab=generator&edit=7",
+    );
+  });
+
+  it("każdy inny przypadek — nie", () => {
+    expect(canCorrectInForm({ ...base, can_edit: false })).toBe(false);
+    expect(canCorrectInForm({ ...base, can_download: false })).toBe(false);
+    expect(canCorrectInForm({ ...base, contract_status: "cancelled" })).toBe(false);
+    expect(
+      canCorrectInForm({ ...base, signature_status: "signed_both" }),
+    ).toBe(false);
   });
 });

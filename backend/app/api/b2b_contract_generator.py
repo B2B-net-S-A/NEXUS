@@ -1537,16 +1537,24 @@ async def _next_seq(db: AsyncSession) -> int:
     # wszystkich latach; z filtrem po roku 1 stycznia sugestią byłoby „1/2027”.
     rows = await db.execute(select(B2BGeneratedContract.contract_number))
     max_seq = 0
-    numbers = [number for (number,) in rows.all()]
-    # Numery USUNIĘTYCH wpisów też się liczą (audyt 23.09.2026): usunięty DOCX
-    # mógł już wyjść do Partnera, a `max+1` z samych żywych wierszy oddawało
-    # jego numer następnej osobie (1518 i 1522/2026 wydane dwa razy).
-    numbers.extend(await _deleted_contract_numbers(db))
-    for number in numbers:
+    for (number,) in rows.all():
         parsed = _parse_seq(number)
         if parsed is not None and parsed > max_seq:
             max_seq = parsed
-    return max_seq + 1
+    # Numery USUNIĘTYCH wpisów są POMIJANE, nie wliczane do maksimum (audyt
+    # 23.09.2026): usunięty DOCX mógł już wyjść do Partnera, a `max+1` z samych
+    # żywych wierszy oddawało jego numer następnej osobie (1518 i 1522/2026
+    # wydane dwa razy). Maksimum liczone z nich zawyżyłoby numerację na zawsze
+    # po jednej usuniętej literówce („15190/2026” zamiast „1519/2026”).
+    deleted = {
+        parsed
+        for number in await _deleted_contract_numbers(db)
+        if (parsed := _parse_seq(number)) is not None
+    }
+    candidate = max_seq + 1
+    while candidate in deleted:
+        candidate += 1
+    return candidate
 
 
 async def _deleted_contract_numbers(db: AsyncSession) -> list[str]:
@@ -2162,21 +2170,13 @@ async def download_generated_contract(
     return _docx_response(data, row.contract_number)
 
 
-@router.post("/generated/{generated_id}/rerender")
-async def rerender_generated_contract(
-    generated_id: int,
-    payload: B2BRenderRequest,
-    current_user: B2BGeneratorAccess,
-    db: AsyncSession = Depends(get_db),
-):
-    """Popraw niepodpisaną umowę i pobierz ją ponownie — POD TYM SAMYM numerem.
+async def _load_row_for_correction(
+    db: AsyncSession, current_user: User, generated_id: int
+) -> B2BGeneratedContract:
+    """Wiersz rejestru, który ``current_user`` może poprawić pod tym samym numerem.
 
-    Do 23.09.2026 jedyną drogą poprawki literówki albo zmiany języka było
-    „usuń i wygeneruj od nowa” (15 usunięć na ~104 generacje), a każde
-    ponowne kliknięcie „Pobierz” zakładało drugi wiersz z kolejnym numerem.
-    Poprawka nadpisuje ``render_payload`` i kolumny snapshotu tego samego
-    wiersza. Kandydata i rekrutacji zmienić nie można — to już inna umowa.
-    Bramka jak przy usuwaniu: autor albo admin, tylko umowa „W trakcie”."""
+    Jedna bramka dla odczytu danych formularza i dla ponownego renderu —
+    rozjazd dałby przycisk „Popraw”, który kończy się 403 dopiero przy zapisie."""
     _require_contract_generation(current_user)
     _require_generated_contract_management(current_user)
     row = await db.scalar(
@@ -2200,6 +2200,55 @@ async def rerender_generated_contract(
                 "podpisany dokument jest zapisem tego, co strony podpisały."
             ),
         )
+    return row
+
+
+@router.get("/generated/{generated_id}/form")
+async def generated_contract_form(
+    generated_id: int,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Dane formularza zapisanej umowy — „Popraw” z wiersza rejestru.
+
+    Bez tego poprawka pod tym samym numerem działała tylko w karcie, w której
+    umowę pobrano; po odświeżeniu zostawało „Usuń”, a usunięcie trwale zużywa
+    numer (audyt 23.09.2026). Snapshot rejestru klauzul zostaje po stronie
+    serwera — ponowny render rozstrzyga go na nowo."""
+    row = await _load_row_for_correction(db, current_user, generated_id)
+    if not row.render_payload:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Ta umowa została wygenerowana zanim dodaliśmy zapis danych — "
+                "nie da się jej wczytać do formularza."
+            ),
+        )
+    form = {
+        key: value
+        for key, value in row.render_payload.items()
+        if key != _CLAUSE_SNAPSHOT_FIELD
+    }
+    form["contract_number"] = row.contract_number
+    return {"id": row.id, "contract_number": row.contract_number, "form": form}
+
+
+@router.post("/generated/{generated_id}/rerender")
+async def rerender_generated_contract(
+    generated_id: int,
+    payload: B2BRenderRequest,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Popraw niepodpisaną umowę i pobierz ją ponownie — POD TYM SAMYM numerem.
+
+    Do 23.09.2026 jedyną drogą poprawki literówki albo zmiany języka było
+    „usuń i wygeneruj od nowa” (15 usunięć na ~104 generacje), a każde
+    ponowne kliknięcie „Pobierz” zakładało drugi wiersz z kolejnym numerem.
+    Poprawka nadpisuje ``render_payload`` i kolumny snapshotu tego samego
+    wiersza. Kandydata i rekrutacji zmienić nie można — to już inna umowa.
+    Bramka jak przy usuwaniu: autor albo admin, tylko umowa „W trakcie”."""
+    row = await _load_row_for_correction(db, current_user, generated_id)
     if (payload.candidate_id, payload.job_id) != (row.candidate_id, row.job_id):
         raise HTTPException(
             status_code=422,

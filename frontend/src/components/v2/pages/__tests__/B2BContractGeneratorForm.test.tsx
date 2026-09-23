@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   nextNumber: vi.fn(),
   clientsLookup: vi.fn(),
   generated: vi.fn(),
+  generatedForm: vi.fn(),
   companyLookup: vi.fn(),
   renderDocx: vi.fn(),
   rerenderGenerated: vi.fn(),
@@ -70,6 +71,7 @@ vi.mock("@/lib/api", () => ({
     nextNumber: (...a: unknown[]) => mocks.nextNumber(...a),
     clientsLookup: (...a: unknown[]) => mocks.clientsLookup(...a),
     generated: (...a: unknown[]) => mocks.generated(...a),
+    generatedForm: (...a: unknown[]) => mocks.generatedForm(...a),
     companyLookup: (...a: unknown[]) => mocks.companyLookup(...a),
     renderDocx: (...a: unknown[]) => mocks.renderDocx(...a),
     rerenderGenerated: (...a: unknown[]) => mocks.rerenderGenerated(...a),
@@ -86,7 +88,7 @@ import { GeneratorForm } from "@/components/v2/pages/B2BContractGeneratorV2";
 // Każdy test to pełny przepływ: łańcuch czterech zapytań prefillu, wybór
 // z listy Radix i pobranie. Przy obciążonej maszynie (pełny suite, równoległe
 // sesje) domyślne 5 s kończyło się fałszywym czerwonym, nie błędem produktu.
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: 60_000 });
 /** Oczekiwanie na łańcuch prefillu (kandydat → rekrutacje → oferta). */
 const PREFILL_WAIT = 10_000;
 
@@ -410,8 +412,9 @@ describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
       ),
     ).toBeInTheDocument();
     expect(mocks.generated).toHaveBeenCalledWith(50, { jobId: 10 });
+    // Bez prawa poprawki (`can_edit`) link prowadzi do rejestru z wyszukaniem.
     expect(
-      screen.getByRole("link", { name: "Otwórz w rejestrze" }),
+      screen.getByRole("link", { name: "Otwórz umowę 1490/2026 w rejestrze" }),
     ).toHaveAttribute("href", "/contracts/b2b-generator?tab=generated&q=1490%2F2026");
     // Ostrzeżenie nie blokuje generowania.
     expect(screen.getByRole("button", { name: "Pobierz DOCX (PL)" })).toBeEnabled();
@@ -420,7 +423,9 @@ describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
   it("anulowana umowa tej osoby nie ostrzega", async () => {
     mocks.generated.mockResolvedValue([existing({ contract_status: "cancelled" })]);
     renderForm();
-    await waitFor(() => expect(mocks.generated).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.generated).toHaveBeenCalled(), {
+      timeout: PREFILL_WAIT,
+    });
     await waitFor(() =>
       expect(
         (screen.getByLabelText("Miasto Klienta *") as HTMLInputElement).value,
@@ -437,5 +442,160 @@ describe("GeneratorForm — zmiana kandydata i ostrzeżenia", () => {
     for (const code of ["PLN", "EUR", "USD", "GBP", "CHF"]) {
       expect(await screen.findByRole("option", { name: code })).toBeInTheDocument();
     }
+  });
+});
+
+describe("GeneratorForm — „Popraw umowę” (`?edit=`)", () => {
+  const SAVED_FORM = {
+    candidate_id: 42,
+    job_id: 10,
+    role_id: 3,
+    language: "en",
+    gender: "k",
+    partner_name: "Jan Kowalski",
+    partner_instrumental: "Janem Kowalskim (zapisany)",
+    partner_legal_name: "JK Software (zapisana)",
+    partner_business_address: "ul. Zapisana 5, Kraków",
+    partner_correspondence_address: "skr. 12",
+    partner_nip: "1234563218",
+    partner_entity_type: "sole_trader",
+    partner_regon: "999999999",
+    partner_email: "zapis@example.com",
+    partner_phone: "+44 7700 900123",
+    client_name: "Klient z umowy",
+    project_city: "Gdańsk",
+    project_description: "Opis zapisany w umowie.",
+    contract_number: "1490/2026",
+    signing_date: "2026-09-01",
+    start_date: "2026-10-01",
+    start_date_mode: "not_earlier",
+    rate_candidate: 140,
+    rate_stages: [
+      { rate: 140, effective_from: null, effective_to: "2026-12-31" },
+      { rate: 160, effective_from: "2027-01-01", effective_to: null },
+    ],
+    currency: "EUR",
+    scope_items_override: ["Punkt z umowy"],
+  };
+
+  it("wypełnia pola zapisaną umową i poprawka idzie do tego samego wiersza", async () => {
+    const user = setupUser();
+    const onEditConsumed = vi.fn();
+    mocks.generatedForm.mockResolvedValue({
+      id: 90,
+      contract_number: "1490/2026",
+      form: SAVED_FORM,
+    });
+    mocks.rerenderGenerated.mockResolvedValue(docxResponse("90"));
+    renderForm({
+      prefillCandidateId: null,
+      prefillJobId: null,
+      editGeneratedId: 90,
+      onEditConsumed,
+    });
+
+    expect(
+      await screen.findByText(
+        "Umowa 1490/2026 zapisana w rejestrze (W trakcie)",
+        undefined,
+        { timeout: PREFILL_WAIT },
+      ),
+    ).toBeInTheDocument();
+    expect(mocks.generatedForm).toHaveBeenCalledWith(90);
+    expect(onEditConsumed).toHaveBeenCalled();
+    const value = (label: string) =>
+      (screen.getByLabelText(label) as HTMLInputElement).value;
+    // Zapisane wartości wygrywają z profilem kandydata i z ofertą.
+    expect(value("Nazwa Firmy *")).toBe("JK Software (zapisana)");
+    expect(value("Imię i nazwisko — narzędnik (komparycja) *")).toBe(
+      "Janem Kowalskim (zapisany)",
+    );
+    expect(value("Miasto Klienta *")).toBe("Gdańsk");
+    expect(value("Opis projektu i zakres usług *")).toBe(
+      "Opis zapisany w umowie.",
+    );
+    expect(value("Telefon *")).toBe("7700 900123");
+    expect(value("Numer umowy (auto) *")).toBe("1490/2026");
+    expect(screen.getByRole("button", { name: "English" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Kobieta" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("combobox", { name: /Kandydat/ })).toHaveTextContent(
+      "Jan Kowalski",
+    );
+    expect(screen.getByRole("combobox", { name: /Waluta/ })).toHaveTextContent(
+      "EUR",
+    );
+    // Rejestr NIP-u nie nadpisuje wczytanych danych dzisiejszym stanem.
+    expect(mocks.companyLookup).not.toHaveBeenCalled();
+
+    await user.click(
+      screen.getAllByRole("button", { name: "Popraw i pobierz ponownie" })[0],
+    );
+    await waitFor(() => expect(mocks.rerenderGenerated).toHaveBeenCalledTimes(1));
+    expect(mocks.renderDocx).not.toHaveBeenCalled();
+    const [id, payload] = mocks.rerenderGenerated.mock.calls[0];
+    expect(id).toBe(90);
+    expect(payload).toMatchObject({
+      candidate_id: 42,
+      job_id: 10,
+      role_id: 3,
+      language: "en",
+      gender: "k",
+      partner_legal_name: "JK Software (zapisana)",
+      partner_phone: "+44 7700 900123",
+      partner_entity_type: "sole_trader",
+      client_name: "Klient z umowy",
+      contract_number: "1490/2026",
+      start_date_mode: "not_earlier",
+      currency: "EUR",
+      scope_items_override: ["Punkt z umowy"],
+      rate_stages: [
+        { rate: 140, effective_from: null, effective_to: "2026-12-31" },
+        { rate: 160, effective_from: "2027-01-01", effective_to: null },
+      ],
+    });
+  });
+
+  it("odmowa /form (409) → toast z komunikatem API i zdjęty parametr", async () => {
+    const onEditConsumed = vi.fn();
+    mocks.generatedForm.mockRejectedValue(
+      Object.assign(
+        new Error("Poprawić można tylko niepodpisaną umowę „W trakcie”."),
+        { response: { status: 409 } },
+      ),
+    );
+    renderForm({
+      prefillCandidateId: null,
+      prefillJobId: null,
+      editGeneratedId: 91,
+      onEditConsumed,
+    });
+
+    await waitFor(() =>
+      expect(mocks.showError).toHaveBeenCalledWith(
+        "Poprawić można tylko niepodpisaną umowę „W trakcie”.",
+      ),
+    );
+    expect(onEditConsumed).toHaveBeenCalled();
+    expect(screen.queryByText(/zapisana w rejestrze \(W trakcie\)/)).toBeNull();
+  });
+
+  it("ostrzeżenie o istniejącej umowie prowadzi wprost do poprawki, gdy wolno", async () => {
+    mocks.generated.mockResolvedValue([
+      existing({ can_edit: true, can_download: true }),
+    ]);
+    renderForm();
+    expect(
+      await screen.findByRole(
+        "link",
+        { name: "Popraw umowę 1490/2026" },
+        { timeout: PREFILL_WAIT },
+      ),
+    ).toHaveAttribute("href", "/contracts/b2b-generator?tab=generator&edit=90");
   });
 });
