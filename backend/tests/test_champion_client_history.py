@@ -183,3 +183,31 @@ async def test_route_stores_the_block_and_the_public_card_never_carries_it(
     # Karta dla hiring managera to biała lista — nowe bloki maszynowe
     # i notatki zespołu nie mają w niej pola.
     assert set(public) == {"basics", "project", "stack", "screening_questions"}
+
+
+@pytest.mark.asyncio
+async def test_route_keeps_a_profile_edit_made_while_the_model_was_thinking(
+    app_client, app_auth_headers, monkeypatch
+) -> None:
+    """Przegląd kodu 23.09: drugi odczyt bez `populate_existing` brał profil
+    z mapy tożsamości sesji — sprzed wywołania modelu — i cofał edycję DL."""
+    world = await _seed(events=1)
+
+    async def summarize_while_someone_saves(db, *, client_id, role, stored, user_id):
+        async with AsyncSessionLocal() as other:
+            job = await other.get(Job, world["job_id"])
+            job.champion_profile = {"project": {"about": "Edycja w trakcie"}}
+            await other.commit()
+        return {"status": "ready", "items": [], "debrief_questions": []}
+
+    monkeypatch.setattr(
+        history, "summarize_client_history", summarize_while_someone_saves
+    )
+    resp = await app_client.post(
+        f"/api/jobs/{world['job_id']}/champion-profile/client-history",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    profile = resp.json()["champion_profile"]
+    assert profile["project"]["about"] == "Edycja w trakcie"
+    assert profile["client_history"]["status"] == "ready"

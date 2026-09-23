@@ -524,6 +524,23 @@ export function applyTemplate(
     next.onsiteDays = String(src.onsite_days_per_week);
   }
   if (!next.city && src.location) next.city = src.location;
+  // Pola, które `POST /api/jobs` z `from_job_id` kopiuje z profilu źródłowego,
+  // muszą trafić też do formularza: PUT profilu zaraz po utworzeniu wysyła je
+  // i serwer scala sekcje płytko — puste pole w formularzu skasowałoby kopię.
+  const search = championSection(src.champion_profile, "search");
+  const client = championSection(src.champion_profile, "client");
+  const basics = championSection(src.champion_profile, "basics");
+  const text = (value: unknown) => (typeof value === "string" ? value : "");
+  if (!next.searchKeywords) next.searchKeywords = text(search.keywords);
+  if (!next.targetCompanies) next.targetCompanies = text(search.target_companies);
+  if (next.disqualifiers.length === 0 && Array.isArray(search.disqualifiers)) {
+    next.disqualifiers = search.disqualifiers.filter(
+      (d): d is string => typeof d === "string" && d.trim().length > 0,
+    );
+  }
+  if (!next.sellingPoints) next.sellingPoints = text(client.selling_points);
+  if (!next.language) next.language = text(basics.language);
+  if (!next.contractLength) next.contractLength = text(basics.contract_length);
   const experience = championSection(src.champion_profile, "experience");
   const kinds: ExperienceKind[] = ["domains", "certifications", "regulations"];
   if (kinds.every((kind) => next.experience[kind].length === 0)) {

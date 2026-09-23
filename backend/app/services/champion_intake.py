@@ -1151,6 +1151,16 @@ def user_edit(old, patch, actor_id, *, imported=False, actor_name=None):
     changed = any(merged[k] != normalized[k] for k in SECTION_KEYS)
     if not changed and not imported and old:
         return normalized
+    # Sama sekcja 8 (notatki) to nie zmiana profilu roli: bez `prepare_profile`,
+    # który przestemplowałby `intake.applied_at`. `intake` wchodzi do odcisku
+    # rankingu, więc odhaczenie „do dopytania” unieważniałoby pełny przegląd
+    # bazy (409) — a notatka nie zmienia tego, kogo szukamy.
+    if (
+        not imported
+        and old
+        and all(merged[k] == normalized[k] for k in SECTION_KEYS if k != "insights")
+    ):
+        return ChampionProfile.model_validate(merged).model_dump(mode="json")
     if imported:
         from app.services.champion_profile_ingest import PARSER_VERSION
 

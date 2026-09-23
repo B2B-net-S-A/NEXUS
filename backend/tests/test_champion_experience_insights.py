@@ -399,7 +399,9 @@ def test_screening_experience_checks_are_recorded_but_do_not_score() -> None:
     from app.schemas.champion import ScreeningAnswers
 
     base = {
-        "answers": [{"question_id": "q1", "response": "tak", "deal_breaker_hit": False}],
+        "answers": [
+            {"question_id": "q1", "response": "tak", "deal_breaker_hit": False}
+        ],
         "overall_fit": "fit",
     }
     with_checks = ScreeningAnswers.model_validate(
@@ -418,3 +420,41 @@ def test_screening_experience_checks_are_recorded_but_do_not_score() -> None:
         with_checks.match_percent()
         == ScreeningAnswers.model_validate(base).match_percent()
     )
+
+
+# ── Przegląd kodu 23.09.2026 — regresje, które test musi trzymać ─────────────
+
+
+def test_saving_notes_does_not_restamp_intake_nor_change_the_ranking_fingerprint() -> (
+    None
+):
+    """Notatka to nie zmiana wymagań: odcisk rankingu (z `intake`) ma zostać."""
+    base = user_edit({}, {"stack": {"must": [{"name": "Selenium"}]}}, 5)
+    with_note = user_edit(base, {"insights": [{"text": "Decyduje CTO"}]}, 5)
+    assert with_note["intake"] == base["intake"]
+
+    # Zapis bez zmian (edytor odsyła widok) — nic się nie przestemplowuje.
+    unchanged = user_edit(with_note, champion_view.api_response(with_note), 6)
+    assert unchanged == ChampionProfile.model_validate(with_note).model_dump(
+        mode="json"
+    )
+
+    done = [
+        {**n, "done": True} for n in champion_view.api_response(with_note)["insights"]
+    ]
+    ticked = user_edit(with_note, {"insights": done}, 6)
+    assert ticked["insights"][0]["done"] is True
+    ignored = champion_view.RANKING_IGNORED_KEYS
+    assert champion_view.requirement_source(
+        ticked, ignored=ignored
+    ) == champion_view.requirement_source(with_note, ignored=ignored)
+
+
+def test_long_legacy_field_does_not_break_validation_of_the_view() -> None:
+    """Stare pole bez limitu (import z Traffita) nie może dać 422 przy imporcie."""
+    from app.services.champion_intake import prepare_profile
+
+    view = champion_view.api_response({"client": {"consultant_insight": "x" * 2100}})
+    note = next(n for n in view["insights"] if n["id"].startswith("legacy:"))
+    assert len(note["text"]) <= 2000
+    prepare_profile(view)  # nie rzuca

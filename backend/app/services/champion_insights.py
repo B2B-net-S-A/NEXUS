@@ -120,6 +120,9 @@ def merge_insights(
                 "author_name": author_name,
                 "created_at": created_at,
                 "updated_at": updated_at,
+                # Pole schematu (domyślnie True) — bez niego porównanie z zapisanym
+                # profilem widziało zmianę przy KAŻDYM zapisie z notatkami.
+                "editable": True,
             }
         )
         if len(notes) >= INSIGHTS_MAX:

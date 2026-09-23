@@ -291,3 +291,42 @@ describe("v2 — cały profil Championa z propozycji Luny", () => {
     ]);
   });
 });
+
+describe("szablon z podobnej rekrutacji — przegląd kodu 23.09", () => {
+  it("przenosi frazy, firmy, dyskwalifikatory, argumenty, język i długość — PUT nie może ich skasować", () => {
+    const next = applyTemplate(formFromIntake({ ...INTAKE }), {
+      id: 7,
+      champion_profile: {
+        search: {
+          keywords: "Java, Spring",
+          target_companies: "Asseco",
+          disqualifiers: ["brak polskiego"],
+        },
+        client: { selling_points: "Greenfield" },
+        basics: { language: "PL, EN B2", contract_length: "12 mies." },
+      },
+    });
+    const champion = buildChampionPayload(next) as {
+      search: Record<string, unknown>;
+      client: Record<string, unknown>;
+      basics: Record<string, unknown>;
+    };
+    expect(champion.search).toEqual({
+      keywords: "Java, Spring",
+      target_companies: "Asseco",
+      disqualifiers: ["brak polskiego"],
+    });
+    expect(champion.client.selling_points).toBe("Greenfield");
+    expect(champion.basics.language).toBe("PL, EN B2");
+    expect(champion.basics.contract_length).toBe("12 mies.");
+  });
+
+  it("nie nadpisuje tego, co już jest w formularzu", () => {
+    const form = { ...formFromIntake(INTAKE), searchKeywords: "z maila" };
+    const next = applyTemplate(form, {
+      id: 7,
+      champion_profile: { search: { keywords: "z szablonu" } },
+    });
+    expect(next.searchKeywords).toBe("z maila");
+  });
+});

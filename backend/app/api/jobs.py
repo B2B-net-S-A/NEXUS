@@ -2907,8 +2907,15 @@ async def refresh_champion_client_history(
 
     # Blok liczony poza blokadą wiersza (model trwa kilka–kilkanaście sekund);
     # zapis na świeżo zablokowanym profilu, żeby nie nadpisać równoległej
-    # edycji innych sekcji.
-    job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+    # edycji innych sekcji. `populate_existing` jest konieczne: bez niego
+    # SQLAlchemy zwraca obiekt z mapy tożsamości sesji z profilem SPRZED
+    # wywołania modelu i zapis cofał edycję zrobioną w tym czasie.
+    job = await db.scalar(
+        select(Job)
+        .where(Job.id == job_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     current = dict(job.champion_profile or {})
     defaults = ChampionProfile().model_dump(mode="json")
     for key, value in defaults.items():

@@ -203,6 +203,14 @@ LEGACY_INSIGHT_FIELDS = {
     ),
 }
 VERIFICATION_INSIGHT_IDS = ("verification:client", "verification:consultant")
+# Lustro `schemas.champion.INSIGHT_TEXT_MAX_CHARS` (moduł bez Pydantica —
+# patrz docstring). Stare pola i teksty weryfikacji nie mają limitu, a widok
+# wraca do API walidacji importu: dłuższy tekst dawał tam 422.
+_VIEW_TEXT_MAX_CHARS = 2000
+
+
+def _view_text(value: Any) -> str:
+    return str(value).strip()[:_VIEW_TEXT_MAX_CHARS]
 
 
 def insights(source: Any) -> list[dict]:
@@ -226,7 +234,7 @@ def insights(source: Any) -> list[dict]:
                 "source": "client",
                 "topic": "needs",
                 "audience": "team",
-                "text": str(corrections).strip(),
+                "text": _view_text(corrections),
                 "origin": "verification",
                 "author_id": client_ver.get("verified_by_id"),
                 "author_name": client_ver.get("verified_by_name"),
@@ -245,7 +253,7 @@ def insights(source: Any) -> list[dict]:
                 "source": "consultant",
                 "topic": "team",
                 "audience": "team",
-                "text": str(consultant_text).strip(),
+                "text": _view_text(consultant_text),
                 "origin": "verification",
                 "author_id": consultant_ver.get("verified_by_id"),
                 "author_name": consultant_ver.get("verified_by_name"),
@@ -265,7 +273,7 @@ def insights(source: Any) -> list[dict]:
                     "id": note_id,
                     **meta,
                     "audience": "team",
-                    "text": text.strip(),
+                    "text": _view_text(text),
                     "origin": "legacy",
                     "author_id": None,
                     "author_name": None,
