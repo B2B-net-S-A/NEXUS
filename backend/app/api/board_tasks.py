@@ -1,6 +1,7 @@
 """Router `/api/board-tasks` — kolejka „Czeka na Ciebie" (0348).
 
-Odczyt listy (DZ, do wysłania do Cpro, wysłane do Cpro) i zmiana osoby, która
+Odczyt listy (DZ, do wysłania do Cpro, wysłane do Cpro, przegląd DL przed
+wysłaniem CV do klienta) i zmiana osoby, która
 wysyła kandydata do Cpro. Samo zatwierdzenie DZ i oznaczenie „wysłane" to
 zwykły ruch w pipeline (`POST /api/pipeline/move`) — ta trasa nie ma własnej
 ścieżki zapisu etapu, żeby reguły ruchu (wersja procesu, ostrzeżenia
@@ -24,6 +25,7 @@ from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
+from app.models.user import UserRole
 from app.services import board_tasks as svc
 from app.services.board_stage_badges import (
     DZ_BADGE_ROLES,
@@ -35,7 +37,7 @@ router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 
 class BoardTaskRow(BaseModel):
-    kind: Literal["dz", "cpro_to_send", "cpro_sent"]
+    kind: Literal["dz", "cpro_to_send", "cpro_sent", "dl_review"]
     stage_id: int
     candidate_id: int
     candidate_name: str
@@ -48,14 +50,29 @@ class BoardTaskRow(BaseModel):
     target_stage_def_id: Optional[int] = None
     assignee_id: Optional[int] = None
     assignee_name: Optional[str] = None
+    # Tylko przegląd DL (`dl_review`); przy pozostałych rodzajach puste.
+    rejected_stage_def_id: Optional[int] = None
+    verified_by_id: Optional[int] = None
+    verified_by_name: Optional[str] = None
+    verified_at: Optional[datetime] = None
+    expected_rate_value: Optional[float] = None
+    expected_rate_unit: Optional[str] = None
+    expected_rate_currency: Optional[str] = None
+    screening_stage_id: Optional[int] = None
 
 
 class BoardTasksResponse(BaseModel):
     dz: list[BoardTaskRow]
     cpro_to_send: list[BoardTaskRow]
     cpro_sent: list[BoardTaskRow]
+    dl_review: list[BoardTaskRow]
     window_days: int
+    dl_review_window_days: int
     can_approve_dz: bool
+    # Ruch na „CV wysłane" ze stawką do klienta (u klientów spoza Nordei)
+    # wykonuje wyłącznie admin albo Delivery Lead — Head of Recruitment widzi
+    # kolejkę, ale serwer odmówiłby mu wysyłki.
+    can_send_to_client: bool
 
 
 class CproAssigneeUpdate(BaseModel):
@@ -82,8 +99,13 @@ async def list_board_tasks(
         cpro_to_send=[BoardTaskRow(**t.as_dict()) for t in mine[svc.KIND_CPRO_TO_SEND]],
         # Najdłużej czekające na Nordeę na górze — wysłane rośnie w czasie.
         cpro_sent=[BoardTaskRow(**t.as_dict()) for t in mine[svc.KIND_CPRO_SENT]],
+        dl_review=[BoardTaskRow(**t.as_dict()) for t in mine[svc.KIND_DL_REVIEW]],
         window_days=svc.WINDOW_DAYS,
+        dl_review_window_days=svc.DL_REVIEW_WINDOW_DAYS,
         can_approve_dz=current_user.has_any_role(*DZ_BADGE_ROLES),
+        can_send_to_client=current_user.has_any_role(
+            UserRole.admin, UserRole.delivery_lead
+        ),
     )
 
 

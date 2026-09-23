@@ -20,6 +20,22 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showSuccess, showError }),
 }));
+vi.mock("@/components/v2/recruitment/DlReviewPanel", () => ({
+  DlReviewPanel: ({
+    task,
+    open,
+    canSendToClient,
+  }: {
+    task: { candidate_name: string } | null;
+    open: boolean;
+    canSendToClient?: boolean;
+  }) =>
+    open && task ? (
+      <div role="dialog" aria-label="Przegląd DL">
+        {task.candidate_name} · wysyłka {canSendToClient ? "tak" : "nie"}
+      </div>
+    ) : null,
+}));
 
 import { BoardTasksPanel } from "@/components/v2/dashboard/BoardTasksPanel";
 import { useAuthStore } from "@/store/auth";
@@ -75,6 +91,20 @@ describe("BoardTasksPanel — „Czeka na Ciebie” na pulpicie", () => {
     const { container } = renderPanel();
     await waitFor(() => expect(get).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("„Czeka na Twój przegląd (DL)” otwiera panel przeglądu kandydata", async () => {
+    mockQueue({
+      can_send_to_client: true,
+      dl_review_window_days: 30,
+      dl_review: [row("dl_review", { candidate_name: "Ola Przegląd", client_name: "PKO BP" })],
+    });
+    renderPanel();
+    const section = await screen.findByRole("region", { name: "Czeka na Twój przegląd (DL)" });
+    expect(within(section).getByText("Java Developer · PKO BP")).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Przegląd DL" })).toBeNull();
+    await userEvent.click(within(section).getByRole("button", { name: "Przejrzyj: Ola Przegląd" }));
+    expect(screen.getByRole("dialog", { name: "Przegląd DL" })).toHaveTextContent("Ola Przegląd · wysyłka tak");
   });
 
   it("„DZ” to zwykły ruch na etap DZ z wersją procesu", async () => {

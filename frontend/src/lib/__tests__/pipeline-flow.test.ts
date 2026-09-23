@@ -21,6 +21,7 @@ import {
   findStageColumn,
   groupKanbanColumns,
   groupKeyForColumn,
+  isNewColumn,
   formatExpectedRate,
   itemFullName,
   moveBlockedReason,
@@ -138,6 +139,31 @@ describe("selectScreeningQueue", () => {
 
   it("brak kolumny „Screening” w szablonie to pusta kolejka, nie wyjątek", () => {
     expect(selectScreeningQueue([board[1]])).toEqual([]);
+  });
+
+  it("Pipeline v4: bierze wszystkie kolumny wpadające do „Nowych”, w kolejności tablicy", () => {
+    const v4: KanbanColumn[] = [
+      col({ stage: "posting", name: "Ogłoszenia", stage_def_id: 1, items: [item({ id: 1 })] }),
+      col({ stage: "new", name: "Nowi", stage_def_id: 2, items: [item({ id: 2 })] }),
+      col({ stage: "screening", name: "Screening", stage_def_id: 3, items: [item({ id: 3 })] }),
+      // Kod `new`, ale nazwa „Umowa wysłana" → kolumna Umowa, nie Nowi.
+      col({ stage: "new", name: "Umowa wysłana", stage_def_id: 4, items: [item({ id: 4 })] }),
+      col({ stage: "verified", name: "Zweryfikowany", stage_def_id: 5, items: [item({ id: 5 })] }),
+      col({
+        stage: "rejected",
+        name: "Odrzucony",
+        category: "terminal",
+        terminal_type: "rejected",
+        stage_def_id: 9,
+        items: [item({ id: 9 })],
+      }),
+      // Kubełek „Poza szablonem" z tabeli osób nie jest etapem.
+      col({ stage: "__off_template__", name: "Poza szablonem", items: [item({ id: 10 })] }),
+    ];
+    expect(selectScreeningQueue(v4).map((e) => e.item.id)).toEqual([1, 2, 3]);
+    expect(isNewColumn(v4[0])).toBe(true);
+    expect(isNewColumn(v4[3])).toBe(false);
+    expect(isNewColumn(v4[6])).toBe(false);
   });
 });
 

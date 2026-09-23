@@ -190,6 +190,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/jobs-list-v3",
     "/preview/jarvis",
     "/preview/recruitment-v3",
+    "/preview/pipeline-v4",
     "/preview/calendar-cycle",
     "/preview/kariera",
     "/preview/career-share",

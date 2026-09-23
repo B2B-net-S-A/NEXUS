@@ -1,6 +1,6 @@
 """Odznaki Tablicy rekrutacji, które są etapami szablonu (22.09.2026).
 
-Tablica ma 9 kolumn — to, co nie jest krokiem procesu, jest odznaką na
+Tablica ma 6 kolumn (od 23.09.2026) — to, co nie jest krokiem procesu, jest odznaką na
 karcie (`frontend/src/lib/board-stages.ts`). Dwie z nich niosą regułę
 „kto może", więc serwer sprawdza ją przy ruchu na ich etap:
 
@@ -140,6 +140,65 @@ def foreign_stage_target(
             return hosts[-1] if hosts else None
         return mapped
     return None
+
+
+# Kolumna Tablicy dla KODU etapu — lustro `BY_ENUM` w `board-stages.ts`.
+_COLUMN_BY_ENUM: dict[str, str] = {
+    "posting": "new",
+    "new": "new",
+    "prep_call": "new",
+    "screening": "new",
+    "verified": "verified",
+    "interview": "verified",
+    "cv_sent": "cv_sent",
+    "client_interview": "client_interview",
+    "acceptance": "contract",
+    "negotiation": "contract",
+    "onboarding": "hired",
+    "hired": "hired",
+    "rejected": "closed",
+    "withdrawn": "closed",
+}
+
+# Kolumna dla odznak rozpoznanych po NAZWIE — lustro `placeStage`.
+_COLUMN_BY_NAME_BADGE: dict[str, str] = {
+    "dz": "verified",
+    "cpro": "verified",
+    "contract_signed": "contract",
+    "contract_sent": "contract",
+    "after_interview": "client_interview",
+    "prep": "client_interview",
+    "onboarding": "hired",
+}
+
+# Etapy kolumny „Nowi" (23.09.2026) — tu obowiązuje blokada 12 h.
+NEW_COLUMN = "new"
+
+
+def board_column_for(
+    name: Optional[str],
+    stage: Optional[str],
+    *,
+    category: Optional[str] = None,
+    terminal_type: Optional[str] = None,
+) -> str:
+    """Kolumna Tablicy (6 kolumn + „closed") — lustro `placeStage`.
+
+    Czytają ją blokada 12 h (osoba jest w „Nowych”?) i statystyki
+    („ile osób jest teraz w kolumnie”). Wspólne przypadki:
+    `frontend/src/lib/__fixtures__/board-stage-cases.json`.
+    """
+
+    kind = stage_badge_kind(name)
+    if kind is not None:
+        return _COLUMN_BY_NAME_BADGE[kind]
+    if "rezerw" in normalize_stage_name(name):
+        return "closed"
+    if stage == "hired" or terminal_type == "hired":
+        return "hired"
+    if category == "terminal":
+        return "closed"
+    return _COLUMN_BY_ENUM.get(stage or "", "new")
 
 
 def cpro_enabled_for_client(client_id: Optional[int]) -> bool:

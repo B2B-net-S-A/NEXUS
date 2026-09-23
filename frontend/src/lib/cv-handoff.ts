@@ -19,13 +19,12 @@
  *   `CandidateStage` bez dokumentu, a sfinalizowane CV brandowane leży na
  *   etapie „Zweryfikowany". Wołający przekazuje więc identyfikator etapu
  *   złapany PRZED ruchem (serwer nie wymaga, żeby był to etap najnowszy).
- * - Stawka PO ruchu: `update_latest_client_rate` pisze na NAJNOWSZYM etapie
- *   pary (kandydat, rekrutacja), a „każdy ruch na nowy etap startuje z pustą
- *   stawką" (docstring endpointu). Stawka zapisana przed ruchem lądowałaby na
- *   etapie „Zweryfikowany", a nowy „CV Wysłane" zostałby z NULL — tablica
- *   robi ruch → stawkę z dokładnie tego powodu (komentarz w `KanbanBoardV2`).
+ * - Stawka W RUCHU (Pipeline v4, 23.09.2026): poza Nordeą serwer odmawia
+ *   ruchu na „CV Wysłane" bez stawki do klienta, więc stawka jedzie w tym
+ *   samym żądaniu (`client_rate_*` w `/pipeline/move`) i ląduje na nowym
+ *   wierszu etapu. Do 23.09 zapisywał ją osobny PATCH po ruchu.
  *
- * Porażka linku albo stawki PO ruchu NIE cofa ruchu i nie jest fatalna
+ * Porażka linku PO ruchu NIE cofa ruchu i nie jest fatalna
  * (lustro tablicy: „Przeniesiono, ale nie udało się zapisać stawki"): ruch
  * jest faktem, którego nie da się odkręcić. Stawkę uzupełnia się z profilu
  * kandydata, a link — z panelu wyników warsztatu, który pamięta etap sprzed
@@ -56,15 +55,11 @@ export interface CvHandoffPlan {
 }
 
 export interface CvHandoffDeps {
-  saveClientRate: (rate: {
-    value: number;
-    unit: RateUnit;
-    currency: string;
-  }) => Promise<void>;
   createShareLink: (opts: {
     expiresInDays: number;
   }) => Promise<{ shareUrlSuffix: string | null }>;
-  move: () => Promise<void>;
+  /** Ruch na „CV Wysłane" — ze stawką do klienta w tym samym żądaniu. */
+  move: (clientRate: CvHandoffPlan["clientRate"]) => Promise<void>;
 }
 
 export interface CvHandoffResult {
@@ -106,7 +101,7 @@ export async function runCvHandoff(
   let shareUrlSuffix: string | null = null;
 
   try {
-    await deps.move();
+    await deps.move(plan.clientRate);
   } catch (e) {
     throw new CvHandoffError("move", [...completed], e);
   }
@@ -124,16 +119,9 @@ export async function runCvHandoff(
     skipped.push("share_link");
   }
 
-  if (plan.clientRate) {
-    try {
-      await deps.saveClientRate(plan.clientRate);
-      completed.push("client_rate");
-    } catch (e) {
-      failedAfterMove.push({ step: "client_rate", reason: e });
-    }
-  } else {
-    skipped.push("client_rate");
-  }
+  // Stawka pojechała w ruchu — udany ruch = zapisana stawka.
+  if (plan.clientRate) completed.push("client_rate");
+  else skipped.push("client_rate");
 
   return { completed, skipped, failedAfterMove, shareUrlSuffix };
 }

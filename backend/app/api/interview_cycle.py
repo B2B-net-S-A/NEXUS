@@ -23,13 +23,15 @@ wydarzeniu związanym z rekrutacją.
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
+from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +43,7 @@ from app.api.recruitment_access import (
     RecruitmentReadAccess,
     ensure_job_membership,
     ensure_job_read_access,
+    job_read_scope_clause,
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -55,10 +58,15 @@ from app.models.interview_question import (
 )
 from app.models.job import Job
 from app.models.notification import NotificationType
+from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
 from app.services import interview_slots
 from app.services.interview_cycle import load_overview
+from app.services.pipeline_auto_move import auto_advance
+from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.workforce_availability import operational_owner_ids
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -103,6 +111,9 @@ class SlotRequestOut(BaseModel):
     duration_minutes: int
     note: Optional[str] = None
     event_id: Optional[int] = None
+    # Pipeline v4: terminy od klienta przesunęły kartę na „Rozmowa u klienta”
+    # (tylko w odpowiedzi na utworzenie wniosku).
+    moved_to_client_interview: bool = False
 
 
 class DebriefSummary(BaseModel):
@@ -198,6 +209,9 @@ class DebriefIn(BaseModel):
     offer_acceptance: OfferAcceptance
     acceptance_condition: Optional[str] = Field(None, max_length=2000)
     notify_dl: bool = True
+    # Jawne „klient nie zadawał pytań” — pusta lista bez tej flagi to brak
+    # informacji, nie odpowiedź (bramka przed „Umową”, ``services/debrief_gate``).
+    no_client_questions: bool = False
 
     @field_validator("questions")
     @classmethod
@@ -219,6 +233,19 @@ class DebriefIn(BaseModel):
             raise ValueError(f"Najwyżej {MAX_DEBRIEF_QUESTIONS} pytań w debriefie.")
         return cleaned
 
+    @model_validator(mode="after")
+    def _questions_or_confirmation(self) -> "DebriefIn":
+        if self.questions:
+            # Pytania są, więc „nie pytał” byłoby sprzeczne — pytania wygrywają.
+            self.no_client_questions = False
+        elif not self.no_client_questions:
+            # PydanticCustomError: 422 bez prefiksu „Value error, ...”.
+            raise PydanticCustomError(
+                "debrief_questions_required",
+                "Wpisz pytania klienta albo zaznacz, że klient ich nie zadawał.",
+            )
+        return self
+
 
 class DebriefOut(BaseModel):
     id: int
@@ -230,6 +257,7 @@ class DebriefOut(BaseModel):
     questions: list[str] = []
     offer_acceptance: Optional[str] = None
     acceptance_condition: Optional[str] = None
+    no_client_questions: bool = False
     questions_saved: int = 0
 
 
@@ -314,6 +342,7 @@ def _debrief_out(fb: InterviewFeedback, *, questions_saved: int = 0) -> DebriefO
         questions=_questions_from_text(fb.client_questions),
         offer_acceptance=fb.offer_acceptance,
         acceptance_condition=fb.acceptance_condition,
+        no_client_questions=bool(fb.no_client_questions),
         questions_saved=questions_saved,
     )
 
@@ -477,6 +506,32 @@ async def create_slot_request(
                 "anuluj je albo dokończ wybór."
             ),
         ) from exc
+    # Pipeline v4 (23.09.2026): terminy od klienta = kandydat JEST w rozmowie
+    # u klienta. Karta jedzie tam sama — wyłącznie do przodu; proces zamknięty
+    # albo karta już dalej zostają bez zmian.
+    # Ruch jest dodatkiem do wniosku: jego awaria (savepoint) zostawia kartę
+    # na miejscu i nie cofa terminów, które DL właśnie wpisał.
+    actor_id = current_user.id
+    moved = None
+    try:
+        async with db.begin_nested():
+            moved = await auto_advance(
+                db,
+                candidate_id=body.candidate_id,
+                job_id=body.job_id,
+                target=PipelineStage.client_interview,
+                actor_user_id=actor_id,
+                source="interview_slots",
+                note="Auto: terminy od klienta",
+            )
+    except Exception:  # noqa: BLE001 — ruch karty nie może wywrócić wniosku
+        moved = None
+        logger.exception(
+            "interview slots: auto move to client_interview failed "
+            "(candidate %s, job %s)",
+            body.candidate_id,
+            body.job_id,
+        )
     await interview_slots.notify(
         db,
         user_id=recruiter_id,
@@ -487,11 +542,16 @@ async def create_slot_request(
             f"{len(slots)} terminy rozmowy u klienta do ustalenia z kandydatem "
             f"({job.title})."
         ),
-        actor_id=current_user.id,
+        actor_id=actor_id,
     )
     await db.commit()
     await db.refresh(req)
-    return _slot_out(req)
+    if moved is not None:
+        # Live kanban: reszta zespołu odświeża tablicę (best-effort).
+        await broadcast_pipeline_changed(db, body.job_id, actor_id)
+    out = _slot_out(req)
+    out.moved_to_client_interview = moved is not None
+    return out
 
 
 @router.post(
@@ -647,6 +707,7 @@ async def save_debrief(
     fb.overall_impression = _OUTCOME_TO_IMPRESSION[body.outcome]
     fb.concerns = (body.candidate_comment or "").strip() or None
     fb.client_questions = "\n".join(body.questions) or None
+    fb.no_client_questions = body.no_client_questions
     fb.offer_acceptance = body.offer_acceptance
     fb.acceptance_condition = (body.acceptance_condition or "").strip() or None
     try:
@@ -715,19 +776,49 @@ async def save_debrief(
 @router.get("/interview-cycle/client-questions", response_model=list[ClientQuestionOut])
 async def list_client_questions(
     current_user: RecruitmentReadAccess,
-    job_id: int = Query(...),
+    job_id: Optional[int] = Query(None),
+    client_id: Optional[int] = Query(None),
     limit: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ) -> list[ClientQuestionOut]:
-    """Pytania, które klient tej rekrutacji zadawał kandydatom (z debriefów).
+    """Pytania, które klient zadawał kandydatom (z debriefów).
 
-    Po rekrutacji, nie po kliencie: dostęp do rekrutacji jest tym, co
-    sprawdzamy wszędzie indziej, a klient wynika z niej.
+    Zwykle po rekrutacji (``job_id``): dostęp do rekrutacji jest tym, co
+    sprawdzamy wszędzie indziej, a klient wynika z niej. ``client_id`` służy
+    ekranowi nowej rekrutacji (jeszcze bez ``job_id``) — wtedy wołający musi
+    móc czytać choć jedną rekrutację tego klienta; admin/HoR/DL/Finanse czytają
+    je organizacyjnie.
     """
-    await ensure_job_read_access(db, current_user, job_id)
-    client_id = await db.scalar(select(Job.client_id).where(Job.id == job_id))
-    if client_id is None:
-        return []
+    if (job_id is None) == (client_id is None):
+        raise HTTPException(
+            status_code=422,
+            detail="Podaj rekrutację albo klienta (dokładnie jedno z nich).",
+        )
+    if job_id is not None:
+        await ensure_job_read_access(db, current_user, job_id)
+        client_id = await db.scalar(select(Job.client_id).where(Job.id == job_id))
+        if client_id is None:
+            return []
+    else:
+        readable = await db.scalar(
+            select(
+                exists().where(
+                    Job.client_id == client_id,
+                    job_read_scope_clause(current_user, Job.id),
+                )
+            )
+        )
+        if not readable:
+            has_jobs = await db.scalar(
+                select(exists().where(Job.client_id == client_id))
+            )
+            if has_jobs:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Brak dostępu do rekrutacji tego klienta.",
+                )
+            # Klient bez rekrutacji nie ma debriefów — nie ma czego pokazać.
+            return []
     rows = (
         await db.execute(
             select(InterviewQuestion)

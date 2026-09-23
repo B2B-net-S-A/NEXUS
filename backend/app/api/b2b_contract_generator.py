@@ -57,7 +57,7 @@ from app.models.contract_template import ContractTemplate
 from app.models.job import Job
 from app.models.note import Note, NoteType
 from app.models.job_collaborator import JobCollaborator
-from app.models.recruitment_pipeline import CandidateStage
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services.action_permissions import (
     ActionAccess,
@@ -95,6 +95,8 @@ from app.services.contract_lifecycle import (
     activate_without_revenue_gate,
 )
 from app.services.contract_order_sync import resync_contract_safely
+from app.services.hired_order_status import notify_finance_hired_without_order
+from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.b2b_contract_automation import (
     ORDER_SKIPPED_COST_CLIENT,
     ORDER_SKIPPED_OPEN_GROUP_LINE,
@@ -2070,9 +2072,13 @@ async def confirm_generated_contract_fully_signed(
 ):
     """One-way, audited manual confirmation with atomic employment automation.
 
-    Wiąże kontrakt i zapewnia zamówienie. Od 17.09.2026 NIE przesuwa kandydata
-    na „Zatrudniony" — umowę podpisujemy offline, etap zmienia człowiek na
-    tablicy pipeline'u.
+    Wiąże kontrakt, zapewnia zamówienie i przesuwa kandydata na „Zatrudniony"
+    (Pipeline v4, decyzja Artura 23.09.2026 — cofa decyzję z 17.09.2026:
+    podpisana umowa JEST zatrudnieniem, człowiek nie musi tego klikać drugi
+    raz). Podpis jest dowodem zatrudnienia, więc przesuwa także kartę
+    z zamkniętej historii (np. „Odrzucony" z importu Traffita) — jak przed
+    17.09. Gdy para nie ma uzupełnionego zamówienia, Finanse dostają
+    powiadomienie ``hired_order_missing``.
     """
 
     _require_signature_confirmation(current_user)
@@ -2238,9 +2244,11 @@ async def confirm_generated_contract_fully_signed(
             signing_date=row.signing_date,
             language=row.language,
             ensure_order=True,
-            # 17.09.2026: podpis NIE przesuwa kandydata na „Zatrudniony" —
-            # etap zmienia człowiek na tablicy (decyzja „bez bramek").
-            ensure_hired=False,
+            # Pipeline v4 (23.09.2026): podpis przesuwa kandydata na
+            # „Zatrudniony". Gdy polityka Priority Work odmówi otwarcia procesu,
+            # `_ensure_hired_stage` łapie PriorityWorkLocked i podpis przechodzi
+            # bez ruchu karty — komunikat mówi to wprost.
+            ensure_hired=True,
             audit_source_generated_id=row.id,
             keep_existing_terms=payload.keep_existing_contract_terms,
         )
@@ -2334,7 +2342,37 @@ async def confirm_generated_contract_fully_signed(
         # after employment was already persisted.
         await db.flush()
         item = await _serialize_generated_contract(db, row, current_user)
+        # Stan etapu PO automatyzacji — komunikat mówi prawdę także wtedy, gdy
+        # kandydat był już zatrudniony albo jego proces jest zamknięty.
+        latest_stage = await db.scalar(
+            select(CandidateStage.stage)
+            .where(
+                CandidateStage.candidate_id == candidate_id,
+                CandidateStage.job_id == job.id,
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
+        )
+        is_hired = latest_stage == PipelineStage.hired
+        # Identyfikatory przed commitem — powiadomienie Finansów idzie po nim.
+        finance_notice = {
+            "contract_id": result.contract.id,
+            "candidate_id": candidate_id,
+            "job_id": job.id,
+            "client_id": job.client_id,
+            "start_date": result.contract.start_date,
+        }
+        current_user_id = current_user.id
         await db.commit()
+        # Live kanban: karta przeszła na „Zatrudniony" (best-effort).
+        if result.created_hired_stage:
+            await broadcast_pipeline_changed(db, job.id, current_user_id)
+        # Finanse: nowy kontraktor bez uzupełnionego zamówienia. Osoba na
+        # otwartej linii zamówienia MD/kosztowego ma już zamówienie grupowe.
+        # Fail-soft: podpis jest już zapisany.
+        if result.order_skipped_reason != ORDER_SKIPPED_OPEN_GROUP_LINE:
+            if await notify_finance_hired_without_order(db, **finance_notice):
+                await db.commit()
         outcome = "created" if result.created_contract else "linked_existing"
         # Zdanie bazowe wybierane RAZ, sufiks klienta kosztowego DOKLEJANY —
         # nie nadpisujący. Wcześniej gałąź „brak zamówienia" podmieniała cały
@@ -2353,21 +2391,26 @@ async def confirm_generated_contract_fully_signed(
                 "aktywny kontrakt" if contract_activated else "szkic kontraktora"
             )
             message = (
-                f"Utworzono {contract_label} i szkic zamówienia oraz oznaczono "
-                "kandydata jako zatrudnionego."
+                f"Utworzono {contract_label} i szkic zamówienia."
                 if result.order is not None
-                else (
-                    f"Utworzono {contract_label} i oznaczono kandydata jako "
-                    "zatrudnionego."
-                )
+                else f"Utworzono {contract_label}."
             )
         else:
             message = (
-                "Kontraktor już istniał — umowę powiązano bez tworzenia "
-                "duplikatu, a zatrudnienie zsynchronizowano."
+                "Kontraktor już istniał — umowę powiązano bez tworzenia duplikatu."
             )
             if contract_activated:
                 message += " Kontrakt jest teraz aktywny."
+        if result.created_hired_stage:
+            message += " Kandydata przesunięto na etap „Zatrudniony”."
+        elif is_hired:
+            message += " Kandydat jest na etapie „Zatrudniony”."
+        else:
+            message += (
+                " Etapu kandydata w pipeline nie zmieniono automatycznie (brak "
+                "otwartego procesu w tej rekrutacji) — przesuń go ręcznie na "
+                "„Zatrudniony”."
+            )
         if result.order_skipped_reason == ORDER_SKIPPED_OPEN_GROUP_LINE:
             # Osoba już na linii MD/kosztowej — inny powód i inny następny
             # krok niż u klienta kosztowego: nic nie trzeba dodawać, co

@@ -70,6 +70,7 @@ function moveControls(): PipelineMoveControls {
     requestMove: vi.fn(),
     requestBulkMove: vi.fn(),
     requestReject: vi.fn(),
+    requestWithdraw: vi.fn(),
     isMoving: false,
     dialogs: null,
   };
@@ -225,7 +226,7 @@ describe("PersonPanel — nagłówek i ruch etapu", () => {
     const { rerenderPanel } = renderPanel({ candidateId: 3 });
     expect(screen.queryByRole("button", { name: /Przenieś na etap/ })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Etap")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Odrzuć" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Odrzuć…" })).toBeInTheDocument();
     // Ta sama osoba, inna sekcja — ogólny przycisk wraca.
     rerenderPanel({ candidateId: 3, section: "notes" });
     expect(screen.getByRole("button", { name: /Przenieś na etap/ })).toBeInTheDocument();
@@ -235,6 +236,11 @@ describe("PersonPanel — nagłówek i ruch etapu", () => {
     // Osoba u klienta otwiera sekcję CV tylko do odczytu — warsztat nie ma tam ruchu.
     rerenderPanel({ candidateId: 4, section: "cv" });
     expect(screen.getByRole("button", { name: /Przenieś na etap/ })).toBeInTheDocument();
+  });
+
+  it("Pipeline v4: osoba w „Nowych” ma warsztat screeningu z własnym ruchem", () => {
+    renderPanel({ candidateId: 1, section: "screening" });
+    expect(screen.queryByRole("button", { name: /Przenieś na etap/ })).not.toBeInTheDocument();
   });
 
   it("warsztaty Screening i CV dostają podgląd tylko do odczytu na osobę spoza kolejki", () => {
@@ -256,14 +262,17 @@ describe("PersonPanel — nagłówek i ruch etapu", () => {
     expect(move.requestMove).toHaveBeenCalledWith(rowOf(3).item, rowOf(3).column, columns[4]);
     // Kontrolowany etapem z wiersza: anulowane okno ruchu nie zostawia złej wartości.
     expect(select).toHaveValue("def:3");
-    await userEvent.click(screen.getByRole("button", { name: "Odrzuć" }));
+    await userEvent.click(screen.getByRole("button", { name: "Odrzuć…" }));
     expect(move.requestReject).toHaveBeenCalledWith(rowOf(3).item);
+    // Pipeline v4: rezygnacja kandydata to osobny przycisk na każdym etapie.
+    await userEvent.click(screen.getByRole("button", { name: "Zrezygnował…" }));
+    expect(move.requestWithdraw).toHaveBeenCalledWith(rowOf(3).item);
   });
 
   it("tylko do odczytu: ruch wyłączony z powodem, notatki bez pola", async () => {
     renderPanel({ candidateId: 1, readOnly: true });
     expect(screen.getByLabelText("Etap")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Odrzuć" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Odrzuć…" })).toBeDisabled();
     const forward = screen.getByRole("button", { name: "Przenieś na kolejny etap" });
     expect(forward).toBeDisabled();
     expect(screen.getAllByText(/Tylko do odczytu/).length).toBeGreaterThan(0);
@@ -273,7 +282,7 @@ describe("PersonPanel — nagłówek i ruch etapu", () => {
   it("osoba odrzucona: bieżący etap jest opcją selecta, bez „Odrzuć” i bez ruchu naprzód", () => {
     renderPanel({ candidateId: 6 });
     expect(screen.getByLabelText("Etap")).toHaveValue("def:10");
-    expect(screen.queryByRole("button", { name: "Odrzuć" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Odrzuć…" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Przenieś na/ })).not.toBeInTheDocument();
   });
 });

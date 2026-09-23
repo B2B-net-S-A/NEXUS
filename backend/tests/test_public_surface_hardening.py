@@ -48,6 +48,8 @@ _RATE_LIMITED_MODULES = (
     "api/public_career.py",
     # Odczyt requestu klienta na /jobs/new: każde wywołanie to płatny model.
     "api/job_request_intake.py",
+    # Przepięcie (Pipeline v4): podpowiedzi Luny — każde wywołanie to płatny model.
+    "api/screening_reassign.py",
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.

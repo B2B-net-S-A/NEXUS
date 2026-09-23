@@ -96,6 +96,38 @@ export interface KanbanItem {
  // `lib/pipeline-next-action.ts` (unia wpisana wprost: tamten moduł importuje
  // typy stąd, więc import w drugą stronę zamknąłby cykl).
  next_action_owner?: "recruiter" | "client" | "candidate" | "delivery" | "none";
+ // ── Pipeline v4 (0352, 23.09.2026) — odznaki karty (`lib/board-card-badges.ts`) ─
+ // Kto zakończył proces (wiersz terminalny).
+ ended_by?: "candidate" | "recruiter" | "delivery_lead" | "client" | null;
+ // Stawka, za którą osobę wysłano do klienta.
+ client_rate_value?: string | number | null;
+ client_rate_unit?: RateUnit | null;
+ client_rate_currency?: string | null;
+ // Skąd osoba weszła do rekrutacji; `null` = proces sprzed 0352.
+ entry_source?:
+  | "added_manual"
+  | "application"
+  | "proposal"
+  | "reassign"
+  | "auto_match"
+  | "import"
+  | null;
+ reassign_from_job_id?: number | null;
+ reassign_from_title?: string | null;
+ // Blokada 12 h w „Nowych" (tylko aktywna) i czy patrzący może „Biorę/Przejmij".
+ claim_user_id?: number | null;
+ claim_user_name?: string | null;
+ claim_until?: string | null;
+ can_take?: boolean;
+ // Terminarz rozmowy u klienta — gotowa odznaka z serwera.
+ interview_badge?: {
+  kind: string;
+  label: string;
+  tone: "wait" | "info" | "ok" | "urgent";
+  at?: string | null;
+ } | null;
+ // „Zatrudniony": czy jest uzupełnione zamówienie.
+ order_status?: "complete" | "missing" | null;
 }
 
 export interface KanbanColumn {

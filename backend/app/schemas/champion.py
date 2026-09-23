@@ -659,6 +659,13 @@ class ScreeningAnswerItem(BaseModel):
     question_id: str
     response: str = ""
     deal_breaker_hit: bool = False
+    # Skąd odpowiedź (Pipeline v4, 23.09.2026): `reassign_suggested` = rekruter
+    # przyjął podpowiedź Luny z poprzedniej rekrutacji (przepięcie).
+    origin: Literal["manual", "reassign_suggested"] = "manual"
+    # Pytanie świadomie pominięte przy przepięciu — odpowiedź bywa pusta.
+    # Pominięte odpowiedzi nie liczą się do dopasowania i NIGDY nie wychodzą
+    # do klienta (`client_safe_screening`).
+    skipped: bool = False
 
 
 class ScreeningAnswers(BaseModel):
@@ -667,6 +674,10 @@ class ScreeningAnswers(BaseModel):
     answers: List[ScreeningAnswerItem] = Field(default_factory=list)
     overall_fit: Literal["fit", "uncertain", "miss"] = "uncertain"
     notes: str = ""
+    # Notatka WEWNĘTRZNA „pominięte — przepięcie": dlaczego część pytań nie ma
+    # odpowiedzi. W odróżnieniu od `notes` (widoczne w share portalu) nie
+    # trafia do klienta ani do generatora CV.
+    internal_note: Optional[str] = Field(default=None, max_length=2000)
     answered_at: Optional[datetime] = None
     answered_by: Optional[int] = None
 
@@ -680,9 +691,31 @@ class ScreeningAnswers(BaseModel):
         """
         if any(a.deal_breaker_hit for a in self.answers):
             return 0.0
-        if not self.answers:
+        # Pytania pominięte przy przepięciu nie są ani „za", ani „przeciw".
+        counted = [a for a in self.answers if not a.skipped]
+        if not counted:
             return 0.0
-        answered = sum(1 for a in self.answers if a.response.strip())
-        ratio = answered / max(len(self.answers), 1)
+        answered = sum(1 for a in counted if a.response.strip())
+        ratio = answered / max(len(counted), 1)
         fit_weight = {"fit": 1.0, "uncertain": 0.6, "miss": 0.2}[self.overall_fit]
         return round(ratio * fit_weight * 100.0, 1)
+
+
+def client_safe_screening(screening_answers: Any) -> Optional[dict]:
+    """Odpowiedzi screeningu w wersji dla KLIENTA (share portal, generator CV).
+
+    Zdejmuje odpowiedzi pominięte przy przepięciu (`skipped`) i notatkę
+    wewnętrzną (`internal_note`). Oba pola opisują NASZ proces, nie kandydata —
+    pusta odpowiedź z dopiskiem „pominięte" czytałaby się u klienta jak brak
+    kompetencji. Wejście to surowy JSONB z `CandidateStage.screening_answers`
+    (także sprzed 23.09.2026); brak danych = ``None``.
+    """
+    if not isinstance(screening_answers, dict) or not screening_answers:
+        return None
+    safe = {k: v for k, v in screening_answers.items() if k != "internal_note"}
+    answers = screening_answers.get("answers")
+    if isinstance(answers, list):
+        safe["answers"] = [
+            a for a in answers if isinstance(a, dict) and not a.get("skipped")
+        ]
+    return safe

@@ -35,7 +35,6 @@ import { useEligibilityWarning } from "@/components/v2/jobs/useEligibilityWarnin
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
 import {
   candidateStageCvApi,
-  candidatesApi,
   extractErrorMsg,
   pipelineApi,
   type RateUnit,
@@ -202,7 +201,7 @@ export function useBulkCvHandoff({
               shareLink: createLink ? { expiresInDays } : null,
             },
             {
-              move: async () => {
+              move: async (rate) => {
                 await pipelineApi.move({
                   candidate_id: person.candidateId,
                   job_id: jobId,
@@ -210,6 +209,9 @@ export function useBulkCvHandoff({
                   stage_def_id: cvSentColumn.stage_def_id ?? undefined,
                   expected_state_version: expectedStateVersionOf(person.item),
                   acknowledge_eligibility: acknowledgeEligibility ? true : undefined,
+                  client_rate_value: rate?.value,
+                  client_rate_unit: rate?.unit,
+                  client_rate_currency: rate?.currency,
                 });
               },
               createShareLink: async ({ expiresInDays: linkDays }) => {
@@ -220,13 +222,6 @@ export function useBulkCvHandoff({
                 const suffix = res.data?.share_url_suffix ?? null;
                 if (!suffix) throw new Error(BULK_CV_NO_LINK_ADDRESS_REASON);
                 return { shareUrlSuffix: suffix };
-              },
-              saveClientRate: async (rate) => {
-                await candidatesApi.setRecruitmentClientRate(person.candidateId, jobId, {
-                  rate_value: rate.value,
-                  rate_unit: rate.unit,
-                  rate_currency: rate.currency,
-                });
               },
             },
           ),

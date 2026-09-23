@@ -171,7 +171,9 @@ describe("buildJobHeaderKpis — kroki", () => {
       budgetHourly: 120,
     });
     expect(kpis).toHaveLength(4);
-    expect(kpis[0]).toMatchObject({ label: "w screeningu", value: 1 });
+    // Pipeline v4: screening robi się w „Nowych" — kolumny „new" (2) i
+    // „screening" (1); „Umowa wysłana" z kodem `new` to kolumna Umowa.
+    expect(kpis[0]).toMatchObject({ label: "w screeningu", value: 3 });
     // Karta `pending` NIE jest już liczona (bramka usunięta 17.09.2026) —
     // w jej miejscu dwie informacje: ponad budżet PLN/h i weto HM.
     expect(kpis[1]).toMatchObject({ label: "ponad budżet", value: 1, tone: "warn" });

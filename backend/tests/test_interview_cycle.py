@@ -628,9 +628,14 @@ async def test_debrief_only_for_client_interview(app_client: AsyncClient):
     resp = await app_client.put(
         f"/api/interview-cycle/events/{event_id}/debrief",
         headers=rec_h,
-        json={"outcome": "good", "offer_acceptance": "yes"},
+        json={
+            "outcome": "good",
+            "offer_acceptance": "yes",
+            "no_client_questions": True,
+        },
     )
     assert resp.status_code == 422, resp.text
+    assert "rozmową kandydata u klienta" in resp.text
 
 
 # ── Lustro migracji ──────────────────────────────────────────────────────────

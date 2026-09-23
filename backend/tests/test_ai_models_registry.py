@@ -131,6 +131,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.jarvis: ("F19", "claude-sonnet-5"),
     # F20 — decyzja 21.09.2026: szkic opisu na stronę kariery, jak F6.
     AIFeatureKey.job_public_description: ("F20", "claude-sonnet-5"),
+    # F21 — decyzja 23.09.2026: podpowiedzi odpowiedzi przy przepięciu.
+    AIFeatureKey.screening_reassign_suggest: ("F21", "gpt-6-luna"),
 }
 
 
@@ -189,6 +191,7 @@ def test_legacy_settings_defaults_agree_with_the_registry():
         AIFeatureKey.champion_draft,
         AIFeatureKey.cv_backfill,
         AIFeatureKey.cv_name_backfill,
+        AIFeatureKey.screening_reassign_suggest,
     ],
 )
 def test_non_anthropic_functions_fall_back_to_sonnet_5(monkeypatch, feature):

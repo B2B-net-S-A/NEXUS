@@ -171,6 +171,9 @@ async def _move(
         "job_id": world["target_job_id"],
         "stage": stage,
     }
+    if stage == "cv_sent":
+        # Pipeline v4: „CV wysłane" niesie stawkę do klienta (DL/admin).
+        payload["client_rate_value"] = "150"
     payload.update(extra)
     return await app_client.post("/api/pipeline/move", headers=headers, json=payload)
 
@@ -421,6 +424,7 @@ async def test_move_on_the_job_that_rejected_them_is_not_self_blocked(
             "candidate_id": world["candidate_id"],
             "job_id": world["source_job_id"],
             "stage": "cv_sent",
+            "client_rate_value": "150",
         },
     )
 

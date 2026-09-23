@@ -70,9 +70,25 @@ def test_ordinary_stages_are_not_gated() -> None:
         )
 
 
+# Odznaki z KODU etapu (kolumny, które zniknęły 23.09.2026) — backend
+# rozpoznaje po nazwie wyłącznie pozostałe.
+_ENUM_BADGES = {"posting", "screening", "acceptance"}
+
+
 @pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
 def test_badge_kind_agrees_with_the_frontend(case: dict) -> None:
-    assert badges.stage_badge_kind(case["name"]) == case["badge"]
+    expected = None if case["badge"] in _ENUM_BADGES else case["badge"]
+    assert badges.stage_badge_kind(case["name"]) == expected
+
+
+@pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
+def test_board_column_agrees_with_the_frontend(case: dict) -> None:
+    assert (
+        badges.board_column_for(
+            case["name"], case["stage"], category=case["category"]
+        )
+        == case["column"]
+    )
 
 
 def _sd(id_: int, name: str, enum: str | None, terminal: bool = False):

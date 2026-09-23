@@ -5,8 +5,8 @@ signature must atomically:
 
 * create or reuse one B2B ``Contract`` for the candidate/job pair,
 * ensure one open ``ClientOrder``,
-* never append ``CandidateStage.hired`` — since 17.09.2026 the contract is
-  signed offline and the pipeline stage is moved by a person on the board,
+* move the pair to ``CandidateStage.hired`` exactly once (Pipeline v4,
+  23.09.2026 — reverses the 17.09.2026 "person moves the card" decision),
 * expose the linkage in candidate/contractor projections, and
 * make the legal-history row immutable.
 
@@ -484,8 +484,9 @@ async def test_confirm_fully_signed_creates_complete_atomic_handoff(
             .limit(1)
         )
         assert latest_stage is not None
-        # 17.09.2026: potwierdzenie podpisu NIE przesuwa kandydata w pipeline.
-        assert latest_stage.stage != PipelineStage.hired
+        # Pipeline v4 (23.09.2026): podpis przesuwa kandydata na „Zatrudniony".
+        assert latest_stage.stage == PipelineStage.hired
+        assert "Zatrudniony" in body["message"]
 
         generated_audit = await db.scalar(
             select(Activity).where(
@@ -533,8 +534,8 @@ async def test_confirm_signs_when_the_recruitment_history_is_already_closed(
     """Priority Lock must not turn a closed recruitment into a failed signature.
 
     Traffit-imported history routinely ends on ``rejected``, so the pair has no
-    open process.  Since 17.09.2026 the confirmation does not touch the
-    pipeline at all, so a closed history stays closed.
+    open process.  The signature is proof of employment, so (as before
+    17.09.2026) the card moves to „Zatrudniony" at the default ``off`` mode.
     """
 
     admin_id = await _current_admin_id(app_client)
@@ -564,7 +565,8 @@ async def test_confirm_signs_when_the_recruitment_history_is_already_closed(
             .limit(1)
         )
         assert latest_stage is not None
-        assert latest_stage.stage == PipelineStage.rejected
+        assert latest_stage.stage == PipelineStage.hired
+    assert "przesunięto na etap „Zatrudniony”" in body["message"]
 
 
 async def _seed_group_line(
@@ -665,7 +667,7 @@ async def test_confirm_links_a_consultant_already_on_a_group_line_without_500(
                 CandidateStage.stage == PipelineStage.hired,
             )
         )
-        assert hired == 0  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
+        assert hired == 1  # 23.09.2026: podpis przesuwa na „Zatrudniony"
         generated = await db.get(B2BGeneratedContract, scenario["generated_id"])
         assert generated is not None
         assert generated.contract_id == existing_id
@@ -780,7 +782,7 @@ async def test_confirm_repeat_is_idempotent(
     assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
         1,
         1,
-        0,  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
+        1,  # 23.09.2026: podpis przesuwa na „Zatrudniony"
     )
 
 
@@ -859,7 +861,7 @@ async def test_concurrent_documents_for_one_recruitment_share_one_contractor(
     assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
         1,
         1,
-        0,  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
+        1,  # 23.09.2026: podpis przesuwa na „Zatrudniony"
     )
 
 
@@ -964,7 +966,7 @@ async def test_confirm_links_existing_ready_contract_and_lists_contractor(
     assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
         1,
         1,
-        0,  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
+        1,  # 23.09.2026: podpis przesuwa na „Zatrudniony"
     )
 
     # Obustronny podpis zamyka tor „do podpisu": kontrakt jest aktywny.
@@ -1047,7 +1049,7 @@ async def test_confirm_reuses_pipeline_placeholder_and_replaces_only_its_default
     assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
         1,
         1,
-        0,  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
+        1,  # 23.09.2026: podpis przesuwa na „Zatrudniony"
     )
     async with AsyncSessionLocal() as db:
         contract = await db.get(Contract, placeholder_id)
@@ -1243,7 +1245,7 @@ async def test_keep_existing_terms_links_without_touching_the_contract(
     assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
         1,
         1,
-        0,  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
+        1,  # 23.09.2026: podpis przesuwa na „Zatrudniony"
     )
 
     async with AsyncSessionLocal() as db:
@@ -1840,7 +1842,7 @@ async def test_delivery_lead_scope_allows_confirmation_but_tac_stays_outside_del
         assert await _counts_for_pair(scenario["candidate_id"], scenario["job_id"]) == (
             1,
             1,
-            0,  # 17.09.2026: podpis nie przesuwa na „Zatrudniony"
+            1,  # 23.09.2026: podpis przesuwa na „Zatrudniony"
         )
 
 
@@ -1859,8 +1861,8 @@ async def test_exception_after_flush_rolls_back_entire_confirmation(
     async def fail_after_contract_and_order(*args, **kwargs):
         raise RuntimeError("forced failure after flush")
 
-    # 17.09.2026: `_ensure_hired_stage` nie jest już wołane z potwierdzenia —
-    # wyjątek po flushu kontraktu wstrzykujemy w zapewnienie zamówienia.
+    # Wyjątek po flushu kontraktu wstrzykujemy w zapewnienie zamówienia —
+    # cały podpis (kontrakt, zamówienie, etap) musi się wycofać.
     monkeypatch.setattr(automation, "_ensure_open_order", fail_after_contract_and_order)
 
     try:
@@ -2257,3 +2259,95 @@ async def test_tcm_confirms_without_document_management_and_override_revokes(
     replay = await _confirm(app_client, headers, scenario["generated_id"])
     assert replay.status_code == 200, replay.text
     assert replay.json()["outcome"] == "already_processed"
+
+
+async def _finance_user_id() -> int:
+    from app.core.security import hash_password
+
+    unique = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"signature-finance-{unique}@example.com",
+            password_hash=hash_password(f"F1n_{unique}!Pass"),
+            name=f"Signature Finance {unique}",
+            role=UserRole.finance,
+            roles=[UserRole.finance.value],
+            is_active=True,
+            email_verified=True,
+            profile_completed=True,
+        )
+        db.add(user)
+        await db.commit()
+        return user.id
+
+
+async def _hired_order_notices(user_id: int, contract_id: int) -> list[Any]:
+    from app.models.notification import Notification, NotificationType
+
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(Notification).where(
+                        Notification.user_id == user_id,
+                        Notification.notification_type
+                        == NotificationType.hired_order_missing,
+                        Notification.related_entity_type == "contract",
+                        Notification.related_entity_id == contract_id,
+                    )
+                )
+            ).all()
+        )
+
+
+@pytest.mark.asyncio
+async def test_confirm_notifies_finance_about_contractor_without_order(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Pipeline v4: podpis bez uzupełnionego zamówienia (auto-szkic ma pustą
+    stawkę klienta) = powiadomienie Finansów o nowym kontraktorze."""
+    finance_id = await _finance_user_id()
+    scenario = await _seed_bound_scenario(
+        created_by=await _current_admin_id(app_client)
+    )
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 200, response.text
+    contract_id = response.json()["contract_id"]
+    notices = await _hired_order_notices(finance_id, contract_id)
+    assert len(notices) == 1
+    notice = notices[0]
+    assert notice.title == "Nowy kontraktor bez zamówienia"
+    assert notice.message.startswith("Anna Signature-")
+    assert scenario["client_name"] in notice.message
+    assert "od 01.08.2026" in notice.message
+    assert notice.link == f"/clients/{scenario['client_id']}?tab=zamowienia"
+
+    # Replay niczego nie dosyła.
+    again = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+    assert again.json()["outcome"] == "already_processed"
+    assert len(await _hired_order_notices(finance_id, contract_id)) == 1
+
+
+@pytest.mark.asyncio
+async def test_confirm_on_group_line_does_not_notify_finance(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Osoba na otwartej linii MD/kosztowej ma zamówienie grupowe."""
+    finance_id = await _finance_user_id()
+    admin_id = await _current_admin_id(app_client)
+    scenario = await _seed_bound_scenario(created_by=admin_id)
+    existing_id = await _seed_existing_contract(
+        scenario,
+        status=ContractStatus.active,
+        start_date=date(2026, 8, 1),
+        rate_candidate=Decimal("150.500"),
+    )
+    await _seed_group_line(scenario, existing_id, created_by=admin_id)
+
+    response = await _confirm(app_client, app_auth_headers, scenario["generated_id"])
+
+    assert response.status_code == 200, response.text
+    assert response.json()["order_skipped_reason"] == "open_group_line"
+    assert await _hired_order_notices(finance_id, existing_id) == []

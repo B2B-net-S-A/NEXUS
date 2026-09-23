@@ -17,6 +17,7 @@ import {
   isInterviewStage,
 } from "@/lib/job-flow-stages";
 import { terminalOf } from "@/lib/kanban-terminal";
+import { placeStage } from "@/lib/board-stages";
 import { formatDate } from "@/lib/utils";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 
@@ -60,7 +61,12 @@ function entriesForStage(columns: KanbanColumn[], stage: string): FlowQueueEntry
 }
 
 /**
- * Kolejka kroku 05: kandydaci na etapie „Screening".
+ * Kolejka kroku 05: kandydaci w kolumnie Tablicy „Nowi".
+ *
+ * Od Pipeline v4 (23.09.2026) screening robi się w „Nowych" — kolumna zbiera
+ * etapy posting / new / prep_call / screening (`placeStage`, ta sama reguła
+ * co Tablica), więc kolejka to wszystkie karty tych kolumn szablonu,
+ * w kolejności z tablicy.
  *
  * Świadomie BEZ etapów zewnętrznych (`client_interview` i dalej), na których
  * `KanbanBoardV2` też otwiera arkusz Championa — tam screening robi się
@@ -68,7 +74,22 @@ function entriesForStage(columns: KanbanColumn[], stage: string): FlowQueueEntry
  * zamieniłoby „kto czeka na moją rozmowę" w „kto ma gdziekolwiek arkusz".
  */
 export function selectScreeningQueue(columns: KanbanColumn[]): FlowQueueEntry[] {
-  return entriesForStage(columns, SCREENING_STAGE);
+  const out: FlowQueueEntry[] = [];
+  for (const col of columns) {
+    if (!isNewColumn(col)) continue;
+    for (const item of col.items) out.push({ item, col, colId: colId(col) });
+  }
+  return out;
+}
+
+/**
+ * Kolumna szablonu, która na Tablicy wpada do „Nowych" (i nie jest terminalna).
+ * Kubełek „Poza szablonem" z tabeli osób (`__off_template__`) nie jest etapem —
+ * `placeStage` zrzuca nieznany kod do „Nowych", więc odcinamy go jawnie.
+ */
+export function isNewColumn(col: KanbanColumn): boolean {
+  if (col.category === "terminal" || col.stage === "__off_template__") return false;
+  return placeStage(col).column === "new";
 }
 
 /**

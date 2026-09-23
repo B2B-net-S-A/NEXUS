@@ -2814,6 +2814,10 @@ export const pipelineApi = {
     expected_state_version?: number;
     /** 17.09.2026: powtórka ruchu po 409 ELIGIBILITY_WARNING („Przenieś mimo to"). */
     acknowledge_eligibility?: boolean;
+    /** Pipeline v4: stawka do klienta w tym samym żądaniu co „CV wysłane". */
+    client_rate_value?: number;
+    client_rate_unit?: RateUnit;
+    client_rate_currency?: string;
   }) => api.post("/api/pipeline/move", data),
 };
 
@@ -4864,14 +4868,50 @@ export interface ScreeningAnswerItem {
   question_id: string;
   response: string;
   deal_breaker_hit: boolean;
+  /** `reassign_suggested` = przyjęta podpowiedź Luny (przepięcie, 23.09.2026). */
+  origin?: "manual" | "reassign_suggested";
+  /** Pytanie pominięte przy przepięciu — nie idzie do klienta ani do dopasowania. */
+  skipped?: boolean;
 }
 
 export interface ScreeningAnswers {
   answers: ScreeningAnswerItem[];
   overall_fit: "fit" | "uncertain" | "miss";
   notes: string;
+  /** Notatka wewnętrzna „pominięte — przepięcie" (nigdy do klienta). */
+  internal_note?: string | null;
   answered_at?: string | null;
   answered_by?: number | null;
+}
+
+/** Skąd przyszła osoba przepięta z podobnej rekrutacji. */
+export interface ScreeningReassignSource {
+  job_id: number;
+  job_title: string;
+  date: string | null;
+}
+
+export interface ScreeningReassignContext {
+  stage_id: number;
+  available: boolean;
+  source: ScreeningReassignSource | null;
+  previous_answers_count: number;
+}
+
+export interface ScreeningReassignSuggestion {
+  question_id: string;
+  text: string;
+  source_kind: "answer" | "note";
+  source_quote: string;
+  confidence: "high" | "medium" | "low";
+}
+
+export interface ScreeningReassignSuggestionsResponse {
+  stage_id: number;
+  available: boolean;
+  message: string | null;
+  source: ScreeningReassignSource | null;
+  suggestions: ScreeningReassignSuggestion[];
 }
 
 export interface StageScreeningResponse {
@@ -4887,6 +4927,16 @@ export interface StageScreeningResponse {
 export const screeningApi = {
   getForStage: (stageId: number) =>
     api.get<StageScreeningResponse>(`/api/pipeline/stages/${stageId}/screening`),
+  /** Przepięcie: skąd osoba przyszła — bez wywołania modelu. */
+  reassignContext: (stageId: number) =>
+    api.get<ScreeningReassignContext>(
+      `/api/pipeline/stages/${stageId}/screening/reassign-context`,
+    ),
+  /** Przepięcie: podpowiedzi Luny (płatne wywołanie modelu, nic nie zapisuje). */
+  reassignSuggestions: (stageId: number) =>
+    api.post<ScreeningReassignSuggestionsResponse>(
+      `/api/pipeline/stages/${stageId}/screening/reassign-suggestions`,
+    ),
   submit: (stageId: number, answers: ScreeningAnswers) =>
     api.post<{
       stage_id: number;
@@ -5887,7 +5937,9 @@ export type AIFeatureKey =
   | "cv_name_backfill"
   | "experience_dates_on_demand"
   | "cv_factual_verification"
-  | "jarvis";
+  | "jarvis"
+  | "job_public_description"
+  | "screening_reassign_suggest";
 
 export interface AIFeatureConfigDto {
   feature: AIFeatureKey;

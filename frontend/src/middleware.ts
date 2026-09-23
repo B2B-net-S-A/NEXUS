@@ -354,7 +354,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
 //   `/preview/order-new-from-pdf`, `/preview/finance-order-changes`,
 //   `/preview/finance-order-pdfs`,
 //   `/preview/contract-candidate-contact`, `/preview/cv-search`,
-//   `/preview/recruitment-v3`,
+//   `/preview/recruitment-v3`, `/preview/pipeline-v4`,
 //   `/preview/jobs-list-v3`, `/preview/calendar-cycle`,
 //   `/preview/candidates-list` (publiczny przez prefiks `/preview/candidates`)
 //                — konkretne harnessy designu, po których może chodzić nightly
@@ -410,6 +410,7 @@ const PUBLIC_PATHS = [
   "/preview/cv-search",
   "/preview/jarvis",
   "/preview/recruitment-v3",
+  "/preview/pipeline-v4",
   "/preview/my-people",
   "/preview/custom-dashboard",
   "/preview/calendar-cycle",

@@ -531,6 +531,7 @@ async def _create_candidate(
                 origin_kind=PriorityOriginKind.external_inbound,
                 frozen_origin_assignment_id=link.origin_assignment_id,
                 frozen_priority_compliant=link.priority_compliant_at_create,
+                entry_source="application",
                 notes=(
                     "Aplikacja przez stronę kariery"
                     if ref.via == "career"

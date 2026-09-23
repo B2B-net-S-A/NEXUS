@@ -1,13 +1,13 @@
 "use client";
 
 /**
- * Pierwsza kolumna Tablicy — „Do przejrzenia" (decyzja Artura 22.09.2026).
+ * Propozycje na górze kolumny „Nowi" (Tablica 6 kolumn, decyzja Artura
+ * 23.09.2026; do 22.09 osobna kolumna „Do przejrzenia").
  *
- * Jedna kolumna zbiera wszystkich, których trzeba przejrzeć: przepięcia
- * (osoby wysłane już do klienta przy podobnym requeście), propozycje z bazy
- * i — niżej, w tej samej kolumnie — osoby z ogłoszeń (etap „Ogłoszenia").
- * ✓ przenosi osobę do „Screening", ✕ ją pomija. „Nowi" to już tylko osoby
- * dodane ręcznie.
+ * Przepięcia (osoby wysłane już do klienta przy podobnym requeście) i
+ * propozycje z bazy. „Biorę" dodaje osobę do „Nowych" z blokadą 12 h na
+ * klikającego (serwer: `candidate_claim`), ✕ ją pomija. Osoby z ogłoszeń
+ * są zwykłymi kartami tej kolumny z odznaką „Z ogłoszenia".
  *
  * Lista to TA SAMA scalona lista co segment „Propozycje z bazy" w Tabeli
  * (`useJobProposals`: skrzynka + przegląd bazy + podobne projekty +
@@ -79,7 +79,7 @@ export function BoardReviewSection({
   return (
     <div className="space-y-1.5 border-b border-border p-2" data-testid="board-review">
       <div className="flex items-center justify-between px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        <span>Z bazy i przepięcia</span>
+        <span>Propozycje · z bazy i przepięcia</span>
         {view.kind === "list" || view.kind === "empty" || view.kind === "partial" ? (
           <span className="tabular-nums" data-testid="board-review-count">
             {countLabel}
@@ -150,13 +150,13 @@ export function BoardReviewSection({
                   <button
                     type="button"
                     onClick={() =>
-                      proposals.addToJob([row.candidateId], { initialStageLegacy: "screening" })
+                      proposals.addToJob([row.candidateId], { initialStageLegacy: "new" })
                     }
                     disabled={busy}
                     className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium hover:bg-primary/10 hover:text-primary disabled:opacity-50"
-                    aria-label={`Dodaj ${row.fullName} do Screening`}
+                    aria-label={`Biorę ${row.fullName} — dodaj do Nowych na 12 h`}
                   >
-                    <Check className="h-3 w-3" aria-hidden="true" /> Screening
+                    <Check className="h-3 w-3" aria-hidden="true" /> Biorę
                   </button>
                   <button
                     type="button"

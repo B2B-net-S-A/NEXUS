@@ -83,6 +83,7 @@ import {
 } from "@/lib/champion-section-state";
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
+import { ChampionClientQuestionsPanel } from "./ChampionClientQuestionsPanel";
 
 interface ChampionProfileEditorProps {
   jobId: number;
@@ -247,6 +248,32 @@ export function ChampionProfileEditor({
         { id: genId(), question: "", ideal_answer: "", deal_breaker: "" },
       ],
     }));
+
+  // Pytania klienta z debriefów (panel w sekcji 6) — dopisują się do SZKICU;
+  // zapis zostaje zwykłym „Zapisz”. Sekcja 5 może być zwinięta w grupie 2·4·5,
+  // więc po dodaniu pytania ją rozwijamy — inaczej dopisek byłby niewidoczny.
+  const addClientQuestionToScreening = (text: string) => {
+    setDraft((d) => ({
+      ...d,
+      screening_questions: [
+        ...d.screening_questions,
+        { id: genId(), question: text, ideal_answer: "", deal_breaker: "" },
+      ],
+    }));
+    setProseExpanded(true);
+  };
+
+  const addClientQuestionToHistorical = (text: string) =>
+    setDraft((d) => {
+      const current = (d.client.historical_questions ?? "").replace(/\s+$/, "");
+      return {
+        ...d,
+        client: {
+          ...d.client,
+          historical_questions: current ? `${current}\n${text}` : text,
+        },
+      };
+    });
 
   const removeQuestion = (i: number) =>
     setDraft((d) => ({
@@ -987,6 +1014,14 @@ export function ChampionProfileEditor({
                 className={textareaClass}
               />
             </Labeled>
+            <ChampionClientQuestionsPanel
+              jobId={jobId}
+              screeningQuestions={draft.screening_questions.map((q) => q.question)}
+              historicalQuestions={draft.client.historical_questions ?? ""}
+              canEdit={canEdit}
+              onAddScreening={addClientQuestionToScreening}
+              onAddHistorical={addClientQuestionToHistorical}
+            />
             {/* Język CV celowo NIE jest tu edytowalny — pokazuje go sekcja 1,
                 z reguł klienta, bo to ich słucha generator. Wartość sparsowana
                 ze starego dokumentu zostaje w danych, ale nie jest przepisywana

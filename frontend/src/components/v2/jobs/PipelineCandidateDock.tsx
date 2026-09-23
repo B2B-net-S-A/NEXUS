@@ -113,16 +113,20 @@ const DOCK_SECTION_LABEL: Record<DockTab, string> = {
   notes: "Notatki",
 };
 
-/** Sekcja „Teraz" wg etapu karty (legacy-enum `stage`). */
+/**
+ * Sekcja „Teraz" wg etapu karty (legacy-enum `stage`). Pipeline v4
+ * (23.09.2026): screening robi się w kolumnie „Nowi", więc wszystkie jej etapy
+ * (posting / new / prep_call / screening) otwierają arkusz screeningu.
+ */
 export function nowSectionForStage(stage: string | null | undefined): DockTab {
   switch (stage) {
     case "posting":
     case "new":
-    case "verified":
-      return "cv";
     case "screening":
     case "prep_call":
       return "screening";
+    case "verified":
+      return "cv";
     default:
       return "process";
   }
@@ -307,6 +311,8 @@ export interface PipelineCandidateDockProps {
   onMoveTo: (col: KanbanColumn) => void;
   onOpenScreening: (stageId: number, name: string) => void;
   onReject: () => void;
+  /** Pipeline v4: „Zrezygnował" — rezygnacja kandydata z powodem. */
+  onWithdraw?: () => void;
   /**
    * Pełny warsztat osoby (dawna „Tabela": CV do klienta ze stawką i linkiem,
    * rozmowy z werdyktem HM, umowa) — szeroki panel nad Tablicą. Brak = bez
@@ -404,6 +410,7 @@ export function PipelineCandidateDock({
   onMoveTo,
   onOpenScreening,
   onReject,
+  onWithdraw,
   onOpenWorkbench,
   badgeToggles = [],
 }: PipelineCandidateDockProps) {
@@ -780,6 +787,17 @@ export function PipelineCandidateDock({
                   className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                 >
                   <Ban className="h-3.5 w-3.5" /> Odrzuć z powodem
+                </Button>
+              )}
+              {canReject && onWithdraw && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onWithdraw}
+                  disabled={Boolean(rejectBlockedReason)}
+                  title={rejectBlockedReason ?? undefined}
+                >
+                  Zrezygnował
                 </Button>
               )}
               <PersonMoreMenu

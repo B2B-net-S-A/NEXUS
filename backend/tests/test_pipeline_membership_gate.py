@@ -419,7 +419,12 @@ async def test_active_client_nda_does_not_block_move_or_bulk(
 
     bulk = await app_client.post(
         BULK_MOVE,
-        json={"candidate_ids": [cand], "job_id": job_id, "stage": "cv_sent"},
+        json={
+            "candidate_ids": [cand],
+            "job_id": job_id,
+            "stage": "cv_sent",
+            "client_rate_value": "150",
+        },
         headers=app_auth_headers,
     )
     assert bulk.status_code == 200, bulk.text
