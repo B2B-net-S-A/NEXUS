@@ -619,7 +619,7 @@ _ENUM_STATEMENTS = [
     # doc_type='order' wywala się InvalidTextRepresentationError (DB enum nie
     # zna wartości), gdyby alembic upgrade nie wszedł na prod (multi-head).
     "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'order'",
-    # 0355: załącznik z okna „Zakończ współpracę" — wypowiedzenie/porozumienie.
+    # 0357: załącznik z okna „Zakończ współpracę" — wypowiedzenie/porozumienie.
     "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'termination_notice'",
     "ALTER TYPE contractdocumenttype ADD VALUE IF NOT EXISTS 'termination_agreement'",
     # ── Rozjazd zmierzony na produkcji 2026-07-20 przez /api/admin/schema-drift ──
@@ -4567,7 +4567,7 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_order_pdf_downloads_kind
             CHECK (file_kind IN ('order', 'group', 'amendment'))
     )""",
-    # 0355: zakończenie współpracy — rozwiązanie umowy B2B na kontrakcie
+    # 0357: zakończenie współpracy — rozwiązanie umowy B2B na kontrakcie
     # i ślad zakończenia na umowie w Generatorze (CHECK-i w _CONSTRAINT_STATEMENTS).
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_termination_mode VARCHAR(20)",
     "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS agreement_termination_party VARCHAR(20)",
@@ -7003,7 +7003,7 @@ _DATA_STATEMENTS = [
 # Bez tego jedna zabłąkana wartość zablokowałaby start kontenera. VALIDATE
 # CONSTRAINT można uruchomić później, świadomie, po policzeniu sierot.
 _CONSTRAINT_STATEMENTS = [
-    # 0355: rozwiązanie umowy B2B na kontrakcie — komplet albo nic; tryb
+    # 0357: rozwiązanie umowy B2B na kontrakcie — komplet albo nic; tryb
     # i strona z zamkniętych słowników (także na umowie w Generatorze).
     """DO $$ BEGIN
         ALTER TABLE contracts

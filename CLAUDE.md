@@ -4364,7 +4364,7 @@ trwała. Reguła ma jedno źródło: `app/services/b2b_contract_end_date.py`
   `test_ticket_lists_all_sixteen_people…` trzyma CI na czerwono, dopóki
   lista nie jest kompletna — marker jest jednorazowy.
 
-## Zakończenie współpracy = okno + rozwiązanie umowy + Generator (0355, 23.09.2026)
+## Zakończenie współpracy = okno + rozwiązanie umowy + Generator (0357, 23.09.2026)
 
 Ticket „Zakończenie współpracy — obowiązkowy formularz” (kontrakt #674:
 lista statusu kończyła kontrakt bez powodu i daty). Serwis

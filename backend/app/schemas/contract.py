@@ -15,7 +15,7 @@ from app.models.contract import (
     RateUnit,
 )
 
-# Rozwiązanie umowy B2B (0355): wypowiedzenie / porozumienie stron; stronę,
+# Rozwiązanie umowy B2B (0357): wypowiedzenie / porozumienie stron; stronę,
 # która wypowiedziała albo zainicjowała porozumienie — konsultant / b2bnetwork.
 AgreementTerminationMode = Literal["notice", "mutual_agreement"]
 AgreementTerminationParty = Literal["consultant", "company"]
@@ -398,7 +398,7 @@ class ContractResponse(BaseModel):
     termination_reason: Optional[ContractTerminationReason] = None
     termination_lessons: Optional[str] = None
     terminated_at: Optional[date] = None
-    # Rozwiązanie umowy B2B z okna „Zakończ współpracę" (0355).
+    # Rozwiązanie umowy B2B z okna „Zakończ współpracę" (0357).
     agreement_termination_mode: Optional[AgreementTerminationMode] = None
     agreement_termination_party: Optional[AgreementTerminationParty] = None
     agreement_termination_signed_on: Optional[date] = None
@@ -443,7 +443,7 @@ class ContractResponse(BaseModel):
 
 
 class AgreementTerminationPayload(BaseModel):
-    """„Rozwiązanie umowy" z okna „Zakończ współpracę" (0355).
+    """„Rozwiązanie umowy" z okna „Zakończ współpracę" (0357).
 
     Komplet albo nic: pole wyboru odznaczone = brak obiektu. ``signed_on`` to
     data złożenia wypowiedzenia albo zawarcia porozumienia (etykieta zależy od

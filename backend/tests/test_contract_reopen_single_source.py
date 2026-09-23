@@ -38,7 +38,7 @@ class _CollectingDB:
         self.added.append(obj)
 
     async def execute(self, *_args: object, **_kwargs: object) -> SimpleNamespace:
-        # Cofnięcie zakończenia szuka umów w Generatorze (0355) — tu żadnych.
+        # Cofnięcie zakończenia szuka umów w Generatorze (0357) — tu żadnych.
         return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: []))
 
 
