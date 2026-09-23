@@ -347,11 +347,45 @@ export interface OrderMailQueueViewProps {
   busy: boolean;
   applyError: string | null;
   recheck: RecheckHistoryProps;
+  /**
+   * Dokument wskazany w adresie (`?doc=`), którego nie ma na bieżącej liście
+   * (inna zakładka, poza limitem) — doczytany po id. `pinnedState` mówi, czy
+   * jeszcze się wczytuje, czy go nie ma. Bez tego ekran podstawiał pierwszy
+   * dokument z listy z aktywnym „Zastosuj" (audyt 22.09, FE-N03).
+   */
+  pinnedDoc?: OrderMailDocument | null;
+  /** `null` = wybór nie pochodzi z adresu, więc wolno pokazać pierwszy z listy. */
+  pinnedState?: "loading" | "missing" | "ready" | null;
+}
+
+/** Który dokument pokazać w panelu szczegółów (czysta funkcja, FE-N03). */
+export function selectOrderMailDocument(
+  items: OrderMailDocument[],
+  selectedId: number | null,
+  pinnedDoc: OrderMailDocument | null | undefined,
+  pinnedState: "loading" | "missing" | "ready" | null = null,
+): OrderMailDocument | null {
+  const listed = selectedId == null ? undefined : items.find((i) => i.id === selectedId);
+  if (listed) return listed;
+  if (pinnedState == null) return items[0] ?? null;
+  // Dokument wskazany w adresie: tylko ON albo nic — nigdy podstawiony inny.
+  return pinnedDoc && pinnedDoc.id === selectedId ? pinnedDoc : null;
 }
 
 /** Warstwa prezentacyjna — harness `/preview/order-mail` renderuje ją z mocków. */
 export function OrderMailQueueView(p: OrderMailQueueViewProps) {
-  const selected = p.items.find((i) => i.id === p.selectedId) ?? p.items[0] ?? null;
+  const selected = selectOrderMailDocument(p.items, p.selectedId, p.pinnedDoc, p.pinnedState ?? null);
+  const pinnedNotice =
+    p.pinnedState != null && p.selectedId != null && !selected ? (
+      p.pinnedState === "loading" ? (
+        <div className="text-muted-foreground" data-testid="order-mail-pinned-loading">Wczytywanie dokumentu…</div>
+      ) : (
+        <QueryStateNotice
+          state="error"
+          description={`Nie znaleziono dokumentu #${p.selectedId} albo nie masz do niego dostępu. Wybierz dokument z listy.`}
+        />
+      )
+    ) : null;
   return (
     <div className="mx-auto max-w-7xl">
       <PageHeader
@@ -390,7 +424,7 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
         <QueryStateNotice state="error" className="mt-6" description="Nie udało się pobrać kolejki." onRetry={p.onRetry} />
       ) : p.state === "loading" ? (
         <div className="mt-6 text-muted-foreground">Ładowanie…</div>
-      ) : p.items.length === 0 ? (
+      ) : p.items.length === 0 && !selected && !pinnedNotice ? (
         <EmptyState className="mt-6" icon={Inbox} title="Nic do pokazania" description={`Brak dokumentów w stanie „${ORDER_MAIL_OUTCOME_LABEL[p.outcome]}”.`} />
       ) : (
         <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
@@ -417,6 +451,7 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
               </li>
             ))}
           </ul>
+          {pinnedNotice}
           {selected && (
             <Detail key={selected.id} doc={selected} onApply={() => p.onApply(selected.id)} onDismiss={() => p.onDismiss(selected.id)} onRefreshPlan={p.onRefreshPlan ? () => p.onRefreshPlan!(selected.id) : undefined} busy={p.busy} applyError={p.applyError} />
           )}
@@ -438,10 +473,27 @@ export function OrderMailQueue() {
   const [outcome, setOutcome] = useState<OrderMailOutcome>("needs_review");
   const [selectedId, setSelectedId] = useState<number | null>(highlighted);
   const qc = useQueryClient();
+  // Efekt po WARTOŚCI `?doc=`: kliknięcie drugiego alertu na tym samym ekranie
+  // to miękka nawigacja — inicjalizator `useState` jej nie widzi (FE-N03).
+  useEffect(() => {
+    if (highlighted != null) setSelectedId(highlighted);
+  }, [highlighted]);
 
   const list = useQuery({
     queryKey: ["order-mail", "queue", outcome],
     queryFn: async () => (await orderMailApi.listQueue({ outcome, limit: 100 })).data,
+  });
+  // Przypięty jest wyłącznie dokument z adresu (alert, powiadomienie). Wybór
+  // kliknięciem, który zniknął z listy (np. po „Zastosuj"), dalej przechodzi
+  // na pierwszy dokument z kolejki.
+  const pinTarget = highlighted != null && selectedId === highlighted ? highlighted : null;
+  const inList = pinTarget != null && (list.data?.items ?? []).some((i) => i.id === pinTarget);
+  // Dokument spoza bieżącej listy (inna zakładka, poza limitem 100) — doczytaj po id.
+  const pinned = useQuery({
+    queryKey: ["order-mail", "item", pinTarget],
+    queryFn: async () => (await orderMailApi.getItem(pinTarget as number)).data,
+    enabled: pinTarget != null && list.isSuccess && !inList,
+    retry: false,
   });
   const recheck = useQuery({
     queryKey: ["order-mail", "recheck-runs"],
@@ -536,6 +588,16 @@ export function OrderMailQueue() {
       onRetry={() => list.refetch()}
       busy={apply.isPending || dismiss.isPending || refreshPlan.isPending}
       applyError={applyError}
+      pinnedDoc={pinned.data ?? null}
+      pinnedState={
+        pinTarget == null || inList
+          ? null
+          : pinned.isSuccess
+          ? "ready"
+          : pinned.isError
+          ? "missing"
+          : "loading"
+      }
       recheck={{
         runs: recheck.data?.items ?? [],
         scoped: recheck.data?.scoped ?? false,
