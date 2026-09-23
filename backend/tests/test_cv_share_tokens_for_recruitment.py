@@ -253,7 +253,9 @@ async def test_requires_authentication(app_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_same_gate_as_the_per_stage_list(app_client: AsyncClient):
-    """Rekruter spoza zespołu dostaje TĘ SAMĄ odmowę co na liście per etap."""
+    """Obie listy mają tę samą bramkę — i od 23.09.2026 rekruter spoza zespołu
+    przechodzi ją na obu (decyzja Artura: rekrutację widzi każdy). Stara rola
+    podglądu ``user`` dostaje tę samą odmowę na obu."""
     seeded = await _seed()
     headers = await _headers_for(UserRole.recruiter)
     per_stage = await app_client.get(
@@ -263,9 +265,22 @@ async def test_same_gate_as_the_per_stage_list(app_client: AsyncClient):
     job_wide = await app_client.get(
         _URL.format(c=seeded["candidate_id"], j=seeded["job_id"]), headers=headers
     )
-    assert per_stage.status_code in (403, 404)
-    assert job_wide.status_code == per_stage.status_code
+    assert per_stage.status_code == 200, per_stage.text
+    assert job_wide.status_code == 200, job_wide.text
+    assert len(job_wide.json()["items"]) == 2
     assert str(seeded["legacy_secret"]) not in job_wide.text
+
+    viewer = await _headers_for(UserRole.user)
+    viewer_per_stage = await app_client.get(
+        f"/api/candidates/stages/{seeded['verified_stage_id']}/cv/share-tokens",
+        headers=viewer,
+    )
+    viewer_job_wide = await app_client.get(
+        _URL.format(c=seeded["candidate_id"], j=seeded["job_id"]), headers=viewer
+    )
+    assert viewer_per_stage.status_code in (403, 404)
+    assert viewer_job_wide.status_code == viewer_per_stage.status_code
+    assert str(seeded["legacy_secret"]) not in viewer_job_wide.text
 
 
 def test_route_shares_the_scope_guard_with_the_per_stage_list() -> None:

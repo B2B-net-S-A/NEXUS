@@ -285,14 +285,26 @@ async def test_substitute_reads_both_source_queues_past_twenty_and_cannot_act_on
         assert await is_member_of_job(db, operator, jobs[0])
         assert not await is_member_of_job(db, operator, jobs[2])
         assert users[1] not in await list_job_member_ids(db, jobs[2])
+        # Zastępstwo nie dziedziczy członkostwa w rekrutacjach nieobecnego —
+        # na ścieżce osobistej (liczy przypisanie) obce rekrutacje odpadają.
+        # Listy domyślne pokazują je od 23.09.2026 każdej roli wewnętrznej.
         for outside_job in jobs[2:4]:
+            assert (
+                await db.scalar(
+                    select(Job.id).where(
+                        Job.id == outside_job,
+                        job_scope_clause(operator, Job.id, oversight_bypass=False),
+                    )
+                )
+                is None
+            )
             assert (
                 await db.scalar(
                     select(Job.id).where(
                         Job.id == outside_job, job_scope_clause(operator, Job.id)
                     )
                 )
-                is None
+                == outside_job
             )
         loads = await load_workloads(db, context, now=datetime.now(timezone.utc))
         assert loads[users[1]].followups == 24
@@ -455,11 +467,14 @@ async def test_open_and_new_calendar_onboarding_and_reminders_follow_cover_with_
             JobStatus.closed
         )  # Traffit may close a request before is_open changes
         await db.flush()
+        # Zakres z zastępstwa liczymy na ścieżce osobistej: od 23.09.2026
+        # lista domyślna pokazuje rekrutację każdej roli wewnętrznej.
         assert await is_member_of_job(db, substitute, job.id)
         assert (
             await db.scalar(
                 select(Job.id).where(
-                    Job.id == job.id, job_scope_clause(substitute, Job.id)
+                    Job.id == job.id,
+                    job_scope_clause(substitute, Job.id, oversight_bypass=False),
                 )
             )
             == job.id
@@ -470,10 +485,19 @@ async def test_open_and_new_calendar_onboarding_and_reminders_follow_cover_with_
         assert (
             await db.scalar(
                 select(Job.id).where(
-                    Job.id == job.id, job_scope_clause(substitute, Job.id)
+                    Job.id == job.id,
+                    job_scope_clause(substitute, Job.id, oversight_bypass=False),
                 )
             )
             is None
+        )
+        assert (
+            await db.scalar(
+                select(Job.id).where(
+                    Job.id == job.id, job_scope_clause(substitute, Job.id)
+                )
+            )
+            == job.id
         )
         await complete_onboarding(
             tasks[0].id, CompleteOnboarding(status="done"), substitute, db

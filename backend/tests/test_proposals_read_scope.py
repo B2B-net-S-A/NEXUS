@@ -3,14 +3,14 @@
 GET /jobs/{id}/proposals/latest hydrates candidate PII (name/email/phone/
 location); GET /jobs/{id}/proposals returns snapshot history. Both were only
 OperationalUser + job-exists gated — no ``ensure_job_membership`` — while the
-write path (regenerate) and the sibling /recommendations already scope. So a
-delivery_lead outside the job's client scope (or any non-member operational
-user) could read another team's proposals with PII. These tests pin both sides
-of the gate: a non-member operational user gets 403; a member (admin bypass)
-gets 200.
+write path (regenerate) and the sibling /recommendations already scope. Since
+23.09.2026 (decyzja Artura: „wszystko w rekrutacji widzi każdy, nie musisz być
+przypisany") every internal role passes that gate, so a recruiter outside the
+team reads the proposals like a member; the legacy viewer role ``user`` is
+still refused.
 
-Uses ``app_client`` + ``app_auth_headers`` (admin member) and mints a token for
-a fresh non-member recruiter directly.
+Uses ``app_client`` + ``app_auth_headers`` (admin) and mints tokens for fresh
+non-member users directly.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ async def _seed_job_with_snapshot() -> int:
         return job.id
 
 
-async def _non_member_headers() -> dict[str, str]:
+async def _non_member_headers(role: str = "recruiter") -> dict[str, str]:
     from app.models.user import User, UserRole
 
     async with AsyncSessionLocal() as db:
@@ -64,45 +64,58 @@ async def _non_member_headers() -> dict[str, str]:
             email=f"propscope-{uuid.uuid4().hex[:8]}@example.com",
             password_hash=hash_password("x"),
             name="Prop Scope Outsider",
-            role=UserRole.recruiter,
-            roles=["recruiter"],
+            role=UserRole(role),
+            roles=[role],
             is_active=True,
         )
         db.add(u)
         await db.commit()
         await db.refresh(u)
-        token = create_access_token(u.id, UserRole.recruiter.value)
+        token = create_access_token(u.id, role)
         return {"Authorization": f"Bearer {token}"}
 
 
-async def test_latest_proposal_forbidden_for_non_member(
+async def test_latest_proposal_readable_for_non_member_recruiter(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     job_id = await _seed_job_with_snapshot()
     outsider = await _non_member_headers()
 
-    forbidden = await app_client.get(
+    read = await app_client.get(
         f"/api/jobs/{job_id}/proposals/latest", headers=outsider
     )
-    assert forbidden.status_code == 403, forbidden.text
+    assert read.status_code == 200, read.text
+    assert read.json()["job_id"] == job_id
+    assert read.json()["source"] == "handoff"
 
-    # Admin is a member (bypass) → reads the snapshot.
     ok = await app_client.get(
         f"/api/jobs/{job_id}/proposals/latest", headers=app_auth_headers
     )
     assert ok.status_code == 200, ok.text
-    assert ok.json()["job_id"] == job_id
+    assert ok.json()["id"] == read.json()["id"]
+
+    viewer = await _non_member_headers("user")
+    refused = await app_client.get(
+        f"/api/jobs/{job_id}/proposals/latest", headers=viewer
+    )
+    assert refused.status_code == 403, refused.text
 
 
-async def test_proposal_history_forbidden_for_non_member(
+async def test_proposal_history_readable_for_non_member_recruiter(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     job_id = await _seed_job_with_snapshot()
     outsider = await _non_member_headers()
 
-    forbidden = await app_client.get(f"/api/jobs/{job_id}/proposals", headers=outsider)
-    assert forbidden.status_code == 403, forbidden.text
+    read = await app_client.get(f"/api/jobs/{job_id}/proposals", headers=outsider)
+    assert read.status_code == 200, read.text
+    assert read.json()["total"] == 1
+    assert [i["job_id"] for i in read.json()["items"]] == [job_id]
 
     ok = await app_client.get(f"/api/jobs/{job_id}/proposals", headers=app_auth_headers)
     assert ok.status_code == 200, ok.text
     assert ok.json()["total"] >= 1
+
+    viewer = await _non_member_headers("user")
+    refused = await app_client.get(f"/api/jobs/{job_id}/proposals", headers=viewer)
+    assert refused.status_code == 403, refused.text

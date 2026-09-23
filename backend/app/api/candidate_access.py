@@ -96,19 +96,23 @@ CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
 CANDIDATE_FINANCE_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 CANDIDATE_FINANCE_ROLES: tuple[UserRole, ...] = (UserRole.admin,)
 
-# „Stawka do klienta" (cena, za jaką kandydat idzie do klienta) — decyzja
-# Artura 23.09.2026 (Pipeline v4): stawkę ustala i wpisuje WYŁĄCZNIE Delivery
-# Lead (i admin). Rekruter widzi tylko oczekiwania kandydata i budżet z profilu
-# Championa — kwoty, za którą osoba poszła do klienta, nie widzi w ogóle.
-# Odczyt dostają dodatkowo Finanse (pełny odczyt biznesowy, decyzja 31.08).
-# Do 23.09 zapisywały też HoR/TCM/TAC/Finanse i właściciel rekrutacji.
+# „Stawka do klienta" (cena, za jaką kandydat idzie do klienta) — decyzje
+# Artura 23.09.2026 (Pipeline v4 + „rekrutacje widzą wszyscy”): stawkę ustala
+# i wpisuje WYŁĄCZNIE Delivery Lead (i admin). Rekruter, sourcer i TAC jej NIE
+# WIDZĄ — mają oczekiwania kandydata i budżet Championa. Widzą ją role
+# zarządcze (HoR, TCM) i Finanse. Osoba z kilkoma rolami widzi, jeśli
+# którakolwiek z nich jest na liście (``has_any_role``). Stawka KANDYDATA
+# (``expected_rate_*``) to inne pole i widzą ją wszyscy. Do 23.09 zapisywały
+# też HoR/TCM/TAC/Finanse i właściciel rekrutacji.
 CLIENT_RATE_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.delivery_lead,
 )
 CLIENT_RATE_VIEW_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
+    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
+    UserRole.talent_community_manager,
     UserRole.finance,
 )
 
@@ -118,41 +122,40 @@ def user_can_view_client_rate(user: Optional[User]) -> bool:
     return user is not None and user.has_any_role(*CLIENT_RATE_VIEW_ROLES)
 
 
-def user_can_write_client_rate(user: User, job) -> bool:
-    """Czy `user` może ustawić stawkę do klienta w rekrutacji `job`.
+def user_can_write_client_rate(user: User, job=None) -> bool:
+    """Czy `user` może ustawić stawkę do klienta.
 
-    Wyłącznie rola z `CLIENT_RATE_WRITE_ROLES`. Jedna funkcja dla bramki
-    PATCH `…/client-rate`, ruchu na „CV wysłane" i pola
-    `can_write_client_rate` w `GET /api/jobs/{id}`.
+    Wyłącznie rola z `CLIENT_RATE_WRITE_ROLES` — własność rekrutacji nie nadaje
+    zapisu. Jedna funkcja dla bramki PATCH `…/client-rate`, ruchu na
+    „CV wysłane" i pola `can_write_client_rate` w `GET /api/jobs/{id}`.
     """
     return user.has_any_role(*CLIENT_RATE_WRITE_ROLES)
+
+
+def client_rate_write_allowed(user: User) -> bool:
+    """Rola z zapisem stawki do klienta + zapis w sekcji kandydatów/pipeline'u."""
+    if not user_can_write_client_rate(user):
+        return False
+    if user.has_role(UserRole.admin):
+        return True
+    section = max(
+        section_access_for_user(user, ProductSection.sourcing),
+        section_access_for_user(user, ProductSection.pipeline),
+    )
+    return section >= SectionAccess.write
 
 
 async def resolve_client_rate_write(db, user: User, job) -> bool:
     """Pełna decyzja zapisu stawki do klienta — lustro `PATCH …/client-rate`.
 
-    `user_can_write_client_rate` (DL albo admin) + zapis w sekcji
-    kandydatów (jak `CandidateWriteAccess`) + członkostwo w rekrutacji
-    (admin bez członkostwa). Jedna funkcja
-    dla bramki i dla `can_write_client_rate` w `GET /api/jobs/{id}` — pole nie
-    może obiecywać zapisu, który skończy się 403 (przegląd 17.09.2026).
+    Rola i sekcja (`client_rate_write_allowed`). Członkostwo w rekrutacji nie
+    jest już wymagane (23.09.2026 — rekrutacje widzi i obsługuje każdy). Jedna
+    funkcja dla bramki i `can_write_client_rate` w `GET /api/jobs/{id}` — pole
+    nie może obiecywać zapisu, który skończy się 403.
     """
-    from app.api.recruitment_access import ensure_job_membership
-
-    if job is None or not user_can_write_client_rate(user, job):
+    if job is None:
         return False
-    if not user.has_role(UserRole.admin):
-        section = max(
-            section_access_for_user(user, ProductSection.sourcing),
-            section_access_for_user(user, ProductSection.pipeline),
-        )
-        if section < SectionAccess.write:
-            return False
-        try:
-            await ensure_job_membership(db, user, job.id)
-        except HTTPException:
-            return False
-    return True
+    return client_rate_write_allowed(user)
 
 
 # Global Talent 360 facts are a deliberately broader write capability than

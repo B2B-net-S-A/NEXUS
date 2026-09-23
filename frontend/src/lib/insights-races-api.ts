@@ -43,17 +43,20 @@ export interface MonthlyRaceEntry {
   qualified?: boolean;
   disqualification_reasons?: string[] | null;
 
-  // ── Mianownik dni roboczych (D5, COMPASS) ────────────────────────────────
+  // ── Mianownik „X/dzień" (plan PR3, 23.09.2026) ──────────────────────────
   //
-  // Backend `compose_monthly_races` DZIŚ TYCH PÓL NIE WYSYŁA. Są w kontrakcie
-  // celowo, a nie na zapas: `/api/reports/power-calling` już je oddaje w tym
-  // dokładnie kształcie (`workdays`, `per_day`, `workdays_source`), więc gdy
-  // wyścig dostanie mianownik z `insights_workdays.working_days_for`, plakietka
-  // „X/dzień" zapali się bez zmiany w UI. Do tego czasu `perDayVerifications`
-  // zwraca `null` i ekran mówi wprost, że nie wie — NIE dzieli przez stałą.
+  // Backend dopisuje te pola do Wyścigu Rekomendacji PO sformatowaniu
+  // rankingu (nie do `extras` — nie zamrażają się w historii). Mianownik to dni
+  // robocze od 1. dnia miesiąca do dziś (Pon–Pt bez świąt) minus urlop
+  // z COMPASSA, gdy go znamy:
+  //   - `compass`  — urlopy uwzględnione,
+  //   - `calendar` — dni kalendarzowe BEZ urlopów (brak danych z COMPASSA
+  //     albo urlop w trwającym miesiącu, którego część dopiero nadejdzie);
+  //     plakietka podpisuje to „bez urlopów".
+  // Brak pól (starszy backend) = `perDayVerifications` zwraca `null`.
   workdays?: number | null;
   per_day?: number | null;
-  workdays_source?: "compass" | "unavailable" | null;
+  workdays_source?: "compass" | "calendar" | "unavailable" | null;
 }
 
 export interface MonthlyRacePrize {

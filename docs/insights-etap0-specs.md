@@ -108,6 +108,21 @@ Push = COMPASS trzyma nasz `nxs_v2_…` — poświadczenie, które **wygasa** (`
 
 **3. Zero drabinki fallbacków.** Trzy stany i koniec: `coverage="ok"` → licz; `no_compass_profile` / `calendar_gap` / dane starsze niż jeden interwał syncu → `per_day=None`, `meets_target=None`, wiersz do `not_assessable`. **Nie ma rungu „kalendarzowe dni robocze"** — mianownik zakładający zero nieobecności JEST tym defektem, a etykieta `days_source` nie cofa czerwonego `meets_target` obok czyjegoś nazwiska.
 
+> **Zmiana decyzji 23.09.2026 (plan PR3, Artur) — dotyczy WYŁĄCZNIE plakietki
+> „X/dzień" w Wyścigu Rekomendacji.** Plakietka dostaje fallback kalendarzowy:
+> mianownik = dni robocze od 1. dnia miesiąca do dziś (Pon–Pt bez polskich
+> świąt, `competitions.business_days_elapsed_in_month`) minus zatwierdzony
+> urlop z COMPASSA, gdy go znamy (`insights_workdays.race_workdays_to_date`).
+> `workdays_source="compass"` = urlop uwzględniony (miesiąc zamknięty albo
+> trwający bez żadnego urlopu w COMPASSIE); `"calendar"` = bez urlopów, a front
+> podpisuje plakietkę „bez urlopów". Trwający miesiąc z urlopem idzie na
+> kalendarz, bo wiersz COMPASSA opisuje CAŁY miesiąc i nie mówi, ile urlopu już
+> minęło. Warunki, dla których ta zmiana jest bezpieczna: plakietka **nie
+> decyduje o nagrodzie ani o kwalifikacji** (próg jest wspólny i kalendarzowy),
+> nie ma `meets_target` ani listy „poniżej progu", pola nie trafiają do
+> `extras`/`frozen_snapshot`. Power Calling i każdy wskaźnik z oceną osoby
+> zostają przy regule „zero drabinki" z pkt 3.
+
 **4. Tożsamość to TABELA FAKTÓW, nie inferencja.** `compass_person_link(nexus_user_id, compass_profile_id, compass_email, match_method, linked_at)`, `match_method ∈ {azure_oid, email, domain_alias, manual}`. **Kardynalność jeden-do-wielu** (jedna osoba = dwa konta NEXUSA po migracji domeny) — **żadnego UNIQUE na `compass_profile_id`**. Tier „ten sam localpart na dowolnej domenie, auto-akceptowany" **odpada**: `users` zawiera adresy na obcych domenach utworzone dosłownie z operatorów Traffita (`backend/app/services/traffit/importer.py:1425-1428`), więc taki tier potrafi przypiąć urlop jednej osoby do drugiej na raporcie, który wymienia nazwiska. Docelowy klucz to `azure_oid` (NEXUS ma go już: `backend/app/models/user.py:186-188`, zapis `backend/app/api/auth_microsoft.py:404,441,479`); COMPASS go nie utrwala — `lib/m365/people-sync.ts:107-110` woła Graph bez `id`. Uwaga: ta trasa Graph rozwiązuje osobę **po UPN/e-mailu**, więc przy rozjeździe domen backfill zwróci 404 połykane jako `user_not_found_in_tenant` (`:113-125`) i po cichu nie zrobi nic.
 
 **Konwencje przy tabelach (obowiązkowe):** lustro DDL w `backend/entrypoint.sh` — do listy `_COLUMN_STATEMENTS` (start `:622`, wzorzec `CREATE TABLE IF NOT EXISTS dl_alerts` `:3405`), **nie** przez `Base.metadata.create_all`; wpis do `core_checks` w `backend/app/main.py:2028`; jedna głowa alembica (aktualna: `0249_order_rate_snapshots_offboarding` — potwierdź `alembic heads` przed pisaniem).

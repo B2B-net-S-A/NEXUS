@@ -4471,7 +4471,7 @@ async def update_line(
     for source_field, raw in raw_rates.items():
         setattr(line, source_field, raw)
 
-    # Szkic przypisania w OTWARTYM zamówieniu („Powrót po przerwie", 0356):
+    # Szkic przypisania w OTWARTYM zamówieniu („Powrót po przerwie", 0357):
     # osoba wraca na zamówienie z danymi do uzupełnienia. Gdy edycja domyka
     # komplet — stawka przychodowa i (przy budżecie per osoba) liczba MD —
     # przypisanie wchodzi do aktywnej obsady tak samo jak linia dodana od razu

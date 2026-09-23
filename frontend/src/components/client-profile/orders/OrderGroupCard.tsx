@@ -1143,7 +1143,7 @@ export function OrderGroupCard({
   // pracujących. Sprawa wędruje teraz razem z wierszem do „Zakończone", a żeby
   // nie zniknęła z oczu, nagłówek tej sekcji niesie licznik decyzji.
   // Szkic przypisania należy do obsady także w OTWARTYM zamówieniu —
-  // „Powrót po przerwie" (0356) wprowadza osobę jako szkic do uzupełnienia.
+  // „Powrót po przerwie" (0357) wprowadza osobę jako szkic do uzupełnienia.
   const isDraftLine = (line: OrderLineRead) => line.status === "draft";
   const currentLines = sortedLines.filter(
     (line) => line.is_active || isDraftLine(line),

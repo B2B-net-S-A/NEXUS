@@ -176,7 +176,8 @@ async def test_dl_onboarding_jobs_use_all_clients_regardless_of_tac(
 
 
 @pytest.mark.asyncio
-async def test_recruiter_onboarding_jobs_reuse_job_membership_policy() -> None:
+async def test_recruiter_onboarding_jobs_offer_every_published_job() -> None:
+    """Decyzja 23.09.2026: onboarding rekrutera nie zawęża do zespołu."""
     query = await onboarding._scoped_onboarding_jobs_query(
         AsyncMock(),
         _user(UserRole.recruiter, completed=False),
@@ -191,11 +192,10 @@ async def test_recruiter_onboarding_jobs_reuse_job_membership_policy() -> None:
         ).split()
     )
 
-    assert "jobs.recruiter_id = 11" in sql
-    assert "jobs.delivery_lead_id = 11" in sql
-    assert "jobs.tac_id = 11" in sql
-    assert "job_collaborators.user_id = 11" in sql
+    assert "jobs.recruiter_id = 11" not in sql
+    assert "job_collaborators" not in sql
     assert "jobs.status = 'published'" in sql
+    assert "jobs.client_id IS NOT NULL" in sql
 
 
 @pytest.mark.asyncio

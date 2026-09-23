@@ -249,7 +249,7 @@ class Contract(Base, TimestampMixin):
     termination_lessons: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     terminated_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
-    # „Powrót po przerwie" (0356): nowy kontrakt osoby, która naprawdę
+    # „Powrót po przerwie" (0357): nowy kontrakt osoby, która naprawdę
     # zakończyła współpracę i wraca po czasie, wskazuje poprzedni. Poprzedni
     # zostaje zakończony bez zmian — jego zużycie, alerty i finanse są historią,
     # a nowy liczy się od własnej daty startu. SET NULL: usunięcie starego

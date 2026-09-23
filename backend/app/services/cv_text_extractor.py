@@ -67,22 +67,55 @@ def _normalize(text: str) -> str:
 _OCR_FALLBACK_THRESHOLD_CHARS = 100
 
 
+# Średnia długość „słowa” (znaki / przerwy), powyżej której tekst uznajemy za
+# SKLEJONY. Zwykłe CV ma ~6–8; PDF-y z ciasnym odstępem między literami dają
+# w domyślnym odczycie 12–37 („ledtheqainitiativeandthedevelopment…”) —
+# 1 581 CV na produkcji (23.09.2026), niewidocznych dla wyszukiwania słów.
+GLUED_AVG_WORD_LEN = 12.0
+_WHITESPACE_RUN = re.compile(r"\s+")
+
+
+def avg_word_length(text: str) -> float:
+    return len(text) / (len(_WHITESPACE_RUN.findall(text)) + 1)
+
+
+def looks_glued(text: Optional[str]) -> bool:
+    """Tekst bez przerw między słowami (krótkie teksty nie są oceniane)."""
+    if not text or len(text) < 300:
+        return False
+    return avg_word_length(text) > GLUED_AVG_WORD_LEN
+
+
+def _pdfplumber_text(pdf, **kwargs) -> str:
+    return "\n\n".join(
+        txt for page in pdf.pages if (txt := page.extract_text(**kwargs) or "")
+    )
+
+
 def _extract_pdf_native(path: str) -> Optional[str]:
     """Try pdfplumber first (better multi-column / layout), fall back to
     pdfminer.six on any failure. Both are pure-text extractors — return None
-    if PDF is image-only (caller will trigger OCR)."""
+    if PDF is image-only (caller will trigger OCR).
+
+    Sklejony wynik domyślnego odczytu (``looks_glued``) jest czytany drugi raz
+    z ``x_tolerance=1``: pdfplumber wstawia spację, gdy odstęp między literami
+    przekracza próg (domyślnie 3 pt), a PDF-y z ciasnym kerningiem mają odstęp
+    międzywyrazowy poniżej niego. Próbka 24 takich CV z produkcji: średnia
+    długość słowa 12–37 → 6–8. Próg niższy dla WSZYSTKICH PDF-ów ryzykowałby
+    rozcinanie słów w rozstrzelonych nagłówkach, więc to tylko ścieżka zapasowa.
+    """
     # pdfplumber preserves layout columns better than pdfminer for modern CVs.
     try:
         import pdfplumber  # type: ignore[import-untyped]
 
-        out: list[str] = []
         with pdfplumber.open(path) as pdf:
-            for page in pdf.pages:
-                txt = page.extract_text() or ""
-                if txt:
-                    out.append(txt)
-        if out:
-            return "\n\n".join(out)
+            text = _pdfplumber_text(pdf)
+            if looks_glued(text):
+                tight = _pdfplumber_text(pdf, x_tolerance=1)
+                if avg_word_length(tight) < avg_word_length(text):
+                    text = tight
+        if text:
+            return text
     except Exception as e:  # pragma: no cover — defensive
         logger.info(
             "[cv_text_extractor] pdfplumber failed on %s: %s — trying pdfminer", path, e

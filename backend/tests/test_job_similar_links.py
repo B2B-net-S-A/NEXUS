@@ -328,16 +328,27 @@ async def test_similar_api_rejects_unknown_job(
     assert response.status_code == 404
 
 
-async def test_linking_requires_membership_in_the_other_job_too(
+async def test_recruiter_links_to_a_recruitment_outside_their_team(
     app_client: AsyncClient,
 ):
-    """SEC-05: rekruter z zespołu B nie połączy B z cudzą rekrutacją A."""
+    """Od 23.09.2026 rekruter z zespołu B łączy B z rekrutacją A, w której
+    zespole nie jest („nie musisz być przypisany"), a przepięcie idzie do B.
+    Stara rola podglądu ``user`` nie łączy niczego."""
     recruiter_id, headers = await _user(UserRole.recruiter)
+    _, viewer = await _user(UserRole.user)
     world = await _world()
     async with AsyncSessionLocal() as db:
         job_b = await db.get(Job, world["b"])
         job_b.recruiter_id = recruiter_id
         await db.commit()
+
+    refused = await app_client.post(
+        f"/api/jobs/{world['b']}/similar",
+        json={"job_ids": [world["a"]]},
+        headers=viewer,
+    )
+    assert refused.status_code == 403, refused.text
+    assert await _reassigned(world["b"]) == {}
 
     response = await app_client.post(
         f"/api/jobs/{world['b']}/similar",
@@ -345,16 +356,21 @@ async def test_linking_requires_membership_in_the_other_job_too(
         headers=headers,
     )
 
-    assert response.status_code == 403, response.text
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [x["id"] for x in body["linked"]] == [world["a"]]
+    assert body["reassigned_now"] == 1
     async with AsyncSessionLocal() as db:
         rows = await db.execute(
-            select(JobSimilarLink).where(
-                (JobSimilarLink.job_id == world["b"])
-                | (JobSimilarLink.job_id == world["a"])
+            select(JobSimilarLink.job_id, JobSimilarLink.similar_job_id).where(
+                JobSimilarLink.job_id.in_([world["a"], world["b"]])
             )
         )
-        assert rows.scalars().all() == []
-    assert await _reassigned(world["b"]) == {}
+        assert set(rows.all()) == {
+            (world["b"], world["a"]),
+            (world["a"], world["b"]),
+        }
+    assert set(await _reassigned(world["b"])) == {world["sent"]}
 
 
 async def test_preview_suggests_for_unsaved_job(

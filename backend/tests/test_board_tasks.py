@@ -402,21 +402,23 @@ async def test_dz_then_cpro_assignment_then_sent_flows_through_the_queue(
         assert todo[0]["target_stage_def_id"] == defs["cv_sent"]
 
         # HoR ustawia rekrutera spoza zespołu jako osobę wysyłającą dla
-        # CAŁEJ rekrutacji — rekruter trafia do zespołu, żeby móc przesunąć kartę.
+        # CAŁEJ rekrutacji. Od 23.09.2026 każda rola wewnętrzna przesuwa karty
+        # bez przypisania, więc nikt nie jest dopisywany do zespołu — a rekruter
+        # i tak przesuwa kartę na „Wysłane do Cpro" niżej.
         sender = await api_client.put(
             f"/api/board-tasks/cpro/jobs/{jid}/sender",
             headers=hor,
             json={"assignee_id": rec_id},
         )
         assert sender.status_code == 200, sender.text
-        assert sender.json()["added_to_team"] is True
+        assert sender.json()["added_to_team"] is False
         async with AsyncSessionLocal() as db:
             collab = await db.scalar(
                 select(JobCollaborator.id).where(
                     JobCollaborator.job_id == jid, JobCollaborator.user_id == rec_id
                 )
             )
-        assert collab is not None, "osoba wysyłająca musi móc przesunąć kartę"
+        assert collab is None
 
         rec_queue = (await api_client.get("/api/board-tasks", headers=rec)).json()
         todo = _rows(rec_queue, "cpro_to_send", cid)
@@ -427,15 +429,16 @@ async def test_dz_then_cpro_assignment_then_sent_flows_through_the_queue(
         assert detail["cpro_sender_id"] == rec_id
         assert detail["cpro_sender_name"]
 
-        # Rekruter z zespołu nie może wprowadzić do rekrutacji osoby spoza niej
-        # (zespół zmienia admin / DL / HoR) — 422, bez zmian.
+        # Rekruter wskazuje sourcera spoza zespołu — od 23.09.2026 to legalne
+        # (każda rola wewnętrzna przesuwa karty), a zespół się nie zmienia.
         outsider_id, _ = await _seed_user(UserRole.sourcer)
-        refused = await api_client.put(
+        handed = await api_client.put(
             f"/api/board-tasks/cpro/jobs/{jid}/sender",
             headers=rec,
             json={"assignee_id": outsider_id},
         )
-        assert refused.status_code == 422, refused.text
+        assert handed.status_code == 200, handed.text
+        assert handed.json()["added_to_team"] is False
         async with AsyncSessionLocal() as db:
             assert (
                 await db.scalar(
@@ -446,7 +449,7 @@ async def test_dz_then_cpro_assignment_then_sent_flows_through_the_queue(
                 )
                 is None
             )
-            assert (await db.get(Job, jid)).cpro_sender_id == rec_id
+            assert (await db.get(Job, jid)).cpro_sender_id == outsider_id
 
         # Zmiana osoby — HoR przejmuje całą rekrutację.
         swap = await api_client.put(

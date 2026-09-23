@@ -34,7 +34,7 @@ from app.services.contract_termination_reversal import (
 
 logger = logging.getLogger(__name__)
 
-REPAIR_MARKER = "0356_termination_reversal_ticket_2026_09_23"
+REPAIR_MARKER = "0357_termination_reversal_ticket_2026_09_23"
 
 # (kontrakt, kandydat, klient) — zgłoszenie 23.09.2026.
 TARGETS: tuple[tuple[int, int, int], ...] = ((408, 65586, 115),)

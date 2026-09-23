@@ -178,7 +178,7 @@ interface ContractDetail {
   // Pozostałe kontrakty tej samej osoby (konsolidacja wieloklientowa) —
   // zasilają przełącznik zakładek nazwanych po kliencie.
   related_contracts?: ContractSiblingRef[];
-  // „Cofnij zakończenie" / „Powrót po przerwie" (0356).
+  // „Cofnij zakończenie" / „Powrót po przerwie" (0357).
   returned_from_contract_id?: number | null;
   return_contract_id?: number | null;
   can_reverse_termination?: boolean;

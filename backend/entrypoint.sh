@@ -4564,7 +4564,39 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_order_pdf_downloads_kind
             CHECK (file_kind IN ('order', 'group', 'amendment'))
     )""",
-    # 0356: „Cofnij zakończenie" (stan kontraktu i zamówień sprzed
+    # 0355: historia edytora „Cele KPI" i znacznik raportów KPI mailem
+    # (UNIQUE kind+period_key = raport wychodzi najwyżej raz, także po restarcie).
+    """CREATE TABLE IF NOT EXISTS kpi_target_events (
+        id SERIAL PRIMARY KEY,
+        scope VARCHAR(8) NOT NULL,
+        role VARCHAR(40),
+        subject_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        subject_name VARCHAR(255),
+        kpi_id VARCHAR(64) NOT NULL,
+        action VARCHAR(16) NOT NULL,
+        changes JSONB,
+        actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        actor_name VARCHAR(255),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_kpi_target_events_scope CHECK (scope IN ('role', 'user')),
+        CONSTRAINT ck_kpi_target_events_action CHECK (action IN ('set', 'reset'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_kpi_target_events_created "
+    "ON kpi_target_events (created_at)",
+    """CREATE TABLE IF NOT EXISTS kpi_email_report_runs (
+        id SERIAL PRIMARY KEY,
+        kind VARCHAR(32) NOT NULL,
+        period_key VARCHAR(16) NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'claimed',
+        recipients INTEGER NOT NULL DEFAULT 0,
+        sent INTEGER NOT NULL DEFAULT 0,
+        claimed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        finished_at TIMESTAMPTZ,
+        CONSTRAINT uq_kpi_email_report_runs UNIQUE (kind, period_key),
+        CONSTRAINT ck_kpi_email_report_runs_status
+            CHECK (status IN ('claimed', 'sent', 'skipped', 'failed'))
+    )""",
+    # 0357: „Cofnij zakończenie" (stan kontraktu i zamówień sprzed
     # zakończenia) i „Powrót po przerwie" (nowy kontrakt wskazuje poprzedni).
     """CREATE TABLE IF NOT EXISTS contract_termination_snapshots (
         id SERIAL PRIMARY KEY,

@@ -53,7 +53,9 @@ async def test_approved_package_is_ready_without_note_or_manual_confirmation(pac
     state=await packages.confirm(db,rows[0],note_id=20,sources_checked=False,user_id=5,expected_fingerprint=(await packages.assess(db,rows[0],note_id=20))[0]['fingerprint'])
     assert state['ready']
     assert rows[0].package_review['note_version']['hash']==sha256(note.content.encode()).hexdigest()
-    assert (await packages.public_documents(db,{'pl':11,'en':12}))['package_documents'][1]['language']=='en'
+    documents=(await packages.public_documents(db,{'pl':11,'en':12}))['package_documents']
+    assert documents[1]['language']=='en'
+    assert '<p>en</p>' in documents[1]['cv_html'] and '<style>' in documents[1]['cv_html']
 
 
 @pytest.mark.parametrize('change', ['other_recruitment','deleted_note'])

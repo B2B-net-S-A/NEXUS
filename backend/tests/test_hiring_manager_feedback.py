@@ -482,13 +482,12 @@ def _url(world: dict) -> str:
     return f"/api/jobs/{world['job_id']}/hiring-manager-feedback"
 
 
-async def test_finance_reads_verdicts_without_team_membership(
+async def test_finance_reads_and_records_verdicts_without_team_membership(
     app_client, app_auth_headers
 ) -> None:
-    """Odczyt, nie polecenie: Finance ma organizacyjny odczyt rekrutacji.
-
-    Bramka członkostwa (`ensure_job_membership`) chroni zapisy — przy odczycie
-    odpowiadała Finance 403, choć decyzja 31.08 daje tej roli pełny odczyt.
+    """Finance czyta werdykty rekrutacji spoza zespołu — i od 23.09.2026 może
+    też zapisać swój (decyzja Artura: rekrutację obsługuje każdy, bez
+    przypisania). Cudzego werdyktu nadal nie nadpisuje.
     """
     from app.models.user import UserRole
 
@@ -506,9 +505,8 @@ async def test_finance_reads_verdicts_without_team_membership(
     assert len(rows) == 1
     # Finance nie jest autorem ani DL/adminem — podgląd, bez nadpisywania.
     assert rows[0]["can_edit"] is False
-    # …i spoza zespołu tej rekrutacji: POST skończyłby się 403, więc
-    # formularz nie może obiecywać „Zapisz feedback".
-    assert resp.json()["can_record"] is False
+    # Bramka zespołu nie odcina już zapisu, więc formularz jest dostępny.
+    assert resp.json()["can_record"] is True
 
 
 async def test_a_colleague_cannot_silently_overwrite_someone_elses_verdict(
@@ -769,14 +767,14 @@ async def test_can_record_matches_the_post_for_every_persona(
     """
     from app.models.user import UserRole
 
-    # Rekruter spoza zespołu nie dostaje nawet ODCZYTU (403 z bramki
-    # członkostwa) — nie ma tu czego porównywać. Finance czyta organizacyjnie,
-    # więc to na nim widać różnicę między odczytem a zapisem.
+    # Od 23.09.2026 bramka zespołu przepuszcza każdą rolę wewnętrzną, więc
+    # także osoby spoza zespołu (rekruter, Finance) zapisują werdykt.
     cases = [
         ("admin", None, True),
         ("recruiter-member", UserRole.recruiter, True),
+        ("recruiter-outsider", UserRole.recruiter, True),
         ("finance-member", UserRole.finance, True),
-        ("finance-outsider", UserRole.finance, False),
+        ("finance-outsider", UserRole.finance, True),
         # Obejście członkostwa dla Delivery Leada — to samo co w POST.
         ("delivery-lead-outsider", UserRole.delivery_lead, True),
         # Parytet HoR z rekruterem 2026-09-17 (rola nadzoru omija członkostwo).

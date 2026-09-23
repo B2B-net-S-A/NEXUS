@@ -287,7 +287,7 @@ async def apply_contract_order_offboarding(
     effects, cases, events and alerts must succeed or roll back together.
 
     ``contract_before`` to stan kontraktu odczytany przez wołającego PRZED
-    zakończeniem — trafia do migawki (0356), z której „Cofnij zakończenie"
+    zakończeniem — trafia do migawki (0357), z której „Cofnij zakończenie"
     przywraca kontrakt i każde ruszone tu zamówienie.
     """
 
