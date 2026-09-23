@@ -51,7 +51,9 @@ export function FullCandidateSearchStatus({ data, offset, onPage, fetching = fal
   if (compact && !active) {
     return <section className="space-y-1 rounded-lg border px-3 py-2 text-sm" aria-label="Zakres wyszukiwania">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <p role="status" className="min-w-0 flex-1">
+        {/* W wąskim panelu („Dodaj kandydatów”) stronicowanie schodzi pod
+            tekst, zamiast ściskać go do jednego słowa w linii. */}
+        <p role="status" className="min-w-[14rem] flex-1">
           Przegląd zakończony: <strong>{counts.eligible}</strong> widocznych z {counts.population} sprawdzonych
           {counts.needs_verification > 0 && ` · ocena niepełna: ${counts.needs_verification}`}
           {counts.failed > 0 && ` · nie udało się ocenić: ${counts.failed}`}
