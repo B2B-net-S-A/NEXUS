@@ -48,6 +48,11 @@ def _matches(keyword: str, text: str) -> bool:
         ("c++", "C++17, Python", True),
         ("c++", "C++17", True),
         (".net", "ASP.NET Core", True),
+        (".net", "C# (.NET), Azure", True),
+        (".net", "VB.NET", True),
+        # Klauzula zgody w prawie każdym CV i domeny — nie technologia.
+        (".net", "zgodę na przetwarzanie przez B2B.net S.A.", False),
+        (".net", "www.behance.net/jan", False),
         ("node.js", "Node.js, React", True),
         ("c#", ".NET, C#, Azure", True),
         ("qa", "QA Engineer", True),

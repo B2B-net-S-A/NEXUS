@@ -6,7 +6,8 @@ closes the gap.
 
 Design
 ------
-Dispatch by extension (case-insensitive). Heavy libraries imported lazily so
+Dispatch by the file's real format (first bytes), falling back to the extension
+(case-insensitive). Heavy libraries imported lazily so
 import-time cost stays near zero in environments where CV uploads never happen
 (e.g. CI unit tests that don't touch candidates).
 
@@ -170,13 +171,68 @@ def _extract_txt(path: str) -> Optional[str]:
         return None
 
 
-def _resolve_extension(file_path: str, filename: str) -> str:
-    """Prefer the filename extension (stable across temp-file renames),
-    falling back to the on-disk path."""
+def _declared_extension(file_path: str, filename: str) -> str:
+    """Extension from the filename (stable across temp-file renames), falling
+    back to the on-disk path."""
     _, ext = os.path.splitext(filename or "")
     if not ext:
         _, ext = os.path.splitext(file_path or "")
     return ext.lower()
+
+
+_PDF_MAGIC = b"%PDF-"
+_ZIP_MAGIC = b"PK\x03\x04"
+_OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+# PDF allows junk before the header; readers look within the first 1 KB.
+_SNIFF_BYTES = 1024
+
+
+def sniff_extension(file_path: str) -> Optional[str]:
+    """Real format from the file's first bytes: ``.pdf``, ``.docx``, ``.doc``.
+
+    The NAME lies. Measured on prod 2026-09-22: 3 320 Traffit CVs named
+    ``*.docx`` are PDFs inside (Traffit serves its converted copy under the
+    original name). Dispatching by name sent them to python-docx, which failed,
+    and the backfill marked them ``empty`` — terminal — so their text was never
+    searched. ``None`` = no known signature (plain text, images, garbage);
+    the caller keeps the declared extension then.
+    """
+    try:
+        with open(file_path, "rb") as f:
+            head = f.read(_SNIFF_BYTES)
+    except OSError:
+        return None
+    if head.startswith(_OLE_MAGIC):
+        return ".doc"
+    if head.startswith(_ZIP_MAGIC):
+        try:
+            import zipfile
+
+            with zipfile.ZipFile(file_path) as zf:
+                if "word/document.xml" in zf.namelist():
+                    return ".docx"
+        except Exception:  # noqa: BLE001 — broken zip = unknown format
+            return None
+        return None  # odt/xlsx/pages — a zip, but not a Word document
+    if _PDF_MAGIC in head:
+        return ".pdf"
+    return None
+
+
+def _resolve_extension(file_path: str, filename: str) -> str:
+    """Format to parse as: the sniffed one when the bytes say so, otherwise the
+    declared extension."""
+    declared = _declared_extension(file_path, filename)
+    sniffed = sniff_extension(file_path)
+    if sniffed and sniffed != declared:
+        logger.info(
+            "[cv_text_extractor] %s declared %r but content is %r — using content",
+            filename or file_path,
+            declared,
+            sniffed,
+        )
+        return sniffed
+    return declared
 
 
 def extract_text(file_path: str, filename: str) -> str:
@@ -199,7 +255,9 @@ def extract_text(file_path: str, filename: str) -> str:
     Raises
     ------
     UnsupportedCvFormat
-        If the extension is not one of: .pdf, .docx, .doc, .txt.
+        If the format is not one of: .pdf, .docx, .doc, .txt. The format comes
+        from the file's first bytes when they carry a known signature, so a PDF
+        saved as ``cv.docx`` (or ``cv.odt``) is read as a PDF.
     """
     ext = _resolve_extension(file_path, filename)
 

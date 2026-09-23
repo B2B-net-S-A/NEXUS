@@ -30,7 +30,7 @@ via ``notes_contents``.
 
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from app.models.candidate import Candidate
 from app.services.text_cleaning import clean_rich_text, flatten_json_text
@@ -259,27 +259,69 @@ def _experience_roles(candidate: Candidate) -> str:
 def _structured_corpus(
     candidate: Candidate, notes_contents: Optional[list[str]]
 ) -> list[tuple[str, str]]:
+    """Pola korpusu słów kluczowych (``keyword_corpus``), każde osobno.
+
+    Te same pola co wyszukiwanie — bez podsumowania AI, kluczy i poziomów
+    JSON-ów — inaczej wycinek pokazywałby trafienie, po którym osoba wcale
+    nie została znaleziona (albo nie pokazywał tego, po którym została).
+    """
+    from app.services import keyword_corpus as kc
+
+    def attr(name: str) -> Any:
+        return getattr(candidate, name, None)
+
+    linkedin = " · ".join(
+        p
+        for p in (attr("linkedin_current_title"), attr("linkedin_current_company"))
+        if p
+    )
+    education = " · ".join(
+        p
+        for p in (
+            kc.json_text(attr("education"), kc.EDUCATION_KEYS),
+            kc.traffit_value(candidate, "traffit_education"),
+        )
+        if p
+    )
     blocks: list[tuple[str, str]] = [
-        ("Treść CV", clean_rich_text(candidate.raw_cv_text)),
-        ("Stanowisko", _experience_roles(candidate)),
-        ("Umiejętności", clean_rich_text(flatten_json_text(candidate.skills))),
-        ("Doświadczenie", clean_rich_text(flatten_json_text(candidate.experience))),
-        ("Podsumowanie AI", clean_rich_text(candidate.ai_summary)),
-        ("Uwagi", clean_rich_text(candidate.engagement_notes)),
-        ("Tagi", clean_rich_text(flatten_json_text(candidate.tags))),
-        ("Wykształcenie", clean_rich_text(flatten_json_text(candidate.education))),
-        ("Języki", clean_rich_text(flatten_json_text(candidate.languages))),
-        ("Kategoria", clean_rich_text(candidate.competence_category)),
-        ("Lokalizacja", clean_rich_text(candidate.location or candidate.city)),
+        ("Treść CV", clean_rich_text(attr("raw_cv_text"))),
+        (
+            "Stanowisko",
+            clean_rich_text(kc.title_text(candidate, _experience_roles(candidate))),
+        ),
+        ("Umiejętności", clean_rich_text(kc.skills_text(candidate))),
+        (
+            "Doświadczenie",
+            clean_rich_text(kc.json_text(attr("experience"), kc.EXPERIENCE_KEYS)),
+        ),
+        ("O sobie", clean_rich_text(attr("profile_about"))),
+        (
+            "Certyfikaty",
+            clean_rich_text(kc.traffit_value(candidate, "traffit_certificates")),
+        ),
+        (
+            "Poprzedni pracodawcy",
+            clean_rich_text(kc.traffit_value(candidate, "traffit_previous_employers")),
+        ),
+        ("Uwagi", clean_rich_text(attr("engagement_notes"))),
+        ("Tagi", clean_rich_text(kc.json_text(attr("tags"), kc.TAG_KEYS))),
+        ("Wykształcenie", clean_rich_text(education)),
+        ("Języki", clean_rich_text(kc.json_text(attr("languages"), kc.LANGUAGE_KEYS))),
+        ("LinkedIn", clean_rich_text(linkedin)),
+        ("Lokalizacja", clean_rich_text(attr("location") or attr("city"))),
+        (
+            "Narodowość",
+            clean_rich_text(kc.traffit_value(candidate, "traffit_nationality")),
+        ),
     ]
     for note in notes_contents or []:
         blocks.append(("Notatka", clean_rich_text(note)))
     blocks.extend(
         [
-            ("Email", clean_rich_text(candidate.email)),
+            ("Email", clean_rich_text(attr("email"))),
             (
                 "Kandydat",
-                clean_rich_text(f"{candidate.name or ''} {candidate.lastname or ''}"),
+                clean_rich_text(f"{attr('name') or ''} {attr('lastname') or ''}"),
             ),
         ]
     )

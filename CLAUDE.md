@@ -2324,6 +2324,37 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   tylko w v2 i dotyczy wszystkich trzech pól słów. Odpowiedź v2 niesie
   `match_snippets` — każde pole z trafieniem (do 5, po 2 okna) z zakresami
   pogrubień liczonymi na serwerze; front (`FieldSnippets`) nie powtarza reguły.
+- **Słowa kluczowe v2 szukają w KORPUSIE, nie w `search_fts`/`search_doc`**
+  (migracja 0346, `services/keyword_corpus.py` = jedno źródło listy pól dla
+  SQL-a triggera i wycinków). Porównanie z Traffitem na próbce 3 250 osób ×
+  18 zapytań (22.09.2026): NEXUS znajdował ~84% osób z Traffita, a różnica
+  siedziała w polach, nie w dopasowaniu. Korpus: CV + profil + pola Traffita
+  (`cv_extracted_data.traffit_Position/technologie/certificates/
+  previous_employers/education/nationality`) + „Kandydat o sobie”
+  (`profile_about`); z JSON-ów WYŁĄCZNIE wartości treści (rola, firma, opis,
+  technologie; nazwa umiejętności; szkoła/kierunek/stopień; nazwa języka;
+  tagi-napisy). **Nie dokładaj `ai_summary`** („bankowość” z AI dawała 9 794
+  osoby przy 810 w Traffit) **ani surowego `::text` JSON-ów** (poziom
+  umiejętności „junior” miało 26 609 osób, więc „java NIE junior” wycinało
+  seniorów). „Stanowisko” = role + `traffit_Position`, „Umiejętności” = nazwy
+  + `traffit_technologie`. Kolumny `keyword_doc` (profil bez CV, bez polskich
+  znaków, trigram) i `keyword_fts` (profil + CV, GIN) liczy TRIGGER; istniejące
+  wiersze uzupełnia pętla `keyword_corpus_backfill` po starcie (backfill
+  w migracji = 6 min 502, jak przy 0143), a do jej końca
+  `keyword_corpus.ready()` dokłada gałąź po starych kolumnach dla wierszy
+  z `keyword_doc IS NULL`. v1 dalej czyta `search_fts`/`search_doc`.
+  `.net` (kropka na początku) ma granicę słowa po lewej, poza `ASP/ADO/VB`
+  (`keyword_terms.DOT_PREFIXES`) — klauzula „zgoda … B2B.net S.A.” jest w
+  prawie każdym CV. Czego NIE da się dogonić: Traffit szuka też we własnym
+  parserze CV i w tagach, których publiczne API nie wystawia.
+- **Tekst CV czyta faza `candidates_cv_text` nocnego syncu** (budżet
+  `TRAFFIT_SYNC_CV_TEXT_LIMIT`, `cv_text_backfill.run_backfill`). Do 22.09
+  pliki pobierane przez sync nie dostawały tekstu (jednorazowy skrypt
+  z 10.08), a ekstraktor wybierał parser po NAZWIE: 3 320 PDF-ów zapisanych
+  jako `*.docx` dostało terminalny znacznik `empty`. Format rozpoznaje
+  `cv_text_extractor.sniff_extension` (pierwsze bajty); znaczniki
+  `empty/unsupported_format/legacy_doc` bez flagi `sniffed` dostają jedną
+  ponowną próbę.
 - **Lokalizacja z promieniem i województwo** (`services/pl_places.py`, dane
   `app/data/pl_places.json` z GeoNames, CC BY 4.0, 3 331 miejscowości,
   pokrycie 95% kandydatów z miastem). Kandydaci NIE mają współrzędnych, więc
