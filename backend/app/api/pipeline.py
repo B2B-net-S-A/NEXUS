@@ -2172,8 +2172,12 @@ async def my_next_steps(
     for job in jobs:
         try:
             # `jobs_mine_clause` keeps collaborators removed from the team;
-            # the board read guard is the one that decides.
-            await ensure_job_read_access(db, current_user, job.id)
+            # the board read guard is the one that decides. Widok OSOBISTY:
+            # od 23.09.2026 tablicę każdej rekrutacji czyta każdy, więc
+            # przypisanie liczymy jawnie (`oversight_bypass=False`).
+            await ensure_job_read_access(
+                db, current_user, job.id, oversight_bypass=False
+            )
         except HTTPException:
             continue
         out.append(

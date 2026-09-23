@@ -11,7 +11,14 @@ import {
 } from "./candidate-query-keys";
 
 export type CandidateHistoryResponse =
-  | { jobs?: unknown[]; contracts?: unknown[] }
+  | {
+      jobs?: unknown[];
+      contracts?: unknown[];
+      /** Stawka do klienta dla tej osoby (rekruter/sourcer/TAC: false). */
+      can_read_client_rate?: boolean;
+      /** Zapis stawki do klienta (Delivery Lead, admin). */
+      can_write_client_rate?: boolean;
+    }
   | unknown[];
 
 /**

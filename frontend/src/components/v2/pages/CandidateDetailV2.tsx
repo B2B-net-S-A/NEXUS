@@ -659,8 +659,12 @@ export function CandidateDetailV2({
                 readOnly={readOnly}
                 // Stawka do klienta: rekruter, sourcer i TAC jej nie widzą
                 // (23.09.2026); zapis ma wyłącznie DL i admin. Decyduje serwer.
-                clientRateVisible={historyRaw?.can_read_client_rate === true}
-                clientRateWritable={historyRaw?.can_write_client_rate === true}
+                clientRateVisible={
+                  !Array.isArray(historyRaw) && historyRaw?.can_read_client_rate === true
+                }
+                clientRateWritable={
+                  !Array.isArray(historyRaw) && historyRaw?.can_write_client_rate === true
+                }
               />
             </TabsContent>
 
