@@ -1,0 +1,191 @@
+"""Blokada 12 h osoby w kolumnie „Nowi" (Pipeline v4, decyzja Artura 23.09.2026).
+
+Osoba, którą rekruter sam dodał do rekrutacji (albo wziął z propozycji
+przyciskiem „Biorę"), jest przez ``CLAIM_HOURS`` na jego wyłączność W TEJ
+rekrutacji. Chodzi o chaos: dwóch rekruterów dzwoniących do tej samej osoby
+w sprawie tej samej rekrutacji. Po upływie blokady każdy z zespołu może osobę
+przejąć; wcześniej — wyłącznie admin, Delivery Lead albo Head of Recruitment.
+
+Blokada dotyczy tylko kolumny „Nowi" (rozmowa i pytania z Championa). Ruch
+dalej ją zdejmuje — wtedy osoba ma już właściciela procesu.
+
+Stan żyje na ``RecruitmentProcess`` (``claimed_by_user_id`` + ``claimed_until``,
+CHECK: oba albo żadne). Wygaśnięcie jest liczone przy odczycie — bez pętli.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+from zoneinfo import ZoneInfo
+
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.pipeline_template import PipelineStageDef
+from app.models.recruitment_pipeline import CandidateStage
+from app.models.recruitment_process import RecruitmentProcess
+from app.models.user import User, UserRole
+from app.services.board_stage_badges import NEW_COLUMN as _NEW_COLUMN
+from app.services.board_stage_badges import board_column_for
+
+CLAIM_HOURS = 12
+# Kolumna Tablicy, w której obowiązuje blokada.
+NEW_COLUMN = _NEW_COLUMN
+
+# Kto może przejąć cudzą osobę przed upływem blokady.
+CLAIM_OVERRIDE_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.delivery_lead,
+    UserRole.head_of_recruitment,
+)
+
+# Źródła wejścia do rekrutacji (CHECK w 0352).
+ENTRY_ADDED_MANUAL = "added_manual"
+ENTRY_APPLICATION = "application"
+ENTRY_PROPOSAL = "proposal"
+ENTRY_REASSIGN = "reassign"
+ENTRY_AUTO_MATCH = "auto_match"
+ENTRY_IMPORT = "import"
+ENTRY_SOURCES = frozenset(
+    {
+        ENTRY_ADDED_MANUAL,
+        ENTRY_APPLICATION,
+        ENTRY_PROPOSAL,
+        ENTRY_REASSIGN,
+        ENTRY_AUTO_MATCH,
+        ENTRY_IMPORT,
+    }
+)
+
+_WARSAW = ZoneInfo("Europe/Warsaw")
+
+
+@dataclass(frozen=True)
+class ClaimState:
+    user_id: Optional[int]
+    until: Optional[datetime]
+
+    def active(self, now: datetime) -> bool:
+        return self.user_id is not None and self.until is not None and self.until > now
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def claim_state(process: Optional[RecruitmentProcess]) -> ClaimState:
+    if process is None:
+        return ClaimState(None, None)
+    return ClaimState(process.claimed_by_user_id, process.claimed_until)
+
+
+def can_override(user: User) -> bool:
+    return user.has_any_role(*CLAIM_OVERRIDE_ROLES)
+
+
+def set_claim(
+    process: RecruitmentProcess, user_id: int, now: Optional[datetime] = None
+) -> None:
+    process.claimed_by_user_id = user_id
+    process.claimed_until = (now or utcnow()) + timedelta(hours=CLAIM_HOURS)
+
+
+def clear_claim(process: RecruitmentProcess) -> None:
+    process.claimed_by_user_id = None
+    process.claimed_until = None
+
+
+async def stage_column(db: AsyncSession, stage: CandidateStage) -> str:
+    """Kolumna Tablicy wiersza etapu (ta sama reguła co front)."""
+
+    name: Optional[str] = None
+    category: Optional[str] = None
+    terminal_type: Optional[str] = None
+    if stage.stage_def_id is not None:
+        row = (
+            await db.execute(
+                select(
+                    PipelineStageDef.name,
+                    PipelineStageDef.category,
+                    PipelineStageDef.terminal_type,
+                ).where(PipelineStageDef.id == stage.stage_def_id)
+            )
+        ).first()
+        if row is not None:
+            name = row.name
+            category = getattr(row.category, "value", row.category)
+            terminal_type = getattr(row.terminal_type, "value", row.terminal_type)
+    stage_value = getattr(stage.stage, "value", stage.stage)
+    return board_column_for(
+        name, stage_value, category=category, terminal_type=terminal_type
+    )
+
+
+async def load_process(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> Optional[RecruitmentProcess]:
+    """Najnowsza próba pary (bez blokady wiersza — tylko odczyt blokady)."""
+
+    return await db.scalar(
+        select(RecruitmentProcess)
+        .where(
+            RecruitmentProcess.candidate_id == candidate_id,
+            RecruitmentProcess.job_id == job_id,
+        )
+        .order_by(RecruitmentProcess.attempt_no.desc(), RecruitmentProcess.id.desc())
+        .limit(1)
+    )
+
+
+def _holder_label(holder: Optional[User]) -> str:
+    if holder is None:
+        return "inną osobę"
+    return (holder.name or "").strip() or holder.email or "inną osobę"
+
+
+def _local_hhmm(moment: datetime) -> str:
+    return moment.astimezone(_WARSAW).strftime("%d.%m %H:%M")
+
+
+async def assert_can_act(
+    db: AsyncSession,
+    *,
+    process: Optional[RecruitmentProcess],
+    user: User,
+    now: Optional[datetime] = None,
+) -> None:
+    """Odmawia 423, gdy osoba jest zarezerwowana przez kogoś innego.
+
+    Admin, Delivery Lead i Head of Recruitment przechodzą zawsze — to oni
+    rozstrzygają spory o osobę.
+    """
+
+    state = claim_state(process)
+    moment = now or utcnow()
+    if not state.active(moment) or state.user_id == user.id or can_override(user):
+        return
+    holder = await db.get(User, state.user_id)
+    raise HTTPException(
+        status_code=423,
+        detail={
+            "code": "CANDIDATE_CLAIMED",
+            "message": (
+                f"Tę osobę prowadzi {_holder_label(holder)} do "
+                f"{_local_hhmm(state.until)}. Po tym czasie każdy może ją przejąć."
+            ),
+            "claimed_by_user_id": state.user_id,
+            "claimed_until": state.until.isoformat(),
+        },
+    )
+
+
+def can_take(process: Optional[RecruitmentProcess], user: User, now: datetime) -> bool:
+    """Czy ``user`` może kliknąć „Biorę"/„Przejmij" na tej karcie."""
+
+    state = claim_state(process)
+    if state.user_id == user.id and state.active(now):
+        return False
+    return not state.active(now) or can_override(user)

@@ -79,14 +79,16 @@ describe("Tablica — kolumna „Do przejrzenia”", () => {
     expect(screen.getByText("14")).toBeInTheDocument();
   });
 
-  it("przepięcie mówi, gdzie osoba była u klienta; ✓ dodaje do Screening", () => {
+  it("przepięcie mówi, gdzie osoba była u klienta; „Biorę” dodaje do Nowych", () => {
     render(<BoardReviewSection jobId={5} readOnly={false} />);
     expect(screen.getByText("↻ Przepięcie")).toBeInTheDocument();
     expect(
       screen.getByText("Wysłany do klienta: mBank · Kotlin Developer · 26.08.2026"),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Dodaj Osoba 1 do Screening" }));
-    expect(addToJob).toHaveBeenCalledWith([1], { initialStageLegacy: "screening" });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Biorę Osoba 1 — dodaj do Nowych na 12 h" }),
+    );
+    expect(addToJob).toHaveBeenCalledWith([1], { initialStageLegacy: "new" });
   });
 
   it("✕ pomija, a nadmiar prowadzi do pełnej listy", () => {
@@ -102,7 +104,7 @@ describe("Tablica — kolumna „Do przejrzenia”", () => {
   it("tylko do odczytu — bez przycisków akcji", () => {
     render(<BoardReviewSection jobId={5} readOnly />);
     expect(screen.getByText("↻ Przepięcie")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Screening/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Biorę/ })).not.toBeInTheDocument();
   });
 
   it("pusto — mówi to wprost", () => {

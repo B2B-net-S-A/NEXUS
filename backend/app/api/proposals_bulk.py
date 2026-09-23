@@ -32,6 +32,7 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.models.job_proposal import JobProposal
 from app.models.note import Note, NoteType
 from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import (
@@ -39,6 +40,7 @@ from app.models.recruitment_pipeline import (
     PipelineStage,
 )
 from app.models.recruitment_priority import PriorityChannel
+from app.services import candidate_claim
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.services.candidate_job_eligibility import EligibilityReason
@@ -335,6 +337,43 @@ def _merge_tags(existing: list, incoming: list[str]) -> list:
     return merged
 
 
+async def _reassign_sources(
+    db: AsyncSession, job_id: int, candidate_ids: list[int]
+) -> dict[int, Optional[int]]:
+    """Kandydat → rekrutacja, z której przyszło otwarte przepięcie."""
+
+    if not candidate_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(JobProposal.candidate_id, JobProposal.evidence).where(
+                JobProposal.job_id == job_id,
+                JobProposal.candidate_id.in_(candidate_ids),
+                JobProposal.source == "reassign",
+                JobProposal.status == "proposed",
+            )
+        )
+    ).all()
+    out: dict[int, Optional[int]] = {}
+    for candidate_id, evidence in rows:
+        source_job = ((evidence or {}).get("reassign") or {}).get("job_id")
+        out[candidate_id] = source_job if isinstance(source_job, int) else None
+    return out
+
+
+# Ekran → źródło wejścia (0352). Propozycje systemu to „proposal", reszta to
+# ręczne dodanie rekrutera; przepięcie rozpoznaje `_reassign_sources`.
+_PROPOSAL_SOURCES = frozenset(
+    {"full_search", "historical", "proposal_inbox", "recommendation"}
+)
+
+
+def _entry_source_for(source: Optional[str]) -> str:
+    if source in _PROPOSAL_SOURCES:
+        return candidate_claim.ENTRY_PROPOSAL
+    return candidate_claim.ENTRY_ADDED_MANUAL
+
+
 @dataclass
 class IntakeResult:
     added: list[int]
@@ -353,6 +392,8 @@ async def add_candidates_to_job(
     initial_stage_legacy: Optional[str] = None,
     note: Optional[str] = None,
     tags: Optional[list[str]] = None,
+    entry_source: str = candidate_claim.ENTRY_ADDED_MANUAL,
+    claim: bool = True,
 ) -> IntakeResult:
     """Dodaj kandydatów do pipeline'u rekrutacji — jedna logika dla trasy i automatu.
 
@@ -362,6 +403,11 @@ async def add_candidates_to_job(
     wykluczenia kandydata, już-w-procesie. Bez commita i bez sprawdzenia
     członkostwa w zespole — to robi wołający (trasa: `ensure_job_membership`;
     automat: działa w imieniu właściciela rekrutacji).
+
+    Pipeline v4 (0352): ``entry_source`` trafia na nowy proces, a ``claim``
+    zakłada blokadę 12 h na ``actor_user_id`` (osoba dodana ręcznie). Osoba
+    z otwartą propozycją przepięcia dostaje źródło ``reassign`` i rekrutację,
+    z której przyszła — niezależnie od ekranu, z którego ją dodano.
     """
     # Kanoniczna kolejność blokad — patrz `canonical_candidate_lock_order`.
     # Pętla niżej blokuje wiersz kandydata przez `open_process`, a jedyny commit
@@ -431,6 +477,7 @@ async def add_candidates_to_job(
     stage_ids: dict[int, int] = {}
     skipped: list[BulkSkippedRow] = []
     warnings: list[BulkWarningRow] = []
+    reassign_sources = await _reassign_sources(db, job.id, lock_ordered_ids)
 
     # Jeden skan progresu assignmentu na cały batch: bez tego każda
     # iteracja powtarza pełne zapytanie KPI trzymając blokadę wiersza joba.
@@ -485,6 +532,13 @@ async def add_candidates_to_job(
                 stage_def_id=stage_def.id if stage_def else None,
                 actor_user_id=actor_user_id,
                 work_channel=PriorityChannel.database,
+                entry_source=(
+                    candidate_claim.ENTRY_REASSIGN
+                    if candidate_id in reassign_sources
+                    else entry_source
+                ),
+                reassign_from_job_id=reassign_sources.get(candidate_id),
+                claim_for_user_id=actor_user_id if claim else None,
             )
             # M3-ACT-01: every stage-creating entry point must snapshot the CV that
             # was current at assignment (the evidence of what was submitted) + emit
@@ -574,6 +628,7 @@ async def bulk_add_proposals(
         initial_stage_legacy=body.initial_stage_legacy,
         note=body.note,
         tags=body.tags,
+        entry_source=_entry_source_for(body.source),
     )
     added, skipped, warnings = result.added, result.skipped, result.warnings
 

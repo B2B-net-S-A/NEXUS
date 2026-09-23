@@ -3178,6 +3178,8 @@ async def _assign_candidate_to_job(
         stage=stage,
         actor_user_id=user_id,
         work_channel=PriorityChannel.linkedin,
+        entry_source="added_manual",
+        claim_for_user_id=user_id,
     )
     db.add(
         Activity(

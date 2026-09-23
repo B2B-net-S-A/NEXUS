@@ -1275,7 +1275,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // Kolumny SZABLONU — wszystko, co wybiera cel ruchu albo mierzy pipeline,
  // musi iść po tej liście, nie po `cols` (w `cols` siedzi też kubełek).
  const stageCols = useMemo(() => cols.filter((c) => !isOffTemplate(c)), [cols]);
- // 9 kolumn Tablicy (22.09.2026, `lib/board-stages.ts`): etapy szablonu
+ // 6 kolumn Tablicy (23.09.2026, `lib/board-stages.ts`): etapy szablonu
  // złożone w kolumny, to, co nie jest krokiem procesu, jako odznaka na karcie.
  // `cols`/`stageCols` zostają PRAWDZIWYMI etapami — z nich liczy się ruch,
  // liczniki i dok; złożenie dotyczy wyłącznie renderu i celów upuszczenia.
@@ -1305,7 +1305,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  for (const c of boardFold.closed) m.set(colId(c), c);
  return m;
  }, [boardFold]);
- // Cele ruchu z doku i paska zbiorczego: 9 gospodarzy + zamknięci.
+ // Cele ruchu z doku i paska zbiorczego: 6 gospodarzy + zamknięci.
  // Gospodarz niesie nazwę KOLUMNY Tablicy („Umowa", nie „Umowa wysłana").
  const moveTargetCols = useMemo(
  () => [
@@ -2077,7 +2077,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  ...offTemplateCols,
  ];
  return hideEmptyColumns
- ? base.filter((c) => c.count > 0 || boardKeyByColId.get(colId(c)) === "review")
+ ? base.filter((c) => c.count > 0 || boardKeyByColId.get(colId(c)) === "new")
  : base;
  }, [displayCols, boardFold, showClosed, offTemplateCols, hideEmptyColumns, boardKeyByColId]);
 
@@ -2389,12 +2389,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}
  style={columnHeight != null ? { height: columnHeight } : undefined}
  >
- {/* „Do przejrzenia" zawsze stoi pierwsza — także gdy szablon nie ma
- etapu „Ogłoszenia" albo jego pusta kolumna jest ukryta. */}
- {!boardEntries.some((e) => boardKeyByColId.get(e.key) === "review") && (
+ {/* „Nowi" (z propozycjami na górze) zawsze stoi pierwsza — także gdy
+ szablon nie ma etapu „Nowi" albo jego pusta kolumna jest ukryta. */}
+ {!boardEntries.some((e) => boardKeyByColId.get(e.key) === "new") && (
  <div className="flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-dashed border-primary/40 bg-background/60 sm:min-w-[19rem] xl:pointer-fine:min-w-[12.5rem]">
  <div className="flex items-center gap-2 border-b border-border px-3 py-2">
- <h3 className="flex-1 truncate text-sm font-medium text-foreground">Do przejrzenia</h3>
+ <h3 className="flex-1 truncate text-sm font-medium text-foreground">Nowi</h3>
  {reviewTotal != null && (
  <Badge size="sm" variant={reviewTotal > 0 ? "soft" : "outline"}>
  {reviewTotal}
@@ -2459,14 +2459,14 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  {...(boardLabelByColId.has(entry.key)
  ? { titleOverride: boardLabelByColId.get(entry.key) }
  : {})}
- {...(boardKeyByColId.get(entry.key) === "review"
+ {...(boardKeyByColId.get(entry.key) === "new"
  ? {
- titleOverride: "Do przejrzenia",
  extraCount: reviewTotal ?? 0,
  prepend: (
  <BoardReviewSection
  jobId={jobId}
  readOnly={readOnly}
+ showPostingHeading={false}
  onTotalChange={setReviewTotal}
  pipelineCandidateIds={boardCandidateIds}
  budgetHourly={jobBudgetHourlyValue ?? null}

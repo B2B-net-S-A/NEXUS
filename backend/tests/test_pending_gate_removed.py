@@ -286,10 +286,16 @@ async def test_stage_stored_as_pending_is_not_stuck(pv_client: AsyncClient):
         resp = await pv_client.post(
             "/api/pipeline/move",
             headers=headers,
-            json={"candidate_id": cand_id, "job_id": job_id, "stage": "cv_sent"},
+            # Pipeline v4: „CV wysłane" wysyła DL — rekruter idzie dalej
+            # innym etapem; test sprawdza tylko, że stary `pending` nie blokuje.
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "client_interview",
+            },
         )
         assert resp.status_code == 200, resp.text
-        assert resp.json()["stage"] == "cv_sent"
+        assert resp.json()["stage"] == "client_interview"
     finally:
         await _cleanup(candidate_ids=[cand_id], job_ids=[job_id])
 

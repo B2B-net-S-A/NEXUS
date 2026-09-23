@@ -11,6 +11,7 @@ and commit behaviour.  Commands flush, but never commit.
 
 from __future__ import annotations
 
+from app.services import candidate_claim
 from app.services.operational_tasks import nominal_task_owner
 
 from collections.abc import Iterable
@@ -583,10 +584,18 @@ async def transition_process(
     work_channel: Optional[PriorityChannel] = None,
     moved_at: Optional[datetime] = None,
     expected_state_version: Optional[int] = None,
+    entry_source: Optional[str] = None,
+    claim_for_user_id: Optional[int] = None,
+    reassign_from_job_id: Optional[int] = None,
     _strict_open: bool = False,
     **candidate_stage_values: Any,
 ) -> CandidateStage:
     """Append a stage event and synchronize its canonical process.
+
+    Pipeline v4 (0352): ``entry_source``/``reassign_from_job_id`` stemplują
+    NOWY proces (skąd osoba weszła), ``claim_for_user_id`` zakłada blokadę
+    12 h, gdy nowy proces zaczyna się w kolumnie „Nowi". Ruch poza „Nowych"
+    zdejmuje blokadę (``candidate_claim``).
 
     ``require_existing`` is used by signing/contract automation: such hooks may
     advance carry-over, but may never manufacture a fresh recruitment.
@@ -729,6 +738,17 @@ async def transition_process(
             source_authority=source_authority,
             semantics=semantics,
         )
+        if entry_source is not None:
+            process.entry_source = entry_source
+        if reassign_from_job_id is not None:
+            process.reassign_from_job_id = reassign_from_job_id
+        if (
+            claim_for_user_id is not None
+            and process.status == ProcessStatus.open
+            and await candidate_claim.stage_column(db, stage_row)
+            == candidate_claim.NEW_COLUMN
+        ):
+            candidate_claim.set_claim(process, claim_for_user_id)
     else:
         await _sync_process_to_stage(
             db,
@@ -737,6 +757,12 @@ async def transition_process(
             source_authority=source_authority,
             semantics=semantics,
         )
+        if (
+            process.claimed_by_user_id is not None
+            and await candidate_claim.stage_column(db, stage_row)
+            != candidate_claim.NEW_COLUMN
+        ):
+            candidate_claim.clear_claim(process)
 
     if (
         stage_row.stage == PipelineStage.verified

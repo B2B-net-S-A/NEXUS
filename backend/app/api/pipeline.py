@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from collections.abc import Iterable, Mapping, Sequence
 from typing import List, Literal, Optional
 
@@ -28,6 +28,8 @@ from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
 from app.services import board_tasks as board_tasks_svc
+from app.services import candidate_audit, candidate_claim, pipeline_move_rules
+from app.models.contract import RateUnit
 from app.services.board_stage_badges import (
     ensure_badge_stage_allowed,
     foreign_stage_target,
@@ -306,6 +308,11 @@ def _stage_response(
         "scorecard_done": _sheet_filled(stage.scorecard_answers),
         "candidate_expected_rate_hourly": candidate_expected_rate_hourly,
         "task_assignee_id": stage.task_assignee_id,
+        # Pipeline v4 (0352).
+        "ended_by": stage.ended_by,
+        "client_rate_value": stage.client_rate_value,
+        "client_rate_unit": stage.client_rate_unit,
+        "client_rate_currency": stage.client_rate_currency,
     }
 
 
@@ -337,6 +344,33 @@ async def _process_state_versions(
         .distinct(RecruitmentProcess.candidate_id)
     )
     return {cid: int(version or 0) for cid, version in rows.all()}
+
+
+async def _process_v4_cards(
+    db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
+) -> dict[int, RecruitmentProcess]:
+    """Najnowszy proces każdej pary — pola Pipeline v4 (blokada, źródło).
+
+    Osobne od :func:`_process_cards`, bo tamto zwraca krotki czytane w kilku
+    miejscach. Jedno zapytanie dla całej tablicy.
+    """
+    ids = sorted(set(candidate_ids))
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(RecruitmentProcess)
+        .where(
+            RecruitmentProcess.job_id == job_id,
+            RecruitmentProcess.candidate_id.in_(ids),
+        )
+        .order_by(
+            RecruitmentProcess.candidate_id,
+            RecruitmentProcess.attempt_no.desc(),
+            RecruitmentProcess.id.desc(),
+        )
+        .distinct(RecruitmentProcess.candidate_id)
+    )
+    return {p.candidate_id: p for p in rows.scalars().all()}
 
 
 async def _process_cards(
@@ -561,6 +595,16 @@ async def move_candidate(
     if locked_candidate_id is None:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
+    # Pipeline v4 (0352): osoba w „Nowych" zarezerwowana przez kogoś innego
+    # (12 h) — ruch tylko dla admina, DL i Head of Recruitment.
+    await candidate_claim.assert_can_act(
+        db,
+        process=await candidate_claim.load_process(
+            db, candidate_id=data.candidate_id, job_id=data.job_id
+        ),
+        user=current_user,
+    )
+
     # Current row pary — kanoniczny tiebreaker (moved_at DESC, id DESC).
     # Reużywany niżej: cancel maili przy restore, notyfikacje. Wiersz
     # historyczny `pending` NIE blokuje kolejnego ruchu — bramka „Oczekuje"
@@ -641,6 +685,27 @@ async def move_candidate(
             ),
         )
 
+    # Pipeline v4 (23.09.2026): „CV wysłane" poza Nordeą wysyła Delivery Lead
+    # i wpisuje stawkę do klienta. Stawka zapisana wcześniej w tej rekrutacji
+    # (powrót na etap) wystarcza — nie trzeba jej przepisywać.
+    client_rate_value = data.client_rate_value
+    client_rate_unit = data.client_rate_unit
+    client_rate_currency = (data.client_rate_currency or "PLN")[:3].upper()
+    if pipeline_move_rules.requires_dl_client_rate(legacy_enum, job.client_id):
+        known_rate = client_rate_value
+        if known_rate is None:
+            known_rate = await db.scalar(
+                select(CandidateStage.client_rate_value)
+                .where(
+                    CandidateStage.candidate_id == data.candidate_id,
+                    CandidateStage.job_id == data.job_id,
+                    CandidateStage.client_rate_value.isnot(None),
+                )
+                .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+                .limit(1)
+            )
+        pipeline_move_rules.assert_client_send_allowed(current_user, known_rate)
+
     # ── P1-PIPE-01: eligibility gate ── same hard block the assign ingresses
     # enforce (global blacklist / hiring-manager veto) → 409 with the Polish
     # reason. Client conflicts (blacklist / NDA / competitor) are warnings
@@ -691,6 +756,16 @@ async def move_candidate(
         and stage_def.terminal_type
         and stage_def.terminal_type.value == "withdrawn"
     )
+    ended_by: Optional[str] = None
+    if is_removal_move:
+        ended_by = pipeline_move_rules.resolve_ended_by(
+            data.ended_by, withdrawn=is_withdrawn_target, user=current_user
+        )
+    elif data.ended_by is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="„Kto zakończył” podaje się tylko przy zamknięciu procesu.",
+        )
     if is_withdrawn_target and not data.rejection_reason_id:
         raise HTTPException(
             status_code=422,
@@ -834,7 +909,32 @@ async def move_candidate(
         candidate_offer_response=data.candidate_offer_response,
         # F05: wersja procesu widziana przez klienta — rozjazd = 409.
         expected_state_version=data.expected_state_version,
+        ended_by=ended_by,
+        client_rate_value=client_rate_value,
+        client_rate_unit=(
+            (client_rate_unit or RateUnit.hourly).value
+            if client_rate_value is not None
+            else None
+        ),
+        client_rate_currency=(
+            client_rate_currency if client_rate_value is not None else None
+        ),
     )
+    if client_rate_value is not None:
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.CLIENT_RATE_CHANGED,
+            user_id=current_user.id,
+            entity_id=data.candidate_id,
+            details={
+                "job_id": data.job_id,
+                "stage_id": stage.id,
+                "new_client_rate": float(client_rate_value),
+                "new_client_rate_unit": stage.client_rate_unit,
+                "new_client_rate_currency": stage.client_rate_currency,
+                "source": "pipeline_move",
+            },
+        )
     await create_original_cv_snapshot(db, stage)
     if cpro_assignee is not None:
         stage.task_assignee_id = cpro_assignee.id
@@ -1580,7 +1680,7 @@ async def get_kanban(
 
     # P1-PIPE-01: reading a job's board is a pipeline ingress — members only.
     await ensure_job_read_access(db, current_user, job.id)
-    return await build_kanban_view(db, job)
+    return await build_kanban_view(db, job, viewer=current_user)
 
 
 # Ostrzeżenia miękkie polityki dopuszczalności, które karta pokazuje jako kody.
@@ -1618,7 +1718,9 @@ def _with_next_action_owner(payload: dict, column: StageColumn, group: str) -> d
     return payload
 
 
-async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
+async def build_kanban_view(
+    db: AsyncSession, job: Job, *, viewer: Optional[User] = None
+) -> KanbanView:
     """The board of ``job`` — shared by ``/kanban/{job_id}`` and ``/my-next-steps``.
 
     The caller has already checked access (``ensure_job_read_access``); this
@@ -1735,6 +1837,30 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
     process_cards = await _process_cards(db, job_id=job_id, candidate_ids=candidate_ids)
     process_versions = {cid: card[0] for cid, card in process_cards.items()}
     owner_ids = {card[1] for card in process_cards.values() if card[1] is not None}
+    # Pipeline v4 (0352): blokada 12 h, źródło wejścia i przepięcie.
+    v4_processes = await _process_v4_cards(
+        db, job_id=job_id, candidate_ids=candidate_ids
+    )
+    owner_ids |= {
+        p.claimed_by_user_id
+        for p in v4_processes.values()
+        if p.claimed_by_user_id is not None
+    }
+    reassign_job_ids = {
+        p.reassign_from_job_id
+        for p in v4_processes.values()
+        if p.reassign_from_job_id is not None
+    }
+    reassign_titles: dict[int, str] = {}
+    if reassign_job_ids:
+        reassign_titles = dict(
+            (
+                await db.execute(
+                    select(Job.id, Job.title).where(Job.id.in_(reassign_job_ids))
+                )
+            ).all()
+        )
+    board_now = datetime.now(timezone.utc)
     # 0348: wytypowani do wysłania do Cpro — ta sama paczka nazwisk.
     owner_ids |= {
         s.task_assignee_id for s in seen.values() if s.task_assignee_id is not None
@@ -1787,6 +1913,23 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
         )
         if e.task_assignee_id is not None:
             payload["task_assignee_name"] = user_name_by_id.get(e.task_assignee_id)
+        v4 = v4_processes.get(e.candidate_id)
+        if v4 is not None:
+            payload["entry_source"] = v4.entry_source
+            payload["reassign_from_job_id"] = v4.reassign_from_job_id
+            if v4.reassign_from_job_id is not None:
+                payload["reassign_from_title"] = reassign_titles.get(
+                    v4.reassign_from_job_id
+                )
+            claim = candidate_claim.claim_state(v4)
+            if claim.active(board_now):
+                payload["claim_user_id"] = claim.user_id
+                payload["claim_user_name"] = user_name_by_id.get(claim.user_id)
+                payload["claim_until"] = claim.until
+            if viewer is not None:
+                payload["can_take"] = candidate_claim.can_take(v4, viewer, board_now)
+        elif viewer is not None:
+            payload["can_take"] = True
         availability = availability_by_id.get(e.candidate_id, (None, None))
         payload["availability_status"] = availability[0]
         payload["availability_date"] = availability[1]
@@ -1978,7 +2121,7 @@ async def my_next_steps(
                 job_id=job.id,
                 title=job.title,
                 client_name=job.client.name if job.client else None,
-                view=await build_kanban_view(db, job),
+                view=await build_kanban_view(db, job, viewer=current_user),
             )
         )
     return MyNextStepsResponse(jobs=out, truncated=truncated)
@@ -2192,6 +2335,14 @@ async def submit_stage_screening(
     # Zapis screeningu to mutacja pipeline'u tej rekrutacji — ta sama bramka
     # członkostwa co `/move`; do 09.2026 wystarczała sama rola.
     await ensure_job_membership(db, current_user, stage.job_id)
+    # Pipeline v4: rozmowę z osobą zarezerwowaną prowadzi jej rekruter (12 h).
+    await candidate_claim.assert_can_act(
+        db,
+        process=await candidate_claim.load_process(
+            db, candidate_id=stage.candidate_id, job_id=stage.job_id
+        ),
+        user=current_user,
+    )
 
     answers = ScreeningAnswers.model_validate(payload or {})
     answers.answered_at = datetime.now(timezone.utc)
@@ -2535,11 +2686,131 @@ async def pipeline_overview(
     }
 
 
+class ClaimRequest(BaseModel):
+    candidate_id: int
+    job_id: int
+
+
+@router.post("/claim")
+async def claim_candidate(
+    data: ClaimRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Biorę" / „Przejmij" — osoba w „Nowych" na 12 h dla klikającego (0352).
+
+    Wolną osobę (z ogłoszenia, propozycji, po upływie blokady) bierze każdy
+    z zespołu rekrutacji. Cudzą, wciąż aktywną blokadę przejmuje wyłącznie
+    admin, Delivery Lead albo Head of Recruitment — poprzedni rekruter dostaje
+    dzwonek.
+    """
+    job = await db.scalar(select(Job).where(Job.id == data.job_id))
+    if job is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+    await ensure_job_membership(db, current_user, job.id)
+
+    # Ta sama kolejność blokad co `/move`: kandydat, potem proces.
+    locked = await db.scalar(
+        select(Candidate.id).where(Candidate.id == data.candidate_id).with_for_update()
+    )
+    if locked is None:
+        raise HTTPException(status_code=404, detail="Kandydat nie istnieje.")
+    process = await db.scalar(
+        select(RecruitmentProcess)
+        .where(
+            RecruitmentProcess.candidate_id == data.candidate_id,
+            RecruitmentProcess.job_id == data.job_id,
+        )
+        .order_by(RecruitmentProcess.attempt_no.desc(), RecruitmentProcess.id.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    latest = await db.scalar(
+        select(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == data.candidate_id,
+            CandidateStage.job_id == data.job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    if (
+        process is None
+        or latest is None
+        or process.status.value != "open"
+        or await candidate_claim.stage_column(db, latest) != candidate_claim.NEW_COLUMN
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Brać można tylko osobę z kolumny „Nowi” w otwartym procesie.",
+        )
+
+    now = datetime.now(timezone.utc)
+    await candidate_claim.assert_can_act(db, process=process, user=current_user, now=now)
+    previous = candidate_claim.claim_state(process)
+    previous_holder = (
+        previous.user_id
+        if previous.active(now) and previous.user_id != current_user.id
+        else None
+    )
+    candidate_claim.set_claim(process, current_user.id, now)
+    db.add(
+        Activity(
+            entity_type="pipeline",
+            entity_id=latest.id,
+            action="candidate_claimed",
+            user_id=current_user.id,
+            details={
+                "candidate_id": data.candidate_id,
+                "job_id": data.job_id,
+                "taken_over_from": previous_holder,
+                "claimed_until": process.claimed_until.isoformat(),
+            },
+        )
+    )
+    if previous_holder is not None:
+        from app.services.notification_triggers import emit
+
+        candidate = await db.get(Candidate, data.candidate_id)
+        person = (
+            f"{candidate.name or ''} {candidate.lastname or ''}".strip()
+            if candidate is not None
+            else ""
+        ) or "Kandydat"
+        await emit(
+            db,
+            user_id=previous_holder,
+            title=f"{current_user.name} przejął(a) osobę z „Nowych”",
+            message=f"{person} · {job.title}",
+            ntype=NotificationType.candidate_claim_taken,
+            related_entity_type="recruitment_process",
+            related_entity_id=process.id,
+            link=f"/jobs/{job.id}?candidate={data.candidate_id}",
+        )
+    claimed_until = process.claimed_until
+    actor_id = current_user.id
+    job_id = job.id
+    await db.commit()
+    await broadcast_pipeline_changed(db, job_id, actor_id)
+    return {
+        "candidate_id": data.candidate_id,
+        "job_id": data.job_id,
+        "claim_user_id": actor_id,
+        "claim_until": claimed_until,
+        "taken_over_from": previous_holder,
+    }
+
+
 class BulkMoveRequest(BaseModel):
     candidate_ids: list[int]
     job_id: int
     stage: PipelineStage
     notes: str | None = None
+    # Pipeline v4: jedna stawka do klienta dla całej paczki „CV wysłane"
+    # (poza Nordeą wymagana i tylko Delivery Lead / admin).
+    client_rate_value: Decimal | None = Field(None, gt=0)
+    client_rate_unit: RateUnit | None = None
+    client_rate_currency: str | None = Field(None, max_length=3)
 
 
 @router.post("/bulk-move")
@@ -2601,6 +2872,12 @@ async def bulk_move_candidates(
     # job-specific) and before any candidate lookup.
     await ensure_job_membership(db, current_user, job.id)
 
+    # Pipeline v4: „CV wysłane" poza Nordeą — DL + stawka (jak pojedynczy /move).
+    if pipeline_move_rules.requires_dl_client_rate(data.stage, job.client_id):
+        pipeline_move_rules.assert_client_send_allowed(
+            current_user, data.client_rate_value
+        )
+
     # Etap-odznaka Tablicy (DZ / Cpro) — ta sama reguła co pojedynczy /move.
     bulk_stage_def = await _resolve_stage_def(
         db, job, stage_def_id=None, legacy_stage=data.stage
@@ -2640,6 +2917,23 @@ async def bulk_move_candidates(
         enforce_manager_verdict=puts_candidate_before_client(data.stage),
     )
 
+    # Pipeline v4: cudza osoba zarezerwowana w „Nowych" blokuje całą paczkę.
+    for cid in unique_ids:
+        await candidate_claim.assert_can_act(
+            db,
+            process=await candidate_claim.load_process(
+                db, candidate_id=cid, job_id=data.job_id
+            ),
+            user=current_user,
+        )
+
+    bulk_rate: dict = {}
+    if data.client_rate_value is not None:
+        bulk_rate = {
+            "client_rate_value": data.client_rate_value,
+            "client_rate_unit": (data.client_rate_unit or RateUnit.hourly).value,
+            "client_rate_currency": (data.client_rate_currency or "PLN")[:3].upper(),
+        }
     moved = 0
     for cid in unique_ids:
         entry = await transition_process(
@@ -2651,6 +2945,7 @@ async def bulk_move_candidates(
             actor_user_id=current_user.id,
             work_channel=PriorityChannel.database,
             notes=data.notes,
+            **bulk_rate,
         )
         await create_original_cv_snapshot(db, entry)
         await maybe_ensure_contact_opportunity(

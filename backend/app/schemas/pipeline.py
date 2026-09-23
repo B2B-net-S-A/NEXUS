@@ -77,6 +77,17 @@ class StageMove(BaseModel):
     # oznacza gotowość. Przy innym etapie → 422.
     task_assignee_id: Optional[int] = Field(None, ge=1)
 
+    # ── Pipeline v4 (23.09.2026) ───────────────────────────────────────────
+    # Stawka do klienta w TYM SAMYM żądaniu co ruch na „CV wysłane". Poza
+    # Nordeą wymagana i wpisuje ją Delivery Lead (`pipeline_move_rules`).
+    client_rate_value: Optional[Decimal] = Field(None, gt=0)
+    client_rate_unit: Optional[RateUnit] = None
+    client_rate_currency: Optional[str] = Field(None, max_length=3)
+    # Kto zakończył proces (ruch terminalny): kandydat | my | DL | klient.
+    ended_by: Optional[
+        Literal["candidate", "recruiter", "delivery_lead", "client"]
+    ] = None
+
 
 class ClientRateUpdate(BaseModel):
     """Body dla PATCH /candidates/{id}/recruitments/{job_id}/client-rate.
@@ -199,6 +210,31 @@ class CandidateStageResponse(BaseModel):
     # akceptacji. `None` = nie zapisano; `pending` to JAWNA wartość znacząca
     # „czekamy na odpowiedź" — dlatego nie da się jej udawać brakiem pola.
     candidate_offer_response: Optional[CandidateOfferResponse] = None
+
+    # ── Pipeline v4 (0352, 23.09.2026) ────────────────────────────────────
+    # Kto zakończył proces (tylko wiersz terminalny).
+    ended_by: Optional[str] = None
+    # Stawka, za którą osobę wysłano do klienta (najnowszy wiersz pary).
+    client_rate_value: Optional[Decimal] = None
+    client_rate_unit: Optional[RateUnit] = None
+    client_rate_currency: Optional[str] = None
+    # Poniżej wypełnia tylko tablica:
+    # skąd osoba weszła (added_manual|application|proposal|reassign|auto_match|
+    # import; `None` = proces sprzed 0352) i rekrutacja przepięcia.
+    entry_source: Optional[str] = None
+    reassign_from_job_id: Optional[int] = None
+    reassign_from_title: Optional[str] = None
+    # Blokada 12 h w „Nowych": kto i do kiedy; `can_take` = czy patrzący
+    # może kliknąć „Biorę"/„Przejmij".
+    claim_user_id: Optional[int] = None
+    claim_user_name: Optional[str] = None
+    claim_until: Optional[datetime] = None
+    can_take: bool = False
+    # Odznaka terminarza rozmowy u klienta (`interview_badges_for_job`):
+    # {kind, label, tone, at}.
+    interview_badge: Optional[dict] = None
+    # „Zatrudniony": czy jest uzupełnione zamówienie (complete|missing).
+    order_status: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
