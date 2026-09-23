@@ -10,7 +10,7 @@
  * przechodzi tutaj. Bez natywnego dialogu przeglądarki — potwierdzenie jest w oknie.
  */
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowLeft, Loader2 } from "lucide-react";
 
@@ -67,6 +67,9 @@ export function MergePlanView({
   onChoose: (field: string, choice: MergeChoice) => void;
 }) {
   const conflicts = plan.fields.filter((f) => f.conflict);
+  // Nazwa grupy radiowej unikalna per instancja — dwa porównania na jednej
+  // stronie (harness, okno nad profilem) nie mogą dzielić grupy.
+  const groupId = useId();
   return (
     <div className="space-y-4 text-sm">
       {plan.blockers.length > 0 ? (
@@ -103,7 +106,7 @@ export function MergePlanView({
                       <label className="flex items-start gap-2">
                         <input
                           type="radio"
-                          name={`merge-${field.field}`}
+                          name={`${groupId}-merge-${field.field}`}
                           checked={(choices[field.field] ?? "survivor") === side}
                           onChange={() => onChoose(field.field, side)}
                           aria-label={`${field.label}: ${show(field[side])}`}
@@ -175,7 +178,8 @@ export function CandidateMergeDialog({
     queryKey: candidateMergeKeys.preview(candidate.id, duplicateId),
     queryFn: () => fetchMergePreview(candidate.id, duplicateId!),
     enabled: open && duplicateId !== null,
-    staleTime: 0,
+    // Bez wymuszonego `staleTime: 0`: nieaktualny plan i tak odrzuci serwer
+    // (409 z odciskiem niesie świeży plan), a harness zasiewa cache.
   });
   const plan = override ?? preview.data ?? null;
 

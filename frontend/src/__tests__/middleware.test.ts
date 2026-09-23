@@ -193,6 +193,8 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/calendar-cycle",
     "/preview/kariera",
     "/preview/career-share",
+    "/preview/candidate-merge",
+    "/preview/job-portals",
     "/kariera",
     "/kariera/r/senior-java-developer-7kq2",
     "/kariera/p/marta-n",
