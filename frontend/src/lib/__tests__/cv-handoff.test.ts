@@ -23,11 +23,6 @@ import {
 
 function deps(order: string[], overrides: Partial<Record<string, unknown>> = {}) {
   return {
-    saveClientRate:
-      (overrides.saveClientRate as never) ??
-      vi.fn(async () => {
-        order.push("client_rate");
-      }),
     createShareLink:
       (overrides.createShareLink as never) ??
       vi.fn(async () => {
@@ -48,10 +43,13 @@ const fullPlan: CvHandoffPlan = {
 };
 
 describe("runCvHandoff", () => {
-  it("idzie w kolejności: ruch → link → stawka", async () => {
+  it("idzie w kolejności: ruch (ze stawką do klienta) → link", async () => {
     const order: string[] = [];
-    const result = await runCvHandoff(fullPlan, deps(order));
-    expect(order).toEqual(["move", "share_link", "client_rate"]);
+    const d = deps(order);
+    const result = await runCvHandoff(fullPlan, d);
+    expect(order).toEqual(["move", "share_link"]);
+    // Pipeline v4: stawka jedzie W RUCHU — serwer odmawia „CV Wysłane" bez niej.
+    expect(d.move).toHaveBeenCalledWith(fullPlan.clientRate);
     expect(result.completed).toEqual(["move", "share_link", "client_rate"]);
     expect(result.failedAfterMove).toEqual([]);
     expect(result.shareUrlSuffix).toBe("abc123");
@@ -82,7 +80,6 @@ describe("runCvHandoff", () => {
     expect(error.step).toBe("move");
     expect(error.completed).toEqual([]);
     expect(d.createShareLink).not.toHaveBeenCalled();
-    expect(d.saveClientRate).not.toHaveBeenCalled();
     expect(order).toEqual([]);
   });
 
@@ -94,25 +91,19 @@ describe("runCvHandoff", () => {
       }),
     });
     const result = await runCvHandoff(fullPlan, d);
-    expect(order).toEqual(["move", "client_rate"]);
+    expect(order).toEqual(["move"]);
     expect(result.completed).toEqual(["move", "client_rate"]);
     expect(result.failedAfterMove).toHaveLength(1);
     expect(result.failedAfterMove[0].step).toBe("share_link");
     expect(result.shareUrlSuffix).toBeNull();
   });
 
-  it("porażka stawki PO ruchu nie jest fatalna — ruch został, stawka raportowana jako niezapisana", async () => {
+  it("bez stawki w planie ruch idzie bez niej, a krok jest pominięty jawnie", async () => {
     const order: string[] = [];
-    const d = deps(order, {
-      saveClientRate: vi.fn(async () => {
-        throw new Error("403 Requires candidate role: ['admin']");
-      }),
-    });
-    const result = await runCvHandoff(fullPlan, d);
-    expect(order).toEqual(["move", "share_link"]);
-    expect(result.completed).toEqual(["move", "share_link"]);
-    expect(result.failedAfterMove).toHaveLength(1);
-    expect(result.failedAfterMove[0].step).toBe("client_rate");
+    const d = deps(order);
+    const result = await runCvHandoff({ ...fullPlan, clientRate: null }, d);
+    expect(d.move).toHaveBeenCalledWith(null);
+    expect(result.skipped).toEqual(["client_rate"]);
   });
 });
 

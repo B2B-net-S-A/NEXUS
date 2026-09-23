@@ -121,6 +121,7 @@ describe("useBulkCvHandoff", () => {
       expect(screen.getByText("Wyślij CV do klienta — wynik")).toBeInTheDocument(),
     );
     expect(mocks.move).toHaveBeenCalledTimes(2);
+    // Pipeline v4: stawka jedzie W RUCHU (osoba 2 ma wpisaną, osoba 3 nie).
     expect(mocks.move).toHaveBeenNthCalledWith(1, {
       candidate_id: 2,
       job_id: 42,
@@ -128,24 +129,20 @@ describe("useBulkCvHandoff", () => {
       stage_def_id: 5,
       expected_state_version: 7,
       acknowledge_eligibility: undefined,
+      client_rate_value: 21000,
+      client_rate_unit: "monthly",
+      client_rate_currency: "PLN",
     });
+    expect(mocks.move.mock.calls[1][0]).toMatchObject({ client_rate_value: undefined });
     expect(mocks.brandedGet.mock.calls.map((c) => c[0])).toEqual([stageIdOf(2), stageIdOf(3)]);
     expect(mocks.shareCreate.mock.calls).toEqual([
       [stageIdOf(2), 14],
       [stageIdOf(3), 14],
     ]);
-    expect(mocks.setRate).toHaveBeenCalledTimes(1);
-    expect(mocks.setRate).toHaveBeenCalledWith(2, 42, {
-      rate_value: 21000,
-      rate_unit: "monthly",
-      rate_currency: "PLN",
-    });
-    // Ruch przed linkiem, link przed stawką (dla tej samej osoby).
+    expect(mocks.setRate).not.toHaveBeenCalled();
+    // Ruch przed linkiem (dla tej samej osoby).
     expect(mocks.move.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.shareCreate.mock.invocationCallOrder[0],
-    );
-    expect(mocks.shareCreate.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.setRate.mock.invocationCallOrder[0],
     );
 
     const keys = invalidate.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey));

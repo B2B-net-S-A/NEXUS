@@ -2814,6 +2814,10 @@ export const pipelineApi = {
     expected_state_version?: number;
     /** 17.09.2026: powtórka ruchu po 409 ELIGIBILITY_WARNING („Przenieś mimo to"). */
     acknowledge_eligibility?: boolean;
+    /** Pipeline v4: stawka do klienta w tym samym żądaniu co „CV wysłane". */
+    client_rate_value?: number;
+    client_rate_unit?: RateUnit;
+    client_rate_currency?: string;
   }) => api.post("/api/pipeline/move", data),
 };
 

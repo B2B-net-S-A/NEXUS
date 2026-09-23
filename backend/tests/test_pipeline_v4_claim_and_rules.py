@@ -518,3 +518,136 @@ async def test_leaving_client_interview_requires_debrief(api_client):
             )
             await db.commit()
         await _cleanup([cand_id], job_id)
+
+
+async def test_client_rate_in_move_needs_client_rate_write_rights(api_client):
+    """Przegląd 23.09: stawka do klienta w ruchu = bramka `PATCH …/client-rate`.
+    Rekruter-współpracownik (nie właściciel) nie zapisze jej ruchem."""
+    owner_id, _, _ = await _seed_user(UserRole.recruiter)
+    rec_id, rec_email, rec_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(rec_id,))
+    cand_id = await _seed_candidate()
+    rec_h = await _login(api_client, rec_email, rec_pw)
+    try:
+        await _add(api_client, rec_h, job_id, cand_id, "manual_search")
+        resp = await api_client.post(
+            "/api/pipeline/move",
+            headers=rec_h,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "verified",
+                "client_rate_value": "999",
+            },
+        )
+        assert resp.status_code == 403, resp.text
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_claim_does_not_bind_outside_new_column(api_client):
+    """Import z Traffita przesuwa osobę bez `transition_process` — blokada,
+    która przeżyła wyjście z „Nowych", nie może blokować dalszych etapów."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        # „Import": nowy wiersz etapu bez przejścia przez komendę procesu.
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CandidateStage(
+                    candidate_id=cand_id,
+                    job_id=job_id,
+                    stage=PipelineStage.verified,
+                    moved_at=datetime.now(timezone.utc) + timedelta(seconds=1),
+                )
+            )
+            await db.commit()
+        proc = await _process(cand_id, job_id)
+        assert proc.claimed_by_user_id == owner_id  # blokada wciąż zapisana
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=other_h,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "rejected",
+                "rejection_reason": "Stawka",
+            },
+        )
+        assert moved.status_code == 200, moved.text
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_debrief_gate_covers_bulk_move_and_detour_through_cv_sent(api_client):
+    from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+
+    dl_id, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead)
+    job_id, client_id = await _seed_job(dl_id)
+    cand_id = await _seed_candidate()
+    headers = await _login(api_client, dl_email, dl_pw)
+    try:
+        await _add(api_client, headers, job_id, cand_id, "manual_search")
+        for stage in ("client_interview",):
+            ok = await api_client.post(
+                "/api/pipeline/move",
+                headers=headers,
+                json={"candidate_id": cand_id, "job_id": job_id, "stage": stage},
+            )
+            assert ok.status_code == 200, ok.text
+        start = datetime.now(timezone.utc) - timedelta(hours=2)
+        async with AsyncSessionLocal() as db:
+            db.add(
+                CalendarEvent(
+                    title="Rozmowa u klienta",
+                    event_type=EventType.client_interview,
+                    start_time=start,
+                    end_time=start + timedelta(hours=1),
+                    status=EventStatus.completed,
+                    created_by=dl_id,
+                    operational_owner_id=dl_id,
+                    candidate_id=cand_id,
+                    job_id=job_id,
+                    client_id=client_id,
+                    attendees=[],
+                )
+            )
+            await db.commit()
+        bulk = await api_client.post(
+            "/api/pipeline/bulk-move",
+            headers=headers,
+            json={"candidate_ids": [cand_id], "job_id": job_id, "stage": "acceptance"},
+        )
+        assert bulk.status_code == 409, bulk.text
+        assert bulk.json()["detail"]["code"] == "DEBRIEF_REQUIRED"
+
+        # Okrężna droga: z Rozmowy z powrotem na „CV wysłane", potem Umowa.
+        back = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "cv_sent",
+                "client_rate_value": "170",
+            },
+        )
+        assert back.status_code == 200, back.text
+        detour = await api_client.post(
+            "/api/pipeline/move",
+            headers=headers,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "acceptance"},
+        )
+        assert detour.status_code == 409, detour.text
+    finally:
+        async with AsyncSessionLocal() as db:
+            from app.models.calendar_event import CalendarEvent as _Ev
+
+            await db.execute(delete(_Ev).where(_Ev.candidate_id == cand_id))
+            await db.commit()
+        await _cleanup([cand_id], job_id)

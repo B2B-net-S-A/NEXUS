@@ -167,6 +167,20 @@ async def assert_can_act(
     moment = now or utcnow()
     if not state.active(moment) or state.user_id == user.id or can_override(user):
         return
+    # Blokada dotyczy wyłącznie „Nowych". Import z Traffita i synchronizacja
+    # procesów przesuwają osobę bez `transition_process`, więc blokada może
+    # przeżyć wyjście z kolumny — wtedy nie wiąże nikogo (przegląd 23.09.2026).
+    latest = await db.scalar(
+        select(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == process.candidate_id,
+            CandidateStage.job_id == process.job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    if latest is None or await stage_column(db, latest) != NEW_COLUMN:
+        return
     holder = await db.get(User, state.user_id)
     raise HTTPException(
         status_code=423,

@@ -39,7 +39,6 @@ import {
 import {
   candidateStageCvApi,
   cvGeneratedShareApi,
-  candidatesApi,
   extractErrorMsg,
   pipelineApi,
   screeningApi,
@@ -474,17 +473,6 @@ export function CvHandoffWorkbench({
         shareLink: willCreateLink ? { expiresInDays } : null,
       };
       return runCvHandoff(plan, {
-        saveClientRate: async (r) => {
-          await candidatesApi.setRecruitmentClientRate(
-            selected.item.candidate_id,
-            jobId,
-            {
-              rate_value: r.value,
-              rate_unit: r.unit,
-              rate_currency: r.currency,
-            },
-          );
-        },
         createShareLink: async ({ expiresInDays: days }) => {
           const base = {
             stageId: sourceStageId,
@@ -507,7 +495,7 @@ export function CvHandoffWorkbench({
             throw e;
           }
         },
-        move: async () => {
+        move: async (rate) => {
           await pipelineApi.move({
             candidate_id: selected.item.candidate_id,
             job_id: jobId,
@@ -515,6 +503,9 @@ export function CvHandoffWorkbench({
             stage_def_id: cvSentCol.stage_def_id ?? undefined,
             expected_state_version: expectedStateVersionOf(selected.item),
             acknowledge_eligibility: acknowledgeEligibility ? true : undefined,
+            client_rate_value: rate?.value,
+            client_rate_unit: rate?.unit,
+            client_rate_currency: rate?.currency,
           });
         },
       });

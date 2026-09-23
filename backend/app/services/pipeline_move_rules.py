@@ -20,8 +20,10 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.recruitment_pipeline import PipelineStage
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services.board_stage_badges import cpro_enabled_for_client
 
@@ -42,6 +44,44 @@ ENDED_BY_CLIENT = "client"
 REJECTION_ENDED_BY = frozenset(
     {ENDED_BY_RECRUITER, ENDED_BY_DELIVERY_LEAD, ENDED_BY_CLIENT}
 )
+
+
+# Kolumny PRZED umową — osoba stąd wchodząca do „Umowy"/„Zatrudnionego" musi
+# mieć debrief po rozmowie u klienta (jeśli rozmowa była w kalendarzu).
+PRE_CONTRACT_COLUMNS = frozenset({"new", "verified", "cv_sent", "client_interview"})
+
+
+async def assert_debrief_before_contract(
+    db: AsyncSession, *, candidate_id: int, job_id: int, target_column: str
+) -> None:
+    """409 `DEBRIEF_REQUIRED`, gdy osoba wchodzi do „Umowy"/„Zatrudnionego"
+    bez debriefu po odbytej rozmowie u klienta.
+
+    Liczy się bieżąca kolumna pary, nie tylko „Rozmowa u klienta" — inaczej
+    okrężna droga Rozmowa → CV wysłane → Umowa omijała bramkę. Ruchy wewnątrz
+    „Umowy" i dalej nie są bramkowane (historia sprzed bramki).
+    """
+    from app.services import candidate_claim
+    from app.services.debrief_gate import missing_debrief
+
+    if target_column not in ("contract", "hired"):
+        return
+    latest = await db.scalar(
+        select(CandidateStage)
+        .where(
+            CandidateStage.candidate_id == candidate_id,
+            CandidateStage.job_id == job_id,
+        )
+        .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+        .limit(1)
+    )
+    if latest is None:
+        return
+    if await candidate_claim.stage_column(db, latest) not in PRE_CONTRACT_COLUMNS:
+        return
+    missing = await missing_debrief(db, candidate_id=candidate_id, job_id=job_id)
+    if missing is not None:
+        raise HTTPException(status_code=409, detail=missing)
 
 
 def requires_dl_client_rate(target: PipelineStage, client_id: Optional[int]) -> bool:

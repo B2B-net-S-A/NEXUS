@@ -66,7 +66,11 @@ from app.schemas.pipeline import (
     StageInfo,
     STAGE_LABELS,
 )
-from app.api.candidate_access import CandidatePIIAccess, user_has_candidate_read
+from app.api.candidate_access import (
+    CandidatePIIAccess,
+    resolve_client_rate_write,
+    user_has_candidate_read,
+)
 from app.api.deps import CurrentUser, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import (
     ensure_job_read_access,
@@ -686,33 +690,27 @@ async def move_candidate(
             ),
         )
 
-    # Pipeline v4 (23.09.2026): wyjście z „Rozmowy u klienta" do „Umowy" albo
-    # „Zatrudnionego" wymaga debriefu po rozmowie (pytania klienta albo „klient
-    # nie zadawał pytań") — pytania zasilają prep i profil Championa.
-    if previous_stage_row is not None:
-        target_column = board_column_for(
-            stage_def.name if stage_def else None,
-            legacy_enum.value,
-            category=(
-                stage_def.category.value if stage_def and stage_def.category else None
-            ),
-            terminal_type=(
-                stage_def.terminal_type.value
-                if stage_def and stage_def.terminal_type
-                else None
-            ),
-        )
-        if target_column in ("contract", "hired") and (
-            await candidate_claim.stage_column(db, previous_stage_row)
-            == "client_interview"
-        ):
-            from app.services.debrief_gate import missing_debrief
-
-            missing = await missing_debrief(
-                db, candidate_id=data.candidate_id, job_id=data.job_id
-            )
-            if missing is not None:
-                raise HTTPException(status_code=409, detail=missing)
+    # Pipeline v4 (23.09.2026): wejście do „Umowy"/„Zatrudnionego" wymaga
+    # debriefu po rozmowie u klienta (pytania klienta albo „klient nie zadawał
+    # pytań") — pytania zasilają prep i profil Championa.
+    target_column = board_column_for(
+        stage_def.name if stage_def else None,
+        legacy_enum.value,
+        category=(
+            stage_def.category.value if stage_def and stage_def.category else None
+        ),
+        terminal_type=(
+            stage_def.terminal_type.value
+            if stage_def and stage_def.terminal_type
+            else None
+        ),
+    )
+    await pipeline_move_rules.assert_debrief_before_contract(
+        db,
+        candidate_id=data.candidate_id,
+        job_id=data.job_id,
+        target_column=target_column,
+    )
 
     # Pipeline v4 (23.09.2026): „CV wysłane" poza Nordeą wysyła Delivery Lead
     # i wpisuje stawkę do klienta. Stawka zapisana wcześniej w tej rekrutacji
@@ -734,6 +732,18 @@ async def move_candidate(
                 .limit(1)
             )
         pipeline_move_rules.assert_client_send_allowed(current_user, known_rate)
+    elif client_rate_value is not None and not await resolve_client_rate_write(
+        db, current_user, job
+    ):
+        # Stawka do klienta w ruchu = ta sama bramka co `PATCH …/client-rate`.
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Stawkę do klienta zapisuje Delivery Lead, TAC, TCM, Head of "
+                "Recruitment, Finanse albo admin z zespołu tej rekrutacji — "
+                "albo jej właściciel."
+            ),
+        )
 
     # ── P1-PIPE-01: eligibility gate ── same hard block the assign ingresses
     # enforce (global blacklist / hiring-manager veto) → 409 with the Polish
@@ -2927,6 +2937,13 @@ async def bulk_move_candidates(
         pipeline_move_rules.assert_client_send_allowed(
             current_user, data.client_rate_value
         )
+    elif data.client_rate_value is not None and not await resolve_client_rate_write(
+        db, current_user, job
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Stawkę do klienta zapisuje osoba z prawem zapisu stawek tej rekrutacji.",
+        )
 
     # Etap-odznaka Tablicy (DZ / Cpro) — ta sama reguła co pojedynczy /move.
     bulk_stage_def = await _resolve_stage_def(
@@ -2966,6 +2983,13 @@ async def bulk_move_candidates(
         now=datetime.now(timezone.utc),
         enforce_manager_verdict=puts_candidate_before_client(data.stage),
     )
+
+    # Pipeline v4: debrief po rozmowie u klienta — jak pojedynczy /move.
+    bulk_target_column = board_column_for(None, data.stage.value)
+    for cid in unique_ids:
+        await pipeline_move_rules.assert_debrief_before_contract(
+            db, candidate_id=cid, job_id=data.job_id, target_column=bulk_target_column
+        )
 
     # Pipeline v4: cudza osoba zarezerwowana w „Nowych" blokuje całą paczkę.
     for cid in unique_ids:

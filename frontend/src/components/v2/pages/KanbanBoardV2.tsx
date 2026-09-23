@@ -2706,6 +2706,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  rejectionReasons={rejectionReasons}
  workbenchContext={workbenchContext}
  kanbanQueryState={kanbanQueryState}
+ cproEnabled={cproEnabled}
  />
  )}
  {bulkCv.dialogs}

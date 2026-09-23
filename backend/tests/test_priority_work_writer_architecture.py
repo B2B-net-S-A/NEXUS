@@ -97,8 +97,14 @@ _CRITICAL_STAGE_FIELDS = {
 # attribute name with CandidateStage. This is not a stage mutation; keeping the
 # exact receiver/path allowlist lets the fence continue catching arbitrary
 # aliases without forcing runtime code to hide the assignment via setattr.
+BOARD_TASKS = APP_ROOT / "services" / "board_tasks.py"
 _ALLOWED_NON_STAGE_CRITICAL_ASSIGNMENTS = {
     (CANDIDATE_PROFILE_FACTS, "candidate", "expected_rate_currency"),
+    # Pipeline v4: `t` to zadanie przeglądu DL (`BoardTask`), nie wiersz
+    # etapu — kopiuje migawkę stawki z wiersza „Zweryfikowany" do odpowiedzi.
+    (BOARD_TASKS, "t", "expected_rate_value"),
+    (BOARD_TASKS, "t", "expected_rate_unit"),
+    (BOARD_TASKS, "t", "expected_rate_currency"),
 }
 
 

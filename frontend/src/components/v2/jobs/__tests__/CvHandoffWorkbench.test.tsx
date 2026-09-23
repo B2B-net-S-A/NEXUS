@@ -273,29 +273,29 @@ describe("CvHandoffWorkbench", () => {
     expect(screen.queryByText(/Nikt nie czeka na wysyłkę CV/)).toBeNull();
   });
 
-  it("sekwencja idzie: ruch → link (na etapie SPRZED ruchu) → stawka (na NOWYM etapie)", async () => {
+  it("sekwencja idzie: ruch ze stawką (Pipeline v4) → link na etapie SPRZED ruchu", async () => {
     const { onMoved } = renderWorkbench();
     await readySendButton();
 
     await userEvent.type(screen.getByLabelText("Kwota"), "25000");
     await userEvent.click(await sendButton());
 
-    await waitFor(() => expect(setRecruitmentClientRate).toHaveBeenCalledOnce());
-    expect(calls).toEqual(["move", "share_link", "client_rate"]);
+    await waitFor(() => expect(shareCreate).toHaveBeenCalledOnce());
+    expect(calls).toEqual(["move", "share_link"]);
     // Etap 21 = „Zweryfikowany", na którym leży sfinalizowane CV brandowane —
     // nie świeży „CV Wysłane" (id 99), który ruch właśnie utworzył.
     expect(shareCreate).toHaveBeenCalledWith(21, 14);
+    // Stawka jedzie W RUCHU — serwer odmawia „CV Wysłane" bez niej.
     expect(move).toHaveBeenCalledWith({
       candidate_id: 121,
       job_id: 7,
       stage: "cv_sent",
       stage_def_id: 5,
+      client_rate_value: 25000,
+      client_rate_unit: "monthly",
+      client_rate_currency: "PLN",
     });
-    expect(setRecruitmentClientRate).toHaveBeenCalledWith(121, 7, {
-      rate_value: 25000,
-      rate_unit: "monthly",
-      rate_currency: "PLN",
-    });
+    expect(setRecruitmentClientRate).not.toHaveBeenCalled();
     expect(onMoved).toHaveBeenCalled();
     expect(showSuccess).toHaveBeenCalledWith(
       expect.stringContaining("Stawka do klienta zapisana"),
@@ -370,8 +370,8 @@ describe("CvHandoffWorkbench", () => {
 
     await waitFor(() => expect(showError).toHaveBeenCalled());
     expect(move).toHaveBeenCalledOnce();
-    // Stawka i tak się zapisuje — porażka linku nie jest fatalna.
-    expect(setRecruitmentClientRate).toHaveBeenCalledOnce();
+    // Stawka zapisana razem z ruchem — porażka linku jej nie dotyczy.
+    expect(move.mock.calls[0][0]).toMatchObject({ client_rate_value: 25000 });
     expect(onMoved).toHaveBeenCalled();
     const msg = showError.mock.calls[0][0] as string;
     expect(msg).toContain("Kandydat przeniesiony");
@@ -437,25 +437,6 @@ describe("CvHandoffWorkbench", () => {
     // Link i stawka i tak nie powstały — sekwencja stanęła na ruchu.
     expect(shareCreate).not.toHaveBeenCalled();
     expect(setRecruitmentClientRate).not.toHaveBeenCalled();
-  });
-
-  it("porażka stawki PO ruchu nie cofa ruchu — ostrzeżenie z następnym krokiem, jak na tablicy", async () => {
-    setRecruitmentClientRate.mockRejectedValueOnce(
-      new Error("Requires candidate role: ['admin']"),
-    );
-    const { onMoved } = renderWorkbench();
-    await readySendButton();
-
-    await userEvent.type(screen.getByLabelText("Kwota"), "25000");
-    await userEvent.click(await sendButton());
-
-    await waitFor(() => expect(showError).toHaveBeenCalled());
-    expect(calls).toEqual(["move", "share_link"]);
-    expect(onMoved).toHaveBeenCalled();
-    const msg = showError.mock.calls[0][0] as string;
-    expect(msg).toContain("Kandydat przeniesiony");
-    expect(msg).toContain("NIE udało się zapisać");
-    expect(msg).toContain("uzupełnij ją z profilu kandydata");
   });
 
   it("karta ponad AKTUALNYM budżetem PLN/h (także zapisana jako `pending`) NIE blokuje wysyłki", async () => {
@@ -816,7 +797,7 @@ describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
     await userEvent.type(screen.getByLabelText("Kwota"), "25000");
     await userEvent.click(await sendButton());
     await screen.findByText(/dostępne na etapie „Zweryfikowany”/);
-    expect(calls).toEqual(["move", "share_link", "client_rate"]);
+    expect(calls).toEqual(["move", "share_link"]);
     expect(shareCreate).toHaveBeenCalledWith(21, 14);
     expect(screen.queryByText(/abc123/)).not.toBeNull();
   });
@@ -832,8 +813,9 @@ describe("linki dla klienta wyłączone (stan produkcyjny)", () => {
     await waitFor(() => expect(button).not.toBeDisabled());
     await userEvent.type(screen.getByLabelText("Kwota"), "25000");
     await userEvent.click(button);
-    await waitFor(() => expect(setRecruitmentClientRate).toHaveBeenCalledOnce());
-    expect(calls).toEqual(["move", "client_rate"]);
+    await waitFor(() => expect(move).toHaveBeenCalledOnce());
+    expect(calls).toEqual(["move"]);
+    expect(move.mock.calls[0][0]).toMatchObject({ client_rate_value: 25000 });
     expect(shareCreate).not.toHaveBeenCalled();
   });
 
