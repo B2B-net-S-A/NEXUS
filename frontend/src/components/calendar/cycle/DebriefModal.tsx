@@ -13,11 +13,14 @@ export function DebriefModal({
   onOpenChange,
   eventId,
   pair,
+  interviewStart,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   eventId: number | null;
   pair: PairInfo | null;
+  /** Początek rozmowy — debrief jest dostępny dopiero od niego. */
+  interviewStart?: string;
 }) {
   return (
     <DebriefDialog
@@ -26,6 +29,7 @@ export function DebriefModal({
       eventId={eventId}
       title="Debrief po rozmowie u klienta"
       description={pair ? `${candidateLabel(pair)} · ${pairContext(pair)}` : undefined}
+      interviewStart={interviewStart}
     />
   );
 }

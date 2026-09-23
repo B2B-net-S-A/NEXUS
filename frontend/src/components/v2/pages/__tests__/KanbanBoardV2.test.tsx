@@ -1267,7 +1267,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     expect(container.querySelector('[data-colid="def:313"]')).toBeTruthy();
   });
 
-  it("odznaki w doku: „DZ ✓” przesuwa na etap DZ, „Gotowy do Cpro” tylko z cproEnabled", async () => {
+  it("odznaki w doku: poza Nordeą bez DZ i Cpro, u Nordei „DZ ✓” przesuwa na etap DZ", async () => {
     const columns = defaultB2BColumns() as unknown as Array<Record<string, unknown>>;
     columns[2] = {
       ...columns[2],
@@ -1285,15 +1285,9 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
     await screen.findByText("Olek Nowy");
     fireEvent.click(document.querySelector('[data-candidate-id="8201"]') as HTMLElement);
     const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });
-    const group = within(dock).getByRole("group", { name: "Odznaki etapu" });
-    expect(within(group).queryByRole("button", { name: /Gotowy do Cpro/ })).toBeNull();
-    await userEvent.click(within(group).getByRole("button", { name: "+ DZ" }));
-    await waitFor(() =>
-      expect(post.mock.calls.find((c) => c[0] === "/api/pipeline/move")?.[1]).toMatchObject({
-        candidate_id: 8201,
-        stage_def_id: 303,
-      }),
-    );
+    // Pipeline v4 (23.09.2026): DZ → Cpro to ścieżka Nordei.
+    expect(within(dock).queryByRole("button", { name: "+ DZ" })).toBeNull();
+    expect(within(dock).queryByRole("button", { name: /Gotowy do Cpro/ })).toBeNull();
 
     rerender(
       <QueryClientProvider client={qc}>
@@ -1302,11 +1296,15 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
         </TooltipProvider>
       </QueryClientProvider>,
     );
-    expect(
-      within(screen.getByRole("group", { name: "Odznaki etapu" })).getByRole("button", {
-        name: /Gotowy do Cpro/,
+    const group = screen.getByRole("group", { name: "Odznaki etapu" });
+    expect(within(group).getByRole("button", { name: /Gotowy do Cpro/ })).toBeTruthy();
+    await userEvent.click(within(group).getByRole("button", { name: "+ DZ" }));
+    await waitFor(() =>
+      expect(post.mock.calls.find((c) => c[0] === "/api/pipeline/move")?.[1]).toMatchObject({
+        candidate_id: 8201,
+        stage_def_id: 303,
       }),
-    ).toBeTruthy();
+    );
   });
 
   it("licznik „Nowi” liczy propozycje z bazy razem z kartami (Nowi, Screening, ogłoszenia)", async () => {
@@ -1421,7 +1419,7 @@ describe("KanbanBoardV2 — fala 3: grupy etapów i karta z następną akcją", 
       count: 1,
       items: [{ id: 7201, candidate_id: 8201, stage: "verified", name: "Olek", lastname: "Nowy", days_in_stage: 1 }],
     };
-    renderBoard(columns as never);
+    renderBoard(columns as never, undefined, false, true);
     await screen.findByText("Olek Nowy");
     fireEvent.click(document.querySelector('[data-candidate-id="8201"]') as HTMLElement);
     const dock = await screen.findByRole("complementary", { name: "Karta kandydata" });

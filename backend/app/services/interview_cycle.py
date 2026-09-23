@@ -44,6 +44,7 @@ from app.models.interview_feedback import FeedbackSource, InterviewFeedback
 from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
+from app.services.debrief_gate import debrief_saved_after_start
 
 Scope = Literal["mine", "jobs", "all"]
 StepState = Literal[
@@ -203,7 +204,9 @@ def compute_steps(
     else:
         end = _interview_end(iv)
         deadline = end + timedelta(minutes=call_window_minutes)
-        if pair.debrief is not None:
+        # Debrief przed rozpoczęciem rozmowy nie zamyka kroków — rozmowy
+        # jeszcze nie było (zapis blokuje ``PUT …/debrief``).
+        if pair.debrief is not None and iv.start <= now:
             steps.append(_step("call", "done", at=end, event_id=iv.id))
             steps.append(_step("debrief", "done", event_id=iv.id))
         elif not iv_done:
@@ -218,8 +221,13 @@ def compute_steps(
             steps.append(_step("debrief", "overdue", event_id=iv.id))
 
     # Pierwszy niezamknięty krok, który wymaga ruchu, zostaje „current”.
+    # Telefon i debrief nie są „bieżące”, zanim rozmowa się zacznie — inaczej
+    # karta proponowała „Zapisz debrief” dzień przed rozmową.
+    interview_ahead = iv is not None and iv.start > now
     if not any(s["state"] == "current" for s in steps):
         for s in steps:
+            if interview_ahead and s["key"] in ("call", "debrief"):
+                break
             if s["state"] in ("todo", "overdue", "waiting"):
                 if s["state"] == "todo":
                     s["state"] = "current"
@@ -566,7 +574,13 @@ async def load_snapshots(
             if snap.interview is None:
                 continue
             fb = by_event.get(snap.interview.id)
-            if fb is not None:
+            # Debrief zapisany przed rozpoczęciem rozmowy nie zamyka kroków
+            # „Telefon” i „Debrief” — rozmowy jeszcze nie było (lustro bramki
+            # w ``debrief_gate``; zapis przed startem blokuje ``PUT …/debrief``).
+            if fb is not None and debrief_saved_after_start(
+                _as_utc(fb.updated_at) if fb.updated_at else None,
+                snap.interview.start,
+            ):
                 snap.debrief = DebriefRef(
                     id=fb.id,
                     overall_impression=fb.overall_impression,

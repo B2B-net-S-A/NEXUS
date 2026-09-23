@@ -2919,6 +2919,23 @@ przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
 - **Kto zakończył**: `candidate_stages.ended_by` (candidate|recruiter|
   delivery_lead|client). Rezygnacja = zawsze kandydat; odrzucenie bez pola =
   „przez nas”; „przez DL” tylko admin/DL/HoR (403).
+- **Stawka do klienta = sprawa DL** (decyzja 23.09.2026, `candidate_access`):
+  zapisuje WYŁĄCZNIE admin i Delivery Lead (`CLIENT_RATE_WRITE_ROLES`, bez
+  wyjątku dla właściciela rekrutacji), widzą dodatkowo Finanse
+  (`CLIENT_RATE_VIEW_ROLES`). Rekruterowi serwer redaguje ją na tablicy,
+  w historii etapów i w historii kandydata (`can_view_client_rate`) — widzi
+  tylko oczekiwania kandydata i budżet Championa. Front: `lib/client-rate-access.ts`.
+  Przegląd DL (pulpit i ruch „Zweryfikowany → CV wysłane” na tablicy)
+  pokazuje stawkę kandydata, NIE pokazuje marży.
+- **Screening i stawki należą do pary, nie do etapu.** `transition_process`
+  kopiuje najnowszy wypełniony arkusz na nowy wiersz etapu (portal klienta,
+  generator CV, przegląd DL czytają bieżący etap); `GET …/screening` dla
+  wiersza bez arkusza oddaje arkusz pary (`screening_source_stage_id`), a karta
+  tablicy niesie `screening_done`, stawkę kandydata i stawkę do klienta
+  z wcześniejszych etapów.
+- **„+ DZ” tylko u Nordei** (poza nią wysyła DL z przeglądu). **Integracja
+  (token klienta OAuth, np. scraper pracuj.pl/JJIT) nie zakłada blokady** —
+  wejście `auto_match` (`candidate_claim.is_integration_request`).
 
 ## Rekrutacja „wersja 3" — jedna tabela + panel osoby (21.09.2026, #1641 #1657 #1659)
 

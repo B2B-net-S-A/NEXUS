@@ -53,6 +53,7 @@ vi.mock("@/store/auth", async (orig) => {
 });
 
 import { CalendarCycleScreen } from "@/components/calendar/cycle/CalendarCycleScreen";
+import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
 
 const NOW = Date.now();
 const iso = (minutesFromNow: number) => new Date(NOW + minutesFromNow * 60_000).toISOString();
@@ -278,5 +279,80 @@ describe("CalendarCycleScreen", () => {
     renderScreen();
     expect(await screen.findByTestId("week-calendar")).toBeInTheDocument();
     expect(mocks.get).not.toHaveBeenCalledWith("/api/interview-cycle", expect.anything());
+  });
+
+  it("debrief przed rozpoczęciem rozmowy jest nieaktywny, z godziną dostępności", async () => {
+    // Rozmowa za 2 h (test na produkcji 23.09.2026: debrief dało się zapisać dzień
+    // przed rozmową i oba kroki wyglądały na zrobione).
+    const future = overview();
+    future.items[0].steps = future.items[0].steps.map((st) =>
+      st.key === "interview"
+        ? { ...st, state: "scheduled", at: iso(120) }
+        : st.key === "call" || st.key === "debrief"
+          ? { ...st, state: "todo" }
+          : st,
+    );
+    future.items[0].current_step = "interview";
+    future.agenda = [
+      { ...PAIR, kind: "interview", start: iso(120), end: iso(180), event_id: 44, slot_request_id: null, online_meeting_url: null, done: false },
+      { ...PAIR, kind: "call", start: iso(180), end: iso(210), event_id: 44, slot_request_id: null, online_meeting_url: null, done: false },
+    ];
+    future.todos = [];
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle") return Promise.resolve({ data: future });
+      return Promise.resolve({ data: [] });
+    });
+    renderScreen();
+    const debrief = await screen.findByRole("button", { name: "Debrief" });
+    expect(debrief).toBeDisabled();
+    expect(debrief).toHaveAccessibleDescription(/^Debrief po rozmowie — dostępny od /);
+    const card = screen.getByRole("complementary", { name: "Wybrany kandydat" });
+    expect(within(card).queryByRole("button", { name: "Zapisz debrief" })).not.toBeInTheDocument();
+  });
+});
+
+describe("DebriefDialog (bramka na tablicy)", () => {
+  function renderDialog() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    return render(
+      <QueryClientProvider client={client}>
+        <DebriefDialog open onOpenChange={() => {}} eventId={44} title="Telefon po rozmowie" />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("rozmowa w przyszłości: okno mówi, od kiedy, i nie pozwala zapisać", async () => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle/events/44") {
+        return Promise.resolve({
+          data: { id: 44, candidate_id: 11, job_id: 22, start: iso(24 * 60), end: null, started: false },
+        });
+      }
+      if (url.endsWith("/debrief")) return Promise.resolve({ data: null });
+      return Promise.resolve({ data: [] });
+    });
+    renderDialog();
+    const notice = await screen.findByTestId("debrief-not-started");
+    expect(notice).toHaveTextContent("Debrief po rozmowie — dostępny od jutra");
+    expect(notice).toHaveTextContent("Rozmowa u klienta jeszcze się nie odbyła");
+    expect(screen.getByRole("button", { name: "Zapisz debrief" })).toBeDisabled();
+    expect(mocks.put).not.toHaveBeenCalled();
+  });
+
+  it("rozmowa już trwa: zapis dostępny", async () => {
+    mocks.get.mockImplementation((url: string) => {
+      if (url === "/api/interview-cycle/events/44") {
+        return Promise.resolve({
+          data: { id: 44, candidate_id: 11, job_id: 22, start: iso(-5), end: null, started: true },
+        });
+      }
+      if (url.endsWith("/debrief")) return Promise.resolve({ data: null });
+      return Promise.resolve({ data: [] });
+    });
+    renderDialog();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Zapisz debrief" })).toBeEnabled(),
+    );
+    expect(screen.queryByTestId("debrief-not-started")).not.toBeInTheDocument();
   });
 });

@@ -62,6 +62,7 @@ from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
 from app.services import interview_slots
 from app.services.interview_cycle import load_overview
+from app.services.debrief_gate import interview_not_started_message
 from app.services.pipeline_auto_move import auto_advance
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.workforce_availability import operational_owner_ids
@@ -259,6 +260,18 @@ class DebriefOut(BaseModel):
     acceptance_condition: Optional[str] = None
     no_client_questions: bool = False
     questions_saved: int = 0
+
+
+class InterviewEventOut(BaseModel):
+    """Termin rozmowy u klienta — okno debriefu pyta, czy już się zaczęła."""
+
+    id: int
+    candidate_id: int
+    job_id: Optional[int] = None
+    start: datetime
+    end: Optional[datetime] = None
+    # Debrief da się zapisać dopiero od rozpoczęcia rozmowy (``PUT …/debrief``).
+    started: bool
 
 
 class ClientQuestionOut(BaseModel):
@@ -650,6 +663,33 @@ async def _load_interview_event(
     return event
 
 
+def _event_start_utc(event: CalendarEvent) -> datetime:
+    start = event.start_time
+    return start if start.tzinfo is not None else start.replace(tzinfo=timezone.utc)
+
+
+@router.get("/interview-cycle/events/{event_id}", response_model=InterviewEventOut)
+async def get_interview_event(
+    event_id: int,
+    current_user: RecruitmentReadAccess,
+    db: AsyncSession = Depends(get_db),
+) -> InterviewEventOut:
+    """Termin rozmowy u klienta dla okna debriefu (także z bramki na tablicy,
+    która zna tylko id wydarzenia)."""
+    event = await _load_interview_event(db, event_id, current_user)
+    if event.job_id is not None:
+        await ensure_job_read_access(db, current_user, event.job_id)
+    start = _event_start_utc(event)
+    return InterviewEventOut(
+        id=event.id,
+        candidate_id=event.candidate_id,
+        job_id=event.job_id,
+        start=start,
+        end=event.end_time,
+        started=start <= datetime.now(timezone.utc),
+    )
+
+
 @router.get(
     "/interview-cycle/events/{event_id}/debrief", response_model=Optional[DebriefOut]
 )
@@ -687,6 +727,15 @@ async def save_debrief(
     if not _is_owner(current_user, event.operational_owner_id or event.created_by):
         if event.job_id is not None:
             await ensure_job_membership(db, current_user, event.job_id)
+    start = _event_start_utc(event)
+    if start > datetime.now(timezone.utc):
+        # Debrief to zapis telefonu PO rozmowie — przed jej rozpoczęciem nie ma
+        # czego raportować, a zapis zamykałby kroki „Telefon” i „Debrief” oraz
+        # bramkę przed „Umową” (test na produkcji 23.09.2026).
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=interview_not_started_message(start),
+        )
     fb = await db.scalar(
         select(InterviewFeedback)
         .where(

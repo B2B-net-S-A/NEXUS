@@ -112,11 +112,6 @@ export function useUnlinkSimilarJob(jobId: number) {
   });
 }
 
-/** Sugestie, które warto zaznaczyć od razu: z osobami wysłanymi do klienta. */
-export function defaultSelection(suggestions: readonly SimilarJobItem[]): number[] {
-  return suggestions.filter((s) => s.sent_count > 0).map((s) => s.id);
-}
-
 /** Ile osób przepnie zaznaczenie (górna granica — serwer pomija już obecnych). */
 export function selectedSentCount(
   items: readonly SimilarJobItem[],

@@ -15,6 +15,7 @@ import {
   RejectionReasonDef,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { rejectionReasonLabel } from "@/lib/rejection-reasons";
 import {
   Plus,
   Copy,
@@ -259,7 +260,7 @@ export function PipelineTemplatesTab() {
     if (
       next &&
       !confirm(
-        `Włączyć blokadę dla powodu "${reason.name}"?\n\n` +
+        `Włączyć blokadę dla powodu "${rejectionReasonLabel(reason)}"?\n\n` +
           "Zadziała wstecz — wszystkie dotychczasowe odrzucenia z tym powodem " +
           "zaczną blokować ponowne zgłoszenie do tego samego hiring managera."
       )
@@ -279,7 +280,7 @@ export function PipelineTemplatesTab() {
 
   const handleDeactivateReason = async (reason: RejectionReasonDef) => {
     if (!detail) return;
-    if (!confirm(`Wyłączyć powód "${reason.name}"?`)) return;
+    if (!confirm(`Wyłączyć powód "${rejectionReasonLabel(reason)}"?`)) return;
     try {
       await pipelineTemplatesApi.deactivateRejectionReason(detail.id, reason.id);
       await loadDetail(detail.id);
@@ -562,7 +563,7 @@ export function PipelineTemplatesTab() {
                             key={r.id}
                             className="flex items-center justify-between rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 px-3 py-1.5 text-sm"
                           >
-                            <span>{r.name}</span>
+                            <span>{rejectionReasonLabel(r)}</span>
                             <div className="flex items-center gap-3">
                               <label
                                 className={`flex items-center gap-1.5 text-xs ${
@@ -582,7 +583,7 @@ export function PipelineTemplatesTab() {
                                   disabled={cat !== "rejected"}
                                   onChange={() => handleToggleDisqualifies(r)}
                                   className="h-3.5 w-3.5 rounded border-border accent-primary disabled:opacity-40"
-                                  aria-label={`Blokuje ponowne zgłoszenie do tego hiring managera: ${r.name}`}
+                                  aria-label={`Blokuje ponowne zgłoszenie do tego hiring managera: ${rejectionReasonLabel(r)}`}
                                 />
                                 Blokuje u tego managera
                               </label>

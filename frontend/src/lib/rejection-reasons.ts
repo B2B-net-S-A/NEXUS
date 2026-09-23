@@ -28,6 +28,18 @@ export interface RejectionReasonOption {
   disqualifies_person: boolean;
 }
 
+/**
+ * Tekst powodu dla człowieka. `name` jest kluczem danych i bywa kodem
+ * (`counter_offer`, `Inne (withdrawn)`) — etykietę po polsku liczy backend
+ * (`app/services/rejection_reason_labels.py`, jedno źródło). `name` zostaje
+ * wyłącznie zapasem dla odpowiedzi bez pola `label`.
+ */
+export function rejectionReasonLabel(
+  reason: Pick<RejectionReasonDef, "name" | "label">,
+): string {
+  return reason.label?.trim() || reason.name;
+}
+
 export function mapRejectionReasons(
   rows: readonly RejectionReasonDef[] | null | undefined,
 ): RejectionReasonOption[] {
@@ -35,7 +47,7 @@ export function mapRejectionReasons(
     .filter((r) => r.category === "rejected" || r.category === "withdrawn")
     .map((r) => ({
       id: String(r.id),
-      label: r.name,
+      label: rejectionReasonLabel(r),
       applies_to: [r.category as "rejected" | "withdrawn"],
       disqualifies_person: Boolean(r.disqualifies_person),
     }));

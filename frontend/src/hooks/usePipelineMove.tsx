@@ -51,6 +51,7 @@ import { terminalOf } from "@/lib/kanban-terminal";
 import { moveDialogFor } from "@/lib/pipeline-move-dialog";
 import { assignErrorMessage } from "@/lib/assign-error";
 import {
+  formatExpectedRate,
   bulkMoveFailureMessage,
   bulkMoveSkipReason,
   itemFullName,
@@ -1098,6 +1099,7 @@ export function usePipelineMove({
           onConfirm={(payload) => submitClientRateMove(payload)}
           onSkip={() => submitClientRateMove(null)}
           required={!cproEnabled}
+          candidateRateLabel={formatExpectedRate(clientRatePrompt.item)}
         />
       )}
 

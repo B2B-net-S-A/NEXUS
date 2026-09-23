@@ -91,6 +91,7 @@ export function BoardWorkbenchDrawer({
   const context: WorkbenchContext = {
     ...workbenchContext,
     jobTitle: jobTitle ?? undefined,
+    cproEnabled,
     budgetHourly,
     kanbanQueryState,
   };

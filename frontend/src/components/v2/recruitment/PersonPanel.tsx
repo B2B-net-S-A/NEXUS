@@ -20,6 +20,7 @@
  *    odmontowałoby sekcje — i znów zgubiło wpisany tekst.
  */
 
+import { foldBoardColumns } from "@/lib/board-stages";
 import {
   useCallback,
   useEffect,
@@ -93,6 +94,8 @@ export interface KanbanQueryState {
  */
 export interface WorkbenchContext {
   jobTitle?: string;
+  /** Nordea (DZ → Cpro): „CV wysłane" wysyła wytypowana osoba, nie DL. */
+  cproEnabled?: boolean;
   clientId: number | null;
   clientName?: string | null;
   /** `effective_budget_hourly` rekrutacji. */
@@ -546,10 +549,27 @@ export function PersonPanel({
   // o potwierdzenie. Przycisk „Odrzuć" obok zostaje skrótem.
   const stageTargets = columns;
   const writeBlocked = moveBlockedReason({ item, readOnly, targetStage: null });
-  const forward = useMemo(
-    () => primaryForwardMove({ item, columns, currentColId, readOnly }),
-    [item, columns, currentColId, readOnly],
-  );
+  // Naprzód po KOLUMNACH Tablicy (Pipeline v4), nie po etapach szablonu —
+  // z „CV wysłane" dalej jest „Rozmowa u klienta", a nie etap-odznaka
+  // „Preparation Meeting" (test na produkcji 23.09.2026).
+  const forward = useMemo(() => {
+    const fold = foldBoardColumns(columns);
+    const hostCols = fold.columns.map((f) => ({ ...f.host, name: f.label }));
+    const host = fold.columns.find((f) =>
+      f.members.some((m) => colId(m) === currentColId),
+    )?.host;
+    const result = primaryForwardMove({
+      item,
+      columns: hostCols,
+      currentColId: host ? colId(host) : currentColId,
+      readOnly,
+    });
+    // Ruch i etykieta idą z PRAWDZIWEGO etapu szablonu (gospodarza kolumny).
+    const original = result.target
+      ? columns.find((c) => colId(c) === colId(result.target as KanbanColumn))
+      : null;
+    return { ...result, target: original ?? result.target };
+  }, [item, columns, currentColId, readOnly]);
   // Poza szablonem nie ma „następnego" etapu — jest pierwszy etap szablonu.
   const forwardTarget = offTemplate
     ? readOnly
@@ -633,6 +653,7 @@ export function PersonPanel({
             onMoved={ctx.onMoved}
             readOnly={readOnly}
             canWriteClientRate={canWriteClientRate}
+            cproEnabled={ctx.cproEnabled ?? false}
             budgetHourly={ctx.budgetHourly}
             panelFallback={
               <SavedCvView

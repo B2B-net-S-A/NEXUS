@@ -786,6 +786,62 @@ async def test_pojedyncze_slowo_jest_osoba_tylko_gdy_istnieje_w_bazie(
     assert [i["id"] for i in data["items"]] == [ids["b"]]
 
 
+@pytest.mark.asyncio
+async def test_okno_dodawania_do_pipeline_szuka_nazwiska_doslownie(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Okno „Dodaj kandydatów do pipeline” wysyła ``search_mode=hybrid`` +
+    ``text_mode=auto`` (v2). Nazwisko z wielką literą w środku („TestPipelineD”
+    z testu na produkcji 23.09.2026) jest osobą — wynik to ta jedna osoba, nie
+    pula wektorowa z ~200 niezwiązanymi."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate, CandidateStatus
+    from app.services import candidate_search_predicates as predicates
+    from app.services import hybrid_search
+    from app.services.hybrid_search import HybridResult
+
+    ids = await _seed()
+    # Kształt „TestPipelineD” (wielka litera w środku), ale treść losowa —
+    # stały przedrostek łapałby literówkową gałąź na osobach z poprzednich biegów.
+    letters = "".join(chr(97 + int(c, 16)) for c in uuid.uuid4().hex[:12])
+    lastname = "Xq" + letters[:5] + letters[5:].capitalize()
+    async with AsyncSessionLocal() as db:
+        cand = Candidate(
+            name="Dorota",
+            lastname=lastname,
+            email=f"pipe-{uuid.uuid4().hex[:10]}@example.com",
+            status=CandidateStatus.active,
+        )
+        db.add(cand)
+        await db.commit()
+        cand_id = cand.id
+    predicates._person_token_cache.clear()
+
+    async def _fake(db, query, **kwargs):
+        return HybridResult(pairs=[(ids["a"], 1.0), (ids["b"], 0.9)])
+
+    monkeypatch.setattr(hybrid_search, "hybrid_candidates", _fake)
+    resp = await app_client.post(
+        "/api/search/candidates",
+        json={
+            "q": lastname,
+            "sort": "relevance",
+            "page": 1,
+            "page_size": 25,
+            "search_mode": "hybrid",
+            "semantics_version": 2,
+            "text_mode": "auto",
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["meta"]["interpretation"]["rule"] == "single_word_person_exists"
+    assert data["meta"]["text_mode_applied"] == "literal"
+    assert [i["id"] for i in data["items"]] == [cand_id]
+    assert data["total"] == 1
+
+
 # ── Grupy q_all / q_any / q_none: jeden parser ──────────────────────────────
 
 

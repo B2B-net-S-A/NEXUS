@@ -33,7 +33,7 @@ vi.mock("@/components/v2/recruitment/PanelSavedViews", () => ({
   ),
 }));
 
-import { DlReviewPanel, marginText } from "@/components/v2/recruitment/DlReviewPanel";
+import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
 import type { BoardTaskRow } from "@/lib/api/boardTasks";
 import { useAuthStore } from "@/store/auth";
 
@@ -93,14 +93,6 @@ function renderPanel(row: BoardTaskRow = task(), onOpenChange = vi.fn()) {
   return { onOpenChange, qc };
 }
 
-describe("marginText", () => {
-  it("liczy marżę w zł/h i procent od stawki klienta", () => {
-    expect(marginText(140, 180)).toEqual({ text: "Marża: 40 zł/h (22,2%)", negative: false });
-    expect(marginText(200, 180)?.negative).toBe(true);
-    expect(marginText(null, 180)).toBeNull();
-  });
-});
-
 describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -134,7 +126,8 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     const send = screen.getByRole("button", { name: /Wyślij do klienta/ });
     expect(send).toBeDisabled();
     await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
-    expect(screen.getByText("Marża: 40 zł/h (22,2%)")).toBeTruthy();
+    // Decyzja 23.09.2026: przegląd DL nie pokazuje marży.
+    expect(screen.queryByText(/Marża/)).toBeNull();
     expect(send).toBeEnabled();
     await userEvent.click(send);
     await waitFor(() =>

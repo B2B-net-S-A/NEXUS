@@ -8,8 +8,10 @@ import { Plus, X } from "lucide-react";
 import { AppModal } from "@/components/ds/AppModal";
 import { useToast } from "@/components/Toast";
 import { apiErrorMessage } from "@/lib/api-error";
-import { interviewCycleApi, useDebrief } from "@/lib/api/interviewCycle";
+import { interviewCycleApi, useDebrief, useInterviewEvent } from "@/lib/api/interviewCycle";
 import {
+  debriefAvailable,
+  debriefAvailableFromLabel,
   OFFER_LABELS,
   OUTCOME_LABELS,
   type Debrief,
@@ -43,6 +45,11 @@ export const DEBRIEF_QUESTIONS_REQUIRED =
  * Wspólny dla kalendarza (`DebriefModal`) i bramki na tablicy
  * (`DebriefRequiredDialog`) — różnią się tylko tytułem, opisem i tym, co
  * dzieje się po zapisie.
+ *
+ * Debrief da się zapisać dopiero od rozpoczęcia rozmowy (serwer: 422). Przed
+ * nią okno mówi, od kiedy będzie dostępny, i nie pozwala zapisać. Termin
+ * podaje wołający (`interviewStart`); bez niego okno pyta serwer o wydarzenie
+ * (bramka na tablicy zna tylko jego id).
  */
 export function DebriefDialog({
   open,
@@ -53,6 +60,8 @@ export function DebriefDialog({
   intro,
   submitLabel = "Zapisz debrief",
   onSaved,
+  interviewStart,
+  now: nowOverride,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -63,10 +72,29 @@ export function DebriefDialog({
   submitLabel?: string;
   /** Po udanym zapisie, PRZED zamknięciem okna. */
   onSaved?: (debrief: Debrief) => void;
+  /** Początek rozmowy (ISO); `undefined` = okno odczyta go z serwera. */
+  interviewStart?: string;
+  /** Zegar dla testów i harnessu. */
+  now?: Date;
 }) {
   const toast = useToast();
   const qc = useQueryClient();
   const existing = useDebrief(open ? eventId : null);
+  const eventInfo = useInterviewEvent(
+    open && interviewStart === undefined ? eventId : null,
+  );
+  const start = interviewStart ?? eventInfo.data?.start ?? null;
+  // Okno może stać otwarte do rozpoczęcia rozmowy — przelicz co 30 s.
+  const [tick, setTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!open || nowOverride) return;
+    // Okno jest zamontowane cały czas — zegar z chwili montowania byłby stary.
+    setTick(Date.now());
+    const id = window.setInterval(() => setTick(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, [open, nowOverride]);
+  const now = nowOverride ?? new Date(tick);
+  const notStarted = start != null && !debriefAvailable(start, now);
   const [outcome, setOutcome] = useState<DebriefOutcome | null>(null);
   const [comment, setComment] = useState("");
   const [questions, setQuestions] = useState<string[]>([""]);
@@ -130,6 +158,7 @@ export function DebriefDialog({
 
   const submit = () => {
     setError(null);
+    if (notStarted) return;
     if (!outcome) {
       setError("Zaznacz, jak poszła rozmowa.");
       return;
@@ -145,7 +174,10 @@ export function DebriefDialog({
     mutation.mutate();
   };
 
-  const loading = open && existing.isPending;
+  const loading =
+    open &&
+    (existing.isPending ||
+      (interviewStart === undefined && eventId != null && eventInfo.isPending));
 
   return (
     <AppModal
@@ -172,7 +204,8 @@ export function DebriefDialog({
             <button
               type="button"
               onClick={submit}
-              disabled={mutation.isPending || loading || eventId == null}
+              disabled={mutation.isPending || loading || eventId == null || notStarted}
+              title={notStarted && start ? debriefAvailableFromLabel(start, now) : undefined}
               className="h-9 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {submitLabel}
@@ -181,13 +214,27 @@ export function DebriefDialog({
         </div>
       }
     >
-      {intro ? <div className="mb-4 text-sm text-muted-foreground">{intro}</div> : null}
+      {notStarted && start ? (
+        <div
+          role="status"
+          data-testid="debrief-not-started"
+          className="mb-4 rounded-md border border-warning/40 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+        >
+          <p className="font-semibold">{debriefAvailableFromLabel(start, now)}</p>
+          <p>
+            Rozmowa u klienta jeszcze się nie odbyła. Po rozmowie zadzwoń do kandydata i zapisz
+            pytania klienta — dopiero wtedy kandydat przejdzie dalej.
+          </p>
+        </div>
+      ) : intro ? (
+        <div className="mb-4 text-sm text-muted-foreground">{intro}</div>
+      ) : null}
       {existing.isError ? (
         <p role="alert" className="mb-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
           Nie udało się wczytać zapisanego debriefu — zapis nadpisze go w całości.
         </p>
       ) : null}
-      <fieldset disabled={loading} className="space-y-5" aria-busy={loading}>
+      <fieldset disabled={loading || notStarted} className="space-y-5" aria-busy={loading}>
         <fieldset>
           <legend className="mb-2 text-sm font-semibold">Jak poszło?</legend>
           <div className="grid grid-cols-3 gap-2">

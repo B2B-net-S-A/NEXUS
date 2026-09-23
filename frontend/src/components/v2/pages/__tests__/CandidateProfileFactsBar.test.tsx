@@ -141,12 +141,30 @@ describe("CandidateProfileFactsBar", () => {
     renderBar({ city: longCity, country: null });
 
     await screen.findByText("Angielski · C1");
-    expect(screen.getByText(longCity).classList).toContain(
-      "[overflow-wrap:anywhere]",
+    // `break-words` łamie wyłącznie słowo, które nie mieści się w linii.
+    // `[overflow-wrap:anywhere]` zerował minimalną szerokość słowa i w wąskim
+    // kafelku „Nie uzupełniono” łamało się litera po literze (23.09.2026).
+    for (const text of [longCity, "Angielski · C1"]) {
+      const classes = screen.getByText(text).classList;
+      expect(classes).toContain("break-words");
+      expect(classes).not.toContain("[overflow-wrap:anywhere]");
+    }
+  });
+
+  it("wraps tiles by the bar's own width, never squeezing five into a narrow column", async () => {
+    renderBar({ city: "Warszawa, Mazowieckie", country: null });
+
+    await screen.findByText("Angielski · C1");
+    expect(screen.getByText("Warszawa, Mazowieckie").classList).toContain("break-words");
+    const facts = screen.getByRole("region", {
+      name: "Najważniejsze fakty o kandydacie",
+    });
+    // Kolumny liczy szerokość paska (auto-fit, min. 15rem), nie breakpoint
+    // okna — obok listy „ostatnio wyświetlanych” pasek jest dużo węższy.
+    expect(facts.classList).toContain(
+      "grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))]",
     );
-    expect(screen.getByText("Angielski · C1").classList).toContain(
-      "[overflow-wrap:anywhere]",
-    );
+    expect(facts.className).not.toMatch(/xl:grid-cols-/);
   });
 
   it("uses legacy location only as a read-only fallback", async () => {
@@ -482,7 +500,8 @@ describe("CandidateProfileFactsBar", () => {
       name: "Najważniejsze fakty o kandydacie",
     });
     expect(facts.classList.contains("grid-cols-4")).toBe(false);
-    expect(facts.classList.contains("sm:grid-cols-2")).toBe(true);
+    // min(100%, 15rem): przy 320 px jeden kafelek na wiersz.
+    expect(facts.className).toContain("minmax(min(100%,15rem),1fr)");
 
     const editLanguages = screen.getByRole("button", {
       name: "Edytuj języki",

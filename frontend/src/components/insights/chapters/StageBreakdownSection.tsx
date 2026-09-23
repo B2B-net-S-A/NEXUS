@@ -27,8 +27,8 @@ function formatPct(value: number | null): string {
  * pod kolumną, do której należy („DZ ✓”, „Umowa wysłana”, „Onboarding”…).
  *
  * „Doszło” zależy od okresu z paska, „Teraz” to stan na dziś. Konwersja
- * dzieli „Doszło” przez wiersz główny powyżej; brak mianownika to „—”,
- * nigdy „0%”.
+ * jest tylko przy etapach głównych (do poprzedniego głównego); odznaka i brak
+ * mianownika to „—”, nigdy „0%”.
  */
 export function StageBreakdownSection({ period }: Props) {
   const { data, isPending, isSuccess, isError, error, refetch } =
@@ -214,8 +214,26 @@ function ClosedByCard({ groups }: { groups: ClosedByGroup[] }) {
                   className="mt-1 space-y-0.5 text-xs text-muted-foreground"
                 >
                   {g.top_reasons.map((r) => (
-                    <li key={r.label} className="flex justify-between gap-2">
-                      <span className="truncate" title={r.label}>
+                    <li
+                      key={`${r.kind}:${r.label}`}
+                      className="flex justify-between gap-2"
+                    >
+                      <span
+                        className={cn(
+                          "truncate",
+                          r.kind === "other" &&
+                            "cursor-help underline decoration-dotted underline-offset-2",
+                          r.kind === "none" && "italic",
+                        )}
+                        title={
+                          r.kind === "other" && r.details.length > 0
+                            ? r.details.join("\n")
+                            : r.label
+                        }
+                        data-testid={
+                          r.kind === "other" ? `closed-by-${g.key}-other` : undefined
+                        }
+                      >
                         {r.label}
                       </span>
                       <span className="tabular-nums">

@@ -3,9 +3,10 @@
 from datetime import datetime
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from app.models.pipeline_template import StageCategoryEnum, TerminalType
+from app.services.rejection_reason_labels import rejection_reason_label
 
 
 # ── StageDef ─────────────────────────────────────────────────────────────────
@@ -92,6 +93,12 @@ class RejectionReasonResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def label(self) -> str:
+        """Tekst dla człowieka — ``name`` bywa kodem (``counter_offer``)."""
+        return rejection_reason_label(self.name) or self.name
 
 
 # ── PipelineTemplate ─────────────────────────────────────────────────────────

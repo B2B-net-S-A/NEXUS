@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -605,6 +605,7 @@ async def add_candidates_to_job(
     summary="Bulk-add candidates to job pipeline (manual search → recruitment)",
 )
 async def bulk_add_proposals(
+    request: Request,
     job_id: int,
     body: BulkProposalsRequest,
     current_user: RecruiterPlus,
@@ -618,6 +619,7 @@ async def bulk_add_proposals(
     # kandydata na shortliście dawało 403, a cięższe wpisanie go wprost do
     # pipeline'u — z tego samego ekranu, na tę samą obcą ofertę — przechodziło.
     await ensure_job_membership(db, current_user, job_id)
+    from_integration = candidate_claim.is_integration_request(request)
 
     result = await add_candidates_to_job(
         db,
@@ -628,7 +630,12 @@ async def bulk_add_proposals(
         initial_stage_legacy=body.initial_stage_legacy,
         note=body.note,
         tags=body.tags,
-        entry_source=_entry_source_for(body.source),
+        entry_source=(
+            candidate_claim.ENTRY_AUTO_MATCH
+            if from_integration
+            else _entry_source_for(body.source)
+        ),
+        claim=not from_integration,
     )
     added, skipped, warnings = result.added, result.skipped, result.warnings
 

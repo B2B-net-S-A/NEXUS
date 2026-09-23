@@ -84,13 +84,10 @@ EXPORT_ROLES = {
 FINANCE_ROLES = {UserRole.admin}
 # „Stawka do klienta" (decyzja 2026-09-17): role zarządcze + Finanse ALBO
 # właściciel/twórca rekrutacji (`user_can_write_client_rate`).
+# Decyzja 23.09.2026 (Pipeline v4): stawkę do klienta zapisuje tylko DL i admin.
 CLIENT_RATE_ROLES = {
     UserRole.admin,
-    UserRole.head_of_recruitment,
     UserRole.delivery_lead,
-    UserRole.talent_community_manager,
-    UserRole.tac,
-    UserRole.finance,
 }
 
 
@@ -481,12 +478,16 @@ async def test_write_surface_role_matrix(
             )
 
 
-def test_client_rate_rule_roles_and_ownership():
-    """`user_can_write_client_rate`: role zarządcze/Finanse zawsze, rekruter i
-    sourcer tylko jako właściciel/twórca rekrutacji, viewer nigdy."""
+def test_client_rate_rule_roles_only():
+    """`user_can_write_client_rate` (decyzja 23.09.2026): stawkę do klienta
+    zapisuje wyłącznie admin i Delivery Lead — własność rekrutacji nie daje
+    już rekruterowi zapisu, a Finanse tylko ją czytają."""
     from types import SimpleNamespace
 
-    from app.api.candidate_access import user_can_write_client_rate
+    from app.api.candidate_access import (
+        user_can_view_client_rate,
+        user_can_write_client_rate,
+    )
 
     def mk(role: UserRole, uid: int = 1) -> User:
         return User(
@@ -503,20 +504,19 @@ def test_client_rate_rule_roles_and_ownership():
     for role in ROLES:
         expected = role in CLIENT_RATE_ROLES
         assert user_can_write_client_rate(mk(role), job) is expected, role
-    # Właściciel (recruiter_id) i twórca (created_by) — niezależnie od roli,
-    # ale nigdy viewer.
-    for role in (UserRole.recruiter, UserRole.sourcer):
-        assert user_can_write_client_rate(mk(role, uid=7), job) is True
-        assert user_can_write_client_rate(mk(role, uid=8), job) is True
-    assert user_can_write_client_rate(mk(UserRole.user, uid=7), job) is False
+        assert user_can_view_client_rate(mk(role)) is (
+            role in CLIENT_RATE_ROLES or role == UserRole.finance
+        ), role
+    for role in (UserRole.recruiter, UserRole.sourcer, UserRole.user):
+        assert user_can_write_client_rate(mk(role, uid=7), job) is False
+        assert user_can_write_client_rate(mk(role, uid=8), job) is False
 
 
-async def test_client_rate_owner_recruiter_passes_non_owner_gets_403(
+async def test_client_rate_only_dl_and_admin_pass_the_gate(
     m2_client: AsyncClient, headers_by_role: dict[UserRole, dict[str, str]]
 ):
-    """Rekruter-właściciel rekrutacji zapisuje stawkę do klienta; rekruter
-    spoza rekrutacji, sourcer i viewer dostają 403; admin/HoR przechodzą
-    bramkę (dalej: 404 dla nieistniejącego kandydata, nigdy 403)."""
+    """Rekruter — także właściciel rekrutacji — HoR, sourcer i viewer dostają
+    403; admin przechodzi bramkę (dalej 404 dla nieistniejącego kandydata)."""
     from app.models.client import Client
     from app.models.job import Job, JobStatus
 
@@ -542,11 +542,17 @@ async def test_client_rate_owner_recruiter_passes_non_owner_gets_403(
     path = f"/api/candidates/999999/recruitments/{job_id}/client-rate"
     body = {"rate_value": 100}
     resp = await m2_client.patch(path, headers=owner_headers, json=body)
-    assert resp.status_code != 403, f"owner recruiter forbidden: {resp.text}"
-    for role in (UserRole.admin, UserRole.head_of_recruitment):
-        resp = await m2_client.patch(path, headers=headers_by_role[role], json=body)
-        assert resp.status_code != 403, f"[{role.value}] unexpectedly forbidden"
-    for role in (UserRole.recruiter, UserRole.sourcer, UserRole.user):
+    assert resp.status_code == 403, f"owner recruiter should be 403: {resp.text}"
+    resp = await m2_client.patch(
+        path, headers=headers_by_role[UserRole.admin], json=body
+    )
+    assert resp.status_code != 403, "[admin] unexpectedly forbidden"
+    for role in (
+        UserRole.recruiter,
+        UserRole.sourcer,
+        UserRole.user,
+        UserRole.head_of_recruitment,
+    ):
         resp = await m2_client.patch(path, headers=headers_by_role[role], json=body)
         assert resp.status_code == 403, (
             f"[{role.value}] expected 403, got {resp.status_code}"
