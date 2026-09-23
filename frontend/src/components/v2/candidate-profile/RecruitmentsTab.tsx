@@ -75,6 +75,10 @@ export interface RecruitmentsTabProps {
   defaultJobId: number | null;
   view: CandidateRecruitmentView;
   readOnly: boolean;
+  /** Serwer pozwala tej osobie widzieć stawkę do klienta (bez rekrutera/sourcera/TAC). */
+  clientRateVisible?: boolean;
+  /** Serwer pozwala zapisać stawkę do klienta (Delivery Lead, admin). */
+  clientRateWritable?: boolean;
 }
 
 export function RecruitmentsTab({
@@ -89,6 +93,8 @@ export function RecruitmentsTab({
   defaultJobId,
   view,
   readOnly,
+  clientRateVisible = false,
+  clientRateWritable = false,
 }: RecruitmentsTabProps) {
   const { active, ended } = useMemo(() => splitRecruitments(history), [history]);
   const focusedJobId = useMemo(
@@ -175,6 +181,8 @@ export function RecruitmentsTab({
                   candidateName={candidateName}
                   focusedJobId={focusedJobId}
                   readOnly={readOnly}
+                  clientRateVisible={clientRateVisible}
+                  clientRateWritable={clientRateWritable}
                 />
               ))
             )}
@@ -203,6 +211,8 @@ export function RecruitmentsTab({
                         candidateName={candidateName}
                         focusedJobId={focusedJobId}
                         readOnly={readOnly}
+                        clientRateVisible={clientRateVisible}
+                        clientRateWritable={clientRateWritable}
                       />
                     ))}
                   </div>
@@ -425,20 +435,25 @@ function EditableRateCell({
 
 // Stawka kandydata i stawka do klienta per rekrutacja; marża liczona
 // z wartości z serwera (tylko przy tej samej jednostce).
-function RecruitmentRateRow({
+export function RecruitmentRateRow({
   candidateId,
   jobId,
   clientRate,
   expectedRate,
   readOnly = false,
+  clientRateVisible = false,
+  clientRateWritable = false,
 }: {
   candidateId: number;
   jobId: number;
   clientRate: RecruitmentRate;
   expectedRate: RecruitmentRate;
   readOnly?: boolean;
+  clientRateVisible?: boolean;
+  clientRateWritable?: boolean;
 }) {
   const sameUnit =
+    clientRateVisible &&
     clientRate != null && expectedRate != null && clientRate.unit === expectedRate.unit;
   const margin =
     sameUnit && clientRate != null && expectedRate != null
@@ -459,17 +474,19 @@ function RecruitmentRateRow({
             candidatesApi.setRecruitmentExpectedRate(candidateId, jobId, payload)
           }
         />
-        <EditableRateCell
-          candidateId={candidateId}
-          label="Stawka do klienta"
-          rate={clientRate}
-          testIdPrefix="client-rate"
-          successMessage="Zapisano stawkę do klienta"
-          readOnly={readOnly}
-          mutationFn={(payload) =>
-            candidatesApi.setRecruitmentClientRate(candidateId, jobId, payload)
-          }
-        />
+        {clientRateVisible ? (
+          <EditableRateCell
+            candidateId={candidateId}
+            label="Stawka do klienta"
+            rate={clientRate}
+            testIdPrefix="client-rate"
+            successMessage="Zapisano stawkę do klienta"
+            readOnly={readOnly || !clientRateWritable}
+            mutationFn={(payload) =>
+              candidatesApi.setRecruitmentClientRate(candidateId, jobId, payload)
+            }
+          />
+        ) : null}
       </div>
       {margin != null ? (
         <div className="mt-2 text-xs text-muted-foreground">
@@ -493,12 +510,16 @@ function RecruitmentCard({
   candidateName,
   focusedJobId,
   readOnly = false,
+  clientRateVisible = false,
+  clientRateWritable = false,
 }: {
   job: any;
   candidateId: number;
   candidateName: string;
   focusedJobId: number | null;
   readOnly?: boolean;
+  clientRateVisible?: boolean;
+  clientRateWritable?: boolean;
 }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -632,6 +653,8 @@ function RecruitmentCard({
         clientRate={job.client_rate ?? null}
         expectedRate={job.expected_rate ?? null}
         readOnly={readOnly}
+        clientRateVisible={clientRateVisible}
+        clientRateWritable={clientRateWritable}
       />
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">

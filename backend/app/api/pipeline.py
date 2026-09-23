@@ -69,6 +69,7 @@ from app.schemas.pipeline import (
 from app.api.candidate_access import (
     CandidatePIIAccess,
     resolve_client_rate_write,
+    user_can_read_client_rate,
     user_has_candidate_read,
 )
 from app.api.deps import CurrentUser, OperationalUser, RecruiterPlus
@@ -252,6 +253,7 @@ def _sheet_filled(payload: object) -> bool:
 def _stage_response(
     stage: CandidateStage,
     *,
+    viewer: Optional[User],
     candidate_name: Optional[str] = None,
     candidate_lastname: Optional[str] = None,
     added_to_job_by_name: Optional[str] = None,
@@ -315,9 +317,21 @@ def _stage_response(
         "task_assignee_id": stage.task_assignee_id,
         # Pipeline v4 (0352).
         "ended_by": stage.ended_by,
-        "client_rate_value": stage.client_rate_value,
-        "client_rate_unit": stage.client_rate_unit,
-        "client_rate_currency": stage.client_rate_currency,
+        # Stawka do klienta: rekruter, sourcer i TAC jej nie widzą
+        # (23.09.2026). Brak widza = redakcja (fail-closed).
+        **(
+            {
+                "client_rate_value": stage.client_rate_value,
+                "client_rate_unit": stage.client_rate_unit,
+                "client_rate_currency": stage.client_rate_currency,
+            }
+            if viewer is not None and user_can_read_client_rate(viewer)
+            else {
+                "client_rate_value": None,
+                "client_rate_unit": None,
+                "client_rate_currency": None,
+            }
+        ),
     }
 
 
@@ -677,7 +691,7 @@ async def move_candidate(
         and previous_stage_row is not None
         and previous_stage_row.stage == PipelineStage.hired
     ):
-        resp = _stage_response(previous_stage_row)
+        resp = _stage_response(previous_stage_row, viewer=current_user)
         resp["scheduled_rejection_email_id"] = None
         await db.commit()
         return CandidateStageResponse(**resp)
@@ -739,11 +753,7 @@ async def move_candidate(
         # Stawka do klienta w ruchu = ta sama bramka co `PATCH …/client-rate`.
         raise HTTPException(
             status_code=403,
-            detail=(
-                "Stawkę do klienta zapisuje Delivery Lead, TAC, TCM, Head of "
-                "Recruitment, Finanse albo admin z zespołu tej rekrutacji — "
-                "albo jej właściciel."
-            ),
+            detail=("Stawkę do klienta zapisuje Delivery Lead albo admin."),
         )
 
     # ── P1-PIPE-01: eligibility gate ── same hard block the assign ingresses
@@ -1470,7 +1480,7 @@ async def move_candidate(
         except Exception as _exc:  # noqa: BLE001 — automat nigdy nie psuje ruchu
             logger.warning("cv_auto_generate spawn failed stage=%s: %s", stage.id, _exc)
 
-    resp = _stage_response(stage)
+    resp = _stage_response(stage, viewer=current_user)
     resp["scheduled_rejection_email_id"] = scheduled_rejection_email_id
     # F05: nowa wersja procesu po ruchu — karta podmienia ją od razu, żeby
     # kolejny ruch z tej samej karty (przed odświeżeniem tablicy) nie wysłał
@@ -1936,6 +1946,7 @@ async def build_kanban_view(
         added_at = first.moved_at if first is not None else None
         payload = _stage_response(
             e,
+            viewer=viewer,
             candidate_name=n,
             candidate_lastname=ln,
             added_to_job_by_name=added_by_name,
@@ -2197,7 +2208,10 @@ async def get_stage_history(
         .order_by(CandidateStage.moved_at.asc())
     )
     stages = result.scalars().all()
-    return [CandidateStageResponse(**_stage_response(s)) for s in stages]
+    return [
+        CandidateStageResponse(**_stage_response(s, viewer=current_user))
+        for s in stages
+    ]
 
 
 # Dziennik ruchów CAŁEJ rekrutacji. Poprzedni etap liczy LAG po WSZYSTKICH
@@ -2933,7 +2947,7 @@ async def bulk_move_candidates(
     ):
         raise HTTPException(
             status_code=403,
-            detail="Stawkę do klienta zapisuje osoba z prawem zapisu stawek tej rekrutacji.",
+            detail="Stawkę do klienta zapisuje Delivery Lead albo admin.",
         )
 
     # Etap-odznaka Tablicy (DZ / Cpro) — ta sama reguła co pojedynczy /move.

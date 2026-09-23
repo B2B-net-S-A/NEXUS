@@ -207,16 +207,22 @@ CalendarWriteAccess = Annotated[User, Depends(require_roles(*CALENDAR_WRITE_ROLE
 
 # ── Resource scope: job membership (P1-PIPE-01) ─────────────────────────────
 
-# Oversight roles that see every job's pipeline regardless of membership.
-# admin already short-circuits inside ``is_member_of_job``; head_of_recruitment
-# is the recruitment-wide oversight persona and is added here so it is not
-# forced onto every job's collaborator list.
-_JOB_MEMBERSHIP_BYPASS_ROLES: tuple[UserRole, ...] = (
-    UserRole.admin,
-    UserRole.head_of_recruitment,
-    UserRole.delivery_lead,
-    UserRole.talent_community_manager,
-)
+# Role, które widzą i obsługują KAŻDĄ rekrutację bez przypisania do zespołu.
+#
+# Decyzja Artura 23.09.2026: „notatki i wszystkie elementy w panelu
+# rekrutacji i kandydata widzą wszyscy — nie musisz być przypisany do
+# rekrutacji". Do tej daty rekruter, sourcer i TAC spoza zespołu dostawali
+# 403 na tablicy, historii etapów, screeningu, CV etapu, feedbacku, shortliście
+# i propozycjach, a profil kandydata po cichu gubił rekrutacje, w których nie
+# byli. Odpowiedź na pytanie o zapis brzmiała „każdy może wszystko", więc
+# bramka zespołu znika także dla poleceń — zostają wyłącznie bramki RÓL
+# (zatrudnienie bez sourcera, „CV wysłane” i stawka do klienta tylko DL/admin,
+# sekcje z ``allowed_sections``). Stara rola podglądu ``user`` jest poza tym
+# zbiorem i nadal przechodzi wyłącznie przez członkostwo.
+#
+# ``oversight_bypass=False`` zostaje: to jawnie OSOBISTE widoki („moje
+# rekrutacje” w cyklu rozmów u klienta), które mają liczyć przypisanie.
+_JOB_MEMBERSHIP_BYPASS_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 
 
 async def ensure_job_membership(
@@ -722,10 +728,7 @@ JOB_MEMBER_LOCKED_FIELDS: frozenset[str] = frozenset(
     }
 )
 
-_JOB_EDIT_DENIED = (
-    "Edytować rekrutację może osoba, która ją prowadzi, jej współpracownik, "
-    "Delivery Lead albo admin."
-)
+_JOB_EDIT_DENIED = "Nie masz uprawnień do edycji rekrutacji."
 _JOB_MEMBER_LOCKED_DENIED = (
     "Status, klienta, osoby prowadzące i widełki wynagrodzenia zmienia "
     "Delivery Lead albo admin."
@@ -766,7 +769,10 @@ async def job_edit_level(
                 raise
     if tac_unscoped and user.has_role(UserRole.tac):
         return JobEditLevel.full
-    if user.has_any_role(*JOB_EDIT_ROLES) and await is_member_of_job(db, user, job.id):
+    # Od 23.09.2026 treść rekrutacji redaguje każda rola wewnętrzna, bez
+    # przypisania do zespołu (patrz ``_JOB_MEMBERSHIP_BYPASS_ROLES``). Pola
+    # cyklu życia (``JOB_MEMBER_LOCKED_FIELDS``) nadal zmienia DL albo admin.
+    if user.has_any_role(*JOB_EDIT_ROLES):
         return JobEditLevel.member
     return None
 
