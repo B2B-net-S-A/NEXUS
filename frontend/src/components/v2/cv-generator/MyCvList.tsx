@@ -7,7 +7,9 @@ import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { CvGeneratedShareModal } from "@/components/v2/modals/CvGeneratedShareModal";
 import { cvGeneratorApi, type GeneratedCvItem } from "@/lib/api";
+import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 import { CvResultLive } from "./CvResult";
@@ -48,6 +50,7 @@ export interface MyCvListViewProps {
   onOpen: (item: GeneratedCvItem) => void;
   onRetry?: (item: GeneratedCvItem) => void;
   onSelectForRecruitment?: (item: { id: number; filename: string }) => void;
+  onShare?: (item: GeneratedCvItem) => void;
   selectedGeneratedId?: number | null;
   now?: Date;
 }
@@ -136,6 +139,7 @@ export function MyCvListView(props: MyCvListViewProps) {
                   onOpen={props.onOpen}
                   onRetry={props.onRetry}
                   onSelectForRecruitment={props.onSelectForRecruitment}
+                  onShare={props.onShare}
                   selected={props.selectedGeneratedId === item.id}
                 />
               ))}
@@ -174,6 +178,8 @@ export function MyCvList(props: MyCvListProps) {
   const [days, setDays] = useState<MyCvDays>(30);
   const [query, setQuery] = useState("");
   const [openItem, setOpenItem] = useState<GeneratedCvItem | null>(null);
+  const [shareItem, setShareItem] = useState<GeneratedCvItem | null>(null);
+  const canShare = props.canWrite && CV_CLIENT_LINKS_UI_ENABLED;
   const debouncedQuery = useDebouncedValue(query.trim(), 300);
 
   const listQuery = useInfiniteQuery({
@@ -212,8 +218,16 @@ export function MyCvList(props: MyCvListProps) {
         onOpen={setOpenItem}
         onRetry={props.onRetry}
         onSelectForRecruitment={props.onSelectForRecruitment}
+        onShare={canShare ? setShareItem : undefined}
         selectedGeneratedId={props.selectedGeneratedId}
       />
+      {canShare ? (
+        <CvGeneratedShareModal
+          generatedId={shareItem?.id ?? null}
+          candidateName={shareItem?.candidate_name}
+          onClose={() => setShareItem(null)}
+        />
+      ) : null}
       <Dialog open={!!openItem} onOpenChange={(open) => !open && setOpenItem(null)}>
         <DialogContent size="2xl" aria-describedby={undefined}>
           <DialogTitle className="sr-only">Wygenerowane CV</DialogTitle>

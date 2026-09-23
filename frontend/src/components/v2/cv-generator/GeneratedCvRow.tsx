@@ -24,11 +24,13 @@ export interface GeneratedCvRowProps {
   onOpen: (item: GeneratedCvItem) => void;
   onRetry?: (item: GeneratedCvItem) => void;
   onSelectForRecruitment?: (item: { id: number; filename: string }) => void;
+  /** Link dla klienta — tylko przy `CV_CLIENT_LINKS_UI_ENABLED` (dziś wyłączone). */
+  onShare?: (item: GeneratedCvItem) => void;
   selected?: boolean;
 }
 
 /** Wiersz listy „Moje CV”. */
-export function GeneratedCvRow({ item, siblings = [], now, onOpen, onRetry, onSelectForRecruitment, selected }: GeneratedCvRowProps) {
+export function GeneratedCvRow({ item, siblings = [], now, onOpen, onRetry, onSelectForRecruitment, onShare, selected }: GeneratedCvRowProps) {
   const docs = [item, ...siblings];
   const languages = [...new Set(docs.map((doc) => doc.language.toUpperCase()))];
   const processing = docs.some((doc) => doc.status === "processing");
@@ -84,6 +86,11 @@ export function GeneratedCvRow({ item, siblings = [], now, onOpen, onRetry, onSe
           {onSelectForRecruitment && item.status === "ready" ? (
             <Button type="button" variant="outline" size="sm" disabled={!item.can_download} onClick={() => onSelectForRecruitment(item)}>
               {selected ? "Wybrano · wczytaj ponownie" : "Użyj w rekrutacji"}
+            </Button>
+          ) : null}
+          {onShare && item.status === "ready" ? (
+            <Button type="button" variant="outline" size="sm" disabled={!item.can_download || consentMissing} onClick={() => onShare(item)}>
+              Udostępnij klientowi
             </Button>
           ) : null}
           {failed && onRetry ? (
