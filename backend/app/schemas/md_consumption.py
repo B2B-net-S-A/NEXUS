@@ -57,6 +57,9 @@ class ImportRowRead(BaseModel):
     matched: Optional[LineOption] = None
     options: list[LineOption] = Field(default_factory=list)
     resolved_at: Optional[datetime] = None
+    #: Dlaczego wiersz z jawnym numerem zamówienia nie trafił na żadną linię
+    #: (ticket 23.09.2026). ``None`` = wiersz bez numeru albo dopasowany.
+    status_reason: Optional[str] = None
 
     # ── Rozliczenie kosztowe (Polkomtel) ──
     # `cost_status is None` znaczy „wiersz nie dotyczy zamówień kosztowych",

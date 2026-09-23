@@ -246,6 +246,43 @@ describe("MdImportWorkspace", () => {
     expect(screen.getByText("Zaktualizowano")).toBeInTheDocument();
   });
 
+  it("wiersz z numerem zamówienia bez dopasowania pokazuje przyczynę, nie „Zaktualizowano”", async () => {
+    const reason =
+      "Okres tej osoby na zamówieniu nr 4500030067 (01.05.2026 – 14.08.2026) nie obejmuje miesiąca raportu (wrzesień 2026). Zużycie nie trafiło na żadne inne zamówienie tej osoby — sprawdź okres albo numer zamówienia.";
+    vi.mocked(mdConsumptionApi.upload).mockResolvedValue({
+      data: detail([
+        row({
+          id: 3,
+          status: "unmatched",
+          status_label: "Brak pasującego zamówienia",
+          matched_order_id: null,
+          matched: null,
+          notes_raw: "4500030067",
+          order_number_hint: "4500030067",
+          invoice_amount: 18700,
+          cost_status: "unmatched_number",
+          cost_status_label: "Brak zamówienia o tym numerze",
+          status_reason: reason,
+        }),
+      ]),
+    } as never);
+
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.upload(
+      screen.getByLabelText(/Plik XLSX/),
+      new File(["x"], "raport.xlsx"),
+    );
+    await user.click(screen.getByRole("button", { name: /Importuj/ }));
+
+    expect(await screen.findByText(reason)).toBeInTheDocument();
+    expect(screen.getByText("Brak pasującego zamówienia")).toBeInTheDocument();
+    expect(screen.queryByText("Zaktualizowano")).not.toBeInTheDocument();
+    // Przyczyna MD wygrywa z ogólnym komunikatem kosztowym.
+    expect(screen.queryByText("Brak zamówienia o tym numerze")).not.toBeInTheDocument();
+  });
+
   it("pokazuje MD i kwotę importu do trzech miejsc z polskim separatorem", async () => {
     vi.mocked(mdConsumptionApi.upload).mockResolvedValue({
       data: detail([
