@@ -38,9 +38,11 @@ SECTION_TITLES: tuple[str, ...] = (
     "PODSTAWOWE INFORMACJE",
     "CO WPISAĆ (SEARCH)",
     "STACK TECHNOLOGICZNY",
+    "DOŚWIADCZENIE POZA STACKIEM",
     "O PROJEKCIE",
     "PYTANIA SCREENINGOWE",
     "O KLIENCIE",
+    "WIEDZA Z ROZMÓW",
 )
 
 # Etykiety pól, które parser traktuje jako TREŚCIOWE — czyli takie, po których
@@ -202,8 +204,25 @@ def build() -> Document:
         ],
     )
 
-    # 4
+    # 4 — dziedzina, certyfikaty, regulacje (09.2026). Nie technologie: te
+    # są w sekcji 3. W NEXUSIE dają plakietkę „ślad w CV”, nie filtr.
     _section(doc, 4, SECTION_TITLES[3])
+    _hint(
+        doc,
+        "Dziedzina to obszar biznesowy (np. płatności kartowe), nie technologia. "
+        "Dopisz „min. N lat”, a przy mile widzianej pozycji „(mile)”.",
+    )
+    _block_table(
+        doc,
+        [
+            ("Dziedzina:", ""),
+            ("Certyfikaty:", ""),
+            ("Regulacje / standardy:", ""),
+        ],
+    )
+
+    # 5
+    _section(doc, 5, SECTION_TITLES[4])
     _hint(doc, "Maksymalnie 2 zdania o projekcie — resztę pomiń, nie przenoś gdzie indziej.")
     _block_table(
         doc,
@@ -213,8 +232,8 @@ def build() -> Document:
         ],
     )
 
-    # 5
-    _section(doc, 5, SECTION_TITLES[4])
+    # 6
+    _section(doc, 6, SECTION_TITLES[5])
     _hint(doc, "Rekruter musi na nie odpowiedzieć przed wysłaniem CV do klienta.")
     table = doc.add_table(rows=4, cols=2)
     table.style = "Table Grid"
@@ -229,10 +248,10 @@ def build() -> Document:
         table.rows[i].cells[1].text = "Idealna odpowiedź:\n\nDeal breaker:"
     doc.add_paragraph()
 
-    # 6 — wyłącznie to, co zależy od TEJ roli. Standardy współpracy (SLA,
+    # 7 — wyłącznie to, co zależy od TEJ roli. Standardy współpracy (SLA,
     # limit CV, off-limit, onboarding, dokumenty) NIE są tu przepisywane:
     # żyją w karcie klienta w NEXUSIE (`client_playbooks`), jedno miejsce.
-    _section(doc, 6, SECTION_TITLES[5])
+    _section(doc, 7, SECTION_TITLES[6])
     _hint(
         doc,
         "Standardy klienta (SLA, limit CV, off-limit, onboarding, dokumenty) są "
@@ -243,8 +262,22 @@ def build() -> Document:
         doc,
         [
             ("Co przekona kandydata do tej oferty:", ""),
-            (f"{CONTENT_FIELD_LABELS[4]}:", ""),
             (f"{CONTENT_FIELD_LABELS[3]}:", ""),
+        ],
+    )
+
+    # 8 — smaczki z rozmów. Widzi je wyłącznie zespół rekrutacji.
+    _section(doc, 8, SECTION_TITLES[7])
+    _hint(
+        doc,
+        "Czego klient naprawdę szuka, za co odrzucał, kto decyduje; od naszego "
+        "konsultanta — jak wygląda praca na co dzień.",
+    )
+    _block_table(
+        doc,
+        [
+            ("Od klienta:", ""),
+            (f"{CONTENT_FIELD_LABELS[4]}:", ""),
         ],
     )
 

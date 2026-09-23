@@ -56,12 +56,13 @@ PARSE_MODEL = model_for(AIFeatureKey.champion_profile_parse)
 # poprawny wynik, nie błąd.
 #
 # Zmiana treści = inne wyniki parsowania; bump wersji w _parser przy każdej edycji.
-PARSER_VERSION = "champion_parse:v7:table-intake"
+PARSER_VERSION = "champion_parse:v8:experience-insights"
 
 PROMPT = """Z dokumentu "Profil Championa" (opis idealnego kandydata uzgodniony z klientem) wyciągnij DOKŁADNIE tę strukturę JSON.
 
-Dokument może być w jednym z trzech układów:
-* AKTUALNY (6 sekcji): 1. Podstawowe informacje, 2. Co wpisać (search), 3. Stack technologiczny, 4. O projekcie, 5. Pytania screeningowe, 6. O kliencie
+Dokument może być w jednym z czterech układów:
+* AKTUALNY (8 sekcji, od 09.2026): 1. Podstawowe informacje, 2. Co wpisać (search), 3. Stack technologiczny, 4. Doświadczenie poza stackiem, 5. O projekcie, 6. Screening, 7. O kliencie, 8. Wiedza z rozmów
+* 6 SEKCJI: 1. Podstawowe informacje, 2. Co wpisać (search), 3. Stack technologiczny, 4. O projekcie, 5. Pytania screeningowe, 6. O kliencie
 * POPRZEDNI (7 sekcji): jak wyżej plus 7. Dokumenty; sekcja 6 mogła zawierać też opis klienta, standardy i reguły priorytetu
 * STARY: informacje o projekcie, profil kandydata MUST/NICE, kontekst projektu, screening, success strategy, informacja o kliencie, standardy rekrutacji
 
@@ -90,6 +91,11 @@ Dokument może być w jednym z trzech układów:
    "nice": [{"name": str}],                // sekcja NICE-TO-HAVE
    "notes": str                            // niuanse wersji/zakresu, np. "Java 17+, nie Java 8"
  },
+ "experience": {                         // sekcja „Doświadczenie poza stackiem” — tylko gdy dokument ją ma
+   "domains": [{"name": str, "level": "must"|"nice", "min_years": int|null}],   // dziedzina biznesowa (np. płatności), NIE technologia; „(mile)” = nice
+   "certifications": [{"name": str, "level": "must"|"nice"}],                  // np. ISTQB Foundation
+   "regulations": [{"name": str, "level": "must"|"nice"}]                      // np. PSD2, PCI DSS
+ },
  "project": {
    "about": str,                           // cel i charakter projektu, MAKSYMALNIE 2 ZDANIA
    "responsibilities": str                 // obowiązki na stanowisku (może być lista po przecinkach)
@@ -98,7 +104,8 @@ Dokument może być w jednym z trzech układów:
    // WSZYSTKIE pytania z sekcji SCREENING / "Pytania od Delivery Leada", z pełnymi idealnymi odpowiedziami i deal-breakerami
  "client": {
    "selling_points": str,                  // "Co przekona kandydata do oferty?" + atuty klienta
-   "consultant_insight": str,              // "INSIGHT OD KONSULTANTA" — co mówi nasz człowiek już pracujący u klienta
+   "consultant_insight": str,              // "INSIGHT OD KONSULTANTA" (także w sekcji „Wiedza z rozmów”) — co mówi nasz człowiek już pracujący u klienta
+   "client_notes": str,                    // „Wiedza z rozmów” → „Od klienta”: czego naprawdę szuka, za co odrzucał, kto decyduje
    "historical_questions": str,            // "Historyczne pytania" klienta
    "sectors": [str]                        // branże z wymagań/kontekstu (banking, fintech, płatności...)
  }
@@ -212,6 +219,11 @@ def build_champion_dict(parsed: dict, file_id: Optional[int]) -> dict:
     stack = parsed.get("stack") or {}
     project = parsed.get("project") or {}
     client = parsed.get("client") or {}
+    from app.services.champion_intake import normalize_experience_items
+
+    experience = parsed.get("experience") or {}
+    experience = experience if isinstance(experience, dict) else {}
+    client_notes = client.get("client_notes")
 
     def _skills(raw: Any) -> list[dict]:
         if isinstance(raw, str):
@@ -260,10 +272,36 @@ def build_champion_dict(parsed: dict, file_id: Optional[int]) -> dict:
             "nice": _skills(stack.get("nice") or parsed.get("nice_skills")),
             "notes": stack.get("notes") or "",
         },
+        # Przez normalizator zapisu: model potrafi oddać `level: null`, 50 lat
+        # albo nazwę-zdanie, a ten słownik trafia też do `model_validate` bez
+        # `prepare_profile` (import z Traffita) — zły wpis nie może wywrócić
+        # całego profilu.
+        "experience": {
+            key: normalize_experience_items(
+                experience.get(key), with_years=key == "domains"
+            )
+            for key in ("domains", "certifications", "regulations")
+        },
         "project": {
             "about": project.get("about") or "",
             "responsibilities": project.get("responsibilities") or "",
         },
+        # „Od klienta” z sekcji „Wiedza z rozmów” — notatka zespołu. Id `new-…`
+        # = nowa notatka: autora i datę nada zapis (`merge_insights`).
+        "insights": (
+            [
+                {
+                    "id": "new-doc-client",
+                    "source": "client",
+                    "topic": "other",
+                    "audience": "team",
+                    "text": client_notes.strip()[:2000],
+                    "origin": "document",
+                }
+            ]
+            if isinstance(client_notes, str) and client_notes.strip()
+            else []
+        ),
         "screening_questions": parsed.get("screening_questions") or [],
         "client": {
             # Pola karty klienta CELOWO puste od v6: żyją w `client_playbooks`.
@@ -305,7 +343,7 @@ HUMAN_EDIT_ACTIONS = (
 # Sekcje-słowniki scalane po polu. `screening_questions` jest listą i scala się
 # w całości (tylko gdy w profilu nie ma żadnego pytania); `documents` od v6 żyje
 # w karcie klienta, więc nie ma czego uzupełniać.
-_MERGE_SECTIONS = ("basics", "search", "stack", "project", "client")
+_MERGE_SECTIONS = ("basics", "search", "stack", "experience", "project", "client")
 
 
 def _blank(value: Any) -> bool:

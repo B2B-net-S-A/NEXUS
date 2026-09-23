@@ -20,9 +20,11 @@ export const CHAMPION_SECTION_IDS = [
   "basics",
   "search",
   "stack",
+  "experience",
   "project",
   "screening_questions",
   "client",
+  "insights",
 ] as const;
 
 export type ChampionSectionId = (typeof CHAMPION_SECTION_IDS)[number];
@@ -35,14 +37,15 @@ export interface ChampionSectionMeta {
 }
 
 /**
- * Kolejność WYŚWIETLANIA kroku 02, nie kolejność szablonu: 1 · 3 · (2·4·5) · 6.
+ * Kolejność WYŚWIETLANIA kroku 02, nie kolejność szablonu: 1 · 3 · 4 · (2·5·6) · 7 · 8.
  *
  * Numery w etykietach zostają szablonowe („3 · Stack technologiczny" stoi jako
  * drugi) — to one wiążą ekran z wzorem Word, po którym Delivery Leadowie się
- * poruszają, a przenumerowanie zerwałoby tę więź. Kolejność jest robocza:
- * stack idzie zaraz po podstawach, bo to on zasila `must_skills`/`nice_skills`,
- * czyli ranking C2 i filtry — a proza (2·4·5) jest tym, co bez niego i tak nie
- * ma czego rankować.
+ * poruszają. Od 09.2026 wzór ma osiem sekcji: 4 · Doświadczenie poza stackiem
+ * (dziedzina, certyfikaty, regulacje) i 8 · Wiedza z rozmów (notatki od klienta
+ * i konsultanta). Parser dokumentu rozpoznaje sekcje po NAZWACH nagłówków, więc
+ * przenumerowanie jest bezpieczne. Stack i doświadczenie idą zaraz po
+ * podstawach, bo to wymagania — proza (2·5·6) bez nich nie ma czego rankować.
  *
  * Ta tablica JEST kolejnością renderowania — `ChampionSectionNav` mapuje po niej
  * wprost, a `ChampionProfileEditor` bierze z niej etykiety i kotwice. Jedno
@@ -52,18 +55,24 @@ export interface ChampionSectionMeta {
 export const CHAMPION_SECTIONS: readonly ChampionSectionMeta[] = [
   { id: "basics", anchor: "champion-section-basics", label: "1 · Podstawowe informacje" },
   { id: "stack", anchor: "champion-section-stack", label: "3 · Stack technologiczny" },
+  {
+    id: "experience",
+    anchor: "champion-section-experience",
+    label: "4 · Doświadczenie poza stackiem",
+  },
   { id: "search", anchor: "champion-section-search", label: "2 · Co wpisać (search)" },
-  { id: "project", anchor: "champion-section-project", label: "4 · O projekcie" },
+  { id: "project", anchor: "champion-section-project", label: "5 · O projekcie" },
   {
     id: "screening_questions",
     anchor: "champion-section-screening",
-    label: "5 · Pytania screeningowe",
+    label: "6 · Pytania screeningowe",
   },
-  { id: "client", anchor: "champion-section-client", label: "6 · O kliencie" },
+  { id: "client", anchor: "champion-section-client", label: "7 · O kliencie" },
+  { id: "insights", anchor: "champion-section-insights", label: "8 · Wiedza z rozmów" },
 ];
 
 /**
- * Sekcje 2 · 4 · 5 renderują się na kroku 02 jako JEDEN blok („proza": frazy do
+ * Sekcje 2 · 5 · 6 renderują się na kroku 02 jako JEDEN blok („proza": frazy do
  * searchu, opis projektu, pytania screeningowe). Grupa jest tu, a nie w
  * komponencie, żeby chip „N z 3 sekcji puste" i kolejność renderowania liczyły
  * się z tej samej listy.
@@ -128,15 +137,24 @@ function isSectionFilled(id: ChampionSectionId, profile: ChampionProfile): boole
     }
     case "screening_questions":
       return hasItems(profile.screening_questions);
-    case "client": {
-      const c = profile.client;
-      return (
-        hasText(c.selling_points) ||
-        hasText(c.consultant_insight) ||
-        hasText(c.historical_questions) ||
-        hasItems(c.sectors)
+    case "experience": {
+      const e = profile.experience;
+      return Boolean(
+        e &&
+          (hasItems(e.domains) ||
+            hasItems(e.certifications) ||
+            hasItems(e.regulations) ||
+            hasText(e.notes)),
       );
     }
+    case "client": {
+      // `consultant_insight`/`historical_questions` są od 09.2026 edytowane
+      // i liczone w sekcji 8 (jako wpisy „z importu”).
+      const c = profile.client;
+      return hasText(c.selling_points) || hasItems(c.sectors);
+    }
+    case "insights":
+      return hasItems(profile.insights);
     default:
       return false;
   }
@@ -156,7 +174,7 @@ export const CHAMPION_SECTION_STATE_LABEL: Record<ChampionSectionState, string> 
 };
 
 /**
- * Ile z podanych sekcji jest pustych — podstawa chipu grupy „proza" (2·4·5).
+ * Ile z podanych sekcji jest pustych — podstawa chipu grupy „proza" (2·5·6).
  *
  * Liczy z TEJ SAMEJ funkcji co chip pojedynczej sekcji, więc nagłówek grupy nie
  * może twierdzić czegoś innego niż sekcja pod nim.

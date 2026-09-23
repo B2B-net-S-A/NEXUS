@@ -448,7 +448,9 @@ def _champion_present(job: Job | None) -> bool:
     stack = champion_view.stack(cp)
     if stack.get("must") or stack.get("nice"):
         return True
-    return False
+    # Sekcja 4 (09.2026): dziedzina, certyfikaty i regulacje to też wymagania.
+    experience = champion_view.experience(cp)
+    return any(experience[key] for key in ("domains", "certifications", "regulations"))
 
 
 def _format_screening_note(note: ScreeningNote) -> str:

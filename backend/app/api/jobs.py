@@ -1847,7 +1847,10 @@ async def update_job(
         from app.services.champion_intake import user_edit
 
         updates["champion_profile"] = user_edit(
-            job.champion_profile, updates["champion_profile"] or {}, current_user.id
+            job.champion_profile,
+            updates["champion_profile"] or {},
+            current_user.id,
+            actor_name=(current_user.name or "").strip() or current_user.email,
         )
     from app.services.requirement_contract import invalidate_changed_requirements
 
@@ -2375,7 +2378,11 @@ async def _save_champion_profile(
     old_profile = dict(job.champion_profile or {})
     normalized_old = ChampionProfile.model_validate(old_profile).model_dump(mode="json")
     new_profile = user_edit(
-        old_profile, payload or {}, current_user.id, imported=imported
+        old_profile,
+        payload or {},
+        current_user.id,
+        imported=imported,
+        actor_name=(current_user.name or "").strip() or current_user.email,
     )
     profile = ChampionProfile.model_validate(new_profile)
     # Explicit reconciliation can change recruitment columns even when the
@@ -2863,6 +2870,71 @@ async def update_champion_verification(
             user_id=current_user.id,
             details={"side": payload.side, "status": side_status},
         )
+    )
+    await db.commit()
+    await db.refresh(job)
+    return {
+        "job_id": job.id,
+        "champion_profile": _champion_response(job.champion_profile),
+    }
+
+
+@router.post("/{job_id}/champion-profile/client-history")
+async def refresh_champion_client_history(
+    job_id: int,
+    current_user: JobEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Przelicza blok „Z historii klienta” (sekcja 8 profilu Championa).
+
+    Woła go strona /jobs/new tuż po utworzeniu rekrutacji (bez czekania na
+    wynik) i przycisk „Odśwież” w edytorze. Awaria modelu NIE jest błędem
+    trasy: blok dostaje `status="failed"` i komunikat, a odpowiedź to 200 —
+    AI jest tu dodatkiem, nigdy bramką. Model jest wołany tylko wtedy, gdy
+    dane wejściowe zmieniły się od ostatniego podsumowania.
+    """
+    from app.schemas.champion import ChampionProfile
+    from app.services.champion_client_history import summarize_client_history
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    await ensure_champion_job_editor(job, current_user, db)
+    if job.client_id is None:
+        raise HTTPException(
+            422, "Rekrutacja nie ma klienta — nie ma czyjej historii podsumować."
+        )
+
+    stored = ChampionProfile.model_validate(job.champion_profile or {})
+    role = stored.basics.role_name or job.title or ""
+    summary = await summarize_client_history(
+        db,
+        client_id=job.client_id,
+        role=role,
+        stored=stored.client_history.model_dump(mode="json"),
+        user_id=current_user.id,
+    )
+
+    # Blok liczony poza blokadą wiersza (model trwa kilka–kilkanaście sekund);
+    # zapis na świeżo zablokowanym profilu, żeby nie nadpisać równoległej
+    # edycji innych sekcji. `populate_existing` jest konieczne: bez niego
+    # SQLAlchemy zwraca obiekt z mapy tożsamości sesji z profilem SPRZED
+    # wywołania modelu i zapis cofał edycję zrobioną w tym czasie.
+    job = await db.scalar(
+        select(Job)
+        .where(Job.id == job_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    current = dict(job.champion_profile or {})
+    defaults = ChampionProfile().model_dump(mode="json")
+    for key, value in defaults.items():
+        current.setdefault(key, value)
+    current["client_history"] = summary
+    validated = ChampionProfile.model_validate(current)
+    apply_requirement_source_update(
+        job, "champion_profile", validated.model_dump(mode="json")
     )
     await db.commit()
     await db.refresh(job)

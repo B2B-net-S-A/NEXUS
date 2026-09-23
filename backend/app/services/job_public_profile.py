@@ -423,12 +423,15 @@ Opis rekrutacji: {description}
 Wymagania: {requirements}
 Wymagane technologie: {must}
 Mile widziane: {nice}
+Doświadczenie w dziedzinie: {domains}
+Certyfikaty: {certifications}
+Co wolno powiedzieć kandydatowi (od zespołu): {pitch}
 Tryb pracy: {remote}
 """
 
 
 def draft_material(job: Job, title: Optional[str] = None) -> dict[str, str]:
-    """Wejście promptu — BEZ klienta, stawki, notatek i sekcji ``client``.
+    """Wejście promptu — BEZ klienta, stawki, notatek zespołu i sekcji ``client``.
 
     ``title`` = tytuł efektywny (bez nazwy klienta). Opis i wymagania
     rekrutacji wchodzą tylko wtedy, gdy profil Championa nie ma opisu
@@ -459,8 +462,31 @@ def draft_material(job: Job, title: Optional[str] = None) -> dict[str, str]:
         "requirements": requirements or "brak",
         "must": ", ".join(_stack_names(job, "must")) or "brak",
         "nice": ", ".join(_stack_names(job, "nice")) or "brak",
+        "domains": _experience_names(raw, "domains") or "brak",
+        "certifications": _experience_names(raw, "certifications") or "brak",
+        # WYŁĄCZNIE notatki oznaczone przez DL „Można powiedzieć kandydatowi".
+        # Notatki „Tylko zespół" nigdy nie trafiają do promptu strony kariery.
+        "pitch": _candidate_pitch(raw) or "brak",
         "remote": params.get("remote_policy") or "nie podano",
     }
+
+
+def _experience_names(raw: Any, key: str) -> str:
+    if not isinstance(raw, dict) or not raw:
+        return ""
+    return ", ".join(
+        str(item.get("name")).strip()[:120]
+        for item in champion_view.experience(raw).get(key) or []
+    )[:600]
+
+
+def _candidate_pitch(raw: Any) -> str:
+    if not isinstance(raw, dict) or not raw:
+        return ""
+    return " | ".join(
+        str(note.get("text") or "").strip()[:400]
+        for note in champion_view.candidate_insights(raw)
+    )[:1500]
 
 
 def trim_subtitle(subtitle: str, limit: int = DRAFT_SUBTITLE_MAX) -> str:

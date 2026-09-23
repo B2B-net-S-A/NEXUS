@@ -22,6 +22,23 @@ const FILLED: ChampionProfile = {
     ...EMPTY_CHAMPION_PROFILE.client,
     selling_points: "Greenfield, długi kontrakt.",
   },
+  experience: {
+    domains: [{ name: "płatności", level: "must", min_years: 2 }],
+    certifications: [],
+    regulations: [],
+    notes: "",
+  },
+  insights: [
+    {
+      id: "n-1",
+      source: "client",
+      topic: "decision",
+      audience: "team",
+      text: "Decyduje CTO",
+      origin: "manual",
+      editable: true,
+    },
+  ],
 };
 
 describe("hasChampionAiProvenance", () => {
@@ -118,29 +135,59 @@ describe("championSectionState", () => {
     expect(championSectionState("client", profile)).toBe("filled");
   });
 
-  it("CHAMPION_SECTIONS ma dokładnie sześć wpisów z unikalnymi kotwicami", () => {
-    expect(CHAMPION_SECTIONS).toHaveLength(6);
+  it("sekcja 'client' NIE liczy już insightu konsultanta — ten jest w sekcji 8", () => {
+    const profile: ChampionProfile = {
+      ...EMPTY_CHAMPION_PROFILE,
+      client: { ...EMPTY_CHAMPION_PROFILE.client, consultant_insight: "Zespół 6 osób" },
+    };
+    expect(championSectionState("client", profile)).toBe("empty");
+  });
+
+  it("sekcja 'experience' liczy samą dziedzinę jako wypełnienie", () => {
+    const profile: ChampionProfile = {
+      ...EMPTY_CHAMPION_PROFILE,
+      experience: {
+        domains: [],
+        certifications: [{ name: "ISTQB", level: "must" }],
+        regulations: [],
+        notes: "",
+      },
+    };
+    expect(championSectionState("experience", profile)).toBe("filled");
+  });
+
+  it("profil bez klucza `experience` (odpowiedź sprzed 09.2026) — sekcja pusta, bez wyjątku", () => {
+    const { experience: _drop, ...legacy } = EMPTY_CHAMPION_PROFILE;
+    expect(championSectionState("experience", legacy as ChampionProfile)).toBe("empty");
+  });
+
+  it("CHAMPION_SECTIONS ma dokładnie osiem wpisów z unikalnymi kotwicami", () => {
+    expect(CHAMPION_SECTIONS).toHaveLength(8);
     const anchors = new Set(CHAMPION_SECTIONS.map((s) => s.anchor));
-    expect(anchors.size).toBe(6);
+    expect(anchors.size).toBe(8);
   });
 });
 
 describe("CHAMPION_SECTIONS — kolejność kroku 02", () => {
-  it("kolejność jest robocza (1 · 3 · 2 · 4 · 5 · 6), numeracja szablonowa", () => {
+  it("kolejność jest robocza (1 · 3 · 4 · 2 · 5 · 6 · 7 · 8), numeracja szablonowa", () => {
     expect(CHAMPION_SECTIONS.map((s) => s.id)).toEqual([
       "basics",
       "stack",
+      "experience",
       "search",
       "project",
       "screening_questions",
       "client",
+      "insights",
     ]);
     // Etykieta drugiego wpisu niesie numer 3 — wiąże ekran ze wzorem Word,
     // po którym poruszają się Delivery Leadowie.
     expect(CHAMPION_SECTIONS[1].label.startsWith("3 · ")).toBe(true);
+    expect(CHAMPION_SECTIONS[2].label).toBe("4 · Doświadczenie poza stackiem");
+    expect(CHAMPION_SECTIONS[7].label).toBe("8 · Wiedza z rozmów");
   });
 
-  it("grupa „proza” to dokładnie sekcje 2 · 4 · 5, wszystkie obecne w CHAMPION_SECTIONS", () => {
+  it("grupa „proza” to dokładnie sekcje 2 · 5 · 6, wszystkie obecne w CHAMPION_SECTIONS", () => {
     expect([...CHAMPION_PROSE_SECTION_IDS]).toEqual([
       "search",
       "project",

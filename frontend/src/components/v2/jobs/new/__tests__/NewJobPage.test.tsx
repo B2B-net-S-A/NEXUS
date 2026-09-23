@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   post: vi.fn(),
   put: vi.fn(),
   handoff: vi.fn(),
+  refreshClientHistory: vi.fn(),
   push: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
@@ -31,6 +32,9 @@ vi.mock("@/lib/api", () => ({
     put: (...a: unknown[]) => mocks.put(...a),
   },
   jobsApi: { handoff: (...a: unknown[]) => mocks.handoff(...a) },
+  championApi: {
+    refreshClientHistory: (...a: unknown[]) => mocks.refreshClientHistory(...a),
+  },
 }));
 
 vi.mock("@/components/Toast", () => ({
@@ -113,6 +117,7 @@ async function readRequest(intake = INTAKE) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.refreshClientHistory.mockReturnValue(Promise.resolve({ data: {} }));
   mocks.get.mockImplementation((url: string) =>
     Promise.resolve({
       data: url === "/api/users" ? [{ id: 31, name: "Rekruterka Ola" }] : {},
@@ -168,6 +173,22 @@ describe("NewJobPage", () => {
     expect(mocks.handoff).toHaveBeenCalledWith(900, 31, undefined, "linkedin");
     expect(mocks.post).toHaveBeenCalledWith("/api/jobs/900/publish");
     expect(mocks.showSuccess).toHaveBeenCalled();
+    // Podsumowanie historii klienta rusza w tle — bez czekania na wynik.
+    expect(mocks.refreshClientHistory).toHaveBeenCalledWith(900);
+  });
+
+  it("awaria podsumowania historii klienta nie blokuje utworzenia rekrutacji", async () => {
+    mocks.refreshClientHistory.mockRejectedValue(new Error("503"));
+    await readRequest();
+    await screen.findByRole("option", { name: "Rekruterka Ola" });
+    fireEvent.change(screen.getByLabelText("Rekruter prowadzący"), {
+      target: { value: "31" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Utwórz i przekaż do searchu" }));
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900"));
+    expect(mocks.showSuccess).toHaveBeenCalledWith(
+      "Rekrutacja utworzona i przekazana do searchu.",
+    );
   });
 
   it("nieudana publikacja — błąd bez toastu sukcesu (REC-04)", async () => {

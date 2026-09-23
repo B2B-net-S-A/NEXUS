@@ -4,6 +4,7 @@ import {
   EMPTY_INTAKE_FORM,
   applyTemplate,
   buildChampionPayload,
+  markEdited,
   buildJobPayload,
   formFromIntake,
   highlightSegments,
@@ -210,5 +211,122 @@ describe("applyTemplate", () => {
       ["Q1?", "template"],
       ["Q2?", "template"],
     ]);
+  });
+});
+
+describe("v2 — cały profil Championa z propozycji Luny", () => {
+  const V2: RequestIntakeResponse = {
+    ...INTAKE,
+    language: "PL, EN B2",
+    contract_length: "6 mies.",
+    experience: {
+      domains: [
+        { name: "płatności kartowe", level: "must", min_years: 2, quote: "karty" },
+      ],
+      certifications: [{ name: "ISTQB Foundation", level: "nice", quote: "ISTQB" }],
+    },
+    search_keywords: "tester, karty",
+    target_companies: "Asseco",
+    disqualifiers: ["brak polskiego"],
+    selling_points: "Greenfield",
+    ask_client: ["Ile etapów?", "Kto decyduje?"],
+    provenance: { role: "request", search_keywords: "client_history", bogus: "x" },
+  };
+
+  it("formularz przejmuje sekcje propozycji i znane źródła (nieznane odpada)", () => {
+    const form = formFromIntake(V2);
+    expect(form.experience.domains[0]).toMatchObject({
+      name: "płatności kartowe",
+      level: "must",
+      min_years: 2,
+    });
+    expect(form.experience.certifications[0].level).toBe("nice");
+    expect(form.askClient.map((a) => a.text)).toEqual(["Ile etapów?", "Kto decyduje?"]);
+    expect(form.provenance).toEqual({ role: "request", search_keywords: "client_history" });
+  });
+
+  it("odpowiedź starszego backendu (bez pól v2) daje pusty, poprawny formularz", () => {
+    const form = formFromIntake(INTAKE);
+    expect(form.experience.domains).toEqual([]);
+    expect(form.askClient).toEqual([]);
+    expect(form.provenance).toEqual({});
+  });
+
+  it("edycja pola zmienia źródło na „wpisane”, pole bez źródła zostaje bez chipu", () => {
+    const form = formFromIntake(V2);
+    expect(markEdited(form, "role").provenance.role).toBe("manual");
+    expect(markEdited(form, "about").provenance.about).toBeUndefined();
+  });
+
+  it("payload profilu niesie doświadczenie, frazy, argumenty i „do dopytania” jako notatki", () => {
+    const champion = buildChampionPayload(formFromIntake(V2)) as Record<string, any>;
+    expect(champion.experience.domains[0].name).toBe("płatności kartowe");
+    expect(champion.search).toEqual({
+      keywords: "tester, karty",
+      target_companies: "Asseco",
+      disqualifiers: ["brak polskiego"],
+    });
+    expect(champion.client).toEqual({ selling_points: "Greenfield" });
+    expect(champion.basics.language).toBe("PL, EN B2");
+    expect(champion.insights).toHaveLength(2);
+    expect(champion.insights[0]).toMatchObject({
+      source: "client",
+      topic: "ask_client",
+      audience: "team",
+      origin: "ai_intake",
+    });
+    expect(champion.insights[0].id.startsWith("new-")).toBe(true);
+  });
+
+  it("szablon z podobnej rekrutacji kopiuje doświadczenie tylko do pustej sekcji", () => {
+    const empty = { ...complete(), experience: { ...complete().experience, domains: [] } };
+    const next = applyTemplate(empty, {
+      id: 5,
+      champion_profile: {
+        experience: { domains: [{ name: "ubezpieczenia", level: "nice" }], certifications: [] },
+      },
+    });
+    expect(next.experience.domains).toEqual([
+      { name: "ubezpieczenia", level: "nice", min_years: null, note: "" },
+    ]);
+  });
+});
+
+describe("szablon z podobnej rekrutacji — przegląd kodu 23.09", () => {
+  it("przenosi frazy, firmy, dyskwalifikatory, argumenty, język i długość — PUT nie może ich skasować", () => {
+    const next = applyTemplate(formFromIntake({ ...INTAKE }), {
+      id: 7,
+      champion_profile: {
+        search: {
+          keywords: "Java, Spring",
+          target_companies: "Asseco",
+          disqualifiers: ["brak polskiego"],
+        },
+        client: { selling_points: "Greenfield" },
+        basics: { language: "PL, EN B2", contract_length: "12 mies." },
+      },
+    });
+    const champion = buildChampionPayload(next) as {
+      search: Record<string, unknown>;
+      client: Record<string, unknown>;
+      basics: Record<string, unknown>;
+    };
+    expect(champion.search).toEqual({
+      keywords: "Java, Spring",
+      target_companies: "Asseco",
+      disqualifiers: ["brak polskiego"],
+    });
+    expect(champion.client.selling_points).toBe("Greenfield");
+    expect(champion.basics.language).toBe("PL, EN B2");
+    expect(champion.basics.contract_length).toBe("12 mies.");
+  });
+
+  it("nie nadpisuje tego, co już jest w formularzu", () => {
+    const form = { ...formFromIntake(INTAKE), searchKeywords: "z maila" };
+    const next = applyTemplate(form, {
+      id: 7,
+      champion_profile: { search: { keywords: "z szablonu" } },
+    });
+    expect(next.searchKeywords).toBe("z maila");
   });
 });

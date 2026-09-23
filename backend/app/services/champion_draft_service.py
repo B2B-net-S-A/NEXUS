@@ -1165,11 +1165,17 @@ async def generate_recommended_searches(
             "basics",
             "search",
             "stack",
+            # Przed `project`/`client`: wycinek jest cięty do 6000 znaków,
+            # a dziedzina i certyfikaty to twarde wymagania, nie proza.
+            "experience",
             "project",
             "client",
         )
         if profile.get(k)
     }
+    experience = champion_view.experience(profile)
+    if not any(experience[key] for key in ("domains", "certifications", "regulations")):
+        champion_excerpt.pop("experience", None)
 
     # Measured density of every searchable column, injected into the prompt so
     # the model stops proposing filters over columns nobody fills in. Best

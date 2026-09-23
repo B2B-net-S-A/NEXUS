@@ -28,10 +28,18 @@ import { AlertTriangle } from "lucide-react";
 import {
   extractErrorMsg,
   screeningApi,
+  type ExperienceCheck,
+  type ExperienceKind,
+  type ExperienceLevel,
   type ScreeningAnswerItem,
   type ScreeningAnswers,
   type ScreeningQuestion,
 } from "@/lib/api";
+import {
+  EXPERIENCE_KIND_LABEL,
+  EXPERIENCE_KINDS,
+  experienceItemLabel,
+} from "@/lib/champion-experience";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -66,6 +74,19 @@ export interface ScreeningFormAnswer {
   origin?: ScreeningAnswerOrigin;
 }
 
+/**
+ * „Sprawdź w rozmowie” — pozycja sekcji 4 Championa (dziedzina, certyfikat,
+ * regulacja) z werdyktem rekrutera. Zapis rozmowy, nie punktacja: nie zmienia
+ * `match_percent` ani plakietek w wynikach (te mówią o śladzie w CV).
+ */
+export interface ExperienceCheckRow {
+  kind: ExperienceKind;
+  name: string;
+  label: string;
+  level: ExperienceLevel;
+  status: ExperienceCheck["status"];
+}
+
 export interface ScreeningFormValues {
   answers: Record<string, ScreeningFormAnswer>;
   overall_fit: "fit" | "uncertain" | "miss";
@@ -77,7 +98,39 @@ export interface ScreeningFormValues {
   skip_missing?: boolean;
   /** Notatka wewnętrzna do pominięcia — nigdy nie idzie do klienta. */
   internal_note?: string;
+  /** Sekcja 4 Championa — patrz `ExperienceCheckRow`. */
+  experience_checks?: ExperienceCheckRow[];
 }
+
+/** Pozycje sekcji 4 z profilu + zapisane werdykty (po `kind` i nazwie). */
+export function experienceCheckRows(
+  championProfile: unknown,
+  saved: readonly ExperienceCheck[] | undefined,
+): ExperienceCheckRow[] {
+  const experience = (championProfile as { experience?: unknown } | null)?.experience as
+    | Partial<Record<ExperienceKind, { name: string; level?: ExperienceLevel; min_years?: number | null }[]>>
+    | undefined;
+  if (!experience) return [];
+  return EXPERIENCE_KINDS.flatMap((kind) =>
+    (experience[kind] ?? [])
+      .filter((item) => item && typeof item.name === "string" && item.name.trim())
+      .map((item) => ({
+        kind,
+        name: item.name,
+        label: experienceItemLabel(kind, {
+          name: item.name,
+          level: item.level ?? "must",
+          min_years: item.min_years ?? null,
+        }),
+        level: item.level ?? "must",
+        status:
+          saved?.find(
+            (c) => c.kind === kind && c.name.toLowerCase() === item.name.toLowerCase(),
+          )?.status ?? "unknown",
+      })),
+  );
+}
+
 
 /** Notatka wstawiana, gdy rekruter pominął pytania bez własnego komentarza. */
 export const DEFAULT_SKIP_NOTE = "Pominięte — przepięcie";
@@ -104,6 +157,18 @@ export function makeSchema(questions: ScreeningQuestion[]) {
         .max(2000, "Notatka może mieć najwyżej 2000 znaków")
         .optional()
         .default(""),
+      experience_checks: z
+        .array(
+          z.object({
+            kind: z.enum(["domains", "certifications", "regulations"]),
+            name: z.string(),
+            label: z.string(),
+            level: z.enum(["must", "nice"]),
+            status: z.enum(["confirmed", "not_confirmed", "unknown"]),
+          }),
+        )
+        .optional()
+        .default([]),
     })
     .superRefine((values, ctx) => {
       // Odpowiedź wymagana na każde pytanie — chyba że rekruter świadomie
@@ -151,6 +216,11 @@ export function buildScreeningPayload(
     internal_note: anySkipped
       ? (values.internal_note ?? "").trim() || DEFAULT_SKIP_NOTE
       : null,
+    experience_checks: (values.experience_checks ?? []).map((row) => ({
+      kind: row.kind,
+      name: row.name,
+      status: row.status,
+    })),
   };
 }
 
@@ -207,6 +277,7 @@ export function useScreeningForm({
       notes: "",
       skip_missing: false,
       internal_note: "",
+      experience_checks: [],
     },
   });
 
@@ -231,6 +302,10 @@ export function useScreeningForm({
       notes: existing?.notes ?? "",
       skip_missing: Boolean(existing?.answers.some((a) => a.skipped)),
       internal_note: existing?.internal_note ?? "",
+      experience_checks: experienceCheckRows(
+        data.champion_profile,
+        existing?.experience_checks,
+      ),
     });
   }, [data, existing, questions.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -288,6 +363,7 @@ export function ScreeningFormFields({
 }) {
   return (
     <div className="space-y-5">
+      <ExperienceChecklistField methods={methods} />
       {questions.map((q, i) => {
         const dealBreakerName = `answers.${q.id}.deal_breaker_hit` as const;
         // Chip stanu pytania — makieta kroku 05 pokazuje przy każdym pytaniu,
@@ -425,6 +501,94 @@ export function ScreeningFormFields({
           placeholder="Np. kandydat był gotowy zacząć w 2 tyg, rozmowa po angielsku…"
         />
       </FormField>
+    </div>
+  );
+}
+
+function ExperienceChecklistField({
+  methods,
+}: {
+  methods: UseFormReturn<ScreeningFormValues>;
+}) {
+  const checks = methods.watch("experience_checks") ?? [];
+  if (checks.length === 0) return null;
+  return (
+    <ExperienceChecklist
+      rows={checks}
+      onChange={(index, status) =>
+        methods.setValue(
+          "experience_checks",
+          checks.map((row, i) => (i === index ? { ...row, status } : row)),
+        )
+      }
+    />
+  );
+}
+
+const CHECK_OPTIONS: { value: ExperienceCheck["status"]; label: string }[] = [
+  { value: "confirmed", label: "Potwierdził" },
+  { value: "not_confirmed", label: "Nie ma" },
+  { value: "unknown", label: "Nie wiem" },
+];
+
+function ExperienceChecklist({
+  rows,
+  onChange,
+}: {
+  rows: ExperienceCheckRow[];
+  onChange: (index: number, status: ExperienceCheck["status"]) => void;
+}) {
+  return (
+    <div
+      className="space-y-2 rounded-lg border border-border bg-background/40 p-4"
+      data-testid="screening-experience-checks"
+    >
+      <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        Sprawdź w rozmowie — doświadczenie poza stackiem
+      </h3>
+      <ul className="space-y-1.5">
+        {rows.map((row, index) => (
+          <li
+            key={`${row.kind}:${row.name}`}
+            className="flex flex-wrap items-center justify-between gap-2 text-sm"
+          >
+            <span className="min-w-0 text-foreground">
+              <span className="text-xs text-muted-foreground">
+                {EXPERIENCE_KIND_LABEL[row.kind]} ·{" "}
+              </span>
+              {row.label}
+              {row.level === "nice" ? (
+                <span className="text-xs text-muted-foreground"> (mile widziane)</span>
+              ) : null}
+            </span>
+            <span
+              role="radiogroup"
+              aria-label={`${row.label} — wynik rozmowy`}
+              className="inline-flex rounded-md border border-border p-0.5 text-xs"
+            >
+              {CHECK_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={row.status === opt.value}
+                  onClick={() => onChange(index, opt.value)}
+                  className={cn(
+                    "rounded px-2 py-0.5",
+                    row.status === opt.value
+                      ? opt.value === "not_confirmed"
+                        ? "bg-destructive text-destructive-foreground"
+                        : "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -132,7 +132,7 @@ export function ChampionTemplateDownload() {
     try {
       const { data } = await api.get("/api/champion/template", { responseType: "blob" });
       const url = URL.createObjectURL(data); const a = document.createElement("a");
-      a.href = url; a.download = "Profil_Championa_v4.0.docx"; a.click();
+      a.href = url; a.download = "Profil_Championa_v5.0.docx"; a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) { setError(extractErrorMsg(e)); }
   }

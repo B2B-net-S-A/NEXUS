@@ -124,15 +124,16 @@ describe("ChampionProfileEditor — pełna szerokość", () => {
 });
 
 describe("ChampionProfileEditor — chip stanu sekcji", () => {
-  it("profil pusty — trzy karty z chipem „puste” plus chip grupy „3 z 3 sekcji puste”", async () => {
+  it("profil pusty — pięć kart z chipem „puste” plus chip grupy „3 z 3 sekcji puste”", async () => {
     getMock.mockResolvedValue({
       data: { job_id: 1, champion_profile: {} },
     });
     renderEditor(1);
     await screen.findByText(BASICS_LABEL);
-    // Karty samodzielne: 1 · Podstawowe, 3 · Stack, 6 · O kliencie.
-    expect(screen.getAllByText("puste")).toHaveLength(3);
-    // Sekcje 2 · 4 · 5 mają JEDEN wspólny chip.
+    // Karty samodzielne: 1 · Podstawowe, 3 · Stack, 4 · Doświadczenie,
+    // 7 · O kliencie, 8 · Wiedza z rozmów.
+    expect(screen.getAllByText("puste")).toHaveLength(5);
+    // Sekcje 2 · 5 · 6 mają JEDEN wspólny chip.
     expect(screen.getByText("3 z 3 sekcji puste")).toBeInTheDocument();
     expect(screen.queryByText("wypełnione")).not.toBeInTheDocument();
     expect(screen.queryByText("Z importu (AI)")).not.toBeInTheDocument();
@@ -150,9 +151,9 @@ describe("ChampionProfileEditor — chip stanu sekcji", () => {
     });
     renderEditor(2);
     await screen.findByText(BASICS_LABEL);
-    // Sekcje 1 i 3 wypełnione; 6 pusta; grupa 2·4·5 pusta w całości.
+    // Sekcje 1 i 3 wypełnione; 4, 7 i 8 puste; grupa 2·5·6 pusta w całości.
     expect(screen.getAllByText("wypełnione")).toHaveLength(2);
-    expect(screen.getAllByText("puste")).toHaveLength(1);
+    expect(screen.getAllByText("puste")).toHaveLength(3);
     expect(screen.getByText("3 z 3 sekcji puste")).toBeInTheDocument();
     expect(screen.queryByText("Z importu (AI)")).not.toBeInTheDocument();
   });
@@ -172,7 +173,7 @@ describe("ChampionProfileEditor — chip stanu sekcji", () => {
     // Znacznik pochodzenia jest całoprofilowy: JEDEN chip na nagłówku, sekcje
     // dostają tylko „wypełnione" (backend nie wie, które sekcje przepisano).
     expect(screen.getAllByText("Z importu (AI)")).toHaveLength(1);
-    expect(screen.getAllByText("puste")).toHaveLength(2);
+    expect(screen.getAllByText("puste")).toHaveLength(4);
     // Sekcja „Podstawowe informacje" jest wypełniona — chip mówi TYLKO tyle;
     // pochodzenie nie jest stanem sekcji.
     expect(screen.getAllByText("wypełnione")).toHaveLength(1);
@@ -513,5 +514,131 @@ describe("ChampionProfileEditor — intake seedowany z `CreateJobModal` (?intake
       "false",
     );
     expect(screen.queryByTestId("jd-intake-textarea")).not.toBeInTheDocument();
+  });
+});
+
+describe("ChampionProfileEditor — sekcje 4 i 8 (09.2026)", () => {
+  const PROFILE = {
+    client: { consultant_insight: "Zespół 6 osób, dużo spotkań" },
+    insights: [
+      {
+        id: "verification:client",
+        source: "client",
+        topic: "needs",
+        audience: "team",
+        text: "Naprawdę szukają acquiringu",
+        origin: "verification",
+        editable: false,
+        author_name: "Delivery Lead",
+      },
+      {
+        id: "legacy:client.consultant_insight",
+        source: "consultant",
+        topic: "team",
+        audience: "team",
+        text: "Zespół 6 osób, dużo spotkań",
+        origin: "legacy",
+        editable: true,
+      },
+    ],
+  };
+
+  function savedPayload() {
+    expect(putMock).toHaveBeenCalled();
+    return putMock.mock.calls.at(-1)![1] as Record<string, any>;
+  }
+
+  it("wpis z weryfikacji jest tylko do odczytu, a edycja wpisu „z importu” zapisuje stare pole", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 11, champion_profile: PROFILE } });
+    putMock.mockResolvedValue({ data: {} });
+    renderEditor(11, true);
+    await screen.findByText("Naprawdę szukają acquiringu");
+
+    const cards = screen.getAllByTestId("champion-insight-card");
+    const verificationCard = cards.find((c) => c.textContent?.includes("acquiringu"))!;
+    expect(verificationCard.querySelector('[aria-label="Edytuj notatkę"]')).toBeNull();
+    expect(verificationCard.textContent).toContain("z weryfikacji");
+
+    const legacyCard = cards.find((c) => c.textContent?.includes("Zespół 6 osób"))!;
+    fireEvent.click(legacyCard.querySelector('[aria-label="Edytuj notatkę"]')!);
+    const textarea = screen.getByLabelText("Treść notatki");
+    fireEvent.change(textarea, { target: { value: "Zespół 8 osób" } });
+    fireEvent.click(screen.getByTestId("save-champion-profile"));
+
+    await waitFor(() => expect(putMock).toHaveBeenCalled());
+    expect(savedPayload().client.consultant_insight).toBe("Zespół 8 osób");
+  });
+
+  it("podpowiedź „O co zapytać” dodaje notatkę z tematem, a przełącznik widoczności ją oznacza", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 12, champion_profile: {} } });
+    putMock.mockResolvedValue({ data: {} });
+    renderEditor(12, true);
+    const column = await screen.findByTestId("champion-insights-client");
+    fireEvent.click(
+      Array.from(column.querySelectorAll("button")).find((b) =>
+        b.textContent?.startsWith("O co zapytać"),
+      )!,
+    );
+    fireEvent.click(screen.getByText("Kto decyduje i jak prowadzi rozmowę techniczną?"));
+    fireEvent.change(screen.getByLabelText("Treść notatki"), {
+      target: { value: "Decyduje CTO, rozmowa 90 min" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Widoczność: Tylko zespół/ }));
+    fireEvent.click(screen.getByTestId("save-champion-profile"));
+
+    await waitFor(() => expect(putMock).toHaveBeenCalled());
+    const [note] = savedPayload().insights;
+    expect(note).toMatchObject({
+      source: "client",
+      topic: "decision",
+      audience: "candidate",
+      text: "Decyduje CTO, rozmowa 90 min",
+    });
+    expect(note.id.startsWith("new-")).toBe(true);
+  });
+
+  it("dziedzina dopisana w sekcji 4 trafia do zapisu jako wymóg z latami", async () => {
+    getMock.mockResolvedValue({ data: { job_id: 13, champion_profile: {} } });
+    putMock.mockResolvedValue({ data: {} });
+    renderEditor(13, true);
+    const domains = await screen.findByTestId("champion-experience-domains");
+    const input = domains.querySelector("input:not([type=number])") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "płatności kartowe" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.change(
+      screen.getByLabelText("Minimalna liczba lat w dziedzinie płatności kartowe"),
+      { target: { value: "2" } },
+    );
+    fireEvent.click(screen.getByTestId("save-champion-profile"));
+
+    await waitFor(() => expect(putMock).toHaveBeenCalled());
+    expect(savedPayload().experience.domains).toEqual([
+      { name: "płatności kartowe", level: "must", min_years: 2, note: "" },
+    ]);
+  });
+
+  it("historia klienta w stanie „failed” mówi o awarii, nie pokazuje pustki", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 14,
+        champion_profile: {
+          client_history: {
+            status: "failed",
+            items: [],
+            debrief_questions: [],
+            message: "Nie udało się podsumować historii klienta — spróbuj „Odśwież”.",
+          },
+        },
+      },
+    });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ChampionProfileEditor jobId={14} canEdit clientId={5} />
+      </QueryClientProvider>,
+    );
+    expect(
+      await screen.findByText("Nie udało się podsumować historii klienta — spróbuj „Odśwież”."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Odśwież" })).toBeInTheDocument();
   });
 });

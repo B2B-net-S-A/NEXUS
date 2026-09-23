@@ -21,7 +21,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Check } from "lucide-react";
 
-import api, { jobsApi } from "@/lib/api";
+import api, { championApi, jobsApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -281,6 +281,16 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       router.push(championTab);
       return;
     }
+    // „Z historii klienta” (sekcja 8) — Luna podsumowuje w tle, co klient
+    // odrzucał i o co pytał. Bez `await`: tworzenie rekrutacji na to nie
+    // czeka, a awaria to tylko brak bloku (odświeżysz go w profilu).
+    const createdJobId = jobId;
+    void Promise.resolve()
+      .then(() => championApi.refreshClientHistory(createdJobId))
+      .then(() =>
+        queryClient.invalidateQueries({ queryKey: ["champion-profile", createdJobId] }),
+      )
+      .catch(() => undefined);
     // Połączenie z podobnymi rekrutacjami i przepięcie osób wysłanych do
     // klienta. Dodatek — jego awaria nie cofa rekrutacji (da się to zrobić
     // później oknem „Podobne rekrutacje").

@@ -427,19 +427,39 @@ async def candidate_match_scores(
     include_finance = user_has_capability(
         current_user, AnalyticsCapability.VIEW_FINANCE
     )
+    from app.services.experience_evidence import (  # noqa: PLC0415
+        evaluate as experience_evidence,
+    )
+
+    by_id = {str(c.id): c for c in candidates}
     scores: dict[str, int] = {}
     breakdowns: dict[str, Any] = {}
     for fit in fits:
         key = str(fit.breakdown.candidate_id)
         score = display_score(fit.fit_score)
+        # Plakietki sekcji 4 Championa (dziedzina, certyfikaty) — ślad w CV,
+        # nie punkty: `fit_score` się nie zmienia, a brak śladu to „nie wiemy”.
+        # Klucz tylko przy wypełnionej sekcji 4 — bez niej odpowiedź jest
+        # bajt w bajt taka jak przed 09.2026.
+        experience = (
+            experience_evidence(getattr(job, "champion_profile", None), by_id[key])
+            if key in by_id
+            else []
+        )
+        extra = {"experience": experience} if experience else {}
         if score is None:
-            breakdowns[key] = {"total": None, "measurement": fit.measurement}
+            breakdowns[key] = {
+                "total": None,
+                "measurement": fit.measurement,
+                **extra,
+            }
             continue
         scores[key] = score
         breakdowns[key] = {
             **_score_breakdown_payload(fit.breakdown, include_finance=include_finance),
             "total": fit.fit_score,
             "measurement": fit.measurement,
+            **extra,
         }
     return MatchScoresResponse(
         scores=scores,

@@ -98,6 +98,11 @@ class ChampionProfileForPrompt:
 
     must_have: list[str] = field(default_factory=list)
     nice_to_have: list[str] = field(default_factory=list)
+    # Sekcja 4 profilu (09.2026) — gotowe etykiety, np. „płatności (min. 2 lata)”.
+    domains_must: list[str] = field(default_factory=list)
+    domains_nice: list[str] = field(default_factory=list)
+    certifications: list[str] = field(default_factory=list)
+    regulations: list[str] = field(default_factory=list)
     project_context: str = ""
     responsibilities: str = ""
     screening_questions: str = ""
@@ -115,6 +120,10 @@ class ChampionProfileForPrompt:
             [
                 self.must_have,
                 self.nice_to_have,
+                self.domains_must,
+                self.domains_nice,
+                self.certifications,
+                self.regulations,
                 self.project_context.strip(),
                 self.responsibilities.strip(),
                 self.screening_questions.strip(),
@@ -191,10 +200,29 @@ def from_nexus_job(
 
     historical = str(cli.get("historical_questions") or "").strip()
     insight = str(cli.get("consultant_insight") or "").strip()
+    experience = champion_view.experience(cp)
+
+    def _labels(key: str, level: str | None = None) -> list[str]:
+        out = []
+        for item in experience.get(key) or []:
+            if level and item.get("level", "must") != level:
+                continue
+            label = str(item.get("name")).strip()
+            years = item.get("min_years")
+            if key == "domains" and isinstance(years, int) and years > 0:
+                label += f" (min. {years} l.)"
+            if not level and item.get("level") == "nice":
+                label += " (mile widziane)"
+            out.append(label)
+        return out
 
     return ChampionProfileForPrompt(
         must_have=must,
         nice_to_have=nice,
+        domains_must=_labels("domains", "must"),
+        domains_nice=_labels("domains", "nice"),
+        certifications=_labels("certifications"),
+        regulations=_labels("regulations"),
         project_context=project_context,
         responsibilities=responsibilities,
         screening_questions=screening_str,
@@ -226,6 +254,23 @@ def build_champion_section(profile: ChampionProfileForPrompt, language: str) -> 
         section += f"\nMUST-HAVE: {', '.join(profile.must_have)}"
     if profile.nice_to_have:
         section += f"\nNICE-TO-HAVE: {', '.join(profile.nice_to_have)}"
+    # Zaraz po MUST/NICE: cięcie sekcji do 14 000 znaków zachowuje początek.
+    if profile.domains_must:
+        label = "DOMAIN (required)" if language == "en" else "DZIEDZINA (wymagana)"
+        section += f"\n{label}: {', '.join(profile.domains_must)}"
+    if profile.domains_nice:
+        label = (
+            "DOMAIN (preferred)" if language == "en" else "DZIEDZINA (mile widziana)"
+        )
+        section += f"\n{label}: {', '.join(profile.domains_nice)}"
+    if profile.certifications:
+        label = "CERTIFICATIONS" if language == "en" else "CERTYFIKATY"
+        section += f"\n{label}: {', '.join(profile.certifications)}"
+    if profile.regulations:
+        label = (
+            "REGULATIONS / STANDARDS" if language == "en" else "REGULACJE / STANDARDY"
+        )
+        section += f"\n{label}: {', '.join(profile.regulations)}"
     if profile.project_context:
         label = "Project Context" if language == "en" else "Kontekst projektu"
         section += f"\n\n{label}: {profile.project_context}"
@@ -390,6 +435,16 @@ _HEADINGS: tuple[tuple[str, str | None], ...] = (
     (rf"{_NUM}Stack\s+technologiczny\b[^\n]*", None),
     (rf"{_NUM}O\s+kliencie\b[^\n]*", None),
     (rf"{_NUM}Dokumenty\b[^\n]*", None),
+    # Wzór v5 (09.2026): sekcje 4 i 8. Formularz Word v5 czyta ścieżka
+    # tabelowa (`table_profile` → `from_nexus_job`), więc tu wystarczą
+    # GRANICE — bez nich „Certyfikaty" z tekstu wklejonego poza tabelą
+    # wpadałyby do NICE-TO-HAVE jako technologie.
+    (rf"{_NUM}Doswiadczenie\s+poza\s+stackiem\b[^\n]*", None),
+    (rf"{_NUM}Dziedzina\b[^\n:]*:", None),
+    (rf"{_NUM}Certyfikaty\b[^\n:]*:", None),
+    (rf"{_NUM}Regulacje\b[^\n:]*:", None),
+    (rf"{_NUM}Wiedza\s+z\s+rozmow\b[^\n]*", None),
+    (rf"{_NUM}Od\s+klienta\b[^\n:]*:", None),
 )
 #
 # DELIBERATELY NOT headings: "Pytanie 1:", "Idealna odpowiedź:", "Deal breaker:".

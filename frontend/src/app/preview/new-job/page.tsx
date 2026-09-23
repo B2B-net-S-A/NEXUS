@@ -60,6 +60,35 @@ const FULL_FORM: IntakeForm = {
       origin: "ai",
     },
   ],
+  // Propozycja v2 (23.09.2026): reszta profilu z chipami źródła.
+  experience: {
+    domains: [{ name: "płatności kartowe", level: "must", min_years: 2, note: "" }],
+    certifications: [],
+    regulations: [{ name: "PCI DSS", level: "nice", min_years: null, note: "" }],
+    notes: "",
+  },
+  searchKeywords: "Senior Java Developer, Spring Boot, Kafka, płatności kartowe",
+  targetCompanies: "Asseco, Comarch, Nets",
+  disqualifiers: [],
+  sellingPoints: "Greenfield na mikroserwisach, projekt na 12 miesięcy z opcją przedłużenia.",
+  language: "PL, EN B2",
+  contractLength: "12 mies. z opcją przedłużenia",
+  askClient: [
+    { key: "a1", text: "Ile etapów ma rekrutacja i kto decyduje?" },
+    { key: "a2", text: "Jak duży jest zespół i w jakim języku pracuje?" },
+  ],
+  provenance: {
+    role: "request",
+    must: "request",
+    nice: "request",
+    rate: "request",
+    about: "request",
+    experience: "request",
+    search_keywords: "ai",
+    target_companies: "client_history",
+    selling_points: "client_history",
+    ask_client: "ai",
+  },
 };
 
 const EVIDENCE = [

@@ -77,6 +77,8 @@ import {
   unmeasuredReason,
   type MatchBreakdown,
 } from "@/lib/match-breakdown";
+import { ExperienceEvidenceBadges } from "@/components/champion/ExperienceEvidenceBadges";
+import { readExperienceEvidence } from "@/lib/champion-experience";
 import { assignErrorMessage } from "@/lib/assign-error";
 import { eligibilityBadgeClass } from "@/lib/conflicts";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -1704,6 +1706,7 @@ function CandidateSearchRow({
             </span>
           )}
           <UnknownFieldBadges fields={item.unknown_fields} />
+          <ExperienceEvidenceBadges evidence={readExperienceEvidence(breakdown)} />
         </div>
         {skillNames.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
