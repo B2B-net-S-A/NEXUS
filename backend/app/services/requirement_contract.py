@@ -139,21 +139,11 @@ def invalidate_changed_requirements(job, updates: dict) -> None:
 
     def source_value(field, value):
         if field == "champion_profile" and isinstance(value, dict):
-            # Approval/search workflow state does not change role requirements.
-            return {
-                k: v
-                for k, v in value.items()
-                if k
-                not in {
-                    "verification",
-                    "recommended_searches",
-                    "briefing",
-                    "intake",
-                    "_parser",
-                    "_parsed_at",
-                    "_source",
-                }
-            }
+            # Approval/search workflow state and notes from conversations
+            # (`insights`, `client_history`) do not change role requirements.
+            from app.services import champion_view
+
+            return champion_view.requirement_source(value)
         return value
 
     if any(

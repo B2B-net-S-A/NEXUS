@@ -8,17 +8,19 @@ which top-level sections changed (payload for WS event).
 from typing import Any, Iterable
 
 
-# Siedem sekcji szablonu (09.2026). Bloki server-stamped (`verification`,
-# `briefing`, `recommended_searches`) świadomie POZA listą: mają własne
+# Sekcje szablonu (09.2026). Bloki server-stamped (`verification`,
+# `briefing`, `recommended_searches`, `client_history`) świadomie POZA listą: mają własne
 # endpointy i własne powiadomienia, a zwykły zapis profilu ich nie dotyka —
 # gdyby tu były, każdy zapis raportowałby zmianę czegoś, czego nie zmienił.
 _SECTIONS: tuple[str, ...] = (
     "basics",
     "search",
     "stack",
+    "experience",
     "project",
     "screening_questions",
     "client",
+    "insights",
     "documents",
 )
 
@@ -71,9 +73,11 @@ def summarize_sections(sections: Iterable[str]) -> str:
         "basics": "podstawowe informacje",
         "search": "co wpisać w wyszukiwarkę",
         "stack": "stack technologiczny",
+        "experience": "doświadczenie poza stackiem",
         "project": "opis projektu",
         "screening_questions": "pytania screeningowe",
         "client": "informacje o kliencie",
+        "insights": "wiedzę z rozmów",
         "documents": "dokumenty",
     }
     named = [labels.get(s, s) for s in sections]

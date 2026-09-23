@@ -36,6 +36,13 @@ __all__ = [
     "client",
     "screening_questions",
     "documents",
+    "experience",
+    "insights",
+    "team_insights",
+    "candidate_insights",
+    "requirement_source",
+    "LEGACY_INSIGHT_FIELDS",
+    "VERIFICATION_INSIGHT_IDS",
     "narrative_parts",
     "embedding_parts",
     "hourly_rate",
@@ -162,6 +169,180 @@ def screening_questions(source: Any) -> list:
 def documents(source: Any) -> list:
     value = as_dict(source).get("documents")
     return list(value) if isinstance(value, list) else []
+
+
+def experience(source: Any) -> dict:
+    """Sekcja 4 — doświadczenie poza stackiem (dziedzina, certyfikaty, regulacje).
+
+    Stary kształt jej nie ma; pusty słownik znaczy „DL nic nie podał".
+    """
+    out = _sub(as_dict(source), "experience")
+    for key in ("domains", "certifications", "regulations"):
+        value = out.get(key)
+        out[key] = [
+            item
+            for item in (value if isinstance(value, list) else [])
+            if isinstance(item, Mapping)
+            and isinstance(item.get("name"), str)
+            and item["name"].strip()
+        ]
+    return out
+
+
+# Stare pola sekcji „O kliencie", które od 09.2026 edytuje się jako notatki
+# sekcji 8. Zostają w bazie i w `client()` bajt w bajt, bo czyta je tekst
+# embeddingu oferty v1 — przepisanie ich zmieniłoby wektory 949 ofert.
+LEGACY_INSIGHT_FIELDS = {
+    "legacy:client.consultant_insight": (
+        "consultant_insight",
+        {"source": "consultant", "topic": "team"},
+    ),
+    "legacy:client.historical_questions": (
+        "historical_questions",
+        {"source": "client", "topic": "process"},
+    ),
+}
+VERIFICATION_INSIGHT_IDS = ("verification:client", "verification:consultant")
+
+
+def insights(source: Any) -> list[dict]:
+    """Sekcja 8 — wiedza z rozmów: zapisane notatki + wpisy składane przy odczycie.
+
+    Kolejność: weryfikacja (najmocniejsze źródło — DL rozmawiał z klientem
+    i konsultantem), potem stare pola, potem notatki w kolejności zapisu.
+    Wpisy `verification:*` są tylko do odczytu (zmienia je ponowna
+    weryfikacja), `legacy:*` edytor zmienia przez stare pole w sekcji `client`.
+    """
+    raw = as_dict(source)
+    out: list[dict] = []
+    verification = _sub(raw, "verification")
+    client_ver = _sub(verification, "client")
+    consultant_ver = _sub(verification, "consultant")
+    corrections = client_ver.get("key_corrections")
+    if client_ver.get("status") == "verified" and not _blank(corrections):
+        out.append(
+            {
+                "id": "verification:client",
+                "source": "client",
+                "topic": "needs",
+                "audience": "team",
+                "text": str(corrections).strip(),
+                "origin": "verification",
+                "author_id": client_ver.get("verified_by_id"),
+                "author_name": client_ver.get("verified_by_name"),
+                "created_at": client_ver.get("verified_at"),
+                "updated_at": client_ver.get("verified_at"),
+                "editable": False,
+                "done": False,
+            }
+        )
+    consultant_text = consultant_ver.get("insights")
+    if consultant_ver.get("status") == "verified" and not _blank(consultant_text):
+        who = consultant_ver.get("consultant_name")
+        out.append(
+            {
+                "id": "verification:consultant",
+                "source": "consultant",
+                "topic": "team",
+                "audience": "team",
+                "text": str(consultant_text).strip(),
+                "origin": "verification",
+                "author_id": consultant_ver.get("verified_by_id"),
+                "author_name": consultant_ver.get("verified_by_name"),
+                "created_at": consultant_ver.get("verified_at"),
+                "updated_at": consultant_ver.get("verified_at"),
+                "editable": False,
+                "done": False,
+                **({"consultant_name": who} if who else {}),
+            }
+        )
+    cli = client(source)
+    for note_id, (field, meta) in LEGACY_INSIGHT_FIELDS.items():
+        text = cli.get(field)
+        if isinstance(text, str) and text.strip():
+            out.append(
+                {
+                    "id": note_id,
+                    **meta,
+                    "audience": "team",
+                    "text": text.strip(),
+                    "origin": "legacy",
+                    "author_id": None,
+                    "author_name": None,
+                    "created_at": None,
+                    "updated_at": None,
+                    "editable": True,
+                    "done": False,
+                }
+            )
+    stored = raw.get("insights")
+    for note in stored if isinstance(stored, list) else []:
+        if not isinstance(note, Mapping) or _blank(note.get("text")):
+            continue
+        if str(note.get("id") or "").startswith(("legacy:", "verification:")):
+            continue
+        out.append({**dict(note), "editable": True})
+    return out
+
+
+def team_insights(source: Any) -> list[dict]:
+    return [n for n in insights(source) if n.get("audience") != "candidate"]
+
+
+def candidate_insights(source: Any) -> list[dict]:
+    """Tylko to, co DL oznaczył „Można powiedzieć kandydatowi"."""
+    return [n for n in insights(source) if n.get("audience") == "candidate"]
+
+
+# Klucze, które opisują pracę NAD profilem, a nie wymagania roli. Zmiana
+# żadnego z nich nie może unieważnić przejrzanego kontraktu wymagań ani
+# odcisku rankingu (notatka z rozmowy nie zmienia tego, kogo szukamy).
+_NON_REQUIREMENT_KEYS = frozenset(
+    {
+        "verification",
+        "recommended_searches",
+        "briefing",
+        "intake",
+        "insights",
+        "client_history",
+        "_parser",
+        "_parsed_at",
+        "_source",
+    }
+)
+
+
+# Odcisk rankingu (`request_matching_context`) od zawsze pomijał tylko te dwa
+# klucze; poszerzenie o resztę `_NON_REQUIREMENT_KEYS` zmieniłoby odcisk KAŻDEJ
+# oferty i jednorazowo unieważniło wszystkie migawki rankingu.
+RANKING_IGNORED_KEYS = frozenset(
+    {"verification", "recommended_searches", "insights", "client_history"}
+)
+
+
+def requirement_source(
+    profile: Any, *, ignored: frozenset = _NON_REQUIREMENT_KEYS
+) -> Any:
+    """Profil bez maszynerii — do porównań „czy zmieniły się wymagania".
+
+    Pusta sekcja `experience` jest usuwana: każdy zapis po 09.2026 dokłada ją
+    z wartością domyślną, a jej pojawienie się nie jest zmianą wymagań. Tak
+    samo pusta lista `insights` i pusty blok `client_history`, gdy wołający
+    ich nie pomija.
+    """
+    if not isinstance(profile, Mapping):
+        return profile
+    out = {k: v for k, v in profile.items() if k not in ignored}
+    exp = out.get("experience")
+    if (
+        isinstance(exp, Mapping)
+        and not any(
+            exp.get(key) for key in ("domains", "certifications", "regulations")
+        )
+        and _blank(exp.get("notes"))
+    ):
+        out.pop("experience")
+    return out
 
 
 def narrative_parts(source: Any) -> list[str]:
@@ -324,4 +505,19 @@ def api_response(profile: Any) -> dict:
         return {}
     from app.schemas.champion import ChampionProfile
 
-    return ChampionProfile.model_validate(profile).model_dump(mode="json")
+    out = ChampionProfile.model_validate(profile).model_dump(mode="json")
+    # Sekcja 8 jako WIDOK: notatki zapisane + wpisy ze starych pól
+    # i z weryfikacji. Zapis (`merge_insights`) rozpoznaje je po id.
+    out["insights"] = [
+        {
+            **note,
+            "created_at": _iso(note.get("created_at")),
+            "updated_at": _iso(note.get("updated_at")),
+        }
+        for note in insights(out)
+    ]
+    return out
+
+
+def _iso(value: Any) -> Any:
+    return value.isoformat() if hasattr(value, "isoformat") else value

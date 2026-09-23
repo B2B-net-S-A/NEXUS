@@ -223,6 +223,115 @@ class ChampionClient(_NullTolerantSection):
     sectors: List[str] = Field(default_factory=list)
 
 
+# ── 4. Doświadczenie poza stackiem (09.2026) ────────────────────────────────
+#
+# Dziedzina („payments, min. 2 lata"), certyfikaty i regulacje nie są
+# technologiami, a do 09.2026 lądowały w stacku, gdzie scoring i filtry czytały
+# je jak skille. Osobna sekcja mówi, CZYM są. Świadomie NIE jest bramką:
+# branża w CV bywa pusta, więc brak śladu to „nie wiemy", nie „nie ma".
+
+
+EXPERIENCE_ITEM_MAX_CHARS = 160
+EXPERIENCE_ITEMS_MAX = 20
+
+
+class ExperienceItem(_NullTolerantSection):
+    name: str = Field(min_length=1, max_length=EXPERIENCE_ITEM_MAX_CHARS)
+    level: Literal["must", "nice"] = "must"
+    # Tylko dla dziedzin; w certyfikatach i regulacjach ignorowane.
+    min_years: Optional[int] = Field(default=None, ge=0, le=40)
+    # Niuans jednej pozycji: „karty debetowe, nie kredytowe".
+    note: str = ""
+
+
+class ChampionExperience(_NullTolerantSection):
+    domains: List[ExperienceItem] = Field(default_factory=list)
+    certifications: List[ExperienceItem] = Field(default_factory=list)
+    regulations: List[ExperienceItem] = Field(default_factory=list)
+    notes: str = ""
+
+    def is_empty(self) -> bool:
+        return not (
+            self.domains
+            or self.certifications
+            or self.regulations
+            or self.notes.strip()
+        )
+
+
+# ── 8. Wiedza z rozmów (09.2026) ─────────────────────────────────────────────
+#
+# Smaczki od klienta i od naszego konsultanta. Do 09.2026 leżały w pięciu
+# wolnych polach, a dwa z nich (teksty weryfikacji) nie były nigdzie
+# wyświetlane po zapisie. W bazie leżą WYŁĄCZNIE notatki pisane w tej sekcji
+# (`manual`, `ai_intake`, `document`); wpisy ze starych pól i z weryfikacji
+# składa `champion_view.insights` przy odczycie, o stałych identyfikatorach
+# (`legacy:…`, `verification:…`) — bez przepisywania 949 profili.
+#
+# `audience` rozstrzyga, czy wolno to powiedzieć kandydatowi. „team" jest
+# domyślne i NIGDY nie wychodzi poza zespół: publiczna karta Championa i szkic
+# opisu na stronę kariery czytają wyłącznie „candidate".
+
+INSIGHT_TEXT_MAX_CHARS = 2000
+INSIGHTS_MAX = 60
+
+InsightSource = Literal["client", "consultant"]
+InsightAudience = Literal["team", "candidate"]
+InsightTopic = Literal[
+    "needs",
+    "rejections",
+    "decision",
+    "process",
+    "team",
+    "project",
+    "pitch",
+    "ask_client",
+    "other",
+]
+InsightOrigin = Literal["manual", "ai_intake", "document", "legacy", "verification"]
+STORED_INSIGHT_ORIGINS = ("manual", "ai_intake", "document")
+
+
+class InsightNote(_NullTolerantSection):
+    id: str = Field(min_length=1, max_length=80)
+    source: InsightSource = "client"
+    topic: InsightTopic = "other"
+    audience: InsightAudience = "team"
+    text: str = Field(min_length=1, max_length=INSIGHT_TEXT_MAX_CHARS)
+    # „Do dopytania" z /jobs/new: pytanie do klienta, które DL odhacza.
+    done: bool = False
+    origin: InsightOrigin = "manual"
+    author_id: Optional[int] = None
+    author_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    # Tylko w odpowiedzi API: wpisy z weryfikacji zmienia się ponowną weryfikacją.
+    editable: bool = True
+
+
+class ClientHistoryItem(BaseModel):
+    topic: str = Field(default="other", max_length=40)
+    text: str = Field(min_length=1, max_length=600)
+    basis_count: Optional[int] = Field(default=None, ge=0)
+
+
+class ClientHistorySummary(BaseModel):
+    """Podsumowanie historii klienta — blok maszynowy, jak `briefing`.
+
+    Liczy go `champion_client_history` (AI + bank pytań z debriefów); zwykły PUT
+    profilu nie może go podrobić ani skasować.
+    """
+
+    status: Literal["none", "ready", "failed"] = "none"
+    items: List[ClientHistoryItem] = Field(default_factory=list)
+    debrief_questions: List[str] = Field(default_factory=list)
+    event_count: int = 0
+    generated_at: Optional[datetime] = None
+    inputs_hash: Optional[str] = None
+    model: Optional[str] = None
+    message: Optional[str] = None
+
+
 class ChampionDocument(BaseModel):
     """7. Dokumenty — name + link, nothing uploaded.
 
@@ -592,7 +701,7 @@ def migrate_legacy_champion_shape(data: Any) -> Any:
 
 
 class ChampionProfile(BaseModel):
-    """The seven-section Champion Profile.
+    """The Champion Profile.
 
     Section order matches the Word template and the editor so a Delivery Lead
     reading one is reading the other:
@@ -600,23 +709,28 @@ class ChampionProfile(BaseModel):
         1. basics             — podstawowe informacje
         2. search             — co wpisać (search)
         3. stack              — stack technologiczny
-        4. project            — o projekcie (2 zdania + obowiązki)
-        5. screening_questions— pytania screeningowe
-        6. client             — o kliencie
-        7. documents          — dokumenty
+        4. experience         — doświadczenie poza stackiem (09.2026)
+        5. project            — o projekcie (2 zdania + obowiązki)
+        6. screening_questions— pytania screeningowe
+        7. client             — o kliencie
+        8. insights           — wiedza z rozmów (09.2026)
+           documents          — dokumenty (karta klienta, bez UI w edytorze)
 
-    ``verification``, ``briefing`` and ``recommended_searches`` are NOT sections.
-    They are server-stamped through dedicated endpoints and a plain profile PUT
-    must never be able to forge or wipe them.
+    ``verification``, ``briefing``, ``recommended_searches`` and
+    ``client_history`` are NOT sections. They are server-stamped through
+    dedicated endpoints and a plain profile PUT must never be able to forge or
+    wipe them.
     """
 
-    # ── the seven ──
+    # ── the sections ──
     basics: ChampionBasics = ChampionBasics()
     search: ChampionSearch = ChampionSearch()
     stack: ChampionStack = ChampionStack()
+    experience: ChampionExperience = ChampionExperience()
     project: ChampionProject = ChampionProject()
     screening_questions: List[ScreeningQuestion] = Field(default_factory=list)
     client: ChampionClient = ChampionClient()
+    insights: List[InsightNote] = Field(default_factory=list)
     documents: List[ChampionDocument] = Field(default_factory=list)
     intake: Optional[ChampionIntake] = None
 
@@ -624,6 +738,7 @@ class ChampionProfile(BaseModel):
     verification: ChampionVerification = ChampionVerification()
     briefing: ChampionBriefing = ChampionBriefing()
     recommended_searches: List[RecommendedSearch] = Field(default_factory=list)
+    client_history: ClientHistorySummary = ClientHistorySummary()
 
     # Ingest provenance (`_source` / `_parsed_at` / `_parser`). Carried opaquely:
     # nothing reads these by name, but they identify which parser version

@@ -47,11 +47,14 @@ SECTION_KEYS = (
     "basics",
     "search",
     "stack",
+    "experience",
     "project",
     "screening_questions",
     "client",
+    "insights",
     "documents",
 )
+EXPERIENCE_LISTS = ("domains", "certifications", "regulations")
 RUBRICS = {
     "rate_value": "rate_budget_hourly",
     "onsite_days_per_week": "onsite_days_per_week",
@@ -466,6 +469,53 @@ def _normalize_rate(basics, raw_fields, unresolved, advisory):
     basics["rate_value"] = result
 
 
+def normalize_experience_items(value, *, with_years):
+    """Lista pozycji sekcji 4: trim, dedup po nazwie, limit — bez odrzucania.
+
+    Przyjmuje listę słowników, listę napisów albo jeden napis rozdzielony
+    przecinkami / średnikami / nowymi liniami (import dokumentu). Pozycja bez
+    nazwy odpada; za długa nazwa jest przycinana, bo `model_validate` na końcu
+    `prepare_profile` zamieniłby ją w 500 na zapisie całego profilu.
+    """
+    from app.schemas.champion import (
+        EXPERIENCE_ITEM_MAX_CHARS,
+        EXPERIENCE_ITEMS_MAX,
+    )
+
+    if isinstance(value, str):
+        value = [part for part in re.split(r"[\n;,]+", value)]
+    items = []
+    seen = set()
+    for raw in value if isinstance(value, list) else []:
+        entry = raw if isinstance(raw, dict) else {"name": raw}
+        name = re.sub(r"\s+", " ", str(entry.get("name") or "")).strip()
+        if not meaningful(name):
+            continue
+        name = name[:EXPERIENCE_ITEM_MAX_CHARS]
+        key = folded(name).strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        level = entry.get("level") if entry.get("level") in ("must", "nice") else "must"
+        years = (
+            number(entry.get("min_years"), 40, integer=True)
+            if with_years and entry.get("min_years") not in (None, "")
+            else None
+        )
+        note = entry.get("note")
+        items.append(
+            {
+                "name": name,
+                "level": level,
+                "min_years": years,
+                "note": note.strip()[:300] if isinstance(note, str) else "",
+            }
+        )
+        if len(items) >= EXPERIENCE_ITEMS_MAX:
+            break
+    return items
+
+
 def prepare_profile(
     data,
     *,
@@ -519,6 +569,7 @@ def prepare_profile(
         ),
         "stack.must",
         "stack.nice",
+        *(f"experience.{key}" for key in EXPERIENCE_LISTS),
         "search.disqualifiers",
         "screening_questions",
         *(
@@ -601,6 +652,13 @@ def prepare_profile(
             advisory[path] = "\n".join(long_items)
         else:
             advisory.pop(path, None)
+    experience = data.setdefault("experience", {}) or {}
+    data["experience"] = experience
+    for key in EXPERIENCE_LISTS:
+        if f"experience.{key}" in dirty:
+            experience[key] = normalize_experience_items(
+                experience.get(key), with_years=key == "domains"
+            )
     search = data.setdefault("search", {})
     if "search.disqualifiers" in dirty and isinstance(search.get("disqualifiers"), str):
         search["disqualifiers"] = [
@@ -1062,17 +1120,34 @@ async def preview_document(data, filename, *, db=None, model=None, max_text=None
     }
 
 
-def user_edit(old, patch, actor_id, *, imported=False):
+def user_edit(old, patch, actor_id, *, imported=False, actor_name=None):
+    from app.services.champion_insights import merge_insights
+
     normalized = ChampionProfile.model_validate(old or {}).model_dump(mode="json")
     patch = migrate_legacy_champion_shape(patch)
     merged = deepcopy(normalized)
     for key in SECTION_KEYS:
+        if key == "insights":
+            continue
         if key in patch:
             merged[key] = (
                 {**merged[key], **patch[key]}
                 if isinstance(merged[key], dict) and isinstance(patch[key], dict)
                 else patch[key]
             )
+    # Sekcja 8 NIE jest zwykłą listą do podmiany: autor i daty stempluje
+    # serwer, a wpisy składane przy odczycie (`verification:*`, `legacy:*`)
+    # nie są zapisywane jako notatki (patrz `champion_insights`).
+    # `migrate_legacy_champion_shape` dokłada `insights` do KAŻDEGO patcha
+    # dopiero wtedy, gdy ten go niesie — brak klucza = sekcja nietknięta.
+    if "insights" in (patch or {}) and isinstance(patch.get("insights"), list):
+        merged["insights"] = merge_insights(
+            normalized,
+            patch["insights"],
+            actor_id=actor_id,
+            actor_name=actor_name,
+            default_origin="document" if imported else "manual",
+        )
     changed = any(merged[k] != normalized[k] for k in SECTION_KEYS)
     if not changed and not imported and old:
         return normalized
@@ -1138,6 +1213,12 @@ def copy_profile(profile, actor_id):
     text; "140 zł netto/h" gave the new recruitment no budget at all.
     """
     stored = ChampionProfile.model_validate(profile or {}).model_dump(mode="json")
+    # Rozmowy dotyczą KONKRETNEGO zlecenia: notatki z sekcji 8, podsumowanie
+    # historii i weryfikacja nie przechodzą do kopii. Stare pola, z których
+    # składane są wpisy `legacy:*`, zostają — są częścią opisu klienta.
+    stored["insights"] = []
+    for key in ("client_history", "verification"):
+        stored.pop(key, None)
     return user_edit(stored, deepcopy(stored), actor_id, imported=True)
 
 

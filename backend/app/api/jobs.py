@@ -1836,7 +1836,10 @@ async def update_job(
         from app.services.champion_intake import user_edit
 
         updates["champion_profile"] = user_edit(
-            job.champion_profile, updates["champion_profile"] or {}, current_user.id
+            job.champion_profile,
+            updates["champion_profile"] or {},
+            current_user.id,
+            actor_name=(current_user.name or "").strip() or current_user.email,
         )
     from app.services.requirement_contract import invalidate_changed_requirements
 
@@ -2364,7 +2367,11 @@ async def _save_champion_profile(
     old_profile = dict(job.champion_profile or {})
     normalized_old = ChampionProfile.model_validate(old_profile).model_dump(mode="json")
     new_profile = user_edit(
-        old_profile, payload or {}, current_user.id, imported=imported
+        old_profile,
+        payload or {},
+        current_user.id,
+        imported=imported,
+        actor_name=(current_user.name or "").strip() or current_user.email,
     )
     profile = ChampionProfile.model_validate(new_profile)
     # Explicit reconciliation can change recruitment columns even when the

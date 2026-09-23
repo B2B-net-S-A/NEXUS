@@ -101,11 +101,15 @@ def build_request_context(job, profile: WeightProfile) -> RequestMatchingContext
 
     values = {name: getattr(job, name, None) for name in _JOB_FIELDS}
     if isinstance(values["champion_profile"], dict):
-        values["champion_profile"] = {
-            key: value
-            for key, value in values["champion_profile"].items()
-            if key not in {"verification", "recommended_searches"}
-        } or None
+        from app.services import champion_view
+
+        values["champion_profile"] = (
+            champion_view.requirement_source(
+                values["champion_profile"],
+                ignored=champion_view.RANKING_IGNORED_KEYS,
+            )
+            or None
+        )
     normalized_job = SimpleNamespace(**values)
     values["requirements_reviewed"] = bool(values["requirements_reviewed"])
     values = json.loads(json.dumps(values, default=_json_value, ensure_ascii=False))
