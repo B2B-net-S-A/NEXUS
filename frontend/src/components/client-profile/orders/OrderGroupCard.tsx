@@ -472,6 +472,16 @@ function OrderLineRow({
                 Zakończył współpracę
               </span>
             ) : null}
+            {line.returned_from_contract_id != null ? (
+              <span className="rounded bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                Powrót po przerwie
+              </span>
+            ) : null}
+            {line.status === "draft" && group.status !== "draft" ? (
+              <span className="rounded bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Draft — uzupełnij
+              </span>
+            ) : null}
             {line.origin === "manual" ? (
               <span className="rounded bg-warning-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warning-muted-foreground">
                 Dodany ręcznie
@@ -497,13 +507,15 @@ function OrderLineRow({
                   ? `Zakończył współpracę ${formatDate(line.cooperation_ended_on)}`
                   : line.is_active
                     ? "Konsultant"
-                    : "Zakończony"}
+                    : line.status === "draft"
+                      ? "Szkic przypisania — uzupełnij budżet i stawki"
+                      : "Zakończony"}
             {line.start_date
-              ? line.is_active
+              ? line.is_active || line.status === "draft"
                 ? ` · od ${formatDate(line.start_date)}`
                 : ` · był na zamówieniu od ${formatDate(line.start_date)}`
               : ""}
-            {!line.is_active && line.end_date
+            {!line.is_active && line.status !== "draft" && line.end_date
               ? ` do ${formatDate(line.end_date)}`
               : ""}
           </p>
@@ -1130,8 +1142,9 @@ export function OrderGroupCard({
   // odpowiadała na dwa różne pytania naraz i zespół czytał ją jako listę
   // pracujących. Sprawa wędruje teraz razem z wierszem do „Zakończone", a żeby
   // nie zniknęła z oczu, nagłówek tej sekcji niesie licznik decyzji.
-  const isDraftLine = (line: OrderLineRead) =>
-    group.status === "draft" && line.status === "draft";
+  // Szkic przypisania należy do obsady także w OTWARTYM zamówieniu —
+  // „Powrót po przerwie" (0355) wprowadza osobę jako szkic do uzupełnienia.
+  const isDraftLine = (line: OrderLineRead) => line.status === "draft";
   const currentLines = sortedLines.filter(
     (line) => line.is_active || isDraftLine(line),
   );

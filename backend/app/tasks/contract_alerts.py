@@ -40,6 +40,7 @@ from app.services.contract_order_offboarding import (
     apply_contract_order_offboarding,
     reconcile_pending_md_offboarding_alerts,
 )
+from app.services.contract_termination_snapshot import ContractStateBefore
 from app.services.delivery_alert_recipients import (
     load_delivery_alert_recipient_scope,
 )
@@ -120,6 +121,7 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
         .all()
     )
     for contract in ended_contracts:
+        state_before = ContractStateBefore.of(contract)
         contract.status = ContractStatus.ended
         await apply_contract_order_offboarding(
             db,
@@ -127,6 +129,7 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
             effective_date=contract.end_date,
             actor_id=None,
             today=today,
+            contract_before=state_before,
         )
     return (ending_count.rowcount or 0, len(ended_contracts))
 

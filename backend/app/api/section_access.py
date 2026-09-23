@@ -49,6 +49,32 @@ def _is_tcm_contract_status_command(request: Request, current_user: User) -> boo
     )
 
 
+_TERMINATION_RECOVERY_COMMANDS = frozenset(
+    {"termination-reversal", "return-after-break"}
+)
+
+
+def _is_contract_termination_recovery(request: Request, current_user: User) -> bool:
+    """„Cofnij zakończenie" / „Powrót po przerwie" dla Finansów i TCM.
+
+    Obie role czytają Delivery, ale nie mają w nim zapisu. Ticket 09.2026
+    daje im te dwie korekty wprost — i TYLKO je: rola na samym endpoincie
+    (Admin, Finanse, TCM) jest drugą połową bramki.
+    """
+
+    parts = request.url.path.strip("/").split("/")
+    return (
+        request.method.upper() == "POST"
+        and len(parts) == 4
+        and parts[:2] == ["api", "contracts"]
+        and parts[2].isdigit()
+        and parts[3] in _TERMINATION_RECOVERY_COMMANDS
+        and current_user.has_any_role(
+            UserRole.talent_community_manager, UserRole.finance
+        )
+    )
+
+
 def require_section_access(section: ProductSection):
     """Require section read/write according to the incoming HTTP method."""
 
@@ -65,7 +91,10 @@ def require_section_access(section: ProductSection):
         if (
             section is ProductSection.delivery
             and granted >= SectionAccess.read
-            and _is_tcm_contract_status_command(request, current_user)
+            and (
+                _is_tcm_contract_status_command(request, current_user)
+                or _is_contract_termination_recovery(request, current_user)
+            )
         ):
             return current_user
         parts = request.url.path.strip("/").split("/")

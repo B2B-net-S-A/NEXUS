@@ -33,7 +33,7 @@ from __future__ import annotations
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date as date_type, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -87,6 +87,8 @@ from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import (
     LineMatch,
     apply_md_consumption,
+    candidate_name_tokens,
+    name_tokens,
     exhausted_groups_with_month_entry,
     cost_lines_settling_in_month,
     describe_import,
@@ -1906,3 +1908,173 @@ async def assign_row(
     await db.commit()
     await db.refresh(row)
     return await _row_to_read(db, row)
+
+
+# ── Cofnięcie zakończenia kontraktu (0355) ──────────────────────────────────
+
+
+@dataclass(frozen=True)
+class RestoredLineImportRow:
+    """Wiersz importu, który trafi (albo trafił) na przywróconą linię."""
+
+    import_id: int
+    row_id: int
+    period_month: str
+    filename: Optional[str]
+    md_reported: Decimal
+    order_id: int
+    skipped: Optional[str] = None
+
+
+def _period_within(
+    start: Optional[date_type], end: Optional[date_type], period_month: str
+) -> bool:
+    first, last = month_bounds(period_month)
+    if start is not None and start > last:
+        return False
+    return end is None or end >= first
+
+
+async def reapply_rows_for_restored_line(
+    db: AsyncSession,
+    *,
+    line: ClientOrder,
+    since: datetime,
+    ended_on: Optional[date_type],
+    target_end_date: Optional[date_type],
+    user_id: Optional[int],
+    dry_run: bool,
+) -> list[RestoredLineImportRow]:
+    """Importy MD wgrane, gdy linia była zakończona — przelicz je dla osoby.
+
+    Zakończona linia przyjmuje raport za miesiąc, w którym osoba jeszcze
+    pracowała (``line_settles_in_month`` pyta o okres), więc bez dopasowania
+    zostały wyłącznie wiersze za miesiące PO dacie zakończenia. Po cofnięciu
+    zakończenia linia znowu obsadza te miesiące — wiersz ``unmatched`` z tym
+    samym nazwiskiem idzie tą samą ścieżką co ręczne przypisanie (``assign_row``):
+    suma wierszy partii dla linii, ochrona nowszego i ręcznego wpisu,
+    ``_apply_to_line`` z wpisem w historii zamówienia.
+
+    Wyłącznie linie z budżetem MD per osoba. Wspólna pula i zamówienie
+    kosztowe dopasowują wiersz po numerze zamówienia, nie po osobie, więc tu
+    nie ma czego zgadywać — takie wiersze rozstrzyga Finanse w imporcie.
+
+    ``dry_run`` liczy podgląd do okna potwierdzenia: linia ma jeszcze stan po
+    zakończeniu, więc okres ocenia się z ``target_end_date``.
+    """
+
+    group = line.order_group
+    contract = line.contract
+    if group is None or contract is None:
+        return []
+    if group.is_cost_based or uses_shared_md_pool(group):
+        return []
+    wanted = candidate_name_tokens(contract.candidate)
+    if not wanted:
+        return []
+
+    candidates = (
+        await db.execute(
+            select(MdConsumptionImportRow, MdConsumptionImport)
+            .join(
+                MdConsumptionImport,
+                MdConsumptionImport.id == MdConsumptionImportRow.import_id,
+            )
+            .where(
+                MdConsumptionImportRow.status == IMPORT_ROW_UNMATCHED,
+                MdConsumptionImport.created_at >= since,
+            )
+            .order_by(MdConsumptionImport.created_at.asc(), MdConsumptionImportRow.id)
+        )
+    ).all()
+
+    results: list[RestoredLineImportRow] = []
+    for row, batch in candidates:
+        if name_tokens(row.consultant_name) != wanted:
+            continue
+        first, _last = month_bounds(batch.period_month)
+        if ended_on is not None and ended_on >= first:
+            # Ten miesiąc zakończona linia i tak rozliczała — wiersz bez
+            # dopasowania ma inny powód niż zakończenie.
+            continue
+        if not _period_within(line.start_date, target_end_date, batch.period_month):
+            continue
+        item = RestoredLineImportRow(
+            import_id=batch.id,
+            row_id=row.id,
+            period_month=batch.period_month,
+            filename=batch.filename,
+            md_reported=Decimal(str(row.md_reported)),
+            order_id=line.id,
+        )
+        if dry_run:
+            results.append(item)
+            continue
+
+        locked_batch = await db.scalar(
+            select(MdConsumptionImport)
+            .where(MdConsumptionImport.id == batch.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        locked_row = await db.scalar(
+            select(MdConsumptionImportRow)
+            .where(MdConsumptionImportRow.id == row.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if (
+            locked_batch is None
+            or locked_row is None
+            or locked_row.status != IMPORT_ROW_UNMATCHED
+        ):
+            continue
+        if not line_settles_in_month(
+            line, locked_batch.period_month, contract=contract
+        ):
+            results.append(
+                RestoredLineImportRow(**{**item.__dict__, "skipped": "period"})
+            )
+            continue
+        already_applied = await db.scalar(
+            select(
+                func.coalesce(func.sum(MdConsumptionImportRow.md_reported), 0)
+            ).where(
+                MdConsumptionImportRow.import_id == locked_batch.id,
+                MdConsumptionImportRow.matched_order_id == line.id,
+                MdConsumptionImportRow.status == IMPORT_ROW_APPLIED,
+            )
+        )
+        total = quantize_md(Decimal(str(already_applied or 0)) + locked_row.md_reported)
+        conflict, _current, _write = await _newer_or_manual_conflict(
+            db,
+            model=ClientOrderMdConsumption,
+            order_id=line.id,
+            order_number=group.order_number,
+            batch=locked_batch,
+            expected_value=total,
+            is_cost=False,
+            lock=True,
+        )
+        if conflict is not None:
+            results.append(
+                RestoredLineImportRow(**{**item.__dict__, "skipped": conflict})
+            )
+            continue
+        await _apply_to_line(
+            db,
+            match_order=line,
+            group=group,
+            period_month=locked_batch.period_month,
+            md_reported=total,
+            import_id=locked_batch.id,
+            user_id=user_id,
+        )
+        locked_row.status = IMPORT_ROW_APPLIED
+        locked_row.matched_order_id = line.id
+        locked_row.resolved_by_user_id = user_id
+        locked_row.resolved_at = datetime.now(timezone.utc)
+        await db.flush()
+        await _recount(db, locked_batch)
+        results.append(item)
+    return results

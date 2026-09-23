@@ -279,6 +279,7 @@ from app.models.client_contract_amendment import ClientContractAmendment
 from app.models.client_executive_contract import ClientExecutiveContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_offboarding import ClientOrderOffboardingCase
+from app.models.contract_termination_snapshot import ContractTerminationSnapshot
 from app.models.client_order_group import (
     ClientOrderGroup,
     ClientOrderGroupEvent,
@@ -560,6 +561,7 @@ __all__ = [
     "ClientExecutiveContract",
     "ClientOrder",
     "ClientOrderOffboardingCase",
+    "ContractTerminationSnapshot",
     "ClientOrderGroup",
     "ClientOrderGroupEvent",
     "ClientOrderGroupMdConsumption",

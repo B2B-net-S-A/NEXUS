@@ -1148,6 +1148,35 @@ przejmującą i podstawę stawki: osoby odchodzącej albo przejmującej).
 Przy **wspólnej puli MD** decyzja tylko zdejmuje osobę z obsady — pula nie jest
 pomniejszana ani nikomu przypisywana, bo i tak była wspólna.
 
+### Zakończono przez pomyłkę albo osoba wraca po przerwie
+
+Zakończonego kontraktu **nie przywracasz zmianą statusu** — zwykła zmiana
+statusu nie przenosi się na zamówienia. Na karcie kontraktu są dwie osobne
+akcje (Admin, Finanse, Talent Community Manager):
+
+* **Cofnij zakończenie** — kontrakt zakończono przez pomyłkę. Kontrakt i każde
+  zamówienie, które zakończenie zmieniło, wracają do stanu sprzed zakończenia:
+  osoba wraca do **„Aktywnej obsady"**, data końca przypisania wraca do
+  poprzedniej (z historii zmian; gdy jej brak — do daty końca zamówienia),
+  znikają „Zakończenie współpracy", „Wymagana decyzja o pozostałej puli MD"
+  i ich alerty. Zużycie MD, pula i stawki się nie zmieniają. Importy MD
+  wgrane w czasie zakończenia za miesiące po dacie zakończenia są przeliczane
+  dla tej osoby. Przed wykonaniem okno pokazuje, które zamówienia i importy
+  wrócą. **Akcja jest zablokowana, jeśli na zamówieniu podjęto już decyzję
+  o pozostałej puli MD** (usunięcie albo przeniesienie) — okno mówi, na którym
+  zamówieniu i jaka to decyzja.
+* **Powrót po przerwie** — osoba naprawdę zakończyła współpracę i wraca.
+  Powstaje **nowy kontrakt (Draft)** z plakietką „POWRÓT PO PRZERWIE"
+  i linkiem do poprzedniego; poprzedni zostaje zakończony bez zmian. Na
+  otwartym zamówieniu MD/kosztowym osoba pojawia się jako **nowe przypisanie
+  „Draft — uzupełnij"** w „Aktywnej obsadzie"; gdy przez **Edytuj linię**
+  uzupełnisz stawki i budżet, przypisanie staje się aktywne. Poprzednie
+  przypisanie zostaje w „Zakończonych" razem ze swoim zużyciem. Przy
+  zamówieniu okresowym powstaje szkic zamówienia do uzupełnienia.
+
+Obie akcje zostawiają wpis w historii kontraktu i zamówienia (kto, kiedy,
+która akcja); wpisy o zakończeniu zostają.
+
 ---
 
 ## Kto co może

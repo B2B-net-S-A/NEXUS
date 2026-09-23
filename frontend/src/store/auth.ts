@@ -391,6 +391,21 @@ export function canManageOrderLifecycle(
   )
 }
 
+/**
+ * „Cofnij zakończenie" i „Powrót po przerwie" (ticket 09.2026): Admin,
+ * Finanse i Talent Community Manager — lustro `ContractTerminationRecoveryUser`.
+ * Delivery Lead świadomie poza: to korekta administracyjna, nie decyzja
+ * o obsadzie. Wymagany co najmniej odczyt sekcji Delivery (bramka routera).
+ */
+export function canRecoverContractTermination(
+  user: Pick<User, "role" | "roles" | "effective_section_access"> | null | undefined
+): boolean {
+  return (
+    hasRole(user, "admin", "finance", "talent_community_manager") &&
+    hasSectionAccess(user, "delivery", "read")
+  )
+}
+
 /** Status kontraktu jest operacyjnie utrzymywany także przez TCM.
  * Pozostałe pola kontraktu, dokumenty i finanse zachowują dotychczasowe bramki. */
 export function canManageContractStatus(

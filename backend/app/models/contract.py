@@ -249,6 +249,15 @@ class Contract(Base, TimestampMixin):
     termination_lessons: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     terminated_at: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
+    # „Powrót po przerwie" (0355): nowy kontrakt osoby, która naprawdę
+    # zakończyła współpracę i wraca po czasie, wskazuje poprzedni. Poprzedni
+    # zostaje zakończony bez zmian — jego zużycie, alerty i finanse są historią,
+    # a nowy liczy się od własnej daty startu. SET NULL: usunięcie starego
+    # kontraktu nie może skasować nowego.
+    returned_from_contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # Soft-delete / void metadata — populated when status flips to `void` via
     # the lifecycle service. A void keeps documents + signature evidence (unlike
     # a hard DELETE), so an executed contract stays auditable after annulment.

@@ -4564,6 +4564,38 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_order_pdf_downloads_kind
             CHECK (file_kind IN ('order', 'group', 'amendment'))
     )""",
+    # 0355: „Cofnij zakończenie" (stan kontraktu i zamówień sprzed
+    # zakończenia) i „Powrót po przerwie" (nowy kontrakt wskazuje poprzedni).
+    """CREATE TABLE IF NOT EXISTS contract_termination_snapshots (
+        id SERIAL PRIMARY KEY,
+        contract_id INTEGER NOT NULL
+            REFERENCES contracts(id) ON DELETE CASCADE,
+        effective_date DATE,
+        status VARCHAR(16) NOT NULL DEFAULT 'open',
+        source VARCHAR(16) NOT NULL DEFAULT 'termination',
+        contract_before JSONB NOT NULL,
+        orders JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        closed_at TIMESTAMPTZ,
+        reversed_at TIMESTAMPTZ,
+        reversed_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        reversal_payload JSONB,
+        CONSTRAINT ck_contract_termination_snapshots_status
+            CHECK (status IN ('open', 'reversed', 'superseded')),
+        CONSTRAINT ck_contract_termination_snapshots_source
+            CHECK (source IN ('termination', 'history')),
+        CONSTRAINT ck_contract_termination_snapshots_reversed
+            CHECK (status <> 'reversed' OR reversed_at IS NOT NULL)
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_contract_termination_snapshots_open "
+    "ON contract_termination_snapshots (contract_id) WHERE status = 'open'",
+    "CREATE INDEX IF NOT EXISTS ix_contract_termination_snapshots_contract "
+    "ON contract_termination_snapshots (contract_id, id)",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS returned_from_contract_id "
+    "INTEGER REFERENCES contracts(id) ON DELETE SET NULL",
+    "CREATE INDEX IF NOT EXISTS ix_contracts_returned_from_contract_id "
+    "ON contracts (returned_from_contract_id)",
     # 0320: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
     # Kody powodow sa rownolegle do `gate_reasons` — recheck rozstrzyga po
     # kodzie, czy zamowienie czeka na podpis umowy, czy utknelo na czyms innym.
@@ -8805,6 +8837,42 @@ async def repair():
             )
             return
     print(f"contract start-date repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# „Cofnij zakończenie" ze zgłoszenia 23.09.2026 — jednorazowo: kontrakt
+# zakończony przez pomyłkę i przywrócony samą zmianą statusu (zamówienie
+# zostało w „Zakończonych"). Ta sama operacja co przycisk; logika
+# w `app/services/contract_termination_reversal_repair.py`, przypięta do
+# trójki ID. Marker w `app_settings` + advisory lock; porażka nie zapisuje
+# niczego — następny start ponawia. Log: wyłącznie liczby i ID.
+startup_phase "repair-termination-reversal"
+echo "Contracts: termination reversal from 23.09 ticket (one-shot)..."
+python - <<'PY' || echo "termination reversal repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_termination_reversal_repair import (
+    run_termination_reversal_repair,
+    summarize_for_log,
+)
+from app.services.order_write_errors import commit_order_write
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_termination_reversal_repair(db)
+            await commit_order_write(db)
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"termination reversal repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"termination reversal repair: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY
