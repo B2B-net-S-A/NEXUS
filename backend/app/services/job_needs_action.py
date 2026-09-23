@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.job import Job
 from app.models.pipeline_template import PipelineStageDef
+from app.services.board_stage_badges import foreign_stage_target
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services.pipeline_latest import latest_stage_ids
 from app.services.pipeline_next_action import (
@@ -99,18 +100,31 @@ async def needs_action_subquery(
         modes = owner_modes_for_columns([StageColumn.from_meta(m) for m in metas])
         mode_by_def = {sd.id: mode for sd, mode in zip(stage_defs, modes)}
         # Lustro `_bucket_by_stage_def`: przy zdublowanym enumie wygrywa
-        # ostatnia definicja.
+        # ostatnia definicja; kod etapu liczy się TYLKO dla wierszy bez etapu.
         enum_to_def = {
             sd.legacy_enum_value: sd.id for sd in stage_defs if sd.legacy_enum_value
         }
         def_ids = [sd.id for sd in stage_defs]
-        in_template = _in(CandidateStage.stage_def_id, def_ids)
+        # Etapy z INNYCH szablonów (import Traffita) — ta sama reguła nazw co
+        # tablica (`foreign_stage_target`), policzona tu w Pythonie.
+        foreign_mode: dict[int, str] = {}
+        for other_tid, other_defs in defs_by_template.items():
+            if other_tid == template_id:
+                continue
+            for other in other_defs:
+                target = foreign_stage_target(
+                    other.name, other.legacy_enum_value, stage_defs
+                )
+                if target is not None:
+                    foreign_mode[other.id] = mode_by_def[target.id]
         for mode, bucket in (
             ("always", always),
             ("after_nudge", after_nudge),
             ("review", review),
         ):
-            own_ids = [i for i in def_ids if mode_by_def[i] == mode]
+            own_ids = [i for i in def_ids if mode_by_def[i] == mode] + [
+                i for i, m in foreign_mode.items() if m == mode
+            ]
             enums = _enum_members(
                 [e for e, def_id in enum_to_def.items() if mode_by_def[def_id] == mode]
             )
@@ -120,10 +134,7 @@ async def needs_action_subquery(
                     or_(
                         _in(CandidateStage.stage_def_id, own_ids),
                         and_(
-                            or_(
-                                CandidateStage.stage_def_id.is_(None),
-                                ~in_template,
-                            ),
+                            CandidateStage.stage_def_id.is_(None),
                             _in(CandidateStage.stage, enums),
                         ),
                     ),

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Optional
+from typing import Any, Optional, Sequence
 
 from fastapi import HTTPException
 
@@ -52,6 +52,94 @@ def is_dz_stage(name: Optional[str]) -> bool:
 
 def is_cpro_stage(name: Optional[str]) -> bool:
     return bool(_CPRO_RE.search(normalize_stage_name(name)))
+
+
+def stage_badge_kind(name: Optional[str]) -> Optional[str]:
+    """Rodzaj etapu-odznaki po nazwie — lustro części „badge" `placeStage`.
+
+    `dz` · `cpro` · `contract_signed` · `contract_sent` · `after_interview` ·
+    `prep` · `onboarding` albo `None` (zwykły etap). Wspólne przypadki:
+    `frontend/src/lib/__fixtures__/board-stage-cases.json`.
+    """
+
+    n = normalize_stage_name(name)
+    if is_dz_stage(name):
+        return "dz"
+    if is_cpro_stage(name):
+        return "cpro"
+    if "umowa podpis" in n:
+        return "contract_signed"
+    if "umowa wysl" in n:
+        return "contract_sent"
+    if "po interview" in n or "po rozmowie" in n:
+        return "after_interview"
+    if "prep" in n or "pre-interview" in n or "przygotowany do spotkania" in n:
+        return "prep"
+    if "onboarding" in n:
+        return "onboarding"
+    return None
+
+
+_IMPORT_SUFFIX = re.compile(r"\s*\(#\d+\)\s*$")
+
+
+def _base_name(name: Optional[str]) -> str:
+    return _IMPORT_SUFFIX.sub("", normalize_stage_name(name))
+
+
+def foreign_stage_target(
+    name: Optional[str], legacy_enum: Optional[str], stage_defs: Sequence[Any]
+) -> Optional[Any]:
+    """Etap szablonu rekrutacji dla wiersza z INNEGO szablonu (23.09.2026).
+
+    310 z 326 opublikowanych rekrutacji nie ma własnego szablonu (tablica
+    rysuje „Default B2B"), a nocny import zapisuje ruchy na etapy szablonu
+    Traffita. Samo dopasowanie po kodzie etapu myliło znaczenia: pięć etapów
+    Traffita z kodem `interview` („Interview - Prep", „Po Interview"…)
+    lądowało na „Przepuszczony przez DZ" (też `interview`) i dostawało odznakę
+    „DZ ✓", a „NORDEA: Wysłać do Cpro" (kod `screening`) — w Screeningu.
+    Kolejność: ta sama nazwa → ten sam rodzaj odznaki → (po interview: rozmowa
+    u klienta) → kod etapu, jak dotąd.
+    """
+
+    live = [sd for sd in stage_defs if not getattr(sd, "is_terminal", False)]
+    base = _base_name(name)
+    if base:
+        for sd in stage_defs:
+            if _base_name(sd.name) == base:
+                return sd
+    kind = stage_badge_kind(name)
+    if kind is not None:
+        for sd in live:
+            if stage_badge_kind(sd.name) == kind:
+                return sd
+        if kind in ("after_interview", "prep"):
+            for sd in live:
+                if sd.legacy_enum_value == "client_interview":
+                    return sd
+    if legacy_enum:
+        # Ostatni wygrywa — lustro dotychczasowego `enum_to_def`.
+        mapped = None
+        for sd in stage_defs:
+            if sd.legacy_enum_value == legacy_enum:
+                mapped = sd
+        # Etap-odznaka NIE jest celem dopasowania po kodzie: „Przepuszczony
+        # przez DZ" ma kod `interview`, ale znaczy zatwierdzenie DZ.
+        # Wiersz bez etapu (`stage_def_id` NULL) zostaje przy starej regule.
+        if (
+            name is not None
+            and mapped is not None
+            and stage_badge_kind(mapped.name) in ("dz", "cpro")
+        ):
+            hosts = [
+                sd
+                for sd in live
+                if sd.legacy_enum_value == legacy_enum
+                and stage_badge_kind(sd.name) not in ("dz", "cpro")
+            ]
+            return hosts[-1] if hosts else None
+        return mapped
+    return None
 
 
 def cpro_enabled_for_client(client_id: Optional[int]) -> bool:

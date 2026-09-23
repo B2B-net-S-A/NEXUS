@@ -2668,6 +2668,17 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   = HoR), „Gotowy do Cpro" tylko u klienta z `NORDEA_ORDER_NUMBER_CLIENT_IDS`
   (`job.cpro_enabled`). Reguła nazw DZ/Cpro ma lustro front↔back na wspólnym
   `__fixtures__/board-stage-cases.json` (prawdziwe nazwy z 3 szablonów).
+- **Etap z INNEGO szablonu trafia do kolumny po NAZWIE, dopiero potem po
+  kodzie** (`board_stage_badges.foreign_stage_target`, 23.09.2026): 310 z 326
+  opublikowanych rekrutacji nie ma własnego szablonu (tablica = „Default
+  B2B”), a import zapisuje etapy szablonu Traffita. Samo dopasowanie po kodzie
+  wrzucało pięć etapów Traffita z kodem `interview` („Interview - Prep”,
+  „Po Interview”…) na „Przepuszczony przez DZ” — z odznaką „DZ ✓” — a
+  „NORDEA: Wysłać do Cpro” (kod `screening`) do Screeningu. Kolejność: ta sama
+  nazwa → ten sam rodzaj odznaki (`stage_badge_kind`, lustro `placeStage`) →
+  kod, ale nigdy na etap-odznakę DZ/Cpro; obcy etap bez odpowiednika idzie do
+  „Poza szablonem”. Wiersz BEZ etapu zostaje przy samym kodzie. Tę samą regułę
+  czytają tablica, kolumny listy rekrutacji, „wymaga ruchu” i kolejka.
 - **Kolejka „Czeka na Ciebie” (0348, decyzje Artura 22.09.2026)** —
   `services/board_tasks.py`, `GET /api/board-tasks`, panel `BoardTasksPanel`
   nad układem pulpitu (nie kafelek: ma dotrzeć do osoby, która pulpitu nie

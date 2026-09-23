@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 from pydantic import BaseModel
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -28,7 +28,11 @@ from app.models.activity import Activity
 from app.models.user_activity import UserActivity, UserActionType
 from app.models.notification import Notification, NotificationType
 from app.services import board_tasks as board_tasks_svc
-from app.services.board_stage_badges import ensure_badge_stage_allowed, is_cpro_stage
+from app.services.board_stage_badges import (
+    ensure_badge_stage_allowed,
+    foreign_stage_target,
+    is_cpro_stage,
+)
 from app.services import champion_view
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
@@ -1351,6 +1355,7 @@ async def move_candidate(
 def _bucket_by_stage_def(
     entries: Iterable[CandidateStage],
     stage_defs: Sequence[PipelineStageDef],
+    foreign_defs: Optional[Mapping[int, PipelineStageDef]] = None,
 ) -> tuple[dict[int, list[CandidateStage]], list[CandidateStage]]:
     """Rozdziel karty na kolumny szablonu i kubełek „poza szablonem".
 
@@ -1377,6 +1382,22 @@ def _bucket_by_stage_def(
         # poprawnie spada do fallbacku po legacy enumie.
         if entry.stage_def_id in columns_map:
             columns_map[entry.stage_def_id].append(entry)
+            continue
+        foreign = (
+            foreign_defs.get(entry.stage_def_id)
+            if foreign_defs is not None and entry.stage_def_id is not None
+            else None
+        )
+        if foreign is not None:
+            # Etap innego szablonu (import Traffita na rekrutacji bez własnego
+            # szablonu): najpierw nazwa, potem kod — `foreign_stage_target`.
+            target = foreign_stage_target(
+                foreign.name, foreign.legacy_enum_value, stage_defs
+            )
+            if target is not None:
+                columns_map[target.id].append(entry)
+            else:
+                off_template.append(entry)
             continue
         mapped = enum_to_def.get(entry.stage.value) if entry.stage else None
         if mapped is not None:
@@ -1453,13 +1474,14 @@ LEGACY_COLUMN_STAGES: list[PipelineStage] = list(STAGE_ORDER) + [
 def stage_column_summaries(
     stage_defs: Sequence[PipelineStageDef],
     entries: Iterable,
+    foreign_defs: Optional[Mapping[int, PipelineStageDef]] = None,
 ) -> tuple[list[dict], int]:
     """Kolumny szablonu z liczbami (bez kart) + liczba wpisów poza szablonem.
 
     Ten sam podział co `get_kanban` (`_bucket_by_stage_def` + `template_column_meta`),
     więc suma per kolumna na liście równa się `count` kolumny na tablicy.
     """
-    columns_map, off_template = _bucket_by_stage_def(entries, stage_defs)
+    columns_map, off_template = _bucket_by_stage_def(entries, stage_defs, foreign_defs)
     columns = [
         {
             **template_column_meta(sd),
@@ -1803,8 +1825,28 @@ async def build_kanban_view(db: AsyncSession, job: Job) -> KanbanView:
             .all()
         )
 
+        template_def_ids = {sd.id for sd in stage_defs}
+        foreign_ids = {
+            e.stage_def_id
+            for e in seen.values()
+            if e.stage_def_id is not None and e.stage_def_id not in template_def_ids
+        }
+        foreign_defs = (
+            {
+                sd.id: sd
+                for sd in (
+                    await db.execute(
+                        select(PipelineStageDef).where(
+                            PipelineStageDef.id.in_(foreign_ids)
+                        )
+                    )
+                ).scalars()
+            }
+            if foreign_ids
+            else {}
+        )
         columns_map, off_template_entries = _bucket_by_stage_def(
-            seen.values(), stage_defs
+            seen.values(), stage_defs, foreign_defs
         )
 
         columns = []

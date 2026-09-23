@@ -37,6 +37,7 @@ from app.models.user import User, UserRole
 from app.services.board_stage_badges import (
     DZ_BADGE_ROLES,
     cpro_enabled_for_client,
+    foreign_stage_target,
     is_cpro_stage,
     is_dz_stage,
 )
@@ -145,12 +146,43 @@ def classify_template(defs: Iterable[PipelineStageDef]) -> TemplateStages:
     )
 
 
-async def _template_stages(db: AsyncSession) -> dict[int, TemplateStages]:
+@dataclass(frozen=True)
+class _Catalog:
+    stages: dict[int, TemplateStages]
+    defs_by_template: dict[int, list[PipelineStageDef]]
+    defs: dict[int, PipelineStageDef]
+
+    def effective_def_id(self, template_id: int, stage_def_id: int) -> Optional[int]:
+        """Etap szablonu rekrutacji, na którym tablica pokazuje ten wiersz.
+
+        Rekrutacje z Traffita zwykle nie mają własnego szablonu (tablica rysuje
+        domyślny), a ruchy zapisują etapy szablonu Traffita — ta sama reguła
+        co tablica (`foreign_stage_target`), inaczej kolejka nie widziałaby
+        nikogo z tych rekrutacji.
+        """
+
+        template_defs = self.defs_by_template.get(template_id, [])
+        if any(d.id == stage_def_id for d in template_defs):
+            return stage_def_id
+        foreign = self.defs.get(stage_def_id)
+        if foreign is None:
+            return None
+        target = foreign_stage_target(
+            foreign.name, foreign.legacy_enum_value, template_defs
+        )
+        return target.id if target is not None else None
+
+
+async def _catalog(db: AsyncSession) -> _Catalog:
     defs = (await db.scalars(select(PipelineStageDef))).all()
     by_template: dict[int, list[PipelineStageDef]] = {}
     for d in defs:
         by_template.setdefault(d.template_id, []).append(d)
-    return {tid: classify_template(items) for tid, items in by_template.items()}
+    return _Catalog(
+        stages={tid: classify_template(items) for tid, items in by_template.items()},
+        defs_by_template=by_template,
+        defs={d.id: d for d in defs},
+    )
 
 
 _LATEST_SQL = text(
@@ -189,12 +221,23 @@ async def load_snapshot(
     """Jedno przejście po najnowszych wierszach opublikowanych rekrutacji."""
 
     now = now or datetime.now(timezone.utc)
-    templates = await _template_stages(db)
-    relevant: set[int] = set()
+    catalog = await _catalog(db)
+    templates = catalog.stages
+    targets: set[int] = set()
     for stages in templates.values():
-        relevant |= stages.verified_ids | stages.cpro_ids | stages.cv_sent_ids
-    if not relevant:
+        targets |= stages.verified_ids | stages.cpro_ids | stages.cv_sent_ids
+    if not targets:
         return BoardTaskSnapshot()
+    # Wiersze, które w KTÓRYMKOLWIEK szablonie trafiają na etap kolejki
+    # (także przez regułę etapów z innego szablonu).
+    relevant = {
+        d.id
+        for d in catalog.defs.values()
+        if any(
+            catalog.effective_def_id(tid, d.id) in targets
+            for tid in catalog.defs_by_template
+        )
+    }
     default_template_id = await db.scalar(
         select(PipelineTemplate.id).where(PipelineTemplate.is_default.is_(True))
     )
@@ -213,8 +256,11 @@ async def load_snapshot(
     for r in rows:
         stages = templates.get(r.template_id)
         if stages is None:
-            # Wiersz z etapem spoza szablonu rekrutacji (stary import) — ruch
-            # na etap docelowy i tak by się nie udał.
+            continue
+        effective = catalog.effective_def_id(r.template_id, r.stage_def_id)
+        if effective is None:
+            # Etap bez odpowiednika w szablonie rekrutacji — kubełek „poza
+            # szablonem" na tablicy, nie zadanie.
             continue
         name = " ".join(p for p in (r.cname, r.clastname) if p) or "Kandydat"
         base = dict(
@@ -231,11 +277,11 @@ async def load_snapshot(
             delivery_lead_id=r.delivery_lead_id,
         )
         nordea = cpro_enabled_for_client(r.client_id)
-        if r.stage_def_id in stages.verified_ids and stages.dz_id is not None:
+        if effective in stages.verified_ids and stages.dz_id is not None:
             tasks.append(
                 BoardTask(kind=KIND_DZ, target_stage_def_id=stages.dz_id, **base)
             )
-        elif r.stage_def_id in stages.cpro_ids and nordea:
+        elif effective in stages.cpro_ids and nordea:
             tasks.append(
                 BoardTask(
                     kind=KIND_CPRO_TO_SEND,
@@ -244,7 +290,7 @@ async def load_snapshot(
                     **base,
                 )
             )
-        elif r.stage_def_id in stages.cv_sent_ids and nordea:
+        elif effective in stages.cv_sent_ids and nordea:
             tasks.append(
                 BoardTask(kind=KIND_CPRO_SENT, target_stage_def_id=None, **base)
             )
