@@ -8,7 +8,19 @@ import {
   type OrderChangesSubTab,
 } from "@/components/finance/OrderChangesPanel";
 import type { OrderChangesResponse } from "@/lib/api/finance";
+import {
+  boardItems,
+  statusCounts,
+  withCheck,
+  type BoardItem,
+  type StatusFilter,
+} from "@/lib/finance-order-board";
 import { monthOptions } from "@/lib/finance-order-changes";
+
+// Podgląd PDF-u (pdf.js) nie jest przedmiotem tych testów.
+vi.mock("@/components/v2/files/SearchablePdfPreview", () => ({
+  SearchablePdfPreview: () => <div data-testid="pdf-preview" />,
+}));
 
 const ref = {
   order_group_id: null,
@@ -35,6 +47,20 @@ const DATA: OrderChangesResponse = {
       currency: "PLN",
       order_type: "periodic",
       status: "active",
+      item_key: "entry:10",
+      order_start: "2026-09-01",
+      order_end: null,
+      pdf: {
+        kind: "order",
+        id: 10,
+        month: "2026-09",
+        client_id: 2,
+        download_name: "zam_Nowak.pdf",
+      },
+      entered_at: "2026-09-19T06:05:00Z",
+      entered_by: null,
+      entered_automatically: true,
+      from_order_mail: true,
     },
   ],
   exits: [
@@ -100,20 +126,29 @@ const DATA: OrderChangesResponse = {
   changes_tracked_since: null,
   gaps_tracked_since: "2026-08-01",
   open_gaps_total: 1,
+  can_check: true,
 };
 
 function Harness({
-  data = DATA,
+  data: initialData = DATA,
   initial = "entries",
   onExport = vi.fn(),
   filtersActive = false,
+  onToggle,
+  onOpenInPdfs = vi.fn(),
 }: {
   data?: OrderChangesResponse | null;
   initial?: OrderChangesSubTab;
   onExport?: () => void;
   filtersActive?: boolean;
+  onToggle?: (item: BoardItem, done: boolean) => void;
+  onOpenInPdfs?: () => void;
 }) {
+  const [data, setData] = useState(initialData);
   const [subTab, setSubTab] = useState<OrderChangesSubTab>(initial);
+  const [status, setStatus] = useState<StatusFilter>("todo");
+  const [tile, setTile] = useState<string | null>(null);
+  const [previewCard, setPreviewCard] = useState<string | null>(null);
   const [search, setSearch] = useState(filtersActive ? "kowalska" : "");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -127,6 +162,33 @@ function Harness({
             subTab={subTab}
             onOpenGaps={() => setSubTab("gaps")}
             filtersActive={Boolean(search || dateFrom || dateTo)}
+            board={{
+              status,
+              selectedClient: tile,
+              onSelectClient: setTile,
+              onToggle: (item, done) => {
+                onToggle?.(item, done);
+                setData((current) =>
+                  current
+                    ? withCheck(
+                        current,
+                        item.key,
+                        done ? { by_name: "Anna Finanse", at: "2026-09-22T07:14:00Z" } : null,
+                      )
+                    : current,
+                );
+              },
+              pendingKeys: new Set(),
+              onDownloadPdf: vi.fn(),
+              downloadingPdf: null,
+              previewCard,
+              onPreviewCard: setPreviewCard,
+              preview: {
+                history: { items: [], loading: false, failed: false },
+                loadPdf: async () => new Blob(["%PDF"]),
+                onOpenInPdfs,
+              },
+            }}
           />
         ) : (
           <p>Wczytywanie</p>
@@ -139,6 +201,9 @@ function Harness({
       onMonthChange={vi.fn()}
       onExport={onExport}
       exporting={false}
+      status={status}
+      onStatusChange={setStatus}
+      statusCounts={data ? statusCounts(boardItems(data, subTab)) : null}
       filters={{
         search,
         onSearchChange: setSearch,
@@ -181,18 +246,112 @@ describe("OrderChangesPanel", () => {
     expect(screen.getByRole("tab", { name: "Braki" }).textContent).toBe("Braki");
   });
 
-  it("lists entries with the order type and points to open gaps", () => {
+  it("groups a sub-tab by client and order card, and points to open gaps", () => {
     render(<Harness />);
-    const row = screen.getByText("Jan Nowak").closest("li")!;
-    expect(within(row).getByText("B2B")).toBeInTheDocument();
-    expect(within(row).getByText("Nowy konsultant")).toBeInTheDocument();
-    expect(row.textContent).toContain("przychód 152,00 zł/h");
+    expect(screen.getByRole("option", { name: /Klient Demo/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    const card = screen.getByRole("button", {
+      name: "Podgląd: Zam. NB-1 · 01.09.2026 – bezterminowo · Jan Nowak",
+    });
+    expect(within(card).getAllByText("Nowe zamówienie").length).toBeGreaterThan(0);
+    expect(card.textContent).toContain("stawka przychodowa 152,00 zł/h");
+    expect(card.textContent).toContain(
+      "dodane automatycznie (zamowienia@b2bnetwork.pl)",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "sprawdź podzakładkę Braki" }));
-    expect(screen.getByText("Brak zamówienia")).toBeInTheDocument();
+    expect(screen.getAllByText("Brak zamówienia").length).toBeGreaterThan(0);
     expect(
-      screen.getByText("Uzupełnione z opóźnieniem: zam. NB-9 (7 dni po terminie)"),
+      screen.getByText(/Uzupełnione z opóźnieniem: zam\. NB-9 \(7 dni po terminie\)/),
     ).toBeInTheDocument();
+  });
+
+  it("checks one change, records who did it and moves a finished card to „Zrobione”", () => {
+    const onToggle = vi.fn();
+    render(<Harness onToggle={onToggle} />);
+    expect(screen.getByRole("radio", { name: "Do zrobienia · 1" })).toBeChecked();
+    expect(screen.getByLabelText("Zrobione we wrześniu: 0 z 1")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Oznacz jako zrobione: Nowe zamówienie/ }),
+    );
+    expect(onToggle).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "entry:10" }),
+      true,
+    );
+    expect(screen.getByRole("radio", { name: "Zrobione · 1" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Zrobione we wrześniu: 1 z 1")).toBeInTheDocument();
+    // Karta w całości zrobiona: zwinięta sekcja „Zrobione (1)”.
+    const section = screen.getByRole("button", { name: /Zrobione \(1\)/ });
+    expect(section).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(section);
+    expect(screen.getByText(/Zrobione: Anna Finanse · 22\.09\.2026/)).toBeInTheDocument();
+  });
+
+  it("stays on the client after its last change is checked", () => {
+    const other = {
+      ...DATA.entries[0],
+      order_id: 30,
+      client_id: 99,
+      client_name: "Inny Klient",
+      consultant_name: "Zofia Inna",
+      item_key: "entry:30",
+    };
+    const data = {
+      ...DATA,
+      entries: [DATA.entries[0], other, { ...other, order_id: 31, item_key: "entry:31" }],
+    };
+    render(<Harness data={data} />);
+    // Domyślnie wybrany jest klient z największą liczbą pozycji do zrobienia.
+    const first = within(screen.getByRole("listbox", { name: "Klienci" })).getAllByRole(
+      "option",
+    )[0];
+    expect(first).toHaveTextContent("Inny Klient");
+    fireEvent.click(
+      screen.getAllByRole("checkbox", { name: /Oznacz jako zrobione/ })[0],
+    );
+    fireEvent.click(
+      screen.getAllByRole("checkbox", { name: /Oznacz jako zrobione/ })[0],
+    );
+    // Kafelek spadł na dół listy, ale widok został przy tym kliencie.
+    expect(screen.getByRole("option", { name: /Inny Klient/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("region", { name: "Zamówienia — Inny Klient" })).toBeInTheDocument();
+  });
+
+  it("opens the preview panel from the card, switches cards and closes on Esc", async () => {
+    const onOpenInPdfs = vi.fn();
+    render(<Harness onOpenInPdfs={onOpenInPdfs} />);
+    expect(screen.queryByRole("complementary", { name: "Podgląd zamówienia" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Podgląd PDF: zamówienie NB-1" }));
+    const panel = screen.getByRole("complementary", { name: "Podgląd zamówienia" });
+    expect(await within(panel).findByTestId("pdf-preview")).toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole("button", { name: /Otwórz w Zamówienia PDF/ }));
+    expect(onOpenInPdfs).toHaveBeenCalledWith(expect.objectContaining({ month: "2026-09" }));
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("complementary", { name: "Podgląd zamówienia" })).toBeNull();
+  });
+
+  it("warns about a change without a PDF and disables its download", () => {
+    render(<Harness initial="exits" />);
+    expect(
+      screen.getByText("Brak PDF – zmiana wprowadzona ręcznie"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Pobierz PDF: zamówienie/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Podgląd: Zam\. NB-1/ }));
+    const panel = screen.getByRole("complementary", { name: "Podgląd zamówienia" });
+    expect(within(panel).getByRole("button", { name: "Pobierz PDF" })).toBeDisabled();
+    // Bez PDF-u zmianę nadal da się odhaczyć.
+    expect(
+      within(panel).getByRole("checkbox", { name: /Oznacz jako zrobione: Zejście/ }),
+    ).toBeEnabled();
   });
 
   it("tells finance that change history starts with the deployment", () => {
@@ -217,12 +376,12 @@ describe("OrderChangesPanel", () => {
     // Zejście = zapisany koniec współpracy. Kończące się zamówienie to inne
     // pytanie i inna zakładka — ta sama osoba nie może stać w obu.
     render(<Harness initial="exits" />);
-    expect(screen.getByText("Olga Wiśniewska")).toBeInTheDocument();
-    expect(screen.queryByText("Ewa Kowalska")).not.toBeInTheDocument();
+    expect(screen.getByText(/Olga Wiśniewska/)).toBeInTheDocument();
+    expect(screen.queryByText(/Ewa Kowalska/)).not.toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByRole("tab", { name: /Kończące się/ }));
-    expect(screen.getByText("Ewa Kowalska")).toBeInTheDocument();
-    expect(screen.queryByText("Olga Wiśniewska")).not.toBeInTheDocument();
+    expect(screen.getByText(/Ewa Kowalska/)).toBeInTheDocument();
+    expect(screen.queryByText(/Olga Wiśniewska/)).not.toBeInTheDocument();
   });
 
   it("sends an empty exits tab to the tab that does hold those rows", () => {

@@ -22,6 +22,8 @@ import {
   type RateUnit,
 } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { canViewClientRate, canWriteClientRate } from "@/lib/client-rate-access";
+import { useAuthStore } from "@/store/auth";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -75,10 +77,6 @@ export interface RecruitmentsTabProps {
   defaultJobId: number | null;
   view: CandidateRecruitmentView;
   readOnly: boolean;
-  /** Serwer pozwala tej osobie widzieć stawkę do klienta (bez rekrutera/sourcera/TAC). */
-  clientRateVisible?: boolean;
-  /** Serwer pozwala zapisać stawkę do klienta (Delivery Lead, admin). */
-  clientRateWritable?: boolean;
 }
 
 export function RecruitmentsTab({
@@ -93,8 +91,6 @@ export function RecruitmentsTab({
   defaultJobId,
   view,
   readOnly,
-  clientRateVisible = false,
-  clientRateWritable = false,
 }: RecruitmentsTabProps) {
   const { active, ended } = useMemo(() => splitRecruitments(history), [history]);
   const focusedJobId = useMemo(
@@ -181,8 +177,6 @@ export function RecruitmentsTab({
                   candidateName={candidateName}
                   focusedJobId={focusedJobId}
                   readOnly={readOnly}
-                  clientRateVisible={clientRateVisible}
-                  clientRateWritable={clientRateWritable}
                 />
               ))
             )}
@@ -211,8 +205,6 @@ export function RecruitmentsTab({
                         candidateName={candidateName}
                         focusedJobId={focusedJobId}
                         readOnly={readOnly}
-                        clientRateVisible={clientRateVisible}
-                        clientRateWritable={clientRateWritable}
                       />
                     ))}
                   </div>
@@ -441,20 +433,23 @@ export function RecruitmentRateRow({
   clientRate,
   expectedRate,
   readOnly = false,
-  clientRateVisible = false,
-  clientRateWritable = false,
 }: {
   candidateId: number;
   jobId: number;
   clientRate: RecruitmentRate;
   expectedRate: RecruitmentRate;
   readOnly?: boolean;
-  clientRateVisible?: boolean;
-  clientRateWritable?: boolean;
 }) {
+  const authUser = useAuthStore((st) => st.user);
+  // Decyzja 23.09.2026: stawki do klienta nie widzą rekruter, sourcer i TAC;
+  // wpisuje ją wyłącznie DL albo admin (lustro `candidate_access.py`).
+  const showClientRate = canViewClientRate(authUser);
+  const clientRateWritable = canWriteClientRate(authUser);
   const sameUnit =
-    clientRateVisible &&
-    clientRate != null && expectedRate != null && clientRate.unit === expectedRate.unit;
+    showClientRate &&
+    clientRate != null &&
+    expectedRate != null &&
+    clientRate.unit === expectedRate.unit;
   const margin =
     sameUnit && clientRate != null && expectedRate != null
       ? clientRate.value - expectedRate.value
@@ -474,7 +469,7 @@ export function RecruitmentRateRow({
             candidatesApi.setRecruitmentExpectedRate(candidateId, jobId, payload)
           }
         />
-        {clientRateVisible ? (
+        {showClientRate ? (
           <EditableRateCell
             candidateId={candidateId}
             label="Stawka do klienta"
@@ -510,16 +505,12 @@ function RecruitmentCard({
   candidateName,
   focusedJobId,
   readOnly = false,
-  clientRateVisible = false,
-  clientRateWritable = false,
 }: {
   job: any;
   candidateId: number;
   candidateName: string;
   focusedJobId: number | null;
   readOnly?: boolean;
-  clientRateVisible?: boolean;
-  clientRateWritable?: boolean;
 }) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
@@ -653,8 +644,6 @@ function RecruitmentCard({
         clientRate={job.client_rate ?? null}
         expectedRate={job.expected_rate ?? null}
         readOnly={readOnly}
-        clientRateVisible={clientRateVisible}
-        clientRateWritable={clientRateWritable}
       />
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">

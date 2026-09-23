@@ -41,7 +41,7 @@ re-expose PII to viewers.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import Depends, HTTPException, status
 
@@ -96,14 +96,19 @@ CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
 CANDIDATE_FINANCE_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 CANDIDATE_FINANCE_ROLES: tuple[UserRole, ...] = (UserRole.admin,)
 
-# „Stawka do klienta" (cena, za jaką kandydat idzie do klienta).
-#
-# Decyzja Artura 23.09.2026: rekruter, sourcer i TAC jej NIE WIDZĄ — widzą
-# role zarządcze i Finanse. Osoba z kilkoma rolami widzi, jeśli którakolwiek
-# z nich jest na liście (``has_any_role``, jak każda inna bramka w NEXUSIE).
-# Stawka KANDYDATA (ile chce, ``expected_rate_*``) to inne pole i widzą ją
-# wszyscy.
-CLIENT_RATE_READ_ROLES: tuple[UserRole, ...] = (
+# „Stawka do klienta" (cena, za jaką kandydat idzie do klienta) — decyzje
+# Artura 23.09.2026 (Pipeline v4 + „rekrutacje widzą wszyscy”): stawkę ustala
+# i wpisuje WYŁĄCZNIE Delivery Lead (i admin). Rekruter, sourcer i TAC jej NIE
+# WIDZĄ — mają oczekiwania kandydata i budżet Championa. Widzą ją role
+# zarządcze (HoR, TCM) i Finanse. Osoba z kilkoma rolami widzi, jeśli
+# którakolwiek z nich jest na liście (``has_any_role``). Stawka KANDYDATA
+# (``expected_rate_*``) to inne pole i widzą ją wszyscy. Do 23.09 zapisywały
+# też HoR/TCM/TAC/Finanse i właściciel rekrutacji.
+CLIENT_RATE_WRITE_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.delivery_lead,
+)
+CLIENT_RATE_VIEW_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
@@ -111,42 +116,20 @@ CLIENT_RATE_READ_ROLES: tuple[UserRole, ...] = (
     UserRole.finance,
 )
 
-# Zapis: wyłącznie admin i Delivery Lead (decyzja 23.09.2026). Spójne
-# z Pipeline v4 — „CV wysłane” poza Nordeą przesuwa DL/admin razem ze stawką.
-# Do 23.09 zapisywali też TAC, HoR, TCM, Finanse oraz rekruter prowadzący
-# rekrutację, który w ten sposób widział kwotę w odpowiedzi.
-CLIENT_RATE_WRITE_ROLES: tuple[UserRole, ...] = (
-    UserRole.admin,
-    UserRole.delivery_lead,
-)
 
-
-def user_can_read_client_rate(user: User) -> bool:
-    """Czy `user` widzi stawkę do klienta (i marżę z niej liczoną)."""
-    return user.has_any_role(*CLIENT_RATE_READ_ROLES)
+def user_can_view_client_rate(user: Optional[User]) -> bool:
+    """Czy `user` widzi stawkę do klienta (karty tablicy, historia rekrutacji)."""
+    return user is not None and user.has_any_role(*CLIENT_RATE_VIEW_ROLES)
 
 
 def user_can_write_client_rate(user: User, job=None) -> bool:
-    """Czy rola `user` pozwala ustawić stawkę do klienta.
+    """Czy `user` może ustawić stawkę do klienta.
 
-    Własność rekrutacji nie nadaje już zapisu (23.09.2026) — `job` zostaje
-    w sygnaturze dla wołających.
+    Wyłącznie rola z `CLIENT_RATE_WRITE_ROLES` — własność rekrutacji nie nadaje
+    zapisu. Jedna funkcja dla bramki PATCH `…/client-rate`, ruchu na
+    „CV wysłane" i pola `can_write_client_rate` w `GET /api/jobs/{id}`.
     """
     return user.has_any_role(*CLIENT_RATE_WRITE_ROLES)
-
-
-def redact_client_rate_fields(payload: dict, user: User) -> dict:
-    """Wyzeruj `client_rate_*` w słowniku odpowiedzi dla roli bez odczytu.
-
-    Klucze zostają (``None``), żeby kształt odpowiedzi się nie zmieniał
-    i front renderował brak wartości, a nie wywracał się na brakującym polu.
-    """
-    if user_can_read_client_rate(user):
-        return payload
-    for key in ("client_rate_value", "client_rate_unit", "client_rate_currency"):
-        if key in payload:
-            payload[key] = None
-    return payload
 
 
 def client_rate_write_allowed(user: User) -> bool:

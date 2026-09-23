@@ -28,6 +28,8 @@ export interface KanbanItem {
  stage: string;
  stage_def_id?: number | null;
  rating?: number;
+ /** Kiedy karta weszła na bieżący etap (ISO). */
+ moved_at?: string | null;
  days_in_stage?: number;
  name?: string;
  lastname?: string;

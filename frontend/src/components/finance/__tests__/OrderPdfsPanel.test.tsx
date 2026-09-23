@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,7 +7,14 @@ import { defaultOrderPdfMonth } from "@/components/finance/OrderPdfsTab";
 import type { OrderPdfClient, OrderPdfFile, OrderPdfMonth } from "@/lib/api/finance";
 import { filesLabel, orderPdfPeriod } from "@/lib/finance-order-pdfs";
 
-vi.mock("@/lib/api/finance", () => ({ financeApi: {}, orderPdfFilePath: vi.fn() }));
+vi.mock("@/lib/api/finance", () => ({
+  financeApi: {},
+  orderPdfFilePath: vi.fn(),
+  orderPdfZipPath: vi.fn(),
+}));
+vi.mock("@/components/v2/files/SearchablePdfPreview", () => ({
+  SearchablePdfPreview: () => <div data-testid="pdf-preview" />,
+}));
 vi.mock("@/components/Toast", () => ({ useToast: () => ({ showToast: vi.fn() }) }));
 
 const FILE: OrderPdfFile = {
@@ -22,10 +29,22 @@ const FILE: OrderPdfFile = {
   status: "active",
   order_number: "OIT/1",
   uploaded_at: null,
+  downloaded_at: null,
+  pending_change: true,
+};
+
+const DOWNLOADED: OrderPdfFile = {
+  ...FILE,
+  id: 9,
+  download_name: "aneks_Nowak.pdf",
+  entry_type: "amendment",
+  order_number: null,
+  downloaded_at: "2026-09-22T08:30:00Z",
+  pending_change: false,
 };
 
 const CLIENTS: OrderPdfClient[] = [
-  { client_id: 1, client_name: "Alior", files: [FILE] },
+  { client_id: 1, client_name: "Alior", files: [FILE, DOWNLOADED] },
   {
     client_id: 2,
     client_name: "BNP",
@@ -33,9 +52,19 @@ const CLIENTS: OrderPdfClient[] = [
   },
 ];
 
-const MONTHS: OrderPdfMonth[] = [{ month: "2026-09", clients: 2, files: 2 }];
+const MONTHS: OrderPdfMonth[] = [{ month: "2026-09", clients: 2, files: 3 }];
 
-function Harness({ onDownload }: { onDownload: (file: OrderPdfFile) => void }) {
+function Harness({
+  onDownload,
+  onDownloadMonth = vi.fn(),
+  onDownloadClient = vi.fn(),
+  onDownloadFiles = vi.fn(),
+}: {
+  onDownload: (file: OrderPdfFile) => void;
+  onDownloadMonth?: () => void;
+  onDownloadClient?: (client: OrderPdfClient) => void;
+  onDownloadFiles?: (client: OrderPdfClient, files: OrderPdfFile[]) => void;
+}) {
   const [clientId, setClientId] = useState<number | null>(null);
   return (
     <OrderPdfsPanel
@@ -47,6 +76,11 @@ function Harness({ onDownload }: { onDownload: (file: OrderPdfFile) => void }) {
       onClientChange={setClientId}
       onDownload={onDownload}
       downloadingKey={null}
+      onDownloadMonth={onDownloadMonth}
+      onDownloadClient={onDownloadClient}
+      onDownloadFiles={onDownloadFiles}
+      zipBusy={null}
+      loadPdf={async () => new Blob(["%PDF"])}
     />
   );
 }
@@ -64,7 +98,7 @@ describe("OrderPdfsPanel", () => {
 
     fireEvent.click(screen.getByRole("option", { name: /Alior/ }));
     expect(screen.getByText(FILE.download_name)).toBeInTheDocument();
-    expect(screen.getByText("Przedłużenie")).toBeInTheDocument();
+    expect(screen.getByText("Przedłużenie", { selector: "span" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: `Pobierz ${FILE.download_name}` }));
     expect(onDownload).toHaveBeenCalledWith(FILE);
@@ -74,6 +108,62 @@ describe("OrderPdfsPanel", () => {
     render(<Harness onDownload={vi.fn()} />);
     fireEvent.click(screen.getByRole("option", { name: /BNP/ }));
     expect(screen.getByText("Nazwisko do uzupełnienia")).toBeInTheDocument();
+  });
+});
+
+describe("OrderPdfsPanel — ZIP i statusy pobrania", () => {
+  it("shows per-person status and the pending-change tag", () => {
+    render(<Harness onDownload={vi.fn()} />);
+    const alior = screen.getByRole("option", { name: /Alior/ });
+    expect(alior.textContent).toContain("2 pliki · 1 nowy");
+    fireEvent.click(alior);
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(rows[0].textContent).toContain("● Nowy");
+    expect(rows[0].textContent).toContain("zmiana do rozliczenia");
+    expect(rows[1].textContent).toContain("Pobrane przez Ciebie 22.09.2026");
+  });
+
+  it("downloads the month, the client, the new and the selected files", () => {
+    const onDownloadMonth = vi.fn();
+    const onDownloadClient = vi.fn();
+    const onDownloadFiles = vi.fn();
+    render(
+      <Harness
+        onDownload={vi.fn()}
+        onDownloadMonth={onDownloadMonth}
+        onDownloadClient={onDownloadClient}
+        onDownloadFiles={onDownloadFiles}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Pobierz cały miesiąc/ }));
+    expect(onDownloadMonth).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Pobierz wszystkie pliki klienta: BNP" }),
+    );
+    expect(onDownloadClient).toHaveBeenCalledWith(CLIENTS[1]);
+
+    fireEvent.click(screen.getByRole("option", { name: /Alior/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Pobierz nowe (1)" }));
+    expect(onDownloadFiles).toHaveBeenLastCalledWith(CLIENTS[0], [FILE]);
+
+    expect(screen.getByRole("button", { name: "Pobierz zaznaczone (0)" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz wszystkie" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pobierz zaznaczone (2)" }));
+    expect(onDownloadFiles).toHaveBeenLastCalledWith(CLIENTS[0], [FILE, DOWNLOADED]);
+  });
+
+  it("filters to files not yet downloaded and previews one", () => {
+    render(<Harness onDownload={vi.fn()} />);
+    fireEvent.click(screen.getByRole("option", { name: /Alior/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Tylko niepobrane" }));
+    expect(screen.queryByText(DOWNLOADED.download_name)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: `Podgląd: ${FILE.download_name}` }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(FILE.download_name)).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 

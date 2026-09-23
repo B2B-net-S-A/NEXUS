@@ -4523,6 +4523,47 @@ _COLUMN_STATEMENTS = [
     "ON order_gaps (detected_on)",
     "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
     "ON order_gaps (contract_id, status)",
+    # 0354: Finanse — odhaczenia zmian w zamówieniach (audyt dopisywany)
+    # i pobrania PDF-ów zamówień per osoba („Nowy / Pobrane przez Ciebie").
+    """CREATE TABLE IF NOT EXISTS order_change_checks (
+        id SERIAL PRIMARY KEY,
+        item_key VARCHAR(160) NOT NULL,
+        tab VARCHAR(16) NOT NULL,
+        period_year INTEGER NOT NULL,
+        period_month INTEGER NOT NULL,
+        order_id INTEGER,
+        order_group_id INTEGER,
+        client_id INTEGER,
+        summary VARCHAR(400) NOT NULL DEFAULT '',
+        action VARCHAR(10) NOT NULL,
+        user_id INTEGER,
+        user_name VARCHAR(255) NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT ck_order_change_checks_action
+            CHECK (action IN ('checked', 'unchecked')),
+        CONSTRAINT ck_order_change_checks_tab
+            CHECK (tab IN ('changes', 'entries', 'exits', 'ending', 'gaps')),
+        CONSTRAINT ck_order_change_checks_month
+            CHECK (period_month BETWEEN 1 AND 12)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_order_change_checks_key "
+    "ON order_change_checks (item_key, id)",
+    "CREATE INDEX IF NOT EXISTS ix_order_change_checks_period "
+    "ON order_change_checks (period_year, period_month)",
+    "CREATE INDEX IF NOT EXISTS ix_order_change_checks_order "
+    "ON order_change_checks (order_id)",
+    "CREATE INDEX IF NOT EXISTS ix_order_change_checks_group "
+    "ON order_change_checks (order_group_id)",
+    """CREATE TABLE IF NOT EXISTS order_pdf_downloads (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        file_kind VARCHAR(16) NOT NULL,
+        file_id INTEGER NOT NULL,
+        file_path TEXT NOT NULL,
+        downloaded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (user_id, file_kind, file_id),
+        CONSTRAINT ck_order_pdf_downloads_kind
+            CHECK (file_kind IN ('order', 'group', 'amendment'))
+    )""",
     # 0320: godzinowa ponowna weryfikacja wstrzymanych zamowien z maila.
     # Kody powodow sa rownolegle do `gate_reasons` — recheck rozstrzyga po
     # kodzie, czy zamowienie czeka na podpis umowy, czy utknelo na czyms innym.

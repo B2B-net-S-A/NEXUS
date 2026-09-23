@@ -17,7 +17,7 @@ export interface StageBreakdownRow {
   column_label: string;
   key: string;
   label: string;
-  /** Wiersz główny kolumny — mianownik konwersji wierszy po nim. */
+  /** Wiersz główny kolumny (gospodarz) — tylko on ma konwersję. */
   is_main: boolean;
   /** Pary, które PIERWSZY raz weszły na etap w oknie. */
   reached: number;
@@ -28,11 +28,24 @@ export interface StageBreakdownRow {
 export type ClosedByKey =
   "candidate" | "recruiter" | "delivery_lead" | "client";
 
+/**
+ * Wiersz powodu. Suma `count` w grupie = liczba procesów grupy:
+ * `reason` — powód z katalogu (etykieta po polsku) albo powtarzający się wpis;
+ * `other` — „Inne”: jednorazowe wpisy ręczne i powody spoza pierwszej trójki,
+ * ich treści w `details` (dymek); `none` — „Bez podanego powodu”.
+ */
+export interface ClosedByReason {
+  label: string;
+  count: number;
+  kind: "reason" | "other" | "none";
+  details: string[];
+}
+
 export interface ClosedByGroup {
   key: ClosedByKey;
   label: string;
   count: number;
-  top_reasons: Array<{ label: string; count: number }>;
+  top_reasons: ClosedByReason[];
 }
 
 export interface StageBreakdownResponse {
@@ -74,17 +87,20 @@ export function useStageBreakdown(p: InsightsPeriodParams) {
 }
 
 /**
- * Konwersja wiersza: „Doszło” / „Doszło” najbliższego WCZEŚNIEJSZEGO wiersza
- * głównego. `null`, gdy nie ma czego dzielić (pierwszy wiersz albo zerowy
- * mianownik) — to „nie da się policzyć”, nie „0%”. Bez przycinania do 100%:
- * więcej niż sto procent znaczy, że osoby weszły z pominięciem etapu wyżej.
+ * Konwersja wiersza GŁÓWNEGO: „Doszło” / „Doszło” poprzedniego wiersza
+ * głównego. Odznaka („DZ ✓”, „Prep”, „Po rozmowie”…) nie ma konwersji —
+ * to znacznik na karcie, nie krok lejka, i dzielenie jej przez sąsiada dawało
+ * liczby bez sensu („Po rozmowie” 121%). `null` = „—”: odznaka, pierwszy
+ * wiersz albo zerowy mianownik — to „nie da się policzyć”, nie „0%”. Bez
+ * przycinania do 100%: więcej niż sto procent znaczy, że osoby weszły
+ * z pominięciem etapu wyżej.
  */
 export function stageConversionPct(
   rows: readonly StageBreakdownRow[],
   index: number,
 ): number | null {
   const row = rows[index];
-  if (!row) return null;
+  if (!row || !row.is_main) return null;
   for (let i = index - 1; i >= 0; i -= 1) {
     const prev = rows[i];
     if (!prev.is_main) continue;

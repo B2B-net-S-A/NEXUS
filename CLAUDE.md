@@ -267,7 +267,7 @@ Reguły, które łatwo cofnąć:
 - **Test, który padł, powtarza się raz** (`pytest-rerunfailures`, `--reruns 1` w shardach i w sicie). Jeden kapryśny test wyrzucał z kolejki PR-a i wszystkich za nim. Każde powtórzenie trafia do podsumowania biegu („Testy powtórzone”, `::warning::`) — to lista do naprawy, nie do ignorowania.
 - **Deploye są grupowane:** job `select` w `deploy.yml` czeka, aż na mainie będzie cisza przez `DEPLOY_QUIET_SECONDS` (zmienna repo, domyślnie 300 s; najwyżej 15 min), i dopiero wtedy wybiera HEAD. Seria merge'ów z kolejki = jeden deploy, jedna ~1,5-minutowa przerwa dla użytkowników zamiast kilku. Ręczny „Run workflow” na Deploy (wdróż teraz) nie czeka. `DEPLOY_QUIET_SECONDS=0` wyłącza grupowanie.
 - **Gotowy PR wchodzi do kolejki SAM** (`auto-enqueue.yml`, 22.09.2026): każdy PR nie-draft, bez etykiety `wstrzymaj`, nie od Dependabota, dostaje `gh pr merge --squash --auto` przy otwarciu i każdym pushu. Token to `secrets.QUEUE_BOT_TOKEN` (PAT) — NIE `GITHUB_TOKEN`, bo zdarzenia tokenu Actions nie uruchamiają `merge_group` i grupa wisiałaby bez testów. **PR, który nie ma jeszcze wejść: draft albo etykieta `wstrzymaj`.**
-- **Sesja Claude kończy pracę tak:** `gh pr merge <nr> --squash --auto` (na wypadek braku sekretu) i dalej nic nie pilnuje — PR sam wejdzie do kolejki po zielonym sicie, a z kolejki na maina. Test na produkcji (Chrome) dopiero, gdy `/api/health` → `version` zaczyna się od SHA commita z maina, który zawiera zmianę (`git log origin/main`), bo deploy czeka na ciszę i może objąć kilka PR-ów. Czerwony bieg w kolejce wyrzuca PR-a z kolejki — sesja naprawia i ponawia `gh pr merge --squash --auto`.
+- **Sesja Claude kończy pracę tak:** `gh pr merge <nr> --squash --auto` (na wypadek braku sekretu) i od razu włącza w aplikacji „Auto-fix CI & address comments” (`mcp__ccd_pr__set_monitor`: `auto_fix` + `address_comments` na `true`, decyzja Artura 23.09.2026) — sesja budzi się sama na czerwone CI, konflikt i komentarz review. PR sam wejdzie do kolejki po zielonym sicie, a z kolejki na maina. Test na produkcji (Chrome) dopiero, gdy `/api/health` → `version` zaczyna się od SHA commita z maina, który zawiera zmianę (`git log origin/main`), bo deploy czeka na ciszę i może objąć kilka PR-ów. Czerwony bieg w kolejce wyrzuca PR-a z kolejki — sesja naprawia i ponawia `gh pr merge --squash --auto`.
 - **Wiele PR-ów naraz = kolejka merge'ów GitHuba (od 17.09.2026).** Repo jest w organizacji `B2B-net-S-A` (Enterprise), więc natywny merge queue jest dostępny: `gh pr merge <pr> --squash` dodaje PR do kolejki, GitHub sam składa gotowe PR-y w grupę na gałęzi `gh-readonly-queue/main/*`, puszcza wymagane konteksty RAZ na grupę (`merge_group` w `ci.yml` i `ci-gate.yml`) i merguje — bez `BEHIND` i bez aktualizowania gałęzi. Deploy grup z kolejki nie widzi (`head_branch == 'main'` w `deploy.yml`); rusza dopiero push na main. **Nie odpalaj `scripts/merge-train.sh` z kilku sesji naraz** — 17.09 trzy równoległe trainy aktualizowały swoje PR-y na wyścigi i żaden nie wchodził (skrypt zostaje jako awaryjny, gdyby kolejka była wyłączona). PR-y, które się wzajemnie wykluczają (te same numery migracji, dwie implementacji tej samej funkcji), kolejka i tak wyrzuci — rozstrzygnij je przed dodaniem. NIE zdejmuj `strict` — squash stalej gałęzi cicho cofa cudze merge'e (incydent 27.07: -6 merge'y na prodzie). Deploye z burstu koalesują się same: deploy rusza tylko przy zielonym HEAD maina i skipuje rebuild, gdy prod serwuje już dokładnie ten commit (deploy.yml 2026-08-07, bramka HEAD 2026-09-15).
 
 ## Manual ops cheat sheet
@@ -1106,7 +1106,12 @@ technologii w każdym trybie i końcowa kontrola AI. Zespół zgłosił, że CV
 - **Zadania z kolejki przeżywają deploy.** `job_snapshot.py` przyjmuje snapshot
   bez pola, które ma wartość domyślną w dataclassie (np. `champion_profile`
   z #1477); nieznane pola i brak pól wymaganych dalej są odrzucane.
-- **Wejścia generacji, która nie dała dokumentu, żyją 7 dni** (od 11.09.2026).
+- **CV nie znikają same — automatyczna retencja WYŁĄCZONA (decyzja Artura
+  23.09.2026: trzymamy wszystko, także bez zgody RODO).**
+  `CV_JOB_INPUT_RETENTION_ENABLED` domyślnie `false` i obejmuje oba automaty
+  poniżej: sprzątanie wejść generatora i CV próbnych reguł klienta. CV znika
+  wyłącznie ręcznie (usunięcie dokumentu albo kandydata). Nie włączaj z
+  powrotem bez decyzji właściciela. Opis mechanizmu (stan przy `true`):
   `retire_unneeded_job_inputs` w pętli `cv_source_cleanup` (co 15 min, paczki
   `FOR UPDATE SKIP LOCKED`) bierze zadania zakończone porażką/przerwane bez
   gotowego dokumentu i zakończone podglądy reguł CV: klucz w magazynie zmienia
@@ -1250,7 +1255,8 @@ do modelu.
   `client_cv_rule_previews` — nie `cv_generated_documents`, bo podgląd nie
   jest dokumentem do wysłania. `candidate_id` z **CASCADE** (wiersz niesie
   pełne CV — usunięcie osoby ma go zabrać), retencja 7 dni sprzątana przy
-  następnym podglądzie, „processing" starsze niż 15 min raportowane jako
+  następnym podglądzie TYLKO przy `CV_JOB_INPUT_RETENTION_ENABLED=true`
+  (od 23.09.2026 domyślnie wyłączona — CV nie znikają same), „processing" starsze niż 15 min raportowane jako
   awaria (Coolify zabija zadanie w tle przy każdym pushu), porażka zapisywana
   po `rollback()`. Id podglądu żyje w edytorze, nie w zakładce — przełączenie
   zakładki nie może zgubić wyniku, za który już zapłacono.
@@ -2919,6 +2925,24 @@ przez nas / przez DL / przez klienta). Reguły, które łatwo cofnąć:
 - **Kto zakończył**: `candidate_stages.ended_by` (candidate|recruiter|
   delivery_lead|client). Rezygnacja = zawsze kandydat; odrzucenie bez pola =
   „przez nas”; „przez DL” tylko admin/DL/HoR (403).
+- **Stawka do klienta = sprawa DL** (decyzja 23.09.2026, `candidate_access`):
+  zapisuje WYŁĄCZNIE admin i Delivery Lead (`CLIENT_RATE_WRITE_ROLES`, bez
+  wyjątku dla właściciela rekrutacji), widzą dodatkowo HoR, TCM i Finanse
+  (`CLIENT_RATE_VIEW_ROLES`, doprecyzowane tego samego dnia: nie widzą jej
+  rekruter, sourcer i TAC). Rekruterowi serwer redaguje ją na tablicy,
+  w historii etapów i w historii kandydata (`can_view_client_rate`) — widzi
+  tylko oczekiwania kandydata i budżet Championa. Front: `lib/client-rate-access.ts`.
+  Przegląd DL (pulpit i ruch „Zweryfikowany → CV wysłane” na tablicy)
+  pokazuje stawkę kandydata, NIE pokazuje marży.
+- **Screening i stawki należą do pary, nie do etapu.** `transition_process`
+  kopiuje najnowszy wypełniony arkusz na nowy wiersz etapu (portal klienta,
+  generator CV, przegląd DL czytają bieżący etap); `GET …/screening` dla
+  wiersza bez arkusza oddaje arkusz pary (`screening_source_stage_id`), a karta
+  tablicy niesie `screening_done`, stawkę kandydata i stawkę do klienta
+  z wcześniejszych etapów.
+- **„+ DZ” tylko u Nordei** (poza nią wysyła DL z przeglądu). **Integracja
+  (token klienta OAuth, np. scraper pracuj.pl/JJIT) nie zakłada blokady** —
+  wejście `auto_match` (`candidate_claim.is_integration_request`).
 
 ## Rekrutacje i kandydatów widzą wszyscy; stawki do klienta nie widzi rekruter (23.09.2026)
 
@@ -2950,17 +2974,18 @@ stawki, za jaką osoby są wysyłane do klienta”.
 - **Podsumowanie aktywności AI** bierze też notatki, screeningi i feedback bez
   rekrutacji (`null_ok=True`, `VISIBILITY_SCOPE_VERSION` v2 unieważnia cache).
 - **Stawka do klienta** (`CandidateStage.client_rate_*`): czytają
-  `CLIENT_RATE_READ_ROLES` (admin, HoR, DL, TCM, Finanse; `has_any_role`, więc
+  `CLIENT_RATE_VIEW_ROLES` (admin, HoR, DL, TCM, Finanse; `has_any_role`, więc
   rekruter z dodatkową rolą DL widzi), zapisują `CLIENT_RATE_WRITE_ROLES`
-  (admin, DL) — `candidate_access.py`. Własność rekrutacji nie daje już zapisu.
-  Redakcja na serwerze: `_stage_response(viewer=…)` (tablica, „moje następne
-  kroki”, historia etapów, odpowiedź `/move`; brak widza = redakcja) i
+  (admin, DL) — `candidate_access.py`, front `lib/client-rate-access.ts`.
+  Własność rekrutacji nie daje zapisu, członkostwo też nie jest potrzebne.
+  Redakcja na serwerze: `_stage_response(show_client_rate=…)` — argument BEZ
+  wartości domyślnej, każdy wołający liczy go `user_can_view_client_rate`
+  (tablica, „moje następne kroki”, historia etapów, odpowiedź `/move`) — oraz
   `_candidate_history_response_for_user` (profil → Rekrutacje), który niesie
-  też `can_read_client_rate`/`can_write_client_rate` dla frontu
-  (`RecruitmentRateRow`). **Stawkę KANDYDATA (`expected_rate`) widzą wszyscy**
-  — do 23.09 profil chował ją każdemu bez `VIEW_FINANCE`. Kwoty KONTRAKTÓW
-  w `/history` zostają przy dostępie finansowym. Nowa powierzchnia niosąca
-  `client_rate_*` = `redact_client_rate_fields` albo `user_can_read_client_rate`.
+  `can_view_client_rate`/`can_write_client_rate`. **Stawkę KANDYDATA
+  (`expected_rate`) widzą wszyscy** — do 23.09 profil chował ją każdemu bez
+  `VIEW_FINANCE`. Kwoty KONTRAKTÓW w `/history` zostają przy dostępie
+  finansowym. Nowa powierzchnia niosąca `client_rate_*` = `user_can_view_client_rate`.
 - Wzmianki w starszych sekcjach o „członkostwie w zespole rekrutacji” jako
   bramce odczytu/zapisu opisują stan sprzed 23.09.2026.
 
@@ -3452,6 +3477,40 @@ Serwis `services/finance_order_pdfs.py`, trasy `/api/finance/order-pdfs*`
   (`<oryginał>_<Nazwisko>_DD.MM.RRRR-DD.MM.RRRR`, brak końca = `-bezterminowo`);
   lista i pobranie liczą ją tą samą funkcją (`find_entry`).
 - Klucze URL `pdfMonth`/`pdfClient` (nie `month` — ten należy do „Zmian").
+
+## Finanse: „Zrobione" w Zmianach, ZIP-y i pobrania w Zamówieniach PDF (0354, 23.09.2026)
+
+Każda podzakładka „Zmian w zamówieniach" to kafelki klientów → karty zamówień
+(nagłówek jak w „Zamówieniach PDF") → panel podglądu (domyślnie ukryty, Esc
+zamyka). Serwis `services/order_change_checks.py`, front
+`lib/finance-order-board.ts` + `components/finance/OrderChangesBoard.tsx`.
+
+- **Odhaczenie jest AUDYTEM, nie flagą:** `order_change_checks` jest dopisywana
+  (`checked`/`unchecked`), stan = ostatni wpis klucza. Bez FK (przeżywa
+  usunięcie zamówienia i konta). Zapis: `POST /api/finance/order-changes/checks`
+  wyłącznie Admin/Finanse (`FinanceModuleUser`), klucz musi istnieć w audycie
+  miesiąca (inaczej 409), blokada doradcza na kluczu, ten sam stan = brak wpisu.
+- **Klucz pozycji liczy serwer** (`item_key`): wpis dziennika `chg:ev:<id>`,
+  pozycje liczone z bieżącego stanu niosą to, co je wyróżnia (`exit:`/`ending:`
+  z datą końca, `gap:` ze statusem, nowe zamówienie ze stanem szkic/żywe,
+  startem, a szkic także ze stawkami — dziennik celowo pomija szkice, więc
+  uzupełnienie szkicu nie daje wpisu). Ponowna zmiana = nowy klucz = nowa pozycja
+  „Do zrobienia"; stare odhaczenie wraca jako `superseded` („Zmieniono
+  ponownie"). Zmieniając klucz, zgubisz odhaczenia z historii — nie zmieniaj.
+- **Dekoracja idzie na PEŁNYM audycie, filtry dopiero po niej** — inaczej
+  pozycja ukryta filtrem wyglądałaby jak zniknięte odhaczenie.
+- **Badge w menu Finansów** = „Do zrobienia" podzakładki Zmiany bieżącego
+  miesiąca (`GET /order-changes/summary`); pasek postępu i liczniki statusu
+  liczą aktywną podzakładkę po filtrach.
+- **Pobrania PDF-ów per osoba** (`order_pdf_downloads`): status „Nowy / Pobrane
+  przez Ciebie" zmienia wyłącznie pobranie (plik, ZIP), nie podgląd
+  (`?preview=true`) i nie odhaczenie; podmieniony plik (inna ścieżka) = znowu
+  „Nowy". W „podglądzie jako" pobranie się nie zapisuje. ZIP-y:
+  `GET /order-pdfs/zip` (klient / miesiąc z podfolderami / `files=`), nazwy
+  `[Klient]_[NrZam]_[Nazwisko]_[Typ]_[Od]-[Do].pdf` bez polskich znaków;
+  brakujący plik trafia do `BRAKUJACE_PLIKI.txt`, nie wywraca archiwum.
+  „Zmiana do rozliczenia" = zamówienie ma pozycję „Do zrobienia" w audycie
+  TEGO SAMEGO miesiąca.
 
 ## Usunięcie zamówienia przecenia historię — dialog musi to powiedzieć (18.09.2026)
 

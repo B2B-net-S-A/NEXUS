@@ -10,6 +10,7 @@ import WeekCalendar from "@/components/calendar/WeekCalendar";
 import { useInterviewCycle } from "@/lib/api/interviewCycle";
 import {
   candidateLabel,
+  interviewStartFor,
   parseCycleParam,
   parseScope,
   parseView,
@@ -247,6 +248,9 @@ export function CalendarCycleScreen({
         }}
         eventId={dialog?.kind === "debrief" ? dialog.eventId : null}
         pair={dialog?.kind === "debrief" ? dialog.pair : null}
+        interviewStart={
+          dialog?.kind === "debrief" ? interviewStartFor(data, dialog.eventId) : undefined
+        }
       />
       <SlotRequestDialog
         open={dialog?.kind === "slots"}

@@ -3,7 +3,12 @@
  */
 
 import type { OrderPdfEntryType, OrderPdfFile } from "@/lib/api/finance";
-import { MONTHS_PL, formatDay, parseMonthValue } from "@/lib/finance-order-changes";
+import {
+  MONTHS_PL,
+  formatDay,
+  formatMoment,
+  parseMonthValue,
+} from "@/lib/finance-order-changes";
 
 /** „2026-09" → „Wrzesień 2026". */
 export function orderPdfMonthLabel(value: string): string {
@@ -57,4 +62,44 @@ export function filesLabel(count: number): string {
 
 export function clientsLabel(count: number): string {
   return count === 1 ? "1 klient" : `${count} klientów`;
+}
+
+/**
+ * Status pobrania ZALOGOWANEJ osoby: „● Nowy" albo „Pobrane przez Ciebie
+ * 22.09.2026". Pobranie przez kogoś innego nic tu nie zmienia.
+ */
+export function downloadStatusLabel(
+  file: Pick<OrderPdfFile, "downloaded_at">,
+): string {
+  if (!file.downloaded_at) return "● Nowy";
+  return `Pobrane przez Ciebie ${formatMoment(file.downloaded_at).slice(0, 10)}`;
+}
+
+/** Pliki jeszcze niepobrane przez zalogowaną osobę. */
+export function newFilesCount(files: Pick<OrderPdfFile, "downloaded_at">[]): number {
+  return files.filter((file) => !file.downloaded_at).length;
+}
+
+/** „1 nowy", „3 nowe", „12 nowych". */
+export function newFilesLabel(count: number): string {
+  if (count === 1) return "1 nowy";
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return `${count} nowe`;
+  }
+  return `${count} nowych`;
+}
+
+/** Awaryjna nazwa ZIP-a, gdy serwer nie poda swojej: `[Klient]_[RRRR-MM].zip`. */
+export function zipFallbackName(clientName: string | null, month: string): string {
+  if (!clientName) return `Zamowienia_${month}.zip`;
+  const slug = clientName
+    .replace(/ł/g, "l")
+    .replace(/Ł/g, "L")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9.-]+/g, "_")
+    .replace(/^[_.-]+|[_.-]+$/g, "");
+  return `${slug || "klient"}_${month}.zip`;
 }

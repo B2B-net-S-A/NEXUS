@@ -22,7 +22,7 @@ from httpx import AsyncClient
 from sqlalchemy import true
 
 from app.api.candidate_access import (
-    user_can_read_client_rate,
+    user_can_view_client_rate,
     user_can_write_client_rate,
 )
 from app.api.candidates import _candidate_history_response_for_user
@@ -53,7 +53,7 @@ def _user(role: UserRole, *extra: UserRole) -> User:
     [UserRole.recruiter, UserRole.sourcer, UserRole.tac, UserRole.user],
 )
 def test_recruiting_roles_do_not_read_the_client_rate(role: UserRole) -> None:
-    assert user_can_read_client_rate(_user(role)) is False
+    assert user_can_view_client_rate(_user(role)) is False
 
 
 @pytest.mark.parametrize(
@@ -67,11 +67,11 @@ def test_recruiting_roles_do_not_read_the_client_rate(role: UserRole) -> None:
     ],
 )
 def test_management_and_finance_read_the_client_rate(role: UserRole) -> None:
-    assert user_can_read_client_rate(_user(role)) is True
+    assert user_can_view_client_rate(_user(role)) is True
 
 
 def test_a_recruiter_who_is_also_a_delivery_lead_reads_the_client_rate() -> None:
-    assert user_can_read_client_rate(_user(UserRole.recruiter, UserRole.delivery_lead))
+    assert user_can_view_client_rate(_user(UserRole.recruiter, UserRole.delivery_lead))
 
 
 def test_only_admin_and_delivery_lead_write_the_client_rate() -> None:
@@ -110,20 +110,27 @@ def _stage_with_rates() -> CandidateStage:
 def test_board_card_hides_client_rate_from_a_recruiter_but_keeps_candidate_rate() -> (
     None
 ):
-    payload = _stage_response(_stage_with_rates(), viewer=_user(UserRole.recruiter))
+    payload = _stage_response(
+        _stage_with_rates(),
+        show_client_rate=user_can_view_client_rate(_user(UserRole.recruiter)),
+    )
     assert payload["client_rate_value"] is None
     assert payload["client_rate_unit"] is None
     assert payload["expected_rate_value"] == Decimal("150")
 
 
 def test_board_card_shows_client_rate_to_a_delivery_lead() -> None:
-    payload = _stage_response(_stage_with_rates(), viewer=_user(UserRole.delivery_lead))
+    payload = _stage_response(
+        _stage_with_rates(),
+        show_client_rate=user_can_view_client_rate(_user(UserRole.delivery_lead)),
+    )
     assert payload["client_rate_value"] == Decimal("190")
 
 
-def test_board_card_without_a_viewer_is_redacted() -> None:
-    payload = _stage_response(_stage_with_rates(), viewer=None)
-    assert payload["client_rate_value"] is None
+def test_stage_response_has_no_default_for_client_rate_visibility() -> None:
+    # Zapomniany argument ma być błędem, nie cichym odsłonięciem stawki.
+    with pytest.raises(TypeError):
+        _stage_response(_stage_with_rates())  # type: ignore[call-arg]
 
 
 def _history() -> dict:
@@ -145,7 +152,7 @@ def test_profile_history_for_a_recruiter_shows_candidate_rate_only() -> None:
     assert job["client_rate"] is None
     assert job["expected_rate"] == {"value": 150.0, "unit": "hourly", "currency": "PLN"}
     assert "rate_client" not in out["contracts"][0]
-    assert out["can_read_client_rate"] is False
+    assert out["can_view_client_rate"] is False
     assert out["can_write_client_rate"] is False
 
 
@@ -154,7 +161,7 @@ def test_profile_history_for_head_of_recruitment_shows_client_rate() -> None:
         _history(), _user(UserRole.head_of_recruitment)
     )
     assert out["jobs"][0]["client_rate"]["value"] == 190.0
-    assert out["can_read_client_rate"] is True
+    assert out["can_view_client_rate"] is True
     # Kwoty KONTRAKTÓW zostają przy dostępie finansowym, jak dotąd.
     assert "rate_client" not in out["contracts"][0]
 
@@ -319,7 +326,7 @@ async def test_non_member_recruiter_sees_board_notes_and_history_without_client_
     job = next(j for j in body["jobs"] if j["job_id"] == job_id)
     assert job["client_rate"] is None
     assert job["expected_rate"]["value"] == 150.0
-    assert body["can_read_client_rate"] is False
+    assert body["can_view_client_rate"] is False
 
     rate = await app_client.patch(
         f"/api/candidates/{cand_id}/recruitments/{job_id}/client-rate",

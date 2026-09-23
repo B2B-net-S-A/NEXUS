@@ -5,8 +5,11 @@ klient. Karta nie idzie dalej, dopóki debrief NAJNOWSZEJ odbytej rozmowy nie
 ma pytań albo jawnego „klient nie zadawał pytań”. Te testy pilnują:
 
 * ``missing_debrief`` — kiedy bramka dotyczy pary, a kiedy nie (brak rozmowy,
-  rozmowa przyszła, odwołana, debrief z pytaniami / z „nie pytał”);
-* ``PUT …/debrief`` — pusta lista pytań bez potwierdzenia to 422;
+  rozmowa odwołana, debrief z pytaniami / z „nie pytał”); rozmowa ZAPLANOWANA
+  blokuje ruch (test na produkcji 23.09.2026: rozmowa jutro, karta przeszła do
+  „Umowy”), a debrief zapisany przed rozpoczęciem rozmowy się nie liczy;
+* ``PUT …/debrief`` — pusta lista pytań bez potwierdzenia to 422, zapis przed
+  rozpoczęciem rozmowy też 422;
 * ``GET …/client-questions?client_id=`` — pula pytań klienta dla nowej
   rekrutacji, z tą samą granicą dostępu co rekrutacje klienta.
 """
@@ -151,16 +154,49 @@ async def test_pair_without_client_interview_is_not_gated():
     assert await _gate(cand_id, job_id) is None
 
 
-async def test_future_interview_is_not_gated_yet():
+async def test_future_interview_gates_until_it_happens():
+    # Rozmowa jutro, brak debriefu — karta nie idzie do „Umowy”, a komunikat
+    # mówi, że rozmowa jeszcze się nie odbyła.
     job_id, cand_id, client_id = await _pair()
-    await _event(
+    start = datetime.now(timezone.utc) + timedelta(days=1)
+    event_id = await _event(
         cand_id=cand_id,
         job_id=job_id,
         client_id=client_id,
-        start=datetime.now(timezone.utc) + timedelta(days=2),
+        start=start,
         status=EventStatus.scheduled,
     )
-    assert await _gate(cand_id, job_id) is None
+    detail = await _gate(cand_id, job_id)
+    assert detail is not None
+    assert detail["code"] == DEBRIEF_REQUIRED_CODE
+    assert detail["event_id"] == event_id
+    assert detail["interview_pending"] is True
+    assert detail["message"].startswith("Rozmowa u klienta jeszcze się nie odbyła")
+    assert "Debrief uzupełnisz po rozmowie" in detail["message"]
+    # Po rozmowie ta sama para dostaje zwykłą prośbę o telefon.
+    later = await _gate(cand_id, job_id, now=start + timedelta(hours=2))
+    assert later is not None and later["interview_pending"] is False
+    assert later["message"].startswith("Najpierw zadzwoń do kandydata")
+
+
+async def test_premature_debrief_does_not_open_the_gate():
+    # Debrief zapisany, zanim rozmowa się zaczęła (tak powstał wiersz na
+    # produkcji przed blokadą zapisu) — nie liczy się ani przed, ani po rozmowie.
+    job_id, cand_id, client_id = await _pair()
+    start = datetime.now(timezone.utc) + timedelta(hours=5)
+    event_id = await _event(
+        cand_id=cand_id,
+        job_id=job_id,
+        client_id=client_id,
+        start=start,
+        status=EventStatus.scheduled,
+    )
+    await _feedback(
+        event_id=event_id, cand_id=cand_id, job_id=job_id, questions="Kafka?"
+    )
+    assert (await _gate(cand_id, job_id))["interview_pending"] is True
+    after = await _gate(cand_id, job_id, now=start + timedelta(hours=2))
+    assert after is not None and after["event_id"] == event_id
 
 
 async def test_cancelled_interview_is_not_gated():
@@ -233,9 +269,10 @@ async def test_debrief_with_no_client_questions_opens_the_gate():
     assert await _gate(cand_id, job_id) is None
 
 
-async def test_only_latest_past_interview_counts():
+async def test_only_latest_interview_counts():
     # Runda 1 ma debrief, runda 2 (późniejsza, już odbyta) — nie: bramka
-    # pyta o rundę 2. Runda 3 w przyszłości nie jest jeszcze brana pod uwagę.
+    # pyta o rundę 2. Gdy runda 2 ma debrief, a runda 3 jest zaplanowana,
+    # bramka czeka na rozmowę 3.
     job_id, cand_id, client_id = await _pair()
     now = datetime.now(timezone.utc)
     first = await _event(
@@ -251,17 +288,22 @@ async def test_only_latest_past_interview_counts():
         client_id=client_id,
         start=now - timedelta(hours=2),
     )
-    await _event(
+    detail = await _gate(cand_id, job_id)
+    assert detail is not None and detail["event_id"] == second
+    assert detail["interview_pending"] is False
+    await _feedback(event_id=second, cand_id=cand_id, job_id=job_id, questions="Q2")
+    assert await _gate(cand_id, job_id) is None
+
+    third = await _event(
         cand_id=cand_id,
         job_id=job_id,
         client_id=client_id,
         start=now + timedelta(days=3),
         status=EventStatus.scheduled,
     )
-    detail = await _gate(cand_id, job_id)
-    assert detail is not None and detail["event_id"] == second
-    # Ten sam stan widziany „przed” rundą 2 — debrief rundy 1 wystarcza.
-    assert await _gate(cand_id, job_id, now=now - timedelta(days=1)) is None
+    pending = await _gate(cand_id, job_id)
+    assert pending is not None and pending["event_id"] == third
+    assert pending["interview_pending"] is True
 
 
 # ── PUT debrief ─────────────────────────────────────────────────────────────
@@ -309,6 +351,122 @@ async def test_empty_debrief_needs_explicit_no_questions(app_client: AsyncClient
     assert both.json()["no_client_questions"] is False
     assert both.json()["questions"] == ["Jak testujesz?"]
     assert await _gate(cand_id, job_id) is None
+
+
+async def test_debrief_before_interview_starts_is_refused(app_client: AsyncClient):
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    job_id, cand_id, client_id = await _pair(recruiter_id=rec_id)
+    start = datetime.now(timezone.utc) + timedelta(days=1)
+    event_id = await _event(
+        cand_id=cand_id,
+        job_id=job_id,
+        client_id=client_id,
+        start=start,
+        status=EventStatus.scheduled,
+        owner_id=rec_id,
+    )
+
+    info = await app_client.get(
+        f"/api/interview-cycle/events/{event_id}", headers=rec_h
+    )
+    assert info.status_code == 200, info.text
+    assert info.json()["started"] is False
+    assert datetime.fromisoformat(info.json()["start"]) == start
+
+    refused = await app_client.put(
+        f"/api/interview-cycle/events/{event_id}/debrief",
+        headers=rec_h,
+        json={
+            "outcome": "good",
+            "offer_acceptance": "yes",
+            "questions": ["Jak testujesz?"],
+        },
+    )
+    assert refused.status_code == 422, refused.text
+    assert "Rozmowa u klienta jeszcze się nie odbyła" in refused.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        from sqlalchemy import select
+
+        saved = await db.scalar(
+            select(InterviewFeedback.id).where(
+                InterviewFeedback.calendar_event_id == event_id
+            )
+        )
+    assert saved is None
+
+    # Rozmowa, która już trwa, przyjmuje debrief.
+    started_id = await _event(
+        cand_id=cand_id,
+        job_id=job_id,
+        client_id=client_id,
+        start=datetime.now(timezone.utc) - timedelta(minutes=5),
+        status=EventStatus.scheduled,
+        owner_id=rec_id,
+    )
+    started = await app_client.get(
+        f"/api/interview-cycle/events/{started_id}", headers=rec_h
+    )
+    assert started.json()["started"] is True
+    ok = await app_client.put(
+        f"/api/interview-cycle/events/{started_id}/debrief",
+        headers=rec_h,
+        json={
+            "outcome": "good",
+            "offer_acceptance": "yes",
+            "no_client_questions": True,
+        },
+    )
+    assert ok.status_code == 200, ok.text
+
+
+async def test_premature_debrief_does_not_close_calendar_steps(
+    app_client: AsyncClient,
+):
+    # Rozmowa jutro, debrief zapisany dziś (stan z produkcji sprzed blokady):
+    # kroki „Telefon” i „Debrief” nie są „zrobione”.
+    rec_id, rec_h = await _user(UserRole.recruiter)
+    job_id, cand_id, client_id = await _pair(recruiter_id=rec_id)
+    event_id = await _event(
+        cand_id=cand_id,
+        job_id=job_id,
+        client_id=client_id,
+        start=datetime.now(timezone.utc) + timedelta(days=1),
+        status=EventStatus.scheduled,
+        owner_id=rec_id,
+    )
+    await _feedback(
+        event_id=event_id, cand_id=cand_id, job_id=job_id, questions="Kafka?"
+    )
+    overview = await app_client.get("/api/interview-cycle?scope=mine", headers=rec_h)
+    assert overview.status_code == 200, overview.text
+    item = next(i for i in overview.json()["items"] if i["candidate_id"] == cand_id)
+    states = {s["key"]: s["state"] for s in item["steps"]}
+    assert states["call"] != "done" and states["debrief"] != "done"
+    assert item["debrief"] is None
+    call = [
+        a
+        for a in overview.json()["agenda"]
+        if a["candidate_id"] == cand_id and a["kind"] == "call"
+    ]
+    assert call and call[0]["done"] is False
+
+
+async def test_interview_event_info_respects_job_access(app_client: AsyncClient):
+    rec_id, _ = await _user(UserRole.recruiter)
+    _, outsider_h = await _user(UserRole.recruiter)
+    job_id, cand_id, client_id = await _pair(recruiter_id=rec_id)
+    event_id = await _event(
+        cand_id=cand_id,
+        job_id=job_id,
+        client_id=client_id,
+        start=datetime.now(timezone.utc) + timedelta(days=1),
+        status=EventStatus.scheduled,
+        owner_id=rec_id,
+    )
+    resp = await app_client.get(
+        f"/api/interview-cycle/events/{event_id}", headers=outsider_h
+    )
+    assert resp.status_code in (403, 404), resp.text
 
 
 # ── GET client-questions?client_id= ─────────────────────────────────────────

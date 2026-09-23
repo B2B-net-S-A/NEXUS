@@ -489,11 +489,11 @@ async def test_routes_open_for_a_recruiter_outside_both_teams(
     assert called["n"] == 1
 
 
-async def test_member_of_target_only_also_gets_source_answers(
+async def test_member_of_target_only_sees_source_suggestions(
     app_client: AsyncClient, monkeypatch
 ):
-    """Członkostwo w poprzedniej rekrutacji nie jest już potrzebne, żeby
-    zobaczyć jej odpowiedzi (23.09.2026: rekrutację widzi każdy)."""
+    """Decyzja Artura 23.09.2026: podpowiedź widzi każdy członek rekrutacji
+    DOCELOWEJ — dostęp do źródłowej nie jest potrzebny."""
     headers, uid = await _seed_recruiter(app_client)
     seed = await _seed_pair(owner_id=uid)
     called = {"n": 0}
@@ -507,7 +507,6 @@ async def test_member_of_target_only_also_gets_source_answers(
     assert r.status_code == 200, r.text
     assert r.json()["available"] is True
     assert r.json()["source"]["job_id"] == seed["source_id"]
-    assert r.json()["previous_answers_count"] == 1
     r = await app_client.post(
         SUGGEST.format(stage_id=seed["stage_id"]), headers=headers
     )

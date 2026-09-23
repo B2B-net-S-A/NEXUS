@@ -646,6 +646,12 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
         assert seen_rules == [], "neither variant may run after denied admission"
 
         remaining = 2
+        # CV nie znikają same (decyzja 23.09.2026): nowy podgląd nie sprząta
+        # starszych, dopóki retencja CV jest wyłączona (domyślnie).
+        from app.services import cv_preview_retention
+
+        retire_spy = AsyncMock()
+        monkeypatch.setattr(cv_preview_retention, "retire_previews", retire_spy)
         r = await rule_request(
             app_client,
             "POST",
@@ -654,6 +660,7 @@ async def test_preview_rejects_foreign_recruitment_and_runs_both_variants(
             headers=headers,
         )
         assert r.status_code == 202, r.text
+        retire_spy.assert_not_awaited()
         assert charged == [("cv_generator", 2)], (
             "both preview variants must have one admission for two units"
         )

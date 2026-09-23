@@ -111,6 +111,7 @@ from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, Stage
 from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
 from app.services.match_score_cache import bulk_get_or_compute
 from app.services.critical_events import record_executed
+from app.services.rejection_reason_labels import rejection_reason_label
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.candidate_contact_hooks import (
     has_active_contact_trigger,
@@ -153,7 +154,7 @@ from app.api.candidate_access import (
     CANDIDATE_WRITE_ROLES,
     client_rate_write_allowed,
     resolve_client_rate_write,
-    user_can_read_client_rate,
+    user_can_view_client_rate,
 )
 from app.api.financial_access import (
     has_financial_access,
@@ -205,12 +206,12 @@ def _candidate_history_response_for_user(response: dict, current_user) -> dict: 
     """Historia rekrutacji z redakcją stawek wg roli (23.09.2026).
 
     - stawka KANDYDATA w rekrutacji (``jobs[].expected_rate``) — widzą wszyscy,
-    - stawka DO KLIENTA (``jobs[].client_rate``) — ``user_can_read_client_rate``
+    - stawka DO KLIENTA (``jobs[].client_rate``) — ``user_can_view_client_rate``
       (bez rekrutera, sourcera i TAC),
     - kwoty kontraktów (``contracts``) — jak dotąd tylko z dostępem finansowym.
     """
-    can_read_client_rate = user_can_read_client_rate(current_user)
-    if not can_read_client_rate:
+    can_view_client_rate = user_can_view_client_rate(current_user)
+    if not can_view_client_rate:
         for entry in response.get("jobs", []):
             entry["client_rate"] = None
     if not has_financial_access(current_user):
@@ -218,7 +219,7 @@ def _candidate_history_response_for_user(response: dict, current_user) -> dict: 
             redact_financial_fields(contract)
             for contract in response.get("contracts", [])
         ]
-    response["can_read_client_rate"] = can_read_client_rate
+    response["can_view_client_rate"] = can_view_client_rate
     response["can_write_client_rate"] = client_rate_write_allowed(current_user)
     return response
 
@@ -421,7 +422,9 @@ def _format_rejection_reason(
     Świadomie NIE doklejamy " · job (client)" — kontekst projektu jest w kolumnie
     "Rekrutacje".
     """
-    category = (reason_name or "").strip() or (rejection_note or "").strip()
+    category = (rejection_reason_label(reason_name) or "").strip() or (
+        rejection_note or ""
+    ).strip()
     note_raw = (stage_notes or "").strip()
     note = (
         _format_note_preview(note_raw, max_chars=_REJECTION_REASON_MAX_CHARS)
@@ -4071,6 +4074,8 @@ async def get_candidate_history(
     )
 
     # Group by job
+    # Decyzja 23.09.2026: stawki do klienta nie widzą rekruter, sourcer i TAC.
+    show_client_rate = user_can_view_client_rate(current_user)
     jobs_map: dict = {}
     for (
         stage,
@@ -4119,7 +4124,11 @@ async def get_candidate_history(
                 "notes": stage.notes,
             }
         )
-        if entry["client_rate"] is None and stage.client_rate_value is not None:
+        if (
+            entry["client_rate"] is None
+            and stage.client_rate_value is not None
+            and show_client_rate
+        ):
             entry["client_rate"] = {
                 "value": float(stage.client_rate_value),
                 "unit": stage.client_rate_unit,

@@ -318,18 +318,28 @@ describe("CvHandoffWorkbench", () => {
     );
   });
 
-  it("bez `can_write_client_rate` pole stawki znika, a wysyłka i tak idzie", async () => {
+  it("u Nordei bez `can_write_client_rate` pole stawki znika, a wysyłka i tak idzie", async () => {
     // Nawet admin z roli — decyduje pole z serwera, nie zgadywanie po roli.
-    renderWorkbench({ canWriteClientRate: false });
+    renderWorkbench({ canWriteClientRate: false, cproEnabled: true });
     await readySendButton();
 
     expect(screen.queryByLabelText("Kwota")).toBeNull();
-    expect(screen.getByText(/Stawkę do klienta zapisuje właściciel rekrutacji/)).toBeTruthy();
+    expect(screen.getByText(/Stawkę do klienta ustala Delivery Lead/)).toBeTruthy();
 
     await userEvent.click(await sendButton());
     await waitFor(() => expect(shareCreate).toHaveBeenCalledOnce());
     expect(setRecruitmentClientRate).not.toHaveBeenCalled();
     expect(calls).toEqual(["move", "share_link"]);
+  });
+
+  it("poza Nordeą rekruter nie wyśle do klienta — wysyła Delivery Lead (Pipeline v4)", async () => {
+    renderWorkbench({ canWriteClientRate: false });
+    expect(screen.queryByLabelText("Kwota")).toBeNull();
+    expect(screen.getByText(/Do klienta wysyła Delivery Lead i to on ustala stawkę/)).toBeTruthy();
+    expect(
+      (await screen.findAllByText(/osoba czeka w jego przeglądzie/)).length,
+    ).toBeGreaterThan(0);
+    expect(move).not.toHaveBeenCalled();
   });
 
   it("bez sfinalizowanego CV brandowanego link nie powstaje, a powód jest widoczny", async () => {
@@ -574,13 +584,10 @@ describe("CvHandoffWorkbench", () => {
     expect(screen.getByText("Limit CV na proces: 3")).toBeTruthy();
   });
 
-  it("marża liczy się dopiero przy zgodnych jednostkach — inaczej myślnik z powodem", async () => {
+  it("DL widzi stawkę kandydata obok pola stawki do klienta — bez marży", async () => {
     renderWorkbench();
-    await userEvent.type(screen.getByLabelText("Kwota"), "165");
-    // Kandydat ma 118 PLN/h, jednostka doku startuje na „miesięcznie" —
-    // dopóki się nie zgadzają, marża NIE może pokazać liczby.
-    const margin = await screen.findByText("—");
-    expect(margin.getAttribute("title")).toContain("Różne jednostki");
+    expect(screen.getByText("Stawka kandydata")).toBeTruthy();
+    expect(screen.queryByText(/Marża/)).toBeNull();
   });
 
   it("dok ma zakładki makiety, a lista linków startuje dopiero po wejściu na nią", async () => {
@@ -760,6 +767,7 @@ describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
       layout: "panel",
       focusCandidateId: 121,
       canWriteClientRate: false,
+      cproEnabled: true,
     });
     await readySendButton();
     expect(screen.queryByLabelText("Kwota")).toBeNull();

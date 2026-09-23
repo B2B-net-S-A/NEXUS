@@ -286,6 +286,48 @@ export function formatDayLabel(iso: string, now: Date = new Date()): string {
   return short.charAt(0).toUpperCase() + short.slice(1);
 }
 
+/**
+ * Debrief to zapis telefonu PO rozmowie u klienta — da się go zapisać dopiero
+ * od jej rozpoczęcia (serwer odmawia wcześniej, `PUT …/debrief` → 422).
+ */
+export function debriefAvailable(interviewStart: string | null | undefined, now: Date = new Date()): boolean {
+  if (!interviewStart) return true;
+  return new Date(interviewStart).getTime() <= now.getTime();
+}
+
+/** Początek rozmowy u klienta `eventId` z migawki ekranu (krok „Rozmowa”
+ * pary albo wpis agendy); `undefined` = nie wiadomo (okno zapyta serwer). */
+export function interviewStartFor(
+  data: CycleOverview | null | undefined,
+  eventId: number,
+): string | undefined {
+  if (!data) return undefined;
+  for (const item of data.items) {
+    const step = item.steps.find((s) => s.key === "interview" && s.event_id === eventId);
+    if (step?.at) return step.at;
+  }
+  const entry = data.agenda.find((a) => a.kind === "interview" && a.event_id === eventId);
+  return entry?.start ?? undefined;
+}
+
+/** „Debrief po rozmowie — dostępny od 14:00” (inny dzień: „od jutra, 14:00”). */
+export function debriefAvailableFromLabel(interviewStart: string, now: Date = new Date()): string {
+  const time = formatTime(interviewStart);
+  const key = dayKey(new Date(interviewStart));
+  let when: string;
+  if (key === dayKey(now)) when = time;
+  else if (key === dayKey(new Date(now.getTime() + 86_400_000))) when = `jutra, ${time}`;
+  else {
+    const day = new Intl.DateTimeFormat("pl-PL", {
+      timeZone: TZ,
+      day: "2-digit",
+      month: "2-digit",
+    }).format(new Date(interviewStart));
+    when = `${day}, ${time}`;
+  }
+  return `Debrief po rozmowie — dostępny od ${when}`;
+}
+
 export function formatSlot(slot: SlotItem): string {
   const start = new Date(slot.start);
   const day = new Intl.DateTimeFormat("pl-PL", {

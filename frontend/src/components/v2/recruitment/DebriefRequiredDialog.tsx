@@ -11,6 +11,11 @@ import { DebriefDialog } from "@/components/calendar/cycle/DebriefDialog";
  * odbytej rozmowy nie ma pytań klienta albo jawnego „klient nie zadawał
  * pytań”. To okno zbiera ten debrief; po zapisie `onSaved` ponawia ruch.
  *
+ * Rozmowa ZAPLANOWANA też blokuje ruch (`interview_pending` w odmowie). Wtedy
+ * okno (`DebriefDialog`, termin czyta z `GET …/events/{id}`) mówi, od kiedy
+ * debrief będzie dostępny, i nie pozwala zapisać — debrief to zapis telefonu
+ * po rozmowie, której jeszcze nie było.
+ *
  * Debrief zapisuje się pod wydarzeniem rozmowy (`eventId`); `jobId` służy
  * odświeżeniu tablicy (odznaka „Debrief ✓” na karcie) — oba klucze kanbana,
  * jak po każdym ruchu.

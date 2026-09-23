@@ -488,7 +488,7 @@ def test_client_rate_rule_roles_ignore_ownership():
     from types import SimpleNamespace
 
     from app.api.candidate_access import (
-        user_can_read_client_rate,
+        user_can_view_client_rate,
         user_can_write_client_rate,
     )
 
@@ -505,7 +505,7 @@ def test_client_rate_rule_roles_ignore_ownership():
 
     job = SimpleNamespace(recruiter_id=7, created_by=8)
     for role in ROLES:
-        assert user_can_read_client_rate(mk(role)) is (
+        assert user_can_view_client_rate(mk(role)) is (
             role in CLIENT_RATE_READ_ROLES
         ), role
         expected = role in CLIENT_RATE_WRITE_ROLES

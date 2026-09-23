@@ -1255,6 +1255,7 @@ async def recompute_scores(
     dependencies=PIPELINE_SECTION_DEPENDENCIES,
 )
 async def assign_candidate_to_job(
+    request: Request,
     candidate_id: int,
     job_id: int,
     current_user: CandidateWriteAccess,
@@ -1330,6 +1331,9 @@ async def assign_candidate_to_job(
         except ValueError:
             legacy_enum = PipelineStage.new
 
+    from app.services import candidate_claim
+
+    from_integration = candidate_claim.is_integration_request(request)
     stage = await open_process(
         db,
         candidate_id=candidate_id,
@@ -1339,8 +1343,10 @@ async def assign_candidate_to_job(
         moved_at=datetime.now(timezone.utc),
         actor_user_id=current_user.id,
         work_channel=PriorityChannel.database,
-        entry_source="added_manual",
-        claim_for_user_id=current_user.id,
+        entry_source=(
+            candidate_claim.ENTRY_AUTO_MATCH if from_integration else "added_manual"
+        ),
+        claim_for_user_id=None if from_integration else current_user.id,
     )
     await create_original_cv_snapshot(db, stage)
     await maybe_ensure_contact_opportunity(

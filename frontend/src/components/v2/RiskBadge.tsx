@@ -44,14 +44,19 @@ const CATEGORY_LABEL: Record<string, string> = {
  post_accept: "Wycofania po akceptacji oferty",
 };
 
+// Lustro `backend/app/services/rejection_reason_labels.py`. Zdarzenia ryzyka
+// niosą KOD powodu (także te zapisane w profilu ryzyka przed etykietami), więc
+// tłumaczymy po kodzie — tymi samymi słowami co okno rezygnacji.
 const REASON_LABEL: Record<string, string> = {
- accepted_other_offer: "Zaakceptował inną ofertę",
- counter_offer: "Counter-offer obecnego pracodawcy",
+ accepted_other_offer: "Przyjął inną ofertę",
+ counter_offer: "Kontroferta od obecnego pracodawcy",
  personal_reasons: "Powody osobiste",
  lost_interest: "Stracił zainteresowanie",
- salary_mismatch: "Niedopasowanie wynagrodzenia",
- process_too_long: "Proces za długi",
- legacy_unknown: "Nieznany (legacy)",
+ salary_mismatch: "Rozbieżność oczekiwań finansowych",
+ process_too_long: "Za długi proces",
+ legacy_unknown: "Powód nieznany (import z Traffita)",
+ "Inne (rejected)": "Inne",
+ "Inne (withdrawn)": "Inne",
 };
 
 function formatDate(iso: string): string {

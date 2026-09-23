@@ -1,20 +1,35 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
-import { ClientSinglePicker, type ClientRef } from "@/components/clients/ClientSinglePicker";
+import {
+  ClientSinglePicker,
+  type ClientRef,
+} from "@/components/clients/ClientSinglePicker";
 import { useToast } from "@/components/Toast";
 import {
   financeApi,
   orderChangesExportPath,
+  orderPdfFilePath,
   type OrderChangesResponse,
+  type OrderPdfRef,
 } from "@/lib/api/finance";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
+  downloadAuthenticatedFile,
   downloadBlob,
   fetchAuthenticatedBlob,
 } from "@/lib/authenticated-files";
+import {
+  boardItems,
+  cardItemsAllTabs,
+  statusCounts,
+  withCheck,
+  type BoardItem,
+  type StatusFilter,
+} from "@/lib/finance-order-board";
 import {
   monthOptions,
   monthValue,
@@ -29,8 +44,15 @@ import {
   OrderChangesPanel,
   SUB_TAB_LABELS,
   subTabFromParam,
+  type OrderChangesBoardState,
   type OrderChangesSubTab,
 } from "./OrderChangesPanel";
+import { pdfKey } from "./OrderChangeRow";
+
+/** Klucz zapytania o badge „do zrobienia" przy zakładce w menu Finansów. */
+export const ORDER_CHANGES_SUMMARY_KEY = [
+  "finance-order-changes-summary",
+] as const;
 
 /** Klucze filtrów w adresie — lustro listy czyszczonej w `app/finance/page.tsx`. */
 export const ORDER_CHANGES_URL_KEYS = [
@@ -41,7 +63,28 @@ export const ORDER_CHANGES_URL_KEYS = [
   "clientName",
   "from",
   "to",
+  "status",
+  "tile",
 ] as const;
+
+const STATUS_VALUES: readonly StatusFilter[] = ["todo", "done", "all"];
+
+function statusFromParam(value: string | null): StatusFilter {
+  return (STATUS_VALUES as readonly string[]).includes(value ?? "")
+    ? (value as StatusFilter)
+    : "todo";
+}
+
+async function loadPreviewPdf(ref: {
+  kind: string;
+  id: number;
+}): Promise<Blob> {
+  return fetchAuthenticatedBlob(
+    orderPdfFilePath(ref as Pick<OrderPdfRef, "kind" | "id">, {
+      preview: true,
+    }),
+  );
+}
 
 function readParam(name: string): string | null {
   if (typeof window === "undefined") return null;
@@ -55,6 +98,8 @@ interface UrlState {
   client: ClientRef | null;
   from: string;
   to: string;
+  status: StatusFilter;
+  tile: string | null;
 }
 
 function writeParams(state: UrlState, defaultMonth: string) {
@@ -71,6 +116,8 @@ function writeParams(state: UrlState, defaultMonth: string) {
   set("clientName", state.client?.name ?? "");
   set("from", state.from);
   set("to", state.to);
+  set("status", state.status === "todo" ? "" : state.status);
+  set("tile", state.tile ?? "");
 
   const query = params.toString();
   window.history.replaceState(
@@ -95,8 +142,14 @@ function readClientParam(): ClientRef | null {
  * do karty i co kilka minut (`ORDER_CHANGES_POLL_MS`), bez ręcznego
  * przełączania miesiąca.
  */
-export function OrderChangesTab() {
+export function OrderChangesTab({
+  onOpenInPdfs,
+}: {
+  /** „Otwórz w Zamówienia PDF" — przełącza widok Finansów na miesiąc i klienta pliku. */
+  onOpenInPdfs?: (pdf: OrderPdfRef) => void;
+} = {}) {
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
   const months = useMemo(() => monthOptions(new Date()), []);
   const defaultMonth = months[1]?.value ?? months[0].value; // bieżący miesiąc
   // Strona Finansów montuje zakładkę dopiero po stronie przeglądarki, więc
@@ -113,6 +166,15 @@ export function OrderChangesTab() {
   const [client, setClient] = useState<ClientRef | null>(readClientParam);
   const [dateFrom, setDateFrom] = useState(() => readParam("from") ?? "");
   const [dateTo, setDateTo] = useState(() => readParam("to") ?? "");
+  const [status, setStatus] = useState<StatusFilter>(() =>
+    statusFromParam(readParam("status")),
+  );
+  const [tile, setTile] = useState<string | null>(() => readParam("tile"));
+  const [previewCard, setPreviewCard] = useState<string | null>(null);
+  const [pendingKeys, setPendingKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
 
   // Filtry liczy serwer (jedno źródło prawdy dla ekranu i eksportu), więc
   // wpisywanie musi być zdławione — jak w zakładce Wyniki.
@@ -131,8 +193,14 @@ export function OrderChangesTab() {
   // Odwrócony zakres serwer odrzuca 422 — nie pytamy o niego wcale, żeby
   // ekran nie migał komunikatem o błędzie w trakcie wpisywania drugiej daty.
   const rangeReversed = Boolean(dateFrom && dateTo && dateFrom > dateTo);
+  const queryKey = [
+    "finance-order-changes",
+    period.year,
+    period.month,
+    filterParams,
+  ] as const;
   const query = useQuery<OrderChangesResponse>({
-    queryKey: ["finance-order-changes", period.year, period.month, filterParams],
+    queryKey,
     queryFn: async () =>
       (await financeApi.getOrderChanges({ ...period, ...filterParams })).data,
     enabled: !rangeReversed,
@@ -160,6 +228,8 @@ export function OrderChangesTab() {
     client,
     from: dateFrom,
     to: dateTo,
+    status,
+    tile,
   };
 
   /** Jedno wejście do stanu i adresu — inaczej każdy filtr miałby własną
@@ -171,12 +241,117 @@ export function OrderChangesTab() {
     if (patch.client !== undefined) setClient(patch.client);
     if (patch.from !== undefined) setDateFrom(patch.from);
     if (patch.to !== undefined) setDateTo(patch.to);
+    if (patch.status !== undefined) setStatus(patch.status);
+    if (patch.tile !== undefined) setTile(patch.tile);
     writeParams({ ...current, ...patch }, defaultMonth);
   }
 
   function changeSubTab(next: OrderChangesSubTab) {
+    setPreviewCard(null);
     sync({ sub: next });
   }
+
+  // Karta w panelu → historia zamówienia (wszystkie miesiące). Linia
+  // zamówienia zbiorczego dostaje też zmiany CAŁEJ grupy.
+  const previewRef = useMemo(() => {
+    if (!previewCard || !query.data) return null;
+    const [first] = cardItemsAllTabs(query.data, previewCard);
+    if (!first) return null;
+    return { order_id: first.orderId, order_group_id: first.orderGroupId };
+  }, [previewCard, query.data]);
+  const historyQuery = useQuery({
+    queryKey: [
+      "finance-order-history",
+      previewRef?.order_id ?? null,
+      previewRef?.order_group_id ?? null,
+    ],
+    queryFn: async () =>
+      (await financeApi.getOrderHistory(previewRef!)).data.items,
+    enabled: previewRef !== null,
+  });
+
+  async function toggle(item: BoardItem, done: boolean) {
+    if (pendingKeys.has(item.key)) return;
+    setPendingKeys((keys) => new Set(keys).add(item.key));
+    try {
+      const { data } = await financeApi.setOrderChangeCheck({
+        year: period.year,
+        month: period.month,
+        item_key: item.key,
+        done,
+      });
+      // Liczniki klienta, pasek postępu i filtr statusu liczą się z tych
+      // danych — odświeżają się od razu, bez czekania na ponowny odczyt.
+      queryClient.setQueryData<OrderChangesResponse>(queryKey, (previous) =>
+        previous ? withCheck(previous, item.key, data.done) : previous,
+      );
+    } catch (error) {
+      showToast(
+        apiErrorMessage(error, "Nie udało się zapisać „Zrobione”."),
+        "error",
+      );
+    } finally {
+      setPendingKeys((keys) => {
+        const next = new Set(keys);
+        next.delete(item.key);
+        return next;
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["finance-order-changes"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ORDER_CHANGES_SUMMARY_KEY,
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["finance-order-history"],
+      });
+      void queryClient.invalidateQueries({ queryKey: ["finance-order-pdfs"] });
+    }
+  }
+
+  async function downloadPdf(pdf: OrderPdfRef) {
+    if (downloadingPdf) return;
+    setDownloadingPdf(pdfKey(pdf));
+    try {
+      await downloadAuthenticatedFile(orderPdfFilePath(pdf), pdf.download_name);
+      void queryClient.invalidateQueries({ queryKey: ["finance-order-pdfs"] });
+    } catch {
+      showToast("Nie udało się pobrać pliku.", "error");
+    } finally {
+      setDownloadingPdf(null);
+    }
+  }
+
+  const data = query.data;
+  const counts = useMemo(
+    () => (data ? statusCounts(boardItems(data, subTab)) : null),
+    [data, subTab],
+  );
+
+  const board: OrderChangesBoardState = {
+    status,
+    selectedClient: tile,
+    onSelectClient: (next) => {
+      setPreviewCard(null);
+      sync({ tile: next });
+    },
+    onToggle: toggle,
+    pendingKeys,
+    onDownloadPdf: downloadPdf,
+    downloadingPdf,
+    previewCard,
+    onPreviewCard: setPreviewCard,
+    preview: {
+      itemsForCard: (cardKey) => (data ? cardItemsAllTabs(data, cardKey) : []),
+      history: {
+        items: historyQuery.data ?? null,
+        loading: historyQuery.isLoading,
+        failed: historyQuery.isError,
+      },
+      loadPdf: loadPreviewPdf,
+      onOpenInPdfs: (pdf) => onOpenInPdfs?.(pdf),
+    },
+  };
 
   async function exportXlsx() {
     if (exporting) return;
@@ -210,9 +385,9 @@ export function OrderChangesTab() {
 
   const filtersActive = Boolean(
     filterParams.q ||
-      filterParams.client_id ||
-      filterParams.date_from ||
-      filterParams.date_to,
+    filterParams.client_id ||
+    filterParams.date_from ||
+    filterParams.date_to,
   );
 
   const filters = {
@@ -269,6 +444,7 @@ export function OrderChangesTab() {
         subTab={subTab}
         onOpenGaps={() => changeSubTab("gaps")}
         filtersActive={filtersActive}
+        board={board}
       />
     </div>
   ) : rangeReversed ? (
@@ -294,6 +470,7 @@ export function OrderChangesTab() {
       subTab={subTab}
       onOpenGaps={() => changeSubTab("gaps")}
       filtersActive={filtersActive}
+      board={board}
     />
   ) : null;
 
@@ -305,10 +482,16 @@ export function OrderChangesTab() {
       onSubTabChange={changeSubTab}
       month={month}
       months={selectable}
-      onMonthChange={(next) => sync({ month: next })}
+      onMonthChange={(next) => {
+        setPreviewCard(null);
+        sync({ month: next });
+      }}
       onExport={exportXlsx}
       exporting={exporting}
       filters={filters}
+      status={status}
+      onStatusChange={(next) => sync({ status: next })}
+      statusCounts={counts}
     />
   );
 }

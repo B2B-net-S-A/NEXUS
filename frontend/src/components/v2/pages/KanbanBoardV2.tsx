@@ -73,6 +73,10 @@ import { ScorecardV2 } from"@/components/v2/modals/ScorecardV2";
 import { ScreeningSheet } from"@/components/v2/modals/ScreeningSheet";
 import { useToast } from"@/components/Toast";
 import { BoardReviewSection } from "@/components/v2/jobs/BoardReviewSection";
+import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
+import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
+import type { BoardTaskRow } from "@/lib/api/boardTasks";
+import type { PairInfo } from "@/lib/interview-cycle";
 import {
  SETTABLE_BADGES,
  STAGE_BADGE_LABEL,
@@ -123,6 +127,7 @@ import {
  formatExpectedRate,
  groupKanbanColumns,
  moveBlockedReason,
+ itemFullName,
  primaryForwardMove,
  type PipelineGroupKey,
  type PrimaryForwardMove,
@@ -1423,6 +1428,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  hasRole(authUser, "admin") ||
  hasRole(authUser, "delivery_lead") ||
  hasRole(authUser, "head_of_recruitment");
+ // Terminy od klienta dodaje DL (lustro bramki `interview_slots`: admin, HoR,
+ // DL, TAC z członkostwem — serwer i tak sprawdza członkostwo).
+ const canAddClientSlots =
+ !readOnly &&
+ (canSetDzBadge || hasRole(authUser, "tac"));
+ const [slotPair, setSlotPair] = useState<PairInfo | null>(null);
  // Pipeline v4: kolumna Tablicy każdej karty (odznaki) i „Biorę/Przejmij".
  const columnByItemId = useMemo(() => {
  const m = new Map<number, BoardColumnKey | null>();
@@ -1990,6 +2001,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // weto HM, czarna lista, NDA i konkurent są ostrzeżeniem serwera, które
  // tablica zamienia na okno „Przenieś mimo to".
  const dockHost = dockItemColId ? (hostByColId.get(dockItemColId) ?? null) : null;
+ const dockHostKey = dockItem ? (columnByItemId.get(dockItem.id) ?? null) : null;
  const dockMoveTargets = useMemo<PipelineMoveTarget[]>(() => {
  if (!dockItem || !dockItemColId) return [];
  // Cele: 9 kolumn Tablicy (ich gospodarze) + zamknięci — bez etapów-odznak,
@@ -2053,7 +2065,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  for (const member of fold.members) {
  const badge = placeStage(member).badge;
  if (!badge || !SETTABLE_BADGES.includes(badge)) continue;
- if (badge === "cpro" && !cproEnabled) continue;
+ // Pipeline v4: DZ → Cpro to ścieżka Nordei; poza nią osobę wysyła DL
+ // z przeglądu, a odznaka DZ tylko myliłaby (decyzja 23.09.2026).
+ if ((badge === "cpro" || badge === "dz") && !cproEnabled) continue;
  const currentBadge = placeStage(
  fold.members.find((m) => colId(m) === dockItemColId) ?? dockHost
  ).badge;
@@ -2086,12 +2100,48 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  });
  }, [dockItem, dockItemColumn, dockItemColId, groupByColId, slaDays]);
 
+ // Pipeline v4 (decyzja 23.09.2026): DL wysyłający osobę ze „Zweryfikowanego"
+ // do klienta dostaje ten sam pełny przegląd co na pulpicie (stawka kandydata,
+ // CV, screening, stawka do klienta — bez marży), a nie samo okno stawki.
+ const [dlReviewTask, setDlReviewTask] = useState<BoardTaskRow | null>(null);
+ const canReviewAsDl = hasRole(authUser, "admin") || hasRole(authUser, "delivery_lead");
  const handleDockMove = useCallback(
  (dst: KanbanColumn) => {
  if (!dockItem || !dockItemColId) return;
+ if (
+ dst.stage === "cv_sent" &&
+ !cproEnabled &&
+ canReviewAsDl &&
+ dockHostKey === "verified"
+ ) {
+ setDlReviewTask({
+ kind: "dl_review",
+ stage_id: dockItem.id,
+ candidate_id: dockItem.candidate_id,
+ candidate_name: itemFullName(dockItem),
+ job_id: jobId,
+ job_title: jobTitle ?? "",
+ client_id: clientId ?? null,
+ client_name: null,
+ since: dockItem.moved_at ?? new Date().toISOString(),
+ process_state_version: dockItem.process_state_version ?? 0,
+ target_stage_def_id: dst.stage_def_id ?? null,
+ rejected_stage_def_id: rejectedTemplateCol?.stage_def_id ?? null,
+ assignee_id: null,
+ assignee_name: null,
+ verified_at: dockItem.moved_at ?? null,
+ expected_rate_value:
+ dockItem.expected_rate_value != null ? Number(dockItem.expected_rate_value) : null,
+ expected_rate_unit: dockItem.expected_rate_unit ?? null,
+ expected_rate_currency: dockItem.expected_rate_currency ?? null,
+ // Serwer czyta arkusz pary (także z „Nowych"), gdy etap nie ma własnego.
+ screening_stage_id: dockItem.id,
+ });
+ return;
+ }
  requestMove(dockItem, dockItemColId, dst);
  },
- [dockItem, dockItemColId, requestMove]
+ [dockItem, dockItemColId, requestMove, cproEnabled, canReviewAsDl, dockHostKey, jobId, jobTitle, clientId, rejectedTemplateCol]
  );
 
  // Nawigator doku „‹ N z M ›" — kolejność TABLICY (kolumna po kolumnie),
@@ -2654,6 +2704,21 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  onOpenScreening={handleOpenScreening}
  onReject={handleDockReject}
  onWithdraw={handleDockWithdraw}
+ onAddClientSlots={
+ canAddClientSlots &&
+ (dockHostKey === "cv_sent" || dockHostKey === "client_interview")
+ ? () =>
+ setSlotPair({
+ candidate_id: dockItem.candidate_id,
+ candidate_name: itemFullName(dockItem),
+ candidate_email: null,
+ job_id: jobId,
+ job_title: jobTitle ?? null,
+ client_id: clientId ?? null,
+ client_name: null,
+ })
+ : undefined
+ }
  badgeToggles={dockBadgeToggles}
  onOpenWorkbench={
  workbenchContext
@@ -2665,6 +2730,24 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </aside>
  )}
 
+ <DlReviewPanel
+ task={dlReviewTask}
+ open={dlReviewTask !== null}
+ onOpenChange={(open) => {
+ if (!open) setDlReviewTask(null);
+ }}
+ />
+ <SlotRequestDialog
+ open={slotPair !== null}
+ pair={slotPair}
+ onOpenChange={(open) => {
+ if (open) return;
+ setSlotPair(null);
+ // Terminy od klienta same przesuwają kartę na „Rozmowę u klienta".
+ queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+ queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
+ }}
+ />
  {workbench && workbenchContext && kanbanQueryState && (
  <BoardWorkbenchDrawer
  jobId={jobId}
