@@ -180,7 +180,8 @@ permissions:
 jobs:
   app-mail-config-audit:
     name: System mail diagnosis and optional owner probe
-    if: inputs.action == 'app-mail-config-audit' || inputs.action == 'app-mail-send-probe'
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'app-mail-config-audit' || inputs.action == 'app-mail-send-probe') }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -199,7 +200,8 @@ jobs:
 
   release-config-audit:
     name: Read release build configuration without secrets
-    if: inputs.action == 'release-config-audit'
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'release-config-audit') }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -217,7 +219,8 @@ jobs:
 
   staging-status:
     name: Read configured staging application
-    if: inputs.action == 'staging-status'
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'staging-status') }}
     environment: staging
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -248,7 +251,8 @@ jobs:
     # Wszystkie kroki tego joba są bramkowane po `action`, więc przy akcjach
     # eval-* przeszedłby jako zielony bez wykonania czegokolwiek — a zielony
     # job, który nic nie zrobił, czyta się jak potwierdzenie.
-    if: ${{ inputs.action != 'release-config-audit' && inputs.action != 'cv-generation-logs' && inputs.action != 'startup-timing' && inputs.action != 'staging-status' && !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-') }}
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action != 'release-config-audit' && inputs.action != 'cv-generation-logs' && inputs.action != 'startup-timing' && inputs.action != 'staging-status' && !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -807,7 +811,8 @@ jobs:
   # wskazać wiersz do poprawki, a nie odtworzyć kartotekę. Zero kwot.
   lookup:
     name: Client lookup (prod, read-only)
-    if: ${{ inputs.action == 'client-lookup' }}
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'client-lookup') }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     concurrency:
@@ -946,7 +951,8 @@ jobs:
   # użytkowników ani manifestu portfela klientów, które leżą w tej samej tabeli.
   receipts:
     name: Migration receipts (prod, read-only)
-    if: ${{ inputs.action == 'migration-receipts' }}
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'migration-receipts') }}
     runs-on: ubuntu-latest
     timeout-minutes: 12
     concurrency:
@@ -1075,7 +1081,8 @@ jobs:
 
   candidate_index_audit:
     name: Candidate index (${{ inputs.action == 'candidate-index-audit' && inputs.candidate_search_diagnostics && 'runtime diagnostics' || inputs.action == 'candidate-index-repair' && 'enqueue reviewed repair' || 'read-only audit' }})
-    if: ${{ inputs.action == 'candidate-index-audit' || inputs.action == 'candidate-index-repair' }}
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'candidate-index-audit' || inputs.action == 'candidate-index-repair') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -1107,7 +1114,8 @@ jobs:
   # pełny raport z nazwami/stawkami pozostaje w /tmp kontenera i jest kasowany.
   contract_merge:
     name: Contract merge (${{ inputs.action == 'contract-merge-apply' && 'APPLY' || 'audit' }})
-    if: ${{ startsWith(inputs.action, 'contract-merge-') }}
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (startsWith(inputs.action, 'contract-merge-')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -1154,7 +1162,8 @@ jobs:
 
   nexus_data_correction:
     name: Nexus data correction (${{ inputs.action == 'nexus-data-correction-apply' && 'APPLY' || 'audit' }})
-    if: ${{ startsWith(inputs.action, 'nexus-data-correction-') }}
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (startsWith(inputs.action, 'nexus-data-correction-')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -1194,7 +1203,8 @@ jobs:
 
   eval:
     name: Matching eval A/B (prod)
-    if: ${{ inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer' || inputs.action == 'eval-read' || inputs.action == 'eval-stop' }}
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'eval-ab' || inputs.action == 'eval-ab-scorer' || inputs.action == 'eval-read' || inputs.action == 'eval-stop') }}
     runs-on: ubuntu-latest
     # Budżet wyprowadzony z jedynego znanego punktu odniesienia: cotygodniowy
     # strażnik (app/tasks/weekly_eval.py) daje 3600 s JEDNEMU biegowi na tych
@@ -1431,7 +1441,8 @@ jobs:
 
   cv-quality:
     name: CV synthetic factual review diagnostics
-    if: inputs.action == 'eval-cv-quality' || inputs.action == 'recover-cv-quality'
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'eval-cv-quality' || inputs.action == 'recover-cv-quality') }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     concurrency:
@@ -1477,7 +1488,8 @@ jobs:
 
   cv-quality-inspect:
     name: Inspect existing CV diagnostic (read-only)
-    if: inputs.action == 'inspect-cv-quality'
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'inspect-cv-quality') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1492,7 +1504,8 @@ jobs:
 
   cv-quality-cleanup:
     name: Clean up stopped CV diagnostic
-    if: inputs.action == 'cleanup-cv-quality'
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'cleanup-cv-quality') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1507,7 +1520,8 @@ jobs:
 
   cv-generation-logs:
     name: Read sanitized CV generation diagnostics
-    if: inputs.action == 'cv-generation-logs'
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'cv-generation-logs') }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -1521,7 +1535,8 @@ jobs:
 
   startup-timing:
     name: Read backend startup phase timings
-    if: inputs.action == 'startup-timing'
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'startup-timing') }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:

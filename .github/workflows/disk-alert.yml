@@ -19,6 +19,9 @@ jobs:
   disk:
     name: NEXUS host disk usage
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     timeout-minutes: 3
     steps:
       - name: Read diskPercent from /api/health
@@ -76,3 +79,17 @@ jobs:
       - name: Fail run so GitHub emails the owner
         if: steps.disk.outputs.high == '1'
         run: exit 1
+      - name: Checkout (tylko .github/scripts) do zamknięcia alarmu
+        if: ${{ steps.disk.outputs.high == '0' && steps.disk.outputs.pct != '' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      # OPS-N08 (audyt 22.09.2026): zielony bieg zamyka alarm, który otworzył
+      # czerwony — marker DOKŁADNIE ten sam co w kroku otwierającym.
+      - name: Zamknij alarm po zielonym biegu
+        if: ${{ steps.disk.outputs.high == '0' && steps.disk.outputs.pct != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "NEXUS host disk high" "Dysk hosta wrócił poniżej progu 75%."

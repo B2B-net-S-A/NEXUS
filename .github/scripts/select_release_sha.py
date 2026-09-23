@@ -25,6 +25,19 @@ Skoro nie da się wskazać Coolify commitu, pilnujemy obu końców budowy:
     Potomek z czerwoną bramką to twardy błąd: taki kod już stoi na produkcji
     i trzeba go wycofać.
 
+``select`` — okno ciszy nocnej (PROD-04, audyt 22.09.2026)
+    Automatyczny deploy (``workflow_run`` i ``schedule``) w oknie
+    ``--freeze-window`` (godziny czasu warszawskiego, domyślnie w deploy.yml
+    ``0-7``) jest odraczany: ``head_status=night_freeze``, ``defer=true``, kod 0.
+    W nocy biegną kopie (pg_dump), import Traffita i nocne automaty — deploy
+    restartuje backend w ich trakcie. Zaległe merge'e wdraża poranny
+    ``schedule`` w deploy.yml. Ręczny ``workflow_dispatch`` okna nie pyta.
+
+``select`` / ``hold-check`` — alarm wstrzymania (OPS-N07)
+    ``hold_alert`` w ``$GITHUB_OUTPUT`` niesie powód, gdy HEAD maina ma czerwoną
+    bramkę albo nie ma jej wcale dłużej niż ``MISSING_ALERT_MINUTES`` — deploy
+    stoi wtedy bez końca, a do 09.2026 mówił o tym tylko ``::warning::``.
+
 Kody wyjścia ``accept``: 0 przyjęte, 1 potomek bez zielonej bramki (błąd),
 2 wersja nie jest wydaniem ani jego potomkiem (smoke ponawia — build jeszcze
 nie wstał), 3 błąd API GitHuba (smoke ponawia). Wynik trafia do ``$GITHUB_OUTPUT`` / ``$GITHUB_ENV``.
@@ -41,13 +54,22 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from typing import Callable, NamedTuple, Optional
+from zoneinfo import ZoneInfo
 
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 GATE_WORKFLOW = "ci-gate.yml"
 DEFAULT_MAX_COMMITS = 30
 GREEN = "success"
 PENDING = {"in_progress", "missing"}
+FREEZE_STATUS = "night_freeze"
+DEFAULT_TZ = "Europe/Warsaw"
+# Bramka „CI Gate” kończy się w ~2 min, a kolejka merge'ów stempluje commit
+# ~10–15 min przed wejściem na maina. Godzina bez żadnego przebiegu bramki to
+# już nie „zaraz ruszy”, tylko brak bramki (np. push tokenem Actions).
+MISSING_ALERT_MINUTES = 60
+_OFF = {"", "off", "none", "no", "false", "0"}
 
 Fetch = Callable[[str], object]
 
@@ -82,11 +104,76 @@ def gate_status(fetch: Fetch, repo: str, sha: str, branch: str) -> str:
 
 
 def head_commit(fetch: Fetch, repo: str, branch: str) -> str:
+    return head_commit_info(fetch, repo, branch)[0]
+
+
+def head_commit_info(
+    fetch: Fetch, repo: str, branch: str
+) -> tuple[str, Optional[datetime]]:
+    """SHA HEAD-a i data commitu (``None``, gdy API jej nie podało)."""
     body = fetch(f"repos/{repo}/commits/{urllib.parse.quote(branch)}")
     sha = body.get("sha", "") if isinstance(body, dict) else ""
     if not SHA_RE.fullmatch(sha):
         raise ValueError("unexpected commit payload")
-    return sha
+    raw = ""
+    commit = body.get("commit") if isinstance(body, dict) else None
+    if isinstance(commit, dict):
+        committer = commit.get("committer") or {}
+        raw = str(committer.get("date") or "") if isinstance(committer, dict) else ""
+    try:
+        date = datetime.fromisoformat(raw.replace("Z", "+00:00")) if raw else None
+    except ValueError:
+        date = None
+    return sha, date
+
+
+def parse_freeze_window(window: Optional[str]) -> Optional[tuple[int, int]]:
+    """``"0-7"`` → (0, 7): od pełnej godziny ``start`` do ``end`` (bez niej).
+
+    Pusty napis albo ``off`` = brak okna. ``22-6`` przechodzi przez północ.
+    Niepoprawny zapis to ``ValueError`` — o reakcji decyduje wołający.
+    """
+    text = (window or "").strip().lower()
+    if text in _OFF:
+        return None
+    match = re.fullmatch(r"(\d{1,2})\s*-\s*(\d{1,2})", text)
+    if not match:
+        raise ValueError(f"niepoprawne okno ciszy: {window!r}")
+    start, end = int(match.group(1)), int(match.group(2))
+    if not (0 <= start <= 23 and 0 <= end <= 24) or start == end:
+        raise ValueError(f"niepoprawne okno ciszy: {window!r}")
+    return start, end
+
+
+def in_freeze(now_utc: datetime, window: Optional[str], tz: str = DEFAULT_TZ) -> bool:
+    """Czy ``now_utc`` wypada w oknie ciszy (godziny czasu lokalnego ``tz``)."""
+    bounds = parse_freeze_window(window)
+    if bounds is None:
+        return False
+    start, end = bounds
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    hour = now_utc.astimezone(ZoneInfo(tz)).hour
+    if start < end:
+        return start <= hour < end
+    return hour >= start or hour < end
+
+
+def hold_reason(status: str, age_minutes: Optional[float]) -> str:
+    """Powód alarmu „deploy wstrzymany” albo pusty napis.
+
+    Bramka w toku i świeży brak bramki to normalny stan między pushem a końcem
+    „CI Gate”; okno ciszy to decyzja, nie awaria.
+    """
+    if status in (GREEN, "in_progress", FREEZE_STATUS):
+        return ""
+    if status == "missing":
+        if age_minutes is not None and age_minutes > MISSING_ALERT_MINUTES:
+            return (
+                f"HEAD maina nie ma przebiegu bramki CI Gate od {int(age_minutes)} min"
+            )
+        return ""
+    return f"HEAD maina ma bramkę CI Gate = {status}"
 
 
 def relation(fetch: Fetch, repo: str, base: str, head: str) -> str:
@@ -190,6 +277,25 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="workflow_dispatch: target nie przeszedł bramki w tym wyzwoleniu",
     )
+    select.add_argument(
+        "--scheduled",
+        action="store_true",
+        help="schedule: target = HEAD bez weryfikacji, ale niezielony HEAD to "
+        "odroczenie, nie błąd (brak człowieka przy ekranie)",
+    )
+    select.add_argument(
+        "--freeze-window",
+        default="",
+        help="okno ciszy deployu w godzinach czasu warszawskiego, np. 0-7 (pusty = brak)",
+    )
+    freeze = sub.add_parser(
+        "in-freeze",
+        help="kod 0 = teraz jest okno ciszy (bez czekania na ciszę na mainie)",
+    )
+    freeze.add_argument("--freeze-window", default="")
+    hold = sub.add_parser("hold-check")
+    hold.add_argument("--repo", required=True)
+    hold.add_argument("--branch", default="main")
     accept = sub.add_parser("accept")
     accept.add_argument("--repo", required=True)
     accept.add_argument("--branch", default="main")
@@ -199,13 +305,51 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _run_select(args: argparse.Namespace, fetch: Fetch) -> int:
-    head = head_commit(fetch, args.repo, args.branch)
+def _age_minutes(date: Optional[datetime], now: datetime) -> Optional[float]:
+    if date is None:
+        return None
+    return max(0.0, (now - date).total_seconds() / 60.0)
+
+
+def _run_select(
+    args: argparse.Namespace, fetch: Fetch, now: Optional[datetime] = None
+) -> int:
+    now = now or datetime.now(timezone.utc)
+    manual = args.target_unverified and not args.scheduled
+    if not manual:
+        try:
+            frozen = in_freeze(now, args.freeze_window)
+        except ValueError as error:
+            # Zła wartość zmiennej repo nie może zatrzymać wdrożeń na zawsze.
+            print(f"::warning::{error} — okno ciszy pominięte.")
+            frozen = False
+        if frozen:
+            _append(
+                os.environ.get("GITHUB_OUTPUT"),
+                [
+                    "release_sha=",
+                    "head_sha=",
+                    f"head_status={FREEZE_STATUS}",
+                    "defer=true",
+                    "hold_alert=",
+                ],
+            )
+            print(
+                f"::notice::Deploy odroczony: okno ciszy {args.freeze_window} "
+                f"(czas {DEFAULT_TZ}). Zaległe zmiany wdroży poranny przebieg Deploy."
+            )
+            return 0
+    head, head_date = head_commit_info(fetch, args.repo, args.branch)
     selection = select_release(
         head,
         args.target,
         lambda sha: gate_status(fetch, args.repo, sha, args.branch),
-        target_is_verified=not args.target_unverified,
+        target_is_verified=not (args.target_unverified or args.scheduled),
+    )
+    alert = (
+        ""
+        if manual
+        else hold_reason(selection.head_status, _age_minutes(head_date, now))
     )
     _append(
         os.environ.get("GITHUB_OUTPUT"),
@@ -214,13 +358,14 @@ def _run_select(args: argparse.Namespace, fetch: Fetch) -> int:
             f"head_sha={selection.head_sha}",
             f"head_status={selection.head_status}",
             f"defer={'true' if selection.defer else 'false'}",
+            f"hold_alert={alert}",
         ],
     )
     if not selection.defer:
         note = "" if head == args.target else f" (zawiera target {args.target[:7]})"
         print(f"Wydanie = HEAD maina {head[:7]} z zieloną bramką CI Gate{note}")
         return 0
-    if args.target_unverified:
+    if manual:
         print(
             f"::error::HEAD maina {head[:7]} ma bramkę CI Gate = {selection.head_status}. "
             "Coolify buduje zawsze HEAD, więc ręczny deploy starszego commitu nie jest "
@@ -239,6 +384,23 @@ def _run_select(args: argparse.Namespace, fetch: Fetch) -> int:
             f"{selection.head_status}. Coolify zbudowałoby ten commit, więc produkcja "
             "zostaje na obecnej wersji do następnego zielonego commitu."
         )
+    return 0
+
+
+def _run_hold_check(
+    args: argparse.Namespace, fetch: Fetch, now: Optional[datetime] = None
+) -> int:
+    """Sam alarm wstrzymania — dla biegu Deploy po CZERWONEJ bramce, kiedy
+    ``select`` się nie uruchamia (nic nie ma do wdrożenia, ale main stoi)."""
+    now = now or datetime.now(timezone.utc)
+    head, head_date = head_commit_info(fetch, args.repo, args.branch)
+    status = gate_status(fetch, args.repo, head, args.branch)
+    alert = hold_reason(status, _age_minutes(head_date, now))
+    _append(
+        os.environ.get("GITHUB_OUTPUT"),
+        [f"head_sha={head}", f"head_status={status}", f"hold_alert={alert}"],
+    )
+    print(f"HEAD maina {head[:7]}: bramka CI Gate = {status}")
     return 0
 
 
@@ -270,8 +432,19 @@ def _run_accept(args: argparse.Namespace, fetch: Fetch) -> int:
     return result.code
 
 
+def _run_in_freeze(args: argparse.Namespace, now: Optional[datetime] = None) -> int:
+    try:
+        frozen = in_freeze(now or datetime.now(timezone.utc), args.freeze_window)
+    except ValueError as error:
+        print(f"::warning::{error} — okno ciszy pominięte.")
+        return 1
+    return 0 if frozen else 1
+
+
 def main(argv: Optional[list[str]] = None, fetch: Optional[Fetch] = None) -> int:
     args = parse_args(argv)
+    if args.mode == "in-freeze":
+        return _run_in_freeze(args)
     if fetch is None:
         token = os.environ.get("GH_TOKEN", "")
         if not token:
@@ -282,10 +455,12 @@ def main(argv: Optional[list[str]] = None, fetch: Optional[Fetch] = None) -> int
         )
     # Błąd API w `accept` to 3, nie 1: smoke ma ponowić, a nie ogłosić, że na
     # produkcji stoi commit z czerwoną bramką.
-    failure_code = 1 if args.mode == "select" else 3
+    failure_code = 3 if args.mode == "accept" else 1
     try:
         if args.mode == "select":
             return _run_select(args, fetch)
+        if args.mode == "hold-check":
+            return _run_hold_check(args, fetch)
         return _run_accept(args, fetch)
     except urllib.error.HTTPError as error:
         print(f"::warning::GitHub API HTTP {error.code} ({args.mode})", file=sys.stderr)

@@ -98,6 +98,21 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+    # OPS-N03 (audyt 22.09.2026): „Coolify set env” z `redeploy=true` wdraża
+    # przez TEN workflow (bramka DEP-01, smoke, alembic), a nie gołym webhookiem.
+    # Zmiana zmiennej build-time wymaga przebudowy bez cache Coolify.
+    inputs:
+      force_rebuild:
+        description: "Pełna przebudowa bez cache Coolify (np. po zmianie zmiennej build-time)"
+        type: boolean
+        default: false
+  # PROD-04 (audyt 22.09.2026): poranny przebieg wdraża zmiany odroczone przez
+  # okno ciszy nocnej (DEPLOY_FREEZE_WINDOW, domyślnie 0-7 czasu warszawskiego).
+  # Dwie godziny UTC, bo okno liczy się w czasie warszawskim: 05:15Z to 07:15
+  # latem, ale 06:15 zimą (jeszcze w oknie) — wtedy wdraża przebieg 06:15Z.
+  # Przebieg, który trafi na wdrożoną już wersję, kończy się na koalescencji.
+  schedule:
+    - cron: "15 5,6 * * *"
 
 permissions:
   contents: read
@@ -119,6 +134,11 @@ env:
   # at dispatch). DEP-01: the deploy job works on RELEASE_SHA (main HEAD with
   # a green gate) chosen by the `select` job.
   TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  # OPS-N07 (audyt 22.09.2026): wstrzymany i czerwony deploy zakładają issue
+  # (do 09.2026 zostawał po nich wyłącznie `::warning::` w logu). Te same
+  # markery otwierają i zamykają alarm — `.github/scripts/alert_issue.sh`.
+  HOLD_ALERT_MARKER: "Deploy NEXUS wstrzymany"
+  RED_ALERT_MARKER: "Deploy NEXUS jest czerwony"
 
 jobs:
   # DEP-01: osobny job, żeby odroczony deploy nie wchodził w żaden krok
@@ -128,7 +148,13 @@ jobs:
     runs-on: ubuntu-latest
     # 15 min grupowania (niżej) + wybór wydania.
     timeout-minutes: 20
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    # OPS-N05: ręczny i poranny bieg wyłącznie z maina — wersja tego pliku
+    # z innej gałęzi nie może dostać sekretów COOLIFY_*.
+    if: ${{ ((github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && github.ref == 'refs/heads/main') || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    permissions:
+      contents: read
+      actions: read
+      issues: write
     outputs:
       release_sha: ${{ steps.release_select.outputs.release_sha }}
       defer: ${{ steps.release_select.outputs.defer }}
@@ -146,13 +172,24 @@ jobs:
       # Wybór wydania niżej bierze HEAD maina, więc cała seria jedzie jednym
       # deployem; kolejne przebiegi tej serii pomija krok koalescencji.
       # Ręczny „Run workflow” (wdróż teraz) nie czeka. `0` wyłącza grupowanie.
+      - name: Checkout (tylko .github/scripts)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
       - name: Poczekaj na ciszę na mainie (grupowanie deployów)
         if: ${{ github.event_name != 'workflow_dispatch' }}
         env:
           GH_TOKEN: ${{ github.token }}
           QUIET: ${{ vars.DEPLOY_QUIET_SECONDS || '300' }}
+          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '0-7' }}
         run: |
           set -u
+          # PROD-04: w oknie ciszy wybór wydania i tak odroczy deploy — nie
+          # płacimy za 5–15 min czekania runnera w nocy.
+          if python3 .github/scripts/select_release_sha.py in-freeze --freeze-window "$FREEZE_WINDOW"; then
+            echo "Okno ciszy deployu ($FREEZE_WINDOW, czas warszawski) — bez czekania."
+            exit 0
+          fi
           deadline=$(( $(date +%s) + 900 ))
           while :; do
             last=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-gate.yml/runs?branch=main&event=push&per_page=1" \
@@ -173,21 +210,104 @@ jobs:
             echo "Ostatni merge ${age}s temu — czekam na ciszę (${QUIET}s)…"
             sleep 30
           done
-      - name: Checkout (tylko .github/scripts)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: .github/scripts
       - name: Wybierz wydanie
         id: release_select
         env:
           GH_TOKEN: ${{ github.token }}
           TARGET_UNVERIFIED: ${{ github.event_name == 'workflow_dispatch' && '--target-unverified' || '' }}
+          SCHEDULED: ${{ github.event_name == 'schedule' && '--scheduled' || '' }}
+          # PROD-04: okno ciszy tylko dla deployów automatycznych. `off` w
+          # zmiennej repo wyłącza okno (pusta zmienna = domyślne 0-7).
+          FREEZE_WINDOW: ${{ github.event_name != 'workflow_dispatch' && (vars.DEPLOY_FREEZE_WINDOW || '0-7') || '' }}
         run: |
           # Pusta flaga ma zniknąć, nie być "" — stąd brak cudzysłowu.
           # shellcheck disable=SC2086
           python3 .github/scripts/select_release_sha.py select \
             --repo "${{ github.repository }}" --branch main \
-            --target "$TARGET_SHA" $TARGET_UNVERIFIED
+            --target "$TARGET_SHA" --freeze-window "$FREEZE_WINDOW" \
+            $TARGET_UNVERIFIED $SCHEDULED
+      - name: Alarm — deploy wstrzymany
+        if: ${{ steps.release_select.outputs.hold_alert != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REASON: ${{ steps.release_select.outputs.hold_alert }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          {
+            echo "Automatyczny deploy NEXUSA stoi: **${REASON}**."
+            echo
+            echo "Coolify buduje zawsze HEAD maina, więc produkcja zostaje na obecnej wersji,"
+            echo "dopóki HEAD nie będzie miał zielonej bramki „CI Gate”. Napraw main (albo"
+            echo "wycofaj commit), a następny zielony przebieg wdroży zaległe zmiany i zamknie to issue."
+            echo
+            echo "Bieg: ${RUN_URL}"
+          } > "$RUNNER_TEMP/hold-alert.md"
+          bash .github/scripts/alert_issue.sh open "$HOLD_ALERT_MARKER" "$RUNNER_TEMP/hold-alert.md"
+      - name: Zamknij alarm wstrzymania
+        if: ${{ steps.release_select.outputs.defer == 'false' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "$HOLD_ALERT_MARKER" "HEAD maina ma zieloną bramkę CI Gate — deploy znów rusza."
+      - name: Alarm — wybór wydania padł
+        if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          printf '%s\n' "Wybór wydania (job \`select\`) zakończył się błędem — deploy nie wystartował." "" "Bieg: ${RUN_URL}" > "$RUNNER_TEMP/red-alert.md"
+          bash .github/scripts/alert_issue.sh open "$RED_ALERT_MARKER" "$RUNNER_TEMP/red-alert.md" "🚨"
+
+  # OPS-N07: czerwona bramka na mainie nie uruchamia `select` (nie ma czego
+  # wdrażać), ale produkcja stoi od tej chwili — to jest moment na alarm.
+  # Tylko ten rzadki przypadek dostaje osobny job; zielone biegi obsługuje
+  # `select` bez dodatkowego runnera.
+  gate-red-alert:
+    name: Alarm — czerwona bramka na mainie
+    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.event == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout (tylko .github/scripts)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - name: Czy HEAD maina nadal ma czerwoną bramkę?
+        id: hold
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/select_release_sha.py hold-check --repo "${{ github.repository }}" --branch main
+      - name: Alarm — deploy wstrzymany
+        if: ${{ steps.hold.outputs.hold_alert != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REASON: ${{ steps.hold.outputs.hold_alert }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GATE_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -eu
+          {
+            echo "Automatyczny deploy NEXUSA stoi: **${REASON}**."
+            echo
+            echo "Czerwona bramka: ${GATE_URL}"
+            echo
+            echo "Coolify buduje zawsze HEAD maina, więc produkcja zostaje na obecnej wersji,"
+            echo "dopóki HEAD nie będzie miał zielonej bramki. Następny zielony przebieg"
+            echo "wdroży zaległe zmiany i zamknie to issue."
+            echo
+            echo "Bieg: ${RUN_URL}"
+          } > "$RUNNER_TEMP/hold-alert.md"
+          bash .github/scripts/alert_issue.sh open "$HOLD_ALERT_MARKER" "$RUNNER_TEMP/hold-alert.md"
 
   deploy:
     name: Deploy + smoke test
@@ -198,6 +318,10 @@ jobs:
     # siedzi na jobie `select`; tu dochodzi odroczenie, gdy HEAD maina nie ma
     # zielonej bramki.
     if: ${{ needs.select.outputs.defer == 'false' }}
+    permissions:
+      contents: read
+      actions: read
+      issues: write
     env:
       RELEASE_SHA: ${{ needs.select.outputs.release_sha }}
     steps:
@@ -344,7 +468,13 @@ jobs:
           CO_URL: ${{ secrets.COOLIFY_URL }}
           CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           CO_APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          # OPS-N03: `force_rebuild` z ręcznego dispatchu (np. „Coolify set env”
+          # po zmianie zmiennej build-time). Porównanie z oboma typami, bo `gh
+          # workflow run -f` wysyła napis, a formularz — wartość logiczną.
+          FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && (inputs.force_rebuild == true || inputs.force_rebuild == 'true') && 'true' || 'false' }}
         run: |
+          case "$FORCE_REBUILD" in true|false) ;; *) FORCE_REBUILD=false ;; esac
+          echo "Coolify force rebuild: $FORCE_REBUILD"
           # One unified retry loop, 20 attempts × 30s ≈ 10 min ceiling:
           #  - HTTP 429 (queue full) needs to outlast an in-flight ARM build
           #    (4-6 min cold), not 3 quick retries.
@@ -357,7 +487,7 @@ jobs:
               -H "Authorization: Bearer $CO_TOKEN" \
               -H "Accept: application/json" \
               -w $'\nHTTP_CODE:%{http_code}' \
-              "$CO_URL/api/v1/deploy?uuid=$CO_APP_UUID&force=false" \
+              "$CO_URL/api/v1/deploy?uuid=$CO_APP_UUID&force=$FORCE_REBUILD" \
               2>&1 || true)
             http_code=$(echo "$raw" | grep -oE 'HTTP_CODE:[0-9]+' | tail -1 | cut -d: -f2)
             response=$(echo "$raw" | sed -E 's/HTTP_CODE:[0-9]+$//')
@@ -741,6 +871,34 @@ jobs:
           echo "::error::Alembic revision check failed after 6 attempts — prod alembic_version ${db_versions:-<no response>} != code heads ${code_heads:-<no response>} (orphaned: ${orphaned:-<no response>}). A migration did not apply on prod: read the entrypoint log for the failing revision, fix it (or stamp deliberately — see docs/alembic-0153-nda-signed-completion-report.md), then redeploy."
           echo "Last /api/health/alembic response: $(echo "${response:-}" | head -c 600)"
           exit 1
+
+      # OPS-N07/N08 (audyt 22.09.2026): czerwony deploy zakłada issue, zielony je
+      # zamyka. Przed podsumowaniem, bo raport przerwy musi zostać ostatni.
+      - name: Zamknij alarm czerwonego deployu
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "$RED_ALERT_MARKER" "Deploy przeszedł smoke, deep health i kontrolę migracji."
+      - name: Alarm — czerwony deploy
+        if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          {
+            echo "Deploy wydania \`${RELEASE_SHA:-?}\` nie przeszedł (trigger, budowa, smoke, deep health albo migracje)."
+            echo
+            echo "Pierwszy czerwony krok w logu mówi, czy produkcja stoi na starej wersji (build padł),"
+            echo "czy na nowej, która nie przechodzi kontroli — wtedy rollback: Coolify → Deployments →"
+            echo "Redeploy poprzedniego (deployment-runbook §2)."
+            echo
+            echo "Bieg: ${RUN_URL}"
+          } > "$RUNNER_TEMP/red-alert.md"
+          bash .github/scripts/alert_issue.sh open "$RED_ALERT_MARKER" "$RUNNER_TEMP/red-alert.md" "🚨"
 
       # DEP-01 (audyt 14.09.2026): podsumowanie mówi, CO naprawdę stoi na
       # produkcji po TYM deployu: TARGET_SHA (commit, którego bramka wyzwoliła

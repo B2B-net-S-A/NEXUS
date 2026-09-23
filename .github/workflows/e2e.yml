@@ -51,6 +51,13 @@ jobs:
     # z backend/scripts/seed_e2e.py. Tu wolno zapisywać dane — stack znika po
     # biegu. Każdy przypadek ma się WYKONAĆ: pominięty test to czerwony bieg.
     name: E2E stack (ci-chromium)
+    # OPS-N02 (audyt 22.09.2026): NIE po deployu. Stack buduje się ze źródeł
+    # commitu, nie z produkcji, więc bieg po Deploy (także pominiętym) testował
+    # drzewo sprawdzone już w kolejce merge'ów — 757 min w 2 dni bez sygnału.
+    # Produkcję po deployu sprawdza job `playwright` (`prod-smoke`).
+    # Warunek na POZIOMIE joba jest tu dozwolony: `workflow_run` nie należy do
+    # żadnego PR-a ani grupy kolejki, więc nie zgłasza wymaganego kontekstu.
+    if: ${{ github.event_name != 'workflow_run' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
@@ -210,6 +217,15 @@ jobs:
         if: always()
         working-directory: .
         run: docker compose -f docker-compose.e2e.yml down -v || true
+      # OPS-N08: zielony nocny bieg zamyka alarm, który otworzył czerwony.
+      - name: Zamknij alarm nocnego stacku
+        if: ${{ success() && github.event_name == 'schedule' }}
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "Nocny E2E na stacku testowym jest czerwony" "Nocny bieg scenariuszy @stack przeszedł."
 
   playwright:
     name: Playwright against production
@@ -325,6 +341,21 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report/
           retention-days: 7
+
+      # OPS-N08: marker musi być DOKŁADNIE ten sam co w kroku otwierającym niżej.
+      - name: Close alert issue after a green run
+        if: ${{ success() && (github.event_name == 'schedule' || github.event_name == 'workflow_run') }}
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          marker="Nocny E2E przeciw produkcji jest czerwony"
+          if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+            marker="E2E po deployu (prod-smoke) jest czerwony"
+          fi
+          bash .github/scripts/alert_issue.sh resolve "$marker" "Bieg przeciw produkcji przeszedł."
 
       - name: Open or refresh alert issue
         if: ${{ failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_run') }}

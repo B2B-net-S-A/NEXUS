@@ -14,7 +14,10 @@ jobs:
   probe:
     name: Check nexus.dynaminds.pl health
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    permissions:
+      contents: read
+      issues: write
+    timeout-minutes: 3
     steps:
       - name: Frontend
         id: frontend
@@ -62,6 +65,20 @@ jobs:
               echo "::warning::$host TLS expires in $days_left days"
             fi
           done
+      - name: Checkout (tylko .github/scripts) do zamknięcia alarmu
+        if: ${{ success() }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      # OPS-N08 (audyt 22.09.2026): zielony bieg zamyka alarm, który otworzył
+      # czerwony — marker DOKŁADNIE ten sam co w kroku otwierającym.
+      - name: Zamknij alarm po zielonym biegu
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "NEXUS niedostępny (sonda GitHub)" "Frontend i /api/health odpowiadają poprawnie."
 
   # ── Backup freshness ────────────────────────────────────────────────────────
   # Consumer for `LATEST.json`, the manifest backup/backup.sh writes after every
@@ -87,12 +104,16 @@ jobs:
   backup-freshness:
     name: Backup manifest is fresh and clean
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     timeout-minutes: 5
     # Off until the owner provisions the bucket credentials and flips this
     # variable. Deliberately a skipped job rather than a passing one: this
     # workflow claims the app is up, and never claims anything about backups it
     # did not actually read.
-    if: vars.BACKUP_MONITORING_ENABLED == 'true'
+    # OPS-N05 (audyt 22.09.2026): klucze kopii off-site tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && vars.BACKUP_MONITORING_ENABLED == 'true' }}
     env:
       BACKUP_S3_BUCKET: ${{ vars.BACKUP_S3_BUCKET }}
       BACKUP_S3_PREFIX: ${{ vars.BACKUP_S3_PREFIX || 'nexus' }}
@@ -186,6 +207,20 @@ jobs:
           bytes="$(jq -r '.artefacts[] | select(.artefact == "cv_corpus") | .bytes' /tmp/manifest.json)"
           echo "CV corpus mirrored: ${objects} objects / ${bytes} bytes"
           echo "All artefacts present and ok."
+      - name: Checkout (tylko .github/scripts) do zamknięcia alarmu
+        if: ${{ success() }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      # OPS-N08 (audyt 22.09.2026): zielony bieg zamyka alarm, który otworzył
+      # czerwony — marker DOKŁADNIE ten sam co w kroku otwierającym.
+      - name: Zamknij alarm po zielonym biegu
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "Kopia off-site NEXUS nieświeża lub niekompletna" "LATEST.json kopii off-site jest świeży i kompletny."
 
   # ── Per-check degradation ───────────────────────────────────────────────────
   # Drugi (i do dziś jedyny obok `disk-alert.yml`) czytelnik tego, co
@@ -246,6 +281,9 @@ jobs:
             exit 0
           fi
           printf '%s' "$body" | jq '.checks'
+          # OPS-N08: `checked=1` = checki PRZECZYTANE. Bez tego zielone `fail=0`
+          # przy nieosiągalnym backendzie zamykałoby alarm o checkach.
+          echo "checked=1" >> "$GITHUB_OUTPUT"
 
           # `configured` to zdrowa wartość checku `anthropic` (mapa
           # {"ok": "configured"} w app/main.py) — bez tego wyjątku ostrzeżenie
@@ -331,6 +369,20 @@ jobs:
       - name: Fail run so GitHub emails the owner
         if: steps.classify.outputs.fail == '1'
         run: exit 1
+      - name: Checkout (tylko .github/scripts) do zamknięcia alarmu
+        if: ${{ steps.classify.outputs.fail == '0' && steps.classify.outputs.checked == '1' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      # OPS-N08 (audyt 22.09.2026): zielony bieg zamyka alarm, który otworzył
+      # czerwony — marker DOKŁADNIE ten sam co w kroku otwierającym.
+      - name: Zamknij alarm po zielonym biegu
+        if: ${{ steps.classify.outputs.fail == '0' && steps.classify.outputs.checked == '1' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "NEXUS health checks unhealthy" "Żaden check w /api/health nie jest już w stanie błędu."
 
   # ── Alarm o awarii sondy dostępności i świeżości kopii (A4, audyt 14.09) ────
   # Joby `probe` i `backup-freshness` kończyły się wyłącznie czerwonym runem,

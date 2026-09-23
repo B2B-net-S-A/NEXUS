@@ -18,6 +18,9 @@ jobs:
   digest:
     name: Sentry digest -> Teams
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,6 +46,15 @@ jobs:
           rc=$?
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
           exit $rc
+      # OPS-N08 (audyt 22.09.2026): zielony bieg zamyka alarm, który otworzył
+      # czerwony — marker DOKŁADNIE ten sam co w kroku otwierającym.
+      - name: Zamknij alarm po zielonym biegu
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "NEXUS dzienny monitor Sentry nie działa" "Dzienny digest Sentry dotarł do Teams."
     outputs:
       rc: ${{ steps.digest.outputs.rc }}
 
