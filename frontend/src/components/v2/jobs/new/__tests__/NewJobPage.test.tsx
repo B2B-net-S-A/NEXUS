@@ -178,7 +178,7 @@ describe("NewJobPage", () => {
   });
 
   it("awaria podsumowania historii klienta nie blokuje utworzenia rekrutacji", async () => {
-    mocks.refreshClientHistory.mockReturnValue(Promise.reject(new Error("503")));
+    mocks.refreshClientHistory.mockRejectedValue(new Error("503"));
     await readRequest();
     await screen.findByRole("option", { name: "Rekruterka Ola" });
     fireEvent.change(screen.getByLabelText("Rekruter prowadzący"), {
