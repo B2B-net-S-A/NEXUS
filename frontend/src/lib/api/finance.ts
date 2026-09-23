@@ -140,7 +140,7 @@ interface OrderRef {
   client_name: string;
   consultant_name: string;
   order_number: string;
-  // Pola karty zamówienia (0353) — opcjonalne, bo harnessy i starsze testy
+  // Pola karty zamówienia (0354) — opcjonalne, bo harnessy i starsze testy
   // budują wiersze bez nich.
   /** Klucz pozycji liczony przez serwer — pod nim zapisuje się odhaczenie. */
   item_key?: string;

@@ -30,7 +30,7 @@ class OrderPdfFile(BaseModel):
     status: Optional[str]
     order_number: Optional[str]
     uploaded_at: Optional[datetime]
-    # Pobranie przez ZALOGOWANĄ osobę (0353) — ``None`` = „Nowy".
+    # Pobranie przez ZALOGOWANĄ osobę (0354) — ``None`` = „Nowy".
     downloaded_at: Optional[datetime] = None
     # Zamówienie ma w tym miesiącu pozycję „Do zrobienia" w Zmianach.
     pending_change: bool = False

@@ -4523,7 +4523,7 @@ _COLUMN_STATEMENTS = [
     "ON order_gaps (detected_on)",
     "CREATE INDEX IF NOT EXISTS ix_order_gaps_contract_status "
     "ON order_gaps (contract_id, status)",
-    # 0353: Finanse — odhaczenia zmian w zamówieniach (audyt dopisywany)
+    # 0354: Finanse — odhaczenia zmian w zamówieniach (audyt dopisywany)
     # i pobrania PDF-ów zamówień per osoba („Nowy / Pobrane przez Ciebie").
     """CREATE TABLE IF NOT EXISTS order_change_checks (
         id SERIAL PRIMARY KEY,

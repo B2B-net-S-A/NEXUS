@@ -2837,7 +2837,7 @@ async def api_health_deep_check():
         # pada KAŻDY zapis zamówienia (listener dopisuje wiersz w flushu).
         ("order_change_events", OrderChangeEvent),
         ("order_gaps", OrderGap),
-        # 0353: odhaczenia zmian i pobrania PDF-ów. Bez tabel pada checkbox
+        # 0354: odhaczenia zmian i pobrania PDF-ów. Bez tabel pada checkbox
         # „Zrobione” i każde pobranie PDF-u zamówienia.
         ("order_change_checks", OrderChangeCheck),
         ("order_pdf_downloads", OrderPdfDownload),

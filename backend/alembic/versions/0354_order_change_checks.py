@@ -1,7 +1,7 @@
 """Finanse: odhaczenia zmian w zamówieniach i pobrania PDF-ów per osoba.
 
-Revision ID: 0353_order_change_checks
-Revises: 0352_pipeline_v4
+Revision ID: 0354_order_change_checks
+Revises: 0353_dz_review_cpro_sender
 
 * ``order_change_checks`` — dopisywany audyt „Zrobione" / „Cofnięto"
   pozycji z Finanse → Zmiany w zamówieniach. Stan pozycji = ostatni wpis jej
@@ -14,8 +14,8 @@ Lustro w ``entrypoint.sh`` (alembic na prodzie bywa osierocony).
 
 from alembic import op
 
-revision = "0353_order_change_checks"
-down_revision = "0352_pipeline_v4"
+revision = "0354_order_change_checks"
+down_revision = "0353_dz_review_cpro_sender"
 branch_labels = None
 depends_on = None
 

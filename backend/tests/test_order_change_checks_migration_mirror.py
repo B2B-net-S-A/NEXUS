@@ -1,4 +1,4 @@
-"""0353: odhaczenia zmian i pobrania PDF-ów mają lustro w entrypoincie.
+"""0354: odhaczenia zmian i pobrania PDF-ów mają lustro w entrypoincie.
 
 Prod alembic bywa osierocony — `entrypoint.sh` JEST wdrożeniem. Model deklaruje
 obie tabele, a `/api/health/deep` je sonduje, więc brak lustra = 503 na prodzie
@@ -13,7 +13,7 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parents[1]
 ENTRYPOINT = (BACKEND / "entrypoint.sh").read_text()
 MIGRATION = (
-    BACKEND / "alembic" / "versions" / "0353_order_change_checks.py"
+    BACKEND / "alembic" / "versions" / "0354_order_change_checks.py"
 ).read_text()
 
 
@@ -44,6 +44,6 @@ def test_every_named_object_in_the_migration_exists_in_the_entrypoint():
         assert name in ENTRYPOINT, name
 
 
-def test_migration_chains_after_0352():
-    assert 'revision = "0353_order_change_checks"' in MIGRATION
-    assert 'down_revision = "0352_pipeline_v4"' in MIGRATION
+def test_migration_chains_after_0353():
+    assert 'revision = "0354_order_change_checks"' in MIGRATION
+    assert 'down_revision = "0353_dz_review_cpro_sender"' in MIGRATION

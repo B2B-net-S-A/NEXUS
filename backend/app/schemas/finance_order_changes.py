@@ -60,7 +60,7 @@ class OrderRef(BaseModel):
     client_name: str
     consultant_name: str
     order_number: str
-    # Pola karty zamówienia (0353). Klucz pozycji liczy serwer — ten sam
+    # Pola karty zamówienia (0354). Klucz pozycji liczy serwer — ten sam
     # w odczycie, w odhaczeniu i w historii.
     item_key: str = ""
     order_start: Optional[date] = None

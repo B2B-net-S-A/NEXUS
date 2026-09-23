@@ -3370,7 +3370,7 @@ Serwis `services/finance_order_pdfs.py`, trasy `/api/finance/order-pdfs*`
   lista i pobranie liczą ją tą samą funkcją (`find_entry`).
 - Klucze URL `pdfMonth`/`pdfClient` (nie `month` — ten należy do „Zmian").
 
-## Finanse: „Zrobione" w Zmianach, ZIP-y i pobrania w Zamówieniach PDF (0353, 23.09.2026)
+## Finanse: „Zrobione" w Zmianach, ZIP-y i pobrania w Zamówieniach PDF (0354, 23.09.2026)
 
 Każda podzakładka „Zmian w zamówieniach" to kafelki klientów → karty zamówień
 (nagłówek jak w „Zamówieniach PDF") → panel podglądu (domyślnie ukryty, Esc

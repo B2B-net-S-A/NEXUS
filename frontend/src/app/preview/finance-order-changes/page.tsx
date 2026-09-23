@@ -324,7 +324,7 @@ const PDF = (id: number, name: string): OrderPdfRef => ({
 
 type Item = { order_id: number | null; item_key?: string };
 
-/** Pola karty zamówienia, które w aplikacji dokłada serwer (0353). */
+/** Pola karty zamówienia, które w aplikacji dokłada serwer (0354). */
 function enrich(data: OrderChangesResponse): OrderChangesResponse {
   let seq = 0;
   const decorate = <T extends Item>(tab: string, list: T[]): T[] =>
