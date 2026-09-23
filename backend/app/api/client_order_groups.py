@@ -5028,6 +5028,9 @@ async def swap_consultant(
         )
         event_payload["old_md_remaining"] = str(md_remaining_old)
         event_payload["new_md_total"] = str(md_total_new)
+        # FIN-MD-02: tylko zamiany z tym znacznikiem są automatycznie korygowane
+        # po imporcie miesiąca zamiany — historycznych budżetów nie ruszamy.
+        event_payload["auto_rebalance"] = True
         event_payload["remaining_value_pln"] = str(value_pln)
         if md_optional_new is not None:
             event_payload["new_md_optional_total"] = str(md_optional_new)

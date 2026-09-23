@@ -1602,6 +1602,10 @@ async def _rebalance_swap_successor(db: AsyncSession, order: ClientOrder) -> Non
     )
     payload = dict(event.payload or {}) if event is not None else {}
     recorded_total = payload.get("new_md_total")
+    if not payload.get("auto_rebalance"):
+        # Zamiana sprzed audytu 22.09 r2: jej budżet mógł zostać przyjęty
+        # i rozliczony z klientem — nie korygujemy historii po cichu.
+        return
     if recorded_total is None:
         # Zamiana sprzed tej reguły (albo zamówienie kosztowe / wspólna pula):
         # bez zapisanej liczby nie odróżnimy ręcznej edycji od korekty.

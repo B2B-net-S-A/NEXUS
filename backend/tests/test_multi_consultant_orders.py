@@ -2600,3 +2600,38 @@ async def test_manually_edited_successor_budget_is_not_corrected(
     await _report_md(group["lines"][0]["id"], "10")
 
     assert await _line_total(successor_id) == Decimal("70")
+
+
+async def test_swap_recorded_before_the_rule_is_not_corrected(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Zamiany sprzed audytu 22.09 r2 nie niosą ``auto_rebalance`` — ich
+    budżet mógł zostać już rozliczony z klientem, więc automat go nie rusza."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.client_order_group import ClientOrderGroupEvent
+
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_group(
+        app_client, app_auth_headers, client_id, [_line_payload(contracts[0])]
+    )
+    successor_id = await _swap(
+        app_client, app_auth_headers, client_id, group, contracts[1]
+    )
+    async with AsyncSessionLocal() as db:
+        event = await db.scalar(
+            select(ClientOrderGroupEvent).where(
+                ClientOrderGroupEvent.order_id == successor_id,
+                ClientOrderGroupEvent.event_type == "zamiana_kontraktora",
+            )
+        )
+        payload = dict(event.payload)
+        payload.pop("auto_rebalance")
+        event.payload = payload
+        await db.commit()
+
+    await _report_md(group["lines"][0]["id"], "10")
+
+    assert await _line_total(successor_id) == Decimal("50")

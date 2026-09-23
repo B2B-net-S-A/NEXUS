@@ -831,6 +831,10 @@ async def detach_order_rate_steps(
         changed = True
     if doomed:
         _refresh_rate_caches(contract, today, clear_if_empty=True)
+    # Kroki muszą zniknąć PRZED DELETE zamówienia: inaczej flush potrafi
+    # ustawić DELETE zamówienia pierwszy, kaskada w bazie zdejmuje krok, a ORM
+    # dostaje „expected to delete 1 row, 0 matched”.
+    await db.flush()
     return changed
 
 
