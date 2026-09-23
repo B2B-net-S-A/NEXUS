@@ -313,7 +313,9 @@ def test_startup_safety_net_preserves_new_draft_status_and_scope():
     assert (
         "status IN ('active', 'scheduled', 'completed', 'exhausted')" not in entrypoint
     )
+    # 0357 poszerzył listę o 'cancelled' (anulowanie z przywróceniem).
+    flat = " ".join(entrypoint.split())
     assert (
-        "status IN ('draft', 'active', 'scheduled', 'completed', 'exhausted')"
-        in entrypoint
+        "status IN ('draft', 'active', 'scheduled', 'completed', 'exhausted', "
+        "'cancelled')" in flat
     )

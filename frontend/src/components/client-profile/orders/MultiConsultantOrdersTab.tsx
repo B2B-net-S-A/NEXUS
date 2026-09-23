@@ -9,6 +9,10 @@ import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog"
 import { DeleteOrderDialog } from "@/components/orders/DeleteOrderDialog";
 import { DeleteOrderGroupDialog } from "@/components/orders/DeleteOrderGroupDialog";
 import {
+  CancelOrderGroupDialog,
+  cancelRefusalMessage,
+} from "@/components/client-profile/orders/CancelOrderGroupDialog";
+import {
   ContractorOrderCards,
   type ContractorOrderFocus,
 } from "@/components/OrdersAndContractsTab";
@@ -120,6 +124,7 @@ const PILLS: Array<{ key: UnifiedOrderPill; label: string }> = [
   { key: "ending_30d", label: "⚠️ Kończące się 30d" },
   { key: "completed", label: "Zakończeni" },
   { key: "exhausted", label: "Wyczerpane" },
+  { key: "cancelled", label: "Anulowane" },
   { key: "draft", label: "📝 Draft (do uzupełnienia)" },
 ];
 
@@ -240,6 +245,9 @@ export function MultiConsultantOrdersTab({
   } | null>(null);
   const [deleteGroupTarget, setDeleteGroupTarget] =
     useState<OrderGroupRead | null>(null);
+  const [cancelGroupTarget, setCancelGroupTarget] =
+    useState<OrderGroupRead | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [mailSource, setMailSource] = useState<MailSource | null>(null);
   // Przejście z wpisu „transfer_md" do zamówienia powiązanego. Żądanie leci do
   // WSZYSTKICH kart, bo cel bywa zagnieżdżony w przyszłych zamówieniach innej
@@ -709,6 +717,31 @@ export function MultiConsultantOrdersTab({
       showToast(apiError(err, "Nie udało się przywrócić zamówienia."), "error"),
   });
 
+  const cancelGroup = useMutation({
+    mutationFn: ({ groupId, reason }: { groupId: number; reason: string | null }) =>
+      orderGroupsApi.cancel(clientId, groupId, reason),
+    onSuccess: () => {
+      setCancelGroupTarget(null);
+      setCancelError(null);
+      invalidate();
+      showToast("Zamówienie anulowane", "success");
+    },
+    onError: (err) =>
+      setCancelError(
+        cancelRefusalMessage(err) ?? apiError(err, "Nie udało się anulować zamówienia."),
+      ),
+  });
+
+  const restoreGroup = useMutation({
+    mutationFn: (groupId: number) => orderGroupsApi.restore(clientId, groupId),
+    onSuccess: () => {
+      invalidate();
+      showToast("Anulowane zamówienie przywrócone", "success");
+    },
+    onError: (err) =>
+      showToast(apiError(err, "Nie udało się przywrócić zamówienia."), "error"),
+  });
+
   const extendGroup = useMutation({
     mutationFn: async ({
       values,
@@ -980,6 +1013,11 @@ export function MultiConsultantOrdersTab({
           setEndModal({ open: true, group: selected });
         }}
         onReopenGroup={(selected) => reopenGroup.mutate(selected.id)}
+        onCancelGroup={(selected) => {
+          setCancelError(null);
+          setCancelGroupTarget(selected);
+        }}
+        onRestoreGroup={(selected) => restoreGroup.mutate(selected.id)}
         onExtendGroup={(selected) => {
           setFormError(null);
           setExtendModal({ open: true, group: selected });
@@ -1307,6 +1345,21 @@ export function MultiConsultantOrdersTab({
           onClose={() => setDeleteGroupTarget(null)}
         />
       ) : null}
+
+      <CancelOrderGroupDialog
+        key={cancelGroupTarget?.id ?? "none"}
+        group={cancelGroupTarget}
+        pending={cancelGroup.isPending}
+        error={cancelError}
+        onConfirm={(reason) =>
+          cancelGroupTarget &&
+          cancelGroup.mutate({ groupId: cancelGroupTarget.id, reason })
+        }
+        onClose={() => {
+          setCancelGroupTarget(null);
+          setCancelError(null);
+        }}
+      />
     </div>
   );
 }

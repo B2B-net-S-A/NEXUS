@@ -49,7 +49,10 @@ from app.api.financial_access import (
     require_roles_or_finance_manager,
 )
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
-from app.services.contract_lifecycle import sync_contract_to_live_order
+from app.services.contract_lifecycle import (
+    lock_contract_then_orders,
+    sync_contract_to_live_order,
+)
 from app.services.critical_events import audited_deletion
 from app.services.order_engagement_separation import assert_no_open_md_group_line
 from app.core.database import get_db
@@ -1756,6 +1759,9 @@ async def create_order_extension(
     except ValueError as e:
         raise HTTPException(422, detail=str(e)) from None
 
+    # Kontrakt blokowany PRZED wstawieniem zamówienia: INSERT bierze na nim
+    # FOR KEY SHARE, a synchronizacja przed commitem — FOR UPDATE.
+    await lock_contract_then_orders(db, contract_ids=[contract_id])
     contract = await db.scalar(
         select(Contract)
         # Harmonogram stawki kandydata dociągany JAWNIE: bramka
@@ -2230,6 +2236,7 @@ async def update_order(
     _assert_order_finance_write_allowed(
         user, payload.model_fields_set, can_finance=can_finance
     )
+    await lock_contract_then_orders(db, order_ids=[order_id])  # kontrakt → zamówienie
     order = await db.scalar(
         select(ClientOrder)
         # Eager-load jak w get_order — _order_to_read czyta order.contract,
@@ -2558,6 +2565,7 @@ async def close_order(
     """
 
     await _assert_client(db, client_id)
+    await lock_contract_then_orders(db, order_ids=[order_id])  # kontrakt → zamówienie
     order = await db.scalar(
         select(ClientOrder)
         .options(selectinload(ClientOrder.contract))
@@ -2669,6 +2677,9 @@ async def delete_order(
         client_id=client_id,
     ) as audit:
         await _assert_client(db, client_id)
+        await lock_contract_then_orders(
+            db, order_ids=[order_id]
+        )  # kontrakt → zamówienie
         order = await db.scalar(
             select(ClientOrder)
             .where(ClientOrder.id == order_id, ClientOrder.client_id == client_id)

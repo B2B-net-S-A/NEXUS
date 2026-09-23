@@ -1363,6 +1363,19 @@ class Settings(BaseSettings):
     # Nie loguje sekretu; przy złym formacie nie wywraca startu (log + no-op).
     COMPASS_INTEGRATION_BOOTSTRAP_KEY: str = ""
 
+    # ── Multiposting (0358): Pracuj.pl i JustJoinIT ─────────────────────────
+    # Szkielet bez dokumentacji API portali: flagi OFF = portal niewidoczny
+    # w UI, publikacja 409, worker kończy się przed pętlą. Włączona flaga bez
+    # adresu i klucza = `checks.job_portals: misconfigured`.
+    PORTAL_PRACUJ_ENABLED: bool = False
+    PORTAL_PRACUJ_API_URL: str = ""
+    PORTAL_PRACUJ_API_KEY: str = ""
+    PORTAL_JJIT_ENABLED: bool = False
+    PORTAL_JJIT_API_URL: str = ""
+    PORTAL_JJIT_API_KEY: str = ""
+    JOB_PORTAL_WORKER_INTERVAL_SECONDS: int = 60
+    JOB_PORTAL_MAX_ATTEMPTS: int = 5
+
     TRAFFIT_SYNC_ENABLED: bool = False
     # Skutki uboczne dla etapów przychodzących z importu.
     #

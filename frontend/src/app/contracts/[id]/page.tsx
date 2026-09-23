@@ -54,6 +54,7 @@ import { hasSectionAccess } from "@/lib/section-access";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { HOURS_PER_MONTH } from "@/lib/work-time";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { ContractClientReassignDialog } from "@/components/contracts/ContractClientReassignDialog";
 import {
   canManageCandidateFinance,
   canManageContractStatus,
@@ -827,6 +828,7 @@ export default function ContractDetailPage() {
   };
 
   const [showAddProject, setShowAddProject] = useState(false);
+  const [showReassign, setShowReassign] = useState(false);
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
@@ -998,6 +1000,14 @@ export default function ContractDetailPage() {
               )}{" "}
               Usuń
             </button>
+            {isAdmin && !impersonating && (
+              <button
+                onClick={() => setShowReassign(true)}
+                className="flex items-center gap-2 border border-border hover:bg-accent px-4 py-2 rounded-lg text-sm font-medium"
+              >
+                <Building2 className="w-4 h-4" /> Przepnij na innego klienta
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1103,6 +1113,15 @@ export default function ContractDetailPage() {
         error={signedDeleteError}
         onConfirm={(confirmation) => forceDeleteMutation.mutate(confirmation)}
       />
+
+      {isAdmin && (
+        <ContractClientReassignDialog
+          open={showReassign}
+          onOpenChange={setShowReassign}
+          contractId={contract.id}
+          currentClientName={contract.client_name}
+        />
+      )}
 
       {contract.candidate_id != null && (
         <AddProjectDialog

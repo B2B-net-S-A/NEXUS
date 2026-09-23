@@ -324,6 +324,12 @@ class OrderGroupClose(BaseModel):
     closure_reason: Optional[str] = None
 
 
+class OrderGroupCancel(BaseModel):
+    """Anulowanie zamówienia MD/kosztowego — powód opcjonalny, trafia do historii."""
+
+    reason: Optional[str] = Field(default=None, max_length=1000)
+
+
 class OrderGroupExtend(BaseModel):
     """Przedłużenie: NOWE zamówienie kontynuujące poprzednie.
 
@@ -607,6 +613,10 @@ class OrderGroupRead(BaseModel):
     status_label: str = "Aktywne"
     closure_date: Optional[date] = None
     closure_reason: Optional[str] = None
+    # Anulowanie (0357): kiedy, dlaczego i do jakiego stanu wróci „Przywróć".
+    cancelled_at: Optional[datetime] = None
+    cancellation_reason: Optional[str] = None
+    status_before_cancel: Optional[str] = None
     order_type: Optional[OrderType] = None
 
     is_cost_based: bool = False

@@ -63,6 +63,13 @@ CATALOG = (
         trigger="Nowy alert lub próg przypomnienia z włączonym kanałem email w regule alertu.",
         recipient_rule="Aktywni administratorzy i Delivery Leadzi przypisani do danego klienta, z dostępem do sekcji.",
     ),
+    dict(
+        id="application_confirmation",
+        label="Potwierdzenie aplikacji",
+        module="Strona kariery",
+        trigger="Kandydat wysłał zgłoszenie z CV przez link aplikacyjny lub stronę kariery (najwyżej jeden mail na adres i link w ciągu 24 h).",
+        recipient_rule="Kandydat — adres z formularza. Treść jest taka sama, niezależnie od tego, czy osoba była już w bazie.",
+    ),
 )
 ROUTINE_KINDS = frozenset(item["id"] for item in CATALOG)
 SECURITY_CATALOG = (
@@ -331,7 +338,9 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
                 email_enabled=policy.types.get(kind, {}).get("email_enabled") is True,
                 effective_enabled=policy.kind_enabled(kind),
                 send_not_before=cutoff.isoformat() if cutoff else None,
-                channels=[
+                channels=["email"]
+                if kind == "application_confirmation"
+                else [
                     "client_panel" if kind == "delivery_alert" else "in_app",
                     "email",
                 ],

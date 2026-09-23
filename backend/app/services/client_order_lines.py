@@ -2103,6 +2103,11 @@ async def apply_md_consumption(
                 )
             )
         ):
+            # Poprzednik to zwykle ten sam kontrakt (ta sama osoba), więc jego
+            # blokada już jest — helper dokłada tylko linię, w kolejności kontrakt → linia.
+            from app.services.contract_lifecycle import lock_contract_then_orders
+
+            await lock_contract_then_orders(db, order_ids=[pred_line.id])
             await db.scalar(
                 select(ClientOrder.id)
                 .where(ClientOrder.id == pred_line.id)

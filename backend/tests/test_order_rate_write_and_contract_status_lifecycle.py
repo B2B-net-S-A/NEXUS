@@ -49,6 +49,20 @@ from app.services.contract_rates import effective_rate_fields
 
 pytestmark = pytest.mark.asyncio
 
+
+@pytest.fixture(autouse=True)
+def _skip_contract_order_locks(monkeypatch):
+    """Sztuczne sesje tego pliku nie znają blokad; kolejność blokad kontrakt →
+    zamówienia pilnuje ``test_order_writer_lock_order.py``."""
+
+    async def _no_lock(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.contract_lifecycle.lock_contract_then_orders", _no_lock
+    )
+
+
 _TODAY = date.today()
 _START = _TODAY - timedelta(days=400)
 _STEP = _TODAY - timedelta(days=200)

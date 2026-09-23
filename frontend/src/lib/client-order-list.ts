@@ -29,7 +29,7 @@ export interface OrderListFilters {
 
 /** Wspólny zestaw filtrów statusu dla połączonej listy grup i zamówień. */
 export type UnifiedOrderPill =
-  "all" | "active" | "ending_30d" | "completed" | "exhausted" | "draft";
+  "all" | "active" | "ending_30d" | "completed" | "exhausted" | "draft" | "cancelled";
 
 /** Kolejność biznesowa sekcji na profilu klienta. */
 export const ORDER_TYPE_ORDER = ["md", "cost", "periodic"] as const;
@@ -855,6 +855,7 @@ export function orderGroupMatchesPill(
   if (pill === "active") return group.status === "active";
   if (pill === "completed") return group.status === "completed";
   if (pill === "exhausted") return group.status === "exhausted";
+  if (pill === "cancelled") return group.status === "cancelled";
   if (pill === "ending_30d") {
     return endingGroupWithoutSuccessor(group, 30, todayIso, families) !== null;
   }

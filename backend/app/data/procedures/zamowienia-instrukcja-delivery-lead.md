@@ -32,8 +32,8 @@ typ.
 
 Nad listą masz:
 
-* sześć filtrów z licznikami: **Wszystkie**, **Aktywne**, **⚠️ Kończące się 30d**,
-  **Zakończeni**, **Wyczerpane**, **📝 Draft (do uzupełnienia)**.
+* siedem filtrów z licznikami: **Wszystkie**, **Aktywne**, **⚠️ Kończące się 30d**,
+  **Zakończeni**, **Wyczerpane**, **Anulowane**, **📝 Draft (do uzupełnienia)**.
   **O tym, kto jest w „Zakończonych", decyduje wyłącznie umowa z modułu
   Kontrakty** — jej status i data zakończenia — nigdy sam upływ okresu
   zamówienia. Osoba z datą końca umowy 30.09 jest w „Aktywnych" do 30.09
@@ -450,6 +450,8 @@ datę; samo pozostawienie kompletnego szkicu nie aktywuje go.
 | **Dodaj przedłużenie** | zakłada **nowe** zamówienie podpięte pod obecne (patrz niżej) |
 | **Zakończ** | okienko „Zakończ zamówienie": obowiązkowa data + opcjonalny powód |
 | **Przywróć** | cofa zakończenie — pokazuje się przy **każdym** zamówieniu ze statusem „Zakończone", także takim, które system domknął sam; przy zamówieniu MD z budżetem przy osobie wskrzesza też konsultantów, którym zostały dni i nie minęła data. Zamówienia **wyczerpanego** nie przywrócisz — tam trzeba podnieść budżet |
+| **Anuluj zamówienie** | dla zamówienia, które **nie doszło do skutku** albo zostało założone omyłkowo, a chcesz zachować jego historię. Zamówienie i jego konsultanci dostają status „Anulowane”, znikają z aktywnych zamówień, sum, alertów i rozliczeń, ale zostają w rejestrze (filtr **Anulowane**). **Zamówienia z rozliczeniami (zaraportowane MD, faktury) nie anulujesz** — system odmówi i wskaże, co blokuje; wtedy właściwą akcją jest **Zakończ**. Anulowanego zamówienia nie edytujesz, nie kończysz ani nie przedłużasz |
+| **Przywróć anulowane** | cofa anulowanie: zamówienie wraca do stanu sprzed niego (np. „Aktywne”), a konsultanci — do swoich statusów; osoba, której okres w międzyczasie minął, wraca jako zakończona |
 | **Usuń całe zamówienie** | służy do wycofania **pomyłki** i jest nieodwracalne: zamówienie znika razem ze swoją historią. **Zamówienia z rozliczeniami system nie usunie** — odmówi i wskaże, co je blokuje (rozliczone MD, zaimportowane faktury). Wtedy właściwą akcją jest **Zakończ**. Razem z zamówieniem znikają jego linie — **nie powstają z nich osobne zamówienia okresowe**. Okno usuwania pokazuje skutki dla umów: jeśli zamówienie niosło jedyną stawkę klienta na umowie, umowa zostaje **bez przychodu** (stawka klienta i marża znikają), a gdy są inne zamówienia — okres, którego dotyczyło, przejdzie na ich stawkę |
 | **Historia zamówienia** | rozwijana lista zdarzeń z datą, wykonawcą (wpis bez osoby = zmiana automatyczna) i opisem: utworzenie, dodania i zamiany konsultantów, importy, decyzje o MD, zakończenia. Zapis nowego szkicu MD, zmiana jego trybu, aktywacja i zapis miesięcznego zużycia wspólnej puli również zostawiają wpis |
 

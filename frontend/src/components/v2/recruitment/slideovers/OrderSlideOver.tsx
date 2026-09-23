@@ -28,6 +28,7 @@ import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
+import { JobPortalsSection } from "@/components/v2/recruitment/JobPortalsSection";
 import { JobOwnershipPanel } from "@/components/v2/jobs/JobOwnershipPanel";
 import { JobReadinessDock } from "@/components/v2/jobs/JobReadinessDock";
 import { JobSettingsPanel } from "@/components/v2/jobs/JobSettingsPanel";
@@ -531,6 +532,9 @@ function OrderBody({
         >
           <JobReadinessDock jobId={jobId} variant="list" />
         </DisclosureRow>
+        {/* Multiposting (Pracuj.pl, JustJoinIT) — renderuje się dopiero, gdy
+            backend zgłasza gotowy portal (dziś flagi są wyłączone). */}
+        <JobPortalsSection jobId={jobId} readOnly={readOnly || !canEditContent} />
       </section>
 
       <p className="text-xs text-muted-foreground">

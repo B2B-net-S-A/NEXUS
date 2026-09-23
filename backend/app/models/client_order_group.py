@@ -45,12 +45,22 @@ GROUP_STATUS_ACTIVE = "active"
 GROUP_STATUS_SCHEDULED = "scheduled"
 GROUP_STATUS_COMPLETED = "completed"
 GROUP_STATUS_EXHAUSTED = "exhausted"
+# Anulowane (0357): zamówienie, które nie doszło do skutku albo zostało
+# założone omyłkowo — w odróżnieniu od usunięcia zostaje w rejestrze razem
+# z historią i da się je przywrócić do stanu sprzed anulowania.
+GROUP_STATUS_CANCELLED = "cancelled"
 GROUP_STATUSES: tuple[str, ...] = (
     GROUP_STATUS_DRAFT,
     GROUP_STATUS_ACTIVE,
     GROUP_STATUS_SCHEDULED,
     GROUP_STATUS_COMPLETED,
     GROUP_STATUS_EXHAUSTED,
+    GROUP_STATUS_CANCELLED,
+)
+# Stany, z których zamówienie mogło zostać anulowane — i do których wraca
+# przy przywróceniu. Lustro CHECK-a ``ck_client_order_groups_cancel_coherence``.
+GROUP_STATUSES_BEFORE_CANCEL: tuple[str, ...] = tuple(
+    status for status in GROUP_STATUSES if status != GROUP_STATUS_CANCELLED
 )
 
 GROUP_STATUS_LABELS: dict[str, str] = {
@@ -59,6 +69,7 @@ GROUP_STATUS_LABELS: dict[str, str] = {
     GROUP_STATUS_SCHEDULED: "Przyszłe",
     GROUP_STATUS_COMPLETED: "Zakończone",
     GROUP_STATUS_EXHAUSTED: "Wyczerpane",
+    GROUP_STATUS_CANCELLED: "Anulowane",
 }
 
 
@@ -89,8 +100,17 @@ class ClientOrderGroup(Base, TimestampMixin):
             name="ck_client_order_groups_dates",
         ),
         CheckConstraint(
-            "status IN ('draft', 'active', 'scheduled', 'completed', 'exhausted')",
+            "status IN ('draft', 'active', 'scheduled', 'completed', "
+            "'exhausted', 'cancelled')",
             name="ck_client_order_groups_status",
+        ),
+        # Anulowane zamówienie pamięta, w jakim stanie było — z tego stanu
+        # wraca przy przywróceniu. Poza anulowaniem kolumna jest pusta.
+        CheckConstraint(
+            "(status = 'cancelled' AND status_before_cancel IN "
+            "('draft', 'active', 'scheduled', 'completed', 'exhausted')) OR "
+            "(status <> 'cancelled' AND status_before_cancel IS NULL)",
+            name="ck_client_order_groups_cancel_coherence",
         ),
         # Zamówienie kosztowe jest albo kompletne, albo go nie ma. Kwota bez
         # reszty (albo odwrotnie) wysadza odejmowanie w środku transakcji
@@ -183,6 +203,21 @@ class ClientOrderGroup(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
+    status_before_cancel: Mapped[Optional[str]] = mapped_column(
+        String(16), nullable=True
+    )
+    """Stan sprzed anulowania (0357) — do niego wraca „Przywróć". Statusy
+    LINII sprzed anulowania niesie ``payload`` zdarzenia ``order_cancelled``;
+    kolumna trzyma tylko stan całego zamówienia, bo to on decyduje o tym, jak
+    je pokazać i czy wolno je przywrócić."""
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cancelled_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    cancellation_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     is_cost_based: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
@@ -270,6 +305,7 @@ class ClientOrderGroup(Base, TimestampMixin):
     client = relationship("Client")
     creator = relationship("User", foreign_keys=[created_by_user_id])
     closer = relationship("User", foreign_keys=[closed_by_user_id])
+    canceller = relationship("User", foreign_keys=[cancelled_by_user_id])
     file_uploader = relationship("User", foreign_keys=[file_uploaded_by])
     predecessor = relationship(
         "ClientOrderGroup", remote_side=[id], foreign_keys=[predecessor_group_id]
@@ -367,7 +403,7 @@ class ClientOrderGroupEvent(Base):
             "'przywrocenie', 'wyczerpanie', 'przedluzenie', 'import_faktur', "
             "'transfer_md', 'zakonczenie_konsultanta', 'decyzja_md_wymagana', "
             "'usuniecie_puli_md', 'przeniesienie_puli_md', "
-            "'przywrocenie_konsultanta')",
+            "'przywrocenie_konsultanta', 'order_cancelled', 'order_restored')",
             name="ck_client_order_group_events_type",
         ),
         Index("ix_client_order_group_events_group", "group_id"),
