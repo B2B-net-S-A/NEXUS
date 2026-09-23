@@ -24,6 +24,10 @@ const ACTION_LABELS: Record<string, string> = {
   end_date_cleared: "Wyczyszczono datę zakończenia (umowa bezterminowa)",
   synced_with_orders: "Zsynchronizowano z zamówieniami klienta",
   bulk_marked_ended: "Zakończono współpracę (operacja zbiorcza)",
+  // 0355 — okno „Zakończ współpracę" i synchronizacja z Generatorem B2B.
+  status_auto_changed: "Automatyczna zmiana statusu (dzień po zakończeniu projektu)",
+  termination_undone: "Cofnięto zakończenie współpracy",
+  returned_after_break: "Powrót po przerwie",
   contracts_merged: "Scalono zduplikowane kontrakty",
   draft_initialized: "Przygotowano szkic do podpisu",
   draft_finalized: "Zamknięto szkic i przekazano do podpisu",
@@ -82,6 +86,12 @@ const DETAIL_LABELS: Record<string, string> = {
   terminated_at: "Data zakończenia współpracy",
   termination_lessons: "Kto i dlaczego",
   early: "Przed planowanym końcem",
+  agreement_termination: "Rozwiązanie umowy B2B",
+  agreement_termination_cleared: "Usunięto dane rozwiązania umowy",
+  generated_contracts_restored: "Przywrócone umowy w Generatorze",
+  agreement_was_terminated: "Umowa była rozwiązana",
+  follow_up_generated_contract_ids: "Nowe umowy w Generatorze",
+  end_date: "Data zakończenia projektu",
   business_day: "Dzień roboczy",
   contract_id: "Kontrakt",
   survivor_contract_id: "Kontrakt zachowany",
@@ -222,6 +232,19 @@ export function contractDetailValue(key: string, value: unknown): string {
   }
   if (typeof value === "object") {
     const obj = value as Record<string, unknown>;
+    if (key === "agreement_termination") {
+      const signedOn =
+        typeof obj.signed_on === "string" ? formatIsoDatePl(obj.signed_on) : "—";
+      const lastDay =
+        typeof obj.last_day === "string" ? formatIsoDatePl(obj.last_day) : "—";
+      const notice = obj.mode === "notice";
+      return [
+        notice ? "Wypowiedzenie" : "Porozumienie stron",
+        `strona: ${obj.party === "company" ? "b2bnetwork" : "Konsultant"}`,
+        `${notice ? "złożone" : "zawarte"} ${signedOn}`,
+        `ostatni dzień umowy ${lastDay}`,
+      ].join(" · ");
+    }
     // `rate_unit: {from, to}` z synchronizacji jednostki kontrakt ↔ zamówienie.
     if ("from" in obj && "to" in obj) {
       const from = contractDetailValue(key, obj.from);

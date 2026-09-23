@@ -20,6 +20,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
+    JSON,
     Date,
     DateTime,
     ForeignKey,
@@ -29,6 +30,7 @@ from sqlalchemy import (
     Text,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -68,6 +70,12 @@ class B2BGeneratedContractStatusEvent(Base):
     )
     changed_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # 0355: zmiana wykonana przez zakończenie kontraktu niesie tu kontrakt,
+    # datę zakończenia projektu i dane rozwiązania umowy (tryb, strona, daty).
+    # NULL dla ręcznych zmian w Generatorze.
+    details: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

@@ -91,6 +91,7 @@ import api, {
   type B2BRenderPayload,
   type B2BRole,
   type B2BUopCheckResult,
+  type AgreementTerminationMode,
 } from "@/lib/api";
 import { downloadBlob, parseDispositionFilename } from "@/lib/cv-generator";
 import { hasActionAccess } from "@/lib/action-access";
@@ -99,6 +100,11 @@ import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { formatIsoDatePl } from "@/lib/date-pl";
+import {
+  AGREEMENT_TERMINATION_MODES,
+  agreementModeLabel,
+  statusEventDetailsText,
+} from "@/lib/contract-termination";
 import { warsawToday } from "@/lib/warsaw-date";
 import { countPl } from "@/lib/plural-pl";
 import { positiveIntParam } from "@/lib/client-tab";
@@ -1931,9 +1937,15 @@ export function StatusHistoryDialog({
                       .filter(Boolean)
                       .join(" · ") || "—"}
                   </p>
+                  {statusEventDetailsText(e.details) ? (
+                    <p className="text-xs text-muted-foreground">
+                      {statusEventDetailsText(e.details)}
+                    </p>
+                  ) : null}
                   <p className="text-xs text-muted-foreground">
                     {[
-                      e.changed_by_name,
+                      e.changed_by_name ??
+                        (e.details?.source ? "System (zakończenie kontraktu)" : null),
                       e.created_at ? formatDateTimePl(e.created_at) : null,
                     ]
                       .filter(Boolean)
@@ -2753,6 +2765,7 @@ function LifecycleContractsTab({
   allowStatusChange = allowActions,
   emptyLabel,
   searchParam = null,
+  showTermination = false,
 }: {
   status: Extract<B2BContractStatus, "suspended" | "closed">;
   title: string;
@@ -2769,8 +2782,16 @@ function LifecycleContractsTab({
   emptyLabel: string;
   /** `?q=` z adresu — link do umowy z formularza generatora. */
   searchParam?: string | null;
+  /**
+   * „Zakończone umowy" (ticket 09.2026): kolumny „Data zakończenia
+   * zamówienia" i „Tryb" + filtr po trybie rozwiązania umowy.
+   */
+  showTermination?: boolean;
 }) {
   const [search, setSearch] = useState(searchParam ?? "");
+  const [modeFilter, setModeFilter] = useState<AgreementTerminationMode | "all">(
+    "all",
+  );
   useEffect(() => {
     if (searchParam) setSearch(searchParam);
   }, [searchParam]);
@@ -2794,6 +2815,7 @@ function LifecycleContractsTab({
     q: debouncedSearch,
     contractStatus: [status],
     closureReason: reasonFilter === "all" ? undefined : reasonFilter,
+    terminationMode: modeFilter === "all" ? undefined : modeFilter,
     startFrom: startFrom || undefined,
     startTo: startTo || undefined,
   };
@@ -2805,6 +2827,7 @@ function LifecycleContractsTab({
       status,
       debouncedSearch,
       reasonFilter,
+      modeFilter,
       startFrom,
       startTo,
     ],
@@ -2826,7 +2849,10 @@ function LifecycleContractsTab({
   );
   const showActionsColumn = allowActions || allowStatusChange;
   const filtersActive =
-    Boolean(debouncedSearch.trim()) || reasonFilter !== "all" || dateFilterActive;
+    Boolean(debouncedSearch.trim()) ||
+    reasonFilter !== "all" ||
+    modeFilter !== "all" ||
+    dateFilterActive;
 
   return (
     <Card>
@@ -2870,6 +2896,26 @@ function LifecycleContractsTab({
                 ))}
               </SelectContent>
             </Select>
+            {showTermination ? (
+              <Select
+                value={modeFilter}
+                onValueChange={(v) =>
+                  setModeFilter(v as AgreementTerminationMode | "all")
+                }
+              >
+                <SelectTrigger className="w-56" aria-label="Filtr trybu">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Wszystkie tryby</SelectItem>
+                  {AGREEMENT_TERMINATION_MODES.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
             {dateFilterActive ? (
               <button
                 type="button"
@@ -2938,6 +2984,14 @@ function LifecycleContractsTab({
                     </span>
                   </th>
                   <th className="py-2 pr-4 font-medium">{dateColumnLabel}</th>
+                  {showTermination ? (
+                    <>
+                      <th className="py-2 pr-4 font-medium">
+                        Data zakończenia zamówienia
+                      </th>
+                      <th className="py-2 pr-4 font-medium">Tryb</th>
+                    </>
+                  ) : null}
                   <th className="py-2 pr-4 font-medium">Klient</th>
                   <th className="py-2 pr-4 font-medium">Status umowy</th>
                   <th className="py-2 pr-4 font-medium">
@@ -2977,6 +3031,16 @@ function LifecycleContractsTab({
                     <td className="py-2 pr-4 tabular-nums">
                       {formatIsoDatePl(r.closure_date)}
                     </td>
+                    {showTermination ? (
+                      <>
+                        <td className="py-2 pr-4 tabular-nums">
+                          {formatIsoDatePl(r.project_end_date)}
+                        </td>
+                        <td className="py-2 pr-4">
+                          {agreementModeLabel(r.termination_mode) ?? "—"}
+                        </td>
+                      </>
+                    ) : null}
                     <td className="py-2 pr-4">{r.client_name || "—"}</td>
                     <td className="py-2 pr-4">
                       <div className="flex flex-col items-start gap-1">
@@ -3133,6 +3197,7 @@ export function ClosedContractsTab({
         "niepodpisaną umowę cofniesz na „W trakcie” przyciskiem „Zmień status”."
       }
       dateColumnLabel="Data zakończenia umowy"
+      showTermination
       allowActions={false}
       allowStatusChange
       emptyLabel="Brak zakończonych umów."

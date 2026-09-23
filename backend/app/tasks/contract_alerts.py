@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
+from app.models.activity import Activity
 from app.models.contract import Contract, ContractStatus
 from app.models.contract_alert_dedup import ContractAlertDedup
 from app.models.contract_document import ContractDocument, ContractDocumentType
@@ -39,6 +40,9 @@ from app.services.contract_order_sync import (
 from app.services.contract_order_offboarding import (
     apply_contract_order_offboarding,
     reconcile_pending_md_offboarding_alerts,
+)
+from app.services.contract_termination_sync import (
+    sync_generator_after_contract_ended,
 )
 from app.services.delivery_alert_recipients import (
     load_delivery_alert_recipient_scope,
@@ -120,13 +124,34 @@ async def _promote_statuses(db: AsyncSession) -> tuple[int, int]:
         .all()
     )
     for contract in ended_contracts:
+        previous_status = contract.status
         contract.status = ContractStatus.ended
+        # Automatyczne przejście jest w historii kontraktu (ticket 09.2026,
+        # pkt 8.2) — bez autora, z datą zakończenia projektu, która je dała.
+        db.add(
+            Activity(
+                entity_type="contract",
+                entity_id=contract.id,
+                action="status_auto_changed",
+                user_id=None,
+                details={
+                    "from_status": previous_status.value,
+                    "to_status": ContractStatus.ended.value,
+                    "end_date": contract.end_date.isoformat(),
+                },
+            )
+        )
         await apply_contract_order_offboarding(
             db,
             contract_id=contract.id,
             effective_date=contract.end_date,
             actor_id=None,
             today=today,
+        )
+        # Generator umów B2B przestawia umowę w chwili, w której kontrakt
+        # przechodzi na „Zakończony" — dzień po dacie zakończenia projektu.
+        await sync_generator_after_contract_ended(
+            db, contract, actor_id=None, today=today
         )
     return (ending_count.rowcount or 0, len(ended_contracts))
 

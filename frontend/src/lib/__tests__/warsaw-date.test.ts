@@ -34,7 +34,6 @@ describe("emptyAmendmentForm", () => {
 // WCZORAJ (np. data wypowiedzenia, zamiany kontraktora, skrót Jarvisa).
 describe("formularze z domyślną datą „dziś”", () => {
   const files = [
-    "src/components/client-profile/actions/TerminateContractModal.tsx",
     "src/components/client-profile/orders/SwapConsultantModal.tsx",
     "src/components/contracts/FinancialRatesCard.tsx",
     // Dzień Jarvisa (skrót, budżet dymków) liczy wspólne `todayKey` stąd.

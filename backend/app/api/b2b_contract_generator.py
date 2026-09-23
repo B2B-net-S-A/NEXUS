@@ -954,6 +954,11 @@ async def _serialize_generated_contracts(
                 closure_reason=row.closure_reason,
                 closure_reason_other=row.closure_reason_other,
                 closure_date=row.closure_date,
+                termination_mode=row.termination_mode,
+                termination_party=row.termination_party,
+                termination_signed_on=row.termination_signed_on,
+                project_end_date=row.project_end_date,
+                previous_generated_contract_id=row.previous_generated_contract_id,
                 id=row.id,
                 contract_number=row.contract_number,
                 partner_name=row.partner_name,
@@ -1887,6 +1892,13 @@ async def list_generated_contracts(
         None,
         description="Filtr powodu zakończenia projektu (zakładki bez projektu / zakończone).",
     ),
+    termination_mode: str | None = Query(
+        None,
+        description=(
+            "Filtr trybu rozwiązania umowy (`notice` = wypowiedzenie, "
+            "`mutual_agreement` = porozumienie stron) — „Zakończone umowy”."
+        ),
+    ),
     job_id: int | None = Query(
         None,
         gt=0,
@@ -1940,6 +1952,15 @@ async def list_generated_contracts(
             detail=f"Nieznany powód zakończenia: {closure_reason}.",
         )
 
+    if termination_mode is not None and termination_mode not in (
+        "notice",
+        "mutual_agreement",
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Nieznany tryb rozwiązania umowy: {termination_mode}.",
+        )
+
     query = await _scope_generator_query(
         select(B2BGeneratedContract),
         B2BGeneratedContract.client_id,
@@ -1988,6 +2009,8 @@ async def list_generated_contracts(
         query = query.where(B2BGeneratedContract.contract_status.in_(statuses))
     if closure_reason:
         query = query.where(B2BGeneratedContract.closure_reason == closure_reason)
+    if termination_mode:
+        query = query.where(B2BGeneratedContract.termination_mode == termination_mode)
     if job_id is not None:
         query = query.where(B2BGeneratedContract.job_id == job_id)
 
@@ -2112,6 +2135,7 @@ async def generated_contract_status_history(
             client_name=clients.get(e.client_id) if e.client_id else None,
             changed_by_name=users.get(e.changed_by) if e.changed_by else None,
             created_at=e.created_at.isoformat() if e.created_at else None,
+            details=e.details,
         )
         for e in events
     ]

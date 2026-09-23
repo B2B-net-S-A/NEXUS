@@ -5,9 +5,10 @@ Regresja produkcyjna: zarówno amendment ``early_termination`` jak i dedykowany
 skutku. Konsultant znikał z aktywnych przed faktycznym końcem, a raporty/alerty/
 billing dostawały przedwczesny stan.
 
-Fix: status wyliczany przez ``_status_after_end_date_change`` z daty końca —
-future → zostaje active/ending, dopiero cron materializuje ``ended`` w dniu
-zakończenia. Testy seedują WŁASNY kontrakt (nie ``_pick_parties`` z silent
+Fix: status wyliczany z daty końca — przyszła albo dzisiejsza data →
+„Kończący się” (od 23.09.2026, ticket „Zakończenie współpracy — obowiązkowy
+formularz”: do dnia zakończenia projektu włącznie), dopiero cron materializuje
+``ended`` dzień po dacie zakończenia. Testy seedują WŁASNY kontrakt (nie ``_pick_parties`` z silent
 return), więc zawsze wykonują asercję biznesową.
 """
 
@@ -79,14 +80,14 @@ async def test_future_early_termination_amendment_keeps_active(
         headers=app_auth_headers,
     )
     assert r.status_code == 201, r.text
-    assert r.json()["new_values"]["status"] == "active"
+    assert r.json()["new_values"]["status"] == "ending"
 
     after = await _status(app_client, app_auth_headers, cid)
-    assert after["status"] == "active", "future early termination ended it today!"
+    assert after["status"] == "ending", "future early termination ended it today!"
     assert after["end_date"] == early_end.isoformat()
 
 
-async def test_today_early_termination_amendment_ends(
+async def test_today_early_termination_amendment_is_ending_until_tomorrow(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     cid = await _seed_active_contract()
@@ -101,7 +102,8 @@ async def test_today_early_termination_amendment_ends(
     )
     assert r.status_code == 201, r.text
     after = await _status(app_client, app_auth_headers, cid)
-    assert after["status"] == "ended"
+    # Dziś konsultant jeszcze pracuje — „Zakończony” od jutra (nocny cron).
+    assert after["status"] == "ending"
 
 
 # ── Dedicated /terminate ─────────────────────────────────────────────────────
@@ -122,18 +124,37 @@ async def test_future_terminate_keeps_active(
     )
     assert r.status_code == 200, r.text
     after = await _status(app_client, app_auth_headers, cid)
-    assert after["status"] in ("active", "ending"), (
+    assert after["status"] == "ending", (
         f"future terminate ended it today: {after['status']}"
     )
 
 
-async def test_today_terminate_ends(app_client: AsyncClient, app_auth_headers: dict):
+async def test_today_terminate_is_ending_until_tomorrow(
+    app_client: AsyncClient, app_auth_headers: dict
+):
     cid = await _seed_active_contract()
     r = await app_client.post(
         f"/api/contracts/{cid}/terminate",
         json={
             "termination_reason": "project_ended",
             "terminated_at": _TODAY.isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    after = await _status(app_client, app_auth_headers, cid)
+    assert after["status"] == "ending"
+
+
+async def test_past_terminate_ends_immediately(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    cid = await _seed_active_contract()
+    r = await app_client.post(
+        f"/api/contracts/{cid}/terminate",
+        json={
+            "termination_reason": "project_ended",
+            "terminated_at": (_TODAY - timedelta(days=1)).isoformat(),
         },
         headers=app_auth_headers,
     )

@@ -65,7 +65,7 @@ import { DeleteOrderDialog } from "@/components/orders/DeleteOrderDialog";
 import { ExtendOrderDialog } from "@/components/ExtendOrderDialog";
 import { NewContractorOrderDialog } from "@/components/NewContractorOrderDialog";
 import { CloseClientOrderModal } from "@/components/client-profile/orders/CloseClientOrderModal";
-import { TerminateContractModal } from "@/components/client-profile/actions/TerminateContractModal";
+import { ContractTerminationDialog } from "@/components/contracts/ContractTerminationDialog";
 import { OrderListControls } from "@/components/client-profile/orders/OrderListControls";
 import { NordeaOrderImportPanel } from "@/components/client-profile/orders/NordeaOrderImportPanel";
 import { OrderTypeBadge } from "@/components/client-profile/orders/OrderTypeBadge";
@@ -587,12 +587,15 @@ export function ContractorOrderCards({
       />
 
       {terminatingContract ? (
-        <TerminateContractModal
-          contractId={terminatingContract.contract_id}
+        <ContractTerminationDialog
+          contractIds={[terminatingContract.contract_id]}
           candidateName={terminatingContract.candidate_name}
-          clientId={clientId}
           onClose={() => setTerminatingContract(null)}
-          onTerminated={refresh}
+          onSuccess={() => {
+            setTerminatingContract(null);
+            refresh();
+            showToast("Zakończenie współpracy zapisane", "success");
+          }}
         />
       ) : null}
 

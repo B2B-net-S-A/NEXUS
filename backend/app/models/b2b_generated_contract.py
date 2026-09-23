@@ -221,5 +221,32 @@ class B2BGeneratedContract(Base, TimestampMixin):
         JSON().with_variant(JSONB(), "postgresql"), nullable=True
     )
 
+    # Zakończenie projektu po stronie Kontraktów (0355). Wypełniane, gdy
+    # kontrakt powiązany z umową przechodzi na „Zakończony":
+    # * `termination_mode`/`termination_party`/`termination_signed_on` —
+    #   rozwiązanie umowy z okna „Zakończ współpracę" (tryb: `notice` |
+    #   `mutual_agreement`; strona: `consultant` | `company`);
+    # * `project_end_date` — „Data zakończenia zamówienia" (ostatni dzień
+    #   pracy na projekcie); `closure_date` przy rozwiązaniu = ostatni dzień
+    #   UMOWY, więc to są dwie różne daty;
+    # * `termination_restore` — stan wiersza sprzed zmiany wykonanej przez
+    #   zakończenie kontraktu (+ `contract_id`, który ją wykonał). „Cofnij
+    #   zakończenie" odtwarza go 1:1; NULL = wiersz nie zmienił się przez
+    #   zakończenie kontraktu (ręczna zmiana statusu w Generatorze).
+    termination_mode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    termination_party: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    termination_signed_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    project_end_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    termination_restore: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
+    # Powrót po przerwie przy rozwiązanej umowie zakłada NOWĄ umowę — ta
+    # kolumna wskazuje poprzednią (zostaje w „Zakończonych" bez zmian).
+    previous_generated_contract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("b2b_generated_contracts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     def __repr__(self) -> str:
         return f"<B2BGeneratedContract id={self.id} number={self.contract_number!r}>"

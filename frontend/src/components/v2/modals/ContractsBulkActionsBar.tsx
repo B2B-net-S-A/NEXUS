@@ -3,11 +3,10 @@
 import * as React from"react";
 import { useState } from"react";
 import { Calendar, CheckSquare, Square, X, XCircle } from"lucide-react";
-import api, { contractsApi, type ContractTerminationReason } from"@/lib/api";
-import { apiErrorMessage } from"@/lib/api-error";
+import api from"@/lib/api";
 import { Button } from"@/components/ui/button";
 import { RequireRole } from"@/components/RequireRole";
-import { ContractsBulkEndDialog } from"./ContractsBulkEndDialog";
+import { ContractTerminationDialog } from"@/components/contracts/ContractTerminationDialog";
 
 interface Props {
  selectedIds: Set<number>;
@@ -31,7 +30,6 @@ export function ContractsBulkActionsBarV2({
 }: Props) {
  const [busy, setBusy] = useState(false);
  const [confirmEnd, setConfirmEnd] = useState(false);
- const [endError, setEndError] = useState<string | null>(null);
 
  const bulkExtend = async (months: number) => {
  if (selectedIds.size === 0) return;
@@ -48,35 +46,6 @@ export function ContractsBulkActionsBarV2({
  `Przedłużono ${res.extended} kontraktów o ${months} mies.${
  skipped > 0 ? ` (pominięto ${skipped} bezterminowych — w tym umowy B2B bez zakończenia)` :""
  }.`
- );
- } finally {
- setBusy(false);
- }
- };
-
- /**
- * Dyspozycja jest ATOMOWA po stronie serwera (umowa `void` w zaznaczeniu
- * odrzuca całą partię 409-ką), więc odmowa MUSI być widoczna. Do 09.2026
- * `finally` zamykało okno niezależnie od wyniku i błąd znikał bez śladu —
- * użytkownik widział zamknięty dialog i niezmienioną listę.
- */
- const bulkMarkEnded = async (
- reason: ContractTerminationReason,
- endDate: string
- ) => {
- if (selectedIds.size === 0) return;
- setBusy(true);
- setEndError(null);
- try {
- const { data: res } = await contractsApi.bulkMarkEnded([...selectedIds], {
- termination_reason: reason,
- terminated_at: endDate,
- });
- setConfirmEnd(false);
- onDone(`Zakończono współpracę na ${res.changed} kontraktach (${endDate}).`);
- } catch (error: unknown) {
- setEndError(
- apiErrorMessage(error,"Nie udało się zakończyć kontraktów.")
  );
  } finally {
  setBusy(false);
@@ -132,10 +101,7 @@ export function ContractsBulkActionsBarV2({
  <Button
  size="sm"
  variant="destructive"
- onClick={() => {
- setEndError(null);
- setConfirmEnd(true);
- }}
+ onClick={() => setConfirmEnd(true)}
  disabled={busy}
  >
  <XCircle className="h-3.5 w-3.5" /> Oznacz zakończone
@@ -149,17 +115,20 @@ export function ContractsBulkActionsBarV2({
  </button>
  </div>
 
- <ContractsBulkEndDialog
- open={confirmEnd}
- count={selectedIds.size}
- busy={busy}
- error={endError}
- onOpenChange={(next) => {
- setConfirmEnd(next);
- if (!next) setEndError(null);
+ {/* „Oznacz zakończone" = to samo okno co przy jednej umowie (ticket
+ 09.2026): jedno wspólne wypełnienie stosowane do każdej zaznaczonej.
+ Dyspozycja jest ATOMOWA po stronie serwera — odmowa zostaje w oknie. */}
+ {confirmEnd && (
+ <ContractTerminationDialog
+ bulk
+ contractIds={[...selectedIds]}
+ onClose={() => setConfirmEnd(false)}
+ onSuccess={({ changed }) => {
+ setConfirmEnd(false);
+ onDone(`Zakończono współpracę na ${changed} kontraktach.`);
  }}
- onConfirm={bulkMarkEnded}
  />
+ )}
  </RequireRole>
  );
 }
