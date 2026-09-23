@@ -18,6 +18,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import func, select
 
+from app.core.scheduling import business_today
+
 from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.models.candidate import Candidate
@@ -30,7 +32,7 @@ pytestmark = pytest.mark.asyncio
 
 async def _seed_with_orders():
     suffix = uuid.uuid4().hex[:8]
-    today = date.today()
+    today = business_today()  # „dziś” serwera (Warszawa), nie UTC runnera
     async with AsyncSessionLocal() as db:
         client = Client(name=f"Term Sync Client {suffix}")
         cand = Candidate(name=f"Term {suffix}", lastname=f"Sync{suffix}")
@@ -141,7 +143,7 @@ async def test_terminate_today_syncs_orders(
     app_client: AsyncClient, app_auth_headers: dict[str, str]
 ):
     client_id, cand_id, contract_id = await _seed_with_orders()
-    today = date.today()
+    today = business_today()  # „dziś” serwera (Warszawa), nie UTC runnera
     try:
         resp = await app_client.post(
             f"/api/contracts/{contract_id}/terminate",
@@ -242,7 +244,7 @@ async def _seed_open_ended_draft() -> tuple[int, int, int]:
     i to jego dotyczy ten test.
     """
     suffix = uuid.uuid4().hex[:8]
-    today = date.today()
+    today = business_today()  # „dziś” serwera (Warszawa), nie UTC runnera
     async with AsyncSessionLocal() as db:
         client = Client(name=f"BP Draft Client {suffix}")
         cand = Candidate(name=f"Draft {suffix}", lastname=f"Bezterminowy{suffix}")
@@ -287,7 +289,7 @@ async def test_terminating_an_open_ended_draft_is_accepted(
     komunikatem.
     """
     client_id, cand_id, contract_id = await _seed_open_ended_draft()
-    today = date.today()
+    today = business_today()  # „dziś” serwera (Warszawa), nie UTC runnera
     try:
         resp = await app_client.post(
             f"/api/contracts/{contract_id}/terminate",

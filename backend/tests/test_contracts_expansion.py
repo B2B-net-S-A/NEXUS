@@ -26,6 +26,8 @@ from typing import AsyncIterator
 import pytest_asyncio
 from httpx import AsyncClient
 
+from app.core.scheduling import business_today
+
 
 @pytest_asyncio.fixture
 async def owned_contract() -> AsyncIterator[dict]:
@@ -155,7 +157,7 @@ async def test_terminate_sets_reason_and_amendment(
     `ended` the day after.
     """
     cid = owned_contract["id"]
-    effective = date.today()
+    effective = business_today()  # „dziś” serwera (Warszawa), nie UTC runnera
 
     terminated = await app_client.post(
         f"/api/contracts/{cid}/terminate",

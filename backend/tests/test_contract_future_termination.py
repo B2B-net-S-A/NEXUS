@@ -15,12 +15,15 @@ return), więc zawsze wykonują asercję biznesową.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 from httpx import AsyncClient
 
-_TODAY = date.today()
+from app.core.scheduling import business_today
+
+# „Dziś” w czasie polskim, jak serwer — między 22 a 24 UTC to już jutro.
+_TODAY = business_today()
 
 
 async def _seed_active_contract(end_offset_days: int = 90) -> int:
