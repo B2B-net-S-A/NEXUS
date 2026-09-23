@@ -5155,6 +5155,12 @@ _COLUMN_STATEMENTS = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_dz_review_hints_stage_hash UNIQUE (candidate_stage_id, input_hash)
 )""",
+    # 0357: „Usuń szkic" chowa pustą kartę kontraktora w zakładce Zamówienia.
+    # Lustro 1:1 z migracją — pilnuje `test_order_line_takeover.py`.
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
+    "orders_card_dismissed_at TIMESTAMPTZ NULL",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
+    "orders_card_dismissed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

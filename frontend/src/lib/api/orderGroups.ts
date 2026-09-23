@@ -56,7 +56,10 @@ export type OrderOffboardingResolutionInput =
   | {
       action: "transfer";
       target_order_id: number;
-      rate_basis: OrderOffboardingRateBasis;
+      /** Ticket 09.2026: pula w MD → `one_to_one`, pula w kwocie → wybór. */
+      md_transfer_method?: MdTransferMethod;
+      /** Dawna podstawa stawki — zostaje dla klientów API sprzed 09.2026. */
+      rate_basis?: OrderOffboardingRateBasis;
       expected_version: number;
     }
   | {
@@ -144,7 +147,33 @@ export interface OrderLineRead {
    *  następcy po id w liście — bywa poza obsadą aktywną. */
   replaced_by_order_id: number | null;
   replaced_by_consultant_name: string | null;
+  /** `takeover` — „Wejdź za konsultanta" (następca przejął pozostałe MD). */
+  replaced_by_kind?: "swap" | "replacement" | "takeover" | null;
+  /** Od kiedy pracuje następca („Zastąpiony przez: … od …"). */
+  replaced_by_start_date?: string | null;
+  /** Następca jeszcze nie wszedł — zastępstwo zaplanowane. */
+  replaced_by_scheduled?: boolean;
+  /** Ile MD przeszło na następcę — nie pokazujemy ich już jako „pozostało". */
+  replaced_by_md?: number | null;
+
+  // ── Przypisanie ze szkicu i przejęcie MD (ticket 09.2026) ──
+  /** W czym zapisano pulę osoby: MD (przejęcie 1:1) albo kwota (wybór stawki). */
+  pool_unit?: "md" | "amount" | null;
+  /** Czy za tę osobę można „wejść": zakończona współpraca z pulą albo
+   *  przyszła data zakończenia. Liczone przez serwer. */
+  takeover_source?: "ended" | "leaving" | null;
+  departure_date?: string | null;
+  /** „Dołączona" / „Zastępstwo". */
+  assignment_kind?: "join" | "takeover" | null;
+  takeover_from_name?: string | null;
+  takeover_md?: number | null;
+  takeover_method?: MdTransferMethod | null;
+  /** „Zaplanowane zastępstwo od [start_date]". */
+  takeover_scheduled?: boolean;
 }
+
+/** Sposób przeniesienia pozostałych MD (reguła: `lib/order-takeover.ts`). */
+export type MdTransferMethod = "one_to_one" | "departing_rate" | "incoming_rate";
 
 export type OrderGroupStatus =
   "draft" | "active" | "scheduled" | "completed" | "exhausted";
@@ -400,6 +429,19 @@ export interface OrderLineInput {
   replaces_name?: string | null;
   /** Linia tego zamówienia, za którą ta osoba jest zastępstwem. */
   replaces_order_id?: number | null;
+  /** „Dołącz do aktywnego zamówienia" z karty szkicu (plakietka „Dołączona"). */
+  assignment?: "join" | null;
+}
+
+/** „Wejdź za konsultanta" — nowa osoba przejmuje pozostałe MD odchodzącego. */
+export interface OrderLineTakeoverInput {
+  contract_id: number;
+  departing_order_id: number;
+  entry_date: string;
+  rate_cost: number;
+  rate_revenue: number;
+  md_transfer_method?: MdTransferMethod | null;
+  expected_case_version?: number | null;
 }
 
 export interface OrderGroupInput {
@@ -502,6 +544,8 @@ export interface SwapConsultantInput {
   rate_cost: number;
   rate_revenue: number;
   swap_date: string;
+  /** Pula per osoba: sposób przeniesienia pozostałych MD (ticket 09.2026). */
+  md_transfer_method?: MdTransferMethod | null;
 }
 
 // ── Import MD (moduł Finanse) ───────────────────────────────────────────────
@@ -754,6 +798,14 @@ export const orderGroupsApi = {
   ) =>
     api.delete<OrderLineRead>(
       `/api/clients/${clientId}/order-groups/${groupId}/lines/${lineId}/consumptions/${periodMonth}`,
+    ),
+
+  /** „Wejdź za konsultanta" (albo zaplanowane zastępstwo za osobę, która
+   *  ma przyszłą datę zakończenia). */
+  takeover: (clientId: number, groupId: number, payload: OrderLineTakeoverInput) =>
+    api.post<OrderLineRead>(
+      `/api/clients/${clientId}/order-groups/${groupId}/takeover`,
+      payload,
     ),
 
   resolveOffboardingCase: (
