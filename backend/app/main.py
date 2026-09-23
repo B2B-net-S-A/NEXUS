@@ -183,6 +183,8 @@ from app.api import settings as app_settings_api
 from app.api import champion_intake as champion_intake_api
 from app.api import job_request_intake as job_request_intake_api
 from app.api import screening_reassign as screening_reassign_api
+from app.api import cv_qc as cv_qc_api
+from app.api import pipeline_requirements as pipeline_requirements_api
 from app.api import champion_suggestions as champion_suggestions_api
 from app.api import rate_benchmarks as rate_benchmarks_api
 from app.api import team_structure as team_structure_api
@@ -757,7 +759,7 @@ async def lifespan(app: FastAPI):
         "cloudtalk_sync": asyncio.create_task(cloudtalk_sync_loop()),
         "traffit_sync": asyncio.create_task(traffit_daily_sync_loop()),
         "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
-        # 0358: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
+        # 0362: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
         # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
         "teams_prep_transcripts": asyncio.create_task(teams_prep_transcripts_loop()),
         # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
@@ -915,6 +917,12 @@ app.add_middleware(
 app.include_router(champion_intake_api.router, prefix="/api", tags=["champion"])
 app.include_router(job_request_intake_api.router, prefix="/api", tags=["jobs"])
 app.include_router(screening_reassign_api.router, prefix="/api", tags=["pipeline"])
+# Rekrutacja v5: QC CV (bramka przed „CV wysłane”/Cpro, poprawki AI).
+app.include_router(cv_qc_api.router, prefix="/api/pipeline", tags=["pipeline"])
+# Rekrutacja v5: wymagania przejścia na kolumnę (okno „Przesuń dalej”).
+app.include_router(
+    pipeline_requirements_api.router, prefix="/api/pipeline", tags=["pipeline"]
+)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 # IMPORTANT: candidate_pins MUST be mounted BEFORE candidates so its
@@ -1059,7 +1067,7 @@ app.include_router(
     prefix="/api",
     tags=["interview-cycle"],
 )
-# 0358: prepy w Teams — planowanie Prep 1/2, transkrypt i ocena prepu.
+# 0362: prepy w Teams — planowanie Prep 1/2, transkrypt i ocena prepu.
 app.include_router(
     prep_meetings_api.router,
     prefix="/api",
@@ -1928,7 +1936,7 @@ async def api_health_check():
     # bieg nie przełącza na `degraded`, trzy z rzędu — tak. `running` w
     # kolumnie NIE jest awarią: to bieg w toku albo przerwany restartem
     # (deploy), a o świeżości i tak mówi data ostatniego końca.
-    # 0358: prepy w Teams — app-only kalendarz i transkrypty. Informacyjna.
+    # 0362: prepy w Teams — app-only kalendarz i transkrypty. Informacyjna.
     # `degraded` = w ostatnich 48 h aplikacja dostała 403 (polityka dostępu nie
     # obejmuje organizatora) albo pobranie padło.
     try:
@@ -2559,6 +2567,7 @@ async def api_health_deep_check():
     from app.models.candidate_consent import CandidateConsent
     from app.models.placement_exclusion import PlacementExclusion
     from app.models.prep_meeting import PrepMeeting, PrepReview, PrepTranscript
+    from app.models.cv_qc_run import CvQcRun
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -2734,11 +2743,14 @@ async def api_health_deep_check():
         # 0343: wykluczone placementy — czyta je widok analytics_first_milestones
         # i VERIFIER_ANCHORED_CTE, więc brak tabeli = KPI i Insights 500.
         ("placement_exclusions", PlacementExclusion),
-        # 0358: prepy w Teams — agenda „Rozmowy u klienta” czyta je przy
+        # 0362: prepy w Teams — agenda „Rozmowy u klienta” czyta je przy
         # każdym wejściu, więc brak tabeli = pusty ekran kalendarza.
         ("prep_meetings", PrepMeeting),
         ("prep_transcripts", PrepTranscript),
         ("prep_reviews", PrepReview),
+        # 0361: QC CV — tablica czyta stan QC każdej karty, a ruch na
+        # „CV wysłane” zapisuje przebieg, więc brak tabeli = kanban 500.
+        ("cv_qc_runs", CvQcRun),
     ]
 
     checks: dict[str, str] = {}

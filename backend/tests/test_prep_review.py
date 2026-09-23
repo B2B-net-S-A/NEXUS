@@ -1,4 +1,4 @@
-"""Ocena prepu z transkryptu Teams (0358): cytaty, poziom, Prep 2, notatka.
+"""Ocena prepu z transkryptu Teams (0362): cytaty, poziom, Prep 2, notatka.
 
 Czyste funkcje — model jest tu tylko tekstem JSON. Pilnują, że model nie
 zaliczy punktu bez dowodu w rozmowie, że poziom liczy kod, że Prep 2 nie

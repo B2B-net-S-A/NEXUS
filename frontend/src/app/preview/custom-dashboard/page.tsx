@@ -20,7 +20,13 @@ import {
   type MetricResult,
 } from "@/lib/api/dashboardMetrics";
 import { myPeopleSummaryQueryKey } from "@/lib/api/myPeople";
-import { BOARD_TASKS_QUERY_KEY, type BoardTasksResponse } from "@/lib/api/boardTasks";
+import {
+  BOARD_TASKS_QUERY_KEY,
+  CPRO_SENDER_QUERY_KEY,
+  type BoardTaskRow,
+  type BoardTasksResponse,
+  type CproSender,
+} from "@/lib/api/boardTasks";
 import {
   USER_DASHBOARD_QUERY_KEY,
   type DashboardTile,
@@ -101,8 +107,8 @@ const CATALOG: MetricCatalog = {
 
 // Przykładowa kolejka „Czeka na Ciebie" (dane fikcyjne).
 const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
-const taskRow = (over: Partial<BoardTasksResponse["dz"][number]>): BoardTasksResponse["dz"][number] => ({
-  kind: "dz",
+const taskRow = (over: Partial<BoardTaskRow>): BoardTaskRow => ({
+  kind: "dl_review",
   stage_id: 1,
   candidate_id: 1,
   candidate_name: "Kandydat",
@@ -119,11 +125,12 @@ const taskRow = (over: Partial<BoardTasksResponse["dz"][number]>): BoardTasksRes
 });
 const BOARD_TASKS: BoardTasksResponse = {
   window_days: 14,
-  can_approve_dz: true,
-  dz: [
-    taskRow({ stage_id: 101, candidate_id: 201, candidate_name: "Joanna Wiśniewska", since: daysAgo(4) }),
-    taskRow({ stage_id: 102, candidate_id: 202, candidate_name: "Tomasz Lewandowski", job_title: "Data Engineer", client_name: "PKO BP", since: daysAgo(2) }),
-    taskRow({ stage_id: 103, candidate_id: 203, candidate_name: "Karolina Dąbrowska", job_title: "Tester Manualny", client_name: "Tauron", since: daysAgo(0) }),
+  can_send_to_client: true,
+  dl_review_window_days: 30,
+  dl_review: [
+    taskRow({ stage_id: 101, candidate_id: 201, candidate_name: "Joanna Wiśniewska", client_name: "PKO BP", since: daysAgo(4), qc_status: "passed" }),
+    taskRow({ stage_id: 102, candidate_id: 202, candidate_name: "Tomasz Lewandowski", job_title: "Data Engineer", client_name: "PKO BP", since: daysAgo(2), qc_status: "failed", qc_blocking_failed: 2 }),
+    taskRow({ stage_id: 103, candidate_id: 203, candidate_name: "Karolina Dąbrowska", job_title: "Tester Manualny", client_name: "Tauron", since: daysAgo(0), qc_status: "overridden" }),
   ],
   cpro_to_send: [
     taskRow({ kind: "cpro_to_send", stage_id: 111, candidate_id: 211, candidate_name: "Michał Wójcik", assignee_id: 1, assignee_name: "Artur Twardowski", since: daysAgo(1) }),
@@ -147,6 +154,15 @@ function seededClient(tiles: DashboardTile[]): QueryClient {
   });
   qc.setQueryData(METRIC_CATALOG_QUERY_KEY, CATALOG);
   qc.setQueryData<BoardTasksResponse>(BOARD_TASKS_QUERY_KEY, BOARD_TASKS);
+  qc.setQueryData<CproSender>(CPRO_SENDER_QUERY_KEY, {
+    user_id: 1,
+    user_name: "Artur Twardowski",
+    until: null,
+    fallback_user_id: null,
+    fallback_user_name: null,
+    set_by_name: "Artur Twardowski",
+    set_at: daysAgo(3),
+  });
   qc.setQueryData(["users-directory", "cpro-assignees"], [
     { id: 1, name: "Artur Twardowski" },
     { id: 7, name: "Marta Kowalczyk" },

@@ -375,10 +375,9 @@ _BOARD_TASK_ROW = (
     "since",
 )
 _BOARD_TASK_LISTS = {
-    "dz": "czeka na przegląd DZ",
     "cpro_to_send": "do wysłania do Cpro",
     "cpro_sent": "wysłane do Cpro",
-    "dl_review": "czeka na przegląd Delivery Leada",
+    "dl_review": "czeka na przegląd Delivery Leada (kolumna QC CV)",
 }
 
 
@@ -1211,9 +1210,9 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         name="my_board_tasks",
         label="Sprawdzam kolejkę „Czeka na Ciebie”",
         description=(
-            "Kolejka „Czeka na Ciebie” z pulpitu: osoby czekające na przegląd DZ, do "
-            "wysłania do Cpro (Nordea), wysłane do Cpro i czekające na przegląd "
-            "Delivery Leada — policzone dla tej osoby. Wołaj przy „co mam dziś zrobić”."
+            "Kolejka „Czeka na Ciebie” z pulpitu: osoby do wysłania do Cpro (Nordea), "
+            "wysłane do Cpro i czekające na przegląd Delivery Leada w kolumnie "
+            "QC CV — policzone dla tej osoby. Wołaj przy „co mam dziś zrobić”."
         ),
         input_schema=_schema({}),
         tier="read",

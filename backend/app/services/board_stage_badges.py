@@ -1,17 +1,19 @@
-"""Odznaki Tablicy rekrutacji, które są etapami szablonu (22.09.2026).
+"""Etapy szablonu a kolumny Tablicy rekrutacji (8 kolumn od 24.09.2026).
 
-Tablica ma 6 kolumn (od 23.09.2026) — to, co nie jest krokiem procesu, jest odznaką na
-karcie (`frontend/src/lib/board-stages.ts`). Dwie z nich niosą regułę
-„kto może", więc serwer sprawdza ją przy ruchu na ich etap:
+Tablica ma 8 kolumn — Nowi · Screening · Zweryfikowany · QC CV · CV wysłane ·
+Rozmowa u klienta · Umowa · Zatrudniony (makiety
+https://claude.ai/artifact/CG4mBk9xcHZAn3y9jcmMeW). To, co nie jest krokiem
+procesu, jest znacznikiem na karcie (`frontend/src/lib/board-stages.ts`).
 
-* „Przepuszczony przez DZ" (odznaka „DZ ✓") — ustawia admin, każdy Delivery
-  Lead i Head of Recruitment (decyzja Artura: „każdy DL i Dominik"; Dominik
-  ma rolę Head of Recruitment).
-* „Wysłać do Cpro" (odznaka „Gotowy do Cpro") — wyłącznie u Nordei. Klienta
-  rozpoznaje ta sama konfiguracja, co politykę zamówień Nordei
-  (`NORDEA_ORDER_NUMBER_CLIENT_IDS`), więc nie ma drugiej listy do utrzymania.
+* „QC CV" (dawniej „Przepuszczony przez DZ") — gospodarz kolumny QC CV.
+  Do 23.09.2026 ustawiał go wyłącznie DL/HoR („DZ ✓"); od 24.09 przesuwa na
+  niego każdy, kto może ruszać kartą — kontrolą jest QC CV liczone przez kod
+  (`services/cv_qc.py`), a nie rola osoby klikającej.
+* „Wysłać do Cpro" (znacznik „w kolejce Cpro") — kolumna QC CV, wyłącznie
+  u Nordei. Klienta rozpoznaje ta sama konfiguracja, co politykę zamówień
+  Nordei (`NORDEA_ORDER_NUMBER_CLIENT_IDS`), więc nie ma drugiej listy.
 
-Nocny import z Traffita zapisuje ruchy bez tego API — odznaka z importu
+Nocny import z Traffita zapisuje ruchy bez tego API — etap z importu
 pokazuje się zawsze. Reguła nazw ma lustro we froncie; oba czytają
 `frontend/src/lib/__fixtures__/board-stage-cases.json`.
 """
@@ -24,16 +26,12 @@ from typing import Any, Optional, Sequence
 
 from fastapi import HTTPException
 
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.services.order_policies.registry import is_client_in_policy
 
-DZ_BADGE_ROLES: tuple[UserRole, ...] = (
-    UserRole.admin,
-    UserRole.delivery_lead,
-    UserRole.head_of_recruitment,
-)
-
-_DZ_RE = re.compile(r"\bdz\b")
+# „DZ" (dawna nazwa) i „QC" (od 24.09.2026) — całe słowa, żeby „qc" nie
+# łapało się w środku innej nazwy.
+_QC_RE = re.compile(r"\b(dz|qc)\b")
 _CPRO_RE = re.compile(r"\bcpro\b")
 
 
@@ -45,9 +43,19 @@ def normalize_stage_name(name: Optional[str]) -> str:
     return "".join(ch for ch in folded if not unicodedata.combining(ch)).strip()
 
 
-def is_dz_stage(name: Optional[str]) -> bool:
+def is_qc_stage(name: Optional[str]) -> bool:
+    """Etap „QC CV" albo dawny „Przepuszczony przez DZ" — gospodarz kolumny QC CV.
+
+    Szablon z Traffita nadal niesie starą nazwę (nocny sync by ją przepisał),
+    więc obie nazwy znaczą to samo.
+    """
+
     n = normalize_stage_name(name)
-    return bool(_DZ_RE.search(n)) or "przepuszcz" in n
+    return bool(_QC_RE.search(n)) or "przepuszcz" in n
+
+
+# Dawna nazwa — zostaje dla wołających sprzed 24.09.2026.
+is_dz_stage = is_qc_stage
 
 
 def is_cpro_stage(name: Optional[str]) -> bool:
@@ -57,14 +65,14 @@ def is_cpro_stage(name: Optional[str]) -> bool:
 def stage_badge_kind(name: Optional[str]) -> Optional[str]:
     """Rodzaj etapu-odznaki po nazwie — lustro części „badge" `placeStage`.
 
-    `dz` · `cpro` · `contract_signed` · `contract_sent` · `after_interview` ·
+    `qc` · `cpro` · `contract_signed` · `contract_sent` · `after_interview` ·
     `prep` · `onboarding` albo `None` (zwykły etap). Wspólne przypadki:
     `frontend/src/lib/__fixtures__/board-stage-cases.json`.
     """
 
     n = normalize_stage_name(name)
-    if is_dz_stage(name):
-        return "dz"
+    if is_qc_stage(name):
+        return "qc"
     if is_cpro_stage(name):
         return "cpro"
     if "umowa podpis" in n:
@@ -79,6 +87,10 @@ def stage_badge_kind(name: Optional[str]) -> Optional[str]:
         return "onboarding"
     return None
 
+
+# Rodzaje etapów rozpoznawane wyłącznie po nazwie — nigdy celem dopasowania
+# obcego etapu po samym kodzie.
+_NAME_ONLY_KINDS = ("qc", "cpro")
 
 _IMPORT_SUFFIX = re.compile(r"\s*\(#\d+\)\s*$")
 
@@ -99,7 +111,9 @@ def foreign_stage_target(
     lądowało na „Przepuszczony przez DZ" (też `interview`) i dostawało odznakę
     „DZ ✓", a „NORDEA: Wysłać do Cpro" (kod `screening`) — w Screeningu.
     Kolejność: ta sama nazwa → ten sam rodzaj odznaki → (po interview: rozmowa
-    u klienta) → kod etapu, jak dotąd.
+    u klienta) → kod etapu, jak dotąd. Od 24.09.2026 szablon „Default B2B"
+    nazywa ten etap „QC CV", a Traffit dalej „Przepuszczony przez DZ" — obie
+    nazwy mają rodzaj `qc`, więc trafiają na ten sam etap.
     """
 
     live = [sd for sd in stage_defs if not getattr(sd, "is_terminal", False)]
@@ -123,19 +137,21 @@ def foreign_stage_target(
         for sd in stage_defs:
             if sd.legacy_enum_value == legacy_enum:
                 mapped = sd
-        # Etap-odznaka NIE jest celem dopasowania po kodzie: „Przepuszczony
-        # przez DZ" ma kod `interview`, ale znaczy zatwierdzenie DZ.
-        # Wiersz bez etapu (`stage_def_id` NULL) zostaje przy starej regule.
+        # Etap rozpoznawany po NAZWIE nie jest celem dopasowania po kodzie:
+        # „QC CV" (dawniej „Przepuszczony przez DZ") ma kod `interview`, ale
+        # znaczy kontrolę CV — obca „Rozmowa techniczna" z tym samym kodem
+        # nie może na nim wylądować. Wiersz bez etapu (`stage_def_id` NULL)
+        # zostaje przy starej regule.
         if (
             name is not None
             and mapped is not None
-            and stage_badge_kind(mapped.name) in ("dz", "cpro")
+            and stage_badge_kind(mapped.name) in _NAME_ONLY_KINDS
         ):
             hosts = [
                 sd
                 for sd in live
                 if sd.legacy_enum_value == legacy_enum
-                and stage_badge_kind(sd.name) not in ("dz", "cpro")
+                and stage_badge_kind(sd.name) not in _NAME_ONLY_KINDS
             ]
             return hosts[-1] if hosts else None
         return mapped
@@ -146,8 +162,8 @@ def foreign_stage_target(
 _COLUMN_BY_ENUM: dict[str, str] = {
     "posting": "new",
     "new": "new",
-    "prep_call": "new",
-    "screening": "new",
+    "prep_call": "screening",
+    "screening": "screening",
     "verified": "verified",
     "interview": "verified",
     "cv_sent": "cv_sent",
@@ -162,8 +178,8 @@ _COLUMN_BY_ENUM: dict[str, str] = {
 
 # Kolumna dla odznak rozpoznanych po NAZWIE — lustro `placeStage`.
 _COLUMN_BY_NAME_BADGE: dict[str, str] = {
-    "dz": "verified",
-    "cpro": "verified",
+    "qc": "cv_qc",
+    "cpro": "cv_qc",
     "contract_signed": "contract",
     "contract_sent": "contract",
     "after_interview": "client_interview",
@@ -171,8 +187,26 @@ _COLUMN_BY_NAME_BADGE: dict[str, str] = {
     "onboarding": "hired",
 }
 
-# Etapy kolumny „Nowi" (23.09.2026) — tu obowiązuje blokada 12 h.
+# Kolejność kolumn Tablicy (bez paska zamkniętych) — lustro
+# `BOARD_COLUMN_ORDER` we froncie. Czytają ją wymagania przejścia
+# (`services/move_requirements.py`: które kolumny ruch pomija).
+BOARD_COLUMN_ORDER: tuple[str, ...] = (
+    "new",
+    "screening",
+    "verified",
+    "cv_qc",
+    "cv_sent",
+    "client_interview",
+    "contract",
+    "hired",
+)
+
 NEW_COLUMN = "new"
+SCREENING_COLUMN = "screening"
+CV_QC_COLUMN = "cv_qc"
+# Kolumny, w których obowiązuje blokada 12 h i „rozmowa w Nowych" (od
+# 24.09.2026 także Screening — to on jest dziś miejscem pierwszej rozmowy).
+CLAIM_COLUMNS: frozenset[str] = frozenset({NEW_COLUMN, SCREENING_COLUMN})
 
 
 def board_column_for(
@@ -182,14 +216,19 @@ def board_column_for(
     category: Optional[str] = None,
     terminal_type: Optional[str] = None,
 ) -> str:
-    """Kolumna Tablicy (6 kolumn + „closed") — lustro `placeStage`.
+    """Kolumna Tablicy (8 kolumn + „closed") — lustro `placeStage`.
 
-    Czytają ją blokada 12 h (osoba jest w „Nowych”?) i statystyki
+    Czytają ją blokada 12 h (osoba jest w „Nowych”/„Screeningu”?),
+    wymagania przejścia i statystyki
     („ile osób jest teraz w kolumnie”). Wspólne przypadki:
     `frontend/src/lib/__fixtures__/board-stage-cases.json`.
     """
 
     kind = stage_badge_kind(name)
+    # Etap końcowy z „QC”/„Cpro” w nazwie to zamknięcie, nie kolumna QC CV —
+    # lustro warunku `category !== "terminal"` w `placeStage`.
+    if kind in ("qc", "cpro") and category == "terminal":
+        kind = None
     if kind is not None:
         return _COLUMN_BY_NAME_BADGE[kind]
     if "rezerw" in normalize_stage_name(name):
@@ -202,7 +241,7 @@ def board_column_for(
 
 
 def cpro_enabled_for_client(client_id: Optional[int]) -> bool:
-    """„Gotowy do Cpro" istnieje tylko u Nordei."""
+    """Kolejka Cpro istnieje tylko u Nordei."""
 
     return is_client_in_policy("nordea", client_id)
 
@@ -210,18 +249,16 @@ def cpro_enabled_for_client(client_id: Optional[int]) -> bool:
 def ensure_badge_stage_allowed(
     user: User, *, stage_name: Optional[str], client_id: Optional[int]
 ) -> None:
-    """Odmawia ruchu na etap-odznakę, jeśli rola albo klient się nie zgadza."""
+    """Odmawia ruchu na etap Cpro rekrutacji spoza Nordei.
 
-    if is_dz_stage(stage_name) and not user.has_any_role(*DZ_BADGE_ROLES):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "„Zweryfikowany przez DZ” może oznaczyć Delivery Lead "
-                "albo Head of Recruitment."
-            ),
-        )
+    Etap QC CV nie ma już reguły roli (24.09.2026): przesuwa na niego każdy,
+    kto może ruszać kartą. `user` zostaje w sygnaturze — wołający go podają,
+    a reguła roli może wrócić bez zmiany wywołań.
+    """
+
+    del user
     if is_cpro_stage(stage_name) and not cpro_enabled_for_client(client_id):
         raise HTTPException(
             status_code=422,
-            detail="„Gotowy do Cpro” dotyczy wyłącznie rekrutacji dla Nordei.",
+            detail="Kolejka Cpro dotyczy wyłącznie rekrutacji dla Nordei.",
         )

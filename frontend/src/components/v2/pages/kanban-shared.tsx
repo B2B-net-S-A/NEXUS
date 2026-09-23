@@ -130,6 +130,12 @@ export interface KanbanItem {
  } | null;
  // „Zatrudniony": czy jest uzupełnione zamówienie.
  order_status?: "complete" | "missing" | null;
+ // Rekrutacja v5 (0361): najnowszy przebieg QC CV pary. Brak pola = starszy
+ // serwer — karta w „QC CV” mówi wtedy „QC nie sprawdzone”, nie „✓”.
+ qc?: {
+  status: "passed" | "failed" | "overridden" | "unchecked";
+  blocking_failed: number;
+ } | null;
 }
 
 /** Rodzaje odznaki terminarza — lustro `compute_badge`
@@ -138,7 +144,7 @@ export type InterviewBadgeKind =
  | "call_due"
  | "choose_slot"
  | "awaiting_dl"
- // 0358: prepy w Teams — przypomnienie, nie bramka.
+ // 0362: prepy w Teams — przypomnienie, nie bramka.
  | "prep_weak"
  | "prep_missing"
  | "prep2"

@@ -54,7 +54,7 @@ export function CycleStepper({
   steps: CycleStep[];
   /** Akcja dla kroku bieżącego (np. „Zapisz debrief”). */
   action?: { stepKey: CycleStep["key"]; label: string; onClick: () => void } | null;
-  /** 0358: odbyty prep z NEXUSA (Teams) — otwiera ocenę prepu. */
+  /** 0362: odbyty prep z NEXUSA (Teams) — otwiera ocenę prepu. */
   onPrepReview?: (eventId: number) => void;
 }) {
   return (

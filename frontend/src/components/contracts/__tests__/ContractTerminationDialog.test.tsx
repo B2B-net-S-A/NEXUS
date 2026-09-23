@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { warsawToday } from "@/lib/warsaw-date";
 
 const mocks = vi.hoisted(() => ({ terminate: vi.fn() }));
 
@@ -80,7 +81,7 @@ describe("ContractTerminationDialog — data zakończenia projektu", () => {
   });
 
   it("bez daty z formularza podstawia dzisiaj", () => {
-    const today = new Date().toISOString().slice(0, 10);
-    expect(renderDialog(undefined).value).toBe(today);
+    // „Dziś” w czasie polskim, jak komponent — UTC myliło się 22–24 UTC.
+    expect(renderDialog(undefined).value).toBe(warsawToday());
   });
 });

@@ -495,7 +495,7 @@ BOARD_TASKS_DIGEST_UNTIL_HOUR = 17
 
 
 async def check_board_tasks_digest(db: AsyncSession, now: datetime) -> int:
-    """Rano JEDEN wpis na osobę: ile czeka na DZ i do wysłania do Cpro."""
+    """Rano JEDEN wpis na osobę: ile czeka na przegląd DL i w kolejce Cpro."""
 
     global _BOARD_TASKS_DIGEST_DONE_FOR
     local = now.astimezone(ZoneInfo(settings.BUSINESS_TZ))
@@ -534,7 +534,7 @@ async def check_board_tasks_digest(db: AsyncSession, now: datetime) -> int:
     return emitted
 
 
-# ── Trigger: prep wymaga uwagi (0358) ────────────────────────────────────────
+# ── Trigger: prep wymaga uwagi (0362) ────────────────────────────────────────
 
 # Migawka par z rozmową u klienta w najbliższym tygodniu — liczona najwyżej
 # raz na kwadrans, nie co tick.

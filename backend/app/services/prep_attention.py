@@ -1,4 +1,4 @@
-"""Prepy wymagające uwagi przed rozmową u klienta (0358, miękka bramka).
+"""Prepy wymagające uwagi przed rozmową u klienta (0362, miękka bramka).
 
 Trzy powody, każdy na TEJ SAMEJ migawce pary co kroki ekranu „Rozmowy
 u klienta” (``interview_cycle.load_snapshots``), więc kolejka, dzwonek

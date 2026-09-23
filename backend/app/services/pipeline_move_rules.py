@@ -1,11 +1,13 @@
-"""Reguły ruchu Pipeline v4 (decyzje Artura 23.09.2026).
+"""Reguły ruchu Pipeline v4/v5 (decyzje Artura 23.09.2026).
 
 Dwa wyjątki od „kanbanu bez bramek" (17.09.2026), oba świadome:
 
 * **„CV wysłane" poza Nordeą wysyła Delivery Lead i wpisuje stawkę do
   klienta.** Stawka, za którą osobę wysłano, jest potrzebna później do
   umowy i zamówienia — a do 23.09 była opcjonalna i zwykle pusta. Nordea
-  zostaje przy swojej ścieżce DZ → Cpro (wysyła osoba wytypowana do Cpro).
+  zostaje przy swojej ścieżce QC CV → kolejka Cpro (wysyła jedna osoba od
+  Cpro na firmę, `services/cpro_sender.py`). Zatwierdzenia DZ od 24.09.2026
+  nie ma — przed wysłaniem liczy się QC CV (`services/cv_qc.py`).
 * **Zamknięcie procesu mówi, kto je zakończył** — kandydat, my, Delivery Lead
   albo klient. Bez tego „odrzucony przez klienta" i „przez nas" wyglądały
   w statystykach tak samo.
@@ -49,7 +51,9 @@ REJECTION_ENDED_BY = frozenset(
 # Kolumny PRZED umową — osoba stąd wchodząca do „Umowy"/„Zatrudnionego" musi
 # mieć debrief po rozmowie u klienta (jeśli rozmowa jest w kalendarzu — także
 # zaplanowana, która jeszcze się nie odbyła).
-PRE_CONTRACT_COLUMNS = frozenset({"new", "verified", "cv_sent", "client_interview"})
+PRE_CONTRACT_COLUMNS = frozenset(
+    {"new", "screening", "verified", "cv_qc", "cv_sent", "client_interview"}
+)
 
 
 async def assert_debrief_before_contract(
@@ -100,7 +104,7 @@ def assert_client_send_allowed(user: User, rate_value: Optional[Decimal]) -> Non
             status_code=403,
             detail=(
                 "Do klienta wysyła Delivery Lead — przekaż osobę do przeglądu "
-                "(zostaje w „Zweryfikowanym”)."
+                "(zostaje w „QC CV”)."
             ),
         )
     if rate_value is None or Decimal(rate_value) <= 0:

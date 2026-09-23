@@ -1,61 +1,46 @@
 "use client";
 
 /**
- * „Czeka na Ciebie" — praca na Tablicach, której nikt nie widzi (0348).
+ * „Czeka na Ciebie" — praca na Tablicach, której nikt nie widzi (0348, v5).
  *
  * Cztery listy z `GET /api/board-tasks`:
- *  - „Czeka na Twój przegląd (DL)" (Pipeline v4, klienci spoza Nordei) —
- *    zweryfikowani, których Delivery Lead wysyła do klienta ze stawką albo
- *    odrzuca; wiersz otwiera `DlReviewPanel` (CV, screening, stawka),
- *  - „Czeka na DZ" (Nordea) — osoby w „Zweryfikowany" bez odznaki DZ.
- *    „Sprawdź" otwiera przegląd (CV dla klienta obok oryginału i zapytania,
- *    must-have, podpowiedzi Luny — 0353); „✓ DZ" to ten sam ruch co
- *    przełącznik w doku (`POST /api/pipeline/move` z wersją procesu), więc
- *    ostrzeżenia i konflikty działają jak na Tablicy,
- *  - „Do wysłania do Cpro" (Nordea) — pogrupowane po REKRUTACJI: jedna osoba
- *    wysyła wszystkich kandydatów procesu (decyzja Artura 23.09.2026), a
- *    „Wysyłaj z rekrutacji" prowadzi na Tablicę, gdzie się to robi,
+ *  - „Czeka na Twój przegląd (DL)" (klienci spoza Nordei) — osoby w kolumnie
+ *    „QC CV", które Delivery Lead wysyła do klienta ze stawką albo odrzuca;
+ *    wiersz otwiera `DlReviewPanel` (CV, QC, screening, stawka),
+ *  - „Do wrzucenia do Cpro" (Nordea) — jedna linia na rekrutację; „Wrzucaj po
+ *    kolei" otwiera `CproQueueDialog`. Do Cpro wrzuca JEDNA osoba na całą
+ *    firmę, zmienić ją może każdy (decyzja Artura 23.09.2026),
  *  - „Wysłane do Cpro" — od ilu dni czekamy na Nordeę,
- *  - „Prepy przed rozmową u klienta" (0358) — brak prepu, prep słaby albo bez
+ *  - „Prepy przed rozmową u klienta" (0362) — brak prepu, prep słaby albo bez
  *    nagrania; wiersz prowadzi do karty kandydata w kalendarzu. Nic nie
  *    blokuje — to przypomnienie, nie bramka.
  *
+ * Kolejka „Czeka na DZ" i przegląd DZ (0353) zniknęły — zastąpiło je QC CV.
  * Panel nie renderuje się, gdy nic nie czeka — pusta ramka uczyłaby go
  * ignorować. Kotwica `#czeka-na-ciebie` = link z porannego dzwonka.
  */
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Clock, Eye, Send } from "lucide-react";
+import { AlertTriangle, Clock, Eye, ListOrdered } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/components/Toast";
 import { DlReviewPanel } from "@/components/v2/recruitment/DlReviewPanel";
-import api from "@/lib/api";
-import { apiErrorMessage } from "@/lib/api-error";
+import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import {
-  BOARD_TASKS_QUERY_KEY,
   PREP_ATTENTION_REASON_LABEL,
-  assigneeLabel,
   groupCproByJob,
   prepAttentionLink,
-  setCproSender,
   useBoardTasks,
-  useCproAssigneeOptions,
+  useCproSender,
   waitingFor,
   type BoardTaskRow,
   type PrepAttentionRow,
 } from "@/lib/api/boardTasks";
 import { formatDayLabel, formatTime } from "@/lib/interview-cycle";
-import { isEligibilityWarning, eligibilityWarningReason } from "@/lib/pipeline-eligibility-warning";
-import {
-  PIPELINE_VERSION_CONFLICT_MESSAGE,
-  isPipelineVersionConflict,
-} from "@/lib/pipeline-version-conflict";
-import { useAuthStore } from "@/store/auth";
+import { countPl } from "@/lib/plural-pl";
 
-import { DzReviewDialog } from "./DzReviewDialog";
+import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
 
 export const BOARD_TASKS_ANCHOR = "czeka-na-ciebie";
 
@@ -95,10 +80,12 @@ interface SectionProps {
   rows?: number;
   expanded: boolean;
   onToggle: () => void;
+  /** Dodatek pod nagłówkiem (Cpro: kto wrzuca · Zmień). */
+  aside?: React.ReactNode;
   children: React.ReactNode;
 }
 
-function Section({ title, hint, count, rows = count, expanded, onToggle, children }: SectionProps) {
+function Section({ title, hint, count, rows = count, expanded, onToggle, aside, children }: SectionProps) {
   return (
     <section aria-label={title} className="min-w-0">
       <header className="mb-2 flex items-baseline gap-2">
@@ -107,6 +94,7 @@ function Section({ title, hint, count, rows = count, expanded, onToggle, childre
           {count}
         </span>
       </header>
+      {aside ? <div className="mb-1">{aside}</div> : null}
       <p className="mb-2 text-xs text-muted-foreground">{hint}</p>
       <ul className="divide-y divide-border rounded-lg border border-border">{children}</ul>
       {rows > BOARD_TASKS_ROWS && (
@@ -125,20 +113,16 @@ function Section({ title, hint, count, rows = count, expanded, onToggle, childre
 
 export function BoardTasksPanel() {
   const query = useBoardTasks();
-  const queryClient = useQueryClient();
-  const { showSuccess, showError } = useToast();
-  const me = useAuthStore((s) => s.user);
-  const [busy, setBusy] = useState<number | null>(null);
-  const [busyJob, setBusyJob] = useState<number | null>(null);
-  const [reviewRow, setReviewRow] = useState<BoardTaskRow | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [reviewing, setReviewing] = useState<BoardTaskRow | null>(null);
+  const [cproJob, setCproJob] = useState<number | null>(null);
+  const [cproOpen, setCproOpen] = useState(false);
   const toggle = (kind: string) => setExpanded((prev) => ({ ...prev, [kind]: !prev[kind] }));
   const shown = <T,>(kind: string, rows: T[]): T[] =>
     expanded[kind] ? rows : rows.slice(0, BOARD_TASKS_ROWS);
   const data = query.data;
   const hasCpro = (data?.cpro_to_send.length ?? 0) > 0;
-  const options = useCproAssigneeOptions(hasCpro);
+  const sender = useCproSender(hasCpro);
   // Link z porannego dzwonka (`/dashboard#czeka-na-ciebie`): panel pojawia się
   // dopiero po odczycie kolejki, więc przeglądarka sama do niego nie przewinie.
   const scrolled = useRef(false);
@@ -153,66 +137,14 @@ export function BoardTasksPanel() {
   const dlReview = data.dl_review ?? [];
   const preps = data.prep_attention ?? [];
   const total =
-    dlReview.length +
-    data.dz.length +
-    data.cpro_to_send.length +
-    data.cpro_sent.length +
-    preps.length;
+    dlReview.length + data.cpro_to_send.length + data.cpro_sent.length + preps.length;
   if (total === 0) return null;
 
-  const refresh = (jobId: number) => {
-    void queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY });
-    void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
-    void queryClient.invalidateQueries({ queryKey: ["kanban", jobId] });
-  };
-
-  const approveDz = async (row: BoardTaskRow): Promise<boolean> => {
-    if (row.target_stage_def_id == null) return false;
-    let ok = false;
-    setBusy(row.stage_id);
-    try {
-      await api.post("/api/pipeline/move", {
-        candidate_id: row.candidate_id,
-        job_id: row.job_id,
-        stage_def_id: row.target_stage_def_id,
-        expected_state_version: row.process_state_version,
-      });
-      showSuccess(`${row.candidate_name} — zatwierdzony przez DZ.`);
-      ok = true;
-    } catch (error) {
-      if (isEligibilityWarning(error)) {
-        // Ostrzeżenie dopuszczalności ma swoje okno na Tablicy — tam decyzja.
-        showError(
-          `${eligibilityWarningReason(error) ?? "Serwer ostrzega przed tym ruchem."} Otwórz osobę na Tablicy, żeby zdecydować.`
-        );
-      } else if (isPipelineVersionConflict(error)) {
-        showError(PIPELINE_VERSION_CONFLICT_MESSAGE);
-      } else {
-        showError(apiErrorMessage(error, "Nie udało się zatwierdzić. Spróbuj ponownie."));
-      }
-    } finally {
-      setBusy(null);
-      refresh(row.job_id);
-    }
-    return ok;
-  };
-
-  const setSender = async (jobId: number, assigneeId: number) => {
-    setBusyJob(jobId);
-    try {
-      const res = await setCproSender(jobId, assigneeId);
-      showSuccess(
-        `Do Cpro wysyła: ${res.assignee_name ?? "wybrana osoba"}${res.added_to_team ? " (dodana do zespołu rekrutacji)" : ""}.`
-      );
-    } catch (error) {
-      showError(apiErrorMessage(error, "Nie udało się ustawić osoby. Spróbuj ponownie."));
-    } finally {
-      setBusyJob(null);
-      refresh(jobId);
-      void queryClient.invalidateQueries({ queryKey: ["job", String(jobId)] });
-    }
-  };
   const cproGroups = groupCproByJob(data.cpro_to_send);
+  const openQueue = (jobId: number | null) => {
+    setCproJob(jobId);
+    setCproOpen(true);
+  };
 
   return (
     <div
@@ -231,7 +163,7 @@ export function BoardTasksPanel() {
         {dlReview.length > 0 && (
           <Section
             title="Czeka na Twój przegląd (DL)"
-            hint={`Zweryfikowani — wyślij do klienta ze stawką albo odrzuć (ostatnie ${data.dl_review_window_days ?? 30} dni).`}
+            hint={`Po QC CV — wyślij do klienta ze stawką albo odrzuć (ostatnie ${data.dl_review_window_days ?? 30} dni).`}
             count={dlReview.length}
             expanded={expanded["dl_review"] === true}
             onToggle={() => toggle("dl_review")}
@@ -248,6 +180,7 @@ export function BoardTasksPanel() {
                   </button>
                   <RowMeta row={row} />
                 </div>
+                <QcStatusBadge row={row} />
                 <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                   {waitingFor(row.since)}
                 </span>
@@ -266,121 +199,38 @@ export function BoardTasksPanel() {
           </Section>
         )}
 
-        {data.dz.length > 0 && (
-          <Section
-            title="Czeka na DZ"
-            hint="Zweryfikowani bez zatwierdzenia DZ."
-            count={data.dz.length}
-            expanded={expanded["dz"] === true}
-            onToggle={() => toggle("dz")}
-          >
-            {shown("dz", data.dz).map((row) => (
-              <li key={row.stage_id} className="flex items-center gap-2 px-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <Link href={boardLink(row)} className="block truncate text-sm font-medium hover:underline">
-                    {row.candidate_name}
-                  </Link>
-                  <RowMeta row={row} />
-                </div>
-                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {waitingFor(row.since)}
-                </span>
-                {data.can_approve_dz && (
-                  <Button
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => setReviewRow(row)}
-                    aria-label={`Sprawdź CV przed DZ: ${row.candidate_name}`}
-                  >
-                    <Eye className="h-3.5 w-3.5" />
-                    Sprawdź
-                  </Button>
-                )}
-                {data.can_approve_dz && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="shrink-0"
-                    disabled={busy === row.stage_id || row.target_stage_def_id == null}
-                    onClick={() => void approveDz(row)}
-                    aria-label={`Zatwierdź przez DZ: ${row.candidate_name}`}
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    DZ
-                  </Button>
-                )}
-              </li>
-            ))}
-          </Section>
-        )}
-
         {data.cpro_to_send.length > 0 && (
           <Section
-            title="Do wysłania do Cpro"
-            hint="Jedna osoba wysyła wszystkich kandydatów rekrutacji."
+            title="Do wrzucenia do Cpro"
+            hint="Jedna osoba wrzuca do Cpro kandydatów wszystkich rekrutacji."
             count={data.cpro_to_send.length}
             rows={cproGroups.length}
             expanded={expanded["cpro_to_send"] === true}
             onToggle={() => toggle("cpro_to_send")}
+            aside={<CproSenderControl sender={sender.data} loading={sender.isLoading} compact />}
           >
             {shown("cpro_to_send", cproGroups).map((group) => (
-              <li key={group.job_id} className="flex flex-col gap-2 px-3 py-2">
-                <div className="flex items-start gap-2">
-                  <div className="min-w-0 flex-1">
-                    <Link
-                      href={`/jobs/${group.job_id}`}
-                      className="block truncate text-sm font-medium hover:underline"
-                    >
-                      {group.job_title}
-                    </Link>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {group.client_name ? `${group.client_name} · ` : ""}
-                      czeka {group.rows.length}: {group.rows.map((r) => r.candidate_name).join(", ")}
-                    </p>
-                    {group.legacy_assignees.length > 0 && (
-                      <p className="text-xs text-warning-muted-foreground">
-                        Dotąd typowani per kandydat: {group.legacy_assignees.join(", ")} — ustaw jedną osobę dla rekrutacji.
-                      </p>
-                    )}
-                  </div>
-                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {waitingFor(group.rows[0].since)}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="sr-only" htmlFor={`cpro-sender-${group.job_id}`}>
-                    Kto wysyła do Cpro w rekrutacji {group.job_title}
-                  </label>
-                  <select
-                    id={`cpro-sender-${group.job_id}`}
-                    className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs"
-                    value={group.assignee_id ?? ""}
-                    disabled={busyJob === group.job_id || options.isLoading}
-                    onChange={(e) => {
-                      if (e.target.value) void setSender(group.job_id, Number(e.target.value));
-                    }}
+              <li key={group.job_id} className="flex items-center gap-2 px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => openQueue(group.job_id)}
+                    className="block max-w-full truncate text-left text-sm font-medium hover:underline"
                   >
-                    {group.assignee_id == null && <option value="">Nikt nie ustawiony — wybierz osobę</option>}
-                    {group.assignee_id != null &&
-                      !(options.data ?? []).some((o) => o.id === group.assignee_id) && (
-                        <option value={group.assignee_id}>{group.assignee_name ?? "Ustawiona osoba"}</option>
-                      )}
-                    {(options.data ?? []).map((o) => (
-                      <option key={o.id} value={o.id}>
-                        Wysyła: {assigneeLabel(o)}
-                        {o.id === me?.id ? " (ja)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <Button asChild size="sm" variant={group.assignee_id === me?.id ? "primary" : "outline"} className="shrink-0">
-                    <Link href={`/jobs/${group.job_id}`}>
-                      <Send className="h-3.5 w-3.5" />
-                      Wysyłaj z rekrutacji
-                    </Link>
-                  </Button>
+                    {group.job_title} · {countPl(group.rows.length, "osoba", "osoby", "osób")}
+                  </button>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {group.client_name ? `${group.client_name} · ` : ""}najstarsza czeka {waitingFor(group.rows[0].since)}
+                  </p>
                 </div>
               </li>
             ))}
+            <li className="px-3 py-2">
+              <Button size="sm" className="w-full" onClick={() => openQueue(null)}>
+                <ListOrdered className="h-3.5 w-3.5" />
+                Wrzucaj po kolei
+              </Button>
+            </li>
           </Section>
         )}
 
@@ -456,23 +306,7 @@ export function BoardTasksPanel() {
         }}
         canSendToClient={data.can_send_to_client}
       />
-      <DzReviewDialog
-        stageId={reviewRow?.stage_id ?? null}
-        onOpenChange={(open) => {
-          if (!open) setReviewRow(null);
-        }}
-        approving={reviewRow != null && busy === reviewRow.stage_id}
-        onApprove={
-          data.can_approve_dz && reviewRow
-            ? () => {
-                const row = reviewRow;
-                void approveDz(row).then((ok) => {
-                  if (ok) setReviewRow(null);
-                });
-              }
-            : undefined
-        }
-      />
+      <CproQueueDialog open={cproOpen} onClose={() => setCproOpen(false)} initialJobId={cproJob} />
     </div>
   );
 }

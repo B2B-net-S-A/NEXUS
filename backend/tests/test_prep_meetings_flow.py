@@ -1,4 +1,4 @@
-"""Prepy w Teams (0358) na prawdziwej bazie: zakładanie, transkrypt, ocena, RODO.
+"""Prepy w Teams (0362) na prawdziwej bazie: zakładanie, transkrypt, ocena, RODO.
 
 Graph jest podmieniony na poziomie ``teams_prep_graph`` (jedyna warstwa, która
 rozmawia z Microsoftem), model — na poziomie ``prep_review._call_model``.

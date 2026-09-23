@@ -1,10 +1,10 @@
-"""Insights → „Lejek po etapach” — statystyki wszystkich etapów przy 6 kolumnach.
+"""Insights → „Lejek po etapach” — statystyki wszystkich etapów przy 8 kolumnach.
 
-Tablica ma od 23.09.2026 sześć kolumn (Nowi · Zweryfikowany · CV wysłane ·
-Rozmowa u klienta · Umowa · Zatrudniony), a reszta etapów szablonu jest
-odznaką na karcie („DZ ✓”, „Gotowy do Cpro”, „Prep”, „Po rozmowie”, „Umowa
-wysłana/podpisana”, „Onboarding”). Statystyki nie mogą tego zgubić: każda
-odznaka ma tu własny wiersz pod kolumną, do której należy.
+Tablica ma od 24.09.2026 osiem kolumn (Nowi · Screening · Zweryfikowany ·
+QC CV · CV wysłane · Rozmowa u klienta · Umowa · Zatrudniony), a reszta etapów
+szablonu jest znacznikiem na karcie („w kolejce Cpro”, „Prep”, „Po rozmowie”,
+„Umowa wysłana/podpisana”, „Onboarding”). Statystyki nie mogą tego zgubić:
+każdy znacznik ma tu własny wiersz pod kolumną, do której należy.
 
 Wiersz etapu dostaje KLUCZ tą samą regułą co Tablica — odznaka rozpoznana po
 NAZWIE etapu szablonu (`stage_badge_kind`), potem kolumna z kodu etapu
@@ -53,9 +53,10 @@ class BreakdownRow:
 ROWS: tuple[BreakdownRow, ...] = (
     BreakdownRow("new", "Nowi", "added", "Dodani", True),
     BreakdownRow("new", "Nowi", "reassign", "Przepięcie", False),
+    BreakdownRow("screening", "Screening", "screening", "Screening", True),
     BreakdownRow("verified", "Zweryfikowany", "verified", "Zweryfikowani", True),
-    BreakdownRow("verified", "Zweryfikowany", "dz", "DZ ✓", False),
-    BreakdownRow("verified", "Zweryfikowany", "cpro", "Gotowy do Cpro", False),
+    BreakdownRow("cv_qc", "QC CV", "qc", "QC CV", True),
+    BreakdownRow("cv_qc", "QC CV", "cpro", "W kolejce Cpro", False),
     BreakdownRow("cv_sent", "CV wysłane", "cv_sent", "Wysłani do klienta", True),
     BreakdownRow("client_interview", "Rozmowa u klienta", "prep", "Prep", False),
     BreakdownRow(
@@ -138,6 +139,10 @@ def def_override(
     """
 
     kind = stage_badge_kind(name)
+    # Etap końcowy z „QC”/„Cpro” w nazwie to zamknięcie — lustro
+    # `board_column_for`.
+    if kind in ("qc", "cpro") and category == "terminal":
+        kind = None
     if kind is not None:
         return kind
     if "rezerw" in normalize_stage_name(name):
@@ -162,6 +167,8 @@ def key_from_parts(override: Optional[str], stage: Optional[str]) -> str:
         return "__closed"
     if stage == "onboarding":
         return "onboarding"
+    if stage in ("screening", "prep_call"):
+        return "screening"
     if stage in ("verified", "interview"):
         return "verified"
     if stage == "cv_sent":
@@ -194,6 +201,7 @@ _KEY_CASE_SQL = """
       WHEN m.o IN ('__terminal', '__withdrawn')
         OR cs.stage::text IN ('rejected', 'withdrawn') THEN '__closed'
       WHEN cs.stage::text = 'onboarding' THEN 'onboarding'
+      WHEN cs.stage::text IN ('screening', 'prep_call') THEN 'screening'
       WHEN cs.stage::text IN ('verified', 'interview') THEN 'verified'
       WHEN cs.stage::text = 'cv_sent' THEN 'cv_sent'
       WHEN cs.stage::text = 'client_interview' THEN 'client_interview'

@@ -1,4 +1,4 @@
-"""Pętla pobierania transkryptów prepów z Teams (0358).
+"""Pętla pobierania transkryptów prepów z Teams (0362).
 
 Wyłącznik ``TEAMS_PREP_TRANSCRIPTS_ENABLED`` (domyślnie OFF) — wyłączona
 pętla kończy się PRZED ``while True``. Stan wiersza (kolejka) żyje w bazie,
