@@ -153,3 +153,124 @@ async def test_read_route_rejects_unknown_client(app_client, app_auth_headers) -
         headers=app_auth_headers,
     )
     assert resp.status_code == 404
+
+
+# ── v2: cały profil Championa z requestu (09.2026) ───────────────────────────
+
+PAYMENTS_REQUEST = (
+    "Szukamy testera manualnego z doświadczeniem w płatnościach kartowych "
+    "(min. 2 lata). Wymagany certyfikat ISTQB Foundation, znajomość PSD2 "
+    "mile widziana. Praca zdalna, stawka do 120 zł/h netto."
+)
+
+
+def test_experience_items_need_a_quote_present_in_the_request() -> None:
+    result = normalize_model_output(
+        {
+            "experience": {
+                "domains": [
+                    {
+                        "name": "płatności kartowe",
+                        "level": "must",
+                        "min_years": 2,
+                        "quote": "doświadczeniem w płatnościach kartowych",
+                    },
+                    # Wywnioskowane z nazwy klienta — brak cytatu w mailu.
+                    {"name": "bankowość", "level": "must", "quote": "bank"},
+                ],
+                "certifications": [
+                    {
+                        "name": "ISTQB Foundation",
+                        "level": "must",
+                        "quote": "certyfikat ISTQB Foundation",
+                    },
+                    {"name": "AWS SAA", "level": "nice", "quote": ""},
+                ],
+                "regulations": [
+                    {"name": "PSD2", "level": "nice", "quote": "znajomość PSD2"}
+                ],
+            }
+        },
+        PAYMENTS_REQUEST,
+    )
+    assert [d["name"] for d in result.experience["domains"]] == ["płatności kartowe"]
+    assert result.experience["domains"][0]["min_years"] == 2
+    assert [c["name"] for c in result.experience["certifications"]] == [
+        "ISTQB Foundation"
+    ]
+    assert result.experience["regulations"][0]["level"] == "nice"
+    # Cytaty trafiają do podświetleń maila.
+    assert "certyfikat ISTQB Foundation" in result.evidence
+    assert result.provenance["experience"] == "request"
+
+
+def test_proposals_carry_their_basis_and_facts_are_marked_as_request() -> None:
+    result = normalize_model_output(
+        {
+            **FULL,
+            "search": {
+                "keywords": "Java, Spring, Kafka, płatności",
+                "target_companies": "Asseco, Comarch",
+                "disqualifiers": ["brak polskiego"],
+                "basis": "client_history",
+            },
+            "selling_points": {"text": "Greenfield, nowy zespół", "basis": "zmyślone"},
+            "ask_client": ["Ile etapów ma rekrutacja?", "Ile etapów ma rekrutacja?"],
+        },
+        REQUEST,
+    )
+    assert result.provenance["role"] == "request"
+    assert result.provenance["search_keywords"] == "client_history"
+    assert result.provenance["target_companies"] == "client_history"
+    # Nieznana podstawa to propozycja AI, nie fakt z maila.
+    assert result.provenance["selling_points"] == "ai"
+    assert result.ask_client == ["Ile etapów ma rekrutacja?"]
+    assert result.provenance["questions"] == "ai"
+    assert result.disqualifiers == ["brak polskiego"]
+
+
+@pytest.mark.asyncio
+async def test_prompt_carries_client_history_but_no_consultant_notes(
+    monkeypatch,
+) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.job import Job
+    from app.services import champion_draft_service
+
+    captured: dict = {}
+
+    async def fake_call(*, prompt, system_prompt, max_tokens, **_):
+        captured["prompt"] = prompt
+        captured["max_tokens"] = max_tokens
+        return {"role_name": "Tester"}
+
+    monkeypatch.setattr(champion_draft_service, "_call_claude_json", fake_call)
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name="Intake Context Test Sp. z o.o.")
+        db.add(client)
+        await db.flush()
+        db.add(
+            Job(
+                title="Tester manualny płatności",
+                client_id=client.id,
+                champion_profile={
+                    "project": {"about": "Testy procesów kartowych w bankowości."},
+                    "search": {"keywords": "tester, karty, acquiring"},
+                    "client": {
+                        "consultant_insight": "Rozmawiałem z Janem Kowalskim z zespołu",
+                    },
+                },
+            )
+        )
+        await db.commit()
+        result = await intake.read_request(
+            db, client_id=client.id, request_text=PAYMENTS_REQUEST
+        )
+
+    assert result.role_name == "Tester"
+    assert captured["max_tokens"] == 6000
+    assert "Testy procesów kartowych" in captured["prompt"]
+    assert "tester, karty, acquiring" in captured["prompt"]
+    assert "Kowalski" not in captured["prompt"]

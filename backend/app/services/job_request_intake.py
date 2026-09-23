@@ -15,6 +15,10 @@ Zasady, które łatwo cofnąć „przy okazji”:
   go „poprawił”), nie jest dowodem — ani dla budżetu, ani dla podświetlenia.
 * **Braki są jawne.** ``missing`` używa tych samych reguł co handoff: formularz
   pokazuje dokładnie to, co później by go zablokowało.
+* **Od v2 model proponuje cały profil.** Fakty sekcji „Doświadczenie poza
+  stackiem” (dziedzina, certyfikaty, regulacje) wchodzą wyłącznie z cytatem
+  obecnym w mailu. Propozycje (frazy, firmy docelowe, argumenty, pytania do
+  klienta) niosą ``provenance`` — formularz mówi DL, skąd pochodzą.
 """
 
 from __future__ import annotations
@@ -40,6 +44,10 @@ MAX_MUST = 10
 MAX_NICE = 8
 MAX_QUESTIONS = 6
 MAX_EVIDENCE = 40
+MAX_EXPERIENCE = 8
+MAX_ASK_CLIENT = 5
+MAX_DISQUALIFIERS = 8
+_BASES = ("request", "client_history", "ai")
 
 _WORK_MODES = {
     "zdalnie": "remote",
@@ -88,6 +96,19 @@ class RequestIntake:
     screening_questions: list[IntakeQuestion] = field(default_factory=list)
     evidence: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
+    # ── od v2: reszta profilu Championa ──
+    language: Optional[str] = None
+    contract_length: Optional[str] = None
+    experience: dict[str, list[dict[str, Any]]] = field(
+        default_factory=lambda: {"domains": [], "certifications": [], "regulations": []}
+    )
+    search_keywords: Optional[str] = None
+    target_companies: Optional[str] = None
+    disqualifiers: list[str] = field(default_factory=list)
+    selling_points: Optional[str] = None
+    ask_client: list[str] = field(default_factory=list)
+    # Ścieżka pola formularza → "request" | "client_history" | "ai".
+    provenance: dict[str, str] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -156,6 +177,61 @@ def _questions(value: Any) -> list[IntakeQuestion]:
             )
         )
         if len(out) >= MAX_QUESTIONS:
+            break
+    return out
+
+
+def _basis(value: Any, default: str = "ai") -> str:
+    return value if isinstance(value, str) and value in _BASES else default
+
+
+def _experience(value: Any, folded_text: str) -> dict[str, list[dict[str, Any]]]:
+    """Pozycje sekcji 4 — WYŁĄCZNIE te, których cytat jest w mailu.
+
+    Dziedzina czy certyfikat bez cytatu to zgadywanie modelu (np. „bankowość”
+    wywnioskowana z nazwy klienta). Takiej pozycji nie pokazujemy wcale —
+    DL dopisze ją sam, jeśli wie ze swojej rozmowy.
+    """
+    data = value if isinstance(value, dict) else {}
+    out: dict[str, list[dict[str, Any]]] = {}
+    for key in ("domains", "certifications", "regulations"):
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for raw in data.get(key) or []:
+            if not isinstance(raw, dict):
+                continue
+            name = _text(raw.get("name"), 120)
+            quote = _text(raw.get("quote"), 300)
+            if not name or not quote or not _in_text(quote, folded_text):
+                continue
+            if name.casefold() in seen:
+                continue
+            seen.add(name.casefold())
+            items.append(
+                {
+                    "name": name,
+                    "level": "nice" if raw.get("level") == "nice" else "must",
+                    "min_years": _int_in(raw.get("min_years"), 0, 40)
+                    if key == "domains"
+                    else None,
+                    "quote": quote,
+                }
+            )
+            if len(items) >= MAX_EXPERIENCE:
+                break
+        out[key] = items
+    return out
+
+
+def _strings(value: Any, limit: int, cap: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    out: list[str] = []
+    for item in value:
+        cleaned = _text(item, cap)
+        if cleaned and cleaned not in out:
+            out.append(cleaned)
+        if len(out) >= limit:
             break
     return out
 
@@ -256,6 +332,51 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
     responsibilities = _text(data.get("responsibilities"), 2000)
     questions = _questions(data.get("screening_questions"))
 
+    experience = _experience(data.get("experience"), folded_text)
+    for items in experience.values():
+        for item in items:
+            if item["quote"] not in evidence:
+                evidence.append(item["quote"])
+    search = data.get("search") if isinstance(data.get("search"), dict) else {}
+    search_keywords = _text(search.get("keywords"), 500)
+    target_companies = _text(search.get("target_companies"), 500)
+    disqualifiers = _strings(search.get("disqualifiers"), MAX_DISQUALIFIERS, 200)
+    selling_raw = data.get("selling_points")
+    selling = selling_raw if isinstance(selling_raw, dict) else {}
+    selling_points = _text(selling.get("text"), 800)
+    ask_client = _strings(data.get("ask_client"), MAX_ASK_CLIENT, 300)
+
+    provenance: dict[str, str] = {}
+    for key, present in (
+        ("role", role_name),
+        ("must", must),
+        ("nice", nice),
+        ("seniority", data.get("seniority_min_years") is not None),
+        ("rate", rate_budget is not None),
+        ("work_mode", remote_policy),
+        ("about", project_about),
+        ("responsibilities", responsibilities),
+        ("experience", any(experience.values())),
+    ):
+        if present:
+            provenance[key] = "request"
+    search_basis = _basis(search.get("basis"))
+    for key, present in (
+        ("search_keywords", search_keywords),
+        ("target_companies", target_companies),
+        ("disqualifiers", disqualifiers),
+    ):
+        if present:
+            provenance[key] = search_basis
+    if selling_points:
+        provenance["selling_points"] = _basis(selling.get("basis"))
+    if questions:
+        provenance["questions"] = (
+            "request" if all(q.from_request for q in questions) else "ai"
+        )
+    if ask_client:
+        provenance["ask_client"] = "ai"
+
     return RequestIntake(
         role_name=role_name,
         must=must,
@@ -283,6 +404,15 @@ def normalize_model_output(raw: Any, request_text: str) -> RequestIntake:
             responsibilities=responsibilities,
             questions=questions,
         ),
+        language=_text(data.get("language"), 50),
+        contract_length=_text(data.get("contract_length"), 255),
+        experience=experience,
+        search_keywords=search_keywords,
+        target_companies=target_companies,
+        disqualifiers=disqualifiers,
+        selling_points=selling_points,
+        ask_client=ask_client,
+        provenance=provenance,
     )
 
 
@@ -292,12 +422,32 @@ async def read_request(
     """Jeden odczyt requestu przez model. Wołający otwiera `ai_feature`."""
     from app.services.champion_draft_service import _call_claude_json
 
+    from app.services.champion_client_context import (
+        load_client_context,
+        render_client_context,
+    )
+    from app.services.prompt_fencing import neutralize_tags
+
     client = await db.scalar(select(Client).where(Client.id == client_id))
     client_name = (client.name if client else None) or "nieznany klient"
     text = request_text[:MAX_REQUEST_CHARS]
+    try:
+        # Savepoint: padnięte zapytanie nie może zostawić sesji w przerwanej
+        # transakcji, w której `ai_feature` zapisuje zużycie.
+        async with db.begin_nested():
+            context = await load_client_context(
+                db, client_id=client_id, request_text=text
+            )
+    except Exception:  # noqa: BLE001 — kontekst to dodatek, nie warunek odczytu
+        logger.warning("job_request_intake: client context unavailable", exc_info=True)
+        context = None
     raw = await _call_claude_json(
-        prompt=JOB_REQUEST_INTAKE.render(client_name=client_name, request_text=text),
+        prompt=JOB_REQUEST_INTAKE.render(
+            client_name=client_name,
+            client_context=render_client_context(context),
+            request_text=neutralize_tags(text),
+        ),
         system_prompt=JOB_REQUEST_INTAKE.system_prompt or "",
-        max_tokens=3000,
+        max_tokens=6000,
     )
     return normalize_model_output(raw, text)
