@@ -16,7 +16,8 @@ ma podłączone 2 z ~30 osób (rekruterzy 0/16).
   z ręcznym debriefem.
 - Wciągamy tylko prepy założone w NEXUSIE. Transkrypcja startuje automatycznie.
 - Dostęp do M365 przez aplikację, w imieniu organizatora.
-- Pełny transkrypt jest trzymany bez limitu czasu. Czyta go zespół rekrutacji.
+- Pełny transkrypt jest trzymany bez limitu czasu. Czyta go zespół rekrutacji; od #1742 (23.09) bramka rekrutacji wpuszcza
+  każdą rolę wewnętrzną, więc transkrypt też.
 - Ocenia GPT-6 Luna, Sonnet 5 jest zapasem. Kryteria: must-have z Championa,
   pytania tego klienta, udział kandydata w rozmowie.
 - Każdy prep ma osobną ocenę. Punkt omówiony w Prepie 1 nie obniża oceny Prepu 2.

@@ -6317,7 +6317,7 @@ zwykłym telefonem z ręcznym debriefem). Konfiguracja M365: `docs/teams-prep-se
 - **Transkrypt w `prep_transcripts` BEZ limitu czasu** (decyzja), kaskadą
   z kandydatem (art. 17; `calendar_events.candidate_id` to SET NULL, dlatego
   każda tabela ma własny CASCADE). Pełny tekst: `GET …/preps/{id}/transcript`
-  za `ensure_job_read_access`. Notatka (`external_source='teams_prep'`) niesie
+  za `ensure_job_read_access` (od #1742 każda rola wewnętrzna, nie tylko zespół). Notatka (`external_source='teams_prep'`) niesie
   WYŁĄCZNIE podsumowanie — czyta ją nocny `notes_insights` (DeepSeek).
   Mówcy z VTT (`services/teams_vtt.py`): zespół po nazwisku, kandydat po
   nazwisku albo jako jedyny mówca spoza zespołu; udział kandydata `None`, gdy

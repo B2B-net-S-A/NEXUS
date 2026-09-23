@@ -368,11 +368,14 @@ async def test_transcript_is_fetched_graded_and_summarised_in_a_note(
     assert text.status_code == 200
     assert "Zwiększam liczbę partycji" in text.json()["text"]
 
-    stranger_id, stranger_h = await _user(UserRole.recruiter, "Obcy")
-    denied = await app_client.get(
-        f"/api/interview-cycle/preps/{event_id}/transcript", headers=stranger_h
+    # Od #1742 (decyzja 23.09.2026) rekrutację widzi każda rola wewnętrzna,
+    # także rekruter spoza zespołu — transkrypt stoi za tą samą bramką.
+    # Odmowę bez sekcji Pipeline pilnuje `test_section_revocation_http.py`.
+    _outsider_id, outsider_h = await _user(UserRole.recruiter, "Spoza zespołu")
+    outsider = await app_client.get(
+        f"/api/interview-cycle/preps/{event_id}/transcript", headers=outsider_h
     )
-    assert denied.status_code in (403, 404)
+    assert outsider.status_code == 200, outsider.text
 
 
 async def test_model_failure_leaves_no_grade_but_a_note_with_facts(
