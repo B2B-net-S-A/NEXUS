@@ -148,10 +148,11 @@ async def test_equipment_crud_roundtrip(
 async def test_terminate_sets_reason_and_amendment(
     app_client: AsyncClient, app_auth_headers: dict, owned_contract: dict
 ):
-    """Terminating effective TODAY ends the contract and records the reason.
+    """Terminating effective TODAY records the reason and the project end.
 
-    The date is chosen, not inherited, so the outcome is deterministic: a
-    same-day termination is what actually flips `status` to `ended`.
+    Since 0355 the project end date is inclusive: the consultant still works
+    today, so the contract is „Kończący się" and the nightly job flips it to
+    `ended` the day after.
     """
     cid = owned_contract["id"]
     effective = date.today()
@@ -167,7 +168,7 @@ async def test_terminate_sets_reason_and_amendment(
     )
     assert terminated.status_code == 200, terminated.text
     body = terminated.json()
-    assert body["status"] == "ended"
+    assert body["status"] == "ending"
     assert body["termination_reason"] == "project_ended"
     assert body["termination_lessons"] == "pytest smoke"
     # end_date never lags the termination date.

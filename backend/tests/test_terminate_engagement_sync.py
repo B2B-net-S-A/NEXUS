@@ -171,7 +171,9 @@ async def test_terminate_today_syncs_orders(
             )
             assert contract is not None
             assert contract.end_date == today
-            assert contract.status == ContractStatus.ended
+            # Dzień zakończenia projektu jest włączny (0355): „Kończący się”,
+            # nocny cron przestawi go na „Zakończony” jutro.
+            assert contract.status == ContractStatus.ending
 
         # Idempotentny replay: identyczna dyspozycja bez drugiej Activity.
         assert await _terminated_activity_count(contract_id) == 1

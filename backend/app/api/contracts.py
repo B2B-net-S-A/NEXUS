@@ -467,11 +467,14 @@ def _status_after_termination(
         target = ContractStatus.ending
     else:
         target = ContractStatus.active
-    if current in (
-        ContractStatus.draft,
-        ContractStatus.ready_for_signature,
-    ) and target in (ContractStatus.active, ContractStatus.ending):
-        return current
+    if current in (ContractStatus.draft, ContractStatus.ready_for_signature):
+        # Szkic nie ma fazy „Kończący się” (nie pracuje w MRR, a nocny cron
+        # szkiców nie promuje): dzień zakończenia i wcześniej = „Zakończony”
+        # od razu, data przyszła zostawia status.
+        if end_date is not None and end_date <= today:
+            target = ContractStatus.ended
+        else:
+            return current
     if current == target:
         return target
     if current == ContractStatus.ended and target == ContractStatus.ending:

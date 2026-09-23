@@ -678,14 +678,41 @@ async def test_patch_contract_honours_register_status_body(
     assert resp.json()["status"] == "active"
     assert resp.json()["team_name"] == "X"
 
-    for selected_status in ("ending", "ended", "draft"):
-        changed = await app_client.patch(
-            f"/api/contracts/{cid}",
-            json={"status": selected_status},
-            headers=app_auth_headers,
-        )
-        assert changed.status_code == 200, changed.text
-        assert changed.json()["status"] == selected_status
+    changed = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"status": "ending"},
+        headers=app_auth_headers,
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["status"] == "ending"
+
+    # „Zakończony" wyłącznie przez okno „Zakończ współpracę" (0355): sam
+    # status bez powodu i daty zakończenia projektu jest odrzucany.
+    refused = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"status": "ended"},
+        headers=app_auth_headers,
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["reason"] == "termination_required"
+    ended = await app_client.post(
+        f"/api/contracts/{cid}/terminate",
+        json={
+            "termination_reason": "project_ended",
+            "terminated_at": (date.today() - timedelta(days=1)).isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert ended.status_code == 200, ended.text
+    assert ended.json()["status"] == "ended"
+
+    changed = await app_client.patch(
+        f"/api/contracts/{cid}",
+        json={"status": "draft"},
+        headers=app_auth_headers,
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["status"] == "draft"
 
 
 @pytest.mark.asyncio
@@ -824,12 +851,16 @@ async def test_register_status_updates_client_active_consultants(
     assert profile.status_code == 200, profile.text
     assert cid in {row["contract_id"] for row in profile.json()["active_consultants"]}
 
-    end = await app_client.patch(
-        f"/api/contracts/{cid}",
-        json={"status": "ended"},
+    end = await app_client.post(
+        f"/api/contracts/{cid}/terminate",
+        json={
+            "termination_reason": "project_ended",
+            "terminated_at": (date.today() - timedelta(days=1)).isoformat(),
+        },
         headers=app_auth_headers,
     )
     assert end.status_code == 200, end.text
+    assert end.json()["status"] == "ended"
     profile = await app_client.get(
         f"/api/clients/{client_id}/profile", headers=app_auth_headers
     )

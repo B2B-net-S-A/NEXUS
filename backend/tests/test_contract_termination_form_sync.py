@@ -23,7 +23,12 @@ from app.models.b2b_generated_contract_status_event import (
 )
 from app.models.candidate import Candidate
 from app.models.client import Client
-from app.models.contract import Contract, ContractStatus, ContractType
+from app.models.contract import (
+    Contract,
+    ContractStatus,
+    ContractTerminationReason,
+    ContractType,
+)
 
 TODAY = business_today()
 PATH = "/api/contracts"
@@ -77,6 +82,17 @@ async def _seed(
                 candidate_id=candidate_id,
                 client_id=client.id,
                 contract_id=contract.id if link_generator else None,
+                # CHECK spójności: suspended/closed wymagają powodu i daty.
+                closure_reason=(
+                    "project_completed"
+                    if generator_status in ("suspended", "closed")
+                    else None
+                ),
+                closure_date=(
+                    TODAY - timedelta(days=60)
+                    if generator_status in ("suspended", "closed")
+                    else None
+                ),
                 render_payload={"language": "pl", "client_name": client.name},
             )
             db.add(row)
@@ -371,11 +387,6 @@ async def test_undo_restores_agreement_and_clears_dissolution(
     app_client, app_auth_headers
 ):
     cid, gid, _ = await _seed(generator_status="suspended")
-    async with AsyncSessionLocal() as db:
-        row = await db.get(B2BGeneratedContract, gid)
-        row.closure_reason = "project_completed"
-        row.closure_date = TODAY - timedelta(days=60)
-        await db.commit()
     project_end = TODAY - timedelta(days=1)
     ended = await app_client.post(
         f"{PATH}/{cid}/terminate",
@@ -415,7 +426,7 @@ async def test_return_after_break_creates_follow_up_agreement():
         c = await db.get(Contract, cid)
         c.end_date = project_end
         c.terminated_at = project_end
-        c.termination_reason = "project_ended"
+        c.termination_reason = ContractTerminationReason.project_ended
         c.status = ContractStatus.ended
         c.agreement_termination_mode = "notice"
         c.agreement_termination_party = "company"

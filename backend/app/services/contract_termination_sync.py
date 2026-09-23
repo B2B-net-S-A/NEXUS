@@ -133,7 +133,9 @@ def termination_details(
     details: dict = {
         "contract_id": contract.id,
         "termination_reason": (
-            contract.termination_reason.value if contract.termination_reason else None
+            getattr(contract.termination_reason, "value", contract.termination_reason)
+            if contract.termination_reason
+            else None
         ),
         "project_end_date": (
             contract.end_date.isoformat() if contract.end_date else None
@@ -360,21 +362,25 @@ async def _rows_changed_by(
     db: AsyncSession, contract: Contract
 ) -> list[B2BGeneratedContract]:
     rows = (
-        await db.execute(
-            select(B2BGeneratedContract)
-            .where(
-                and_(
-                    B2BGeneratedContract.termination_restore.isnot(None),
-                    or_(
-                        B2BGeneratedContract.contract_id == contract.id,
-                        B2BGeneratedContract.candidate_id == contract.candidate_id,
-                    ),
+        (
+            await db.execute(
+                select(B2BGeneratedContract)
+                .where(
+                    and_(
+                        B2BGeneratedContract.termination_restore.isnot(None),
+                        or_(
+                            B2BGeneratedContract.contract_id == contract.id,
+                            B2BGeneratedContract.candidate_id == contract.candidate_id,
+                        ),
+                    )
                 )
+                .order_by(B2BGeneratedContract.id.asc())
+                .with_for_update()
             )
-            .order_by(B2BGeneratedContract.id.asc())
-            .with_for_update()
         )
-    ).scalars()
+        .scalars()
+        .all()
+    )
     return [
         row
         for row in rows

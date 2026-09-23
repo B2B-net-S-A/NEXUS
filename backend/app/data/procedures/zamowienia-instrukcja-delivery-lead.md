@@ -250,6 +250,14 @@ jest istotna:
 * **Zakończ współpracę** — wypowiada **umowę**. Domyka wszystkie zamówienia tego
   kontraktu i — przy zamówieniach MD — otwiera decyzję o niewykorzystanych
   dniach. Tego użyj, gdy konsultant naprawdę odchodzi od klienta.
+  Okno pyta o powód i **datę zakończenia projektu** — do tego dnia włącznie
+  kontrakt jest „Kończący się", od następnego sam przechodzi do
+  „Zakończonych" (data z przeszłości = „Zakończony" od razu). Zaznacz
+  **„Rozwiązanie umowy"**, gdy razem z projektem kończy się umowa B2B
+  (wypowiedzenie albo porozumienie stron, ostatni dzień umowy, skan pisma) —
+  wtedy w Generatorze umowa trafia do „Zakończonych umów"; bez zaznaczenia
+  czeka w „Umowach bez projektu". Innej drogi do „Zakończonego" nie ma: lista
+  statusu i „Oznacz zakończone" otwierają to samo okno.
   Umowy **unieważnionej** nie da się zakończyć — system odmówi, bo to już
   stan końcowy. Szkic zakończony z datą w przyszłości zostaje szkicem do tej
   daty, a dzień po niej sam przechodzi do „Zakończonych".
