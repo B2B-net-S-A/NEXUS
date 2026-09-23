@@ -27,8 +27,9 @@ import over again.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -106,8 +107,17 @@ async def reconcile_once(
     batch: int = 500,
     cursor: int = 0,
     include_unseen: bool = False,
+    unseen_predicate: Optional[Callable[[Any], bool]] = None,
 ) -> ReconcileResult:
     """Scan one batch of entities and enqueue those whose hash has drifted.
+
+    ``unseen_predicate`` (audyt 22.09 r2, INTG-05) — węższa furtka niż
+    ``include_unseen``: encja, której indeks nigdy nie widział, jest
+    kolejkowana, gdy predykat zwróci True (dla rekrutacji: opublikowana)
+    ORAZ nie ma już w kolejce intencji w toku (`pending`/`processing`/
+    `failed`) — inaczej każdy przebieg dopisywałby kolejny duplikat. Bez tego
+    9 opublikowanych rekrutacji zostawało bez wektora NA STAŁE: worker
+    zamienił ich intencje w `dead`, a reconciler je pomijał jako „nieznane".
 
     ``cursor`` is the last id examined, so a caller can walk the whole table
     across ticks without holding a transaction open, and without loading the
@@ -139,6 +149,26 @@ async def reconcile_once(
     ids = [int(r.id) for r in rows]
     indexed = await _last_indexed_hashes(db, entity_type, ids)
 
+    in_flight: set[int] = set()
+    if unseen_predicate is not None and not include_unseen:
+        unseen_ids = [int(r.id) for r in rows if int(r.id) not in indexed]
+        if unseen_ids:
+            in_flight = set(
+                (
+                    await db.execute(
+                        select(IndexOutboxEvent.entity_id)
+                        .where(
+                            IndexOutboxEvent.entity_type == entity_type,
+                            IndexOutboxEvent.entity_id.in_(unseen_ids),
+                            IndexOutboxEvent.status.in_(
+                                ("pending", "processing", "failed")
+                            ),
+                        )
+                        .distinct()
+                    )
+                ).scalars()
+            )
+
     drifted = 0
     unseen = 0
     to_enqueue: list[int] = []
@@ -148,6 +178,12 @@ async def reconcile_once(
         if known is None:
             unseen += 1
             if include_unseen:
+                to_enqueue.append(entity_id)
+            elif (
+                unseen_predicate is not None
+                and entity_id not in in_flight
+                and unseen_predicate(row)
+            ):
                 to_enqueue.append(entity_id)
             continue
         desired = outbox.desired_state(entity_type, row)
@@ -163,6 +199,9 @@ async def reconcile_once(
         # not the same decision as routing writes through the outbox, and a
         # reconciler that silently records nothing would be worse than absent.
         await outbox.record_bulk_reindex(db, entity_type, to_enqueue)
+        # Flush, żeby kolejny przebieg w tej samej sesji (i sprawdzenie
+        # intencji w toku, INTG-05) widział właśnie zapisane wiersze.
+        await db.flush()
 
     return ReconcileResult(
         scanned=len(rows),
