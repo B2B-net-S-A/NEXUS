@@ -55,7 +55,7 @@ def _simulate_pre_fix_importer(monkeypatch) -> None:
 
     _set_polkomtel(monkeypatch, -999)
     monkeypatch.setattr(
-        finance_order_matching, "explicit_order_hints", lambda hints, known: []
+        finance_order_matching, "explicit_order_hints", lambda *_a, **_k: []
     )
 
 

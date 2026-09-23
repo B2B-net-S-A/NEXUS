@@ -527,13 +527,16 @@ async def test_overflow_of_a_named_order_is_not_moved_to_its_successor(
     assert await _consumptions(case["new_line"]) == {}
 
 
-def test_explicit_hints_bind_only_for_the_persons_clients():
+def test_explicit_hints_bind_only_for_the_persons_clients(monkeypatch):
+    from app.services import finance_order_matching
     from app.services.finance_order_matching import (
         build_order_number_index,
         explicit_order_hints,
     )
 
     bik, polkomtel, bnp, other = 1, 15, 12, 2
+    # Testy odpinają kanoniczne ID Polkomtela — tu przypinamy je jawnie.
+    monkeypatch.setattr(finance_order_matching, "POLKOMTEL_CLIENT_ID", polkomtel)
     index = build_order_number_index(
         [
             (bik, "4500030067"),
