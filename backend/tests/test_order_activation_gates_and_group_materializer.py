@@ -232,11 +232,12 @@ class _FakeSession:
     po encji i po literale w ``WHERE`` — dokładnie tak, jak buduje je kod.
     """
 
-    def __init__(self, groups, lines):
+    def __init__(self, groups, lines, pending_case_groups=()):
         self.groups = groups
         self.lines = lines
         self.added = []
         self.flushes = 0
+        self.pending_case_groups = set(pending_case_groups)
 
     async def execute(self, stmt):
         entity = stmt.column_descriptions[0]["entity"]
@@ -246,6 +247,13 @@ class _FakeSession:
         return _Result([ln for ln in self.lines if ln.order_group_id == group_id])
 
     async def scalar(self, stmt):
+        from app.models.client_order_offboarding import ClientOrderOffboardingCase
+
+        entity = stmt.column_descriptions[0].get("entity")
+        if entity is ClientOrderOffboardingCase:
+            # FIN-MD-03: `_md_budget_left` pyta o otwartą sprawę offboardingu.
+            group_id = stmt.whereclause.clauses[0].right.value
+            return 1 if group_id in self.pending_case_groups else None
         group_id = stmt.whereclause.right.value
         return next((ln.id for ln in self.lines if ln.order_group_id == group_id), None)
 
@@ -1151,3 +1159,62 @@ def test_md_quantity_and_mirror_reject_a_zero_rate(monkeypatch):
     with pytest.raises(HTTPException) as excinfo:
         _refresh_md_rate_mirror(budgeted, explicit_fields={"rate_client"})
     assert excinfo.value.status_code == 422
+
+
+# ── Audyt 22.09 r2 (FIN-MD-03) ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_completed_line_budget_does_not_block_the_continuation():
+    """Poprzednik po zamianie „zachowuje swoje liczby" (linia ``completed``
+    z resztą MD) — ta reszta nie może trzymać przedłużenia ``scheduled``."""
+    start = _TODAY
+    previous = _group(1, status=GROUP_STATUS_ACTIVE, start=start - timedelta(days=90))
+    current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
+    lines = [
+        _line(
+            10,
+            1,
+            status=ClientOrderStatus.completed,
+            md_total=Decimal("50"),
+            md_remaining=Decimal("10"),
+        ),
+        _line(
+            11,
+            1,
+            status=ClientOrderStatus.active,
+            md_total=Decimal("50"),
+            md_remaining=Decimal("0"),
+        ),
+    ]
+    db = _FakeSession([previous, current], lines)
+
+    assert await materialize_scheduled_order_groups(db, today=start) == 2
+    assert current.status == GROUP_STATUS_ACTIVE
+
+
+@pytest.mark.asyncio
+async def test_pending_offboarding_decision_holds_the_continuation():
+    start = _TODAY
+    previous = _group(1, status=GROUP_STATUS_ACTIVE, start=start - timedelta(days=90))
+    current = _group(2, status=GROUP_STATUS_SCHEDULED, start=start, predecessor=1)
+    lines = [
+        _line(
+            10,
+            1,
+            status=ClientOrderStatus.completed,
+            md_total=Decimal("50"),
+            md_remaining=Decimal("10"),
+        ),
+        _line(
+            11,
+            1,
+            status=ClientOrderStatus.active,
+            md_total=Decimal("50"),
+            md_remaining=Decimal("0"),
+        ),
+    ]
+    db = _FakeSession([previous, current], lines, pending_case_groups={1})
+
+    await materialize_scheduled_order_groups(db, today=start)
+    assert current.status == GROUP_STATUS_SCHEDULED

@@ -59,7 +59,20 @@ async def _md_budget_left(db: AsyncSession, group_id: int) -> Optional[Decimal]:
     Linie ``cancelled`` są poza sumą: konsultant zdjęty z zamówienia nie
     wykorzysta już swojego budżetu, a wliczanie go trzymałoby kontynuację
     zablokowaną w nieskończoność.
+
+    Audyt 22.09 r2 (FIN-MD-03): linie ``completed`` też są poza sumą — to
+    osoby z zakończoną współpracą albo poprzednik po zamianie, który
+    „zachowuje swoje liczby". Ich niewykorzystane MD nikt już nie zużyje, więc
+    przedłużenie ``scheduled`` nie aktywowało się nigdy. Wyjątek (lustro
+    ``order_md_exhaustion.sync_md_group_exhaustion``): nierozstrzygnięta sprawa
+    offboardingu w grupie trzyma kontynuację — pula może jeszcze wrócić
+    („przywróć") albo zostać przeniesiona.
     """
+    from app.models.client_order_offboarding import (
+        OFFBOARDING_STATUS_PENDING,
+        ClientOrderOffboardingCase,
+    )
+
     lines = list(
         (
             await db.execute(
@@ -74,9 +87,22 @@ async def _md_budget_left(db: AsyncSession, group_id: int) -> Optional[Decimal]:
     ]
     if not md_lines:
         return None
-    return sum(
-        (Decimal(str(line.md_remaining or 0)) for line in md_lines), Decimal("0")
+    pending_case = await db.scalar(
+        select(ClientOrderOffboardingCase.id)
+        .where(
+            ClientOrderOffboardingCase.order_group_id == group_id,
+            ClientOrderOffboardingCase.status == OFFBOARDING_STATUS_PENDING,
+        )
+        .limit(1)
     )
+    on_staff = [line for line in md_lines if line.status != ClientOrderStatus.completed]
+    left = sum(
+        (Decimal(str(line.md_remaining or 0)) for line in on_staff), Decimal("0")
+    )
+    if pending_case is not None and left <= Decimal("0"):
+        # Kontynuacja czeka na decyzję DL — wartość dodatnia wstrzymuje ją.
+        return Decimal("1")
+    return left
 
 
 async def _predecessor_still_has_md(
