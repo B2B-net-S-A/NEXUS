@@ -2,8 +2,9 @@
 
 One shape every surface (recommendations, proposals, reverse, marketplace,
 search) speaks, so a result carries the same eligibility + fit breakdown + a
-full version trace regardless of which screen asked. The orchestrator
-(``matching_orchestrator``) produces a ``MatchingRun`` of these.
+full version trace regardless of which screen asked. The PR8 orchestrator
+that produced ``MatchingRun`` was never wired to a live surface and was removed
+23.09.2026 (one engine behind ``/ai-matches`` since #1428).
 """
 
 from __future__ import annotations

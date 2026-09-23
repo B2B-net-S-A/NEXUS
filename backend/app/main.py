@@ -161,6 +161,7 @@ from app.api import phase5
 from app.api import candidate_conflicts as candidate_conflicts_api
 from app.api import admin_import
 from app.api import kpis as kpis_api
+from app.api import kpi_targets_admin as kpi_targets_admin_api
 from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
 from app.api import help_screens as help_screens_api
@@ -627,6 +628,7 @@ async def lifespan(app: FastAPI):
         insights_seniority_journal_loop,
     )
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
+    from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.cloudtalk_sync import cloudtalk_sync_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
@@ -730,6 +732,9 @@ async def lifespan(app: FastAPI):
         "signature_reconciler": asyncio.create_task(signature_reconciler_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
+        # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
+        # Rodzaje domyślnie OFF w Ustawieniach → Powiadomienia; znacznik w bazie.
+        "kpi_email_reports": asyncio.create_task(kpi_email_reports_loop()),
         # Powiadomienia Delivery Leada (0233). Kill-switch sprawdzany PRZED
         # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
         # 24 h po to, żeby sprawdzić tę samą flagę.
@@ -1378,6 +1383,10 @@ app.include_router(
 )
 app.include_router(admin_import.router, prefix="/api", tags=["admin-import"])
 app.include_router(kpis_api.router, prefix="/api/kpis", tags=["kpis"])
+# Ustawienia → Cele KPI (plan PR3): edytor odstępstw ról i osobistych celów.
+app.include_router(
+    kpi_targets_admin_api.router, prefix="/api/kpi-targets", tags=["kpis"]
+)
 # Analytics v1 (plan 2026-07-16, PR 3) — wersjonowany kontrakt statystyk.
 # Endpointy 503 przy ANALYTICS_V1_MODE=off; RBAC/capabilities niezależnie.
 app.include_router(
@@ -2436,6 +2445,8 @@ async def api_health_deep_check():
     from app.models.client import Client
     from app.models.client_cv_rule import ClientCvRule
     from app.models.client_cv_rule_event import ClientCvRuleEvent
+    from app.models.kpi_email_report_run import KpiEmailReportRun
+    from app.models.kpi_target_event import KpiTargetEvent
     from app.models.client_cv_rule_preview import ClientCvRulePreview
     from app.models.client_cv_rule_publication import ClientCvRulePublication
     from app.models.cv_document_version import CvDocumentVersion
@@ -2600,6 +2611,10 @@ async def api_health_deep_check():
         # „Zrobione” i każde pobranie PDF-u zamówienia.
         ("order_change_checks", OrderChangeCheck),
         ("order_pdf_downloads", OrderPdfDownload),
+        # 0355: historia „Cele KPI" (bez tabeli pada każdy zapis celu)
+        # i znacznik raportów KPI mailem (bez niego pętla raportów stoi).
+        ("kpi_target_events", KpiTargetEvent),
+        ("kpi_email_report_runs", KpiEmailReportRun),
         # 0256: konfigurowalna punktacja Insights. Brak tabeli NIE wywraca
         # Ligi — `get_scoring_config` degraduje się do wartości domyślnych
         # z kodu — więc bez tej sondy jedynym objawem byłby zapis wagi,

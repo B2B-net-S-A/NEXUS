@@ -52,10 +52,6 @@ _RETRIEVAL_FLAGS = [
     "STRUCTURED_POOL_ENABLED",
     "STRUCTURED_POOL_LIMIT",
     "STRUCTURED_POOL_MIN_MEMBERS",
-    # Wspólny silnik pod `/ai-matches` — ta sama obietnica: dźwignia, której
-    # nie da się zaobserwować, przestawia się na ślepo.
-    "AI_MATCHES_SHARED_ENGINE",
-    "AI_MATCHES_RERANK_TOP_N",
 ]
 
 _PLAN_FLAGS = [
@@ -64,8 +60,6 @@ _PLAN_FLAGS = [
     "AI_INDEX_OUTBOX_ENABLED",
     "AI_INDEX_WORKER_ENABLED",
     "AI_TEXT_SCHEMA_V2",
-    "AI_UNIFIED_RETRIEVAL_ENABLED",
-    "AI_UNIFIED_RETRIEVAL_SURFACES",
 ]
 
 
