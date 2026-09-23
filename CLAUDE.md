@@ -2857,6 +2857,7 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   reszta → W procesie), główna akcja pod nazwiskiem, notatka zawsze na dole.
   **Okno Zlecenie: trzy bloki** (Co zamówił klient · Zespół · Ogłoszenie),
   priorytet/ustawienia/kompletność w „Więcej"; „Baza pytań" w menu „⋯".
+- *(Od 24.09.2026 Tablica ma 8 kolumn, a DZ zastąpiło QC CV — sekcja „Rekrutacja v5”. Opis niżej do „Pipeline v4” włącznie mówi, jak składa się szablon; reguły DZ są historyczne.)*
 - **Tablica: jeden etap = jedna kolumna, reszta to odznaki** (decyzja Artura
   22.09.2026, `lib/board-stages.ts` → `foldBoardColumns`; od 23.09.2026
   6 kolumn — sekcja „Pipeline v4"). Szablony w bazie
@@ -2933,6 +2934,57 @@ Serwis `services/job_similarity.py`, trasy `api/job_similar.py`.
   aktywnych (utknęli, bez akcji, ostrzeżenia, poza szablonem, rekruter, puste
   kolumny); po prawej „N w procesie · M utknęło" i SLA. Filtry PRZYGASZAJĄ karty, nigdy
   ich nie usuwają (indeksy `@hello-pangea/dnd`).
+
+## Rekrutacja v5 — 8 kolumn, strzałka „Przesuń dalej”, QC CV, firmowa kolejka Cpro (0361, 24.09.2026)
+
+Decyzje Artura 23.09.2026, makiety https://claude.ai/artifact/CG4mBk9xcHZAn3y9jcmMeW,
+kontrakt API `docs/recruitment-v5-contract.md`. Zastępuje przegląd DZ (0353),
+osobę od Cpro per rekrutacja (0353) i kolejkę „Czeka na DZ” (0348).
+
+- **8 kolumn:** Nowi · Screening · Zweryfikowany · QC CV · CV wysłane · Rozmowa
+  u klienta · Umowa · Zatrudniony. Screening (kody `screening`/`prep_call`) to
+  kolumna, nie odznaka. Etap „Przepuszczony przez DZ” / „QC CV” jest GOSPODARZEM
+  kolumny `cv_qc` (mimo kodu `interview`), „Wysłać do Cpro” wpada do niej ze
+  znacznikiem „W kolejce Cpro”. Migracja 0361 zmienia nazwę etapu w szablonach
+  spoza Traffita na „QC CV”; szablon Traffita przepisuje nocny sync, więc reguła
+  rozpoznaje obie nazwy (`is_qc_stage`, kind `"qc"`). Blokada 12 h i arkusz pytań
+  obejmują Nowych i Screening (`CLAIM_COLUMNS`). Lustra: `board-stages.ts` ↔
+  `board_stage_badges.py` na `board-stage-cases.json`; statystyki „Lejek po
+  etapach” mają wiersze `screening`, `qc`, `cpro`.
+- **Strzałka „→” na karcie + okno „Przesuń dalej”** (`MoveNextDialog`): wymagania
+  następnej kolumny (i wszystkich pominiętych) liczy JEDNA reguła
+  `services/move_requirements.py` (`GET /api/pipeline/move-requirements`), każdy
+  brak ma przycisk, który go usuwa. Przeciągnięcie na sąsiednią kolumnę bez braków
+  przesuwa od razu; skok, znany brak albo „CV wysłane” otwiera okno. Serwer
+  wymusza wyłącznie bramkę QC, stawkę DL i debrief — reszta wymagań to podpowiedź.
+- **QC CV zamiast DZ** (`services/cv_qc.py`, `api/cv_qc.py`, tabela `cv_qc_runs`):
+  blokujące — must-have w CV, pogrubione, OPISANE zdaniem (≥ 6 słów, nie lista
+  technologii) w każdej roli, w której oryginał je wymienia, nic must/nice spoza
+  oryginału i notatek, lata w nagłówku, daty ról, reguły klienta (bez stawek
+  i kontaktu, zrzut zgody RODO); uwagi — nice-to-have pogrubione, pisownia,
+  tytuł, pogrubienia spoza oryginału (uwaga, bo CV EN z oryginału PL pogrubia
+  tłumaczenia). Blokujące liczy KOD; Luna tylko proponuje zdania z cytatem źródła
+  (serwer odrzuca propozycję bez cytatu obecnego w oryginale/notatkach), rekruter
+  klika „Zastosuj”. Poprawki edytują szkic CV firmowego pary; CV spoza NEXUSA
+  (Word/PDF „…B2B…”) = 409 `CV_NOT_EDITABLE`.
+- **Bramka:** `/move` i `/bulk-move` na „CV wysłane” albo etap Cpro z kolumn
+  przed wysłaniem → 409 `CV_QC_FAILED` (z `stage_id` do otwarcia QC), chyba że QC
+  przechodzi albo Delivery Lead/admin przepuścił parę z powodem (≥ 10 znaków,
+  `Activity cv_qc_override`, ważne dla pary także po zmianie CV). Wyłącznik
+  `CV_QC_GATE_ENABLED`; w testach wyłączony autouse-fixturą (dziesiątki testów
+  przesuwa na „CV wysłane” bez CV firmowego). U Nordei ta sama bramka pilnuje, że
+  na „Wysłane do Cpro” przesuwa osoba od Cpro, admin, DL albo HoR.
+- **Osoba od Cpro = jedna na firmę** (`services/cpro_sender.py`,
+  `app_settings['cpro_sender']`): zmienia KAŻDY z zespołu (decyzja Artura),
+  opcjonalnie z datą „do kiedy” — po niej wraca poprzednia osoba.
+  `GET/PUT /api/board-tasks/cpro/sender`, kolejka pogrupowana po rekrutacji
+  `GET /api/board-tasks/cpro/queue` (`CproQueueDialog` na pulpicie: rekrutacja po
+  rekrutacji, „✓ Wrzucone” = zwykły `/move`). `jobs.cpro_sender_id` zostaje w bazie
+  jako zapas, pasek „Do Cpro wysyła” nad Tablicą usunięty.
+- **Przegląd DL** = osoby w kolumnie QC CV u klientów innych niż Nordea (z wynikiem
+  QC), nie osoby w „Zweryfikowanym”.
+- **„Dodaj kandydatów”** (`AddCandidatesPanel`): jedno wejście z nagłówka i z kolumny
+  Nowi, zakładki wyszukiwanie AI z Championa · propozycje · Moi ludzie · ręcznie.
 
 ## Pipeline v4 — 6 kolumn, blokada 12 h, przegląd DL (0352, 23.09.2026)
 
@@ -4288,6 +4340,41 @@ poszerzenie CHECK-a na prodzie WYMAGA jawnego DROP+ADD):
 - **Osobny CHECK `ck_..._restore_target`**: dwa istniejące guardy używają
   `IS DISTINCT FROM`, więc trzecia wartość omijała OBA i mogłaby nieść
   `target_order_id`/`rate_basis` bez żadnego ograniczenia.
+
+## Przejęcie pozostałych MD i karta szkicu (ticket 09.2026, migracja 0357)
+
+Serwis `app/services/order_line_takeover.py`, trasa
+`POST /api/clients/{id}/order-groups/{g}/takeover`, front `lib/order-takeover.ts`
+(podgląd tą samą regułą), okna `AssignToOrderModal` (CeZ),
+`ReplaceWithTakeoverModal`, `TakeoverTermsFields`, `MdTransferChoice`.
+
+- **Sposób przeniesienia zależy od puli osoby odchodzącej** (`md_input_mode`):
+  pula w MD → 1:1, bez przelicznika; pula w kwocie → DL wybiera `departing_rate`
+  (X MD) albo `incoming_rate` (X × stawka odchodzącego ÷ stawka przychodzącego,
+  0,1 MD). Żadnej opcji nie wybieramy domyślnie. Ta sama reguła w „Wejdź za
+  konsultanta", decyzji o MD (`md_transfer_method`), „Zastąp kimś innym" i zamianie
+  kontraktora. Zamiana/decyzja BEZ `md_transfer_method` zachowuje stare
+  przeliczenie (klienci API sprzed 09.2026) — ekrany wysyłają metodę zawsze.
+- **Przejęcie = rozstrzygnięta sprawa offboardingu `transfer` na nową linię**
+  (istniejąca albo założona przez serwis): budżet odchodzącego zdejmowany o pulę
+  (`_reduce_legacy_md_budget`), więc nie pokazuje już „pozostało" (B2), a korekta
+  FIN-MD-02 działa bez zmian. `replaced_by_kind = "takeover"` liczy się w sumie
+  pozycji jak zamiana (poprzednik wnosi zużycie). `rate_basis` sprawy jest
+  WYPROWADZANY z metody (`stored_rate_basis`) — CHECK zna tylko dwie wartości.
+- **Zastępstwo za osobę z przyszłą datą zakończenia jest zaplanowane:** nowa linia
+  `draft` z `predecessor_order_id`, plan w payloadzie zdarzenia „dodanie
+  konsultanta" (`assignment=takeover`, `scheduled`). `activate_due_takeovers`
+  w cyklu `contract_alerts` (PO `_promote_statuses`) przenosi pulę z dnia wejścia,
+  gdy odchodzący już nie pracuje. Do tego czasu ręczna decyzja o MD odchodzącego
+  → 409. Data wejścia musi być po ostatnim dniu odchodzącego.
+- **Karta szkicu** (`ContractWithOrdersRead.draft_card`: żywy kontrakt bez zamówień
+  poza szkicami) stoi w pigułce Draft, nie w Aktywnych. „Usuń szkic"
+  (`POST …/contractors/{id}/dismiss-draft`, każdy klient) kasuje szkice zamówień
+  i stempluje `contracts.orders_card_dismissed_at`; kontrakt zostaje, a zamówienie
+  założone później przywraca kartę. „Przypisz do zamówienia" tylko CeZ (front).
+- **Dołączenie** idzie zwykłym `POST …/lines` z `assignment: "join"` (plakietka
+  „Dołączona"); „wolna pula" = MD czekających spraw offboardingu w zamówieniu —
+  ostrzeżenie, nie blokada.
 
 ## Zapis zamówienia: „Network Error" znaczy nieobsłużone 500
 

@@ -2,14 +2,15 @@
 
 /**
  * Przegląd Delivery Leada przed wysłaniem CV do klienta (Pipeline v4,
- * decyzja Artura 23.09.2026).
+ * Rekrutacja v5 — decyzje Artura 23.09.2026).
  *
- * U klientów innych niż Nordea osoba „Zweryfikowana” czeka, aż DL obejrzy:
- * stawkę kandydata, dostępność, CV wygenerowane automatycznie po weryfikacji
+ * U klientów innych niż Nordea osoba w kolumnie „QC CV” czeka, aż DL obejrzy:
+ * wynik QC CV (okno `CvQcDialog`), stawkę kandydata, dostępność, CV
  * i odpowiedzi ze screeningu Championa. Dwie decyzje, obie to ZWYKŁY ruch
  * w pipeline (`POST /api/pipeline/move` z wersją procesu):
  *  - „Wyślij do klienta” → „CV wysłane” ze stawką do klienta w tym samym
- *    żądaniu (serwer odmawia bez stawki i poza rolami admin/DL),
+ *    żądaniu (serwer odmawia bez stawki i poza rolami admin/DL, a CV, które
+ *    nie przeszło QC, odbija 409 `CV_QC_FAILED` — wtedy otwiera się QC),
  *  - „Odrzuć (DL)” → etap „Odrzucony” z powodem i `ended_by: "delivery_lead"`.
  *
  * Panel dostaje wiersz kolejki (`BoardTaskRow` z `GET /api/board-tasks`), więc
@@ -19,7 +20,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Download, Loader2, Send, XCircle } from "lucide-react";
+import { AlertTriangle, Download, Loader2, Send, ShieldCheck, XCircle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useToast } from "@/components/Toast";
+import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
+import { QcStatusBadge } from "@/components/v2/recruitment/QcStatusBadge";
 import { SavedScreeningView } from "@/components/v2/recruitment/PanelSavedViews";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -43,6 +46,7 @@ import { BOARD_TASKS_QUERY_KEY, waitingFor, type BoardTaskRow } from "@/lib/api/
 import { downloadBlob } from "@/lib/authenticated-files";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
+import { qcFailedStageId } from "@/lib/cv-qc";
 import {
   eligibilityWarningReason,
   isEligibilityWarning,
@@ -334,9 +338,11 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<PendingAction | null>(null);
   const [warning, setWarning] = useState<{ action: PendingAction; reason: string } | null>(null);
+  const [qcStageId, setQcStageId] = useState<number | null>(null);
 
   const stageId = task?.stage_id;
   useEffect(() => {
+    setQcStageId(null);
     setRateRaw("");
     setRateUnit("hourly");
     setRejecting(false);
@@ -422,7 +428,12 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
       refresh();
       onOpenChange(false);
     } catch (error) {
-      if (isEligibilityWarning(error)) {
+      const qcStage = qcFailedStageId(error);
+      if (qcStage !== undefined) {
+        // CV nie przeszło QC — pokaż, co poprawić, zamiast samego komunikatu.
+        showError(apiErrorMessage(error, "CV nie przeszło QC — popraw je przed wysłaniem."));
+        setQcStageId(qcStage ?? task.stage_id);
+      } else if (isEligibilityWarning(error)) {
         setWarning({
           action,
           reason: eligibilityWarningReason(error) ?? "Serwer ostrzega przed tym ruchem.",
@@ -475,6 +486,13 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
               Otwórz na Tablicy
             </Link>
           </p>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <QcStatusBadge row={task} />
+            <Button size="sm" variant="outline" onClick={() => setQcStageId(task.stage_id)}>
+              <ShieldCheck className="size-3.5" aria-hidden />
+              Otwórz QC
+            </Button>
+          </div>
         </SheetHeader>
 
         <SheetBody className="space-y-5">
@@ -632,6 +650,12 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
             </p>
           ) : null}
         </SheetFooter>
+        <CvQcDialog
+          stageId={qcStageId}
+          open={qcStageId !== null}
+          onClose={() => setQcStageId(null)}
+          onChanged={refresh}
+        />
       </SheetContent>
     </Sheet>
   );

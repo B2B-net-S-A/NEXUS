@@ -34,6 +34,10 @@ vi.mock("@/components/v2/cv-generator/ConsentAttachButton", () => ({
     return <button type="button">Wgraj zrzut zgody</button>;
   },
 }));
+vi.mock("@/components/v2/recruitment/CvQcDialog", () => ({
+  CvQcDialog: ({ stageId, open }: { stageId: number | null; open: boolean }) =>
+    open ? <div role="dialog" aria-label="QC CV">QC etapu {stageId}</div> : null,
+}));
 vi.mock("@/components/v2/recruitment/PanelSavedViews", () => ({
   SavedScreeningView: ({ item }: { item: { id: number } }) => (
     <div data-testid="saved-screening">arkusz z wiersza {item.id}</div>
@@ -69,6 +73,8 @@ function task(over: Partial<BoardTaskRow> = {}): BoardTaskRow {
     expected_rate_unit: "hourly",
     expected_rate_currency: "PLN",
     screening_stage_id: 9,
+    qc_status: "passed",
+    qc_blocking_failed: 0,
     ...over,
   };
 }
@@ -231,5 +237,37 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     expect(screen.queryByRole("button", { name: /Odrzuć \(DL\)/ })).toBeNull();
     expect(screen.getByText(/Do klienta wysyła Delivery Lead/)).toBeTruthy();
     expect(await screen.findByText(/nie ma jeszcze wygenerowanego CV/)).toBeTruthy();
+  });
+
+  it("pokazuje wynik QC CV i „Otwórz QC” otwiera okno QC dla etapu z kolejki", async () => {
+    mockApi();
+    renderPanel(task({ qc_status: "failed", qc_blocking_failed: 3 }));
+    expect(screen.getByText("QC: 3 do poprawy")).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "QC CV" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /Otwórz QC/ }));
+    expect(screen.getByRole("dialog", { name: "QC CV" })).toHaveTextContent("QC etapu 11");
+  });
+
+  it("409 CV_QC_FAILED przy wysyłce → komunikat i okno QC wskazanego etapu", async () => {
+    mockApi();
+    post.mockRejectedValue({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: "CV_QC_FAILED",
+            message: "CV nie przeszło QC: 3 sprawdzenia do poprawy.",
+            blocking_failed: 3,
+            stage_id: 12,
+          },
+        },
+      },
+    });
+    const { onOpenChange } = renderPanel();
+    await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
+    await userEvent.click(screen.getByRole("button", { name: /Wyślij do klienta/ }));
+    await waitFor(() => expect(showError).toHaveBeenCalledWith("CV nie przeszło QC: 3 sprawdzenia do poprawy."));
+    expect(await screen.findByRole("dialog", { name: "QC CV" })).toHaveTextContent("QC etapu 12");
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 });

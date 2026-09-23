@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { OffboardingDecisionModal } from "@/components/client-profile/orders/OffboardingDecisionModal";
+import type { ContractWithOrdersRead } from "@/lib/api/dlPortal";
 import type {
   OrderGroupRead,
   OrderLineRead,
@@ -223,6 +224,136 @@ describe("decyzja po zakończeniu współpracy", () => {
     expect(onSubmit).toHaveBeenCalledWith({
       action: "remove",
       expected_version: 1,
+    });
+  });
+});
+
+const RECIPIENT: OrderLineRead = {
+  ...LINE,
+  id: 2,
+  contract_id: 101,
+  consultant_name: "Anna Nowak",
+  status: "active",
+  is_active: true,
+  rate_revenue: 1000,
+  offboarding_case: null,
+};
+
+const KAMILA = {
+  contract_id: 645,
+  candidate_id: 32903,
+  candidate_name: "Kamila Gniewek",
+  contract_status: "active",
+  rate_candidate: 85,
+  rate_unit: "hourly",
+  draft_card: true,
+  orders: [],
+} as unknown as ContractWithOrdersRead;
+
+describe("przejęcie pozostałych MD w decyzji (ticket 09.2026, B1/A5)", () => {
+  it("pula w MD: komunikat 1:1 zamiast przelicznika i wysyłka one_to_one", async () => {
+    const onSubmit = vi.fn();
+    render(
+      <OffboardingDecisionModal
+        open
+        onOpenChange={vi.fn()}
+        group={group({ lines: [LINE, RECIPIENT] })}
+        line={{ ...LINE, pool_unit: "md" }}
+        submitting={false}
+        error={null}
+        onSubmit={onSubmit}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Przelicz na innego konsultanta/ }),
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText(/Konsultant przejmujący/),
+      "line:2",
+    );
+    expect(screen.queryByText(/Przelicz po stawce/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Zamówienie ma pulę w MD — Anna Nowak przejmuje/),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Zapisz decyzję" }));
+    expect(onSubmit).toHaveBeenCalledWith({
+      action: "transfer",
+      target_order_id: 2,
+      md_transfer_method: "one_to_one",
+      expected_version: 1,
+    });
+  });
+
+  it("pula w kwocie: zapis nieaktywny, dopóki DL nie wybierze opcji", async () => {
+    const onSubmit = vi.fn();
+    render(
+      <OffboardingDecisionModal
+        open
+        onOpenChange={vi.fn()}
+        group={group({ lines: [LINE, RECIPIENT] })}
+        line={{ ...LINE, pool_unit: "amount" }}
+        submitting={false}
+        error={null}
+        onSubmit={onSubmit}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Przelicz na innego konsultanta/ }),
+    );
+    await userEvent.selectOptions(
+      screen.getByLabelText(/Konsultant przejmujący/),
+      "line:2",
+    );
+    const save = screen.getByRole("button", { name: "Zapisz decyzję" });
+    expect(save).toBeDisabled();
+    // 90 MD × 1320 zł ÷ 1000 zł = 118,8 MD
+    expect(screen.getByText("118,8 MD")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("radio", { name: /po stawce osoby przychodzącej/ }),
+    );
+    expect(save).toBeEnabled();
+    await userEvent.click(save);
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ md_transfer_method: "incoming_rate" }),
+    );
+  });
+
+  it("nowa osoba ze szkiców wchodzi za odchodzącego (stawka z kontraktu × 8)", async () => {
+    const onTakeover = vi.fn();
+    render(
+      <OffboardingDecisionModal
+        open
+        onOpenChange={vi.fn()}
+        group={group()}
+        line={{ ...LINE, pool_unit: "md" }}
+        submitting={false}
+        error={null}
+        onSubmit={vi.fn()}
+        newPeople={[KAMILA]}
+        onTakeover={onTakeover}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Przelicz na innego konsultanta/ }),
+    );
+    const select = screen.getByLabelText(/Konsultant przejmujący/);
+    expect(
+      screen.getByRole("group", { name: "Nowe osoby u klienta" }),
+    ).toBeInTheDocument();
+    await userEvent.selectOptions(select, "contract:645");
+    expect(screen.getByText("Z kontraktu: 85 PLN/h × 8")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Stawka koszt/)).toHaveValue("680");
+    expect(screen.getByLabelText(/Data wejścia/)).toHaveValue("2026-09-01");
+    await userEvent.type(screen.getByLabelText(/Stawka przychód/), "800");
+    await userEvent.click(screen.getByRole("button", { name: "Zapisz decyzję" }));
+    expect(onTakeover).toHaveBeenCalledWith({
+      contract_id: 645,
+      departing_order_id: 1,
+      entry_date: "2026-09-01",
+      rate_cost: 680,
+      rate_revenue: 800,
+      md_transfer_method: "one_to_one",
+      expected_case_version: 1,
     });
   });
 });

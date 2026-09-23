@@ -508,6 +508,13 @@ class Settings(BaseSettings):
     # wyłącznik awaryjny: pobrania działają jak przed 23.09.2026.
     CV_CONSENT_DOWNLOAD_GATE_ENABLED: bool = True
 
+    # ── QC CV — bramka przed „CV wysłane”/Cpro (Rekrutacja v5, 0361) ─────────
+    # Ruch pary z kolumn Nowi/Screening/Zweryfikowany/QC CV na „CV wysłane”
+    # albo na etap Cpro liczy QC CV firmowego i odmawia 409 `CV_QC_FAILED`,
+    # chyba że QC przechodzi albo Delivery Lead/admin je obszedł. False =
+    # ruch bez sprawdzenia (QC dalej liczy się na żądanie i na tablicy).
+    CV_QC_GATE_ENABLED: bool = True
+
     # ── Jarvis — asystent-agent w shellu (0330, zastępuje MINDY) ─────────────
     # Wyłącznik całej funkcji: false = maskotka mówi „nie działam teraz”, trasy
     # czatu zwracają 503, reszta aplikacji nietknięta. Domyślnie false do

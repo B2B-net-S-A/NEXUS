@@ -141,7 +141,7 @@ describe("selectScreeningQueue", () => {
     expect(selectScreeningQueue([board[1]])).toEqual([]);
   });
 
-  it("Pipeline v4: bierze wszystkie kolumny wpadające do „Nowych”, w kolejności tablicy", () => {
+  it("Rekrutacja v5: bierze kolumny „Nowi” i „Screening”, w kolejności tablicy", () => {
     const v4: KanbanColumn[] = [
       col({ stage: "posting", name: "Ogłoszenia", stage_def_id: 1, items: [item({ id: 1 })] }),
       col({ stage: "new", name: "Nowi", stage_def_id: 2, items: [item({ id: 2 })] }),
@@ -149,6 +149,7 @@ describe("selectScreeningQueue", () => {
       // Kod `new`, ale nazwa „Umowa wysłana" → kolumna Umowa, nie Nowi.
       col({ stage: "new", name: "Umowa wysłana", stage_def_id: 4, items: [item({ id: 4 })] }),
       col({ stage: "verified", name: "Zweryfikowany", stage_def_id: 5, items: [item({ id: 5 })] }),
+      col({ stage: "interview", name: "QC CV", stage_def_id: 6, items: [item({ id: 6 })] }),
       col({
         stage: "rejected",
         name: "Odrzucony",
@@ -162,8 +163,10 @@ describe("selectScreeningQueue", () => {
     ];
     expect(selectScreeningQueue(v4).map((e) => e.item.id)).toEqual([1, 2, 3]);
     expect(isNewColumn(v4[0])).toBe(true);
+    expect(isNewColumn(v4[2])).toBe(true);
     expect(isNewColumn(v4[3])).toBe(false);
-    expect(isNewColumn(v4[6])).toBe(false);
+    expect(isNewColumn(v4[5])).toBe(false);
+    expect(isNewColumn(v4[7])).toBe(false);
   });
 });
 

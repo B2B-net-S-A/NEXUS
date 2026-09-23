@@ -4,9 +4,11 @@ import cases from "@/lib/__fixtures__/board-stage-cases.json";
 import {
   BOARD_COLUMN_ORDER,
   foldBoardColumns,
+  SETTABLE_BADGES,
+  boardColumnStep,
   isCproStageName,
   impliedBadges,
-  isDzStageName,
+  isQcStageName,
   placeStage,
 } from "@/lib/board-stages";
 
@@ -18,22 +20,30 @@ describe("etap szablonu → kolumna Tablicy + odznaka (prawdziwe nazwy z trzech 
     });
   });
 
-  it("reguła DZ i Cpro rozpoznaje tylko swoje etapy", () => {
-    expect(isDzStageName("Przepuszczony przez DZ")).toBe(true);
-    expect(isDzStageName("Zweryfikowany")).toBe(false);
+  it("reguła QC i Cpro rozpoznaje tylko swoje etapy", () => {
+    expect(isQcStageName("Przepuszczony przez DZ")).toBe(true);
+    expect(isQcStageName("QC CV")).toBe(true);
+    expect(isQcStageName("Zweryfikowany")).toBe(false);
+    expect(isQcStageName("CV Wysłane")).toBe(false);
     expect(isCproStageName("NORDEA: Wysłać do Cpro")).toBe(true);
     expect(isCproStageName("CV Wysłane")).toBe(false);
   });
 
-  it("Tablica ma 6 kolumn, bez etapów w środku (decyzja 23.09.2026)", () => {
+  it("Tablica ma 8 kolumn (Rekrutacja v5)", () => {
     expect(BOARD_COLUMN_ORDER).toEqual([
       "new",
+      "screening",
       "verified",
+      "cv_qc",
       "cv_sent",
       "client_interview",
       "contract",
       "hired",
     ]);
+    expect(boardColumnStep("new")).toBe(1);
+    expect(boardColumnStep("cv_qc")).toBe(4);
+    expect(boardColumnStep("hired")).toBe(8);
+    expect(boardColumnStep("closed")).toBeNull();
   });
 });
 
@@ -47,7 +57,7 @@ describe("foldBoardColumns", () => {
     col("Nowi / Analiza CV", "new", [1]),
     col("Screening", "screening", []),
     col("Zweryfikowany", "verified", [2]),
-    col("Przepuszczony przez DZ", "interview", [3]),
+    col("QC CV", "interview", [3]),
     col("Wysłać do Cpro", "new", [4]),
     col("CV Wysłane", "cv_sent", []),
     col("Preparation Meeting", "new", [5]),
@@ -62,10 +72,12 @@ describe("foldBoardColumns", () => {
   ];
   const folded = foldBoardColumns(template);
 
-  it("„Default B2B”: 16 etapów → 6 kolumn + pasek zamkniętych", () => {
+  it("„Default B2B”: 16 etapów → 8 kolumn + pasek zamkniętych", () => {
     expect(folded.columns.map((c) => c.label)).toEqual([
       "Nowi",
+      "Screening",
       "Zweryfikowany",
+      "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
       "Umowa",
@@ -85,25 +97,26 @@ describe("foldBoardColumns", () => {
   it("kolumna-host to etap bez odznaki; karty z etapów-odznak są w tej samej kolumnie", () => {
     const verified = folded.columns.find((c) => c.key === "verified")!;
     expect(verified.host.label).toBe("Zweryfikowany");
-    expect(verified.items.map((i) => i.id)).toEqual([2, 3, 4]);
-    expect(verified.count).toBe(3);
+    expect(verified.items.map((i) => i.id)).toEqual([2]);
+    const qc = folded.columns.find((c) => c.key === "cv_qc")!;
+    expect(qc.host.label).toBe("QC CV");
+    expect(qc.items.map((i) => i.id)).toEqual([3, 4]);
+    expect(qc.count).toBe(2);
     const contract = folded.columns.find((c) => c.key === "contract")!;
     expect(contract.host.label).toBe("Akceptacja");
     expect(contract.items.map((i) => i.id)).toEqual([7, 8]);
     const nowi = folded.columns.find((c) => c.key === "new")!;
     expect(nowi.host.label).toBe("Nowi / Analiza CV");
-    expect(nowi.members.map((m) => m.label)).toEqual([
-      "Nowi / Analiza CV",
-      "Ogłoszenia",
-      "Screening",
-    ]);
+    expect(nowi.members.map((m) => m.label)).toEqual(["Nowi / Analiza CV", "Ogłoszenia"]);
+    const screening = folded.columns.find((c) => c.key === "screening")!;
+    expect(screening.host.label).toBe("Screening");
     const hired = folded.columns.find((c) => c.key === "hired")!;
     expect(hired.host.label).toBe("Zatrudniony");
     expect(hired.items.map((i) => i.id)).toEqual([9]);
   });
 
   it("odznaka jedzie z karty, nie z kolumny", () => {
-    expect(folded.badgeByItemId.get(3)).toBe("dz");
+    expect(folded.badgeByItemId.get(3)).toBeUndefined();
     expect(folded.badgeByItemId.get(4)).toBe("cpro");
     expect(folded.badgeByItemId.get(5)).toBe("prep");
     expect(folded.badgeByItemId.get(8)).toBe("contract_signed");
@@ -154,7 +167,9 @@ describe("foldBoardColumns", () => {
     ]);
     expect(traffit.columns.map((c) => c.label)).toEqual([
       "Nowi",
+      "Screening",
       "Zweryfikowany",
+      "QC CV",
       "CV wysłane",
       "Rozmowa u klienta",
       "Umowa",
@@ -166,13 +181,18 @@ describe("foldBoardColumns", () => {
     const interview = traffit.columns.find((c) => c.key === "client_interview")!;
     expect(interview.items.map((i) => i.id)).toEqual([3, 4]);
     expect(traffit.closed).toHaveLength(2);
+    // Szablon z Traffita zostaje przy „Przepuszczony przez DZ" — gospodarz QC CV.
+    const qc = traffit.columns.find((c) => c.key === "cv_qc")!;
+    expect(qc.label).toBe("QC CV");
+    expect(qc.host.label).toBe("Przepuszczony przez DZ");
+    expect(qc.items.map((i) => i.id)).toEqual([1, 2]);
   });
 });
 
-describe("impliedBadges", () => {
-  it("Cpro stoi po DZ w procesie — karta niesie obie odznaki", () => {
-    expect(impliedBadges("cpro")).toEqual(["dz", "cpro"]);
-    expect(impliedBadges("dz")).toEqual(["dz"]);
+describe("znaczniki ustawiane z panelu", () => {
+  it("DZ i Cpro zniknęły z przełączników — Cpro ustawia strzałka", () => {
+    expect(SETTABLE_BADGES).toEqual(["contract_signed"]);
+    expect(impliedBadges("cpro")).toEqual(["cpro"]);
     expect(impliedBadges(null)).toEqual([]);
   });
 });
