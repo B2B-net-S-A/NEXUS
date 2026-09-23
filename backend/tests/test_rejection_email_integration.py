@@ -30,7 +30,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.candidate import Candidate, CandidateStatus
-from app.models.job import Job, JobStatus
+from app.models.job import Job
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.rejection_email import (
     RejectionEmailStatus,
