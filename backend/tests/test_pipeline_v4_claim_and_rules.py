@@ -651,3 +651,182 @@ async def test_debrief_gate_covers_bulk_move_and_detour_through_cv_sent(api_clie
             await db.execute(delete(_Ev).where(_Ev.candidate_id == cand_id))
             await db.commit()
         await _cleanup([cand_id], job_id)
+
+
+# ── Poprawki po teście na produkcji (23.09.2026) ───────────────────────────
+
+
+def _card(board: dict, candidate_id: int) -> dict:
+    for col in board.get("columns", []):
+        for item in col.get("items", []):
+            if item.get("candidate_id") == candidate_id:
+                return item
+    raise AssertionError(f"kandydata {candidate_id} nie ma na tablicy")
+
+
+async def test_screening_and_rates_follow_the_card_and_client_rate_is_dl_only(
+    api_client,
+):
+    """Screening z „Nowych" i stawka kandydata z weryfikacji idą z kartą na
+    kolejne etapy; stawkę do klienta widzi DL, a rekruter — nie (D2)."""
+    rec_id, rec_email, rec_pw = await _seed_user(UserRole.recruiter)
+    dl_id, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead)
+    job_id, _ = await _seed_job(rec_id, collaborator_ids=(dl_id,))
+    cand_id = await _seed_candidate()
+    rec_h = await _login(api_client, rec_email, rec_pw)
+    dl_h = await _login(api_client, dl_email, dl_pw)
+    try:
+        await _add(api_client, rec_h, job_id, cand_id, "manual_search")
+        async with AsyncSessionLocal() as db:
+            new_stage_id = await db.scalar(
+                select(CandidateStage.id).where(
+                    CandidateStage.candidate_id == cand_id,
+                    CandidateStage.job_id == job_id,
+                )
+            )
+        saved = await api_client.post(
+            f"/api/pipeline/stages/{new_stage_id}/screening",
+            headers=rec_h,
+            json={
+                "answers": [{"question_id": "q1", "response": "5 lat Kafka"}],
+                "overall_fit": "fit",
+            },
+        )
+        assert saved.status_code == 200, saved.text
+        verified = await api_client.post(
+            "/api/pipeline/move",
+            headers=rec_h,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "verified",
+                "expected_rate_value": "140",
+                "expected_rate_unit": "hourly",
+            },
+        )
+        assert verified.status_code == 200, verified.text
+        sent = await api_client.post(
+            "/api/pipeline/move",
+            headers=dl_h,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "cv_sent",
+                "client_rate_value": "175",
+                "client_rate_unit": "hourly",
+            },
+        )
+        assert sent.status_code == 200, sent.text
+        interview = await api_client.post(
+            "/api/pipeline/move",
+            headers=dl_h,
+            json={
+                "candidate_id": cand_id,
+                "job_id": job_id,
+                "stage": "client_interview",
+            },
+        )
+        assert interview.status_code == 200, interview.text
+        # Odpowiedź ruchu rekrutera też nie niesie stawki do klienta.
+        assert verified.json()["client_rate_value"] is None
+
+        rec_board = await api_client.get(
+            f"/api/pipeline/kanban/{job_id}", headers=rec_h
+        )
+        assert rec_board.status_code == 200, rec_board.text
+        rec_card = _card(rec_board.json(), cand_id)
+        assert rec_card["stage"] == "client_interview"
+        assert rec_card["screening_done"] is True
+        assert Decimal(str(rec_card["expected_rate_value"])) == Decimal("140")
+        assert rec_card["client_rate_value"] is None
+
+        dl_board = await api_client.get(f"/api/pipeline/kanban/{job_id}", headers=dl_h)
+        dl_card = _card(dl_board.json(), cand_id)
+        assert Decimal(str(dl_card["client_rate_value"])) == Decimal("175")
+
+        # Arkusz przeszedł na wiersz „Rozmowy u klienta" (portal klienta,
+        # generator CV i przegląd DL czytają bieżący etap).
+        async with AsyncSessionLocal() as db:
+            current = await db.scalar(
+                select(CandidateStage)
+                .where(
+                    CandidateStage.candidate_id == cand_id,
+                    CandidateStage.job_id == job_id,
+                )
+                .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+                .limit(1)
+            )
+        assert current.stage == PipelineStage.client_interview
+        assert current.screening_answers["answers"][0]["response"] == "5 lat Kafka"
+
+        history = await api_client.get(
+            f"/api/candidates/{cand_id}/history", headers=rec_h
+        )
+        assert history.status_code == 200, history.text
+        assert history.json()["can_view_client_rate"] is False
+        assert all(j.get("client_rate") is None for j in history.json()["jobs"])
+        dl_history = await api_client.get(
+            f"/api/candidates/{cand_id}/history", headers=dl_h
+        )
+        assert dl_history.json()["can_view_client_rate"] is True
+
+        # Właściciel-rekruter nie zapisze już stawki do klienta (D2).
+        patch = await api_client.patch(
+            f"/api/candidates/{cand_id}/recruitments/{job_id}/client-rate",
+            headers=rec_h,
+            json={"client_rate_value": "200", "client_rate_unit": "hourly"},
+        )
+        assert patch.status_code == 403, patch.text
+        job = await api_client.get(f"/api/jobs/{job_id}", headers=rec_h)
+        assert job.json()["can_write_client_rate"] is False
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_screening_read_falls_back_to_the_pairs_latest_sheet(api_client):
+    """Etap bez własnego arkusza (np. wiersz z importu) pokazuje arkusz pary."""
+    rec_id, rec_email, rec_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(rec_id)
+    cand_id = await _seed_candidate()
+    rec_h = await _login(api_client, rec_email, rec_pw)
+    try:
+        now = datetime.now(timezone.utc)
+        async with AsyncSessionLocal() as db:
+            filled = CandidateStage(
+                candidate_id=cand_id,
+                job_id=job_id,
+                stage=PipelineStage.new,
+                moved_at=now - timedelta(hours=2),
+                screening_answers={
+                    "answers": [{"question_id": "q1", "response": "tak"}],
+                    "overall_fit": "fit",
+                },
+            )
+            bare = CandidateStage(
+                candidate_id=cand_id,
+                job_id=job_id,
+                stage=PipelineStage.verified,
+                moved_at=now,
+            )
+            db.add_all([filled, bare])
+            await db.commit()
+            filled_id, bare_id = filled.id, bare.id
+        resp = await api_client.get(
+            f"/api/pipeline/stages/{bare_id}/screening", headers=rec_h
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["screening_answers"]["answers"][0]["response"] == "tak"
+        assert body["screening_source_stage_id"] == filled_id
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+def test_integration_request_is_detected_by_oauth_client_state() -> None:
+    from app.services import candidate_claim
+
+    human = SimpleNamespace(state=SimpleNamespace())
+    integration = SimpleNamespace(state=SimpleNamespace(oauth_client_id="scraper"))
+    assert candidate_claim.is_integration_request(human) is False
+    assert candidate_claim.is_integration_request(integration) is True
+    assert candidate_claim.is_integration_request(object()) is False

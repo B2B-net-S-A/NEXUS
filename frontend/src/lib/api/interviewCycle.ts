@@ -30,6 +30,18 @@ export const clientQuestionPoolQueryKey = (
 ) => ["interview-cycle", "client-questions", "pool", by, id, limit] as const;
 export const debriefQueryKey = (eventId: number) =>
   ["interview-cycle", "debrief", eventId] as const;
+export const interviewEventQueryKey = (eventId: number) =>
+  ["interview-cycle", "event", eventId] as const;
+
+/** Termin rozmowy u klienta (okno debriefu z bramki zna tylko id wydarzenia). */
+export interface InterviewEventInfo {
+  id: number;
+  candidate_id: number;
+  job_id: number | null;
+  start: string;
+  end: string | null;
+  started: boolean;
+}
 
 export const interviewCycleApi = {
   overview: (scope: CycleScope) =>
@@ -57,6 +69,10 @@ export const interviewCycleApi = {
       .then((r) => r.data),
   cancelSlots: (id: number) =>
     api.post<SlotRequest>(`/api/interview-cycle/slots/${id}/cancel`).then((r) => r.data),
+  getEvent: (eventId: number) =>
+    api
+      .get<InterviewEventInfo>(`/api/interview-cycle/events/${eventId}`)
+      .then((r) => r.data),
   getDebrief: (eventId: number) =>
     api
       .get<Debrief | null>(`/api/interview-cycle/events/${eventId}/debrief`)
@@ -129,5 +145,14 @@ export function useDebrief(eventId: number | null) {
     queryKey: debriefQueryKey(eventId ?? 0),
     queryFn: () => interviewCycleApi.getDebrief(eventId as number),
     enabled: eventId != null,
+  });
+}
+
+export function useInterviewEvent(eventId: number | null) {
+  return useQuery({
+    queryKey: interviewEventQueryKey(eventId ?? 0),
+    queryFn: () => interviewCycleApi.getEvent(eventId as number),
+    enabled: eventId != null,
+    staleTime: 60_000,
   });
 }

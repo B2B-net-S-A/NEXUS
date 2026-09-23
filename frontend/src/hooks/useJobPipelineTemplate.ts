@@ -21,6 +21,7 @@ import {
   type JobBudgetSource,
 } from "@/lib/job-budget";
 import type { PipelineRejectionReasonOption } from "@/hooks/usePipelineMove";
+import { rejectionReasonLabel } from "@/lib/rejection-reasons";
 
 interface JobFacts extends JobBudgetSource {
   pipeline_template_id?: number | null;
@@ -49,7 +50,7 @@ function mapReasons(reasons: readonly RejectionReasonDef[]): PipelineRejectionRe
     // Identyfikator jedzie do API bez zmian (liczba z szablonu); typ opcji
     // okna odrzucenia jest historycznie tekstowy.
     id: r.id as unknown as string,
-    label: r.name,
+    label: rejectionReasonLabel(r),
     applies_to: [r.category as "rejected" | "withdrawn"],
   }));
 }

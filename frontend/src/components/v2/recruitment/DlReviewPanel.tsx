@@ -51,7 +51,6 @@ import {
   invalidateAfterPipelineVersionConflict,
   isPipelineVersionConflict,
 } from "@/lib/pipeline-version-conflict";
-import { rateToHourly } from "@/lib/rate-to-hourly";
 import { loadJobRejectionReasons } from "@/lib/rejection-reasons";
 import { formatDate } from "@/lib/utils";
 import { getUserRoles, useAuthStore } from "@/store/auth";
@@ -92,20 +91,6 @@ function rateText(
   if (cur === "PLN") return `${formatAmount(numeric)} ${unitLabel ?? "zł"}`;
   const suffix = unitLabel ? unitLabel.replace("zł", cur) : cur;
   return `${formatAmount(numeric)} ${suffix}`;
-}
-
-/** Marża w zł/h — tylko gdy obie stawki da się sprowadzić do PLN za godzinę. */
-export function marginText(
-  candidateHourly: number | null,
-  clientHourly: number | null,
-): { text: string; negative: boolean } | null {
-  if (candidateHourly == null || clientHourly == null || clientHourly <= 0) return null;
-  const margin = Math.round((clientHourly - candidateHourly) * 100) / 100;
-  const pct = Math.round((margin / clientHourly) * 1000) / 10;
-  return {
-    text: `Marża: ${formatAmount(margin)} zł/h (${pct.toLocaleString("pl-PL")}%)`,
-    negative: margin < 0,
-  };
 }
 
 // ── Fakty z podglądu kandydata ───────────────────────────────────────────────
@@ -364,12 +349,9 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
     profile?.expected_rate_hourly != null
       ? rateText(profile.expected_rate_hourly, "hourly", profile.expected_rate_currency)
       : null;
-  const candidateHourly =
-    task.expected_rate_value != null
-      ? rateToHourly(task.expected_rate_value, task.expected_rate_unit ?? null, task.expected_rate_currency)
-      : rateToHourly(profile?.expected_rate_hourly ?? null, "hourly", profile?.expected_rate_currency);
+  // Bez marży (decyzja 23.09.2026): DL widzi stawkę kandydata i sam wpisuje
+  // stawkę do klienta.
   const clientRate = parseAmount(rateRaw);
-  const margin = marginText(candidateHourly, rateToHourly(clientRate, rateUnit, "PLN"));
   const location = profile?.city || profile?.location || null;
 
   const refresh = () => {
@@ -604,11 +586,6 @@ export function DlReviewPanel({ task, open, onOpenChange, canSendToClient }: DlR
                 </select>
               </div>
             </label>
-            {margin ? (
-              <p className={`pb-2 text-xs font-medium tabular-nums ${margin.negative ? "text-destructive" : "text-foreground"}`}>
-                {margin.text}
-              </p>
-            ) : null}
             <div className="ml-auto flex flex-wrap gap-2">
               {canReject && !rejecting ? (
                 <Button variant="outline" onClick={() => setRejecting(true)} disabled={busy !== null}>

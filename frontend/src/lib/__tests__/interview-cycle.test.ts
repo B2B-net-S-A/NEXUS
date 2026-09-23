@@ -5,6 +5,8 @@ import {
   actionForTodo,
   candidateLabel,
   countdownLabel,
+  debriefAvailable,
+  debriefAvailableFromLabel,
   formatDayLabel,
   groupAgendaByDay,
   parseCycleParam,
@@ -161,5 +163,30 @@ describe("interview-cycle — akcje", () => {
 
   it("bez nazwiska (brak odczytu kandydatów) — numer, nie pustka", () => {
     expect(candidateLabel({ candidate_id: 9, candidate_name: null })).toBe("Kandydat #9");
+  });
+});
+
+describe("debrief dopiero od rozpoczęcia rozmowy", () => {
+  // 23.09.2026 10:00 czasu warszawskiego.
+  const now = new Date("2026-09-23T08:00:00Z");
+
+  it("dostępny od startu rozmowy, nie wcześniej", () => {
+    expect(debriefAvailable("2026-09-23T07:59:00Z", now)).toBe(true);
+    expect(debriefAvailable("2026-09-23T08:00:00Z", now)).toBe(true);
+    expect(debriefAvailable("2026-09-23T08:01:00Z", now)).toBe(false);
+    // Nieznany termin nie blokuje (serwer i tak pilnuje).
+    expect(debriefAvailable(undefined, now)).toBe(true);
+  });
+
+  it("podpowiedź podaje godzinę, a dla innego dnia także dzień", () => {
+    expect(debriefAvailableFromLabel("2026-09-23T12:00:00Z", now)).toBe(
+      "Debrief po rozmowie — dostępny od 14:00",
+    );
+    expect(debriefAvailableFromLabel("2026-09-24T12:00:00Z", now)).toBe(
+      "Debrief po rozmowie — dostępny od jutra, 14:00",
+    );
+    expect(debriefAvailableFromLabel("2026-09-28T12:00:00Z", now)).toBe(
+      "Debrief po rozmowie — dostępny od 28.09, 14:00",
+    );
   });
 });

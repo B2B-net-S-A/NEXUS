@@ -47,7 +47,8 @@ REJECTION_ENDED_BY = frozenset(
 
 
 # Kolumny PRZED umową — osoba stąd wchodząca do „Umowy"/„Zatrudnionego" musi
-# mieć debrief po rozmowie u klienta (jeśli rozmowa była w kalendarzu).
+# mieć debrief po rozmowie u klienta (jeśli rozmowa jest w kalendarzu — także
+# zaplanowana, która jeszcze się nie odbyła).
 PRE_CONTRACT_COLUMNS = frozenset({"new", "verified", "cv_sent", "client_interview"})
 
 
@@ -55,7 +56,8 @@ async def assert_debrief_before_contract(
     db: AsyncSession, *, candidate_id: int, job_id: int, target_column: str
 ) -> None:
     """409 `DEBRIEF_REQUIRED`, gdy osoba wchodzi do „Umowy"/„Zatrudnionego"
-    bez debriefu po odbytej rozmowie u klienta.
+    bez debriefu po rozmowie u klienta — także gdy rozmowa jest dopiero
+    zaplanowana (debrief będzie możliwy po niej, ``debrief_gate``).
 
     Liczy się bieżąca kolumna pary, nie tylko „Rozmowa u klienta" — inaczej
     okrężna droga Rozmowa → CV wysłane → Umowa omijała bramkę. Ruchy wewnątrz

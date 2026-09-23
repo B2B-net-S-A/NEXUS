@@ -29,6 +29,7 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  CalendarPlus,
   Ban,
   ChevronDown,
   ChevronLeft,
@@ -318,6 +319,9 @@ export interface PipelineCandidateDockProps {
   onReject: () => void;
   /** Pipeline v4: „Zrezygnował" — rezygnacja kandydata z powodem. */
   onWithdraw?: () => void;
+  /** Pipeline v4: DL wpisuje terminy od klienta prosto z osoby w „CV wysłane"
+   *  (terminy same przenoszą kartę na „Rozmowę u klienta"). */
+  onAddClientSlots?: () => void;
   /**
    * Pełny warsztat osoby (dawna „Tabela": CV do klienta ze stawką i linkiem,
    * rozmowy z werdyktem HM, umowa) — szeroki panel nad Tablicą. Brak = bez
@@ -416,6 +420,7 @@ export function PipelineCandidateDock({
   onOpenScreening,
   onReject,
   onWithdraw,
+  onAddClientSlots,
   onOpenWorkbench,
   badgeToggles = [],
 }: PipelineCandidateDockProps) {
@@ -746,7 +751,7 @@ export function PipelineCandidateDock({
                 </p>
               </div>
             ) : null}
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               {moveTargets.length > 0 && (
                 <DropdownMenu modal={false}>
                   <DropdownMenuTrigger asChild>
@@ -803,6 +808,11 @@ export function PipelineCandidateDock({
                   title={rejectBlockedReason ?? undefined}
                 >
                   Zrezygnował
+                </Button>
+              )}
+              {onAddClientSlots && (
+                <Button size="sm" variant="outline" onClick={onAddClientSlots}>
+                  <CalendarPlus className="h-3.5 w-3.5" aria-hidden="true" /> Terminy od klienta
                 </Button>
               )}
               <PersonMoreMenu

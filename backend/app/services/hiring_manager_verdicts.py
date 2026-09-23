@@ -40,6 +40,7 @@ from app.models.contact import Contact
 from app.models.job import Job
 from app.models.pipeline_template import RejectionReason
 from app.models.recruitment_pipeline import STAGE_ORDER, CandidateStage, PipelineStage
+from app.services.rejection_reason_labels import rejection_reason_label
 
 # Stages proving the manager met the candidate *and could still say no*.
 #
@@ -179,7 +180,7 @@ async def load_manager_rejections(
             source_job_title=row.title,
             rejected_at=row.moved_at,
             rejection_reason_id=row.rejection_reason_id,
-            rejection_reason_name=row.name,
+            rejection_reason_name=rejection_reason_label(row.name) or row.name,
             rejection_note=row.rejection_note,
         )
     return verdicts
@@ -243,7 +244,7 @@ async def load_all_vetoes_for_candidate(
                 source_job_title=row.title,
                 rejected_at=row.moved_at,
                 rejection_reason_id=row.rejection_reason_id,
-                rejection_reason_name=row.name,
+                rejection_reason_name=rejection_reason_label(row.name) or row.name,
                 rejection_note=row.rejection_note,
             )
         )

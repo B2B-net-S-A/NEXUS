@@ -30,6 +30,7 @@ import {
   ScreeningSubmitError,
   useScreeningForm,
 } from "@/components/v2/screening/ScreeningForm";
+import { ScreeningReassignSuggestions } from "@/components/v2/jobs/ScreeningReassignSuggestions";
 
 interface Props {
   open: boolean;
@@ -87,6 +88,14 @@ export function ScreeningSheet({
             className="flex h-full flex-col overflow-hidden"
           >
             <SheetBody>
+              {/* Przepięcie (Pipeline v4): Luna podpowiada odpowiedzi także
+                  w arkuszu z panelu osoby, nie tylko w szerokim warsztacie. */}
+              <ScreeningReassignSuggestions
+                key={stageId}
+                stageId={stageId}
+                questions={questions}
+                methods={methods}
+              />
               <ScreeningFormFields questions={questions} methods={methods} />
               {submitError && <ScreeningSubmitError message={submitError} />}
             </SheetBody>

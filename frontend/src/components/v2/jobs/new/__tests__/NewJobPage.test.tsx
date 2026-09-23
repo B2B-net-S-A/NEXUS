@@ -25,17 +25,22 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => mocks.searchParams,
 }));
 
-vi.mock("@/lib/api", () => ({
-  default: {
+vi.mock("@/lib/api", () => {
+  const client = {
     get: (...a: unknown[]) => mocks.get(...a),
     post: (...a: unknown[]) => mocks.post(...a),
     put: (...a: unknown[]) => mocks.put(...a),
-  },
-  jobsApi: { handoff: (...a: unknown[]) => mocks.handoff(...a) },
-  championApi: {
-    refreshClientHistory: (...a: unknown[]) => mocks.refreshClientHistory(...a),
-  },
-}));
+  };
+  return {
+    default: client,
+    // `similarJobsApi` (podobne rekrutacje) woła nazwany eksport `api`.
+    api: client,
+    jobsApi: { handoff: (...a: unknown[]) => mocks.handoff(...a) },
+    championApi: {
+      refreshClientHistory: (...a: unknown[]) => mocks.refreshClientHistory(...a),
+    },
+  };
+});
 
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({
@@ -98,12 +103,45 @@ function renderPage() {
   );
 }
 
-async function readRequest(intake = INTAKE) {
+const SIMILAR = [
+  {
+    id: 4556,
+    title: "Java Developer (zamknięta)",
+    reference_number: "REK/4556",
+    status: "closed",
+    closed_at: "2026-05-01T00:00:00Z",
+    client_name: "Alior Bank",
+    similarity: 81,
+    sent_count: 12,
+    linked: false,
+  },
+  {
+    id: 205137,
+    title: "Senior Java — płatności",
+    reference_number: null,
+    status: "closed",
+    closed_at: "2026-06-01T00:00:00Z",
+    client_name: "Alior Bank",
+    similarity: 74,
+    sent_count: 29,
+    linked: false,
+  },
+];
+
+async function readRequest(intake = INTAKE, suggestions: unknown[] = []) {
   mocks.post.mockImplementation((url: string) => {
     if (url === "/api/job-intake/read") {
       return Promise.resolve({ data: { text: REQUEST, intake } });
     }
     if (url === "/api/jobs") return Promise.resolve({ data: { id: 900 } });
+    if (url === "/api/job-similarity/preview") {
+      return Promise.resolve({ data: { suggestions } });
+    }
+    if (url === "/api/jobs/900/similar") {
+      return Promise.resolve({
+        data: { reassigned_now: 0, linked_now: 1, linked: [], suggestions: [] },
+      });
+    }
     return Promise.resolve({ data: {} });
   });
   renderPage();
@@ -267,5 +305,75 @@ describe("NewJobPage", () => {
       screen.getByRole("button", { name: "Wypełnij ręcznie, bez AI" }),
     );
     expect(await screen.findByLabelText("Rola")).toHaveValue("");
+  });
+
+  describe("podobne rekrutacje (test na produkcji 23.09.2026)", () => {
+    const similarPosts = () =>
+      mocks.post.mock.calls.filter(([url]) => url === "/api/jobs/900/similar");
+
+    it("podpowiedzi z osobami u klienta NIE są zaznaczone i szkic ich nie łączy", async () => {
+      await readRequest(INTAKE, SIMILAR);
+      const first = await screen.findByRole(
+        "checkbox",
+        { name: "Java Developer (zamknięta)" },
+        { timeout: 3000 },
+      );
+      const second = screen.getByRole("checkbox", {
+        name: "Senior Java — płatności",
+      });
+      expect(first).toHaveAttribute("aria-checked", "false");
+      expect(second).toHaveAttribute("aria-checked", "false");
+      expect(screen.getByTestId("similar-jobs-selected-count")).toHaveTextContent(
+        "Zaznaczone: 0 z 2",
+      );
+      expect(
+        screen.getByText(/nie zostanie połączona z żadną z nich/),
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Zapisz szkic" }));
+      await waitFor(() =>
+        expect(mocks.push).toHaveBeenCalledWith("/jobs/900?tab=champion"),
+      );
+      expect(similarPosts()).toHaveLength(0);
+    });
+
+    it("łączy WYŁĄCZNIE rekrutacje zaznaczone ręcznie", async () => {
+      await readRequest(INTAKE, SIMILAR);
+      const first = await screen.findByRole(
+        "checkbox",
+        { name: "Java Developer (zamknięta)" },
+        { timeout: 3000 },
+      );
+      fireEvent.click(first);
+      expect(first).toHaveAttribute("aria-checked", "true");
+      expect(screen.getByTestId("similar-jobs-selected-count")).toHaveTextContent(
+        "Zaznaczone: 1 z 2",
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Zapisz szkic" }));
+      await waitFor(() =>
+        expect(mocks.push).toHaveBeenCalledWith("/jobs/900?tab=champion"),
+      );
+      expect(similarPosts()).toEqual([
+        ["/api/jobs/900/similar", { job_ids: [4556] }],
+      ]);
+    });
+
+    it("odznaczenie cofa wybór — zapis znowu niczego nie łączy", async () => {
+      await readRequest(INTAKE, SIMILAR);
+      const first = await screen.findByRole(
+        "checkbox",
+        { name: "Java Developer (zamknięta)" },
+        { timeout: 3000 },
+      );
+      fireEvent.click(first);
+      fireEvent.click(first);
+      expect(first).toHaveAttribute("aria-checked", "false");
+      fireEvent.click(screen.getByRole("button", { name: "Zapisz szkic" }));
+      await waitFor(() =>
+        expect(mocks.push).toHaveBeenCalledWith("/jobs/900?tab=champion"),
+      );
+      expect(similarPosts()).toHaveLength(0);
+    });
   });
 });

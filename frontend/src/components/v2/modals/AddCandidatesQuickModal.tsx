@@ -66,6 +66,12 @@ export function AddCandidatesQuickModal({ open, onClose, jobId, jobTitle }: Prop
         // (backendowy default to "boolean"). Bramka i tak wymaga q, więc
         // przegląd bez frazy zostaje po staremu.
         search_mode: "hybrid",
+        // Nazwisko, e-mail albo telefon szukamy DOSŁOWNIE (reguła `text_mode=auto`
+        // wspólnej semantyki v2, `candidate_search_predicates.interpret_text`).
+        // Bez tego wpisane nazwisko szło po wektorach i obok właściwej osoby
+        // wracało ~200 niezwiązanych (test na produkcji 23.09.2026).
+        semantics_version: 2,
+        text_mode: "auto",
       }),
     enabled: open,
     staleTime: 30_000,
