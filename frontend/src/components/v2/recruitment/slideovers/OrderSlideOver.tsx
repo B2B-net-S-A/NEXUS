@@ -17,6 +17,11 @@ import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
+import {
+  ChampionInsightsDigest,
+  ExperienceChips,
+  useChampionProfile,
+} from "@/components/champion/ChampionBriefForRecruiters";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { HiringManagerPicker } from "@/components/jobs/HiringManagerPicker";
 import { Button } from "@/components/ui/button";
@@ -244,6 +249,9 @@ function OrderBody({
     retry: false,
   });
   const jobLoaded = jobQuery.isSuccess;
+  // Sekcje 4 i 8 Championa — ten sam klucz co edytor profilu.
+  const championQuery = useChampionProfile(jobId);
+  const champion = championQuery.data?.champion_profile;
 
   // Przewijamy dopiero PO wczytaniu zlecenia: wcześniej sekcji nie ma w DOM.
   useEffect(() => {
@@ -382,6 +390,7 @@ function OrderBody({
             Brak wymagań must / nice — dodaj je w Profilu Championa (sekcja Stack).
           </p>
         )}
+        <ExperienceChips experience={champion?.experience} />
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
           {/* Karta klienta: SLA, limity CV, zasady procesu. Link do Pomocy, nie
               do `/clients/*` — tamta trasa jest bramkowana sekcją Delivery,
@@ -404,6 +413,31 @@ function OrderBody({
             Baza pytań
           </button>
         </div>
+      </OrderBlock>
+
+      <OrderBlock
+        title="Wiedza z rozmów"
+        actions={
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={leaveFor(() => onNavigate("champion"))}
+            aria-label="Wiedza z rozmów — otwórz w Profilu Championa"
+          >
+            Wszystko w profilu ↗
+          </Button>
+        }
+      >
+        {championQuery.isError ? (
+          <p className="text-xs text-muted-foreground">
+            Nie udało się wczytać notatek z Profilu Championa.
+          </p>
+        ) : championQuery.isSuccess ? (
+          <ChampionInsightsDigest profile={champion} />
+        ) : (
+          <Skeleton className="h-12 w-full" />
+        )}
       </OrderBlock>
 
       <OrderBlock title="Zespół" sectionRef={teamRef}>

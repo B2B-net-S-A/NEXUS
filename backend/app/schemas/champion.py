@@ -776,10 +776,26 @@ class ScreeningAnswerItem(BaseModel):
     deal_breaker_hit: bool = False
 
 
+class ExperienceCheck(BaseModel):
+    """„Sprawdź w rozmowie” — pozycja sekcji 4 potwierdzona (albo nie) przez rekrutera.
+
+    Tylko zapis rozmowy: nie zmienia `match_percent`, scoringu ani plakietek
+    (te mówią o śladzie w CV, a to o tym, co kandydat powiedział).
+    """
+
+    kind: Literal["domains", "certifications", "regulations"] = "domains"
+    name: str = Field(min_length=1, max_length=EXPERIENCE_ITEM_MAX_CHARS)
+    status: Literal["confirmed", "not_confirmed", "unknown"] = "unknown"
+    note: str = Field(default="", max_length=500)
+
+
 class ScreeningAnswers(BaseModel):
     """Full payload a recruiter submits when moving a candidate past screening."""
 
     answers: List[ScreeningAnswerItem] = Field(default_factory=list)
+    experience_checks: List[ExperienceCheck] = Field(
+        default_factory=list, max_length=EXPERIENCE_ITEMS_MAX * 3
+    )
     overall_fit: Literal["fit", "uncertain", "miss"] = "uncertain"
     notes: str = ""
     answered_at: Optional[datetime] = None

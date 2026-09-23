@@ -1,14 +1,20 @@
 "use client";
 
 import { useId, useState, type KeyboardEvent } from "react";
-import { Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
+import { hasExperience } from "@/lib/champion-experience";
 import {
+  FIELD_BASIS_LABEL,
+  markEdited,
   newQuestionKey,
+  type FieldBasis,
   type IntakeForm,
+  type ProvenanceKey,
   type IntakeQuestionForm,
   type MissingCode,
   type QuestionOrigin,
@@ -40,29 +46,57 @@ export function questionsLabel(n: number): string {
 
 const MISSING_RING = "border-warning ring-2 ring-warning-muted";
 
+/**
+ * Skąd wartość — „z maila”, „z podobnej rekrutacji”, „propozycja AI”,
+ * „wpisane”. Propozycja jest przerywana, fakt z maila pełny: DL od razu
+ * widzi, które pola sprawdzić, zanim kliknie „Utwórz”.
+ */
+export function ProvenanceChip({ basis }: { basis?: FieldBasis }) {
+  if (!basis) return null;
+  return (
+    <span
+      className={cn(
+        "rounded-full px-2 py-0.5 text-[11px] font-medium",
+        basis === "request" && "bg-primary/10 text-primary",
+        basis === "client_history" && "bg-info-muted text-info-muted-foreground",
+        basis === "ai" && "border border-dashed border-primary/50 text-primary",
+        basis === "manual" && "bg-muted text-muted-foreground",
+      )}
+      data-testid="provenance-chip"
+    >
+      {FIELD_BASIS_LABEL[basis]}
+    </span>
+  );
+}
+
 function FieldLabel({
   htmlFor,
   children,
   hint,
   missing,
+  basis,
 }: {
   htmlFor?: string;
   children: React.ReactNode;
   hint?: string | null;
   missing?: boolean;
+  basis?: FieldBasis;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-2">
-      {htmlFor ? (
-        <label
-          htmlFor={htmlFor}
-          className="text-sm font-medium text-foreground"
-        >
-          {children}
-        </label>
-      ) : (
-        <span className="text-sm font-medium text-foreground">{children}</span>
-      )}
+      <span className="inline-flex items-baseline gap-2">
+        {htmlFor ? (
+          <label
+            htmlFor={htmlFor}
+            className="text-sm font-medium text-foreground"
+          >
+            {children}
+          </label>
+        ) : (
+          <span className="text-sm font-medium text-foreground">{children}</span>
+        )}
+        <ProvenanceChip basis={basis} />
+      </span>
       {!missing && hint ? (
         <span className="text-xs text-muted-foreground">{hint}</span>
       ) : null}
@@ -87,6 +121,7 @@ function TagListInput({
   tone,
   missing,
   placeholder,
+  basis,
 }: {
   label: string;
   values: string[];
@@ -94,6 +129,7 @@ function TagListInput({
   tone: "primary" | "muted";
   missing?: boolean;
   placeholder: string;
+  basis?: FieldBasis;
 }) {
   const inputId = useId();
   const [draft, setDraft] = useState("");
@@ -124,7 +160,7 @@ function TagListInput({
 
   return (
     <div className="flex flex-col gap-2">
-      <FieldLabel htmlFor={inputId} missing={missing}>
+      <FieldLabel htmlFor={inputId} missing={missing} basis={basis}>
         {label}
       </FieldLabel>
       <div
@@ -195,8 +231,16 @@ export function NewJobReviewForm({
   };
   const isMissing = (code: MissingCode) =>
     highlightMissing && missing.includes(code);
-  const set = <K extends keyof IntakeForm>(key: K, value: IntakeForm[K]) =>
-    onChange((f) => ({ ...f, [key]: value }));
+  const set = <K extends keyof IntakeForm>(
+    key: K,
+    value: IntakeForm[K],
+    provenanceKey?: ProvenanceKey,
+  ) =>
+    onChange((f) => {
+      const next = { ...f, [key]: value };
+      return provenanceKey ? markEdited(next, provenanceKey) : next;
+    });
+  const basis = (key: ProvenanceKey) => form.provenance?.[key];
   const officeNeeded =
     form.remotePolicy !== "" && form.remotePolicy !== "remote";
 
@@ -231,13 +275,17 @@ export function NewJobReviewForm({
     <div className="flex flex-col gap-4">
       <section className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6">
         <div className="flex flex-col gap-2">
-          <FieldLabel htmlFor={ids.title} missing={isMissing("role")}>
+          <FieldLabel
+            htmlFor={ids.title}
+            missing={isMissing("role")}
+            basis={basis("role")}
+          >
             Rola
           </FieldLabel>
           <Input
             id={ids.title}
             value={form.title}
-            onChange={(e) => set("title", e.target.value)}
+            onChange={(e) => set("title", e.target.value, "role")}
             placeholder="np. Senior Java Developer"
             className={cn(isMissing("role") && MISSING_RING)}
           />
@@ -247,7 +295,8 @@ export function NewJobReviewForm({
         <TagListInput
           label="Must-have"
           values={form.must}
-          onChange={(v) => set("must", v)}
+          onChange={(v) => set("must", v, "must")}
+          basis={basis("must")}
           tone="primary"
           missing={isMissing("must")}
           placeholder="np. Java, Spring Boot — Enter dodaje"
@@ -255,21 +304,26 @@ export function NewJobReviewForm({
         <TagListInput
           label="Mile widziane"
           values={form.nice}
-          onChange={(v) => set("nice", v)}
+          onChange={(v) => set("nice", v, "nice")}
+          basis={basis("nice")}
           tone="muted"
           placeholder="opcjonalnie"
         />
 
         <div className="grid gap-4 md:grid-cols-4">
           <div className="flex flex-col gap-2">
-            <FieldLabel htmlFor={ids.rate} missing={isMissing("budget")}>
+            <FieldLabel
+              htmlFor={ids.rate}
+              missing={isMissing("budget")}
+              basis={basis("rate")}
+            >
               Budżet PLN/h
             </FieldLabel>
             <Input
               id={ids.rate}
               inputMode="decimal"
               value={form.rateBudget}
-              onChange={(e) => set("rateBudget", e.target.value)}
+              onChange={(e) => set("rateBudget", e.target.value, "rate")}
               placeholder="np. 160"
               className={cn(isMissing("budget") && MISSING_RING)}
             />
@@ -371,6 +425,7 @@ export function NewJobReviewForm({
             htmlFor={ids.about}
             missing={isMissing("context")}
             hint="2 zdania"
+            basis={basis("about")}
           >
             O projekcie
           </FieldLabel>
@@ -378,7 +433,7 @@ export function NewJobReviewForm({
             id={ids.about}
             rows={2}
             value={form.about}
-            onChange={(e) => set("about", e.target.value)}
+            onChange={(e) => set("about", e.target.value, "about")}
             placeholder="Cel projektu i zespół — to widzi rekruter i model dopasowań."
             className={cn(isMissing("context") && MISSING_RING)}
           />
@@ -476,6 +531,235 @@ export function NewJobReviewForm({
           <Plus className="h-4 w-4" /> Dodaj pytanie
         </button>
       </section>
+
+      <ChampionProposalSection form={form} onChange={onChange} />
+    </div>
+  );
+}
+
+/**
+ * „Reszta profilu Championa — propozycja”: to, co Luna zaproponowała poza
+ * minimum do searchu. Nic tu nie blokuje „Utwórz” — wszystko trafia do
+ * profilu i da się poprawić później w zakładce Championa.
+ */
+function ChampionProposalSection({
+  form,
+  onChange,
+}: {
+  form: IntakeForm;
+  onChange: (updater: (form: IntakeForm) => IntakeForm) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const ids = {
+    keywords: useId(),
+    companies: useId(),
+    selling: useId(),
+    language: useId(),
+    contract: useId(),
+  };
+  const set = <K extends keyof IntakeForm>(
+    key: K,
+    value: IntakeForm[K],
+    provenanceKey?: ProvenanceKey,
+  ) =>
+    onChange((f) => {
+      const next = { ...f, [key]: value };
+      return provenanceKey ? markEdited(next, provenanceKey) : next;
+    });
+  const basis = (key: ProvenanceKey) => form.provenance?.[key];
+  const filled = [
+    hasExperience(form.experience),
+    Boolean(form.searchKeywords.trim() || form.targetCompanies.trim()),
+    form.disqualifiers.length > 0,
+    Boolean(form.sellingPoints.trim()),
+    form.askClient.length > 0,
+  ].filter(Boolean).length;
+
+  return (
+    <section
+      aria-labelledby="new-job-proposal"
+      className="flex flex-col gap-4 rounded-xl border border-border bg-card p-6"
+      data-testid="new-job-champion-proposal"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center justify-between gap-2 text-left"
+      >
+        <span className="inline-flex items-center gap-2">
+          {open ? (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          )}
+          <span id="new-job-proposal" className="text-base font-semibold text-foreground">
+            Reszta profilu Championa — propozycja
+          </span>
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {filled} z 5 grup wypełnione · nie blokuje utworzenia
+        </span>
+      </button>
+
+      {open ? (
+        <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-2">
+            <FieldLabel basis={basis("experience")} hint="dziedzina, certyfikaty, regulacje">
+              Doświadczenie poza stackiem
+            </FieldLabel>
+            <ChampionExperienceFields
+              value={form.experience}
+              onChange={(experience) => set("experience", experience, "experience")}
+              showNotes={false}
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <FieldLabel htmlFor={ids.keywords} basis={basis("search_keywords")}>
+                Frazy do wyszukiwarki
+              </FieldLabel>
+              <Textarea
+                id={ids.keywords}
+                rows={2}
+                value={form.searchKeywords}
+                onChange={(e) =>
+                  set("searchKeywords", e.target.value, "search_keywords")
+                }
+                placeholder="np. tester manualny, płatności kartowe, ISTQB"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <FieldLabel htmlFor={ids.companies} basis={basis("target_companies")}>
+                Firmy docelowe
+              </FieldLabel>
+              <Textarea
+                id={ids.companies}
+                rows={2}
+                value={form.targetCompanies}
+                onChange={(e) =>
+                  set("targetCompanies", e.target.value, "target_companies")
+                }
+                placeholder="opcjonalnie"
+              />
+            </div>
+          </div>
+
+          <TagListInput
+            label="Kogo odrzucamy od razu"
+            values={form.disqualifiers}
+            onChange={(v) => set("disqualifiers", v, "disqualifiers")}
+            basis={basis("disqualifiers")}
+            tone="muted"
+            placeholder="opcjonalnie — np. brak polskiego"
+          />
+
+          <div className="flex flex-col gap-2">
+            <FieldLabel htmlFor={ids.selling} basis={basis("selling_points")}>
+              Co przekona kandydata
+            </FieldLabel>
+            <Textarea
+              id={ids.selling}
+              rows={2}
+              value={form.sellingPoints}
+              onChange={(e) => set("sellingPoints", e.target.value, "selling_points")}
+              placeholder="np. nowy zespół, greenfield, 4 dni zdalnie"
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <FieldLabel htmlFor={ids.language} hint="opcjonalnie">
+                Język pracy
+              </FieldLabel>
+              <Input
+                id={ids.language}
+                value={form.language}
+                onChange={(e) => set("language", e.target.value)}
+                placeholder="np. PL, EN B2"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <FieldLabel htmlFor={ids.contract} hint="opcjonalnie">
+                Długość projektu
+              </FieldLabel>
+              <Input
+                id={ids.contract}
+                value={form.contractLength}
+                onChange={(e) => set("contractLength", e.target.value)}
+                placeholder="np. 6 mies. z przedłużeniem"
+              />
+            </div>
+          </div>
+
+          <AskClientEditor
+            items={form.askClient}
+            basis={basis("ask_client")}
+            onChange={(askClient) => set("askClient", askClient, "ask_client")}
+          />
+
+          <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+            Po utworzeniu AI podsumuje historię klienta — za co odrzucał kandydatów
+            i o co pytał na rozmowach. Zobaczysz to w profilu Championa, w sekcji
+            „8 · Wiedza z rozmów”.
+          </p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function AskClientEditor({
+  items,
+  basis,
+  onChange,
+}: {
+  items: IntakeForm["askClient"];
+  basis?: FieldBasis;
+  onChange: (items: IntakeForm["askClient"]) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2" data-testid="new-job-ask-client">
+      <FieldLabel basis={basis} hint="trafi do profilu jako lista kontrolna">
+        Do dopytania u klienta
+      </FieldLabel>
+      {items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Mail odpowiada na wszystko — albo dopisz pytanie.</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {items.map((item, i) => (
+            <li key={item.key} className="flex items-center gap-2">
+              <Input
+                aria-label={`Pytanie do klienta ${i + 1}`}
+                value={item.text}
+                onChange={(e) =>
+                  onChange(
+                    items.map((it) =>
+                      it.key === item.key ? { ...it, text: e.target.value } : it,
+                    ),
+                  )
+                }
+              />
+              <button
+                type="button"
+                aria-label={`Usuń pytanie do klienta ${i + 1}`}
+                className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => onChange(items.filter((it) => it.key !== item.key))}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button
+        type="button"
+        onClick={() => onChange([...items, { key: newQuestionKey(), text: "" }])}
+        className="inline-flex items-center gap-1.5 self-start text-sm font-medium text-primary hover:underline"
+      >
+        <Plus className="h-4 w-4" /> Dodaj pytanie do klienta
+      </button>
     </div>
   );
 }

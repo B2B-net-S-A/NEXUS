@@ -525,6 +525,25 @@ export function ChampionVerificationChecklist({
       </button>
     ) : undefined;
 
+  // Treść weryfikacji po zapisie — do 09.2026 wpisywana i nigdzie niewidoczna.
+  // Pełna wersja jest w sekcji 8 „Wiedza z rozmów” profilu.
+  const savedText = (text: string | null | undefined, testId: string) =>
+    text && text.trim() ? (
+      <p
+        className="line-clamp-2 whitespace-pre-line text-[11px] text-foreground"
+        title={text}
+        data-testid={testId}
+      >
+        {text}{" "}
+        <a
+          href="#champion-section-insights"
+          className="whitespace-nowrap text-primary hover:underline"
+        >
+          w Wiedzy z rozmów →
+        </a>
+      </p>
+    ) : null;
+
   if (variant === "rows") {
     const consultantState: ReadinessRowState =
       v.consultant.status === "verified"
@@ -560,7 +579,10 @@ export function ChampionVerificationChecklist({
           )}
           data-testid="readiness-row-client-verification"
         >
-          {clientFormBody}
+          {clientFormBody ??
+            (clientDone
+              ? savedText(v.client.key_corrections, "client-verification-saved-text")
+              : null)}
         </ReadinessRow>
 
         <ReadinessRow
@@ -591,7 +613,10 @@ export function ChampionVerificationChecklist({
           )}
           data-testid="readiness-row-consultant-verification"
         >
-          {consultantFormBody}
+          {consultantFormBody ??
+            (v.consultant.status === "verified"
+              ? savedText(v.consultant.insights, "consultant-verification-saved-text")
+              : null)}
         </ReadinessRow>
 
         <ReadinessRow

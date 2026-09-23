@@ -4374,13 +4374,96 @@ export interface ChampionStack {
   notes: string;
 }
 
-/** Sekcja 4 — o projekcie (2 zdania) + obowiązki. */
+/** Sekcja 4 — doświadczenie poza stackiem (09.2026). */
+export type ExperienceLevel = "must" | "nice";
+
+export interface ExperienceItem {
+  name: string;
+  level: ExperienceLevel;
+  /** Tylko dziedzina: minimalna liczba lat. */
+  min_years?: number | null;
+  note?: string;
+}
+
+export type ExperienceKind = "domains" | "certifications" | "regulations";
+
+export interface ChampionExperience {
+  domains: ExperienceItem[];
+  certifications: ExperienceItem[];
+  regulations: ExperienceItem[];
+  notes: string;
+}
+
+/** Sekcja 8 — wiedza z rozmów (09.2026). */
+export type InsightSource = "client" | "consultant";
+export type InsightAudience = "team" | "candidate";
+export type InsightTopic =
+  | "needs"
+  | "rejections"
+  | "decision"
+  | "process"
+  | "team"
+  | "project"
+  | "pitch"
+  | "ask_client"
+  | "other";
+export type InsightOrigin = "manual" | "ai_intake" | "document" | "legacy" | "verification";
+
+export interface InsightNote {
+  /** `new-…` przy dodaniu; serwer nadaje właściwe id. `legacy:*`/`verification:*` to widok. */
+  id: string;
+  source: InsightSource;
+  topic: InsightTopic;
+  /** „team” nigdy nie wychodzi poza zespół rekrutacji. */
+  audience: InsightAudience;
+  text: string;
+  done?: boolean;
+  origin: InsightOrigin;
+  author_id?: number | null;
+  author_name?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  /** `false` dla wpisów z weryfikacji — zmienia je ponowna weryfikacja. */
+  editable: boolean;
+  consultant_name?: string | null;
+}
+
+export interface ClientHistoryItem {
+  topic: string;
+  text: string;
+  basis_count?: number | null;
+}
+
+/** Blok maszynowy „Z historii klienta” — liczy go Luna, nie DL. */
+export interface ClientHistorySummary {
+  status: "none" | "ready" | "failed";
+  items: ClientHistoryItem[];
+  debrief_questions: string[];
+  event_count?: number;
+  generated_at?: string | null;
+  message?: string | null;
+}
+
+export const EMPTY_CHAMPION_EXPERIENCE: ChampionExperience = {
+  domains: [],
+  certifications: [],
+  regulations: [],
+  notes: "",
+};
+
+export const EMPTY_CLIENT_HISTORY: ClientHistorySummary = {
+  status: "none",
+  items: [],
+  debrief_questions: [],
+};
+
+/** Sekcja 5 — o projekcie (2 zdania) + obowiązki. */
 export interface ChampionProject {
   about: string;
   responsibilities: string;
 }
 
-/** Sekcja 6 — o kliencie. */
+/** Sekcja 7 — o kliencie. `consultant_insight`/`historical_questions` edytuje się w sekcji 8. */
 export interface ChampionClient {
   about: string;
   selling_points: string;
@@ -4466,9 +4549,9 @@ export interface ChampionBriefing {
 export const EMPTY_CHAMPION_BRIEFING: ChampionBriefing = { status: "pending" };
 
 /**
- * Profil Championa — siedem sekcji szablonu (09.2026).
+ * Profil Championa — sekcje szablonu (09.2026).
  *
- * `verification`, `briefing` i `recommended_searches` NIE są sekcjami: serwer
+ * `verification`, `briefing`, `recommended_searches` i `client_history` NIE są sekcjami: serwer
  * stempluje je własnymi endpointami, a zwykły zapis profilu ich nie dotyka.
  */
 export interface ChampionProfile {
@@ -4476,10 +4559,13 @@ export interface ChampionProfile {
   basics: ChampionBasics;
   search: ChampionSearch;
   stack: ChampionStack;
+  experience?: ChampionExperience;
   project: ChampionProject;
   screening_questions: ScreeningQuestion[];
   client: ChampionClient;
+  insights?: InsightNote[];
   documents: ChampionDocument[];
+  client_history?: ClientHistorySummary;
   verification?: ChampionVerification;
   briefing?: ChampionBriefing;
   recommended_searches?: RecommendedSearch[];
@@ -4513,8 +4599,11 @@ export const EMPTY_CHAMPION_PROFILE: ChampionProfile = {
   },
   search: { keywords: "", target_companies: "", disqualifiers: [], notes: "" },
   stack: { must: [], nice: [], notes: "" },
+  experience: EMPTY_CHAMPION_EXPERIENCE,
   project: { about: "", responsibilities: "" },
   screening_questions: [],
+  insights: [],
+  client_history: EMPTY_CLIENT_HISTORY,
   client: {
     about: "",
     selling_points: "",
@@ -4619,6 +4708,14 @@ export const championApi = {
   briefingAudioUrl: (jobId: number) =>
     api.get<{ url: string }>(
       `/api/jobs/${jobId}/champion-profile/briefing/audio-url`
+    ),
+  // Luna podsumowuje historię klienta; awaria modelu to status „failed”
+  // w odpowiedzi (200), nie błąd trasy.
+  refreshClientHistory: (jobId: number) =>
+    api.post<ChampionProfileResponse>(
+      `/api/jobs/${jobId}/champion-profile/client-history`,
+      undefined,
+      { timeout: SLOW_ENDPOINT_TIMEOUT_MS }
     ),
   generateRecommendedSearches: (jobId: number) =>
     api.post<ChampionProfileResponse>(
@@ -4866,8 +4963,17 @@ export interface ScreeningAnswerItem {
   deal_breaker_hit: boolean;
 }
 
+/** „Sprawdź w rozmowie” — pozycja sekcji 4 Championa po rozmowie z kandydatem. */
+export interface ExperienceCheck {
+  kind: ExperienceKind;
+  name: string;
+  status: "confirmed" | "not_confirmed" | "unknown";
+  note?: string;
+}
+
 export interface ScreeningAnswers {
   answers: ScreeningAnswerItem[];
+  experience_checks?: ExperienceCheck[];
   overall_fit: "fit" | "uncertain" | "miss";
   notes: string;
   answered_at?: string | null;

@@ -9,7 +9,45 @@
  * przycisk aktywny, który kończy się 422 z serwera, albo odwrotnie.
  */
 
+import type { ChampionExperience, ExperienceItem, ExperienceKind } from "@/lib/api";
+
 export type RemotePolicyValue = "remote" | "hybrid" | "onsite";
+
+/**
+ * Skąd pochodzi wartość pola (od v2 odczytu, 09.2026): „z maila” (fakt
+ * z cytatem), „z podobnej rekrutacji” (kontekst klienta), „propozycja AI”,
+ * „wpisane” (DL zmienił pole). Chip przy polu mówi to DL, zanim zapisze.
+ */
+export type FieldBasis = "request" | "client_history" | "ai" | "manual";
+
+export const FIELD_BASIS_LABEL: Record<FieldBasis, string> = {
+  request: "z maila",
+  client_history: "z podobnej rekrutacji",
+  ai: "propozycja AI",
+  manual: "wpisane",
+};
+
+/** Klucze pól formularza, przy których pokazujemy źródło. */
+export type ProvenanceKey =
+  | "role"
+  | "must"
+  | "nice"
+  | "rate"
+  | "work_mode"
+  | "about"
+  | "responsibilities"
+  | "experience"
+  | "search_keywords"
+  | "target_companies"
+  | "disqualifiers"
+  | "selling_points"
+  | "questions"
+  | "ask_client";
+
+export interface AskClientItem {
+  key: string;
+  text: string;
+}
 
 export type QuestionOrigin = "request" | "ai" | "template" | "manual";
 
@@ -34,6 +72,24 @@ export interface IntakeForm {
   about: string;
   responsibilities: string;
   questions: IntakeQuestionForm[];
+  // ── od v2: reszta profilu Championa ──
+  language: string;
+  contractLength: string;
+  experience: ChampionExperience;
+  searchKeywords: string;
+  targetCompanies: string;
+  disqualifiers: string[];
+  sellingPoints: string;
+  askClient: AskClientItem[];
+  provenance: Partial<Record<ProvenanceKey, FieldBasis>>;
+}
+
+/** Pozycja sekcji 4 z odczytu — z dosłownym cytatem z maila. */
+export interface IntakeExperienceItem {
+  name: string;
+  level: "must" | "nice";
+  min_years?: number | null;
+  quote?: string;
 }
 
 /** Odpowiedź `POST /api/job-intake/read[-file]` → `intake`. */
@@ -58,7 +114,24 @@ export interface RequestIntakeResponse {
   }[];
   evidence: string[];
   missing: string[];
+  // ── od v2 (starszy backend ich nie niesie) ──
+  language?: string | null;
+  contract_length?: string | null;
+  experience?: Partial<Record<ExperienceKind, IntakeExperienceItem[]>>;
+  search_keywords?: string | null;
+  target_companies?: string | null;
+  disqualifiers?: string[];
+  selling_points?: string | null;
+  ask_client?: string[];
+  provenance?: Partial<Record<string, string>>;
 }
+
+export const EMPTY_EXPERIENCE_FORM: ChampionExperience = {
+  domains: [],
+  certifications: [],
+  regulations: [],
+  notes: "",
+};
 
 export const EMPTY_INTAKE_FORM: IntakeForm = {
   title: "",
@@ -74,6 +147,15 @@ export const EMPTY_INTAKE_FORM: IntakeForm = {
   about: "",
   responsibilities: "",
   questions: [],
+  language: "",
+  contractLength: "",
+  experience: EMPTY_EXPERIENCE_FORM,
+  searchKeywords: "",
+  targetCompanies: "",
+  disqualifiers: [],
+  sellingPoints: "",
+  askClient: [],
+  provenance: {},
 };
 
 let questionSeq = 0;
@@ -82,8 +164,47 @@ export function newQuestionKey(): string {
   return `q-${Date.now().toString(36)}-${questionSeq}`;
 }
 
+const BASES: readonly FieldBasis[] = ["request", "client_history", "ai"];
+
+function experienceItems(items: IntakeExperienceItem[] | undefined): ExperienceItem[] {
+  return (items ?? []).map((item) => ({
+    name: item.name,
+    level: item.level === "nice" ? "nice" : "must",
+    min_years: item.min_years ?? null,
+    note: "",
+  }));
+}
+
+/** DL zmienił pole — chip źródła mówi odtąd „wpisane”. */
+export function markEdited(form: IntakeForm, key: ProvenanceKey): IntakeForm {
+  if (!form.provenance[key] || form.provenance[key] === "manual") return form;
+  return { ...form, provenance: { ...form.provenance, [key]: "manual" } };
+}
+
 export function formFromIntake(intake: RequestIntakeResponse): IntakeForm {
+  const provenance: IntakeForm["provenance"] = {};
+  for (const [key, basis] of Object.entries(intake.provenance ?? {})) {
+    if (BASES.includes(basis as FieldBasis))
+      provenance[key as ProvenanceKey] = basis as FieldBasis;
+  }
   return {
+    language: intake.language ?? "",
+    contractLength: intake.contract_length ?? "",
+    experience: {
+      domains: experienceItems(intake.experience?.domains),
+      certifications: experienceItems(intake.experience?.certifications),
+      regulations: experienceItems(intake.experience?.regulations),
+      notes: "",
+    },
+    searchKeywords: intake.search_keywords ?? "",
+    targetCompanies: intake.target_companies ?? "",
+    disqualifiers: intake.disqualifiers ?? [],
+    sellingPoints: intake.selling_points ?? "",
+    askClient: (intake.ask_client ?? []).map((text) => ({
+      key: newQuestionKey(),
+      text,
+    })),
+    provenance,
     title: intake.role_name ?? "",
     must: intake.must ?? [],
     nice: intake.nice ?? [],
@@ -213,9 +334,11 @@ const CHAMPION_WORK_MODE: Record<RemotePolicyValue, string> = {
 };
 
 /**
- * `PUT /api/jobs/{id}/champion-profile` — sekcje, które handoff sprawdza
- * (basics, stack, project, screening_questions). Serwer scala payload na
- * zapisanym profilu, więc reszta sekcji zostaje nietknięta.
+ * `PUT /api/jobs/{id}/champion-profile` — cały szkic z propozycji Luny
+ * (od 09.2026): podstawy, stack, doświadczenie, frazy do wyszukiwarki,
+ * projekt, argumenty dla kandydata, pytania i „do dopytania u klienta”.
+ * Serwer scala payload na zapisanym profilu (sekcje płytko), więc
+ * `client: {selling_points}` nie kasuje reszty sekcji klienta.
  */
 export function buildChampionPayload(
   form: IntakeForm,
@@ -233,21 +356,43 @@ export function buildChampionPayload(
       candidate_location_pref:
         remote === "remote" ? null : form.city.trim() || null,
       start_date: form.startDate || null,
+      language: form.language.trim() || null,
+      contract_length: form.contractLength.trim() || null,
     },
     stack: {
       must: form.must.map((name) => ({ name })),
       nice: form.nice.map((name) => ({ name })),
     },
+    experience: form.experience,
+    search: {
+      keywords: form.searchKeywords.trim(),
+      target_companies: form.targetCompanies.trim(),
+      disqualifiers: form.disqualifiers,
+    },
     project: {
       about: form.about.trim(),
       responsibilities: form.responsibilities.trim(),
     },
+    client: { selling_points: form.sellingPoints.trim() },
     screening_questions: filledQuestions(form).map((q, i) => ({
       id: `q${i + 1}`,
       question: q.question.trim(),
       ideal_answer: q.idealAnswer.trim(),
       deal_breaker: "",
     })),
+    // „Do dopytania u klienta” — notatki sekcji 8, odhaczane w profilu.
+    // Wpisy nowe (`new-…`): serwer nada id i autora.
+    insights: form.askClient
+      .filter((item) => item.text.trim())
+      .map((item) => ({
+        id: `new-${item.key}`,
+        source: "client",
+        topic: "ask_client",
+        audience: "team",
+        text: item.text.trim(),
+        done: false,
+        origin: "ai_intake",
+      })),
   };
 }
 
@@ -379,6 +524,26 @@ export function applyTemplate(
     next.onsiteDays = String(src.onsite_days_per_week);
   }
   if (!next.city && src.location) next.city = src.location;
+  const experience = championSection(src.champion_profile, "experience");
+  const kinds: ExperienceKind[] = ["domains", "certifications", "regulations"];
+  if (kinds.every((kind) => next.experience[kind].length === 0)) {
+    next.experience = {
+      ...next.experience,
+      ...Object.fromEntries(
+        kinds.map((kind) => [
+          kind,
+          (Array.isArray(experience[kind]) ? (experience[kind] as ExperienceItem[]) : [])
+            .filter((item) => item && typeof item.name === "string" && item.name.trim())
+            .map((item) => ({
+              name: item.name,
+              level: item.level === "nice" ? "nice" : "must",
+              min_years: kind === "domains" ? (item.min_years ?? null) : null,
+              note: item.note ?? "",
+            })),
+        ]),
+      ),
+    } as ChampionExperience;
+  }
   if (!next.about && typeof project.about === "string")
     next.about = project.about;
   if (!next.responsibilities && typeof project.responsibilities === "string") {

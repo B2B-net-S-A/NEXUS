@@ -5,9 +5,9 @@
  *
  * Used by Delivery Leads / admins on /jobs/[id] to capture the "idealny
  * kandydat" briefing before recruiters start shortlisting. Mirrors the internal
- * Word template, restructured 09.2026 into six sections: podstawowe
- * informacje, co wpisać (search), stack technologiczny, o projekcie, pytania
- * screeningowe, o kliencie. Fakty o kliencie i dokumenty żyją w karcie
+ * Word template, restructured 09.2026 into eight sections: podstawowe
+ * informacje, co wpisać (search), stack technologiczny, doświadczenie poza
+ * stackiem, o projekcie, pytania screeningowe, o kliencie, wiedza z rozmów. Fakty o kliencie i dokumenty żyją w karcie
  * klienta (`ClientPlaybookCard`, 09.2026) — sekcja 6 pokazuje ją do odczytu,
  * a edytuje tylko to, co jest per rekrutacja.
  *
@@ -44,6 +44,7 @@ import {
 import {
   championApi,
   championSuggestionsApi,
+  EMPTY_CHAMPION_EXPERIENCE,
   EMPTY_CHAMPION_PROFILE,
   type ChampionBasics,
   type ChampionProfile,
@@ -82,6 +83,9 @@ import {
   type ChampionSectionState,
 } from "@/lib/champion-section-state";
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
+import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
+import { ChampionInsightsSection } from "@/components/champion/ChampionInsightsSection";
+import type { InsightChange } from "@/lib/champion-insights";
 import { ChampionProfileSourcesPanel } from "./ChampionProfileSourcesPanel";
 
 interface ChampionProfileEditorProps {
@@ -148,7 +152,7 @@ export function ChampionProfileEditor({
   // `?intake=1` (stare linki sprzed strony `/jobs/new`, 22.09.2026; z nowo zapisanej
   // rekrutacji, PR 2).
   const [showIntake, setShowIntake] = useState(intakeDefaultOpen);
-  // Grupa „proza" (2 · 4 · 5) zwija się DOPIERO gdy wszystkie trzy sekcje są
+  // Grupa „proza" (2 · 5 · 6) zwija się DOPIERO gdy wszystkie trzy sekcje są
   // puste — wtedy pełne trzy formularze to trzy ekrany pustych pól. Cokolwiek
   // wypełnione i grupa jest rozwinięta na stałe: zwinięcie ukryłoby dane.
   const [proseExpanded, setProseExpanded] = useState(false);
@@ -267,6 +271,14 @@ export function ChampionProfileEditor({
     setDraft((d) => ({ ...d, project: { ...d.project, ...patch } }));
   const patchClient = (patch: Partial<ChampionProfile["client"]>) =>
     setDraft((d) => ({ ...d, client: { ...d.client, ...patch } }));
+  // Sekcja 8: wpis „z importu” zmienia stare pole `client.*` — patrz
+  // `lib/champion-insights.ts`, serwer nie zapisuje go jako notatki.
+  const applyInsights = (change: InsightChange) =>
+    setDraft((d) => ({
+      ...d,
+      insights: change.insights,
+      client: change.client ? { ...d.client, ...change.client } : d.client,
+    }));
 
   if (isLoading)
     return (
@@ -353,7 +365,7 @@ export function ChampionProfileEditor({
       <div className="flex gap-2 flex-wrap"><ChampionTemplateDownload />{canEdit && <ChampionImportButton current={importBaseline} jobId={jobId} fingerprint={data?.fingerprint} jobValues={data?.job_values} onApply={() => invalidateChampionDependents(qc, jobId)} />}</div>
       <ChampionValidationPanel
         validation={withoutSeededStackConflict(data?.validation, seededStack)}
-        // Ostrzeżenie o polu ze zwiniętej grupy 2·4·5 najpierw ją rozwija —
+        // Ostrzeżenie o polu ze zwiniętej grupy 2·5·6 najpierw ją rozwija —
         // inaczej cel kotwicy to pusty `<span>`, a pole zostaje za skrótem.
         onNavigate={(sectionId) => {
           if (sectionId && CHAMPION_PROSE_SECTION_IDS.includes(sectionId)) {
@@ -685,7 +697,28 @@ export function ChampionProfileEditor({
         </p>
       </Section>
 
-      {/* 2 · 4 · 5 — jeden blok „proza". Trzy osobne karty pustych pól były
+      {/* 4. Doświadczenie poza stackiem — dziedzina, certyfikaty, regulacje.
+          Po stacku, bo to też wymagania; w wynikach wyszukiwania dają
+          plakietki „ślad w CV”, nie bramkę (decyzja 23.09.2026). */}
+      <Section
+        title={meta("experience").label}
+        anchor={meta("experience").anchor}
+        state={championSectionState("experience", draft)}
+      >
+        <p className="mb-3 text-xs text-muted-foreground">
+          Dziedzina to obszar, w którym kandydat pracował (np. płatności kartowe),
+          nie technologia. Kandydat bez śladu w CV nie znika z wyników — dostaje
+          plakietkę „brak danych”, a rekruter dopyta w screeningu.
+        </p>
+        <ChampionExperienceFields
+          value={draft.experience ?? EMPTY_CHAMPION_EXPERIENCE}
+          onChange={(experience) => setDraft((d) => ({ ...d, experience }))}
+          disabled={disabled}
+          notesClassName={inputClass}
+        />
+      </Section>
+
+      {/* 2 · 5 · 6 — jeden blok „proza". Trzy osobne karty pustych pól były
           trzema ekranami niczego; chip nagłówka mówi, ilu z nich brakuje. */}
       <SectionGroup
         title={CHAMPION_PROSE_SECTION_IDS.map((id) => meta(id).label).join("  ·  ")}
@@ -926,7 +959,7 @@ export function ChampionProfileEditor({
         ) : null}
       </SectionGroup>
 
-      {/* 6. O kliencie — fakty o kliencie (SLA, limity, off-limit, dokumenty,
+      {/* 7. O kliencie — fakty o kliencie (SLA, limity, off-limit, dokumenty,
           „co powiedzieć kandydatowi", reguły priorytetu) żyją w KARCIE KLIENTA
           (DL: profil klienta → Zasady współpracy albo /settings/cv-rules →
           Karta klienta) i są tu tylko do odczytu. Pola
@@ -969,29 +1002,13 @@ export function ChampionProfileEditor({
                 className={textareaClass}
               />
             </Labeled>
-            <Labeled label="Insight od naszego konsultanta u klienta" field="client.consultant_insight">
-              <textarea
-                disabled={disabled}
-                value={draft.client.consultant_insight}
-                onChange={(e) => patchClient({ consultant_insight: e.target.value })}
-                rows={3}
-                className={textareaClass}
-              />
-            </Labeled>
-            <Labeled label="Historyczne pytania klienta" field="client.historical_questions">
-              <textarea
-                disabled={disabled}
-                value={draft.client.historical_questions}
-                onChange={(e) => patchClient({ historical_questions: e.target.value })}
-                rows={3}
-                className={textareaClass}
-              />
-            </Labeled>
+            {/* „Insight od konsultanta” i „Historyczne pytania” są od 09.2026
+                notatkami sekcji 8 („z importu”) — tam się je edytuje. */}
             {/* Język CV celowo NIE jest tu edytowalny — pokazuje go sekcja 1,
                 z reguł klienta, bo to ich słucha generator. Wartość sparsowana
                 ze starego dokumentu zostaje w danych, ale nie jest przepisywana
                 ręcznie, żeby nie powstały dwie prawdy o jednym fakcie. */}
-            <Labeled label="Branże" field="client.sectors">
+            <Labeled label="Branże klienta" field="client.sectors">
               <input
                 type="text"
                 disabled={disabled}
@@ -1024,6 +1041,26 @@ export function ChampionProfileEditor({
             )}
           </div>
         </div>
+      </Section>
+
+      {/* 8. Wiedza z rozmów — smaczki od klienta i od naszego konsultanta
+          + podsumowanie historii klienta (AI). */}
+      <Section
+        title={meta("insights").label}
+        anchor={meta("insights").anchor}
+        state={championSectionState("insights", draft)}
+      >
+        <ChampionInsightsSection
+          jobId={jobId}
+          notes={draft.insights ?? []}
+          clientHistory={draft.client_history}
+          hasClient={Boolean(clientId)}
+          disabled={disabled}
+          onChange={applyInsights}
+          onClientHistory={(client_history) =>
+            setDraft((d) => ({ ...d, client_history }))
+          }
+        />
       </Section>
 
       {!canEdit && (

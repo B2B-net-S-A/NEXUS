@@ -19,6 +19,10 @@
  * („na tym etapie następnym krokiem jest X"), nie zmyślony fakt o kandydacie.
  */
 
+import {
+  ChampionInsightsDigest,
+  ExperienceChips,
+} from "@/components/champion/ChampionBriefForRecruiters";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -48,6 +52,7 @@ import api, {
   candidateStageCvApi,
   extractErrorMsg,
   screeningApi,
+  type ChampionProfile,
   type CVBrandedState,
   type CVOriginalSnapshot,
 } from "@/lib/api";
@@ -974,6 +979,30 @@ export function PipelineCandidateDock({
             >
               <Sparkles className="h-3.5 w-3.5" /> Otwórz Screening Championa
             </Button>
+            {screeningQuery.isSuccess ? (
+              // Sekcje 4 i 8 Championa — co sprawdzić i na co uważać, zanim
+              // rekruter zadzwoni. Zwinięte: dok ma być krótki.
+              <details
+                className="rounded-lg border border-border p-2 text-xs"
+                data-testid="dock-champion-brief"
+              >
+                <summary className="cursor-pointer font-medium text-foreground">
+                  Na co uważać u tego klienta
+                </summary>
+                <div className="mt-2 space-y-2">
+                  <ExperienceChips
+                    experience={
+                      (screeningQuery.data?.champion_profile as Partial<ChampionProfile>)
+                        ?.experience
+                    }
+                  />
+                  <ChampionInsightsDigest
+                    profile={screeningQuery.data?.champion_profile as Partial<ChampionProfile>}
+                    limit={3}
+                  />
+                </div>
+              </details>
+            ) : null}
             {screeningQuery.isLoading ? (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…

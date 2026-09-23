@@ -102,7 +102,7 @@ describe("ChampionSectionNav — stan sekcji", () => {
 });
 
 describe("ChampionSectionNav — kolejność kroku 02", () => {
-  it("stack (3) stoi ZARAZ po podstawach (1), przed prozą (2 · 4 · 5) i klientem (6)", () => {
+  it("stack (3) i doświadczenie (4) stoją ZARAZ po podstawach (1), przed prozą (2 · 5 · 6), klientem (7) i wiedzą z rozmów (8)", () => {
     getMock.mockReturnValue(new Promise(() => {}));
     renderNav();
     const order = screen
@@ -110,8 +110,10 @@ describe("ChampionSectionNav — kolejność kroku 02", () => {
       .map((link) => link.textContent ?? "");
     expect(order[0]).toContain("Podstawowe informacje");
     expect(order[1]).toContain("Stack technologiczny");
-    expect(order[2]).toContain("Co wpisać (search)");
-    expect(order[5]).toContain("O kliencie");
+    expect(order[2]).toContain("Doświadczenie poza stackiem");
+    expect(order[3]).toContain("Co wpisać (search)");
+    expect(order[6]).toContain("O kliencie");
+    expect(order[7]).toContain("Wiedza z rozmów");
   });
 
   it("numery w etykietach zostają szablonowe — wiążą ekran ze wzorem Word", () => {
