@@ -3655,7 +3655,24 @@ który topnieje wraz z miesięcznymi raportami z Finansów. Migracja `0227`.
 - **Precyzja:** `NUMERIC(16, 6)`. „Bez zaokrąglenia" jest nieosiągalne w typie
   stałoprzecinkowym (`kwota / stawka` bywa ułamkiem nieskończonym); sześć miejsc to cztery
   zapasu ponad prezentację (2 miejsca), więc kolejne importy nie kumulują widocznego błędu.
-- **Import MD dopasowuje WYŁĄCZNIE po imieniu i nazwisku** (arkusz nie ma numeru zamówienia).
+- **Import MD dopasowuje po imieniu i nazwisku, a numer zamówienia z „Uwag" WIĄŻE**
+  (ticket 23.09.2026, BIK: stare zamówienie do 14.08, następca od 15.08, dwa wiersze
+  tej samej osoby). Numer wiąże WYŁĄCZNIE względem klientów, u których ta osoba ma
+  linie: znany numer zamówienia tego klienta, a u klienta z numerami z samych cyfr
+  (BIK, Polkomtel) także ≥ 7 cyfr (`finance_order_matching.explicit_order_hints`,
+  `OrderNumberIndex`; u Polkomtela każdy ciąg cyfr). Globalny zbiór numerów
+  blokowałby BNP/CeZ („delegacja 445", NIP w uwagach).
+  Wiersz z takim numerem idzie WYŁĄCZNIE na linię tej osoby w zamówieniu o tym numerze
+  albo nigdzie („Brak pasującego zamówienia" + `status_reason` liczony przy odczycie,
+  `_unmatched_reason` — bez kolumny w bazie). Zapis wskazany numerem
+  (`apply_md_consumption(explicit_order=True)`) NIE przekierowuje na poprzednika
+  i NIE przenosi nadwyżki na następcę; ręczne przypisanie wbrew numerowi = 422.
+  Przekierowanie FIN-MD-01 rusza tylko przy wpisie poprzednika z INNEJ paczki — wpis
+  z tej samej paczki to osobny wiersz arkusza (do 23.09 był nadpisywany).
+  Zapis z numerem cofa wpis następcy za ten miesiąc, jeśli dziennik ma
+  `transfer_md` z tego zamówienia, a wpis pochodzi z innej paczki
+  (`_revert_earlier_transfer`) — inaczej ponowny import podzielonego miesiąca
+  liczyłby MD dwa razy.
   Jedno trafienie → zastosuj; zero → „Brak aktywnego zamówienia"; **więcej niż jedno →
   „Wymaga przypisania" i system NIE zgaduje** — trafienie w złe zamówienie odejmuje MD nie
   temu klientowi i wychodzi dopiero na fakturze. Wiersz importu ŻYJE DALEJ w bazie, bo bez
