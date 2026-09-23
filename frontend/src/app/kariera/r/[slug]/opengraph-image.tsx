@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { ImageResponse } from "next/og";
 
 import { OG_COLORS, OG_SIZE, OgFrame, ogFontsOrDefault } from "@/components/career/og";
-import { fetchCareerJob } from "@/lib/career/api";
+import { fetchCareerJob } from "@/lib/career/server";
 import { jobHandle, paramsSummary, splitTitle } from "@/lib/career/format";
 import { requestDisplayHost } from "@/lib/career/host";
 
