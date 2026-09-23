@@ -392,9 +392,10 @@ async def run_backfill(
                 )
                 if candidate is None:
                     continue
-                if not glued and _terminal_marker(
-                    candidate, retry_outcomes=retry_outcomes
-                ):
+                # Sklejony tekst ma już znacznik z poprzedniego odczytu — tu go
+                # świadomie czytamy ponownie, więc strażnik go nie zatrzymuje.
+                terminal = _terminal_marker(candidate, retry_outcomes=retry_outcomes)
+                if terminal and not glued:
                     stats.skipped_terminal += 1
                     continue
 
