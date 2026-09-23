@@ -730,6 +730,12 @@ async def _parse_with_claude(
         message = await run_in_threadpool(
             call_claude,
             model=chosen_model,
+            # Bieg masowy na tańszym modelu (F10 = GPT-6 Luna od 22.09.2026) przy
+            # przeciążeniu dostawcy schodzi na model parsera CV, a nie od razu
+            # do Ollamy/regexu.
+            fallback_models=[
+                m for m in (model_for(AIFeatureKey.cv_parser),) if m != chosen_model
+            ],
             # v6 dokłada listę stanowisk z datami — 2000 tokenów obcinało JSON
             # dłuższych CV, a obcięta odpowiedź spada do regexu. v7 (technologie
             # per stanowisko, projekty, certyfikaty) potrzebuje ~2× więcej.

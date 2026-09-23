@@ -89,7 +89,8 @@ def test_legacy_claude_model_cv_drives_the_cv_parser_but_no_longer_mindy(monkeyp
     monkeypatch.delenv("MINDY_MODEL", raising=False)
     monkeypatch.setattr(settings, "CLAUDE_MODEL_CV", "claude-opus-4-8")
     assert ai_models.model_for(AIFeatureKey.cv_parser) == "claude-opus-4-8"
-    assert ai_models.model_for(AIFeatureKey.cv_name_backfill) == "claude-opus-4-8"
+    # cv_name_backfill od 22.09.2026 NIE czyta CLAUDE_MODEL_CV (GPT-6 Luna).
+    assert ai_models.model_for(AIFeatureKey.cv_name_backfill) == "gpt-6-luna"
     assert ai_models.model_for(AIFeatureKey.mindy_chat) == "gpt-6-luna"
 
 
@@ -105,19 +106,21 @@ DECISION_2026_09_16 = {
     AIFeatureKey.cv_generator: ("F4", "claude-sonnet-5"),
     AIFeatureKey.cv_interactive_chat: ("F5", "gpt-6-luna"),
     AIFeatureKey.job_description_generator: ("F6", "claude-sonnet-5"),
-    # F7 — powrót na Sonneta 5 decyzją 21.09.2026 (GPT Luna flagowała
-    # poprawne odczyty jako niepewne).
-    AIFeatureKey.order_parser: ("F7", "claude-sonnet-5"),
+    # F7 — 21.09.2026 powrót z GPT-5.6 Luna na Sonneta, 22.09.2026 na GPT-6 Lunę
+    # po pomiarze (błędy krytyczne 3,9% vs 4,7% Sonneta).
+    AIFeatureKey.order_parser: ("F7", "gpt-6-luna"),
     AIFeatureKey.uop_check: ("F8", "gpt-6-luna"),
     AIFeatureKey.cv_parser: ("F9", "claude-sonnet-5"),
-    AIFeatureKey.cv_backfill: ("F10", "claude-sonnet-5"),
-    AIFeatureKey.cv_name_backfill: ("F10", "claude-sonnet-5"),
+    # F10 — pomiar gpt-6-luna 22.09.2026 na 96 CV: nie gorsza od Sonneta.
+    AIFeatureKey.cv_backfill: ("F10", "gpt-6-luna"),
+    AIFeatureKey.cv_name_backfill: ("F10", "gpt-6-luna"),
     # Ta sama robota co F10 (odczyt CV), więc ten sam model. Osobny klucz jest
     # po to, żeby dało się zgasić ścieżkę użytkownika bez nocnego syncu.
     AIFeatureKey.experience_dates_on_demand: ("F10", "claude-sonnet-5"),
     AIFeatureKey.notes_extraction: ("F11", "deepseek-v4-pro"),
-    AIFeatureKey.candidate_summary: ("F12", "deepseek-v4-pro"),
-    AIFeatureKey.champion_draft: ("F13", "claude-sonnet-5"),
+    # F12/F13 — pomiar gpt-6-luna 22.09.2026: remis z dotychczasowym modelem.
+    AIFeatureKey.candidate_summary: ("F12", "gpt-6-luna"),
+    AIFeatureKey.champion_draft: ("F13", "gpt-6-luna"),
     AIFeatureKey.cv_rule_lint: ("F14", "claude-sonnet-5"),
     AIFeatureKey.mindy_chat: ("F15", "gpt-6-luna"),
     # F18 — decyzja 18.09.2026, POZA badaniem 16.09: recenzent gotowego CV
@@ -137,10 +140,10 @@ def _clear_model_overrides(monkeypatch):
     for choice in ai_models._REGISTRY.values():
         for name in choice.env_vars:
             monkeypatch.delenv(name, raising=False)
-    # Legacy pola settings: domyślne z config.py (Sonnet 5 od 16.09.2026).
+    # Legacy pola settings: domyślne z config.py (F7 = GPT-6 Luna od 22.09.2026).
     monkeypatch.setattr(settings, "CLAUDE_MODEL_CV", "claude-sonnet-5")
     monkeypatch.setattr(settings, "CLAUDE_MODEL_CV_BULK", "claude-sonnet-5")
-    monkeypatch.setattr(settings, "ORDER_PARSER_MODEL", "claude-sonnet-5")
+    monkeypatch.setattr(settings, "ORDER_PARSER_MODEL", "gpt-6-luna")
 
 
 def test_decision_table_covers_every_feature():
@@ -182,6 +185,10 @@ def test_legacy_settings_defaults_agree_with_the_registry():
         AIFeatureKey.notes_extraction,
         AIFeatureKey.candidate_summary,
         AIFeatureKey.cv_factual_verification,
+        AIFeatureKey.order_parser,
+        AIFeatureKey.champion_draft,
+        AIFeatureKey.cv_backfill,
+        AIFeatureKey.cv_name_backfill,
     ],
 )
 def test_non_anthropic_functions_fall_back_to_sonnet_5(monkeypatch, feature):
