@@ -233,7 +233,9 @@ async def test_utilization_deduplicates_denominator_and_bench_gap_per_identity()
     today = date.today()
 
     def _row(candidate, end_date):
-        return SimpleNamespace(**vars(candidate), end_date=end_date)
+        # Kształt wiersza = SELECT populacji (kandydat + end_date + status).
+        status = ContractStatus.active if end_date is None else ContractStatus.ended
+        return SimpleNamespace(**vars(candidate), end_date=end_date, status=status)
 
     population_rows = [
         # Piotr Klimczak — dwa profile, jeden pracuje (kontrakt bez daty końca).

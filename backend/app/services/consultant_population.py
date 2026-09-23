@@ -31,9 +31,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.services.contract_rates import REVENUE_BEARING_STATUSES
 from app.services.contractor_identity import candidate_identity_key
+
+_LIVE_STATUSES = frozenset({ContractStatus.active, ContractStatus.ending})
 
 IdentityKey = tuple[Hashable, ...]
 
@@ -100,8 +102,15 @@ async def consultant_population(
     zostawiłby mianownik równy licznikowi i utylizację na sztywne 100%.
     Kontrakt bez daty rozpoczęcia nie mówi, kiedy współpraca się zaczęła, więc
     nie wchodzi ani do licznika, ani do mianownika (patrz też kafel MRR).
+
+    Na dziś (i później) aktywny jest tylko kontrakt w żywym statusie: ``ended``
+    bez daty końca albo z datą w przyszłości to zakończona współpraca, a kafel
+    „aktywne kontrakty” obok liczy po statusie — bez tego osób aktywnych
+    wychodziło więcej niż aktywnych kontraktów (kolejka 23.09.2026). Dla dnia
+    z przeszłości status mówi o dziś, nie o tamtym dniu, więc decyduje data.
     """
     on = on or date.today()
+    status_decides = on >= date.today()
     rows = (
         await db.execute(
             select(
@@ -110,6 +119,7 @@ async def consultant_population(
                 Candidate.lastname,
                 Candidate.email,
                 Contract.end_date,
+                Contract.status,
             )
             .join(Contract, Contract.candidate_id == Candidate.id)
             .where(
@@ -126,7 +136,9 @@ async def consultant_population(
     for row in rows:
         key = candidate_identity_key(row)
         ever_keys.add(key)
-        if row.end_date is None or row.end_date >= on:
+        if (row.end_date is None or row.end_date >= on) and (
+            not status_decides or row.status in _LIVE_STATUSES
+        ):
             active_keys.add(key)
         if row.end_date is not None:
             previous = last_end.get(key)
