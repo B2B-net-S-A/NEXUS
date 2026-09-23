@@ -48,6 +48,7 @@ from app.models.client_order_group import (
     GROUP_STATUS_EXHAUSTED,
     ClientOrderGroup,
     ClientOrderGroupEvent,
+    ClientOrderGroupMdConsumption,
 )
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.job import Job
@@ -696,6 +697,88 @@ def _group_settles_in_month_clause(first_day: date):
     )
 
 
+def _exhausted_with_month_entry_clause(period_month: str, *, cost: bool):
+    """Audyt 22.09 r2 (FIN-MD-08): korekta miesiąca, który WYCZERPAŁ pulę.
+
+    ``group_settles_in_month`` celowo pomija ``exhausted`` (z wyczerpanej puli
+    nic się już nie zdejmuje) — ale przez to ponowny import TEGO SAMEGO
+    miesiąca z mniejszą liczbą (korekta raportu Finansów) był niemożliwy,
+    a pula zostawała wyczerpana na zawsze. Grupa ``exhausted``, która ma już
+    wpis za ten miesiąc, jest więc celem korekty; ``settle`` sam przywraca
+    ``active``, gdy po korekcie coś zostaje. Wzorzec:
+    ``historical_shared_md_lines``.
+    """
+    from app.models.md_consumption import ClientOrderInvoiceConsumption
+
+    if cost:
+        entry = (
+            select(ClientOrderInvoiceConsumption.id)
+            .join(ClientOrder, ClientOrder.id == ClientOrderInvoiceConsumption.order_id)
+            .where(
+                ClientOrder.order_group_id == ClientOrderGroup.id,
+                ClientOrderInvoiceConsumption.period_month == period_month,
+            )
+            .exists()
+        )
+    else:
+        entry = (
+            select(ClientOrderGroupMdConsumption.id)
+            .where(
+                ClientOrderGroupMdConsumption.group_id == ClientOrderGroup.id,
+                ClientOrderGroupMdConsumption.period_month == period_month,
+            )
+            .exists()
+        )
+    return and_(ClientOrderGroup.status == GROUP_STATUS_EXHAUSTED, entry)
+
+
+async def exhausted_groups_with_month_entry(
+    db: AsyncSession, group_ids: Iterable[int], period_month: str
+) -> frozenset[int]:
+    """Id grup ``exhausted`` z wpisem za ``period_month`` (MD puli albo faktura)."""
+    from app.models.md_consumption import ClientOrderInvoiceConsumption
+
+    ids = sorted(set(group_ids))
+    if not ids:
+        return frozenset()
+    shared = set(
+        (
+            await db.scalars(
+                select(ClientOrderGroupMdConsumption.group_id)
+                .join(
+                    ClientOrderGroup,
+                    ClientOrderGroup.id == ClientOrderGroupMdConsumption.group_id,
+                )
+                .where(
+                    ClientOrderGroupMdConsumption.group_id.in_(ids),
+                    ClientOrderGroupMdConsumption.period_month == period_month,
+                    ClientOrderGroup.status == GROUP_STATUS_EXHAUSTED,
+                )
+            )
+        ).all()
+    )
+    cost = set(
+        (
+            await db.scalars(
+                select(ClientOrder.order_group_id)
+                .join(
+                    ClientOrderInvoiceConsumption,
+                    ClientOrderInvoiceConsumption.order_id == ClientOrder.id,
+                )
+                .join(
+                    ClientOrderGroup, ClientOrderGroup.id == ClientOrder.order_group_id
+                )
+                .where(
+                    ClientOrder.order_group_id.in_(ids),
+                    ClientOrderInvoiceConsumption.period_month == period_month,
+                    ClientOrderGroup.status == GROUP_STATUS_EXHAUSTED,
+                )
+            )
+        ).all()
+    )
+    return frozenset(g for g in shared | cost if g is not None)
+
+
 # ── Kwalifikacja linii do importu: OKRES, nie status ────────────────────────
 #
 # Do 09.2026 import pytał wyłącznie o linie ``active``. Konsultant, który
@@ -855,7 +938,10 @@ async def cost_lines_settling_in_month(
         .options(selectinload(ClientOrder.order_group))
         .where(
             ClientOrderGroup.is_cost_based.is_(True),
-            _group_settles_in_month_clause(first),
+            or_(
+                _group_settles_in_month_clause(first),
+                _exhausted_with_month_entry_clause(period_month, cost=True),
+            ),
             *line_settles_in_month_conditions(period_month, include_draft=True),
         )
     )
@@ -894,7 +980,10 @@ async def shared_md_lines_settling_in_month(
         .options(selectinload(ClientOrder.order_group))
         .where(
             ClientOrderGroup.is_md_budget_based.is_(True),
-            _group_settles_in_month_clause(first),
+            or_(
+                _group_settles_in_month_clause(first),
+                _exhausted_with_month_entry_clause(period_month, cost=False),
+            ),
             *line_settles_in_month_conditions(period_month),
         )
     )

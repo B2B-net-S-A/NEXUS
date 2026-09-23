@@ -87,6 +87,7 @@ from app.services.client_identity import client_display_name_expression
 from app.services.client_order_lines import (
     LineMatch,
     apply_md_consumption,
+    exhausted_groups_with_month_entry,
     cost_lines_settling_in_month,
     describe_import,
     group_settles_in_month,
@@ -438,6 +439,7 @@ def _ordinary_locked_target_is_valid(
     rows: list[MdConsumptionImportRow],
     expected_client_id: int,
     period_month: str,
+    correctable_exhausted_group_ids: frozenset[int] = frozenset(),
 ) -> bool:
     """Re-match persisted spreadsheet evidence after line/group lock waits.
 
@@ -489,7 +491,10 @@ def _ordinary_locked_target_is_valid(
     elif kind == "shared_md":
         if (
             not line_settles_in_month(order, period_month, contract=contract)
-            or not group_settles_in_month(group, first)
+            or not (
+                group_settles_in_month(group, first)
+                or group.id in correctable_exhausted_group_ids
+            )
             or not uses_shared_md_pool(group)
         ):
             return False
@@ -498,7 +503,10 @@ def _ordinary_locked_target_is_valid(
             not line_settles_in_month(
                 order, period_month, contract=contract, include_draft=True
             )
-            or not group_settles_in_month(group, first)
+            or not (
+                group_settles_in_month(group, first)
+                or group.id in correctable_exhausted_group_ids
+            )
             or not group.is_cost_based
         ):
             return False
@@ -736,6 +744,11 @@ async def create_import(
     for group_id in list(touched_groups):
         touched_groups[group_id] = locked_groups[group_id]
 
+    # FIN-MD-08: grupy wyczerpane, które już mają wpis za ten miesiąc, są
+    # celem korekty (patrz `_exhausted_with_month_entry_clause`).
+    correctable_exhausted = await exhausted_groups_with_month_entry(
+        db, locked_groups.keys(), period_month
+    )
     for order_id, rows in md_rows.items():
         order = locked_orders[order_id]
         group = locked_groups[expected_group_by_order[order_id]]
@@ -761,6 +774,7 @@ async def create_import(
             rows=rows,
             expected_client_id=expected_client_by_order[order_id],
             period_month=period_month,
+            correctable_exhausted_group_ids=correctable_exhausted,
         ):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -776,6 +790,7 @@ async def create_import(
             rows=rows,
             expected_client_id=expected_client_by_order[order_id],
             period_month=period_month,
+            correctable_exhausted_group_ids=correctable_exhausted,
         ):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,

@@ -2204,3 +2204,41 @@ async def test_invoice_only_row_settles_the_cost_pool_and_correction_is_flagged(
     )
     body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
     assert body["budget_used"] == pytest.approx(12000.0)
+
+
+async def test_correcting_the_invoice_month_that_exhausted_a_cost_order(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """FIN-MD-08: korekta faktury za miesiąc, który wyczerpał pulę kosztową."""
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_multi(monkeypatch, client_id)
+    _enable_cost(monkeypatch, client_id)
+    number = f"45008{uuid.uuid4().int % 100000:05d}"
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_cost_line(contracts[0])],
+        order_number=number,
+        is_cost_based=True,
+        budget_amount=10000,
+    )
+    finance = await _finance_headers(app_client)
+    await _import_sheet(
+        app_client, finance, _sheet([(names[0], 5, f"SAP {number}", 12000)])
+    )
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+    )
+    body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
+    assert body["status"] == "exhausted"
+
+    await _import_sheet(
+        app_client, finance, _sheet([(names[0], 5, f"SAP {number}", 6000)])
+    )
+    listing = await app_client.get(
+        f"/api/clients/{client_id}/order-groups", headers=app_auth_headers
+    )
+    body = next(g for g in listing.json()["groups"] if g["id"] == group["id"])
+    assert body["status"] == "active"
+    assert body["budget_remaining"] == pytest.approx(4000.0)

@@ -451,3 +451,40 @@ async def test_cost_duplicate_number_and_consultant_is_ambiguous_no_guess(
     )
     assert first_body["budget_remaining"] == pytest.approx(10000.0)
     assert second_body["budget_remaining"] == pytest.approx(10000.0)
+
+
+# ── Audyt 22.09 r2 (FIN-MD-08) ──────────────────────────────────────────────
+
+
+async def test_correcting_the_month_that_exhausted_the_pool_reopens_it(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Wyczerpana grupa wypadała z kandydatów importu — korekta raportu za ten
+    sam miesiąc (mniej MD) była niemożliwa, pula zostawała wyczerpana."""
+    client_id, contracts, names = await _seed_client_with_contracts(1)
+    _enable_cyfrowy_polsat(monkeypatch, client_id)
+    group = await _create_shared_md_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        contracts[0],
+        order_number="4500810099",
+        budget=10,
+    )
+    finance = await _finance_headers(app_client)
+    await _import_sheet(
+        app_client, finance, _sheet([(names[0], 15, "SAP 4500810099", 0)])
+    )
+    body = await _group_from_list(app_client, app_auth_headers, client_id, group["id"])
+    assert body["status"] == "exhausted"
+
+    corrected = await _import_sheet(
+        app_client, finance, _sheet([(names[0], 6, "SAP 4500810099", 0)])
+    )
+    assert corrected["rows_applied"] == 1, corrected
+
+    body = await _group_from_list(app_client, app_auth_headers, client_id, group["id"])
+    assert body["md_budget_used"] == pytest.approx(6.0)
+    assert body["md_budget_remaining"] == pytest.approx(4.0)
+    assert body["status"] == "active"
+    assert await _shared_consumption_count(group["id"]) == 1
