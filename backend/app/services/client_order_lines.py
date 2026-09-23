@@ -1625,18 +1625,36 @@ async def _rebalance_swap_successor(db: AsyncSession, order: ClientOrder) -> Non
         return
     md_remaining_old = max(ZERO, Decimal(str(order.md_remaining or 0)))
     base_rem, opt_rem = await _swap_split_remaining(db, order, md_remaining_old)
-    new_total = swap_md_total(
-        md_remaining_old=base_rem, rate_revenue_old=rate_old, rate_revenue_new=rate_new
-    )
-    new_optional = (
-        None
-        if succ.md_optional_total is None
-        else swap_md_total(
-            md_remaining_old=opt_rem,
+    method = payload.get("md_transfer_method")
+    if method:
+        # Zamiana z jawnym sposobem przeniesienia (ticket 09.2026): 1:1 dla
+        # puli w MD, wybór stawki dla puli w kwocie — ta sama reguła co
+        # w chwili zamiany, nie „zachowanie wartości w PLN".
+        from app.services.order_line_takeover import split_transferred
+
+        new_total, new_optional = split_transferred(
+            method=str(method),
+            base_remaining=base_rem,
+            optional_remaining=opt_rem,
+            has_optional=succ.md_optional_total is not None,
+            departing_rate=rate_old,
+            incoming_rate=rate_new,
+        )
+    else:
+        new_total = swap_md_total(
+            md_remaining_old=base_rem,
             rate_revenue_old=rate_old,
             rate_revenue_new=rate_new,
         )
-    )
+        new_optional = (
+            None
+            if succ.md_optional_total is None
+            else swap_md_total(
+                md_remaining_old=opt_rem,
+                rate_revenue_old=rate_old,
+                rate_revenue_new=rate_new,
+            )
+        )
     if _same_md(succ.md_total, new_total) and _same_md(
         succ.md_optional_total, new_optional
     ):
@@ -1752,6 +1770,12 @@ async def _rebalance_offboarding_transfer(db: AsyncSession, order: ClientOrder) 
     except HTTPException:
         return
     new_transferred = quantize_md(new_remaining * basis / target_rate)
+    if payload.get("md_transfer_method") == "incoming_rate":
+        # Przeliczenie „po stawce osoby przychodzącej" jest zaokrąglane do
+        # 0,1 MD (ticket 09.2026) — korekta trzyma tę samą regułę co decyzja.
+        from app.services.order_line_takeover import round_to_tenth
+
+        new_transferred = round_to_tenth(new_transferred)
     delta = new_transferred - quantize_md(old_transferred)
     target.md_total = quantize_md(Decimal(str(target.md_total)) + delta)
     if target.md_input_mode == INPUT_MODE_AMOUNT:

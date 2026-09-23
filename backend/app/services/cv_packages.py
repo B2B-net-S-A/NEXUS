@@ -328,13 +328,13 @@ async def public_documents(db, package_versions):
             != version.content_sha256
         ):
             raise HTTPException(409, "Nie można potwierdzić integralności pakietu CV.")
-        from app.services.html_sanitizer import sanitize_cv_html
+        from app.services.cv_public_document import public_cv_document
 
         documents.append(
             {
                 "language": language,
                 "filename": version.docx_filename,
-                "cv_html": sanitize_cv_html(version.content_html),
+                "cv_html": public_cv_document(version.content_html),
             }
         )
     return {"package_documents": documents}

@@ -252,6 +252,66 @@ async def sync_workdays(
     return result
 
 
+async def race_workdays_to_date(
+    db: AsyncSession,
+    user_ids: list[int],
+    *,
+    month_start: date,
+    month_end: date,
+    today: date,
+    calendar_elapsed: int,
+) -> dict[int, tuple[float, str]]:
+    """Mianownik „X/dzień" wyścigu miesięcznego: `{user_id: (dni, źródło)}`.
+
+    Decyzja Artura 23.09.2026 (plan PR3): plakietka ma liczbę ZAWSZE, a jej
+    źródło mówi, ile wiemy. Każda osoba dostaje wpis:
+
+    * ``"compass"`` — COMPASS zna nieobecności w tym oknie: miesiąc zamknięty
+      (wiersz miesięczny = pełny miesiąc minus zatwierdzony urlop) albo miesiąc
+      trwający, w którym COMPASS nie ma ŻADNEGO urlopu (wtedy dni kalendarzowe,
+      które upłynęły, SĄ dniami pracy).
+    * ``"calendar"`` — dni robocze kalendarza (Pon–Pt bez świąt), które
+      upłynęły, BEZ urlopów. Tak jest przy braku wiersza z COMPASSA, a także
+      w trwającym miesiącu z urlopem: wiersz miesięczny opisuje CAŁY miesiąc,
+      więc nie wiemy, ile urlopu już minęło — odjęcie całości zaniżałoby
+      mianownik za dni, które dopiero nadejdą. Front podpisuje to „bez urlopów".
+
+    Wiersz miesięczny COMPASSA to zawsze pełny miesiąc
+    (``nexus_workdays_export``, bucket ``month``) — stąd dopasowanie okna
+    dokładnie po [pierwszy, ostatni dzień miesiąca].
+    """
+    if not user_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(
+                UserWorkdayPeriod.user_id,
+                UserWorkdayPeriod.working_days,
+                UserWorkdayPeriod.absence_days,
+            ).where(
+                UserWorkdayPeriod.user_id.in_(user_ids),
+                UserWorkdayPeriod.period_start == month_start,
+                UserWorkdayPeriod.period_end == month_end,
+            )
+        )
+    ).all()
+    by_user = {int(uid): (float(work), float(absent)) for uid, work, absent in rows}
+    month_closed = today > month_end
+    out: dict[int, tuple[float, str]] = {}
+    for uid in user_ids:
+        compass = by_user.get(int(uid))
+        if compass is not None:
+            working, absent = compass
+            if month_closed:
+                out[uid] = (working, "compass")
+                continue
+            if absent <= 0:
+                out[uid] = (float(calendar_elapsed), "compass")
+                continue
+        out[uid] = (float(calendar_elapsed), "calendar")
+    return out
+
+
 async def working_days_for(
     db: AsyncSession, user_ids: list[int], period_start: date, period_end: date
 ) -> dict[int, float]:

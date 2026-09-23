@@ -50,7 +50,7 @@ from app.api.financial_access import (
 )
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.services.contract_lifecycle import sync_contract_to_live_order
-from app.services.critical_events import audited_deletion
+from app.services.critical_events import audited_deletion, record_executed
 from app.services.order_engagement_separation import assert_no_open_md_group_line
 from app.core.database import get_db
 from app.core.scheduling import business_today
@@ -1307,6 +1307,8 @@ async def list_contractors_with_orders(
     items: list[ContractWithOrdersRead] = []
     today = business_today()
     for c in contracts:
+        if card_is_dismissed(c):
+            continue
         orders_list = sorted(
             # Linie kosztowe/MD mają własny rejestr grup. Wspólny widok typów
             # osadza ten endpoint jako sekcję „Okresowe”, więc pokazanie ich
@@ -1386,6 +1388,7 @@ async def list_contractors_with_orders(
                 ),
                 latest_order_monthly_margin=latest_margin,
                 days_to_latest_end=days_to_end,
+                draft_card=is_draft_card(c),
                 orders=orders_read,
             )
         )
@@ -2736,6 +2739,131 @@ async def delete_order(
     # bez dokumentu od klienta.
     if po_path:
         storage_service.delete_client_order_po(po_path)
+
+
+def card_is_dismissed(contract: Contract) -> bool:
+    """„Usuń szkic" schował kartę — i od tamtej chwili nie powstało zamówienie.
+
+    Zamówienie okresowe założone PO usunięciu karty (np. nowe zamówienie z maila
+    albo z formularza) przywraca kartę: to znów jest osoba z zamówieniem.
+    """
+    dismissed = contract.orders_card_dismissed_at
+    if dismissed is None:
+        return False
+    return not any(
+        order.order_group_id is None
+        and order.created_at is not None
+        and order.created_at > dismissed
+        for order in (contract.client_orders or [])
+    )
+
+
+def is_draft_card(contract: Contract) -> bool:
+    """Karta „szkicu": żywy kontrakt bez żadnego zamówienia poza szkicami.
+
+    Taka karta nie niesie historii rozliczeń — można ją usunąć (kontrakt
+    i rekrutacja zostają), a u Centrum e-Zdrowia przypisać do zamówienia.
+    """
+    status_value = getattr(contract.status, "value", contract.status)
+    if status_value in (ContractStatus.ended.value, ContractStatus.void.value):
+        return False
+    return all(
+        order.status in (ClientOrderStatus.draft, ClientOrderStatus.cancelled)
+        for order in (contract.client_orders or [])
+        if order.order_group_id is None
+    )
+
+
+@router.post(
+    "/{client_id}/contractors/{contract_id}/dismiss-draft",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def dismiss_draft_card(
+    client_id: int,
+    contract_id: int,
+    user: DeliveryLeadOrAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Usuń szkic" — pusta karta kontraktora znika z zakładki Zamówienia.
+
+    Ticket 09.2026 (C1): po usunięciu zamówienia zostawała karta „Brak
+    aktywnego zamówienia", której nie dało się usunąć. Kontrakt i dane
+    rekrutacji ZOSTAJĄ; usuwane są wyłącznie szkice zamówień tej osoby
+    u klienta (bez rozliczeń), a karta jest oznaczona jako usunięta.
+    Karta z zamówieniem innym niż szkic → 409: to nie jest szkic.
+    """
+    client = await _assert_client(db, client_id)
+    can_finance = _can_manage_order_finance(
+        user, dl_assigned=await _dl_assigned_to_client(db, user, client_id)
+    )
+    if not can_finance:
+        raise deny("szkic karty usuwa administrator albo Delivery Lead klienta")
+    contract = await db.scalar(
+        select(Contract)
+        .options(selectinload(Contract.client_orders))
+        .where(Contract.id == contract_id, Contract.client_id == client_id)
+        .with_for_update()
+    )
+    if contract is None:
+        raise HTTPException(404, detail="Kontrakt nie istnieje u tego klienta")
+    if not is_draft_card(contract):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Ta karta ma zamówienie inne niż szkic — usuń albo zakończ je, "
+                "zamiast usuwać kartę."
+            ),
+        )
+    drafts = [
+        order
+        for order in contract.client_orders or []
+        if order.order_group_id is None and order.status == ClientOrderStatus.draft
+    ]
+    po_paths: list[str] = []
+    for order in drafts:
+        await assert_order_has_no_settlements(
+            db,
+            order.id,
+            subject="tego szkicu",
+            alternative="rozlicz albo usuń wpisy rozliczeń",
+        )
+    await close_gaps_of_deleted_orders(
+        db, [order.id for order in drafts], actor_id=user.id
+    )
+    for order in drafts:
+        await detach_order_rate_steps(db, order)
+        if order.file_path:
+            po_paths.append(order.file_path)
+        await record_executed(
+            db,
+            actor=user,
+            event_type="order.delete",
+            entity_type="order",
+            entity_id=order.id,
+            entity_label=f"Zamówienie #{order.id}",
+            client_id=client_id,
+            client_name=client.name,
+            reason="Szkic usunięty razem z pustą kartą kontraktora (Usuń szkic).",
+            details={"status": "draft", "contract_id": contract.id},
+        )
+        await db.delete(order)
+    contract.orders_card_dismissed_at = datetime.now(timezone.utc)
+    contract.orders_card_dismissed_by = user.id
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="orders_card_dismissed",
+            user_id=user.id,
+            details={
+                "client_id": client_id,
+                "deleted_draft_order_ids": [order.id for order in drafts],
+            },
+        )
+    )
+    await commit_order_write(db)
+    for path in po_paths:
+        storage_service.delete_client_order_po(path)
 
 
 @router.get(

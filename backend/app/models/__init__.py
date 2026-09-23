@@ -167,6 +167,8 @@ from app.models.champion_suggestion import (
 )
 from app.models.app_setting import AppSetting
 from app.models.kpi_target import KpiRoleDefault, UserKpiTarget
+from app.models.kpi_target_event import KpiTargetEvent
+from app.models.kpi_email_report_run import KpiEmailReportRun
 from app.models.kpi_nudge_log import KpiNudgeLog, KpiNudgeType, KpiNudgeChannel
 from app.models.team_structure import (
     ClientTacAssignment,
@@ -469,6 +471,8 @@ __all__ = [
     "AppSetting",
     "KpiRoleDefault",
     "UserKpiTarget",
+    "KpiTargetEvent",
+    "KpiEmailReportRun",
     "KpiNudgeLog",
     "KpiNudgeType",
     "KpiNudgeChannel",
