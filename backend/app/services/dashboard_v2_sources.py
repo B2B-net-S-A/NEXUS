@@ -31,7 +31,6 @@ from app.api import (
     candidate_contact,
     contract_analytics,
     invoices,
-    linkedin_metrics,
     priority_work,
 )
 from app.core.config import settings
@@ -594,26 +593,6 @@ async def load_hall_of_fame(db: AsyncSession) -> dict[str, Any]:
             {"period": period, "top3": history[period]}
             for period in sorted(history.keys(), reverse=True)
         ],
-    }
-
-
-async def load_linkedin_summary(db: AsyncSession, period: Period) -> dict[str, Any]:
-    """Agregacja LinkedIn w kanonicznym oknie sekcji (kalendarz Warsaw).
-
-    `linkedin_daily_metrics.report_date` to DATE, a filtr `compute_summary`
-    jest domknięty z obu stron — end (exclusive datetime) mapujemy na
-    ostatni dzień W oknie.
-    """
-    from datetime import timedelta
-
-    date_from = period.start.date()
-    date_to = (period.end - timedelta(microseconds=1)).date()
-    per_user, totals = await linkedin_metrics.compute_summary(db, date_from, date_to)
-    return {
-        "date_from": date_from,
-        "date_to": date_to,
-        "per_user": per_user,
-        "totals": totals,
     }
 
 
