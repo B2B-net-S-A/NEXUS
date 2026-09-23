@@ -1072,7 +1072,9 @@ procesu)”, a 94% tych osób było już w bazie (88% w procesie). Decyzje Artur
   `components/v2/cv-generator/`. Harness `/preview/cv-generator?state=`.
 - **Wycofane:** stary szablon „CV firmowe / Stwórz brandowane” (HTML z pól
   profilu, bez reguł klienta, z telefonem i e-mailem kandydata —
-  `cv_html_renderer.py` usunięty; GET etapu przy `none` nic nie renderuje,
+  `cv_html_renderer.py` usunięty — jego arkusz żyje zamrożony w
+  `cv_legacy_template_css.py`, bo publiczny link pokazuje stare CV etapów
+  w tym układzie; GET etapu przy `none` nic nie renderuje,
   PATCH szablonu 410, finalize przy `none` 409), pola Must/Nice, checkbox „CV
   poza zleceniem”, CV próbne, osobny krok „Zatwierdź” w edytorze (jeden
   „Zapisz”; zatwierdzenie z kontrolą AI leci w tle, `lib/cv-background-approval.ts`
