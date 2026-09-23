@@ -12,7 +12,7 @@ must therefore never be serialized as a numeric zero.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -306,7 +306,7 @@ class FinanceDashboardResponse(DashboardResponseBase):
 
 # ── Statystyki rekrutacji (sekcja wspólna /dashboard) ───────────────────────
 #
-# Sekcja jest z natury IMIENNA (tabela per osoba, podia, wyścigi, LinkedIn),
+# Sekcja jest z natury IMIENNA (tabela per osoba, podia, wyścigi),
 # więc jej guard to OperationalUser — persona finance jej nie widzi i ten
 # kontrakt NIE może wejść do FinanceDashboardResponse (containment
 # strukturalny). Każdy pod-blok jest `| None`: awaria źródła daje null +
@@ -465,34 +465,6 @@ class RecruitmentHallOfFame(DashboardModel):
     history: list[RecruitmentHallOfFameHistoryPeriod] = Field(default_factory=list)
 
 
-class RecruitmentLinkedInRow(DashboardModel):
-    user_id: int
-    name: str
-    role: str
-    cv_added: int
-    messages_sent: int
-    responses_received: int
-    response_rate: float
-    cv_response_rate: float
-    days_reported: int
-
-
-class RecruitmentLinkedInTotals(DashboardModel):
-    cv_added: int
-    messages_sent: int
-    responses_received: int
-    response_rate: float
-    cv_response_rate: float
-    active_users: int
-
-
-class RecruitmentLinkedIn(DashboardModel):
-    date_from: date
-    date_to: date
-    per_user: list[RecruitmentLinkedInRow] = Field(default_factory=list)
-    totals: RecruitmentLinkedInTotals
-
-
 class RecruitmentTrendMonth(DashboardModel):
     month: str
     verifications: int
@@ -514,7 +486,6 @@ class RecruitmentStatsData(DashboardModel):
     quarterly_league: RecruitmentQuarterlyLeague | None = None
     monthly_races: RecruitmentMonthlyRaces | None = None
     hall_of_fame: RecruitmentHallOfFame | None = None
-    linkedin: RecruitmentLinkedIn | None = None
     trend: RecruitmentTrend | None = None
 
 

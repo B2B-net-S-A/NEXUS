@@ -35,8 +35,6 @@ from sqlalchemy import select, text
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
-from app.services.cortex import runs as cortex_runs
-from app.services.cortex.extractor_traffit import import_cortex_facts
 from app.services.traffit.client import TraffitClient, TraffitConfig
 from app.services.traffit.importer import PhaseProgress, TraffitImporter
 from app.services import loop_heartbeat
@@ -251,7 +249,7 @@ async def _upsert_state(
 # znacznika (`__daily__`/`__full__`): kolejna próba z tą samą `since` pomija
 # fazy, które poprzednia już skończyła, a `files_since` i watermark liczy od
 # startu PIERWSZEJ próby — inaczej kandydaci dotknięci przed przerwaniem
-# wypadali z zakresu plików/CV/Cortexa (INTG-02).
+# wypadali z zakresu plików/CV (INTG-02).
 #
 # Czyszczony na końcu KAŻDEGO biegu, który dobiegł końca (także z błędami),
 # i przy wyjątku; NIE przy anulowaniu — to właśnie deploy.
@@ -361,8 +359,8 @@ def _attributed_progress(
 ) -> PhaseProgress:
     """``PhaseProgress`` użyty WYŁĄCZNIE jako akumulator atrybucji błędów.
 
-    Fazy `cortex` i `candidates_cv_fields` nie idą przez importera Traffita,
-    więc ich statystyki to zwykłe słowniki, a nie ``PhaseProgress``. Do
+    Faza `candidates_cv_fields` nie idzie przez importera Traffita,
+    więc jej statystyki to zwykłe słowniki, a nie ``PhaseProgress``. Do
     2026-08-20 ich adaptery nie wystawiały ``error_refs``/``attributed_errors``,
     przez co `_blocking_errors` traktował KAŻDY błąd tych faz jako
     nieprzypisany: watermark stał bezterminowo, a kwarantanna nie miała czego
@@ -404,66 +402,13 @@ def _attributed_progress(
     return progress
 
 
-# ── Cortex extraction phase ──────────────────────────────────────────────────
-
-
-class _CortexPhaseResult:
-    """Adapter stats ekstraktora Cortexa na kontrakt fazy (as_dict/errors/*_at).
-
-    Projekcja domenowa zostaje (``inserted`` ← ``facts_upserted`` itd.), a
-    atrybucja błędów jest delegowana do ``_attributed_progress``. Świadomie NIE
-    zwracamy tu całego ``PhaseProgress.as_dict()``: ten emituje STAŁY zestaw
-    kluczy, więc `_summarize` zaczęłoby wypisywać na tym wierszu komplet zer
-    (``notes_promoted``, ``gone_upstream``, ``tombstoned``…), a zero, którego
-    nikt nie mierzył, czyta się w ``/sync/status`` jak zmierzone zero.
-    """
-
-    def __init__(
-        self, stats: dict[str, Any], started_at: datetime, finished_at: datetime
-    ):
-        self._stats = stats
-        self.started_at = started_at
-        self.finished_at = finished_at
-        self._progress = _attributed_progress(
-            stats,
-            phase="cortex",
-            verb="extract",
-            entity="candidate_facts",
-            detail="cortex extraction failed",
-        )
-        self.errors = self._progress.errors
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "processed": self._stats.get("processed", 0),
-            "inserted": self._stats.get("facts_upserted", 0),
-            "skipped": self._stats.get("unmatched_tokens", 0),
-            "errors": self.errors,
-            "total_source": self._stats.get("total", 0),
-            "error_samples": self._progress.error_samples[:20],
-            "error_refs": sorted(self._progress.error_refs),
-            "attributed_errors": self._progress.attributed_errors,
-            **({"note": self._stats["skipped"]} if "skipped" in self._stats else {}),
-        }
-
-
-async def _cortex_phase(since: Optional[datetime]) -> _CortexPhaseResult:
-    """Faza Cortexa w daily sync — własna sesja (izoluje częste commity ekstraktora).
-
-    Delta (``since=files_since``=run_start) re-ekstrahuje tylko kandydatów, których
-    faza ``candidates`` dotknęła w tym runie; full (``since=None``) skanuje bazę i
-    reconciluje. Najpierw sprząta osierocone runy (zwalnia slot single-flight)."""
-    started = datetime.now(timezone.utc)
-    async with AsyncSessionLocal() as cortex_db:
-        await cortex_runs.reap_orphans(cortex_db)
-        stats = await import_cortex_facts(cortex_db, since=since)
-    return _CortexPhaseResult(stats, started, datetime.now(timezone.utc))
-
-
 class _CvFieldsPhaseResult:
     """Adapter stats `backfill_cv_fields` na kontrakt fazy (as_dict/errors/*_at).
 
-    Atrybucja błędów jak w `_CortexPhaseResult` — patrz `_attributed_progress`.
+    Atrybucja błędów delegowana do `_attributed_progress`. Świadomie NIE
+    zwracamy całego ``PhaseProgress.as_dict()``: ten emituje STAŁY zestaw
+    kluczy, a zero, którego nikt nie mierzył, czyta się w ``/sync/status`` jak
+    zmierzone zero.
     """
 
     def __init__(
@@ -683,16 +628,16 @@ def _phase_plan(
         # Audyt 22.09 r2 (INTG-01): `jobs` i `pipelines` ZARAZ po kandydatach.
         # Ruchy pipeline'u zasilają KPI, Insights, konkursy i przepięcia —
         # 21–22.09 dzienna delta w ogóle do nich nie dochodziła (deploy zabijał
-        # próbę w fazach plików i 35-minutowym Cortexie). `pipelines` wymaga
+        # próbę w fazach plików i 35-minutowym Cortexie, usuniętym 23.09.2026).
+        # `pipelines` wymaga
         # `jobs` (FK), a obie są szybkie przy delcie ogonowej (INTG-03).
         ("jobs", lambda: importer.import_jobs(since=since)),
         ("pipelines", lambda: importer.import_pipelines(since=since)),
-        # Pliki CV zaraz za ruchami (od 22.09.2026 wcześniej niż Cortex): CV
-        # nowych kandydatów nie czeka na 25-minutowego Cortexa, który i tak
-        # czyta zapisane CV.
+        # Pliki CV zaraz za ruchami: CV nowych kandydatów nie czeka na fazy
+        # wzbogacania, które i tak czytają zapisane CV.
         ("candidates_cv", lambda: importer.import_candidates_cv(since=files_since)),
         ("candidate_files", lambda: importer.import_candidate_files(since=files_since)),
-        # Tekst z pobranych CV — zanim cortex i pola z CV zaczną go czytać.
+        # Tekst z pobranych CV — zanim pola z CV zaczną go czytać.
         ("candidates_cv_text", _cv_text_phase),
         (
             "candidate_activities",
@@ -700,14 +645,6 @@ def _phase_plan(
         ),
         ("candidate_sources", lambda: importer.import_candidate_sources(since=since)),
         ("talents", importer.import_talents),
-        # Cortex re-ekstrahuje fakty skilli kandydatów dotkniętych w tym biegu.
-        # W delcie używa ``files_since`` (= start PIERWSZEJ próby, INTG-02) —
-        # tak jak faza plików. Reconcile + single-flight czynią to bezpiecznym.
-        *(
-            [("cortex", lambda: _cortex_phase(files_since))]
-            if settings.CORTEX_SYNC_ENABLED
-            else []
-        ),
         (
             "candidates_enrich_names",
             lambda: importer.enrich_missing_names(since=files_since),
@@ -720,7 +657,7 @@ def _phase_plan(
 
 # Fazy WZBOGACANIA: wyprowadzają dane z tego, co Nexus JUŻ ma (zapisane CV),
 # a nie z okna zmian Traffita wyznaczanego przez `__daily__` — imię z CV,
-# pola strukturalne CV, fakty Cortexa. DORADCZE są wyłącznie ich błędy
+# pola strukturalne CV. DORADCZE są wyłącznie ich błędy
 # WIERSZY. Wstrzymany watermark ponawia te fazy — kolejna delta importuje
 # szersze okno, faza `candidates` stempluje `updated_at` tych kandydatów na
 # nowo, więc trafiają ponownie w zakres `files_since` — ale wiersz trwale
@@ -736,9 +673,7 @@ def _phase_plan(
 # watermark jak w każdej innej fazie: nie wiadomo, które wiersze przeszły,
 # a dla `candidates_cv_fields` wstrzymany watermark jest JEDYNYM ponowieniem
 # — pełny bieg ją pomija, delta widzi tylko `updated_at >= run_start`.
-ADVISORY_PHASES = frozenset(
-    {"candidates_enrich_names", "candidates_cv_fields", "cortex"}
-)
+ADVISORY_PHASES = frozenset({"candidates_enrich_names", "candidates_cv_fields"})
 
 
 # Nazwy faz w kolejności planu. Trzymane osobno, bo walidacja `phases=` musi
@@ -761,7 +696,6 @@ PHASE_NAMES: tuple[str, ...] = (
     "candidate_activities",
     "candidate_sources",
     "talents",
-    "cortex",
     "candidates_enrich_names",
     "candidates_cv_fields",
     "reconcile",
@@ -866,18 +800,12 @@ def active_phase_names() -> tuple[str, ...]:
     """Fazy, które plan wyprodukuje PRZY OBECNYCH USTAWIENIACH.
 
     `PHASE_NAMES` to słownik pisowni; ta funkcja mówi, co realnie pobiegnie.
-    Różnią się o fazy warunkowe — dziś `cortex`, gasnący przy
-    `CORTEX_SYNC_ENABLED=false`.
-
-    Rozdzielenie jest konieczne, bo bez niego `?phases=cortex` z wyłączonym
-    cortexem przechodzi walidację pisowni, bieg startuje, filtr nie dopasowuje
-    NICZEGO i operator dostaje „started" po biegu, który nie zrobił nic. To ta
-    sama cicha porażka, przed którą broni odrzucanie literówek — tylko wchodząca
-    tylnymi drzwiami przez nazwę poprawną, ale nieaktywną.
+    Dziś plan nie ma faz warunkowych (jedyna — `cortex` — zniknęła 23.09.2026),
+    więc obie listy są równe. Rozdzielenie zostaje: faza warunkowa wyłączona
+    ustawieniem przechodziłaby walidację pisowni, a filtr nie uruchomiłby
+    NICZEGO i bieg raportowałby sukces.
     """
-    if settings.CORTEX_SYNC_ENABLED:
-        return PHASE_NAMES
-    return tuple(p for p in PHASE_NAMES if p != "cortex")
+    return PHASE_NAMES
 
 
 def validate_phases(phases: Sequence[str]) -> frozenset[str]:
@@ -900,7 +828,7 @@ def validate_phases(phases: Sequence[str]) -> frozenset[str]:
     # Nazwa poprawna, ale wyłączona ustawieniem, kończy się tak samo jak
     # literówka: filtr nie dopasowuje niczego, bieg nie robi nic i raportuje
     # sukces. Odrzucamy dopiero, gdy CAŁY wybór jest nieaktywny — mieszanka
-    # `candidate_files,cortex` przy wyłączonym cortexie ma sens i ma pobiec.
+    # aktywnej i wyłączonej fazy ma sens i ma pobiec.
     active = frozenset(active_phase_names())
     if not (frozenset(requested) & active):
         inactive = sorted(set(requested) - active)

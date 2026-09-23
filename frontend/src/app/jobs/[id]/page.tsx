@@ -888,7 +888,6 @@ export default function JobDetailPage() {
         jobId={jobId}
         canEdit={canEditJob}
         canEditContent={canEditJobContentFields}
-        readOnly={!canWritePipeline}
         onNavigate={() => selectView("champion")}
         onOpenSlideOver={openSlideOver}
         onEdit={() => setShowEditJob(true)}

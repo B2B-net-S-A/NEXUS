@@ -1,9 +1,13 @@
-"""Cortex — kuracja taksonomii (domknięcie pętli: unmatched → mapped/ignored).
+"""Kuracja słownika umiejętności (Ustawienia → Rekrutacja → „Słownik umiejętności").
 
-Etap 1 (Action Layer): dotąd unmatched były tylko do odczytu. Tu admin z UI może:
-zmapować term na istniejący skill (dodaje alias), utworzyć nowy canonical,
-dodać alias, oznaczyć term jako ignored — z audytem (kto/kiedy). Po każdej zmianie
-odświeżamy in-memory ALIAS_MAP scoringu, żeby nowe aliasy działały od razu.
+Admin i Head of Recruitment mogą: zmapować nieznany termin na istniejący skill
+(dodaje alias), utworzyć nowy canonical, dodać alias, oznaczyć termin jako
+ignorowany — z audytem (kto/kiedy). Po każdej zmianie odświeżamy in-memory
+ALIAS_MAP scoringu, żeby nowe aliasy działały od razu.
+
+Do 23.09.2026 moduł żył w Cortexie (``services/cortex/curation.py``). Cortex
+został usunięty, a nieznane terminy (tabela ``cortex_unmatched_terms``) przestały
+przybywać — kolejka zawiera to, co ekstrakcja zebrała do tego dnia.
 """
 
 from __future__ import annotations

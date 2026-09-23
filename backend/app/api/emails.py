@@ -5,7 +5,7 @@ SMTP integration — TODO (currently console log only).
 """
 
 import logging
-from typing import List, Optional
+from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -20,11 +20,21 @@ from app.api.candidate_access import (
     CandidateWriteAccess,
     require_candidate_write,
 )
-from app.api.deps import AdminUser, TacPlus
+from app.api.deps import AdminUser, require_roles
+from app.models.user import User, UserRole
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Autorzy wspólnych szablonów maili do kandydatów: admin (niejawnie przez
+# `require_roles`), Head of Recruitment i Delivery Lead. Do 23.09.2026 była tu
+# bramka `TacPlus` — funkcji TAC nie używamy, więc HoR nie mógł poprawić
+# szablonu, a konto z samą rolą TAC mogło.
+EmailTemplateAuthor = Annotated[
+    User,
+    Depends(require_roles(UserRole.head_of_recruitment, UserRole.delivery_lead)),
+]
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────
@@ -356,12 +366,12 @@ async def get_email_template(
 )
 async def create_email_template(
     data: EmailTemplateCreate,
-    current_user: TacPlus,
+    current_user: EmailTemplateAuthor,
     db: AsyncSession = Depends(get_db),
 ):
     """Utwórz nowy szablon emaila.
 
-    Security: TAC+ only. Templates are shared system-wide and used for
+    Security: admin / HoR / DL only. Templates are shared system-wide and used for
     candidate-facing emails (rejection, offer, scheduling). Sourcer/recruiter
     must not be able to author them — separation of duties for outbound
     candidate communications.
@@ -393,12 +403,12 @@ async def create_email_template(
 async def update_email_template(
     template_id: int,
     data: EmailTemplateUpdate,
-    current_user: TacPlus,
+    current_user: EmailTemplateAuthor,
     db: AsyncSession = Depends(get_db),
 ):
     """Zaktualizuj szablon emaila.
 
-    Security: TAC+ only — same rationale as create_email_template.
+    Security: admin / HoR / DL only — same rationale as create_email_template.
     """
     result = await db.execute(
         select(EmailTemplate).where(EmailTemplate.id == template_id)

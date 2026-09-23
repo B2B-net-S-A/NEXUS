@@ -36,7 +36,7 @@ describe("visibleNavSections", () => {
       ]),
     );
     expect(recruiter).not.toContain("/contracts");
-    expect(recruiter).not.toContain("/cortex"); // Cortex ukryty w UI (21.09.2026)
+    expect(recruiter).not.toContain("/cortex"); // Cortex usunięty (23.09.2026)
   });
 
   it("moduł Finanse zostaje zamknięty przed rolami operacyjnymi", () => {

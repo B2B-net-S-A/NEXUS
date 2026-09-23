@@ -3,14 +3,15 @@
 ``pytest_collection_modifyitems`` w ``tests/conftest.py`` wycisza legacy testy,
 które wymagają uvicorna na :8000. Dopóki rozpoznawał je po samej NAZWIE
 fixture'a (``client``), łapał też pliki, które nadpisują ``client`` lokalnie
-transportem ASGI — nie potrzebują żadnego serwera. Tak zniknął z CI cały
-``test_dynareporter_readonly.py``: 6 testów oznaczanych SKIPPED przy każdym
-biegu, pytest kończył z kodem 0, a kontrakt pokrycia tego nie widział, bo
-audytuje wyłącznie listę ``--ignore``, nigdy skipów w runtime.
+transportem ASGI — nie potrzebują żadnego serwera. Tak zniknął kiedyś z CI
+cały ``test_dynareporter_readonly.py``: 6 testów oznaczanych SKIPPED przy
+każdym biegu, pytest kończył z kodem 0, a kontrakt pokrycia tego nie widział,
+bo audytuje wyłącznie listę ``--ignore``, nigdy skipów w runtime.
 
-Regresja tutaj byłaby CICHA (zielone CI, zero wykonanego pokrycia blokady
-zapisu ``DYNAREPORTER_MODE=read_only``), więc pilnujemy jej dwoma poziomami:
-jednostkowo predykatu i realnym biegiem pliku, który był ofiarą.
+Regresja tutaj byłaby CICHA (zielone CI, zero wykonanego pokrycia), więc
+pilnujemy jej dwoma poziomami: jednostkowo predykatu i realnym biegiem pliku
+z lokalnym ``client`` (``test_local_client_fixture_override.py`` — DynaReporter
+usunięto 23.09.2026).
 """
 
 from __future__ import annotations
@@ -41,7 +42,9 @@ class _Item:
 
 def test_local_asgi_override_is_not_treated_as_live_server():
     """Fixture zdefiniowany w PLIKU testowym → in-process, nie skipujemy."""
-    item = _Item(("client",), [_FixtureDef("tests/test_dynareporter_readonly.py")])
+    item = _Item(
+        ("client",), [_FixtureDef("tests/test_local_client_fixture_override.py")]
+    )
     assert _client_fixture_is_live_server(item) is False
 
 
@@ -73,11 +76,11 @@ def test_unknown_definition_falls_back_to_skipping(item):
     assert _client_fixture_is_live_server(item) is True
 
 
-def test_dynareporter_readonly_suite_actually_runs():
-    """Realny bieg pliku, który przez tę heurystykę wypadł z CI.
+def test_local_client_override_suite_actually_runs():
+    """Realny bieg pliku z lokalnym ``client``.
 
     Asercje jednostkowe wyżej sprawdzają predykat; ta sprawdza SKUTEK — że
-    testy blokady zapisu DynaReportera faktycznie się wykonują, a nie tylko
+    test z lokalnym nadpisaniem faktycznie się wykonuje, a nie tylko
     zbierają. Bez niej powrót do dopasowania po nazwie znowu przeszedłby
     niezauważony (SKIPPED nie psuje kodu wyjścia).
     """
@@ -94,7 +97,7 @@ def test_dynareporter_readonly_suite_actually_runs():
             sys.executable,
             "-m",
             "pytest",
-            "tests/test_dynareporter_readonly.py",
+            "tests/test_local_client_fixture_override.py",
             "-q",
             "--no-header",
             "-p",

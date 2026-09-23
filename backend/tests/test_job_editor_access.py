@@ -160,33 +160,6 @@ async def test_job_detail_reports_can_edit_and_can_manage(app_client, world):
 
 
 @pytest.mark.asyncio
-async def test_postings_follow_the_same_rule(app_client, world):
-    created = await app_client.post(
-        f"/api/jobs/{world['job_id']}/postings",
-        headers=world["owner"],
-        json={"portal": "pracuj_pl", "expires_days": 30},
-    )
-    assert created.status_code == 201, created.text
-    posting_id = created.json()["id"]
-
-    refused = await app_client.post(
-        f"/api/jobs/{world['job_id']}/postings",
-        headers=world["outsider"],
-        json={"portal": "justjoinit", "expires_days": 30},
-    )
-    assert refused.status_code == 403, refused.text
-    refused_delete = await app_client.delete(
-        f"/api/postings/{posting_id}", headers=world["outsider"]
-    )
-    assert refused_delete.status_code == 403, refused_delete.text
-
-    deleted = await app_client.delete(
-        f"/api/postings/{posting_id}", headers=world["collab"]
-    )
-    assert deleted.status_code == 204, deleted.text
-
-
-@pytest.mark.asyncio
 async def test_champion_profile_is_editable_by_the_team_only(app_client, world):
     payload = {"project": {"about": "Nowy projekt w banku."}}
     ok = await app_client.put(

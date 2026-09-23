@@ -1,8 +1,8 @@
 """0325: `POST /api/jobs/{id}/manage-in-nexus` — przełącznik „prowadzona w NEXUSIE".
 
-Kontrakt (decyzja Artura 17.09.2026): włączenie = TacPlus + członkostwo w
-rekrutacji; wyłączenie (powrót do Traffita, po którym nocny import znów
-nadpisze ruchy) tylko admin / Delivery Lead; każda realna zmiana zostawia wpis
+Kontrakt (decyzja Artura 17.09.2026, od 23.09.2026 bez roli TAC): włączenie
+= RecruiterPlus + członkostwo w rekrutacji; wyłączenie (powrót do Traffita,
+po którym nocny import znów nadpisze ruchy) tylko admin / Delivery Lead; każda realna zmiana zostawia wpis
 `activities.action='managed_in_nexus_changed'` z poprzednią wartością;
 ponowne wywołanie z tą samą wartością nie dopisuje historii. Rekrutacja spoza
 Traffita → 409, brak oferty → 404.
@@ -26,20 +26,20 @@ def _url(job_id: int) -> str:
     return f"/api/jobs/{job_id}/manage-in-nexus"
 
 
-async def _seed_tac(app_client: AsyncClient) -> tuple[dict[str, str], int]:
+async def _seed_recruiter(app_client: AsyncClient) -> tuple[dict[str, str], int]:
     from app.core.security import hash_password
     from app.models.user import User, UserRole
 
     unique = uuid.uuid4().hex[:8]
-    email = f"managed-nexus-tac-{unique}@example.com"
-    password = f"T3st_{unique}!Tac"
+    email = f"managed-nexus-rec-{unique}@example.com"
+    password = f"T3st_{unique}!Rec"
     async with AsyncSessionLocal() as db:
         user = User(
             email=email,
             password_hash=hash_password(password),
-            name="Managed NEXUS TAC",
-            role=UserRole.tac,
-            roles=["tac"],
+            name="Managed NEXUS recruiter",
+            role=UserRole.recruiter,
+            roles=["recruiter"],
             is_active=True,
         )
         db.add(user)
@@ -55,7 +55,7 @@ async def _seed_tac(app_client: AsyncClient) -> tuple[dict[str, str], int]:
 
 
 async def _seed_job(
-    *, tac_id: int | None = None, external_source: str = "traffit"
+    *, recruiter_id: int | None = None, external_source: str = "traffit"
 ) -> int:
     from app.models.client import Client
     from app.models.job import Job, JobStatus
@@ -68,7 +68,7 @@ async def _seed_job(
             title=f"ManagedNexus-Job-{uuid.uuid4().hex[:6]}",
             status=JobStatus.published,
             client_id=client.id,
-            tac_id=tac_id,
+            recruiter_id=recruiter_id,
             external_source=external_source,
             external_id=uuid.uuid4().hex if external_source == "traffit" else None,
         )
@@ -135,8 +135,8 @@ async def test_repeated_enable_is_idempotent(
 
 
 @pytest.mark.asyncio
-async def test_tac_outside_the_recruitment_team_gets_403(app_client: AsyncClient):
-    headers, _tac_id = await _seed_tac(app_client)
+async def test_recruiter_outside_the_recruitment_team_gets_403(app_client: AsyncClient):
+    headers, _recruiter_id = await _seed_recruiter(app_client)
     job_id = await _seed_job()
 
     resp = await app_client.post(_url(job_id), json={"enabled": True}, headers=headers)
@@ -146,15 +146,15 @@ async def test_tac_outside_the_recruitment_team_gets_403(app_client: AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_tac_member_can_enable_but_not_revert(app_client: AsyncClient):
-    headers, tac_id = await _seed_tac(app_client)
-    job_id = await _seed_job(tac_id=tac_id)
+async def test_recruiter_member_can_enable_but_not_revert(app_client: AsyncClient):
+    headers, recruiter_id = await _seed_recruiter(app_client)
+    job_id = await _seed_job(recruiter_id=recruiter_id)
 
     enable = await app_client.post(
         _url(job_id), json={"enabled": True}, headers=headers
     )
     assert enable.status_code == 200, enable.text
-    assert enable.json()["managed_in_nexus_by"] == tac_id
+    assert enable.json()["managed_in_nexus_by"] == recruiter_id
 
     revert = await app_client.post(
         _url(job_id), json={"enabled": False}, headers=headers
@@ -210,9 +210,9 @@ async def test_missing_recruitment_gets_404(
 
 
 @pytest.mark.asyncio
-async def test_missing_recruitment_is_404_also_for_a_tac(app_client: AsyncClient):
-    """Członkostwo sprawdzane po odczycie oferty — TAC nie dostaje 403 za brak."""
-    headers, _tac_id = await _seed_tac(app_client)
+async def test_missing_recruitment_is_404_also_for_a_recruiter(app_client: AsyncClient):
+    """Członkostwo sprawdzane po odczycie oferty — rekruter nie dostaje 403 za brak."""
+    headers, _recruiter_id = await _seed_recruiter(app_client)
     resp = await app_client.post(
         _url(2_000_000_000), json={"enabled": True}, headers=headers
     )

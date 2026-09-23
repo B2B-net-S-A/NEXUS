@@ -25,7 +25,6 @@ from app.api.deps import (
     get_current_user,
     require_dl_assigned_or_admin,
 )
-from app.api.dynareporter_admin_users import ToggleActivePayload, toggle_active
 from app.models.user import User, UserRole
 from app.services.access_scope import DashboardScope, ScopeKind
 from app.services.candidate_membership import is_member_of_candidate_chat
@@ -324,27 +323,3 @@ def test_all_chat_routes_declare_candidate_read_or_write_guards() -> None:
             get_type_hints(handler, include_extras=True)["current_user"]
             == CandidateWriteAccess
         )
-
-
-@pytest.mark.asyncio
-async def test_legacy_active_toggle_is_atomic_and_noop_safe() -> None:
-    result = MagicMock()
-    result.scalar_one_or_none.return_value = None
-    db = AsyncMock()
-    db.execute.return_value = result
-
-    response = await toggle_active(
-        user_id=42,
-        payload=ToggleActivePayload(is_active=False),
-        current_user=_user(UserRole.admin),
-        db=db,
-    )
-
-    statement, params = db.execute.await_args.args
-    sql = " ".join(str(statement).split())
-    assert "authorization_version = authorization_version + 1" in sql
-    assert "tokens_valid_after = CURRENT_TIMESTAMP" in sql
-    assert "is_active IS DISTINCT FROM :a" in sql
-    assert params == {"a": False, "uid": 42}
-    db.commit.assert_awaited_once()
-    assert response == {"ok": True, "is_active": False}

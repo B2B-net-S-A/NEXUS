@@ -66,8 +66,6 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "PUT /api/notifications/read-all": "oznaczenie własnych powiadomień jako przeczytane",
     "PATCH /api/notifications/{notification_id}/read": "oznaczenie własnego powiadomienia",
     "PUT /api/notifications/{notification_id}/read": "oznaczenie własnego powiadomienia",
-    "GET /api/dynareporter/competitions/my-notifications": "osobiste powiadomienia konkursowe",
-    "PATCH /api/dynareporter/competitions/notifications/{notif_id}/read": "oznaczenie własnego powiadomienia konkursu",
     # ── Dane referencyjne wspólne dla wszystkich sekcji ─────────────────────
     "GET /api/users": "katalog kont do pickerów i wzmianek we wszystkich sekcjach",
     "GET /api/users/mentionable": "lista osób do wzmianek @ w notatkach i czatach każdej sekcji",
@@ -88,7 +86,6 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/clients/{client_id}/cv-rule": "_require_shared_rule_section_read: Delivery albo Pipeline w handlerze",
     "GET /api/search/": "wyszukiwarka globalna filtruje każdy kubełek po sekcji w handlerze",
     "GET /api/search/global": "wyszukiwarka globalna filtruje każdy kubełek po sekcji w handlerze",
-    "GET /api/dynareporter/board-dashboard/monthly": "_require_board_access sprawdza capability zarządu w handlerze",
     # ── Jarvis (0330) — asystent dostępny dla każdej roli ──────────────────
     "GET /api/jarvis/status": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
     "POST /api/jarvis/chat": "Jarvis: narzędzia wracają do aplikacji przez trasy z własną bramką sekcji",
@@ -129,7 +126,7 @@ def _classify(route: Any) -> str:
             return "section"
         if "require_candidate_roles" in name or name == "require_candidate_finance_read":
             return "section"
-        if "require_capability" in name or "require_dynareporter_section" in name:
+        if "require_capability" in name:
             return "section"
         if "require_service_scope" in name:
             return "section"
@@ -202,7 +199,8 @@ _EXPECTED_SECTIONS = [
     ("GET", "/api/presence/{resource_type}/{resource_id}/viewers", {S, P}),
     ("POST", "/api/champion/preview", {S, P}),
     ("POST", "/api/fireflies/sync", {S}),
-    ("GET", "/api/cortex/supply-demand", {INS}),
+    ("GET", "/api/skills-admin/skills", {S}),
+    ("POST", "/api/skills-admin/unmatched-terms/{term_id}/map", {S}),
     ("GET", "/api/kpis/me/today", {INS}),
     ("POST", "/api/priority-work/demands", {P}),
     ("GET", "/api/scoring-weights", {INS}),
@@ -223,8 +221,6 @@ _EXPECTED_SECTIONS = [
     ("GET", "/api/team-structure/my-team", {D, P}),
     ("GET", "/api/clients-lookup", {S, P, D, INS, F}),
     ("GET", "/api/jobs-lookup", {P, S, INS}),
-    ("GET", "/api/dynareporter/kpi/sales/my", {INS}),
-    ("POST", "/api/dynareporter/upload/excel", {INS}),
 ]
 
 

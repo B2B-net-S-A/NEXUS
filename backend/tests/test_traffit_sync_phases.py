@@ -42,17 +42,10 @@ def test_phase_names_match_the_actual_plan() -> None:
     plan = ts._phase_plan(_StubImporter(), None, None)
     planned = [name for name, _ in plan]
 
-    # `cortex` jest warunkowy (CORTEX_SYNC_ENABLED), więc porównujemy zawieranie
-    # w tę stronę, w którą jest ono zawsze prawdziwe, i osobno pilnujemy, żeby
-    # PHASE_NAMES nie zawierało nazw spoza planu przy WŁĄCZONYM cortexie.
-    assert set(planned) <= set(ts.PHASE_NAMES), (
-        f"plan ma fazy nieznane PHASE_NAMES: {sorted(set(planned) - set(ts.PHASE_NAMES))}"
-    )
-    assert "cortex" in ts.PHASE_NAMES
-    assert set(ts.PHASE_NAMES) - set(planned) <= {"cortex"}, (
-        "PHASE_NAMES zawiera nazwy, których plan nie produkuje: "
-        f"{sorted(set(ts.PHASE_NAMES) - set(planned) - {'cortex'})}"
-    )
+    # Plan nie ma dziś faz warunkowych (jedyna, `cortex`, zniknęła 23.09.2026),
+    # więc lista pisowni i plan muszą być identyczne — łącznie z kolejnością.
+    assert tuple(planned) == ts.PHASE_NAMES
+    assert ts.active_phase_names() == ts.PHASE_NAMES
 
 
 def test_unknown_phase_is_rejected_not_silently_dropped() -> None:
@@ -96,35 +89,31 @@ def test_phase_disabled_by_config_is_rejected_like_a_typo(monkeypatch) -> None:
     """Nazwa poprawna, ale wyłączona, kończy się TAK SAMO jak literówka:
     filtr nie dopasowuje niczego, bieg nie robi nic i raportuje sukces.
 
-    `cortex` znika z planu przy `CORTEX_SYNC_ENABLED=false`, ale zostaje
-    w `PHASE_NAMES` (to słownik pisowni). Bez osobnego sprawdzenia aktywności
-    `?phases=cortex` przechodziło walidację i dawało „started" po biegu, który
-    nie wykonał ani jednej fazy.
+    Do 23.09.2026 tak działał `cortex` przy `CORTEX_SYNC_ENABLED=false`. Dziś
+    plan nie ma faz warunkowych, więc symulujemy jedną: `active_phase_names`
+    to jedyne miejsce, które mówi, co realnie pobiegnie.
     """
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "CORTEX_SYNC_ENABLED", False)
-    assert "cortex" not in ts.active_phase_names()
+    active = tuple(p for p in ts.PHASE_NAMES if p != "talents")
+    monkeypatch.setattr(ts, "active_phase_names", lambda: active)
     with pytest.raises(ValueError) as exc:
-        ts.validate_phases(["cortex"])
-    assert "cortex" in str(exc.value)
+        ts.validate_phases(["talents"])
+    assert "talents" in str(exc.value)
 
-    monkeypatch.setattr(settings, "CORTEX_SYNC_ENABLED", True)
-    assert ts.validate_phases(["cortex"]) == frozenset({"cortex"})
+    monkeypatch.setattr(ts, "active_phase_names", lambda: ts.PHASE_NAMES)
+    assert ts.validate_phases(["talents"]) == frozenset({"talents"})
 
 
 def test_mixed_selection_survives_one_inactive_phase(monkeypatch) -> None:
     """Odrzucamy dopiero, gdy CAŁY wybór jest nieaktywny.
 
-    `candidate_files,cortex` przy wyłączonym cortexie ma sens i ma pobiec —
-    odrzucenie całości zmusiłoby operatora do pamiętania, które fazy są dziś
-    włączone, zamiast po prostu wskazać te, których potrzebuje.
+    Mieszanka aktywnej i wyłączonej fazy ma sens i ma pobiec — odrzucenie
+    całości zmusiłoby operatora do pamiętania, które fazy są dziś włączone,
+    zamiast po prostu wskazać te, których potrzebuje.
     """
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "CORTEX_SYNC_ENABLED", False)
-    assert ts.validate_phases(["candidate_files", "cortex"]) == frozenset(
-        {"candidate_files", "cortex"}
+    active = tuple(p for p in ts.PHASE_NAMES if p != "talents")
+    monkeypatch.setattr(ts, "active_phase_names", lambda: active)
+    assert ts.validate_phases(["candidate_files", "talents"]) == frozenset(
+        {"candidate_files", "talents"}
     )
 
 

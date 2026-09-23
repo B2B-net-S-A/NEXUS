@@ -696,16 +696,27 @@ async def ensure_delivery_lead_job_visible(
 # ── Redakcja rekrutacji (decyzja Artura 22.09.2026) ─────────────────────────
 #
 # Rekrutację ZAKŁADA admin albo Delivery Lead (`/jobs/new`), a jej cykl życia
-# (publikacja, zamknięcie, usunięcie, przełączenie do NEXUSA) zostaje przy
-# admin / DL / TAC. TREŚĆ rekrutacji — opis, ogłoszenia, profil Championa —
+# (publikacja, zamknięcie, usunięcie) zostaje przy admin / DL — od 23.09.2026
+# bez roli TAC; przełączenie do NEXUSA włącza każdy członek zespołu. TREŚĆ rekrutacji — opis, ogłoszenia, profil Championa —
 # redaguje też osoba, która ją PROWADZI, i jej współpracownicy, niezależnie od
-# roli. Do 22.09 wszystkie te trasy stały za `TacPlus`, a funkcji TAC nie
+# roli. Do 22.09 wszystkie te trasy stały za `TacPlus` (usunięty 23.09), a funkcji TAC nie
 # używamy, więc rekruter prowadzący rekrutację nie mógł poprawić jej opisu.
 #
 # Konta TAC zostają bez zmian (decyzja 22.09): TAC redaguje jak dotąd każdą
 # rekrutację, ale kod nie WYMAGA już TAC do niczego, co robi rekruter.
 
 JOB_EDIT_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
+
+# Role z PEŁNĄ redakcją (`JobEditLevel.full` w `job_edit_level` niżej; Delivery
+# Lead dodatkowo tylko w swoim portfelu). Lustro capability `job.update`
+# w `frontend/src/lib/capabilities.ts` — pilnuje go `capabilities.test.ts`.
+# Konta TAC zachowują pełną redakcję (decyzja 22.09), ale żadna trasa nie
+# WYMAGA już roli TAC (`TacPlus` usunięty 23.09.2026).
+JOB_FULL_EDIT_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.delivery_lead,
+    UserRole.tac,
+)
 
 # Pola, których członek zespołu (rekruter prowadzący, współpracownik) nie
 # zmienia: status to cykl życia, klient i osoby prowadzące to decyzja
