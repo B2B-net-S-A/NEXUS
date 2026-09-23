@@ -159,6 +159,10 @@ class CandidateStageResponse(BaseModel):
     # przez system i nikt go jeszcze nie zatwierdził — „CV gotowe w tle —
     # sprawdź i wyślij". Wypełnia tylko tablica.
     auto_cv_ready: bool = False
+    # QC CV (Rekrutacja v5, 0361): `{"status": "passed|failed|overridden|
+    # unchecked", "blocking_failed": int}` — najnowszy przebieg pary.
+    # Wypełnia tylko tablica.
+    qc: Optional[dict] = None
     # Stawka z PROFILU kandydata (`Candidate.expected_rate_hourly`, PLN/h) —
     # podpowiedź w oknie „Zweryfikowany". Wypełnia tylko tablica.
     candidate_expected_rate_hourly: Optional[Decimal] = None

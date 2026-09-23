@@ -50,6 +50,8 @@ _RATE_LIMITED_MODULES = (
     "api/job_request_intake.py",
     # Przepięcie (Pipeline v4): podpowiedzi Luny — każde wywołanie to płatny model.
     "api/screening_reassign.py",
+    # QC CV: każde wywołanie liczy QC (pobranie i odczyt CV), poprawki = model.
+    "api/cv_qc.py",
 )
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.

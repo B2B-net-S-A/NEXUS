@@ -130,6 +130,12 @@ export interface KanbanItem {
  } | null;
  // „Zatrudniony": czy jest uzupełnione zamówienie.
  order_status?: "complete" | "missing" | null;
+ // Rekrutacja v5 (0361): najnowszy przebieg QC CV pary. Brak pola = starszy
+ // serwer — karta w „QC CV” mówi wtedy „QC nie sprawdzone”, nie „✓”.
+ qc?: {
+  status: "passed" | "failed" | "overridden" | "unchecked";
+  blocking_failed: number;
+ } | null;
 }
 
 export interface KanbanColumn {

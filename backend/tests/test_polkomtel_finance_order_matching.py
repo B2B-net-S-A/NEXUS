@@ -40,10 +40,34 @@ def _skip_contract_order_locks(monkeypatch):
     monkeypatch.setattr("app.api.md_consumption.lock_contract_then_orders", _no_lock)
 
 
+_EXPLICIT_ORDER_HINTS = None
+
+
 def _set_polkomtel(monkeypatch, client_id: int) -> None:
     from app.services import finance_order_matching
 
+    global _EXPLICIT_ORDER_HINTS
+    if _EXPLICIT_ORDER_HINTS is None:
+        _EXPLICIT_ORDER_HINTS = finance_order_matching.explicit_order_hints
     monkeypatch.setattr(finance_order_matching, "POLKOMTEL_CLIENT_ID", client_id)
+    monkeypatch.setattr(
+        finance_order_matching, "explicit_order_hints", _EXPLICIT_ORDER_HINTS
+    )
+
+
+def _simulate_pre_fix_importer(monkeypatch) -> None:
+    """Paczka wgrana PRZED poprawką numerów SAP: numer z „Uwag" nie wiązał.
+
+    Do 23.09.2026 import MD czytał numer wyłącznie u Polkomtela; od ticketu BIK
+    wiąże też długi/znany numer u każdego klienta. Replay dotyczy paczek
+    zapisanych starym kodem, więc symulacja wyłącza obie reguły naraz.
+    """
+    from app.services import finance_order_matching
+
+    _set_polkomtel(monkeypatch, -999)
+    monkeypatch.setattr(
+        finance_order_matching, "explicit_order_hints", lambda *_a, **_k: []
+    )
 
 
 async def _group(
@@ -423,7 +447,7 @@ async def test_existing_cost_batch_has_dry_run_and_idempotent_apply(
 
     # Reproduce the pre-fix state: this client is not recognized as Polkomtel,
     # so the literal SAP prefix prevents both rows from matching.
-    _set_polkomtel(monkeypatch, -999)
+    _simulate_pre_fix_importer(monkeypatch)
     imported = await _import_sheet(
         app_client,
         finance,
@@ -501,7 +525,7 @@ async def test_existing_cost_batch_reprocesses_an_exhausted_historical_group(
     )
     finance = await _finance_headers(app_client)
 
-    _set_polkomtel(monkeypatch, -999)
+    _simulate_pre_fix_importer(monkeypatch)
     imported = await _import_sheet(
         app_client,
         finance,
@@ -557,7 +581,7 @@ async def test_reprocess_does_not_overwrite_consumption_with_unknown_provenance(
     )
     finance = await _finance_headers(app_client)
 
-    _set_polkomtel(monkeypatch, -999)
+    _simulate_pre_fix_importer(monkeypatch)
     imported = await _import_sheet(
         app_client,
         finance,
@@ -630,7 +654,7 @@ async def test_existing_md_batch_is_reprocessed_from_stored_rows(
     )
     finance = await _finance_headers(app_client)
 
-    _set_polkomtel(monkeypatch, -999)
+    _simulate_pre_fix_importer(monkeypatch)
     imported = await _import_sheet(
         app_client,
         finance,
@@ -700,7 +724,7 @@ async def test_reprocess_does_not_treat_a_draft_line_as_historical_evidence(
     )
     finance = await _finance_headers(app_client)
 
-    _set_polkomtel(monkeypatch, -999)
+    _simulate_pre_fix_importer(monkeypatch)
     imported = await _import_sheet(
         app_client,
         finance,
@@ -750,7 +774,7 @@ async def test_reprocess_fails_closed_before_overwriting_a_successor_md_row(
     )
     finance = await _finance_headers(app_client)
 
-    _set_polkomtel(monkeypatch, -999)
+    _simulate_pre_fix_importer(monkeypatch)
     imported = await _import_sheet(
         app_client,
         finance,
@@ -841,7 +865,7 @@ async def test_reprocess_fails_closed_on_same_person_and_number_at_bik(
     )
     finance = await _finance_headers(app_client)
 
-    _set_polkomtel(monkeypatch, -999)
+    _simulate_pre_fix_importer(monkeypatch)
     imported = await _import_sheet(
         app_client,
         finance,
@@ -900,7 +924,7 @@ async def test_reprocess_preserves_cost_group_when_one_row_applies_md_and_invoic
     )
     finance = await _finance_headers(app_client)
 
-    _set_polkomtel(monkeypatch, -999)
+    _simulate_pre_fix_importer(monkeypatch)
     imported = await _import_sheet(
         app_client,
         finance,

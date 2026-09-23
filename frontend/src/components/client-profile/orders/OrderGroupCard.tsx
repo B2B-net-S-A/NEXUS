@@ -548,7 +548,11 @@ function OrderLineRow({
               Wymagana decyzja o pozostałej puli MD
               {line.offboarding_case.uses_shared_md_pool
                 ? " (wspólna pula pozostaje bez zmian)."
-                : "."}
+                : // Migawka sprawy idzie za rozliczeniami (import po zejściu
+                  // zmniejsza pulę), więc liczba jest stanem na dziś.
+                  line.offboarding_case.remaining_md_snapshot > 0
+                  ? `: pozostało ${formatMd(line.offboarding_case.remaining_md_snapshot)} MD.`
+                  : ": pula wykorzystana w całości (0 MD do przeniesienia)."}
             </p>
           ) : null}
           {completedCostLine ? (

@@ -19,7 +19,7 @@ na własne id.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -314,7 +314,11 @@ async def test_places_suggest(app_client, app_auth_headers):
 
 @pytest.mark.asyncio
 async def test_contacted_in_period(app_client, app_auth_headers):
-    today = date.today()
+    # „Dziś” w czasie polskim, jak kod — `date.today()` (UTC na CI) myliło
+    # się między 22:00 a 24:00 UTC.
+    from app.core.scheduling import business_today
+
+    today = business_today()
     yes = await _list(
         app_client,
         app_auth_headers,
