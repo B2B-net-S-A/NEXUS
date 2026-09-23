@@ -1,31 +1,28 @@
 "use client";
 
 /**
- * CvHandoffWorkbench — stanowisko „CV do klienta" (krok 06 programu „flow
- * w języku C2", docs/c2-flow-program.md; układ z makiety — fala 3).
+ * CvHandoffWorkbench — sekcja „CV do klienta” panelu osoby (rekrutacja v3).
  *
- * Najbardziej rozproszony krok procesu: generator CV to osobna strona,
- * brandowane CV robi się z profilu kandydata, link dla klienta z innego
- * modalu, a stawka do klienta z modalu przy przeciąganiu karty na „CV
- * Wysłane". Ten ekran ustawia to w kolejności wysyłki — kolejka zweryfikowanych
- * i reguły klienta po lewej, przygotowanie CV w środku, wysyłka w doku —
- * **nie odbierając żadnego z dotychczasowych miejsc**: `/cv-generator`, modale
- * na profilu i ruch z tablicy działają dokładnie jak dotąd.
+ * Od generatora CV v3 przygotowanie CV żyje w karcie `CvToClientCard`
+ * (gotowe / generuje się / brak / stary szablon), a ten warsztat dokłada do
+ * niej WYSYŁKĘ: stawkę do klienta, „Oznacz CV Wysłane”, link dla klienta
+ * (gdy włączony) i reguły CV klienta. Osadzony generator, wybór wersji
+ * „Zastąp szkic i otwórz edytor” oraz pełnoekranowy układ z kolejką
+ * zweryfikowanych zniknęły — kolejka nie była nigdzie montowana od wersji 3,
+ * a generator otwiera się teraz w oknie z karty.
  *
- * Zero nowych endpointów: `client-rate`, `share-token` (create/list/revoke),
- * `pipeline/move`, `cv/original`, `cv/branded`, `screening/share-token`
- * i sam generator — wszystko istniejące.
+ * Karta niczego nie blokuje („Kanban bez bramek”): brak CV czy zgody RODO nie
+ * wyłącza „Oznacz CV Wysłane”. Ruch idzie przez `pipeline/move` ze stawką
+ * (Pipeline v4), link — na etap SPRZED ruchu, gdzie leży CV.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
   ExternalLink,
-  FileText,
   HelpCircle,
   Link2,
   Loader2,
@@ -33,17 +30,14 @@ import {
   Send,
   Settings2,
   UserX,
-  Users,
 } from "lucide-react";
 
 import {
   candidateStageCvApi,
-  cvGeneratedShareApi,
   extractErrorMsg,
   pipelineApi,
   screeningApi,
   type CVBrandedState,
-  type CVOriginalSnapshot,
   type CVShareTokenListItem,
   type RateUnit,
 } from "@/lib/api";
@@ -67,9 +61,7 @@ import {
 } from "@/components/v2/cv-generator/ClientCvRuleBanner";
 import { useClientPlaybook } from "@/lib/client-playbooks";
 import { useCentralPolicy } from "@/components/cv-rules/CentralPolicyView";
-import { CVGeneratorStandaloneV2 } from "@/components/v2/pages/CVGeneratorStandaloneV2";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
-import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { RATE_UNIT_LABELS } from "@/lib/verified-rate-gate";
 import {
   CV_SENT_STAGE,
@@ -104,36 +96,19 @@ import {
   DockActions,
   DockSection,
   KvList,
-  RailRow,
-  RailSection,
   ReadyItem,
-  ReqRow,
-  ToolPill,
-  WorkbenchCard,
-  WorkbenchDock,
-  WorkbenchHeader,
-  WorkbenchRail,
   type DockTabItem,
 } from "@/components/v2/jobs/workbench-chrome";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { useEligibilityWarning } from "@/components/v2/jobs/useEligibilityWarning";
 import { TabbedNav } from "@/components/ds";
+import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 import type { WorkbenchPanelProps } from "@/components/v2/recruitment/types";
 
-// Edytor brandowanego CV jest ciężki (rich text) — leniwy import, ten sam
-// wzorzec co w `PipelineCandidateDock`.
-const CVBrandedEditModal = dynamic(
-  () =>
-    import("@/components/v2/modals/CVBrandedEditModal").then(
-      (m) => m.CVBrandedEditModal,
-    ),
-  { ssr: false },
-);
-
 /**
- * `layout="panel"` (rekrutacja v3): bez kolejki i nagłówka warsztatu — CV,
- * link i wysyłka JEDNEJ osoby (`focusCandidateId`) w jednej kolumnie.
- * Generator i reguły klienta zwinięte za przyciskami, nie usunięte.
+ * CV i wysyłka JEDNEJ osoby (`focusCandidateId`) w kolumnie panelu. `layout`
+ * zostaje w typie dla zgodności z innymi warsztatami — układu „full” (kolejka
+ * z szyną) już nie ma.
  */
 export interface CvHandoffWorkbenchProps extends WorkbenchPanelProps {
   jobId: number;
@@ -202,11 +177,9 @@ export function CvHandoffWorkbench({
   canWriteClientRate = false,
   cproEnabled = false,
   budgetHourly = null,
-  layout = "full",
   focusCandidateId = null,
   panelFallback,
 }: CvHandoffWorkbenchProps) {
-  const isPanel = layout === "panel";
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
 
@@ -217,23 +190,10 @@ export function CvHandoffWorkbench({
   );
   const atClient = useMemo(() => countAtClient(columns), [columns]);
 
-  const [selectedStageId, setSelectedStageId] = useState<number | null>(null);
-  useEffect(() => {
-    if (queue.length === 0) {
-      setSelectedStageId(null);
-      return;
-    }
-    setSelectedStageId((prev) =>
-      prev != null && queue.some((e) => e.item.id === prev)
-        ? prev
-        : queue[0].item.id,
-    );
-  }, [queue]);
-  // W panelu wybór jest STEROWANY z zewnątrz (`focusCandidateId`).
-  const activeStageId = isPanel
-    ? (queue.find((e) => e.item.candidate_id === focusCandidateId)?.item.id ??
-      null)
-    : selectedStageId;
+  // Wybór jest STEROWANY z zewnątrz (`focusCandidateId`) — panel pokazuje
+  // jedną osobę.
+  const activeStageId =
+    queue.find((e) => e.item.candidate_id === focusCandidateId)?.item.id ?? null;
   const selected = queue.find((e) => e.item.id === activeStageId) ?? null;
   const stageId = selected?.item.id ?? null;
   const fullName = selected ? itemFullName(selected.item) : "";
@@ -259,60 +219,13 @@ export function CvHandoffWorkbench({
     playbookQuery.data?.client_name?.trim() ||
     (clientId != null ? `klient #${clientId}` : "");
 
-  // ── Snapshoty tej rekrutacji ────────────────────────────────────────────
-  const [openOriginal, setOpenOriginal] = useState(false);
-  const [openBranded, setOpenBranded] = useState(false);
-  const generatorRef = useRef<HTMLDivElement | null>(null);
-  // Panel: generator jest ciężki, więc startuje zwinięty. Raz otwarty zostaje
-  // zamontowany (zwinięcie nie może zgubić trwającej generacji).
-  const [generatorOpen, setGeneratorOpen] = useState(false);
-  const [generatorMounted, setGeneratorMounted] = useState(false);
-  const revealGenerator = (smooth = false) => {
-    const scroll = () =>
-      generatorRef.current?.scrollIntoView({
-        behavior: smooth ? "smooth" : "auto",
-        block: "start",
-      });
-    if (!isPanel) {
-      scroll();
-      return;
-    }
-    setGeneratorMounted(true);
-    setGeneratorOpen(true);
-    // Po otwarciu sekcji — przewiń dopiero, gdy jest w układzie.
-    requestAnimationFrame(scroll);
-  };
-  const originalQuery = useQuery<CVOriginalSnapshot>({
-    queryKey: ["cv-original", stageId],
-    queryFn: () => candidateStageCvApi.original.get(stageId!).then((r) => r.data),
-    enabled: stageId != null,
-  });
+  // ── CV etapu — ten sam klucz co karta „CV do klienta” i edytor ──────────
+  // Warsztat potrzebuje stanu tylko do linku dla klienta (link wymaga
+  // zatwierdzonej wersji). Samo CV — podgląd, edycja, generacja — żyje w karcie.
   const brandedQuery = useQuery<CVBrandedState>({
     queryKey: ["cv-branded", stageId],
     queryFn: () => candidateStageCvApi.branded.get(stageId!).then((r) => r.data),
     enabled: stageId != null,
-  });
-  const [pendingGenerated, setPendingGenerated] = useState<{
-    id: number; filename: string; stageId: number; revision: number; documentVersionId?: number;
-  } | null>(null);
-  const approvedChoices = useQuery({
-    queryKey: ["cv-generated-approved-versions", pendingGenerated?.id],
-    queryFn: () => cvGeneratedShareApi.approvedVersions(pendingGenerated!.id).then(r => r.data),
-    enabled: pendingGenerated != null,
-  });
-  const selectedStageRef = useRef(stageId);
-  selectedStageRef.current = stageId;
-  useEffect(() => { setPendingGenerated(null); setOpenBranded(false); }, [stageId]);
-  const selectGeneratedMut = useMutation({
-    mutationFn: (choice: NonNullable<typeof pendingGenerated>) =>
-      candidateStageCvApi.branded.selectGenerated(choice.stageId, choice.id, choice.revision, choice.documentVersionId),
-    onSuccess: (response, choice) => {
-      queryClient.setQueryData(["cv-branded", choice.stageId], response.data);
-      if (selectedStageRef.current === choice.stageId) {
-        setPendingGenerated(null);
-        setOpenBranded(true);
-      }
-    },
   });
   const brandedStatus = brandedQuery.data?.status ?? "none";
   const brandedFinalized = brandedStatus === "finalized";
@@ -368,11 +281,11 @@ export function CvHandoffWorkbench({
   const numericClientRate = Number.parseFloat(clientRate.replace(",", "."));
   const clientRateValid =
     Number.isFinite(numericClientRate) && numericClientRate > 0;
-  // Link tylko przy sfinalizowanym CV brandowanym — backend odbija 409, więc
-  // bramka jest widoczna z powodem, a nie niespodzianką po kliknięciu.
+  // Link tylko przy zatwierdzonym CV do klienta — backend odbija 409, więc
+  // powód jest widoczny, a nie niespodzianką po kliknięciu.
   const linkBlockedReason = brandedFinalized
     ? null
-    : "Link dla klienta wymaga sfinalizowanego CV brandowanego — utwórz je poniżej albo oznacz etap bez tworzenia linku.";
+    : "Link dla klienta wymaga zatwierdzonego CV do klienta — zapisz je w edytorze albo oznacz etap bez tworzenia linku.";
   // Linki dla klienta wyłączone (CV_CLIENT_LINKS_UI_ENABLED): akcja tylko
   // przesuwa kandydata na „CV Wysłane" i zapisuje stawkę — bez linku.
   const willCreateLink = CV_CLIENT_LINKS_UI_ENABLED && createLink && brandedFinalized;
@@ -559,14 +472,7 @@ export function CvHandoffWorkbench({
   const viewState = resolveViewState({ isLoading, isError, error, isSuccess });
 
   if (viewState === "loading") {
-    if (isPanel) return <Skeleton className="h-64 w-full rounded-xl" />;
-    return (
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
-        <Skeleton className="h-64 w-full rounded-xl" />
-        <Skeleton className="h-96 w-full rounded-xl" />
-        <Skeleton className="h-64 w-full rounded-xl" />
-      </div>
-    );
+    return <Skeleton className="h-64 w-full rounded-xl" />;
   }
 
   if (
@@ -607,11 +513,11 @@ export function CvHandoffWorkbench({
     { value: "links", label: "Linki i historia" },
   ];
 
-  // ── Fragmenty wspólne dla układu pełnego i panelu ───────────────────────
+  // ── Fragmenty panelu ───────────────────────────────────────────────────
   const resultsSection = (
     <>
       {handoffResults.length > 0 && (
-        <section className="space-y-3 rounded-xl border border-border bg-card p-4 lg:col-span-2 xl:col-span-3" aria-label="Utworzone linki do CV">
+        <section className="space-y-3 rounded-xl border border-border bg-card p-4 " aria-label="Utworzone linki do CV">
           <h3 className="text-sm font-semibold">Utworzone linki do CV</h3>
           <p className="text-xs text-muted-foreground">Linki pozostają tutaj po zmianie etapu i wyborze kolejnego kandydata. Ten ekran nie wysyła wiadomości do klienta. Skopiuj link przed opuszczeniem tej strony.</p>
           {handoffResults.map((result, index) =>
@@ -704,16 +610,7 @@ export function CvHandoffWorkbench({
                     <ReadyItem
                       tone="n"
                       title="Zrzut zgody RODO"
-                      detail="wymagany na końcu CV — wgraj go w generatorze"
-                      action={
-                        <button
-                          type="button"
-                          onClick={() => revealGenerator()}
-                          className="text-[11px] font-medium text-primary hover:underline"
-                        >
-                          Wgraj
-                        </button>
-                      }
+                      detail="wymagany do pobrania CV — dołączysz go w karcie „CV do klienta”"
                     />
                   )}
                   {(rule?.filename_preview || rule?.filename_pattern) && (
@@ -775,169 +672,11 @@ export function CvHandoffWorkbench({
                   )}
                 </>
   ) : null;
-  const headTools = selected ? (
-                <>
-                  <ToolPill tone={brandedFinalized ? "ok" : "neutral"}>
-                    Brandowane:{" "}
-                    {brandedFinalized
-                      ? "zfinalizowane"
-                      : brandedStatus === "draft"
-                        ? "draft"
-                        : "brak"}
-                  </ToolPill>
-                  <ToolPill
-                    tone={originalQuery.data?.has_snapshot ? "info" : "warn"}
-                    title={
-                      originalQuery.data?.original_snapshot_source ?? undefined
-                    }
-                  >
-                    CV źródłowe:{" "}
-                    {originalQuery.isLoading
-                      ? "…"
-                      : (originalQuery.data?.original_cv_filename ??
-                        "brak snapshotu")}
-                  </ToolPill>
-                  {cvLimit != null && (
-                    <ToolPill tone={atClient >= cvLimit ? "warn" : "neutral"}>
-                      {`Limit CV: ${atClient} z ${cvLimit}`}
-                    </ToolPill>
-                  )}
-                </>
-  ) : null;
-  const generatorCard = !selected ? null : (
-    <>
-            {/* Generator CV — ten sam komponent co `/cv-generator`, osadzony
-                z wypełnionym krokiem 1 (kandydat) i rekrutacją. */}
-            <div ref={generatorRef}>
-              <WorkbenchCard
-                title="Obróbka treści"
-                status={
-                  rule?.content_mode_locked
-                    ? "tryb zablokowany regułą klienta"
-                    : undefined
-                }
-                statusTone="warn"
-              >
-                <CVGeneratorStandaloneV2
-                  embedded
-                  selectedGeneratedId={brandedQuery.data?.generated_document_id}
-                  onSelectForRecruitment={readOnly || !brandedQuery.data || openBranded ? undefined : (item) => {
-                    selectGeneratedMut.reset();
-                    setPendingGenerated({ ...item, stageId: stageId!, revision: brandedQuery.data!.edit_revision });
-                  }}
-                  prefillCandidateId={selected.item.candidate_id}
-                  prefillCandidateName={fullName}
-                  prefillJobId={jobId}
-                />
-                {pendingGenerated?.stageId === stageId && (
-                  <div className="mt-3 rounded-md border p-3 text-sm" role="region" aria-label="Wybór CV do rekrutacji">
-                    <p>Wczytać „{pendingGenerated.filename}” do edycji i zatwierdzenia?</p>
-                    <p className="my-2 text-xs text-muted-foreground">
-                      Zastąpi to bieżący szkic. Zatwierdzone wersje i dotychczasowe linki zachowają swoją treść.
-                    </p>
-                    <label className="mb-2 block">Treść do wczytania
-                      <select aria-label="Wersja CV do rekrutacji" className="mt-1 block w-full rounded border bg-background p-2"
-                        value={pendingGenerated.documentVersionId ?? ""}
-                        onChange={e => setPendingGenerated({...pendingGenerated, documentVersionId: e.target.value ? Number(e.target.value) : undefined})}>
-                        <option value="">Pierwotny wynik generatora</option>
-                        {approvedChoices.data?.map(v => <option key={v.id} value={v.id}>
-                          Zatwierdzona wersja {v.version} · {v.language?.toUpperCase()} · {new Date(v.approved_at).toLocaleString("pl-PL")}
-                        </option>)}
-                      </select>
-                    </label>
-                    {approvedChoices.isError && <p role="alert">Nie udało się pobrać zatwierdzonych wersji. <button className="underline" onClick={() => approvedChoices.refetch()}>Spróbuj ponownie</button></p>}
-                    {selectGeneratedMut.isError && ((selectGeneratedMut.error as {response?: {data?: {detail?: {code?: string}}}})?.response?.data?.detail?.code === "cv_editor_assets_unavailable" ? (
-                      <div role="alert" className="mb-2 space-y-2 text-destructive">
-                        <p>Nie można wczytać zasobów tego CV. Obecny szkic pozostaje bez zmian. Ponów wybór lub wygeneruj nowe CV.</p>
-                        <Button size="sm" variant="outline" onClick={() => {
-                          setPendingGenerated(null);
-                          selectGeneratedMut.reset();
-                          revealGenerator(true);
-                        }}>Przejdź do generatora</Button>
-                      </div>
-                    ) : <p role="alert" className="mb-2 text-destructive">
-                      Nie udało się wybrać CV. Odśwież dane rekrutacji — szkic mógł zmienić się w innej sesji.
-                    </p>)}
-                    <Button size="sm" disabled={selectGeneratedMut.isPending || approvedChoices.isLoading || approvedChoices.isError}
-                      onClick={() => selectGeneratedMut.mutate(pendingGenerated)}>
-                      {selectGeneratedMut.isPending ? "Wczytywanie…" : "Zastąp szkic i otwórz edytor"}
-                    </Button>
-                    <Button size="sm" variant="ghost" disabled={selectGeneratedMut.isPending}
-                      onClick={() => setPendingGenerated(null)}>Anuluj</Button>
-                  </div>
-                )}
-              </WorkbenchCard>
-            </div>
-    </>
-  );
-  const cvCard = !selected ? null : (
-    <>
-            {/* Snapshoty tej rekrutacji — te same modale, co na profilu. */}
-            <WorkbenchCard title="CV tej rekrutacji">
-              {brandedQuery.data?.from_generator && <p className="mb-2 text-xs text-muted-foreground">
-                Wybrany wynik generatora {brandedQuery.data.generated_document_id != null ? `#${brandedQuery.data.generated_document_id}` : "(źródło usunięte)"} · wersja {brandedQuery.data.version}.
-                Edytor, zatwierdzenie i link rekrutacji korzystają z tego szkicu.
-              </p>}
-              {originalQuery.isLoading ? (
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Loader2 className="h-3 w-3 animate-spin" /> Wczytywanie…
-                </div>
-              ) : (
-                <ReqRow
-                  tone={originalQuery.data?.has_snapshot ? "y" : "w"}
-                  label={
-                    originalQuery.data?.has_snapshot
-                      ? `CV oryginalne${
-                          originalQuery.data.original_snapshot_at
-                            ? ` · snapshot z ${formatDate(originalQuery.data.original_snapshot_at)}`
-                            : ""
-                        }`
-                      : "Brak CV w momencie zgłoszenia"
-                  }
-                  tag={
-                    <button
-                      type="button"
-                      className="text-primary hover:underline"
-                      onClick={() => setOpenOriginal(true)}
-                    >
-                      Pokaż
-                    </button>
-                  }
-                />
-              )}
-              <ReqRow
-                tone={brandedFinalized ? "y" : brandedStatus === "draft" ? "w" : "n"}
-                label={
-                  brandedFinalized
-                    ? `Brandowane · zfinalizowane${
-                        brandedQuery.data?.finalized_at
-                          ? ` ${formatDate(brandedQuery.data.finalized_at)}`
-                          : ""
-                      }`
-                    : brandedStatus === "draft"
-                      ? "Brandowane · draft (niesfinalizowane)"
-                      : "Brandowane · brak"
-                }
-                tag={
-                  readOnly ? undefined : (
-                    <button
-                      type="button"
-                      className="text-primary hover:underline"
-                      onClick={() => setOpenBranded(true)}
-                    >
-                      {brandedStatus === "none" ? "Stwórz" : "Edytuj"}
-                    </button>
-                  )
-                }
-              />
-            </WorkbenchCard>
-    </>
-  );
   const dockFooter =
             rule?.requires_rodo_consent_block ? (
               <>
                 <AlertTriangle className="h-3 w-3 shrink-0" />
-                {centrallyManaged ? "Bez poprawnej, czytelnej zgody pakiet pozostaje szkicem i nie można go udostępnić klientowi." : `Bez zrzutu zgody RODO generacja dla klienta ${clientLabel || "tego klienta"} odmawia (422), zanim naliczy kwotę.`}
+                {`Bez zrzutu zgody RODO CV dla klienta ${clientLabel || "tego klienta"} nie da się pobrać — dołącz go w karcie „CV do klienta”. Wysyłki to nie blokuje.`}
               </>
             ) : CV_CLIENT_LINKS_UI_ENABLED ? (
               <>
@@ -1255,253 +994,86 @@ export function CvHandoffWorkbench({
               )}
             </>
           );
-  const modals = (
-    <>
-      {selected && openOriginal && (
-        <CVOriginalPreviewModal
-          open
-          onOpenChange={setOpenOriginal}
-          stageId={selected.item.id}
-          jobTitle={jobLabel}
-          candidateName={fullName}
-        />
-      )}
-      {selected && !readOnly && openBranded && (
-        <CVBrandedEditModal
-          open
-          onOpenChange={setOpenBranded}
-          onRegenerate={() => revealGenerator(true)}
-          stageId={selected.item.id}
-          jobTitle={jobLabel}
-          candidateName={fullName}
-        />
-      )}
-    </>
-  );
-
-  if (isPanel) {
-    return (
-      <div className="flex min-w-0 flex-col gap-3">
-        {eligibilityWarning.dialog}
-        {/* Link jednorazowy przeżywa ruch: po „CV Wysłane” osoba wypada
-            z kolejki tego warsztatu, a adres musi zostać na ekranie. */}
-        {resultsSection}
-        {!selected && panelFallback != null ? (
-          panelFallback
-        ) : !selected ? (
-          <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
-            Przekazanie CV klientowi jest dostępne na etapie „Zweryfikowany”.
-            Ta osoba jest dziś na innym etapie tej rekrutacji.
-          </p>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {headBadges}
-              {headTools}
-              <Link
-                href={`/candidates/${selected.item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
-                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-              >
-                <ExternalLink className="h-3 w-3" /> Pełny profil
-              </Link>
-            </div>
-
-            {cvCard}
-
-            <section
-              aria-label="Wysyłka do klienta"
-              className="space-y-3 rounded-xl border border-border bg-card p-3"
-            >
-              {CV_CLIENT_LINKS_UI_ENABLED && (
-                <TabbedNav
-                  ariaLabel="Zakładki: Wysyłka do klienta"
-                  value={dockTab}
-                  onValueChange={(v) => setDockTab(v as DockTab)}
-                  tabs={dockTabs}
-                  overflow="scroll"
-                />
-              )}
-              {dockBody}
-              {dockFooter ? (
-                <p className="flex items-start gap-1.5 border-t border-border pt-2 text-[11px] text-muted-foreground">
-                  {dockFooter}
-                </p>
-              ) : null}
-            </section>
-
-            <div className="rounded-xl border border-border bg-card">
-              <button
-                type="button"
-                aria-expanded={generatorOpen}
-                aria-controls="cv-panel-generator"
-                onClick={() => {
-                  setGeneratorMounted(true);
-                  setGeneratorOpen((v) => !v);
-                }}
-                className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-medium text-foreground hover:bg-muted"
-              >
-                Generator CV — inna wersja / obróbka treści
-                <span className="text-[11px] font-normal text-muted-foreground">
-                  {generatorOpen ? "zwiń" : "rozwiń"}
-                </span>
-              </button>
-              {generatorMounted && (
-                <div id="cv-panel-generator" hidden={!generatorOpen} className="p-2">
-                  {generatorCard}
-                </div>
-              )}
-            </div>
-
-            <details className="rounded-xl border border-border bg-card px-3 py-2 text-xs">
-              <summary className="cursor-pointer font-medium text-foreground">
-                {clientLabel
-                  ? `Reguły CV klienta · ${clientLabel}`
-                  : "Reguły CV klienta"}
-              </summary>
-              <div className="mt-2 space-y-2">
-                {rulesBody}
-                {canManageCvRules && clientId != null && (
-                  <Link
-                    href={`/settings/cv-rules?client=${clientId}`}
-                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
-                  >
-                    <Settings2 className="h-3.5 w-3.5" /> {centrallyManaged ? "Centralne reguły CV →" : "Reguły CV (DL) →"}
-                  </Link>
-                )}
-              </div>
-            </details>
-          </>
-        )}
-        {modals}
-      </div>
-    );
-  }
-
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[230px_minmax(0,1fr)] xl:grid-cols-[230px_minmax(0,1fr)_360px]">
+    <div className="flex min-w-0 flex-col gap-3">
       {eligibilityWarning.dialog}
+      {/* Link jednorazowy przeżywa ruch: po „CV Wysłane” osoba wypada
+          z kolejki tego warsztatu, a adres musi zostać na ekranie. */}
       {resultsSection}
-      {/* ── Szyna: kolejka + reguły klienta ─────────────────────────────── */}
-      <WorkbenchRail
-        icon={<Users className="h-4 w-4 text-primary" />}
-        // „Do wysłania CV", nie „Zweryfikowani" (M03-B12): kolejka to wyłącznie
-        // etap „Zweryfikowany", a grupa „Zweryfikowani" na szynie Pipeline'u
-        // obejmuje też własne etapy wewnętrzne po screeningu — ta sama nazwa
-        // dawała na jednym ekranie 1 i 0. Etykieta = KPI jobbara tego kroku.
-        title="Do wysłania CV"
-        count={queue.length}
-        meta="etap „Zweryfikowany”"
-        footer={
-          canManageCvRules && clientId != null ? (
+      {!selected && panelFallback != null ? (
+        panelFallback
+      ) : !selected ? (
+        <p className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
+          Przekazanie CV klientowi jest dostępne na etapie „Zweryfikowany”.
+          Ta osoba jest dziś na innym etapie tej rekrutacji.
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {headBadges}
+            {cvLimit != null && (
+              <Badge size="sm" variant={atClient >= cvLimit ? "warning" : "neutral"}>
+                {`Limit CV: ${atClient} z ${cvLimit}`}
+              </Badge>
+            )}
             <Link
-              href={`/settings/cv-rules?client=${clientId}`}
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
+              href={`/candidates/${selected.item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
+              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
             >
-              <Settings2 className="h-3.5 w-3.5" /> {centrallyManaged ? "Centralne reguły CV →" : "Reguły CV (DL) →"}
+              <ExternalLink className="h-3 w-3" /> Pełny profil
             </Link>
-          ) : undefined
-        }
-      >
-        {queue.length > 0 ? (
-          <div className="space-y-0.5" role="list" aria-label="Kandydaci do wysłania CV">
-            {queue.map(({ item }) => (
-              <div key={item.id} role="listitem">
-                <RailRow
-                  tone={item.hm_veto ? "bad" : "ok"}
-                  label={itemFullName(item)}
-                  meta={
-                    isOverHourlyBudget(item, budgetHourly)
-                      ? `${formatExpectedRate(item) ?? "—"} · ponad budżet`
-                      : (formatExpectedRate(item) ?? undefined)
-                  }
-                  metaTone={
-                    isOverHourlyBudget(item, budgetHourly) ? "warn" : "neutral"
-                  }
-                  active={item.id === selectedStageId}
-                  onSelect={() => setSelectedStageId(item.id)}
-                />
-              </div>
-            ))}
           </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Nikt nie jest dziś zweryfikowany. Zamknij screening w kroku
-            „Screening”, żeby kandydat trafił tutaj.
-          </p>
-        )}
 
-        <RailSection
-          label={
-            clientLabel ? `Reguły CV klienta · ${clientLabel}` : "Reguły CV klienta"
-          }
-        >
-          {rulesBody}
-        </RailSection>
-      </WorkbenchRail>
+          <CvToClientCard
+            stageId={selected.item.id}
+            candidateId={selected.item.candidate_id}
+            candidateName={fullName}
+            jobId={jobId}
+            jobTitle={jobTitle}
+            readOnly={readOnly}
+          />
 
-      {/* ── Środek: przygotowanie CV ────────────────────────────────────── */}
-      <div className="min-w-0 space-y-4">
-        {!selected ? (
-          <div className="rounded-xl border border-dashed border-border bg-muted/20 p-8 text-center text-sm text-muted-foreground">
-            <FileText className="mx-auto mb-2 h-6 w-6 opacity-40" />
-            {queue.length === 0
-              ? "Nikt nie czeka na wysyłkę CV — kolejka zweryfikowanych jest pusta."
-              : "Wybierz kandydata z kolejki po lewej."}
-          </div>
-        ) : (
-          <>
-            <WorkbenchHeader
-              title={`CV · ${fullName}`}
-              subtitle={[
-                "Zweryfikowany",
-                formatExpectedRate(selected.item),
-                originalQuery.data?.original_cv_language
-                  ? `CV źródłowe: ${originalQuery.data.original_cv_language.toUpperCase()}`
-                  : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-              badges={headBadges}
-              actions={
+          <section
+            aria-label="Wysyłka do klienta"
+            className="space-y-3 rounded-xl border border-border bg-card p-3"
+          >
+            {CV_CLIENT_LINKS_UI_ENABLED && (
+              <TabbedNav
+                ariaLabel="Zakładki: Wysyłka do klienta"
+                value={dockTab}
+                onValueChange={(v) => setDockTab(v as DockTab)}
+                tabs={dockTabs}
+                overflow="scroll"
+              />
+            )}
+            {dockBody}
+            {dockFooter ? (
+              <p className="flex items-start gap-1.5 border-t border-border pt-2 text-[11px] text-muted-foreground">
+                {dockFooter}
+              </p>
+            ) : null}
+          </section>
+
+          <details className="rounded-xl border border-border bg-card px-3 py-2 text-xs">
+            <summary className="cursor-pointer font-medium text-foreground">
+              {clientLabel
+                ? `Reguły CV klienta · ${clientLabel}`
+                : "Reguły CV klienta"}
+            </summary>
+            <div className="mt-2 space-y-2">
+              {rulesBody}
+              {canManageCvRules && clientId != null && (
                 <Link
-                  href={`/candidates/${selected.item.candidate_id}?${encodeJobBackRef(jobId).toString()}`}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
+                  href={`/settings/cv-rules?client=${clientId}`}
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-border px-3 text-xs text-foreground hover:bg-muted"
                 >
-                  <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
+                  <Settings2 className="h-3.5 w-3.5" /> {centrallyManaged ? "Centralne reguły CV →" : "Reguły CV (DL) →"}
                 </Link>
-              }
-              tools={headTools}
-            />
-
-            {generatorCard}
-
-            {cvCard}
-          </>
-        )}
-      </div>
-
-      {/* ── Dok: wysyłka do klienta ─────────────────────────────────────── */}
-      <aside className="lg:col-span-2 xl:sticky xl:top-4 xl:col-span-1 xl:self-start">
-        <WorkbenchDock
-          name="Wysyłka do klienta"
-          who={selected ? fullName : null}
-          whoSub={
-            selected
-              ? `→ CV Wysłane${clientLabel ? ` · ${clientLabel}` : ""}`
-              : undefined
-          }
-          tabs={selected && CV_CLIENT_LINKS_UI_ENABLED ? dockTabs : undefined}
-          activeTab={dockTab}
-          onTabChange={(v) => setDockTab(v as DockTab)}
-          footer={
-            dockFooter
-          }
-        >
-          {dockBody}
-        </WorkbenchDock>
-      </aside>
-
-      {modals}
+              )}
+            </div>
+          </details>
+        </>
+      )}
     </div>
   );
 }

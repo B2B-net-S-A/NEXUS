@@ -27,6 +27,13 @@ vi.mock("@/lib/cv-docx-preview", () => ({ alignB2bLetterheadPreview: () => undef
 vi.mock("@/lib/rejection-reasons", () => ({
   loadJobRejectionReasons: (...a: unknown[]) => loadJobRejectionReasons(...a),
 }));
+const consentProps = vi.fn();
+vi.mock("@/components/v2/cv-generator/ConsentAttachButton", () => ({
+  ConsentAttachButton: (props: Record<string, unknown>) => {
+    consentProps(props);
+    return <button type="button">Wgraj zrzut zgody</button>;
+  },
+}));
 vi.mock("@/components/v2/recruitment/PanelSavedViews", () => ({
   SavedScreeningView: ({ item }: { item: { id: number } }) => (
     <div data-testid="saved-screening">arkusz z wiersza {item.id}</div>
@@ -66,7 +73,9 @@ function task(over: Partial<BoardTaskRow> = {}): BoardTaskRow {
   };
 }
 
-function mockApi({ cvs = [{ id: 77, status: "ready", filename: "cv.docx", origin: "auto", needs_review: true }] } = {}) {
+function mockApi({
+  cvs = [{ id: 77, status: "ready", filename: "cv.docx", origin: "auto", needs_review: true }],
+}: { cvs?: Array<Record<string, unknown>> } = {}) {
   get.mockImplementation((url: string) => {
     if (url === "/api/candidates/21/quick-view") {
       return Promise.resolve({
@@ -194,6 +203,24 @@ describe("DlReviewPanel — przegląd DL przed wysłaniem CV do klienta", () => 
     await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
     await userEvent.click(screen.getByRole("button", { name: /Wyślij do klienta/ }));
     await waitFor(() => expect(showError).toHaveBeenCalledWith("Do klienta wysyła Delivery Lead."));
+  });
+
+  it("CV bez zgody RODO: zamiast podglądu i pobrania komunikat i dołączenie zrzutu", async () => {
+    mockApi({
+      cvs: [{ id: 77, status: "ready", filename: "cv.docx", origin: "auto", needs_review: true, consent_missing: true }],
+    });
+    renderPanel();
+    expect(await screen.findByTestId("dl-review-consent-missing")).toHaveTextContent("Brak zgody RODO (PKO BP)");
+    expect(consentProps).toHaveBeenCalledWith(
+      expect.objectContaining({ generatedId: 77, hasConsent: false, compact: true }),
+    );
+    // Serwer i tak odmówiłby pobrania (409) — nie próbujemy ani renderu, ani pliku.
+    expect(renderDocxSafely).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalledWith("/api/cv-generator/generated/77/docx", expect.anything());
+    expect(screen.queryByRole("button", { name: /Pobierz DOCX/ })).toBeNull();
+    // Wysyłka do klienta nie jest blokowana brakiem zgody.
+    await userEvent.type(screen.getByLabelText("Stawka do klienta"), "180");
+    expect(screen.getByRole("button", { name: /Wyślij do klienta/ })).toBeEnabled();
   });
 
   it("rekruter tylko przegląda — bez wysyłki i bez odrzucenia DL", async () => {

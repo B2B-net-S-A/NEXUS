@@ -25,6 +25,8 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { canViewClientRate, canWriteClientRate } from "@/lib/client-rate-access";
 import { useAuthStore } from "@/store/auth";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
+import { stageCvBadge, stageCvStatus } from "@/lib/cv-to-client";
+import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -519,6 +521,7 @@ function RecruitmentCard({
   const recruitmentTitleId = `candidate-recruitment-${jobId}-title`;
   const [openOriginal, setOpenOriginal] = useState(false);
   const [openBranded, setOpenBranded] = useState(false);
+  const [openGenerator, setOpenGenerator] = useState(false);
   const [openShare, setOpenShare] = useState(false);
   const [confirmRefresh, setConfirmRefresh] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -530,11 +533,14 @@ function RecruitmentCard({
     enabled: stageId != null,
   });
 
+  // Stan CV do klienta decyduje, czy karta daje „Generuj CV”, czy „Edytuj CV”.
+  // Od generatora CV v3 GET przy braku CV zwraca pusty stan (bez renderowania
+  // starego szablonu), więc pytamy od razu, a nie dopiero po kliknięciu.
   const { data: branded } = useQuery<CVBrandedState>({
     queryKey: ["cv-branded", stageId],
     queryFn: () =>
       candidateStageCvApi.branded.get(stageId as number).then((r) => r.data),
-    enabled: stageId != null && (openBranded || openShare),
+    enabled: stageId != null,
   });
 
   const refreshMut = useMutation({
@@ -580,6 +586,8 @@ function RecruitmentCard({
 
   const brandedStatus =
     (branded?.status as "none" | "draft" | "finalized" | undefined) ?? "none";
+  const stageCv = stageCvStatus(branded);
+  const stageCvBadgeInfo = stageCvBadge(branded);
 
   return (
     <div
@@ -626,12 +634,12 @@ function RecruitmentCard({
             </span>
           </div>
         ) : null}
-        {/* Tylko stany z treścią — plakietka „brak CV firmowego” na każdej karcie była
-            szumem (i fałszywa: stan jest pobierany dopiero po otwarciu). */}
-        {brandedStatus !== "none" ? (
+        {/* Tylko stany z treścią — plakietka „brak CV” na każdej karcie byłaby
+            szumem; brak CV to przycisk „Generuj CV” niżej. */}
+        {stageCvBadgeInfo ? (
           <div className="mt-2">
-            <Badge size="sm" variant={brandedStatus === "finalized" ? "success" : "info"}>
-              {brandedStatus === "finalized" ? "CV firmowe: gotowe" : "CV firmowe: szkic"}
+            <Badge size="sm" variant={stageCvBadgeInfo.tone}>
+              {stageCvBadgeInfo.label}
             </Badge>
           </div>
         ) : null}
@@ -663,9 +671,15 @@ function RecruitmentCard({
             </Button>
             {!readOnly ? (
               <>
-                <Button size="sm" variant="outline" onClick={() => setOpenBranded(true)}>
-                  {brandedStatus === "none" ? "CV firmowe" : "Edytuj CV firmowe"}
-                </Button>
+                {stageCv === "ready" ? (
+                  <Button size="sm" variant="outline" onClick={() => setOpenBranded(true)}>
+                    Edytuj CV
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => setOpenGenerator(true)}>
+                    Generuj CV
+                  </Button>
+                )}
                 {CV_CLIENT_LINKS_UI_ENABLED ? (
                   <Button
                     size="sm"
@@ -673,7 +687,7 @@ function RecruitmentCard({
                     onClick={() => setOpenShare(true)}
                     title={
                       brandedStatus !== "finalized"
-                        ? "Najpierw sfinalizuj brandowane CV"
+                        ? "Najpierw zapisz CV do klienta w edytorze"
                         : undefined
                     }
                   >
@@ -720,14 +734,24 @@ function RecruitmentCard({
         <CVBrandedEditModal
           open
           onOpenChange={setOpenBranded}
-          onRegenerate={() =>
-            window.location.assign(
-              `/cv-generator?candidate_id=${candidateId}&job_id=${jobId}`,
-            )
-          }
+          onRegenerate={() => setOpenGenerator(true)}
           stageId={stageId}
           jobTitle={job.job_title}
           candidateName={candidateName}
+        />
+      ) : null}
+      {!readOnly && openGenerator ? (
+        <CvGeneratorDialog
+          open
+          onOpenChange={setOpenGenerator}
+          candidateId={candidateId}
+          candidateName={candidateName}
+          jobId={jobId}
+          onEnqueued={() => {
+            setOpenGenerator(false);
+            showSuccess("CV generuje się w tle. Gdy będzie gotowe, pojawi się przy tej rekrutacji.");
+            void queryClient.invalidateQueries({ queryKey: ["cv-branded", stageId] });
+          }}
         />
       ) : null}
       {!readOnly && openShare && stageId != null ? (

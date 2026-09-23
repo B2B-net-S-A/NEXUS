@@ -89,11 +89,11 @@ describe("SavedCvView — linki dla klienta po „CV Wysłane”", () => {
     mocks.listForRecruitment.mockRejectedValue(new Error("boom"));
     mount();
     expect(
-      await screen.findByText(/Nie udało się wczytać: CV firmowe i linki dla klienta/),
+      await screen.findByText(/Nie udało się wczytać: CV do klienta i linki dla klienta/),
     ).toBeInTheDocument();
     expect(screen.queryByText(/nie utworzono jeszcze linku/)).toBeNull();
     // Awaria nie udaje „brak CV firmowego".
-    expect(screen.queryByText(/CV firmowe: brak/)).toBeNull();
+    expect(screen.queryByText(/CV do klienta: brak/)).toBeNull();
   });
 });
 
@@ -109,8 +109,8 @@ describe("SavedCvView — odznaka „CV firmowe” czyta PARĘ, nie bieżący et
       },
     });
     mount();
-    expect(await screen.findByText("CV firmowe: gotowe · etap: Zweryfikowany")).toBeInTheDocument();
-    expect(screen.queryByText(/CV firmowe: brak/)).toBeNull();
+    expect(await screen.findByText("CV do klienta: gotowe · etap: Zweryfikowany")).toBeInTheDocument();
+    expect(screen.queryByText(/CV do klienta: brak/)).toBeNull();
     // Odczyt per etap ZAKŁADA szkic na bieżącym etapie — podgląd go nie woła.
     expect(mocks.brandedGet).not.toHaveBeenCalled();
   });
@@ -123,13 +123,13 @@ describe("SavedCvView — odznaka „CV firmowe” czyta PARĘ, nie bieżący et
       },
     });
     mount();
-    expect(await screen.findByText("CV firmowe: szkic · etap: CV Wysłane")).toBeInTheDocument();
+    expect(await screen.findByText("CV do klienta: szkic · etap: CV Wysłane")).toBeInTheDocument();
   });
 
   it("para bez CV firmowego: „brak”", async () => {
     mocks.listForRecruitment.mockResolvedValue({ data: { items: [], branded_cv: noBranded } });
     mount();
-    expect(await screen.findByText("CV firmowe: brak")).toBeInTheDocument();
+    expect(await screen.findByText("CV do klienta: brak")).toBeInTheDocument();
   });
 });
 
@@ -142,7 +142,7 @@ describe("SavedCvView — linki dla klienta wyłączone (stan produkcyjny)", () 
       data: { items: [], branded_cv: noBranded },
     });
     mount();
-    expect(await screen.findByText("CV firmowe: brak")).toBeInTheDocument();
+    expect(await screen.findByText("CV do klienta: brak")).toBeInTheDocument();
     expect(screen.queryByText("Linki dla klienta")).toBeNull();
   });
 });
