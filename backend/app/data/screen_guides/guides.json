@@ -399,6 +399,10 @@
       {
         "q": "Czym różni się „Zakończ zamówienie” od „Zakończ współpracę”?",
         "a": "„Zakończ zamówienie” zamyka jedno zamówienie i nie rusza umowy. „Zakończ współpracę” wypowiada umowę konsultanta i zamyka wszystkie jego zamówienia u klienta."
+      },
+      {
+        "q": "Konsultant trafił do „Zakończonych” przez pomyłkę albo wraca po przerwie?",
+        "a": "Otwórz jego kontrakt. „Cofnij zakończenie” przywraca go do aktywnej obsady z pulą MD bez zmian (nie da się, gdy zapadła już decyzja o puli). „Powrót po przerwie” zakłada nowy kontrakt i szkic przypisania — na karcie zamówienia widać go jako „Draft — uzupełnij”."
       }
     ],
     "pitfalls": [
