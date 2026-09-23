@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 
 
 # Canonical production client pinned by the order-type policy and the
@@ -68,53 +69,87 @@ def finance_order_number_matches(
 # konsultant czytał go wyłącznie u Polkomtela — u BIK dwa wiersze tej samej
 # osoby z DWOMA różnymi numerami (stare i nowe zamówienie w jednym miesiącu)
 # lądowały na jednym zamówieniu albo w „Wymaga przypisania". Numer wskazany
-# wprost w wierszu jest teraz wiążący u każdego klienta: wiersz trafia
-# wyłącznie na zamówienie o tym numerze albo nigdzie.
+# wprost w wierszu jest teraz wiążący: wiersz trafia wyłącznie na zamówienie
+# o tym numerze albo nigdzie.
 #
-# „Uwagi" niosą też inne liczby („w tym delegacja 318", rok „2026"), więc
-# wiążący jest tylko ciąg cyfr, który ZNAMY jako numer zamówienia, albo ciąg
-# na tyle długi, że nie jest ani rokiem, ani kwotą z dopisku (numery SAP mają
-# 10 cyfr). Nieznany długi numer też jest wiążący — literówka w numerze nie
-# może zamienić się w ciche przypisanie do innego zamówienia tej osoby.
+# Wiązanie jest liczone WYŁĄCZNIE względem klientów, u których ta osoba ma
+# linie — „Uwagi" niosą też inne liczby („w tym delegacja 318", rok, NIP,
+# numer faktury), a numer zamówienia jednego klienta („445") nie może blokować
+# dopasowania po nazwisku u innego. Wiąże:
+#
+# * numer ZNANY jako numer zamówienia tego klienta (dosłownie; Polkomtel także
+#   bez prefiksu ``SAP``),
+# * u klienta z numerami zamówień z samych cyfr (BIK, Polkomtel) — także
+#   nieznany ciąg ≥ 7 cyfr: literówka albo niezarejestrowane zamówienie nie
+#   może zamienić się w ciche przypisanie do innego zamówienia tej osoby.
+#   Klienci z numerami w innym kształcie (BNP ``87_2026``, CeZ ``CeZ/45/2026``)
+#   tej reguły nie dostają — tam długi ciąg cyfr w „Uwagach" nie jest numerem.
 EXPLICIT_ORDER_NUMBER_MIN_DIGITS = 7
+_DIGITS_ONLY_RE = re.compile(r"^\d+$")
 
 
-def known_order_number_keys(
+@dataclass(frozen=True)
+class OrderNumberIndex:
+    """Numery zamówień per klient — do rozpoznania numeru w „Uwagach"."""
+
+    by_client: dict[int, frozenset[str]] = field(default_factory=dict)
+    #: Klienci z numerami zamówień z samych cyfr (co najmniej jeden ≥ 7 cyfr).
+    numeric_clients: frozenset[int] = frozenset()
+
+    def known(self, client_ids: Iterable[int]) -> frozenset[str]:
+        keys: set[str] = set()
+        for client_id in client_ids:
+            keys |= self.by_client.get(client_id, frozenset())
+        return frozenset(keys)
+
+
+def build_order_number_index(
     groups: Iterable[tuple[int | None, str | None]],
-) -> frozenset[str]:
-    """Numery zamówień w formie, w jakiej mogą stać w „Uwagach".
+) -> OrderNumberIndex:
+    """``groups`` to pary ``(client_id, order_number)`` wszystkich zamówień."""
 
-    ``groups`` to pary ``(client_id, order_number)``. Polkomtel dostaje obie
-    formy (``SAP 4500…`` i sam ciąg cyfr), reszta — numer dosłownie.
-    """
-
-    keys: set[str] = set()
+    by_client: dict[int, set[str]] = {}
+    numeric: set[int] = set()
     for client_id, order_number in groups:
-        if order_number is None:
+        if client_id is None or order_number is None:
             continue
         stored = str(order_number).strip()
         if not stored:
             continue
+        keys = by_client.setdefault(client_id, set())
         keys.add(stored)
-        numeric = polkomtel_numeric_order_number(client_id, stored)
-        if numeric is not None:
-            keys.add(numeric)
-    return frozenset(keys)
+        digits = polkomtel_numeric_order_number(client_id, stored)
+        if digits is not None:
+            keys.add(digits)
+        else:
+            digits = stored if _DIGITS_ONLY_RE.match(stored) else None
+        if digits is not None and len(digits) >= EXPLICIT_ORDER_NUMBER_MIN_DIGITS:
+            numeric.add(client_id)
+    return OrderNumberIndex(
+        by_client={k: frozenset(v) for k, v in by_client.items()},
+        numeric_clients=frozenset(numeric),
+    )
 
 
 def explicit_order_hints(
-    hints: Iterable[str], known_order_numbers: frozenset[str]
+    hints: Iterable[str],
+    index: OrderNumberIndex | None,
+    client_ids: Iterable[int],
 ) -> list[str]:
-    """Ciągi cyfr z „Uwag", które wskazują zamówienie wprost (kolejność zachowana)."""
+    """Ciągi cyfr z „Uwag", które wskazują zamówienie tych klientów wprost."""
 
+    if index is None:
+        return []
+    clients = frozenset(client_ids)
+    known = index.known(clients)
+    long_binds = bool(clients & index.numeric_clients)
     explicit: list[str] = []
     for hint in hints:
         value = str(hint).strip()
         if not value:
             continue
-        if (
-            value in known_order_numbers
-            or len(value) >= EXPLICIT_ORDER_NUMBER_MIN_DIGITS
+        if value in known or (
+            long_binds and len(value) >= EXPLICIT_ORDER_NUMBER_MIN_DIGITS
         ):
             explicit.append(value)
     return explicit

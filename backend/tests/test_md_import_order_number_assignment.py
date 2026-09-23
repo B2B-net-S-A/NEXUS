@@ -527,20 +527,106 @@ async def test_overflow_of_a_named_order_is_not_moved_to_its_successor(
     assert await _consumptions(case["new_line"]) == {}
 
 
-def test_explicit_hints_ignore_short_side_notes():
+def test_explicit_hints_bind_only_for_the_persons_clients():
     from app.services.finance_order_matching import (
+        build_order_number_index,
         explicit_order_hints,
-        known_order_number_keys,
     )
 
-    known = known_order_number_keys(
-        [(1, "4500030067"), (15, "SAP 4500724825"), (2, "445")]
+    bik, polkomtel, bnp, other = 1, 15, 12, 2
+    index = build_order_number_index(
+        [
+            (bik, "4500030067"),
+            (polkomtel, "SAP 4500724825"),
+            (bnp, "87_2026"),
+            (other, "445"),
+        ]
     )
-    assert explicit_order_hints(["2026", "318"], known) == []
-    assert explicit_order_hints(["445"], known) == ["445"]
-    assert explicit_order_hints(["4500724825"], known) == ["4500724825"]
-    # Nieznany, ale długi — wiąże (literówka nie może trafić gdzie indziej).
-    assert explicit_order_hints(["4599999999"], known) == ["4599999999"]
+    # Dopiski i rok nie wiążą nikogo.
+    assert explicit_order_hints(["2026", "318"], index, {bik}) == []
+    # Numer zamówienia INNEGO klienta nie blokuje dopasowania po nazwisku.
+    assert explicit_order_hints(["445"], index, {bnp}) == []
+    assert explicit_order_hints(["445"], index, {other}) == ["445"]
+    assert explicit_order_hints(["4500724825"], index, {polkomtel}) == ["4500724825"]
+    # Nieznany długi numer wiąże tylko u klienta z numerami z samych cyfr
+    # (literówka u BIK), a NIP w uwagach BNP nie.
+    assert explicit_order_hints(["4599999999"], index, {bik}) == ["4599999999"]
+    assert explicit_order_hints(["5260250274"], index, {bnp}) == []
+    assert explicit_order_hints(["4500030067"], None, {bik}) == []
+
+
+async def test_a_short_number_of_another_client_does_not_block_name_matching(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """„delegacja 445" u klienta z numerami w innym kształcie, gdy „445" jest
+    numerem zamówienia innego klienta — wiersz nadal idzie po nazwisku."""
+    client_id, contract_id, name = await _seed()
+    other_id, other_contract, _ = await _seed()
+    _enable_multi(monkeypatch, client_id, other_id)
+    short = str(random.randint(100, 999))
+    await _create_group(
+        app_client,
+        app_auth_headers,
+        other_id,
+        other_contract,
+        number=short,
+        start=_OLD_START,
+        end=None,
+        md_total=10,
+    )
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        contract_id,
+        number=f"87_{_TODAY.year}",
+        start=_OLD_START,
+        end=None,
+        md_total=40,
+    )
+    finance = await _finance_headers(app_client)
+
+    detail = await _import(
+        app_client,
+        finance,
+        _sheet([(name, 5, f"delegacja {short}, NIP 5260250274", 6800)]),
+    )
+
+    assert detail["rows_applied"] == 1, detail
+    assert await _consumptions(group["lines"][0]["id"]) == {_PERIOD: Decimal("5")}
+
+
+async def test_reimport_with_a_number_reverts_an_earlier_split(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Paczka 1 (bez numeru) podzieliła 22 MD: 13,75 na starym zamówieniu,
+    8,25 przeniesione na następcę. Paczka 2 za ten sam miesiąc wskazuje stare
+    zamówienie numerem — całe 22 MD zostaje na nim, a przeniesienie znika
+    (bez tego te same MD liczyłyby się dwa razy)."""
+    case = await _ticket_setup(app_client, app_auth_headers, monkeypatch, old_md=13.75)
+    finance = await _finance_headers(app_client)
+
+    # Następca aktywny tylko na czas paczki 1 — wtedy wiersz bez numeru trafia
+    # w poprzednika (jedyna linia obejmująca miesiąc poprzedni) i dzieli się.
+    first = await _import(
+        app_client,
+        finance,
+        _sheet([(case["name"], 22, "", 29920)]),
+        period=_PREV_PERIOD,
+    )
+    assert first["rows_applied"] == 1, first
+    assert await _consumptions(case["new_line"]) == {_PREV_PERIOD: Decimal("8.25")}
+
+    second = await _import(
+        app_client,
+        finance,
+        _sheet([(case["name"], 22, case["old_number"], 29920)]),
+        period=_PREV_PERIOD,
+    )
+    assert second["rows_applied"] == 1, second
+    assert await _consumptions(case["old_line"]) == {_PREV_PERIOD: Decimal("22")}
+    assert await _consumptions(case["new_line"]) == {}
+    assert any("cofnięto 8,25 MD" in d for _, d in await _events(case["new"]["id"]))
 
 
 # ── Jednorazowa korekta danych przypadku z ticketu ─────────────────────────

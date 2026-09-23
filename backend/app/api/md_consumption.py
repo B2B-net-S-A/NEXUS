@@ -167,36 +167,33 @@ async def _client_names(db: AsyncSession, client_ids: set[int]) -> dict[int, str
     return {cid: name for cid, name in rows}
 
 
-async def _known_order_numbers(db: AsyncSession) -> frozenset[str]:
+async def _order_number_index(
+    db: AsyncSession,
+) -> finance_order_matching.OrderNumberIndex:
     """Numery wszystkich zamówień grupowych — do rozpoznania numeru w „Uwagach"."""
     rows = await db.execute(
         select(ClientOrderGroup.client_id, ClientOrderGroup.order_number)
     )
-    return finance_order_matching.known_order_number_keys(rows.all())
+    return finance_order_matching.build_order_number_index(rows.all())
 
 
 def _fmt_day(value) -> str:
     return value.strftime("%d.%m.%Y") if value else "—"
 
 
-async def _unmatched_reason(
-    db: AsyncSession, row: MdConsumptionImportRow, period_month: Optional[str]
-) -> Optional[str]:
-    """Dlaczego wiersz z jawnym numerem zamówienia nie trafił na żadną linię.
+@dataclass
+class _ReasonContext:
+    """Dane do opisu niedopasowanych wierszy — ładowane raz na odczyt paczki."""
 
-    Liczone przy odczycie (bez kolumny w bazie), więc opis mówi o dzisiejszym
-    stanie zamówień — tym, który operator ma poprawić. ``None`` = wiersz bez
-    jawnego numeru; tam wystarcza sam status „Brak pasującego zamówienia".
-    """
-    if row.status != IMPORT_ROW_UNMATCHED or not period_month:
-        return None
-    if row.cost_status == COST_ROW_APPLIED:
-        return None
-    hints = extract_order_number_candidates(row.notes_raw)
-    if not hints:
-        return None
-    groups = list(
-        (
+    index: finance_order_matching.OrderNumberIndex
+    groups: dict[int, object]
+    lines_by_person: dict[frozenset[str], list[ClientOrder]]
+
+
+async def _reason_context(db: AsyncSession) -> _ReasonContext:
+    groups = {
+        g.id: g
+        for g in (
             await db.execute(
                 select(
                     ClientOrderGroup.id,
@@ -206,32 +203,7 @@ async def _unmatched_reason(
                 )
             )
         ).all()
-    )
-    authoritative = finance_order_matching.explicit_order_hints(
-        hints,
-        finance_order_matching.known_order_number_keys(
-            (g.client_id, g.order_number) for g in groups
-        ),
-    )
-    if not authoritative:
-        return None
-    number = authoritative[0]
-    not_elsewhere = "Zużycie nie trafiło na żadne inne zamówienie tej osoby"
-    matching = [
-        g
-        for g in groups
-        if finance_order_matching.finance_order_number_matches(
-            client_id=g.client_id,
-            order_number=g.order_number,
-            numeric_hints=authoritative,
-        )
-    ]
-    if not matching:
-        return (
-            f"Zamówienia nr {number} nie ma w NEXUSIE. {not_elsewhere} — "
-            "dodaj zamówienie albo popraw numer w arkuszu."
-        )
-    by_group = {g.id: g for g in matching}
+    }
     lines = (
         await db.execute(
             select(ClientOrder)
@@ -239,27 +211,86 @@ async def _unmatched_reason(
                 selectinload(ClientOrder.contract).selectinload(Contract.candidate)
             )
             .where(
-                ClientOrder.order_group_id.in_(list(by_group)),
+                ClientOrder.order_group_id.isnot(None),
                 ClientOrder.status != ClientOrderStatus.cancelled,
             )
             .order_by(ClientOrder.id.asc())
         )
     ).scalars()
+    by_person: dict[frozenset[str], list[ClientOrder]] = defaultdict(list)
+    for line in lines:
+        tokens = candidate_name_tokens(
+            line.contract.candidate if line.contract else None
+        )
+        if tokens:
+            by_person[tokens].append(line)
+    return _ReasonContext(
+        index=finance_order_matching.build_order_number_index(
+            (g.client_id, g.order_number) for g in groups.values()
+        ),
+        groups=groups,
+        lines_by_person=by_person,
+    )
+
+
+def _unmatched_reason(
+    row: MdConsumptionImportRow,
+    period_month: Optional[str],
+    context: Optional[_ReasonContext],
+) -> Optional[str]:
+    """Dlaczego wiersz z wiążącym numerem zamówienia nie trafił na żadną linię.
+
+    Liczone przy odczycie (bez kolumny w bazie), więc opis mówi o dzisiejszym
+    stanie zamówień — tym, który operator ma poprawić. Numer wiąże się tą samą
+    regułą co przy imporcie (klienci tej osoby, ``_authoritative_md_hints``).
+    ``None`` = wiersz bez wiążącego numeru; tam wystarcza sam status.
+    """
+    if (
+        context is None
+        or row.status != IMPORT_ROW_UNMATCHED
+        or not period_month
+        or row.cost_status == COST_ROW_APPLIED
+    ):
+        return None
+    hints = extract_order_number_candidates(row.notes_raw)
     wanted = name_tokens(row.consultant_name)
-    person = [
-        line
-        for line in lines
-        if wanted
-        and candidate_name_tokens(line.contract.candidate if line.contract else None)
-        == wanted
-    ]
-    if not person:
+    person_lines = context.lines_by_person.get(wanted, []) if wanted else []
+    if not hints or not person_lines:
+        return None
+    clients = {line.client_id for line in person_lines}
+    if finance_order_matching.POLKOMTEL_CLIENT_ID in clients:
+        authoritative = list(hints)
+    else:
+        authoritative = finance_order_matching.explicit_order_hints(
+            hints, context.index, clients
+        )
+    if not authoritative:
+        return None
+    number = authoritative[0]
+    not_elsewhere = "Zużycie nie trafiło na żadne inne zamówienie tej osoby"
+    matching_ids = {
+        g.id
+        for g in context.groups.values()
+        if g.client_id in clients
+        and finance_order_matching.finance_order_number_matches(
+            client_id=g.client_id,
+            order_number=g.order_number,
+            numeric_hints=authoritative,
+        )
+    }
+    if not matching_ids:
+        return (
+            f"Zamówienia nr {number} nie ma w NEXUSIE. {not_elsewhere} — "
+            "dodaj zamówienie albo popraw numer w arkuszu."
+        )
+    on_order = [line for line in person_lines if line.order_group_id in matching_ids]
+    if not on_order:
         return (
             f"Na zamówieniu nr {number} nie ma osoby z arkusza. {not_elsewhere} — "
             "sprawdź numer w arkuszu albo obsadę zamówienia."
         )
-    line = person[0]
-    group = by_group[line.order_group_id]
+    line = on_order[0]
+    group = context.groups[line.order_group_id]
     label = format_period_month(period_month)
     if group.is_cost_based:
         return (
@@ -284,6 +315,7 @@ async def _row_to_read(
     db: AsyncSession,
     row: MdConsumptionImportRow,
     period_month: Optional[str] = None,
+    reason_context: Optional[_ReasonContext] = None,
 ) -> ImportRowRead:
     """Wiersz importu wraz z opcjami do wyboru (dla „wymaga przypisania")."""
     order_ids: set[int] = set()
@@ -347,7 +379,7 @@ async def _row_to_read(
             if int(oid) in options_by_id
         ],
         resolved_at=row.resolved_at,
-        status_reason=await _unmatched_reason(db, row, period_month),
+        status_reason=_unmatched_reason(row, period_month, reason_context),
     )
 
 
@@ -567,7 +599,7 @@ def _ordinary_locked_target_is_valid(
     expected_client_id: int,
     period_month: str,
     correctable_exhausted_group_ids: frozenset[int] = frozenset(),
-    known_order_numbers: frozenset[str] = frozenset(),
+    order_numbers: Optional[finance_order_matching.OrderNumberIndex] = None,
 ) -> bool:
     """Re-match persisted spreadsheet evidence after line/group lock waits.
 
@@ -652,7 +684,7 @@ def _ordinary_locked_target_is_valid(
             _authoritative_md_hints(
                 hints,
                 named=[current_match],
-                known_order_numbers=known_order_numbers,
+                order_numbers=order_numbers,
             )
         )
         if (
@@ -706,7 +738,7 @@ async def create_import(
     candidates = await md_lines_settling_in_month(db, period_month)
     shared_md_candidates = await shared_md_lines_settling_in_month(db, period_month)
     cost_candidates = await cost_lines_settling_in_month(db, period_month)
-    known_order_numbers = await _known_order_numbers(db)
+    order_numbers = await _order_number_index(db)
 
     batch = MdConsumptionImport(
         period_month=period_month,
@@ -796,12 +828,12 @@ async def create_import(
             matches = _match_per_consultant_md_row(
                 parsed_row=parsed_row,
                 candidates=candidates,
-                known_order_numbers=known_order_numbers,
+                order_numbers=order_numbers,
             )
             authoritative = _authoritative_md_hints(
                 extract_order_number_candidates(parsed_row.notes_raw),
                 named=match_by_name(candidates, parsed_row.consultant_name),
-                known_order_numbers=known_order_numbers,
+                order_numbers=order_numbers,
             )
             if len(matches) == 1:
                 match = matches[0]
@@ -916,7 +948,7 @@ async def create_import(
             rows=rows,
             expected_client_id=expected_client_by_order[order_id],
             period_month=period_month,
-            known_order_numbers=known_order_numbers,
+            order_numbers=order_numbers,
         ):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
@@ -1012,13 +1044,14 @@ def _authoritative_md_hints(
     hints: list[str],
     *,
     named: list[LineMatch],
-    known_order_numbers: frozenset[str],
+    order_numbers: Optional[finance_order_matching.OrderNumberIndex],
 ) -> list[str]:
     """Numery z „Uwag", które wiążą wiersz MD z konkretnym zamówieniem.
 
     Polkomtel zachowuje dotychczasową, szerszą regułę: przy jego kandydacie
     każdy ciąg cyfr jest dowodem (numer SAP). U pozostałych klientów wiąże
-    numer ZNANY jako numer zamówienia albo dostatecznie długi
+    numer ZNANY jako numer zamówienia klienta tej osoby, a u klienta z numerami
+    z samych cyfr także dostatecznie długi
     (``finance_order_matching.explicit_order_hints``).
     """
     if not hints:
@@ -1029,14 +1062,16 @@ def _authoritative_md_hints(
     )
     if has_polkomtel_candidate:
         return list(hints)
-    return finance_order_matching.explicit_order_hints(hints, known_order_numbers)
+    return finance_order_matching.explicit_order_hints(
+        hints, order_numbers, {match.group.client_id for match in named}
+    )
 
 
 def _match_per_consultant_md_row(
     *,
     parsed_row,
     candidates: list[LineMatch],
-    known_order_numbers: frozenset[str] = frozenset(),
+    order_numbers: Optional[finance_order_matching.OrderNumberIndex] = None,
 ):
     """Dopasuj wiersz MD per konsultant: nazwisko, a numer zamówienia wiąże.
 
@@ -1056,7 +1091,7 @@ def _match_per_consultant_md_row(
         return []
     hints = extract_order_number_candidates(parsed_row.notes_raw)
     authoritative = _authoritative_md_hints(
-        hints, named=named, known_order_numbers=known_order_numbers
+        hints, named=named, order_numbers=order_numbers
     )
     # Preferencja linii aktywnej dopiero PO zawężeniu numerem — wpięta
     # wcześniej wycinałaby linię, którą numer właśnie miał wskazać.
@@ -1779,7 +1814,13 @@ async def _detail(
         .where(MdConsumptionImportRow.import_id == batch.id)
         .order_by(MdConsumptionImportRow.row_number.asc())
     )
-    rows = [await _row_to_read(db, r, batch.period_month) for r in result.scalars()]
+    stored = list(result.scalars())
+    context = (
+        await _reason_context(db)
+        if any(r.status == IMPORT_ROW_UNMATCHED and r.notes_raw for r in stored)
+        else None
+    )
+    rows = [await _row_to_read(db, r, batch.period_month, context) for r in stored]
     base = _summary(batch)
     return ImportDetail(
         **base.model_dump(),
@@ -2054,7 +2095,7 @@ async def assign_row(
         named=[LineMatch(order, order.order_group, row.consultant_name)]
         if order.order_group is not None
         else [],
-        known_order_numbers=await _known_order_numbers(db),
+        order_numbers=await _order_number_index(db),
     )
     if authoritative and not finance_order_matching.finance_order_number_matches(
         client_id=order.client_id,

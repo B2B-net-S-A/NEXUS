@@ -1221,9 +1221,12 @@ Korekta pozostałości to osobna operacja opisana na końcu tej sekcji.
   wskazanym zamówieniu w tym miesiącu (numer z literówką, zamówienia nie ma
   w NEXUSIE, okres go nie obejmuje), wiersz zostaje **„Brak pasującego
   zamówienia" z opisem przyczyny** i nie zmienia żadnego zamówienia. Za
-  numer uznawany jest ciąg cyfr znany jako numer zamówienia albo dłuższy niż
-  6 cyfr — dopisek „w tym delegacja 318" czy rok nie blokuje dopasowania po
-  nazwisku.
+  numer uznawany jest ciąg cyfr znany jako numer zamówienia **klienta tej
+  osoby**, a u klientów z numerami z samych cyfr (BIK, Polkomtel) także każdy
+  ciąg dłuższy niż 6 cyfr. Dopisek „w tym delegacja 318", rok, NIP czy numer
+  zamówienia innego klienta nie blokuje dopasowania po nazwisku. Ponowny
+  import miesiąca z numerem cofa nadwyżkę przeniesioną wcześniej na
+  przedłużenie — te same MD nie liczą się dwa razy.
 * **Zakończenie współpracy konsultanta nie wyklucza go z importu.** Liczy się
   okres, w którym obsadzał zamówienie — raport za sierpień wgrany we wrześniu
   trafi w osobę, która zeszła 31 sierpnia, i doliczy jej MD. Gdy ta sama osoba

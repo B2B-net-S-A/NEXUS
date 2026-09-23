@@ -60,6 +60,7 @@ from app.services.candidate_identity_quarantine import normalize_person_name_par
 from app.services.fx_service import rates_to_pln
 from app.services.multi_consultant_orders import (
     EVENT_CONSULTANT_ENDED,
+    EVENT_MD_IMPORT,
     EVENT_MD_TRANSFER,
     LINE_DECISION_KEEP_HISTORY,
     LINE_DECISION_REMOVED,
@@ -2058,6 +2059,76 @@ async def _capacity_outside_month(
     return capacity if capacity > ZERO else ZERO
 
 
+async def _revert_earlier_transfer(
+    db: AsyncSession,
+    *,
+    order: ClientOrder,
+    group: ClientOrderGroup,
+    period_month: str,
+    import_id: Optional[int],
+    user_id: Optional[int],
+) -> None:
+    """Zapis wskazany numerem cofa nadwyżkę przeniesioną wcześniej na następcę.
+
+    Wcześniejsza paczka za ten miesiąc mogła podzielić raport tej osoby:
+    część na tym zamówieniu, nadwyżka na następcy (``transfer_md``). Nowy
+    wiersz z numerem TEGO zamówienia niesie całą jego liczbę, więc stary wpis
+    następcy za ten miesiąc liczyłby te same MD drugi raz. Cofamy go tylko
+    wtedy, gdy dziennik potwierdza przeniesienie z tego zamówienia za ten
+    miesiąc, a wpis następcy pochodzi z INNEJ paczki (wiersz następcy z tej
+    samej paczki jest jego własnym rozliczeniem).
+    """
+    successor_line, successor_group = await successor_line_for(db, order)
+    if successor_line is None or successor_group is None:
+        return
+    transferred = await db.scalar(
+        select(ClientOrderGroupEvent.id)
+        .where(
+            ClientOrderGroupEvent.group_id == successor_group.id,
+            ClientOrderGroupEvent.event_type == EVENT_MD_TRANSFER,
+            ClientOrderGroupEvent.payload["period_month"].astext == period_month,
+            ClientOrderGroupEvent.payload["predecessor_group_id"].astext
+            == str(group.id),
+        )
+        .limit(1)
+    )
+    if transferred is None:
+        return
+    entry = await db.scalar(
+        select(ClientOrderMdConsumption).where(
+            ClientOrderMdConsumption.order_id == successor_line.id,
+            ClientOrderMdConsumption.period_month == period_month,
+        )
+    )
+    if entry is None or (import_id is not None and entry.import_id == import_id):
+        return
+    await db.scalar(
+        select(ClientOrder.id)
+        .where(ClientOrder.id == successor_line.id)
+        .with_for_update()
+    )
+    removed = Decimal(str(entry.md_reported))
+    await delete_consumption(db, successor_line, period_month)
+    record_event(
+        db,
+        group_id=successor_group.id,
+        order_id=successor_line.id,
+        event_type=EVENT_MD_IMPORT,
+        description=(
+            f"Za {format_period_month(period_month)} cofnięto {format_md(removed)} MD "
+            f"przeniesione wcześniej z zamówienia nr {group.order_number} — "
+            "import wskazał to zamówienie numerem i rozliczył na nim całość."
+        ),
+        payload={
+            "period_month": period_month,
+            "md_reverted": str(removed),
+            "predecessor_group_id": group.id,
+            "import_id": import_id,
+        },
+        user_id=user_id,
+    )
+
+
 async def apply_md_consumption(
     db: AsyncSession,
     *,
@@ -2128,6 +2199,15 @@ async def apply_md_consumption(
             )
             order, group = pred_line, pred_group
         successor_line, successor_group = await successor_line_for(db, order)
+    elif allow_successor_transfer and group is not None:
+        await _revert_earlier_transfer(
+            db,
+            order=order,
+            group=group,
+            period_month=period_month,
+            import_id=import_id,
+            user_id=user_id,
+        )
 
     applied = value
     overflow = ZERO
