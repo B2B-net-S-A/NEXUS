@@ -59,8 +59,8 @@ from app.services.b2b_register_import.parser import (
 
 logger = logging.getLogger(__name__)
 
-RECEIPT_PREFIX = "0358_b2b_register_import_"
-DETAILS_PREFIX = "repair_details_0358_b2b_register_import_"
+RECEIPT_PREFIX = "0359_b2b_register_import_"
+DETAILS_PREFIX = "repair_details_0359_b2b_register_import_"
 #: „Zastosuj” wymaga podglądu tego samego pliku nie starszego niż to.
 DRY_RUN_VALIDITY = timedelta(hours=24)
 _LOCK_KEY = 356_0023_2026

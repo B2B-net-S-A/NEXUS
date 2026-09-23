@@ -1,4 +1,4 @@
-"""DDL dokumentów pochodnych — JEDNO źródło dla migracji 0357 i ``entrypoint.sh``.
+"""DDL dokumentów pochodnych — JEDNO źródło dla migracji 0358 i ``entrypoint.sh``.
 
 Produkcyjny alembic bywa osierocony, więc siatka bezpieczeństwa w
 ``entrypoint.sh`` jest wdrożeniem równorzędnym z migracją. Dwie ręczne kopie

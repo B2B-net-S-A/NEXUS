@@ -3488,7 +3488,7 @@ export interface B2BGeneratedContractRow {
   linked_contract_status?: string | null;
   linked_contract_end_date?: string | null;
   /**
-   * Rejestr z Excela działu (0358). Opcjonalne — starszy backend ich nie
+   * Rejestr z Excela działu (0359). Opcjonalne — starszy backend ich nie
    * wysyła; brak = umowa z generatora.
    */
   source?: B2BRegisterSource;

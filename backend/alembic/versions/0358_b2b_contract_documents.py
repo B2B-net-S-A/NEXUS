@@ -1,7 +1,7 @@
 """Dokumenty pochodne umowy B2B (aneksy, rozwiązania, umowa przedwstępna)
 
-Revision ID: 0357_b2b_contract_documents
-Revises: 0356_kpi_targets_editor_reports
+Revision ID: 0358_b2b_contract_documents
+Revises: 0357_contract_orders_card_dismissed
 Create Date: 2026-09-23 18:00:00.000000
 
 Tabela ``b2b_contract_documents``, cztery nowe typy aneksu w
@@ -17,8 +17,8 @@ from alembic import op
 
 from app.services.b2b_documents.schema_sql import BACKFILL_DDL, ENUM_DDL, TABLE_DDL
 
-revision = "0357_b2b_contract_documents"
-down_revision = "0356_kpi_targets_editor_reports"
+revision = "0358_b2b_contract_documents"
+down_revision = "0357_contract_orders_card_dismissed"
 branch_labels = None
 depends_on = None
 

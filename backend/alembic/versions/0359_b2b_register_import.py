@@ -1,7 +1,7 @@
 """Import rejestru umów z Excela działu (powtarzalny)
 
-Revision ID: 0358_b2b_register_import
-Revises: 0357_b2b_contract_documents
+Revision ID: 0359_b2b_register_import
+Revises: 0358_b2b_contract_documents
 Create Date: 2026-09-23 20:00:00.000000
 
 Kolumny ``source``/``source_key``/``raw_contract_number``/… na
@@ -18,8 +18,8 @@ from alembic import op
 
 from app.services.b2b_register_import.schema_sql import TABLE_DDL
 
-revision = "0358_b2b_register_import"
-down_revision = "0357_b2b_contract_documents"
+revision = "0359_b2b_register_import"
+down_revision = "0358_b2b_contract_documents"
 branch_labels = None
 depends_on = None
 

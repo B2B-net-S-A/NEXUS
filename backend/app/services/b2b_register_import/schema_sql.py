@@ -1,4 +1,4 @@
-"""DDL importu rejestru umów z Excela — JEDNO źródło dla migracji 0358 i ``entrypoint.sh``.
+"""DDL importu rejestru umów z Excela — JEDNO źródło dla migracji 0359 i ``entrypoint.sh``.
 
 Produkcyjny alembic bywa osierocony, więc siatka bezpieczeństwa w
 ``entrypoint.sh`` jest wdrożeniem równorzędnym z migracją — obie strony

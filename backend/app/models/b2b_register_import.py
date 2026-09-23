@@ -1,4 +1,4 @@
-"""Przebiegi importu rejestru umów z Excela działu (0358).
+"""Przebiegi importu rejestru umów z Excela działu (0359).
 
 Wzór: ``ClientImportRun``/``ClientImportRow`` (``models/client_directory.py``).
 Przebieg ``dry_run`` zapisuje wyłącznie liczniki (ta sama ścieżka co zapis,

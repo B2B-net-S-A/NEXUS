@@ -17,7 +17,7 @@ class ContractAmendmentType(str, enum.Enum):
     rate_change = "rate_change"
     scope_change = "scope_change"
     early_termination = "early_termination"
-    # 0357 — typy aneksów, które generator dokumentów zapisuje po podpisie.
+    # 0358 — typy aneksów, które generator dokumentów zapisuje po podpisie.
     start_date_change = "start_date_change"
     party_data_change = "party_data_change"
     subcontractor_consent = "subcontractor_consent"

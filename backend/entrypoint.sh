@@ -767,7 +767,7 @@ except Exception as _kc_err:  # noqa: BLE001
     _KEYWORD_CORPUS_DDL = []
     _KEYWORD_CORPUS_INDEXES = []
 
-# Dokumenty pochodne umowy B2B (migracja 0357): tabela, typy aneksu i wersja
+# Dokumenty pochodne umowy B2B (migracja 0358): tabela, typy aneksu i wersja
 # wzoru umowy — JEDNO źródło z migracją (`app/services/b2b_documents/schema_sql.py`).
 try:
     from app.services.b2b_documents import schema_sql as _b2b_docs
@@ -780,7 +780,7 @@ except Exception as _b2b_docs_err:  # noqa: BLE001
     _B2B_DOCUMENTS_DDL = []
     _B2B_DOCUMENTS_BACKFILL = []
 
-# Rejestr umów z Excela działu (migracja 0358): kolumny źródła, NULL-owalne
+# Rejestr umów z Excela działu (migracja 0359): kolumny źródła, NULL-owalne
 # `year`/`seq`, częściowy UNIQUE i tabele przebiegów importu — JEDNO źródło
 # z migracją (`app/services/b2b_register_import/schema_sql.py`).
 try:

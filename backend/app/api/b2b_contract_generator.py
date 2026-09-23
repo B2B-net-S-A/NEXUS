@@ -143,7 +143,7 @@ _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.do
 # ignoruje nieznane klucze, więc odtworzenie payloadu go po prostu pomija.
 _CLAUSE_SNAPSHOT_FIELD = "_clause_override"
 
-# Wiersz z rejestru Excela działu (0358) — treść prowadzi dział w pliku, więc
+# Wiersz z rejestru Excela działu (0359) — treść prowadzi dział w pliku, więc
 # NEXUS jej nie poprawia, nie usuwa i nie potwierdza podpisu (ponowny import
 # cofnąłby każdą taką zmianę). Zmiana statusu handlowego jest dozwolona.
 _EXCEL_ROW_READ_ONLY = (

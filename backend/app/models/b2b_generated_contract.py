@@ -37,7 +37,7 @@ from app.models.base import TimestampMixin
 class B2BGeneratedContract(Base, TimestampMixin):
     __tablename__ = "b2b_generated_contracts"
     __table_args__ = (
-        # Częściowy od 0358: wiersze z Excela z numerem spoza formatu („264A”,
+        # Częściowy od 0359: wiersze z Excela z numerem spoza formatu („264A”,
         # „bez numeru”, „zlecenie”) nie mają `seq`, a numer kanoniczny nadal
         # nie może się powtórzyć w obrębie roku.
         Index(
@@ -143,7 +143,7 @@ class B2BGeneratedContract(Base, TimestampMixin):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    # Oba NULL-owalne od 0358: wiersz z Excela bez daty podpisania nie ma
+    # Oba NULL-owalne od 0359: wiersz z Excela bez daty podpisania nie ma
     # roku, a numer spoza formatu „liczba/rok” nie ma `seq` (surowy numer
     # żyje w `raw_contract_number`).
     year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
@@ -258,13 +258,13 @@ class B2BGeneratedContract(Base, TimestampMixin):
     render_payload: Mapped[Optional[dict]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=True
     )
-    # Wersja wzoru umowy, z której wydano dokument (0357). Od niej zależą
+    # Wersja wzoru umowy, z której wydano dokument (0358). Od niej zależą
     # numery paragrafów cytowane w aneksach i okres wypowiedzenia
     # (services/b2b_documents/contract_versions.py). NULL = nieznana
     # (wiersz z importu Excela) — formularz dokumentu pyta wtedy o paragraf.
     template_version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
 
-    # ── Rejestr z Excela działu (0358) ──────────────────────────────────────
+    # ── Rejestr z Excela działu (0359) ──────────────────────────────────────
     # Excel „UMOWY I ZAMÓWIENIA” jest prowadzony RÓWNOLEGLE z NEXUSEM, więc
     # import jest powtarzalny. `generator` = wiersz wydany w NEXUSIE (import go
     # nigdy nie zmienia), `excel` = wiersz z pliku, tylko do odczytu poza
