@@ -156,7 +156,9 @@ export default function FinancePage() {
         <div
           role="tablist"
           aria-label="Tryb modułu Finanse"
-          className="inline-flex items-center gap-1 rounded-lg border border-[hsl(var(--border))] bg-muted/40 p-1"
+          // Pięć długich etykiet (~460 px) — poniżej `sm` przewijanie w poziomie
+          // zamiast wypychania strony (audyt 23.09.2026, P1-12).
+          className="flex w-full max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-[hsl(var(--border))] bg-muted/40 p-1 sm:inline-flex sm:w-auto"
         >
           <ModeButton
             active={visibleView === "results"}
@@ -259,7 +261,7 @@ function ModeButton({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+        "shrink-0 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
         active
           ? "bg-background text-foreground shadow-xs"
           : "text-muted-foreground hover:text-foreground",

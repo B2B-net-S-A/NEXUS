@@ -303,7 +303,7 @@ export function CVGeneratorV2({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent size="lg" className="p-0 max-h-[92vh]">
+      <DialogContent size="lg" className="p-0 max-h-[92dvh]">
         <div className="flex shrink-0 items-start justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-primary/10 p-2 text-primary">

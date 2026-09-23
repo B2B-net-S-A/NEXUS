@@ -104,16 +104,23 @@ function ModalShell({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
       onClick={onClose}
     >
+      {/* `p-4` na tle: na telefonie okno nie dotyka krawędzi ekranu.
+          Limit wysokości + przewijanie: „Zakończ kontrakt" ma listę powodów,
+          datę i notatkę — z klawiaturą przycisk potwierdzenia był poza ekranem. */}
       <div
-        className="bg-card dark:bg-muted rounded-2xl shadow-xl w-full max-w-md p-5 space-y-4"
+        className="bg-card dark:bg-muted rounded-2xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-y-auto p-5 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-foreground dark:text-foreground">{title}</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground">
+          <button
+            onClick={onClose}
+            aria-label="Zamknij"
+            className="hit-area text-muted-foreground hover:text-muted-foreground dark:hover:text-muted-foreground"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>

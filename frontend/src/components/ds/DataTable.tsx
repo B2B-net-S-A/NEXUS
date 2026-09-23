@@ -49,8 +49,10 @@ export function DataTable<T>({
 
   return (
     <div className="flow-root">
-      <div className="-mx-4 -my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
-        <div className="inline-block min-w-full py-2 align-middle sm:px-6 lg:px-8">
+      {/* Wyjście poza padding hosta dopasowane do shella (`p-4 md:p-6`) i kart
+          (`p-6`) — dawne `lg:-mx-8` wystawało 8 px poza kartę. */}
+      <div className="-mx-4 -my-2 overflow-x-auto sm:-mx-6">
+        <div className="inline-block min-w-full py-2 align-middle sm:px-6">
           {rows.length === 0 ? (
             <div className="px-4 py-12 text-center text-sm text-muted-foreground sm:px-0">
               {empty ?? "Brak danych do wyświetlenia."}

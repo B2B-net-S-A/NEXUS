@@ -136,7 +136,7 @@ export function RequestSearchDialog({
             Przemielimy całą bazę pod request klienta — bez zakładania rekrutacji.
           </DialogDescription>
         </DialogHeader>
-        <DialogBody className="max-h-[65vh] space-y-5 overflow-y-auto">
+        <DialogBody className="max-h-[65dvh] space-y-5 overflow-y-auto">
           <fieldset className="space-y-2">
             <legend className="mb-2 text-sm font-medium text-foreground">
               Skąd bierzemy wymagania?

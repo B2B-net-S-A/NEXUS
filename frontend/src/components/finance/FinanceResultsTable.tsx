@@ -127,11 +127,11 @@ export function FinanceResultsTable({
   return (
     // Ciało tabeli przewija się WEWNĄTRZ tego kontenera, a nie przez
     // przewijanie strony — nagłówek zostaje widoczny (pkt 4.4 ticketu).
-    <div className="max-h-[60vh] overflow-auto rounded-lg border border-border">
+    <div className="max-h-[60dvh] overflow-auto rounded-lg border border-border">
       <table className="w-full text-sm">
         <thead className="sticky top-0 z-10 bg-muted text-xs uppercase text-muted-foreground">
           <tr>
-            {COLUMNS.map((col) => {
+            {COLUMNS.map((col, index) => {
               const active = sort === col.key;
               return (
                 <th
@@ -140,6 +140,8 @@ export function FinanceResultsTable({
                   className={cn(
                     "whitespace-nowrap px-3 py-2 font-medium",
                     col.numeric ? "text-right" : "text-left",
+                    // Narożnik: „Konsultant" przyklejony w obu osiach.
+                    index === 0 && "sticky left-0 z-20 bg-muted",
                   )}
                 >
                   {col.numeric ? (
@@ -171,7 +173,8 @@ export function FinanceResultsTable({
         <tbody>
           {rows.map((row) => (
             <tr key={row.id} className="border-t border-border hover:bg-muted/40">
-              <td className="whitespace-nowrap px-3 py-1.5 font-medium">
+              {/* Nazwisko zostaje w kadrze przy przewijaniu kwot w poziomie. */}
+              <td className="sticky left-0 z-[1] whitespace-nowrap bg-card px-3 py-1.5 font-medium">
                 {row.consultant_name}
               </td>
               {COLUMNS.filter((c) => c.editable).map((col) => {

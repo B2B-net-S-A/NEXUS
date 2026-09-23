@@ -450,6 +450,15 @@ def _generate_cv_html(
     background: #f8fafc;
   }}
   .footer-brand {{ display: flex; align-items: center; gap: 6px; font-weight: 600; }}
+  /* Wąski ekran (link do CV otwierany na telefonie): kolumna boczna nad treścią. */
+  @media (max-width: 640px) {{
+    .cv-body {{ grid-template-columns: 1fr; }}
+    .cv-sidebar {{ border-right: 0; border-bottom: 1px solid #e2e8f0; padding: 20px 16px; }}
+    .cv-main {{ padding: 20px 16px; }}
+    .cv-header {{ padding: 24px 16px 20px; }}
+    .cv-header-date {{ position: static; margin-top: 8px; }}
+    .cv-footer {{ padding: 12px 16px; flex-wrap: wrap; gap: 4px; }}
+  }}
   @media print {{
     body {{ background: #fff; }}
     .cv-wrapper {{ max-width: 100%; }}

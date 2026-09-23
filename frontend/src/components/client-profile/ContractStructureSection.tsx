@@ -154,7 +154,7 @@ function FrameworkRow({
   return (
     <li className="rounded-lg border border-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2">
           <span className="text-sm font-semibold text-foreground">{header}</span>
           <span className="text-xs text-muted-foreground">{framework.name}</span>
         </div>
@@ -177,13 +177,15 @@ function FrameworkRow({
             <span
               key={ec.id}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs",
+                // `flex-wrap` + `max-w-full`: numer, status, licznik i ołówek
+                // mają razem ~320 px — na telefonie chip wystawał poza kartę.
+                "inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs",
                 ec.status === "active"
                   ? "border-primary/30 bg-primary/10 text-foreground"
                   : "border-border bg-muted text-muted-foreground",
               )}
             >
-              <span className="font-medium">{ec.number}</span>
+              <span className="font-medium break-all">{ec.number}</span>
               <span
                 className={cn(
                   "rounded px-1 py-0.5 text-[10px] font-semibold uppercase",
@@ -210,7 +212,7 @@ function FrameworkRow({
                 onClick={() => onEdit(ec)}
                 aria-label={`Edytuj umowę wykonawczą: ${ec.number}`}
                 title="Edytuj umowę wykonawczą"
-                className="-mr-1 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="hit-area -mr-1 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 <Pencil className="h-3 w-3" aria-hidden="true" />
               </button>

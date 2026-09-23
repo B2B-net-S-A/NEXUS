@@ -15,7 +15,7 @@ import {
  Search,
  Trash2,
 } from"lucide-react";
-import ReactMarkdown from"react-markdown";
+import ReactMarkdown, { type Components } from"react-markdown";
 import remarkGfm from"remark-gfm";
 
 import { Button } from"@/components/ui/button";
@@ -45,6 +45,19 @@ const HELP_DATE: Intl.DateTimeFormatOptions = {
  day: "2-digit",
  month: "2-digit",
  year: "numeric",
+};
+
+/**
+ * Tabele w procedurach mają po 3–4 kolumny tekstu i identyfikatory w `code` —
+ * na telefonie rozpychały artykuł i całą stronę w poziomie. Tabela przewija
+ * się we własnym pojemniku.
+ */
+const MARKDOWN_COMPONENTS: Components = {
+ table: ({ children }) => (
+ <div className="overflow-x-auto">
+ <table>{children}</table>
+ </div>
+ ),
 };
 
 type HelpTab = "procedures" | "materials" | "clients";
@@ -124,6 +137,18 @@ export function HelpPageV2() {
  setSelectedId(items[0].id);
  }
  }, [items, selectedId]);
+
+ // Poniżej md treść procedury stoi POD całą listą — klik w pozycję nie dawał
+ // widocznej reakcji. Po wyborze przewijamy do treści, gdy układ jest pionowy.
+ const contentSectionRef = useRef<HTMLElement | null>(null);
+ const [revealTick, setRevealTick] = useState(0);
+ useEffect(() => {
+ if (revealTick === 0) return;
+ if (window.matchMedia?.("(min-width: 768px)").matches) return;
+ // Bez `behavior: "smooth"` — w zagnieżdżonym kontenerze powłoki Chrome
+ // cicho pomija płynne przewijanie (patrz `ProcedureTableOfContents`).
+ contentSectionRef.current?.scrollIntoView?.({ block:"start" });
+ }, [revealTick]);
 
  const detailQuery = useQuery({
  queryKey: ["procedure", selectedId],
@@ -244,7 +269,7 @@ export function HelpPageV2() {
  />
  <nav
  aria-label="Lista procedur"
- className="rounded-lg border border-border bg-card overflow-hidden"
+ className="rounded-lg border border-border bg-card overflow-hidden md:max-h-[calc(100dvh-12rem)] md:overflow-y-auto"
  >
  {listQuery.isLoading ? (
  <p className="p-4 text-sm text-muted-foreground">Ładowanie…</p>
@@ -267,7 +292,10 @@ export function HelpPageV2() {
  <li key={item.id}>
  <button
  type="button"
- onClick={() => setSelectedId(item.id)}
+ onClick={() => {
+ setSelectedId(item.id);
+ setRevealTick((t) => t + 1);
+ }}
  className={cn("w-full text-left px-4 py-3 transition-colors flex items-start gap-2","hover:bg-primary/10",
  active &&"bg-primary/10"
  )}
@@ -300,7 +328,10 @@ export function HelpPageV2() {
  </aside>
 
  {/* Right: content */}
- <section className="rounded-lg border border-border bg-card min-h-[400px]">
+ <section
+ ref={contentSectionRef}
+ className="min-w-0 scroll-mt-4 rounded-lg border border-border bg-card min-h-[400px]"
+ >
  {selectedId === null ? (
  <EmptyContent />
  ) : detailQuery.isLoading ? (
@@ -434,7 +465,7 @@ export function ProcedureContent({
  }, [procedure.content]);
 
  return (
- <article className="p-6 md:p-8">
+ <article className="p-4 md:p-8">
  <header className="flex items-start justify-between gap-4 flex-wrap mb-5">
  <div className="min-w-0">
  <h2 className="font-semibold text-2xl font-bold tracking-heading text-foreground">
@@ -478,7 +509,9 @@ export function ProcedureContent({
  ref={contentRef}
  className="prose prose-sm md:prose-base max-w-none prose-headings:font-semibold prose-headings:text-foreground prose-a:text-primary"
  >
- <ReactMarkdown remarkPlugins={[remarkGfm]}>{procedure.content}</ReactMarkdown>
+ <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+ {procedure.content}
+ </ReactMarkdown>
  </div>
  </article>
  );

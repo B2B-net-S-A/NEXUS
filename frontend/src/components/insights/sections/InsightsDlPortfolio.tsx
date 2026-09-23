@@ -112,7 +112,7 @@ export function InsightsDlPortfolio({
   const columns = showHm ? 8 : 7;
 
   return (
-    <section className="bg-card rounded-xl border border-border p-6 shadow-xs space-y-4">
+    <section className="bg-card rounded-xl border border-border p-4 shadow-xs space-y-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
@@ -176,7 +176,8 @@ export function InsightsDlPortfolio({
               <table className="w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr className="text-left text-xs font-semibold text-muted-foreground">
-                    <th scope="col" className="px-4 py-2.5">Klient</th>
+                    {/* Kolumna „Klient" przyklejona przy przewijaniu w poziomie. */}
+                    <th scope="col" className="sticky left-0 z-10 bg-card bg-linear-to-r from-muted/40 to-muted/40 px-4 py-2.5">Klient</th>
                     <th scope="col" className="px-3 py-2.5 text-right">Otwarte</th>
                     <th scope="col" className="px-3 py-2.5 text-right">Zapytania</th>
                     <th scope="col" className="px-3 py-2.5 text-right">Placementy</th>
@@ -205,7 +206,9 @@ export function InsightsDlPortfolio({
                                 konto nieaktywne
                               </span>
                             ) : null}
-                            <span className="ml-auto flex flex-wrap items-center gap-2 text-xs">
+                            {/* `ml-auto` dopiero od `md`: w przewijanej tabeli liczby DL
+                                lądowały przy prawej krawędzi, poza kadrem telefonu. */}
+                            <span className="flex flex-wrap items-center gap-2 text-xs md:ml-auto">
                               <span className="rounded-full bg-primary/10 px-2.5 py-1 font-semibold text-primary">
                                 {count(lead.placements)} plac. · {count(lead.requests)} zap.
                               </span>
@@ -234,7 +237,7 @@ export function InsightsDlPortfolio({
                           key={`${lead.dl_id}-${c.client_id ?? "none"}`}
                           className="border-t border-border"
                         >
-                          <td className="px-4 py-3 pl-14 font-semibold text-foreground">
+                          <td className="sticky left-0 z-10 bg-card px-4 py-3 pl-6 font-semibold sm:pl-14 text-foreground">
                             {c.client_name}
                           </td>
                           <td className="px-3 py-3 text-right tabular-nums">{count(c.open_jobs)}</td>
@@ -318,7 +321,7 @@ export function DlPortfolioTiles({ period }: { period: InsightsPeriodParams }) {
   const onTarget = leads.filter((l) => l.target_achieved).length;
   const assessed = leads.filter((l) => l.target_achieved !== null).length;
   return (
-    <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-4">
       <KpiCard
         label="Placementy"
         value={count(placements)}

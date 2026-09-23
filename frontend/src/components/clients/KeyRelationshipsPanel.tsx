@@ -170,16 +170,16 @@ export function KeyRelationshipsPanel() {
                     {r.email && (
                       <a
                         href={`mailto:${r.email}`}
-                        className="flex items-center gap-1 text-primary hover:underline"
+                        className="flex min-w-0 max-w-full items-center gap-1 text-primary hover:underline pointer-coarse:min-h-10"
                       >
-                        <Mail className="w-3 h-3" />
-                        {r.email}
+                        <Mail className="w-3 h-3 shrink-0" />
+                        <span className="break-all">{r.email}</span>
                       </a>
                     )}
                     {r.phone && (
                       <a
                         href={`tel:${r.phone}`}
-                        className="flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                        className="flex items-center gap-1 text-muted-foreground hover:text-foreground pointer-coarse:min-h-10"
                       >
                         <Phone className="w-3 h-3" />
                         {r.phone}

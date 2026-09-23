@@ -78,9 +78,9 @@ export function StageNotificationRulesModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg bg-card dark:bg-muted shadow-xl">
-        <div className="sticky top-0 flex items-center justify-between border-b border-border dark:border-border bg-card dark:bg-muted px-5 py-4">
-          <div>
+      <div className="relative w-full max-w-2xl max-h-[90dvh] overflow-y-auto rounded-lg bg-card dark:bg-muted shadow-xl">
+        <div className="sticky top-0 flex items-start justify-between gap-3 border-b border-border dark:border-border bg-card dark:bg-muted px-4 sm:px-5 py-4">
+          <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-lg font-semibold">
               <Bell className="w-5 h-5 text-primary" />
               Powiadomienia: {stageName}
@@ -92,7 +92,8 @@ export function StageNotificationRulesModal({
           </div>
           <button
             onClick={onClose}
-            className="rounded p-1 hover:bg-muted dark:hover:bg-muted"
+            aria-label="Zamknij"
+            className="hit-area shrink-0 rounded p-1 hover:bg-muted dark:hover:bg-muted"
           >
             <X className="w-5 h-5" />
           </button>
@@ -127,7 +128,7 @@ export function StageNotificationRulesModal({
                       key={r.id}
                       className="rounded-md border border-border dark:border-border bg-card dark:bg-muted"
                     >
-                      <div className="flex items-center gap-3 px-3 py-2">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2">
                         <span
                           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                             r.is_active
@@ -141,7 +142,7 @@ export function StageNotificationRulesModal({
                             ? ` · #${r.specific_user_id}`
                             : ""}
                         </span>
-                        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           {r.notify_inapp && (
                             <span
                               title="In-app"

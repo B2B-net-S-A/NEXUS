@@ -394,6 +394,11 @@ function RaceCard({
 
         <div className="mt-auto space-y-1 border-t border-border pt-2 text-[11px] text-muted-foreground">
           {copy.populationNote ? <p>{copy.populationNote}</p> : null}
+          {/* Wyjaśnienie progu także bez hovera — `title` przy liczbie
+              weryfikacji jest nieosiągalny dotykiem (audyt 23.09.2026). */}
+          {variant === "recommendations" && ranking.length > 0 ? (
+            <p>{RACE_THRESHOLD_TOOLTIP}</p>
+          ) : null}
           <p>
             Remis: przy tej samej liczbie wyżej jest osoba z wcześniej założonym
             kontem. NEXUS nie rozstrzyga remisu marżą.

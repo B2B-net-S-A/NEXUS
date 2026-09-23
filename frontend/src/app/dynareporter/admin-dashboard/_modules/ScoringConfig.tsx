@@ -135,7 +135,7 @@ export function ScoringConfig() {
           Kwoty wyświetlane pod podium na stronie Rekrutacja. Zmiany odświeżają
           się natychmiast.
         </p>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <PointsInput
             label="🥇 1. miejsce (PLN)"
             value={prize1}
@@ -250,7 +250,7 @@ function PointsInput({
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full px-2 py-1.5 text-lg font-bold tabular-nums bg-background border border-input rounded-md"
       />
-      <p className="text-[10px] text-muted-foreground mt-1">{hint}</p>
+      <p className="text-[11px] text-muted-foreground mt-1">{hint}</p>
     </div>
   );
 }

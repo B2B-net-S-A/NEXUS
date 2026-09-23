@@ -47,7 +47,7 @@ export default function ForgotPasswordPage() {
                 <div className="space-y-1">
                   <p className="font-medium">Sprawdź skrzynkę email</p>
                   <p className="text-muted-foreground">
-                    Jeśli konto z adresem <strong className="text-foreground">{email}</strong> istnieje, wysłaliśmy
+                    Jeśli konto z adresem <strong className="break-all text-foreground">{email}</strong> istnieje, wysłaliśmy
                     link do ustawienia nowego hasła. Link ważny 60 minut.
                   </p>
                   <p className="text-muted-foreground text-xs">
@@ -57,7 +57,7 @@ export default function ForgotPasswordPage() {
               </div>
               <Link
                 href="/login"
-                className="flex items-center justify-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
+                className="flex min-h-11 sm:min-h-0 items-center justify-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
               >
                 <ArrowLeft className="h-4 w-4" />
                 Wróć do logowania
@@ -92,7 +92,7 @@ export default function ForgotPasswordPage() {
                 variant="primary"
                 size="lg"
                 loading={loading}
-                className="w-full"
+                className="w-full h-11 sm:h-10"
               >
                 {loading ? "Wysyłanie…" : "Wyślij link resetowy"}
                 {!loading && <Send className="h-4 w-4" />}
@@ -100,7 +100,7 @@ export default function ForgotPasswordPage() {
 
               <Link
                 href="/login"
-                className="flex items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+                className="flex min-h-11 sm:min-h-0 items-center justify-center gap-2 text-sm text-muted-foreground hover:text-foreground"
               >
                 <ArrowLeft className="h-4 w-4" />
                 Wróć do logowania

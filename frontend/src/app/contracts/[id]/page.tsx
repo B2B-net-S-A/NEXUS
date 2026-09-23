@@ -1134,7 +1134,7 @@ export default function ContractDetailPage() {
             <button
               key={t.key}
               onClick={() => setActiveTab(t.key)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm border-b-2 -mb-px transition-colors ${
+              className={`flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-2.5 text-sm border-b-2 -mb-px transition-colors ${
                 active
                   ? "border-primary text-primary font-medium"
                   : "border-transparent text-muted-foreground hover:text-foreground dark:text-muted-foreground dark:hover:text-foreground"
@@ -1624,13 +1624,11 @@ export default function ContractDetailPage() {
                   ) : (
                     <div className="space-y-2">
                       {form.framework_rate_schedule.map((row, idx) => (
-                        <div key={idx} className="flex items-end gap-2">
+                        <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-border p-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end sm:border-0 sm:p-0">
                           <div className="flex-1">
-                            {idx === 0 && (
-                              <span className="mb-1 block text-[11px] text-muted-foreground">
-                                Stawka
-                              </span>
-                            )}
+                            <span className={`mb-1 block text-[11px] text-muted-foreground${idx > 0 ? " sm:hidden" : ""}`}>
+                              Stawka
+                            </span>
                             <input
                               aria-label={`Etap ${idx + 1} stawki z umowy ramowej: kwota`}
                               type="text"
@@ -1661,11 +1659,9 @@ export default function ContractDetailPage() {
                             />
                           </div>
                           <div className="flex-1">
-                            {idx === 0 && (
-                              <span className="mb-1 block text-[11px] text-muted-foreground">
-                                Obowiązuje od
-                              </span>
-                            )}
+                            <span className={`mb-1 block text-[11px] text-muted-foreground${idx > 0 ? " sm:hidden" : ""}`}>
+                              Obowiązuje od
+                            </span>
                             <input
                               aria-label={`Etap ${idx + 1} stawki z umowy ramowej: obowiązuje od`}
                               type="date"
@@ -1689,11 +1685,9 @@ export default function ContractDetailPage() {
                             />
                           </div>
                           <div className="flex-1">
-                            {idx === 0 && (
-                              <span className="mb-1 block text-[11px] text-muted-foreground">
-                                Obowiązuje do
-                              </span>
-                            )}
+                            <span className={`mb-1 block text-[11px] text-muted-foreground${idx > 0 ? " sm:hidden" : ""}`}>
+                              Obowiązuje do
+                            </span>
                             <input
                               aria-label={`Etap ${idx + 1} stawki z umowy ramowej: obowiązuje do`}
                               type="date"
@@ -1733,7 +1727,7 @@ export default function ContractDetailPage() {
                                   : f,
                               )
                             }
-                            className="mb-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                            className="mb-1 flex h-10 w-10 shrink-0 items-center justify-center justify-self-end rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:h-8 sm:w-8"
                           >
                             <X className="h-4 w-4" />
                           </button>
@@ -1809,13 +1803,11 @@ export default function ContractDetailPage() {
                   ) : (
                     <div className="space-y-2">
                       {form.candidate_rate_schedule.map((row, idx) => (
-                        <div key={idx} className="flex items-end gap-2">
+                        <div key={idx} className="grid grid-cols-1 gap-2 rounded-lg border border-border p-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end sm:border-0 sm:p-0">
                           <div className="flex-1">
-                            {idx === 0 && (
-                              <span className="mb-1 block text-[11px] text-muted-foreground">
-                                Stawka
-                              </span>
-                            )}
+                            <span className={`mb-1 block text-[11px] text-muted-foreground${idx > 0 ? " sm:hidden" : ""}`}>
+                              Stawka
+                            </span>
                             <input
                               aria-label={`Etap ${idx + 1} stawki kandydata: kwota`}
                               type="text"
@@ -1846,11 +1838,9 @@ export default function ContractDetailPage() {
                             />
                           </div>
                           <div className="flex-1">
-                            {idx === 0 && (
-                              <span className="mb-1 block text-[11px] text-muted-foreground">
-                                Obowiązuje od
-                              </span>
-                            )}
+                            <span className={`mb-1 block text-[11px] text-muted-foreground${idx > 0 ? " sm:hidden" : ""}`}>
+                              Obowiązuje od
+                            </span>
                             <input
                               aria-label={`Etap ${idx + 1} stawki kandydata: obowiązuje od`}
                               type="date"
@@ -1874,11 +1864,9 @@ export default function ContractDetailPage() {
                             />
                           </div>
                           <div className="flex-1">
-                            {idx === 0 && (
-                              <span className="mb-1 block text-[11px] text-muted-foreground">
-                                Obowiązuje do
-                              </span>
-                            )}
+                            <span className={`mb-1 block text-[11px] text-muted-foreground${idx > 0 ? " sm:hidden" : ""}`}>
+                              Obowiązuje do
+                            </span>
                             <input
                               aria-label={`Etap ${idx + 1} stawki kandydata: obowiązuje do`}
                               type="date"
@@ -1918,7 +1906,7 @@ export default function ContractDetailPage() {
                                   : f,
                               )
                             }
-                            className="mb-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                            className="mb-1 flex h-10 w-10 shrink-0 items-center justify-center justify-self-end rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground sm:h-8 sm:w-8"
                           >
                             <X className="h-4 w-4" />
                           </button>
@@ -1963,7 +1951,7 @@ export default function ContractDetailPage() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label htmlFor="contract-edit-rate-unit" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Jednostka stawki
@@ -2011,7 +1999,7 @@ export default function ContractDetailPage() {
                 {!financeAmountsOnly && (
                   <>
                 {/* Zużycie zamówienia — ilość + jednostka (RBH / MD) */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label htmlFor="contract-edit-order-consumption" className="block text-xs font-medium text-muted-foreground dark:text-muted-foreground mb-1">
                       Zużycie zamówienia
@@ -2266,7 +2254,7 @@ export default function ContractDetailPage() {
 
       {/* Tab: Rate history */}
       {canViewFinance && activeTab === "rateHistory" && (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-x-auto">
           {!rateHistory || rateHistory.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">
               Brak historii stawek dla tego kandydata i klienta.
@@ -2284,10 +2272,10 @@ export default function ContractDetailPage() {
               )}
             </div>
           ) : (
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[32rem] text-sm">
               <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
                 <tr>
-                  <th className="text-left px-4 py-2">Od</th>
+                  <th className="sticky left-0 z-10 bg-muted text-left px-4 py-2">Od</th>
                   <th className="text-left px-4 py-2">Do</th>
                   <th className="text-left px-4 py-2">Typ</th>
                   <th className="text-right px-4 py-2">Stawka</th>
@@ -2300,7 +2288,7 @@ export default function ContractDetailPage() {
                     key={row.id}
                     className="border-t border-border dark:border-border"
                   >
-                    <td className="px-4 py-2">{formatDate(row.start_date)}</td>
+                    <td className="sticky left-0 z-10 bg-card dark:bg-muted px-4 py-2 whitespace-nowrap">{formatDate(row.start_date)}</td>
                     <td className="px-4 py-2">
                       {row.end_date ? formatDate(row.end_date) : "—"}
                     </td>
@@ -2340,7 +2328,7 @@ export default function ContractDetailPage() {
               {activities.map((a) => (
                 <li key={a.id} className="flex gap-3">
                   <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />
-                  <div className="flex-1">
+                  <div className="min-w-0 flex-1">
                     <div className="text-sm text-foreground dark:text-foreground">
                       {/* Etykieta PL zamiast slugu (UAT B23) — `synced_with_orders`
                           i `<pre>` z JSON-em kazały czytać strukturę techniczną. */}

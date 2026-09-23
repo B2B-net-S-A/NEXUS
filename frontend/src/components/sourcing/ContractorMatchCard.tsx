@@ -239,18 +239,20 @@ export function ContractorMatchCard({ row }: Props) {
             return (
               <li
                 key={j.id}
-                className="flex items-center gap-3 rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 px-3 py-2"
+                className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-border dark:border-border bg-muted dark:bg-card/40 px-3 py-2"
                 data-testid={`top-match-${j.id}`}
               >
                 <Briefcase className="w-4 h-4 text-muted-foreground shrink-0" />
-                <div className="flex-1 min-w-0">
+                {/* Na telefonie pigułka ostrzeżenia i przycisk schodzą do drugiej
+                    linii zamiast ściskać tytuł rekrutacji do kilku znaków. */}
+                <div className="min-w-0 flex-[1_1_12rem]">
                   <Link
                     href={`/jobs/${j.id}`}
                     className="font-medium text-sm text-foreground dark:text-foreground hover:underline truncate block"
                   >
                     {j.title}
                   </Link>
-                  <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                  <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-2 mt-0.5">
                     {j.location && <span>📍 {j.location}</span>}
                     {j.salary_min && j.salary_max && (
                       <span>
@@ -263,7 +265,7 @@ export function ContractorMatchCard({ row }: Props) {
                 </div>
                 {m.warning && (
                   <span
-                    className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-300"
+                    className="inline-flex max-w-full items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-300"
                     title={m.warning}
                   >
                     <AlertTriangle className="w-3 h-3" /> {m.warning}

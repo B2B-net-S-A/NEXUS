@@ -69,7 +69,7 @@ export function KeywordFields({
       role="group"
       aria-label="Słowa kluczowe"
       className={cn(
-        "grid gap-x-4 gap-y-3 rounded-lg border border-border bg-card p-3 md:grid-cols-[1.2fr_1fr_1fr_auto]",
+        "grid gap-x-4 gap-y-3 rounded-lg border border-border bg-card p-3 md:grid-cols-2 lg:grid-cols-[1.2fr_1fr_1fr_auto]",
         className,
       )}
     >
@@ -103,7 +103,7 @@ export function KeywordFields({
           ariaLabel="Nie zawiera żadnego ze słów"
         />
       </div>
-      <div className="space-y-1 md:w-40">
+      <div className="space-y-1 lg:w-40">
         <div className="flex items-center justify-between gap-2">
           <label htmlFor={scopeId} className="block text-[11px] font-medium text-foreground">
             Szukaj w

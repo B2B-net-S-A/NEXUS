@@ -418,7 +418,7 @@ function ReconciliationStatusPanel({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-2 @xl:grid-cols-2 @5xl:grid-cols-5">
           <StatusMetric
             label="Aktywny plan"
             value={
@@ -449,7 +449,7 @@ function ReconciliationStatusPanel({
             warning={status.shadow_violation_count > 0}
           />
         </div>
-        <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+        <div className="grid gap-2 text-xs text-muted-foreground @xl:grid-cols-2">
           <div className="flex items-center gap-2">
             <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
             <span>
@@ -583,8 +583,8 @@ function EditableAssignmentRow({
     <div className="space-y-3 rounded-lg border border-border bg-card p-3">
       <div className="flex items-start gap-3">
         <RankBadge rank={assignment.rank} position={assignment.position} />
-        <div className="grid min-w-0 flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <label className="space-y-1 text-xs text-muted-foreground md:col-span-2">
+        <div className="grid min-w-0 flex-1 gap-3 @2xl:grid-cols-2 @5xl:grid-cols-4">
+          <label className="space-y-1 text-xs text-muted-foreground @2xl:col-span-2">
             <span>Request</span>
             <Select
               value={String(assignment.job_id)}
@@ -1140,7 +1140,7 @@ function HandoffRow({
           </div>
         </div>
         {expanded ? (
-          <div className="mt-4 grid gap-3 border-t border-border pt-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]">
+          <div className="mt-4 grid gap-3 border-t border-border pt-4 @2xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]">
             <Select value={ownerId} onValueChange={setOwnerId}>
               <SelectTrigger aria-label="Nowy właściciel carry-over">
                 <SelectValue placeholder="Nowy właściciel" />
@@ -1290,7 +1290,7 @@ function ExceptionsPanel({
             assignmentem. Ważność nie może przekroczyć 7 dni.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 lg:grid-cols-2">
+        <CardContent className="grid gap-3 @4xl:grid-cols-2">
           <label className="space-y-1.5 text-sm">
             <span className="font-medium text-foreground">Osoba</span>
             <Select value={userId} onValueChange={setUserId}>
@@ -1355,7 +1355,7 @@ function ExceptionsPanel({
               aria-label="Uzasadnienie wyjątku"
             />
           </label>
-          <div className="flex justify-end lg:col-span-2">
+          <div className="flex justify-end @4xl:col-span-2">
             <Button
               loading={createMutation.isPending}
               disabled={
@@ -1404,7 +1404,7 @@ function ExceptionsPanel({
                     </Badge>
                   </div>
                   {item.status === "approved" ? (
-                    <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row">
+                    <div className="flex flex-col gap-2 border-t border-border pt-3 @xl:flex-row">
                       <Input
                         value={revokeReason}
                         onChange={(event) =>
@@ -1660,8 +1660,10 @@ export function TeamAllocationBoard() {
   ]
 
   return (
+    // `@container`: plan obsady stoi w kafelku pulpitu (w=6 = 554 px przy
+    // 1280) — kolumny liczone od szerokości kafelka, nie okna (audyt 23.09.2026).
     <section
-      className="space-y-4"
+      className="@container space-y-4"
       aria-labelledby="team-allocation-board-title"
     >
       <Card>
@@ -1778,7 +1780,7 @@ export function TeamAllocationBoard() {
       />
 
       {activeTab === "plan" ? (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
+        <div className="grid gap-4 @5xl:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
           <div className="space-y-4">
             {validationErrors.length > 0 ? (
               <Alert variant="error" title="Plan wymaga poprawy">
@@ -1832,7 +1834,7 @@ export function TeamAllocationBoard() {
             )}
           </div>
 
-          <div className="space-y-3 xl:sticky xl:top-4 xl:self-start">
+          <div className="space-y-3 @5xl:sticky @5xl:top-4 @5xl:self-start">
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">

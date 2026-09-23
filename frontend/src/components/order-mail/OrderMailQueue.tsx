@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -375,6 +375,19 @@ export function selectOrderMailDocument(
 /** Warstwa prezentacyjna — harness `/preview/order-mail` renderuje ją z mocków. */
 export function OrderMailQueueView(p: OrderMailQueueViewProps) {
   const selected = selectOrderMailDocument(p.items, p.selectedId, p.pinnedDoc, p.pinnedState ?? null);
+  // Poniżej `lg` szczegóły są POD całą listą — klik w pozycję zmieniał tylko
+  // podświetlenie i wyglądał jak „nic się nie dzieje". Po wyborze z listy
+  // przewijamy do szczegółów (tylko wąski ekran i tylko po kliknięciu).
+  const scrollToDetail = useRef(false);
+  const selectedDocId = selected?.id ?? null;
+  useEffect(() => {
+    if (!scrollToDetail.current || selectedDocId == null) return;
+    scrollToDetail.current = false;
+    if (!window.matchMedia?.("(max-width: 1023px)").matches) return;
+    document
+      .querySelector('[data-testid="order-mail-detail"]')
+      ?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  }, [selectedDocId]);
   const pinnedNotice =
     p.pinnedState != null && p.selectedId != null && !selected ? (
       p.pinnedState === "loading" ? (
@@ -402,7 +415,7 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
       ) : (
       <>
       <MailboxCheckPanel {...p.mailbox} />
-      <div className="mt-4 flex gap-2" role="tablist">
+      <div className="mt-4 flex flex-wrap gap-2" role="tablist">
         {TABS.map((t) => (
           <button
             key={t.outcome}
@@ -427,17 +440,20 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
       ) : p.items.length === 0 && !selected && !pinnedNotice ? (
         <EmptyState className="mt-6" icon={Inbox} title="Nic do pokazania" description={`Brak dokumentów w stanie „${ORDER_MAIL_OUTCOME_LABEL[p.outcome]}”.`} />
       ) : (
-        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+        <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
           <ul className="divide-y rounded-lg border" data-testid="order-mail-list">
             {p.items.map((d) => (
               <li key={d.id}>
                 <button
-                  onClick={() => p.onSelect(d.id)}
+                  onClick={() => {
+                    scrollToDetail.current = true;
+                    p.onSelect(d.id);
+                  }}
                   className={"w-full px-4 py-3 text-left hover:bg-accent " + (selected?.id === d.id ? "bg-accent" : "")}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium">{d.client_name ?? "Nierozpoznany klient"}</span>
-                    <span className="text-xs text-muted-foreground">{formatIsoDatePl(d.received_at)}</span>
+                    <span className="min-w-0 font-medium">{d.client_name ?? "Nierozpoznany klient"}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{formatIsoDatePl(d.received_at)}</span>
                   </div>
                   <div className="truncate text-sm text-muted-foreground">
                     {d.extraction?.title ?? d.attachment_name ?? d.subject ?? "—"} · {d.extraction?.consultant_rows.length ?? 0} os.
@@ -669,13 +685,16 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
         )}
       </div>
 
-      <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+      <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2 sm:gap-y-2">
         <dt className="text-muted-foreground">Numer zamówienia</dt><dd>{ex?.title ?? "—"}</dd>
         <dt className="text-muted-foreground">Okres dokumentu</dt><dd>{period(ex?.start_date ?? null, ex?.end_date ?? null)}</dd>
       </dl>
 
       <h3 className="mt-4 text-sm font-semibold">Osoby i plan zapisu</h3>
-      <table className="mt-2 w-full text-sm">
+      {/* Cztery kolumny z kwotami (twarda spacja) — na telefonie przewijane
+          w bok zamiast wypychać całą sekcję szczegółów. */}
+      <div className="mt-2 overflow-x-auto">
+      <table className="w-full min-w-[520px] text-sm">
         <thead className="text-left text-muted-foreground">
           <tr><th className="py-1">Osoba</th><th>Okres</th><th>Stawka</th><th>Plan</th></tr>
         </thead>
@@ -725,6 +744,7 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
           ))}
         </tbody>
       </table>
+      </div>
 
       {doc.gate_reasons.length > 0 && (
         <div className="mt-4 rounded-md border border-amber-300/60 bg-amber-50/60 p-3 text-sm dark:bg-amber-950/20" data-testid="gate-reasons">

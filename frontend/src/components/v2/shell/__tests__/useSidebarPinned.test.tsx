@@ -49,6 +49,39 @@ describe("useSidebarPinned", () => {
     expect(window.localStorage.getItem(SIDEBAR_PINNED_KEY)).toBe("false");
   });
 
+  it("bez zapamiętanego wyboru zwija pasek na ekranie węższym niż 1280 px", () => {
+    const matchMedia = vi.fn().mockReturnValue({ matches: false });
+    vi.stubGlobal("matchMedia", matchMedia);
+    try {
+      const { result } = renderHook(() => useSidebarPinned());
+      expect(result.current[0]).toBe(false);
+      expect(matchMedia).toHaveBeenCalledWith("(min-width: 1280px)");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("bez zapamiętanego wyboru przypina pasek od 1280 px", () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
+    try {
+      const { result } = renderHook(() => useSidebarPinned());
+      expect(result.current[0]).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("zapamiętany wybór wygrywa z szerokością ekranu", () => {
+    window.localStorage.setItem(SIDEBAR_PINNED_KEY, "true");
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }));
+    try {
+      const { result } = renderHook(() => useSidebarPinned());
+      expect(result.current[0]).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("nie wywraca sidebara, gdy storage jest niedostępny", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("SecurityError");

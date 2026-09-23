@@ -822,7 +822,7 @@ export function CandidateSearchView({
       : savedSearches.find((search) => search.id === reapprovalSearchId) ?? null;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 p-4">
+    <div className="mx-auto max-w-6xl space-y-4 p-0 md:p-4">
       <header
         className={
           hideHeader
@@ -1041,7 +1041,9 @@ export function CandidateSearchView({
                   type="button"
                   aria-label={`Usuń ${ss.name}`}
                   onClick={() => deleteSavedSearch(ss.id)}
-                  className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-destructive"
+                  // Na dotyku kosz jest zawsze widoczny — niewidoczny, ale
+                  // klikalny przechwytywał tapnięcie w nazwę zapisu.
+                  className="hit-area text-muted-foreground hover:text-destructive focus-visible:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -1365,7 +1367,7 @@ export function CandidateSearchView({
               </div>
             </div>
           )}
-          <div className="flex w-fit items-center gap-3 rounded-full border bg-foreground px-4 py-2 text-sm text-background shadow-lg">
+          <div className="flex max-w-full flex-wrap items-center justify-center gap-2 rounded-2xl border bg-foreground px-4 py-2 text-sm text-background shadow-lg sm:gap-3 lg:rounded-full">
             <span className="tabular-nums">
               Wybrano <strong>{selected.size}</strong>
             </span>
@@ -1374,7 +1376,7 @@ export function CandidateSearchView({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-7 gap-1 text-xs text-background hover:bg-background/15 hover:text-background"
+                className="h-9 gap-1 text-xs text-background sm:h-7 hover:bg-background/15 hover:text-background"
                 onClick={() => setBulkOptionsOpen((o) => !o)}
                 disabled={bulkPending}
               >
@@ -1395,7 +1397,7 @@ export function CandidateSearchView({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-7 text-xs text-background hover:bg-background/15 hover:text-background"
+              className="h-9 text-xs text-background sm:h-7 hover:bg-background/15 hover:text-background"
               onClick={clearSelection}
               disabled={bulkPending || shortlistPending}
             >
@@ -1408,7 +1410,7 @@ export function CandidateSearchView({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-7 gap-1 text-xs text-background hover:bg-background/15 hover:text-background"
+                className="h-9 gap-1 text-xs text-background sm:h-7 hover:bg-background/15 hover:text-background"
                 onClick={submitShortlist}
                 disabled={bulkPending || shortlistPending}
               >
@@ -1425,7 +1427,7 @@ export function CandidateSearchView({
                 type="button"
                 size="sm"
                 variant="ghost"
-                className="h-7 gap-1 text-xs text-background hover:bg-background/15 hover:text-background"
+                className="h-9 gap-1 text-xs text-background sm:h-7 hover:bg-background/15 hover:text-background"
                 onClick={() => {
                   if (!compareTooMany) setCompareOpen(true);
                 }}
@@ -1446,7 +1448,7 @@ export function CandidateSearchView({
               <Button
                 type="button"
                 size="sm"
-                className="h-7 gap-1 bg-primary text-primary-foreground hover:bg-primary/90"
+                className="h-9 min-w-0 max-w-full gap-1 bg-primary text-primary-foreground hover:bg-primary/90 sm:h-7"
                 onClick={submitBulk}
                 disabled={bulkPending || shortlistPending}
               >
@@ -1455,7 +1457,7 @@ export function CandidateSearchView({
                 ) : (
                   <Plus className="h-3 w-3" />
                 )}
-                Dodaj do „{jobContext.title}"
+                <span className="truncate">Dodaj do „{jobContext.title}"</span>
               </Button>
             ) : null}
           </div>

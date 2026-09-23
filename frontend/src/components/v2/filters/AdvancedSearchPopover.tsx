@@ -149,12 +149,13 @@ export function ChipField({
               variant="outline"
               className={cn("gap-1 pl-2 pr-1 py-0.5 font-normal", TONE_CLASSES[tone])}
             >
-              <span className="max-w-[180px] truncate">{phrase}</span>
+              <span className="max-w-[min(180px,60vw)] truncate">{phrase}</span>
               <button
                 type="button"
                 onClick={() => removeAt(i)}
                 title="Usuń frazę"
-                className="inline-flex items-center justify-center rounded hover:bg-foreground/10"
+                aria-label={`Usuń frazę ${phrase}`}
+                className="pointer-coarse:hit-area inline-flex items-center justify-center rounded hover:bg-foreground/10"
               >
                 <X className="w-3 h-3" />
               </button>

@@ -17,6 +17,7 @@ import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
 import { KidsBackdrop } from "./KidsBackdrop";
 import { MyPeopleRoot } from "@/components/v2/my-people/MyPeopleLauncher";
 import { useMyPeoplePanel } from "@/store/my-people";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import type { QuickActionModal } from "./QuickActionsV2";
 
 /**
@@ -180,25 +181,24 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
         Przejdź do treści
       </a>
 
-      {/* Mobile backdrop */}
-      {mobileSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-foreground/50 z-40 md:hidden backdrop-blur-[2px]"
-          onClick={() => setMobileSidebarOpen(false)}
-        />
-      )}
-
       {/* Desktop sidebar */}
       <div className="hidden md:flex h-full">
         <SidebarV2 />
       </div>
 
-      {/* Mobile sidebar drawer */}
-      {mobileSidebarOpen && (
-        <div className="fixed inset-y-0 left-0 z-50 md:hidden">
+      {/* Mobile sidebar drawer — Radix Dialog (Sheet): Esc zamyka, fokus
+          zostaje w szufladzie i wraca na hamburger po zamknięciu. */}
+      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+        <SheetContent
+          side="left"
+          hideClose
+          aria-describedby={undefined}
+          className="w-64 max-w-none sm:max-w-none border-r-0 bg-sidebar p-0 md:hidden"
+        >
+          <SheetTitle className="sr-only">Menu nawigacji</SheetTitle>
           <SidebarV2 mobileOpen onClose={() => setMobileSidebarOpen(false)} />
-        </div>
-      )}
+        </SheetContent>
+      </Sheet>
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <ImpersonationBanner />
@@ -212,7 +212,10 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
         {/* `tabIndex={-1}` — bez tego część przeglądarek przewinie do kotwicy,
             ale nie przeniesie fokusu, więc skip link byłby pozorny. */}
         <main id="main" tabIndex={-1} className="relative flex-1 overflow-y-auto focus:outline-hidden">
-          <div className="p-4 md:p-6 animate-fadeIn">{children}</div>
+          {/* `pb-24` na telefonie: zapas pod pływającą maskotką w prawym
+              dolnym rogu — ostatnie przyciski strony dają się wyprzewijać
+              spod niej. */}
+          <div className="p-4 pb-24 md:p-6 animate-fadeIn">{children}</div>
         </main>
       </div>
 

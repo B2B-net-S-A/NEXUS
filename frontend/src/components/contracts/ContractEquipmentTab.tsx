@@ -294,7 +294,7 @@ function EquipmentForm({ onSubmit, onCancel, submitting }: EquipmentFormProps) {
       onSubmit={handleSubmit}
       className="rounded-lg border border-border dark:border-border p-4 space-y-3 bg-muted dark:bg-muted"
     >
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="text-xs text-muted-foreground">Typ</span>
           <select

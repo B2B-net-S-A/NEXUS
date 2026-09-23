@@ -99,9 +99,9 @@ export function SkillSearchPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-6 space-y-4">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4 space-y-4 sm:p-6">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex-1 min-w-[16rem]">
+          <div className="min-w-0 flex-1 basis-full sm:basis-auto sm:min-w-[16rem]">
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}

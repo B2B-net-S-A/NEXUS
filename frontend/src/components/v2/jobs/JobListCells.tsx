@@ -74,7 +74,7 @@ export function JobStageCounts({ summary }: { summary: PipelineStageSummary }) {
           <span className="text-xs font-semibold tabular-nums">{g.count}</span>
           <span
             aria-hidden="true"
-            className="mt-0.5 text-[9px] text-muted-foreground"
+            className="mt-0.5 text-[10px] text-muted-foreground"
           >
             {GROUP_SHORT[g.key]}
           </span>

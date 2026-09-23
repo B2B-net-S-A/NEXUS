@@ -1252,25 +1252,25 @@ export function CVGeneratorStandaloneV2({
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-4 space-y-6">
               <div className="flex items-center justify-between gap-4">
-                <div>
+                <div className="min-w-0 flex-1">
                   <Label className="block" htmlFor="cvgen-blind">Blind CV</Label>
                   <p className="text-xs text-muted-foreground">
                     Anonimizuje imię, nazwisko i nazwy firm w doświadczeniu — używaj
                     przy share-ach klientom przed zaakceptowaniem profilu.
                   </p>
                 </div>
-                <Switch id="cvgen-blind" checked={blindCv} onCheckedChange={setBlindCv} />
+                <Switch id="cvgen-blind" className="shrink-0" checked={blindCv} onCheckedChange={setBlindCv} />
               </div>
 
               <div className="flex items-center justify-between gap-4">
-                <div>
+                <div className="min-w-0 flex-1">
                   <Label className="block" htmlFor="cvgen-autodownload">Pobierz automatycznie po wygenerowaniu</Label>
                   <p className="text-xs text-muted-foreground">
                     Włączone — CV od razu trafia do folderu „Pobrane". Wyłączone —
                     CV pojawia się tylko na liście „Wygenerowane CV" poniżej.
                   </p>
                 </div>
-                <Switch id="cvgen-autodownload" checked={autoDownload} onCheckedChange={setAutoDownload} />
+                <Switch id="cvgen-autodownload" className="shrink-0" checked={autoDownload} onCheckedChange={setAutoDownload} />
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -2119,7 +2119,7 @@ function GeneratedCvRow({
 
   return (
     <li className="py-2">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="truncate font-medium">{item.candidate_name}</span>
@@ -2198,7 +2198,7 @@ function GeneratedCvRow({
             <p className="mt-1 text-xs text-destructive">{item.error_message}</p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1 sm:shrink-0">
           {item.status === "processing" ? (
             <span
               className="flex items-center gap-1 text-xs text-muted-foreground"
@@ -2223,6 +2223,7 @@ function GeneratedCvRow({
                     disabled={!item.can_download}
                     onClick={() => onPreview(item)}
                     title="Podgląd w aplikacji"
+                    aria-label="Podgląd w aplikacji"
                   >
                     <Eye className="h-4 w-4" />
                   </Button>
@@ -2232,6 +2233,7 @@ function GeneratedCvRow({
                     disabled={!item.can_download}
                     onClick={() => onDownload(item)}
                     title="Pobierz DOCX"
+                    aria-label="Pobierz DOCX"
                   >
                     <Download className="h-4 w-4" />
                   </Button>
@@ -2241,11 +2243,12 @@ function GeneratedCvRow({
                     disabled={!item.can_download}
                     onClick={() => onDownloadHtml(item)}
                     title={CV_INTERACTIVE_UI_ENABLED ? "Pobierz interaktywny HTML (jeden plik: kafelki + widok klasyczny)" : "Pobierz CV jako HTML (jeden plik)"}
+                    aria-label={CV_INTERACTIVE_UI_ENABLED ? "Pobierz interaktywny HTML" : "Pobierz CV jako HTML"}
                   >
                     <FileCode2 className="h-4 w-4" />
                   </Button>
                   {canWrite && <Button variant="ghost" size="sm" disabled={!item.can_download}
-                    onClick={() => onEdit(item)} title="Edytuj i zatwierdź CV"><Pencil className="h-4 w-4" /></Button>}
+                    onClick={() => onEdit(item)} title="Edytuj i zatwierdź CV" aria-label="Edytuj i zatwierdź CV"><Pencil className="h-4 w-4" /></Button>}
                   {canWrite && CV_CLIENT_LINKS_UI_ENABLED ? (
                     <Button
                       variant="ghost"
@@ -2253,6 +2256,7 @@ function GeneratedCvRow({
                       disabled={!item.can_download}
                       onClick={() => onShare(item)}
                       title="Udostępnij klientowi (link)"
+                      aria-label="Udostępnij klientowi (link)"
                     >
                       <Link2 className="h-4 w-4" />
                     </Button>
@@ -2276,6 +2280,7 @@ function GeneratedCvRow({
                   size="sm"
                   onClick={() => onDelete(item)}
                   title="Usuń z listy"
+                  aria-label="Usuń z listy"
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -2351,8 +2356,9 @@ function GeneratedCvPreviewModal({
 
   return (
     <Dialog open={!!item} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent size="full" className="h-[92vh] gap-0 p-0">
-        <DialogHeader className="flex-row items-center justify-between gap-3 border-b px-4 py-3">
+      <DialogContent size="full" className="h-[92dvh] gap-0 p-0">
+        {/* `pr-16`: przycisk zamknięcia (absolute right-4, 44 px) zasłaniał „Pobierz". */}
+        <DialogHeader className="flex-row items-center justify-between gap-3 border-b py-3 pl-4 pr-16">
           <DialogTitle className="min-w-0 truncate text-base font-semibold">
             {item?.candidate_name}
             {item?.position ? ` — ${item.position}` : ""}

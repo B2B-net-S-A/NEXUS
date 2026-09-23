@@ -166,7 +166,7 @@ function JobHeaderKpiCluster({ kpis }: { kpis: JobHeaderKpi[] }) {
           >
             {kpi.value ?? "—"}
           </div>
-          <div className="text-[9.5px] uppercase tracking-eyebrow text-muted-foreground">
+          <div className="text-[10px] uppercase tracking-eyebrow text-muted-foreground">
             {kpi.label}
           </div>
         </div>
@@ -250,8 +250,11 @@ export function JobDetailCompactHeader({
                   {/* Tytuł też się ucina (pełny w `title`): bardzo długa nazwa
                       rekrutacji Nordei wjeżdżała pod liczniki i „Dodaj
                       kandydata". Klient kurczy się pierwszy (`shrink-[4]`). */}
+                  {/* Telefon: tytuł w dwóch liniach zamiast ucinania (pełnej
+                      nazwy z `title` nie da się podejrzeć palcem), klient
+                      ukryty — na 343 px zostawiał tytułowi kilka znaków. */}
                   <span
-                    className="min-w-0 truncate"
+                    className="min-w-0 max-sm:line-clamp-2 sm:truncate"
                     title={typeof title === "string" ? title : undefined}
                   >
                     {title}
@@ -261,7 +264,7 @@ export function JobDetailCompactHeader({
                       co spacja przy kropce ginęła przy pierwszej zmianie
                       formatowania. */}
                   <span
-                    className="min-w-0 shrink-[4] truncate text-lg font-normal text-muted-foreground"
+                    className="min-w-0 shrink-[4] truncate text-lg font-normal text-muted-foreground max-sm:hidden"
                     title={clientName}
                   >
                     {` · ${clientName}`}

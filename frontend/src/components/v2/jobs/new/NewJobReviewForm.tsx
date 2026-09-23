@@ -273,7 +273,7 @@ export function NewJobReviewForm({
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6">
+      <section className="flex flex-col gap-5 rounded-xl border border-border bg-card p-4 sm:p-6">
         <div className="flex flex-col gap-2">
           <FieldLabel
             htmlFor={ids.title}
@@ -310,7 +310,7 @@ export function NewJobReviewForm({
           placeholder="opcjonalnie"
         />
 
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-flow-row-dense md:grid-cols-2 lg:grid-cols-4">
           <div className="flex flex-col gap-2">
             <FieldLabel
               htmlFor={ids.rate}
@@ -340,7 +340,7 @@ export function NewJobReviewForm({
               role="radiogroup"
               aria-label="Tryb pracy"
               className={cn(
-                "flex h-10 items-center gap-0.5 rounded-lg bg-muted p-0.5",
+                "flex min-h-10 items-center gap-0.5 rounded-lg bg-muted p-0.5",
                 isMissing("work_mode") && MISSING_RING,
               )}
             >
@@ -354,7 +354,7 @@ export function NewJobReviewForm({
                     aria-checked={active}
                     onClick={() => set("remotePolicy", mode.value)}
                     className={cn(
-                      "h-9 flex-1 rounded-md text-sm transition-colors",
+                      "min-h-9 min-w-0 flex-1 rounded-md px-1 text-sm leading-tight transition-colors",
                       active
                         ? "bg-card font-semibold text-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground",
@@ -457,7 +457,7 @@ export function NewJobReviewForm({
       <section
         aria-labelledby="new-job-questions"
         className={cn(
-          "flex flex-col gap-3 rounded-xl border border-border bg-card p-6",
+          "flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:p-6",
           isMissing("questions") && "border-warning",
         )}
       >
@@ -578,7 +578,7 @@ function ChampionProposalSection({
   return (
     <section
       aria-labelledby="new-job-proposal"
-      className="flex flex-col gap-4 rounded-xl border border-border bg-card p-6"
+      className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4 sm:p-6"
       data-testid="new-job-champion-proposal"
     >
       <button

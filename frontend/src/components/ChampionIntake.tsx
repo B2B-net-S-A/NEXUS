@@ -193,7 +193,7 @@ export function ChampionImportReview({ initial, current, jobId, fingerprint, job
     } finally { setBusy(false); }
   }
   return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-    <DialogContent aria-describedby={undefined} className="max-w-5xl max-h-[90vh] overflow-y-auto space-y-4">
+    <DialogContent aria-describedby={undefined} className="max-w-5xl max-h-[90dvh] overflow-y-auto space-y-4">
       {/* Ten sam dialog służy importowi dokumentu i „Uzgodnij profil i pola
           rekrutacji” (bez dokumentu) — tytuł i wstęp mówią, która to akcja. */}
       <DialogTitle>{sourceIsDocument ? "Podgląd importu Championa" : "Uzgodnij profil i pola rekrutacji"}</DialogTitle>

@@ -125,7 +125,7 @@ function Sparkline({ points, className }: { points: readonly number[]; className
 
 export default function RecruiterPreview() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-dvh bg-background">
       <div className="mx-auto max-w-[1180px] space-y-7 px-6 py-9">
         {/* Header */}
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-6">

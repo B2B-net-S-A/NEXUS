@@ -299,7 +299,7 @@ function LoginForm() {
               />
             </FormField>
 
-            <Button type="submit" variant="primary" size="lg" loading={loading} className="w-full">
+            <Button type="submit" variant="primary" size="lg" loading={loading} className="w-full h-11 sm:h-10">
               {loading ? "Logowanie…" : "Zaloguj się"}
               {!loading && <ArrowRight className="h-4 w-4" />}
             </Button>
@@ -307,7 +307,7 @@ function LoginForm() {
             <div className="text-center pt-1">
               <Link
                 href="/login/forgot-password"
-                className="text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4"
+                className="inline-flex min-h-11 items-center text-sm text-primary hover:text-primary/80 hover:underline underline-offset-4 sm:min-h-0"
               >
                 Zapomniałeś hasła?
               </Link>
@@ -336,7 +336,7 @@ function LoginForm() {
             // i dostaje wygląd akcji głównej.
             className={
               methods.password
-                ? "w-full flex items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                ? "w-full min-h-11 sm:min-h-10 flex items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 : "mt-6 w-full flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             }
           >
@@ -360,7 +360,7 @@ function LoginForm() {
             Nie masz konta?{" "}
             <Link
               href="/register"
-              className="text-primary hover:text-primary/80 hover:underline underline-offset-4 font-medium"
+              className="inline-flex min-h-11 items-center text-primary hover:text-primary/80 hover:underline underline-offset-4 font-medium sm:min-h-0"
             >
               Zarejestruj się
             </Link>
@@ -379,7 +379,7 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="min-h-screen min-h-dvh flex items-center justify-center bg-background">
           <div className="text-sm text-muted-foreground">Ładowanie…</div>
         </div>
       }

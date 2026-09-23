@@ -94,7 +94,7 @@ export default function CvSearchPreviewPage() {
         <h2 className="text-sm font-medium text-foreground">
           Podgląd osadzony w stronie (profil kandydata)
         </h2>
-        <div className="h-[70vh] overflow-hidden rounded-lg border border-border">
+        <div className="h-[70dvh] overflow-hidden rounded-lg border border-border">
           <FilePreviewContent
             doc={DOCUMENTS[0]}
             candidateId={0}

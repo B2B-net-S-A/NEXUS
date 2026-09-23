@@ -46,7 +46,7 @@ import {
 } from "@/lib/dashboard-tiles/layout"
 import { useAuthStore } from "@/store/auth"
 
-import { DashboardGrid } from "./DashboardGrid"
+import { DashboardGrid, type DashboardGridMode } from "./DashboardGrid"
 import { EmptyDashboard } from "./EmptyDashboard"
 import { BoardTasksPanel } from "../BoardTasksPanel"
 import { TileCatalogSheet } from "./TileCatalogSheet"
@@ -106,6 +106,9 @@ export function CustomDashboard() {
   const save = useSaveUserDashboard()
 
   const [editing, setEditing] = useState(false)
+  // Tryb siatki mierzony przez `DashboardGrid` (szerokość kontenera). „Edytuj
+  // układ" tylko przy siatce — w liście przeciąganie nie działa.
+  const [gridMode, setGridMode] = useState<DashboardGridMode | null>(null)
   const [draft, setDraft] = useState<DashboardTile[]>([])
   const [history, setHistory] = useState<DashboardTile[][]>([])
   const [catalogOpen, setCatalogOpen] = useState(false)
@@ -291,7 +294,8 @@ export function CustomDashboard() {
   const dropped = query.data?.dropped_tiles ?? []
 
   return (
-    <div className="flex flex-col gap-5 p-4 sm:p-6">
+    // Powłoka (`<main>`) daje już `p-4 md:p-6` — bez drugiego marginesu.
+    <div className="flex flex-col gap-5">
       <Suspense fallback={null}>
         <OversightLinkSync onOpen={openOversight} />
       </Suspense>
@@ -305,8 +309,8 @@ export function CustomDashboard() {
         actions={
           editing ? null : (
             <div className="flex gap-2">
-              {saved.length > 0 ? (
-                <Button variant="outline" onClick={startEditing} className="hidden md:inline-flex">
+              {saved.length > 0 && gridMode === "grid" ? (
+                <Button variant="outline" onClick={startEditing}>
                   <LayoutGrid className="h-4 w-4" />
                   Edytuj układ
                 </Button>
@@ -423,6 +427,7 @@ export function CustomDashboard() {
           tiles={tiles}
           editing={editing}
           actions={actions}
+          onModeChange={setGridMode}
           onLayoutChange={(next) => {
             if (next === draft) return
             setHistory((h) => [...h.slice(-UNDO_LIMIT + 1), draft])

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Pencil } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
@@ -18,6 +18,19 @@ interface EditableCellProps {
   onError: (msg: string) => void;
   className?: string;
   readOnly?: boolean;
+}
+
+/**
+ * Dotyk: dwuklik to w Safari gest powiększenia, a `dblclick` na dotyku nie
+ * jest niezawodny — tam edycja otwiera się POJEDYNCZYM stuknięciem
+ * (audyt responsywności 23.09.2026, P1-13).
+ */
+function isCoarsePointer(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches
+  );
 }
 
 /**
@@ -101,6 +114,9 @@ export function EditableCell({
   return (
     <td
       onDoubleClick={begin}
+      onClick={() => {
+        if (isCoarsePointer()) begin();
+      }}
       title="Kliknij dwukrotnie, aby edytować"
       className={cn(
         "cursor-cell px-3 py-1.5 text-right tabular-nums",
@@ -118,6 +134,11 @@ export function EditableCell({
       ) : (
         display
       )}
+      {/* Widoczna wskazówka edycji tylko na dotyku — `title` tam nie działa. */}
+      <Pencil
+        className="ml-1 hidden h-3 w-3 align-baseline text-muted-foreground pointer-coarse:inline"
+        aria-hidden
+      />
     </td>
   );
 }

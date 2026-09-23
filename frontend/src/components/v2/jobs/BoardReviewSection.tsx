@@ -149,14 +149,14 @@ export function BoardReviewSection({
                 <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{note}</p>
               ) : null}
               {!readOnly ? (
-                <div className="mt-1.5 flex gap-1">
+                <div className="mt-1.5 flex gap-1 pointer-coarse:gap-2">
                   <button
                     type="button"
                     onClick={() =>
                       proposals.addToJob([row.candidateId], { initialStageLegacy: "new" })
                     }
                     disabled={busy}
-                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium hover:bg-primary/10 hover:text-primary disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 pointer-coarse:min-h-9 pointer-coarse:px-3 text-[11px] font-medium hover:bg-primary/10 hover:text-primary disabled:opacity-50"
                     aria-label={`Biorę ${row.fullName} — dodaj do Nowych na 12 h`}
                   >
                     <Check className="h-3 w-3" aria-hidden="true" /> Biorę
@@ -165,7 +165,7 @@ export function BoardReviewSection({
                     type="button"
                     onClick={() => proposals.dismiss([row.candidateId])}
                     disabled={busy}
-                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 pointer-coarse:min-h-9 pointer-coarse:px-3 text-[11px] font-medium text-muted-foreground hover:bg-muted disabled:opacity-50"
                     aria-label={`Pomiń ${row.fullName}`}
                   >
                     <X className="h-3 w-3" aria-hidden="true" /> Pomiń

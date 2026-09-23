@@ -104,7 +104,7 @@ export function ProfileTab({
     <div
       className={cn(
         "grid items-start gap-5",
-        !embedded && "xl:grid-cols-[minmax(0,1fr)_320px]",
+        !embedded && "@4xl:grid-cols-[minmax(0,1fr)_320px]",
       )}
     >
       <div className="min-w-0 space-y-6">
@@ -131,7 +131,7 @@ export function ProfileTab({
       </div>
 
       <aside
-        className={cn("space-y-4", !embedded && "xl:sticky xl:top-4")}
+        className={cn("space-y-4", !embedded && "@4xl:sticky @4xl:top-4")}
         aria-label="Kontekst profilu kandydata"
       >
         <CandidateRecentRecruitmentsCard

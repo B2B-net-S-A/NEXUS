@@ -125,7 +125,7 @@ export function InsightsBoardKPI({ period }: Props) {
         <div
           role="group"
           aria-label="Kafle rekrutacyjne"
-          className="grid grid-cols-2 gap-4 md:grid-cols-3"
+          className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3"
         >
           <KpiCard
             label="Placementy"
@@ -168,7 +168,7 @@ export function InsightsBoardKPI({ period }: Props) {
         <div
           role="group"
           aria-label="Kafle finansowe"
-          className="grid grid-cols-2 gap-4 md:grid-cols-3"
+          className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-3"
         >
           <KpiCard
             label="Przychód / mc"
@@ -225,14 +225,14 @@ export function InsightsBoardKPI({ period }: Props) {
         </DefinitionNote>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-6 shadow-xs">
+      <div className="rounded-xl border border-border bg-card p-4 shadow-xs sm:p-6">
         <h3 className="mb-1 text-sm font-semibold text-foreground">
           Porównanie z poprzednim okresem
         </h3>
         <p className="mb-4 text-xs text-muted-foreground">
           Pieniądze wycenione na {comparison.previous_asof}.
         </p>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 min-[420px]:grid-cols-2 md:grid-cols-4">
           <DeltaTile
             label="Placementy"
             delta={comparison.placements}
@@ -293,9 +293,12 @@ function DeltaTile({
 }) {
   const change = delta.change_pct;
   return (
-    <div className="rounded-lg bg-muted/50 p-4">
+    <div className="min-w-0 rounded-lg bg-muted/50 p-4">
       <div className="mb-1 text-xs text-muted-foreground">{label}</div>
-      <div className="text-xl font-bold text-foreground">
+      <div
+        className="truncate text-lg font-bold tabular-nums text-foreground sm:text-xl"
+        title={format(delta.current)}
+      >
         {format(delta.current)}
       </div>
       <div className="mt-1 flex items-center gap-1">
@@ -355,7 +358,7 @@ function TrendChart<T extends TrendMonthLike>({
   const max = Math.max(...values, 1);
 
   return (
-    <div className="rounded-xl border border-border bg-card p-6 shadow-xs">
+    <div className="rounded-xl border border-border bg-card p-4 shadow-xs sm:p-6">
       <h3 className="mb-4 text-sm font-semibold text-foreground">{title}</h3>
       <div className="flex h-32 items-end gap-1">
         {months.map((m) => {
@@ -392,19 +395,41 @@ function TrendChart<T extends TrendMonthLike>({
           );
         })}
       </div>
-      <div className="mt-1 flex gap-1">
+      {/* Na telefonie co drugi podpis — 12 etykiet po 11 px nie mieści się
+          w ~250 px (audyt 23.09.2026, P1-11). */}
+      <div className="mt-1 flex gap-1" aria-hidden>
         {months.map((m) => (
-          <div key={m.month} className="flex-1 text-center">
-            <span className="text-[9px] text-muted-foreground">
+          <div
+            key={m.month}
+            className="min-w-0 flex-1 text-center max-sm:[&:nth-child(even)]:invisible"
+          >
+            <span className="text-[11px] text-muted-foreground">
               {m.label.slice(0, 3)}
             </span>
           </div>
         ))}
       </div>
+      {/* Wartości słupków bez hovera: `title` jest nieosiągalny dotykiem. */}
+      <details className="mt-2 text-xs">
+        <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+          Pokaż wartości
+        </summary>
+        <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 min-[420px]:grid-cols-2">
+          {months.map((m) => (
+            <div key={m.month} className="flex justify-between gap-2">
+              <dt className="text-muted-foreground">{m.label}</dt>
+              <dd className="font-medium tabular-nums text-foreground">
+                {format(pick(m))}
+                {m.complete ? "" : " *"}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </details>
       {months.some((m) => !m.complete) && (
         <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
-          Słupki bursztynowe są niepełne — z sumy wypadły kwoty w walutach bez
-          kursu NBP.
+          Słupki bursztynowe (i wartości z gwiazdką) są niepełne — z sumy
+          wypadły kwoty w walutach bez kursu NBP.
         </p>
       )}
     </div>

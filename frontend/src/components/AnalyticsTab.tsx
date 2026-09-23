@@ -101,7 +101,7 @@ function KpiGrid({
   showFinance: boolean;
 }) {
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4 gap-3">
       {showFinance ? (
         <>
           <KpiCard
@@ -171,12 +171,15 @@ interface KpiCardProps {
 
 function KpiCard({ label, value, sublabel, icon }: KpiCardProps) {
   return (
-    <div className="border border-border rounded-lg p-3 bg-card">
+    <div className="min-w-0 border border-border rounded-lg p-3 bg-card">
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
         {icon}
         {label}
       </div>
-      <div className="text-xl font-semibold">{value}</div>
+      {/* Kwoty z twardą spacją się nie zawijają — mniejsza czcionka na telefonie. */}
+      <div className="truncate text-lg font-semibold tabular-nums sm:text-xl" title={value}>
+        {value}
+      </div>
       {sublabel && <div className="text-xs text-muted-foreground mt-0.5">{sublabel}</div>}
     </div>
   );

@@ -632,7 +632,7 @@ function OrderLineRow({
           onClick={() => onShowConsumptions(group, line)}
           aria-label={`Rozliczenia miesięczne — ${line.consultant_name}`}
           title="Rozliczenia miesięczne"
-          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="rounded-md p-1.5 pointer-coarse:p-2.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <CalendarDays className="h-4 w-4" aria-hidden="true" />
         </button>
@@ -668,7 +668,7 @@ function OrderLineRow({
                 onClick={() => onEditLine(group, line)}
                 aria-label={`Edytuj linię — ${line.consultant_name}`}
                 title="Edytuj linię"
-                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="rounded-md p-1.5 pointer-coarse:p-2.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 <Pencil className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -686,7 +686,7 @@ function OrderLineRow({
                     ? "Zamień kontraktora"
                     : "Zamienić można tylko aktywną linię"
                 }
-                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-md p-1.5 pointer-coarse:p-2.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Repeat className="h-4 w-4" aria-hidden="true" />
               </button>
@@ -703,7 +703,7 @@ function OrderLineRow({
                   ? SETTLED_LINE_DELETE_HINT
                   : "Usuń konsultanta z zamówienia"
               }
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+              className="rounded-md p-1.5 pointer-coarse:p-2.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
             >
               <Trash2 className="h-4 w-4" aria-hidden="true" />
             </button>
@@ -929,7 +929,7 @@ function FutureOrders({
                       onClick={() => onAddConsultant(future)}
                       aria-label={`Dodaj konsultanta do przyszłego zamówienia nr ${future.order_number}`}
                       title="Dodaj konsultanta"
-                      className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      className="rounded p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
                       <Plus className="h-4 w-4" aria-hidden />
                     </button>
@@ -940,7 +940,7 @@ function FutureOrders({
                       onClick={() => onEditGroup(future)}
                       aria-label={`Uzupełnij przyszłe zamówienie nr ${future.order_number}`}
                       title="Uzupełnij zamówienie"
-                      className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      className="rounded p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
                       <Pencil className="h-4 w-4" aria-hidden />
                     </button>
@@ -951,7 +951,7 @@ function FutureOrders({
                       onClick={() => onDeleteGroup(future)}
                       aria-label={`Usuń przyszłe zamówienie nr ${future.order_number}`}
                       title="Usuń przyszłe zamówienie"
-                      className="rounded p-1.5 text-destructive hover:bg-destructive/10"
+                      className="rounded p-1.5 pointer-coarse:p-2.5 text-destructive hover:bg-destructive/10"
                     >
                       <Trash2 className="h-4 w-4" aria-hidden />
                     </button>
@@ -1020,7 +1020,7 @@ function FutureOrders({
                         onClick={() => onEditLine(future, line)}
                         aria-label={`Edytuj dane konsultanta ${line.consultant_name} w przyszłym zamówieniu`}
                         title="Edytuj stawki i MD"
-                        className="justify-self-start rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground sm:justify-self-end"
+                        className="justify-self-start rounded p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:bg-muted hover:text-foreground sm:justify-self-end"
                       >
                         <Pencil className="h-3.5 w-3.5" aria-hidden />
                       </button>
@@ -1166,7 +1166,7 @@ export function OrderGroupCard({
       className="rounded-xl border border-border bg-card"
     >
       {/* Nagłówek karty — numer, okres, awatary konsultantów */}
-      <div className="flex w-full items-center gap-4 px-5 py-4">
+      <div className="flex w-full items-center gap-3 px-4 py-4 sm:gap-4 sm:px-5">
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
             {/* Numer jest poza przyciskiem rozwijającym i jawnie zezwala na
@@ -1206,13 +1206,15 @@ export function OrderGroupCard({
           aria-expanded={expanded}
           aria-controls={`order-group-${group.id}-content`}
           aria-label={`${expanded ? "Zwiń" : "Rozwiń"} zamówienie nr ${group.order_number}`}
-          className="-my-2 flex shrink-0 items-center gap-4 rounded-md p-2 text-left transition-colors hover:bg-muted"
+          className="-my-2 flex shrink-0 items-center gap-2 rounded-md p-2 text-left transition-colors hover:bg-muted sm:gap-4"
         >
+          {/* Na telefonie 3 awatary zamiast 5 — pięć + „+N" zabierało ~150 px
+              i zostawiało na numer i okres zamówienia ~100 px. */}
           <span className="flex -space-x-2" aria-hidden="true">
-            {activeLines.slice(0, 5).map((line) => (
+            {activeLines.slice(0, 5).map((line, index) => (
               <Avatar
                 key={line.id}
-                className="h-7 w-7 border-2 border-card"
+                className={cn("h-7 w-7 border-2 border-card", index >= 3 && "max-sm:hidden")}
                 title={line.consultant_name}
               >
                 <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
@@ -1220,8 +1222,13 @@ export function OrderGroupCard({
                 </AvatarFallback>
               </Avatar>
             ))}
+            {activeLines.length > 3 ? (
+              <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-muted text-[10px] font-semibold text-muted-foreground sm:hidden">
+                +{activeLines.length - 3}
+              </span>
+            ) : null}
             {activeLines.length > 5 ? (
-              <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-muted text-[10px] font-semibold text-muted-foreground">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-muted text-[10px] font-semibold text-muted-foreground max-sm:hidden">
                 +{activeLines.length - 5}
               </span>
             ) : null}
@@ -1240,7 +1247,7 @@ export function OrderGroupCard({
       {expanded ? (
         <div
           id={`order-group-${group.id}-content`}
-          className="border-t border-border px-5 py-4"
+          className="border-t border-border px-4 py-4 sm:px-5"
         >
           {group.is_cost_based ? (
             <div className="mb-4">
@@ -1395,7 +1402,7 @@ export function OrderGroupCard({
                       ? undefined
                       : `Zamówienie jest ${group.status_label.toLowerCase()} — nie można dodać konsultanta`
                   }
-                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 px-3 py-1.5 pointer-coarse:py-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Dodaj konsultanta do
                   zamówienia
@@ -1405,7 +1412,7 @@ export function OrderGroupCard({
                 <button
                   type="button"
                   onClick={() => onEditGroup(group)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 pointer-coarse:py-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
                 >
                   <Pencil className="h-3.5 w-3.5" aria-hidden="true" /> Uzupełnij zamówienie
                 </button>
@@ -1416,7 +1423,7 @@ export function OrderGroupCard({
                   <button
                     type="button"
                     onClick={() => onExtendGroup(group)}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 pointer-coarse:py-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
                   >
                     <CalendarPlus className="h-3.5 w-3.5" aria-hidden="true" /> Dodaj
                     przedłużenie
@@ -1425,7 +1432,7 @@ export function OrderGroupCard({
                     <button
                       type="button"
                       onClick={() => onCloseGroup(group)}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 pointer-coarse:py-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
                     >
                       <SquareCheckBig className="h-3.5 w-3.5" aria-hidden="true" /> Zakończ
                     </button>
@@ -1434,7 +1441,7 @@ export function OrderGroupCard({
                     <button
                       type="button"
                       onClick={() => onReopenGroup(group)}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 pointer-coarse:py-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
                     >
                       <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" /> Przywróć
                     </button>
@@ -1442,7 +1449,7 @@ export function OrderGroupCard({
                   <button
                     type="button"
                     onClick={() => onDeleteGroup(group)}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 pointer-coarse:py-2.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
                   >
                     <Trash2 className="h-3.5 w-3.5" aria-hidden="true" /> Usuń całe
                     zamówienie

@@ -129,7 +129,7 @@ export function ContactOversightPanel({
     // `id` jest LOAD-BEARING: alerty SLA Head of Recruitment
     // (`dashboard_v2.py`) linkują kotwicą wprost tutaj, bo trasa
     // `/candidates/contact-queue` jest dla tej roli zamknięta.
-    <Card id="nadzor-kontaktu" className="scroll-mt-24">
+    <Card id="nadzor-kontaktu" className="@container scroll-mt-24">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <UsersRound aria-hidden className="h-4 w-4 text-primary" />
@@ -151,7 +151,7 @@ export function ContactOversightPanel({
             Ostatni błąd intake Traffit: {counters.traffit_last_error}
           </div>
         ) : null}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 @md:grid-cols-3 @3xl:grid-cols-6">
           {[
             {
               label: "Zaległe",

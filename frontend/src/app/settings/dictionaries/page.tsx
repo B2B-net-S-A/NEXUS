@@ -140,7 +140,7 @@ function ItemRow({
         item.archived && "opacity-50",
       )}
     >
-      <span className="text-xs font-mono text-muted-foreground w-32 truncate" title={item.key}>
+      <span className="hidden sm:block text-xs font-mono text-muted-foreground sm:w-32 truncate" title={item.key}>
         {item.key}
       </span>
 
@@ -156,10 +156,10 @@ function ItemRow({
             }
           }}
           autoFocus
-          className="flex-1 px-2 py-1 bg-background border border-input rounded-md text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
+          className="flex-1 min-w-0 px-2 py-1 bg-background border border-input rounded-md text-sm focus:outline-hidden focus:ring-2 focus:ring-ring"
         />
       ) : (
-        <span className="flex-1 text-sm text-foreground">
+        <span className="flex-1 min-w-0 break-words text-sm text-foreground">
           {item.label_pl}
           {item.archived && (
             <span className="ml-2 text-xs text-muted-foreground">
@@ -217,8 +217,8 @@ function ItemsPanel({ slug, dictionary }: ItemsPanelProps) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="text-lg font-semibold text-foreground">
             {dictionary.label_pl}
           </h2>
@@ -279,7 +279,7 @@ export default function DictionariesPage() {
 
   if (indexQuery.isLoading) {
     return (
-      <div className="container max-w-5xl mx-auto py-8 px-4 flex items-center justify-center min-h-[400px]">
+      <div className="container max-w-5xl mx-auto md:py-8 md:px-4 flex items-center justify-center min-h-[400px]">
         <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
       </div>
     );
@@ -287,7 +287,7 @@ export default function DictionariesPage() {
 
   if (indexQuery.error) {
     return (
-      <div className="container max-w-5xl mx-auto py-8 px-4">
+      <div className="container max-w-5xl mx-auto md:py-8 md:px-4">
         <div className="p-6 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-500 flex items-center gap-2">
           <AlertCircle className="w-5 h-5" />
           Nie udało się załadować słowników. Sprawdź uprawnienia administratora.
@@ -299,7 +299,7 @@ export default function DictionariesPage() {
   const dictionaries: DictionarySummaryDto[] = indexQuery.data ?? [];
 
   return (
-    <div className="container max-w-5xl mx-auto py-8 px-4">
+    <div className="container max-w-5xl mx-auto md:py-8 md:px-4">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-foreground mt-2">Słowniki</h1>
         <p className="text-sm text-muted-foreground mt-1">

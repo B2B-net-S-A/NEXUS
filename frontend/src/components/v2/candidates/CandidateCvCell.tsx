@@ -64,7 +64,7 @@ export function CandidateCvCell({
         onClick={openCv}
         disabled={loading}
         aria-label={`Podgląd CV: ${candidateName}`}
-        className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+        className="hit-area inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
       >
         {loading ? (
           <Loader2 className="h-3 w-3 animate-spin" aria-hidden />

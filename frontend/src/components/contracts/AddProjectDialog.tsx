@@ -567,7 +567,7 @@ export function AddProjectDialog({
         </div>
 
         {canManageFinance && (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <Label className="mb-1.5 block">Stawka kosztowa</Label>
               <Input

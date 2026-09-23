@@ -494,7 +494,7 @@ function SettingsHome({ areas, user }: { areas: SettingsArea[]; user: Parameters
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Np. rola, reguły CV, Traffit"
-          className="h-12 w-full rounded-xl border border-border bg-card pl-11 pr-4 text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          className="h-12 w-full rounded-xl border border-border bg-card pl-11 pr-4 text-base md:text-[15px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
         />
       </label>
       {!searching && (
@@ -777,7 +777,7 @@ function OnboardingSettings() {
 
       <div className="mt-6 pt-6 border-t border-border dark:border-border">
         <h4 className="text-sm font-semibold text-foreground dark:text-muted-foreground mb-3">Skróty klawiszowe</h4>
-        <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground dark:text-muted-foreground">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-muted-foreground dark:text-muted-foreground">
           <div className="flex justify-between p-2 bg-muted dark:bg-muted rounded-lg">
             <span>Wyszukiwanie</span>
             <kbd className="font-mono bg-card dark:bg-gray-600 px-1.5 py-0.5 rounded border border-border dark:border-gray-500">⌘K</kbd>

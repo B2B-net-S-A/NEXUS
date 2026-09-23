@@ -55,7 +55,7 @@ export function NewJobRequestStep({
 
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-      <section className="flex flex-col gap-5 rounded-xl border border-border bg-card p-6">
+      <section className="flex flex-col gap-5 rounded-xl border border-border bg-card p-4 sm:p-6">
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium text-foreground">Klient</span>
           <ClientSinglePicker
@@ -160,7 +160,7 @@ export function NewJobRequestStep({
         )}
       </section>
 
-      <aside className="flex h-fit flex-col gap-3 rounded-xl border border-border bg-card p-6">
+      <aside className="flex h-fit flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:p-6">
         <h2 className="text-base font-semibold text-foreground">
           Co AI wyciągnie z requestu
         </h2>

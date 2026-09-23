@@ -189,7 +189,7 @@ export default function OrderTilePreview() {
   return (
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <main className="min-h-screen bg-background p-8 space-y-8">
+        <main className="min-h-dvh bg-background p-4 sm:p-8 space-y-8">
           <header className="space-y-1">
             <h1 className="text-lg font-semibold text-foreground">
               Kafelek zamówienia — harness

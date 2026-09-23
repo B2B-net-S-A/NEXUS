@@ -150,12 +150,14 @@ export function PeriodPicker({
   const canExport = Boolean(csv && csv.rows.length > 0);
 
   return (
-    <div className="flex flex-col items-end gap-1.5">
-      <div className="flex flex-wrap items-center justify-end gap-2">
+    // Telefon: pasek na całą szerokość, wyrównany do lewej; od `sm` jak dawniej
+    // przy prawej krawędzi (audyt 23.09.2026, P1-06).
+    <div className="flex w-full min-w-0 flex-col items-stretch gap-1.5 sm:w-auto sm:items-end">
+      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
         <div
           role="group"
           aria-label="Granulacja okresu"
-          className="flex overflow-hidden rounded-lg border border-border"
+          className="flex max-w-full overflow-x-auto rounded-lg border border-border"
         >
           {GRANULARITIES.map((g) => (
             <button
@@ -164,7 +166,7 @@ export function PeriodPicker({
               onClick={() => handleGranularity(g.id)}
               aria-pressed={value.period === g.id}
               className={cn(
-                "px-3 py-1.5 text-xs font-medium transition-colors",
+                "shrink-0 whitespace-nowrap px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3",
                 value.period === g.id
                   ? "bg-primary text-primary-foreground"
                   : "bg-transparent text-muted-foreground hover:text-foreground",
@@ -183,7 +185,7 @@ export function PeriodPicker({
             // razem z jawnym zakresem (422), więc strzałka musi zgasnąć.
             disabled={isAllTime}
             aria-label="Poprzedni okres"
-            className="rounded-md border border-border p-1.5 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-md border border-border p-1.5 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:p-2.5"
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
@@ -194,7 +196,7 @@ export function PeriodPicker({
             // ale ruch naprzód z bieżącego nie ma sensu — blokujemy.
             disabled={isAllTime || offset >= 0}
             aria-label="Następny okres"
-            className="rounded-md border border-border p-1.5 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-md border border-border p-1.5 text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:p-2.5"
           >
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -229,7 +231,7 @@ export function PeriodPicker({
       </div>
 
       {caption && (
-        <div className="flex flex-col items-end gap-0.5">
+        <div className="flex flex-col items-start gap-0.5 sm:items-end">
           <p className="text-xs font-medium text-foreground tabular-nums">
             {caption.headline}
           </p>
@@ -240,7 +242,7 @@ export function PeriodPicker({
       )}
 
       {cappedAllTime && (
-        <p className="max-w-[22rem] rounded-md bg-warning-muted px-2 py-1 text-right text-[11px] leading-snug text-warning-muted-foreground">
+        <p className="max-w-[22rem] rounded-md bg-warning-muted px-2 py-1 text-[11px] sm:text-right leading-snug text-warning-muted-foreground">
           „Wszystko” = ostatnie {INSIGHTS_MAX_CUSTOM_PERIOD_DAYS} dni. Dłuższego
           okna backend nie policzy, więc to NIE jest cała historia.
         </p>

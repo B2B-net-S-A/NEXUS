@@ -93,6 +93,7 @@
   --animate-fadeIn: fadeIn 200ms ease-out both;
   --animate-slide-in-right: slideInRight 300ms ease-out both;
   --animate-slide-in-bottom: slideInBottom 300ms ease-out both;
+  --animate-slide-in-left: slideInLeft 300ms ease-out both;
 
   @keyframes fadeIn {
     from {
@@ -105,6 +106,14 @@
   @keyframes slideInRight {
     from {
       transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @keyframes slideInLeft {
+    from {
+      transform: translateX(-100%);
     }
     to {
       transform: translateX(0);
@@ -548,7 +557,42 @@
   input[type="datetime-local"],
   select,
   textarea {
-    @apply text-sm;
+    @apply text-base md:text-sm;
+  }
+}
+
+/* ====================================================================
+   RESPONSYWNOŚĆ — reguły wspólne (audyt 23.09.2026,
+   docs/responsiveness-audit-2026-09-23). Poza warstwami celowo: wygrywają
+   z klasami Tailwinda (text-sm/text-xs na pojedynczym polu), a działają
+   wyłącznie na urządzeniach dotykowych — desktop zostaje bez zmian.
+   ==================================================================== */
+
+/* iOS powiększa stronę przy fokusie w polu z czcionką < 16 px. Klasa na
+   pojedynczym polu nie wystarcza (ok. 840 pól w aplikacji), więc jedna reguła. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+
+  /* Podłoga czytelności na dotyku (decyzja 23.09.2026): gęste odznaki
+     10 px zostają na desktopie, na telefonie/tablecie mają 11 px. */
+  .text-\[10px\],
+  .text-\[10\.5px\] {
+    font-size: 11px;
+  }
+}
+
+/* Powiększone pole trafienia dla małych ikon (12–24 px): ołówki edycji,
+   „×” w chipach, uchwyty. Wygląd bez zmian, palec trafia w 40 px. */
+@utility hit-area {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
   }
 }
 

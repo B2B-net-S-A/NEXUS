@@ -880,7 +880,7 @@ export function JobReadinessDock({
         wzorzec co `PipelineCandidateDock` i `InterviewDecisionDock`. */}
     <div
       className={cn(
-        "flex flex-col rounded-xl border border-border bg-card xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto",
+        "flex flex-col rounded-xl border border-border bg-card xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto",
         xlCollapsed && "xl:hidden",
       )}
       data-testid="job-readiness-dock-full"
@@ -897,7 +897,7 @@ export function JobReadinessDock({
                 onClick={listNav.onPrev}
                 disabled={listNav.index <= 1}
                 aria-label="Poprzednia rekrutacja"
-                className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40"
+                className="rounded p-0.5 text-muted-foreground hover:text-foreground pointer-coarse:p-2.5 disabled:opacity-40"
               >
                 <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
@@ -909,7 +909,7 @@ export function JobReadinessDock({
                 onClick={listNav.onNext}
                 disabled={listNav.index >= listNav.total}
                 aria-label="Następna rekrutacja"
-                className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40"
+                className="rounded p-0.5 text-muted-foreground hover:text-foreground pointer-coarse:p-2.5 disabled:opacity-40"
               >
                 <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
@@ -923,7 +923,7 @@ export function JobReadinessDock({
               onClick={copyJobLink}
               aria-label="Kopiuj link do rekrutacji"
               title="Kopiuj link do rekrutacji"
-              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+              className="rounded p-0.5 text-muted-foreground hover:text-foreground pointer-coarse:p-2.5"
             >
               <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
             </button>

@@ -304,7 +304,7 @@ function OnePagersSection({
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   onClick={() => handleDownload(p)}
-                  className="p-1.5 text-muted-foreground hover:text-purple-600 transition-colors"
+                  className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-purple-600 transition-colors"
                   title="Pobierz"
                 >
                   <Download className="w-4 h-4" />
@@ -400,83 +400,87 @@ function UploadSheet({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border dark:border-border">
+      {/* Limit wysokości + przewijane środkowe body: bez tego stopka z
+          przyciskami wypadała poza ekran (klawiatura, długa lista szablonów). */}
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex max-h-[90dvh] flex-col">
+        <div className="flex shrink-0 items-center justify-between px-5 py-3 border-b border-border dark:border-border">
           <h3 className="font-semibold text-foreground dark:text-foreground">
             Dodaj one-pager
           </h3>
           <button
             onClick={onClose}
-            className="p-1 text-muted-foreground hover:text-muted-foreground rounded"
+            aria-label="Zamknij"
+            className="hit-area p-1 text-muted-foreground hover:text-muted-foreground rounded"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-        <form onSubmit={submit} className="p-5 space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
-              Plik (PDF/DOCX, max {MAX_UPLOAD_MB} MB) *
-            </label>
-            <label className="flex items-center justify-center gap-2 px-3 py-3 border-2 border-dashed border-border dark:border-border rounded-lg hover:border-purple-500 cursor-pointer transition-colors">
-              <Upload className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground dark:text-muted-foreground truncate">
-                {file ? file.name : "Wybierz plik…"}
-              </span>
-              <input
-                type="file"
-                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                className="hidden"
-                onChange={pickFile}
-              />
-            </label>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
-              Tytuł *
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
-              placeholder="Oferta B2B dla ACME"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
-              Wersja
-            </label>
-            <input
-              type="text"
-              value={version}
-              onChange={(e) => setVersion(e.target.value)}
-              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
-              placeholder="1.0"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
-              Opis
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
-              placeholder="Notatki dla zespołu…"
-            />
-          </div>
-
-          {error && (
-            <div className="text-xs text-destructive bg-destructive/10 dark:bg-destructive/15 px-3 py-2 rounded">
-              {error}
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+            <div>
+              <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
+                Plik (PDF/DOCX, max {MAX_UPLOAD_MB} MB) *
+              </label>
+              <label className="flex items-center justify-center gap-2 px-3 py-3 border-2 border-dashed border-border dark:border-border rounded-lg hover:border-purple-500 cursor-pointer transition-colors">
+                <Upload className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground dark:text-muted-foreground truncate">
+                  {file ? file.name : "Wybierz plik…"}
+                </span>
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  className="hidden"
+                  onChange={pickFile}
+                />
+              </label>
             </div>
-          )}
 
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border dark:border-border">
+            <div>
+              <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
+                Tytuł *
+              </label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                placeholder="Oferta B2B dla ACME"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
+                Wersja
+              </label>
+              <input
+                type="text"
+                value={version}
+                onChange={(e) => setVersion(e.target.value)}
+                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                placeholder="1.0"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
+                Opis
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                placeholder="Notatki dla zespołu…"
+              />
+            </div>
+
+            {error && (
+              <div className="text-xs text-destructive bg-destructive/10 dark:bg-destructive/15 px-3 py-2 rounded">
+                {error}
+              </div>
+            )}
+          </div>
+          <div className="mx-5 mb-5 flex shrink-0 items-center justify-end gap-2 pt-2 border-t border-border dark:border-border">
             <button
               type="button"
               onClick={onClose}
@@ -850,7 +854,7 @@ function RequiredDocRow({
         {doc.filename && (
           <button
             onClick={handleDownload}
-            className="p-1.5 text-muted-foreground hover:text-purple-600 transition-colors"
+            className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-purple-600 transition-colors"
             title="Pobierz"
           >
             <Download className="w-4 h-4" />
@@ -858,7 +862,7 @@ function RequiredDocRow({
         )}
         {!readOnly && (
           <>
-            <label className="p-1.5 text-muted-foreground hover:text-purple-600 transition-colors cursor-pointer" title="Wgraj plik">
+            <label className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-purple-600 transition-colors cursor-pointer" title="Wgraj plik">
               <Upload className="w-4 h-4" />
               <input
                 type="file"
@@ -932,19 +936,22 @@ function ApplyTemplatesDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border dark:border-border">
+      {/* Limit wysokości + przewijane środkowe body: bez tego stopka z
+          przyciskami wypadała poza ekran (klawiatura, długa lista szablonów). */}
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex max-h-[90dvh] flex-col">
+        <div className="flex shrink-0 items-center justify-between px-5 py-3 border-b border-border dark:border-border">
           <h3 className="font-semibold text-foreground dark:text-foreground">
             Aplikuj szablon(y)
           </h3>
           <button
             onClick={onClose}
-            className="p-1 text-muted-foreground hover:text-muted-foreground rounded"
+            aria-label="Zamknij"
+            className="hit-area p-1 text-muted-foreground hover:text-muted-foreground rounded"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-        <div className="p-5 space-y-3">
+        <div className="min-h-0 flex-1 overflow-y-auto p-5 space-y-3">
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Ładowanie szablonów…</p>
           ) : templates.length === 0 ? (
@@ -989,7 +996,7 @@ function ApplyTemplatesDialog({
             </ul>
           )}
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border dark:border-border">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 px-5 py-3 border-t border-border dark:border-border">
           <button
             type="button"
             onClick={onClose}
@@ -1062,85 +1069,89 @@ function EditDocDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border dark:border-border">
+      {/* Limit wysokości + przewijane środkowe body: bez tego stopka z
+          przyciskami wypadała poza ekran (klawiatura, długa lista szablonów). */}
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xl w-full max-w-md overflow-hidden flex max-h-[90dvh] flex-col">
+        <div className="flex shrink-0 items-center justify-between px-5 py-3 border-b border-border dark:border-border">
           <h3 className="font-semibold text-foreground dark:text-foreground">
             Edytuj wymóg
           </h3>
           <button
             onClick={onClose}
-            className="p-1 text-muted-foreground hover:text-muted-foreground rounded"
+            aria-label="Zamknij"
+            className="hit-area p-1 text-muted-foreground hover:text-muted-foreground rounded"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
-        <form onSubmit={submit} className="p-5 space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
-              Nazwa
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
-              Opis
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
             <div>
               <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
-                Status
+                Nazwa
               </label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as DocStatus)}
-                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm"
-              >
-                <option value="pending">Oczekuje</option>
-                <option value="uploaded">Wgrany</option>
-                <option value="signed">Podpisany</option>
-                <option value="n_a">N/D</option>
-              </select>
-            </div>
-            <label className="flex items-center gap-2 mt-6">
               <input
-                type="checkbox"
-                checked={isMandatory}
-                onChange={(e) => setIsMandatory(e.target.checked)}
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm"
               />
-              <span className="text-sm text-foreground dark:text-muted-foreground">
-                Wymagany
-              </span>
-            </label>
-          </div>
+            </div>
 
-          <div>
-            <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
-              Notatki
-            </label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm"
-              placeholder="Komentarz dla zespołu…"
-            />
-          </div>
+            <div>
+              <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
+                Opis
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm"
+              />
+            </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border dark:border-border">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
+                  Status
+                </label>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as DocStatus)}
+                  className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm"
+                >
+                  <option value="pending">Oczekuje</option>
+                  <option value="uploaded">Wgrany</option>
+                  <option value="signed">Podpisany</option>
+                  <option value="n_a">N/D</option>
+                </select>
+              </div>
+              <label className="flex items-center gap-2 sm:mt-6">
+                <input
+                  type="checkbox"
+                  checked={isMandatory}
+                  onChange={(e) => setIsMandatory(e.target.checked)}
+                />
+                <span className="text-sm text-foreground dark:text-muted-foreground">
+                  Wymagany
+                </span>
+              </label>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-foreground dark:text-muted-foreground mb-1">
+                Notatki
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 border border-border dark:border-border dark:bg-card rounded-lg text-sm"
+                placeholder="Komentarz dla zespołu…"
+              />
+            </div>
+          </div>
+          <div className="mx-5 mb-5 flex shrink-0 items-center justify-end gap-2 pt-2 border-t border-border dark:border-border">
             <button
               type="button"
               onClick={onClose}

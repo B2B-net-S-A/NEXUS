@@ -561,7 +561,7 @@ export function EditOrderDialog({
           )}
         </label>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="text-sm font-medium">Data od</span>
             <input
@@ -587,7 +587,7 @@ export function EditOrderDialog({
         </div>
 
         {orderType === "cost" ? (
-          <div className="grid grid-cols-2 gap-3 rounded-md border border-border bg-muted/30 p-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 rounded-md border border-border bg-muted/30 p-3">
             <label className="block">
               <span className="text-sm font-medium">Budżet całkowity (PLN) *</span>
               <input
@@ -612,7 +612,7 @@ export function EditOrderDialog({
         ) : null}
 
         {orderType === "md" ? (
-          <div className="grid grid-cols-2 gap-3 rounded-md border border-border bg-muted/30 p-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 rounded-md border border-border bg-muted/30 p-3">
             <label className="block">
               <span className="text-sm font-medium">Budżet w MD *</span>
               <input
@@ -638,7 +638,7 @@ export function EditOrderDialog({
 
         {canManageFinance && (
           <div className="space-y-3 rounded-md border border-border bg-muted/20 p-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <label className="block">
                   <span className="text-sm font-medium">Stawka kosztowa</span>

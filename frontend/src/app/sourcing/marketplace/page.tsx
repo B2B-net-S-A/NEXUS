@@ -35,7 +35,7 @@ function MarketplacePageContent() {
   };
 
   return (
-    <main className="container mx-auto p-4 max-w-7xl">
+    <div className="mx-auto max-w-7xl">
       <header className="mb-6">
         <div className="flex items-center gap-3 mb-2">
           <div className="bg-teal-100 dark:bg-teal-900/30 p-2 rounded-lg">
@@ -99,7 +99,7 @@ function MarketplacePageContent() {
           <CVDropzoneMatch />
         </TabsContent>
       </Tabs>
-    </main>
+    </div>
   );
 }
 

@@ -561,16 +561,16 @@ function ClientsTable({
       <table className="w-full">
         <thead className="bg-muted/40">
           <tr>
-            <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+            <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
               Nazwa
             </th>
-            <th className="px-3 py-2 text-center text-[10px] font-medium text-muted-foreground uppercase">
+            <th className="px-3 py-2 text-center text-[11px] font-medium text-muted-foreground uppercase">
               Status
             </th>
-            <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground uppercase">
+            <th className="px-3 py-2 text-right text-[11px] font-medium text-muted-foreground uppercase">
               Placements (all-time)
             </th>
-            <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground uppercase">
+            <th className="px-3 py-2 text-right text-[11px] font-medium text-muted-foreground uppercase">
               Akcje
             </th>
           </tr>
@@ -654,19 +654,19 @@ function ConsultantsTable({
       <table className="w-full">
         <thead className="bg-muted/40">
           <tr>
-            <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+            <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
               Nazwa
             </th>
-            <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground uppercase">
+            <th className="px-3 py-2 text-right text-[11px] font-medium text-muted-foreground uppercase">
               Cost rate
             </th>
-            <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground uppercase">
+            <th className="px-3 py-2 text-right text-[11px] font-medium text-muted-foreground uppercase">
               Revenue rate
             </th>
-            <th className="px-3 py-2 text-center text-[10px] font-medium text-muted-foreground uppercase">
+            <th className="px-3 py-2 text-center text-[11px] font-medium text-muted-foreground uppercase">
               Status
             </th>
-            <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground uppercase">
+            <th className="px-3 py-2 text-right text-[11px] font-medium text-muted-foreground uppercase">
               Akcje
             </th>
           </tr>

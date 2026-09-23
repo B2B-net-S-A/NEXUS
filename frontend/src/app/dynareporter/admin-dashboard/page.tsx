@@ -155,7 +155,7 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <div className="space-y-6 p-4 sm:p-6">
+    <div className="space-y-6">
       {/* Header — gradient match DR */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
@@ -250,22 +250,22 @@ function HistorySection() {
               <table className="w-full">
                 <thead className="bg-muted/40">
                   <tr>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Plik
                     </th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Typ
                     </th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Uploadowany przez
                     </th>
-                    <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-right text-[11px] font-medium text-muted-foreground uppercase">
                       Rekordów
                     </th>
-                    <th className="px-3 py-2 text-center text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-center text-[11px] font-medium text-muted-foreground uppercase">
                       Status
                     </th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Data
                     </th>
                   </tr>
@@ -322,19 +322,19 @@ function HistorySection() {
               <table className="w-full">
                 <thead className="bg-muted/40">
                   <tr>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Tabela
                     </th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Akcja
                     </th>
-                    <th className="px-3 py-2 text-right text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-right text-[11px] font-medium text-muted-foreground uppercase">
                       Rekordów
                     </th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Przez
                     </th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Kiedy
                     </th>
                   </tr>

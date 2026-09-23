@@ -140,7 +140,7 @@ export function DocumentSearchBar({
               onQueryChange("");
               inputRef.current?.focus();
             }}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-primary/10 hover:text-foreground"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 pointer-coarse:after:absolute pointer-coarse:after:-inset-2 text-muted-foreground hover:bg-primary/10 hover:text-foreground"
             aria-label="Wyczyść wyszukiwanie"
           >
             <X className="h-3.5 w-3.5" />
@@ -177,7 +177,7 @@ export function DocumentSearchBar({
             type="button"
             onClick={onPrevious}
             disabled={!canStep}
-            className="rounded-l-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-l-md p-1 pointer-coarse:p-2.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Poprzednie trafienie"
             aria-keyshortcuts="Shift+Enter"
           >
@@ -187,7 +187,7 @@ export function DocumentSearchBar({
             type="button"
             onClick={onNext}
             disabled={!canStep}
-            className="rounded-r-md border-l border-border p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-r-md border-l border-border p-1 pointer-coarse:p-2.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Następne trafienie"
             aria-keyshortcuts="Enter"
           >

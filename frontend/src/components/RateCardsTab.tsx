@@ -401,11 +401,13 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
             : "Brak wpisów cennika dla tego klienta."}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border dark:border-border">
-          <table className="w-full text-sm">
+        // `overflow-x-auto`, nie `overflow-hidden`: na telefonie sześć kolumn
+        // się nie mieści, a ucięte kolumny (okres, akcje) były nieosiągalne.
+        <div className="overflow-x-auto rounded-xl border border-border dark:border-border">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
               <tr>
-                <th className="text-left px-3 py-2">Rola</th>
+                <th className="sticky left-0 z-10 bg-muted text-left px-3 py-2">Rola</th>
                 <th className="text-left px-3 py-2">Seniority</th>
                 <th className="text-left px-3 py-2">Kandydat</th>
                 <th className="text-left px-3 py-2">Klient</th>
@@ -416,23 +418,23 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
             <tbody>
               {cards.map((c) => (
                 <tr key={c.id} className="border-t border-border dark:border-border">
-                  <td className="px-3 py-2 font-medium">{c.role}</td>
+                  <td className="sticky left-0 z-10 bg-card dark:bg-muted px-3 py-2 font-medium">{c.role}</td>
                   <td className="px-3 py-2 text-muted-foreground dark:text-muted-foreground">
                     {c.seniority ?? "—"}
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 whitespace-nowrap">
                     {range(c.rate_candidate_min, c.rate_candidate_max, c.currency)}
                     <span className="text-xs opacity-70">
                       {RATE_UNITS.find((u) => u.value === c.rate_unit)?.label}
                     </span>
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 whitespace-nowrap">
                     {range(c.rate_client_min, c.rate_client_max, c.currency)}
                     <span className="text-xs opacity-70">
                       {RATE_UNITS.find((u) => u.value === c.rate_unit)?.label}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground dark:text-muted-foreground">
+                  <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground dark:text-muted-foreground">
                     {c.valid_from || "—"} → {c.valid_to || "∞"}
                   </td>
                   <td className="px-3 py-2 text-right">
@@ -440,7 +442,7 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
                       <div className="inline-flex gap-1">
                         <button
                           onClick={() => startEdit(c)}
-                          className="p-1.5 rounded hover:bg-muted dark:hover:bg-muted text-muted-foreground"
+                          className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-muted dark:hover:bg-muted text-muted-foreground"
                           title="Edytuj"
                         >
                           <Pencil className="w-4 h-4" />
@@ -448,7 +450,7 @@ export function RateCardsTab({ clientId }: { clientId: number }) {
                         <button
                           onClick={() => handleDelete(c)}
                           disabled={deleteMutation.isPending}
-                          className="p-1.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
+                          className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
                           title="Usuń"
                         >
                           <Trash2 className="w-4 h-4" />

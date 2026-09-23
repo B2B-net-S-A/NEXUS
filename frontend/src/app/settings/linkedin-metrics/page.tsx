@@ -269,7 +269,7 @@ export default function AdminLinkedInMetricsPage() {
  {weekDays.map((d) => (
  <th
  key={`sub-${d.toISOString()}`}
- className="text-center text-[9px] font-normal text-muted-foreground px-1 py-1 min-w-[140px]"
+ className="text-center text-[10px] font-normal text-muted-foreground px-1 py-1 min-w-[140px]"
  >
  CV / Msg / Resp
  </th>

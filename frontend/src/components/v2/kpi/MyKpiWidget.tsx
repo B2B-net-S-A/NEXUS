@@ -145,7 +145,9 @@ export function MyKpiWidget({ variant = "compact", className }: Props) {
   if (variant === "dashboard") {
     return (
       <section
-        className={cn("rounded-lg border border-border", "bg-card p-4", className)}
+        // `@container`: wariant „dashboard" żyje w kafelku (min. w=4 = 364 px
+        // przy 1280) — liczba kolumn od szerokości kafelka, nie okna.
+        className={cn("@container rounded-lg border border-border", "bg-card p-4", className)}
         aria-label="Moje KPI"
       >
         <header className="flex items-center gap-2 mb-3">
@@ -153,7 +155,7 @@ export function MyKpiWidget({ variant = "compact", className }: Props) {
           <h2 className="text-sm font-semibold text-foreground">Twoje KPI</h2>
         </header>
         {kpiRows.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-4">
             {kpiRows.map((row) => (
               <Row key={row.id} row={row} variant="full" />
             ))}
@@ -164,7 +166,7 @@ export function MyKpiWidget({ variant = "compact", className }: Props) {
             <h3 className="text-xs font-semibold text-muted-foreground mb-2">
               {goalsHeading(goals)}
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-4">
               {goalRows.map((row) => (
                 <Row key={row.id} row={row} variant="full" />
               ))}
@@ -211,7 +213,7 @@ export function MyKpiWidget({ variant = "compact", className }: Props) {
         aria-label="Moje KPI"
       >
         <Target className="h-3.5 w-3.5 text-primary shrink-0" />
-        <span className="hidden lg:flex items-center gap-2">
+        <span className="hidden xl:flex items-center gap-2">
           {top.map((row) => (
             <span key={row.id} className="flex items-center gap-1 tabular-nums" title={row.title}>
               <span className="shrink-0">{stateEmoji(row.state)}</span>
@@ -219,7 +221,7 @@ export function MyKpiWidget({ variant = "compact", className }: Props) {
             </span>
           ))}
         </span>
-        <span className="lg:hidden font-medium text-foreground">KPI</span>
+        <span className="xl:hidden font-medium text-foreground">KPI</span>
       </button>
 
       {hovered && (

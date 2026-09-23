@@ -113,7 +113,7 @@ export function ProposalPanel({
 }: ProposalPanelProps) {
   if (!entry) {
     return (
-      <aside aria-label="Wybrana osoba" className="w-[372px] shrink-0 rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+      <aside aria-label="Wybrana osoba" className="w-full rounded-xl lg:w-[372px] lg:shrink-0 border border-border bg-card p-4 text-sm text-muted-foreground">
         Wybierz osobę z listy, aby zobaczyć, dlaczego pasuje do tej rekrutacji.
       </aside>
     );
@@ -128,7 +128,7 @@ export function ProposalPanel({
   const meta = [detail.title, detail.city].filter(Boolean).join(" · ");
 
   return (
-    <aside aria-label="Wybrana osoba" className="flex w-[372px] shrink-0 flex-col gap-3 rounded-xl border border-border bg-card p-4">
+    <aside aria-label="Wybrana osoba" className="flex w-full flex-col gap-3 lg:w-[372px] lg:shrink-0 rounded-xl border border-border bg-card p-4">
       <header className="flex items-center gap-3">
         <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[13px] font-semibold text-primary">
           {initials(row.fullName)}

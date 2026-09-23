@@ -15,7 +15,7 @@ export function CareerFooter({
       <span className="kr-footer-top">
         <span className="kr-footer-brand">B2B.NET S.A.</span>
         <span>
-          <a href={rodoHref}>klauzula_rodo</a> · {hostLabel}
+          <a href={rodoHref} className="kr-footer-rodo">klauzula_rodo</a> · {hostLabel}
         </span>
       </span>
       <span>{COMPANY_LEGAL_LINE}</span>

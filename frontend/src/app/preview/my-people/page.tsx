@@ -94,7 +94,7 @@ const ACTIONS: RowActions = { onAdd: noop, onSnooze: noop, onUnsnooze: noop };
 
 function Frame({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="w-[420px] shrink-0 rounded-xl border border-border bg-background shadow-sm">
+    <section className="w-full max-w-[420px] shrink-0 rounded-xl border border-border bg-background shadow-sm">
       <h2 className="border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </h2>

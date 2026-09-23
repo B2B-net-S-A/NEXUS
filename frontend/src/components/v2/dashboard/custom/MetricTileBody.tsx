@@ -77,9 +77,14 @@ function NumberView({ result }: { result: MetricResult }) {
   const bars = result.series.slice(-8)
   const max = Math.max(1, ...bars.map((b) => b.value ?? 0))
   return (
+    // Rozmiar liczby i wykresik zależą od szerokości KAFELKA (`@container`
+    // w TileFrame) — kafel w=2 przy 1024 px ma ~98 px wnętrza.
     <div className="flex h-full items-end justify-between gap-3">
-      <div>
-        <div className="font-mono text-3xl font-semibold leading-none text-foreground">
+      <div className="min-w-0 flex-1">
+        <div
+          className="truncate font-mono text-2xl font-semibold leading-none text-foreground @[12rem]:text-3xl"
+          title={formatMetricValue(result.value, result.unit)}
+        >
           {formatMetricValue(result.value, result.unit)}
         </div>
         {delta ? (
@@ -98,7 +103,7 @@ function NumberView({ result }: { result: MetricResult }) {
         ) : null}
       </div>
       {bars.length > 1 ? (
-        <div aria-hidden className="flex h-8 w-24 items-end gap-0.5">
+        <div aria-hidden className="hidden h-8 w-24 shrink-0 items-end gap-0.5 @[14rem]:flex">
           {bars.map((b, i) => (
             <span
               key={b.key}
@@ -144,8 +149,8 @@ function FunnelView({ result }: { result: MetricResult }) {
   return (
     <ul className="flex flex-col gap-1.5" aria-label="Lejek rekrutacji">
       {result.series.map((s) => (
-        <li key={s.key} className="grid grid-cols-[8rem_1fr_2.5rem] items-center gap-2 text-sm">
-          <span className="truncate text-muted-foreground">{s.label}</span>
+        <li key={s.key} className="grid grid-cols-[minmax(0,8rem)_1fr_auto] items-center gap-2 text-sm">
+          <span className="min-w-0 truncate text-muted-foreground" title={s.label}>{s.label}</span>
           <span className="h-3 rounded bg-primary/15">
             <span
               className="block h-3 rounded bg-primary"

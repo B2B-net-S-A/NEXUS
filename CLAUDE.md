@@ -2230,6 +2230,40 @@ web — jeden przegląd naraz, ~3 min.
 - **Surowy SQL (`text()`) musi przejść `PREPARE`** — `= ANY(:ids)`, nie
   rozwijane `IN :ids` (strażnik `test_raw_sql_prepares`).
 
+## Responsywność — reguły po audycie 23.09.2026
+
+Audyt i lista ustaleń: `docs/responsiveness-audit-2026-09-23/`. Reguły wspólne
+żyją w `frontend/src/app/globals.css` (blok „RESPONSYWNOŚĆ”, poza warstwami):
+
+- **Wysokość ekranu to `dvh`, nigdy `h-screen`/`100vh`** — na telefonie `vh`
+  liczy wysokość bez paska przeglądarki i dół strony się pod nim chował
+  (shell `AppShellV2` jest `h-dvh`; pilnuje `responsive-guards.test.ts`).
+- **Pola mają 16 px na dotyku** (reguła `@media (pointer: coarse)`), bo iOS
+  przybliża stronę przy fokusie w polu < 16 px. Klasa `text-sm` na polu jej
+  nie zmienia — nie dokładaj wyjątków.
+- **Akcja widoczna po najechaniu = `pointer-fine:opacity-0
+  pointer-fine:group-hover:opacity-100 focus-within:opacity-100`.** Goły
+  `opacity-0 group-hover:opacity-100` chowa przycisk na dotyku na zawsze
+  (w Tailwind v4 `hover:` działa tylko z myszą) — wywala strażnika.
+- **Małe ikony dostają `hit-area`** (pole trafienia 16 px szersze) albo
+  `pointer-coarse:` rozmiar; `hit-area` ustawia `position: relative`, więc na
+  elemencie `absolute` użyj `pointer-coarse:after:absolute after:-inset-2`.
+  `Button` `sm`/`icon` ma 40 px na dotyku. Tekst `text-[10px]` ma na dotyku 11 px.
+- **Tabela = `overflow-x-auto` + `min-w-[…]` + przyklejona 1. kolumna**, nigdy
+  `overflow-hidden` wokół tabeli (ucinał kolumnę akcji). Bez widoków kart
+  (decyzja 23.09.2026).
+- **Widżet w kafelku/doku/oknie układa się po szerokości KONTENERA**
+  (`@container` + `@lg:`), nie okna — kafelek pulpitu ma 400–600 px na
+  szerokim ekranie.
+- **Pasek boczny bez zapisanej preferencji jest przypięty dopiero od 1280 px**
+  (`useSidebarPinned`), a rozwinięcie po najechaniu reaguje tylko na mysz.
+- **Kalendarz poniżej `md` to widok jednego dnia** (CSS chowa pozostałe
+  kolumny, `?event=` wybiera dzień wydarzenia).
+- Nocny projekt `preview-chromium` uruchamia `e2e/responsive-preview.spec.ts`:
+  każdy harness `/preview/*` przy 360/390/768/1024/1280 bez poziomego scrolla
+  strony. Nowy harness dopisz do listy. Mierz `setViewportSize` na Chrome
+  desktopowym — emulacja telefonu poszerza układ i maskuje przelew.
+
 ## Audyt manualny Codexa 13–15.09.2026 — reguły, które łatwo cofnąć
 
 Raport naprawczy: `docs/manual-audit-2026-09-13-remediation-report.md`.

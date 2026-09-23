@@ -180,9 +180,11 @@ export function CalendarCycleScreen({
               label="Zakres"
               value={scope}
               options={[
-                { value: "mine", label: "Moi kandydaci" },
-                { value: "jobs", label: "Moje rekrutacje" },
-                ...(isOversight ? [{ value: "all" as CycleScope, label: "Cały zespół" }] : []),
+                { value: "mine", label: "Moi kandydaci", shortLabel: "Moi" },
+                { value: "jobs", label: "Moje rekrutacje", shortLabel: "Rekrutacje" },
+                ...(isOversight
+                  ? [{ value: "all" as CycleScope, label: "Cały zespół", shortLabel: "Zespół" }]
+                  : []),
               ]}
               onChange={(v) => setParams({ scope: v === defaultScope ? null : v })}
             />
@@ -290,26 +292,39 @@ function Segmented<T extends string>({
 }: {
   label: string;
   value: T;
-  options: { value: T; label: string }[];
+  /** `shortLabel` — krótsza etykieta poniżej `sm` (trzy opcje zakresu nie mieściły się w 343 px). */
+  options: { value: T; label: string; shortLabel?: string }[];
   onChange: (value: T) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="flex rounded-lg bg-muted p-1">
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="flex max-w-full overflow-x-auto rounded-lg bg-muted p-1"
+    >
       {options.map((o) => (
         <button
           key={o.value}
           type="button"
           role="radio"
           aria-checked={o.value === value}
+          aria-label={o.shortLabel ? o.label : undefined}
           onClick={() => onChange(o.value)}
           className={cn(
-            "h-8 rounded-md px-3 text-sm",
+            "h-8 shrink-0 whitespace-nowrap rounded-md px-3 text-sm",
             o.value === value
               ? "bg-card font-semibold text-foreground shadow-xs"
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {o.label}
+          {o.shortLabel ? (
+            <>
+              <span className="sm:hidden">{o.shortLabel}</span>
+              <span className="hidden sm:inline">{o.label}</span>
+            </>
+          ) : (
+            o.label
+          )}
         </button>
       ))}
     </div>

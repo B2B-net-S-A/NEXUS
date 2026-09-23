@@ -99,7 +99,7 @@ export function ContractsBulkActionsBarV2({
 
  return (
  <RequireRole roles={["admin","delivery_lead"]}>
- <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 bg-card text-foreground rounded-xl shadow-md border border-white/10 px-4 py-2.5 flex items-center gap-3 flex-wrap animate-slide-in-bottom max-w-[min(96vw,900px)]">
+ <div className="fixed inset-x-3 bottom-[calc(1.25rem+env(safe-area-inset-bottom))] mx-auto w-fit z-40 bg-card text-foreground rounded-xl shadow-md border border-white/10 px-4 py-2.5 flex items-center gap-3 flex-wrap animate-slide-in-bottom max-w-[min(96vw,900px)]">
  <span className="text-xs inline-flex items-center gap-1.5">
  <CheckSquare className="h-3.5 w-3.5" />
  Wybrano: <span className="font-bold">{selectedIds.size}</span>
@@ -142,7 +142,7 @@ export function ContractsBulkActionsBarV2({
  </Button>
  <button
  onClick={onClear}
- className="ml-auto text-xs text-foreground/70 hover:text-foreground inline-flex items-center gap-1"
+ className="ml-auto text-xs text-foreground/70 hover:text-foreground inline-flex min-h-8 items-center gap-1"
  >
  <X className="h-3 w-3" />
  Wyczyść

@@ -229,11 +229,11 @@ export function ContractInvoicesTab({
           Brak faktur. Dodaj pierwszą, żeby mieć historię rozliczeń z kontraktorem.
         </div>
       ) : (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-x-auto">
+          <table className="w-full min-w-[40rem] text-sm">
             <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
               <tr>
-                <th className="text-left px-3 py-2">Numer</th>
+                <th className="sticky left-0 z-10 bg-muted text-left px-3 py-2">Numer</th>
                 <th className="text-left px-3 py-2">Kierunek</th>
                 <th className="text-left px-3 py-2">Wystawiona</th>
                 <th className="text-left px-3 py-2">Termin</th>
@@ -250,17 +250,17 @@ export function ContractInvoicesTab({
                   new Date(inv.due_date).getTime() < Date.now();
                 return (
                   <tr key={inv.id} className="border-t border-border dark:border-border">
-                    <td className="px-3 py-2 font-medium">{inv.invoice_number}</td>
+                    <td className="sticky left-0 z-10 bg-card dark:bg-muted px-3 py-2 font-medium">{inv.invoice_number}</td>
                     <td className="px-3 py-2 text-muted-foreground dark:text-muted-foreground text-xs">
                       {inv.direction === "to_client" ? "→ klient" : "← kontraktor"}
                     </td>
-                    <td className="px-3 py-2">{formatDate(inv.issue_date)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{formatDate(inv.issue_date)}</td>
                     <td
                       className={`px-3 py-2 ${overdue ? "text-destructive font-semibold" : ""}`}
                     >
                       {inv.due_date ? formatDate(inv.due_date) : "—"}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
                       {formatCurrency(inv.amount, inv.currency)}
                     </td>
                     <td className="px-3 py-2">
@@ -279,7 +279,8 @@ export function ContractInvoicesTab({
                                 onClick={() => markPaidMutation.mutate(inv.id)}
                                 disabled={markPaidMutation.isPending}
                                 title="Oznacz jako zapłacone"
-                                className="p-1.5 rounded hover:bg-emerald-50 text-emerald-600"
+                                aria-label={`Oznacz fakturę ${inv.invoice_number} jako zapłaconą`}
+                                className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-emerald-50 text-emerald-600"
                               >
                                 <Check className="w-4 h-4" />
                               </button>
@@ -290,7 +291,9 @@ export function ContractInvoicesTab({
                                   deleteMutation.mutate(inv.id);
                                 }
                               }}
-                              className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
+                              title="Usuń fakturę"
+                              aria-label={`Usuń fakturę ${inv.invoice_number}`}
+                              className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-destructive/10 text-destructive"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>

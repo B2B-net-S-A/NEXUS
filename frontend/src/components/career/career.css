@@ -27,7 +27,10 @@
   --kr-link-hover: #f07a8c;
   --kr-err: #e0677a;
 
+  /* svh: stopka (`margin-top: auto`) nie ląduje pod dolnym paskiem
+     przeglądarki na telefonie; 100vh zostaje jako zapas. */
   min-height: 100vh;
+  min-height: 100svh;
   display: flex;
   flex-direction: column;
   background-color: var(--kr-bg);
@@ -43,6 +46,14 @@
   .kr-root {
     background-size: 120px 120px;
   }
+}
+
+/* Tło dokumentu pod stroną kariery: bez tego przy „przeciągnięciu poza
+   stronę” na iOS widać jasne `body` aplikacji. Tylko strona `/kariera`
+   (`data-kr-page` z layoutu), nie harness `/preview/kariera`. */
+html:has(.kr-root[data-kr-page]),
+html:has(.kr-root[data-kr-page]) body {
+  background: #000000;
 }
 
 .kr-root *,
@@ -153,11 +164,15 @@
 .kr-title {
   margin: 14px 0 10px;
   font-family: var(--font-kr-display), system-ui, sans-serif;
-  font-size: 46px;
+  /* 46 px na 360 px mieści ~12 znaków — „Infrastruktury” łamało się bez
+     dywizu. Skala z szerokością + dzielenie wyrazów (`lang="pl"` na .kr-root). */
+  font-size: clamp(34px, 11.5vw, 46px);
   line-height: 0.98;
   font-weight: 800;
   letter-spacing: -0.045em;
   overflow-wrap: break-word;
+  -webkit-hyphens: auto;
+  hyphens: auto;
 }
 .kr-title-a { color: var(--kr-white); }
 .kr-title-b { color: var(--kr-bordo); }
@@ -190,6 +205,10 @@
   display: flex;
   justify-content: space-between;
   gap: 12px;
+}
+.kr-kv-row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .kr-kv-row > :last-child {
   text-align: right;
@@ -305,6 +324,16 @@
   letter-spacing: -0.03em;
 }
 .kr-desktop-only { display: none; }
+/* Tablet pionowo (640–1023 px): bez ograniczenia akapity mono miały ~90
+   znaków w linii, a formularz rozciągał się na całą szerokość. */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .kr-top,
+  .kr-main {
+    max-width: 720px;
+    margin-inline: auto;
+    width: 100%;
+  }
+}
 @media (min-width: 1024px) {
   /* 1024–1279 px: węższy formularz i marginesy — przy 500 px formularza i
      80 px marginesów kolumna treści miała ~290 px, a kroki procesu łamały się
@@ -384,6 +413,12 @@
   color: var(--kr-text);
   color-scheme: dark;
   appearance: none;
+}
+/* iOS Safari przy `appearance: none` pokazuje puste pole daty bez wzorca. */
+input[type="date"].kr-input {
+  -webkit-appearance: auto;
+  appearance: auto;
+  min-width: 0;
 }
 .kr-input::placeholder { color: var(--kr-dim); }
 .kr-input:focus {
@@ -685,6 +720,14 @@ a.kr-row:hover { background: #0e0406; color: var(--kr-white) !important; }
   line-height: 1.6;
   color: var(--kr-comment);
   background: var(--kr-bg);
+  /* Adres strony (np. /r/senior-java-developer-…) nie ma spacji. */
+  overflow-wrap: anywhere;
+}
+/* Link „klauzula_rodo” (11 px) — cel dotykowy bez zmiany wyglądu. */
+.kr-footer-rodo {
+  display: inline-block;
+  padding: 12px 0;
+  margin: -12px 0;
 }
 .kr-footer-top {
   display: flex;

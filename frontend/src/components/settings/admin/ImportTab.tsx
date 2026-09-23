@@ -74,7 +74,7 @@ export function ImportTab() {
           musi być ustawione w Coolify env. Embedding copy oszczędza koszt Voyage (~70k requestów).
         </p>
 
-        <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -157,7 +157,7 @@ export function ImportTab() {
                   total={candidates.total}
                   label="Kandydaci"
                 />
-                <div className="grid grid-cols-4 gap-2 text-xs text-muted-foreground">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-muted-foreground">
                   <span>Inserted: {candidates.inserted.toLocaleString()}</span>
                   <span>Updated: {candidates.updated.toLocaleString()}</span>
                   <span>Skipped: {candidates.skipped.toLocaleString()}</span>
@@ -175,7 +175,7 @@ export function ImportTab() {
                   total={embeddings.total}
                   label="Embeddings (pgvector → Qdrant)"
                 />
-                <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-muted-foreground">
                   <span>Copied: {embeddings.copied.toLocaleString()}</span>
                   <span>Missing in source: {embeddings.missing_source.toLocaleString()}</span>
                   <span className={embeddings.errors ? "text-destructive" : ""}>

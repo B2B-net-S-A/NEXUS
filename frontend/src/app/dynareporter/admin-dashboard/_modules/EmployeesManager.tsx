@@ -273,25 +273,25 @@ export function EmployeesManager() {
             <table className="w-full text-sm">
               <thead className="bg-muted/40">
                 <tr>
-                  <th className="px-2 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                  <th className="px-2 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                     User
                   </th>
-                  <th className="px-2 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                  <th className="px-2 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                     Email
                   </th>
-                  <th className="px-2 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                  <th className="px-2 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                     Rola
                   </th>
-                  <th className="px-2 py-2 text-center text-[10px] font-medium text-muted-foreground uppercase">
+                  <th className="px-2 py-2 text-center text-[11px] font-medium text-muted-foreground uppercase">
                     Status
                   </th>
-                  <th className="px-2 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                  <th className="px-2 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                     Seniority
                   </th>
-                  <th className="px-2 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                  <th className="px-2 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                     Sekcje DR
                   </th>
-                  <th className="px-2 py-2 text-center text-[10px] font-medium text-muted-foreground uppercase">
+                  <th className="px-2 py-2 text-center text-[11px] font-medium text-muted-foreground uppercase">
                     Akcje
                   </th>
                 </tr>
@@ -340,35 +340,28 @@ export function EmployeesManager() {
                                 </option>
                               ))}
                             </select>
-                            <div className="grid grid-cols-3 gap-1">
-                              <input
-                                type="date"
-                                value={editStart}
-                                onChange={(ev) => setEditStart(ev.target.value)}
-                                className="px-1 py-0.5 text-[10px] bg-background border border-input rounded"
-                                aria-label="Acceleration start"
-                                title="Acceleration start"
-                              />
-                              <input
-                                type="date"
-                                value={editSenior}
-                                onChange={(ev) =>
-                                  setEditSenior(ev.target.value)
-                                }
-                                className="px-1 py-0.5 text-[10px] bg-background border border-input rounded"
-                                aria-label="Senior since"
-                                title="Senior since"
-                              />
-                              <input
-                                type="date"
-                                value={editExpert}
-                                onChange={(ev) =>
-                                  setEditExpert(ev.target.value)
-                                }
-                                className="px-1 py-0.5 text-[10px] bg-background border border-input rounded"
-                                aria-label="Expert since"
-                                title="Expert since"
-                              />
+                            {/* Widoczne etykiety — sam `title` na dotyku nie
+                                mówi, które pole jest które (audyt 23.09.2026). */}
+                            <div className="grid grid-cols-1 gap-1 sm:grid-cols-3">
+                              {(
+                                [
+                                  ["Start akceleracji", editStart, setEditStart],
+                                  ["Senior od", editSenior, setEditSenior],
+                                  ["Expert od", editExpert, setEditExpert],
+                                ] as const
+                              ).map(([label, value, setValue]) => (
+                                <label key={label} className="flex flex-col gap-0.5">
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {label}
+                                  </span>
+                                  <input
+                                    type="date"
+                                    value={value}
+                                    onChange={(ev) => setValue(ev.target.value)}
+                                    className="min-w-0 px-1 py-1 text-xs bg-background border border-input rounded"
+                                  />
+                                </label>
+                              ))}
                             </div>
                           </div>
                         ) : (
@@ -531,7 +524,7 @@ export function EmployeesManager() {
                         className="rounded border-input"
                       />
                       <span className="text-sm">{s.label}</span>
-                      <code className="ml-auto text-[10px] text-muted-foreground">
+                      <code className="ml-auto text-[11px] text-muted-foreground">
                         {s.value}
                       </code>
                     </label>

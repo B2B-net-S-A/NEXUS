@@ -692,3 +692,80 @@ describe("CalendarPage — nowe wydarzenie (audyt 17.09.2026)", () => {
     );
   });
 });
+
+// Audyt responsywności 23.09.2026: na telefonie siatka pokazuje JEDEN dzień.
+// Przełączenie jest w CSS (`hidden md:block` na kolumnach innych niż wybrany
+// dzień), więc test pilnuje, która kolumna jest „wybrana” i że nawigacja
+// dnia, tygodnia i link `?event=` ją przestawiają.
+describe("CalendarPage — widok jednego dnia na telefonie", () => {
+  function selectedColumnIndex(): number {
+    const columns = screen.getAllByTestId("calendar-day-column");
+    expect(columns).toHaveLength(7);
+    const selected = columns.filter((c) => c.dataset.selectedDay === "true");
+    expect(selected).toHaveLength(1);
+    // Pozostałe kolumny chowa CSS poniżej `md`.
+    columns
+      .filter((c) => c !== selected[0])
+      .forEach((c) => expect(c.className).toMatch(/\bhidden md:block\b/));
+    expect(selected[0].className).not.toMatch(/\bhidden\b/);
+    return columns.indexOf(selected[0]);
+  }
+
+  it("domyślnie wybrany jest dzisiejszy dzień, strzałki przesuwają o jeden dzień", async () => {
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    renderPage();
+    await screen.findAllByTestId("calendar-day-column");
+
+    const todayIndex = (new Date().getDay() + 6) % 7;
+    expect(selectedColumnIndex()).toBe(todayIndex);
+
+    fireEvent.click(screen.getByRole("button", { name: "Następny dzień" }));
+    await waitFor(() => expect(selectedColumnIndex()).toBe((todayIndex + 1) % 7));
+
+    fireEvent.click(screen.getByRole("button", { name: "Poprzedni dzień" }));
+    fireEvent.click(screen.getByRole("button", { name: "Poprzedni dzień" }));
+    await waitFor(() => expect(selectedColumnIndex()).toBe((todayIndex + 6) % 7));
+
+    fireEvent.click(screen.getByRole("button", { name: "Dzisiaj" }));
+    await waitFor(() => expect(selectedColumnIndex()).toBe(todayIndex));
+  });
+
+  it("strzałki tygodnia mają dostępne nazwy i zachowują dzień tygodnia", async () => {
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    renderPage();
+    await screen.findAllByTestId("calendar-day-column");
+    const todayIndex = (new Date().getDay() + 6) % 7;
+
+    fireEvent.click(screen.getByRole("button", { name: "Następny tydzień" }));
+    await waitFor(() =>
+      expect(mocks.listEvents).toHaveBeenCalledWith(
+        expect.objectContaining({ from_date: expect.any(String) }),
+      ),
+    );
+    await waitFor(() => expect(selectedColumnIndex()).toBe(todayIndex));
+    expect(screen.getByRole("button", { name: "Poprzedni tydzień" })).toBeInTheDocument();
+  });
+
+  it("link ?event= wybiera dzień wydarzenia", async () => {
+    mocks.search = "event=42";
+    mocks.listEvents.mockResolvedValue({ data: [] });
+    // 2031-03-12 to środa → trzecia kolumna tygodnia.
+    mocks.getEvent.mockResolvedValue({
+      data: {
+        id: 42,
+        title: "Rozmowa z linku",
+        description: null,
+        event_type: "interview",
+        status: "scheduled",
+        start_time: new Date(2031, 2, 12, 10, 0).toISOString(),
+        end_time: null,
+        all_day: false,
+        attendees: [],
+      },
+    });
+    renderPage();
+
+    await screen.findByRole("dialog", { name: "Rozmowa z linku" });
+    await waitFor(() => expect(selectedColumnIndex()).toBe(2));
+  });
+});

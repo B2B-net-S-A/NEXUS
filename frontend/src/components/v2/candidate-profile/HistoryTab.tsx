@@ -104,8 +104,15 @@ export function HistoryTab({
   const { showError } = useToast();
   const [noteText, setNoteText] = useState("");
   const [noteSaving, setNoteSaving] = useState(false);
-  // „Pokaż CV obok” — domyślnie po wejściu z rekrutacji (widok z Traffita).
-  const [showCv, setShowCv] = useState(defaultJobId != null);
+  // „Pokaż CV obok” — domyślnie po wejściu z rekrutacji (widok z Traffita),
+  // ale tylko od `lg`: węższy ekran stawia CV NAD historią, więc historia
+  // byłaby dopiero pod całym podglądem CV.
+  const [showCv, setShowCv] = useState(
+    () =>
+      defaultJobId != null &&
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(min-width: 1024px)")?.matches === true,
+  );
 
   // Notatki — dedykowane, NIEUCINANE źródło. Oś czasu miesza notatki
   // z etapami i ucina do limitu, więc starsze notatki znikały z filtra.
@@ -381,7 +388,7 @@ function CvSidePane({
     <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-muted/30">
         {primaryDoc ? (
-          <div className="flex h-[78vh] flex-col">
+          <div className="flex h-[60dvh] flex-col lg:h-[78dvh]">
             <div className="flex items-center justify-between gap-2 border-b border-border bg-card px-3 py-2">
               <span className="min-w-0 truncate text-sm font-medium text-foreground">
                 {primaryDoc.filename}
@@ -405,7 +412,7 @@ function CvSidePane({
             />
           </div>
         ) : documentsQuery.isError ? (
-          <div className="flex h-[40vh] flex-col items-center justify-center gap-2 p-6 text-center">
+          <div className="flex h-[40dvh] flex-col items-center justify-center gap-2 p-6 text-center">
             <AlertTriangle className="h-8 w-8 text-destructive" />
             <p className="text-sm text-destructive">
               Nie udało się wczytać dokumentów kandydata — nie wiemy, czy CV tu
@@ -420,12 +427,12 @@ function CvSidePane({
             </button>
           </div>
         ) : !documentsQuery.isSuccess ? (
-          <div className="flex h-[40vh] flex-col items-center justify-center gap-2 p-6 text-center">
+          <div className="flex h-[40dvh] flex-col items-center justify-center gap-2 p-6 text-center">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             <p className="text-sm text-muted-foreground">Wczytywanie CV…</p>
           </div>
         ) : (
-          <div className="flex h-[40vh] flex-col items-center justify-center gap-2 p-6 text-center">
+          <div className="flex h-[40dvh] flex-col items-center justify-center gap-2 p-6 text-center">
             <FileText className="h-8 w-8 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
               Brak CV w profilu kandydata.
@@ -433,7 +440,7 @@ function CvSidePane({
           </div>
         )}
       </div>
-      <div className="max-h-[78vh] min-w-0 overflow-y-auto pr-1">{children}</div>
+      <div className="min-w-0 lg:max-h-[78dvh] lg:overflow-y-auto lg:pr-1">{children}</div>
     </div>
   );
 }

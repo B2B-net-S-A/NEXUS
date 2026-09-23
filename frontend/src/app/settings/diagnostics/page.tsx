@@ -80,9 +80,9 @@ export default function DiagnosticsPage() {
 
   return (
     <div className="min-h-screen bg-muted dark:bg-card">
-      <div className="max-w-4xl mx-auto px-4 py-8 space-y-5">
-        <header className="flex items-center justify-between">
-          <div>
+      <div className="max-w-4xl mx-auto md:px-4 py-4 md:py-8 space-y-5">
+        <header className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold">Diagnostyka embeddingu</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Voyage AI + Qdrant — stan połączeń i kolekcji.

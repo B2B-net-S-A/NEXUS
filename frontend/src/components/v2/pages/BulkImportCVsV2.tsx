@@ -379,11 +379,13 @@ export function BulkImportCVsV2() {
  </div>
  </div>
 
- <div className="overflow-hidden rounded-lg border border-border">
- <table className="w-full text-sm">
+ {/* Poziome przewijanie z przyklejoną kolumną „Plik” — `overflow-hidden`
+ ucinało na telefonie kolumnę akcji. */}
+ <div className="relative overflow-x-auto rounded-lg border border-border">
+ <table className="w-full min-w-[640px] text-sm">
  <thead className="bg-background/40">
  <tr className="text-left text-xs uppercase tracking-[0.08em] text-muted-foreground">
- <th className="px-4 py-2 font-semibold">Plik</th>
+ <th className="px-4 py-2 font-semibold max-md:sticky max-md:left-0 max-md:z-10 max-md:bg-card">Plik</th>
  <th className="px-4 py-2 font-semibold">Status</th>
  <th className="px-4 py-2 font-semibold">Kandydat</th>
  <th className="px-4 py-2 font-semibold">Uwagi</th>
@@ -393,8 +395,8 @@ export function BulkImportCVsV2() {
  <tbody className="divide-y divide-border">
  {rows.map((r) => (
  <tr key={r.id} className="align-top">
- <td className="px-4 py-2">
- <div className="font-medium text-foreground">
+ <td className="px-4 py-2 max-md:sticky max-md:left-0 max-md:z-10 max-md:max-w-[160px] max-md:bg-card">
+ <div className="font-medium text-foreground break-all">
  {r.file.name}
  </div>
  {r.file.size > 0 && (
@@ -442,7 +444,7 @@ export function BulkImportCVsV2() {
  <button
  type="button"
  onClick={() => removeRow(r.id)}
- className="text-[11px] text-muted-foreground hover:text-destructive"
+ className="hit-area text-[11px] text-muted-foreground hover:text-destructive"
  >
  Usuń
  </button>

@@ -43,10 +43,13 @@ export function CandidateBulkBar({
   if (count === 0) return null;
   const compareOverflow = Math.max(0, count - COMPARE_LIMIT);
   return (
+    // Zewnętrzna warstwa na całą szerokość centruje pasek — sam `left-1/2`
+    // dawał mu szerokość połowy ekranu i na telefonie łamał przyciski w słup.
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4 sm:bottom-5">
     <div
       role="region"
       aria-label="Akcje zaznaczonych kandydatów"
-      className="fixed bottom-5 left-1/2 z-40 flex -translate-x-1/2 animate-slide-in-bottom flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-foreground shadow-md"
+      className="pointer-events-auto flex max-w-full animate-slide-in-bottom flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-foreground shadow-md"
     >
       <span className="text-sm">
         <span className="font-semibold">{count}</span> zaznaczonych
@@ -105,10 +108,11 @@ export function CandidateBulkBar({
       <button
         type="button"
         onClick={onClear}
-        className="ml-1 text-xs text-muted-foreground hover:text-foreground"
+        className="ml-1 min-h-9 px-1 text-xs text-muted-foreground hover:text-foreground sm:min-h-0"
       >
         Odznacz
       </button>
+    </div>
     </div>
   );
 }

@@ -286,7 +286,7 @@ export function ClientPlaybookForm({ clientId, onSaved }: ClientPlaybookFormProp
                 value={doc.name}
                 maxLength={200}
                 placeholder="np. NDA klienta"
-                className="w-56 rounded-md border px-2 py-1 text-sm"
+                className="w-full rounded-md border px-2 py-1 text-sm sm:w-56"
                 onChange={(e) => updateDocument(index, { name: e.target.value })}
               />
               <input
@@ -295,12 +295,12 @@ export function ClientPlaybookForm({ clientId, onSaved }: ClientPlaybookFormProp
                 value={doc.url}
                 maxLength={2000}
                 placeholder="https://b2bnetsa.sharepoint.com/…"
-                className="min-w-64 flex-1 rounded-md border px-2 py-1 text-sm"
+                className="w-full min-w-0 flex-1 rounded-md border px-2 py-1 text-sm sm:w-auto sm:min-w-64"
                 onChange={(e) => updateDocument(index, { url: e.target.value })}
               />
               <button
                 type="button"
-                className="text-xs text-destructive hover:underline"
+                className="text-xs text-destructive hover:underline pointer-coarse:min-h-10"
                 onClick={() =>
                   set(
                     "documents",

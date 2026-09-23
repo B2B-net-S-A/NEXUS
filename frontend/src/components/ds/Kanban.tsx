@@ -47,7 +47,7 @@ const KanbanColumn = React.forwardRef<HTMLDivElement, KanbanColumnProps>(
           </Badge>
         ) : null}
       </div>
-      <ScrollArea className="max-h-[calc(100vh-16rem)] flex-1">
+      <ScrollArea className="max-h-[calc(100dvh-16rem)] flex-1">
         <div className="space-y-2 px-2 pb-2">{children}</div>
       </ScrollArea>
     </div>

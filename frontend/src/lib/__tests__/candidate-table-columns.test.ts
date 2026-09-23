@@ -34,9 +34,11 @@ describe("kolumny tabeli kandydatów", () => {
     expect(toggleCandidateColumn(withoutPhone, "phone")).not.toContain("phone");
   });
 
-  it("szablon siatki ma kolumnę zaznaczenia i sumę minimalnych szerokości", () => {
+  it("szablon siatki ma kolumnę zaznaczenia, a minimalna szerokość liczy kolumny, odstępy i padding", () => {
     const layout = candidateGridLayout(visibleCandidateColumns(null));
     expect(layout.template.startsWith("32px ")).toBe(true);
-    expect(layout.minWidth).toBe(32 + 168 + 150 + 132 + 72 + 88 + 112 + 52 + 104);
+    // 8 kolumn danych → 8 odstępów gap-3 (12 px) + px-4 z obu stron (32 px).
+    // Bez odstępów i paddingu wiersz był szerszy od kontenera i ucinał „Przypisz”.
+    expect(layout.minWidth).toBe(32 + 168 + 150 + 132 + 72 + 88 + 112 + 52 + 104 + 8 * 12 + 32);
   });
 });

@@ -31,9 +31,10 @@ SheetOverlay.displayName ="SheetOverlay";
 
 const sheetSideClasses: Record<"right" |"left" |"top" |"bottom", string> = {
  right: "inset-y-0 right-0 h-full w-full sm:max-w-xl border-l data-[state=open]:animate-slide-in-right",
- left: "inset-y-0 left-0 h-full w-full sm:max-w-xl border-r data-[state=open]:animate-slide-in-right",
- top: "inset-x-0 top-0 h-auto max-h-[85vh] border-b data-[state=open]:animate-fadeIn",
- bottom: "inset-x-0 bottom-0 h-auto max-h-[85vh] border-t data-[state=open]:animate-slide-in-bottom",
+ left: "inset-y-0 left-0 h-full w-full sm:max-w-xl border-r data-[state=open]:animate-slide-in-left",
+ // `dvh`: na telefonie `vh` liczy wysokość bez paska przeglądarki.
+ top: "inset-x-0 top-0 h-auto max-h-[85dvh] border-b pt-[env(safe-area-inset-top)] data-[state=open]:animate-fadeIn",
+ bottom: "inset-x-0 bottom-0 h-auto max-h-[85dvh] border-t pb-[env(safe-area-inset-bottom)] data-[state=open]:animate-slide-in-bottom",
 };
 
 const sheetWidths: Record<string, string> = {
@@ -68,7 +69,10 @@ const SheetContent = React.forwardRef<
  {children}
  {!hideClose && (
  <DialogPrimitive.Close
- className={cn("absolute right-4 top-4 rounded-md p-1","text-muted-foreground hover:text-foreground","hover:bg-primary/10 transition-colors","focus:outline-hidden"
+ className={cn(
+ // 40 px celu dotyku na telefonie (jak zamknięcie w `dialog.tsx`);
+ // od `sm` wygląd bez zmian.
+ "absolute right-2 top-2 flex h-10 w-10 items-center justify-center rounded-md sm:right-4 sm:top-4 sm:h-auto sm:w-auto sm:p-1","text-muted-foreground hover:text-foreground","hover:bg-primary/10 transition-colors","focus:outline-hidden"
  )}
  >
  <X className="h-4 w-4" />

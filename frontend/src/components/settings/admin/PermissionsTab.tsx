@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   LockKeyhole,
@@ -833,6 +833,17 @@ function UserPermissionsEditor({
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search.trim(), 300);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  // Poniżej lg szczegóły stoją pod listą użytkowników (do 38rem) — po wyborze
+  // przewijamy do nich, inaczej klik wyglądał na martwy.
+  const detailsRef = useRef<HTMLElement | null>(null);
+  const [revealTick, setRevealTick] = useState(0);
+  useEffect(() => {
+    if (revealTick === 0) return;
+    if (window.matchMedia?.("(min-width: 1024px)").matches) return;
+    // Bez `behavior: "smooth"` — w zagnieżdżonym kontenerze powłoki Chrome
+    // cicho pomija płynne przewijanie (patrz `ProcedureTableOfContents`).
+    detailsRef.current?.scrollIntoView?.({ block: "start" });
+  }, [revealTick]);
   const [draftState, setDraftState] = useState<UserDraftState>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [conflict, setConflict] = useState(false);
@@ -1049,7 +1060,7 @@ function UserPermissionsEditor({
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[minmax(16rem,0.7fr)_minmax(0,1.3fr)]">
-          <div className="max-h-[38rem] overflow-y-auto rounded-xl border border-border bg-card p-2">
+          <div className="max-h-80 lg:max-h-[38rem] overflow-y-auto rounded-xl border border-border bg-card p-2">
             <div className="space-y-1" aria-label="Użytkownicy">
               {users.map((entry) => {
                 const selected = entry.user_id === selectedUser?.user_id;
@@ -1071,6 +1082,7 @@ function UserPermissionsEditor({
                       setSelectedUserId(entry.user_id);
                       setDraftState(null);
                       setConflict(false);
+                      setRevealTick((t) => t + 1);
                     }}
                     className={`w-full rounded-lg px-3 py-2.5 text-left transition-colors focus:outline-hidden focus:ring-2 focus:ring-ring ${
                       selected
@@ -1100,7 +1112,7 @@ function UserPermissionsEditor({
           </div>
 
           {selectedUser && draft && actionDraft ? (
-            <section className="rounded-xl border border-border bg-card">
+            <section ref={detailsRef} className="min-w-0 scroll-mt-4 rounded-xl border border-border bg-card">
               <header className="border-b border-border px-4 py-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="flex size-9 items-center justify-center rounded-full bg-primary/10 text-primary">

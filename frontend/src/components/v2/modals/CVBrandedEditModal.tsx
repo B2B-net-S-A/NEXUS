@@ -380,8 +380,8 @@ function CVBrandedEditContent({
  return (
  <>
  <Dialog open={open} onOpenChange={(value) => void closeEditor(value)}>
- <DialogContent size="2xl" className="p-0 max-h-[92vh] flex flex-col">
- {reviewNotice && <div role="status" className="px-5 py-3 border-b border-border text-sm bg-amber-50 dark:bg-amber-950/30">
+ <DialogContent size="2xl" className="p-0 max-h-[92dvh] flex flex-col">
+ {reviewNotice && <div role="status" className="pl-5 pr-16 py-3 border-b border-border text-sm bg-amber-50 dark:bg-amber-950/30">
    {reviewNotice.kind === "findings" ? <>
      <p className="font-medium">Niezależna kontrola AI: {reviewNotice.count}{" "}
        {reviewNotice.count === 1 ? "twierdzenie" : "twierdzeń"} bez pokrycia w źródłach.</p>
@@ -393,7 +393,7 @@ function CVBrandedEditContent({
      Niezależna kontrola AI treści nie wykonała się. CV zostało zatwierdzone; sprawdź je ręcznie z oryginałem.
    </p>}
  </div>}
- {approvalError && <div role="alert" className="px-5 py-3 border-b border-border text-sm">
+ {approvalError && <div role="alert" className="pl-5 pr-16 py-3 border-b border-border text-sm">
    <p className="text-destructive">{approvalError.message}</p>
    {approvalError.regenerate && <>
      <ol className="list-decimal pl-5 mt-2 space-y-1">
@@ -407,7 +407,7 @@ function CVBrandedEditContent({
      }}>{onRegenerate ? "Zapisz szkic i przejdź do generatora" : "Zapisz szkic i zamknij"}</Button>
    </>}
  </div>}
- {saveProblem && <div role="alert" className="px-5 py-3 border-b border-border text-sm space-y-2">
+ {saveProblem && <div role="alert" className="pl-5 pr-16 py-3 border-b border-border text-sm space-y-2">
    <p className="text-destructive">Nie udało się zapisać CV: {saveProblem.message}</p>
    {saveProblem.conflict && <p className="text-muted-foreground">
      Ktoś zapisał nowszą wersję tego CV. Wczytanie aktualnej wersji zastąpi niezapisane poprawki w edytorze.
@@ -422,7 +422,7 @@ function CVBrandedEditContent({
      <Button size="sm" variant="ghost" onClick={() => setConfirmDiscard(true)}>Zamknij bez zapisu</Button>
    </div>
  </div>}
- <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+ <div className="flex items-center justify-between gap-3 pl-5 pr-16 py-3 border-b border-border">
  <div className="min-w-0">
  <div className="text-xs uppercase tracking-wider text-muted-foreground">
  Brandowane CV (per rekrutacja)

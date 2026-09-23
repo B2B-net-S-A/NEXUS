@@ -290,7 +290,7 @@ export function LineMonthlyHistoryDialog({
                                 onClick={() => startEdit(row)}
                                 aria-label={`Edytuj wpis za ${formatPeriodMonthPl(row.period_month)}`}
                                 title="Edytuj"
-                                className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                className="rounded-md p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:bg-muted hover:text-foreground"
                               >
                                 <Pencil className="h-4 w-4" aria-hidden />
                               </button>
@@ -299,7 +299,7 @@ export function LineMonthlyHistoryDialog({
                                 onClick={() => setConfirmDeleteMonth(row.period_month)}
                                 aria-label={`Usuń wpis za ${formatPeriodMonthPl(row.period_month)}`}
                                 title="Usuń"
-                                className="rounded-md p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                className="rounded-md p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                               >
                                 <Trash2 className="h-4 w-4" aria-hidden />
                               </button>

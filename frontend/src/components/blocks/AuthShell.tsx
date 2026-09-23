@@ -30,7 +30,7 @@ const BRAND_FEATURES = [
  */
 export function AuthShell({ heading, subtitle, children, footer = "Nexus · B2B.net", className }: AuthShellProps) {
   return (
-    <div className={cn("min-h-screen bg-background lg:grid lg:grid-cols-2", className)}>
+    <div className={cn("min-h-screen min-h-svh bg-background lg:grid lg:grid-cols-2", className)}>
       {/* Brand panel — lg+ only. bg-primary so it recolors with the palette. */}
       <div className="relative hidden flex-col justify-between bg-primary p-12 text-primary-foreground lg:flex">
         <DynamindsLogo className="h-9 w-auto" />

@@ -442,14 +442,14 @@ export default function EntityFieldsPage() {
 
   if (isLoading) {
     return (
-      <div className="container max-w-6xl mx-auto py-8 px-4 flex items-center justify-center min-h-[400px]">
+      <div className="container max-w-6xl mx-auto md:py-8 md:px-4 flex items-center justify-center min-h-[400px]">
         <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="container max-w-6xl mx-auto py-8 px-4">
+    <div className="container max-w-6xl mx-auto md:py-8 md:px-4">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-foreground mt-2">
           Konfiguracja pól

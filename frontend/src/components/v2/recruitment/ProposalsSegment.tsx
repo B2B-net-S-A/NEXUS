@@ -12,7 +12,7 @@
  *    ponowieniami react-query wygląda jak pusta lista).
  */
 
-import { useCallback, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -152,10 +152,16 @@ export function ProposalsSegmentView({
     () => entries.find((e) => e.row.key === activeKey) ?? entries[0] ?? null,
     [entries, activeKey],
   );
+  // Poniżej `lg` panel stoi POD tabelą — bez przewinięcia klik w wiersz nie
+  // dawałby widocznego efektu (panel byłby pod całą listą).
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const changeActive = useCallback(
     (row: PersonRow) => {
       setActiveKey(row.key);
       onActiveCandidateChange?.(row.candidateId);
+      if (typeof window !== "undefined" && !window.matchMedia?.("(min-width: 1024px)").matches) {
+        requestAnimationFrame(() => panelRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" }));
+      }
     },
     [onActiveCandidateChange],
   );
@@ -413,7 +419,7 @@ export function ProposalsSegmentView({
       )}
 
       {/* ── Tabela + panel ───────────────────────────────────────────────── */}
-      <div className="flex min-w-0 items-start gap-4">
+      <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1 space-y-2">
           <PeopleTable
             variant="proposal"
@@ -435,23 +441,25 @@ export function ProposalsSegmentView({
           )}
         </div>
         {showPanel && (
-          <ProposalPanel
-            jobId={jobId}
-            entry={activeEntry}
-            budgetHourly={budgetHourly}
-            readOnly={readOnly}
-            canAdd={canAdd}
-            canVerify={canVerify}
-            canOpenProfile={canOpenProfile}
-            busy={busy}
-            onAdd={(id) => proposals.addToJob([id])}
-            onShortlist={(id) => proposals.addToShortlist([id])}
-            onDismiss={(id) => proposals.dismiss([id])}
-            onWriteEmail={onWriteEmail}
-            onVerified={() => { if (run.runId) void run.refresh(); }}
-            adminTools={activeEntry && renderAdminTools ? renderAdminTools(activeEntry.row.candidateId) : undefined}
-            matchDetails={activeEntry && renderMatchDetails ? renderMatchDetails(activeEntry.row.candidateId) : undefined}
-          />
+          <div ref={panelRef} className="min-w-0 scroll-mt-4 lg:shrink-0">
+            <ProposalPanel
+              jobId={jobId}
+              entry={activeEntry}
+              budgetHourly={budgetHourly}
+              readOnly={readOnly}
+              canAdd={canAdd}
+              canVerify={canVerify}
+              canOpenProfile={canOpenProfile}
+              busy={busy}
+              onAdd={(id) => proposals.addToJob([id])}
+              onShortlist={(id) => proposals.addToShortlist([id])}
+              onDismiss={(id) => proposals.dismiss([id])}
+              onWriteEmail={onWriteEmail}
+              onVerified={() => { if (run.runId) void run.refresh(); }}
+              adminTools={activeEntry && renderAdminTools ? renderAdminTools(activeEntry.row.candidateId) : undefined}
+              matchDetails={activeEntry && renderMatchDetails ? renderMatchDetails(activeEntry.row.candidateId) : undefined}
+            />
+          </div>
         )}
       </div>
     </div>

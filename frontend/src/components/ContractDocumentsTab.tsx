@@ -256,7 +256,7 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
         </RequireRole>
       )}
 
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-hidden">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs overflow-x-auto">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-muted-foreground dark:text-muted-foreground">
             <Loader2 className="w-5 h-5 inline-block animate-spin mr-2" />
@@ -267,10 +267,10 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
             Brak załączonych dokumentów.
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[36rem] text-sm">
             <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
               <tr>
-                <th className="text-left px-4 py-2">Plik</th>
+                <th className="sticky left-0 z-10 bg-muted text-left px-4 py-2">Plik</th>
                 <th className="text-left px-4 py-2">Typ</th>
                 <th className="text-left px-4 py-2">Rozmiar</th>
                 <th className="text-left px-4 py-2">Ważny do</th>
@@ -290,14 +290,14 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
                     key={d.id}
                     className="border-t border-border dark:border-border"
                   >
-                    <td className="px-4 py-2">
-                      <div className="flex items-center gap-2">
-                        <Icon className="w-4 h-4 text-muted-foreground" />
+                    <td className="sticky left-0 z-10 bg-card dark:bg-muted px-4 py-2">
+                      <div className="flex max-w-[14rem] items-center gap-2 sm:max-w-none">
+                        <Icon className="w-4 h-4 shrink-0 text-muted-foreground" />
                         <button
                           type="button"
                           onClick={() => handleOpen(d)}
                           disabled={busyId === d.id}
-                          className="text-primary hover:underline dark:text-primary text-left disabled:opacity-60"
+                          className="min-w-0 break-words text-primary hover:underline dark:text-primary text-left disabled:opacity-60"
                           title="Otwórz"
                         >
                           {d.filename}
@@ -339,8 +339,9 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
                           type="button"
                           onClick={() => handleDownload(d)}
                           disabled={busyId === d.id}
-                          className="p-1.5 rounded hover:bg-muted dark:hover:bg-muted text-muted-foreground dark:text-muted-foreground disabled:opacity-50"
+                          className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-muted dark:hover:bg-muted text-muted-foreground dark:text-muted-foreground disabled:opacity-50"
                           title="Pobierz"
+                          aria-label={`Pobierz ${d.filename}`}
                         >
                           {busyId === d.id ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -353,8 +354,9 @@ export function ContractDocumentsTab({ contractId, readOnly = false }: Props) {
                             <button
                               onClick={() => handleDelete(d)}
                               disabled={deleteMutation.isPending}
-                              className="p-1.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
+                              className="p-1.5 pointer-coarse:p-2.5 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-destructive disabled:opacity-50"
                               title="Usuń"
+                              aria-label={`Usuń ${d.filename}`}
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>

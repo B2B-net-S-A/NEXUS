@@ -111,7 +111,9 @@ export function OnboardingWalkthrough({ onDismiss }: { onDismiss: () => void }) 
     <div
       className={`fixed inset-0 bg-black/50 z-200 flex items-center justify-center p-4 transition-opacity duration-200 ${closing ? "opacity-0" : "opacity-100"}`}
     >
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+      {/* Krótki ekran (telefon w poziomie): karta przewija się, więc
+          „Dalej” / „Pomiń” zawsze da się osiągnąć. */}
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-2xl w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto">
         {/* Header */}
         <div className="bg-linear-to-r from-blue-600 to-violet-600 px-6 pt-6 pb-4 text-white">
           <div className="flex items-start justify-between">
@@ -121,7 +123,8 @@ export function OnboardingWalkthrough({ onDismiss }: { onDismiss: () => void }) 
             </div>
             <button
               onClick={handleClose}
-              className="text-white/70 hover:text-white transition-colors ml-4"
+              aria-label="Zamknij"
+              className="hit-area text-white/70 hover:text-white transition-colors ml-4"
             >
               <X className="w-5 h-5" />
             </button>

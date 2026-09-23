@@ -80,7 +80,7 @@ export default function DynaReporterProfilePage() {
   const profile = profileQuery.data!;
 
   return (
-    <div className="container mx-auto max-w-3xl p-6">
+    <div className="container mx-auto max-w-3xl">
       <header className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">
           Profil DynaReporter

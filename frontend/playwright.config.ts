@@ -44,7 +44,7 @@ export default defineConfig({
     {
       name: "ci-chromium",
       grep: /@stack/,
-      testIgnore: /candidate-ux-preview\.spec\.ts/,
+      testIgnore: /(candidate-ux-preview|responsive-preview)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: AUTH_STATE,
@@ -54,7 +54,7 @@ export default defineConfig({
     {
       name: "prod-smoke",
       grepInvert: /@stack|@writes/,
-      testIgnore: /candidate-ux-preview\.spec\.ts/,
+      testIgnore: /(candidate-ux-preview|responsive-preview)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: AUTH_STATE,
@@ -63,7 +63,7 @@ export default defineConfig({
     },
     {
       name: "preview-chromium",
-      testMatch: /candidate-ux-preview\.spec\.ts/,
+      testMatch: /(candidate-ux-preview|responsive-preview)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
       },

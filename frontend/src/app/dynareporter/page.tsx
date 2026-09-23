@@ -119,7 +119,7 @@ export default function DynaReporterLandingPage() {
   }
 
   return (
-    <div className="container mx-auto max-w-6xl p-6">
+    <div className="container mx-auto max-w-6xl">
       <header className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">Raporty KPI</h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -192,12 +192,12 @@ function ModuleCardContent({
         <h3 className="font-semibold text-sm">{m.label}</h3>
         <div className="flex flex-col gap-1 items-end">
           {!m.enabled && (
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
               Wkrótce
             </span>
           )}
           {!hasAccess && m.enabled && (
-            <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-destructive">
+            <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] uppercase tracking-wide text-destructive">
               Brak dostępu
             </span>
           )}

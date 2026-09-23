@@ -280,10 +280,10 @@ export default function ProfilePage() {
       )}
 
       {/* Profile card */}
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs border border-border dark:border-border p-6">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs border border-border dark:border-border p-4 sm:p-6">
         <h2 className="text-xl font-semibold text-foreground dark:text-foreground mb-4">Informacje o koncie</h2>
 
-        <div className="flex items-start gap-6">
+        <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-6">
           {/* Avatar */}
           <div className="shrink-0">
             <div className="relative group">
@@ -305,7 +305,7 @@ export default function ProfilePage() {
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 aria-label="Zmień zdjęcie profilowe"
-                className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity focus:outline-hidden focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+                className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 transition-opacity focus:outline-hidden focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring rounded-full"
               >
                 <Camera className="w-6 h-6 text-white" aria-hidden="true" />
               </button>
@@ -324,7 +324,7 @@ export default function ProfilePage() {
           </div>
 
           {/* Info grid */}
-          <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="flex-1 min-w-0 w-full grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex items-start gap-2">
               <User className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" aria-hidden="true" />
               <div>
@@ -371,7 +371,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Activity summary */}
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs border border-border dark:border-border p-6">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs border border-border dark:border-border p-4 sm:p-6">
         <h2 className="text-xl font-semibold text-foreground dark:text-foreground mb-4">
           Twoja aktywność (30 dni)
         </h2>
@@ -392,7 +392,7 @@ export default function ProfilePage() {
       </div>
 
       {/* Change password */}
-      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs border border-border dark:border-border p-6">
+      <div className="bg-card dark:bg-muted rounded-2xl shadow-xs border border-border dark:border-border p-4 sm:p-6">
         <div className="flex items-center gap-2 mb-4">
           <Lock className="w-5 h-5 text-muted-foreground" aria-hidden="true" />
           <h2 className="text-xl font-semibold text-foreground dark:text-foreground">Zmień hasło</h2>

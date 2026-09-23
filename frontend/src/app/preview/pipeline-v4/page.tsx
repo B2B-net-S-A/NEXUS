@@ -224,7 +224,7 @@ function PipelineV4Harness() {
     <QueryClientProvider client={client}>
       <ToastProvider>
         <TooltipProvider>
-          <main className="min-h-screen bg-background p-4 text-foreground">
+          <main className="min-h-dvh bg-background p-4 text-foreground">
             <h1 className="mb-3 text-lg font-semibold">
               Tablica Pipeline v4 — harness ({asDl ? "Delivery Lead" : "rekruterka Marta"})
             </h1>

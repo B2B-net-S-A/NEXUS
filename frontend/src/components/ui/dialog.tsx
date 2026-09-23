@@ -56,8 +56,11 @@ const DialogContent = React.forwardRef<
  <DialogPrimitive.Content
  ref={ref}
  aria-describedby={ariaDescribedBy}
- className={cn("fixed left-[50%] top-[50%] z-50 flex flex-col w-full translate-x-[-50%] translate-y-[-50%]",
- dialogSizes[size], "bg-card text-foreground","border border-border rounded-xl shadow-md","max-h-[90vh] overflow-hidden","data-[state=open]:animate-fadeIn",
+ className={cn("fixed left-[50%] top-[50%] z-50 flex flex-col translate-x-[-50%] translate-y-[-50%]",
+ // Na telefonie margines 0,5 rem z każdej strony (ramka i zaokrąglenie
+ // widoczne); `dvh` — `vh` na iOS liczy wysokość bez paska Safari.
+ "w-[calc(100%-1rem)] sm:w-full",
+ dialogSizes[size], "bg-card text-foreground","border border-border rounded-xl shadow-md","max-h-[90dvh] overflow-hidden","data-[state=open]:animate-fadeIn",
  className
  )}
  {...props}

@@ -272,7 +272,7 @@ export function LanguageFilterField({
             type="button"
             onClick={() => onChange(entries.filter((_, i) => i !== index).map(formatLanguageFilter))}
             aria-label={`Usuń język: ${languageLabel(entry.code)}`}
-            className="flex h-8 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="hit-area flex h-8 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -320,7 +320,7 @@ function FilterPill({
   return (
     <div
       className={cn(
-        "inline-flex h-8 shrink-0 items-center rounded-full border text-xs font-medium transition-colors",
+        "inline-flex h-9 shrink-0 items-center rounded-full border text-xs font-medium transition-colors md:h-8",
         active
           ? "border-primary/30 bg-primary/10 text-primary"
           : "border-border bg-card text-foreground hover:bg-accent",
@@ -354,6 +354,9 @@ function FilterPill({
         </PopoverTrigger>
         <PopoverContent
           align="start"
+          // Odstęp od krawędzi ekranu — na telefonie w poziomie okienko nie
+          // dotyka krawędzi, a wysokość ogranicza prymityw (dostępne miejsce).
+          collisionPadding={8}
           className={cn("w-80 space-y-3 text-sm", contentClassName)}
         >
           {children}
@@ -364,7 +367,7 @@ function FilterPill({
           type="button"
           onClick={onClear}
           aria-label={`Wyczyść: ${label}`}
-          className="mr-1 flex h-6 w-6 items-center justify-center rounded-full hover:bg-primary/15 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          className="hit-area mr-1 flex h-6 w-6 items-center justify-center rounded-full hover:bg-primary/15 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         >
           <X className="h-3 w-3" aria-hidden />
         </button>
@@ -519,7 +522,7 @@ export function CandidateFilterBar({
               movedBefore: "",
             });
           }}
-          contentClassName="max-h-[70vh] w-[420px] max-w-[calc(100vw-2rem)] overflow-y-auto"
+          contentClassName="w-[420px] max-w-[calc(100vw-2rem)]"
         >
           <HistoryFields
             filters={filters}
@@ -550,7 +553,7 @@ export function CandidateFilterBar({
           type="button"
           onClick={() => setMoreOpen(true)}
           className={cn(
-            "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors md:h-8 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
             counts.more > 0
               ? "border-primary/30 bg-primary/10 text-primary"
               : "border-border bg-card text-foreground hover:bg-accent",

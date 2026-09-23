@@ -89,7 +89,7 @@ export function SystemTab() {
 
       <div className="bg-card dark:bg-muted rounded-xl border border-border dark:border-border p-5 space-y-3">
         <h3 className="font-semibold text-foreground dark:text-foreground">Szczegóły bazy danych</h3>
-        <div className="grid grid-cols-2 gap-4 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
           <div>
             <p className="text-muted-foreground dark:text-muted-foreground">Nazwa</p>
             <p className="font-medium text-foreground dark:text-foreground">{stats.database.name}</p>

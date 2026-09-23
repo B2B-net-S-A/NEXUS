@@ -135,16 +135,16 @@ export function DataHistoryView({
               <table className="w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Data
                     </th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Akcja
                     </th>
-                    <th className="px-3 py-2 text-center text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-center text-[11px] font-medium text-muted-foreground uppercase">
                       Rekordów
                     </th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Wykonał
                     </th>
                   </tr>
@@ -193,19 +193,19 @@ export function DataHistoryView({
               <table className="w-full text-sm">
                 <thead className="bg-muted/40">
                   <tr>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Data
                     </th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Plik
                     </th>
-                    <th className="px-3 py-2 text-center text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-center text-[11px] font-medium text-muted-foreground uppercase">
                       Rekordów
                     </th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Status
                     </th>
-                    <th className="px-3 py-2 text-left text-[10px] font-medium text-muted-foreground uppercase">
+                    <th className="px-3 py-2 text-left text-[11px] font-medium text-muted-foreground uppercase">
                       Kto
                     </th>
                   </tr>

@@ -88,7 +88,7 @@ export function CompetenceMatrix() {
   const asOf = data ? formatAsOf(data.as_of) : "dziś";
 
   return (
-    <section className="bg-card rounded-xl border border-border p-6 shadow-xs space-y-4">
+    <section className="bg-card rounded-xl border border-border p-4 shadow-xs space-y-4 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-foreground flex items-center gap-2">
@@ -121,7 +121,7 @@ export function CompetenceMatrix() {
           <table className="w-full border-separate border-spacing-1.5 text-sm">
             <thead>
               <tr>
-                <th scope="col" className="text-left text-xs font-semibold text-muted-foreground">
+                <th scope="col" className="sticky left-0 z-10 bg-card text-left text-xs font-semibold text-muted-foreground">
                   Kategoria
                 </th>
                 {data.stages.map((s) => (
@@ -143,7 +143,7 @@ export function CompetenceMatrix() {
                 <tr key={c.category_id ?? "none"}>
                   <th
                     scope="row"
-                    className="whitespace-nowrap pr-3 text-left font-semibold text-foreground"
+                    className="sticky left-0 z-10 whitespace-nowrap bg-card pr-3 text-left font-semibold text-foreground"
                   >
                     {c.name}
                   </th>

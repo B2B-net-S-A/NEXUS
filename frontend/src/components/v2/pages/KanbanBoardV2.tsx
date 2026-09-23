@@ -481,7 +481,7 @@ const OverviewScoreBadge = memo(function OverviewScoreBadge({
  <span
  data-testid={`overview-match-score-${candidateId}`}
  className={cn(
- "inline-flex h-5 min-w-5 items-center justify-center rounded-full border px-1 text-[9px] font-bold leading-none",
+ "inline-flex h-5 min-w-5 items-center justify-center rounded-full border px-1 text-[10px] font-bold leading-none",
  loading && "animate-pulse",
  tone
  )}
@@ -658,7 +658,7 @@ function CardV4Badges({
      key={b.key}
      data-testid={`card-badge-${b.key}`}
      className={cn(
-      "inline-flex max-w-full items-center truncate rounded px-1 text-[9px] font-semibold",
+      "inline-flex max-w-full items-center truncate rounded px-1 text-[10px] font-semibold",
       CARD_BADGE_TONE_CLASS[b.tone]
      )}
      title={b.title}
@@ -837,7 +837,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onCheckedChange={() => onToggleSelect(item.candidate_id)}
  aria-label={`Zaznacz ${fullName}`}
  className={cn(
- "relative h-6 w-6 border-0 bg-transparent before:absolute before:inset-1 before:rounded-md before:border before:border-border before:bg-card before:transition-colors hover:border-transparent hover:before:border-primary",
+ "relative h-6 w-6 border-0 bg-transparent pointer-coarse:after:absolute pointer-coarse:after:-inset-2 before:absolute before:inset-1 before:rounded-md before:border before:border-border before:bg-card before:transition-colors hover:border-transparent hover:before:border-primary",
  "data-[state=checked]:border-transparent data-[state=checked]:bg-transparent data-[state=checked]:before:border-primary data-[state=checked]:before:bg-primary",
  "data-[state=indeterminate]:border-transparent data-[state=indeterminate]:bg-transparent data-[state=indeterminate]:before:border-primary data-[state=indeterminate]:before:bg-primary"
  )}
@@ -916,7 +916,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // Bez `pl-5`: checkbox jest absolutny i zajmuje tylko górne 24 px, więc
  // wcięcie w dolnych wierszach kradłoby 20 px z i tak wąskiej kolumny.
  "mt-1 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10.5px] text-muted-foreground",
- desktopOverview && "xl:pointer-fine:justify-center xl:pointer-fine:gap-0 xl:pointer-fine:text-[9px] xl:pointer-fine:leading-none"
+ desktopOverview && "xl:pointer-fine:justify-center xl:pointer-fine:gap-0 xl:pointer-fine:text-[10px] xl:pointer-fine:leading-none"
  )}
  title={addedAttribution}
  >
@@ -962,7 +962,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {item.hm_veto && (
  <span
  className={cn(
- "inline-flex items-center gap-0.5 rounded px-1 text-[9px] font-semibold uppercase tracking-wide bg-destructive/10 text-destructive",
+ "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide bg-destructive/10 text-destructive",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  title={[
@@ -983,7 +983,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {overBudget && (
  <span
  className={cn(
- "inline-flex items-center gap-0.5 rounded px-1 text-[9px] font-semibold uppercase tracking-wide bg-warning/15 text-warning",
+ "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold uppercase tracking-wide bg-warning/15 text-warning",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  title={`Stawka ${formatExpectedRate(item) ?? ""} przekracza budżet godzinowy rekrutacji. Ruch nie jest blokowany.`}
@@ -996,7 +996,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span
  key={badge}
  className={cn(
- "inline-flex items-center rounded px-1 text-[9px] font-semibold",
+ "inline-flex items-center rounded px-1 text-[10px] font-semibold",
  STAGE_BADGE_TONE[badge],
  desktopOverview && "xl:pointer-fine:hidden"
  )}
@@ -1011,7 +1011,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  {item.auto_cv_ready === true && (
  <span
  className={cn(
- "inline-flex items-center rounded px-1 text-[9px] font-semibold bg-info/15 text-info",
+ "inline-flex items-center rounded px-1 text-[10px] font-semibold bg-info/15 text-info",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  title="CV wygenerowane automatycznie po weryfikacji czeka w warsztacie CV — sprawdź je przed wysyłką."
@@ -1028,7 +1028,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onOpenScorecard(item);
  }}
  className={cn(
- "inline-flex items-center gap-0.5 rounded px-1 text-[9px] font-semibold bg-warning/15 text-warning hover:bg-warning hover:text-white transition-colors",
+ "inline-flex items-center gap-0.5 rounded px-1 text-[10px] font-semibold bg-warning/15 text-warning hover:bg-warning hover:text-white transition-colors",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  title="Scorecard tego etapu — do uzupełnienia"
@@ -1074,7 +1074,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  e.preventDefault();
  onRemoveFromRecruitment(item);
  }}
- className={cn("absolute right-1 z-10 inline-flex items-center justify-center rounded-md bg-card/80 text-muted-foreground opacity-0 transition-opacity","hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-hidden",
+ className={cn("absolute right-1 z-10 inline-flex items-center justify-center rounded-md bg-card/80 text-muted-foreground transition-opacity pointer-fine:opacity-0","hover:bg-destructive/10 hover:text-destructive pointer-fine:group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-hidden",
  density === "compact" ?"h-5 w-5" :"h-6 w-6",
  desktopOverview &&"xl:pointer-fine:h-6 xl:pointer-fine:w-6",
  "top-1",
@@ -1099,7 +1099,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  e.preventDefault();
  onOpenScreening(item.id, fullName);
  }}
- className={cn("inline-flex max-w-full items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-semibold hover:bg-primary hover:text-white transition-colors",
+ className={cn("inline-flex max-w-full items-center gap-1 text-[10px] px-1.5 py-0.5 pointer-coarse:min-h-8 pointer-coarse:px-2.5 rounded-full font-semibold hover:bg-primary hover:text-white transition-colors",
  screeningDue
  ? "bg-warning/15 text-warning ring-1 ring-warning/40"
  : "bg-primary/10 text-primary",
@@ -1212,7 +1212,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  role="group"
  aria-label={`${titleOverride ?? columnLabel(col)}, liczba kandydatów: ${headerCount}`}
  className={cn(
- "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-border bg-background/60 sm:min-w-[19rem]",
+ "flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 snap-start flex-col rounded-lg border border-border bg-background/60 sm:min-w-[19rem]",
  prepend != null && "border-dashed border-primary/40",
  // NIE ściskamy kolumn do zera. Podłoga 12,5 rem (200 px) mieści pełną
  // kartę (nazwisko do dwóch linii, właściciel, wiek, następna akcja)
@@ -1243,7 +1243,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <h3 className={cn("text-foreground flex-1 truncate", density === "compact" ?"text-sm font-medium" :"text-xl font-semibold", desktopOverview &&"xl:pointer-fine:line-clamp-2 xl:pointer-fine:whitespace-normal xl:pointer-fine:text-center xl:pointer-fine:text-[10px] xl:pointer-fine:leading-tight xl:pointer-fine:[overflow-wrap:anywhere]")} title={titleOverride ?? columnLabel(col)}>
  {titleOverride ?? columnLabel(col)}
  </h3>
- <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[9px]")}>
+ <Badge size="sm" variant={headerCount > 0 ?"soft" :"outline"} className={cn(desktopOverview &&"xl:pointer-fine:h-4 xl:pointer-fine:min-w-4 xl:pointer-fine:self-center xl:pointer-fine:px-1 xl:pointer-fine:text-[10px]")}>
  {headerCount}
  </Badge>
  </div>
@@ -1254,7 +1254,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  <div
  data-column-sla={dropId}
  className={cn(
- "flex items-center justify-between gap-2 border-b border-border px-3 pb-1.5 pt-1 text-[9.5px] text-muted-foreground",
+ "flex items-center justify-between gap-2 border-b border-border px-3 pb-1.5 pt-1 text-[10px] text-muted-foreground",
  desktopOverview && "xl:pointer-fine:hidden"
  )}
  >
@@ -1359,6 +1359,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
 const BOARD_BOTTOM_GAP = 40;
 // Podłoga wysokości kolumny na małych ekranach (min-height wygrywa z height).
 const MIN_COLUMN_HEIGHT = 280;
+// `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
+const MOBILE_MAIN_PADDING_Y = 32;
 
 export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false }: KanbanBoardV2Props) {
  const density = useUiStore((s) => s.density);
@@ -1559,7 +1561,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
 
 
  // --- Wysokość kolumn liczona dynamicznie od realnej pozycji boardu ---------
- // Problem: stary `h-[calc(100vh-350px)]` miał na sztywno offset 350px = wysokość
+ // Problem: stary `h-[calc(100dvh-350px)]` miał na sztywno offset 350px = wysokość
  // rozwiniętego nagłówka. Po zwinięciu nagłówka treść nad boardem maleje, ale
  // offset zostaje 350 → board się nie rozciąga i na dole robi się dziura.
  // Fix: mierzymy `getBoundingClientRect().top` boardu i wypełniamy resztę
@@ -1567,13 +1569,28 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // z opisem/bez, zawijające się przyciski) — bez magicznych liczb.
  const boardRef = useRef<HTMLDivElement>(null);
  const [columnHeight, setColumnHeight] = useState<number | undefined>(undefined);
+ // Górna krawędź obszaru treści (pod topbarem i ewentualnym paskiem „podglądaj
+ // jako"). Dok karty kandydata startuje od niej — stałe `top-12` zakładało,
+ // że topbar jest pierwszy, więc przy pasku podglądu dok zachodził na topbar.
+ const [chromeTop, setChromeTop] = useState<number | null>(null);
  const measureColumnHeight = useCallback(() => {
  const el = boardRef.current;
  if (!el || typeof window === "undefined") return;
- const top = el.getBoundingClientRect().top;
+ const main = el.closest("main");
+ const mainTop = main ? Math.round(main.getBoundingClientRect().top) : null;
+ setChromeTop((prev) => (prev === mainTop ? prev : mainTop));
+ // Telefon: nad planszą stoi nagłówek, filtry i nawigator etapów, więc
+ // „reszta okna pod planszą" to często podłoga 280 px (≈2 karty). Tam plansza
+ // dostaje wysokość całego obszaru treści: nagłówek przewija się raz, potem
+ // plansza wypełnia ekran.
+ const narrow =
+ typeof window.matchMedia === "function" &&
+ !window.matchMedia("(min-width: 768px)").matches;
  const next = Math.max(
  MIN_COLUMN_HEIGHT,
- Math.round(window.innerHeight - top - BOARD_BOTTOM_GAP)
+ narrow && main
+ ? Math.round(main.clientHeight - MOBILE_MAIN_PADDING_Y)
+ : Math.round(window.innerHeight - el.getBoundingClientRect().top - BOARD_BOTTOM_GAP)
  );
  setColumnHeight((prev) => (prev === next ? prev : next));
  }, []);
@@ -2388,7 +2405,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  )}
  />
 
- <div className={cn("min-w-0 space-y-3", dockItem && dockItemColLabel !== null &&"xl:pr-[380px]")}>
+ <div className={cn("min-w-0 space-y-3", dockItem && dockItemColLabel !== null &&"lg:pr-[380px]")}>
  {offTemplate && offTemplate.count > 0 && (
  <Alert
  variant="warning"
@@ -2573,15 +2590,19 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  // skrajne kolumny osiągalne — bez ręcznego rAF). Definite height wypełnia
  // viewport; calc fallback działa do pierwszego pomiaru (SSR/pierwszy render).
  "flex gap-3 overflow-auto pb-4 min-h-[280px]",
+ // Na dotyku kolumna dociąga do krawędzi (17 rem przy 343 px ekranu =
+ // jedna kolumna + skrawek). `proximity`, nie `mandatory`: mandatory
+ // walczy z auto-scrollem @hello-pangea/dnd przy przeciąganiu karty.
+ "pointer-coarse:snap-x pointer-coarse:snap-proximity",
  fullPipelineDesktop &&"xl:pointer-fine:gap-1",
- columnHeight == null && "h-[calc(100vh-240px)]"
+ columnHeight == null && "h-[calc(100dvh-4rem)] md:h-[calc(100dvh-240px)]"
  )}
  style={columnHeight != null ? { height: columnHeight } : undefined}
  >
  {/* „Nowi" (z propozycjami na górze) zawsze stoi pierwsza — także gdy
  szablon nie ma etapu „Nowi" albo jego pusta kolumna jest ukryta. */}
  {!boardEntries.some((e) => boardKeyByColId.get(e.key) === "new") && (
- <div className="flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 flex-col rounded-lg border border-dashed border-primary/40 bg-background/60 sm:min-w-[19rem] xl:pointer-fine:min-w-[12.5rem]">
+ <div className="flex w-[calc((100%-1.5rem)/3)] min-w-[17rem] shrink-0 snap-start flex-col rounded-lg border border-dashed border-primary/40 bg-background/60 sm:min-w-[19rem] xl:pointer-fine:min-w-[12.5rem]">
  <div className="flex items-center gap-2 border-b border-border px-3 py-2">
  <h3 className="flex-1 truncate text-sm font-medium text-foreground">Nowi</h3>
  {reviewTotal != null && (
@@ -2674,9 +2695,22 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  </div>
 
  {dockItem && dockItemColLabel !== null && (
+ // Tablet (768–1023): dok nakrywa prawe kolumny planszy, a plansza nie ma
+ // rezerwy miejsca (ta jest od `lg`), więc dok jest nakładką z tłem —
+ // klik w tło zamyka kartę. Na telefonie dok ma pełną szerokość.
+ <div
+ aria-hidden="true"
+ data-testid="pipeline-dock-backdrop"
+ className="fixed inset-x-0 bottom-0 top-12 z-20 hidden bg-card/50 backdrop-blur-[2px] md:block lg:hidden"
+ style={chromeTop != null ? { top: chromeTop } : undefined}
+ onClick={closeDock}
+ />
+ )}
+ {dockItem && dockItemColLabel !== null && (
  <aside
  aria-label="Karta kandydata"
  className="fixed right-0 top-12 bottom-0 z-30 flex w-full max-w-[380px] flex-col border-l border-border bg-background shadow-xl"
+ style={chromeTop != null ? { top: chromeTop } : undefined}
  >
  <PipelineCandidateDock
  key={dockItem.candidate_id}

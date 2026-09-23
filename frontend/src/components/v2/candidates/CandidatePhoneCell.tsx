@@ -45,7 +45,7 @@ export function CandidatePhoneCell({
         }}
         aria-label={`Kopiuj numer: ${candidateName}`}
         title="Kopiuj numer"
-        className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-primary/10 hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        className="hit-area shrink-0 rounded p-0.5 text-muted-foreground hover:bg-primary/10 hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Copy className="h-3.5 w-3.5" aria-hidden />
       </button>

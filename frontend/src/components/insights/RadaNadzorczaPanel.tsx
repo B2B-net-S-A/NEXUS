@@ -73,8 +73,10 @@ export function RadaNadzorczaPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-sm text-muted-foreground">
+      {/* Poniżej `lg` opis nad paskiem okresu — obok siebie akapit ściskał
+          się do jednego słowa w linii (audyt 23.09.2026, P1-07). */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <p className="text-sm text-muted-foreground lg:max-w-xl">
           Rok do roku, kokpit KPI i ranking klientów z MRR. Pasek okresu
           steruje kokpitem i rankingiem — rok do roku patrzy na pełne lata.
         </p>

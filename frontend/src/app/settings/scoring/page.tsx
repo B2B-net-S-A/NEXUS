@@ -131,11 +131,11 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
 
   return (
     <div className="bg-card dark:bg-muted border border-border dark:border-border rounded-xl p-5 space-y-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="flex-1 font-semibold text-lg text-foreground dark:text-foreground bg-transparent border-b border-border dark:border-border focus:outline-hidden focus:border-primary px-1"
+          className="flex-1 min-w-0 font-semibold text-lg text-foreground dark:text-foreground bg-transparent border-b border-border dark:border-border focus:outline-hidden focus:border-primary px-1"
           placeholder="Nazwa profilu"
         />
         <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground dark:text-muted-foreground">
@@ -171,8 +171,8 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
 
       <div className="space-y-3">
         {(Object.keys(weights) as Array<keyof ScoringWeights>).map((layer) => (
-          <div key={layer} className="flex items-center gap-3">
-            <label className="text-xs font-medium text-foreground dark:text-muted-foreground w-64">
+          <div key={layer} className="flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-1">
+            <label className="text-xs font-medium text-foreground dark:text-muted-foreground w-full sm:w-64 sm:shrink-0">
               <span
                 className={cn("inline-block w-2 h-2 rounded-full mr-2", LAYER_COLORS[layer])}
                 aria-hidden
@@ -186,7 +186,7 @@ function ProfileEditor({ initial, onSaved, onCancel }: ProfileEditorProps) {
               step={1}
               value={weights[layer]}
               onChange={(e) => updateLayer(layer, Number(e.target.value))}
-              className="flex-1 accent-blue-600"
+              className="flex-1 min-w-0 accent-blue-600"
             />
             <input
               type="number"
@@ -272,7 +272,7 @@ function ProfileRow({
             </span>
           )}
         </div>
-        <div className="flex items-center gap-3 mt-1 text-[11px] text-muted-foreground dark:text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1 text-[11px] text-muted-foreground dark:text-muted-foreground">
           {(Object.keys(profile.weights) as Array<keyof ScoringWeights>).map((k) => (
             <span key={k}>
               <span
@@ -349,8 +349,8 @@ export default function ScoringWeightsPage() {
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="flex-1">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex-1 min-w-0 basis-64">
           <h1 className="text-2xl font-bold text-foreground dark:text-foreground flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-purple-500" />
             Profile wag scoringu

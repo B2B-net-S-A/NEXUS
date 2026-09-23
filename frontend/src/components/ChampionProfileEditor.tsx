@@ -356,9 +356,12 @@ export function ChampionProfileEditor({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-bold text-foreground dark:text-foreground flex items-center gap-2">
+      {/* Poniżej `xl` edytor jest długi, a dok z bramką stoi pod nim — nagłówek
+          z „Zapisz" jest przyklejony, żeby po edycji sekcji 6 nie przewijać
+          całego formularza w górę. */}
+      <div className="sticky top-0 z-20 -mx-2 flex items-start justify-between gap-3 bg-background/95 px-2 py-2 backdrop-blur-sm xl:static xl:mx-0 xl:bg-transparent xl:p-0 xl:backdrop-blur-none">
+        <div className="min-w-0">
+          <h2 className="text-lg font-bold text-foreground dark:text-foreground flex flex-wrap items-center gap-2">
             <Sparkles className="w-5 h-5 text-purple-500" />
             Profil Championa
             {/* Znacznik pochodzenia jest CAŁOPROFILOWY (`_source`/`_parser` z
@@ -374,7 +377,7 @@ export function ChampionProfileEditor({
               </Badge>
             ) : null}
           </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5 hidden sm:block">
             Delivery Lead opisuje idealnego kandydata. Rekruterzy będą odpowiadać
             na pytania screeningowe przed wysłaniem CV do klienta.
           </p>
@@ -384,7 +387,7 @@ export function ChampionProfileEditor({
             type="button"
             onClick={() => mutation.mutate(draft)}
             disabled={mutation.isPending}
-            className="inline-flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 rounded-lg text-sm font-medium shadow-xs disabled:opacity-60"
+            className="inline-flex shrink-0 items-center gap-1.5 bg-primary hover:bg-primary/90 text-white px-3 py-1.5 pointer-coarse:py-2 rounded-lg text-sm font-medium shadow-xs disabled:opacity-60"
             data-testid="save-champion-profile"
           >
             <Save className="w-4 h-4" />

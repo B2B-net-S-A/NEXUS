@@ -785,7 +785,7 @@ export function ContractsListV2({ navigationSearch }: ContractsListV2Props = {})
  : contractorsCountText(contractorsTotal, contractsTotal, activeOnly)}
  </p>
  </div>
- <div className="flex items-center gap-2">
+ <div className="flex flex-wrap items-center gap-2">
  {canSeeContractAnalytics && (
  <Link href="/contracts/analytics">
  <Button size="sm" variant="outline">

@@ -1,7 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ClipboardList, Loader2, Plus, Trash2, X, GripVertical, Save } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  ClipboardList,
+  Loader2,
+  Plus,
+  Trash2,
+  X,
+  GripVertical,
+  Save,
+} from "lucide-react";
 import { phase3Api, type ScorecardQuestion, type ScorecardSchema } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { ScorecardV2 } from "./v2/modals/ScorecardV2";
@@ -142,13 +152,13 @@ export function ScorecardSchemaBuilder({
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-card dark:bg-muted rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-4 border-b border-border dark:border-border sticky top-0 bg-card dark:bg-muted z-10">
-          <h3 className="font-semibold flex items-center gap-2 text-foreground dark:text-foreground">
-            <ClipboardList className="w-5 h-5 text-primary" />
-            Scorecard dla: {stageName}
+      <div className="bg-card dark:bg-muted rounded-xl shadow-xl w-full max-w-3xl max-h-[90dvh] overflow-y-auto">
+        <div className="flex flex-wrap items-center justify-between gap-2 p-4 border-b border-border dark:border-border sticky top-0 bg-card dark:bg-muted z-10">
+          <h3 className="min-w-0 font-semibold flex items-center gap-2 text-foreground dark:text-foreground">
+            <ClipboardList className="w-5 h-5 shrink-0 text-primary" />
+            <span className="truncate">Scorecard dla: {stageName}</span>
           </h3>
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2">
             <button
               onClick={() => setPreview(v => !v)}
               disabled={questions.length === 0}
@@ -156,7 +166,7 @@ export function ScorecardSchemaBuilder({
             >
               {preview ? "Schowaj podgląd" : "Podgląd wypełnienia"}
             </button>
-            <button onClick={onClose} className="text-muted-foreground hover:text-muted-foreground">
+            <button onClick={onClose} aria-label="Zamknij" className="hit-area text-muted-foreground hover:text-muted-foreground">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -181,7 +191,7 @@ export function ScorecardSchemaBuilder({
                 />
               </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-border dark:border-border">
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border dark:border-border">
                 <h4 className="font-medium text-foreground dark:text-muted-foreground">
                   Pytania ({questions.length})
                 </h4>
@@ -211,21 +221,23 @@ export function ScorecardSchemaBuilder({
                         <button
                           onClick={() => move(idx, -1)}
                           disabled={idx === 0}
-                          className="text-muted-foreground hover:text-muted-foreground disabled:opacity-20"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-20"
                           title="W górę"
+                          aria-label={`Przesuń pytanie ${idx + 1} w górę`}
                         >
-                          ▲
+                          <ChevronUp className="w-4 h-4" aria-hidden />
                         </button>
                         <button
                           onClick={() => move(idx, 1)}
                           disabled={idx === questions.length - 1}
-                          className="text-muted-foreground hover:text-muted-foreground disabled:opacity-20"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-20"
                           title="W dół"
+                          aria-label={`Przesuń pytanie ${idx + 1} w dół`}
                         >
-                          ▼
+                          <ChevronDown className="w-4 h-4" aria-hidden />
                         </button>
                       </div>
-                      <GripVertical className="w-4 h-4 text-muted-foreground" />
+                      <GripVertical className="hidden sm:block w-4 h-4 shrink-0 text-muted-foreground" />
                       <span className="text-xs text-muted-foreground font-mono">
                         #{idx + 1}
                       </span>
@@ -241,18 +253,18 @@ export function ScorecardSchemaBuilder({
                           });
                         }}
                         placeholder="Pytanie (np. Komunikacja)"
-                        className="flex-1 rounded border border-border dark:border-border px-2 py-1 text-sm bg-card dark:bg-card"
+                        className="flex-1 min-w-0 rounded border border-border dark:border-border px-2 py-1 text-sm bg-card dark:bg-card"
                       />
                       <button
                         onClick={() => remove(idx)}
-                        className="text-red-400 hover:text-destructive"
+                        className="hit-area shrink-0 text-red-400 hover:text-destructive"
                         aria-label="Usuń"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div>
                         <label className="block text-[11px] text-muted-foreground mb-0.5">
                           ID (slug)

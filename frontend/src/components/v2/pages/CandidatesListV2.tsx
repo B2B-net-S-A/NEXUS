@@ -176,6 +176,8 @@ const EXPORT_ROLES: UserRole[] = [
 /** Tylko „W procesie" potrzebuje wzbogacenia (aktywne rekrutacje). */
 const LIST_COLUMN_IDS: ReadonlySet<string> = new Set(["process"]);
 const ROW_HEIGHT = 64;
+/** Wysokość nagłówka kolumn (`h-10`) — przesunięcie wierszy w kontenerze przewijania. */
+const LIST_HEADER_HEIGHT = 40;
 
 const SORT_LABELS: Record<CandidateFilters["sort"], string> = {
   relevance: "Trafność",
@@ -867,6 +869,9 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
  const virtualizer = useVirtualizer({
  count: items.length,
  getScrollElement: () => parentRef.current,
+ // Nagłówek kolumn siedzi w tym samym kontenerze przewijania (przyklejony
+ // u góry), więc pierwszy wiersz zaczyna się pod nim.
+ scrollMargin: LIST_HEADER_HEIGHT,
  estimateSize: (index) => {
  const c = items[index];
  return rowHeight + (hasSearchTerms ? snippetAreaFor(c) : 0);
@@ -1603,15 +1608,28 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             </div>
           )}
 
-          <div className="overflow-x-auto overflow-y-hidden rounded-lg border border-border bg-card">
+          <div className="overflow-hidden rounded-lg border border-border bg-card">
+            {/* Jeden kontener przewija w obu osiach: nagłówek jest przyklejony
+                u góry, kolumna „Kandydat” (poniżej lg) przy lewej krawędzi.
+                Na telefonie kontener nie ma własnej wysokości — przewija się
+                strona, a nie zagnieżdżony obszar. */}
+            <div
+              ref={parentRef}
+              data-testid="candidate-list-scroll"
+              className="relative overflow-auto md:h-[calc(100dvh-300px)] md:min-h-[360px]"
+            >
             {/* Nagłówek kolumn to zwykłe etykiety, bez ról tabeli: wiersze są
                 `role="group"` (checkbox i przyciski w środku), a połowiczne
                 role `row`/`columnheader` bez `table` łamią ARIA (axe:
                 aria-required-parent / aria-required-children). */}
             <div
+              className="sticky top-0 z-20 bg-card"
+              style={{ minWidth: `${gridLayout.minWidth}px` }}
+            >
+            <div
               data-testid="candidate-list-header"
-              className="sticky top-0 z-10 grid h-10 items-center gap-3 border-b border-border bg-muted/60 px-4 text-xs font-semibold text-muted-foreground"
-              style={{ gridTemplateColumns: gridLayout.template, minWidth: `${gridLayout.minWidth}px` }}
+              className="grid h-10 items-center gap-3 border-b border-border bg-muted/60 px-4 text-xs font-semibold text-muted-foreground"
+              style={{ gridTemplateColumns: gridLayout.template }}
             >
               <div className="flex items-center">
                 <Checkbox
@@ -1623,22 +1641,21 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                 />
               </div>
               {visibleColumns.map((col) => (
-                <div key={col.id} data-column-header className="truncate">
+                <div
+                  key={col.id}
+                  data-column-header
+                  className={cn(
+                    "truncate",
+                    col.id === "candidate" &&
+                      "max-lg:sticky max-lg:left-0 max-lg:z-[1] max-lg:-ml-2 max-lg:self-stretch max-lg:bg-muted max-lg:pl-2 max-lg:leading-10",
+                  )}
+                >
                   {col.label}
                 </div>
               ))}
             </div>
+            </div>
 
-            <div
-              ref={parentRef}
-              data-testid="candidate-list-scroll"
-              style={{
-                height: "calc(100vh - 300px)",
-                minHeight: 360,
-                minWidth: `${gridLayout.minWidth}px`,
-              }}
-              className="overflow-y-auto overflow-x-hidden"
-            >
               {listViewState === "initial-loading" ? (
                 loadingRows
               ) : listViewState === "error" ? (
@@ -1650,6 +1667,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                   style={{
                     height: `${virtualizer.getTotalSize()}px`,
                     width: "100%",
+                    minWidth: `${gridLayout.minWidth}px`,
                     position: "relative",
                   }}
                 >
@@ -1699,10 +1717,13 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                           left: 0,
                           width: "100%",
                           height: `${virtualRow.size}px`,
-                          transform: `translateY(${virtualRow.start}px)`,
+                          transform: `translateY(${virtualRow.start - LIST_HEADER_HEIGHT}px)`,
                         }}
                         className={cn(
-                          "group flex cursor-pointer flex-col overflow-hidden border-b border-border transition-colors",
+                          // `overflow-clip`, nie `hidden`: `hidden` robi z wiersza
+                          // kontener przewijania i przyklejona kolumna „Kandydat”
+                          // przestawała się przyklejać.
+                          "group flex cursor-pointer flex-col overflow-clip border-b border-border transition-colors",
                           "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                           isNewMatch ? "bg-success-muted/40" : "bg-card",
                           "hover:bg-muted/50",
@@ -1725,7 +1746,9 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                               switch (col.id) {
                                 case "candidate":
                                   return (
-<div className="flex min-w-0 items-center gap-3">
+// Poniżej lg kolumna „Kandydat” jest przyklejona przy lewej krawędzi —
+// po przewinięciu w bok dalej widać, czyj to telefon i stawka.
+<div className="flex min-w-0 items-center gap-3 max-lg:sticky max-lg:left-0 max-lg:z-[1] max-lg:-ml-2 max-lg:self-stretch max-lg:bg-card max-lg:pl-2">
                             <Avatar size="sm">
                               <AvatarFallback className={avatarColorClass(candidate.id)}>
                                 {initials}
@@ -1900,12 +1923,12 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
             </div>
 
             {!isLoading && items.length > 0 && (
-              <div className="flex h-12 items-center justify-between gap-3 border-t border-border bg-muted/40 px-4 text-sm">
-                <span className="text-muted-foreground">
+              <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border bg-muted/40 px-4 py-2 text-sm">
+                <span className="whitespace-nowrap text-muted-foreground">
                   {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} z{" "}
                   {total.toLocaleString("pl-PL")}
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Select
                     value={String(candidatesPageSize)}
                     onValueChange={(value) => {
@@ -1915,7 +1938,7 @@ export function CandidatesListV2({ onRequestSearch }: CandidatesListV2Props = {}
                       applyFiltersPatch({ page: 1 });
                     }}
                   >
-                    <SelectTrigger aria-label="Liczba kandydatów na stronie" className="h-8 w-[152px] whitespace-nowrap rounded-md">
+                    <SelectTrigger aria-label="Liczba kandydatów na stronie" className="h-9 w-auto whitespace-nowrap rounded-md sm:h-8 sm:w-[152px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -2133,7 +2156,7 @@ function BulkAddToPoolModal({
  onChange={(e) => setFilter(e.target.value)}
  autoFocus
  />
- <div className="max-h-[50vh] overflow-y-auto space-y-1">
+ <div className="max-h-[50dvh] overflow-y-auto space-y-1">
  {isLoading && (
  <div className="text-xs text-muted-foreground py-4 text-center">Ładowanie pul…</div>
  )}

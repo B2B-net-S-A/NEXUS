@@ -54,7 +54,7 @@ export function LinkedInPreviewCard({
           <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: "#9A142D" }} />
         </div>
         <div className="flex flex-1 flex-col justify-between px-4 py-3">
-          <span className="truncate text-[9px]" style={{ color: "#F5F5F5" }}>
+          <span className="truncate text-[10px]" style={{ color: "#F5F5F5" }}>
             <span style={{ color: "#C8384F" }}>$</span> {command}
           </span>
           <span
@@ -63,7 +63,7 @@ export function LinkedInPreviewCard({
             {lead ? <span style={{ color: "#FFFFFF" }}>{lead} </span> : null}
             <span style={{ color: "#9A142D" }}>{last}</span>
           </span>
-          <span className="truncate text-[9px]" style={{ color: "#8B8B8B" }}>
+          <span className="truncate text-[10px]" style={{ color: "#8B8B8B" }}>
             {tagline ?? " "}
           </span>
         </div>

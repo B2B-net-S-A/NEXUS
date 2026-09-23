@@ -95,7 +95,7 @@ function PublishModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="publish-posting-title"
-        className="bg-card rounded-xl shadow-xl w-full max-w-md p-6"
+        className="bg-card rounded-xl shadow-xl w-full max-w-md max-h-[90dvh] overflow-y-auto p-4 sm:p-6"
       >
         <h2 id="publish-posting-title" className="text-lg font-bold mb-1">
           Opublikuj ogłoszenie

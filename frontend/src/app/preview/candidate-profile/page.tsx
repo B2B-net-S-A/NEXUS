@@ -564,7 +564,7 @@ export default function CandidateProfilePreviewPage() {
   return (
     <ToastProvider>
       <QueryClientProvider client={qc}>
-        <main className="min-h-screen bg-background px-4 py-6 sm:px-6">
+        <main className="min-h-dvh bg-background px-4 py-6 sm:px-6">
           <Suspense fallback={null}>
             <CandidateDetailV2 candidateId={CANDIDATE_ID} basePath={BASE_PATH} />
           </Suspense>

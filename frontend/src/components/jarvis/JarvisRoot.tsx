@@ -504,7 +504,7 @@ export function JarvisRoot() {
           onConfirm={(a) => void decide(a, "confirm")}
           onReject={(a) => void decide(a, "reject")}
           onNavigate={() => {
-            if (typeof window !== "undefined" && window.innerWidth < 640) setOpen(false);
+            if (typeof window !== "undefined" && window.innerWidth < 768) setOpen(false);
           }}
         />
       )}

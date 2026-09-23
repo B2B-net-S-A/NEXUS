@@ -164,7 +164,8 @@ function MarginLeaderboard({
           Brak danych.
         </div>
       ) : (
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[34rem] text-sm">
           <thead className="bg-muted dark:bg-muted/40 text-xs uppercase text-muted-foreground dark:text-muted-foreground">
             <tr>
               <th className="text-left px-3 py-2">#</th>
@@ -191,7 +192,8 @@ function MarginLeaderboard({
                   <td className="px-3 py-2">
                     <Link
                       href={`${linkPrefix}${linkId}`}
-                      className="text-primary hover:underline dark:text-primary"
+                      title={name}
+                      className="inline-block max-w-[12rem] truncate align-bottom text-primary hover:underline dark:text-primary"
                     >
                       {name}
                     </Link>
@@ -210,12 +212,12 @@ function MarginLeaderboard({
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">{r.active_contracts}</td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
                     {fxMissing
                       ? "—"
                       : formatCurrency(r.total_monthly_revenue, "PLN")}
                   </td>
-                  <td className="px-3 py-2 text-right font-semibold text-emerald-600">
+                  <td className="px-3 py-2 text-right font-semibold text-emerald-600 whitespace-nowrap">
                     {fxMissing
                       ? "—"
                       : formatCurrency(r.total_monthly_margin, "PLN")}
@@ -230,6 +232,7 @@ function MarginLeaderboard({
             })}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );
@@ -526,7 +529,7 @@ export default function ContractAnalyticsPage() {
           onRetry={() => void forecastQ.refetch()}
         />
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           <MarginLeaderboard
             title="Top kontraktorzy wg marży"
             rows={byContractor}

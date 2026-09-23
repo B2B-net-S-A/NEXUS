@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Download,
   Loader2,
+  PanelLeft,
   Plus,
   User,
   X,
@@ -20,6 +21,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 import { celebrate } from "@/lib/celebrate";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { InterviewFeedbackModal } from "@/components/feedback/InterviewFeedbackModal";
 import { EventDetailModal } from "@/components/calendar/EventDetailModal";
 import { CandidateCombobox, type CandidateChoice } from "@/components/calendar/CandidateCombobox";
@@ -58,6 +60,30 @@ function getWeekDays(monday: Date): Date[] {
     d.setDate(d.getDate() + i);
     return d;
   });
+}
+
+/** Ta sama data przesunięta o `n` dni (00:00) — nawigacja widoku dnia. */
+export function shiftDay(date: Date, n: number): Date {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+/** Indeks w `DAY_NAMES` (poniedziałek = 0) dla dowolnej daty. */
+function dayNameIndex(date: Date): number {
+  return (date.getDay() + 6) % 7;
+}
+
+/**
+ * Siatka tygodnia na telefonie pokazuje JEDEN dzień (decyzja 23.09.2026):
+ * siedem kolumn na 375 px to ~40 px na dzień, tytuły znikały do 2–3 liter.
+ * Przełączenie jest czysto w CSS (bez `matchMedia`), więc render serwera
+ * i klienta jest ten sam: poniżej `md` widać tylko kolumnę wybranego dnia.
+ */
+const GRID_COLUMNS = "grid-cols-[48px_1fr] md:grid-cols-[48px_repeat(7,1fr)]";
+function dayColumnVisibility(day: Date, selectedDay: Date): string | false {
+  return !isSameDay(day, selectedDay) && "hidden md:block";
 }
 
 function isSameDay(a: Date, b: Date): boolean {
@@ -121,7 +147,12 @@ function CalendarPageInner() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [currentMonday, setCurrentMonday] = useState<Date>(() => getMonday(new Date()));
+  // Wybrany dzień — na telefonie widoczna kolumna, na desktopie wyznacza
+  // tydzień siatki (poniedziałek liczony z niego).
+  const [selectedDay, setSelectedDay] = useState<Date>(() => shiftDay(new Date(), 0));
+  const selectedDayTime = selectedDay.getTime();
+  const currentMonday = useMemo(() => getMonday(new Date(selectedDayTime)), [selectedDayTime]);
+  const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [prefilledStart, setPrefilledStart] = useState<string>("");
@@ -148,7 +179,7 @@ function CalendarPageInner() {
       .then((r) => {
         if (cancelled) return;
         const event = r.data as CalendarEvent;
-        setCurrentMonday(getMonday(new Date(event.start_time)));
+        setSelectedDay(shiftDay(new Date(event.start_time), 0));
         if (actionParam === "feedback") {
           setFeedbackEventId(event.id);
         } else {
@@ -231,24 +262,26 @@ function CalendarPageInner() {
     staleTime: 60_000,
   });
 
-  const prevWeek = () => {
-    setCurrentMonday((d) => {
-      const nd = new Date(d);
-      nd.setDate(nd.getDate() - 7);
-      return nd;
-    });
-  };
-
-  const nextWeek = () => {
-    setCurrentMonday((d) => {
-      const nd = new Date(d);
-      nd.setDate(nd.getDate() + 7);
-      return nd;
-    });
-  };
+  const prevWeek = () => setSelectedDay((d) => shiftDay(d, -7));
+  const nextWeek = () => setSelectedDay((d) => shiftDay(d, 7));
+  const prevDay = () => setSelectedDay((d) => shiftDay(d, -1));
+  const nextDay = () => setSelectedDay((d) => shiftDay(d, 1));
 
   const goToday = () => {
-    setCurrentMonday(getMonday(new Date()));
+    setSelectedDay(shiftDay(new Date(), 0));
+  };
+
+  const openCreate = () => {
+    setPrefilledStart("");
+    setShowCreateModal(true);
+  };
+
+  const sidebarProps = {
+    today,
+    events,
+    currentMonday,
+    upcoming: upcomingQuery.data ?? [],
+    failed: calendarFailed || upcomingQuery.isError,
   };
 
   const handleSlotClick = (day: Date, hour: number) => {
@@ -265,55 +298,104 @@ function CalendarPageInner() {
   };
 
   const monthLabel = currentMonday.toLocaleDateString("pl-PL", { month: "long", year: "numeric" });
+  const navButton =
+    "inline-flex h-10 w-10 md:h-8 md:w-8 items-center justify-center hover:bg-muted rounded-lg transition-colors text-muted-foreground";
 
   return (
-    <div className="flex gap-0 h-[calc(100vh-220px)] min-h-[520px] overflow-hidden">
-      {/* ── Sidebar ── */}
+    <div className="flex gap-0 h-[calc(100dvh-220px)] min-h-[520px] overflow-hidden">
+      {/* ── Sidebar ── (od xl; węziej panel otwiera przycisk „Panel” w nagłówku) */}
       <CalendarSidebar
-        today={today}
-        events={events}
-        currentMonday={currentMonday}
-        onPickDay={(day) => setCurrentMonday(getMonday(day))}
-        upcoming={upcomingQuery.data ?? []}
-        failed={calendarFailed || upcomingQuery.isError}
+        {...sidebarProps}
+        className="hidden xl:flex w-64 shrink-0 mr-4"
+        onPickDay={(day) => setSelectedDay(shiftDay(day, 0))}
         onEventClick={(ev) => {
-          setCurrentMonday(getMonday(new Date(ev.start_time)));
+          setSelectedDay(shiftDay(new Date(ev.start_time), 0));
           setSelectedEvent(ev);
         }}
-        onCreateClick={() => { setPrefilledStart(""); setShowCreateModal(true); }}
+        onCreateClick={openCreate}
       />
+      <Sheet open={sidePanelOpen} onOpenChange={setSidePanelOpen}>
+        {sidePanelOpen && (
+          <SheetContent side="right" size="sm">
+            <SheetHeader>
+              <SheetTitle>Kalendarz</SheetTitle>
+            </SheetHeader>
+            <SheetBody>
+              <CalendarSidebar
+                {...sidebarProps}
+                onPickDay={(day) => {
+                  setSelectedDay(shiftDay(day, 0));
+                  setSidePanelOpen(false);
+                }}
+                onEventClick={(ev) => {
+                  setSelectedDay(shiftDay(new Date(ev.start_time), 0));
+                  setSidePanelOpen(false);
+                  setSelectedEvent(ev);
+                }}
+                onCreateClick={() => {
+                  setSidePanelOpen(false);
+                  openCreate();
+                }}
+              />
+            </SheetBody>
+          </SheetContent>
+        )}
+      </Sheet>
 
       {/* ── Main calendar ── */}
-      <div className="flex-1 flex flex-col overflow-hidden bg-card dark:bg-muted border border-border dark:border-border rounded-2xl">
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-card dark:bg-muted border border-border dark:border-border rounded-2xl">
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-b border-border dark:border-border shrink-0">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 md:px-5 py-3 border-b border-border dark:border-border shrink-0">
+          <div className="flex flex-wrap items-center gap-2 md:gap-3">
             <h2 className="text-lg font-bold text-foreground dark:text-foreground capitalize">{monthLabel}</h2>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={prevWeek}
-                className="p-1.5 hover:bg-muted rounded-lg transition-colors text-muted-foreground"
-              >
+            {/* Telefon: widok jednego dnia, strzałki przesuwają dzień. */}
+            <div className="flex items-center gap-1 md:hidden">
+              <button type="button" onClick={prevDay} aria-label="Poprzedni dzień" className={navButton}>
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <button
-                onClick={nextWeek}
-                className="p-1.5 hover:bg-muted rounded-lg transition-colors text-muted-foreground"
-              >
+              <button type="button" onClick={nextDay} aria-label="Następny dzień" className={navButton}>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="hidden md:flex items-center gap-1">
+              <button type="button" onClick={prevWeek} aria-label="Poprzedni tydzień" className={navButton}>
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button type="button" onClick={nextWeek} aria-label="Następny tydzień" className={navButton}>
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
             <button
+              type="button"
               onClick={goToday}
-              className="text-xs font-medium px-3 py-1 bg-primary/10 text-primary hover:bg-primary/15 rounded-lg transition-colors"
+              className="h-10 md:h-8 text-xs font-medium px-3 bg-primary/10 text-primary hover:bg-primary/15 rounded-lg transition-colors"
             >
               Dzisiaj
             </button>
           </div>
 
           {/* Legenda typów stoi w panelu bocznym („Typy wydarzeń”) — w nagłówku
-              ściskała przyciski, odkąd siatka jest zakładką ekranu. */}
-          <div className="flex items-center gap-2">
+              ściskała przyciski, odkąd siatka jest zakładką ekranu. Węziej niż
+              xl panel jest schowany, więc „Nowe wydarzenie” i sam panel
+              otwierają przyciski tutaj. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={openCreate}
+              className="xl:hidden inline-flex h-10 md:h-9 items-center gap-1.5 px-3 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Nowe wydarzenie
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidePanelOpen(true)}
+              aria-label="Pokaż panel kalendarza (mini-miesiąc, najbliższe, typy)"
+              className="xl:hidden inline-flex h-10 md:h-9 items-center gap-1.5 px-3 border border-border text-sm rounded-lg hover:bg-muted"
+            >
+              <PanelLeft className="w-4 h-4" />
+              <span className="hidden sm:inline">Panel</span>
+            </button>
             <ICalImportButton
               onImported={() => {
                 queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
@@ -325,7 +407,7 @@ function CalendarPageInner() {
         </div>
 
         {/* Day headers */}
-        <div className="grid grid-cols-[48px_repeat(7,1fr)] border-b border-border dark:border-border shrink-0">
+        <div className={cn("grid border-b border-border dark:border-border shrink-0", GRID_COLUMNS)}>
           <div className="border-r border-border" />
           {weekDays.map((day, i) => {
             const isToday = isSameDay(day, today);
@@ -334,10 +416,11 @@ function CalendarPageInner() {
                 key={i}
                 className={cn(
                   "text-center py-2 border-r border-border last:border-r-0",
-                  isToday && "bg-primary/10"
+                  isToday && "bg-primary/10",
+                  dayColumnVisibility(day, selectedDay),
                 )}
               >
-                <div className="text-xs text-muted-foreground font-medium">{DAY_NAMES[i]}</div>
+                <div className="text-xs text-muted-foreground font-medium">{DAY_NAMES[dayNameIndex(day)]}</div>
                 <div
                   className={cn(
                     "text-sm font-bold mx-auto w-7 h-7 flex items-center justify-center rounded-full mt-0.5",
@@ -400,12 +483,14 @@ function CalendarPageInner() {
             <>
             <AllDayStrip
               weekDays={weekDays}
+              selectedDay={selectedDay}
               events={events}
               onEventClick={setSelectedEvent}
             />
             <WeekGrid
               hours={HOURS}
               weekDays={weekDays}
+              selectedDay={selectedDay}
               events={events}
               today={today}
               conflictPairs={conflictPairs ?? {}}
@@ -477,6 +562,7 @@ function CalendarPageInner() {
 function WeekGrid({
   hours,
   weekDays,
+  selectedDay,
   events,
   today,
   conflictPairs,
@@ -485,6 +571,8 @@ function WeekGrid({
 }: {
   hours: number[];
   weekDays: Date[];
+  /** Dzień widoczny na telefonie (pozostałe kolumny chowa CSS poniżej `md`). */
+  selectedDay: Date;
   events: CalendarEvent[];
   today: Date;
   conflictPairs: Record<string, number[]>;
@@ -496,7 +584,7 @@ function WeekGrid({
   const nowTop = ((nowMinutes - 8 * 60) / 60) * 56;
 
   return (
-    <div className="grid grid-cols-[48px_repeat(7,1fr)] relative">
+    <div className={cn("grid relative", GRID_COLUMNS)}>
       {/* Hour labels */}
       <div className="border-r border-border">
         {hours.map((h) => (
@@ -544,9 +632,12 @@ function WeekGrid({
         return (
           <div
             key={dayIdx}
+            data-testid="calendar-day-column"
+            data-selected-day={isSameDay(day, selectedDay) ? "true" : undefined}
             className={cn(
               "relative border-r border-border last:border-r-0",
-              isToday && "bg-primary/10"
+              isToday && "bg-primary/10",
+              dayColumnVisibility(day, selectedDay),
             )}
           >
             {/* Hour slots */}
@@ -685,10 +776,12 @@ function WeekGrid({
 
 function AllDayStrip({
   weekDays,
+  selectedDay,
   events,
   onEventClick,
 }: {
   weekDays: Date[];
+  selectedDay: Date;
   events: CalendarEvent[];
   onEventClick: (ev: CalendarEvent) => void;
 }) {
@@ -696,14 +789,20 @@ function AllDayStrip({
   if (allDay.length === 0) return null;
   return (
     <div
-      className="grid grid-cols-[48px_repeat(7,1fr)] border-b border-border bg-muted/30"
+      className={cn("grid border-b border-border bg-muted/30", GRID_COLUMNS)}
       data-testid="calendar-all-day-strip"
     >
       <div className="border-r border-border px-1 py-1 text-[10px] leading-tight text-muted-foreground text-right">
         cały dzień
       </div>
       {weekDays.map((day, i) => (
-        <div key={i} className="border-r border-border last:border-r-0 p-1 space-y-0.5 min-w-0">
+        <div
+          key={i}
+          className={cn(
+            "border-r border-border last:border-r-0 p-1 space-y-0.5 min-w-0",
+            dayColumnVisibility(day, selectedDay),
+          )}
+        >
           {allDay
             .filter((ev) => isAllDayOnDay(ev, day))
             .map((ev) => {
@@ -763,7 +862,7 @@ function OverflowEventsChip({
         // a raz w dwa — zależnie od pory dnia i strefy czasowej biegu.
         <ul
           data-testid="calendar-overflow-popover"
-          className="absolute right-0 mt-1 w-48 space-y-0.5 rounded-lg border border-border bg-card p-1 shadow-lg"
+          className="absolute right-0 mt-1 w-48 max-w-[calc(100vw-2rem)] space-y-0.5 rounded-lg border border-border bg-card p-1 shadow-lg"
           onClick={(e) => e.stopPropagation()}
         >
           {events.map((ev) => (
@@ -798,7 +897,9 @@ function CalendarSidebar({
   failed,
   onEventClick,
   onCreateClick,
+  className,
 }: {
+  className?: string;
   today: Date;
   /** Wydarzenia widocznego tygodnia (kropki w mini-kalendarzu). */
   events: CalendarEvent[];
@@ -816,7 +917,7 @@ function CalendarSidebar({
     .slice(0, 5);
 
   return (
-    <div className="w-64 shrink-0 mr-4 flex flex-col gap-4">
+    <div className={cn("flex flex-col gap-4", className)}>
       <button
         onClick={onCreateClick}
         className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary hover:bg-primary/90 text-white font-semibold rounded-xl transition-colors shadow-xs"
@@ -1093,7 +1194,7 @@ function CreateEventModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center sm:p-4">
-      <div className="bg-card dark:bg-muted rounded-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-card dark:bg-muted rounded-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl w-full sm:max-w-lg max-h-[90dvh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-primary" />
@@ -1126,14 +1227,14 @@ function CreateEventModal({
 
           <div>
             <label className="text-xs font-semibold text-muted-foreground block mb-1">Typ</label>
-            <div className="grid grid-cols-5 gap-1.5">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
               {Object.entries(EVENT_TYPE_CONFIG).map(([key, cfg]) => (
                 <button
                   key={key}
                   type="button"
                   onClick={() => setForm({ ...form, event_type: key })}
                   className={cn(
-                    "px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors text-center",
+                    "min-h-10 px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors text-center break-words",
                     form.event_type === key
                       ? `${cfg.bgColor} ${cfg.color} ${cfg.borderColor}`
                       : "bg-muted text-muted-foreground border-border hover:bg-muted"
@@ -1145,7 +1246,7 @@ function CreateEventModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label htmlFor="calendar-new-start" className="text-xs font-semibold text-muted-foreground block mb-1">Od *</label>
               <input
@@ -1356,14 +1457,17 @@ function ICalImportButton({ onImported }: { onImported: () => void }) {
     <div className="relative">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 px-3 py-1.5 border border-border dark:border-border text-sm rounded-lg hover:bg-muted dark:hover:bg-muted"
+        type="button"
+        className="flex h-10 md:h-auto items-center gap-1.5 px-3 py-1.5 border border-border dark:border-border text-sm rounded-lg hover:bg-muted dark:hover:bg-muted"
         title="Importuj z publicznego feedu iCal (Outlook / Google Calendar)"
       >
         <Download className="w-4 h-4" />
         iCal import
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 w-96 bg-card dark:bg-muted rounded-lg shadow-xl border border-border dark:border-border p-3 z-30 space-y-2">
+        // Na telefonie przycisk bywa w drugim wierszu nagłówka po lewej —
+        // popover przypięty do jego prawej krawędzi wychodził za ekran.
+        <div className="absolute right-0 mt-1 w-96 max-sm:fixed max-sm:inset-x-4 max-sm:top-24 max-sm:mt-0 max-sm:w-auto bg-card dark:bg-muted rounded-lg shadow-xl border border-border dark:border-border p-3 z-30 space-y-2">
           <p className="text-xs text-muted-foreground">
             Wklej publiczny URL iCal (Outlook → Publikuj kalendarz, albo Google
             Calendar → Private address in iCal format).

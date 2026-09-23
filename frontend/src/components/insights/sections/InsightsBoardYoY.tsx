@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Info, TriangleAlert } from "lucide-react";
 import {
@@ -116,6 +116,16 @@ function YoYGroups({ data }: { data: InsightsYoYResponse }) {
   // Ostrzeżenie o pokryciu stoi PRZY grupie, której dotyczy: Dywersyfikacja
   // i część Wskaźników liczą się z pipeline'u i są porównywalne między latami.
   const contractBased = metrics.some((m) => m.basis === "contracts");
+  // Poniżej `xl` karty stoją jedna pod drugą, a tabela jest pod WSZYSTKIMI —
+  // wybór karty przewija do tabeli, inaczej zmiana dzieje się ekrany niżej.
+  const tableRef = useRef<HTMLDivElement>(null);
+  const revealTable = () => {
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia?.("(max-width: 1279px)").matches) return;
+    window.requestAnimationFrame(() =>
+      tableRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" }),
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -135,7 +145,7 @@ function YoYGroups({ data }: { data: InsightsYoYResponse }) {
               setMetricKey(null);
             }}
             className={cn(
-              "min-h-8 rounded-md px-3 text-sm font-semibold transition-colors",
+              "min-h-8 rounded-md px-3 text-sm font-semibold transition-colors pointer-coarse:min-h-10",
               g.id === groupId
                 ? "bg-card text-foreground shadow-xs"
                 : "text-muted-foreground hover:text-foreground",
@@ -159,11 +169,16 @@ function YoYGroups({ data }: { data: InsightsYoYResponse }) {
             metric={metric}
             data={data}
             active={selected?.key === metric.key}
-            onSelect={() => setMetricKey(metric.key)}
+            onSelect={() => {
+              setMetricKey(metric.key);
+              revealTable();
+            }}
           />
         ))}
       </div>
-      {selected ? <MetricTable metric={selected} data={data} /> : null}
+      <div ref={tableRef} className="scroll-mt-20">
+        {selected ? <MetricTable metric={selected} data={data} /> : null}
+      </div>
     </div>
   );
 }
@@ -458,10 +473,12 @@ function MetricTable({
       {/* Tabela scrolluje się WEWNĄTRZ karty — bez tego dziewięć kolumn
           rozpycha całą stronę w poziomie na węższych ekranach. */}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        {/* Kolumna „Miesiąc" przyklejona — przy przewijaniu w poziomie
+            wiersz nie traci podpisu (audyt 23.09.2026, P2-02). */}
+        <table className="w-full min-w-[560px] text-sm">
           <thead>
             <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
-              <th className="px-3 py-2 text-left font-medium">Miesiąc</th>
+              <th className="sticky left-0 z-10 bg-card px-3 py-2 text-left font-medium">Miesiąc</th>
               {data.years.map((year, i) => (
                 // Fragment, NIE zagnieżdżona komórka: `<th>` w `<th>` to
                 // niepoprawny HTML, który React co prawda wstawi do DOM-u,
@@ -482,7 +499,7 @@ function MetricTable({
           <tbody>
             {table.rows.map((row) => (
               <tr key={row.monthIndex} className="border-b border-border/60">
-                <td className="whitespace-nowrap px-3 py-2">
+                <td className="sticky left-0 z-10 whitespace-nowrap bg-card px-3 py-2">
                   {row.label}
                   {row.partial ? (
                     <span className="ml-1 text-xs text-muted-foreground">
@@ -508,7 +525,8 @@ function MetricTable({
               </tr>
             ))}
             <tr className="bg-muted/40 text-[13px]">
-              <td className="whitespace-nowrap px-3 py-2 font-medium">
+              {/* Nieprzezroczyste tło = karta + ta sama warstwa muted/40 co wiersz. */}
+              <td className="sticky left-0 z-10 whitespace-nowrap bg-card bg-linear-to-r from-muted/40 to-muted/40 px-3 py-2 font-medium">
                 {aggregateLabel}
                 {table.summary.ytd ? (
                   <span className="ml-1 text-xs font-normal text-muted-foreground">
@@ -569,12 +587,14 @@ function ClientBreakdown({ data }: { data: InsightsYoYResponse }) {
       </h3>
       <div className="overflow-hidden rounded-lg border border-border bg-card">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          {/* `min-w`: bez niego 4 kolumny po ~60 px łamały listy klientów
+              na kilkanaście linii (audyt 23.09.2026, P2-03). */}
+          <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">
-                <th className="px-3 py-2 text-left font-medium">Miesiąc</th>
+                <th className="sticky left-0 z-10 bg-card px-3 py-2 text-left font-medium">Miesiąc</th>
                 {years.map((year) => (
-                  <th key={year} className="px-3 py-2 text-left font-medium">
+                  <th key={year} className="min-w-[12rem] px-3 py-2 text-left font-medium">
                     {year}
                   </th>
                 ))}
@@ -583,7 +603,7 @@ function ClientBreakdown({ data }: { data: InsightsYoYResponse }) {
             <tbody>
               {data.month_labels.map((label, monthIndex) => (
                 <tr key={label} className="border-b border-border/60 align-top">
-                  <td className="whitespace-nowrap px-3 py-2">{label}</td>
+                  <td className="sticky left-0 z-10 whitespace-nowrap bg-card px-3 py-2">{label}</td>
                   {years.map((year) => {
                     const cell =
                       data.placements_by_client[String(year)]?.[monthIndex] ??

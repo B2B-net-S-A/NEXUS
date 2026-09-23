@@ -257,9 +257,12 @@ export default function CustomDashboardPreview() {
             </button>
           ))}
         </div>
-        <QueryClientProvider key={variant} client={variant === "filled" ? filled : empty}>
-          <CustomDashboard />
-        </QueryClientProvider>
+        {/* Padding powłoki (`<main>` ma `p-4 md:p-6`) — pulpit nie dokłada własnego. */}
+        <div className="p-4 md:p-6">
+          <QueryClientProvider key={variant} client={variant === "filled" ? filled : empty}>
+            <CustomDashboard />
+          </QueryClientProvider>
+        </div>
       </div>
     </ToastProvider>
   );

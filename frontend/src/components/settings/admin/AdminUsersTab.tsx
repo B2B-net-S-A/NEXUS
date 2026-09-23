@@ -191,7 +191,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         {embedded ? (
           <div />
         ) : (
@@ -298,10 +298,13 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
           {isLoading ? (
             <div className="p-8 text-center text-muted-foreground dark:text-muted-foreground">Ładowanie...</div>
           ) : (
-            <table className="w-full text-sm">
+            // Siedem kolumn nie mieści się na telefonie: tabela przewija się
+            // w poziomie, a kolumna „Imię” zostaje przyklejona (decyzja 23.09.2026).
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[960px] text-sm">
               <thead>
                 <tr className="border-b border-border dark:border-border bg-muted dark:bg-card">
-                  <th className="px-4 py-3 text-left font-semibold text-foreground">Imię</th>
+                  <th className="sticky left-0 z-10 bg-muted dark:bg-card px-4 py-3 text-left font-semibold text-foreground">Imię</th>
                   <th className="px-4 py-3 text-left font-semibold text-foreground">Email</th>
                   <th className="px-4 py-3 text-left font-semibold text-foreground">Rola</th>
                   <th className="px-4 py-3 text-left font-semibold text-foreground">Rola rekrutacyjna</th>
@@ -312,8 +315,8 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {displayedUsers.map((u) => (
-                  <tr key={u.id} className="hover:bg-muted dark:bg-card transition-colors">
-                    <td className="px-4 py-3 font-medium text-foreground dark:text-foreground">{u.name}</td>
+                  <tr key={u.id} className="group hover:bg-muted dark:bg-card transition-colors">
+                    <td className="sticky left-0 z-10 bg-card group-hover:bg-muted px-4 py-3 font-medium text-foreground dark:text-foreground">{u.name}</td>
                     <td className="px-4 py-3 text-muted-foreground dark:text-muted-foreground">{u.email}</td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
@@ -370,7 +373,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
                           <button
                             onClick={() => handleImpersonate(u)}
                             title="Podgląd jako ten użytkownik"
-                            className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                            className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
@@ -382,7 +385,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
                             setModal("edit");
                           }}
                           title="Edytuj"
-                          className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
+                          className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"
                         >
                           <PencilLine className="w-4 h-4" />
                         </button>
@@ -393,7 +396,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
                             setModal("reset");
                           }}
                           title="Resetuj hasło"
-                          className="p-1.5 text-muted-foreground hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                          className="p-1.5 pointer-coarse:p-2.5 text-muted-foreground hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                         >
                           <KeyRound className="w-4 h-4" />
                         </button>
@@ -401,7 +404,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
                         <button
                           onClick={() => toggleActiveMutation.mutate(u)}
                           title={u.is_active ? "Dezaktywuj" : "Aktywuj"}
-                          className={`p-1.5 rounded-lg transition-colors ${
+                          className={`p-1.5 pointer-coarse:p-2.5 rounded-lg transition-colors ${
                             u.is_active
                               ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                               : "text-muted-foreground hover:text-green-600 hover:bg-green-50"
@@ -424,6 +427,7 @@ export function AdminUsersTab({ embedded = false }: AdminUsersTabProps = {}) {
                 )}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       )}

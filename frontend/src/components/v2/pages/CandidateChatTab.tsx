@@ -342,7 +342,7 @@ export default function CandidateChatTab({
 
   if (accessDenied) {
     return (
-      <div className="flex flex-col items-center justify-center text-center gap-2 h-[70vh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border px-6">
+      <div className="flex flex-col items-center justify-center text-center gap-2 h-[70dvh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border px-6">
         <MessageCircle className="w-10 h-10 text-muted-foreground" />
         <h2 className="text-base font-semibold">Brak dostępu do czatu</h2>
         <p className="text-sm text-muted-foreground max-w-sm">
@@ -359,7 +359,7 @@ export default function CandidateChatTab({
     return (
       <div
         role="alert"
-        className="flex flex-col items-center justify-center text-center gap-2 h-[70vh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border px-6"
+        className="flex flex-col items-center justify-center text-center gap-2 h-[70dvh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border px-6"
       >
         <MessageCircle className="w-10 h-10 text-muted-foreground" />
         <h2 className="text-base font-semibold">Nie udało się wczytać czatu</h2>
@@ -379,7 +379,7 @@ export default function CandidateChatTab({
   }
 
   return (
-    <div className="flex flex-col h-[70vh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden">
+    <div className="flex flex-col h-[70dvh] bg-card dark:bg-muted rounded-xl border border-border dark:border-border overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border dark:border-border">
         <div className="flex items-center gap-2">
@@ -714,10 +714,17 @@ function MessageRow({
         )}
 
         {!readOnly && !message.is_deleted && (
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity mt-1 flex items-center gap-2 text-xs relative">
+          // Akcje wiadomości chowamy tylko przy myszce — na dotyku nie ma
+          // najechania, więc muszą być widoczne od razu.
+          <div
+            className={cn(
+              "transition-opacity mt-1 flex items-center gap-2 text-xs relative focus-within:opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100",
+              emojiOpen && "pointer-fine:opacity-100",
+            )}
+          >
             <button
               onClick={onReply}
-              className="text-muted-foreground hover:text-primary flex items-center gap-1"
+              className="text-muted-foreground hover:text-primary flex items-center gap-1 pointer-coarse:min-h-9"
             >
               <CornerUpLeft className="w-3 h-3" />
               Odpowiedz
@@ -725,7 +732,7 @@ function MessageRow({
             <div className="relative">
               <button
                 onClick={() => setEmojiOpen((v) => !v)}
-                className="text-muted-foreground hover:text-amber-500 flex items-center gap-1"
+                className="text-muted-foreground hover:text-amber-500 flex items-center gap-1 pointer-coarse:min-h-9"
                 aria-label="Dodaj reakcję"
               >
                 <Smile className="w-3 h-3" />
@@ -756,7 +763,7 @@ function MessageRow({
             </div>
             <button
               onClick={showReadBy}
-              className="text-muted-foreground hover:text-primary flex items-center gap-1 relative"
+              className="text-muted-foreground hover:text-primary flex items-center gap-1 relative pointer-coarse:min-h-9"
               aria-label="Kto przeczytał"
             >
               <Eye className="w-3 h-3" />
