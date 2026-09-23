@@ -253,6 +253,10 @@ async def test_daily_reconciler_catches_up_after_a_missed_day_but_skips_cutover_
         def add(self, value):
             self.added.append(value)
 
+        async def scalar(self, _statement):
+            # Wskrzeszenie zamyka otwartą migawkę zakończenia (0355) — tu jej nie ma.
+            return None
+
     db = _FakeDb()
     assert await reconcile_contracts_to_live_orders(db, today=today) == 1
     assert audited_contract.status == ContractStatus.ended

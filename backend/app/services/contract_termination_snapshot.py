@@ -151,7 +151,6 @@ async def record_termination_snapshot(
             created_by_user_id=actor_id,
         )
         db.add(snapshot)
-        await db.flush()
         return snapshot
 
     entries: list[dict[str, Any]] = [dict(item) for item in (snapshot.orders or [])]

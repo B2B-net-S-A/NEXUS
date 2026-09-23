@@ -149,6 +149,12 @@ _KNOWN_CONTRACT_FKS = {
     ("contract_equipment", "contract_id"),
     ("contract_framework_rates", "contract_id"),
     ("contract_onboarding_items", "contract_id"),
+    # Migawka stanu sprzed zakończenia (0355) opisuje zamówienia TEJ SAMEJ
+    # współpracy — idzie za kontraktem zachowanym jak sprawy offboardingu.
+    ("contract_termination_snapshots", "contract_id"),
+    # Powiązanie „Powrót po przerwie” (0355): kontrakt, który wskazywał na
+    # przegranego, wskazuje po scaleniu na zachowanego (_reparent_fks).
+    ("contracts", "returned_from_contract_id"),
     ("document_signatures", "contract_id"),
     ("invoices", "contract_id"),
     ("notes", "contract_id"),
@@ -227,6 +233,9 @@ _HISTORICAL_REFERENCE_KEYS = frozenset(
 _CONTRACT_LIFECYCLE_FIELDS = {"status", "voided_at", "voided_by"}
 _CONTRACT_DERIVED_FIELDS = {"client_order_start_date", "client_order_end_date"}
 _CONTRACT_AUDIT_FIELDS = {"created_at", "updated_at"}
+# Powiązanie z poprzednim kontraktem („Powrót po przerwie”, 0355) należy do
+# wiersza, nie do współpracy — zostaje na kontrakcie zachowanym.
+_CONTRACT_LINEAGE_FIELDS = {"returned_from_contract_id"}
 _CLASSIFIED_CONTRACT_FIELDS = (
     set(_MERGEABLE_FIELDS)
     | _CONTRACT_IDENTITY_FIELDS
@@ -234,6 +243,7 @@ _CLASSIFIED_CONTRACT_FIELDS = (
     | _CONTRACT_LIFECYCLE_FIELDS
     | _CONTRACT_DERIVED_FIELDS
     | _CONTRACT_AUDIT_FIELDS
+    | _CONTRACT_LINEAGE_FIELDS
 )
 
 _STATUS_RANK = {
@@ -2793,9 +2803,16 @@ async def _reparent_fks(
         table, column = str(fk["table_name"]), str(fk["column_name"])
         if int(fk["column_count"]) != 1 or (table, column) not in _KNOWN_CONTRACT_FKS:
             raise ContractMergeError(f"refusing unknown contract FK {table}.{column}")
+        # Samoodwołanie w `contracts`: kontrakt zachowany nie może po scaleniu
+        # wskazywać sam na siebie jako „poprzedni”.
+        target = (
+            "CASE WHEN id = :survivor THEN NULL ELSE :survivor END"
+            if table == "contracts"
+            else ":survivor"
+        )
         result = await db.execute(
             text(
-                f"UPDATE {table} SET {column} = :survivor WHERE {column} = ANY(:losers)"
+                f"UPDATE {table} SET {column} = {target} WHERE {column} = ANY(:losers)"
             ),
             {"survivor": survivor_id, "losers": list(loser_ids)},
         )
