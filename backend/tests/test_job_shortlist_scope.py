@@ -9,18 +9,19 @@ sprawdzany. Nic nie asertowało zachowania bramki w żadną stronę — ani że 
 dostaje 403, ani że członek zespołu dalej przechodzi. Fail-closed bez testu na
 stronę „wolno" to gotowy sposób na ciche zaoranie roboczego przepływu.
 
-Ten plik zamyka obie strony:
-- obcy rekruter (nie właściciel / DL / TAC / aktywny współpracownik) → 403 na
-  każdej z pięciu tras,
+Ten plik zamyka obie strony. Od 23.09.2026 (decyzja Artura: „wszystko
+w rekrutacji widzi i robi każdy, nie musisz być przypisany") bramka zespołu
+przepuszcza każdą rolę wewnętrzną:
+- rekruter spoza zespołu przechodzi przez wszystkie pięć tras i jego zapis
+  zostaje w bazie,
 - członek zespołu, aktywny współpracownik i admin → przechodzą,
-- współpracownik odznaczony z auto-CC → 403 (bramka pyta o AKTYWNE
-  współpracownictwo, nie o historyczne).
+- stara rola podglądu ``user`` → 403 bez śladu zapisu.
+Test „odznaczony współpracownik → 403" usunięty 23.09.2026: dla ról
+wewnętrznych przypisanie przestało decydować o dostępie.
 
 Cięższy bliźniak z tego samego ekranu, ``POST /api/jobs/{job_id}/proposals/bulk``,
-ma teraz tę samą bramkę (``app/api/proposals_bulk.py``, ``bulk_add_proposals``
-— ``ensure_job_membership`` zaraz po 404 na brak oferty). Wcześniej lżejsze
-parkowanie na shortliście dawało 403, a cięższe wpisanie do pipeline'u tej samej
-obcej oferty przechodziło; test niżej pilnuje, żeby ta asymetria nie wróciła.
+ma tę samą bramkę (``app/api/proposals_bulk.py``, ``bulk_add_proposals``) —
+test niżej pilnuje, że obie trasy odpowiadają rekruterowi spoza zespołu tak samo.
 """
 
 from __future__ import annotations
@@ -118,21 +119,13 @@ async def shortlist_setup(app_client: AsyncClient) -> dict[str, Any]:
         member, member_pwd = await _new_user(db)
         outsider, outsider_pwd = await _new_user(db)
         collaborator, collaborator_pwd = await _new_user(db)
-        ex_collaborator, ex_collaborator_pwd = await _new_user(db)
+        viewer, viewer_pwd = await _new_user(db, UserRole.user)
         job = await _new_job(db, recruiter_id=member.id)
         db.add(
             JobCollaborator(
                 job_id=job.id,
                 user_id=collaborator.id,
                 source=JobCollaboratorSource.manual,
-            )
-        )
-        db.add(
-            JobCollaborator(
-                job_id=job.id,
-                user_id=ex_collaborator.id,
-                source=JobCollaboratorSource.auto_cc,
-                removed_from_auto_cc=True,
             )
         )
         candidate = await _new_candidate(db)
@@ -148,14 +141,15 @@ async def shortlist_setup(app_client: AsyncClient) -> dict[str, Any]:
             "outsider_password": outsider_pwd,
             "collaborator_email": collaborator.email,
             "collaborator_password": collaborator_pwd,
-            "ex_collaborator_email": ex_collaborator.email,
-            "ex_collaborator_password": ex_collaborator_pwd,
+            "viewer_email": viewer.email,
+            "viewer_password": viewer_pwd,
+            "outsider_id": outsider.id,
             "job_id": job.id,
             "candidate_id": candidate.id,
             "second_candidate_id": second_candidate.id,
             "entry_id": entry_id,
         }
-    for actor in ("member", "outsider", "collaborator", "ex_collaborator"):
+    for actor in ("member", "outsider", "collaborator", "viewer"):
         data[f"{actor}_headers"] = await _login(
             app_client, data[f"{actor}_email"], data[f"{actor}_password"]
         )
@@ -196,57 +190,64 @@ async def _call_every_shortlist_route(
     }
 
 
-# ── Strona „nie wolno" ───────────────────────────────────────────────────────
+async def _shortlisted(job_id: int) -> list[tuple[int, int | None]]:
+    async with AsyncSessionLocal() as db:
+        rows = await db.execute(
+            select(JobShortlistEntry.candidate_id, JobShortlistEntry.created_by)
+            .where(JobShortlistEntry.job_id == job_id)
+            .order_by(JobShortlistEntry.id)
+        )
+        return [tuple(r) for r in rows.all()]
 
 
-async def test_outsider_is_denied_on_every_shortlist_route(
+# ── Rekruter spoza zespołu (23.09.2026) ──────────────────────────────────────
+
+
+async def test_outsider_passes_every_shortlist_route(
     app_client: AsyncClient, shortlist_setup: dict[str, Any]
 ) -> None:
     statuses = await _call_every_shortlist_route(
         app_client, shortlist_setup, shortlist_setup["outsider_headers"]
     )
-    assert statuses == {
-        "add": 403,
-        "list": 403,
-        "patch": 403,
-        "promote": 403,
-        "delete": 403,
-    }
+    assert all(code < 400 for code in statuses.values()), statuses
 
 
-async def test_removed_collaborator_is_denied(
+async def test_outsider_write_is_saved(
     app_client: AsyncClient, shortlist_setup: dict[str, Any]
 ) -> None:
-    """Odznaczony z auto-CC nie jest już członkiem — bramka pyta o AKTYWNYCH."""
-    resp = await app_client.get(
-        f"/api/jobs/{shortlist_setup['job_id']}/shortlist",
-        headers=shortlist_setup["ex_collaborator_headers"],
-    )
-    assert resp.status_code == 403, resp.text
-
-
-async def test_outsider_write_leaves_no_trace(
-    app_client: AsyncClient, shortlist_setup: dict[str, Any]
-) -> None:
-    """403 przed jakimkolwiek zapisem, nie po nim."""
-    await app_client.post(
+    """Zapis rekrutera spoza zespołu ląduje na shortliście z jego podpisem."""
+    resp = await app_client.post(
         f"/api/jobs/{shortlist_setup['job_id']}/shortlist",
         headers=shortlist_setup["outsider_headers"],
         json={"candidate_ids": [shortlist_setup["second_candidate_id"]]},
     )
-    async with AsyncSessionLocal() as db:
-        rows = (
-            (
-                await db.execute(
-                    select(JobShortlistEntry.candidate_id).where(
-                        JobShortlistEntry.job_id == shortlist_setup["job_id"]
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert list(rows) == [shortlist_setup["candidate_id"]]
+    assert resp.status_code == 200, resp.text
+    rows = await _shortlisted(shortlist_setup["job_id"])
+    assert [cid for cid, _ in rows] == [
+        shortlist_setup["candidate_id"],
+        shortlist_setup["second_candidate_id"],
+    ]
+    assert rows[-1][1] == shortlist_setup["outsider_id"]
+
+
+async def test_legacy_viewer_is_denied_without_a_trace(
+    app_client: AsyncClient, shortlist_setup: dict[str, Any]
+) -> None:
+    """Stara rola podglądu ``user`` nadal nie dotyka shortlisty — 403 przed zapisem."""
+    listing = await app_client.get(
+        f"/api/jobs/{shortlist_setup['job_id']}/shortlist",
+        headers=shortlist_setup["viewer_headers"],
+    )
+    assert listing.status_code == 403, listing.text
+    add = await app_client.post(
+        f"/api/jobs/{shortlist_setup['job_id']}/shortlist",
+        headers=shortlist_setup["viewer_headers"],
+        json={"candidate_ids": [shortlist_setup["second_candidate_id"]]},
+    )
+    assert add.status_code == 403, add.text
+    assert [cid for cid, _ in await _shortlisted(shortlist_setup["job_id"])] == [
+        shortlist_setup["candidate_id"]
+    ]
 
 
 # ── Strona „wolno" ───────────────────────────────────────────────────────────
@@ -297,17 +298,27 @@ async def test_missing_job_is_404_not_403(
 
 
 # ── Cięższy bliźniak na tym samym ekranie ────────────────────────────────────
-# Domknięte: `bulk_add_proposals` ma teraz tę samą bramkę co shortlista.
-# Wcześniej parkowanie kandydata dawało 403, a wpisanie go wprost do
-# pipeline'u tej samej obcej oferty przechodziło.
+# Parkowanie na shortliście i wpisanie wprost do pipeline'u tej samej oferty
+# odpowiadają rekruterowi spoza zespołu tak samo (od 23.09.2026: przepuszczają).
 
 
-async def test_outsider_should_not_bulk_add_to_a_foreign_pipeline(
+async def test_outsider_bulk_adds_to_the_pipeline_like_a_member(
     app_client: AsyncClient, shortlist_setup: dict[str, Any]
 ) -> None:
+    from app.models.recruitment_pipeline import CandidateStage
+
     resp = await app_client.post(
         f"/api/jobs/{shortlist_setup['job_id']}/proposals/bulk",
         headers=shortlist_setup["outsider_headers"],
         json={"candidate_ids": [shortlist_setup["second_candidate_id"]]},
     )
-    assert resp.status_code == 403, resp.text
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["added"] == [shortlist_setup["second_candidate_id"]]
+    async with AsyncSessionLocal() as db:
+        stage = await db.scalar(
+            select(CandidateStage.id).where(
+                CandidateStage.job_id == shortlist_setup["job_id"],
+                CandidateStage.candidate_id == shortlist_setup["second_candidate_id"],
+            )
+        )
+    assert stage is not None

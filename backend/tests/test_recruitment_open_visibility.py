@@ -172,10 +172,25 @@ def test_profile_history_for_finance_shows_everything() -> None:
 async def test_recruiting_roles_pass_the_team_gate_without_membership(
     role: UserRole,
 ) -> None:
-    # Bez sesji bazy: bramka przepuszcza rolę wewnętrzną przed jakimkolwiek
-    # zapytaniem o członkostwo.
-    await ensure_job_membership(None, _user(role), 123)  # type: ignore[arg-type]
+    # Bramka pyta wyłącznie o istnienie rekrutacji, nie o członkostwo.
+    class _Db:
+        async def get(self, model, pk):  # noqa: ANN001, ANN201
+            return Job(id=pk, title="x")
+
+    await ensure_job_membership(_Db(), _user(role), 123)  # type: ignore[arg-type]
     assert job_scope_clause(_user(role), Job.id) is true()
+
+
+async def test_missing_job_is_still_404_for_newly_opened_roles() -> None:
+    from fastapi import HTTPException
+
+    class _Db:
+        async def get(self, model, pk):  # noqa: ANN001, ANN201
+            return None
+
+    with pytest.raises(HTTPException) as exc:
+        await ensure_job_membership(_Db(), _user(UserRole.recruiter), 123)  # type: ignore[arg-type]
+    assert exc.value.status_code == 404
 
 
 def test_personal_views_still_count_assignment() -> None:

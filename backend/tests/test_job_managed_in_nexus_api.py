@@ -1,7 +1,8 @@
 """0325: `POST /api/jobs/{id}/manage-in-nexus` — przełącznik „prowadzona w NEXUSIE".
 
-Kontrakt (decyzja Artura 17.09.2026): włączenie = TacPlus + członkostwo w
-rekrutacji; wyłączenie (powrót do Traffita, po którym nocny import znów
+Kontrakt (decyzja Artura 17.09.2026): włączenie = TacPlus (od 23.09.2026 bez
+wymogu członkostwa w zespole rekrutacji — „nie musisz być przypisany");
+wyłączenie (powrót do Traffita, po którym nocny import znów
 nadpisze ruchy) tylko admin / Delivery Lead; każda realna zmiana zostawia wpis
 `activities.action='managed_in_nexus_changed'` z poprzednią wartością;
 ponowne wywołanie z tą samą wartością nie dopisuje historii. Rekrutacja spoza
@@ -135,14 +136,26 @@ async def test_repeated_enable_is_idempotent(
 
 
 @pytest.mark.asyncio
-async def test_tac_outside_the_recruitment_team_gets_403(app_client: AsyncClient):
-    headers, _tac_id = await _seed_tac(app_client)
-    job_id = await _seed_job()
+async def test_tac_outside_the_recruitment_team_can_enable_but_not_revert(
+    app_client: AsyncClient,
+):
+    headers, tac_id = await _seed_tac(app_client)
+    job_id = await _seed_job()  # TAC is not on this recruitment's team
 
-    resp = await app_client.post(_url(job_id), json={"enabled": True}, headers=headers)
+    enable = await app_client.post(
+        _url(job_id), json={"enabled": True}, headers=headers
+    )
+    assert enable.status_code == 200, enable.text
+    assert enable.json()["managed_in_nexus"] is True
+    assert enable.json()["managed_in_nexus_by"] == tac_id
+    rows = await _activity_rows(job_id)
+    assert len(rows) == 1 and rows[0]["user_id"] == tac_id
 
-    assert resp.status_code == 403, resp.text
-    assert await _activity_rows(job_id) == []
+    revert = await app_client.post(
+        _url(job_id), json={"enabled": False}, headers=headers
+    )
+    assert revert.status_code == 403, revert.text
+    assert len(await _activity_rows(job_id)) == 1
 
 
 @pytest.mark.asyncio

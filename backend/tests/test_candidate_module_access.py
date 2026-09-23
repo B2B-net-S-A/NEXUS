@@ -82,16 +82,17 @@ EXPORT_ROLES = {
     UserRole.finance,
 }
 FINANCE_ROLES = {UserRole.admin}
-# „Stawka do klienta" (decyzja 2026-09-17): role zarządcze + Finanse ALBO
-# właściciel/twórca rekrutacji (`user_can_write_client_rate`).
-CLIENT_RATE_ROLES = {
+# „Stawka do klienta" (decyzja Artura 23.09.2026): czytają role zarządcze
+# i Finanse, zapisują wyłącznie admin i Delivery Lead. Własność rekrutacji nie
+# nadaje już zapisu.
+CLIENT_RATE_READ_ROLES = {
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
-    UserRole.tac,
     UserRole.finance,
 }
+CLIENT_RATE_WRITE_ROLES = {UserRole.admin, UserRole.delivery_lead}
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -481,12 +482,15 @@ async def test_write_surface_role_matrix(
             )
 
 
-def test_client_rate_rule_roles_and_ownership():
-    """`user_can_write_client_rate`: role zarządcze/Finanse zawsze, rekruter i
-    sourcer tylko jako właściciel/twórca rekrutacji, viewer nigdy."""
+def test_client_rate_rule_roles_ignore_ownership():
+    """Odczyt: role zarządcze i Finanse. Zapis: admin i Delivery Lead.
+    Właściciel/twórca rekrutacji nie dostaje zapisu (23.09.2026)."""
     from types import SimpleNamespace
 
-    from app.api.candidate_access import user_can_write_client_rate
+    from app.api.candidate_access import (
+        user_can_read_client_rate,
+        user_can_write_client_rate,
+    )
 
     def mk(role: UserRole, uid: int = 1) -> User:
         return User(
@@ -501,22 +505,25 @@ def test_client_rate_rule_roles_and_ownership():
 
     job = SimpleNamespace(recruiter_id=7, created_by=8)
     for role in ROLES:
-        expected = role in CLIENT_RATE_ROLES
+        assert user_can_read_client_rate(mk(role)) is (
+            role in CLIENT_RATE_READ_ROLES
+        ), role
+        expected = role in CLIENT_RATE_WRITE_ROLES
         assert user_can_write_client_rate(mk(role), job) is expected, role
-    # Właściciel (recruiter_id) i twórca (created_by) — niezależnie od roli,
-    # ale nigdy viewer.
-    for role in (UserRole.recruiter, UserRole.sourcer):
-        assert user_can_write_client_rate(mk(role, uid=7), job) is True
-        assert user_can_write_client_rate(mk(role, uid=8), job) is True
-    assert user_can_write_client_rate(mk(UserRole.user, uid=7), job) is False
+        assert user_can_write_client_rate(mk(role)) is expected, role
+    # Właściciel (recruiter_id) i twórca (created_by) nie zyskują zapisu.
+    for role in (UserRole.recruiter, UserRole.sourcer, UserRole.tac, UserRole.user):
+        assert user_can_write_client_rate(mk(role, uid=7), job) is False
+        assert user_can_write_client_rate(mk(role, uid=8), job) is False
 
 
-async def test_client_rate_owner_recruiter_passes_non_owner_gets_403(
+async def test_client_rate_write_is_admin_and_dl_only_even_for_the_owner(
     m2_client: AsyncClient, headers_by_role: dict[UserRole, dict[str, str]]
 ):
-    """Rekruter-właściciel rekrutacji zapisuje stawkę do klienta; rekruter
-    spoza rekrutacji, sourcer i viewer dostają 403; admin/HoR przechodzą
-    bramkę (dalej: 404 dla nieistniejącego kandydata, nigdy 403)."""
+    """Stawkę do klienta zapisują wyłącznie admin i Delivery Lead (23.09.2026)
+    — przechodzą bramkę (dalej: 404 dla nieistniejącego kandydata, nigdy 403).
+    Rekruter-właściciel rekrutacji, HoR, TCM, TAC, Finanse, rekruter, sourcer
+    i viewer dostają 403."""
     from app.models.client import Client
     from app.models.job import Job, JobStatus
 
@@ -542,11 +549,19 @@ async def test_client_rate_owner_recruiter_passes_non_owner_gets_403(
     path = f"/api/candidates/999999/recruitments/{job_id}/client-rate"
     body = {"rate_value": 100}
     resp = await m2_client.patch(path, headers=owner_headers, json=body)
-    assert resp.status_code != 403, f"owner recruiter forbidden: {resp.text}"
-    for role in (UserRole.admin, UserRole.head_of_recruitment):
+    assert resp.status_code == 403, f"owner recruiter allowed: {resp.text}"
+    for role in (UserRole.admin, UserRole.delivery_lead):
         resp = await m2_client.patch(path, headers=headers_by_role[role], json=body)
         assert resp.status_code != 403, f"[{role.value}] unexpectedly forbidden"
-    for role in (UserRole.recruiter, UserRole.sourcer, UserRole.user):
+    for role in (
+        UserRole.head_of_recruitment,
+        UserRole.talent_community_manager,
+        UserRole.tac,
+        UserRole.finance,
+        UserRole.recruiter,
+        UserRole.sourcer,
+        UserRole.user,
+    ):
         resp = await m2_client.patch(path, headers=headers_by_role[role], json=body)
         assert resp.status_code == 403, (
             f"[{role.value}] expected 403, got {resp.status_code}"

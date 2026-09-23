@@ -464,21 +464,36 @@ async def test_invalid_json_is_graceful(monkeypatch) -> None:
 # ── trasy ────────────────────────────────────────────────────────────────────
 
 
-async def test_routes_require_job_membership(app_client: AsyncClient, monkeypatch):
+async def test_routes_open_for_a_recruiter_outside_both_teams(
+    app_client: AsyncClient, monkeypatch
+):
+    """Od 23.09.2026 rekrutację obsługuje każdy (decyzja Artura) — rekruter
+    spoza zespołu obu rekrutacji widzi kontekst i dostaje podpowiedź."""
     seed = await _seed_pair(owner_id=None)
     headers, _uid = await _seed_recruiter(app_client)
+    called = {"n": 0}
+
+    def fake(system: str, prompt: str) -> str:
+        called["n"] += 1
+        return '{"suggestions": []}'
+
+    monkeypatch.setattr(svc, "_call_model", fake)
     r = await app_client.get(CONTEXT.format(stage_id=seed["stage_id"]), headers=headers)
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
+    assert r.json()["available"] is True
+    assert r.json()["source"]["job_id"] == seed["source_id"]
     r = await app_client.post(
         SUGGEST.format(stage_id=seed["stage_id"]), headers=headers
     )
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
+    assert called["n"] == 1
 
 
-async def test_member_of_target_only_gets_no_source_answers(
+async def test_member_of_target_only_also_gets_source_answers(
     app_client: AsyncClient, monkeypatch
 ):
-    """Członkostwo w docelowej rekrutacji nie otwiera odpowiedzi z tamtej."""
+    """Członkostwo w poprzedniej rekrutacji nie jest już potrzebne, żeby
+    zobaczyć jej odpowiedzi (23.09.2026: rekrutację widzi każdy)."""
     headers, uid = await _seed_recruiter(app_client)
     seed = await _seed_pair(owner_id=uid)
     called = {"n": 0}
@@ -490,16 +505,15 @@ async def test_member_of_target_only_gets_no_source_answers(
     monkeypatch.setattr(svc, "_call_model", fake)
     r = await app_client.get(CONTEXT.format(stage_id=seed["stage_id"]), headers=headers)
     assert r.status_code == 200, r.text
-    assert r.json()["available"] is False
-    assert r.json()["source"] is None
-    assert r.json()["message"] == svc.MSG_NO_SOURCE_ACCESS
+    assert r.json()["available"] is True
+    assert r.json()["source"]["job_id"] == seed["source_id"]
+    assert r.json()["previous_answers_count"] == 1
     r = await app_client.post(
         SUGGEST.format(stage_id=seed["stage_id"]), headers=headers
     )
     assert r.status_code == 200, r.text
-    assert r.json()["message"] == svc.MSG_NO_SOURCE_ACCESS
-    assert r.json()["source"] is None
-    assert called["n"] == 0
+    assert r.json()["source"]["job_id"] == seed["source_id"]
+    assert called["n"] == 1
 
 
 async def test_routes_for_a_member(app_client: AsyncClient, monkeypatch):

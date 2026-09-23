@@ -1,11 +1,12 @@
-"""Hosted PostgreSQL coverage: history filtering must happen before LIMIT; the
-readiness picker lists every recruitment of the candidate (decision 10.09.2026)."""
+"""Hosted PostgreSQL coverage: the history lists every recruitment's CVs for an
+internal role (decision 23.09.2026: everything in a recruitment is visible to
+everyone, no team assignment needed); the readiness picker lists every
+recruitment of the candidate (decision 10.09.2026)."""
 
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi import HTTPException
 
 from app.api import cv_generator_b2b as api
 from app.core.database import AsyncSessionLocal
@@ -18,7 +19,7 @@ from app.models.user import User, UserRole
 
 
 @pytest.mark.asyncio
-async def test_history_is_scoped_before_limit_and_readiness_lists_all():
+async def test_history_lists_every_recruitment_and_readiness_lists_all():
     uid = uuid.uuid4().hex
     async with AsyncSessionLocal() as db:
         # Roll back all fixtures, including synthetic users, after assertions.
@@ -49,7 +50,7 @@ async def test_history_is_scoped_before_limit_and_readiness_lists_all():
         other_stage = CandidateStage(
             candidate_id=candidate.id, job_id=other_job.id, stage=PipelineStage.new
         )
-        # Place outsider's document first: filtering after LIMIT would hide ours.
+        # Colleague's document is the newest one on the history.
         now = datetime.now(timezone.utc) + timedelta(days=30)
         own_doc = CvGeneratedDocument(
             candidate_id=candidate.id,
@@ -71,8 +72,10 @@ async def test_history_is_scoped_before_limit_and_readiness_lists_all():
         )
         db.add_all([own_stage, other_stage, own_doc, other_doc])
         await db.flush()
-        own_list = await api.list_generated_cvs(owner, db, limit=1)
-        assert [row.id for row in own_list] == [own_doc.id]
+        # Od 23.09.2026 rekruter widzi CV każdej rekrutacji, nie tylko swojej.
+        own_list = await api.list_generated_cvs(owner, db, limit=2)
+        assert [row.id for row in own_list] == [other_doc.id, own_doc.id]
+        assert [row.can_delete for row in own_list] == [False, True]
         finance_list = await api.list_generated_cvs(finance, db, limit=2)
         assert [row.id for row in finance_list] == [other_doc.id, own_doc.id]
         # Decyzja 10.09.2026 („wszyscy mogą”): picker gotowości NIE jest
@@ -88,9 +91,7 @@ async def test_history_is_scoped_before_limit_and_readiness_lists_all():
         assert (
             await api._load_generated_document(db, other_doc.id, finance) is other_doc
         )
-        with pytest.raises(HTTPException) as exc:
-            await api._load_generated_document(db, other_doc.id, owner)
-        assert exc.value.status_code == 403
+        assert await api._load_generated_document(db, other_doc.id, owner) is other_doc
         # More than a global history page must not hide this candidate's CV.
         for i in range(65):
             db.add(
@@ -139,10 +140,10 @@ async def test_history_is_scoped_before_limit_and_readiness_lists_all():
 
 
 @pytest.mark.asyncio
-async def test_author_outside_the_team_keeps_own_cv_on_real_scope():
-    """Generować może każdy (10.09.2026) — autor spoza zespołu rekrutacji widzi
-    swoje CV na liście (także z filtrem rekrutacji, zamiast 403) i otwiera je,
-    ale cudzych CV tej rekrutacji dalej nie widzi."""
+async def test_recruiter_outside_the_team_sees_every_cv_of_the_recruitment():
+    """Generować może każdy (10.09.2026), a od 23.09.2026 każdy też widzi CV
+    rekrutacji bez przypisania do zespołu — rekruter spoza zespołu ma na liście
+    swoje i cudze CV tej rekrutacji i otwiera oba. Usuwa wyłącznie własne."""
     uid = uuid.uuid4().hex
     async with AsyncSessionLocal() as db:
         owner = User(
@@ -184,15 +185,15 @@ async def test_author_outside_the_team_keeps_own_cv_on_real_scope():
         listed = await api.list_generated_cvs(
             author, db, limit=10, candidate_id=candidate.id, job_id=job.id
         )
-        assert [row.id for row in listed] == [authors_doc.id]
-        assert listed[0].can_delete is True
+        assert {row.id: row.can_delete for row in listed} == {
+            authors_doc.id: True,
+            teams_doc.id: False,
+        }
         assert (
             await api._load_generated_document(db, authors_doc.id, author)
             is authors_doc
         )
-        with pytest.raises(HTTPException) as exc:
-            await api._load_generated_document(db, teams_doc.id, author)
-        assert exc.value.status_code == 403
+        assert await api._load_generated_document(db, teams_doc.id, author) is teams_doc
         # The team keeps seeing every CV of its recruitment, the outsider's too.
         team_view = await api.list_generated_cvs(
             owner, db, limit=10, candidate_id=candidate.id, job_id=job.id

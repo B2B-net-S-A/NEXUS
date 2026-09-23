@@ -980,11 +980,37 @@ def test_finance_calendar_oversight_is_read_only():
     assert calendar._resolve_scope_user(999, finance) == 999
 
 
+class _ChatDb:
+    """Minimalna sesja: ``get`` zwraca obiekt dla istniejących id."""
+
+    def __init__(self, existing_ids: set[int]):
+        self.existing_ids = existing_ids
+
+    async def get(self, _model, obj_id):
+        return SimpleNamespace(id=obj_id) if obj_id in self.existing_ids else None
+
+
 @pytest.mark.asyncio
-async def test_finance_chat_scope_bypass_exists_only_on_read_helper():
+async def test_finance_chat_access_is_the_same_rule_for_read_and_write():
+    """Od 23.09.2026 czat czyta i pisze każda rola wewnętrzna, także Finanse.
+
+    Osobnego obejścia „tylko odczyt dla Finansów” już nie ma: odczyt woła tę
+    samą bramkę co zapis, a nieistniejący zasób to 404.
+    """
     finance = _user(UserRole.finance)
-    await job_chat._require_read_access(None, finance, 10)
-    await candidate_chat._require_read_access(None, finance, 20)
+    db = _ChatDb({10, 20})
+    await job_chat._require_read_access(db, finance, 10)
+    await job_chat._require_member(db, finance, 10)
+    await candidate_chat._require_read_access(db, finance, 20)
+    await candidate_chat._require_member(db, finance, 20)
+
+    for helper, missing_id in (
+        (job_chat._require_read_access, 11),
+        (candidate_chat._require_read_access, 21),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await helper(db, finance, missing_id)
+        assert exc_info.value.status_code == 404
 
 
 @pytest.mark.asyncio

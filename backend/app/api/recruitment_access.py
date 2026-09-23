@@ -224,6 +224,17 @@ CalendarWriteAccess = Annotated[User, Depends(require_roles(*CALENDAR_WRITE_ROLE
 # rekrutacje” w cyklu rozmów u klienta), które mają liczyć przypisanie.
 _JOB_MEMBERSHIP_BYPASS_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
 
+# Role, które omijały bramkę zespołu JUŻ przed 23.09.2026. Dla pozostałych
+# (rekruter, sourcer, TAC, Finanse) bypass sprawdza najpierw, czy rekrutacja
+# istnieje — inaczej zapis z nieistniejącym ``job_id`` kończyłby się błędem
+# klucza obcego (500 bez CORS) zamiast dotychczasowego 404.
+_LEGACY_OVERSIGHT_ROLES: tuple[UserRole, ...] = (
+    UserRole.admin,
+    UserRole.head_of_recruitment,
+    UserRole.delivery_lead,
+    UserRole.talent_community_manager,
+)
+
 
 async def ensure_job_membership(
     db: AsyncSession,
@@ -260,6 +271,14 @@ async def ensure_job_membership(
     leaving every existing caller unchanged by default.
     """
     if oversight_bypass and user.has_any_role(*_JOB_MEMBERSHIP_BYPASS_ROLES):
+        if (
+            not user.has_any_role(*_LEGACY_OVERSIGHT_ROLES)
+            and await db.get(Job, job_id) is None
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Rekrutacja nie istnieje.",
+            )
         return
     if await is_member_of_job(
         db,

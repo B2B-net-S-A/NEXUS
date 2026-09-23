@@ -1,10 +1,13 @@
 """Redakcja rekrutacji przez osobę, która ją prowadzi (decyzja Artura 22.09.2026).
 
 Rekrutację zakłada admin / Delivery Lead, a jej TREŚĆ (opis, ogłoszenia,
-Champion) redaguje też rekruter prowadzący i współpracownicy. Rekruter spoza
-zespołu dostaje 403, a członek zespołu nie zmienia statusu, klienta, obsady ani
-widełek wynagrodzenia. `GET /api/jobs/{id}` niesie `can_edit`/`can_manage`
-liczone tą samą regułą co bramka PATCH.
+Champion) redaguje też rekruter prowadzący i współpracownicy. Od 23.09.2026
+(decyzja Artura: „wszystko w rekrutacji robi każdy, nie musisz być
+przypisany") treść redaguje każda rola wewnętrzna, także rekruter spoza
+zespołu i Head of Recruitment; stara rola podglądu `user` dostaje 403. Nikt
+poza DL/adminem nie zmienia statusu, klienta, obsady ani widełek
+wynagrodzenia. `GET /api/jobs/{id}` niesie `can_edit`/`can_manage` liczone tą
+samą regułą co bramka PATCH.
 
 In-process `app_client`; baza testowa wspólna i nieczyszczona — asercje tylko
 na własnych wierszach (uuid).
@@ -79,6 +82,7 @@ async def world(app_client: AsyncClient):
     outsider_h, _ = await _seed_user(app_client, "recruiter")
     hor_h, _ = await _seed_user(app_client, "head_of_recruitment")
     dl_h, _ = await _seed_user(app_client, "delivery_lead")
+    viewer_h, _ = await _seed_user(app_client, "user")
     job_id = await _seed_job(recruiter_id=owner_id, collaborator_id=collab_id)
     return {
         "job_id": job_id,
@@ -87,6 +91,7 @@ async def world(app_client: AsyncClient):
         "outsider": outsider_h,
         "hor": hor_h,
         "dl": dl_h,
+        "viewer": viewer_h,
     }
 
 
@@ -103,14 +108,40 @@ async def test_owner_and_collaborator_edit_the_description(app_client, world):
 
 
 @pytest.mark.asyncio
-async def test_recruiter_outside_the_team_is_refused(app_client, world):
+async def test_recruiter_outside_the_team_and_hor_edit_the_description(
+    app_client, world
+):
     for who in ("outsider", "hor"):
         resp = await app_client.patch(
             f"/api/jobs/{world['job_id']}",
             headers=world[who],
-            json={"description": "Nie moja rekrutacja"},
+            json={"description": f"Opis od {who}"},
         )
-        assert resp.status_code == 403, (who, resp.text)
+        assert resp.status_code == 200, (who, resp.text)
+        assert resp.json()["description"] == f"Opis od {who}"
+
+
+@pytest.mark.asyncio
+async def test_outsider_cannot_touch_lifecycle_and_viewer_cannot_edit(
+    app_client, world
+):
+    lifecycle = await app_client.patch(
+        f"/api/jobs/{world['job_id']}",
+        headers=world["outsider"],
+        json={"status": "closed"},
+    )
+    assert lifecycle.status_code == 403, lifecycle.text
+
+    viewer = await app_client.patch(
+        f"/api/jobs/{world['job_id']}",
+        headers=world["viewer"],
+        json={"description": "Podgląd nie redaguje"},
+    )
+    assert viewer.status_code == 403, viewer.text
+
+    detail = await app_client.get(f"/api/jobs/{world['job_id']}", headers=world["dl"])
+    assert detail.json()["status"] == "published"
+    assert detail.json()["description"] == "Opis startowy"
 
 
 @pytest.mark.asyncio
@@ -148,7 +179,7 @@ async def test_job_detail_reports_can_edit_and_can_manage(app_client, world):
     expected = {
         "owner": (True, False),
         "collab": (True, False),
-        "outsider": (False, False),
+        "outsider": (True, False),
         "dl": (True, True),
     }
     for who, (can_edit, can_manage) in expected.items():
@@ -169,36 +200,48 @@ async def test_postings_follow_the_same_rule(app_client, world):
     assert created.status_code == 201, created.text
     posting_id = created.json()["id"]
 
-    refused = await app_client.post(
+    # Rekruter spoza zespołu publikuje i zdejmuje ogłoszenia (23.09.2026).
+    by_outsider = await app_client.post(
         f"/api/jobs/{world['job_id']}/postings",
         headers=world["outsider"],
         json={"portal": "justjoinit", "expires_days": 30},
     )
-    assert refused.status_code == 403, refused.text
-    refused_delete = await app_client.delete(
+    assert by_outsider.status_code == 201, by_outsider.text
+    assert by_outsider.json()["job_id"] == world["job_id"]
+    outsider_delete = await app_client.delete(
         f"/api/postings/{posting_id}", headers=world["outsider"]
     )
-    assert refused_delete.status_code == 403, refused_delete.text
+    assert outsider_delete.status_code == 204, outsider_delete.text
 
     deleted = await app_client.delete(
-        f"/api/postings/{posting_id}", headers=world["collab"]
+        f"/api/postings/{by_outsider.json()['id']}", headers=world["collab"]
     )
     assert deleted.status_code == 204, deleted.text
 
 
 @pytest.mark.asyncio
-async def test_champion_profile_is_editable_by_the_team_only(app_client, world):
-    payload = {"project": {"about": "Nowy projekt w banku."}}
+async def test_champion_profile_is_editable_by_every_internal_role(app_client, world):
     ok = await app_client.put(
         f"/api/jobs/{world['job_id']}/champion-profile",
         headers=world["owner"],
-        json=payload,
+        json={"project": {"about": "Nowy projekt w banku."}},
     )
     assert ok.status_code == 200, ok.text
 
-    refused = await app_client.put(
+    by_outsider = await app_client.put(
         f"/api/jobs/{world['job_id']}/champion-profile",
         headers=world["outsider"],
-        json=payload,
+        json={"project": {"about": "Projekt poprawiony przez kolegę."}},
+    )
+    assert by_outsider.status_code == 200, by_outsider.text
+    assert (
+        by_outsider.json()["champion_profile"]["project"]["about"]
+        == "Projekt poprawiony przez kolegę."
+    )
+
+    refused = await app_client.put(
+        f"/api/jobs/{world['job_id']}/champion-profile",
+        headers=world["viewer"],
+        json={"project": {"about": "Podgląd nie redaguje."}},
     )
     assert refused.status_code == 403, refused.text
