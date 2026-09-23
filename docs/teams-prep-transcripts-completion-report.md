@@ -66,7 +66,30 @@ ma podłączone 2 z ~30 osób (rekruterzy 0/16).
 
 ## Weryfikacja
 
-(uzupełnione po biegach — patrz niżej)
+- Testy backendu na zmigrowanej bazie (przed decyzją „bez lokalnego Dockera”):
+  prepy, cykl rozmów, powiadomienia, kontrakty sekcji, heartbeat, rejestr modeli
+  i lustra enumów — 218 zielonych, 1 czerwony (rejestr modeli nie znał F23,
+  poprawione; plik potem 47/47).
+- Przegląd kodu znalazł dwa błędy blokujące i kilka mniejszych. Wszystkie są
+  poprawione i mają testy:
+  - kolejna runda rozmów u klienta nie mogła dostać nowych prepów;
+  - prep bez nagrania nie dało się zaplanować ponownie;
+  - pusty transkrypt dostawał ocenę „słaby”;
+  - blokady wierszy były trzymane w trakcie wywołań Grapha;
+  - dzwonki o braku Prep 1 i Prep 2 się zjadały;
+  - czas był liczony źle przy kilku plikach transkryptu;
+  - nie było odzyskiwania linku Teams.
+- CI na PR-ze: frontend (ESLint, type-check, vitest zmienionych plików) zielony.
+  Sito backendu wskazało 3 testy spoza zmienionych plików. Wszystkie poprawione:
+  - lista znanych kluczy AI nie znała `prep_review`;
+  - dwa testy budowały prepy bez numeru, więc `prep_slot` numeruje je teraz sam.
+- Harness `/preview/calendar-cycle` przeklikany w przeglądarce (tekst okien odczytany
+  z DOM; zrzutu nie było, bo okno aplikacji było zminimalizowane):
+  - zadania „Prep słaby — popraw przed rozmową” i „Prep 2 bez terminu”;
+  - okno „Ocena prepu”: ocena „Słaby”, kandydat mówił 22%, cytaty przy punktach,
+    lista „Na Prep 2 zostało”, transkrypt z mówcami;
+  - okno „Zaplanuj Prep 2”: organizator podpowiedziany (rekruter), informacja
+    o nagrywaniu.
 
 ## Czego nie da się sprawdzić bez konfiguracji w Azure
 
