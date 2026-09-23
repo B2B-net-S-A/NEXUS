@@ -1707,6 +1707,12 @@ export interface NotificationResponse {
   notification_type: string;
   is_read: boolean;
   created_at: string | null;
+  on_behalf_of_name?: string | null;
+  /** Kategoria z „Moje powiadomienia" (0349). */
+  category?: string | null;
+  category_label?: string | null;
+  /** Czy kategorię wolno wyciszyć (obowiązkowe: wzmianki, rozmowy, system). */
+  category_mutable?: boolean;
 }
 
 export interface NotificationListResponse {

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
+from app.services.notification_categories import user_muted_types
 from app.services.section_permissions import (
     ProductSection,
     SectionAccess,
@@ -184,6 +185,30 @@ def user_can_receive_notification(
 
     if not user.is_active:
         return False
+    # Wyciszenie kategorii (0349) jest decyzją samego odbiorcy, więc obowiązuje
+    # także administratora. Kategorie obowiązkowe nigdy nie trafiają do zbioru.
+    if notification_type in user_muted_types(user):
+        return False
+    return user_may_receive_type(
+        user,
+        notification_type,
+        related_entity_type=related_entity_type,
+        link=link,
+    )
+
+
+def user_may_receive_type(
+    user: User,
+    notification_type: NotificationType,
+    *,
+    related_entity_type: str | None = None,
+    link: str | None = None,
+) -> bool:
+    """Polityka sekcji BEZ wyciszeń — czy ten typ w ogóle może do kogoś trafić.
+
+    Strona „Moje konto → Powiadomienia" pyta tędy, które kategorie pokazać:
+    wyciszona kategoria nie może zniknąć z listy, bo nie dałoby się jej włączyć.
+    """
     if user.has_role(UserRole.admin):
         return True
     if notification_type in ADMIN_ONLY_NOTIFICATION_TYPES:
@@ -220,8 +245,23 @@ def user_can_receive_notification(
 
 
 def notification_visibility_predicate(user: User) -> Any:
-    """SQL predicate shared by list/count/read/update notification routes."""
+    """SQL predicate shared by list/count/read/update notification routes.
 
+    Łączy politykę sekcji z wyciszeniami użytkownika (0349): wyciszona
+    kategoria znika z listy i z licznika nieprzeczytanych.
+    """
+
+    muted = user_muted_types(user)
+    section_policy = _section_visibility_predicate(user)
+    if not muted:
+        return section_policy
+    return and_(
+        section_policy,
+        Notification.notification_type.not_in(sorted(muted, key=str)),
+    )
+
+
+def _section_visibility_predicate(user: User) -> Any:
     if user.has_role(UserRole.admin):
         return true()
 

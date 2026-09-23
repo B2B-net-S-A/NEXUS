@@ -26,7 +26,7 @@ export interface SettingsArea {
 }
 
 export const SETTINGS_AREAS: readonly SettingsArea[] = [
-  { id: "me", name: "Moje konto", hint: "Outlook i kalendarz" },
+  { id: "me", name: "Moje konto", hint: "Outlook, kalendarz i moje powiadomienia" },
   { id: "team", name: "Zespół i dostęp", hint: "Kto ma konto, co widzi i którego klienta prowadzi" },
   { id: "rec", name: "Rekrutacja", hint: "Etapy, CV dla klientów, ranking, maile" },
   { id: "deals", name: "Umowy i stawki", hint: "Wzory umów, stawki rynkowe" },
@@ -35,6 +35,7 @@ export const SETTINGS_AREAS: readonly SettingsArea[] = [
 
 export type SettingsItemId =
   | "outlook"
+  | "my-notifications"
   | "people"
   | "assign"
   | "stages"
@@ -95,6 +96,12 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "poczta mail m365 microsoft skrzynka integracje",
     // Finanse też tworzą wydarzenia w kalendarzu (audyt ról U6, 22.09).
     gate: { finance: true },
+  },
+  {
+    id: "my-notifications", area: "me", title: "Moje powiadomienia",
+    description: "Wybierz, które powiadomienia mają do Ciebie trafiać.",
+    keywords: "powiadomienia dzwonek wycisz wylacz alerty przypomnienia kategorie",
+    gate: {},
   },
   {
     id: "people", area: "team", title: "Osoby i role",
