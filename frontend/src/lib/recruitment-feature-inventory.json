@@ -792,10 +792,26 @@
   {
    "id": "board.cpro-assignee-queue",
    "area": "pipeline",
-   "opis": "Kolejka „Czeka na Ciebie” na pulpicie: czeka na DZ (✓ DZ jednym kliknięciem), do wysłania do Cpro z wytypowaną osobą, wysłane do Cpro (Nordea); przy „Gotowy do Cpro” wybór, kto wysyła; rano zbiorczy dzwonek",
+   "opis": "Kolejka „Czeka na Ciebie” na pulpicie: czeka na DZ (✓ DZ jednym kliknięciem), do wysłania do Cpro pogrupowane po rekrutacji z jedną osobą wysyłającą na proces, wysłane do Cpro (Nordea); rano zbiorczy dzwonek",
    "file": "components/v2/dashboard/BoardTasksPanel.tsx",
    "marker": "BoardTasksPanel",
-   "v3_home": "Pulpit → „Czeka na Ciebie”; Tablica → dok osoby"
+   "v3_home": "Pulpit → „Czeka na Ciebie”"
+  },
+  {
+   "id": "board.dz-review",
+   "area": "pipeline",
+   "opis": "Przegląd przed DZ: CV dla klienta obok oryginalnego CV i zapytania klienta, sprawdzenie must-have (w CV, pogrubione, w każdej roli z oryginału), podpowiedzi GPT-6 Luny, „Zatwierdź DZ” z okna",
+   "file": "components/v2/dashboard/DzReviewDialog.tsx",
+   "marker": "DzReviewDialog",
+   "v3_home": "Pulpit → „Czeka na Ciebie” → Sprawdź"
+  },
+  {
+   "id": "board.cpro-sender",
+   "area": "pipeline",
+   "opis": "Jedna osoba wysyła do Cpro wszystkich kandydatów rekrutacji Nordei — pasek „Do Cpro wysyła” nad Tablicą z liczbą gotowych",
+   "file": "components/v2/jobs/CproSenderBar.tsx",
+   "marker": "CproSenderBar",
+   "v3_home": "Tablica → pasek nad kolumnami"
   }
  ]
 }

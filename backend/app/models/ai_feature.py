@@ -120,6 +120,12 @@ class AIFeatureKey(str, enum.Enum):
     # Podpowiedzi odpowiedzi na pytania screeningu przy przepięciu (0352).
     # Wyłącznie przyciskiem z warsztatu rekrutera; wynik nic nie zapisuje.
     screening_reassign_suggest = "screening_reassign_suggest"
+    # Podpowiedzi dla zatwierdzającego DZ (0353): GPT-6 Luna porównuje CV
+    # przygotowane dla klienta z oryginałem i zapytaniem klienta (must-have,
+    # pogrubienia, pokrycie w doświadczeniu). Osobny kubełek — inny odbiorca
+    # (Delivery Lead / Head of Recruitment) i inny strumień wydatku niż
+    # recenzja faktów przy generacji.
+    dz_review = "dz_review"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -146,6 +152,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.jarvis: "Jarvis — asystent i wykonawca zadań w aplikacji",
     AIFeatureKey.job_public_description: "Opis rekrutacji na stronę kariery",
     AIFeatureKey.screening_reassign_suggest: "Przepięcie — podpowiedzi odpowiedzi na pytania screeningu",
+    AIFeatureKey.dz_review: "Przegląd DZ — podpowiedzi do CV dla klienta",
 }
 
 
@@ -247,6 +254,12 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Pytania screeningowe nowej rekrutacji (Profil Championa)",
         "Odpowiedzi kandydata ze screeningu w poprzedniej rekrutacji",
         "Ostatnie notatki rekruterów o kandydacie",
+    ],
+    AIFeatureKey.dz_review: [
+        "Tekst CV przygotowanego dla klienta (z zaznaczonymi pogrubieniami)",
+        "Tekst oryginalnego CV kandydata",
+        "Must-have, nice-to-have i opis rekrutacji",
+        "(bez stawek, kontaktów do klienta i notatek rekruterów)",
     ],
 }
 

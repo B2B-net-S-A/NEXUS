@@ -570,8 +570,9 @@ async def move_candidate(
         ensure_badge_stage_allowed(
             current_user, stage_name=stage_def.name, client_id=job.client_id
         )
-    # 0348: osoba, która wyśle kandydata do Cpro — typowana przy oznaczeniu
-    # gotowości. Na każdym innym etapie pole nie ma znaczenia, więc 422.
+    # 0348/0353: osoba, która wysyła do Cpro — od 23.09.2026 JEDNA na całą
+    # rekrutację (`jobs.cpro_sender_id`); pole przy ruchu ustawia ją dla
+    # rekrutacji. Na każdym innym etapie pole nie ma znaczenia, więc 422.
     cpro_assignee: Optional[User] = None
     cpro_assignee_added_to_team = False
     if data.task_assignee_id is not None:
@@ -977,6 +978,7 @@ async def move_candidate(
     await create_original_cv_snapshot(db, stage)
     if cpro_assignee is not None:
         stage.task_assignee_id = cpro_assignee.id
+        job.cpro_sender_id = cpro_assignee.id
     if is_terminal_target:
         await maybe_close_contact_opportunity(
             db,
@@ -1378,26 +1380,15 @@ async def move_candidate(
         except Exception:  # noqa: BLE001
             pass
 
-    # 0348: dzwonek dla osoby wytypowanej do wysłania do Cpro. Best-effort.
+    # 0348/0353: dzwonek dla osoby, która wysyła do Cpro. Best-effort.
     if cpro_assignee is not None:
         try:
-            cand_for_notice = await db.scalar(
-                select(Candidate).where(Candidate.id == data.candidate_id)
-            )
-            await board_tasks_svc.notify_cpro_assignment(
+            await board_tasks_svc.notify_cpro_sender(
                 db,
-                stage_id=stage.id,
-                candidate_name=(
-                    " ".join(
-                        p for p in (cand_for_notice.name, cand_for_notice.lastname) if p
-                    )
-                    if cand_for_notice
-                    else "Kandydat"
-                ),
                 job_id=job.id,
                 job_title=job.title,
-                candidate_id=data.candidate_id,
-                assignee_id=cpro_assignee.id,
+                waiting=0,
+                sender_id=cpro_assignee.id,
                 actor=current_user,
             )
             await db.commit()

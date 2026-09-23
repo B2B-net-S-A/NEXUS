@@ -141,6 +141,11 @@ class Job(Base, TimestampMixin):
     champion_found_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # 0353: jedna osoba wysyła do Cpro kandydatów tej rekrutacji (Nordea) —
+    # decyzja Artura 23.09.2026: „jedna osoba per cały proces".
+    cpro_sender_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Flagged by Delivery Lead (during onboarding or from the jobs list) to
     # signal the role needs active candidate sourcing.
