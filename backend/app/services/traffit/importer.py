@@ -304,6 +304,9 @@ class PhaseProgress:
     # w NEXUSIE (23.09.2026). Lista nie niesie `responsible_person`, więc bez
     # tego licznika nie widać, czy dopełnianie rekruterów w ogóle działa.
     recruiter_resolved: int = 0
+    # Detal, który nie odpowiedział. Osobno od `errors`, bo wiersz jest
+    # zapisany, a luka dopełni się w następnym biegu.
+    recruiter_detail_failed: int = 0
     error_samples: list[str] = field(default_factory=list)
     # Stable per-row keys ("candidate:48895") for the errors we could attribute
     # to a specific source record. Consumed by the quarantine in
@@ -352,6 +355,7 @@ class PhaseProgress:
             "skipped_managed": self.skipped_managed,
             "index_intents": self.index_intents,
             "recruiter_resolved": self.recruiter_resolved,
+            "recruiter_detail_failed": self.recruiter_detail_failed,
             "error_samples": self.error_samples[:20],
             "error_refs": sorted(self.error_refs),
             "attributed_errors": self.attributed_errors,
@@ -2408,24 +2412,27 @@ class TraffitImporter:
                     detail_resp = await self.traffit._get_raw(  # noqa: SLF001
                         f"/recruitments/{ext_id}", page=1, page_size=1
                     )
-                    if detail_resp.status_code == 200:
-                        detail = detail_resp.json()
-                        if isinstance(detail, list):
-                            detail = detail[0] if detail else {}
-                        payload["recruiter_id"] = traffit_responsible_user_id(
-                            detail, user_map
-                        )
-                        if payload["recruiter_id"] is not None:
-                            progress.recruiter_resolved += 1
-                    else:
-                        progress.add_error(
-                            f"recruitment_detail ext={ext_id}: "
-                            f"HTTP {detail_resp.status_code}"
-                        )
+                    if detail_resp.status_code != 200:
+                        raise RuntimeError(f"HTTP {detail_resp.status_code}")
+                    detail = detail_resp.json()
+                    if isinstance(detail, list):
+                        detail = detail[0] if detail else {}
+                    payload["recruiter_id"] = traffit_responsible_user_id(
+                        detail, user_map
+                    )
+                    if payload["recruiter_id"] is not None:
+                        progress.recruiter_resolved += 1
                 except Exception as e:  # noqa: BLE001
-                    # Brak prowadzącego to luka do dopełnienia w następnym
-                    # biegu, nie powód, żeby zgubić resztę wiersza z listy.
-                    progress.add_error(f"recruitment_detail ext={ext_id}: {e!r}")
+                    # CELOWO nie `add_error`: wiersz z listy i tak się zapisze,
+                    # brakuje tylko prowadzącego, a następny pełny bieg zapyta
+                    # ponownie (wiersz dalej ma NULL). Błąd blokujący fazy
+                    # `jobs` zamroziłby globalny watermark dla WSZYSTKICH faz,
+                    # a przy ~4,3 tys. zapytań w pełnym biegu co noc padałby
+                    # inny wiersz, więc kwarantanna nigdy by go nie zwolniła.
+                    progress.recruiter_detail_failed += 1
+                    logger.warning(
+                        "Traffit recruitment %s detail failed: %r", ext_id, e
+                    )
 
             # Rekrutacje bez znanego klienta lądują u sieroty, nie w koszu.
             #

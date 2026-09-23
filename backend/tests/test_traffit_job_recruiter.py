@@ -167,10 +167,12 @@ async def test_empty_recruiter_is_filled_from_traffit_without_overriding_nexus()
     # Przekazana do NEXUSA z pustym prowadzącym to kolejka automatu przydziałów.
     assert await _recruiter(exts["handed-off"]) is None
     assert exts["handed-off"] not in traffit.detail_calls
-    # Padnięty detal: wiersz z listy i tak zapisany, błąd policzony i przypięty.
+    # Padnięty detal: wiersz z listy i tak zapisany, a porażka NIE jest błędem
+    # fazy — ten zamroziłby globalny watermark dla wszystkich faz syncu.
     assert await _recruiter(exts["detail-fails"]) is None
-    assert progress.errors == 1
-    assert f"recruitment_detail:{exts['detail-fails']}" in progress.error_refs
+    assert progress.recruiter_detail_failed == 1
+    assert progress.errors == 0
+    assert not progress.error_refs
 
     assert progress.recruiter_resolved == 2
     assert progress.as_dict()["recruiter_resolved"] == 2
