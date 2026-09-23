@@ -259,6 +259,16 @@ class Contract(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
+    # „Usuń szkic" na pustej karcie zakładki Zamówienia (0357, ticket 09.2026).
+    # Kontrakt i rekrutacja zostają — chowa się tylko karta bez zamówienia.
+    # Zamówienie założone PÓŹNIEJ przywraca kartę (`client_orders`).
+    orders_card_dismissed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    orders_card_dismissed_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Desired rate range we want to achieve on this contract (used by benchmark
     # comparison and by sales during renegotiation). Numeric(16,6) — ta sama
     # precyzja co framework_rate (migracje 0157, 0309).

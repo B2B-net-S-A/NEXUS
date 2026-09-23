@@ -4,15 +4,32 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 
 import { AppModal } from "@/components/ds";
+import type { ContractWithOrdersRead } from "@/lib/api/dlPortal";
 import type {
+  MdTransferMethod,
   OrderGroupRead,
   OrderLineRead,
-  OrderOffboardingRateBasis,
+  OrderLineTakeoverInput,
   OrderOffboardingResolutionInput,
 } from "@/lib/api/orderGroups";
+import {
+  contractCostRatePerMd,
+  defaultEntryDate,
+  effectiveTransferMethod,
+  transferPreview,
+} from "@/lib/order-takeover";
+import { warsawToday } from "@/lib/warsaw-date";
 import { formatDate } from "@/types/client-profile";
 
 import { formatMd } from "./MdBudgetBar";
+import { MdTransferChoice } from "./MdTransferChoice";
+import {
+  TakeoverTermsFields,
+  emptyTakeoverTerms,
+  takeoverTermsError,
+  toTakeoverInput,
+  type TakeoverTermsValue,
+} from "./TakeoverTermsFields";
 
 const inputClass =
   "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
@@ -25,6 +42,10 @@ interface Props {
   submitting: boolean;
   error: string | null;
   onSubmit: (values: OrderOffboardingResolutionInput) => void;
+  /** Osoby ze szkiców klienta — grupa „Nowe osoby u klienta" (ticket 09.2026).
+   *  Wybór takiej osoby daje ten sam efekt co „Wejdź za konsultanta". */
+  newPeople?: readonly ContractWithOrdersRead[];
+  onTakeover?: (values: OrderLineTakeoverInput) => void;
 }
 
 /** Decyzja Delivery Leada o linii MD po zakończeniu kontraktu.
@@ -40,13 +61,19 @@ export function OffboardingDecisionModal({
   submitting,
   error,
   onSubmit,
+  newPeople = [],
+  onTakeover,
 }: Props) {
   const [action, setAction] = useState<"remove" | "transfer" | "restore">(
     "remove",
   );
-  const [targetOrderId, setTargetOrderId] = useState("");
-  const [rateBasis, setRateBasis] =
-    useState<OrderOffboardingRateBasis>("departing");
+  // `line:<id>` — osoba z tego zamówienia; `contract:<id>` — nowa osoba
+  // ze szkiców klienta (wejdzie za odchodzącego jako nowa linia).
+  const [targetKey, setTargetKey] = useState("");
+  const [method, setMethod] = useState<MdTransferMethod | null>(null);
+  const [terms, setTerms] = useState<TakeoverTermsValue>(
+    emptyTakeoverTerms(warsawToday()),
+  );
   // Data, do której współpraca trwa po przywróceniu. Oryginalna data końca
   // linii przepadła przy offboardingu (sprawa snapshotuje pulę i stawki, nie
   // okres), więc to jest DECYZJA operatora, nie odtworzenie — dlatego pole
@@ -74,23 +101,69 @@ export function OffboardingDecisionModal({
   useEffect(() => {
     if (!open) return;
     setAction("remove");
-    setTargetOrderId("");
-    setRateBasis("departing");
+    setTargetKey("");
+    setMethod(null);
+    setTerms(
+      emptyTakeoverTerms(
+        defaultEntryDate(offboardingCase?.effective_date ?? null, warsawToday()),
+      ),
+    );
     // Podpowiedź = koniec zamówienia. Operator może ją skrócić; nie może jej
     // wydłużyć poza zamówienie (walidacja niżej i po stronie serwera).
     setRestoreEndDate(group?.end_date ?? "");
-  }, [open, offboardingCase?.id, group?.end_date]);
+  }, [open, offboardingCase?.id, offboardingCase?.effective_date, group?.end_date]);
 
   const restoreEndTooLate =
     groupEndDate !== null &&
     restoreEndDate !== "" &&
     restoreEndDate > groupEndDate;
 
+  const sharedPool = offboardingCase?.uses_shared_md_pool === true;
+  const targetLine = targetKey.startsWith("line:")
+    ? (recipients.find((item) => `line:${item.id}` === targetKey) ?? null)
+    : null;
+  const targetPerson = targetKey.startsWith("contract:")
+    ? (newPeople.find((item) => `contract:${item.contract_id}` === targetKey) ?? null)
+    : null;
+  const remainingMd = offboardingCase?.remaining_md_snapshot ?? 0;
+  const departingRate =
+    offboardingCase?.rate_revenue_snapshot ?? line?.rate_revenue ?? null;
+  const existingPreview =
+    targetLine && !sharedPool
+      ? transferPreview({
+          unit: line?.pool_unit,
+          remaining: remainingMd,
+          departingRate,
+          incomingRate: targetLine.rate_revenue,
+        })
+      : null;
+  const existingMethod = effectiveTransferMethod(line?.pool_unit, method);
+  const departingForTakeover: OrderLineRead | null =
+    line && offboardingCase
+      ? {
+          ...line,
+          takeover_source: "ended",
+          departure_date: offboardingCase.effective_date,
+          rate_revenue: departingRate,
+        }
+      : null;
+  const takeoverError = targetPerson
+    ? takeoverTermsError(terms, departingForTakeover)
+    : null;
+  const costSuggestion = targetPerson
+    ? contractCostRatePerMd(targetPerson.rate_candidate, targetPerson.rate_unit)
+    : null;
+
+  const transferReady =
+    targetLine !== null
+      ? sharedPool || existingMethod !== null
+      : targetPerson !== null && onTakeover !== undefined && takeoverError === null;
+
   const canSubmit =
     !submitting &&
     offboardingCase?.status === "pending" &&
     (action === "remove" ||
-      (action === "transfer" && targetOrderId !== "") ||
+      (action === "transfer" && transferReady) ||
       (action === "restore" &&
         !restoreEndTooLate &&
         (!restoreEndRequired || restoreEndDate !== "")));
@@ -112,12 +185,28 @@ export function OffboardingDecisionModal({
       });
       return;
     }
-    onSubmit({
-      action: "transfer",
-      target_order_id: Number(targetOrderId),
-      rate_basis: rateBasis,
-      expected_version: offboardingCase.version,
-    });
+    if (targetPerson && departingForTakeover && onTakeover) {
+      onTakeover(
+        toTakeoverInput(terms, targetPerson.contract_id, departingForTakeover),
+      );
+      return;
+    }
+    if (!targetLine) return;
+    onSubmit(
+      sharedPool
+        ? {
+            action: "transfer",
+            target_order_id: targetLine.id,
+            rate_basis: "recipient",
+            expected_version: offboardingCase.version,
+          }
+        : {
+            action: "transfer",
+            target_order_id: targetLine.id,
+            md_transfer_method: existingMethod as MdTransferMethod,
+            expected_version: offboardingCase.version,
+          },
+    );
   }
 
   return (
@@ -213,7 +302,7 @@ export function OffboardingDecisionModal({
                 Przelicz na innego konsultanta
               </span>
               <span className="block text-xs text-muted-foreground">
-                Wskaż aktywną osobę z tego samego zamówienia i podstawę stawki.
+                Wskaż osobę z tego zamówienia albo nową osobę ze szkiców klienta.
               </span>
             </span>
           </label>
@@ -239,7 +328,7 @@ export function OffboardingDecisionModal({
         </fieldset>
 
         {action === "transfer" ? (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-4">
             <div>
               <label
                 htmlFor="offboarding-recipient"
@@ -249,43 +338,76 @@ export function OffboardingDecisionModal({
               </label>
               <select
                 id="offboarding-recipient"
-                value={targetOrderId}
-                onChange={(event) => setTargetOrderId(event.target.value)}
+                value={targetKey}
+                onChange={(event) => {
+                  setTargetKey(event.target.value);
+                  setMethod(null);
+                  const person = newPeople.find(
+                    (item) => `contract:${item.contract_id}` === event.target.value,
+                  );
+                  const suggestion = person
+                    ? contractCostRatePerMd(person.rate_candidate, person.rate_unit)
+                    : null;
+                  setTerms((current) => ({
+                    ...current,
+                    method: null,
+                    rateCost: suggestion ? String(suggestion.value) : "",
+                    rateRevenue: "",
+                  }));
+                }}
                 className={inputClass}
               >
                 <option value="">Wybierz konsultanta</option>
-                {recipients.map((recipient) => (
-                  <option key={recipient.id} value={recipient.id}>
-                    {recipient.consultant_name}
-                  </option>
-                ))}
+                {recipients.length > 0 ? (
+                  <optgroup label="Na tym zamówieniu">
+                    {recipients.map((recipient) => (
+                      <option key={recipient.id} value={`line:${recipient.id}`}>
+                        {recipient.consultant_name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                {!sharedPool && onTakeover && newPeople.length > 0 ? (
+                  <optgroup label="Nowe osoby u klienta">
+                    {newPeople.map((person) => (
+                      <option
+                        key={person.contract_id}
+                        value={`contract:${person.contract_id}`}
+                      >
+                        {person.candidate_name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
               </select>
-              {recipients.length === 0 ? (
+              {recipients.length === 0 && newPeople.length === 0 ? (
                 <p role="status" className="mt-1 text-xs text-destructive">
                   Brak innego aktywnego konsultanta w tym zamówieniu.
                 </p>
               ) : null}
             </div>
 
-            <div>
-              <label
-                htmlFor="offboarding-rate-basis"
-                className="mb-1 block text-xs font-semibold text-muted-foreground"
-              >
-                Przelicz po stawce *
-              </label>
-              <select
-                id="offboarding-rate-basis"
-                value={rateBasis}
-                onChange={(event) =>
-                  setRateBasis(event.target.value as OrderOffboardingRateBasis)
-                }
-                className={inputClass}
-              >
-                <option value="departing">osoby odchodzącej</option>
-                <option value="recipient">osoby przejmującej</option>
-              </select>
-            </div>
+            {targetLine && !sharedPool ? (
+              <MdTransferChoice
+                name="offboarding-method"
+                preview={existingPreview}
+                incomingName={targetLine.consultant_name}
+                departingName={line?.consultant_name ?? ""}
+                value={method}
+                onChange={setMethod}
+              />
+            ) : null}
+
+            {targetPerson && departingForTakeover ? (
+              <TakeoverTermsFields
+                idPrefix="offboarding-takeover"
+                departing={departingForTakeover}
+                incomingName={targetPerson.candidate_name}
+                value={terms}
+                onChange={setTerms}
+                costNote={costSuggestion?.note ?? null}
+              />
+            ) : null}
           </div>
         ) : null}
 
