@@ -255,6 +255,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'job_public_description'",
     # 0352: podpowiedzi Luny do pytań screeningu przy przepięciu.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'screening_reassign_suggest'",
+    # 0353: podpowiedzi Luny w przeglądzie DZ (Dominik porównuje CV).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'dz_review'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -5024,6 +5026,21 @@ _COLUMN_STATEMENTS = [
     # 0352: debrief z jawnym „klient nie zadawał pytań” (bramka przed „Umową”).
     "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS "
     "no_client_questions BOOLEAN NOT NULL DEFAULT false",
+    # 0353: jedna osoba wysyłająca do Cpro na rekrutację i zapamiętane
+    # podpowiedzi Luny dla przeglądu DZ. Lustro 1:1 z migracją — pilnuje
+    # `test_dz_review.py`.
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS cpro_sender_id INTEGER NULL "
+    "REFERENCES users(id) ON DELETE SET NULL",
+    """CREATE TABLE IF NOT EXISTS dz_review_hints (
+    id BIGSERIAL PRIMARY KEY,
+    candidate_stage_id INTEGER NOT NULL
+        REFERENCES candidate_stages(id) ON DELETE CASCADE,
+    input_hash VARCHAR(64) NOT NULL,
+    model VARCHAR(80) NULL,
+    payload JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_dz_review_hints_stage_hash UNIQUE (candidate_stage_id, input_hash)
+)""",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -5637,6 +5654,11 @@ _DATA_STATEMENTS = [
     "SELECT 'screening_reassign_suggest', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'screening_reassign_suggest')",
+    # 0353: seed feature'a AI `dz_review` (podpowiedzi dla zatwierdzającego DZ).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'dz_review', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'dz_review')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

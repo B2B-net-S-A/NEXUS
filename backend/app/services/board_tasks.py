@@ -10,9 +10,10 @@ z NAJNOWSZEGO wiersza każdej pary (kandydat, opublikowana rekrutacja):
   Dominik"). Delivery Lead widzi rekrutacje klientów ze swojego portfela i te,
   w których jest DL-em; Head of Recruitment i admin — wszystkie.
 * **Do wysłania do Cpro** (tylko Nordea) — osoba stoi na etapie „Wysłać do
-  Cpro". Wysyła osoba wytypowana przy oznaczeniu gotowości
-  (``candidate_stages.task_assignee_id``); wiersze z importu Traffita są
-  nieprzypisane i widzą je osoby z prawem DZ.
+  Cpro". Wysyła JEDNA osoba na całą rekrutację (``jobs.cpro_sender_id``,
+  decyzja Artura 23.09.2026); typowanie per kandydat z 0348
+  (``candidate_stages.task_assignee_id``) jest zapasem, gdy rekrutacja nie ma
+  jeszcze osoby. Nieprzypisane widzą osoby z prawem DZ.
 * **Wysłane do Cpro** — u Nordei „CV wysłane" TO JEST wysłanie do Cpro
   (decyzja Artura 22.09.2026); lista mówi, od ilu dni czekamy na Nordeę.
 * **Czeka na przegląd DL** (pipeline v4, decyzja Artura 23.09.2026) — u
@@ -111,6 +112,10 @@ class BoardTask:
     expected_rate_unit: Optional[str] = None
     expected_rate_currency: Optional[str] = None
     screening_stage_id: Optional[int] = None
+    # 0353: osoba ustawiona dla CAŁEJ rekrutacji (`jobs.cpro_sender_id`).
+    # `assignee_id` = ona albo, gdy jej brak, typowanie per kandydat z 0348.
+    job_sender_id: Optional[int] = None
+    job_sender_name: Optional[str] = None
 
     def as_dict(self) -> dict:
         return {
@@ -135,6 +140,8 @@ class BoardTask:
             "expected_rate_unit": self.expected_rate_unit,
             "expected_rate_currency": self.expected_rate_currency,
             "screening_stage_id": self.screening_stage_id,
+            "job_sender_id": self.job_sender_id,
+            "job_sender_name": self.job_sender_name,
         }
 
 
@@ -245,7 +252,7 @@ _LATEST_SQL = text(
          ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
     )
     SELECT l.id, l.candidate_id, l.job_id, l.stage_def_id, l.moved_at,
-           l.moved_by, l.task_assignee_id,
+           l.moved_by, l.task_assignee_id, j.cpro_sender_id,
            COALESCE(j.pipeline_template_id, :default_template_id) AS template_id,
            j.title, j.client_id, j.delivery_lead_id, cl.name AS client_name,
            c.name AS cname, c.lastname AS clastname
@@ -350,7 +357,8 @@ async def load_snapshot(
                 BoardTask(
                     kind=KIND_CPRO_TO_SEND,
                     target_stage_def_id=stages.cv_sent_id,
-                    assignee_id=r.task_assignee_id,
+                    assignee_id=r.cpro_sender_id or r.task_assignee_id,
+                    job_sender_id=r.cpro_sender_id,
                     **base,
                 )
             )
@@ -393,6 +401,7 @@ async def _attach_versions_and_names(db: AsyncSession, tasks: list[BoardTask]) -
     user_ids = {t.assignee_id for t in tasks if t.assignee_id is not None} | {
         t.verified_by_id for t in tasks if t.verified_by_id is not None
     }
+    user_ids |= {t.job_sender_id for t in tasks if t.job_sender_id is not None}
     names: dict[int, str] = {}
     if user_ids:
         for uid, uname, email in (
@@ -405,6 +414,8 @@ async def _attach_versions_and_names(db: AsyncSession, tasks: list[BoardTask]) -
         t.process_state_version = versions.get((t.candidate_id, t.job_id), 0)
         if t.assignee_id is not None:
             t.assignee_name = names.get(t.assignee_id)
+        if t.job_sender_id is not None:
+            t.job_sender_name = names.get(t.job_sender_id)
         if t.verified_by_id is not None:
             t.verified_by_name = names.get(t.verified_by_id)
 
@@ -730,40 +741,38 @@ async def ensure_assignee_can_move(
     return True
 
 
-async def notify_cpro_assignment(
+async def notify_cpro_sender(
     db: AsyncSession,
     *,
-    stage_id: int,
-    candidate_name: str,
     job_id: int,
     job_title: str,
-    candidate_id: int,
-    assignee_id: int,
+    waiting: int,
+    sender_id: int,
     actor: User,
 ) -> None:
-    """Dzwonek dla wytypowanej osoby (nie dla siebie samego).
+    """Dzwonek dla osoby, która od teraz wysyła do Cpro kandydatów rekrutacji.
 
-    Dedup dobowy `ix_notif_dedup_daily` jest po (osoba, typ, wiersz etapu):
-    ponowne wytypowanie TEJ SAMEJ osoby do tego samego kandydata tego samego
-    dnia (A → B → A) nie daje drugiego dzwonka — zadanie i tak czeka na jej
-    pulpicie, a zmianę widać w historii (`cpro_assignee_changed`).
+    Nie dla siebie samego. Dedup dobowy `ix_notif_dedup_daily` jest po
+    (osoba, typ, rekrutacja): ponowne ustawienie tej samej osoby tego samego
+    dnia nie daje drugiego dzwonka — zmianę widać w historii rekrutacji.
     """
 
-    if assignee_id == actor.id:
+    if sender_id == actor.id:
         return
     from app.models.notification import NotificationType  # noqa: PLC0415
     from app.services.notification_triggers import emit  # noqa: PLC0415
 
+    waits = f" Teraz czeka: {waiting}." if waiting else ""
     await emit(
         db,
-        user_id=assignee_id,
-        title=f"Wyślij do Cpro: {candidate_name}",
+        user_id=sender_id,
+        title=f"Wysyłasz do Cpro: {job_title}",
         message=(
-            f"{actor.name or 'Ktoś z zespołu'} wytypował(a) Cię do wysłania "
-            f"kandydata do Cpro — {job_title}."
+            f"{actor.name or 'Ktoś z zespołu'} ustawił(a) Cię jako osobę, która "
+            f"wysyła do Cpro kandydatów tej rekrutacji.{waits}"
         ),
         ntype=NotificationType.cpro_send_assigned,
-        related_entity_type="candidate_stage",
-        related_entity_id=stage_id,
-        link=f"/jobs/{job_id}?candidate={candidate_id}",
+        related_entity_type="job",
+        related_entity_id=job_id,
+        link=f"/jobs/{job_id}",
     )

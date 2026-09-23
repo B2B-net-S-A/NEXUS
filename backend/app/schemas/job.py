@@ -217,6 +217,9 @@ class JobResponse(BaseModel):
     request_status: Optional[str] = None
     # Tablica (22.09.2026): odznaka „Gotowy do Cpro" istnieje tylko u Nordei.
     cpro_enabled: bool = False
+    # 0353: osoba, która wysyła do Cpro kandydatów tej rekrutacji (Nordea).
+    cpro_sender_id: Optional[int] = None
+    cpro_sender_name: Optional[str] = None
     recruitment_type: RecruitmentType
     deadline: Optional[date]
     client_id: Optional[int]

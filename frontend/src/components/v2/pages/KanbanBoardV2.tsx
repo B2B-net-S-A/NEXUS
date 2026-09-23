@@ -136,7 +136,6 @@ import {
  type NextActionKind,
 } from "@/lib/pipeline-next-action";
 import { useClientPlaybook } from "@/lib/client-playbooks";
-import { CproAssigneeDialog } from "@/components/v2/jobs/CproAssigneeDialog";
 import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { useJobPipelineTemplate } from "@/hooks/useJobPipelineTemplate";
 import {
@@ -1002,17 +1001,6 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  </span>
  ))}
  <CardV4Badges item={item} fullName={fullName} stageBadge={stageBadge} />
- {stageBadge === "cpro" && item.task_assignee_name && (
- <span
- className={cn(
- "inline-flex items-center rounded px-1 text-[9px] font-medium bg-muted text-muted-foreground",
- desktopOverview && "xl:pointer-fine:hidden"
- )}
- title="Ta osoba wyśle kandydata do Cpro."
- >
- Wysyła: {item.task_assignee_name}
- </span>
- )}
  {/* `=== true`: odznaka obiecuje gotowy dokument (dawna odznaka
  kolumny „Następny krok" w Tabeli). */}
  {item.auto_cv_ready === true && (
@@ -2049,14 +2037,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  });
  }, [dockItem, dockItemColId, moveTargetCols, dockHost, readOnly]);
 
- // „Gotowy do Cpro" (0348): za każdym razem wysyła ktoś inny, więc włączenie
- // odznaki najpierw pyta, kto wyśle — ruch idzie dopiero z wytypowaną osobą.
- const [cproPrompt, setCproPrompt] = useState<{
- item: KanbanItem;
- fromColId: string;
- to: KanbanColumn;
- } | null>(null);
-
  // Przełączniki odznak w doku: etap-odznaka z kolumny tej osoby. Włączenie =
  // ruch na etap-odznakę, wyłączenie = powrót na gospodarza kolumny.
  const dockBadgeToggles = useMemo(() => {
@@ -2088,13 +2068,9 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  : badge === "dz" && !canSetDzBadge
  ? "„DZ ✓” ustawia Delivery Lead albo Head of Recruitment."
  : null,
- onToggle: () => {
- if (badge === "cpro" && !active) {
- setCproPrompt({ item: dockItem, fromColId: dockItemColId, to: member });
- return;
- }
- requestMove(dockItem, dockItemColId, active ? dockHost : member);
- },
+ // „Gotowy do Cpro": bez pytania o osobę — do Cpro wysyła jedna
+ // osoba na całą rekrutację (0353, pasek nad Tablicą).
+ onToggle: () => requestMove(dockItem, dockItemColId, active ? dockHost : member),
  });
  }
  return toggles;
@@ -2715,22 +2691,6 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, scoresLoadin
  {/* Okna ruchu (powód odrzucenia, stawki, zatrudnienie, ostrzeżenie) —
   `usePipelineMove`, wspólne z przyszłym widokiem tabeli i panelem osoby. */}
  {move.dialogs}
- <CproAssigneeDialog
- open={cproPrompt !== null}
- candidateName={
- cproPrompt
- ? `${cproPrompt.item.name ?? ""} ${cproPrompt.item.lastname ?? ""}`.trim() || "Kandydat"
- : ""
- }
- defaultAssigneeId={authUser?.id ?? null}
- onCancel={() => setCproPrompt(null)}
- onConfirm={(assigneeId) => {
- if (!cproPrompt) return;
- const { item, fromColId, to } = cproPrompt;
- setCproPrompt(null);
- requestMove(item, fromColId, to, { taskAssigneeId: assigneeId });
- }}
- />
 
  {scorecardPrompt && (
  <ScorecardV2

@@ -1749,6 +1749,17 @@ async def get_job(
     from app.services.board_stage_badges import cpro_enabled_for_client  # noqa: PLC0415
 
     payload["cpro_enabled"] = cpro_enabled_for_client(job.client_id)
+    # 0353: jedna osoba wysyła do Cpro kandydatów tej rekrutacji.
+    payload["cpro_sender_id"] = job.cpro_sender_id if payload["cpro_enabled"] else None
+    payload["cpro_sender_name"] = (
+        await db.scalar(
+            select(func.coalesce(User.name, User.email)).where(
+                User.id == job.cpro_sender_id
+            )
+        )
+        if payload["cpro_sender_id"] is not None
+        else None
+    )
     redact_job_for_viewer(payload, current_user)
     _redact_delivery_lead_job_finance(payload, current_user)
     return payload

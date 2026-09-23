@@ -1,9 +1,10 @@
-// Kolejka „Czeka na Ciebie" (0348) — praca na Tablicach, której nikt nie widzi.
+// Kolejka „Czeka na Ciebie" (0348, 0353) — praca na Tablicach, której nikt nie widzi.
 //
 // Typy są lustrem `backend/app/api/board_tasks.py`. Serwer rozstrzyga, co
 // należy do danej osoby (DZ: Delivery Lead w swoim portfelu, Head of
-// Recruitment wszędzie; Cpro: wytypowana osoba). Front tylko pokazuje i woła
-// zwykły ruch w pipeline — bez własnej ścieżki zapisu etapu.
+// Recruitment wszędzie; Cpro: osoba ustawiona dla CAŁEJ rekrutacji). Front
+// tylko pokazuje i woła zwykły ruch w pipeline — bez własnej ścieżki zapisu
+// etapu.
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -40,6 +41,9 @@ export interface BoardTaskRow {
   expected_rate_currency?: string | null;
   /** Wiersz etapu z zapisanym arkuszem screeningu (zwykle „Screening"). */
   screening_stage_id?: number | null;
+  /** 0353: osoba ustawiona dla CAŁEJ rekrutacji (`jobs.cpro_sender_id`). */
+  job_sender_id?: number | null;
+  job_sender_name?: string | null;
 }
 
 export interface BoardTasksResponse {
@@ -71,13 +75,170 @@ export function useBoardTasks() {
   });
 }
 
-export function setCproAssignee(stageId: number, assigneeId: number) {
+/** Jedna osoba wysyła do Cpro kandydatów całej rekrutacji (decyzja 23.09.2026). */
+export function setCproSender(jobId: number, assigneeId: number) {
   return api
-    .patch<{ stage_id: number; assignee_id: number; assignee_name: string | null; added_to_team: boolean }>(
-      `/api/board-tasks/cpro/${stageId}/assignee`,
+    .put<{ job_id: number; assignee_id: number; assignee_name: string | null; added_to_team: boolean }>(
+      `/api/board-tasks/cpro/jobs/${jobId}/sender`,
       { assignee_id: assigneeId }
     )
     .then((r) => r.data);
+}
+
+export interface CproJobGroup {
+  job_id: number;
+  job_title: string;
+  client_name: string | null;
+  /** Osoba ustawiona dla rekrutacji — nigdy typowanie jednego kandydata. */
+  assignee_id: number | null;
+  assignee_name: string | null;
+  /** Typowania per kandydat sprzed 0353, gdy rekrutacja nie ma jeszcze osoby. */
+  legacy_assignees: string[];
+  /** Najdłużej czekający na górze — ta sama kolejność co lista z serwera. */
+  rows: BoardTaskRow[];
+}
+
+/** „Do wysłania do Cpro" pogrupowane po rekrutacji — osoba jest per rekrutacja. */
+export function groupCproByJob(rows: BoardTaskRow[]): CproJobGroup[] {
+  const groups = new Map<number, CproJobGroup>();
+  for (const row of rows) {
+    let group = groups.get(row.job_id);
+    if (!group) {
+      group = {
+        job_id: row.job_id,
+        job_title: row.job_title,
+        client_name: row.client_name,
+        assignee_id: row.job_sender_id ?? null,
+        assignee_name: row.job_sender_name ?? null,
+        legacy_assignees: [],
+        rows: [],
+      };
+      groups.set(row.job_id, group);
+    }
+    group.rows.push(row);
+    if (group.assignee_id == null && row.assignee_name && !group.legacy_assignees.includes(row.assignee_name)) {
+      group.legacy_assignees.push(row.assignee_name);
+    }
+  }
+  return [...groups.values()];
+}
+
+// ── Przegląd DZ (0353) ──────────────────────────────────────────────────────
+
+export interface DzCvRun {
+  t: string;
+  b: boolean;
+}
+
+export interface DzCvBlock {
+  kind: "h" | "p" | "li";
+  section: string | null;
+  runs: DzCvRun[];
+}
+
+export interface DzCheck {
+  label: string;
+  in_cv: boolean;
+  bolded: boolean;
+  in_original: boolean;
+  original_roles: string[];
+  missing_in_roles: string[];
+  roles_absent: string[];
+}
+
+export interface DzReview {
+  stage_id: number;
+  candidate_id: number;
+  candidate_name: string;
+  job_id: number;
+  job_title: string;
+  client_name: string | null;
+  client_request: {
+    must: string[];
+    nice: string[];
+    description: string | null;
+    project_about: string | null;
+  };
+  generated_cv: {
+    source: "branded_finalized" | "branded_draft" | "generated";
+    stage_id: number | null;
+    generated_document_id: number | null;
+    updated_at: string | null;
+    blocks: DzCvBlock[];
+  } | null;
+  original_cv: {
+    source: "snapshot" | "profile_text" | null;
+    stage_id: number | null;
+    filename: string | null;
+    text: string | null;
+  };
+  checks: DzCheck[];
+  extra_bold: string[];
+  summary: {
+    must_total: number;
+    must_in_cv: number;
+    must_bolded: number;
+    roles_missing: number;
+    generated_roles: number;
+  };
+}
+
+export interface DzHint {
+  kind: string;
+  severity: "high" | "medium" | "low";
+  must_have: string | null;
+  message: string;
+  quote: string | null;
+}
+
+export interface DzHints {
+  status: "ok" | "unavailable" | "no_cv";
+  verdict: "ok" | "fix" | null;
+  hints: DzHint[];
+  model: string | null;
+  cached: boolean;
+}
+
+export const dzReviewQueryKey = (stageId: number) => ["dz-review", stageId] as const;
+/** Podpowiedzi należą do TREŚCI przeglądu: CV poprawione na Tablicy daje nowy
+ *  klucz, więc stare „Brak must-have X" nie stoi obok CV, które już ma X. */
+export function dzHintsSignature(review: DzReview | undefined): string {
+  if (!review) return "";
+  const cv = review.generated_cv;
+  const words = (cv?.blocks ?? []).reduce((n, b) => n + b.runs.reduce((m, r) => m + r.t.length, 0), 0);
+  return [
+    cv?.source ?? "none",
+    cv?.generated_document_id ?? "",
+    cv?.updated_at ?? "",
+    words,
+    review.original_cv.stage_id ?? review.original_cv.source ?? "",
+    review.client_request.must.join("|"),
+  ].join(":");
+}
+
+export const dzHintsQueryKey = (stageId: number, signature: string) =>
+  ["dz-review", stageId, "hints", signature] as const;
+
+export function useDzReview(stageId: number | null) {
+  return useQuery<DzReview>({
+    queryKey: dzReviewQueryKey(stageId ?? 0),
+    queryFn: () => api.get<DzReview>(`/api/board-tasks/dz/${stageId}/review`).then((r) => r.data),
+    enabled: stageId != null,
+    // Z okna idzie się na Tablicę poprawić CV — po powrocie zawsze świeży odczyt.
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+}
+
+/** Podpowiedzi Luny — POST, bo pierwszy odczyt danej treści CV płaci za model;
+ *  serwer pamięta wynik per treść, więc ponowne otwarcie nic nie kosztuje. */
+export function useDzHints(stageId: number | null, review: DzReview | undefined, enabled: boolean) {
+  return useQuery<DzHints>({
+    queryKey: dzHintsQueryKey(stageId ?? 0, dzHintsSignature(review)),
+    queryFn: () => api.post<DzHints>(`/api/board-tasks/dz/${stageId}/hints`).then((r) => r.data),
+    enabled: stageId != null && review != null && enabled,
+    staleTime: Infinity,
+  });
 }
 
 export interface AssigneeOption {
