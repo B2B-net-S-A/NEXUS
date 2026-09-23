@@ -7,7 +7,6 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/auth";
 import { useCapabilities } from "@/hooks/useCapability";
 import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
-import { OnboardingWalkthrough, useOnboarding } from "@/components/OnboardingWalkthrough";
 import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
 import { SidebarV2 } from "./SidebarV2";
 import { TopbarV2 } from "./TopbarV2";
@@ -132,8 +131,6 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
     onFocusSearch: focusSearch,
   });
 
-  const { shouldShow: showOnboarding, dismiss: dismissOnboarding } = useOnboarding();
-
   // Blocks DL/recruiter first-login: if profile not completed, redirect
   // to /onboarding before the shell renders. Runs after hydration so we
   // don't bounce on initial SSR paint.
@@ -219,9 +216,6 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
 
       {/* Keyboard shortcuts help */}
       {showHelp && <ShortcutsModal onClose={() => setShowHelp(false)} />}
-
-      {/* Onboarding */}
-      {showOnboarding && <OnboardingWalkthrough onDismiss={dismissOnboarding} />}
 
       {/* „Moi ludzie" — panel rekrutera, postać w rogu, `?people=1` z dzwonka */}
       <MyPeopleRoot />

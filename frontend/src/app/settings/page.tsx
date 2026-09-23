@@ -43,8 +43,8 @@ import { TraffitSyncCard } from "@/components/settings/TraffitSyncCard";
 import EmailTemplatesCard from "@/components/settings/EmailTemplatesCard";
 import NotificationDeliverySettings from "@/components/settings/NotificationDeliverySettings";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
-import { clearOnboardingCompleted } from "@/lib/onboarding-storage";
-import { requestOnboardingOpen } from "@/components/OnboardingWalkthrough";
+import { resetScreenSeen } from "@/lib/jarvis/bubble-budget";
+import { openJarvis } from "@/lib/jarvis/events";
 import {
   findSettingsArea,
   isFinanceReadOnly,
@@ -745,11 +745,12 @@ function CoachingSettings() {
 }
 
 function OnboardingSettings() {
-  // Otwiera przewodnik od razu, bez przeładowania strony — przewodnik nie
-  // startuje już sam, więc to jedyna droga do niego.
+  // Dawny czterokrokowy przewodnik (zgnił: „Ogłoszenia”) zastąpiły
+  // przewodniki ekranów Jarvisa — dymek raz na ekran i przycisk „?” w panelu.
+  const userId = useAuthStore((s) => s.user?.id);
   const handleReset = () => {
-    clearOnboardingCompleted();
-    requestOnboardingOpen();
+    resetScreenSeen(userId);
+    openJarvis({});
   };
 
   return (
@@ -759,9 +760,10 @@ function OnboardingSettings() {
           <HelpCircle className="w-6 h-6 text-primary" />
         </div>
         <div>
-          <h3 className="text-base font-bold text-foreground dark:text-foreground">Przewodnik wprowadzający</h3>
+          <h3 className="text-base font-bold text-foreground dark:text-foreground">Wskazówki na ekranach</h3>
           <p className="text-sm text-muted-foreground dark:text-muted-foreground mt-0.5">
-            Pokaż ponownie przewodnik po Nexus
+            Asystent przy pierwszej wizycie na ekranie podpowiada, co się tu robi. Na każdym ekranie
+            możesz też kliknąć „?” w jego panelu.
           </p>
         </div>
       </div>
@@ -772,7 +774,7 @@ function OnboardingSettings() {
         className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
       >
         <RefreshCw className="w-4 h-4" />
-        Pokaż przewodnik
+        Pokaż wskazówki od nowa
       </button>
 
       <div className="mt-6 pt-6 border-t border-border dark:border-border">

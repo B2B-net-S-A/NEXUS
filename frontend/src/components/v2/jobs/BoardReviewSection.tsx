@@ -77,7 +77,7 @@ export function BoardReviewSection({
   }, [onTotalChange, known, total]);
 
   return (
-    <div className="space-y-1.5 border-b border-border p-2" data-testid="board-review">
+    <div className="space-y-1.5 border-b border-border p-2" data-testid="board-review" data-help="jobs.board.review">
       <div className="flex items-center justify-between px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         <span>Propozycje · z bazy i przepięcia</span>
         {view.kind === "list" || view.kind === "empty" || view.kind === "partial" ? (

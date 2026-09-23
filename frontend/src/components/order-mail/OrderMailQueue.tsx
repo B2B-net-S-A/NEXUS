@@ -126,6 +126,7 @@ export function MailboxCheckPanel(p: MailboxCheckProps) {
   return (
     <section
       data-testid="mailbox-check"
+      data-help="contracts.order_mail.check"
       className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-4 py-3 text-sm"
     >
       <div className="min-w-0">
@@ -207,7 +208,7 @@ function recheckEntryLabel(e: OrderMailRecheckEntry): string {
 export function RecheckHistoryPanel(p: RecheckHistoryProps) {
   const [openRun, setOpenRun] = useState<number | null>(null);
   return (
-    <section className="mt-10" data-testid="recheck-history">
+    <section className="mt-10" data-testid="recheck-history" data-help="contracts.order_mail.history">
       <h2 className="text-lg font-semibold">Historia automatycznej weryfikacji</h2>
       <p className="mt-1 text-sm text-muted-foreground">
         {recheckScheduleSentence(p.window)} system sam próbuje dokończyć
@@ -402,7 +403,7 @@ export function OrderMailQueueView(p: OrderMailQueueViewProps) {
       ) : (
       <>
       <MailboxCheckPanel {...p.mailbox} />
-      <div className="mt-4 flex gap-2" role="tablist">
+      <div className="mt-4 flex gap-2" role="tablist" data-help="contracts.order_mail.tabs">
         {TABS.map((t) => (
           <button
             key={t.outcome}
@@ -634,7 +635,7 @@ function Detail({ doc, onApply, onDismiss, onRefreshPlan, busy, applyError }: { 
   const windowHref = orderWindowHref(doc);
   const [fileError, setFileError] = useState<string | null>(null);
   return (
-    <section className="rounded-lg border p-4" data-testid="order-mail-detail">
+    <section className="rounded-lg border p-4" data-testid="order-mail-detail" data-help="contracts.order_mail.detail">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">{doc.client_name ?? "Nierozpoznany klient"}</h2>

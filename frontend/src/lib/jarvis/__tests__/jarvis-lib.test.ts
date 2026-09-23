@@ -44,7 +44,28 @@ describe("kontekst ekranu", () => {
     expect(screenFromLocation("/candidates/search", "q=java")).toEqual({
       path: "/candidates/search?q=java",
       entity: null,
+      key: null,
     });
+  });
+
+  it("niesie klucz przewodnika ekranu, a przewodnik podsuwa podpowiedzi", () => {
+    const screen = screenFromLocation("/jobs/5", "?tab=champion");
+    expect(screen.key).toBe("job.champion");
+    const guide = {
+      key: "job.champion",
+      title: "Zlecenie",
+      roles: [],
+      what: "Tu opisujesz zlecenie.",
+      tasks: [
+        { q: "Pierwsze?", a: "a" },
+        { q: "Drugie?", a: "b" },
+        { q: "Trzecie?", a: "c" },
+        { q: "Czwarte?", a: "d" },
+      ],
+      pitfalls: [],
+      anchors: [],
+    };
+    expect(suggestionsFor(screen, guide)).toEqual(["Pierwsze?", "Drugie?", "Trzecie?"]);
   });
 
   it("podpowiedzi zależą od ekranu", () => {
@@ -167,5 +188,46 @@ describe("źródła w reduktorze", () => {
     await streamJarvisChat({ message: "hej", web: true }, { onEvent: () => undefined, fetchImpl });
     const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toEqual({ message: "hej", web: true });
+  });
+});
+
+
+describe("tekst na żywo (delty)", () => {
+  it("delty składają się w jedną wiadomość, a pełna wiadomość ją zastępuje", () => {
+    let state = applyStreamEvent(EMPTY, { type: "delta", text: "Cze" });
+    state = applyStreamEvent(state, { type: "delta", text: "ść" });
+    expect(state.items).toEqual([{ kind: "message", role: "assistant", markdown: "Cześć", streaming: true }]);
+    state = applyStreamEvent(state, { type: "message", markdown: "Cześć!", final: true });
+    expect(state.items).toEqual([{ kind: "message", role: "assistant", markdown: "Cześć!" }]);
+  });
+
+  it("ponowienie czyści pokazany tekst, a przerwanie zostawia go bez kursora", () => {
+    let state = applyStreamEvent(EMPTY, { type: "delta", text: "Zła próba" });
+    state = applyStreamEvent(state, { type: "delta_reset" });
+    expect(state.items).toEqual([]);
+    state = applyStreamEvent(state, { type: "delta", text: "Dobra" });
+    state = applyStreamEvent(state, { type: "error", message: "Przerwano." });
+    expect(state.items[0]).toEqual({ kind: "message", role: "assistant", markdown: "Dobra" });
+  });
+
+  it("podświetlenie trafia do rozmowy", () => {
+    const state = applyStreamEvent(EMPTY, {
+      type: "highlight",
+      anchor: "jobs.board.columns",
+      label: "Kolumny tablicy",
+      reason: "Przeciągnij kartę",
+    });
+    expect(state.items[0]).toMatchObject({ kind: "highlight", anchor: "jobs.board.columns" });
+  });
+});
+
+describe("preferencje Jarvisa = lista w backendzie", () => {
+  it("screen_tips i notes są w domyślnych preferencjach po obu stronach", () => {
+    const source = readFileSync(resolve(__dirname, "../../../../../backend/app/services/jarvis/prefs.py"), "utf8");
+    const defaults = /DEFAULT_PREFS: dict\[str, Any\] = \{([\s\S]*?)\n\}/.exec(source)?.[1] ?? "";
+    for (const key of ["screen_tips", "notes"]) expect(defaults).toContain(`"${key}"`);
+    const root = readFileSync(resolve(__dirname, "../../../components/jarvis/JarvisRoot.tsx"), "utf8");
+    expect(root).toMatch(/screen_tips: true/);
+    expect(root).toMatch(/notes: \[\]/);
   });
 });

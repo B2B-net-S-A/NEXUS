@@ -1118,6 +1118,7 @@ export function CandidateProfileFactsBar({
     <>
       <section
         aria-label="Najważniejsze fakty o kandydacie"
+        data-help="candidate.profile.facts"
         className={cn(
           "grid gap-3",
           canViewAndEditRate && !rateForbidden

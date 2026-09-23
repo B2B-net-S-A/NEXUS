@@ -1119,7 +1119,7 @@ export function JobsListV2() {
         <div className="ml-auto flex items-center gap-2">
           {/* Capability `job.create` = backendowy TacPlus (POST /api/jobs). */}
           {canCreateJob && (
-            <Button size="sm" variant="primary" onClick={() => router.push("/jobs/new")}>
+            <Button size="sm" variant="primary" onClick={() => router.push("/jobs/new")} data-help="jobs.list.new">
               <Plus className="h-4 w-4" /> Nowa rekrutacja
             </Button>
           )}
@@ -1421,6 +1421,7 @@ export function JobsListV2() {
               onClick={toggleFilters}
               aria-expanded={filtersExpanded}
               aria-controls="jobs-filters-rail"
+              data-help="jobs.list.filters"
               className="h-9"
             >
               <SlidersHorizontal className="h-4 w-4" />
@@ -1434,6 +1435,7 @@ export function JobsListV2() {
               className="flex items-center overflow-hidden rounded-md border border-border"
               role="group"
               aria-label="Zakres rekrutacji"
+              data-help="jobs.list.scope"
             >
               {(
                 [
@@ -1462,7 +1464,7 @@ export function JobsListV2() {
                 </button>
               ))}
             </div>
-            <div className="min-w-[240px] max-w-lg flex-1">
+            <div className="min-w-[240px] max-w-lg flex-1" data-help="jobs.list.search">
               <Input
                 leadingIcon={<Search className="h-4 w-4" />}
                 placeholder="Tytuł, klient, technologia…"
@@ -1480,7 +1482,7 @@ export function JobsListV2() {
                 setPage(1);
               }}
             >
-              <SelectTrigger className="h-9 w-[170px] font-medium">
+              <SelectTrigger className="h-9 w-[170px] font-medium" data-help="jobs.list.sort">
                 <SelectValue placeholder="Sortowanie" />
               </SelectTrigger>
               <SelectContent>
@@ -1537,6 +1539,7 @@ export function JobsListV2() {
             className="flex flex-wrap items-center gap-1.5"
             role="group"
             aria-label="Status requestu"
+            data-help="jobs.list.status"
           >
             <span className="mr-1 text-xs text-muted-foreground">Status:</span>
             {REQUEST_STATUS_FILTER_ORDER.map((value) => {

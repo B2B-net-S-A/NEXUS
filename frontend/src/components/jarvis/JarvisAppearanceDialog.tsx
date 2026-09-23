@@ -32,15 +32,16 @@ interface Props {
   saving?: boolean;
   error?: string | null;
   onSave: (next: Partial<JarvisPrefs>) => void;
+  onResetTips?: () => void;
 }
 
-export function JarvisAppearanceDialog({ open, onOpenChange, prefs, saving = false, error, onSave }: Props) {
+export function JarvisAppearanceDialog({ open, onOpenChange, prefs, saving = false, error, onSave, onResetTips }: Props) {
   const [valid, setValid] = useState(true);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" aria-describedby={undefined}>
         <DialogHeader>
-          <DialogTitle>Wygląd asystenta</DialogTitle>
+          <DialogTitle>Ustawienia asystenta</DialogTitle>
         </DialogHeader>
         <DialogBody>
           {open && (
@@ -53,6 +54,7 @@ export function JarvisAppearanceDialog({ open, onOpenChange, prefs, saving = fal
               onSave={onSave}
               onCancel={() => onOpenChange(false)}
               onValidityChange={setValid}
+              onResetTips={onResetTips}
             />
           )}
         </DialogBody>
