@@ -1223,51 +1223,80 @@ async def _protect_newer_or_manual_consumption(
             "rozliczenie wspólnej puli MD za ten miesiąc."
         )
 
-    model = (
-        ClientOrderInvoiceConsumption
-        if plan.kind == _REPROCESS_COST
-        else ClientOrderMdConsumption
+    is_cost = plan.kind == _REPROCESS_COST
+    message, current_value, write_required = await _newer_or_manual_conflict(
+        db,
+        model=ClientOrderInvoiceConsumption if is_cost else ClientOrderMdConsumption,
+        order_id=plan.match.order.id,
+        order_number=plan.match.group.order_number,
+        batch=batch,
+        expected_value=plan.expected_value,
+        is_cost=is_cost,
+        lock=lock,
     )
-    value_column = (
-        model.invoice_amount if plan.kind == _REPROCESS_COST else model.md_reported
-    )
+    if current_value is not None:
+        plan.current_value = current_value
+    if not write_required:
+        plan.write_required = False
+    return message
+
+
+async def _newer_or_manual_conflict(
+    db: AsyncSession,
+    *,
+    model,
+    order_id: int,
+    order_number: str,
+    batch: MdConsumptionImport,
+    expected_value: Decimal,
+    is_cost: bool,
+    lock: bool,
+) -> tuple[Optional[str], Optional[Decimal], bool]:
+    """Czy wpis za ten miesiąc na linii jest ręczny albo z NOWSZEJ partii.
+
+    Zwraca ``(komunikat konfliktu | None, bieżąca wartość | None,
+    czy zapis jest potrzebny)``. Wspólne dla replayu Polkomtela i ręcznego
+    przypisania wiersza (audyt 22.09 r2, FIN-MD-07): ``assign_row`` ze starszej
+    paczki nadpisywał nowszy albo ręczny wpis za ten sam miesiąc.
+    """
+    value_column = model.invoice_amount if is_cost else model.md_reported
     current_query = select(model).where(
-        model.order_id == plan.match.order.id,
+        model.order_id == order_id,
         model.period_month == batch.period_month,
     )
     if lock:
         current_query = current_query.with_for_update()
     current = await db.scalar(current_query.execution_options(populate_existing=True))
     if current is None:
-        return None
-    current_value = (
-        quantize_money(getattr(current, value_column.key))
-        if plan.kind == _REPROCESS_COST
-        else quantize_md(getattr(current, value_column.key))
-    )
-    plan.current_value = current_value
+        return None, None, True
+    raw = getattr(current, value_column.key)
+    current_value = quantize_money(raw) if is_cost else quantize_md(raw)
     if current.source == CONSUMPTION_SOURCE_MANUAL:
         return (
-            f"Zamówienie {plan.match.group.order_number}: istnieje ręczne "
-            "rozliczenie za ten miesiąc."
+            f"Zamówienie {order_number}: istnieje ręczne rozliczenie za ten miesiąc.",
+            current_value,
+            True,
         )
-    if current_value == plan.expected_value:
-        plan.write_required = False
-        return None
+    if current_value == expected_value:
+        return None, current_value, False
     if current.import_id == batch.id:
-        return None
+        return None, current_value, True
     if current.import_id is None:
         return (
-            f"Zamówienie {plan.match.group.order_number}: istnieje inne "
-            "rozliczenie bez możliwej do potwierdzenia partii źródłowej."
+            f"Zamówienie {order_number}: istnieje inne "
+            "rozliczenie bez możliwej do potwierdzenia partii źródłowej.",
+            current_value,
+            True,
         )
     other_batch = await db.get(MdConsumptionImport, current.import_id)
     if other_batch is None or other_batch.created_at >= batch.created_at:
         return (
-            f"Zamówienie {plan.match.group.order_number}: istnieje rozliczenie "
-            "z nowszego importu; starsza partia nie może go nadpisać."
+            f"Zamówienie {order_number}: istnieje rozliczenie "
+            "z nowszego importu; starsza partia nie może go nadpisać.",
+            current_value,
+            True,
         )
-    return None
+    return None, current_value, True
 
 
 async def _lock_polkomtel_reprocess_targets(
@@ -1825,6 +1854,24 @@ async def assign_row(
             MdConsumptionImportRow.id != row.id,
         )
     )
+    # Audyt 22.09 r2 (FIN-MD-07): starsza paczka nie nadpisuje nowszego ani
+    # ręcznego wpisu za ten miesiąc (ta sama reguła co replay Polkomtela).
+    conflict, _current, _write = await _newer_or_manual_conflict(
+        db,
+        model=ClientOrderMdConsumption,
+        order_id=order.id,
+        order_number=(
+            order.order_group.order_number if order.order_group else str(order.id)
+        ),
+        batch=batch,
+        expected_value=quantize_md(
+            Decimal(str(already_applied or 0)) + row.md_reported
+        ),
+        is_cost=False,
+        lock=True,
+    )
+    if conflict is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=conflict)
     await _apply_to_line(
         db,
         match_order=order,

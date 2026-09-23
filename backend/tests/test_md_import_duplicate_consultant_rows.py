@@ -585,3 +585,44 @@ async def test_import_entry_names_the_order_and_the_counter(
     assert "wykorzystano 20 / pozostało 30 MD" in entry["description"]
     # Miesiąc słownie, nie „2026-07" — wpis czyta człowiek.
     assert _PERIOD not in entry["description"]
+
+
+# ── Audyt 22.09 r2 (FIN-MD-07) ──────────────────────────────────────────────
+
+
+async def test_assigning_an_old_row_does_not_overwrite_a_newer_or_manual_entry(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Przypisanie wiersza starszej paczki nadpisywało wpis ręczny / nowszy."""
+    client_id, contracts, names = await _seed_client_with_contracts(2, same_name=True)
+    _enable_multi(monkeypatch, client_id)
+    group = await _create_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_md_line(contracts[0], 50), _md_line(contracts[1], 50)],
+    )
+    finance = await _finance_headers(app_client)
+    old = await _import(app_client, finance, _sheet([(names[0], 15)]))
+    assert old["rows_ambiguous"] == 1, old
+    target = group["lines"][0]["id"]
+
+    manual = await app_client.put(
+        f"/api/clients/{client_id}/order-groups/{group['id']}"
+        f"/lines/{target}/consumptions/{_PERIOD}",
+        json={"md_reported": 7, "status": "accepted"},
+        headers=app_auth_headers,
+    )
+    assert manual.status_code == 200, manual.text
+
+    resp = await app_client.post(
+        f"/api/md-consumption/imports/{old['id']}/rows/{old['rows'][0]['id']}/assign",
+        json={"order_id": target},
+        headers=finance,
+    )
+    assert resp.status_code == 409, resp.text
+    assert "ręczne rozliczenie" in resp.text
+
+    body = await _group(app_client, app_auth_headers, client_id, group["id"])
+    line = next(line for line in body["lines"] if line["id"] == target)
+    assert line["md_remaining"] == pytest.approx(43.0)
