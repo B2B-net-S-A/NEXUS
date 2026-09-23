@@ -401,13 +401,14 @@
         "a": "„Zakończ zamówienie” zamyka jedno zamówienie i nie rusza umowy. „Zakończ współpracę” wypowiada umowę konsultanta i zamyka wszystkie jego zamówienia u klienta."
       },
       {
-        "q": "Konsultant trafił do „Zakończonych” przez pomyłkę albo wraca po przerwie?",
-        "a": "Otwórz jego kontrakt. „Cofnij zakończenie” przywraca go do aktywnej obsady z pulą MD bez zmian (nie da się, gdy zapadła już decyzja o puli). „Powrót po przerwie” zakłada nowy kontrakt i szkic przypisania — na karcie zamówienia widać go jako „Draft — uzupełnij”."
+        "q": "Jak przypisać nową osobę ze szkicu do zamówienia i co z MD osoby, za którą wchodzi?",
+        "a": "Na karcie osoby w pigułce „Draft” kliknij „Przypisz do zamówienia” (Centrum e-Zdrowia): dołącz, wejdź za konsultanta albo nowe zamówienie. Przy puli w MD pozostałe MD przechodzą 1:1, przy puli w kwocie wybierasz stawkę — okno pokazuje wynik. Pustą kartę usuniesz przyciskiem „Usuń szkic” (kontrakt zostaje)."
       }
     ],
     "pitfalls": [
       "Usunięcie zamówienia może zmienić stawkę w przeszłych miesiącach — okno usuwania pokazuje skutki, przeczytaj je przed potwierdzeniem.",
-      "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się usunąć."
+      "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się usunąć.",
+      "Osoby zakończonej przez pomyłkę albo wracającej po przerwie nie dodawaj od nowa — użyj „Cofnij zakończenie” albo „Powrót po przerwie” na jej kontrakcie."
     ],
     "anchors": [
       {
@@ -422,7 +423,8 @@
     "help_slug": "zamowienia-instrukcja-delivery-lead",
     "sources": [
       "frontend/src/components/client-profile/orders/MultiConsultantOrdersTab.tsx",
-      "frontend/src/components/client-profile/orders/OrderGroupCard.tsx"
+      "frontend/src/components/client-profile/orders/OrderGroupCard.tsx",
+      "frontend/src/components/client-profile/orders/AssignToOrderModal.tsx"
     ]
   },
   {

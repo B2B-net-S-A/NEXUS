@@ -1,4 +1,4 @@
-"""„Cofnij zakończenie" i „Powrót po przerwie" (ticket 09.2026, 0357).
+"""„Cofnij zakończenie" i „Powrót po przerwie" (ticket 09.2026, 0359).
 
 Zgłoszenie: kontrakt zakończono przez pomyłkę z datą końca w przeszłości,
 a „aktywacja ponownie" wróciła tylko z kontraktem — zamówienie MD zostawiło
@@ -330,7 +330,7 @@ async def test_reversal_is_blocked_by_a_decision_on_the_md_pool(
 async def test_reversal_without_snapshot_uses_order_change_history(
     app_client: AsyncClient, app_auth_headers: dict, monkeypatch
 ):
-    """Przypadek ze zgłoszenia: zakończenie sprzed 0357, kontrakt przywrócony
+    """Przypadek ze zgłoszenia: zakończenie sprzed 0359, kontrakt przywrócony
     samą zmianą statusu, linia została w „Zakończonych"."""
     seed = await _seed_active_md_consultant()
     _enable_multi(monkeypatch, seed["client_id"])
@@ -610,7 +610,7 @@ async def test_one_shot_repair_reverses_the_reported_contract_once(
 
     assert TARGETS == ((408, 65586, 115),)
     async with AsyncSessionLocal() as db:
-        # Zakończenie sprzed 0357 nie ma migawki — korekta idzie z historii.
+        # Zakończenie sprzed 0359 nie ma migawki — korekta idzie z historii.
         await db.execute(
             delete(ContractTerminationSnapshot).where(
                 ContractTerminationSnapshot.contract_id == seed["contract_id"]

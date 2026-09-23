@@ -149,10 +149,10 @@ _KNOWN_CONTRACT_FKS = {
     ("contract_equipment", "contract_id"),
     ("contract_framework_rates", "contract_id"),
     ("contract_onboarding_items", "contract_id"),
-    # Migawka stanu sprzed zakończenia (0357) opisuje zamówienia TEJ SAMEJ
+    # Migawka stanu sprzed zakończenia (0359) opisuje zamówienia TEJ SAMEJ
     # współpracy — idzie za kontraktem zachowanym jak sprawy offboardingu.
     ("contract_termination_snapshots", "contract_id"),
-    # Powiązanie „Powrót po przerwie” (0357): kontrakt, który wskazywał na
+    # Powiązanie „Powrót po przerwie” (0359): kontrakt, który wskazywał na
     # przegranego, wskazuje po scaleniu na zachowanego (_reparent_fks).
     ("contracts", "returned_from_contract_id"),
     ("document_signatures", "contract_id"),
@@ -233,9 +233,13 @@ _HISTORICAL_REFERENCE_KEYS = frozenset(
 _CONTRACT_LIFECYCLE_FIELDS = {"status", "voided_at", "voided_by"}
 _CONTRACT_DERIVED_FIELDS = {"client_order_start_date", "client_order_end_date"}
 _CONTRACT_AUDIT_FIELDS = {"created_at", "updated_at"}
-# Powiązanie z poprzednim kontraktem („Powrót po przerwie”, 0357) należy do
+# Powiązanie z poprzednim kontraktem („Powrót po przerwie”, 0359) należy do
 # wiersza, nie do współpracy — zostaje na kontrakcie zachowanym.
 _CONTRACT_LINEAGE_FIELDS = {"returned_from_contract_id"}
+# „Usuń szkic" (0357): stan PREZENTACJI karty w zakładce Zamówienia. Ocalały
+# kontrakt zachowuje własny — schowana karta przegranego nie chowa karty osoby,
+# która po scaleniu ma zamówienia.
+_CONTRACT_PRESENTATION_FIELDS = {"orders_card_dismissed_at", "orders_card_dismissed_by"}
 _CLASSIFIED_CONTRACT_FIELDS = (
     set(_MERGEABLE_FIELDS)
     | _CONTRACT_IDENTITY_FIELDS
@@ -244,6 +248,7 @@ _CLASSIFIED_CONTRACT_FIELDS = (
     | _CONTRACT_DERIVED_FIELDS
     | _CONTRACT_AUDIT_FIELDS
     | _CONTRACT_LINEAGE_FIELDS
+    | _CONTRACT_PRESENTATION_FIELDS
 )
 
 _STATUS_RANK = {
@@ -2527,6 +2532,7 @@ async def build_contract_merge_plan(
                 "lifecycle": sorted(_CONTRACT_LIFECYCLE_FIELDS),
                 "order_derived": sorted(_CONTRACT_DERIVED_FIELDS),
                 "audit_timestamps": sorted(_CONTRACT_AUDIT_FIELDS),
+                "survivor_presentation": sorted(_CONTRACT_PRESENTATION_FIELDS),
             },
         },
         "summary": {

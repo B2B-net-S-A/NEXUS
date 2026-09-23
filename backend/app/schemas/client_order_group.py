@@ -138,6 +138,11 @@ class OrderLineCreate(BaseModel):
     dodanie osoby, bez przenoszenia budżetu — pula poprzednika (także jego
     wykorzystana kwota i MD) zostaje przy nim."""
 
+    assignment: Optional[Literal["join"]] = None
+    """„Dołącz do aktywnego zamówienia" z karty szkicu (CeZ, ticket 09.2026):
+    osoba dochodzi jako kolejna do istniejącej obsady. Znacznik trafia do
+    zdarzenia „dodanie konsultanta" i daje na karcie plakietkę „Dołączona"."""
+
     @field_validator("input_mode")
     @classmethod
     def _mode(cls, v: Optional[str]) -> Optional[str]:
@@ -375,6 +380,12 @@ class OrderLineUpdate(BaseModel):
         return v
 
 
+MdTransferMethod = Literal["one_to_one", "departing_rate", "incoming_rate"]
+"""Sposób przeniesienia pozostałych MD (ticket 09.2026): pula w MD → ``one_to_one``;
+pula w kwocie → ``departing_rate`` (X MD) albo ``incoming_rate`` (kwota ÷ stawka
+przychodzącego). Reguła: ``app.services.order_line_takeover``."""
+
+
 class OrderLineSwapRequest(BaseModel):
     """Zamiana kontraktora na linii."""
 
@@ -382,6 +393,26 @@ class OrderLineSwapRequest(BaseModel):
     rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=2)
     rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=2)
     swap_date: date
+    md_transfer_method: Optional[MdTransferMethod] = None
+    """Brak = dotychczasowe przeliczenie z zachowaniem wartości w PLN (klienci
+    API sprzed 09.2026). Ekran zamiany wysyła sposób zawsze."""
+
+
+class OrderLineTakeoverRequest(BaseModel):
+    """„Wejdź za konsultanta": nowa osoba przejmuje pozostałe MD odchodzącego."""
+
+    contract_id: int = Field(..., gt=0)
+    """Kontrakt nowej osoby u tego klienta (karta szkicu)."""
+    departing_order_id: int = Field(..., gt=0)
+    """Linia osoby odchodzącej na tym zamówieniu."""
+    entry_date: date
+    rate_cost: MoneyPLN = Field(..., ge=0, max_digits=12, decimal_places=2)
+    rate_revenue: MoneyPLN = Field(..., gt=0, max_digits=12, decimal_places=2)
+    md_transfer_method: Optional[MdTransferMethod] = None
+    """Wymagany przy puli w kwocie; przy puli w MD jedyną odpowiedzią jest 1:1."""
+    expected_case_version: Optional[int] = Field(None, ge=1)
+    """Wersja sprawy offboardingu widziana w oknie — chroni przed decyzją
+    podjętą w międzyczasie w innym oknie."""
 
 
 class OrderOffboardingResolutionRequest(BaseModel):
@@ -390,6 +421,9 @@ class OrderOffboardingResolutionRequest(BaseModel):
     action: Literal["remove", "transfer", "restore"]
     target_order_id: Optional[int] = Field(None, gt=0)
     rate_basis: Optional[Literal["departing", "recipient"]] = None
+    md_transfer_method: Optional[MdTransferMethod] = None
+    """Sposób przeniesienia z ticketu 09.2026 (1:1 / po stawce odchodzącego /
+    po stawce przychodzącego). Gdy podany, zastępuje ``rate_basis``."""
     restore_end_date: Optional[date] = None
     """Do kiedy współpraca trwa po przywróceniu. Puste = bezterminowo.
 
@@ -407,9 +441,13 @@ class OrderOffboardingResolutionRequest(BaseModel):
         if self.action == "transfer":
             if self.target_order_id is None:
                 raise ValueError("Przeniesienie wymaga konsultanta docelowego")
-            if self.rate_basis is None:
+            if self.rate_basis is None and self.md_transfer_method is None:
                 raise ValueError("Przeniesienie wymaga wyboru stawki")
-        elif self.target_order_id is not None or self.rate_basis is not None:
+        elif (
+            self.target_order_id is not None
+            or self.rate_basis is not None
+            or self.md_transfer_method is not None
+        ):
             raise ValueError(
                 "Ta decyzja nie przyjmuje konsultanta docelowego ani podstawy stawki"
             )
@@ -468,7 +506,7 @@ class OrderLineRead(BaseModel):
     contract_id: int
     candidate_id: Optional[int] = None
     consultant_name: str = ""
-    # Kontrakt z „Powrotu po przerwie" (0357) — karta pokazuje plakietkę
+    # Kontrakt z „Powrotu po przerwie" (0359) — karta pokazuje plakietkę
     # i link do poprzedniego kontraktu.
     returned_from_contract_id: Optional[int] = None
     job_id: Optional[int] = None
@@ -506,10 +544,19 @@ class OrderLineRead(BaseModel):
 
     replaced_by_order_id: Optional[int] = None
     replaced_by_consultant_name: Optional[str] = None
-    replaced_by_kind: Optional[Literal["swap", "replacement"]] = None
+    replaced_by_kind: Optional[Literal["swap", "replacement", "takeover"]] = None
     """``swap`` — zamiana kontraktora (następca przejął POZOSTAŁOŚĆ budżetu);
-    ``replacement`` — zastępstwo przez ``replaces_order_id`` (następca ma
-    WŁASNY budżet). Różnica decyduje o sumach pozycji karty."""
+    ``takeover`` — „Wejdź za konsultanta" (następca przejął pozostałe MD,
+    budżet odchodzącego zdjęto o nie); ``replacement`` — zastępstwo przez
+    ``replaces_order_id`` (następca ma WŁASNY budżet). Różnica decyduje
+    o sumach pozycji karty."""
+    replaced_by_start_date: Optional[date] = None
+    """Od kiedy pracuje następca — „Zastąpiony przez: [osoba] od [data]"."""
+    replaced_by_scheduled: bool = False
+    """Następca jeszcze nie wszedł (zastępstwo zaplanowane)."""
+    replaced_by_md: Optional[MdValue] = None
+    """Ile MD przeszło na następcę (zamiana / przejęcie) — pasek osoby
+    odchodzącej nie pokazuje ich już jako „pozostało" (B2)."""
     """Tag „Zastąpiony → następca": linia TEGO zamówienia, która wskazuje tę
     jako poprzednika (zamiana kontraktora albo zastępstwo przez
     ``replaces_order_id``). Poprzednik wnosi do zamówienia swoje zużycie,
@@ -561,6 +608,25 @@ class OrderLineRead(BaseModel):
     history_kept_at: Optional[datetime] = None
     history_kept_by_name: Optional[str] = None
     """Decyzja „Zostaw jako historię" dla osoby z zakończoną współpracą."""
+
+    # ── Przypisanie ze szkicu i przejęcie MD (ticket 09.2026) ──
+    pool_unit: Optional[Literal["md", "amount"]] = None
+    """W czym zapisano pulę osoby — decyduje o sposobie przeniesienia MD."""
+    takeover_source: Optional[Literal["ended", "leaving"]] = None
+    """Czy za tę osobę można „wejść": ``ended`` — współpraca zakończona, pula
+    czeka; ``leaving`` — pracuje, ale ma przyszłą datę zakończenia."""
+    departure_date: Optional[date] = None
+    """Ostatni dzień współpracy osoby, za którą można wejść."""
+    assignment_kind: Optional[Literal["join", "takeover"]] = None
+    """Jak osoba trafiła na zamówienie ze szkicu: „Dołączona" / „Zastępstwo"."""
+    takeover_from_name: Optional[str] = None
+    takeover_md: Optional[MdValue] = None
+    takeover_method: Optional[
+        Literal["one_to_one", "departing_rate", "incoming_rate"]
+    ] = None
+    """„Przejęła po: [osoba] · X MD ([sposób])"."""
+    takeover_scheduled: bool = False
+    """„Zaplanowane zastępstwo od [start_date]" — linia czeka na dzień wejścia."""
 
 
 class OrderGroupEventRead(BaseModel):

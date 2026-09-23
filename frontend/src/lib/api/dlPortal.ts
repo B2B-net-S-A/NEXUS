@@ -159,6 +159,9 @@ export interface ContractWithOrdersRead {
   latest_order_rate_client: number | null;
   latest_order_monthly_margin: number | null;
   days_to_latest_end: number | null;
+  /** Karta „szkicu": żywy kontrakt bez zamówień poza szkicami (serwer liczy).
+   *  Da się ją usunąć („Usuń szkic"), a u CeZ przypisać do zamówienia. */
+  draft_card?: boolean;
   orders: ClientOrderRead[];
 }
 
@@ -562,6 +565,10 @@ export const dlPortalApi = {
 
   deleteOrder: (clientId: number, orderId: number) =>
     api.delete(`/api/clients/${clientId}/orders/${orderId}`),
+
+  /** „Usuń szkic" — pusta karta kontraktora znika; kontrakt i rekrutacja zostają. */
+  dismissDraftCard: (clientId: number, contractId: number) =>
+    api.post(`/api/clients/${clientId}/contractors/${contractId}/dismiss-draft`),
 
   /** Co NAPRAWDĘ zniknie razem z zamówieniem. Wyłącznie odczyt. */
   /** `context: "group_line"` = podgląd dla kosza linii zamówienia MD/kosztowego

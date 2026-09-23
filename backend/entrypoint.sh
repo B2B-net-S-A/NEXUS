@@ -4596,7 +4596,7 @@ _COLUMN_STATEMENTS = [
         CONSTRAINT ck_kpi_email_report_runs_status
             CHECK (status IN ('claimed', 'sent', 'skipped', 'failed'))
     )""",
-    # 0357: „Cofnij zakończenie" (stan kontraktu i zamówień sprzed
+    # 0359: „Cofnij zakończenie" (stan kontraktu i zamówień sprzed
     # zakończenia) i „Powrót po przerwie" (nowy kontrakt wskazuje poprzedni).
     """CREATE TABLE IF NOT EXISTS contract_termination_snapshots (
         id SERIAL PRIMARY KEY,
@@ -5161,6 +5161,12 @@ _COLUMN_STATEMENTS = [
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT uq_dz_review_hints_stage_hash UNIQUE (candidate_stage_id, input_hash)
 )""",
+    # 0357: „Usuń szkic" chowa pustą kartę kontraktora w zakładce Zamówienia.
+    # Lustro 1:1 z migracją — pilnuje `test_order_line_takeover.py`.
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
+    "orders_card_dismissed_at TIMESTAMPTZ NULL",
+    "ALTER TABLE contracts ADD COLUMN IF NOT EXISTS "
+    "orders_card_dismissed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

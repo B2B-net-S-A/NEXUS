@@ -7,15 +7,18 @@ import { ArrowRight } from "lucide-react";
 import { AppModal } from "@/components/ds";
 import { dlPortalApi } from "@/lib/api/dlPortal";
 import type {
+  MdTransferMethod,
   OrderGroupRead,
   OrderLineRead,
   SwapConsultantInput,
 } from "@/lib/api/orderGroups";
 import { usesSharedMdPool } from "@/lib/client-order-list";
+import { effectiveTransferMethod, transferPreview } from "@/lib/order-takeover";
 import { parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { formatPLN } from "@/types/client-profile";
 
 import { formatMd } from "./MdBudgetBar";
+import { MdTransferChoice } from "./MdTransferChoice";
 import { warsawToday } from "@/lib/warsaw-date";
 
 const inputClass =
@@ -47,6 +50,7 @@ export function SwapConsultantModal({
   const [rateCost, setRateCost] = useState("");
   const [rateRevenue, setRateRevenue] = useState("");
   const [swapDate, setSwapDate] = useState("");
+  const [method, setMethod] = useState<MdTransferMethod | null>(null);
 
   const contracts = useQuery({
     queryKey: ["client-contracts-for-order-line", clientId],
@@ -61,6 +65,7 @@ export function SwapConsultantModal({
     setRateCost("");
     setRateRevenue("");
     setSwapDate(warsawToday());
+    setMethod(null);
   }, [open]);
 
   // Przeliczenie liczone też tutaj, żeby operator zobaczył wynik PRZED
@@ -72,24 +77,35 @@ export function SwapConsultantModal({
   const costBased = group?.is_cost_based === true;
   const sharedMdBased = group ? usesSharedMdPool(group) : false;
 
-  const preview = useMemo(() => {
-    if (costBased || sharedMdBased) return null;
-    const oldRemaining = line?.md_remaining ?? null;
-    const oldRate = line?.rate_revenue ?? null;
-    const newRate = parseDecimalInput(rateRevenue);
-    if (oldRemaining === null || oldRate === null || !newRate || newRate <= 0) {
-      return null;
-    }
-    const valuePln = oldRemaining * oldRate;
-    return { valuePln, mdNew: valuePln / newRate };
-  }, [costBased, sharedMdBased, line, rateRevenue]);
+  // Ticket 09.2026 (B1): pula w MD → pozostałe MD przechodzą 1:1; pula
+  // w kwocie → DL wybiera stawkę, żadna opcja nie jest domyślna.
+  const perPerson = !costBased && !sharedMdBased;
+  const preview = useMemo(
+    () =>
+      perPerson
+        ? transferPreview({
+            unit: line?.pool_unit ?? (line?.md_total != null ? "md" : null),
+            remaining: line?.md_remaining ?? null,
+            departingRate: line?.rate_revenue ?? null,
+            incomingRate: parseDecimalInput(rateRevenue),
+          })
+        : null,
+    [perPerson, line, rateRevenue],
+  );
+  const transferMethod = perPerson
+    ? effectiveTransferMethod(preview?.unit ?? null, method)
+    : null;
+  const newName =
+    contracts.data?.find((c) => String(c.contract_id) === contractId)
+      ?.candidate_name ?? "";
 
   const canSubmit =
     !submitting &&
     contractId !== "" &&
     parseDecimalInput(rateCost) !== null &&
     (parseDecimalInput(rateRevenue) ?? 0) > 0 &&
-    swapDate !== "";
+    swapDate !== "" &&
+    (!perPerson || transferMethod !== null);
 
   return (
     <AppModal
@@ -120,6 +136,7 @@ export function SwapConsultantModal({
                 rate_cost: parseDecimalInput(rateCost) as number,
                 rate_revenue: parseDecimalInput(rateRevenue) as number,
                 swap_date: swapDate,
+                ...(transferMethod ? { md_transfer_method: transferMethod } : {}),
               })
             }
             className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
@@ -223,44 +240,39 @@ export function SwapConsultantModal({
           </div>
         </div>
 
-        <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-3 text-sm">
-          <p className="mb-1 flex items-center gap-2 font-medium text-foreground">
-            {costBased
-              ? "Zamówienie kosztowe"
-              : sharedMdBased
-                ? "Zamówienie na MD"
-                : "Przeliczenie MD"}{" "}
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-          </p>
-          {costBased ? (
-            <p className="text-muted-foreground">
-              Kwota zamówienia jest wspólna dla całej grupy i nie dzieli się na
-              konsultantów — zamiana zmienia osobę i jej stawki, nie budżet.
+        {perPerson ? (
+          <div className="flex flex-col gap-2">
+            <MdTransferChoice
+              name="swap-method"
+              preview={preview}
+              incomingName={newName}
+              departingName={line?.consultant_name ?? ""}
+              value={method}
+              onChange={setMethod}
+            />
+            <p className="text-xs text-muted-foreground">
+              Zamiana działa od dnia zamiany w przód. MD zaraportowane wcześniej
+              zostają rozliczone stawką poprzednika.
             </p>
-          ) : sharedMdBased ? (
-            <p className="text-muted-foreground">
-              Pula MD jest wspólna dla całego zamówienia — zamiana zmienia
-              osobę i jej stawki, ale nie przelicza budżetu MD.
+          </div>
+        ) : (
+          <div className="rounded-md border border-primary/30 bg-primary/5 px-3 py-3 text-sm">
+            <p className="mb-1 flex items-center gap-2 font-medium text-foreground">
+              {costBased ? "Zamówienie kosztowe" : "Zamówienie na MD"}{" "}
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
             </p>
-          ) : preview === null ? (
             <p className="text-muted-foreground">
-              Podaj stawkę przychodową nowego konsultanta, żeby zobaczyć przeliczenie.
+              {costBased
+                ? "Kwota zamówienia jest wspólna dla całej grupy i nie dzieli się na konsultantów — zamiana zmienia osobę i jej stawki, nie budżet."
+                : "Pula MD jest wspólna dla całego zamówienia — zamiana zmienia osobę i jej stawki, ale nie przelicza budżetu MD."}
             </p>
-          ) : (
-            <p className="text-muted-foreground">
-              Wartość pozostała {formatPLN(preview.valuePln)} zostaje bez zmian →{" "}
-              <strong className="text-foreground">{formatMd(preview.mdNew)} MD</strong> dla
-              nowego konsultanta.
+            <p className="mt-2 text-xs text-muted-foreground">
+              {costBased
+                ? "Zamiana działa od dnia zamiany w przód. Faktury sprzed tej daty zostają rozliczone stawką poprzednika."
+                : "Zamiana działa od dnia zamiany w przód. Wspólna pula MD zamówienia pozostaje bez zmian."}
             </p>
-          )}
-          <p className="mt-2 text-xs text-muted-foreground">
-            {costBased
-              ? "Zamiana działa od dnia zamiany w przód. Faktury sprzed tej daty zostają rozliczone stawką poprzednika."
-              : sharedMdBased
-                ? "Zamiana działa od dnia zamiany w przód. Wspólna pula MD zamówienia pozostaje bez zmian."
-              : "Zamiana działa od dnia zamiany w przód. MD zaraportowane wcześniej zostają rozliczone stawką poprzednika."}
-          </p>
-        </div>
+          </div>
+        )}
       </div>
     </AppModal>
   );
