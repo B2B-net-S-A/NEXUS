@@ -227,6 +227,13 @@ jobs:
           # Jeden kapryśny test wyrzucał z kolejki PR-a i wszystkich za nim.
           # Każde powtórzenie trafia do podsumowania biegu (krok niżej), żeby
           # kapryśny test dało się naprawić, a nie ukryć.
+          #
+          # `pipefail` jest load-bearing: krok bez `shell:` biegnie jako
+          # `bash -e {0}` BEZ pipefail, więc status linii to status `tee` (0).
+          # Od #1701 (22.09) do 23.09 shardy z `1 failed` kończyły się
+          # sukcesem, a na main weszły czerwone testy. Kontrakt:
+          # tests/test_ci_speed_contract.py.
+          set -o pipefail
           pytest tests/ \
                  -v --tb=short --reruns 1 --reruns-delay 2 \
                  --cov=app --cov-branch --cov-report=term-missing \
